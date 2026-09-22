@@ -2,125 +2,221 @@
 defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic do
   @moduledoc false
 
+  # Every conversation in the window, not the heaviest few. The heaviest
+  # conversations of a typical network all terminate in the same handful of
+  # cloud regions, so a byte-ranked top 120 drew a few dozen arcs on top of one
+  # another while thousands of conversations to other places were never
+  # fetched. Which arcs to draw is decided after geolocation, in
+  # `collapse_arcs/1`, and nothing is dropped there.
+  #
+  # This is a memory guard, not a product limit: a conversation is an IP pair,
+  # so the row count grows with the window and the network, and the rows pass
+  # through this process. Reaching it is logged, never silent. The way to
+  # remove it is to group by place in the warehouse, where the result is
+  # bounded by geography instead of by address pairs.
+  @conversation_limit 250_000
+
+  @spec conversation_limit() :: pos_integer()
+  def conversation_limit, do: @conversation_limit
+
+  @spec srql_query(map()) :: String.t()
+  def srql_query(%{} = window) do
+    time = ServiceRadarWebNGWeb.DashboardLive.Window.query_time(window)
+
+    ~s|in:flows #{time} stats:"sum(bytes_total) as bytes_total, sum(packets_total) as packets_total, count(*) as flow_count by src_endpoint_ip,dst_endpoint_ip,partition" sort:bytes_total:desc limit:#{@conversation_limit}|
+  end
+
+  @doc """
+  Merges conversations that would draw the same arc into one.
+
+  Two conversations between the same pair of places are the same line on a
+  map, so they become one link carrying their summed traffic and a
+  `conversation_count`; the heaviest member supplies the labels. Arcs are
+  bounded by geography, so none are dropped, whatever the window. Links that
+  could not be geolocated draw nothing on the geo map; they are kept as they
+  are for the topology view and so the tiles still account for them.
+  """
+  @spec collapse_arcs([map()]) :: [map()]
+  def collapse_arcs(links) when is_list(links) do
+    {mapped, unmapped} = Enum.split_with(links, &(&1[:geo_mapped] == true))
+
+    arcs =
+      mapped
+      |> Enum.group_by(&{&1.geo_from, &1.geo_to})
+      |> Enum.map(fn {_places, members} -> merge_arc(members) end)
+      |> Enum.sort_by(& &1.bytes, :desc)
+
+    unmapped =
+      unmapped
+      |> Enum.map(&Map.put_new(&1, :conversation_count, 1))
+      |> Enum.sort_by(& &1.bytes, :desc)
+
+    arcs ++ unmapped
+  end
+
+  defp merge_arc([only]), do: Map.put_new(only, :conversation_count, 1)
+
+  defp merge_arc(members) do
+    heaviest = Enum.max_by(members, & &1.bytes)
+    bytes = members |> Enum.map(& &1.bytes) |> Enum.sum()
+    packets = members |> Enum.map(& &1.packets) |> Enum.sum()
+
+    Map.merge(heaviest, %{
+      bytes: bytes,
+      bytes_total: bytes,
+      magnitude: bytes,
+      packets: packets,
+      packets_total: packets,
+      flow_count: members |> Enum.map(& &1.flow_count) |> Enum.sum(),
+      conversation_count: length(members)
+    })
+  end
+
   defmacro __using__(_opts) do
     quote do
-      defp traffic_links(time_window) do
-        cutoff = netflow_map_cutoff(time_window)
+      alias ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic
 
-        Enum.find_value(
-          traffic_link_sources(time_window),
-          [],
-          fn {relation_ref, relation, time_column} ->
-            if relation_exists?(relation_ref) do
-              links = traffic_links_from_relation(relation, time_column, cutoff)
-              if links != [], do: links
+      require Logger
+
+      defp traffic_links(%{seconds: _seconds} = window, scope, srql_module) do
+        query = NetflowTraffic.srql_query(window)
+
+        case srql_module.query(query, %{scope: scope}) do
+          {:ok, %{"results" => []}} ->
+            []
+
+          {:ok, %{"results" => rows}} when is_list(rows) ->
+            limit = NetflowTraffic.conversation_limit()
+
+            if length(rows) >= limit do
+              Logger.warning(
+                "NetFlow map reached its #{limit}-conversation memory guard for #{inspect(window[:seconds])}s; " <>
+                  "the lightest conversations in this window are not on the map"
+              )
             end
-          end
-        )
+
+            rows = Enum.filter(rows, &distinct_endpoints?/1)
+            geo = netflow_geo_points(netflow_endpoint_keys(rows))
+
+            rows
+            |> Enum.with_index()
+            |> Enum.map(fn {row, idx} -> srql_traffic_link(row, idx, geo) end)
+            |> NetflowTraffic.collapse_arcs()
+            |> Enum.with_index()
+            |> Enum.map(fn {link, idx} ->
+              # Ids and colours follow draw order, which collapsing changed.
+              %{link | id: "flow-#{idx}", color: flow_color(idx, link.magnitude)}
+            end)
+
+          _ ->
+            :error
+        end
+      end
+
+      defp distinct_endpoints?(row) do
+        src = row["src_endpoint_ip"]
+        dst = row["dst_endpoint_ip"]
+
+        is_binary(src) and src != "" and is_binary(dst) and dst != "" and src != dst
+      end
+
+      defp netflow_endpoint_keys(rows) do
+        rows
+        |> Enum.flat_map(fn row ->
+          partition = row["flow_partition"]
+          [{row["src_endpoint_ip"], partition}, {row["dst_endpoint_ip"], partition}]
+        end)
+        |> Enum.filter(fn {ip, _partition} -> is_binary(ip) and ip != "" end)
+        |> Enum.uniq()
+      end
+
+      defp srql_traffic_link(row, idx, geo) do
+        src = row["src_endpoint_ip"]
+        dst = row["dst_endpoint_ip"]
+        partition = row["flow_partition"]
+        src_geo = Map.get(geo, {src, partition}, %{})
+        dst_geo = Map.get(geo, {dst, partition}, %{})
+        magnitude = to_int(row["bytes_total"])
+        topology_from = point_for(src)
+        topology_to = point_for(dst)
+
+        geo_from =
+          geo_point_or_country(src_geo[:longitude], src_geo[:latitude], src_geo[:country])
+
+        geo_to = geo_point_or_country(dst_geo[:longitude], dst_geo[:latitude], dst_geo[:country])
+
+        %{
+          id: "flow-#{idx}",
+          src_endpoint_ip: row["src_endpoint_ip"],
+          dst_endpoint_ip: row["dst_endpoint_ip"],
+          from: topology_from,
+          to: topology_to,
+          topology_from: topology_from,
+          topology_to: topology_to,
+          geo_from: geo_from,
+          geo_to: geo_to,
+          geo_mapped: not is_nil(geo_from) and not is_nil(geo_to),
+          source_label: src,
+          target_label: dst,
+          source_geo_label: geo_label(src_geo[:city], src_geo[:country], src),
+          target_geo_label: geo_label(dst_geo[:city], dst_geo[:country], dst),
+          source_anchor_label: src_geo[:anchor_label],
+          target_anchor_label: dst_geo[:anchor_label],
+          source_local_anchor: src_geo[:local_anchor] == true,
+          target_local_anchor: dst_geo[:local_anchor] == true,
+          bytes_total: row["bytes_total"],
+          bytes: magnitude,
+          magnitude: magnitude,
+          packets_total: row["packets_total"],
+          packets: to_int(row["packets_total"]),
+          flow_count: to_int(row["flow_count"]),
+          color: flow_color(idx, magnitude)
+        }
+      end
+
+      defp netflow_geo_points([]), do: %{}
+
+      defp netflow_geo_points(keys) do
+        has_geo? = relation_exists?("platform.ip_geo_enrichment_cache")
+        has_ipinfo? = relation_exists?("platform.ip_ipinfo_cache")
+        has_anchor? = netflow_location_anchors_available?()
+
+        if has_geo? or has_ipinfo? or has_anchor? do
+          netflow_geo_points_rows(keys, has_geo?, has_ipinfo?, has_anchor?)
+        else
+          %{}
+        end
       rescue
-        _ -> []
-      end
-
-      defp traffic_link_sources(time_window) when time_window in ["last_1h", "last_6h"] do
-        [
-          {"platform.ocsf_network_activity", "ocsf_network_activity", "time"},
-          {"platform.ocsf_network_activity_hourly_conversations", "ocsf_network_activity_hourly_conversations", "bucket"}
-        ]
-      end
-
-      defp traffic_link_sources(_time_window) do
-        [
-          {"platform.ocsf_network_activity", "ocsf_network_activity", "time"},
-          {"platform.ocsf_network_activity_hourly_conversations", "ocsf_network_activity_hourly_conversations", "bucket"}
-        ]
+        _ -> %{}
       end
 
       @sobelow_skip ["SQL.Query"]
-      defp traffic_links_from_relation(relation, time_column, cutoff) do
-        flow_count_expr = flow_count_expr(relation)
-        time_predicate = netflow_map_time_predicate(time_column)
-        has_geo? = relation_exists?("platform.ip_geo_enrichment_cache")
-        has_ipinfo? = relation_exists?("platform.ip_ipinfo_cache")
-        has_threat? = relation_exists?("platform.ip_threat_intel_cache")
-        has_anchor? = netflow_location_anchors_available?()
-        anchor_partition_filter = anchor_partition_filter(relation)
+      defp netflow_geo_points_rows(keys, has_geo?, has_ipinfo?, has_anchor?) do
+        geo_lat = if has_geo?, do: "g.latitude", else: "NULL::float8"
+        geo_lon = if has_geo?, do: "g.longitude", else: "NULL::float8"
+        geo_city = if has_geo?, do: "g.city", else: "NULL::text"
+        geo_country = if has_geo?, do: "g.country_iso2", else: "NULL::text"
 
-        src_geo_lat = if has_geo?, do: "src_geo.latitude", else: "NULL::float8"
-        src_geo_lon = if has_geo?, do: "src_geo.longitude", else: "NULL::float8"
-        src_geo_city = if has_geo?, do: "src_geo.city", else: "NULL::text"
-        src_geo_country = if has_geo?, do: "src_geo.country_iso2", else: "NULL::text"
-        dst_geo_lat = if has_geo?, do: "dst_geo.latitude", else: "NULL::float8"
-        dst_geo_lon = if has_geo?, do: "dst_geo.longitude", else: "NULL::float8"
-        dst_geo_city = if has_geo?, do: "dst_geo.city", else: "NULL::text"
-        dst_geo_country = if has_geo?, do: "dst_geo.country_iso2", else: "NULL::text"
+        lat = anchored_expr(has_anchor?, "a.latitude", geo_lat)
+        lon = anchored_expr(has_anchor?, "a.longitude", geo_lon)
 
-        src_lat = anchored_expr(has_anchor?, "src_anchor.latitude", src_geo_lat)
-        src_lon = anchored_expr(has_anchor?, "src_anchor.longitude", src_geo_lon)
+        city =
+          ipinfo_coalesce(has_ipinfo?, anchored_label_expr(has_anchor?, "a", geo_city), "i.city")
 
-        src_city =
-          ipinfo_coalesce(has_ipinfo?, anchored_label_expr(has_anchor?, "src_anchor", src_geo_city), "src_ipinfo.city")
-
-        src_country =
+        country =
           ipinfo_coalesce(
             has_ipinfo?,
-            anchored_country_expr(has_anchor?, "src_anchor", src_geo_country),
-            "src_ipinfo.country_code"
+            anchored_country_expr(has_anchor?, "a", geo_country),
+            "i.country_code"
           )
-
-        dst_lat = anchored_expr(has_anchor?, "dst_anchor.latitude", dst_geo_lat)
-        dst_lon = anchored_expr(has_anchor?, "dst_anchor.longitude", dst_geo_lon)
-
-        dst_city =
-          ipinfo_coalesce(has_ipinfo?, anchored_label_expr(has_anchor?, "dst_anchor", dst_geo_city), "dst_ipinfo.city")
-
-        dst_country =
-          ipinfo_coalesce(
-            has_ipinfo?,
-            anchored_country_expr(has_anchor?, "dst_anchor", dst_geo_country),
-            "dst_ipinfo.country_code"
-          )
-
-        src_anchor_label = anchor_label_select_expr(has_anchor?, "src_anchor")
-        dst_anchor_label = anchor_label_select_expr(has_anchor?, "dst_anchor")
-        src_local_anchor = local_anchor_select_expr(has_anchor?, "src_anchor")
-        dst_local_anchor = local_anchor_select_expr(has_anchor?, "dst_anchor")
-        threat_select = threat_select_expr(has_threat?)
-        attribution_select = attribution_select_expr(relation)
-
-        geo_select = """
-          #{src_lat} AS src_latitude,
-          #{src_lon} AS src_longitude,
-          #{src_city} AS src_city,
-          #{src_country} AS src_country,
-          #{src_anchor_label} AS src_anchor_label,
-          #{src_local_anchor} AS src_local_anchor,
-          #{dst_lat} AS dst_latitude,
-          #{dst_lon} AS dst_longitude,
-          #{dst_city} AS dst_city,
-          #{dst_country} AS dst_country,
-          #{dst_anchor_label} AS dst_anchor_label,
-          #{dst_local_anchor} AS dst_local_anchor
-        """
 
         geo_join =
-          if has_geo? do
-            """
-            LEFT JOIN platform.ip_geo_enrichment_cache src_geo ON src_geo.ip = NULLIF(f.src_endpoint_ip, '')
-            LEFT JOIN platform.ip_geo_enrichment_cache dst_geo ON dst_geo.ip = NULLIF(f.dst_endpoint_ip, '')
-            """
-          else
-            ""
-          end
+          if has_geo?,
+            do: "LEFT JOIN platform.ip_geo_enrichment_cache g ON g.ip = e.ip",
+            else: ""
 
         ipinfo_join =
-          if has_ipinfo? do
-            """
-            LEFT JOIN platform.ip_ipinfo_cache src_ipinfo ON src_ipinfo.ip = NULLIF(f.src_endpoint_ip, '')
-            LEFT JOIN platform.ip_ipinfo_cache dst_ipinfo ON dst_ipinfo.ip = NULLIF(f.dst_endpoint_ip, '')
-            """
-          else
-            ""
-          end
+          if has_ipinfo?, do: "LEFT JOIN platform.ip_ipinfo_cache i ON i.ip = e.ip", else: ""
 
         anchor_join =
           if has_anchor? do
@@ -131,38 +227,11 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic do
               WHERE c.enabled
                 AND c.latitude IS NOT NULL
                 AND c.longitude IS NOT NULL
-                AND #{endpoint_inet_expr("f.src_endpoint_ip")} <<= c.cidr
-                AND #{anchor_partition_filter}
+                AND #{endpoint_inet_expr("e.ip")} <<= c.cidr
+                AND (c.partition IS NULL OR c.partition = e.partition)
               ORDER BY masklen(c.cidr) DESC, c.updated_at DESC NULLS LAST
               LIMIT 1
-            ) src_anchor ON true
-            LEFT JOIN LATERAL (
-              SELECT c.location_label, c.label, c.latitude, c.longitude
-              FROM platform.netflow_local_cidrs c
-              WHERE c.enabled
-                AND c.latitude IS NOT NULL
-                AND c.longitude IS NOT NULL
-                AND #{endpoint_inet_expr("f.dst_endpoint_ip")} <<= c.cidr
-                AND #{anchor_partition_filter}
-              ORDER BY masklen(c.cidr) DESC, c.updated_at DESC NULLS LAST
-              LIMIT 1
-            ) dst_anchor ON true
-            """
-          else
-            ""
-          end
-
-        threat_join =
-          if has_threat? do
-            """
-            LEFT JOIN platform.ip_threat_intel_cache src_threat
-              ON src_threat.ip = NULLIF(f.src_endpoint_ip, '')
-              AND src_threat.matched = true
-              AND src_threat.expires_at > now()
-            LEFT JOIN platform.ip_threat_intel_cache dst_threat
-              ON dst_threat.ip = NULLIF(f.dst_endpoint_ip, '')
-              AND dst_threat.matched = true
-              AND dst_threat.expires_at > now()
+            ) a ON true
             """
           else
             ""
@@ -170,118 +239,59 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowTraffic do
 
         sql = """
         SELECT
-          COALESCE(f.src_endpoint_ip, 'Unknown') AS src,
-          COALESCE(f.dst_endpoint_ip, 'Unknown') AS dst,
-          COALESCE(SUM(bytes_total), 0)::bigint AS bytes_total,
-          COALESCE(SUM(packets_total), 0)::bigint AS packets_total,
-          COALESCE(#{flow_count_expr}, 0)::bigint AS flow_count,
-          #{geo_select},
-          #{threat_select},
-          #{attribution_select}
-        FROM #{relation} f
+          e.ip,
+          e.partition,
+          #{lat} AS latitude,
+          #{lon} AS longitude,
+          #{city} AS city,
+          #{country} AS country,
+          #{anchor_label_select_expr(has_anchor?, "a")} AS anchor_label,
+          #{local_anchor_select_expr(has_anchor?, "a")} AS local_anchor
+        FROM unnest($1::text[], $2::text[]) AS e(ip, partition)
         #{geo_join}
         #{ipinfo_join}
         #{anchor_join}
-        #{threat_join}
-        WHERE #{time_predicate}
-          AND f.src_endpoint_ip IS NOT NULL
-          AND f.dst_endpoint_ip IS NOT NULL
-          AND f.src_endpoint_ip <> f.dst_endpoint_ip
-        GROUP BY src, dst, src_latitude, src_longitude, src_city, src_country, src_anchor_label, src_local_anchor, dst_latitude, dst_longitude, dst_city, dst_country, dst_anchor_label, dst_local_anchor
-        ORDER BY bytes_total DESC
-        LIMIT $2
         """
 
-        case ServiceRadarWebNG.Repo.query(sql, [cutoff, 120]) do
-          {:ok, %{rows: rows}} ->
-            rows
-            |> Enum.with_index()
-            |> Enum.map(fn {[
-                              src,
-                              dst,
-                              bytes,
-                              packets,
-                              flow_count,
-                              src_lat,
-                              src_lon,
-                              src_city,
-                              src_country,
-                              src_anchor_label,
-                              src_local_anchor,
-                              dst_lat,
-                              dst_lon,
-                              dst_city,
-                              dst_country,
-                              dst_anchor_label,
-                              dst_local_anchor,
-                              src_threat_matched,
-                              src_threat_match_count,
-                              src_threat_max_severity,
-                              src_threat_sources,
-                              dst_threat_matched,
-                              dst_threat_match_count,
-                              dst_threat_max_severity,
-                              dst_threat_sources,
-                              attributed_flow_count,
-                              attribution_agent_id,
-                              attribution_comm,
-                              attribution_pid,
-                              attribution_container_id,
-                              attribution_pod_namespace,
-                              attribution_pod_name,
-                              attribution_container_name,
-                              attribution_image
-                            ], idx} ->
-              magnitude = to_int(bytes)
-              topology_from = point_for(src)
-              topology_to = point_for(dst)
-              geo_from = geo_point_or_country(src_lon, src_lat, src_country)
-              geo_to = geo_point_or_country(dst_lon, dst_lat, dst_country)
-              threat_matched = src_threat_matched == true or dst_threat_matched == true
-              threat_sources = threat_sources(src_threat_sources, dst_threat_sources)
+        ips = Enum.map(keys, &elem(&1, 0))
+        partitions = Enum.map(keys, &elem(&1, 1))
 
-              %{
-                id: "flow-#{idx}",
-                from: topology_from,
-                to: topology_to,
-                topology_from: topology_from,
-                topology_to: topology_to,
-                geo_from: geo_from,
-                geo_to: geo_to,
-                geo_mapped: not is_nil(geo_from) and not is_nil(geo_to),
-                source_label: src,
-                target_label: dst,
-                source_geo_label: geo_label(src_city, src_country, src),
-                target_geo_label: geo_label(dst_city, dst_country, dst),
-                source_anchor_label: src_anchor_label,
-                target_anchor_label: dst_anchor_label,
-                source_local_anchor: src_local_anchor == true,
-                target_local_anchor: dst_local_anchor == true,
-                source_threat_matched: src_threat_matched == true,
-                target_threat_matched: dst_threat_matched == true,
-                threat_matched: threat_matched,
-                threat_match_count: to_int(src_threat_match_count) + to_int(dst_threat_match_count),
-                threat_max_severity: max(to_int(src_threat_max_severity), to_int(dst_threat_max_severity)),
-                threat_sources: threat_sources,
-                attributed_flow_count: to_int(attributed_flow_count),
-                attribution_agent_id: attribution_agent_id,
-                attribution_comm: attribution_comm,
-                attribution_pid: to_int(attribution_pid),
-                attribution_container_id: attribution_container_id,
-                attribution_pod_namespace: attribution_pod_namespace,
-                attribution_pod_name: attribution_pod_name,
-                attribution_container_name: attribution_container_name,
-                attribution_image: attribution_image,
-                magnitude: magnitude,
-                bytes: magnitude,
-                packets: to_int(packets),
-                flow_count: to_int(flow_count),
-                color: if(threat_matched, do: [244, 63, 94, 245], else: flow_color(idx, magnitude))
-              }
+        case ServiceRadarWebNG.Repo.query(sql, [ips, partitions]) do
+          {:ok, %{rows: rows}} ->
+            Map.new(rows, fn [
+                               ip,
+                               partition,
+                               latitude,
+                               longitude,
+                               city,
+                               country,
+                               anchor_label,
+                               local_anchor
+                             ] ->
+              {{ip, partition},
+               %{
+                 latitude: latitude,
+                 longitude: longitude,
+                 city: city,
+                 country: country,
+                 anchor_label: anchor_label,
+                 local_anchor: local_anchor
+               }}
             end)
 
           _ ->
-            []
+            %{}
+        end
+      end
+
+      defp traffic_links(value, scope, srql_module) when is_binary(value) do
+        case traffic_links(
+               ServiceRadarWebNGWeb.DashboardLive.Window.resolve(value, "netflow"),
+               scope,
+               srql_module
+             ) do
+          :error -> []
+          links -> links
         end
       end
     end

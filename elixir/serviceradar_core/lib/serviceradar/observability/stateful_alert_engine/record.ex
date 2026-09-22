@@ -252,6 +252,26 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Record do
     stateful_rule_event?(event) or engine_generated_event?(event)
   end
 
+  @doc """
+  Substitutes `{key}` placeholders in `template` with values resolved from
+  `record` the same way `build_group/2` resolves a group key.
+
+  This is how a rule names its subject in the alert title without putting a
+  descriptive value in `group_by`: a group key is the incident identity, so a
+  mutable label there strands an open incident when it changes. An
+  unresolvable placeholder is left as written rather than rendered blank.
+  """
+  def render_template(template, record) when is_binary(template) do
+    sources = group_sources(record)
+
+    Regex.replace(~r/\{([a-zA-Z0-9_.\-]+)\}/, template, fn placeholder, key ->
+      case group_value_for_key(key, record, sources) do
+        nil -> placeholder
+        value -> to_string(value)
+      end
+    end)
+  end
+
   def build_group(nil, _log), do: {:ok, "global", %{}}
   def build_group([], _log), do: {:ok, "global", %{}}
 

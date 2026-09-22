@@ -1337,7 +1337,8 @@ defmodule ServiceRadar.Plugins.PluginAssignmentRecoveryTest do
                  description: "Test-only current-authority profile",
                  permissions: permissions
                },
-               actor: actor
+               actor: actor,
+               context: %{privilege_boundary_owned: true}
              )
              |> Ash.create(actor: actor)
 

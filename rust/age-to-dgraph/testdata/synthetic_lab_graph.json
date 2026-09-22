@@ -1,0 +1,14 @@
+{
+  "nodes": 2,
+  "edges": [
+    {
+      "link_key": "sr:host01.example.com|sr:host02.example.com|eth0|eth1",
+      "source": "sr:host01.example.com",
+      "target": "sr:host02.example.com",
+      "protocol": "lldp",
+      "evidence_class": "direct-physical",
+      "if_name_ab": "eth0",
+      "if_name_ba": "eth1"
+    }
+  ]
+}

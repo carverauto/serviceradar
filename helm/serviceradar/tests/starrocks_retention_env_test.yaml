@@ -1,0 +1,158 @@
+suite: starrocks telemetry retention
+templates:
+  - templates/core.yaml
+tests:
+  # The warehouse tables are partitioned by day and keep the most recent N
+  # partitions, so these values are the telemetry TTLs. Core re-applies them on
+  # every rollout; without them in the env the DDL defaults would be the only
+  # setting an operator ever gets.
+  - it: publishes the shipped per-dataset retention policy when starrocks is enabled
+    set:
+      analytics.starrocks.enabled: true
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_STARROCKS_RETENTION_DAYS_FLOWS
+            value: "90"
+          count: 1
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_STARROCKS_RETENTION_DAYS_METRICS
+            value: "90"
+          count: 1
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_STARROCKS_RETENTION_DAYS_LOGS
+            value: "365"
+          count: 1
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_STARROCKS_RETENTION_DAYS_EVENTS
+            value: "365"
+          count: 1
+
+  # The hourly views refresh asynchronously with no schedule, so readers need
+  # the operator's lag tolerance in the env to know when to stop trusting them.
+  - it: publishes the rollup staleness threshold when starrocks is enabled
+    set:
+      analytics.starrocks.enabled: true
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_STARROCKS_ROLLUP_STALE_AFTER_SECONDS
+            value: "7200"
+          count: 1
+
+  # Lag is measured in whole hours, so a retune worth demonstrating is one
+  # grain, not an arbitrary sub-hour value that behaves the same as zero.
+  - it: lets the rollup staleness threshold be retuned
+    set:
+      analytics.starrocks.enabled: true
+      analytics.starrocks.rollupStaleAfterSeconds: 3600
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_STARROCKS_ROLLUP_STALE_AFTER_SECONDS
+            value: "3600"
+          count: 1
+
+  # 0 is the strictest setting this knob has, not an absent one: an operator
+  # asking to serve only a fully current view must not silently get the loosest
+  # tolerance instead.
+  - it: honours a zero rollup staleness threshold literally
+    set:
+      analytics.starrocks.enabled: true
+      analytics.starrocks.rollupStaleAfterSeconds: 0
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_STARROCKS_ROLLUP_STALE_AFTER_SECONDS
+            value: "0"
+          count: 1
+
+  # The gate reuses each high-water mark for this long, so an operator tuning
+  # how often the warehouse is probed needs the value in the env.
+  - it: publishes the rollup freshness cache ttl when starrocks is enabled
+    set:
+      analytics.starrocks.enabled: true
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_STARROCKS_ROLLUP_CACHE_TTL_SECONDS
+            value: "60"
+          count: 1
+
+  # 0 disables reuse so every query probes; like the staleness threshold it is
+  # a real setting, not an absent one, and must not fall back to the default.
+  - it: honours a zero rollup freshness cache ttl literally
+    set:
+      analytics.starrocks.enabled: true
+      analytics.starrocks.rollupCacheTtlSeconds: 0
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_STARROCKS_ROLLUP_CACHE_TTL_SECONDS
+            value: "0"
+          count: 1
+
+  # Bounding raw NetFlow must not also shorten log history.
+  - it: lets one dataset be retuned without moving the others
+    set:
+      analytics.starrocks.enabled: true
+      analytics.starrocks.retentionDays.flows: 30
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_STARROCKS_RETENTION_DAYS_FLOWS
+            value: "30"
+          count: 1
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_STARROCKS_RETENTION_DAYS_LOGS
+            value: "365"
+          count: 1
+
+  - it: emits no starrocks env when the warehouse is disabled
+    set:
+      analytics.starrocks.enabled: false
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_STARROCKS_RETENTION_DAYS_FLOWS
+            value: "90"

@@ -255,7 +255,7 @@ A route claims alerts and points them at an escalation policy.
 
 | Field | Meaning |
 | --- | --- |
-| `match_expression` | The predicate deciding which alerts this route claims. An empty object matches everything |
+| `match_expression` | The predicate deciding which alerts this route claims. An empty object matches everything. Saving a route rejects `equals: ""`, which matches only a blank value; existing stored routes still evaluate, and silences retain empty-string support |
 | `priority` | Evaluation order. Lower numbers are considered first |
 | `continue` | Alertmanager semantics: when false, the first matching route wins and evaluation stops |
 | `escalation_policy_id` | The ladder to run |
@@ -264,6 +264,66 @@ A route claims alerts and points them at an escalation policy.
 | `dedupe_key_template` | Optional override of the incident identity, for cases rule grouping does not cover |
 | `group_wait_seconds`, `group_interval_seconds` | Grouping cadence |
 | `enabled` | A disabled route is not considered at all |
+
+### Kubernetes node NotReady
+
+The seeded rule `k8s_node_not_ready` opens one critical incident per cluster
+and node when a previously Ready node becomes NotReady (worker or control-plane).
+False, Unknown, and a missing Ready condition all count as NotReady. The first
+observation only establishes a baseline, even if the node is already NotReady.
+Recovery to Ready, or removal of a NotReady node from the next snapshot, clears
+the incident. Unchanged readiness emits no new event. Role changes do not change
+incident identity. Collector prerequisites are in the
+[inventory RBAC guide](./k8s-public-endpoint-inventory.md#helm-serviceaccount-and-rbac).
+
+Route this rule through the notification platform:
+
+```json
+{
+  "field": "alert.metadata.incident_rule_name",
+  "equals": "k8s_node_not_ready"
+}
+```
+
+Bind that route's escalation step to the existing Discord channel. A
+channel-only test-send does not exercise the route; fire a test alert (or
+use an operator test dispatch) whose snapshot carries that rule name.
+
+`serviceradar-cli notifications ensure-k8s-alerts` wires that route and can
+run the probe. It requires an existing enabled channel and the seeded rule;
+it creates missing policy/step records, attaches the channel, and creates or
+updates and enables the named route. Existing policies and steps are reused,
+so check their settings if delivery remains suppressed. The route matches this
+rule across all clusters; `--cluster` sets only the probe identity.
+
+Authenticate with the JS CLI's device-code login, using an operator with
+channel/route read access and route-management permission. The probe also
+requires `observability.alerts.manage`:
+
+```bash
+serviceradar-cli auth login --instance https://serviceradar.example.com
+serviceradar-cli notifications ensure-k8s-alerts \
+  --instance https://serviceradar.example.com --channel ops-discord \
+  --cluster example-cluster --fire-test
+# After confirming the Discord page:
+serviceradar-cli notifications ensure-k8s-alerts \
+  --instance https://serviceradar.example.com --channel ops-discord \
+  --cluster example-cluster --clear-test
+```
+
+Use the same instance and cluster for both calls. The repository helper
+`js/cli/ensure_k8s_node_alerts.py` accepts the same setup/probe flags, but reads
+the bearer token from `SERVICERADAR_TOKEN` (or `--token`), not the CLI credential
+store. Supply the environment securely; never commit or paste tokens into chat.
+Neither helper creates channels or edits stateful rules: those JSON:API gaps
+remain settings-UI operations. The JS CLI is the supported CLI path for this
+setup; `srctl` has no notification command.
+
+The probe is two steps, in this order: `--fire-test` publishes
+`node.not_ready` and opens the incident, and `--clear-test` publishes
+`node.ready` for the same synthetic node once the Discord page has arrived.
+Clearing before the page is delivered resolves the alert while its dispatch
+job is still queued, and the dispatcher then sends nothing.
 
 ### The match expression grammar
 

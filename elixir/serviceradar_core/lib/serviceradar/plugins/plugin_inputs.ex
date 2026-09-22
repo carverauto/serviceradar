@@ -115,12 +115,24 @@ defmodule ServiceRadar.Plugins.PluginInputs do
   def payload_size_bytes(payload) when is_map(payload),
     do: PayloadUtils.payload_size_bytes(payload)
 
+  @doc """
+  Splits `items` into one payload per chunk.
+
+  Pass `single_chunk: true` when the consuming plugin's work belongs to the
+  assignment as a whole rather than to the individual items. Chunking such a
+  consumer does not divide its work, it repeats it: every chunk becomes its own
+  assignment and each one runs the same whole-instance job. A single chunk is
+  therefore never split, and a target set too large to deliver in one payload
+  is an error rather than a silent multiplication.
+  """
   @spec chunk_single_input_payloads(map(), input_descriptor(), [map()], keyword()) ::
           {:ok, [map()]} | {:error, [String.t()]}
   def chunk_single_input_payloads(base_payload, input, items, opts \\ [])
 
   def chunk_single_input_payloads(base_payload, input, items, opts)
       when is_map(base_payload) and is_map(input) and is_list(items) do
+    single_chunk? = Keyword.get(opts, :single_chunk, false)
+
     chunk_size =
       PayloadUtils.clamp_chunk_size(
         Keyword.get(opts, :chunk_size, @default_chunk_size),
@@ -135,9 +147,15 @@ defmodule ServiceRadar.Plugins.PluginInputs do
       |> Enum.map(&normalize_item/1)
       |> Enum.sort_by(&item_sort_key/1)
 
-    chunks = Enum.chunk_every(normalized_items, chunk_size)
-
-    with {:ok, sized_chunks} <- enforce_size_chunks(base_payload, input, chunks, hard_limit),
+    with {:ok, sized_chunks} <-
+           chunks_for(
+             base_payload,
+             input,
+             normalized_items,
+             chunk_size,
+             hard_limit,
+             single_chunk?
+           ),
          {:ok, payloads} <- build_payloads(base_payload, input, sized_chunks),
          :ok <- validate_payload_sizes(payloads, hard_limit) do
       {:ok, payloads}
@@ -194,6 +212,53 @@ defmodule ServiceRadar.Plugins.PluginInputs do
       hard_limit,
       "generated plugin inputs payload exceeds hard size limit"
     )
+  end
+
+  defp chunks_for(base_payload, input, items, _chunk_size, hard_limit, true) do
+    enforce_single_chunk(base_payload, input, items, hard_limit)
+  end
+
+  defp chunks_for(base_payload, input, items, chunk_size, hard_limit, _single_chunk?) do
+    items
+    |> Enum.chunk_every(chunk_size)
+    |> then(&enforce_size_chunks(base_payload, input, &1, hard_limit))
+  end
+
+  # A single-chunk input must never be split: each extra chunk is an extra
+  # assignment, and an assignment whose work is the whole instance repeats that
+  # work rather than dividing it. Both bounds therefore fail loudly, naming the
+  # target query as the thing to narrow.
+  defp enforce_single_chunk(_base_payload, _input, [], _hard_limit), do: {:ok, []}
+
+  defp enforce_single_chunk(base_payload, input, items, hard_limit) do
+    count = length(items)
+
+    if count > @max_items_per_input do
+      {:error,
+       [
+         "single-assignment input resolved #{count} targets, above the " <>
+           "#{@max_items_per_input} item limit: narrow the target query"
+       ]}
+    else
+      enforce_single_chunk_size(base_payload, input, items, hard_limit)
+    end
+  end
+
+  defp enforce_single_chunk_size(base_payload, input, items, hard_limit) do
+    size =
+      base_payload
+      |> build_test_payload(input, items)
+      |> PayloadUtils.payload_size_bytes()
+
+    if size > hard_limit do
+      {:error,
+       [
+         "single-assignment input payload is #{size} bytes, above the " <>
+           "#{hard_limit} byte limit: narrow the target query"
+       ]}
+    else
+      {:ok, [items]}
+    end
   end
 
   defp enforce_size_chunks(base_payload, input, chunks, hard_limit) do

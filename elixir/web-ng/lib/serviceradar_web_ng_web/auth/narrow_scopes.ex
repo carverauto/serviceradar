@@ -10,9 +10,9 @@ defmodule ServiceRadarWebNGWeb.Auth.NarrowScopes do
       and every machine integration holds one.
 
     * **Narrow** scopes minted for the RFC 8628 CLI device flow --
-      `dashboard.publish`, `plugin.publish` (`AuthorizationSettings`
-      `:cli_allowed_scopes`). Each names exactly one publishing operation a
-      developer approved in a browser.
+      `dashboard.publish`, `plugin.publish`, `plugins.manage`
+      (`AuthorizationSettings` `:cli_allowed_scopes`). Each names one CLI
+      operation a developer approved in a browser.
 
   `ApiAuth` records the granted scope string on `:oauth_token_scope` but does
   not enforce it; enforcement lived only on the two routes that mounted
@@ -51,6 +51,34 @@ defmodule ServiceRadarWebNGWeb.Auth.NarrowScopes do
       {"GET", ~r{^/api/admin/plugin-packages/[^/]+$}},
       {"POST", ~r{^/api/admin/plugin-packages$}},
       {"POST", ~r{^/api/admin/plugin-packages/[^/]+/upload-url$}}
+    ],
+    "plugins.manage" => [
+      {"GET", ~r{^/api/admin/plugins$}},
+      {"GET", ~r{^/api/admin/plugins/[^/]+$}},
+      {"GET", ~r{^/api/admin/plugin-packages$}},
+      {"GET", ~r{^/api/admin/plugin-packages/[^/]+$}},
+      {"GET", ~r{^/api/admin/plugin-assignments$}},
+      {"POST", ~r{^/api/admin/plugin-assignments$}},
+      {"GET", ~r{^/api/admin/plugin-assignments/[^/]+$}},
+      {"PATCH", ~r{^/api/admin/plugin-assignments/[^/]+$}},
+      {"DELETE", ~r{^/api/admin/plugin-assignments/[^/]+$}},
+      {"GET", ~r{^/api/admin/network-credential-secrets$}},
+      {"POST", ~r{^/api/admin/network-credential-secrets$}},
+      {"GET", ~r{^/api/admin/network-credential-secrets/[^/]+$}},
+      {"PATCH", ~r{^/api/admin/network-credential-secrets/[^/]+$}},
+      {"POST", ~r{^/api/admin/network-credential-secrets/[^/]+/rotate$}},
+      {"GET", ~r{^/api/admin/network-credential-rules$}},
+      {"POST", ~r{^/api/admin/network-credential-rules$}},
+      {"GET", ~r{^/api/admin/network-credential-rules/[^/]+$}},
+      {"PATCH", ~r{^/api/admin/network-credential-rules/[^/]+$}},
+      {"POST", ~r{^/api/admin/network-credential-rules/[^/]+/enable$}},
+      {"POST", ~r{^/api/admin/network-credential-rules/[^/]+/disable$}},
+      {"GET", ~r{^/api/admin/ansible-controllers$}},
+      {"POST", ~r{^/api/admin/ansible-controllers$}},
+      {"GET", ~r{^/api/admin/ansible-controllers/[^/]+$}},
+      {"PATCH", ~r{^/api/admin/ansible-controllers/[^/]+$}},
+      {"POST", ~r{^/api/admin/ansible-controllers/[^/]+/enable$}},
+      {"POST", ~r{^/api/admin/ansible-controllers/[^/]+/disable$}}
     ]
   }
 

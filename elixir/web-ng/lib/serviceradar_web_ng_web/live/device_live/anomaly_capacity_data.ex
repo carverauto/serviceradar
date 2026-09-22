@@ -673,7 +673,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
     row = maybe_project_episode_row(row)
 
     projected =
-      reject_nil_values(%{
+      %{
         "id" => map_value(row, "id"),
         "episode_uid" => map_value(row, "episode_uid"),
         "finding_uid" => finding_uid(row),
@@ -707,6 +707,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
         "interface_uid" => interface_uid(row),
         "if_index" => if_index(row),
         "device_label" => device_label(row),
+        "source_device_uid" => map_value(row, "source_device_uid"),
         "severity" => map_value(row, "severity"),
         "effective_severity" => effective_severity(row),
         "disposition" => disposition(row),
@@ -721,9 +722,52 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
         "observed_at_unix_nano" => detection_value(row, "observed_at_unix_nano"),
         "signals" => detection_value(row, "signals"),
         "anomaly_disposition" => anomaly_disposition(row)
-      })
+      }
+      |> reject_nil_values()
+      |> project_seasonal_context(row)
 
     if operator_visible_anomaly_row?(projected), do: projected
+  end
+
+  defp project_seasonal_context(projected, row) do
+    seasonal =
+      first_present(row, [
+        ["seasonal_disposition"],
+        ["metadata", "seasonal_disposition"],
+        ["unmapped", "seasonal_disposition"],
+        ["raw_data", "seasonal_disposition"]
+      ])
+
+    case seasonal do
+      %{} ->
+        context = Map.take(seasonal, ["sample_value", "bucket_started_at", "bucket_ended_at", "evaluated_at"])
+
+        defaults =
+          reject_nil_values(%{
+            "source_device_uid" => Map.get(seasonal, "resource_id"),
+            "metric_value" => Map.get(seasonal, "sample_value"),
+            "sample_value" => Map.get(seasonal, "sample_value")
+          })
+
+        defaults
+        |> Map.merge(projected)
+        |> Map.put("seasonal_disposition", context)
+        |> Map.put("metric_context_time", seasonal_bucket_center(context))
+        |> reject_nil_values()
+
+      _ ->
+        projected
+    end
+  end
+
+  defp seasonal_bucket_center(context) do
+    with %DateTime{} = start_dt <- datetime_value(Map.get(context, "bucket_started_at")),
+         %DateTime{} = end_dt <- datetime_value(Map.get(context, "bucket_ended_at")),
+         seconds when seconds > 0 <- DateTime.diff(end_dt, start_dt, :second) do
+      start_dt |> DateTime.add(div(seconds, 2), :second) |> DateTime.to_iso8601()
+    else
+      _ -> nil
+    end
   end
 
   # The built-in Ash source already converts an `AnomalyEpisode` into the
@@ -1275,6 +1319,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
   defp known_atom_key("diagnostics"), do: :diagnostics
   defp known_atom_key("anomaly"), do: :anomaly
   defp known_atom_key("anomaly_disposition"), do: :anomaly_disposition
+  defp known_atom_key("seasonal_disposition"), do: :seasonal_disposition
   defp known_atom_key("source_anomaly_disposition"), do: :source_anomaly_disposition
   defp known_atom_key("detection_finding"), do: :detection_finding
   defp known_atom_key("metric_class"), do: :metric_class

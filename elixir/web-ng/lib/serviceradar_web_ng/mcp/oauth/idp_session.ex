@@ -7,7 +7,6 @@ defmodule ServiceRadarWebNG.Mcp.OAuth.IdPSession do
   """
 
   alias ServiceRadar.Identity.McpOAuthGrant
-  alias ServiceRadarWebNGWeb.Auth.OIDCClient
 
   @spec still_valid?(McpOAuthGrant.t()) :: boolean()
   def still_valid?(grant), do: match?({:ok, _}, check(grant))
@@ -34,7 +33,9 @@ defmodule ServiceRadarWebNG.Mcp.OAuth.IdPSession do
     refresh = grant.idp_refresh_token
 
     if is_binary(refresh) and refresh != "" do
-      case OIDCClient.refresh_tokens(refresh) do
+      client = Application.fetch_env!(:serviceradar_web_ng, :mcp_idp_refresh_client)
+
+      case client.refresh_tokens(refresh) do
         {:ok, tokens} ->
           {:ok, tokens["refresh_token"] || tokens[:refresh_token]}
 

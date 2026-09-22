@@ -266,8 +266,28 @@ defmodule ServiceRadar.Observability.RuleSeeder do
     end
   end
 
-  defp default_event_rules do
+  @doc false
+  def default_event_rules do
     [
+      # Core health checks (the anomaly tripwires and the seasonal-baseline
+      # producer heartbeat) record `core` health transitions. Promote them into
+      # events so the stateful rule below can page on them; the seasonal
+      # baseline freshness check sat unhealthy for eight weeks with no alert.
+      %{
+        name: "core_health_state_change_events",
+        enabled: true,
+        priority: 50,
+        source_type: :log,
+        source: %{},
+        match: %{
+          "subject_prefix" => "logs.internal.health",
+          "attribute_equals" => %{"health.entity_type" => "core"}
+        },
+        event: %{
+          "log_name" => "health.core.state_change",
+          "alert" => false
+        }
+      },
       %{
         name: "waf_findings_to_security_events",
         enabled: true,
@@ -319,6 +339,21 @@ defmodule ServiceRadar.Observability.RuleSeeder do
           "status_detail" => "Falco detected AF_ALG socket creation in a container",
           "alert" => false
         }
+      },
+      %{
+        name: "k8s_node_readiness_events",
+        enabled: true,
+        priority: 52,
+        source_type: :log,
+        source: %{},
+        match: %{
+          "subject_prefix" => "logs.internal.k8s",
+          "event_type" => ["node.not_ready", "node.ready"]
+        },
+        event: %{
+          "log_name" => "k8s.node.readiness",
+          "alert" => false
+        }
       }
     ]
   end
@@ -326,6 +361,38 @@ defmodule ServiceRadar.Observability.RuleSeeder do
   @doc false
   def default_stateful_rules do
     [
+      %{
+        name: "core_health_check_unhealthy",
+        managed: true,
+        template_version: 1,
+        description:
+          "Open one critical incident per core health check (the anomaly tripwires and the seasonal-baseline producer) when it goes unhealthy, and clear it when the check recovers.",
+        priority: 30,
+        enabled: true,
+        signal: :event,
+        match: %{
+          "subject_prefix" => "health.core.state_change",
+          "attribute_equals" => %{"health.new_state" => "unhealthy"},
+          "recovery" => %{
+            "subject_prefix" => "health.core.state_change",
+            "attribute_equals" => %{"health.new_state" => "healthy"}
+          }
+        },
+        group_by: ["health.entity_id"],
+        threshold: 1,
+        window_seconds: 300,
+        bucket_seconds: 60,
+        cooldown_seconds: 300,
+        renotify_seconds: 21_600,
+        event: %{
+          "log_name" => "alert.health.core_check",
+          "message" => "Core health check {health.entity_id} is unhealthy ({health.reason})"
+        },
+        alert: %{
+          "title" => "Anomaly pipeline check unhealthy",
+          "severity" => "critical"
+        }
+      },
       %{
         name: "sweep_device_unavailable",
         managed: true,
@@ -356,6 +423,37 @@ defmodule ServiceRadar.Observability.RuleSeeder do
         alert: %{
           "title" => "Device Unreachable",
           "severity" => "warning"
+        }
+      },
+      %{
+        name: "k8s_node_not_ready",
+        managed: true,
+        template_version: 2,
+        description:
+          "Open one incident per Kubernetes node when Ready becomes False, and clear it when Ready returns True. Control-plane vs worker is taken from node.role, which names the node in the alert title without joining the incident identity.",
+        priority: 20,
+        enabled: true,
+        signal: :event,
+        match: %{
+          "subject_prefix" => "k8s.node.readiness",
+          "attribute_equals" => %{"event_type" => "node.not_ready"},
+          "recovery" => %{
+            "subject_prefix" => "k8s.node.readiness",
+            "attribute_equals" => %{"event_type" => "node.ready"}
+          }
+        },
+        group_by: ["cluster_id", "node"],
+        threshold: 1,
+        window_seconds: 300,
+        bucket_seconds: 60,
+        cooldown_seconds: 300,
+        renotify_seconds: 21_600,
+        event: %{
+          "log_name" => "alert.availability.k8s.node",
+          "message" => "Kubernetes {node.role} node {node} is NotReady in cluster {cluster_id}"
+        },
+        alert: %{
+          "severity" => "critical"
         }
       },
       %{
@@ -404,7 +502,7 @@ defmodule ServiceRadar.Observability.RuleSeeder do
       %{
         name: "causal_prediction_health_finding",
         managed: true,
-        template_version: 2,
+        template_version: 3,
         description:
           "Raise one active health incident per canonical anomaly series from confirmed causal anomaly transitions.",
         priority: 44,
@@ -447,7 +545,7 @@ defmodule ServiceRadar.Observability.RuleSeeder do
         renotify_seconds: 21_600,
         event: %{
           "log_name" => "alert.health.causal_prediction",
-          "message" => "Causal prediction finding detected"
+          "message" => "Anomaly finding"
         },
         alert: %{
           "title" => "Anomaly Finding",

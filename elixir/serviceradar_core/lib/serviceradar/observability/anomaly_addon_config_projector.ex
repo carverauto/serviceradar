@@ -37,6 +37,11 @@ defmodule ServiceRadar.Observability.AnomalyAddonConfigProjector do
     min_cv
     drift_min_cv
     abs_effect_floor
+    burst_envelope_enabled
+    burst_envelope_quantile
+    burst_envelope_multiplier
+    burst_envelope_lag_samples
+    burst_envelope_min_samples
     severity_cap
     severity_bands
   ))
@@ -349,7 +354,10 @@ defmodule ServiceRadar.Observability.AnomalyAddonConfigProjector do
       key = to_string(key)
 
       if MapSet.member?(@edge_metric_class_keys, key) and not is_nil(value) do
-        [{key, normalize_value(value)}]
+        case normalize_metric_class_value(key, value) do
+          {:ok, normalized} -> [{key, normalized}]
+          :drop -> []
+        end
       else
         []
       end
@@ -358,6 +366,19 @@ defmodule ServiceRadar.Observability.AnomalyAddonConfigProjector do
   end
 
   defp normalize_metric_class_values(_values), do: %{}
+
+  # `drift_mode` is a string enum in the add-on schema, but settings rows
+  # seeded from unquoted Helm chart defaults carry YAML 1.1 booleans
+  # (`drift_mode: off` parses as `false`, `drift_mode: on` as `true`).
+  # Coerce the legacy `false` back to `"off"` and drop the legacy `true`,
+  # which has no valid string form. Every other value passes through
+  # untouched so a misspelled mode fails loudly at profile validation
+  # instead of being silently discarded.
+  defp normalize_metric_class_value("drift_mode", false), do: {:ok, "off"}
+
+  defp normalize_metric_class_value("drift_mode", true), do: :drop
+
+  defp normalize_metric_class_value(_key, value), do: {:ok, normalize_value(value)}
 
   defp normalize_value(value) when is_boolean(value), do: value
   defp normalize_value(value) when is_atom(value), do: Atom.to_string(value)

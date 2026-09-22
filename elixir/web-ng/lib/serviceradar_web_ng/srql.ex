@@ -13,6 +13,11 @@ defmodule ServiceRadarWebNG.SRQL do
     exports: :all
 
   alias Ecto.Adapters.SQL
+  alias ServiceRadar.Analytics.StarRocks.CatalogAllowlist
+  alias ServiceRadar.Analytics.StarRocks.EventDocuments
+  alias ServiceRadar.Analytics.StarRocks.Query, as: StarRocksQuery
+  alias ServiceRadar.Analytics.StarRocks.Readers
+  alias ServiceRadar.Analytics.StarRocks.RollupFreshness
   alias ServiceRadar.Repo
   alias ServiceRadarWebNG.SRQL.EntityAccess
   alias ServiceRadarWebNG.SRQL.Native
@@ -31,7 +36,6 @@ defmodule ServiceRadarWebNG.SRQL do
       "limit" => Map.get(opts, :limit),
       "cursor" => Map.get(opts, :cursor),
       "direction" => Map.get(opts, :direction),
-      "mode" => Map.get(opts, :mode),
       "scope" => Map.get(opts, :scope)
     })
   end
@@ -41,13 +45,19 @@ defmodule ServiceRadarWebNG.SRQL do
     limit = Map.get(opts, :limit)
     cursor = Map.get(opts, :cursor)
     direction = Map.get(opts, :direction)
-    mode = Map.get(opts, :mode)
     scope = Map.get(opts, :scope)
 
-    with :ok <- EntityAccess.authorize(query, scope, optional_scope: true),
+    with :ok <- EntityAccess.authorize(query, scope),
+         {:ok, mode} <- resolve_backend_mode(query),
          {:ok, translation} <- translate(query, limit, cursor, direction, mode),
-         {:ok, result} <- execute_translation_raw(translation),
-         {:ok, payload} <- encode_result_arrow(result) do
+         {:ok, translation, mode} <-
+           RollupFreshness.settle(
+             translation,
+             mode,
+             &translate(query, limit, cursor, direction, &1)
+           ),
+         {:ok, result} <- execute_backend_raw(translation, mode),
+         {:ok, payload} <- encode_result_arrow(result, warehouse_shape(query, mode)) do
       {:ok,
        %{
          payload: payload,
@@ -61,13 +71,12 @@ defmodule ServiceRadarWebNG.SRQL do
   @impl true
   def query_request(%{} = request) do
     case normalize_request(request) do
-      {:ok, query, limit, cursor, direction, mode} ->
+      {:ok, query, limit, cursor, direction} ->
         execute_query(
           query,
           limit,
           cursor,
           direction,
-          mode,
           Map.get(request, "scope") || Map.get(request, :scope)
         )
 
@@ -76,12 +85,12 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   end
 
-  defp execute_query(query, limit, cursor, direction, mode, scope) do
-    entity = extract_entity(query)
+  defp execute_query(query, limit, cursor, direction, scope) do
+    entity = EntityAccess.extract_entity(query)
     start_time = System.monotonic_time()
 
     result =
-      case EntityAccess.authorize(query, scope, optional_scope: true) do
+      case EntityAccess.authorize(query, scope) do
         {:error, :forbidden} = denied ->
           denied
 
@@ -95,8 +104,15 @@ defmodule ServiceRadarWebNG.SRQL do
                "error" => nil
              }}
           else
-            with {:ok, translation} <- translate(query, limit, cursor, direction, mode) do
-              execute_translation(Map.put(translation, "_query", query))
+            with {:ok, mode} <- resolve_backend_mode(query),
+                 {:ok, translation} <- translate(query, limit, cursor, direction, mode),
+                 {:ok, translation, mode} <-
+                   RollupFreshness.settle(
+                     translation,
+                     mode,
+                     &translate(query, limit, cursor, direction, &1)
+                   ) do
+              execute_backend(Map.put(translation, "_query", query), mode)
             end
           end
       end
@@ -123,20 +139,43 @@ defmodule ServiceRadarWebNG.SRQL do
     )
   end
 
-  defp extract_entity(query) when is_binary(query) do
-    query = String.trim(query)
-
-    case Regex.run(~r/^in:(\S+)/, query) do
-      [_, entity] ->
-        String.downcase(entity)
-
-      nil ->
-        query
-        |> String.split(~r/[\s|]/, parts: 2)
-        |> List.first()
-        |> String.downcase()
+  # NetFlow is warehouse-only: an installation that has not cut flows over is
+  # told so, rather than being handed CNPG rows that answer the same question
+  # differently.
+  defp resolve_backend_mode(query) do
+    case query |> EntityAccess.extract_entity() |> Readers.mode_for() do
+      {:error, _reason} = error -> error
+      mode -> {:ok, mode}
     end
   end
+
+  defp execute_backend(%{"sql" => sql} = translation, mode)
+       when is_binary(sql) and mode in ["starrocks", "starrocks_raw"] do
+    with :ok <- CatalogAllowlist.assert_sql_executable(sql) do
+      case StarRocksQuery.execute(sql) do
+        {:ok, result} ->
+          shape = warehouse_shape(Map.get(translation, "_query"), mode)
+
+          {:ok,
+           build_response(translation, result, fn columns, rows ->
+             columns |> build_arrow_rows(rows) |> shape.()
+           end)}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  defp execute_backend(translation, _mode), do: execute_translation(translation)
+
+  defp execute_backend_raw(%{"sql" => sql}, mode) when is_binary(sql) and mode in ["starrocks", "starrocks_raw"] do
+    with :ok <- CatalogAllowlist.assert_sql_executable(sql) do
+      StarRocksQuery.execute(sql)
+    end
+  end
+
+  defp execute_backend_raw(translation, _mode), do: execute_translation_raw(translation)
 
   defp translate(query, limit, cursor, direction, mode) do
     case Native.translate(query, limit, cursor, direction, mode) do
@@ -197,7 +236,8 @@ defmodule ServiceRadarWebNG.SRQL do
           statement_timeout = "#{timeout_ms}ms"
           db_timeout_ms = timeout_ms + @db_timeout_margin_ms
 
-          with {:ok, _} <- SQL.query(Repo, session_setup_sql(), [statement_timeout], timeout: db_timeout_ms),
+          with {:ok, _} <-
+                 SQL.query(Repo, session_setup_sql(), [statement_timeout], timeout: db_timeout_ms),
                {:ok, result} <- SQL.query(Repo, sql, params, timeout: db_timeout_ms) do
             result
           else
@@ -266,7 +306,8 @@ defmodule ServiceRadarWebNG.SRQL do
   @doc false
   def session_setup_sql do
     "SELECT set_config('statement_timeout', $1, true), " <>
-      "set_config('plan_cache_mode', 'force_custom_plan', true)"
+      "set_config('plan_cache_mode', 'force_custom_plan', true), " <>
+      "set_config('jit', 'off', true)"
   end
 
   defp srql_query_timeout_ms do
@@ -307,10 +348,10 @@ defmodule ServiceRadarWebNG.SRQL do
     end
   end
 
-  defp build_response(translation, %Postgrex.Result{columns: columns, rows: rows}) do
+  defp build_response(translation, %Postgrex.Result{columns: columns, rows: rows}, row_builder \\ &build_results/2) do
     results =
       columns
-      |> build_results(rows)
+      |> row_builder.(rows)
       |> enrich_downsample_aliases(translation)
 
     viz = extract_viz(translation)
@@ -325,8 +366,18 @@ defmodule ServiceRadarWebNG.SRQL do
     }
   end
 
-  defp encode_result_arrow(%Postgrex.Result{columns: columns, rows: rows}) do
-    row_maps = build_arrow_rows(columns, rows)
+  # A warehouse event row carries its documents as JSON text; CNPG hands back
+  # maps. Rows are reshaped where they are built, so neither the JSON nor the
+  # Arrow consumer can tell which backend answered.
+  defp warehouse_shape(query, mode) when is_binary(query) and mode in ["starrocks", "starrocks_raw"] do
+    entity = EntityAccess.extract_entity(query)
+    &EventDocuments.decode_rows(&1, entity)
+  end
+
+  defp warehouse_shape(_query, _mode), do: & &1
+
+  defp encode_result_arrow(%Postgrex.Result{columns: columns, rows: rows}, shape) do
+    row_maps = columns |> build_arrow_rows(rows) |> shape.()
 
     with {:ok, rows_json} <- Jason.encode(row_maps) do
       Native.encode_arrow_json(columns, rows_json)
@@ -553,20 +604,21 @@ defmodule ServiceRadarWebNG.SRQL do
 
   def decode_param(_), do: {:error, :invalid_srql_param}
 
+  # Backend routing is a server-side decision: a request-supplied "mode" is
+  # ignored so a caller cannot read a cut-over dataset from CNPG or skip the
+  # rollup-freshness gate.
   defp normalize_request(%{"query" => query} = request) when is_binary(query) do
     limit = parse_limit(Map.get(request, "limit"))
     cursor = normalize_optional_string(Map.get(request, "cursor"))
     direction = normalize_direction(Map.get(request, "direction"))
-    mode = normalize_optional_string(Map.get(request, "mode"))
-    {:ok, query, limit, cursor, direction, mode}
+    {:ok, query, limit, cursor, direction}
   end
 
   defp normalize_request(%{query: query} = request) when is_binary(query) do
     limit = parse_limit(Map.get(request, :limit))
     cursor = normalize_optional_string(Map.get(request, :cursor))
     direction = normalize_direction(Map.get(request, :direction))
-    mode = normalize_optional_string(Map.get(request, :mode))
-    {:ok, query, limit, cursor, direction, mode}
+    {:ok, query, limit, cursor, direction}
   end
 
   defp normalize_request(_request) do

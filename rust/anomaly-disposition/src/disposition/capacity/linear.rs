@@ -45,7 +45,7 @@ pub(super) fn linear_forecast(points: &[NormPoint], config: &CapacityConfig) -> 
         bounded_projection(config, raw_projected_value, raw_lower, raw_upper);
 
     let first_at = points[0].at_unix_micros;
-    let projected_exhaustion = exhaustion_at(
+    let exhaustion = exhaustion_at(
         first_at,
         last_x,
         slope,
@@ -62,7 +62,10 @@ pub(super) fn linear_forecast(points: &[NormPoint], config: &CapacityConfig) -> 
         projected_value,
         raw_projected_value,
         projection_bounded,
-        projected_exhaustion_at_unix_micros: projected_exhaustion,
+        projected_exhaustion_at_unix_micros: exhaustion.eta_unix_micros,
+        raw_projected_exhaustion_at_unix_micros: exhaustion.raw_unix_micros,
+        exhaustion_history_capped: exhaustion.history_capped,
+        exhaustion_extrapolation_cap_seconds: exhaustion.extrapolation_cap_seconds,
         confidence: COVERAGE_LEVEL,
         lower_bound,
         upper_bound,

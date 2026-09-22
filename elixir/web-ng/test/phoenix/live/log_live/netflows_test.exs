@@ -359,6 +359,20 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
              "error" => nil
            }}
 
+        String.contains?(
+          query,
+          ~S|stats:"count(*) as total, sum(bytes_total) as total_bytes, sum(packets_total) as total_packets by protocol_num"|
+        ) ->
+          {:ok,
+           %{
+             "results" => [
+               %{"protocol_num" => 6, "total" => 1, "total_bytes" => 5_400_000, "total_packets" => 43_200},
+               %{"protocol_num" => 17, "total" => 1, "total_bytes" => 5_400_000, "total_packets" => 43_200}
+             ],
+             "pagination" => %{},
+             "error" => nil
+           }}
+
         String.contains?(query, ~S|stats:"sum(bytes_total) as total_bytes"|) ->
           {:ok,
            %{
@@ -458,6 +472,19 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
            %{
              "results" => [
                %{"timestamp" => "2026-02-27T21:00:00Z", "series" => "tcp", "value" => 1024}
+             ],
+             "pagination" => %{},
+             "error" => nil
+           }}
+
+        String.contains?(
+          query,
+          ~S|stats:"count(*) as total, sum(bytes_total) as total_bytes, sum(packets_total) as total_packets by protocol_num"|
+        ) ->
+          {:ok,
+           %{
+             "results" => [
+               %{"protocol_num" => 6, "total" => 1, "total_bytes" => 10_800_000, "total_packets" => 86_400}
              ],
              "pagination" => %{},
              "error" => nil

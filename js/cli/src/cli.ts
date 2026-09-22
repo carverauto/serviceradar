@@ -7,6 +7,7 @@ import {parseArgs} from "./args.js"
 import {dispatchAuth} from "./auth/index.js"
 import {dispatchDashboard} from "./dashboard/index.js"
 import {doctorCommand, printVersion} from "./doctor.js"
+import {dispatchNotifications} from "./notifications/index.js"
 import {dispatchPlugin} from "./plugin/index.js"
 import {describeError, ensureExtraCaCertificates} from "./tls_ca.js"
 
@@ -40,6 +41,12 @@ async function main(): Promise<void> {
     return dispatchAuth(authSub, options)
   }
 
+  if (first === "notifications") {
+    const [notifySub = "help", ...notifyRest] = rest
+    const options = parseArgs(notifyRest)
+    return dispatchNotifications(notifySub, options, printHelp)
+  }
+
   if (first === "plugin") {
     const [pluginSub = "help", ...pluginRest] = rest
     const options = parseArgs(pluginRest)
@@ -70,7 +77,8 @@ Usage:
 Groups:
   auth        Authenticate against a ServiceRadar instance and manage stored credentials.
   dashboard   Author and operate ServiceRadar dashboard packages.
-  plugin      Author and publish ServiceRadar Wasm plugins.
+  plugin         Author and publish ServiceRadar Wasm plugins.
+  notifications  Configure notification routes against a ServiceRadar instance.
 
 Top-level commands:
   --version   Print the installed @carverauto/serviceradar-cli version.
@@ -85,11 +93,17 @@ Common dashboard subcommands:
   serviceradar-cli dashboard publish --instance <url> [--route <slug>] [--token <bearer>] [--enable] [--yes]
   serviceradar-cli dashboard import [--config dashboard.config.mjs] [--exec "command"]
 
+Notification subcommands:
+  serviceradar-cli notifications ensure-k8s-alerts --instance <url> [--channel demo-discord] [--token <bearer>] [--fire-test | --clear-test]
+    --fire-test opens a synthetic node incident; --clear-test resolves it once the Discord page has arrived. They cannot be combined.
+
 Plugin subcommands:
   serviceradar-cli plugin init <name> [--template go|rust] [--plugin-id my-plugin] [--force]
   serviceradar-cli plugin validate [--manifest plugin.yaml] [--wasm plugin.wasm]
   serviceradar-cli plugin publish --instance <url> [--token <bearer>] [--wasm plugin.wasm] [--yes]
   serviceradar-cli plugin status --instance <url> --id <package-id>
+  serviceradar-cli plugin assignments|secrets|rules|controllers <list|get|create|update|enable|disable> --instance <url>
+  serviceradar-cli plugin apply --instance <url> --file playbooks/demo-plugins.yaml [--dry-run]
 
 Auth subcommands:
   serviceradar-cli auth login   --instance <url> [--no-browser] [--ca-file <pem>] [--token <existing-token>]
@@ -126,5 +140,9 @@ Plugin commands:
             it. Needs a token carrying the \`plugin.publish\` scope.
   status    Read a staged package back to see whether it has been approved, and
             which capabilities were approved.
+  apply     Idempotent gitops apply of plugin assignments, credential secrets,
+            credential rules, and Ansible controllers from a YAML playbook.
+            Secret values are read from environment variables named in the
+            playbook; they are never stored in git. Needs \`plugins.manage\`.
 `)
 }

@@ -45,6 +45,8 @@ defmodule ServiceRadarCore.MixProject do
       extra_applications: [
         :logger,
         :ssl,
+        # Required by ServiceRadar.HTTP.EgressClient's :httpc transport.
+        :inets,
         :crypto,
         :public_key,
         :swoosh,
@@ -88,6 +90,7 @@ defmodule ServiceRadarCore.MixProject do
       {:ash_state_machine, "~> 0.2"},
       {:ash_json_api, "~> 1.4"},
       {:ash_paper_trail, "~> 0.6.0"},
+      {:ash_events, "~> 0.7.0"},
       {:open_api_spex, "~> 3.16"},
       {:ash_admin, "~> 0.12"},
       {:ash_cloak, "~> 0.1"},
@@ -96,6 +99,8 @@ defmodule ServiceRadarCore.MixProject do
       # Database
       {:ecto_sql, "~> 3.10"},
       {:postgrex, ">= 0.0.0"},
+      # StarRocks Frontend query port (MySQL protocol). Stream Load stays HTTP.
+      {:myxql, "~> 0.8"},
 
       # Distributed systems
       {:horde, "~> 0.9"},

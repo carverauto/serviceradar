@@ -15,7 +15,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Data do
     query =
       SweepGroup
       |> Ash.Query.for_read(:read)
-      |> Ash.Query.load(executions: latest_execution_query())
+      |> Ash.Query.load([:execution_count, executions: latest_execution_query()])
 
     case Ash.read(query, scope: scope) do
       {:ok, groups} -> groups
@@ -47,7 +47,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Data do
   def load_sweep_group(scope, id) do
     case Ash.get(SweepGroup, id,
            scope: scope,
-           load: [executions: latest_execution_query()]
+           load: [:execution_count, executions: latest_execution_query()]
          ) do
       {:ok, group} -> group
       {:error, _} -> nil

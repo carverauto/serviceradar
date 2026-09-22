@@ -1,0 +1,37 @@
+suite: dgraph ACL bootstrap job
+templates:
+  - templates/dgraph-acl-bootstrap-job.yaml
+tests:
+  - it: runs before the schema job and reads the generated groot password
+    asserts:
+      - isKind:
+          of: Job
+      - equal:
+          path: metadata.annotations["helm.sh/hook-weight"]
+          value: "4"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DGRAPH_GROOT_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: RELEASE-NAME-dgraph-alpha-acl-secret
+                key: groot_password
+  - it: is absent when the in-chart cluster is off
+    set:
+      dgraph:
+        enabled: false
+        external:
+          host: dgraph-dgraph-alpha.demo.svc.cluster.local
+    asserts:
+      - hasDocuments:
+          count: 0
+  - it: is absent when Dgraph ACL is off
+    set:
+      dgraph:
+        alpha:
+          acl:
+            enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0

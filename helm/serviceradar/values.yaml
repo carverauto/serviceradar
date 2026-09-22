@@ -19,14 +19,16 @@ podDisruptionBudgets:
 global:
   # Override all ServiceRadar image tags at once. Leave empty to track the
   # chart appVersion, which is almost always what you want -- the chart and the
-  # application it deploys are released together. Set a sha-* tag or use
-  # image.digests.* for production rollouts needing immutable references.
+  # application it deploys are released together, so `--version` alone selects
+  # matching images. If you set it, use v<chart-version>: any other tag drifts
+  # from the core.migrations.expectedVersion and templates this chart ships.
+  # For immutable references, pin image.digests.* instead.
   imageTag: ""
   # The ServiceRadar RELEASE this deployment corresponds to, as a `v<semver>`
   # tag. Distinct from imageTag on purpose: web-ng resolves plugin and native
   # add-on assets from the GitHub release with this name, and shows it in the
-  # product status UI. Immutable rollouts set imageTag to a `sha-<gitsha>`, and
-  # no release is ever named that, so the two cannot share one value.
+  # product status UI. Development rollouts may set imageTag to a `sha-<gitsha>`
+  # build tag, and no release is ever named that, so the two cannot share one value.
   # Empty means "use the chart appVersion", which is what you want unless you are
   # deliberately pulling add-ons from a different release than the chart.
   releaseVersion: ""
@@ -48,9 +50,12 @@ global:
     allowInsecureStorage: false
 
 image:
-  # Base registry/repository prefix for first-party ServiceRadar images.
-  # Override with ghcr.io/carverauto to pull published GHCR images.
+  # Base registry/repository prefix for first-party ServiceRadar images. They
+  # are published only here and pull anonymously; ghcr.io/carverauto does not
+  # carry current releases. Override only to pull from your own mirror.
   registry: registry.carverauto.dev/serviceradar
+  # Published images pull anonymously, so this secret is only needed for an
+  # authenticated mirror. Set it to "" to drop the reference.
   registryPullSecret: registry-carverauto-dev-cred
   tags:
     # Default tag for first-party ServiceRadar images. Empty means "use the
@@ -76,6 +81,7 @@ image:
     tools: *appTag
     trivySidecar: *appTag
     k8sInventory: *appTag
+    dgraphMigrate: *appTag
   # Optional per-service digest pins. Keys match image.tags service names
   # (core, webNg, agent, agentGateway, datasvc, tools, etc.). Values can be
   # either "sha256:..." or "@sha256:..."; when set they override tags.
@@ -131,6 +137,10 @@ k8sInventory:
   publishMode: nats
   namespaces: []
   gatewayAPI:
+    enabled: true
+  nodes:
+    # Watch Kubernetes Nodes (Ready condition) and publish inventory.k8s.nodes.
+    # Absent means enabled. Set enabled: false to drop Nodes RBAC.
     enabled: true
   envoyProxyCRD:
     enabled: false
@@ -423,8 +433,8 @@ core:
     runWatchdogIntervalSeconds: 60
     # ScheduleEvaluatorWorker cron evaluation cadence.
     scheduleEvaluatorIntervalSeconds: 60
-    # Base directory for GitCatalogSyncWorker repo clones.
-    # Mount a PVC at this path if you want survival across pod restarts.
+    # Writable emptyDir for GitCatalogSyncWorker repo clones. Catalog metadata
+    # is stored in CNPG; clones are recreated after pod replacement.
     catalogBaseDir: "/var/lib/serviceradar/ansible_catalog"
   # EventWriter persists NATS JetStream records (incl. edge anomaly verdicts on
   # signals.analytics.predictions.*) into CNPG. On by default so anomaly findings
@@ -454,11 +464,13 @@ core:
       interface:
         drift_mode: deseasonalized_only
       disk:
-        drift_mode: off
+        # Keep "off" quoted: drift_mode is a schema string, while YAML 1.1
+        # parses an unquoted off as boolean false.
+        drift_mode: "off"
       icmp:
-        drift_mode: off
+        drift_mode: "off"
       other:
-        drift_mode: off
+        drift_mode: "off"
       red: {}
   # First-boot defaults for CNPG-backed capacity forecast settings. These seed
   # the singleton config row when missing and do not overwrite operator edits.
@@ -611,7 +623,7 @@ core:
     #
     # Set to "" to fall back to the old existence-only check (for operators
     # running the chart against a deliberately pinned schema).
-    expectedVersion: "20260904000100"
+    expectedVersion: "20260921140000"
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job
@@ -845,6 +857,11 @@ cnpg:
   instances: 3
   storageClass: ""
   storageSize: 100Gi
+  # Hosted control plane always sets this. Leave empty for OSS installs that
+  # still want CNPG to inherit node RAM; set requireResources=true to fail
+  # closed instead of scheduling with no requests.
+  requireResources: false
+  resources: {}
   # Optional CNPG instance placement controls. Use these for dedicated database
   # nodes with labels/taints such as cnpg.io/dedicated=true.
   affinity:
@@ -926,12 +943,13 @@ cnpg:
     pg_stat_statements.track: "all"
     pg_stat_statements.track_planning: "on"
     track_io_timing: "on"
-  extensionsSQL:
-    - CREATE EXTENSION IF NOT EXISTS timescaledb;
-    - CREATE EXTENSION IF NOT EXISTS age;
-    - CREATE EXTENSION IF NOT EXISTS postgis;
-    - CREATE EXTENSION IF NOT EXISTS vector;
-    - CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+  # SQL CNPG runs once, as superuser, when it initializes the application database.
+  # Empty on purpose: the schema baseline and migrations create every extension in the
+  # schema they reference, and an extension created here first lands in `public`, where
+  # the baseline cannot move it, so a fresh database fails to bootstrap (#454). If you add
+  # an extension here, create it where the baseline expects it (`platform`, or
+  # `ag_catalog` for age). sharedPreloadLibraries above is unrelated and stays as is.
+  extensionsSQL: []
   superuserSecret: cnpg-superuser
   superuserUsername: postgres
   superuserPassword: ""
@@ -1166,7 +1184,7 @@ webNg:
     # verifier fails closed rather than importing an unverified artifact.
     # Override only when serving first-party plugins signed with your own key.
     # Kept in step with docs/cosign.pub and the web-ng compiled-in default by
-    # //:first_party_plugin_cosign_key_consistency_test.
+    # //build/contracts:first_party_plugin_cosign_key_consistency_test.
     cosignPublicKey: |
       -----BEGIN PUBLIC KEY-----
       MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEhJcdPbybyipSl8sNHSKStAYiqhP7
@@ -1180,11 +1198,19 @@ webNg:
   nativeAddonImport:
     repoUrl: "https://github.com/carverauto/serviceradar"
     indexAssetName: "serviceradar-native-addon-index.json"
-    autoSyncEnabled: false
+    # Import newly published first-party add-on releases automatically. This is
+    # what lets a `track_latest_approved` profile ever see a newer package: with
+    # it off, the catalog never learns a new version exists and managed add-on
+    # updates are silently inert. An installation that never turned this on sat
+    # on anomaly 0.3.6 for days while 0.3.7 had been published. Importing only
+    # stages the package; nothing changes on an agent until it is approved.
+    autoSyncEnabled: true
     syncReleaseLimit: 10
     syncIntervalSeconds: 3600
     # Official native add-ons discovered in the release index are imported as
-    # staged packages. Approval and assignment remain operator-controlled.
+    # staged packages. Approval and assignment remain operator-controlled:
+    # listing an id here auto-approves its imports, which is a policy choice
+    # to make deliberately, not a default to inherit.
     autoApproveAddonIds: []
   host: ""
   # Canonical externally reachable HTTPS origin for web-ng (for example,
@@ -1227,6 +1253,26 @@ webNg:
   auth:
     forceLocalLogin: false
     disableSso: false
+  # Real client IP extraction behind the envoy Gateway API proxy.
+  # web-ng only honors x-forwarded-for when the direct peer is inside
+  # trustedProxyCidrs (see ServiceRadarWebNG.ClientIP). Leave
+  # trustXForwardedFor false for deployments exposed without a proxy;
+  # otherwise audit logs record the proxy/LB address instead of the client.
+  # Gateway-fronted deployments (gatewayApi.enabled or attach mode) should
+  # set trustXForwardedFor: true and list the envoy pod / service CIDRs.
+  # Envoy appends the downstream address to x-forwarded-for by default, so
+  # no gateway-side change is needed for chart-managed gateways; shared
+  # gateways owned outside this chart must be checked separately.
+  #
+  # List the proxy's OWN address range and nothing wider. Every CIDR here is
+  # an address web-ng will never report as a client: it walks the chain
+  # right-to-left and reports the first hop outside this list. RFC1918
+  # wholesale puts the LAN in the list, and a LAN client then has no hop
+  # left to report -- web-ng falls back to the proxy address and logs a
+  # warning naming this setting.
+  clientIp:
+    trustXForwardedFor: false
+    trustedProxyCidrs: []
   # Trusted Ed25519 public key used to verify signed agent release manifests.
   agentReleasePublicKey: "ZY2//cpkD3oVdC6q4Cg6lN1I2M6SgmDMzL4QyQjptH8="
   # Extra environment variables for the web-ng pod.
@@ -1297,6 +1343,22 @@ webNg:
     jetstreamBucket: "serviceradar_plugins"
     jetstreamReplicas: 3
 
+# Retention for ServiceRadar-owned artifacts in the datasvc object store
+# (mirrored agent releases and native add-on bundles).
+# Bumblebee (supply-chain compromise scanner) exposure catalog refresh. The
+# catalog is downloaded from the upstream threat-intel source, converted to the
+# scanner's schema and promoted for agents by a daily job on core. With this
+# off no agent ever receives a catalog, every scan fails on catalog load, and
+# a deployment upgraded from a release older than v1.4.53 keeps serving a
+# catalog the scanner cannot read (#439).
+bumblebeeCatalogRefresh:
+  enabled: true
+#
+# Leave this enabled. The object store stream is created DiscardNew with a
+# MaxBytes cap (datasvc.objectStoreBytes), so a full bucket does NOT evict old
+# artifacts to make room -- JetStream rejects every new upload with error 10077
+# "maximum bytes exceeded", and agent release imports fail until space is freed
+# by hand. This cron is the only thing that reclaims that space.
 objectStoreRetention:
   enabled: true
   dryRun: false
@@ -1658,6 +1720,9 @@ trapd:
         port: 162
         targetPort: 162
         protocol: UDP
+# NetFlow/IPFIX collector. Independent of StarRocks: the collector publishes
+# to JetStream and EventWriter persists flows to CNPG hypertables when
+# analytics.starrocks.enabled is false.
 flowCollector:
   enabled: false
   replicaCount: 1
@@ -1996,6 +2061,13 @@ gatewayApi:
       - /v1/stream
       - /v1/camera-relay-sessions
       - /v1/field-survey
+      # Remote-access (SSH/desktop) and Proxmox console terminal streams are
+      # WebSocket upgrades served by web-ng. Without a streaming-route match
+      # they fall through to the generic route, whose BackendTrafficPolicy has
+      # no httpUpgrade websocket entry, and Envoy holds the handshake open
+      # indefinitely (browser stuck at "connecting", no backend hit).
+      - /v1/remote-access/sessions
+      - /v1/proxmox/console-sessions
     streamingTimeouts:
       request: 0s
       backendRequest: 0s
@@ -2088,6 +2160,135 @@ gatewayApi:
     streaming:
       requestTimeout: 0s
       maxStreamDuration: 0s
+
+# Topology persist/query target. dual writes AGE + Dgraph; read stays on AGE
+# until the migrator checksum is green. Override with GRAPH_BACKEND / GRAPH_READ.
+#
+# An empty backend follows the cluster: `dual` for the Dgraph this chart
+# provisions (it also mints the ACL credential and applies the schema), `age`
+# for an external endpoint, which is neither. Set it to dual explicitly to
+# write to an external cluster once you have given the chart its credential.
+graph:
+  backend: ""
+  read: age
+
+# Topology graph store. Enabled by default so `helm upgrade --install` is
+# black-box: Zero and Alpha come up, an ACL HMAC Secret is generated, TLS is
+# issued, then the schema Job applies the topology predicates. Set
+# dgraph.enabled=false and dgraph.external.host to reuse dgraph-ci or a
+# cluster already installed in this namespace.
+dgraph:
+  enabled: true
+  # When enabled=false, callers dial this instead of the in-chart Service.
+  # The chart does not provision that cluster, so an ACL credential for it must
+  # come from a Secret that already exists in the namespace. Leave
+  # credentialsSecret empty to dial without ACL credentials. A password is never
+  # a value here: graph.env renders into the Deployment spec. The in-chart
+  # cluster ignores these; its groot password is minted into the ACL Secret.
+  external:
+    host: ""
+    port: 9080
+    username: groot
+    credentialsSecret: ""
+    credentialsKey: password
+    # disable | require | verify-ca
+    tlsMode: disable
+    caSecret: ""
+    caKey: ca.crt
+  schema:
+    enabled: true
+  # Rebuild-from-evidence then AGE-vs-Dgraph checksum. A checksum failure
+  # fails the Helm hook and does not flip graph.read.
+  migrator:
+    enabled: true
+  image:
+    registry: registry.carverauto.dev
+    repository: mirror/dgraph/dgraph
+    tag: v25.4.0
+    pullPolicy: IfNotPresent
+  serviceAccount:
+    create: true
+    name: dgraph
+  ratel:
+    enabled: false
+  backups:
+    full:
+      enabled: false
+    incremental:
+      enabled: false
+  zero:
+    replicaCount: 1
+    # Zero's --replicas: Alphas per group, NOT the number of Zeros.
+    shardReplicaCount: 1
+    persistence:
+      enabled: true
+      size: 8Gi
+    securityContext:
+      enabled: true
+      fsGroup: 1001
+      runAsUser: 1001
+    resources:
+      requests:
+        cpu: 500m
+        memory: 512Mi
+      limits:
+        cpu: "2"
+        memory: 2Gi
+  alpha:
+    replicaCount: 1
+    persistence:
+      enabled: true
+      size: 16Gi
+    securityContext:
+      enabled: true
+      fsGroup: 1001
+      runAsUser: 1001
+    resources:
+      requests:
+        cpu: "1"
+        memory: 2Gi
+      limits:
+        cpu: "4"
+        memory: 8Gi
+    tls:
+      enabled: true
+      files: {}
+    configFile:
+      config.yaml: |
+        security:
+          whitelist: 0.0.0.0/0
+    livenessProbe:
+      enabled: false
+    readinessProbe:
+      enabled: false
+    customLivenessProbe:
+      httpGet:
+        path: /health?live=1
+        port: 8080
+        scheme: HTTPS
+      initialDelaySeconds: 15
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 6
+      successThreshold: 1
+    customReadinessProbe:
+      httpGet:
+        path: /health
+        port: 8080
+        scheme: HTTPS
+      initialDelaySeconds: 15
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 6
+      successThreshold: 1
+    acl:
+      enabled: true
+      file: {}
+    extraFlags: >-
+      --tls "ca-cert=/dgraph/tls/ca.crt; server-cert=/dgraph/tls/tls.crt;
+      server-key=/dgraph/tls/tls.key"
+      --acl "secret-file=/dgraph/acl/hmac_secret_file"
+
 networkPolicy:
   enabled: false
   podSelectorMatchAll: false
@@ -2152,6 +2353,16 @@ networkPolicy:
         port: 8081
       - protocol: TCP
         port: 8090
+      # Dgraph Zero Raft / HTTP and Alpha internal / gRPC. Required when
+      # Dgraph shares this namespace: serviceradar-egress selects every pod.
+      - protocol: TCP
+        port: 5080
+      - protocol: TCP
+        port: 6080
+      - protocol: TCP
+        port: 7080
+      - protocol: TCP
+        port: 9080
       - protocol: TCP
         port: 8222
       - protocol: TCP
@@ -2349,6 +2560,13 @@ remoteAccess:
           credentialTtlSeconds: 600
   ssh:
     enabled: false
+    # Browser-side remembered SSH private keys (the "remember key" checkbox in
+    # the SSH console, user-present key mode only). Keep this disabled unless
+    # operators explicitly accept the tradeoff: keys remain in page memory
+    # beyond the current console, readable by scripts with page access.
+    # Reloading or closing clears remembered keys.
+    browserKeyRemember:
+      enabled: false
   # Target-scoped account-to-principal authorization policy. This is internal
   # authorization data, so the chart accepts only an operator-created Secret
   # reference and never renders policy content from values.
@@ -2427,6 +2645,129 @@ sweep:
 # =============================================================================
 # SPIFFE Configuration (shared by all Elixir components)
 # =============================================================================
+
+# Optional telemetry warehouse for flows, scalar metrics, logs and events.
+# Disabled means every dataset is written to CNPG hypertables, and metrics, logs
+# and events are also read from them. Flow READS are warehouse-only: until
+# `flows` is listed in cutoverDatasets, the NetFlow dashboard and `in:flows` are
+# refused with a warehouse-required error instead of falling back to CNPG, which
+# stays the flow write target only.
+# flowCollector is gated independently. Empty shadowDatasets means all four
+# datasets. Cutover stays empty until a dataset is explicitly listed. Lab
+# clusters run the shared-nothing profile from k8s/starrocks/, not this chart.
+analytics:
+  starrocks:
+    enabled: false
+    # sharedNothing (durable BE disks) or sharedData (object storage + CN cache).
+    # sharedData requires objectStorageBucket + secretName; that bucket is the
+    # analytics object store (DuckDB/StarRocks), never the CNPG Barman destination.
+    profile: sharedNothing
+    operatorChartVersion: "1.11.7"
+    imageTag: "3.5.21"
+    # The warehouse database core and web read, load and retain through. The
+    # chart does not create the schema: every file under priv/starrocks pins
+    # the name `serviceradar`, so changing this requires rewriting the DDL to
+    # match before applying it; k8s/starrocks/README.md carries the exact
+    # command and the list of files a fresh warehouse needs.
+    database: serviceradar
+    # Telemetry retention in days, per dataset. The warehouse tables are
+    # partitioned by day, so each value is the number of daily partitions
+    # StarRocks keeps; anything older is dropped. Flows and metrics mirror the
+    # 90-day CNPG raw policy; logs and event history carry the hosted one-year
+    # retention. Re-applied on every core rollout, so changing it here is
+    # enough. A warehouse created before partitioning is rebuilt onto daily
+    # partitions by core at startup, online; retention applies once that is done.
+    retentionDays:
+      flows: 90
+      metrics: 90
+      logs: 365
+      events: 365
+    # How far an hourly materialized view may lag its own source table before
+    # readers stop trusting it and compile from the raw warehouse tables
+    # instead. The views are REFRESH ASYNC with no schedule, so this is the
+    # operator's tolerance for short counts, not a refresh interval. Lowering
+    # it trades chart latency for accuracy; readers never fall back to CNPG.
+    # Lag is measured in whole hours, because a view buckets by
+    # date_trunc('hour', ...) and the source mark is floored to match: the
+    # default tolerates a view up to two hours behind, and 3600 one hour.
+    # 0 is the strictest setting available -- it is honoured literally rather
+    # than read as "unset" -- and means no whole hour of lag: the view holds a
+    # bucket for the hour the newest raw row falls in. It does not mean that
+    # bucket is complete, so the newest point of an hourly chart can still be
+    # partial.
+    rollupStaleAfterSeconds: 7200
+    # How long the freshness gate may reuse a high-water mark before probing
+    # the warehouse again. This is a round-trip saving, not part of the
+    # staleness contract: the several rollup-eligible queries of one dashboard
+    # render share a pair of MAX(...) probes instead of each paying its own.
+    # The cost is symmetric -- a view that goes stale keeps being served for up
+    # to this long, and one that catches up keeps paying the raw scan for up to
+    # this long -- which is small against the whole hours the marks are
+    # compared on. 0 is honoured literally and disables reuse: every query
+    # probes. A failed probe is never cached.
+    rollupCacheTtlSeconds: 60
+    fe:
+      service: lab-fe-service.starrocks.svc
+      queryPort: 9030
+      httpPort: 8030
+    sharedData:
+      objectStorageBucket: ""
+      objectStorageEndpoint: ""
+      objectStorageRegion: ""
+      objectStoragePrefix: starrocks
+      urlStyle: path
+      # Opaque secret with access_key_id / secret_access_key. Demo uses
+      # serviceradar-analytics-object-store (same keys as DuckDB). Not
+      # cnpg-backup-s3-creds (Barman / SeaweedFS).
+      secretName: ""
+      accessKeyKey: access_key_id
+      secretKeyKey: secret_access_key
+    streamLoad:
+      maxRows: 50000
+      maxBytes: 33554432
+      maxAgeMs: 2000
+      maxInFlight: 4
+    # Shadow writes are opt-in per dataset. Cutover stays empty until
+    # coverage inventory + synthetic shadow parity pass. Current alert
+    # state is never listed here.
+    shadowDatasets: []
+    cutoverDatasets: []
+    # JDBC catalog onto CNPG current-state tables for attribution/enrichment
+    # joins. Default chart stays off; values-demo.yaml enables it.
+    catalog:
+      enabled: false
+      name: cnpg_platform
+      driverClass: org.postgresql.Driver
+      driverUrl: "file:///opt/starrocks/jdbc/postgresql.jar"
+      # Core migration 20260918120000 creates this role NOLOGIN with its
+      # complete grant set. CNPG owns login + password from readerPasswordSecret
+      # below, rendered into the cluster's managed.roles only while the catalog
+      # is enabled, so on a deployment that never turns it on the role cannot
+      # connect at all.
+      user: serviceradar_starrocks_reader
+      # Secret with `username` and `password` keys for the reader role above.
+      # Empty means "serviceradar-starrocks-reader". With secrets.autoGenerate
+      # (the default) the secret generator creates it when it is missing and
+      # never rotates it; CNPG sets the role's password from it and the catalog
+      # Job puts the same value into CREATE EXTERNAL CATALOG. With autoGenerate
+      # off, create this Secret yourself before enabling the catalog.
+      readerPasswordSecret: ""
+      # Optional override: a Secret with key createSql holding the complete
+      # CREATE EXTERNAL CATALOG statement. Leave empty and the catalog Job
+      # builds the statement from the settings here and the reader Secret.
+      secretName: ""
+      # JDBC URI the catalog connects to. Lab FE/BE run in namespace starrocks,
+      # so the host must be reachable from there (cnpg-rw.<cnpg-ns>.svc), not
+      # the same-namespace short name.
+      jdbcUri: "jdbc:postgresql://cnpg-rw:5432/serviceradar?ssl=true&sslmode=require"
+      # Namespace that hosts the StarRocksCluster FE/BE (lab: starrocks).
+      sourceNamespace: starrocks
+      # Secret holding the StarRocks Frontend password. Both provisioning Jobs
+      # and the application (Stream Load + the MyXQL reader) authenticate as
+      # that same `root` account, so this is the single source of truth for it.
+      # Leave empty for a passwordless Frontend.
+      fePasswordSecretName: ""
+      fePasswordSecretKey: password
 
 spiffe:
   mode: "filesystem"

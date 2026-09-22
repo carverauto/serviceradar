@@ -1206,9 +1206,13 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
   defp postgres_error_summary(error), do: inspect(error)
 
   defp mark_platform_migration_applied!(version) when is_integer(version) do
+    # Self-repair must mark the ledger read by `next_pending_migration_version/1` to converge;
+    # see SchemaBootstrap.migration_ledger_table/1 for the ledger selection contract.
+    ledger = SchemaBootstrap.migration_ledger_table(ServiceRadar.Repo)
+
     ServiceRadar.Repo.query!(
       """
-      INSERT INTO platform.schema_migrations (version, inserted_at)
+      INSERT INTO #{ledger} (version, inserted_at)
       VALUES ($1, NOW())
       ON CONFLICT (version) DO NOTHING
       """,

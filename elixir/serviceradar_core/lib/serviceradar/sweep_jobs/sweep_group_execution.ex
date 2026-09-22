@@ -44,6 +44,14 @@ defmodule ServiceRadar.SweepJobs.SweepGroupExecution do
     repo ServiceRadar.Repo
     schema "platform"
 
+    # An execution describes one run of one group and is meaningless once that
+    # group is gone, so deleting the group takes its executions with it. Without
+    # this the foreign key defaults to NO ACTION and a single execution row makes
+    # its sweep group undeletable.
+    references do
+      reference :sweep_group, on_delete: :delete
+    end
+
     custom_indexes do
       index [:sweep_group_id, :started_at],
         name: "sweep_group_executions_group_started_idx"

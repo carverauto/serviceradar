@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.AsnLookup do
 
   import ServiceRadarWebNGWeb.NetflowLive.Visualize.Params, only: [normalize_optional_string: 1]
 
+  alias ServiceRadar.HTTP.EgressClient
   alias ServiceRadarWebNGWeb.NetflowLive.Visualize.AsnLookup.Cache
 
   def fetch_arin_asn(asn) when is_integer(asn) and asn > 0 do
@@ -64,7 +65,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.AsnLookup do
   def fetch_arin_asn_remote(asn) when is_integer(asn) and asn > 0 do
     url = "https://whois.arin.net/rest/asn/AS#{asn}.json"
 
-    case Req.get(url, http_req_opts()) do
+    case http_get(url) do
       {:ok, %Req.Response{status: 200, body: %{"asn" => asn_payload}}} when is_map(asn_payload) ->
         {:ok, normalize_arin_asn(asn_payload)}
 
@@ -86,7 +87,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.AsnLookup do
   def fetch_ripe_asn(asn) when is_integer(asn) and asn > 0 do
     url = "https://stat.ripe.net/data/whois/data.json?resource=AS#{asn}"
 
-    case Req.get(url, http_req_opts()) do
+    case http_get(url) do
       {:ok, %Req.Response{status: 200, body: %{"data" => %{"records" => records}}}}
       when is_list(records) ->
         case normalize_ripe_asn(asn, records) do
@@ -109,13 +110,15 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.AsnLookup do
 
   def fetch_ripe_asn(_), do: {:error, :invalid_asn}
 
-  def http_req_opts do
-    opts = [receive_timeout: 8_000, retry: false, headers: [{"accept", "application/json"}]]
+  # EgressClient, not the shared Finch pool: the pool cannot tunnel through
+  # SERVICERADAR_EGRESS_PROXY. Decodes a 200 body; other statuses pass through.
+  defp http_get(url) do
+    opts = [receive_timeout: 8_000, headers: [{"accept", "application/json"}]]
 
-    if Process.whereis(ServiceRadar.Finch) do
-      Keyword.put(opts, :finch, ServiceRadar.Finch)
-    else
-      opts
+    with {:ok, %Req.Response{status: 200, body: body} = response} <-
+           EgressClient.fetch_body(url, opts),
+         {:ok, decoded} <- Jason.decode(body) do
+      {:ok, %{response | body: decoded}}
     end
   end
 

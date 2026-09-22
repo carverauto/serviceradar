@@ -19,10 +19,14 @@ package agent
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -79,6 +83,11 @@ const (
 
 var errPluginHTTPTooManyRedirects = errors.New("stopped after 10 redirects")
 
+var (
+	errPluginHostAuthorityNoPeerCertificate   = errors.New("server presented no certificate")
+	errPluginHostAuthorityFingerprintMismatch = errors.New("server certificate fingerprint does not match pinned fingerprint")
+)
+
 // The insecure transport cache preserves connection reuse for the explicit
 // plugin-level insecure TLS opt-in while keeping base client transports immutable.
 //
@@ -86,6 +95,9 @@ var errPluginHTTPTooManyRedirects = errors.New("stopped after 10 redirects")
 var (
 	pluginHTTPInsecureTransportMu    sync.Mutex
 	pluginHTTPInsecureTransportCache = map[*http.Transport]*http.Transport{}
+
+	pluginHTTPPinnedTransportMu    sync.Mutex
+	pluginHTTPPinnedTransportCache = map[pluginHTTPPinnedTransportKey]*http.Transport{}
 )
 
 func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, reqPtr, reqLen, respPtr, respLen uint32) int32 {
@@ -210,7 +222,12 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 		return pluginErrDenied
 	}
 
-	httpClient := pluginHTTPClient(e.manager.httpClient, payload.InsecureSkipVerify, timeout)
+	httpClient := pluginHTTPClientForBinding(
+		e.manager.httpClient,
+		payload.InsecureSkipVerify,
+		timeout,
+		proxmoxBinding,
+	)
 	configurePluginHTTPRedirects(httpClient, grant, reqURL, &e.assignment.Permissions)
 	if hostCredentialBound {
 		// Host-retained credentials are authorized for this one canonical
@@ -723,4 +740,153 @@ func flattenHeaders(headers http.Header) map[string]string {
 		flat[key] = strings.Join(values, ",")
 	}
 	return flat
+}
+
+type pluginHTTPPinnedTransportKey struct {
+	base        *http.Transport
+	bundle      string
+	fingerprint string
+}
+
+// pluginHTTPClientWithPinnedRoots returns a client that verifies against the
+// binding's own trust material and nothing else. Replacing the roots rather
+// than adding to them is the point: a rule that pins a private CA is asking for
+// that anchor, and keeping the public roots would still accept any
+// publicly-trusted certificate for the same origin.
+//
+// A bundle that does not parse yields the client unchanged, so verification
+// falls back to the system pool and fails closed at handshake rather than
+// silently trusting nothing. The control plane rejects unparseable material at
+// save time, so reaching that branch means the binding was tampered with in
+// transit.
+// pluginHTTPClientForBinding applies the binding's own trust material when it
+// carries any, so hostHTTPRequest states the intent once rather than branching
+// on it inline.
+func pluginHTTPClientForBinding(
+	base *http.Client,
+	insecureSkipVerify bool,
+	timeout time.Duration,
+	binding *pluginHostAuthorityBinding,
+) *http.Client {
+	client := pluginHTTPClient(base, insecureSkipVerify, timeout)
+	if binding == nil {
+		return client
+	}
+	if binding.caBundlePEM != "" {
+		return pluginHTTPClientWithPinnedRoots(client, binding.caBundlePEM)
+	}
+	if binding.serverCertFingerprint != "" {
+		return pluginHTTPClientWithPinnedFingerprint(client, binding.serverCertFingerprint)
+	}
+
+	return client
+}
+
+func pluginHTTPClientWithPinnedFingerprint(client *http.Client, fingerprint string) *http.Client {
+	if client == nil || fingerprint == "" {
+		return client
+	}
+
+	cloned := *client
+	cloned.Transport = pluginHTTPPinnedFingerprintTransport(cloned.Transport, fingerprint)
+	return &cloned
+}
+
+func pluginHTTPPinnedFingerprintTransport(transport http.RoundTripper, fingerprint string) http.RoundTripper {
+	return pluginHTTPPinnedTransport(
+		transport,
+		pluginHTTPPinnedTransportKey{fingerprint: fingerprint},
+		func(tlsConfig *tls.Config) {
+			// Chain building and hostname matching cannot succeed without an
+			// anchor; VerifyPeerCertificate is the whole verification here and
+			// accepts exactly one leaf.
+			tlsConfig.InsecureSkipVerify = true
+			tlsConfig.VerifyPeerCertificate = func(rawCerts [][]byte, _ [][]*x509.Certificate) error {
+				return matchPluginHostAuthorityFingerprint(rawCerts, fingerprint)
+			}
+		},
+	)
+}
+
+func matchPluginHostAuthorityFingerprint(rawCerts [][]byte, expected string) error {
+	if len(rawCerts) == 0 {
+		return errPluginHostAuthorityNoPeerCertificate
+	}
+
+	sum := sha256.Sum256(rawCerts[0])
+	got := "sha256:" + hex.EncodeToString(sum[:])
+	if got != expected {
+		return fmt.Errorf("%w: got %s want %s", errPluginHostAuthorityFingerprintMismatch, got, expected)
+	}
+	return nil
+}
+
+func pluginHTTPClientWithPinnedRoots(client *http.Client, bundle string) *http.Client {
+	pool := pluginHostAuthorityCertPool(bundle)
+	if pool == nil {
+		return client
+	}
+
+	cloned := *client
+	cloned.Transport = pluginHTTPPinnedRootsTransport(cloned.Transport, bundle, pool)
+
+	return &cloned
+}
+
+func pluginHTTPPinnedRootsTransport(
+	transport http.RoundTripper,
+	bundle string,
+	pool *x509.CertPool,
+) http.RoundTripper {
+	return pluginHTTPPinnedTransport(
+		transport,
+		pluginHTTPPinnedTransportKey{bundle: bundle},
+		func(tlsConfig *tls.Config) { tlsConfig.RootCAs = pool },
+	)
+}
+
+// pluginHTTPPinnedTransport returns a transport whose TLS config is the base
+// transport's with the binding's pinning applied. Results are memoized on the
+// base transport plus the pinned material so a binding keeps one connection
+// pool across requests instead of handshaking anew for every call and leaking
+// an idle connection per discarded transport. `key.base` is filled in here;
+// callers supply only the material that distinguishes their pinning.
+func pluginHTTPPinnedTransport(
+	transport http.RoundTripper,
+	key pluginHTTPPinnedTransportKey,
+	pin func(*tls.Config),
+) http.RoundTripper {
+	baseTransport, ok := transport.(*http.Transport)
+	if transport != nil && (!ok || baseTransport == nil) {
+		// A custom transport owns its own TLS and denial policy; replacing it
+		// would bypass wrappers such as the fail-closed transport installed
+		// when configured CA roots cannot load.
+		return transport
+	}
+	if baseTransport == nil {
+		baseTransport, ok = http.DefaultTransport.(*http.Transport)
+		if !ok || baseTransport == nil {
+			baseTransport = &http.Transport{}
+		}
+	}
+
+	key.base = baseTransport
+
+	pluginHTTPPinnedTransportMu.Lock()
+	defer pluginHTTPPinnedTransportMu.Unlock()
+
+	if cached := pluginHTTPPinnedTransportCache[key]; cached != nil {
+		return cached
+	}
+
+	httpTransport := baseTransport.Clone()
+	if httpTransport.TLSClientConfig != nil {
+		httpTransport.TLSClientConfig = httpTransport.TLSClientConfig.Clone()
+	} else {
+		httpTransport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	}
+	pin(httpTransport.TLSClientConfig)
+	pluginHTTPPinnedTransportCache[key] = httpTransport
+
+	return httpTransport
 }

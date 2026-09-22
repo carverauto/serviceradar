@@ -1,17 +1,24 @@
 defmodule ServiceRadarWebNGWeb.InterfaceLive.MetricsQuery do
   @moduledoc false
 
+  alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Query
   alias ServiceRadarWebNGWeb.InterfaceLive.SnmpMetricNames
 
   @counter_window "last_24h"
-  @counter_bucket "1m"
+
+  # The row limit is a guard, not a page size, so it is sized for the finest
+  # bucket a caller may ask for (1m over a day) rather than for the default.
   @buckets_per_window 24 * 60
   @minimum_limit 3_600
 
   def build_snmp_counter_query(device_uid, if_index, metric_names, opts \\ []) do
     names = normalize_metric_names(metric_names)
     time_range = Keyword.get(opts, :time_range, @counter_window)
-    bucket = Keyword.get(opts, :bucket, @counter_bucket)
+    # A chart a few hundred pixels wide cannot draw a day of 1m buckets: that is
+    # 1,440 points a series, most of them landing on a pixel already taken. The
+    # window picks the bucket instead, as the sysmon charts do. agg:rate averages
+    # the per-sample rates inside a bucket, so a coarser one stays a true rate.
+    bucket = Keyword.get(opts, :bucket) || Query.bucket_for_time_range(time_range)
     limit = Keyword.get(opts, :limit, row_limit(names))
 
     [

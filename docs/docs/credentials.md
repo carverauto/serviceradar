@@ -56,6 +56,14 @@ the default) or an `external_reference` (ServiceRadar holds a pointer into an
 external secret provider and resolves it at use time). Both look the same to a
 rule.
 
+This external-reference foundation does not imply Delinea support or public
+provider/reference CRUD. The broker includes OpenBao and a Vault alias; Delinea
+remains an unimplemented adapter placeholder. The current Terraform and public
+credential creation surface accepts internal encrypted material only. Consumer
+migration and UI/API coverage remain partial. See
+[Declarative environments](./declarative-environments.md#future-delinea-secret-server-integration)
+for the proposed runtime integration and the separate runner credential handoff.
+
 Not every provider takes a rule. A provider's descriptor declares
 `supports_rules`, and three of the providers on this page are credential-only:
 
@@ -66,6 +74,18 @@ Not every provider takes a rule. A provider's descriptor declares
 | AWX / AAP | No | **Settings -> Ansible -> Controllers**, per controller and purpose |
 | VulnCheck | No | **Settings -> Security -> Vulnerability Feeds**, per feed |
 | SNMP | No | **Settings -> SNMP Profiles**, per profile or target |
+
+## Broker grant logs and history
+
+Routine broker grant transitions (`issue`, `activate`, and `consume`) produce
+debug logs only; they do not create new `ocsf_events` rows or appear as new
+events in the observability UI. Enable debug logging when diagnosing these
+transitions. Denial, revocation, and expiry continue to produce OCSF events.
+
+Grant history remains recorded separately through AshPaperTrail in
+`credential_broker_grant_versions`. This change does not remove previously
+stored events. The `credential_resolution_audit_success_events` setting controls
+secret-resolution events, not broker grant lifecycle logging.
 
 ## Providers come from packages, not from the UI
 
@@ -288,9 +308,9 @@ Three properties of that client decide every question below:
 
 Restart the agent after changing the bundle.
 
-:::caution Not in 1.4.46
-**`ca_bundle_pem` and `server_cert_fingerprint` on a credential rule.** Merged
-work adds two optional, mutually exclusive columns to a rule:
+:::caution Not in 1.4.49
+**`ca_bundle_pem` and `server_cert_fingerprint` on a credential rule.** A rule
+carries two optional, mutually exclusive columns:
 
 - `ca_bundle_pem` -- a PEM chain, rejected at save time if it does not parse as
   unencrypted `CERTIFICATE` blocks or if any certificate in it has expired.
@@ -303,17 +323,25 @@ are stored in the clear: a CA certificate and a fingerprint are trust anchors,
 not authenticators, so an operator can read back what a rule trusts and the
 values never go through the credential broker.
 
-Scope of what has landed, stated precisely so nobody plans against more than
-exists: the change adds the rule columns, their validation, the migration, and
-permission for a manifest params template to reference them as
-`$source: rule, field: ca_bundle_pem` / `field: server_cert_fingerprint`. It does
-**not** add a form control on the Credential Rules page, no shipped plugin
-manifest references either field yet, and the agent's plugin HTTP client does not
-read them. Setting one on a rule therefore records an intent; it does not by
-itself change what the agent trusts. Until a manifest and the agent transport
-consume them, use `plugin_http_trusted_ca_files` above.
+The Credential Rules form renders both fields wherever a provider declares
+transport controls. The Proxmox manifest passes the selected trust material as
+`$source: rule` into the agent's host-authority binding. Unlike
+`plugin_http_trusted_ca_files` above, a rule's trust material **replaces** the
+system trust store for that rule's destinations rather than widening it: a rule
+pinning a private CA is asking for that anchor, and keeping the public roots
+would still accept any publicly-trusted certificate for the same origin. The
+bundle or fingerprint never reaches the Wasm guest. A bundle retains normal
+certificate-chain and hostname verification; a fingerprint instead accepts only
+the exact leaf certificate whose SHA-256 digest matches the pin, without chain,
+hostname, or expiry verification.
 
-First release containing the columns: `<first-release>`.
+Proxmox is the case that forced this. Inventory enrichment mandates `verify`, the
+controller origin is always an IP literal, and a binding carrying
+`insecure_skip_verify` is rejected outright. Pinning the cluster CA allows normal
+TLS verification against that private CA. See the Proxmox provider section for the
+procedure.
+
+First release containing these: `<first-release>`.
 :::
 
 ### Allowed ports
@@ -384,6 +412,45 @@ Each rule row on the table offers:
   including the plugin ID, the policy ID, the interval, and the timeout. Secret
   references are shown as references; secret material is never resolved or
   displayed here.
+
+## Managing credentials from the API
+
+Credential secrets, rules, and AWX/AAP controller registrations can be managed
+through the authenticated admin API. See the instance's `/api/admin/openapi`
+for resource paths and methods, and the
+[CLI playbook guide](https://github.com/carverauto/serviceradar/blob/staging/js/cli/README.md#plugin-configuration-playbooks)
+for repeatable apply usage.
+
+Secret creation requires `name`, `provider`, `auth_method`, and a `values` map
+whose keys match the provider's credential descriptor. Secret updates edit
+`name` and `description`; rotation accepts a new `values` map for the existing
+credential type. Responses omit secret payloads and ciphertext.
+
+Rule create/update accepts TLS policy, `ca_bundle_pem`,
+`server_cert_fingerprint`, allowed ports, and `metadata`. Put controller hosts
+in `metadata.host` and plugin settings in `metadata.plugin_config`; the API
+does not accept top-level convenience fields for these. A supplied `metadata`
+map replaces the previous map, so merge existing keys before PATCHing it.
+Explicit JSON `null` clears `ca_bundle_pem` or `server_cert_fingerprint`;
+omitting them preserves their values.
+
+AWX/AAP controller creation requires `name`, `base_url`, `agent_id`, and
+`sync_credential_secret_id`. Optional execution and callback bindings use
+`execution_credential_secret_id` and `callback_credential_secret_id`; PATCH
+with JSON `null` clears either optional binding. Tokens are never echoed back.
+
+Assignment responses include `plugin_id` for identity matching. Assignment
+PATCH accepts `plugin_package_id` to select an approved package version.
+
+CLI device-code tokens request `plugins.manage` for these calls
+(`serviceradar-cli auth login --scope plugins.manage`). Existing authorization
+policies are preserved on upgrade: an administrator must add `plugins.manage`
+to the allowed scopes in **Settings -> CLI authentication**
+(`/settings/cli-auth`) before login can request it. New policy rows include it
+by default. The scope permits configuration calls and plugin/package reads;
+each endpoint still checks RBAC: `settings.credentials.manage` for secrets and
+rules, `ansible.controllers.manage` for controllers, `plugins.view` for plugin
+reads, and `plugins.assign` for assignment writes.
 
 ## Provider setup
 
@@ -640,32 +707,18 @@ there is no plugin package and no rule.
    (`/settings/security/vulnerability-feeds`) -> pick the credential in the feed's
    credential select.
 
-On 1.4.49 the credential reference is the *primary* source, not the only one.
-When no VulnCheck-backed feed row carries one, core falls back to the
-`VULNCHECK_API_TOKEN` environment variable, then to
-`SERVICERADAR_VULNCHECK_TOKEN`, then to the `:vulncheck_token` application
-setting. A deployment that sets one of those keeps working with the feed's
-credential select left empty.
+The feed row's `credential_ref` is the only source. There is no environment or
+application-config fallback: `VULNCHECK_API_TOKEN`, `SERVICERADAR_VULNCHECK_TOKEN`,
+and `:vulncheck_token` are unread. A feed with no credential reference fails with
+a message naming both halves of the job -- create a `vulncheck` API token
+credential at `/settings/networks/credentials`, then select it on the
+`vulncheck-kev` or `nist-nvd2` row at `/settings/security/vulnerability-feeds`.
+The message is recorded, inside the inspected error tuple, in the feed row's
+`last_error`, and core logs the same warning at boot.
 
-:::caution Not in 1.4.49
-**The environment fallback is removed.** Merged work deletes all three fallbacks
-from `ServiceRadar.Inventory.AdvisoryFeeds.Config.vulncheck_token/1`, leaving a
-VulnCheck-backed feed row's `credential_ref` as the only source. A feed with no
-credential reference then fails with a message naming both halves of the job --
-create a `vulncheck` API token credential at `/settings/networks/credentials`,
-then select it on the `vulncheck-kev` or `nist-nvd2` row at
-`/settings/security/vulnerability-feeds` -- rather than silently reading a token
-from the process environment. The message is recorded, inside the inspected
-error tuple, in the feed row's
-`last_error`.
-
-Attach the credential *before* upgrading if a deployment relies on the
-environment variable today: after the upgrade the variable is read by nothing,
-and the feed fails until a credential is selected. The Compose stack no longer
-passes `VULNCHECK_API_TOKEN` for the same reason.
-
-First release containing the removal: `<first-release>`.
-:::
+Attach the credential *before* upgrading a deployment that still relied on the
+old environment variables: after the upgrade those variables are read by nothing,
+and the feed fails until a credential is selected.
 
 ### SNMP
 
@@ -763,12 +816,11 @@ save. It is merged but unreleased.
 First release containing it: `<first-release>`.
 :::
 
-**Until then.** There is no way to save a UniFi Protect or Axis rule from the
-Credential Rules form on 1.4.49 or earlier, and no supported workaround: the
-Credential Rules page is the only route to the resource (there is no REST or
-GraphQL endpoint for `network_credential_rules`), nothing about the rule you are
-entering is wrong, and no combination of fields makes the save succeed, because
-the form cannot submit a value the validator demands. Wait for the release.
+**On affected older versions.** The Credential Rules form cannot save a UniFi
+Protect or Axis rule because it cannot submit the required policy. Releases
+with the [credential admin API](#managing-credentials-from-the-api) allow the
+rule to be created with an explicit TLS policy through that API. Earlier
+releases without this API require an upgrade.
 
 ### "AWX configuration invalid: api_token is required (resolved from credential broker grant)"
 

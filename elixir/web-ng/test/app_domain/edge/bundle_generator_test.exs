@@ -387,7 +387,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
         end)
 
       assert install_sh =~
-               "/usr/local/bin/serviceradar-cli enroll --core-url 'https://demo.serviceradar.cloud' --token '"
+               "/usr/local/bin/srctl enroll --core-url 'https://demo.serviceradar.cloud' --token '"
     end
 
     test "agent install script treats tokenized values as shell literals", %{
@@ -413,10 +413,34 @@ defmodule ServiceRadarWebNG.Edge.BundleGeneratorTest do
         end)
 
       assert install_sh =~
-               "/usr/local/bin/serviceradar-cli enroll --core-url 'https://demo.serviceradar.cloud/$(touch /tmp/pwned)'"
+               "/usr/local/bin/srctl enroll --core-url 'https://demo.serviceradar.cloud/$(touch /tmp/pwned)'"
 
       refute install_sh =~
-               "/usr/local/bin/serviceradar-cli enroll --core-url \"https://demo.serviceradar.cloud/$(touch /tmp/pwned)\""
+               "/usr/local/bin/srctl enroll --core-url \"https://demo.serviceradar.cloud/$(touch /tmp/pwned)\""
+    end
+  end
+
+  describe "windows_agent_enroll_command/2" do
+    test "runs the MSI-installed srctl.exe with PowerShell literals" do
+      command =
+        BundleGenerator.windows_agent_enroll_command(
+          "edgepkg-v3:synthetic",
+          "https://demo.serviceradar.cloud"
+        )
+
+      assert command =~
+               ~s(& "$env:ProgramFiles\\ServiceRadar\\srctl.exe" enroll --core-url 'https://demo.serviceradar.cloud' --token 'edgepkg-v3:synthetic')
+    end
+
+    test "keeps hostile values literal" do
+      command =
+        BundleGenerator.windows_agent_enroll_command(
+          "edgepkg-v3:x'; Remove-Item C:\\ -Recurse; '",
+          "https://demo.serviceradar.cloud/$(whoami)"
+        )
+
+      assert command =~ "--core-url 'https://demo.serviceradar.cloud/$(whoami)'"
+      assert command =~ "--token 'edgepkg-v3:x''; Remove-Item C:\\ -Recurse; '''"
     end
   end
 

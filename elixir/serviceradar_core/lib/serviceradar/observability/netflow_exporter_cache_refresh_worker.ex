@@ -17,6 +17,7 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
   import Ecto.Query, only: [from: 2]
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Analytics.StarRocks.Env
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Observability
@@ -52,7 +53,7 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
   defp check_existing_job do
     query =
       from(j in Oban.Job,
-        where: j.worker == ^to_string(__MODULE__),
+        where: j.worker == ^Oban.Worker.to_string(__MODULE__),
         where: j.state in ["available", "scheduled", "executing", "retryable"],
         limit: 1
       )
@@ -70,8 +71,36 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
     actor = SystemActor.system(:netflow_exporter_cache_refresh)
     now = DateTime.utc_now()
 
-    sampler_addresses = discover_sampler_addresses(scan_window_seconds, limit)
+    case discover_sampler_addresses(scan_window_seconds, limit) do
+      {:ok, sampler_addresses} ->
+        refresh_cache(sampler_addresses, actor, now, reschedule_seconds)
 
+      # Flows are warehouse-only. Until they are cut over there is nothing to
+      # discover, which is a configured state rather than a job failure -- but
+      # it stops the cache being refreshed, so it is said out loud instead of
+      # looking like an empty warehouse.
+      {:error, :starrocks_required} ->
+        Logger.info(
+          "NetflowExporterCacheRefreshWorker: flows are not cut over to StarRocks; " <>
+            "exporter cache left unchanged"
+        )
+
+        ObanSupport.safe_insert(new(%{}, schedule_in: max(reschedule_seconds, 300)))
+        :ok
+
+      # An unreachable Frontend is not an empty warehouse. Degrading it to no
+      # samplers left the cache stale forever while every run reported success,
+      # so the error is returned and Oban retries the job.
+      {:error, reason} ->
+        Logger.warning("NetflowExporterCacheRefreshWorker: sampler discovery failed",
+          reason: inspect(reason)
+        )
+
+        {:error, reason}
+    end
+  end
+
+  defp refresh_cache(sampler_addresses, actor, now, reschedule_seconds) do
     devices_by_ip = load_devices_by_ip(sampler_addresses, actor)
 
     attrs =
@@ -137,34 +166,60 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
   defp positive_integer_or(value, _default) when is_integer(value) and value > 0, do: value
   defp positive_integer_or(_value, default), do: default
 
-  defp discover_sampler_addresses(scan_window_seconds, limit)
-       when is_integer(scan_window_seconds) and scan_window_seconds > 0 and is_integer(limit) and
-              limit > 0 do
+  @doc false
+  def discover_sampler_addresses(scan_window_seconds, limit, opts \\ [])
+
+  def discover_sampler_addresses(scan_window_seconds, limit, opts)
+      when is_integer(scan_window_seconds) and scan_window_seconds > 0 and is_integer(limit) and
+             limit > 0 do
     since =
       DateTime.utc_now()
       |> DateTime.add(-scan_window_seconds, :second)
       |> DateTime.truncate(:second)
 
-    query =
-      from(f in "ocsf_network_activity",
-        prefix: "platform",
-        where: f.time >= ^since,
-        where: not is_nil(f.sampler_address),
-        where: f.sampler_address != "",
-        distinct: true,
-        select: f.sampler_address,
-        limit: ^limit
-      )
-
-    query
-    |> Repo.all()
-    |> Enum.map(&to_string/1)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.uniq()
+    # Flows live in the warehouse or nowhere: an installation that has not cut
+    # them over gets the routing error, never a CNPG answer.
+    case ServiceRadar.Analytics.StarRocks.Readers.mode_for(:flows) do
+      "starrocks" -> starrocks_sampler_addresses(since, limit, opts)
+      {:error, _reason} = error -> error
+    end
   end
 
-  defp discover_sampler_addresses(_scan_window_seconds, _limit), do: []
+  def discover_sampler_addresses(_scan_window_seconds, _limit, _opts), do: {:ok, []}
+
+  defp starrocks_sampler_addresses(since, limit, opts) do
+    iso = DateTime.to_iso8601(since)
+
+    sql =
+      "SELECT DISTINCT sampler_address FROM #{Env.table("ocsf_network_activity")} " <>
+        "WHERE sampler_address IS NOT NULL AND sampler_address != '' " <>
+        "AND `time` >= '#{iso}' LIMIT #{limit}"
+
+    query = Keyword.get(opts, :query, &ServiceRadar.Analytics.StarRocks.Query.execute/1)
+
+    case query.(sql) do
+      {:ok, %{rows: rows}} ->
+        addresses =
+          rows
+          |> Enum.map(fn
+            [address | _] -> address
+            address when is_binary(address) -> address
+            _ -> nil
+          end)
+          |> Enum.map(&to_string/1)
+          |> Enum.map(&String.trim/1)
+          |> Enum.reject(&(&1 == ""))
+          |> Enum.uniq()
+
+        {:ok, addresses}
+
+      {:error, reason} ->
+        {:error, reason}
+
+      other ->
+        {:error, {:unexpected_result, other}}
+    end
+  end
 
   defp load_devices_by_ip([], _actor), do: %{}
 

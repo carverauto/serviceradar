@@ -11,6 +11,12 @@ defmodule ServiceRadar.Observability.AnomalyEpisodeStaleCloseWorker do
   run from the emission settings as twice the episode heartbeat interval
   (`episode_update_interval_secs`), floored at 30 minutes, so a single delayed
   heartbeat cannot stale-close a live episode.
+
+  `central_seasonal` episodes are refreshed by the hourly seasonal disposition
+  cron, not by an edge heartbeat, so they get their own window: at least
+  #{150} minutes (two missed runs plus queue delay) and never shorter than the
+  edge window. `:central_seasonal_episode_stale_after_minutes`
+  (`SERVICERADAR_CENTRAL_SEASONAL_STALE_AFTER_MINUTES`) overrides it.
   """
 
   use Oban.Worker, queue: :maintenance, max_attempts: 3
@@ -22,25 +28,34 @@ defmodule ServiceRadar.Observability.AnomalyEpisodeStaleCloseWorker do
   require Logger
 
   @default_stale_minutes 30
+  @default_central_seasonal_stale_minutes 150
+  @central_seasonal_detector "central_seasonal"
 
   @close_sql """
   UPDATE platform.anomaly_episodes
   SET
     status = 'stale_closed',
-    cleared_at = $2::timestamp(6),
+    cleared_at = $3::timestamp(6),
     clear_reason = 'stale',
     last_transition = 'stale',
     updated_at = (now() AT TIME ZONE 'utc')
   WHERE status = 'open'
-    AND last_seen_at < $1::timestamp(6)
+    AND (
+      (detector = '#{@central_seasonal_detector}' AND last_seen_at < $2::timestamp(6))
+      OR (
+        detector IS DISTINCT FROM '#{@central_seasonal_detector}'
+        AND last_seen_at < $1::timestamp(6)
+      )
+    )
   """
 
   @impl Oban.Worker
   def perform(_job) do
     now = now_naive()
     cutoff = NaiveDateTime.add(now, -stale_after_seconds(), :second)
+    central_cutoff = NaiveDateTime.add(now, -central_seasonal_stale_after_seconds(), :second)
 
-    case close_stale(cutoff, now) do
+    case close_stale(cutoff, central_cutoff, now) do
       {:ok, 0} ->
         :ok
 
@@ -54,10 +69,15 @@ defmodule ServiceRadar.Observability.AnomalyEpisodeStaleCloseWorker do
   end
 
   @doc false
-  @spec close_stale(NaiveDateTime.t(), NaiveDateTime.t(), module()) ::
+  @spec close_stale(NaiveDateTime.t(), NaiveDateTime.t(), NaiveDateTime.t(), module()) ::
           {:ok, non_neg_integer()} | {:error, term()}
-  def close_stale(%NaiveDateTime{} = cutoff, %NaiveDateTime{} = now, repo \\ Repo) do
-    case repo.query(@close_sql, [cutoff, now]) do
+  def close_stale(
+        %NaiveDateTime{} = cutoff,
+        %NaiveDateTime{} = central_cutoff,
+        %NaiveDateTime{} = now,
+        repo \\ Repo
+      ) do
+    case repo.query(@close_sql, [cutoff, central_cutoff, now]) do
       {:ok, %{num_rows: count}} when is_integer(count) -> {:ok, count}
       {:ok, other} -> {:error, {:unexpected_result, other}}
       {:error, reason} -> {:error, reason}
@@ -76,6 +96,18 @@ defmodule ServiceRadar.Observability.AnomalyEpisodeStaleCloseWorker do
     case minutes do
       value when is_integer(value) and value > 0 -> value * 60
       _ -> max(2 * heartbeat_interval_secs(config), @default_stale_minutes * 60)
+    end
+  end
+
+  @doc false
+  @spec central_seasonal_stale_after_seconds() :: pos_integer()
+  def central_seasonal_stale_after_seconds do
+    case Application.get_env(:serviceradar_core, :central_seasonal_episode_stale_after_minutes) do
+      value when is_integer(value) and value > 0 ->
+        value * 60
+
+      _ ->
+        max(@default_central_seasonal_stale_minutes * 60, stale_after_seconds())
     end
   end
 

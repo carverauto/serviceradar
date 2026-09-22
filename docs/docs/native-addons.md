@@ -108,9 +108,10 @@ agent release page. The base agent release catalog only rolls the `serviceradar-
 runtime. Add-on packages have their own package state, approval, version, artifact
 digest, and target assignment lifecycle.
 
-When first-party native add-on sync is enabled, ServiceRadar converges the newest
-signed release index into the package catalog. Verified first-party packages covered
-by deployment trust policy are approved automatically. Helm is not an add-on catalog
+When first-party native add-on sync is enabled, ServiceRadar imports signed release
+indexes using the shared [background catalog sync policy](./wasm-plugins.md#sync).
+Verified first-party packages covered by deployment trust policy are approved
+automatically. Helm is not an add-on catalog
 allowlist, and importing or approving a package does not immediately change any
 agent. Existing managed assignments and profiles track the newest approved compatible
 package through a health-gated rollout. Explicit pins and non-first-party packages
@@ -247,7 +248,21 @@ the agent runtime root. The default layout is:
       serviceradar-workload-identity.service
       workload-identity.json
     current -> versions/0.1.2
+  anomaly/
+    versions/0.3.11/
+      serviceradar-anomaly-addon
+    current -> versions/0.3.11
+    state/
+      checkpoint.json
 ```
+
+`state/` is the add-on's persistent state directory. The agent creates it (mode
+`0700`, owned by the agent user the sidecar also runs as) before every spawn and
+passes its path to the process as `SERVICERADAR_ADDON_STATE_DIR`. It sits beside
+`versions/` and `current`, so flipping `current` for an upgrade or rollback never
+touches it, and it is the place an add-on keeps anything that must outlive its own
+restarts. The anomaly add-on writes its re-warm checkpoint there by default; an
+operator only sets `checkpoint_path` to move it somewhere else.
 
 The `current` symlink is the activation boundary. The agent verifies the artifact,
 stages the versioned directory, applies required file capabilities through the
@@ -584,6 +599,13 @@ The ServiceRadar UI classifies each effective row into exactly one operator stat
 
 Every non-healthy row includes a stable reason code and evidence age. Offline or
 stale evidence is never mislabeled as a current runtime failure.
+
+In **Add-on Fleet > Automatic rollouts**, use **Show finished** to reveal history
+when active rollouts are present. When none are active, history appears automatically.
+Use **Previous** and **Next** beneath the table to browse finished rollouts; active
+rollouts remain visible on every page. **Review rollout** opens the page containing
+the linked rollout and expands its details. Pagination covers the recent rollouts
+loaded by the view, not the complete historical archive.
 
 You can also inspect current add-on status through SRQL:
 

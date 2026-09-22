@@ -12,24 +12,28 @@ Official chart location (OCI/Harbor):
 
 ```bash
 helm upgrade --install serviceradar oci://registry.carverauto.dev/serviceradar/charts/serviceradar \
-  --version 1.2.20 \
+  --version <chart-version> \
   -n serviceradar --create-namespace \
-  --set global.imageTag="v1.2.20"
+  -f my-values.yaml
 ```
 
+`my-values.yaml` holds only your site overrides. The chart version is the
+release version without the leading `v` (release `vX.Y.Z` is chart `X.Y.Z`).
+The chart and the first-party images under `registry.carverauto.dev/serviceradar`
+pull anonymously, so no registry login is needed. Every first-party image tag
+except `serviceradar-cnpg` (pinned by digest) defaults to the chart appVersion, so `--version` alone selects matching images.
+Leave `global.imageTag` unset; if you do set it, it must be `v<chart-version>`,
+or the core migrations `expectedVersion` and the templates drift from the
+images. To upgrade, rerun the same command with the new `--version`.
+
 ### From Repository Checkout (Development)
+
+Use a local chart path only when developing or testing chart changes:
 
 ```bash
 helm upgrade --install serviceradar ./helm/serviceradar \
   -n serviceradar --create-namespace
 ```
-
-### Hosted Tenant Runtime Baseline
-
-Dedicated hosted tenant clusters use [values-tenant.yaml](values-tenant.yaml)
-as the chart baseline rendered by the ServiceRadar control plane. See
-[TENANT_RUNTIME.md](TENANT_RUNTIME.md) for the render-validation command and
-hosted exposure model.
 
 Optional dev overrides to follow mutable tags on restart:
 ```bash
@@ -38,6 +42,17 @@ helm upgrade --install serviceradar ./helm/serviceradar \
   --set global.imageTag="latest" \
   --set global.imagePullPolicy="Always"
 ```
+
+`latest` is not tied to the checkout's chart version, so the migrations
+`expectedVersion` and templates can drift from the images. Never use it for an
+operator install.
+
+### Hosted Tenant Runtime Baseline
+
+Dedicated hosted tenant clusters use [values-tenant.yaml](values-tenant.yaml)
+as the chart baseline rendered by the ServiceRadar control plane. See
+[TENANT_RUNTIME.md](TENANT_RUNTIME.md) for the render-validation command and
+hosted exposure model.
 
 ## Architecture
 
@@ -52,6 +67,7 @@ The chart deploys the following components:
 | NATS | JetStream messaging | 4222 |
 | CNPG | App database cluster | 5432 |
 | CNPG PgBouncer Pooler | Optional CNPG-managed connection pooler | 5432 |
+| Dgraph | Topology graph (Zero + Alpha). Disable with `dgraph.enabled=false` and set `dgraph.external.host` to reuse an existing cluster. | 9080 (gRPC), 8080 (HTTP) |
 | OTEL | Telemetry collector | - |
 
 ### Edge Agents
@@ -78,7 +94,7 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `global.imageTag` | Docker image tag for all first-party components | `v1.2.54` |
+| `global.imageTag` | Override image tag for first-party components (not `serviceradar-cnpg`). Empty uses `v<appVersion>` from the chart; if set, it must equal `v<chart-version>` | `""` |
 | `image.digests.<service>` | Optional digest pin for a first-party component, overriding tags | `{}` |
 | `ingress.enabled` | Enable ingress for web UI | `false` |
 | `ingress.host` | Hostname for ingress | `""` |
@@ -147,6 +163,8 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 | `webNg.adminPasswordForceSync` | Treat the generated/admin-password secret as authoritative on restart. Leave false for normal installs that allow UI password changes. | `false` |
 | `webNg.auth.forceLocalLogin` | Break-glass switch that permits local password login regardless of SSO enforcement. Leave false for normal installs; use the per-user Local password login toggle instead. | `false` |
 | `webNg.auth.disableSso` | Hide the SSO button on the sign-in page | `false` |
+| `webNg.clientIp.trustXForwardedFor` | Honor `x-forwarded-for` for client IP extraction (audit logs, rate limiting). Enable only when web-ng sits behind a trusted proxy, e.g. the shared envoy Gateway API. | `false` |
+| `webNg.clientIp.trustedProxyCidrs` | CIDRs of trusted direct peers (envoy/gateway pod or service ranges) allowed to set `x-forwarded-for`. List only the proxy's own range: every CIDR here is an address web-ng will never report as a client, so RFC1918 wholesale makes LAN clients unreportable. Ignored when `trustXForwardedFor` is false. | `[]` |
 | `agent.resources.limits.cpu` | Agent CPU limit | `500m` |
 | `agent.checkersStorage.enabled` | Persist agent checker config under `/var/lib/serviceradar/checkers` | `true` |
 | `agent.cacheStorage.enabled` | Persist agent runtime cache under `/var/lib/serviceradar/cache` | `true` |
@@ -209,8 +227,9 @@ Initial scrape inventory:
 ### HA And JetStream Sizing
 
 The base chart defaults the core control plane, shared ingest workers, datasvc,
-and NATS to three replicas. The `demo` overlay in
-[values-demo.yaml](values-demo.yaml) repeats that validated topology and adds
+and NATS to three replicas. The `demo` overlay
+(`helm/serviceradar/values-demo.yaml` in the ServiceRadar repository; it is not
+shipped in the published chart) repeats that validated topology and adds
 demo-specific external ingest settings. Its effective replica layout is:
 
 - `core.replicas=3`
@@ -231,10 +250,14 @@ The control-plane and ingest workers above rely on shared JetStream durable cons
 | `datasvc.bucketMaxBytes` | Max bytes for `KV_serviceradar-datasvc` | `4294967296` (4 GiB) |
 | `datasvc.objectMaxBytes` | Max bytes for a single object upload | `536870912` |
 | `datasvc.objectStoreBytes` | Max bytes exposed to datasvc object-store config | `10737418240` (10 GiB) |
+| `bumblebeeCatalogRefresh.enabled` | Runs the daily Bumblebee exposure-catalog refresh on core (first run at boot); off means agents never receive a scannable catalog | `true` |
 | `objectStoreRetention.enabled` | Enables scheduled cleanup for ServiceRadar-owned object-store namespaces | `true` |
 | `objectStoreRetention.dryRun` | Logs retention decisions without deleting eligible objects | `false` |
 | `objectStoreRetention.agentReleaseKeepLatest` | Imported agent releases to retain when not protected by rollout state | `1` |
 | `objectStoreRetention.nativeAddonOrphanGraceSeconds` | Grace period before deleting unreferenced native add-on objects | `604800` |
+| `webNg.nativeAddonImport.autoSyncEnabled` | Import newly published first-party add-on releases automatically (staged, not approved); required for `track_latest_approved` profiles to see newer packages | `true` |
+| `webNg.nativeAddonImport.syncIntervalSeconds` | Seconds between add-on catalog syncs | `3600` |
+| `webNg.nativeAddonImport.autoApproveAddonIds` | Add-on ids whose imports are approved automatically; approval is the security boundary, so this is empty by default | `[]` |
 | `logCollector.streamReplicas` | Replica count for the shared `events` stream | `3` |
 | `logCollector.streamMaxBytes` | Max bytes for the shared `events` stream | `2147483648` |
 | `logCollector.tcpCollector.streamReplicas` | Replica count for TCP syslog writers on `events` | `3` |
@@ -282,7 +305,7 @@ for the failure mode and recovery instructions.
 - That shared secret also owns the default edge onboarding signing key and Erlang cluster cookie. Leave `secrets.edgeOnboardingKey` and `webNg.clusterCookie` empty to auto-generate unique install-scoped values; set them explicitly only when you need deterministic secret material or are rotating to a planned replacement.
 - If `secrets.autoGenerate=false`, your pre-created secret must also include `edge-onboarding-key`, `cluster-cookie`, `web-ng-secret-key-base`, and the other runtime keys expected by the chart.
 - A pre-install hook also generates the runtime certificate bundle and publishes it to `certs.runtimeSecretName` (default `serviceradar-runtime-certs`).
-- The chart does not generate image pull secrets; create `registry-carverauto-dev-cred` (or override `image.registryPullSecret`).
+- The chart does not generate image pull secrets. Published images pull anonymously, so none is required; set `image.registryPullSecret=""` to drop the default `registry-carverauto-dev-cred` reference, or create that secret (or override the name) when pulling through an authenticated mirror. Keep a real secret name there if you enable `argocdImageUpdater.pullSecretReader`, whose Role needs one.
 - The in-cluster agent writes mutable checker config, cache files, and managed release payloads under `/var/lib/serviceradar`; keep the default PVC-backed `agent.*Storage` settings enabled in Kubernetes production environments.
 - SPIFFE/SPIRE is optional. Enable it with `--set spire.enabled=true` (and `--set spire.postgres.enabled=true` if you also want the in-chart SPIRE database resources).
 - When SPIRE mode is enabled, the SPIRE server now stays internal by default (`spire.server.serviceType=ClusterIP`), the SPIRE health port is not published unless you explicitly set `spire.server.exposeHealthPort=true`, and kubelet verification stays enabled unless you explicitly set `spire.agent.skipKubeletVerification=true`.

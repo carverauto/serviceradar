@@ -107,7 +107,10 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLiveTest do
 
     {:ok, %{host_key: trusted}} =
       RemoteAccessHostKeys.observe(
-        observation(target_host, fingerprint_sha256: "SHA256:old-#{target_host}", source: :trust_on_first_use),
+        observation(target_host,
+          fingerprint_sha256: "SHA256:old-#{target_host}",
+          source: :trust_on_first_use
+        ),
         actor: system_actor()
       )
 
@@ -192,7 +195,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessHostKeysLiveTest do
           description: "Test profile for host-key LiveView permissions",
           permissions: permissions
         },
-        actor: system_actor()
+        actor: system_actor(),
+        context: %{privilege_boundary_owned: true}
       )
       |> Ash.create!()
 

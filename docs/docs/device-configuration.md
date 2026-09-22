@@ -13,6 +13,11 @@ ServiceRadar can collect data from network devices through multiple protocols:
 
 ## Device Details Metadata
 
+Device tags appear as read-only chips in the device list's **Tags** column and
+the device detail summary. Tags display as `key=value`, or just `key` when the
+value is empty. A device without tags shows a dash in the list and no Tags row
+in its summary.
+
 The device details page groups enrichment metadata by source instead of dumping raw integration keys. SNMP, Armis, UniFi, MikroTik, Proxmox, NetBox, discovery, classification, inventory, and sweep fields are shown in separate sections when there is evidence that the source actually contributed useful data.
 
 Redundant alias summaries and opaque "additional metadata keys" counts are intentionally hidden. IP aliases are shown in the dedicated IP Aliases table, and raw/debug payload keys stay out of the details card.
@@ -20,6 +25,42 @@ Redundant alias summaries and opaque "additional metadata keys" counts are inten
 The Logs tab runs a bounded `in:logs device_id:"..." time:last_24h` SRQL query and shows a zero-row state immediately while the query completes. Use the "Open full logs view" link when operators need broader log filtering.
 
 Provider-neutral northbound action results are shown in the device Action History section for users with `northbound.actions.view`. Retained Ansible-provider invocations are excluded; canonical Ansible evidence appears only in the Ansible Operations history under `ansible.runs.view`. Launch feedback should direct operators to Action History, and target summaries should omit nil or unavailable fields.
+
+## Editing a Device IP Address
+
+Saving an IP already assigned to another non-deleted device in the same
+partition returns `ip: has already been taken`. The edit is rejected without
+changing either device's address. An inactive or stale device still holds its
+address; editing another device does not automatically release it.
+
+Choose an unassigned address, or correct the existing holder's inventory record
+before retrying. Keeping the device's own IP is allowed, and the same IP in a
+different partition does not conflict. A soft-deleted device does not reserve
+its former address.
+
+## Device Type and Integration Convergence
+
+A later integration inference can replace an earlier inferred device type. An
+explicit type selected through manual creation or CSV import is protected from
+integration updates, even when the selected value matches the current inference.
+Importing a device without a type does not protect its inferred classification;
+blank and `Unknown` types remain eligible for enrichment.
+
+When a strongly identified integration record claims an IP already held by an
+established device in the same partition, sync can converge onto that holder if
+both nonblank hostnames match after trimming whitespace and ignoring case, and
+neither record's strong identifiers are registered to a device outside the pair.
+A new record adopts the holder's UID; an existing duplicate uses the audited
+merge path, retaining its associated data and combining discovery sources.
+If the guard fails or the merge is refused, the incoming record retains its
+separate identity without claiming the occupied IP. Integration identifiers
+remain identifying according to their source policy.
+
+A merge preserves a meaningful manual classification from the duplicate when
+the survivor has none; if both have manual classifications, the survivor's wins.
+Manual discovery provenance alone does not turn an inferred type into a manual
+classification. Older records without an explicit ownership marker retain the
+legacy protection for a meaningful type with manual provenance.
 
 ## SNMP Configuration
 

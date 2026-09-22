@@ -20,6 +20,11 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
 
   @default_target_limit 100
 
+  # Keyset page size for the managed-device enforcement stream. Deliberately far
+  # below `Device.read`'s `default_limit: 5000`: a single page that large returns
+  # short without saying so. See enforce_managed_baseline_targets/1.
+  @managed_enforcement_batch_size 250
+
   @type target_ctx :: %{
           optional(:target) => String.t(),
           optional(:target_ip) => String.t(),
@@ -564,21 +569,40 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
         |> Ash.Query.for_read(:read, %{include_deleted: false})
         |> Ash.Query.filter(expr(uid in ^device_uids and is_managed == true and not is_nil(ip)))
 
-      case Ash.read(query, actor: actor) do
-        {:ok, %Keyset{results: devices}} ->
-          filter_targets_by_devices(targets, devices)
+      # Stream rather than take one big page. `Device.read` declares
+      # `pagination keyset?: true, default_limit: 5000`, so a bare `Ash.read/2`
+      # asks for a single 5000-row keyset page -- and that page silently comes
+      # back short. Measured against a live deployment on this exact query:
+      #
+      #   Ash.count!(query)                                   => 345
+      #   Ash.read!(query, page: [limit: 5000, count: true])   => 251 results,
+      #                                                          page count 345,
+      #                                                          more? FALSE
+      #
+      # The limit was never the binding constraint, and `more? == false` means a
+      # caller cannot tell it lost 94 rows. Walking the same query in 50-row
+      # pages returned all 345 distinct uids, as does `Ash.stream!/2`, which
+      # pages internally. Because a dropped device simply fails the
+      # `device_map` lookup below, every lost row was silently treated as
+      # UNMANAGED and excluded from the baseline sweep -- the observed symptom
+      # was an MTR profile that traced 251 of 345 eligible devices every run,
+      # with nothing logged.
+      devices =
+        query
+        |> Ash.stream!(actor: actor, batch_size: @managed_enforcement_batch_size)
+        |> Enum.to_list()
 
-        {:ok, devices} when is_list(devices) ->
-          filter_targets_by_devices(targets, devices)
-
-        {:error, reason} ->
-          Logger.warning("MTR baseline SRQL managed-device enforcement failed",
-            reason: inspect(reason)
-          )
-
-          targets
-      end
+      filter_targets_by_devices(targets, devices)
     end
+  rescue
+    error ->
+      # Preserve the previous fail-open contract: enforcement is advisory, and a
+      # read failure must not stop a baseline sweep.
+      Logger.warning("MTR baseline SRQL managed-device enforcement failed",
+        reason: Exception.message(error)
+      )
+
+      targets
   end
 
   defp enforce_managed_baseline_targets(targets), do: targets

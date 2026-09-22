@@ -251,6 +251,16 @@ TinyGo against `serviceradar-sdk-go`, `--template rust` targets `wasm32-wasip1`
 against `serviceradar-sdk-rust`. `plugin validate` checks `plugin.yaml` against
 the same manifest contract the server enforces and makes no network calls.
 
+Fetching `serviceradar-sdk-go` requires
+`GOPRIVATE=github.com/carverauto/serviceradar-sdk-go` on every `go get`,
+`go mod download`, and `tinygo build` invocation that resolves it — the module
+is not served via the public Go proxy, so without this Go fails against the
+proxy/checksum database instead of fetching directly from GitHub:
+
+```
+export GOPRIVATE=github.com/carverauto/serviceradar-sdk-go
+```
+
 Publishing does three calls: it stages the package, requests a short-lived
 storage token, then uploads the `plugin.wasm` bytes with that token. Track the
 result with `plugin status --id <package-id>`, which reports the approval state
@@ -391,6 +401,25 @@ Two behaviours worth knowing:
 Each enabled repository syncs independently. One unreachable source -- an expired
 token, a repository that moved -- does not stop the others from importing; its
 error is recorded on the repository row.
+
+Background catalog sync prefers the deployed release tag. If GitHub returns 404
+for that tag, it falls back to recent releases and can import packages from those
+releases. Without a configured tag, it also scans recent releases. An interactive
+Plugins UI import stays on the selected tag: a missing release reports an error
+and imports nothing instead of substituting another release's catalog.
+
+For both Wasm and native add-on background sync, a release that exists but lacks
+the required index asset does not trigger fallback. Missing catalogs (including
+a 404 from the fallback feed) and missing index assets do not trigger Oban retries:
+unless another repository has a retryable failure, the job completes and automatic
+sync tries again on its normal schedule (hourly by default). Other discovery
+failures, including HTTP 401, HTTP 5xx and
+invalid settings, still fail the job for retry. GitHub's private-repository 404
+also follows the missing-catalog policy; check repository access when it occurs.
+
+A completed job therefore does not prove that packages were imported. Inspect the
+Wasm repository's recorded sync error; permanent native add-on discovery failures
+are reported in error-level logs.
 
 ### GitHub imports and verification
 

@@ -11,9 +11,9 @@ defmodule ServiceRadar.Identity.RoleProfile do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
-  alias ServiceRadar.Identity.Changes.ClearRoleProfileAssignments
   alias ServiceRadar.Identity.Changes.DisallowSystemProfileEdit
   alias ServiceRadar.Identity.Changes.InvalidateRbacCache
+  alias ServiceRadar.Identity.Changes.RequirePrivilegeBoundary
   alias ServiceRadar.Identity.Validations.PermissionKeys
 
   require Ash.Query
@@ -34,10 +34,8 @@ defmodule ServiceRadar.Identity.RoleProfile do
   code_interface do
     define :list, action: :read
     define :get_by_id, action: :get_by_id, args: [:id]
-    define :create_profile, action: :create
     define :create_system_profile, action: :create_system
-    define :update_profile, action: :update
-    define :delete_profile, action: :destroy
+    define :update_system_profile, action: :update_system
   end
 
   actions do
@@ -59,6 +57,7 @@ defmodule ServiceRadar.Identity.RoleProfile do
       change set_attribute(:system, false)
       change set_attribute(:system_name, nil)
       validate PermissionKeys
+      validate RequirePrivilegeBoundary
       change InvalidateRbacCache
     end
 
@@ -73,12 +72,23 @@ defmodule ServiceRadar.Identity.RoleProfile do
       accept @profile_fields
       change DisallowSystemProfileEdit
       validate PermissionKeys
+      validate RequirePrivilegeBoundary
+      change InvalidateRbacCache
+    end
+
+    update :update_system do
+      accept @profile_fields
+
+      validate attribute_equals(:system, true),
+        message: "trusted system-profile update requires a system profile"
+
+      validate PermissionKeys
       change InvalidateRbacCache
     end
 
     destroy :destroy do
       change DisallowSystemProfileEdit
-      change ClearRoleProfileAssignments
+      validate RequirePrivilegeBoundary
       change InvalidateRbacCache
     end
   end
@@ -90,7 +100,11 @@ defmodule ServiceRadar.Identity.RoleProfile do
 
     read_with_permission(@rbac_manage_check)
 
-    action_with_permission([:create, :create_system, :update, :destroy], @rbac_manage_check)
+    action_with_permission([:create, :update, :destroy], @rbac_manage_check)
+
+    policy action([:create_system, :update_system]) do
+      authorize_if actor_attribute_equals(:role, :system)
+    end
   end
 
   attributes do
@@ -129,6 +143,16 @@ defmodule ServiceRadar.Identity.RoleProfile do
     end
 
     timestamps()
+  end
+
+  relationships do
+    has_many :users, ServiceRadar.Identity.User do
+      destination_attribute :role_profile_id
+    end
+
+    has_many :user_groups, ServiceRadar.Identity.UserGroup do
+      destination_attribute :role_profile_id
+    end
   end
 
   identities do

@@ -1,0 +1,45 @@
+suite: starrocks storage volume job
+templates:
+  - starrocks-storage-volume-job.yaml
+tests:
+  - it: does not render on the default shared-nothing chart
+    asserts:
+      - hasDocuments:
+          count: 0
+  - it: fails closed when sharedData is selected without a bucket
+    set:
+      analytics.starrocks.enabled: true
+      analytics.starrocks.profile: sharedData
+    asserts:
+      - failedTemplate:
+          errorMessage: "analytics.starrocks.sharedData.secretName and objectStorageBucket are required when profile is sharedData"
+  - it: renders a hook job that reads the analytics object-store secret
+    set:
+      analytics.starrocks.enabled: true
+      analytics.starrocks.profile: sharedData
+      analytics.starrocks.sharedData.secretName: serviceradar-analytics-object-store
+      analytics.starrocks.sharedData.objectStorageBucket: serviceradar-demo-analytics
+      analytics.starrocks.sharedData.objectStorageEndpoint: https://us-ord-10.linodeobjects.com
+      analytics.starrocks.sharedData.objectStorageRegion: us-ord
+    asserts:
+      - equal:
+          path: kind
+          value: Job
+      - equal:
+          path: metadata.annotations["helm.sh/hook-weight"]
+          value: "10"
+      - equal:
+          path: spec.template.spec.containers[0].env[?(@.name=="BUCKET")].value
+          value: serviceradar-demo-analytics
+      - equal:
+          path: spec.template.spec.containers[0].env[?(@.name=="ACCESS_KEY_ID")].valueFrom.secretKeyRef.name
+          value: serviceradar-analytics-object-store
+      - equal:
+          path: spec.template.spec.containers[0].env[?(@.name=="ACCESS_KEY_ID")].valueFrom.secretKeyRef.key
+          value: access_key_id
+      # notEqual, not notContains: the path resolves to a scalar, and
+      # helm-unittest's notContains errors on a non-array value instead of
+      # asserting anything.
+      - notEqual:
+          path: spec.template.spec.containers[0].env[?(@.name=="ACCESS_KEY_ID")].valueFrom.secretKeyRef.name
+          value: cnpg-backup-s3-creds

@@ -178,6 +178,26 @@ jobs:
             ${{ runner.os }}-elixir-lint-${{ matrix.name }}-
             ${{ runner.os }}-elixir-quality-${{ matrix.name }}-
 
+      # Lock-stability gate (serviceradar#4034): a bare `mix deps.get`
+      # silently re-resolves to the newest satisfying versions and dirties the
+      # tree, so drift stayed invisible until it blocked someone's commit. Fail
+      # the leg while the committed mix.lock is stale instead; the fix is a
+      # deliberate `mix deps.get` + lock commit (plus `bazel run
+      # //third_party/hex:write` when versions move). Runs before the lint
+      # script below because that script's own bare `deps.get` would resolve
+      # the drift away before anything could observe it. scripts/ itself is
+      # off-limits for this check (repo rule: everything is a Bazel target,
+      # no script extensions), so the workflow owns it.
+      - name: Check mix.lock is up to date
+        if: ${{ steps.decide.outputs.lint == 'true' }}
+        env:
+          HEX_HTTP_CONCURRENCY: '1'
+          HEX_HTTP_TIMEOUT: '120'
+        run: |
+          set -euo pipefail
+          cd "${{ matrix.project }}"
+          mix deps.get --check-locked
+
       - name: Run Elixir format and Credo
         if: ${{ steps.decide.outputs.lint == 'true' }}
         env:

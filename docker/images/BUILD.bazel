@@ -37,6 +37,23 @@ exports_files([
 
 package(default_visibility = ["//visibility:public"])
 
+py_test(
+    name = "overlay_deb_packages_test",
+    srcs = ["overlay_deb_packages_test.py"],
+    args = ["$(rootpath @zstd//:zstd_cli)"],
+    data = [
+        "overlay_deb_packages.py",
+        "@zstd//:zstd_cli",
+    ],
+)
+
+# OpenSpec replace-age-topology-with-dgraph 8.5: do not drop AGE from the CNPG image.
+py_test(
+    name = "cnpg_age_extension_test",
+    srcs = ["cnpg_age_extension_test.py"],
+    data = ["cnpg_image.bzl"],
+)
+
 # ARC runner image -----------------------------------------------------------
 
 declare_loaded_oci_image_amd64(
@@ -138,8 +155,8 @@ declare_web_ng_release_container_amd64(
     }),
     base_image_name = "web_ng_image_base_amd64",
     bun_src = ":web_ng_bun",
-    cosign_src = ":web_ng_cosign",
     cmd = ["start"],
+    cosign_src = ":web_ng_cosign",
     env = {
         "HOME": "/app",
         "PATH": "/app/bin:/usr/local/bin:/usr/bin:/bin",
@@ -173,13 +190,22 @@ declare_multiarch_image_index(
 
 # elixir core-elx ------------------------------------------------------------
 
-declare_elixir_release_container_amd64(
+alias(
+    name = "core_git_runtime_debs",
+    actual = select({
+        "//build/platforms:target_linux_arm64": "@ubuntu_git_runtime_arm64//:packages",
+        "//conditions:default": "@ubuntu_git_runtime_amd64//:packages",
+    }),
+)
+
+declare_elixir_release_container_with_debs_amd64(
     name = "core_elx_image_amd64",
     base = select({
         "//build/platforms:target_linux_arm64": "@ubuntu_noble_linux_arm64_v8//:ubuntu_noble_linux_arm64_v8",
         "//conditions:default": "@ubuntu_noble_linux_amd64//:ubuntu_noble_linux_amd64",
     }),
     cmd = ["start"],
+    deb_packages = [":core_git_runtime_debs"],
     entrypoint = ["/app/bin/serviceradar_core_elx"],
     env = {
         "HOME": "/app",
@@ -189,6 +215,7 @@ declare_elixir_release_container_amd64(
     extra_tars = [
         ":sshca_signer_layer_amd64",
         ":ubuntu_feed_merge_layer_amd64",
+        ":web_ng_ca_bundle_layer_amd64",
     ],
     image_title = "serviceradar-core-elx",
     local_repo_tag = "registry.carverauto.dev/serviceradar/serviceradar-core-elx:local",
@@ -486,6 +513,33 @@ declare_multiarch_image_index(
 )
 
 declare_service_container_amd64(
+    name = "dgraph_migrate_image_amd64",
+    cmd = ["dgraph-migrate"],
+    empty_dirs = [
+        "etc/dgraph-ca",
+        "tmp",
+    ],
+    entrypoint = ["/usr/local/bin/dgraph-migrate"],
+    files = {
+        "//rust/dgraph-topology:dgraph-migrate": "usr/local/bin/dgraph-migrate",
+        "//rust/age-to-dgraph:age-to-dgraph": "usr/local/bin/age-to-dgraph",
+    },
+    image_title = "serviceradar-dgraph-migrate",
+    modes = {
+        "usr/local/bin/dgraph-migrate": "0755",
+        "usr/local/bin/age-to-dgraph": "0755",
+    },
+    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-dgraph-migrate:local"],
+    runtime = "ubuntu",
+    workdir = "/tmp",
+)
+
+declare_multiarch_image_index(
+    name = "dgraph_migrate_image_multiarch",
+    image = ":dgraph_migrate_image_amd64",
+)
+
+declare_service_container_amd64(
     name = "flow_collector_image_amd64",
     cmd = [
         "--config",
@@ -626,16 +680,20 @@ declare_service_container_amd64(
         "etc/serviceradar/config",
     ],
     files = {
-        "//go/cmd/cli:cli": "usr/local/bin/serviceradar-cli",
+        "//go/cmd/cli:srctl": "usr/local/bin/srctl",
         "//docker/compose:update-config.sh": "usr/local/bin/update-config.sh",
     },
     image_title = "serviceradar-config-updater",
     modes = {
-        "usr/local/bin/serviceradar-cli": "0755",
+        "usr/local/bin/srctl": "0755",
         "usr/local/bin/update-config.sh": "0755",
     },
     repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-config-updater:local"],
     runtime = "alpine",
+    symlinks = {
+        # Deprecated alias for the pre-rename binary (see #4260).
+        "usr/local/bin/serviceradar-cli": "/usr/local/bin/srctl",
+    },
     workdir = "/",
 )
 
@@ -753,7 +811,7 @@ declare_custom_base_service_container_amd64(
         ],
     }),
     files = {
-        "//go/cmd/cli:cli": "usr/local/bin/serviceradar-cli",
+        "//go/cmd/cli:srctl": "usr/local/bin/srctl",
         "//go/cmd/tools/srql-fixture-reaper:srql-fixture-reaper": "usr/local/bin/srql-fixture-reaper",
         "//docker/compose:tools-entrypoint.sh": "usr/local/bin/entrypoint.sh",
         "//docker/compose:tools-profile.sh": "etc/profile.d/serviceradar-tools.sh",
@@ -762,7 +820,7 @@ declare_custom_base_service_container_amd64(
     },
     image_title = "serviceradar-tools",
     modes = {
-        "usr/local/bin/serviceradar-cli": "0755",
+        "usr/local/bin/srctl": "0755",
         "usr/local/bin/srql-fixture-reaper": "0755",
         "usr/local/bin/entrypoint.sh": "0755",
         "etc/profile.d/serviceradar-tools.sh": "0644",
@@ -770,6 +828,10 @@ declare_custom_base_service_container_amd64(
         "usr/local/bin/nats": "0755",
     },
     repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-tools:local"],
+    symlinks = {
+        # Deprecated alias for the pre-rename binary (see #4260).
+        "usr/local/bin/serviceradar-cli": "/usr/local/bin/srctl",
+    },
 )
 
 declare_multiarch_image_index(
@@ -812,6 +874,7 @@ _MULTIARCH_INDEXES = [
     "config_updater_image_multiarch",
     "core_elx_image_multiarch",
     "datasvc_image_multiarch",
+    "dgraph_migrate_image_multiarch",
     "faker_image_multiarch",
     "flow_collector_image_multiarch",
     "k8s_inventory_image_multiarch",

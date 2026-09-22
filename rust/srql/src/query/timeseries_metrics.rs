@@ -79,6 +79,7 @@ struct TimeseriesStatsSql {
 enum SqlBindValue {
     Text(String),
     TextArray(Vec<String>),
+    IntArray(Vec<i64>),
     Timestamp(DateTime<Utc>),
 }
 
@@ -90,6 +91,7 @@ impl SqlBindValue {
         match self {
             SqlBindValue::Text(value) => query.bind::<Text, _>(value.clone()),
             SqlBindValue::TextArray(values) => query.bind::<Array<Text>, _>(values.clone()),
+            SqlBindValue::IntArray(values) => query.bind::<Array<BigInt>, _>(values.clone()),
             SqlBindValue::Timestamp(value) => query.bind::<Timestamptz, _>(*value),
         }
     }
@@ -105,6 +107,7 @@ struct TimeseriesStatsPayload {
 const RPERF_METRIC_TYPE: &str = "rperf";
 const SNMP_METRIC_TYPE: &str = "snmp";
 const INTERFACE_HOURLY_TABLE: &str = "timeseries_metrics_interface_hourly";
+const DISK_HOURLY_TABLE: &str = "timeseries_metrics_disk_hourly";
 
 #[derive(Clone, Copy)]
 enum MetricScope<'a> {
@@ -119,6 +122,10 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
         }
 
         return execute_interface_hourly(conn, plan).await;
+    }
+
+    if matches!(plan.entity, Entity::TimeseriesMetricDiskHourly) {
+        return execute_disk_hourly(conn, plan).await;
     }
 
     let scope = ensure_entity(plan)?;
@@ -151,6 +158,11 @@ pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindPar
         }
 
         let sql = build_interface_hourly_query(plan, false)?;
+        return Ok((rewrite_placeholders(&sql.sql), sql.binds));
+    }
+
+    if matches!(plan.entity, Entity::TimeseriesMetricDiskHourly) {
+        let sql = build_disk_hourly_query(plan, false)?;
         return Ok((rewrite_placeholders(&sql.sql), sql.binds));
     }
 
@@ -220,7 +232,7 @@ fn ensure_entity(plan: &QueryPlan) -> Result<MetricScope<'static>> {
     }
 }
 
-struct InterfaceHourlySql {
+struct HourlySql {
     sql: String,
     binds: Vec<BindParam>,
 }
@@ -233,7 +245,7 @@ async fn execute_interface_hourly(
     let mut query = sql_query(rewrite_placeholders(&sql.sql)).into_boxed::<Pg>();
 
     for bind in sql.binds {
-        query = bind_interface_hourly_param(query, bind)?;
+        query = bind_hourly_param(query, bind)?;
     }
 
     let rows: Vec<TimeseriesStatsPayload> = query
@@ -270,7 +282,7 @@ async fn execute_interface_hourly_stats(
         .collect())
 }
 
-fn build_interface_hourly_query(plan: &QueryPlan, payload: bool) -> Result<InterfaceHourlySql> {
+fn build_interface_hourly_query(plan: &QueryPlan, payload: bool) -> Result<HourlySql> {
     if plan.stats.is_some() {
         return Err(ServiceError::InvalidRequest(
             "stats are not supported for timeseries_metrics_interface_hourly".into(),
@@ -329,7 +341,7 @@ fn build_interface_hourly_query(plan: &QueryPlan, payload: bool) -> Result<Inter
         format!(" WHERE {}", clauses.join(" AND "))
     };
 
-    Ok(InterfaceHourlySql {
+    Ok(HourlySql {
         sql: format!(
             "SELECT {select_sql} FROM {INTERFACE_HOURLY_TABLE}{where_sql}{} LIMIT ? OFFSET ?",
             build_interface_hourly_order_clause(&plan.order)
@@ -363,24 +375,22 @@ fn build_interface_hourly_filter_clause(
 ) -> Result<Option<String>> {
     match filter.field.as_str() {
         "partition" | "device_id" | "target_device_ip" | "metric_type" | "metric_name"
-        | "series_key" => build_interface_hourly_text_filter(filter.field.as_str(), filter, binds),
-        "if_index" => build_interface_hourly_int_filter("if_index", filter, binds),
+        | "series_key" => build_hourly_text_filter(filter.field.as_str(), filter, binds),
+        "if_index" => build_hourly_int_filter("if_index", filter, binds),
         "avg_value"
         | "min_value"
         | "max_value"
         | "delta_value"
         | "duration_seconds"
-        | "avg_rate_per_second" => {
-            build_interface_hourly_float_filter(filter.field.as_str(), filter, binds)
-        }
-        "sample_count" => build_interface_hourly_int_filter("sample_count", filter, binds),
+        | "avg_rate_per_second" => build_hourly_float_filter(filter.field.as_str(), filter, binds),
+        "sample_count" => build_hourly_int_filter("sample_count", filter, binds),
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported filter field for timeseries_metrics_interface_hourly: '{other}'"
         ))),
     }
 }
 
-fn build_interface_hourly_text_filter(
+fn build_hourly_text_filter(
     column: &str,
     filter: &Filter,
     binds: &mut Vec<BindParam>,
@@ -417,7 +427,7 @@ fn build_interface_hourly_text_filter(
     }
 }
 
-fn build_interface_hourly_int_filter(
+fn build_hourly_int_filter(
     column: &str,
     filter: &Filter,
     binds: &mut Vec<BindParam>,
@@ -462,7 +472,7 @@ fn build_interface_hourly_int_filter(
     }
 }
 
-fn build_interface_hourly_float_filter(
+fn build_hourly_float_filter(
     column: &str,
     filter: &Filter,
     binds: &mut Vec<BindParam>,
@@ -541,7 +551,7 @@ fn interface_hourly_order_column(field: &str) -> Option<&'static str> {
     }
 }
 
-fn bind_interface_hourly_param<'a>(
+fn bind_hourly_param<'a>(
     query: BoxedSqlQuery<'a, Pg, DieselSqlQuery>,
     param: BindParam,
 ) -> Result<BoxedSqlQuery<'a, Pg, DieselSqlQuery>> {
@@ -561,11 +571,148 @@ fn bind_interface_hourly_param<'a>(
                 })?;
             Ok(query.bind::<Timestamptz, _>(timestamp))
         }
-        BindParam::Bool(_) | BindParam::Uuid(_) | BindParam::Date(_) => {
-            Err(ServiceError::InvalidRequest(
-                "unsupported bind type for timeseries_metrics_interface_hourly".into(),
-            ))
+        BindParam::Bool(_) | BindParam::Uuid(_) | BindParam::Date(_) => Err(
+            ServiceError::InvalidRequest("unsupported bind type for hourly metric rollups".into()),
+        ),
+    }
+}
+
+async fn execute_disk_hourly(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result<Vec<Value>> {
+    let sql = build_disk_hourly_query(plan, true)?;
+    let mut query = sql_query(rewrite_placeholders(&sql.sql)).into_boxed::<Pg>();
+
+    for bind in sql.binds {
+        query = bind_hourly_param(query, bind)?;
+    }
+
+    let rows: Vec<TimeseriesStatsPayload> = query
+        .load::<TimeseriesStatsPayload>(conn)
+        .await
+        .map_err(|err| ServiceError::Internal(err.into()))?;
+
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| row.payload.map(serde_json::Value::from))
+        .collect())
+}
+
+/// Row query over the mount-keyed disk rollup. Unlike the interface rollup it has
+/// no stats route: the aggregate exists so capacity forecasting can read one
+/// hourly series per (device, mount) across the raw table's retention.
+fn build_disk_hourly_query(plan: &QueryPlan, payload: bool) -> Result<HourlySql> {
+    if plan.stats.is_some() {
+        return Err(ServiceError::InvalidRequest(
+            "stats are not supported for timeseries_metrics_disk_hourly".into(),
+        ));
+    }
+
+    let mut clauses = Vec::new();
+    let mut binds = Vec::new();
+
+    if let Some(TimeRange { start, end }) = &plan.time_range {
+        clauses.push(format!(
+            "{} AND {}",
+            super::hourly_cagg_lower_bound_clause("bucket"),
+            super::hourly_cagg_upper_bound_clause("bucket")
+        ));
+        binds.push(BindParam::timestamptz(*start));
+        binds.push(BindParam::timestamptz(*end));
+    }
+
+    for filter in &plan.filters {
+        if let Some(clause) = build_disk_hourly_filter_clause(filter, &mut binds)? {
+            clauses.push(clause);
         }
+    }
+
+    binds.push(BindParam::Int(plan.limit));
+    binds.push(BindParam::Int(plan.offset));
+
+    let select_sql = if payload {
+        "jsonb_build_object(\
+            'bucket', bucket, \
+            'device_id', device_id, \
+            'metric_type', metric_type, \
+            'metric_name', metric_name, \
+            'series_key', series_key, \
+            'mount_point', mount_point, \
+            'avg_value', avg_value, \
+            'min_value', min_value, \
+            'max_value', max_value, \
+            'sample_count', sample_count\
+        ) AS payload"
+    } else {
+        "bucket, device_id, metric_type, metric_name, series_key, mount_point, avg_value, \
+         min_value, max_value, sample_count"
+    };
+
+    let where_sql = if clauses.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", clauses.join(" AND "))
+    };
+
+    Ok(HourlySql {
+        sql: format!(
+            "SELECT {select_sql} FROM {DISK_HOURLY_TABLE}{where_sql}{} LIMIT ? OFFSET ?",
+            build_disk_hourly_order_clause(&plan.order)
+        ),
+        binds,
+    })
+}
+
+fn build_disk_hourly_filter_clause(
+    filter: &Filter,
+    binds: &mut Vec<BindParam>,
+) -> Result<Option<String>> {
+    match filter.field.as_str() {
+        "device_id" | "metric_type" | "metric_name" | "series_key" | "mount_point" => {
+            build_hourly_text_filter(filter.field.as_str(), filter, binds)
+        }
+        "avg_value" | "min_value" | "max_value" => {
+            build_hourly_float_filter(filter.field.as_str(), filter, binds)
+        }
+        "sample_count" => build_hourly_int_filter("sample_count", filter, binds),
+        other => Err(ServiceError::InvalidRequest(format!(
+            "unsupported filter field for timeseries_metrics_disk_hourly: '{other}'"
+        ))),
+    }
+}
+
+fn build_disk_hourly_order_clause(order: &[OrderClause]) -> String {
+    let clauses: Vec<String> = order
+        .iter()
+        .filter_map(|clause| {
+            disk_hourly_order_column(clause.field.as_str()).map(|column| {
+                let direction = match clause.direction {
+                    OrderDirection::Asc => "ASC",
+                    OrderDirection::Desc => "DESC",
+                };
+                format!("{column} {direction}")
+            })
+        })
+        .collect();
+
+    if clauses.is_empty() {
+        " ORDER BY bucket DESC".to_string()
+    } else {
+        format!(" ORDER BY {}", clauses.join(", "))
+    }
+}
+
+fn disk_hourly_order_column(field: &str) -> Option<&'static str> {
+    match field {
+        "bucket" | "time" | "timestamp" => Some("bucket"),
+        "device_id" => Some("device_id"),
+        "metric_type" => Some("metric_type"),
+        "metric_name" => Some("metric_name"),
+        "series_key" => Some("series_key"),
+        "mount_point" => Some("mount_point"),
+        "avg_value" => Some("avg_value"),
+        "min_value" => Some("min_value"),
+        "max_value" => Some("max_value"),
+        "sample_count" => Some("sample_count"),
+        _ => None,
     }
 }
 
@@ -940,6 +1087,7 @@ fn bind_param_from_stats(value: SqlBindValue) -> BindParam {
     match value {
         SqlBindValue::Text(value) => BindParam::Text(value),
         SqlBindValue::TextArray(values) => BindParam::TextArray(values),
+        SqlBindValue::IntArray(values) => BindParam::IntArray(values),
         SqlBindValue::Timestamp(value) => BindParam::timestamptz(value),
     }
 }
@@ -1208,6 +1356,7 @@ robust_profile AS (
     b.dow,
     b.hod,
     b.center,
+    COUNT(v.sample_value)::bigint AS robust_bucket_count,
     percentile_cont(0.5) WITHIN GROUP (ORDER BY abs(v.sample_value - b.center))::float8 AS mad,
     b.p05,
     b.p95
@@ -1232,6 +1381,7 @@ SELECT jsonb_build_object(
   'sample_value', l.sample_value,
   'bucket', l.bucket,
   'bucket_count', p.bucket_count,
+  'robust_bucket_count', COALESCE(r.robust_bucket_count, 0),
   'bucket_sum', p.bucket_sum,
   'bucket_sum_sq', p.bucket_sum_sq,
   'center', r.center,
@@ -1267,6 +1417,15 @@ fn build_interface_profile_filter_clause(
     match filter.field.as_str() {
         "partition" | "device_id" | "target_device_ip" | "metric_type" | "metric_name"
         | "series_key" => Ok(Some(build_text_clause(filter.field.as_str(), filter)?)),
+        "if_index" if matches!(filter.op, FilterOp::In) => {
+            let values = parse_i32_list(filter.value.as_list()?)?;
+            Ok(Some((
+                "if_index = ANY(?)".to_string(),
+                vec![SqlBindValue::IntArray(
+                    values.into_iter().map(i64::from).collect(),
+                )],
+            )))
+        }
         _ => Ok(None),
     }
 }
@@ -1656,6 +1815,7 @@ robust_profile AS (
     b.dow,
     b.hod,
     b.center,
+    COUNT(v.sample_value)::bigint AS robust_bucket_count,
     percentile_cont(0.5) WITHIN GROUP (ORDER BY abs(v.sample_value - b.center))::float8 AS mad,
     b.p05,
     b.p95
@@ -1673,6 +1833,7 @@ SELECT jsonb_build_object(
   'sample_value', l.sample_value,
   'bucket', l.bucket,
   'bucket_count', p.bucket_count,
+  'robust_bucket_count', COALESCE(r.robust_bucket_count, 0),
   'bucket_sum', p.bucket_sum,
   'bucket_sum_sq', p.bucket_sum_sq,
   'center', r.center,
@@ -1983,7 +2144,7 @@ fn profile_timezone(plan: &QueryPlan) -> Result<String> {
     Ok(timezone)
 }
 
-fn normalize_profile_timezone(timezone: &str) -> String {
+pub(crate) fn normalize_profile_timezone(timezone: &str) -> String {
     let timezone = timezone.trim();
 
     if timezone == "UTC" || timezone == DEFAULT_PROFILE_TIMEZONE {
@@ -2489,7 +2650,6 @@ mod tests {
     use crate::parser::{Entity, Filter, FilterOp, FilterValue, OrderClause, OrderDirection};
     use chrono::{Duration as ChronoDuration, TimeZone, Utc};
 
-
     /// Build a plan for the stats path with the supplied filters.
     fn stats_plan(filters: Vec<Filter>, group: &str) -> (QueryPlan, TimeseriesStatsSpec) {
         let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
@@ -2583,7 +2743,12 @@ mod tests {
             sql.sql
         );
         // Two time bounds plus the site value.
-        assert_eq!(sql.binds.len(), 3, "site value should be bound: {}", sql.sql);
+        assert_eq!(
+            sql.binds.len(),
+            3,
+            "site value should be bound: {}",
+            sql.sql
+        );
     }
 
     #[test]
@@ -2970,6 +3135,14 @@ mod tests {
         );
         assert_eq!(sql.binds.len(), 8);
         assert!(
+            sql.sql
+                .contains("COUNT(v.sample_value)::bigint AS robust_bucket_count")
+        );
+        assert!(
+            sql.sql
+                .contains("'robust_bucket_count', COALESCE(r.robust_bucket_count, 0)")
+        );
+        assert!(
             !should_route_stats_to_cagg(&plan, &spec),
             "profile stats must use the dedicated hourly profile route"
         );
@@ -3048,6 +3221,14 @@ mod tests {
             sql.sql
         );
         assert_eq!(sql.binds.len(), 7);
+        assert!(
+            sql.sql
+                .contains("COUNT(v.sample_value)::bigint AS robust_bucket_count")
+        );
+        assert!(
+            sql.sql
+                .contains("'robust_bucket_count', COALESCE(r.robust_bucket_count, 0)")
+        );
     }
 
     #[test]
@@ -3093,6 +3274,10 @@ mod tests {
         assert!(sql.sql.contains("profile_rows AS"));
         assert!(sql.sql.contains("FROM profile_rows l"));
         assert!(sql.sql.contains("WHERE l.bucket IS NULL"));
+        assert!(
+            sql.sql
+                .contains("'robust_bucket_count', COALESCE(r.robust_bucket_count, 0)")
+        );
         assert!(!sql.sql.contains("FROM latest l\nJOIN mean_profile"));
     }
 
@@ -3130,6 +3315,10 @@ mod tests {
         assert!(sql.sql.contains("profile_rows AS"));
         assert!(sql.sql.contains("FROM profile_rows l"));
         assert!(sql.sql.contains("WHERE l.bucket IS NULL"));
+        assert!(
+            sql.sql
+                .contains("'robust_bucket_count', COALESCE(r.robust_bucket_count, 0)")
+        );
     }
 
     #[test]

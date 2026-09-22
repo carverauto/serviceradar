@@ -1,0 +1,47 @@
+suite: dgraph product-install profiles
+release:
+  name: serviceradar
+  namespace: serviceradar-test
+templates:
+  - templates/dgraph-schema-job.yaml
+  - templates/dgraph-migrator-job.yaml
+tests:
+  - it: default chart installs schema and migrator against the in-chart Alpha
+    asserts:
+      - equal:
+          path: metadata.name
+          value: serviceradar-dgraph-schema
+        template: templates/dgraph-schema-job.yaml
+      - equal:
+          path: metadata.name
+          value: serviceradar-dgraph-migrator
+        template: templates/dgraph-migrator-job.yaml
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: age-to-dgraph checksum
+        template: templates/dgraph-migrator-job.yaml
+
+  - it: ha overlay keeps the embedded cluster
+    values:
+      - ../values-ha.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: serviceradar-dgraph-schema
+        template: templates/dgraph-schema-job.yaml
+      - equal:
+          path: metadata.name
+          value: serviceradar-dgraph-migrator
+        template: templates/dgraph-migrator-job.yaml
+
+  - it: demo overlay applies schema to the standalone cluster, not a second install
+    values:
+      - ../values-demo.yaml
+    asserts:
+      - equal:
+          path: metadata.name
+          value: serviceradar-dgraph-schema
+        template: templates/dgraph-schema-job.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/dgraph-migrator-job.yaml

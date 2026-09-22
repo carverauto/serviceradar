@@ -27,16 +27,48 @@ function decodeBase64(value) {
   return new TextDecoder().decode(bytes)
 }
 
+// ServiceRadar brand terminal options. The font stack mirrors --sr-font-mono
+// from assets/css/app.css: JetBrains Mono is not bundled with the product, so
+// it must not head the stack. The surface colors mirror the dark sr-canvas
+// palette (deep teal-slate), not the slate blue scale.
+export const TERMINAL_FONT_FAMILY =
+  '"SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono", monospace'
+
+export const TERMINAL_FONT_SIZE = 14
+
+export const TERMINAL_THEME = {
+  background: "#0a1114",
+  foreground: "#edf5f1",
+  cursor: "#edf5f1",
+  selectionBackground: "#26363a",
+  black: "#0a1114",
+  red: "#ef4444",
+  green: "#22c55e",
+  yellow: "#facc15",
+  blue: "#60a5fa",
+  magenta: "#c084fc",
+  cyan: "#22d3ee",
+  white: "#e5e7eb",
+  brightBlack: "#587169",
+  brightRed: "#f87171",
+  brightGreen: "#4ade80",
+  brightYellow: "#fde047",
+  brightBlue: "#93c5fd",
+  brightMagenta: "#d8b4fe",
+  brightCyan: "#67e8f9",
+  brightWhite: "#ffffff",
+}
+
 function statusClass(status) {
   if (status === "connected") {
-    return "rounded bg-emerald-500/15 px-2 py-1 text-xs text-emerald-200"
+    return "rounded bg-[var(--color-success)] px-2 py-1 text-xs text-[var(--color-success-content)]"
   }
 
   if (status === "failed") {
-    return "rounded bg-red-500/15 px-2 py-1 text-xs text-red-200"
+    return "rounded bg-[var(--color-error)] px-2 py-1 text-xs text-[var(--color-error-content)]"
   }
 
-  return "rounded bg-slate-700 px-2 py-1 text-xs text-slate-200"
+  return "rounded bg-sr-subtle px-2 py-1 text-xs text-sr-ink"
 }
 
 function defaultErrorLabel(streamLabel) {
@@ -54,6 +86,8 @@ export function Component({
   attachPayload = null,
   terminalModuleLoader = null,
   onFileTransferMessage = null,
+  onHostKeyFailure = null,
+  onDisconnect = null,
   socketControlRef = null,
 }) {
   const containerRef = useRef(null)
@@ -93,30 +127,9 @@ export function Component({
       term = new Terminal({
         cursorBlink: true,
         convertEol: true,
-        fontFamily: "'JetBrains Mono', 'SFMono-Regular', Consolas, monospace",
-        fontSize: 13,
-        theme: {
-          background: "#0f172a",
-          foreground: "#e5e7eb",
-          cursor: "#f8fafc",
-          selectionBackground: "#334155",
-          black: "#020617",
-          red: "#ef4444",
-          green: "#22c55e",
-          yellow: "#facc15",
-          blue: "#60a5fa",
-          magenta: "#c084fc",
-          cyan: "#22d3ee",
-          white: "#e5e7eb",
-          brightBlack: "#475569",
-          brightRed: "#f87171",
-          brightGreen: "#4ade80",
-          brightYellow: "#fde047",
-          brightBlue: "#93c5fd",
-          brightMagenta: "#d8b4fe",
-          brightCyan: "#67e8f9",
-          brightWhite: "#ffffff",
-        },
+        fontFamily: TERMINAL_FONT_FAMILY,
+        fontSize: TERMINAL_FONT_SIZE,
+        theme: TERMINAL_THEME,
       })
 
       const fitAddon = new FitAddon()
@@ -215,6 +228,12 @@ export function Component({
           } else if (message.type === "close") {
             setStatus("closed")
             setError(message.reason ? `${closeLabel} closed: ${message.reason}` : `${closeLabel} closed.`)
+
+            // A host-key verification failure is a decision for the operator,
+            // not just a message: the owner renders the trust prompt.
+            if (message.host_key && typeof message.host_key === "object") {
+              onHostKeyFailure?.(message.host_key)
+            }
           }
         } catch (_error) {
           term.write(String(event.data))
@@ -265,6 +284,7 @@ export function Component({
     attachPayload,
     closeLabel,
     onFileTransferMessage,
+    onHostKeyFailure,
     sessionId,
     socketControlRef,
     streamLabel,
@@ -273,14 +293,28 @@ export function Component({
     websocketPath,
   ])
 
+  const disconnectHandler = typeof onDisconnect === "function" ? onDisconnect : null
+
   return (
-    <div className="flex h-full min-h-0 flex-col bg-slate-950 text-slate-100">
-      <div className="flex min-h-12 items-center gap-3 border-b border-slate-800 bg-slate-900 px-4 text-sm">
+    <div className="flex h-full min-h-0 flex-col bg-sr-canvas text-sr-ink">
+      <div className="flex min-h-12 items-center gap-3 border-b border-sr-line bg-sr-surface px-4 text-sm">
         <div className="min-w-0 flex-1">
           <div className="truncate font-medium">{title}</div>
-          {subtitle ? <div className="truncate text-xs text-slate-400">{subtitle}</div> : null}
+          {subtitle ? <div className="truncate text-xs text-sr-muted">{subtitle}</div> : null}
         </div>
         <span className={statusClass(status)}>{status}</span>
+        {disconnectHandler ? (
+          <button
+            className="rounded-md border border-sr-line-strong px-2 py-1 text-xs font-medium text-sr-ink hover:bg-sr-subtle"
+            type="button"
+            title={`Disconnect ${closeLabel}`}
+            aria-label={`Disconnect ${closeLabel}`}
+            data-testid="remote-access-disconnect"
+            onClick={disconnectHandler}
+          >
+            Disconnect
+          </button>
+        ) : null}
       </div>
       {error ? (
         <div className="border-b border-red-900/50 bg-red-950 px-4 py-2 text-sm text-red-100">

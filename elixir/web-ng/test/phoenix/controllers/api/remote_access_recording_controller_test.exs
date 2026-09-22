@@ -310,7 +310,8 @@ defmodule ServiceRadarWebNGWeb.Api.RemoteAccessRecordingControllerTest do
           description: "Test profile for RDP recording API permissions",
           permissions: permissions
         },
-        actor: system_actor()
+        actor: system_actor(),
+        context: %{privilege_boundary_owned: true}
       )
       |> Ash.create!()
 

@@ -91,7 +91,12 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrantLifecycleIntegrationTest
     assert {:ok, expired_grant} = CredentialBrokerGrant.get_by_id(grant.id, actor: actor)
     assert expired_grant.status == :expired
 
-    assert Enum.any?(credential_broker_grant_events(actor, grant.id), fn event ->
+    events = credential_broker_grant_events(actor, grant.id)
+    actions = Enum.map(events, &get_in(&1.unmapped || %{}, ["action"]))
+
+    refute "issue" in actions
+
+    assert Enum.any?(events, fn event ->
              event.log_name == "credential.broker_grant.lifecycle" and
                get_in(event.unmapped || %{}, ["event_family"]) ==
                  "credential_broker_grant_lifecycle" and

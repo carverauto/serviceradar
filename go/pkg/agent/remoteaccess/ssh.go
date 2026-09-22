@@ -85,14 +85,15 @@ type SSHAuth struct {
 
 // SSHConfig configures an SSH-backed PTY adapter.
 type SSHConfig struct {
-	Target           SSHTarget
-	Auth             SSHAuth
-	TerminalType     string
-	Cols             uint32
-	Rows             uint32
-	Timeout          time.Duration
-	SSHHostKeyPolicy string
-	KnownHostsPath   string
+	Target             SSHTarget
+	Auth               SSHAuth
+	TerminalType       string
+	Cols               uint32
+	Rows               uint32
+	Timeout            time.Duration
+	SSHHostKeyPolicy   string
+	SSHHostKeyApproval *SSHHostKeyApproval
+	KnownHostsPath     string
 }
 
 // SSHSession is the subset of x/crypto/ssh.Session used by the PTY adapter.
@@ -286,7 +287,7 @@ func DialSSHClient(ctx context.Context, cfg SSHConfig) (*ssh.Client, error) {
 		return nil, err
 	}
 
-	hostKeyCallback, err := sshHostKeyCallback(cfg.SSHHostKeyPolicy, cfg.KnownHostsPath)
+	hostKeyCallback, err := sshSessionHostKeyCallback(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -482,7 +483,7 @@ func knownHostsCallback(path string) (ssh.HostKeyCallback, error) {
 		return nil, fmt.Errorf("%w: %w", ErrSSHHostKeyStoreUnavailable, err)
 	}
 
-	return callback, nil
+	return verifiedSSHHostKeyCallback(callback), nil
 }
 
 func trustOnFirstUseCallback(path string) (ssh.HostKeyCallback, error) {
@@ -507,7 +508,7 @@ func trustOnFirstUseCallback(path string) (ssh.HostKeyCallback, error) {
 
 		var keyErr *knownhosts.KeyError
 		if !errors.As(err, &keyErr) || len(keyErr.Want) > 0 {
-			return err
+			return classifySSHHostKeyError(hostname, key, err)
 		}
 
 		line := knownhosts.Line([]string{knownhosts.Normalize(hostname)}, key)

@@ -1,0 +1,116 @@
+name: macOS release signing keychain
+description: >-
+  Creates, or removes, the temporary keychain the macOS installer is signed and
+  notarized from. Shared by release.yml and the signing rehearsal so both use the
+  same keychain setup. Credentials stay in this runner: they never become Bazel
+  inputs, stamps, cached outputs, or artifacts.
+
+inputs:
+  mode:
+    description: setup or cleanup
+    required: true
+  application-p12:
+    description: Base64 Developer ID Application identity (.p12)
+    required: false
+  installer-p12:
+    description: Base64 Developer ID Installer identity (.p12)
+    required: false
+  certificate-password:
+    description: Password for both .p12 files
+    required: false
+  notary-key-p8:
+    description: Base64 App Store Connect API key (.p8)
+    required: false
+  notary-key-id:
+    description: App Store Connect API key ID
+    required: false
+  notary-issuer-id:
+    description: App Store Connect issuer ID
+    required: false
+  signing-dir:
+    description: The signing-dir output of setup (cleanup only)
+    required: false
+
+outputs:
+  keychain:
+    description: Path to the signing keychain
+    value: ${{ steps.setup.outputs.keychain }}
+  signing-dir:
+    description: Directory holding the keychain and the saved search list
+    value: ${{ steps.setup.outputs.signing-dir }}
+
+runs:
+  using: composite
+  steps:
+    - name: Create signing keychain
+      id: setup
+      if: inputs.mode == 'setup'
+      shell: bash
+      env:
+        APP_P12: ${{ inputs.application-p12 }}
+        INSTALLER_P12: ${{ inputs.installer-p12 }}
+        CERT_PASSWORD: ${{ inputs.certificate-password }}
+        NOTARY_P8: ${{ inputs.notary-key-p8 }}
+        NOTARY_KEY_ID: ${{ inputs.notary-key-id }}
+        NOTARY_ISSUER_ID: ${{ inputs.notary-issuer-id }}
+      run: |
+        set -euo pipefail
+        for name in APP_P12 INSTALLER_P12 CERT_PASSWORD NOTARY_P8 NOTARY_KEY_ID NOTARY_ISSUER_ID; do
+          if [[ -z "${!name}" ]]; then
+            echo "Missing protected release signing credential: ${name}" >&2
+            exit 1
+          fi
+        done
+        umask 077
+        signing_dir="$(mktemp -d "${RUNNER_TEMP}/macos-signing.XXXXXX")"
+        keychain="${signing_dir}/release.keychain-db"
+        # Save the user search list so cleanup can restore it exactly.
+        security list-keychains -d user | sed -E 's/^[[:space:]]*"?//; s/"?[[:space:]]*$//' | grep -v '^$' \
+          > "${signing_dir}/original-keychains" || true
+        original=()
+        while IFS= read -r line; do original+=("${line}"); done < "${signing_dir}/original-keychains"
+        password="$(openssl rand -hex 32)"
+        printf '%s' "${APP_P12}" | base64 --decode > "${signing_dir}/application.p12"
+        printf '%s' "${INSTALLER_P12}" | base64 --decode > "${signing_dir}/installer.p12"
+        printf '%s' "${NOTARY_P8}" | base64 --decode > "${signing_dir}/notary.p8"
+        security create-keychain -p "${password}" "${keychain}"
+        security set-keychain-settings -lut 21600 "${keychain}"
+        security unlock-keychain -p "${password}" "${keychain}"
+        # codesign's --keychain only selects where the identity is found; the
+        # certificate chain is still built from the user search list.
+        security list-keychains -d user -s "${keychain}" "${original[@]}"
+        # Both signing tools may use both keys, so neither ever needs a prompt.
+        for p12 in application installer; do
+          security import "${signing_dir}/${p12}.p12" -k "${keychain}" -P "${CERT_PASSWORD}" \
+            -T /usr/bin/codesign -T /usr/bin/productsign
+        done
+        security set-key-partition-list -S apple-tool:,apple:,codesign: -s \
+          -k "${password}" "${keychain}" >/dev/null
+        # Counts only: the identity names are credentials in this log.
+        echo "Valid code-signing identities in the signing keychain: $(security find-identity -v -p codesigning "${keychain}" | grep -cE '^[[:space:]]+[0-9]+\)' || true)"
+        echo "Valid identities of any kind in the signing keychain: $(security find-identity -v "${keychain}" | grep -cE '^[[:space:]]+[0-9]+\)' || true)"
+        xcrun notarytool store-credentials serviceradar-release \
+          --key "${signing_dir}/notary.p8" --key-id "${NOTARY_KEY_ID}" \
+          --issuer "${NOTARY_ISSUER_ID}" --keychain "${keychain}"
+        rm -f "${signing_dir}/application.p12" "${signing_dir}/installer.p12" "${signing_dir}/notary.p8"
+        {
+          echo "keychain=${keychain}"
+          echo "signing-dir=${signing_dir}"
+        } >> "${GITHUB_OUTPUT}"
+
+    - name: Remove signing keychain
+      if: inputs.mode == 'cleanup' && inputs.signing-dir != ''
+      shell: bash
+      env:
+        SIGNING_DIR: ${{ inputs.signing-dir }}
+      run: |
+        set -uo pipefail
+        original=()
+        if [[ -f "${SIGNING_DIR}/original-keychains" ]]; then
+          while IFS= read -r line; do original+=("${line}"); done < "${SIGNING_DIR}/original-keychains"
+        fi
+        if [[ ${#original[@]} -gt 0 ]]; then
+          security list-keychains -d user -s "${original[@]}" || true
+        fi
+        security delete-keychain "${SIGNING_DIR}/release.keychain-db" >/dev/null 2>&1 || true
+        rm -rf "${SIGNING_DIR}"

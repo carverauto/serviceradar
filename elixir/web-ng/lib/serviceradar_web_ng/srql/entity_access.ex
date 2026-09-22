@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
   Dashboards pass through to the existing Ash/scope search.
   """
 
+  alias ServiceRadar.Analytics.StarRocks.Readers
   alias ServiceRadar.Identity.RBAC, as: CoreRBAC
 
   @dashboards MapSet.new(~w(
@@ -32,7 +33,7 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
       endpoint_vulnerability_assessments endpoint_vulnerability_assessment
       package_vulnerabilities endpoint_vulnerability_matches vulnerability_matches
       cve_matches advisory_matches
-      device_graph devicegraph graph graph_cypher graphcypher cypher
+      device_graph devicegraph graph graph_dql graph_cypher graphcypher cypher
       field_survey_sessions fieldsurvey_sessions survey_sessions
       field_survey_rasters fieldsurvey_rasters survey_coverage_rasters survey_rasters
       field_survey_artifacts fieldsurvey_artifacts survey_room_artifacts survey_artifacts
@@ -73,6 +74,7 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
       timeseries_metrics timeseries
       timeseries_metric_interface_hourly timeseries_metrics_interface_hourly
       interface_timeseries_metrics_hourly interface_metrics_hourly
+      timeseries_metric_disk_hourly timeseries_metrics_disk_hourly
       snmp_metrics snmp
       rperf_metrics rperf
       cpu_metrics cpu
@@ -107,6 +109,7 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
       sweep_executions sweep_execution sweep_group_executions
       sweep_results sweep_result sweep_host_results
       sweep_coverage sweep_coverage_daily
+      device_sweep_overlap sweep_overlap
     )
   }
 
@@ -122,9 +125,10 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
   Unknown entities and dashboards are `:ok` so the compiler / Ash search
   remain the source of those errors.
 
-  Pass `optional_scope: true` from `SRQL.query/2` so existing detail
-  loaders that still omit scope keep working. `Api.Access` does not pass
-  that option: a missing scope on the HTTP/MCP path is forbidden.
+  A missing scope on a mapped entity is forbidden by default. LiveView,
+  HTTP, and MCP execution paths use this default and pass the principal
+  explicitly. The helper's `optional_scope: true` option permits a nil
+  scope, but is not used by those execution paths.
   """
   @spec authorize(term(), term(), keyword()) :: :ok | {:error, :forbidden}
   def authorize(query, scope, opts \\ [])
@@ -177,33 +181,10 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
   # token or it authorizes an entity different from the one that runs.
   @spec extract_entity(String.t()) :: String.t()
   def extract_entity(query) when is_binary(query) do
-    query
-    |> String.trim()
-    |> String.split(~r/[\s|]+/, trim: true)
-    |> Enum.reduce(nil, fn token, acc ->
-      case String.split(token, ":", parts: 2) do
-        [key, entity] when entity != "" ->
-          if String.downcase(key) == "in" do
-            normalize_entity(entity)
-          else
-            acc
-          end
-
-        _ ->
-          acc
-      end
-    end)
-    |> case do
+    case Readers.entity_for_query(query) do
       nil -> fallback_entity(query)
       entity -> entity
     end
-  end
-
-  defp normalize_entity(entity) do
-    entity
-    |> String.trim("\"")
-    |> String.trim("'")
-    |> String.downcase()
   end
 
   defp fallback_entity(query) do

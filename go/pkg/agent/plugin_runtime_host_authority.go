@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -41,6 +42,8 @@ const (
 	pluginHostCredentialSentinel          = "__SERVICERADAR_HOST_CREDENTIAL__"
 	proxmoxInventoryPluginID              = "proxmox-inventory"
 	proxmoxInventoryEntrypoint            = "run_check"
+	proxmoxInventoryPurpose               = "inventory_enrichment"
+	proxmoxConsolePurpose                 = "console_access"
 	proxmoxConsolePluginID                = "proxmox-console"
 	proxmoxConsoleEntrypoint              = "run_console"
 	proxmoxConsoleTicketSentinel          = "__SERVICERADAR_HOST_PROXMOX_TICKET__"
@@ -99,6 +102,8 @@ type pluginHostAuthorityEnvelopeBinding struct {
 	AssignmentPolicyVersion     uint64                `json:"assignment_policy_version"`
 	AssignmentPolicyFingerprint string                `json:"assignment_policy_fingerprint"`
 	SSHHostKeyPolicy            string                `json:"ssh_host_key_policy,omitempty"`
+	CABundlePEM                 string                `json:"ca_bundle_pem,omitempty"`
+	ServerCertFingerprint       string                `json:"server_cert_fingerprint,omitempty"`
 	CredentialBroker            credentialBrokerGrant `json:"credential_broker"`
 	TargetIDs                   map[string]string     `json:"target_ids,omitempty"`
 }
@@ -112,6 +117,8 @@ type pluginHostAuthorityBinding struct {
 	assignmentPolicyVersion     uint64
 	assignmentPolicyFingerprint string
 	sshHostKeyPolicy            string
+	caBundlePEM                 string
+	serverCertFingerprint       string
 	credentialBroker            credentialBrokerGrant
 	targetIDs                   map[string]string
 }
@@ -125,6 +132,8 @@ type pluginHostAuthorityStableBinding struct {
 	AssignmentPolicyVersion     uint64                `json:"assignment_policy_version"`
 	AssignmentPolicyFingerprint string                `json:"assignment_policy_fingerprint"`
 	SSHHostKeyPolicy            string                `json:"ssh_host_key_policy,omitempty"`
+	CABundlePEM                 string                `json:"ca_bundle_pem,omitempty"`
+	ServerCertFingerprint       string                `json:"server_cert_fingerprint,omitempty"`
 	CredentialBroker            credentialBrokerGrant `json:"credential_broker"`
 	TargetIDs                   map[string]string     `json:"target_ids,omitempty"`
 }
@@ -271,6 +280,11 @@ func validatePluginHostAuthorityBinding(
 	if !validProxmoxSSHHostBindingPolicy(pluginID, wire.SSHHostKeyPolicy, grant) {
 		return pluginHostAuthorityBinding{}, errPluginHostAuthorityMalformed
 	}
+	if !validPluginHostAuthorityCABundle(wire.CABundlePEM) ||
+		!validPluginHostAuthorityFingerprint(wire.ServerCertFingerprint) ||
+		(wire.CABundlePEM != "" && wire.ServerCertFingerprint != "") {
+		return pluginHostAuthorityBinding{}, errPluginHostAuthorityMalformed
+	}
 
 	return pluginHostAuthorityBinding{
 		bindingID:                   wire.BindingID,
@@ -281,6 +295,8 @@ func validatePluginHostAuthorityBinding(
 		assignmentPolicyVersion:     wire.AssignmentPolicyVersion,
 		assignmentPolicyFingerprint: wire.AssignmentPolicyFingerprint,
 		sshHostKeyPolicy:            wire.SSHHostKeyPolicy,
+		caBundlePEM:                 wire.CABundlePEM,
+		serverCertFingerprint:       wire.ServerCertFingerprint,
 		credentialBroker:            grant,
 		targetIDs:                   targetIDs,
 	}, nil
@@ -301,9 +317,9 @@ func validatePluginHostAuthorityGrant(grant credentialBrokerGrant, pluginID, cre
 		return errPluginHostAuthorityMalformed
 	}
 
-	expectedPurpose := "inventory_enrichment"
+	expectedPurpose := proxmoxInventoryPurpose
 	if pluginID == proxmoxConsolePluginID {
-		expectedPurpose = "console_access"
+		expectedPurpose = proxmoxConsolePurpose
 	}
 	if grant.Consumer["purpose"] != expectedPurpose {
 		return errPluginHostAuthorityMalformed
@@ -428,6 +444,20 @@ func proxmoxConsoleSourceFieldsMatch(
 		identity.nativeClusterID == targetIDs["native_cluster_id"]
 }
 
+func proxmoxPolicyIDMatches(policyID, ruleID, pluginID, entrypoint string) bool {
+	prefix := "network-credential-rule:" + ruleID
+	switch {
+	case pluginID == proxmoxInventoryPluginID && entrypoint == proxmoxInventoryEntrypoint:
+		// The materializer preserves unsuffixed inventory policy IDs. Match both
+		// exact forms, as the core host-authority validator does.
+		return policyID == prefix || policyID == prefix+":"+proxmoxInventoryPurpose
+	case pluginID == proxmoxConsolePluginID && entrypoint == proxmoxConsoleEntrypoint:
+		return policyID == prefix+":"+proxmoxConsolePurpose
+	default:
+		return false
+	}
+}
+
 func validateProxmoxPublicParams(
 	raw []byte,
 	assignmentID string,
@@ -500,16 +530,7 @@ func validateProxmoxPublicParams(
 		return proxmoxAssignmentPolicyBinding{}, errPluginHostAuthorityMalformed
 	}
 	for ruleID := range ruleIDs {
-		expectedPolicyID := ""
-		switch {
-		case pluginID == proxmoxInventoryPluginID && entrypoint == proxmoxInventoryEntrypoint:
-			expectedPolicyID = "network-credential-rule:" + ruleID + ":inventory_enrichment"
-		case pluginID == proxmoxConsolePluginID && entrypoint == proxmoxConsoleEntrypoint:
-			expectedPolicyID = "network-credential-rule:" + ruleID + ":console_access"
-		default:
-			return proxmoxAssignmentPolicyBinding{}, errPluginHostAuthorityMalformed
-		}
-		if policyID != expectedPolicyID || !validPluginHostAuthorityString(assignmentID) {
+		if !proxmoxPolicyIDMatches(policyID, ruleID, pluginID, entrypoint) || !validPluginHostAuthorityString(assignmentID) {
 			return proxmoxAssignmentPolicyBinding{}, errPluginHostAuthorityMalformed
 		}
 
@@ -686,6 +707,8 @@ func fingerprintPluginHostAuthority(bindings []pluginHostAuthorityBinding) strin
 			AssignmentPolicyVersion:     binding.assignmentPolicyVersion,
 			AssignmentPolicyFingerprint: binding.assignmentPolicyFingerprint,
 			SSHHostKeyPolicy:            binding.sshHostKeyPolicy,
+			CABundlePEM:                 binding.caBundlePEM,
+			ServerCertFingerprint:       binding.serverCertFingerprint,
 			CredentialBroker:            grant,
 			TargetIDs:                   cloneHostAuthorityStringMap(binding.targetIDs),
 		})
@@ -2165,4 +2188,59 @@ func parseStrictPositiveInt(value string) (int, bool) {
 
 func formatPluginHostAuthorityError(binding pluginHostAuthorityBinding) error {
 	return fmt.Errorf("%w for binding %q", errPluginHostAuthorityDenied, binding.bindingID)
+}
+
+// maxPluginHostAuthorityCABundleBytes bounds operator-supplied trust material.
+// A PVE cluster CA is a single ~2 KiB certificate; the ceiling is generous
+// enough for a short chain and small enough that a malformed binding cannot
+// make the agent parse an unbounded blob.
+const maxPluginHostAuthorityCABundleBytes = 64 << 10
+
+// validPluginHostAuthorityCABundle accepts an absent bundle and otherwise
+// requires PEM that decodes to at least one CERTIFICATE block. It deliberately
+// does not check expiry: the control plane rejects an expired bundle at save
+// time, and an agent that refused a binding here would fail closed on a clock
+// skew rather than surface a TLS error the operator can read.
+func validPluginHostAuthorityCABundle(bundle string) bool {
+	if bundle == "" {
+		return true
+	}
+	if len(bundle) > maxPluginHostAuthorityCABundleBytes {
+		return false
+	}
+
+	return pluginHostAuthorityCertPool(bundle) != nil
+}
+
+func validPluginHostAuthorityFingerprint(fingerprint string) bool {
+	if fingerprint == "" {
+		return true
+	}
+
+	const prefix = "sha256:"
+	if !strings.HasPrefix(fingerprint, prefix) {
+		return false
+	}
+
+	digest := fingerprint[len(prefix):]
+	if len(digest) != 64 || digest != strings.ToLower(digest) {
+		return false
+	}
+
+	_, err := hex.DecodeString(digest)
+	return err == nil
+}
+
+// pluginHostAuthorityCertPool builds a pool containing only the binding's own
+// trust material. It is deliberately NOT seeded from the system pool: a rule
+// that pins a private CA is asking for that anchor, and adding the public roots
+// back would silently accept any publicly-trusted certificate for the same
+// origin, which is weaker than what the operator configured.
+func pluginHostAuthorityCertPool(bundle string) *x509.CertPool {
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM([]byte(bundle)) {
+		return nil
+	}
+
+	return pool
 }

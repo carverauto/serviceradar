@@ -187,4 +187,76 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClientAuthTest do
       assert {:error, _} = Client.parse_repo_url("https://github.com/acme")
     end
   end
+
+  describe "missing_release?/1" do
+    test "matches an exact-tag 404, including the private-repository hint" do
+      reason =
+        "Release tag v1.4.51 was not found. If this repository is private, attach a GitHub access token to it: " <>
+          "an unauthenticated request cannot see private repositories and GitHub reports that as 404."
+
+      assert Client.missing_release?(reason)
+    end
+
+    test "matches a private-repository releases list 404" do
+      assert Client.missing_release?("Repository or releases not found")
+    end
+
+    test "does not treat credential or transport failures as a missing catalog" do
+      refute Client.missing_release?(
+               "Plugin repository requires authentication (HTTP 401); attach a GitHub access token."
+             )
+
+      refute Client.missing_release?("Release import failed with HTTP 502")
+      refute Client.missing_release?(:timeout)
+    end
+  end
+
+  describe "resolve_catalog/3" do
+    test "uses the exact deployed tag when GitHub has that release" do
+      exact = fn "v1.4.51" -> {:ok, [:from_exact]} end
+      recent = fn -> {:ok, [:from_recent]} end
+
+      assert {:ok, [:from_exact], :exact} = Client.resolve_catalog("v1.4.51", exact, recent)
+    end
+
+    test "falls back to recent releases when the deployed tag is unpublished" do
+      exact = fn "v1.4.51" ->
+        {:error, "Release tag v1.4.51 was not found. If this repository is private, attach a token."}
+      end
+
+      recent = fn -> {:ok, [:from_recent]} end
+
+      assert {:ok, [:from_recent], :recent} = Client.resolve_catalog("v1.4.51", exact, recent)
+    end
+
+    test "does not fall back when the exact tag fails for a reason other than 404" do
+      exact = fn "v1.4.51" ->
+        {:error, "Plugin repository requires authentication (HTTP 401); attach a GitHub access token."}
+      end
+
+      recent = fn -> {:ok, [:from_recent]} end
+
+      assert {:error, "Plugin repository requires authentication (HTTP 401); attach a GitHub access token."} =
+               Client.resolve_catalog("v1.4.51", exact, recent)
+    end
+
+    test "scans recent releases when no deployed tag is configured" do
+      exact = fn _tag -> flunk("exact lookup must not run without a tag") end
+      recent = fn -> {:ok, [:from_recent]} end
+
+      assert {:ok, [:from_recent], :recent} = Client.resolve_catalog(nil, exact, recent)
+      assert {:ok, [:from_recent], :recent} = Client.resolve_catalog("", exact, recent)
+    end
+
+    test "reports the fallback feed as an error when recent releases fail too" do
+      exact = fn "v1.4.51" ->
+        {:error, "Release tag v1.4.51 was not found. If this repository is private, attach a token."}
+      end
+
+      recent = fn -> {:error, "Repository or releases not found"} end
+
+      assert {:error, "Repository or releases not found"} =
+               Client.resolve_catalog("v1.4.51", exact, recent)
+    end
+  end
 end

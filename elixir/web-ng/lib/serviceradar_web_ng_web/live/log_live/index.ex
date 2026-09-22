@@ -3,11 +3,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
   import Ecto.Query
+  import ServiceRadarWebNGWeb.MetricWindowComponents, only: [metric_window_controls: 1]
   import ServiceRadarWebNGWeb.UIComponents
 
   alias Phoenix.LiveView.JS
   alias ServiceRadar.Events.PubSub, as: EventsPubSub
+  alias ServiceRadar.HTTP.EgressClient
   alias ServiceRadar.Integrations.MapboxSettings
+  alias ServiceRadar.Observability.AlertPubSub
   alias ServiceRadar.Observability.EventTitle
   alias ServiceRadar.Observability.FlowPubSub
   alias ServiceRadar.Observability.IpGeoEnrichmentCache
@@ -18,12 +21,17 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadar.Observability.LogPubSub
   alias ServiceRadar.Observability.NetflowPortAnomalyFlag
   alias ServiceRadar.Observability.NetflowPortScanFlag
+  alias ServiceRadar.Observability.OtelPubSub
   alias ServiceRadar.ReferenceData.ServicePorts
   alias ServiceRadarWebNG.AlertActions
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.Components.PrefixTagChips
+  alias ServiceRadarWebNGWeb.LogLive.NetflowRuntime
+  alias ServiceRadarWebNGWeb.LogLive.NetflowSankey
+  alias ServiceRadarWebNGWeb.LogLive.NetflowSummary
   alias ServiceRadarWebNGWeb.MetricSeries
+  alias ServiceRadarWebNGWeb.MetricWindowComponents
   alias ServiceRadarWebNGWeb.NetFlow.EnrichmentExpiry
   alias ServiceRadarWebNGWeb.Netflow.PrefixTagQuery
   alias ServiceRadarWebNGWeb.Netflow.RangeSelection
@@ -52,11 +60,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   @default_netflow_window "last_1h"
   @default_netflow_limit 50
   @max_netflow_limit 200
-  @netflow_sankey_query_limit 200
-  @netflow_sankey_max_edges 40
-  @netflow_sankey_max_sources 10
-  @netflow_sankey_max_mids 8
-  @netflow_sankey_max_dests 10
   @default_netflow_stack_mode "ports"
   @multi_span_filter "span_count:>1"
   @default_traces_query_base "in:otel_trace_summaries time:last_24h"
@@ -67,6 +70,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, LogPubSub.topic())
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, EventsPubSub.topic())
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, FlowPubSub.topic())
+      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, OtelPubSub.topic())
+      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, AlertPubSub.topic())
     end
 
     {:ok,
@@ -128,6 +133,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      })
      |> assign(:logs_live?, false)
      |> assign(:netflows_live?, false)
+     |> assign(:events_live?, false)
+     |> assign(:traces_live?, false)
+     |> assign(:metrics_live?, false)
+     |> assign(:alerts_live?, false)
      |> assign(:current_params, %{})
      |> assign(:log_view_params, %{})
      |> assign(:logs_rollup_status, Stats.empty_logs_rollup_status())
@@ -196,6 +205,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     logs_live? = next_logs_live_state(socket, tab, params)
     netflows_live? = next_netflows_live_state(socket, tab, params)
+    events_live? = next_tab_live_state(socket, tab, params, "events", :events_live?)
+    traces_live? = next_tab_live_state(socket, tab, params, "traces", :traces_live?)
+    metrics_live? = next_tab_live_state(socket, tab, params, "metrics", :metrics_live?)
+    alerts_live? = next_tab_live_state(socket, tab, params, "alerts", :alerts_live?)
     log_view_params = if tab == "logs", do: tracked_log_view_params(params), else: %{}
 
     # For same-tab query changes (stat card clicks), keep current data visible.
@@ -206,6 +219,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         |> assign(:active_tab, tab)
         |> assign(:logs_live?, logs_live?)
         |> assign(:netflows_live?, netflows_live?)
+        |> assign(:events_live?, events_live?)
+        |> assign(:traces_live?, traces_live?)
+        |> assign(:metrics_live?, metrics_live?)
+        |> assign(:alerts_live?, alerts_live?)
         |> assign(:current_params, params)
         |> assign(:log_view_params, log_view_params)
         |> assign(:netflow_compact?, netflow_compact?)
@@ -230,6 +247,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         |> assign(:active_tab, tab)
         |> assign(:logs_live?, logs_live?)
         |> assign(:netflows_live?, netflows_live?)
+        |> assign(:events_live?, events_live?)
+        |> assign(:traces_live?, traces_live?)
+        |> assign(:metrics_live?, metrics_live?)
+        |> assign(:alerts_live?, alerts_live?)
         |> assign(:current_params, params)
         |> assign(:log_view_params, log_view_params)
         |> assign(:logs, [])
@@ -321,6 +342,22 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     {:noreply, socket}
   end
 
+  def handle_event("toggle_events_live", _params, socket) do
+    {:noreply, toggle_tab_live(socket, "events", :events_live?)}
+  end
+
+  def handle_event("toggle_traces_live", _params, socket) do
+    {:noreply, toggle_tab_live(socket, "traces", :traces_live?)}
+  end
+
+  def handle_event("toggle_metrics_live", _params, socket) do
+    {:noreply, toggle_tab_live(socket, "metrics", :metrics_live?)}
+  end
+
+  def handle_event("toggle_alerts_live", _params, socket) do
+    {:noreply, toggle_tab_live(socket, "alerts", :alerts_live?)}
+  end
+
   def handle_event("srql_paginate", params, socket) do
     tab = socket.assigns.active_tab
     {_entity, list_key} = tab_entity(tab)
@@ -331,6 +368,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       # Paging is session position — leave the shareable URL alone and drop live tailing.
       |> assign(:logs_live?, false)
       |> assign(:netflows_live?, false)
+      |> assign(:events_live?, false)
+      |> assign(:traces_live?, false)
+      |> assign(:metrics_live?, false)
+      |> assign(:alerts_live?, false)
       |> then(fn sock ->
         SRQLPage.handle_event(sock, "srql_paginate", params,
           list_assign_key: list_key,
@@ -449,6 +490,25 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
          data: nil,
          error: "Invalid ASN."
        })}
+    end
+  end
+
+  def handle_event("netflow_set_range", %{"range" => range}, socket) do
+    if range in MetricWindowComponents.ranges() do
+      patch_netflow_window(socket, range, current_netflow_patch_opts(socket.assigns))
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("netflow_custom_range", %{"window" => params}, socket) do
+    case MetricWindowComponents.custom_range(params, max_days: 90) do
+      {:ok, range} ->
+        opts = socket.assigns |> current_netflow_patch_opts() |> Map.put(:view, "explorer")
+        patch_netflow_window(socket, range, opts)
+
+      {:error, message} ->
+        {:noreply, put_flash(socket, :error, message)}
     end
   end
 
@@ -801,6 +861,32 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       {:ok, seconds} -> run_alert_bulk(socket, :snooze, seconds: seconds)
       :error -> {:noreply, put_flash(socket, :error, AlertActions.describe_error(:invalid_duration))}
     end
+  end
+
+  # Shared live-toggle behavior: flip the flag, and when turning live on,
+  # reload the head of the current result set so the tail starts fresh.
+  defp toggle_tab_live(socket, tab, flag) do
+    socket = assign(socket, flag, !Map.get(socket.assigns, flag, false))
+
+    if socket.assigns.active_tab == tab and Map.get(socket.assigns, flag, false) do
+      refresh_tab(socket, tab)
+    else
+      socket
+    end
+  end
+
+  defp patch_netflow_window(socket, range, patch_opts) do
+    href =
+      netflow_filter_patch(
+        socket.assigns.srql[:page_path],
+        socket.assigns.srql[:query] || "",
+        socket.assigns.limit,
+        "time",
+        range,
+        patch_opts
+      )
+
+    {:noreply, push_patch(socket, to: href)}
   end
 
   defp maybe_patch_netflow_range(socket, params, selector_points, patch_opts) do
@@ -1387,7 +1473,30 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   @impl true
   def handle_info({:ocsf_event, _event}, socket) do
-    {:noreply, schedule_debounced_refresh(socket, "events")}
+    {:noreply, maybe_schedule_tab_live_refresh(socket, "events", :events_live?)}
+  end
+
+  @impl true
+  def handle_info({:otel_traces_ingested, _event}, socket) do
+    {:noreply, maybe_schedule_tab_live_refresh(socket, "traces", :traces_live?)}
+  end
+
+  @impl true
+  def handle_info({:otel_trace_summaries_refreshed, _event}, socket) do
+    # Span ingest can precede summary availability; the worker's post-commit
+    # pulse lets the tail read the completed summaries.
+    {:noreply, maybe_schedule_tab_live_refresh(socket, "traces", :traces_live?)}
+  end
+
+  @impl true
+  def handle_info({:otel_metrics_ingested, _event}, socket) do
+    {:noreply, maybe_schedule_tab_live_refresh(socket, "metrics", :metrics_live?)}
+  end
+
+  @impl true
+  def handle_info({:alert_created, _event}, socket) do
+    # See ServiceRadar.Monitoring.AlertNotifier for the shared creation boundary.
+    {:noreply, maybe_schedule_tab_live_refresh(socket, "alerts", :alerts_live?)}
   end
 
   @impl true
@@ -1442,6 +1551,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             latency={@trace_latency}
           />
           <.metrics_summary :if={@active_tab == "metrics"} stats={@metrics_stats} />
+          <.metric_window_controls
+            :if={@active_tab == "netflows"}
+            id="netflow-window"
+            range={extract_time_from_query(@srql[:query] || "") || "last_1h"}
+            event="netflow_set_range"
+            custom_event="netflow_custom_range"
+          />
           <.netflow_summary
             :if={@active_tab == "netflows"}
             timezone={@current_scope.user.timezone}
@@ -1476,10 +1592,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             <:header>
               <div class="min-w-0">
                 <div class="text-sm font-semibold tracking-tight text-sr-ink">
-                  {panel_title(@active_tab, panel_live?(@active_tab, @logs_live?, @netflows_live?))}
+                  {panel_title(@active_tab, panel_live?(@active_tab, assigns))}
                 </div>
                 <div class="text-xs leading-relaxed text-sr-muted">
-                  {panel_subtitle(@active_tab, panel_live?(@active_tab, @logs_live?, @netflows_live?))}
+                  {panel_subtitle(@active_tab, panel_live?(@active_tab, assigns))}
                 </div>
               </div>
 
@@ -1489,13 +1605,21 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 limit={@limit}
                 live?={@logs_live?}
               />
-              <.traces_panel_controls :if={@active_tab == "traces"} srql={@srql} limit={@limit} />
+              <.traces_panel_controls
+                :if={@active_tab == "traces"}
+                srql={@srql}
+                limit={@limit}
+                live?={@traces_live?}
+              />
               <.metrics_panel_controls
                 :if={@active_tab == "metrics"}
                 view={@metrics_view}
                 srql={@srql}
                 limit={@limit}
+                live?={@metrics_live?}
               />
+              <.events_panel_controls :if={@active_tab == "events"} live?={@events_live?} />
+              <.alerts_panel_controls :if={@active_tab == "alerts"} live?={@alerts_live?} />
               <.netflow_presets
                 :if={@active_tab == "netflows"}
                 srql={@srql}
@@ -3631,6 +3755,77 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     """
   end
 
+  # Shared Live on/off toggle matching the logs live-feed pattern. Each
+  # observability tab passes its own DOM id and toggle event; the flag assign
+  # carries that tab's live state.
+  attr(:id, :string, required: true)
+  attr(:toggle_event, :string, required: true)
+  attr(:live?, :boolean, default: false)
+  attr(:start_title, :string, required: true)
+  attr(:pause_title, :string, required: true)
+
+  defp live_toggle_button(assigns) do
+    assigns =
+      assigns
+      |> assign(:toggle_title, if(assigns.live?, do: assigns.pause_title, else: assigns.start_title))
+      |> assign(:toggle_badge_variant, if(assigns.live?, do: "success", else: "ghost"))
+      |> assign(:toggle_variant, if(assigns.live?, do: "primary", else: "outline"))
+      # The badge id drops the button's "-toggle" suffix so `id="logs-live-toggle"`
+      # renders badge `id="logs-live-status"`, matching the established convention.
+      |> assign(:toggle_badge_id, String.replace_suffix(assigns.id, "-toggle", "-status"))
+
+    ~H"""
+    <.ui_button
+      id={@id}
+      phx-click={@toggle_event}
+      variant={@toggle_variant}
+      size="xs"
+      active={@live?}
+      class="rounded-full gap-2"
+      title={@toggle_title}
+    >
+      <span class="text-xs font-medium">Live</span>
+      <.ui_badge id={@toggle_badge_id} size="xs" variant={@toggle_badge_variant}>
+        {if @live?, do: "On", else: "Off"}
+      </.ui_badge>
+    </.ui_button>
+    """
+  end
+
+  # The events and alerts panes have no other header filters, so their panel
+  # controls are just the live toggle, right-aligned like the logs pane.
+  attr(:live?, :boolean, default: false)
+
+  defp events_panel_controls(assigns) do
+    ~H"""
+    <div class="flex flex-wrap items-center justify-end gap-2">
+      <.live_toggle_button
+        id="events-live-toggle"
+        toggle_event="toggle_events_live"
+        live?={@live?}
+        start_title="Start live event streaming"
+        pause_title="Pause live event streaming"
+      />
+    </div>
+    """
+  end
+
+  attr(:live?, :boolean, default: false)
+
+  defp alerts_panel_controls(assigns) do
+    ~H"""
+    <div class="flex flex-wrap items-center justify-end gap-2">
+      <.live_toggle_button
+        id="alerts-live-toggle"
+        toggle_event="toggle_alerts_live"
+        live?={@live?}
+        start_title="Start live alert streaming"
+        pause_title="Pause live alert streaming"
+      />
+    </div>
+    """
+  end
+
   attr(:srql, :map, required: true)
   attr(:limit, :integer, required: true)
   attr(:compact?, :boolean, default: false)
@@ -3802,6 +3997,37 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         false
     end
   end
+
+  # Generic live-tail state for the events/traces/metrics/alerts tabs, mirroring
+  # the logs/netflows rules: live survives only on the head of the same result
+  # set — same tab, same tracked query params, no cursor or paged position.
+  defp next_tab_live_state(socket, tab, params, expected_tab, flag) do
+    cond do
+      tab != expected_tab ->
+        false
+
+      has_cursor_param?(params) or paged_away_from_head?(socket) ->
+        false
+
+      manual_tab_navigation?(socket, tab, params) ->
+        false
+
+      true ->
+        Map.get(socket.assigns, flag, false)
+    end
+  end
+
+  defp manual_tab_navigation?(socket, tab, params) do
+    socket.assigns[:_initial_load_done] &&
+      socket.assigns.active_tab == tab &&
+      tracked_tab_view_params(params) != tracked_tab_view_params(Map.get(socket.assigns, :current_params, %{}))
+  end
+
+  defp tracked_tab_view_params(params) when is_map(params) do
+    Map.take(params, ["q", "limit", "cursor", "page", "tab"])
+  end
+
+  defp tracked_tab_view_params(_), do: %{}
 
   defp has_cursor_param?(params) when is_map(params) do
     value = Map.get(params, "cursor")
@@ -4344,6 +4570,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:srql, :map, required: true)
   attr(:limit, :integer, required: true)
 
+  attr(:live?, :boolean, default: false)
+
   defp traces_panel_controls(assigns) do
     query = Map.get(assigns.srql, :query) || ""
 
@@ -4354,6 +4582,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     ~H"""
     <div class="flex items-center gap-2">
+      <.live_toggle_button
+        id="traces-live-toggle"
+        toggle_event="toggle_traces_live"
+        live?={@live?}
+        start_title="Start live trace streaming"
+        pause_title="Pause live trace streaming"
+      />
       <span class="text-[10px] uppercase tracking-wider text-sr-muted">Filter</span>
       <.ui_button
         id="traces-multi-span-toggle"
@@ -4572,6 +4807,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:view, :string, required: true)
   attr(:srql, :map, required: true)
   attr(:limit, :integer, required: true)
+  attr(:live?, :boolean, default: false)
 
   # Toggle between the legacy span-sample exemplars and real OTLP metric
   # points (in:otel_metric_points). Patch links keep the toggle URL-driven,
@@ -4579,6 +4815,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp metrics_panel_controls(assigns) do
     ~H"""
     <div id="metrics-view-toggle" class="flex items-center gap-1">
+      <.live_toggle_button
+        id="metrics-live-toggle"
+        toggle_event="toggle_metrics_live"
+        live?={@live?}
+        start_title="Start live metric streaming"
+        pause_title="Pause live metric streaming"
+      />
       <.ui_button
         patch={metrics_view_href(@srql, @limit, "samples")}
         size="xs"
@@ -5615,7 +5858,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp fetch_arin_asn(asn) when is_integer(asn) and asn > 0 do
     url = "https://whois.arin.net/rest/asn/AS#{asn}.json"
 
-    case Req.get(url, arin_http_req_opts()) do
+    case arin_http_get(url) do
       {:ok, %Req.Response{status: 200, body: %{"asn" => %{} = asn_payload}}} ->
         {:ok, normalize_arin_asn(asn_payload)}
 
@@ -5634,13 +5877,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp fetch_arin_asn(_), do: {:error, :invalid_asn}
 
-  defp arin_http_req_opts do
-    opts = [receive_timeout: 8_000, retry: false, headers: [{"accept", "application/json"}]]
+  # EgressClient, not the shared Finch pool: the pool cannot tunnel through
+  # SERVICERADAR_EGRESS_PROXY. Decodes a 200 body; other statuses pass through.
+  defp arin_http_get(url) do
+    opts = [receive_timeout: 8_000, headers: [{"accept", "application/json"}]]
 
-    if Process.whereis(ServiceRadar.Finch) do
-      Keyword.put(opts, :finch, ServiceRadar.Finch)
-    else
-      opts
+    with {:ok, %Req.Response{status: 200, body: body} = response} <-
+           EgressClient.fetch_body(url, opts),
+         {:ok, decoded} <- Jason.decode(body) do
+      {:ok, %{response | body: decoded}}
     end
   end
 
@@ -7790,25 +8035,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp numeric_to_float(value) when is_number(value), do: value * 1.0
   defp numeric_to_float(_), do: 0.0
 
-  defp extract_stats_count({:ok, %{"results" => [%{} | _]}} = result, key) when is_binary(key) do
-    result
-    |> extract_stats_row()
-    |> Map.get(key)
-    |> to_int()
-  end
-
-  defp extract_stats_count({:ok, %{"results" => [value | _]}}, _key), do: to_int(value)
-  defp extract_stats_count(_result, _key), do: 0
-
-  defp extract_stats_row({:ok, %{"results" => [%{} = raw | _]}}) do
-    case Map.get(raw, "payload") do
-      %{} = payload -> payload
-      _ -> raw
-    end
-  end
-
-  defp extract_stats_row(_), do: %{}
-
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
   end
@@ -7881,27 +8107,41 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp compute_netflow_summary(_), do: empty_netflow_summary()
 
-  defp panel_live?("logs", logs_live?, _netflows_live?), do: logs_live?
-  defp panel_live?("netflows", _logs_live?, netflows_live?), do: netflows_live?
-  defp panel_live?(_, _logs_live?, _netflows_live?), do: false
+  defp panel_live?("logs", assigns), do: Map.get(assigns, :logs_live?, false)
+  defp panel_live?("netflows", assigns), do: Map.get(assigns, :netflows_live?, false)
+  defp panel_live?("events", assigns), do: Map.get(assigns, :events_live?, false)
+  defp panel_live?("traces", assigns), do: Map.get(assigns, :traces_live?, false)
+  defp panel_live?("metrics", assigns), do: Map.get(assigns, :metrics_live?, false)
+  defp panel_live?("alerts", assigns), do: Map.get(assigns, :alerts_live?, false)
+  defp panel_live?(_, _), do: false
 
   defp panel_title("logs", true), do: "Log Stream"
   defp panel_title("logs", false), do: "Logs"
-  defp panel_title("traces", _), do: "Traces"
-  defp panel_title("metrics", _), do: "Metrics"
-  defp panel_title("events", _), do: "Events"
-  defp panel_title("alerts", _), do: "Alerts"
+  defp panel_title("traces", true), do: "Trace Stream"
+  defp panel_title("traces", false), do: "Traces"
+  defp panel_title("metrics", true), do: "Metric Stream"
+  defp panel_title("metrics", false), do: "Metrics"
+  defp panel_title("events", true), do: "Event Stream"
+  defp panel_title("events", false), do: "Events"
+  defp panel_title("alerts", true), do: "Alert Stream"
+  defp panel_title("alerts", false), do: "Alerts"
   defp panel_title("netflows", true), do: "Flow Stream"
   defp panel_title("netflows", false), do: "Flows"
   defp panel_title(_, _), do: "Logs"
 
   defp panel_subtitle("logs", true), do: "Streaming newest log updates. Click any log entry to view full details."
   defp panel_subtitle("logs", false), do: "Click any log entry to view full details."
+  defp panel_subtitle("traces", true), do: "Streaming newest trace updates. Click a trace to open the span waterfall."
   defp panel_subtitle("traces", _), do: "Click a trace to open the span waterfall."
+
+  defp panel_subtitle("metrics", true),
+    do: "Streaming newest metric updates. Click a metric to jump to correlated logs (if trace_id is present)."
 
   defp panel_subtitle("metrics", _), do: "Click a metric to jump to correlated logs (if trace_id is present)."
 
+  defp panel_subtitle("events", true), do: "Streaming newest event updates. Click any event to view full details."
   defp panel_subtitle("events", _), do: "Click any event to view full details."
+  defp panel_subtitle("alerts", true), do: "Streaming newest alert updates. Click any alert to view full details."
   defp panel_subtitle("alerts", _), do: "Click any alert to view full details."
   defp panel_subtitle("netflows", true), do: "Refreshing newest network flow data from NetFlow collectors."
   defp panel_subtitle("netflows", false), do: "Network flow data from NetFlow collectors."
@@ -7996,96 +8236,97 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp apply_tab_assigns(socket, "netflows", srql_module) do
     scope = Map.get(socket.assigns, :current_scope)
-    summary = maybe_load_netflow_summary(socket, srql_module, scope)
-
-    top_talkers =
-      load_netflow_top_talkers(
-        srql_module,
-        Map.get(socket.assigns.srql, :query),
-        scope,
-        Map.get(socket.assigns, :netflow_talker_cidr)
-      )
-
-    rdns_map = load_netflow_rdns_map(socket.assigns.netflows, top_talkers, scope)
-    threat_map = load_netflow_threat_map(socket.assigns.netflows)
-
-    top_ports = load_netflow_top_ports(srql_module, Map.get(socket.assigns.srql, :query), scope)
-
-    timeseries =
-      load_netflow_timeseries(srql_module, Map.get(socket.assigns.srql, :query), scope)
-
+    query = Map.get(socket.assigns.srql, :query)
+    tab = socket.assigns.active_tab
+    view = Map.get(socket.assigns, :netflow_view, "overview")
     compare_mode = Map.get(socket.assigns, :netflow_compare_mode, "off")
-
-    timeseries_compare =
-      load_netflow_timeseries_compare(
-        srql_module,
-        Map.get(socket.assigns.srql, :query),
-        scope,
-        compare_mode,
-        Map.get(timeseries, :bucket_seconds, 300)
-      )
-
-    timeseries_stacked =
-      load_netflow_timeseries_stacked(
-        srql_module,
-        Map.get(socket.assigns.srql, :query),
-        scope,
-        Map.get(timeseries, :bucket_seconds, 300),
-        Map.get(timeseries, :points, []),
-        Map.get(socket.assigns, :netflow_stack_mode, @default_netflow_stack_mode)
-      )
-
-    protocol_activity =
-      load_netflow_protocol_activity(
-        srql_module,
-        Map.get(socket.assigns.srql, :query),
-        scope,
-        Map.get(timeseries, :bucket_seconds, 300),
-        Map.get(timeseries, :points, [])
-      )
-
-    app_activity =
-      load_netflow_app_activity(
-        srql_module,
-        Map.get(socket.assigns.srql, :query),
-        scope,
-        Map.get(timeseries, :bucket_seconds, 300),
-        Map.get(timeseries, :points, [])
-      )
-
-    frequent_talkers_packets =
-      load_netflow_frequent_talkers_packets(
-        srql_module,
-        Map.get(socket.assigns.srql, :query),
-        scope
-      )
-
-    frequent_talkers_bytes =
-      load_netflow_frequent_talkers_bytes(
-        srql_module,
-        Map.get(socket.assigns.srql, :query),
-        scope
-      )
-
+    stack_mode = Map.get(socket.assigns, :netflow_stack_mode, @default_netflow_stack_mode)
     geo_side = Map.get(socket.assigns, :netflow_geo_side, "dst")
-
-    geo_heatmap =
-      load_netflow_geo_heatmap(
-        srql_module,
-        Map.get(socket.assigns.srql, :query),
-        scope,
-        geo_side
-      )
-
     sankey_prefix = Map.get(socket.assigns, :netflow_sankey_prefix, 24)
+    talker_cidr = Map.get(socket.assigns, :netflow_talker_cidr)
+    netflows = socket.assigns.netflows
 
-    sankey =
-      load_netflow_sankey(
-        srql_module,
-        Map.get(socket.assigns.srql, :query),
-        scope,
-        sankey_prefix
-      )
+    # Every loader below is one or more warehouse round trips. None in this
+    # first group needs another's answer, so they run at the same time and the
+    # page waits for the slowest instead of for the sum.
+    %{
+      summary: summary,
+      top_talkers: top_talkers,
+      threat_map: threat_map,
+      top_ports: top_ports,
+      timeseries: timeseries,
+      frequent_talkers_packets: frequent_talkers_packets,
+      frequent_talkers_bytes: frequent_talkers_bytes,
+      geo_heatmap: geo_heatmap,
+      sankey: sankey
+    } =
+      NetflowRuntime.run_concurrently([
+        {:summary, fn -> maybe_load_netflow_summary(socket, srql_module, scope) end, empty_netflow_summary()},
+        {:top_talkers, fn -> load_netflow_top_talkers(srql_module, query, scope, talker_cidr) end, []},
+        {:threat_map, fn -> load_netflow_threat_map(netflows) end, %{}},
+        {:top_ports, fn -> load_netflow_top_ports(srql_module, query, scope) end, []},
+        {:timeseries, fn -> load_netflow_timeseries(srql_module, query, scope) end, %{bucket_seconds: 300, points: []}},
+        {:frequent_talkers_packets, fn -> load_netflow_frequent_talkers_packets(srql_module, query, scope) end, []},
+        {:frequent_talkers_bytes, fn -> load_netflow_frequent_talkers_bytes(srql_module, query, scope) end, []},
+        {:geo_heatmap, fn -> load_netflow_geo_heatmap(srql_module, query, scope, geo_side) end, []},
+        {:sankey,
+         fn ->
+           case NetflowRuntime.load_panel(tab, view, :sankey, fn ->
+                  load_netflow_sankey(srql_module, query, scope, sankey_prefix)
+                end) do
+             {:ok, value} -> value
+             {:error, _reason} = error -> error
+             {:skipped, :inactive_panel} -> empty_netflow_sankey()
+           end
+         end, empty_netflow_sankey()}
+      ])
+
+    bucket_seconds = Map.get(timeseries, :bucket_seconds, 300)
+    points = Map.get(timeseries, :points, [])
+    empty_series = %{bucket_seconds: bucket_seconds, keys: [], points: [], colors: %{}}
+
+    load_protocol_activity = fn ->
+      load_netflow_protocol_activity(srql_module, query, scope, bucket_seconds, points)
+    end
+
+    load_app_activity = fn ->
+      load_netflow_app_activity(srql_module, query, scope, bucket_seconds, points)
+    end
+
+    # These need the total series' bucket and points, or the top talkers.
+    %{
+      rdns_map: rdns_map,
+      timeseries_compare: timeseries_compare,
+      timeseries_stacked: timeseries_stacked,
+      protocol_activity: protocol_activity,
+      app_activity: app_activity
+    } =
+      NetflowRuntime.run_concurrently([
+        {:rdns_map, fn -> load_netflow_rdns_map(netflows, top_talkers, scope) end, %{}},
+        {:timeseries_compare,
+         fn ->
+           load_netflow_timeseries_compare(srql_module, query, scope, compare_mode, bucket_seconds)
+         end, %{bucket_seconds: bucket_seconds, points: []}},
+        {:timeseries_stacked,
+         fn ->
+           case NetflowRuntime.load_panel(tab, view, :stacked_timeseries, fn ->
+                  load_netflow_timeseries_stacked(
+                    srql_module,
+                    query,
+                    scope,
+                    bucket_seconds,
+                    points,
+                    stack_mode
+                  )
+                end) do
+             {:ok, value} -> value
+             {:error, _reason} = error -> error
+             {:skipped, :inactive_panel} -> %{empty_series | bucket_seconds: 300}
+           end
+         end, empty_series},
+        {:protocol_activity, load_protocol_activity, empty_series},
+        {:app_activity, load_app_activity, empty_series}
+      ])
 
     sankey_edges_json =
       try do
@@ -8253,9 +8494,51 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
+  # Generic live-tail gate shared by the events/traces/metrics/alerts tabs:
+  # schedule a debounced head refresh only while the tab is active and live.
+  defp maybe_schedule_tab_live_refresh(socket, tab, flag) do
+    if socket.assigns.active_tab == tab and Map.get(socket.assigns, flag, false) do
+      schedule_debounced_refresh(socket, tab)
+    else
+      socket
+    end
+  end
+
   defp maybe_refresh_tab(socket, "logs") do
     if socket.assigns.active_tab == "logs" and Map.get(socket.assigns, :logs_live?, false) do
       refresh_tab(socket, "logs")
+    else
+      socket
+    end
+  end
+
+  defp maybe_refresh_tab(socket, "events") do
+    if socket.assigns.active_tab == "events" and Map.get(socket.assigns, :events_live?, false) do
+      refresh_tab(socket, "events")
+    else
+      socket
+    end
+  end
+
+  defp maybe_refresh_tab(socket, "traces") do
+    if socket.assigns.active_tab == "traces" and Map.get(socket.assigns, :traces_live?, false) do
+      refresh_tab(socket, "traces")
+    else
+      socket
+    end
+  end
+
+  defp maybe_refresh_tab(socket, "metrics") do
+    if socket.assigns.active_tab == "metrics" and Map.get(socket.assigns, :metrics_live?, false) do
+      refresh_tab(socket, "metrics")
+    else
+      socket
+    end
+  end
+
+  defp maybe_refresh_tab(socket, "alerts") do
+    if socket.assigns.active_tab == "alerts" and Map.get(socket.assigns, :alerts_live?, false) do
+      refresh_tab(socket, "alerts")
     else
       socket
     end
@@ -8621,78 +8904,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         _ -> 60 * 60
       end
 
-    total_query = ~s|#{base_query} stats:"count(*) as total" limit:1|
-    bytes_query = ~s|#{base_query} stats:"sum(bytes_total) as total_bytes" limit:1|
-    packets_total_query = ~s|#{base_query} stats:"sum(packets_total) as total_packets" limit:1|
-    packets_alt_query = ~s|#{base_query} stats:"sum(packets) as total_packets" limit:1|
-    packets_in_query = ~s|#{base_query} stats:"sum(packets_in) as total_packets_in" limit:1|
-    packets_out_query = ~s|#{base_query} stats:"sum(packets_out) as total_packets_out" limit:1|
-
-    proto_query =
-      ~s|#{base_query} stats:"count(*) as total by protocol_num" sort:total:desc limit:50|
-
-    total = extract_stats_count(srql_module.query(total_query, %{scope: scope}), "total")
-
-    total_bytes =
-      extract_stats_count(srql_module.query(bytes_query, %{scope: scope}), "total_bytes")
-
-    packets_total_primary =
-      extract_stats_count(
-        srql_module.query(packets_total_query, %{scope: scope}),
-        "total_packets"
-      )
-
-    packets_total_alt =
-      extract_stats_count(srql_module.query(packets_alt_query, %{scope: scope}), "total_packets")
-
-    packets_in =
-      extract_stats_count(
-        srql_module.query(packets_in_query, %{scope: scope}),
-        "total_packets_in"
-      )
-
-    packets_out =
-      extract_stats_count(
-        srql_module.query(packets_out_query, %{scope: scope}),
-        "total_packets_out"
-      )
-
-    total_packets =
-      cond do
-        packets_total_primary > 0 -> packets_total_primary
-        packets_total_alt > 0 -> packets_total_alt
-        packets_in + packets_out > 0 -> packets_in + packets_out
-        true -> 0
-      end
-
-    proto_rows = extract_stats_rows(srql_module.query(proto_query, %{scope: scope}))
-
-    tcp =
-      Enum.find_value(proto_rows, 0, fn row ->
-        if to_int(Map.get(row, "protocol_num")) == 6, do: to_int(row["total"])
-      end)
-
-    udp =
-      Enum.find_value(proto_rows, 0, fn row ->
-        if to_int(Map.get(row, "protocol_num")) == 17, do: to_int(row["total"])
-      end)
-
-    other = max(total - tcp - udp, 0)
-
-    avg_bps = total_bytes * 8.0 / window_seconds
-    avg_pps = total_packets * 1.0 / window_seconds
-
-    %{
-      total: total,
-      tcp: tcp,
-      udp: udp,
-      other: other,
-      total_bytes: total_bytes,
-      total_packets: total_packets,
-      avg_bps: avg_bps,
-      avg_pps: avg_pps,
-      window_seconds: window_seconds
-    }
+    base_query
+    |> NetflowSummary.query()
+    |> srql_module.query(%{scope: scope})
+    |> extract_stats_rows()
+    |> NetflowSummary.from_rows(window_seconds)
   rescue
     e ->
       Logger.warning("Failed to load netflow summary stats: #{inspect(e)}")
@@ -9286,16 +9502,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> Enum.take(8)
 
     maps =
-      Map.new(keys, fn ip ->
-        {ip,
-         load_netflow_timeseries_bytes_map(
-           srql_module,
-           scope,
-           base_query,
-           bucket,
-           " src_ip:#{ip}"
-         )}
-      end)
+      load_netflow_keyed_series_maps(srql_module, scope, base_query, bucket, "src_endpoint_ip", keys)
 
     {keys, maps}
   end
@@ -9322,25 +9529,34 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     keys = Enum.map(labeled, & &1.label)
 
-    maps =
-      Map.new(labeled, fn %{label: label, port: port} ->
-        {label,
-         load_netflow_timeseries_bytes_map(
-           srql_module,
-           scope,
-           base_query,
-           bucket,
-           " dst_port:#{port}"
-         )}
-      end)
+    by_port =
+      load_netflow_keyed_series_maps(
+        srql_module,
+        scope,
+        base_query,
+        bucket,
+        "dst_endpoint_port",
+        Enum.map(labeled, &to_string(&1.port))
+      )
+
+    maps = Map.new(labeled, fn %{label: label, port: port} -> {label, Map.get(by_port, to_string(port), %{})} end)
 
     {keys, maps}
   end
 
-  defp load_netflow_timeseries_bytes_map(srql_module, scope, base_query, bucket, filter_suffix)
-       when is_binary(base_query) and is_binary(bucket) and is_binary(filter_suffix) do
+  # Every key's series in one round trip: `series:` groups by the field and the
+  # filter keeps it to the keys being charted. One query per key made the
+  # stacked chart cost nine round trips where it needs one.
+  defp load_netflow_keyed_series_maps(_srql_module, _scope, _base_query, _bucket, _field, []), do: %{}
+
+  defp load_netflow_keyed_series_maps(srql_module, scope, base_query, bucket, field, values)
+       when is_binary(base_query) and is_binary(bucket) and is_binary(field) and is_list(values) do
     query =
-      ~s|#{base_query}#{filter_suffix} bucket:#{bucket} agg:sum value_field:bytes_total limit:120|
+      base_query
+      |> upsert_query_filter(field, "(" <> Enum.join(values, ",") <> ")")
+      |> then(fn q ->
+        ~s|#{q} bucket:#{bucket} agg:sum value_field:bytes_total series:#{field} limit:#{length(values) * 120}|
+      end)
 
     rows =
       case srql_module.query(query, %{scope: scope}) do
@@ -9349,10 +9565,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       end
 
     Enum.reduce(rows, %{}, fn
-      %{"timestamp" => ts, "value" => value}, acc ->
+      %{"timestamp" => ts, "series" => series, "value" => value}, acc ->
         with {:ok, dt} <- parse_srql_datetime(ts),
              bytes when is_number(bytes) <- to_number(value) do
-          Map.update(acc, dt, bytes, &(&1 + bytes))
+          put_netflow_series_value(acc, to_string(series), dt, bytes)
         else
           _ -> acc
         end
@@ -9489,72 +9705,20 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp empty_netflow_sankey, do: %{edges: [], sources: [], mids: [], dests: []}
 
   defp build_netflow_sankey(srql_module, base_query, scope, prefix) do
-    # SRQL doesn't guarantee support for expression-style group-by like `src_cidr:24` across all backends.
-    # To keep Sankey reliable, always group by raw endpoint IPs in SRQL and CIDR-collapse in Elixir.
-    ip_query =
-      ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by src_endpoint_ip, dst_endpoint_port, dst_endpoint_ip" sort:total_bytes:desc limit:#{@netflow_sankey_query_limit}|
-
-    rows = srql_stats_rows(srql_module, ip_query, scope, "IP")
-
     edges =
-      rows
-      |> Enum.map(fn row ->
-        netflow_sankey_edge_ip(row, prefix)
-      end)
-      |> Enum.reject(fn e ->
-        is_nil(e.src) or e.src in ["", "Unknown"] or is_nil(e.dst) or e.dst in ["", "Unknown"] or
-          e.bytes <= 0
-      end)
-      |> aggregate_netflow_sankey_edges()
-      |> focus_netflow_sankey_edges()
-
-    sources = sum_edges_by(edges, :src)
-    mids = sum_edges_by(edges, :mid)
-    dests = sum_edges_by(edges, :dst)
+      srql_module
+      |> srql_stats_rows(NetflowSankey.query(base_query, prefix), scope, "subnet")
+      |> NetflowSankey.edges(prefix, &netflow_port_mid_label/1)
 
     %{
       edges: edges,
-      sources: sources |> Enum.sort_by(fn {_k, v} -> -v end) |> Enum.take(@netflow_sankey_max_sources),
-      mids: mids |> Enum.sort_by(fn {_k, v} -> -v end) |> Enum.take(@netflow_sankey_max_mids),
-      dests: dests |> Enum.sort_by(fn {_k, v} -> -v end) |> Enum.take(@netflow_sankey_max_dests)
+      sources: NetflowSankey.totals_by(edges, :src),
+      mids: NetflowSankey.totals_by(edges, :mid),
+      dests: NetflowSankey.totals_by(edges, :dst)
     }
   rescue
     _ ->
       empty_netflow_sankey()
-  end
-
-  defp aggregate_netflow_sankey_edges(edges) when is_list(edges) do
-    edges
-    |> Enum.reduce(%{}, fn edge, acc ->
-      key = {edge.src, edge.mid, edge.port, edge.dst}
-
-      Map.update(acc, key, edge, fn existing ->
-        %{existing | bytes: existing.bytes + edge.bytes}
-      end)
-    end)
-    |> Map.values()
-    |> Enum.sort_by(& &1.bytes, :desc)
-  end
-
-  defp focus_netflow_sankey_edges(edges) when is_list(edges) do
-    top_sources = top_sankey_keys(edges, :src, @netflow_sankey_max_sources)
-    top_mids = top_sankey_keys(edges, :mid, @netflow_sankey_max_mids)
-    top_dests = top_sankey_keys(edges, :dst, @netflow_sankey_max_dests)
-
-    edges
-    |> Enum.filter(fn edge ->
-      MapSet.member?(top_sources, edge.src) and MapSet.member?(top_mids, edge.mid) and
-        MapSet.member?(top_dests, edge.dst)
-    end)
-    |> Enum.take(@netflow_sankey_max_edges)
-  end
-
-  defp top_sankey_keys(edges, key, limit) when is_list(edges) and is_atom(key) do
-    edges
-    |> sum_edges_by(key)
-    |> Enum.sort_by(fn {_value, bytes} -> -bytes end)
-    |> Enum.take(limit)
-    |> MapSet.new(fn {value, _bytes} -> value end)
   end
 
   defp srql_stats_rows(srql_module, query, scope, label) when is_binary(query) and is_binary(label) do
@@ -9570,15 +9734,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         Logger.warning("NetFlow sankey #{label} query unexpected result: #{inspect(other)}")
         []
     end
-  end
-
-  defp netflow_sankey_edge_ip(row, prefix) when prefix in [16, 24] do
-    src = ip_to_cidr(Map.get(row, "src_endpoint_ip"), prefix)
-    dst = ip_to_cidr(Map.get(row, "dst_endpoint_ip"), prefix)
-    port = to_int(Map.get(row, "dst_endpoint_port"))
-    bytes = to_int(Map.get(row, "total_bytes"))
-    mid = netflow_port_mid_label(port)
-    %{src: src, mid: mid, port: port, dst: dst, bytes: bytes}
   end
 
   defp ip_to_cidr(nil, _prefix), do: nil
@@ -9608,14 +9763,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp netflow_port_mid_label(_), do: "PORT:?"
-
-  defp sum_edges_by(edges, key) when is_list(edges) do
-    edges
-    |> Enum.reduce(%{}, fn e, acc ->
-      Map.update(acc, Map.get(e, key), e.bytes, &(&1 + e.bytes))
-    end)
-    |> Map.to_list()
-  end
 
   defp resolve_srql_time(value) when is_binary(value) do
     value
@@ -9723,8 +9870,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       span <= 60 * 60 -> 60
       span <= 6 * 60 * 60 -> 300
       span <= 24 * 60 * 60 -> 900
-      span <= 7 * 24 * 60 * 60 -> 3600
-      true -> 6 * 3600
+      span <= 5 * 24 * 60 * 60 -> 3600
+      span <= 30 * 24 * 60 * 60 -> 6 * 3600
+      true -> 24 * 3600
     end
   end
 
@@ -9733,6 +9881,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp bucket_seconds_to_srql(900), do: "15m"
   defp bucket_seconds_to_srql(3600), do: "1h"
   defp bucket_seconds_to_srql(21_600), do: "6h"
+  defp bucket_seconds_to_srql(86_400), do: "1d"
 
   defp bucket_seconds_to_srql(seconds) when is_integer(seconds) and rem(seconds, 60) == 0, do: "#{div(seconds, 60)}m"
 

@@ -577,6 +577,49 @@ pub(super) fn sweep_coverage() -> VizMeta {
     }
 }
 
+pub(super) fn device_sweep_overlap() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col("device_uid", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("ip", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("declared_target", ColumnType::Text, None),
+            col("covering_declarations", ColumnType::TextArray, None),
+            col("observed_ip", ColumnType::Text, None),
+            col("sweep_group_id", ColumnType::Text, None),
+            col("sweep_group_name", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("profile_id", ColumnType::Text, None),
+            col("scanner_profile_name", ColumnType::Text, None),
+            col("declared_modes", ColumnType::TextArray, None),
+            col("declared_ports", ColumnType::IntArray, None),
+            col("agent_id", ColumnType::Text, None),
+            col("declared", ColumnType::Bool, None),
+            col("observed", ColumnType::Bool, None),
+            col("relationship", ColumnType::Text, Some(ColumnSemantic::Series)),
+            col("match_kind", ColumnType::Text, None),
+            col("match_via", ColumnType::Text, None),
+            col(
+                "last_seen_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+            col("available_count", ColumnType::Int, None),
+            col("execution_count", ColumnType::Int, None),
+            col("config_delivered_at", ColumnType::Timestamptz, None),
+            col("has_availability_row", ColumnType::Bool, None),
+            col("availability_agent_id", ColumnType::Text, None),
+            col("availability_group_id", ColumnType::Text, None),
+            col("availability_row_owner", ColumnType::Text, None),
+            col("owns_availability_row", ColumnType::Bool, None),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
+
 fn virtualization_table_meta(columns: Vec<ColumnMeta>) -> VizMeta {
     VizMeta {
         columns,

@@ -1,3 +1,4 @@
+
 <div align=center>
   
 [![Website](https://img.shields.io/website?up_message=SERVICERADAR&down_message=DOWN&url=https%3A%2F%2Fserviceradar.cloud&style=for-the-badge)](https://serviceradar.cloud)
@@ -8,7 +9,7 @@
 
 # ServiceRadar
 
-<img width="1470" height="803" alt="Screenshot 2026-07-27 at 11 59 41 PM" src="https://github.com/user-attachments/assets/94d71c4d-1e8b-472a-9651-551825a2b41e" />
+<img width="1470" height="834" alt="Screenshot 2026-09-22 at 3 48 47 AM" src="https://github.com/user-attachments/assets/46259e7a-afe2-4091-b817-2d2e3efc71bb" />
 <img width="1470" height="772" alt="Screenshot 2026-08-31 at 2 19 32 AM" src="https://github.com/user-attachments/assets/75d3da76-a162-4e4c-b0e4-b79090ebeb16" />
 
 
@@ -30,7 +31,7 @@ Demo site available at https://demo.serviceradar.cloud login: `demo@serviceradar
 - **Causal Engine**: Real-time triage and isolation via [DeepCausality](https://github.com/deepcausality-rs) (Rust). Employs hybrid filtering and [roaring bitmaps](https://github.com/RoaringBitmap/roaring) to identify root causes and visually isolate an event's "blast radius" in microseconds.
 - **Anomaly Engine**: Anomaly Engine scores numeric time series at the edge (robust median/MAD spikes plus CUSUM drift) and in core (seasonal hour-of-week baselines, episode lifecycle, severity, and capacity runway). Findings are episode-bounded—open/update/clear with cooldowns and storm shedding—so operators get durable alerts instead of noisy per-sample alarms.
 - **SRQL**: intuitive key:value syntax for querying time-series and relational data.
-- **Unified Data Layer**: Powered by CloudNativePG, TimescaleDB, PGVector, and Apache AGE for relational, time-series, and graph topology data.
+- **Unified Data Layer**: Powered by CloudNativePG, TimescaleDB, and PGVector for relational, time-series, and vector data, with Dgraph as the topology graph store (Apache AGE still runs beside it during the rollout). See [docs/network-topology.md](./docs/docs/network-topology.md).
 - **Monitoring**: Monitor endpoints with ICMP/TCP checks, create composite service checks from multiple vantage points by deploying serviceradar-agent in edge/segmented networks.
 - **Observability**: Native support for OTEL, GELF, Syslog, SNMP (polling/traps), BGP ([BMP](https://github.com/carverauto/arancini)), and [NetFlow](https://github.com/mikemiles-dev/netflow_parser).
 - **Graph Network Mapper**: Discovery engine that maps interfaces and topology relationships via SNMP/LLDP/CDP.
@@ -112,15 +113,17 @@ docker compose logs config-updater
 ServiceRadar provides an official Helm chart for Kubernetes deployments, published to Harbor as an OCI artifact.
 
 ```bash
-# Inspect chart metadata and default values
-helm show chart oci://registry.carverauto.dev/serviceradar/charts/serviceradar
-helm show values oci://registry.carverauto.dev/serviceradar/charts/serviceradar > values.yaml
+# Find the latest published chart version, then inspect its defaults
+helm show chart oci://registry.carverauto.dev/serviceradar/charts/serviceradar | grep '^version'
+helm show values oci://registry.carverauto.dev/serviceradar/charts/serviceradar \
+  --version <chart-version> > default-values.yaml
 
-# Install latest release
+# Install or upgrade (no repository checkout needed). Put only the keys you
+# change in my-values.yaml (it can start empty), not a copy of the defaults.
 helm upgrade --install serviceradar oci://registry.carverauto.dev/serviceradar/charts/serviceradar \
-  -n serviceradar --create-namespace
+  --version <chart-version> -n serviceradar --create-namespace -f my-values.yaml
 
-# Track mutable images (staging/dev): pulls :latest and forces re-pull
+# Track mutable images (staging/dev only): pulls :latest and forces re-pull
 helm upgrade --install serviceradar oci://registry.carverauto.dev/serviceradar/charts/serviceradar \
   -n serviceradar --create-namespace \
   --set global.imageTag="latest" \
@@ -131,14 +134,14 @@ kubectl get secret serviceradar-secrets -n serviceradar \
     -o jsonpath='{.data.admin-password}' | base64 -d
 ```
 
-Note: if you omit `global.imageTag`, the chart defaults to `latest`. Set `global.imagePullPolicy=Always` when you want to pick up new pushes on restart.
+Note: the chart and its images are published together and pull anonymously. If you leave `global.imageTag` empty (the default), every first-party image except `serviceradar-cnpg` (pinned by digest) uses the chart's own version, so `--version` alone selects matching images; if you set it, it must be `v<chart-version>`. Only the staging/dev example uses `latest`, with `global.imagePullPolicy=Always` to pick up new pushes on restart.
 
 ## Verifying Published Images
 
-ServiceRadar publishes Cosign-signed images to Harbor. The public verification key is committed in [docs/cosign.pub](/Users/mfreeman/src/serviceradar/docs/cosign.pub).
+ServiceRadar publishes Cosign-signed images to Harbor. The public verification key is committed in [docs/cosign.pub](docs/cosign.pub).
 
 For the self-hosted keyless migration path, keep custom Sigstore trust
-material under [docs/sigstore/README.md](/home/mfreeman/src/serviceradar/docs/sigstore/README.md).
+material under [docs/sigstore/README.md](docs/sigstore/README.md).
 The release scripts now support both legacy key-based verification and
 keyless verification against a custom trusted root.
 
@@ -182,7 +185,7 @@ Docker Compose notes:
 
 Notes:
 - [Chart](helm/serviceradar/Chart.yaml) versions are like `1.4.49`; ServiceRadar image tags are like `v1.4.49`.
-- If your cluster requires registry credentials, set `image.registryPullSecret` (default `registry-carverauto-dev-cred`).
+- Published images pull anonymously, so no registry credentials are needed. `image.registryPullSecret` (default `registry-carverauto-dev-cred`) only matters when you pull through an authenticated mirror; set it to `""` to drop the reference otherwise.
 
 For ArgoCD deployments, use `registry.carverauto.dev/serviceradar/charts` as the repository URL (without the `oci://` prefix):
 
@@ -199,12 +202,10 @@ spec:
   source:
     repoURL: registry.carverauto.dev/serviceradar/charts
     chart: serviceradar
-    targetRevision: "1.4.49"
-    helm:
-      values: |
-        global:
-          imageTag: "v1.4.49"
+    targetRevision: "<chart-version>"
 ```
+
+The chart version selects matching images, so the Application needs no `global.imageTag`. Remove any `global.imageTag` an existing Application still sets before changing `targetRevision`.
 
 ## Architecture
 

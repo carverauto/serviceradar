@@ -29,8 +29,10 @@ defmodule ServiceRadar.Monitoring.Alert do
     domain: ServiceRadar.Monitoring,
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
+    notifiers: [ServiceRadar.Monitoring.AlertNotifier],
     extensions: [AshStateMachine, AshOban, AshJsonApi.Resource]
 
+  alias ServiceRadar.Events.InternalLogPublisher
   alias ServiceRadar.Inventory.DeviceLifecycle
   alias ServiceRadar.Monitoring.Alert.AutoEscalateScheduler
   alias ServiceRadar.Monitoring.Alert.AutoEscalateWorker
@@ -62,6 +64,8 @@ defmodule ServiceRadar.Monitoring.Alert do
   @alert_metadata_fields [:metadata, :tags]
   @alert_operator_actions [
     :trigger,
+    :publish_k8s_node_not_ready,
+    :publish_k8s_node_ready,
     :record_notification,
     :update_metadata
   ]
@@ -97,6 +101,8 @@ defmodule ServiceRadar.Monitoring.Alert do
       index :active, route: "/active"
       index :pending, route: "/pending"
       post :trigger
+      route :post, "/k8s-node-not-ready-test", :publish_k8s_node_not_ready
+      route :post, "/k8s-node-ready-test", :publish_k8s_node_ready
       patch :acknowledge, route: "/:id/acknowledge"
       patch :resolve, route: "/:id/resolve"
     end
@@ -280,6 +286,30 @@ defmodule ServiceRadar.Monitoring.Alert do
       change set_attribute(:triggered_at, &DateTime.utc_now/0)
     end
 
+    action :publish_k8s_node_not_ready, :map do
+      description "Emit a node.not_ready internal log so StatefulAlertEngine groups by cluster+node"
+
+      argument :cluster_id, :string, allow_nil?: false, public?: true
+      argument :node, :string, allow_nil?: false, public?: true
+      argument :role, :string, allow_nil?: true, public?: true
+
+      run fn input, _context ->
+        publish_k8s_node_readiness(input, "node.not_ready")
+      end
+    end
+
+    action :publish_k8s_node_ready, :map do
+      description "Emit a node.ready internal log that clears an open k8s_node_not_ready incident"
+
+      argument :cluster_id, :string, allow_nil?: false, public?: true
+      argument :node, :string, allow_nil?: false, public?: true
+      argument :role, :string, allow_nil?: true, public?: true
+
+      run fn input, _context ->
+        publish_k8s_node_readiness(input, "node.ready")
+      end
+    end
+
     update :reassign_device do
       description "Reassign alert to a new device (used during merges)"
       accept [:device_uid]
@@ -426,6 +456,56 @@ defmodule ServiceRadar.Monitoring.Alert do
     Ash.Changeset.get_argument_or_attribute(changeset, field) ||
       Map.get(changeset.params || %{}, field) ||
       Map.get(changeset.params || %{}, Atom.to_string(field))
+  end
+
+  defp publish_k8s_node_readiness(input, event_type) do
+    role =
+      case Ash.ActionInput.get_argument(input, :role) do
+        "control-plane" -> "control-plane"
+        _ -> "worker"
+      end
+
+    node = Ash.ActionInput.get_argument(input, :node)
+    cluster_id = Ash.ActionInput.get_argument(input, :cluster_id)
+
+    payload = %{
+      "event_type" => event_type,
+      "severity" => k8s_node_readiness_severity(event_type),
+      "message" => k8s_node_readiness_message(event_type, role, node),
+      "attributes" => %{
+        "event_type" => event_type,
+        "cluster_id" => cluster_id,
+        "node" => node,
+        "node.role" => role,
+        "hostname" => node
+      }
+    }
+
+    case InternalLogPublisher.publish("k8s", payload) do
+      :ok ->
+        {:ok,
+         %{
+           published: true,
+           event_type: event_type,
+           cluster_id: cluster_id,
+           node: node,
+           role: role
+         }}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp k8s_node_readiness_severity("node.not_ready"), do: "critical"
+  defp k8s_node_readiness_severity("node.ready"), do: "info"
+
+  defp k8s_node_readiness_message("node.not_ready", role, node) do
+    "Kubernetes #{role} node #{node} is NotReady"
+  end
+
+  defp k8s_node_readiness_message("node.ready", role, node) do
+    "Kubernetes #{role} node #{node} is Ready"
   end
 
   policies do

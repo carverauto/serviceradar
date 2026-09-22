@@ -1,0 +1,97 @@
+{{- /* CREATE EXTERNAL CATALOG on the StarRocks FE. Off unless both StarRocks
+     analytics and catalog.enabled are true.
+
+     The Job builds the statement itself from the reader Secret the secret
+     generator mints, so an install needs no hand-made Secret. It drops the
+     catalog before creating it: a JDBC catalog keeps the password it was
+     created with, so CREATE ... IF NOT EXISTS could never deliver a corrected
+     one, and a catalog is only a connection definition -- it holds no data.
+
+     catalog.secretName (key createSql) remains as an override for an operator
+     who needs a statement this template does not produce. */ -}}
+{{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
+{{- $cat := default (dict) $sr.catalog -}}
+{{- if and $sr.enabled $cat.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-starrocks-catalog
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: serviceradar
+    app.kubernetes.io/component: starrocks-catalog
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "20"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: serviceradar
+        app.kubernetes.io/component: starrocks-catalog
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      containers:
+        - name: create-catalog
+          image: mysql:8.4
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              if [ -z "${CATALOG_SQL:-}" ]; then
+                case "$READER_PASSWORD$READER_USER" in
+                  *'"'*|*'\'*)
+                    echo 'reader credentials contain a quote or backslash and cannot be embedded in the catalog DDL' >&2
+                    exit 1
+                    ;;
+                esac
+                CATALOG_SQL="DROP CATALOG IF EXISTS ${CATALOG_NAME}; CREATE EXTERNAL CATALOG ${CATALOG_NAME} PROPERTIES (\"type\" = \"jdbc\", \"user\" = \"${READER_USER}\", \"password\" = \"${READER_PASSWORD}\", \"jdbc_uri\" = \"${JDBC_URI}\", \"driver_class\" = \"${DRIVER_CLASS}\", \"driver_url\" = \"${DRIVER_URL}\");"
+              fi
+              mysql -h "$FE_HOST" -P "$FE_PORT" -u root \
+                ${FE_PASSWORD:+-p"$FE_PASSWORD"} \
+                --protocol=TCP \
+                -e "$CATALOG_SQL"
+          env:
+            - name: FE_HOST
+              value: {{ $sr.fe.service | quote }}
+            - name: FE_PORT
+              value: {{ $sr.fe.queryPort | quote }}
+            {{- if $cat.secretName }}
+            - name: CATALOG_SQL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $cat.secretName | quote }}
+                  key: createSql
+            {{- else }}
+            - name: CATALOG_NAME
+              value: {{ default "cnpg_platform" $cat.name | quote }}
+            - name: JDBC_URI
+              value: {{ required "analytics.starrocks.catalog.jdbcUri is required when catalog.enabled is true" $cat.jdbcUri | quote }}
+            - name: DRIVER_CLASS
+              value: {{ default "org.postgresql.Driver" $cat.driverClass | quote }}
+            - name: DRIVER_URL
+              value: {{ default "file:///opt/starrocks/jdbc/postgresql.jar" $cat.driverUrl | quote }}
+            - name: READER_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "serviceradar.starrocks.readerSecretName" . | quote }}
+                  key: username
+            - name: READER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "serviceradar.starrocks.readerSecretName" . | quote }}
+                  key: password
+            {{- end }}
+            {{- if $cat.fePasswordSecretName }}
+            - name: FE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $cat.fePasswordSecretName | quote }}
+                  key: {{ $cat.fePasswordSecretKey | default "password" | quote }}
+            {{- end }}
+{{- end }}

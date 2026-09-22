@@ -1,0 +1,38 @@
+{{- if and .Values.analytics .Values.analytics.starrocks .Values.analytics.starrocks.enabled }}
+{{- $sr := .Values.analytics.starrocks -}}
+# Connection settings for EventWriter's StarRocks destination. This chart does
+# not install a StarRocksCluster into demo/serviceradar; lab clusters use
+# k8s/starrocks/. Hosted shared-data still requires object storage.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-starrocks-analytics
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: serviceradar
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: starrocks-analytics
+data:
+  profile: {{ $sr.profile | quote }}
+  operatorChartVersion: {{ $sr.operatorChartVersion | quote }}
+  imageTag: {{ $sr.imageTag | quote }}
+  database: {{ $sr.database | quote }}
+  feService: {{ $sr.fe.service | quote }}
+  feQueryPort: {{ $sr.fe.queryPort | quote }}
+  feHttpPort: {{ $sr.fe.httpPort | quote }}
+  streamLoadMaxRows: {{ $sr.streamLoad.maxRows | quote }}
+  streamLoadMaxBytes: {{ $sr.streamLoad.maxBytes | quote }}
+  streamLoadMaxAgeMs: {{ $sr.streamLoad.maxAgeMs | quote }}
+  streamLoadMaxInFlight: {{ $sr.streamLoad.maxInFlight | quote }}
+  enabled: "true"
+  shadowDatasets: {{ include "serviceradar.starrocksShadowDatasets" . | quote }}
+  cutoverDatasets: {{ $sr.cutoverDatasets | default list | join "," | quote }}
+  catalogEnabled: {{ dig "catalog" "enabled" false $sr | quote }}
+  catalogName: {{ dig "catalog" "name" "cnpg_platform" $sr | quote }}
+  catalogDriverClass: {{ dig "catalog" "driverClass" "org.postgresql.Driver" $sr | quote }}
+  catalogDriverUrl: {{ dig "catalog" "driverUrl" "file:///opt/starrocks/jdbc/postgresql.jar" $sr | quote }}
+  objectStorageBucket: {{ dig "sharedData" "objectStorageBucket" "" $sr | quote }}
+  objectStorageEndpoint: {{ dig "sharedData" "objectStorageEndpoint" "" $sr | quote }}
+  objectStorageRegion: {{ dig "sharedData" "objectStorageRegion" "" $sr | quote }}
+  objectStoragePrefix: {{ dig "sharedData" "objectStoragePrefix" "starrocks" $sr | quote }}
+{{- end }}

@@ -14,6 +14,8 @@ defmodule ServiceRadarWebNGWeb.Auth.OIDCClient do
   by the ConfigCache for performance.
   """
 
+  @behaviour ServiceRadarWebNG.Mcp.OAuth.IdPRefreshClient
+
   alias ServiceRadarWebNG.Pkce
   alias ServiceRadarWebNGWeb.Auth.ConfigCache
   alias ServiceRadarWebNGWeb.Auth.OIDCStrategy

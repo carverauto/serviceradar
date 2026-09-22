@@ -16,6 +16,7 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
   import Ecto.Query, only: [from: 2]
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Analytics.StarRocks.Readers
   alias ServiceRadar.Observability.IpThreatIntelCache
   alias ServiceRadar.Observability.NetflowPortAnomalyFlag
   alias ServiceRadar.Observability.NetflowPortScanFlag
@@ -71,7 +72,7 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
   defp check_existing_job do
     query =
       from(j in Oban.Job,
-        where: j.worker == ^to_string(__MODULE__),
+        where: j.worker == ^Oban.Worker.to_string(__MODULE__),
         where: j.state in ["available", "scheduled", "executing", "retryable"],
         limit: 1
       )
@@ -80,7 +81,28 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
   end
 
   @impl Oban.Worker
-  def perform(_job) do
+  def perform(job) do
+    # Flows are warehouse-only. Until the dataset is cut over there is nothing
+    # to read, and every helper below degrades an empty read to "no traffic",
+    # so the refusal is said out loud here rather than looking like an idle
+    # network forever -- but at debug, because the scheduler re-arms this job
+    # every minute and a stock install has flows uncut forever. It is a
+    # configured state, not a job failure, so the pass reports itself
+    # inapplicable and does nothing else.
+    case Readers.mode_for(:flows) do
+      {:error, :starrocks_required} ->
+        Logger.debug(
+          "#{inspect(__MODULE__)}: flows are not cut over to StarRocks; skipping this pass"
+        )
+
+        {:ok, :not_applicable}
+
+      _mode ->
+        refresh(job)
+    end
+  end
+
+  defp refresh(_job) do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
     limit = Keyword.get(config, :limit, @default_limit)
 

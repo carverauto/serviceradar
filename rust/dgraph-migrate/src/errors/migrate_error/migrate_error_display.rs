@@ -1,0 +1,48 @@
+/*
+ * Copyright 2026 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+use std::fmt::{Display, Formatter};
+
+use super::{MigrateError, MigrateErrorEnum};
+
+impl Display for MigrateError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match &self.0 {
+            MigrateErrorEnum::Mode(err) => write!(f, "migration mode: {err}"),
+            MigrateErrorEnum::Endpoint(reason) => write!(f, "dgraph endpoint: {reason}"),
+            MigrateErrorEnum::Connect { target, reason } => {
+                write!(f, "connect to {target}: {reason}")
+            }
+            MigrateErrorEnum::Schema(reason) => write!(f, "schema operation: {reason}"),
+            MigrateErrorEnum::StillIncomplete(report) => {
+                write!(
+                    f,
+                    "schema still incomplete after apply (missing predicates: {}, missing types: {})",
+                    report.missing_predicates().len(),
+                    report.missing_types().len()
+                )
+            }
+            MigrateErrorEnum::StillPresent(report) => {
+                write!(
+                    f,
+                    "schema still present after remove (missing predicates: {}, missing types: {})",
+                    report.missing_predicates().len(),
+                    report.missing_types().len()
+                )
+            }
+        }
+    }
+}

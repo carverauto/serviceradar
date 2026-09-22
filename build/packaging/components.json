@@ -474,7 +474,7 @@
     "architecture": "amd64",
     "binary": {
       "build_method": "go",
-      "output_path": "/usr/local/bin/serviceradar",
+      "output_path": "/usr/local/bin/srctl",
       "source_path": "go/cmd/cli"
     },
     "conffiles": [],

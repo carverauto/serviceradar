@@ -5,9 +5,14 @@ title: Remote Access
 
 # Remote Access
 
-ServiceRadar remote access routes interactive sessions through the same edge topology used for monitoring. The current implementation is focused on agent-routed SSH sessions and SSH-backed Proxmox VE host shells. Native Proxmox VM/LXC `termproxy` or `vncwebsocket` consoles, SFTP/SCP, database access, Kubernetes access, and application access are follow-up capabilities. For the experimental graphical desktop/RDP path, see [Remote Access: RDP](./remote-access-rdp).
+ServiceRadar remote access routes interactive sessions through the same edge topology used for monitoring. The current implementation is focused on agent-routed SSH sessions and SSH-backed Proxmox VE host shells. For file transfers, see [Copy Files Through SSH](#copy-files-through-ssh). For native Proxmox host and guest consoles, see [Proxmox Console Access](./proxmox#console-access). SCP, database access, Kubernetes access, and application access are follow-up capabilities. For the experimental graphical desktop/RDP path, see [Remote Access: RDP](./remote-access-rdp).
 
 The intended enterprise model is short-lived SSH user certificates backed by your identity provider, ServiceRadar RBAC, and an edge agent that can reach the target. Operators should avoid reusable agent-local SSH secrets.
+
+To disconnect an SSH session, click **Disconnect** next to the terminal status.
+The console closes its connection immediately and returns to the connection
+form, where you can start a new session. Disconnect also clears the session's
+file listing and transfer state.
 
 ## Connection Path
 
@@ -19,11 +24,19 @@ browser -> web-ng -> agent-gateway -> edge agent -> target SSH server
 
 For Proxmox host shells, the final target is the PVE host SSH service. For ordinary Linux hosts and VMs, the final target is the host or guest SSH service. A Proxmox VM does not need to use the Proxmox API console path if it has normal network reachability, `sshd`, a local or LDAP-backed account, and the ServiceRadar SSH CA installed.
 
+### Connection Address
+
+For inventory-device SSH sessions, ServiceRadar prefers the inventory IP address over the hostname. Hostnames reported by devices, such as SNMP `sysName` values or Proxmox node names, may not resolve from the selected edge agent. If no IP is recorded, selection falls back to the hostname or name, then the device UID; those fallback values must be resolvable to connect. An inventory IP avoids that DNS dependency but does not guarantee that the selected agent can reach the SSH service.
+
+Proxmox host shells also prefer the target IP, then the hostname, then the host from the controller base URL. The SSH address preference matches the console's controller-origin authorization.
+
+An operator-supplied target host takes precedence for an inventory-device SSH session. Through the web API, this requires `remote_access_target_host_override_enabled`, the `devices.remote_access.ssh.target.override` permission, and a match in `remote_access_target_host_override_allowlist`.
+
 ## Operator Checklist
 
 Before enabling remote access, make sure these pieces are in place:
 
-- The target devices are in ServiceRadar inventory and assigned to an agent, gateway, or partition that can reach TCP `22`.
+- The target devices are in ServiceRadar inventory and assigned to an agent, gateway, or partition that can reach TCP `22`. When the device has no owning agent column, SSH routing can use its discovery metadata (`sync_service_id`, then agent/source-agent metadata). This routing fallback does not bypass certificate policy or authorization.
 - Users authenticate through the normal ServiceRadar login path. For enterprise testing, Authentik OIDC works well as the identity provider.
 - RBAC grants only the intended users the remote access actions. Use `devices.remote_access.ssh.open` for generic SSH and `devices.console.open` for Proxmox console entry points.
 - The ServiceRadar SSH user CA public key is installed on each Linux or PVE target that should accept certificate login.
@@ -46,7 +59,14 @@ paste private keys for certificate sessions.
    **SSO certificate** mode. Unix account names come from certificate policy via
    `GET /api/remote-access/devices/:device_uid/ssh-options` (account names only;
    opaque principals are never sent to the browser). The preferred account is
-   remembered per browser profile (Teleport-like default account pick).
+   remembered per browser profile (Teleport-like default account pick). Connect
+   is disabled while accounts load. If the loaded list is empty, the console
+   replaces the account field with a missing-policy warning. Clicking Connect
+   displays that reason without generating a key or requesting a session;
+   see [SSH CA Setup](#ssh-ca-setup). If loading fails,
+   the account field remains editable, but the server still enforces policy.
+   **User-present key (legacy)** under **Advanced** remains available when you
+   hold a key for the target.
 3. On Connect, the browser generates a one-session Ed25519 keypair with WebCrypto
    (`crypto.subtle`). The private key stays in tab memory only. The public key is
    sent with the session attach credential after RBAC and target policy succeed.
@@ -88,6 +108,29 @@ server-side only.
 - Long-lived private keys stored in plugin parameters or local agent config.
 - Asking operators to paste CA private keys or session private keys for normal SSO
   certificate login.
+
+### Remembered browser keys (opt-in, off by default)
+
+The SSH console offers a **remember key** checkbox only in **user-present key
+(legacy)** mode, and only when the deployment opts in with
+`SERVICERADAR_REMOTE_ACCESS_BROWSER_KEY_REMEMBER_ENABLED=true` (Helm:
+`remoteAccess.ssh.browserKeyRemember.enabled=true`). This feature is disabled
+by default. Without an explicit opt-in, pasted keys remain in memory for the
+current console only.
+
+When enabled, remembered private keys stay in page memory only, never in
+`localStorage` or `sessionStorage`. Keys can be reused while the page remains
+loaded, but are lost on page reload, close, or browser restart. Opening a
+console also removes that device's key left in `localStorage` by older builds.
+Passphrases are never stored.
+
+Tradeoff to accept before enabling: remembering a key extends its availability
+in page memory beyond the current console. Scripts or extensions with access
+to the page can still read it, and an open page offers no protection on a shared
+workstation. Prefer SSO certificate mode (ephemeral in-memory keys) for routine
+access, reserve remembered keys for break-glass workflows, and reload or close
+the page when done. If persistence across restarts is needed later, it should
+come from a WebAuthn or OS-keychain backed store, not from web storage.
 
 ## SSH CA Setup
 
@@ -259,6 +302,16 @@ mapping in the target's `AuthorizedPrincipalsFile`. ServiceRadar fails closed
 when an SSH-certificate target has no `accounts` mapping. The inline JSON
 environment variable remains available for isolated development, but the Helm
 chart intentionally supports only the Secret-backed file path.
+
+A `targets` entry is matched by the device UID first, then its inventory
+hostname (or name), then its inventory address; the first matching policy wins.
+That entry overrides matching top-level fields, including `accounts`; omitted
+fields inherit the top-level values. Policies from other targets are not merged. A
+deployment that grants accounts per target and sets no top-level `accounts` is
+therefore an allow-list: every new host needs its own entry before SSO
+certificate access works, and adding one host does not cover its siblings.
+For the console's handling of missing accounts, see
+[Credential Model](#credential-model).
 
 ## Linux Target Enrollment
 
@@ -622,10 +675,57 @@ ServiceRadar validates the complete file at startup, re-reads the matching polic
 The edge agent verifies the target server host key before opening an SSH session. Prefer one of these modes:
 
 - `known_hosts`: the agent uses a managed known-hosts file.
-- `trust_on_first_use`: acceptable for initial enrollment when an operator can review the first key.
+- `trust_on_first_use`: pins the first offered key without fingerprint review; use only when the operator accepts that initial-enrollment risk.
 - `skip_verify`: only for temporary local testing.
 
 Set `SERVICERADAR_REMOTE_ACCESS_KNOWN_HOSTS` on the agent if it should use a specific known-hosts file.
+
+This file is agent-local. Records under **Settings -> Remote access host keys**
+are a separate review store: SSH verification does not consult them or populate
+them automatically. Enroll the key for the address and port the agent dials;
+trusting a hostname alone does not cover a connection by IP address. A changed
+key is still rejected.
+
+A fresh agent has no known-hosts file, so under the default `known_hosts` policy
+the first session to any target fails verification. The console does not leave
+that as a dead end: it ends the session and presents the trust decision instead.
+When the agent reports the offered key, the decision supports fingerprint review:
+
+- **This host key is not trusted yet.** The target has no entry in the agent's
+  known-hosts file. The console shows the dialed address, the key algorithm, and
+  the offered key's SHA256 fingerprint. Compare that fingerprint against the
+  target's own host key (`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub` on
+  the target for an Ed25519 key; use the matching public-key file for other
+  algorithms) before choosing **Trust this host key and reconnect**, which
+  reopens the session with approval for that exact address, port, and SHA256
+  fingerprint. The agent checks the approval before pinning the key or
+  authenticating; a different target or key is rejected as a mismatch. Approval
+  applies only to this retry and does not change the form policy.
+  `trust_on_first_use` remains selectable under **Advanced** for an enrollment
+  you want to make up front.
+- **This host key does not match the trusted key.** The target offered a
+  different key than the one already pinned, or the retry does not match the
+  approved target and fingerprint. The console shows the offered fingerprint
+  and offers no accept action. This can indicate interception or a legitimate
+  host rebuild or key rotation. Verify the target and key out of band; remove
+  a pinned entry only after confirming it is stale, then connect again.
+
+Persist the agent's known-hosts file across container replacement to preserve
+pinned keys. By default it lives under `/var/lib/serviceradar/checkers`; when
+`SERVICERADAR_REMOTE_ACCESS_KNOWN_HOSTS` overrides the path, persist that location
+instead. Losing the file makes the next session first contact again.
+
+Agents older than 1.4.52 report `knownhosts: key is unknown` for an unenrolled
+target and `knownhosts: key mismatch` for a changed key, naming neither the
+target nor the offered key. The console still presents a trust decision for
+those, but an unreviewable one: with no fingerprint to compare it shows none.
+For an unknown key, the accept action reads **Trust on first use and reconnect**.
+That retry asks for the `trust_on_first_use` policy, so the agent
+pins whatever key the target offers -- the same trust you would extend by
+running `ssh-keyscan` against the target and pinning the result, and not the
+reviewed acceptance a newer agent allows. A changed key is still a hard close
+with no accept action. Upgrade the agent to 1.4.52 or newer to review the
+fingerprint before pinning it.
 
 The web UI can expose host-key review and override controls only when the deployment enables them:
 
@@ -636,6 +736,8 @@ SERVICERADAR_REMOTE_ACCESS_TARGET_PORT_OVERRIDE_ENABLED=false
 ```
 
 Keep overrides disabled unless an operator workflow explicitly needs them.
+See [Remembered browser keys](#remembered-browser-keys-opt-in-off-by-default)
+for the tradeoff behind the remember-keys flag.
 
 ## Application And TCP Targets
 
@@ -791,22 +893,46 @@ control and server sessions.
 6. The edge agent connects to the target SSH server and presents the user certificate.
 7. The user lands in the shell as the mapped local or LDAP-backed Linux account.
 
+### Copy Files Through SSH
+
+The SSH console's **Files** sidebar transfers individual files over SFTP through
+the selected agent route, subject to file-transfer permissions and policy.
+
+- The remote path field selects the directory to browse. Press Enter or use
+  refresh to list it. The `..` button browses the parent directory and is disabled
+  at `/`. These controls only list directories; they never start a copy.
+- Set **Upload path** before using **Choose File**: selecting a local file starts
+  its upload. Leave the path blank to use the browsed directory, end it with `/`
+  to append the selected filename, or enter a complete destination filename.
+  A path equal to the browsed directory also appends the selected filename.
+- Uploads require a selected, non-empty local file. A refused selection displays
+  an error below the picker and a `refused` entry under **Transfers**. The server
+  also rejects missing input, an empty stream, or an initial read failure before
+  creating or truncating the destination.
+- Use a file row's download button to download that file. Transfers require a
+  file path; bare `/` cannot be a transfer target. An upload directory of `/`
+  resolves to `/<selected filename>`, subject to policy.
+
+The sidebar does not copy directories recursively or copy a local filesystem
+root to a remote root. Check the displayed errors and **Transfers** status for
+the result of each attempted transfer.
+
 ### Open A Proxmox Host Shell
 
-Use the Proxmox console entry point for PVE host shell access. Today this is SSH-backed through the edge agent. The preferred enterprise setup is still the SSH CA path: enroll the PVE host SSH server with the ServiceRadar user CA, allow only the intended principals, and route the console through the assigned edge agent.
+For PVE host console modes and setup, see [Proxmox Console Access](./proxmox#console-access). For SSH access, the preferred enterprise setup is the SSH CA path: enroll the PVE host SSH server with the ServiceRadar user CA, allow only the intended principals, and route the session through the assigned edge agent.
 
 Legacy encrypted credential rules remain available for PVE host shells when a deployment cannot use SSH certificates yet. Keep that path separate from Proxmox inventory API tokens.
 
 ### Access A Proxmox VM Or LXC
 
-For now, use generic SSH remote access when the guest is reachable from an edge agent:
+To use generic SSH remote access when the guest is reachable from an edge agent:
 
 1. Install and enable `sshd` in the guest.
 2. Make sure the user account exists through local accounts or LDAP/AD.
 3. Enroll the guest with the ServiceRadar SSH CA.
 4. Open the guest device in ServiceRadar and start an SSH session.
 
-Native Proxmox VM/LXC console transports are planned separately. Until then, a guest without SSH reachability is not covered by the generic SSH workflow.
+For guests without SSH reachability, see [Proxmox Console Access](./proxmox#console-access).
 
 ## Validation And Troubleshooting
 
@@ -817,13 +943,24 @@ sudo sshd -T | grep trustedusercakeys
 sudo sshd -t
 ```
 
+When the edge agent supplies a close reason, the console banner displays it as
+`SSH session closed: <reason>`, including when browser input or a resize races
+with the broker's normal shutdown. Use that reason to diagnose failures below.
+A broker that stops normally without a close reason produces
+`SSH session closed: closed`; a broker crash produces
+`Remote access stream failed.` These generic messages do not identify an SSH
+authentication or host-key failure.
+
 Common failures:
 
+- HTTP `429` from `/api/remote-access/*`: see [API rate limits](./api-reference.md#rate-limits) for the shared request budget and retry guidance.
 - `Permission denied (publickey)`: the CA public key is missing, the certificate is expired, the selected Unix account is not authorized, or its `AuthorizedPrincipalsFile` does not list the opaque principal in the presented certificate.
 - User exists in ServiceRadar but not on the host: create the account locally or fix LDAP/AD/NSS/PAM integration on the target.
 - Route denied: the device is not assigned to an eligible agent or gateway, or the remote access policy does not allow that target.
 - Connection timeout: the selected edge agent cannot reach the target on TCP `22`.
-- Host key rejected: the target host key is absent from known-hosts or changed since the last trusted connection.
+- `dial tcp: lookup <name>: server misbehaving` or `no such host`: the session is connecting by name rather than by address. The device row has no address, or the target-host field was set to a name the edge agent's resolver cannot answer. Give the device an address in inventory, or supply a name that agent can resolve.
+- Host key rejected: the session reached the target but host-key verification failed. See [Host Key Trust](#host-key-trust) for the console trust decision, enrollment, address matching, and older-agent errors. This is independent of certificate account policy and DNS resolution.
+- `SSH certificate access requires trusted account and principal policy for the target`: the resolved account/principal policy is missing or invalid. The session is refused before it is created, so no row appears in `remote_access_sessions`. Check the mapping and target selection in [SSH CA Setup](#ssh-ca-setup); console alternatives are described in [Credential Model](#credential-model).
 - Signer failure: check the signer binary path, CA key secret mount, `SERVICERADAR_REMOTE_ACCESS_SSH_CA_SIGNER_ARGS_JSON`, policy file syntax, and signer logs.
 
 ## Rotation

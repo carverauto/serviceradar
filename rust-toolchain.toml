@@ -1,0 +1,6 @@
+# Matches MODULE.bazel RUST_DEFAULT_VERSION and [workspace.package] rust-version.
+# rustup uses this file for cargo/rustc in this tree; Bazel uses its own toolchain.
+[toolchain]
+channel = "1.97.1"
+profile = "minimal"
+components = ["rustfmt", "clippy"]

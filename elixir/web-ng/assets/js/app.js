@@ -24,12 +24,13 @@ import {Socket} from "phoenix"
 import {LiveSocket} from "phoenix_live_view"
 import topbar from "../vendor/topbar"
 import HookModules from "./hooks"
+import {dashboardWindowPreferences} from "./hooks/DashboardWindowSelect"
 import {registerGlobalWindowEvents, registerLiveReloadHelpers} from "./utils/window_events"
 
 // Custom hooks
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
-  params: {_csrf_token: csrfToken},
+  params: () => ({_csrf_token: csrfToken, dashboard_windows: dashboardWindowPreferences()}),
   hooks: {...HookModules},
 })
 

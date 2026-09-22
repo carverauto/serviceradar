@@ -23,6 +23,7 @@ defmodule ServiceRadar.Automation.Ansible do
   resources do
     resource ServiceRadar.Automation.Ansible.Controller
     resource ServiceRadar.Automation.Ansible.PlaybookRepository
+    resource ServiceRadar.Automation.Ansible.ProvisioningRequest
     resource ServiceRadar.Automation.Ansible.Playbook
     resource ServiceRadar.Automation.Ansible.PlaybookRun
     resource ServiceRadar.Automation.Ansible.PlaybookRunTarget

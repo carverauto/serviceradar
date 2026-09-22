@@ -81,6 +81,58 @@ To default to the dev compose overlay (no `-f`), set `COMPOSE_FILE=docker-compos
    - Email: `root@localhost`
    - Password: (from step 5)
 
+## Optional profiles: StarRocks warehouse and NetFlow collector
+
+The default stack does **not** start StarRocks or the NetFlow collector, and
+all telemetry stays on CNPG hypertables. Optional profiles:
+
+```bash
+# Warehouse only (metrics/logs/events shadow). No flow collector.
+STARROCKS_ENABLED=true docker compose --profile starrocks up -d
+
+# NetFlow/sFlow collector on CNPG only.
+docker compose --profile flows up -d
+
+# Warehouse + NetFlow/sFlow collector.
+STARROCKS_ENABLED=true docker compose --profile starrocks --profile flows up -d
+```
+
+`flow-collector` stays off unless you pass `--profile flows` or
+`--profile network-ingest`. The two profiles are independent for *collection*:
+NetFlow collects without the warehouse and stores flows on CNPG hypertables.
+Reading those flows back is warehouse-only -- until `flows` is listed in
+`STARROCKS_CUTOVER_DATASETS`, the NetFlow dashboard and `in:flows` are refused
+with a warehouse-required error instead of being answered from CNPG. See
+[NetFlow](docs/docs/netflow.md) for the full flow path.
+
+`--profile starrocks` also runs a one-shot `starrocks-init` container that
+creates the warehouse database and tables once the frontend and backend are up.
+Compose runs a single backend, so it rewrites the replica count the clustered
+DDL pins. Re-running the profile is safe: every statement is
+`CREATE ... IF NOT EXISTS` except the flow rollup view, which is dropped and
+recreated each time so a warehouse built before sampling-weighted totals is
+corrected.
+
+StarRocks telemetry retention is set per dataset. The warehouse tables are
+partitioned by day, so each `STARROCKS_RETENTION_DAYS_*` value is the number of
+daily partitions kept; anything older is dropped.
+`STARROCKS_RETENTION_DAYS_FLOWS` and `STARROCKS_RETENTION_DAYS_METRICS` default
+to 90, `STARROCKS_RETENTION_DAYS_LOGS` and `STARROCKS_RETENTION_DAYS_EVENTS` to
+365. Core applies them at start and retries with backoff until the warehouse
+accepts them, so a slow Frontend does not leave the tables on their DDL
+default.
+
+Hourly charts are served from the `*_hourly` materialized views only while
+those views have kept up with the tables they aggregate; otherwise the query
+reads the raw warehouse tables, never CNPG.
+`STARROCKS_ROLLUP_STALE_AFTER_SECONDS` (default 7200) is how far a view may
+trail its own source before readers stop trusting it, measured in whole hours
+because both marks sit on the view's hourly grain -- the default tolerates two
+hours behind, `3600` one, and `0` none.
+`STARROCKS_ROLLUP_CACHE_TTL_SECONDS` (default 60) is how long that verdict may
+be reused before probing again; it is a round-trip saving, and `0` makes every
+query probe.
+
 ## Update an Existing Stack
 
 1. Optional: choose a target image tag (Compose defaults to `latest`):
@@ -104,9 +156,12 @@ The stack automatically handles certificate generation and configuration:
 4. **config-updater** - Writes the bootstrap admin password (one-shot)
 5. **nats** - Message broker with mTLS
 6. **datasvc** - Internal coordination service (planned to be phased out)
-7. **core-elx, agent-gateway, web-ng** - Control plane services
-8. **zen, log-promotion** - Bulk ingestion consumers
-9. **agent** - Edge agent (collectors + embedded engines + Wasm plugins)
+7. **dgraph-acl, dgraph** - Topology graph: ACL secret (one-shot), then Dgraph
+8. **dgraph-migrate** - Applies the Dgraph topology schema (one-shot)
+9. **core-elx, agent-gateway, web-ng** - Control plane services
+10. **age-to-dgraph** - Rebuilds Dgraph from the AGE graph and checksums the two (one-shot)
+11. **zen, log-promotion** - Bulk ingestion consumers
+12. **agent** - Edge agent (collectors + embedded engines + Wasm plugins)
 
 ## Test Your Setup
 

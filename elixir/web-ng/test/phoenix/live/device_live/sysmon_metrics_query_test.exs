@@ -14,8 +14,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.QueryTest do
       assert Query.bucket_for_time_range("last_7d") == "1h"
     end
 
+    test "a 90 day custom range keeps both ends, so the chart can label months" do
+      range = "[2026-06-23T12:00:00Z,2026-09-21T12:00:00Z]"
+
+      assert {:ok, ~U[2026-06-23 12:00:00Z], ~U[2026-09-21 12:00:00Z]} =
+               Query.window_bounds(range)
+
+      assert DateTime.diff(~U[2026-09-21 12:00:00Z], ~U[2026-06-23 12:00:00Z], :second) ==
+               90 * 86_400
+    end
+
     test "sizes the bucket from an absolute range window" do
-      assert Query.bucket_for_time_range("[2026-06-26T06:30:00Z,2026-06-26T08:30:00Z]") == "30s"
+      range = "[2026-06-26T06:30:00Z,2026-06-26T18:30:00Z]"
+
+      assert Query.bucket_for_time_range(range, ~U[2026-06-26 19:00:00Z]) == "5m"
+      # The same twelve hours, a month later: raw samples are gone, and a window of
+      # six hours or more at an hourly bucket is one SRQL serves from the rollup.
+      assert Query.bucket_for_time_range(range, ~U[2026-07-26 19:00:00Z]) == "1h"
     end
 
     test "falls back to 5m for unparseable or empty ranges" do

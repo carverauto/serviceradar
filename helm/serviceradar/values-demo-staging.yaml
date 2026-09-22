@@ -58,6 +58,19 @@ gatewayApi:
 webNg:
   devRoutes: "true"
   localMailer: "true"
+  # Staging is gateway-fronted, so trust envoy's x-forwarded-for for audit
+  # logging.
+  #
+  # Only the envoy pod range: every CIDR here is an address web-ng will
+  # refuse to report as a client (see values-demo.yaml for the incident that
+  # listing RFC1918 wholesale caused). 10.42.0.0/16 is the k3s default
+  # cluster CIDR and matches the demo cluster; no staging environment is
+  # deployed at the time of writing, so CONFIRM it against the target
+  # cluster's --cluster-cidr before first use.
+  clientIp:
+    trustXForwardedFor: true
+    trustedProxyCidrs:
+      - "10.42.0.0/16"
   publicUrl: "https://staging.serviceradar.cloud"
   pluginStorage:
     enabled: true

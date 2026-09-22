@@ -104,6 +104,7 @@ mod tests {
             min_std_floor: None,
             min_cv: None,
             saturation_gate: None,
+            burst_envelope: None,
         }
     }
 

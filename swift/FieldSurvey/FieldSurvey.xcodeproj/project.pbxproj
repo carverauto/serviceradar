@@ -160,7 +160,7 @@
 			mainGroup = DA5F4C902F4A14BB00255097;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				CAA4BBDE047E56A8940C736B /* XCRemoteSwiftPackageReference "arrow-swift" */,
+				CAA4BBDE047E56A8940C736B /* XCLocalSwiftPackageReference "LocalPackages/arrow-swift" */,
 				2CFBD109BD87B746DB57699E /* XCLocalSwiftPackageReference "../RPerfClient" */,
 			);
 			preferredProjectObjectVersion = 77;
@@ -542,23 +542,18 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = ../RPerfClient;
 		};
+		CAA4BBDE047E56A8940C736B /* XCLocalSwiftPackageReference "LocalPackages/arrow-swift" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "LocalPackages/arrow-swift";
+		};
 /* End XCLocalSwiftPackageReference section */
 
-/* Begin XCRemoteSwiftPackageReference section */
-		CAA4BBDE047E56A8940C736B /* XCRemoteSwiftPackageReference "arrow-swift" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "file:///Users/mfreeman/src/serviceradar/swift/FieldSurvey/LocalPackages/arrow-swift";
-			requirement = {
-				branch = "fix-flatbuffers";
-				kind = branch;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
+
 
 /* Begin XCSwiftPackageProductDependency section */
 		69664AE6145D5CD52F341607 /* Arrow */ = {
 			isa = XCSwiftPackageProductDependency;
-			package = CAA4BBDE047E56A8940C736B /* XCRemoteSwiftPackageReference "arrow-swift" */;
+			package = CAA4BBDE047E56A8940C736B /* XCLocalSwiftPackageReference "LocalPackages/arrow-swift" */;
 			productName = Arrow;
 		};
 		753FD5C1F0CF1DF7CFA2BD2F /* RPerfClient */ = {

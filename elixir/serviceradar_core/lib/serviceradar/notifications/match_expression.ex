@@ -47,7 +47,10 @@ defmodule ServiceRadar.Notifications.MatchExpression do
 
   Operand rules:
 
-    * `"equals"` - a string, number, boolean, or null
+    * `"equals"` - a string, number, boolean, or null.
+      Routes additionally reject an empty string when saving: `%{}` matches
+      every alert, and `equals: ""` matches only a blank value. Evaluation of
+      existing routes and silence validation retain empty-string support.
     * `"in"` - a non-empty list of those scalars
     * `"contains"` - a string or a number
     * `"exists"` - a boolean
@@ -94,7 +97,7 @@ defmodule ServiceRadar.Notifications.MatchExpression do
 
   @combinators ~w(all any not)
   @operators ~w(equals in contains exists matches)
-  @known_opts [:attribute, :operators]
+  @known_opts [:attribute, :operators, :reject_empty_equals?]
 
   @max_depth 10
   @max_nodes 200
@@ -269,11 +272,40 @@ defmodule ServiceRadar.Notifications.MatchExpression do
   end
 
   defp check(value, attribute, opts) do
-    case validate_expression(value, Keyword.take(opts, [:operators])) do
-      :ok -> :ok
+    with :ok <- validate_expression(value, Keyword.take(opts, [:operators])),
+         :ok <- validate_empty_equals(value, opts) do
+      :ok
+    else
       {:error, message} -> {:error, field: attribute, message: message}
     end
   end
+
+  defp validate_empty_equals(value, opts) do
+    if Keyword.get(opts, :reject_empty_equals?, false), do: reject_empty_equals(value), else: :ok
+  end
+
+  defp reject_empty_equals(expression) when is_map(expression) do
+    normalized = Map.new(expression, fn {key, value} -> {key_to_string(key), value} end)
+
+    if Map.has_key?(normalized, "field") and normalized["equals"] == "" do
+      {:error,
+       "\"equals\" cannot be an empty string; use {} to match every alert, " <>
+         "because equals: \"\" matches only a blank value"}
+    else
+      normalized
+      |> Map.take(@combinators)
+      |> Map.values()
+      |> List.flatten()
+      |> Enum.reduce_while(:ok, fn child, :ok ->
+        case reject_empty_equals(child) do
+          :ok -> {:cont, :ok}
+          error -> {:halt, error}
+        end
+      end)
+    end
+  end
+
+  defp reject_empty_equals(_expression), do: :ok
 
   # --- Shape walk -----------------------------------------------------------
 

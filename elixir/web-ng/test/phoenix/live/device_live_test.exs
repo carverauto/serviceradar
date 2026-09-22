@@ -70,6 +70,32 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "in:devices"
   end
 
+  test "device list and details render device tags", %{conn: conn} do
+    uid = "test-device-tags-#{System.unique_integer([:positive])}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 0,
+        hostname: "tagged-host",
+        is_available: true,
+        tags: %{"env" => "prod", "team" => "ops"},
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, _lv, html} = live(conn, ~p"/devices?limit=10")
+    assert html =~ "Tags"
+    assert html =~ "env=prod"
+    assert html =~ "team=ops"
+
+    {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
+    summary_html = render_until(view, "tagged-host", 5_000)
+    assert summary_html =~ "env=prod"
+    assert summary_html =~ "team=ops"
+  end
+
   test "device list reset control restores the first-visit query and keeps Run working", %{
     conn: conn
   } do
@@ -2973,6 +2999,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ node_name
     assert html =~ ~p"/devices/#{host_uid}"
     assert html =~ "Open node"
+    assert html =~ "Open console"
+
+    assert has_element?(
+             view,
+             "a[href='/devices/#{guest_uid}/proxmox-console']",
+             "Open console"
+           )
   end
 
   test "PVE node Guests tab reliably renders the node's guests", %{conn: conn, scope: scope} do

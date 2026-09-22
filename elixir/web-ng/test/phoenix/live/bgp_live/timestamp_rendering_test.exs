@@ -51,6 +51,7 @@ defmodule ServiceRadarWebNGWeb.BGPLive.TimestampRenderingTest do
         user: %{email: "operator@example.com", role: :operator, timezone: @timezone}
       },
       srql: %{enabled: false, page_path: "/observability/bgp"},
+      bgp_live?: false,
       has_data: true,
       time_range: "last_1h",
       source_protocol: nil,

@@ -1,0 +1,51 @@
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_shared_library.bzl", "rust_shared_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "bazel-*",
+            "target/**",
+        ],
+    ),
+)
+
+rust_shared_library(
+    name = "network_config_nif",
+    srcs = glob(["src/**/*.rs"]),
+    cc_runtime_linkage = "static",
+    crate_name = "network_config_nif",
+    edition = "2021",
+    rustc_env = {"RUSTLER_PRIMARY_NIF_INIT": "1"},
+    rustc_flags = select({
+        "@platforms//os:macos": ["-Clink-arg=-Wl,-undefined,dynamic_lookup"],
+        "//conditions:default": [],
+    }),
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [
+        "//rust/network-config-downparser:network_config_downparser",
+    ],
+)
+
+rust_test(
+    name = "network_config_nif_test",
+    srcs = glob(["src/**/*.rs"]),
+    crate_name = "network_config_nif",
+    crate_root = "src/lib.rs",
+    edition = "2021",
+    rustc_env = {"RUSTLER_PRIMARY_NIF_INIT": "1"},
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+        normal_dev = True,
+    ) + [
+        "//rust/network-config-downparser:network_config_downparser",
+    ],
+)

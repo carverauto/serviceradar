@@ -165,6 +165,12 @@ are served from pre-computed hourly rollups.
   [Downsampling with `bucket`](#downsampling-with-bucket).
 - Pagination is cursor-based. Each response includes `next_cursor` / `prev_cursor`
   values that callers pass back to page through results.
+- The configured cursor-offset cap applies to ordinary queries. Seasonal
+  `stats:profile_hour_of_week(value)` and `stats:profile_hour_of_week_full(value)`
+  queries are exempt so cohort discovery and baseline delivery can page to
+  completion. This exception applies to both query execution and SQL translation,
+  including caller-supplied queries; it is not restricted to internal workers.
+  Per-page row limits still apply.
 
 ## Aggregation with `stats`
 
@@ -285,6 +291,8 @@ fields; using a field that the entity does not support returns an
 | `disk_metrics` | `disk` | Disk utilization time-series |
 | `process_metrics` | `processes` | Per-process CPU/memory time-series |
 | `timeseries_metrics` | `timeseries` | Generic time-series metrics (incl. SNMP) |
+| `timeseries_metric_interface_hourly` | `timeseries_metrics_interface_hourly`, `interface_metrics_hourly` | Hourly interface counter rollups keyed by device and `if_index` (395-day retention) |
+| `timeseries_metric_disk_hourly` | `timeseries_metrics_disk_hourly` | Hourly `sysmon.disk` gauge rollups keyed by device and mount point (395-day retention) |
 | `snmp_metrics` | `snmp` | SNMP-collected metrics |
 | `rperf_metrics` | `rperf` | rperf network performance metrics (shares the time-series schema) |
 | `otel_metrics` | `metrics` | OpenTelemetry span-derived metrics |
@@ -296,10 +304,17 @@ fields; using a field that the entity does not support returns an
 | `endpoint_vulnerability_assessments` | `endpoint_vulnerability_assessment`, `package_vulnerabilities`, `endpoint_vulnerability_matches`, `vulnerability_matches`, `cve_matches`, `advisory_matches` | Stable device/package/CVE assessments, including candidates and resolved history. |
 
 > The engine also exposes specialized entities — device graph (`device_graph`),
-> device updates (`device_updates`), Wi-Fi site mapping (`wifi_sites`,
-> `wifi_access_points`, …), virtualization (`virtualization_hosts`,
-> `virtualization_guests`, …), and field-survey datasets. They use the same
-> `key:value` grammar described above.
+> topology graph (`graph`, alias `graph_dql`), device updates (`device_updates`),
+> Wi-Fi site mapping (`wifi_sites`, `wifi_access_points`, …), virtualization
+> (`virtualization_hosts`, `virtualization_guests`, …), and field-survey
+> datasets. They use the same `key:value` grammar described above.
+>
+> The two graph entities take a query string rather than field filters:
+> `in:graph dql:"..."` runs read-only DQL against Dgraph, and
+> `in:graph_cypher cypher:"..."` runs read-only openCypher against the Apache
+> AGE graph. Mutations are refused in both. `in:graph` selected the device
+> neighborhood in earlier releases; that entity is now reachable only as
+> `in:device_graph`.
 
 ## Filterable fields by entity
 
@@ -449,7 +464,7 @@ Examples:
 
 ```srql
 in:flows time:last_24h port:22 sort:time:desc limit:50
-in:flows time:last_24h ip:23.138.124.7 sort:time:desc limit:50
+in:flows time:last_24h ip:198.51.100.10 sort:time:desc limit:50
 in:flows time:last_1h dst_port:(443,8443)
 ```
 
@@ -486,7 +501,7 @@ Sortable fields: same as `flows` (`time`, byte/packet totals).
 Examples:
 
 ```srql
-in:attributed_flows time:last_24h ip:23.138.124.7 sort:time:desc limit:50
+in:attributed_flows time:last_24h ip:198.51.100.10 sort:time:desc limit:50
 in:attributed_flows time:last_24h service_name:serviceradar-web sort:time:desc limit:50
 in:attributed_flows time:last_24h port:22 sort:time:desc limit:50
 in:attributed_flows time:last_1h attribution_status:attributed process:sshd
@@ -520,7 +535,7 @@ Examples:
 ```srql
 in:public_endpoints port:22 limit:50
 in:public_endpoints exposure_class:Gateway sort:ip:asc
-in:public_endpoints ip:23.138.124.7
+in:public_endpoints ip:198.51.100.10
 ```
 
 ### services
@@ -719,6 +734,34 @@ schema) cover generic time-series data, including SNMP counters.
 
 Sortable fields: `timestamp`, `gateway_id`, `metric_name`, `metric_type`,
 `device_id`, `value`.
+
+### timeseries_metric_disk_hourly
+
+`in:timeseries_metric_disk_hourly` reads the hourly continuous aggregate of
+`sysmon.disk` gauges. Each row is one (device, series, mount point) bucket, so
+a filling data volume is not averaged into its host's other filesystems. Rows
+are kept for 395 days; `time:` bounds match whole hourly buckets. The entity
+returns rows only: `stats:`, `bucket:` and `agg:` are rejected.
+
+| Field | Description |
+|-------|-------------|
+| `device_id` | Device identifier |
+| `metric_type` | Metric type (`sysmon.disk`) |
+| `metric_name` | Metric name, e.g. `disk.used_percent` |
+| `series_key` | Canonical series key of the rolled-up samples |
+| `mount_point` | Filesystem mount point from the sample tags |
+| `avg_value` | Hourly mean of the gauge |
+| `min_value` | Hourly minimum |
+| `max_value` | Hourly maximum |
+| `sample_count` | Samples in the bucket |
+
+Sortable fields: `bucket` (also `timestamp`), `device_id`, `metric_type`,
+`metric_name`, `series_key`, `mount_point`, `avg_value`, `min_value`,
+`max_value`, `sample_count`. Default order is `bucket` descending.
+
+```text
+in:timeseries_metric_disk_hourly metric_name:"disk.used_percent" device_id:"sr:host01" time:last_30d sort:bucket:asc
+```
 
 ### otel_metrics
 

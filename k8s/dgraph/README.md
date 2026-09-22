@@ -6,17 +6,17 @@ Two deployments of the official [Dgraph chart](https://charts.dgraph.io), both p
 | | `ci/` | `demo/` |
 |---|---|---|
 | Pattern | Basic Cluster | HA Cluster |
-| Namespace | `dgraph-ci` | `dgraph` |
+| Namespace | `dgraph-ci` | `demo` |
 | Zeros | 1 | 3 |
 | Alphas | 1 | 3 |
 | Replication (`shardReplicaCount`) | 1 | 3 |
 | Groups | 1 | 1 |
 | Tolerates | nothing | 1 node loss |
-| TLS | on, unverified by clients | on, verified against public roots |
+| TLS | on, verified against the CI CA | on, verified against an in-cluster CA |
 
 ```
 ./deploy-dgraph.sh ci        # disposable fixture
-./deploy-dgraph.sh demo      # HA
+./deploy-dgraph.sh demo      # HA, in the ServiceRadar `demo` namespace
 ./deploy-dgraph.sh mirror    # re-copy pinned images into Harbor
 ```
 
@@ -71,24 +71,23 @@ enforce `REQUIREANDVERIFY` automatically; external ports (9080, 8080, 6080) defa
 
 **The client is the constraint, and it dictates the certificate choice.**
 [`dgraph-client`](https://github.com/marvin-hansen/dgraph-rs) supports three modes — `disable`, `require`
-(encrypted, unverified) and `verify-ca` — and `verify-ca` builds
-`ClientTlsConfig::new().with_native_roots()`. There is **no way to pin a private CA**, and **no
-client-certificate path at all**. Two consequences:
+(encrypted, unverified) and `verify-ca`. `verify-ca` verifies against a CA the caller supplies
+(`sslrootcert` in the DSN, or `ClientConfigBuilder::ca_certificate`) and falls back to the
+system roots when none is given. There is still **no client-certificate path at all**, so
+`client-auth-type=REQUIREANDVERIFY` on the external port would lock this client out
+permanently; it is left at the default.
 
-- `client-auth-type=REQUIREANDVERIFY` on the external port would lock this client out
-  permanently. Left at the default.
-- A privately-issued server certificate cannot be verified, however correct it is.
-
-So `demo` takes its certificate from `carverauto-issuer`, the cluster's ACME/Let's Encrypt
-ClusterIssuer (Cloudflare DNS-01). The chain ends at a public root that is already in every
-container's trust store, so `sslmode=verify-ca` authenticates the server with no CA plumbing:
+Because the CA is ours to supply, both environments issue privately and stay inside the
+cluster — no ingress, no public DNS. `demo` runs in the ServiceRadar `demo` namespace, beside
+core and web-ng:
 
 ```
-dgraph://dgraph.serviceradar.cloud:443?sslmode=verify-ca
+dgraph://dgraph-dgraph-alpha.demo.svc.cluster.local:9080?sslmode=verify-ca
 ```
 
 Verification is against **the name dialed**, so that host must match the SAN in
-`demo/certificate.yaml` and the ingress host in `demo/values.yaml`. All three move together.
+`demo/certificate.yaml` and `dgraph.host` in `config/environments/demo.textproto`. All three
+move together.
 
 ### How the certificate reaches Dgraph
 
@@ -111,12 +110,11 @@ files point Dgraph at the paths it actually has:
 `alpha.tls.files` instead would put the private key in a values file and freeze it at whatever
 was pasted.
 
-`ci` cannot have that: Let's Encrypt will not issue for `*.svc.cluster.local`. It runs TLS with
-callers on `sslmode=require` — encrypted, unauthenticated, which is what a private namespace
-already is:
+`ci` is the same arrangement in its own namespace, with the CA published so callers outside
+the cluster can fetch it (next section):
 
 ```
-dgraph://dgraph-dgraph-alpha.dgraph-ci.svc.cluster.local:9080?sslmode=require
+dgraph://dgraph-dgraph-alpha.dgraph-ci.svc.cluster.local:9080?sslmode=verify-ca
 ```
 
 ### Trusting the CI CA
@@ -220,16 +218,20 @@ both values files, then re-running `mirror`. Nothing enforces that they agree.
 
 ## Verifying
 
+`demo` deploys into the `demo` namespace and `ci` into `dgraph-ci`; substitute the one you
+are looking at.
+
 ```bash
-kubectl get pods -n dgraph -l app.kubernetes.io/name=dgraph
-kubectl exec -n dgraph dgraph-dgraph-alpha-0 -- dgraph version
+kubectl get pods -n demo -l app.kubernetes.io/name=dgraph
+kubectl exec -n demo dgraph-dgraph-alpha-0 -- dgraph version
 
 # Raft membership and group assignment -- the authoritative view of replication.
-kubectl exec -n dgraph dgraph-dgraph-zero-0 -- curl -s localhost:6080/state | jq '.groups'
+kubectl exec -n demo dgraph-dgraph-zero-0 -- curl -s localhost:6080/state | jq '.groups'
 
 # Certificate actually in use (demo).
-kubectl get certificate -n dgraph dgraph-alpha-tls
-openssl s_client -connect dgraph.serviceradar.cloud:443 -servername dgraph.serviceradar.cloud </dev/null 2>/dev/null | openssl x509 -noout -subject -issuer -dates
+kubectl get certificate -n demo dgraph-alpha-tls
+kubectl get secret dgraph-dgraph-alpha-tls-secret -n demo -o jsonpath='{.data.tls\.crt}' \
+  | base64 -d | openssl x509 -noout -subject -issuer -dates
 ```
 
 Health is `/state` on Zero, not pod readiness: a group short of quorum has Running pods and
@@ -237,11 +239,50 @@ serves nothing.
 
 ## Not covered here
 
-Backups (`backups.*` in both files, off), ACLs and encryption-at-rest (enterprise), and Ratel.
-Turning on ACLs changes the client's connection string — it would need credentials, which
-`dgraph://user:pass@host` already carries.
+Backups (`backups.*` in both files, off), encryption-at-rest (enterprise), and Ratel. ACL is
+on in both environments and is covered above.
 
 Sources: [architecture](https://docs.dgraph.io/installation/dgraph-architecture) ·
 [deployment patterns](https://docs.dgraph.io/installation/deployment-patterns) ·
 [TLS configuration](https://docs.dgraph.io/admin/security/tls-configuration/) ·
 [write scaling](https://github.com/orgs/dgraph-io/discussions/9685)
+
+## Monitoring (demo)
+
+| File | What |
+|---|---|
+| `demo/servicemonitor.yaml` | scrapes alpha and zero |
+| `demo/gen_dashboard.py` | generates `demo/dashboard.json` |
+| `demo/render_configmap.py` | wraps that JSON into `demo/dashboard-configmap.yaml` |
+
+`deploy-dgraph.sh` applies both after the Helm upgrade. Grafana: **Dgraph ->
+Dgraph (demo)**, uid `dgraph-demo`.
+
+To change the dashboard, edit the generator and re-render:
+
+```bash
+python3 k8s/dgraph/demo/gen_dashboard.py
+python3 k8s/dgraph/demo/render_configmap.py
+```
+
+Three things about scraping Dgraph here that are easy to get wrong:
+
+- **The endpoints are HTTPS.** TLS is on everywhere in this deployment (alpha
+  and zero both terminate it, and alpha dials zero with `internal-port=true`),
+  so a plain http scrape returns 400 and the target just looks broken.
+- **The paths are Dgraph's own**, `/debug/prometheus_metrics` on alpha `:8080`
+  and zero `:6080`, not `/metrics`.
+- **`job` is pinned with `metricRelabelings`, not `relabelings`.** The operator
+  sets `job` from the Service name *after* user relabelings run, so a relabeling
+  is silently overwritten — the dashboard would come up empty with no error.
+  The two "up" panels match on `endpoint` instead, because `up` is synthesised
+  by Prometheus and keeps the original job label either way.
+
+`tlsConfig.insecureSkipVerify` is deliberate: a ServiceMonitor can only
+reference a CA Secret in Prometheus's own namespace, so pinning the in-cluster
+CA would mean replicating it into `monitoring`. This is ClusterIP traffic and
+the scrape carries no credentials.
+
+Every panel query was run against Prometheus before committing (27/27 returning
+data). An empty panel looks like idle infrastructure rather than a mistake,
+which is how two wrong label matchers were caught here.

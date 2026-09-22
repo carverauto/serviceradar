@@ -431,6 +431,37 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
     assert session.metadata["remote_console"]["agent_id"] == "agent-from-proxmox-discovery"
   end
 
+  test "legacy native host inventory is completed from the matching credential-rule source scope" do
+    uid = unique_uid("legacy-host")
+    secret = create_secret!("legacy-host")
+    rule = create_rule!(secret, scope_value: "agent-legacy-host")
+
+    insert_device!(uid,
+      agent_id: "agent-legacy-host",
+      gateway_id: "gateway-legacy-host",
+      source_rule: rule,
+      identity: :legacy
+    )
+
+    Process.put(:proxmox_console_test_device_uid, uid)
+
+    assert {:ok, %{session: session}} =
+             ProxmoxConsoleSessions.request_open(
+               uid,
+               %{},
+               previewer: Previewer,
+               assignment_resolver: AssignmentResolver,
+               actor: @console_actor
+             )
+
+    assert session.metadata["remote_console"]["target_type"] == "host"
+    assert session.metadata["remote_console"]["protocol"] == "proxmox-termproxy"
+    assert session.metadata["target"]["identity_version"] == 3
+    assert session.metadata["target"]["identity_state"] == "authoritative"
+    assert session.metadata["target"]["integration_id"] == rule.integration_id
+    assert session.metadata["target"]["controller_id"] == rule.controller_id
+  end
+
   test "system actors cannot substitute for the current console user" do
     assert {:error, :forbidden} =
              ProxmoxConsoleSessions.request_open("not-used", %{}, actor: @system_actor)
@@ -459,6 +490,32 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
                assignment_resolver: AssignmentResolver,
                actor: @console_actor
              )
+  end
+
+  test "request_open reads the active policy assignment without an explicit resolver" do
+    uid = unique_uid("no-resolver-opt")
+    secret = create_secret!("no-resolver-opt")
+    rule = create_rule!(secret, scope_value: "agent-no-resolver")
+
+    insert_device!(uid,
+      agent_id: "agent-no-resolver",
+      gateway_id: "gateway-no-resolver",
+      source_rule: rule
+    )
+
+    Process.put(:proxmox_console_test_device_uid, uid)
+    insert_console_package_and_assignment!(rule, "agent-no-resolver")
+
+    assert {:ok, %{session: session}} =
+             ProxmoxConsoleSessions.request_open(
+               uid,
+               %{},
+               previewer: Previewer,
+               actor: @console_actor
+             )
+
+    assert session.agent_id == "agent-no-resolver"
+    assert session.credential_rule_id == rule.id
   end
 
   test "unsupported Proxmox console auth methods are never selected" do
@@ -497,8 +554,10 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
     source_rule = if proxmox?, do: Keyword.fetch!(opts, :source_rule)
     cluster = Keyword.get(opts, :cluster, "test-cluster")
 
+    identity_mode = Keyword.get(opts, :identity, :authoritative)
+
     identity =
-      if proxmox? do
+      if proxmox? and identity_mode != :legacy do
         proxmox_identity!(source_rule, cluster, "node", hostname)
       end
 
@@ -526,7 +585,11 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
     ])
 
     if proxmox? do
-      create_virtualization_host!(uid, hostname, identity)
+      if identity do
+        create_virtualization_host!(uid, hostname, identity)
+      else
+        create_legacy_virtualization_host!(uid, hostname, cluster)
+      end
     end
   end
 
@@ -542,6 +605,36 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
       })
     )
     |> Ash.create!(actor: @system_actor)
+  end
+
+  defp create_legacy_virtualization_host!(device_uid, node, cluster) do
+    # Model a row that predates the v3 insert guard; restore the guard before opening the console.
+    Repo.query!(
+      "ALTER TABLE platform.virtualization_hosts DISABLE TRIGGER virtualization_hosts_identity_immutable_guard"
+    )
+
+    try do
+      VirtualizationHost
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          provider: "proxmox",
+          provider_ref: "proxmox:node:#{node}",
+          device_uid: device_uid,
+          name: node,
+          identity_state: :legacy,
+          native_cluster_id: cluster,
+          object_kind: "node",
+          native_object_id: node,
+          metadata: %{}
+        }
+      )
+      |> Ash.create!(actor: @system_actor)
+    after
+      Repo.query!(
+        "ALTER TABLE platform.virtualization_hosts ENABLE TRIGGER virtualization_hosts_identity_immutable_guard"
+      )
+    end
   end
 
   defp create_virtualization_guest!(device_uid, host, vmid, _cluster) do
@@ -662,6 +755,59 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
       |> Ash.create(actor: @system_actor)
 
     rule
+  end
+
+  defp insert_console_package_and_assignment!(rule, agent_uid) do
+    now = DateTime.utc_now()
+    package_id = Ecto.UUID.generate()
+    policy_id = "network-credential-rule:#{rule.id}:console_access"
+
+    Repo.insert_all("plugins", [
+      %{
+        plugin_id: "proxmox-console",
+        name: "proxmox-console-test-plugin",
+        inserted_at: now,
+        updated_at: now
+      }
+    ])
+
+    Repo.insert_all("plugin_packages", [
+      %{
+        id: Ecto.UUID.dump!(package_id),
+        plugin_id: "proxmox-console",
+        name: "proxmox-console-test-package",
+        version: "1.0.0",
+        entrypoint: "run_console",
+        status: "approved",
+        outputs: "console",
+        manifest: %{},
+        config_schema: %{},
+        inserted_at: now,
+        updated_at: now
+      }
+    ])
+
+    Repo.insert_all("plugin_assignments", [
+      %{
+        id: Ecto.UUID.dump!(Ecto.UUID.generate()),
+        agent_uid: agent_uid,
+        partition_id: "test-partition",
+        plugin_id: "proxmox-console",
+        plugin_package_id: Ecto.UUID.dump!(package_id),
+        source: "policy",
+        policy_id: policy_id,
+        enabled: true,
+        params: %{
+          "policy_id" => policy_id,
+          "policy_version" => 1,
+          "credential_rule_id" => to_string(rule.id)
+        },
+        inserted_at: now,
+        updated_at: now
+      }
+    ])
+
+    :ok
   end
 
   defp unique_uid(label), do: "pve-console-#{label}-#{System.unique_integer([:positive])}"

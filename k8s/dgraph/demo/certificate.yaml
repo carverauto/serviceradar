@@ -1,7 +1,7 @@
 # In-cluster CA and Alpha certificate for demo.
 #
 # Private, not ACME. The config contract puts Dgraph at
-# `dgraph-dgraph-alpha.dgraph.svc.cluster.local:9080` -- a name no public authority will sign
+# `dgraph-dgraph-alpha.demo.svc.cluster.local:9080` -- a name no public authority will sign
 # -- and the Dgraph client (github.com/marvin-hansen/dgraph-rs) now verifies against a supplied CA
 # instead of the system roots
 # (`sslrootcert`, or ClientConfigBuilder::ca_certificate). So the trust anchor is ours, the
@@ -10,7 +10,7 @@ apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
   name: dgraph-selfsigned
-  namespace: dgraph
+  namespace: demo
 spec:
   selfSigned: {}
 ---
@@ -20,7 +20,7 @@ apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: dgraph-ca
-  namespace: dgraph
+  namespace: demo
 spec:
   isCA: true
   commonName: dgraph-ca
@@ -39,7 +39,7 @@ apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
   name: dgraph-ca-issuer
-  namespace: dgraph
+  namespace: demo
 spec:
   ca:
     secretName: dgraph-ca
@@ -50,7 +50,7 @@ apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: dgraph-alpha-tls
-  namespace: dgraph
+  namespace: demo
 spec:
   secretName: dgraph-dgraph-alpha-tls-secret
   # BOTH ROLES ON ONE CERTIFICATE. With internal-port=true every node is also a TLS *client*
@@ -64,11 +64,11 @@ spec:
     - client auth
   # Must equal the `dgraph.host` in config/environments/{demo,saas}.textproto: verification is
   # against the name dialed. These two move together or the handshake fails.
-  commonName: dgraph-dgraph-alpha.dgraph.svc.cluster.local
+  commonName: dgraph-dgraph-alpha.demo.svc.cluster.local
   dnsNames:
-    - dgraph-dgraph-alpha.dgraph.svc.cluster.local
-    - dgraph-dgraph-alpha-headless.dgraph.svc.cluster.local
-    - "*.dgraph-dgraph-alpha-headless.dgraph.svc.cluster.local"
+    - dgraph-dgraph-alpha.demo.svc.cluster.local
+    - dgraph-dgraph-alpha-headless.demo.svc.cluster.local
+    - "*.dgraph-dgraph-alpha-headless.demo.svc.cluster.local"
   privateKey:
     algorithm: ECDSA
     size: 256
@@ -88,16 +88,16 @@ apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
   name: dgraph-zero-tls
-  namespace: dgraph
+  namespace: demo
 spec:
   secretName: dgraph-dgraph-zero-tls-secret
-  commonName: dgraph-dgraph-zero.dgraph.svc.cluster.local
+  commonName: dgraph-dgraph-zero.demo.svc.cluster.local
   dnsNames:
     # The headless per-pod name carries the load here: Zeros address each other individually
     # for Raft, so the wildcard is what each peer actually verifies.
-    - dgraph-dgraph-zero.dgraph.svc.cluster.local
-    - dgraph-dgraph-zero-headless.dgraph.svc.cluster.local
-    - "*.dgraph-dgraph-zero-headless.dgraph.svc.cluster.local"
+    - dgraph-dgraph-zero.demo.svc.cluster.local
+    - dgraph-dgraph-zero-headless.demo.svc.cluster.local
+    - "*.dgraph-dgraph-zero-headless.demo.svc.cluster.local"
   # BOTH ROLES ON ONE CERTIFICATE. With internal-port=true every node is also a TLS *client*
   # to its peers, and Dgraph verifies that client certificate -- so `client auth` is required,
   # not decorative. cert-manager's defaults do not include it once `usages` is stated at all,

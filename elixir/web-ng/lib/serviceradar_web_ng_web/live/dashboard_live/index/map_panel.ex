@@ -3,11 +3,18 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.MapPanel do
   use ServiceRadarWebNGWeb, :html
 
   alias ServiceRadarWebNGWeb.DashboardLive.Index.Common
+  alias ServiceRadarWebNGWeb.DashboardLive.Window
+  alias ServiceRadarWebNGWeb.DashboardLive.WindowRefresh
 
   attr(:dashboard, :map, required: true)
 
   def render(%{dashboard: dashboard} = assigns) do
-    assigns = Map.merge(assigns, dashboard)
+    assigns =
+      assigns
+      |> Map.merge(dashboard)
+      |> Map.put_new(:netflow_window, "last_15m")
+      |> Map.put_new(:window_errors, %{})
+      |> Map.put_new(:window_requests, %{})
 
     ~H"""
     <Common.panel title={map_panel_title(@map_view)} class="sr-ops-map-panel">
@@ -33,10 +40,32 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.MapPanel do
             {instance.name}
           </option>
         </select>
-        <.link href={map_fullscreen_path(@map_view)} class="sr-ops-button">
+        <select
+          :if={@map_view == "netflow"}
+          id="dashboard-netflow-window"
+          phx-hook="DashboardWindowSelect"
+          data-window-kind="netflow"
+          aria-busy={to_string(WindowRefresh.busy?(@window_requests, "netflow"))}
+          data-window={@netflow_window}
+          class="sr-ops-select"
+          aria-label="NetFlow map time window"
+        >
+          <option
+            :for={{value, label} <- Window.options()}
+            value={value}
+            selected={value == @netflow_window}
+          >
+            {label}
+          </option>
+        </select>
+        <.link href={map_fullscreen_path(@map_view, @netflow_window)} class="sr-ops-button">
           Full Screen
         </.link>
       </:actions>
+
+      <p :if={@window_errors["netflow"]} role="alert" class="p-3 text-sm text-sr-muted">
+        {@window_errors["netflow"]}
+      </p>
 
       <div class={[
         "sr-ops-map-shell",
@@ -115,8 +144,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.MapPanel do
   defp map_panel_title("dashboard:" <> _route_slug), do: "Dashboard Map"
   defp map_panel_title(_), do: "NetFlow Map"
 
-  defp map_fullscreen_path("dashboard:" <> route_slug), do: ~p"/dashboards/#{route_slug}"
-  defp map_fullscreen_path(_), do: ~p"/netflow-map"
+  defp map_fullscreen_path("dashboard:" <> route_slug, _window), do: ~p"/dashboards/#{route_slug}"
+  defp map_fullscreen_path(_, window), do: ~p"/netflow-map?#{%{window: window}}"
 
   defp map_empty?("netflow", _topology_links, traffic_links) do
     links = List.wrap(traffic_links)
@@ -131,6 +160,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.MapPanel do
 
   defp geo_mapped_link?(_), do: false
 
+  defp map_empty_title("netflow", :error, _traffic_links), do: "Unable to load NetFlow map"
   defp map_empty_title("netflow", :unconfigured, _traffic_links), do: "NetFlow collector not configured"
   defp map_empty_title("netflow", :configured_empty, _traffic_links), do: "Awaiting observed NetFlow summaries"
 
@@ -146,6 +176,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.MapPanel do
 
   defp map_empty_title(_map_view, :unconfigured, _traffic_links), do: "NetFlow collector not configured"
   defp map_empty_title(_map_view, _state, _traffic_links), do: "No topology or flow data"
+
+  defp map_empty_detail("netflow", :error, _traffic_links), do: "Select a time window to retry the query."
 
   defp map_empty_detail("netflow", :unconfigured, _traffic_links),
     do: "Configure a NetFlow, IPFIX, or sFlow collector to enable this map."

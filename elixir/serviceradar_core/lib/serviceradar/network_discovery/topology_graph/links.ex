@@ -1,9 +1,10 @@
 defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
   @moduledoc false
 
-  alias ServiceRadar.Graph
   alias ServiceRadar.NetworkDiscovery.TopologyGraph
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Persist
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Projection
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Pruning
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Queries
@@ -188,9 +189,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
   defp upsert_backbone_link_payload(payload) do
     cypher = Queries.backbone_link_upsert_query(payload)
 
-    case Graph.execute(cypher) do
-      :ok -> :ok
-      {:error, reason} -> Logger.warning("Topology graph upsert failed: #{inspect(reason)}")
+    case Persist.execute_age(cypher) do
+      :ok ->
+        DgraphPersist.upsert_link(payload, "CONNECTS_TO")
+
+      {:error, reason} ->
+        Logger.warning("Topology graph upsert failed: #{inspect(reason)}")
     end
   end
 
@@ -198,9 +202,9 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Links do
     relation = Projection.evidence_relation_type(payload)
     cypher = Queries.auxiliary_link_upsert_query(payload, relation)
 
-    case Graph.execute(cypher) do
+    case Persist.execute_age(cypher) do
       :ok ->
-        :ok
+        DgraphPersist.upsert_link(payload, relation)
 
       {:error, reason} ->
         Logger.warning("Auxiliary topology graph upsert failed: #{inspect(reason)}")

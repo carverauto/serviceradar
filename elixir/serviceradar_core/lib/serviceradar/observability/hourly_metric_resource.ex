@@ -5,8 +5,9 @@ defmodule ServiceRadar.Observability.HourlyMetricResource do
     table = Keyword.fetch!(opts, :table)
     type = Keyword.fetch!(opts, :type)
     route = Keyword.fetch!(opts, :route)
+    primary_key = Keyword.fetch!(opts, :primary_key)
 
-    quote bind_quoted: [table: table, type: type, route: route] do
+    quote bind_quoted: [table: table, type: type, route: route, primary_key: primary_key] do
       use Ash.Resource,
         domain: ServiceRadar.Observability,
         data_layer: AshPostgres.DataLayer,
@@ -14,33 +15,47 @@ defmodule ServiceRadar.Observability.HourlyMetricResource do
         extensions: [AshJsonApi.Resource]
 
       postgres do
-        table table
-        repo ServiceRadar.Repo
-        schema "platform"
-        migrate? false
+        table(table)
+        repo(ServiceRadar.Repo)
+        schema("platform")
+        migrate?(false)
       end
 
       json_api do
-        type type
+        type(type)
+
+        primary_key do
+          keys(primary_key)
+        end
 
         routes do
-          base route
-          index :read
+          base(route)
+          index(:api_index)
         end
       end
 
       resource do
-        require_primary_key? false
+        require_primary_key?(false)
       end
 
       actions do
-        defaults [:read]
+        defaults([:read])
+
+        read :api_index do
+          pagination do
+            offset?(true)
+            default_limit(100)
+            max_page_size(1000)
+            required?(true)
+          end
+        end
       end
 
       policies do
-        policy action_type(:read) do
-          authorize_if always()
-        end
+        import ServiceRadar.Policies
+
+        system_bypass()
+        read_viewer_plus()
       end
     end
   end

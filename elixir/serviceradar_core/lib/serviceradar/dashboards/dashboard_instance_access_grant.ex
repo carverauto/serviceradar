@@ -9,6 +9,7 @@ defmodule ServiceRadar.Dashboards.DashboardInstanceAccessGrant do
     extensions: [AshPaperTrail.Resource],
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Dashboards.Changes.RequireGroupAccessBoundary
   alias ServiceRadar.Dashboards.Checks.ActorCanEditDashboardInstanceChild
   alias ServiceRadar.Dashboards.Checks.ActorCanEditDashboardInstanceTarget
   alias ServiceRadar.Identity.User
@@ -53,6 +54,7 @@ defmodule ServiceRadar.Dashboards.DashboardInstanceAccessGrant do
     change_tracking_mode :changes_only
     store_action_name? true
     store_action_inputs? true
+    reference_source? false
     create_version_on_destroy? true
     ignore_attributes [:inserted_at, :updated_at]
   end
@@ -60,12 +62,11 @@ defmodule ServiceRadar.Dashboards.DashboardInstanceAccessGrant do
   code_interface do
     define :list, action: :read
     define :create_user_grant, action: :create
-    define :create_group_grant, action: :create_group
     define :update_grant, action: :update
   end
 
   actions do
-    defaults [:read, :destroy]
+    defaults [:read]
 
     read :for_instance do
       argument :dashboard_instance_id, :uuid, allow_nil?: false
@@ -88,10 +89,56 @@ defmodule ServiceRadar.Dashboards.DashboardInstanceAccessGrant do
       upsert? true
       upsert_identity :unique_group_grant
       upsert_fields [:access, :granted_by_id, :metadata, :updated_at]
+      validate RequireGroupAccessBoundary
+    end
+
+    create :ensure_group_view do
+      accept [:dashboard_instance_id, :subject_group_id, :granted_by_id]
+      change set_attribute(:subject_type, :group)
+      change set_attribute(:access, :view)
+      validate fn changeset, _context -> validate_subject(changeset, :group) end
+      validate RequireGroupAccessBoundary
+      upsert? true
+      upsert_identity :unique_group_grant
+      upsert_condition expr(access != :edit)
+      upsert_fields [:access, :granted_by_id, :updated_at]
+      return_skipped_upsert? true
+    end
+
+    create :set_group_access do
+      accept [
+        :dashboard_instance_id,
+        :subject_group_id,
+        :access,
+        :granted_by_id,
+        :metadata
+      ]
+
+      change set_attribute(:subject_type, :group)
+      validate fn changeset, _context -> validate_subject(changeset, :group) end
+      validate RequireGroupAccessBoundary
+      upsert? true
+      upsert_identity :unique_group_grant
+      upsert_fields [:access, :granted_by_id, :metadata, :updated_at]
+      return_skipped_upsert? true
     end
 
     update :update do
       accept [:access, :metadata]
+      validate {RequireGroupAccessBoundary, group_only?: false}
+    end
+
+    destroy :destroy do
+      primary? true
+      validate {RequireGroupAccessBoundary, group_only?: false}
+    end
+
+    destroy :revoke_group_view do
+      validate RequireGroupAccessBoundary
+    end
+
+    destroy :revoke_group_access do
+      validate RequireGroupAccessBoundary
     end
   end
 
@@ -106,9 +153,14 @@ defmodule ServiceRadar.Dashboards.DashboardInstanceAccessGrant do
       authorize_if ActorCanEditDashboardInstanceChild
     end
 
-    policy action_type([:create, :update, :destroy]) do
+    policy action([:create, :create_group, :ensure_group_view, :set_group_access]) do
       authorize_if @share_check
       authorize_if ActorCanEditDashboardInstanceTarget
+    end
+
+    policy action([:update, :destroy, :revoke_group_view, :revoke_group_access]) do
+      authorize_if @share_check
+      authorize_if ActorCanEditDashboardInstanceChild
     end
   end
 

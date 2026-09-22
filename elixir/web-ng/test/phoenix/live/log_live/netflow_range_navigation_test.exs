@@ -11,6 +11,26 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowRangeNavigationTest do
   @last_start "2026-08-27T10:15:00Z"
   @last_end "2026-08-27T10:19:59.999999Z"
 
+  test "explicit long presets preserve NetFlow filters and presentation state" do
+    socket =
+      socket(%{srql: %{query: "in:flows src_ip:192.0.2.8 time:last_1h protocol:tcp limit:37"}, netflow_view: "traffic"})
+
+    assert {:noreply, result} = Index.handle_event("netflow_set_range", %{"range" => "last_90d"}, socket)
+    params = redirected_query(result)
+    assert params["q"] == "in:flows src_ip:192.0.2.8 protocol:tcp limit:37 time:last_90d"
+    assert params["view"] == "traffic"
+    assert {:noreply, ^socket} = Index.handle_event("netflow_set_range", %{"range" => "all"}, socket)
+  end
+
+  test "Custom opens the existing flow explorer with absolute dates and original filters" do
+    socket = socket(%{srql: %{query: "in:flows dst_ip:198.51.100.8 time:last_1h protocol:udp"}})
+    params = %{"window" => %{"start" => "2025-01-01T00:00", "end" => "2025-04-01T00:00"}}
+    assert {:noreply, result} = Index.handle_event("netflow_custom_range", params, socket)
+    params = redirected_query(result)
+    assert params["view"] == "explorer"
+    assert params["q"] == "in:flows dst_ip:198.51.100.8 protocol:udp time:[2025-01-01T00:00:00Z,2025-04-01T00:00:00Z]"
+  end
+
   test "a valid range replaces every time token and opens Flow Explorer with the remaining state" do
     query =
       ~s(in:flows   src_ip:192.0.2.10 time:last_1h app:"Microsoft Teams" time:[2026-08-26T00:00:00Z,2026-08-26T01:00:00Z] sort:timestamp:desc limit:37)

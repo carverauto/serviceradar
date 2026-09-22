@@ -8,8 +8,9 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
     match normalized.as_str() {
         "agents" | "agent" | "ocsf_agents" => Ok(Entity::Agents),
         "devices" | "device" | "device_inventory" => Ok(Entity::Devices),
-        "device_graph" | "devicegraph" | "graph" => Ok(Entity::DeviceGraph),
+        "device_graph" | "devicegraph" => Ok(Entity::DeviceGraph),
         "graph_cypher" | "graphcypher" | "cypher" => Ok(Entity::GraphCypher),
+        "graph" | "graph_dql" => Ok(Entity::GraphDql),
         "interfaces" | "interface" | "discovered_interfaces" => Ok(Entity::Interfaces),
         "events" | "activity" => Ok(Entity::Events),
         "security_findings" | "security_finding" | "findings" | "finding" => {
@@ -109,6 +110,9 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
         | "timeseries_metrics_interface_hourly"
         | "interface_timeseries_metrics_hourly"
         | "interface_metrics_hourly" => Ok(Entity::TimeseriesMetricInterfaceHourly),
+        "timeseries_metric_disk_hourly" | "timeseries_metrics_disk_hourly" => {
+            Ok(Entity::TimeseriesMetricDiskHourly)
+        }
         "snmp_metrics" | "snmp" => Ok(Entity::SnmpMetrics),
         "otel_trace_summaries" | "trace_summaries" | "traces_summaries" => {
             Ok(Entity::TraceSummaries)
@@ -179,6 +183,7 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
         }
         "sweep_results" | "sweep_result" | "sweep_host_results" => Ok(Entity::SweepResults),
         "sweep_coverage" | "sweep_coverage_daily" => Ok(Entity::SweepCoverage),
+        "device_sweep_overlap" | "sweep_overlap" => Ok(Entity::DeviceSweepOverlap),
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported entity '{other}'"
         ))),

@@ -92,6 +92,9 @@ in:sweep_results device_id:<device-uid> time:last_24h sort:inserted_at:desc
 in:sweep_results time:last_7d
 in:sweep_coverage device_uid:<device-uid> time:last_90d sort:day:desc
 in:sweep_executions sweep_group_id:<uuid> sort:started_at:desc
+in:device_sweep_overlap device_uid:<device-uid>
+in:device_sweep_overlap relationship:declared_not_observed
+in:device_sweep_overlap device_uid:<device-uid> relationship:declared_and_observed
 ```
 
 - `in:sweep_groups partition:default enabled:true` -- which sweep groups are
@@ -111,6 +114,29 @@ in:sweep_executions sweep_group_id:<uuid> sort:started_at:desc
   often it was scanned and available, day by day.
 - `in:sweep_executions sweep_group_id:<uuid> sort:started_at:desc` -- the run
   history of one sweep group: status, duration, and host counts per run.
+- `in:device_sweep_overlap device_uid:<device-uid>` -- where do sweep groups
+  overlap on one device, and which of them are only claiming to sweep it? One
+  row per (sweep group, agent) pairing, each labelled by `relationship`:
+  `declared_and_observed` (the group targets the device and has produced
+  coverage), `declared_not_observed` (the group's compiled target set names the
+  device but no coverage row has ever come back for it) and
+  `observed_not_declared` (coverage exists from a group whose current
+  declaration no longer covers the device). More than one
+  `declared_and_observed` row means several groups are sweeping the same
+  device, which is how one group's result comes to overwrite another's.
+- `in:device_sweep_overlap relationship:declared_not_observed` -- the fleet-wide
+  alert list: every declaration that has produced nothing. This is the query
+  that proves or kills "the group is configured for TCP but the device only
+  reports ICMP". Results already lead with these rows without a `sort:` token,
+  so add one only when you want a different order -- an explicit `sort:`
+  replaces the alert-first default.
+- Two things this entity deliberately refuses rather than silently mishandles: a
+  time window (`time:last_24h`) is rejected, because the alert rows have no
+  `last_seen_at` to bind a window to and applying one would delete exactly the
+  rows you came for; and `admin_only` scanner profile identity is masked in the
+  projection, so a NULL `scanner_profile_name`/`profile_id` means "restricted",
+  not "the group has no profile" -- the row itself is never dropped, because the
+  alert is the operator's business either way.
 
 ## Events and logs
 
@@ -162,10 +188,10 @@ are `src_*` / `dst_*`. `port:22` is “SSH either direction”.
 
 ```
 in:public_endpoints port:22 limit:50
-in:public_endpoints ip:23.138.124.7
+in:public_endpoints ip:198.51.100.10
 in:public_endpoints exposure_class:Gateway sort:ip:asc limit:50
-in:attributed_flows time:last_24h ip:23.138.124.7 sort:time:desc limit:50
-in:attributed_flows time:last_24h service_name:forgejo-http sort:time:desc limit:50
+in:attributed_flows time:last_24h ip:198.51.100.10 sort:time:desc limit:50
+in:attributed_flows time:last_24h service_name:gitsrv-http sort:time:desc limit:50
 in:attributed_flows time:last_24h port:22 sort:time:desc limit:50
 in:attributed_flows time:last_1h process:gitea sort:time:desc limit:50
 ```

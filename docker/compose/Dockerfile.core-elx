@@ -63,8 +63,10 @@ ENV MIX_ENV=prod
 # Install Hex and Rebar
 RUN mix local.hex --force && mix local.rebar --force
 
-# Get and compile dependencies
-RUN mix deps.get --only prod
+# Get and compile dependencies. --check-locked keeps the compose image from
+# silently diverging from the committed lock (and the Bazel release closure):
+# a stale lock fails the build loudly instead of resolving newer deps.
+RUN mix deps.get --only prod --check-locked
 RUN mix deps.compile
 
 # Compile the application
@@ -86,6 +88,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     locales \
     dnsutils \
     curl \
+    git \
     postgresql-client \
   && rm -rf /var/lib/apt/lists/* \
   && sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen \

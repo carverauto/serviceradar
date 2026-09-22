@@ -1,0 +1,26 @@
+# StarRocks DDL. Not Ecto, not mix ecto.migrate.
+# Applied automatically at core startup by
+# ServiceRadar.Analytics.StarRocks.SchemaMigrator, which records each NNNN
+# version in <database>.schema_migrations. Nothing here is applied by hand.
+# Every statement must be safe to repeat, because a warehouse that predates the
+# ledger replays all of them: CREATE ... IF NOT EXISTS, DROP ... IF EXISTS
+# before a rebuild, and ADD COLUMN (the migrator skips one whose column exists;
+# StarRocks has no ADD COLUMN IF NOT EXISTS). A new statement kind that cannot
+# be repeated needs a guard in the migrator first.
+# 0001-0005 are the CREATEs; 0006+ are upgrades for already-deployed tables.
+# StarRocks cannot add partitioning or change a primary key with ALTER, so a
+# warehouse created before daily partitioning is rebuilt by
+# ServiceRadar.Analytics.StarRocks.PartitionRebuild, which runs before pending
+# migrations and is driven by the warehouse's state, not by a version here.
+# 0014 is the marker left where that used to be a by-hand procedure.
+# 0016 DROPs and recreates the flow hourly rollup; 0017 recreates all three
+# partitioned by day, so a refresh touches only the days that changed.
+# 0018 adds the event JSON documents SRQL filters by path.
+# The cnpg_platform JDBC catalog is not here: it is created by
+# helm/serviceradar/templates/starrocks-catalog-job.yaml, and the relations it
+# may expose are owned by ServiceRadar.Analytics.StarRocks.CatalogAllowlist.
+filegroup(
+    name = "schema_sql",
+    srcs = glob(["*.sql"]),
+    visibility = ["//visibility:public"],
+)

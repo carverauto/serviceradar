@@ -36,6 +36,7 @@ defmodule ServiceRadar.Inventory.Device do
 
   alias ServiceRadar.Inventory.Changes.BumpIdentityRevision
   alias ServiceRadar.Inventory.IdentityReconciler
+  alias ServiceRadar.Inventory.Validations.AgentManaged
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   require Ash.Query
@@ -151,6 +152,16 @@ defmodule ServiceRadar.Inventory.Device do
     table "ocsf_devices"
     repo ServiceRadar.Repo
     schema "platform"
+
+    # ocsf_devices_unique_active_ip_idx is unique on (partition, ip) for live
+    # rows with a non-blank address (migrations 20260213201000 and
+    # 20260825120000), and the same IP may exist in more than one partition.
+    # Declaring it here (rather than as an identity, which would attribute
+    # violations to the composite key's first field) adds
+    # `unique_constraint(:ip, name: ...)` to every changeset, so a Postgres
+    # uniqueness raise surfaces as an `ip` "has already been taken" error
+    # instead of Ash.Error.Unknown wrapping Ecto.ConstraintError.
+    unique_index_names [{[:ip], "ocsf_devices_unique_active_ip_idx"}]
   end
 
   json_api do
@@ -173,6 +184,8 @@ defmodule ServiceRadar.Inventory.Device do
     define :bump_identity_revision, action: :bump_identity_revision
     define :mark_active, action: :mark_active
     define :mark_inactive, action: :mark_inactive
+    define :mark_managed, action: :mark_managed
+    define :mark_unmanaged, action: :mark_unmanaged
     define :bulk_soft_delete, action: :bulk_soft_delete, args: [:device_uids, :deleted_reason]
   end
 
@@ -275,7 +288,7 @@ defmodule ServiceRadar.Inventory.Device do
       accept @device_update_fields
 
       change set_attribute(:modified_time, &DateTime.utc_now/0)
-      validate ServiceRadar.Inventory.Validations.AgentManaged
+      validate AgentManaged
     end
 
     update :gateway_sync do
@@ -391,6 +404,21 @@ defmodule ServiceRadar.Inventory.Device do
 
       change set_attribute(:is_active, false)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
+    update :mark_managed do
+      description "Mark a device as managed"
+
+      change set_attribute(:is_managed, true)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
+    update :mark_unmanaged do
+      description "Mark a device as unmanaged"
+
+      change set_attribute(:is_managed, false)
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+      validate AgentManaged
     end
 
     action :bulk_soft_delete do
@@ -671,6 +699,7 @@ defmodule ServiceRadar.Inventory.Device do
     attribute :os, :map do
       default %{}
       public? true
+
       description "Operating system info (OCSF OS object), including passive_fingerprint evidence"
     end
 

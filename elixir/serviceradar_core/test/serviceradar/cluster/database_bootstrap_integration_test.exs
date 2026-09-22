@@ -109,6 +109,7 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
     scratch_db = "sr_core_test_bootstrap_#{suffix}"
 
     create_database!(admin_opts, scratch_db)
+    install_required_extensions!(admin_opts, scratch_db)
 
     on_exit(fn ->
       drop_database!(admin_opts, scratch_db)
@@ -206,16 +207,81 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
     assert result["recorded_count"] == length(on_disk)
   end
 
+  test "the migrator path records the baseline in the repo's configured ledger", %{
+    admin_url: admin_url,
+    scratch_db: scratch_db,
+    subprocess_ca_file: subprocess_ca_file
+  } do
+    # Regression cover for issue #321. `mix serviceradar.db.migrate` runs under web-ng's
+    # config, where `:migration_source` is `"ash_schema_migrations"`, but the baseline used
+    # to record every covered version in `platform.schema_migrations` -- a table Ecto never
+    # reads there. The migrator then saw zero applied versions and replayed the whole
+    # baseline, dying on duplicate-table errors.
+    #
+    # Like the test above, the decisive number is how many migrations Ecto ACTUALLY applied:
+    # with the marks in the table it reads, only the post-baseline migrations run. Counting
+    # recorded versions in the wrong table could not tell the two paths apart -- which is
+    # exactly how this bug hid.
+    metadata = SchemaBootstrap.baseline_metadata!()
+    included_through = metadata["included_through"]
+
+    on_disk =
+      :serviceradar_core
+      |> Application.app_dir("priv/repo/migrations")
+      |> Path.join("*.exs")
+      |> Path.wildcard()
+      |> Enum.map(&SchemaBootstrap.migration_version_from_file/1)
+
+    expected_applied = Enum.count(on_disk, &(&1 > included_through))
+
+    # Guard the guard: if the baseline ever covered nothing, the assertion below would pass
+    # trivially against a full replay.
+    assert expected_applied < length(on_disk),
+           "baseline covers no migrations; this test could not detect a full replay"
+
+    result =
+      run_migrator_bootstrap_with_source!(
+        admin_url,
+        scratch_db,
+        subprocess_ca_file,
+        "ash_schema_migrations"
+      )
+
+    assert result["applied_count"] == expected_applied,
+           """
+           the migrator path applied #{result["applied_count"]} migrations, expected \
+           #{expected_applied}.
+
+           #{length(on_disk)} migrations exist on disk and the baseline covers through \
+           #{included_through}. Applying all of them means the baseline marks landed in a \
+           ledger the migrator does not read and every fresh database is back to a full \
+           replay -- see issue #321.
+           """
+
+    assert result["baseline_count"] == 1
+    assert result["recorded_count"] == length(on_disk)
+  end
+
   defp run_migrator_bootstrap!(admin_url, database, subprocess_ca_file) do
     run_subprocess!(admin_url, database, subprocess_ca_file, migrator_code())
+  end
+
+  defp run_migrator_bootstrap_with_source!(admin_url, database, subprocess_ca_file, source) do
+    run_subprocess!(
+      admin_url,
+      database,
+      subprocess_ca_file,
+      migrator_code("platform.#{source}"),
+      [{"SERVICERADAR_TEST_MIGRATION_SOURCE", source}]
+    )
   end
 
   defp run_startup_migrations!(admin_url, database, subprocess_ca_file) do
     run_subprocess!(admin_url, database, subprocess_ca_file, startup_code())
   end
 
-  defp run_subprocess!(admin_url, database, subprocess_ca_file, code) do
-    env = subprocess_env(admin_url, database, subprocess_ca_file)
+  defp run_subprocess!(admin_url, database, subprocess_ca_file, code, extra_env \\ []) do
+    env = subprocess_env(admin_url, database, subprocess_ca_file, extra_env)
 
     # `elixir -e`, not `mix run -e`.
     #
@@ -303,6 +369,16 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
       |> Keyword.put(:timeout, :infinity)
       |> Keyword.put(:pool_size, 2)
 
+    # Test-only hook so one test can boot the Repo the way web-ng configures it
+    # (`migration_source: "ash_schema_migrations"`). Unset everywhere else, where this
+    # changes nothing.
+    repo_opts =
+      case System.get_env("SERVICERADAR_TEST_MIGRATION_SOURCE") do
+        nil -> repo_opts
+        "" -> repo_opts
+        source -> Keyword.put(repo_opts, :migration_source, source)
+      end
+
     Application.put_env(:serviceradar_core, ServiceRadar.Repo, repo_opts)
     {:ok, _pid} = ServiceRadar.Repo.start_link()
     '''
@@ -313,7 +389,7 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
   # ACTUALLY applied, which is the number that distinguishes a baselined bootstrap from a full
   # replay -- both end with every version recorded, so counting recorded versions cannot tell
   # them apart.
-  defp migrator_code do
+  defp migrator_code(ledger_table \\ "platform.schema_migrations") do
     subprocess_preamble() <>
       ~S'''
       migrations_path = Application.app_dir(:serviceradar_core, "priv/repo/migrations")
@@ -323,9 +399,12 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
 
       applied = Ecto.Migrator.run(ServiceRadar.Repo, :up, all: true)
 
+      ''' <>
+      """
       %{rows: [[recorded_count]]} =
-        ServiceRadar.Repo.query!("SELECT count(*) FROM platform.schema_migrations")
-
+        ServiceRadar.Repo.query!("SELECT count(*) FROM #{ledger_table}")
+      """ <>
+      ~S'''
       %{rows: [[baseline_count]]} =
         ServiceRadar.Repo.query!("SELECT count(*) FROM platform.serviceradar_schema_baselines")
 
@@ -416,7 +495,7 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
     '''
   end
 
-  defp subprocess_env(admin_url, database, subprocess_ca_file) do
+  defp subprocess_env(admin_url, database, subprocess_ca_file, extra_env \\ []) do
     uri = URI.parse(admin_url)
     # Same resolution as the parent's connection, and as ServiceRadar.Repo's. The subprocess
     # boots the real Repo, so handing it a mode the parent did not use would have it fail the
@@ -461,7 +540,7 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
         {"CNPG_KEY_FILE", key_file()},
         {"CNPG_CA_FILE", subprocess_ca_file},
         {"PGSSLROOTCERT", subprocess_ca_file}
-      ],
+      ] ++ extra_env,
       fn {_key, value} -> value in [nil, ""] end
     )
   end
@@ -707,6 +786,97 @@ defmodule ServiceRadar.Cluster.DatabaseBootstrapIntegrationTest do
         timeout: @admin_query_timeout
       )
     end)
+  end
+
+  # `bootstrap_app_role!/2` (`ServiceRadar.Cluster.StartupMigrations`) hands this database's
+  # ownership to an ordinary, non-superuser application role before the baseline or any
+  # migration runs (`ALTER DATABASE ... OWNER TO`). `age`/`postgis`/`vector` (and, in some
+  # Postgres installs, `timescaledb` itself) genuinely require superuser to CREATE from
+  # scratch -- confirmed by reproducing this directly: a fresh database owned by a plain
+  # `CREATE ROLE ... LOGIN` role gets `permission denied to create extension "age"` (etc.) on
+  # `CREATE EXTENSION`, even though `CREATE EXTENSION IF NOT EXISTS` on an ALREADY-installed
+  # extension is a permission-free no-op for any role. Every other consumer of a scratch
+  # database in this repo (`//rust/integration-db`'s `install_extensions`, and real deployments
+  # via CNPG/Helm's extension-update job) pre-installs these as an admin/superuser before
+  # anything runs as the unprivileged app role; this test's own `create_database!/2` never did,
+  # so its ordinary-role baseline application could hit that same permission wall, or a
+  # confusing downstream error far from the real cause once some object an extension created
+  # (e.g. `_timescaledb_internal`) turns out not to be reachable by the app role that inherited
+  # this database only after those objects already existed. Installing every required extension
+  # here, as the same admin role `create_database!/2` already uses, and pre-creating (or
+  # updating) the exact app role `ServiceRadar.Cluster.StartupMigrations.bootstrap_app_role!/2`
+  # will use (`subprocess_env/4` pins it to a fixed name/password for this test) so ownership of
+  # the schemas the extensions and later migrations live in is right from the start, matches
+  # `//rust/integration-db`'s `install_extensions` instead of assuming a fresh database
+  # inherited any of this from `template1`.
+  @required_extensions ~w(pgcrypto pg_trgm citext timescaledb age postgis vector)
+  @bootstrap_app_user "serviceradar_bootstrap_test"
+  @bootstrap_app_password "serviceradar_bootstrap_test"
+
+  defp install_required_extensions!(admin_opts, database) do
+    ensure_app_role!(admin_opts)
+
+    opts = Keyword.put(admin_opts, :database, database)
+
+    with_admin_connection!(opts, fn conn ->
+      for schema <- ["platform", "ag_catalog"] do
+        Postgrex.query!(
+          conn,
+          "CREATE SCHEMA IF NOT EXISTS #{schema} AUTHORIZATION #{quote_ident(@bootstrap_app_user)}",
+          [],
+          timeout: @admin_query_timeout
+        )
+      end
+
+      Enum.each(@required_extensions, fn extension ->
+        target_schema = if extension == "age", do: "ag_catalog", else: "platform"
+
+        Postgrex.query!(
+          conn,
+          "CREATE EXTENSION IF NOT EXISTS #{quote_ident(extension)} WITH SCHEMA #{target_schema}",
+          [],
+          timeout: @admin_query_timeout
+        )
+      end)
+
+      # Mirrors //rust/integration-db's install_extensions: AGE keeps its catalogue in
+      # ag_catalog and the application role reaches it as a non-superuser, so these grants are
+      # what make graphs usable at all.
+      for statement <- [
+            "GRANT USAGE ON SCHEMA ag_catalog TO #{quote_ident(@bootstrap_app_user)}",
+            "GRANT ALL ON ALL TABLES IN SCHEMA ag_catalog TO #{quote_ident(@bootstrap_app_user)}",
+            "GRANT ALL ON ALL SEQUENCES IN SCHEMA ag_catalog TO #{quote_ident(@bootstrap_app_user)}",
+            "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ag_catalog TO #{quote_ident(@bootstrap_app_user)}"
+          ] do
+        Postgrex.query!(conn, statement, [], timeout: @admin_query_timeout)
+      end
+    end)
+  end
+
+  defp ensure_app_role!(admin_opts) do
+    with_admin_connection!(admin_opts, fn conn ->
+      case Postgrex.query(
+             conn,
+             "SELECT 1 FROM pg_roles WHERE rolname = $1",
+             [@bootstrap_app_user],
+             timeout: @admin_query_timeout
+           ) do
+        {:ok, %{num_rows: 0}} ->
+          Postgrex.query!(
+            conn,
+            "CREATE ROLE #{quote_ident(@bootstrap_app_user)} LOGIN PASSWORD #{quote_literal(@bootstrap_app_password)}",
+            [],
+            timeout: @admin_query_timeout
+          )
+
+        {:ok, _} ->
+          :ok
+      end
+    end)
+  end
+
+  defp quote_literal(value) do
+    "'#{String.replace(value, "'", "''")}'"
   end
 
   defp drop_database!(admin_opts, database) do

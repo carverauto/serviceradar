@@ -164,8 +164,7 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
 
   def remote_access_ssh_console(assigns) do
     ssh_options_path =
-      assigns.ssh_options_path ||
-        "/api/remote-access/devices/#{URI.encode(assigns.device_uid)}/ssh-options"
+      assigns.ssh_options_path || default_ssh_options_path(assigns.device_uid)
 
     assigns =
       assign(assigns, :props, %{
@@ -353,17 +352,9 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
 
   def remote_console_terminal(assigns) do
     assigns =
-      assigns
-      |> assign(:props, %{
+      assign(assigns, :props, %{
         sessionId: assigns.session_id,
         ticket: assigns.ticket,
-        websocketPath: assigns.websocket_path,
-        title: assigns.title,
-        subtitle: assigns.subtitle
-      })
-      |> assign(:render_props, %{
-        sessionId: assigns.session_id,
-        ticket: "",
         websocketPath: assigns.websocket_path,
         title: assigns.title,
         subtitle: assigns.subtitle
@@ -377,11 +368,10 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
       phx-hook="RemoteConsoleTerminal"
       data-props={Jason.encode!(@props)}
     >
-      {react_component(%{
-        component: "RemoteConsoleTerminal",
-        props: @render_props,
-        static: false
-      })}
+      <div class="flex h-full min-h-[320px] items-center justify-center text-sm text-sr-muted">
+        <.ui_spinner size="sm" />
+        <span class="ml-3">Loading remote console...</span>
+      </div>
     </div>
     """
   end
@@ -395,4 +385,8 @@ defmodule ServiceRadarWebNGWeb.ReactComponents do
   attr :class, :string, default: ""
 
   def proxmox_console_terminal(assigns), do: remote_console_terminal(assigns)
+
+  defp default_ssh_options_path(device_uid) when is_binary(device_uid) do
+    "/api/remote-access/devices/#{URI.encode(device_uid, &URI.char_unreserved?/1)}/ssh-options"
+  end
 end

@@ -2,5 +2,13 @@ apiVersion: v2
 name: serviceradar
 description: Helm chart for deploying the ServiceRadar 
 type: application
-version: 1.4.51
-appVersion: "1.4.51"
+version: 1.4.68
+appVersion: "1.4.68"
+
+# Official Dgraph chart. Images are overridden to the Harbor mirror in values.yaml.
+# condition: dgraph.enabled so CI/demo can point at an external cluster instead.
+dependencies:
+  - name: dgraph
+    version: "24.1.4"
+    repository: "https://charts.dgraph.io"
+    condition: dgraph.enabled

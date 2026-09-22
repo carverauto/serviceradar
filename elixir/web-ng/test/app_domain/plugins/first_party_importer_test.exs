@@ -2,6 +2,9 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadarWebNG.Plugins.FirstPartyImporter
+  alias ServiceRadarWebNG.Plugins.FirstPartyReleaseClient
+  alias ServiceRadarWebNG.Plugins.FirstPartySyncWorker
+  alias ServiceRadarWebNG.Plugins.Packages
   alias ServiceRadarWebNG.Plugins.Storage
   alias ServiceRadarWebNG.Plugins.UploadSignature
 
@@ -55,6 +58,11 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
     def get(url, _opts) do
       cond do
         String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases?per_page=") ->
+          Process.put(
+            :first_party_recent_release_requests,
+            Process.get(:first_party_recent_release_requests, 0) + 1
+          )
+
           releases =
             if Process.get(:first_party_releases_without_index) do
               [%{"tag_name" => "v1.2.3", "assets" => []}]
@@ -65,7 +73,14 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
           {:ok, %Req.Response{status: 200, body: releases}}
 
         String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases/tags/v1.2.3") ->
-          {:ok, %Req.Response{status: 200, body: FirstPartyImporterTest.release()}}
+          release =
+            if Process.get(:first_party_release_without_index_asset) do
+              Map.put(FirstPartyImporterTest.release(), "assets", [])
+            else
+              FirstPartyImporterTest.release()
+            end
+
+          {:ok, %Req.Response{status: 200, body: release}}
 
         String.ends_with?(url, "/serviceradar-wasm-plugin-index.json") ->
           {:ok,
@@ -196,6 +211,8 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
     Process.put(:first_party_signature, nil)
     Process.put(:cosign_verified_artifact, nil)
     Process.put(:first_party_releases_without_index, false)
+    Process.put(:first_party_release_without_index_asset, false)
+    Process.put(:first_party_recent_release_requests, 0)
     Process.put(:first_party_registry_auth_challenge, false)
     Process.put(:registry_token_auth_header, nil)
 
@@ -229,6 +246,75 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
     assert plugin.version == "1.2.3"
     assert plugin.release_tag == "v1.2.3"
     assert plugin.import_ready?
+  end
+
+  test "auto-sync discovery falls back to recent releases when the deployed tag is unpublished" do
+    Process.put(:first_party_recent_release_requests, 0)
+
+    assert {:ok, [plugin], nil} =
+             FirstPartyImporter.list_plugins_for_sync(%{"repo_url" => @repo_url},
+               release_tag: "v1.4.51",
+               limit: 10
+             )
+
+    assert plugin.plugin_id == "hello-wasm"
+    assert plugin.release_tag == "v1.2.3"
+    assert Process.get(:first_party_recent_release_requests) >= 1
+  end
+
+  test "auto-sync discovery stays on the deployed tag when that release exists" do
+    Process.put(:first_party_recent_release_requests, 0)
+    Process.put(:first_party_releases_without_index, true)
+
+    assert {:ok, [plugin], "v1.2.3"} =
+             FirstPartyImporter.list_plugins_for_sync(%{"repo_url" => @repo_url},
+               release_tag: "v1.2.3",
+               limit: 10
+             )
+
+    assert plugin.release_tag == "v1.2.3"
+    assert Process.get(:first_party_recent_release_requests) == 0
+  end
+
+  test "admin sync reports a missing selected release without consulting the recent feed" do
+    Process.put(:first_party_recent_release_requests, 0)
+
+    assert {:error, reason} =
+             Packages.sync_first_party_plugins(repo_url: @repo_url, release_tag: "v9.8.7")
+
+    assert reason =~ "Release tag v9.8.7 was not found"
+    assert Process.get(:first_party_recent_release_requests) == 0
+  end
+
+  test "auto-sync discovery keeps the admin all-releases sentinel on its exact-only lookup" do
+    Process.put(:first_party_recent_release_requests, 0)
+
+    assert {:error, reason} =
+             FirstPartyImporter.list_plugins_for_sync(%{"repo_url" => @repo_url},
+               release_tag: FirstPartyReleaseClient.admin_all_releases_sentinel(),
+               limit: 10
+             )
+
+    # The sentinel is not a GitHub tag: the 404 must surface as it did before
+    # the unattended-sync fallback existed, never silently import another feed.
+    assert reason =~ "Release tag #{FirstPartyReleaseClient.admin_all_releases_sentinel()} was not found"
+    assert Process.get(:first_party_recent_release_requests) == 0
+  end
+
+  test "a deployed release that publishes no plugin index asset does not fail the sync job" do
+    Process.put(:first_party_release_without_index_asset, true)
+    Process.put(:first_party_recent_release_requests, 0)
+
+    assert {:error, reason} =
+             FirstPartyImporter.list_plugins_for_sync(%{"repo_url" => @repo_url},
+               release_tag: "v1.2.3",
+               limit: 10
+             )
+
+    # The release exists, so discovery must NOT switch to another release's
+    # catalog -- but the job must not burn its Oban attempts on it either.
+    assert Process.get(:first_party_recent_release_requests) == 0
+    assert :ok = FirstPartySyncWorker.aggregate_results([{:error, reason}])
   end
 
   # A third-party repository publishes release assets and has NO oci_ref. The

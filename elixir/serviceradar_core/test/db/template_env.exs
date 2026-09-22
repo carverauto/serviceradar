@@ -76,7 +76,7 @@ fixture = ServiceRadar.DB.FixtureConfig.resolve!(template_database)
 # the current BEAM. An ambient flag cannot opt an ordinary Mix invocation into the exception.
 guard_path = Path.expand("../../config/test_database_guard.exs", __DIR__)
 Code.require_file(guard_path)
-ServiceRadar.DB.TestDatabaseGuard.authorize_template_lifecycle!()
+ServiceRadar.DB.TestDatabaseGuard.authorize_template_lifecycle!(template_database)
 
 # System.put_env, still, and deliberately: this is a handoff INSIDE one OS process to
 # config/test.exs, which is a Config script evaluated before any of our code can pass it a value

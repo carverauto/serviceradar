@@ -162,8 +162,11 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 - **All metrics/telemetry flow through NATS JetStream first — never write metrics
   directly to the database.** Every metric source (interface/flow/OTEL metrics,
   SNMP counters, and sysmon cpu/mem/disk/process) MUST publish to a JetStream
-  subject and be persisted into CNPG by the `event_writer` consumer pipeline.
-  Collectors and agents MUST NOT write metrics straight to CNPG, and core MUST NOT
+  subject and be persisted by the `event_writer` consumer pipeline. CNPG remains
+  the control-plane/current-state store; EventWriter may also persist migrated
+  historical telemetry to opt-in StarRocks (see
+  `openspec/changes/add-starrocks-telemetry-analytics`). Collectors and agents
+  MUST NOT write metrics straight to CNPG or StarRocks, and core MUST NOT
   ingest a metric path that bypassed JetStream. The legacy agent→gateway→core gRPC
   `StreamStatus` path that writes sysmon metrics directly to the database is the
   one known exception, being migrated to JetStream (see
@@ -192,8 +195,9 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 
   Kubernetes Secrets, OpenBao/Vault, Helm values, process environment, Docker
   secrets, and SPIFFE SVIDs are only for **ServiceRadar talking to itself**: CNPG,
-  NATS, SPIFFE/mTLS between core/gateway/agent, registry pull, image signing,
-  session/JWT keys. They are not a store for "the SNMP password for farm01".
+  NATS, the Dgraph ACL credential, SPIFFE/mTLS between core/gateway/agent,
+  registry pull, image signing, session/JWT keys. They are not a store for "the
+  SNMP password for farm01".
 
   `network_credential_secrets` is the operator-facing inventory of reusable
   encrypted material; `network_credential_rules` controls where that material
@@ -312,6 +316,16 @@ Keep this managed block so 'openspec update' can refresh the instructions.
   - Ordering between targets is the caller's sequence of `bazel` invocations, not a script
     that wraps them.
 
+- **Use `ServiceRadar.HTTP.EgressClient` for external artifact downloads.** Its
+  [module documentation](elixir/serviceradar_core/lib/serviceradar/http/egress_client.ex)
+  owns the streaming contract and CONNECT-proxy compatibility rationale. The
+  regression coverage is in
+  `elixir/serviceradar_core/test/serviceradar/http/egress_client_test.exs`.
+- **Check the workspace Hex closure when Mix and release dependencies differ.**
+  [The Hex build definition](third_party/hex/BUILD.bazel) owns the cross-project
+  resolution policy; `third_party/hex/hex_packages.bzl` records the generated
+  versions shipped by Bazel.
+
 # Codex Agent Guide for ServiceRadar
 
 This repository hosts the ServiceRadar monitoring platform. Use this file as the canonical guide when operating as a Codex agent.
@@ -357,10 +371,10 @@ This file applies repo-wide, but subdirectories may include their own `AGENTS.md
 - **Bringing a database up to date: `mix serviceradar.db.migrate`, NOT `mix ecto.migrate`.**
   An empty database is built from the committed baseline
   (`elixir/serviceradar_core/priv/repo/baseline/`) and the migrations it contains are recorded
-  as applied; only newer ones run. `mix ecto.migrate` replays all 436 migrations instead, which
-  is slow and against a remote instance has failed outright. Pass `--no-baseline` only when you
-  deliberately want the full replay. Service startup has always baselined; this task is the same
-  code path (`ServiceRadar.Repo.SchemaBootstrap`).
+  as applied; only newer ones run. `mix ecto.migrate` replays every migration in the tree
+  instead, which is slow and against a remote instance has failed outright. Pass
+  `--no-baseline` only when you deliberately want the full replay. Service startup has always
+  baselined; this task is the same code path (`ServiceRadar.Repo.SchemaBootstrap`).
 
   **The baseline does NOT work for a database that already carries TimescaleDB hypertables or
   AGE graphs, which is every real one.** It is a `pg_dump --schema-only`, and this schema does
@@ -398,6 +412,49 @@ A first-party native add-on (`addons/<name>/addon.yaml` + a Go/Rust binary) must
 
 Verify locally before pushing: `bash scripts/check-native-addon-version-bumps.sh origin/staging <commit-sha>` (with jj, git `HEAD` is the parent — pass the real commit, e.g. `jj log -r @ --no-graph -T commit_id`) AND `bazel test //build/native_addons:build_gates_test` (this is the gate the release publish runs; a plain bundle build does not).
 
+### Adding a new `elixir/serviceradar_core` test file
+
+Every test source selected by
+[`ordinary_core_test_sources()`](build/contracts/ci_heavy_gate_contract_test.py) must have a row in
+`elixir/serviceradar_core/test/INTEGRATION_SOURCE_DISPOSITIONS.tsv`, or
+`ci_heavy_gate_contract_test.py`'s
+`test_integration_disposition_inventory_is_exhaustive_and_concrete` fails.
+This check runs in **`make test` / BazelCI**, but not in `mix test` or the
+Elixir Quality GitHub Action. A new test file can therefore look completely green
+through normal local iteration and PR checks, then fail BazelCI alone.
+`build/integration_selection_equivalence_test.exs` fails downstream of the
+same gap, since the pruned/all-source test selection it compares is derived
+from this same inventory.
+
+Add a tab-separated row: `source\tmodule\tcase_kind\tmode\treason\tevidence`.
+Two dispositions cover almost everything:
+
+- **Database-free** (plain `ExUnit.Case`, no `:integration`/`:requires_app`
+  tag, no `Repo`/data-layer call): set `source` to the new test's path relative
+  to `elixir/serviceradar_core/`, `module` = `-`, `case_kind` = `not_selected`,
+  `mode` = `load_only`, and `reason` = `not_selected`. For `evidence`, copy the
+  standard audit sentence from a neighboring `not_selected` row, as shown
+  below. This is the default for most simple unit tests and needs
+  **no** change to `build/integration_test_dispositions.bzl`, which only
+  tracks `selected` (async/serial) tests.
+
+  Example with all six fields in order, separated by literal tabs (replace
+  the example source path with your new test's path):
+
+  ```tsv
+  test/example_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
+  ```
+
+- **DB-backed** (`ServiceRadar.DataCase` or a real data-layer call): needs a
+  real `case_kind`/`mode`/`reason` reflecting actual transaction/sandbox
+  ownership (`data_case`/`async`/`transaction_owner`, or `serial` with a
+  specific reason from `SERIAL_REASONS`) — read a few neighboring rows for an
+  analogous test and match their reasoning style; the `evidence` column must
+  describe the actual file, not just repeat the reason.
+
+Verify locally before pushing (no Bazel/Docker required):
+`python3 -m unittest build/contracts/ci_heavy_gate_contract_test.py` from the repo root.
+
 ## Socket Firewall
 
 Prefer Socket Firewall for supported dependency-fetching commands. Prefix JavaScript/TypeScript package manager calls with `sfw`, especially `npm` commands such as `sfw npm ci`, `sfw npm install`, and `sfw npm run ...` when the command may fetch packages. Also use `sfw` for supported Python and Rust package managers (`pip`, `uv`, and `cargo`) when they may download dependencies. Web-NG uses Bun for asset builds; prefix Bun package-manager invocations with `sfw` in CI and Bazel release tooling as a best-effort firewall even though Socket Firewall Free only officially guarantees npm/yarn/pnpm for JavaScript. Socket Firewall Free does not currently support Go, Bazel, or Hex/Mix, so do not wrap those commands unless Socket adds support.
@@ -408,6 +465,17 @@ Prefer Socket Firewall for supported dependency-fetching commands. Prefix JavaSc
 - **Rust**: run `cargo fmt` + `cargo clippy` on touched crates (notably `rust/srql`); leverage existing Diesel helpers + CNPG pooling utilities before adding new abstractions.
 - **Elixir / Dialyzer**: prefer idiomatic Elixir (`MapSet.new/1`, direct `GRPC.Stub.connect/2`, normal Ash reads). Treat Dialyzer as advisory for false positives (opaque types, incomplete PLT success typing). See **Hard Rules** — never degrade APIs to silence the type checker. Use `mix dialyzer --format dialyzer` when Dialyxir short format crashes on unknown warning kinds.
 - **Docs**: place new operational runbooks under `docs/docs/`; keep Markdown ASCII only.
+- **OpenSpec**: See [Requirement Wording](openspec/AGENTS.md#requirement-wording)
+  for the SHALL/MUST positional validation rule and examples.
+
+  **Editing a requirement in `openspec/specs/` is not enough.** A pending change
+  under `openspec/changes/` may carry its own `## MODIFIED Requirements` copy of
+  the same `### Requirement:` block, and archiving that change replays its copy
+  over `specs/` -- silently restoring the wording you just removed, with nothing
+  in the archive step to flag the conflict. Before amending a requirement, run
+  `grep -rn "<the exact bullet>" openspec/` and fix every pending delta that
+  repeats it. Leave the copies under `openspec/changes/archive/` alone: they
+  record what was true at the time, and rewriting them falsifies the record.
 - **Causal / statistical / streaming-anomaly reasoning**: use the **DeepCausality** library (`deep_causality_core` Flow API plus `deep_causality_data_structures` `SlidingWindow`; source at `~/src/deep_causality`), wrapped by the project-owned **`serviceradar-anomaly-core`** crate (`rust/anomaly-core`). DeepCausality is authored by Marvin Hansen, who guides ServiceRadar's anomaly-engine design. **Do not hand-roll a parallel detector** for rolling z-score, running mean/variance, sliding windows, CSM, or equivalent anomaly decisions in Elixir, Go, or a second Rust crate when `serviceradar-anomaly-core` already provides the primitive. A second implementation must be kept in numeric parity by hand and can drift. **`serviceradar-anomaly-core` is the single source of truth**: it powers the edge anomaly add-on (`rust/anomaly-addon`, agent-sidecar) today and a backfill/backtesting CLI. The legacy central `causal_reasoner_nif` + central analysis pipeline are **being retired** (per-series anomaly moved to the edge; see `openspec/changes/move-anomaly-detection-to-edge`) — do not extend them. If DeepCausality lacks a primitive, add it upstream or to `serviceradar-anomaly-core`, never a divergent reimplementation.
 
 ## Rust Dependency Management
@@ -1109,7 +1177,7 @@ The three targets that write it -- `//elixir/serviceradar_core:migrate_template`
 `//rust/integration-db:prepare_template` and `//rust/integration-db:reset_template` -- now
 **refuse** without `--//build:template_authority=true`, which is the caller declaring "this
 checkout is trunk". Only `LargeIngestionGate` passes it, and
-`//:ci_heavy_gate_contract_test` pins that. Do not pass it to get past a refusal: the flag is a
+`//build/contracts:ci_heavy_gate_contract_test` pins that. Do not pass it to get past a refusal: the flag is a
 statement about the checkout, not a way to unblock a step, and a branch that sets it reproduces
 the original outage exactly. It fails closed -- an absent or empty marker is a refusal -- so
 adding the flag to a target that does not declare `//build:template_authority_file` changes
@@ -1138,6 +1206,15 @@ leave
 `SERVICERADAR_TEST_DATABASE_URL` unset so each shard derives its disposable database. When using
 a NodePort, export both `PGSSLSERVERNAME` and `SRQL_TEST_DATABASE_SERVER_NAME` with the CNPG
 certificate's DNS name so the Rust and Elixir clients verify the same certificate.
+
+**BazelCI runs the PR head's `buildbuddy.yaml` against the MERGED tree.** It merges
+`origin/staging` into the branch before building, but the workflow steps come from the
+branch's own `buildbuddy.yaml`. So a branch that predates a lifecycle change runs the OLD
+step sequence against NEW `//rust/integration-db` code, and the symptom names neither: a
+`provision_db` failing with `sr_core_test_<run> does not exist; run
+//rust/integration-db:provision_base first` means the branch's `buildbuddy.yaml` has no
+`provision_base` step, not that the fixture is broken. Diff `buildbuddy.yaml` against
+`origin/staging` before reading further; the fix is a rebase, not a code change.
 
 With a mode-0600 ignored `.bazelrc.remote` containing the BuildBuddy credential, add
 `--config=cache_only`: compilation artifacts use the public authenticated cache while

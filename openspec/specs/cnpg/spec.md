@@ -129,7 +129,8 @@ The system MUST automatically refresh the `otel_trace_summaries` materialized vi
 #### Scenario: Multi-node cron scheduling does not duplicate refresh jobs
 - **GIVEN** web-ng and core nodes are running against the same CNPG cluster
 - **WHEN** the Oban cron leader schedules refresh jobs for 5 minutes
-- **THEN** the number of refresh jobs recorded in `oban_jobs` matches the expected cadence without duplicates.
+- **THEN** cron scheduling does not enqueue duplicate refresh jobs across nodes
+- **AND** additional ingest-triggered jobs are permitted by the [OTel storage model](../../../docs/docs/otel.md#storage-model).
 
 ### Requirement: CNPG image uses stable TimescaleDB release
 The CNPG Postgres image MUST be built with stable TimescaleDB releases, not development versions, to ensure retention policy creation and other TimescaleDB features work reliably during fresh database initialization.

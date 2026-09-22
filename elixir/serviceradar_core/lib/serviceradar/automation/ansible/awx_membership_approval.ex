@@ -12,14 +12,13 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipApproval do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Ansible.AwxHostMembership
+  alias ServiceRadar.Automation.Ansible.AwxLaunchContract
   alias ServiceRadar.Automation.CallbackGrants.CanonicalJSON
   alias ServiceRadar.Identity.RBAC
-  alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Identity.User
 
   @permission "ansible.controllers.manage"
   @store_actor SystemActor.system(:awx_membership_approval_store)
-  @max_generation 9_223_372_036_854_775_807
   @request_keys MapSet.new(~w(
     membership_id
     controller_id
@@ -47,7 +46,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipApproval do
           inventory_id: pos_integer(),
           awx_host_id: pos_integer(),
           canonical_device_uid: String.t(),
-          source_generation: pos_integer(),
+          source_generation: pos_integer() | String.t(),
           source_fingerprint: String.t(),
           link_evidence_digest: String.t()
         }
@@ -72,13 +71,15 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipApproval do
          {:ok, actor_id} <- human_actor_id(actor),
          {:ok, current_user} <- load_current_user(dependencies, actor_id),
          :ok <- validate_current_user(current_user, actor_id),
-         {:ok, permissions} <- load_current_permissions(dependencies, current_user),
-         true <- MapSet.member?(permissions, @permission) || {:error, :current_permission_denied},
+         {:ok, authority} <- load_authority(dependencies, current_user),
+         true <-
+           MapSet.member?(authority.permissions, @permission) ||
+             {:error, :current_permission_denied},
          {:ok, membership} <- load_membership(dependencies, request.membership_id),
          :ok <- validate_membership(membership, request),
          approved_at = dependencies.now.(),
          true <- is_struct(approved_at, DateTime) || {:error, :approval_clock_invalid},
-         authorized_actor = authorized_actor(current_user, permissions),
+         authorized_actor = authorized_actor(current_user, authority.permissions),
          attrs = approval_attributes(request, membership, approved_at),
          {:ok, approved} <-
            dependencies.approve_membership.(membership, attrs, authorized_actor) do
@@ -105,7 +106,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipApproval do
     Map.merge(
       %{
         load_user: &default_load_user/1,
-        load_permissions: &default_load_permissions/1,
+        load_authority: &default_load_authority/1,
         load_membership: &default_load_membership/1,
         approve_membership: &default_approve_membership/3,
         now: &DateTime.utc_now/0
@@ -193,11 +194,14 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipApproval do
     end
   end
 
-  defp load_current_permissions(dependencies, current_user) do
-    case dependencies.load_permissions.(current_user) do
-      {:ok, %MapSet{} = permissions} -> {:ok, permissions}
-      {:ok, permissions} when is_list(permissions) -> {:ok, MapSet.new(permissions)}
-      _ -> {:error, :approval_principal_profile_unavailable}
+  defp load_authority(dependencies, current_user) do
+    case dependencies.load_authority.(current_user) do
+      {:ok, %{permissions: %MapSet{} = permissions, profile_versions: profile_versions}}
+      when is_list(profile_versions) ->
+        {:ok, %{permissions: permissions, profile_versions: profile_versions}}
+
+      _ ->
+        {:error, :approval_principal_profile_unavailable}
     end
   end
 
@@ -321,14 +325,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipApproval do
     end
   end
 
-  defp default_load_permissions(%User{} = user) do
-    case RBAC.effective_profile(user, @store_actor) do
-      {:ok, %RoleProfile{permissions: permissions}} -> {:ok, MapSet.new(permissions)}
-      _ -> {:error, :approval_principal_profile_unavailable}
-    end
-  end
-
-  defp default_load_permissions(_user), do: {:error, :approval_principal_profile_unavailable}
+  defp default_load_authority(%User{} = user), do: RBAC.effective_authority(user, @store_actor)
+  defp default_load_authority(_user), do: {:error, :approval_principal_profile_unavailable}
 
   defp default_load_membership(membership_id) do
     case AwxHostMembership.get_by_id(membership_id, actor: @store_actor) do
@@ -355,8 +353,15 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipApproval do
   defp positive_integer(value) when is_integer(value) and value > 0, do: {:ok, value}
   defp positive_integer(_value), do: {:error, :invalid_positive_integer}
 
-  defp source_generation(value) when is_integer(value) and value > 0 and value <= @max_generation,
-    do: {:ok, value}
+  defp source_generation(value) when is_integer(value),
+    do: source_generation(Integer.to_string(value))
+
+  defp source_generation(value) when is_binary(value) do
+    case AwxLaunchContract.validate_membership_generation(value) do
+      :ok -> {:ok, String.to_integer(value)}
+      {:error, _reason} -> {:error, :invalid_source_generation}
+    end
+  end
 
   defp source_generation(_value), do: {:error, :invalid_source_generation}
 

@@ -31,6 +31,31 @@ defmodule ServiceRadar.Inventory.Identity.Mac do
 
   @mac_value_pattern ~r/^[0-9A-F]{12}$/
 
+  # Syntactically valid 12-hex values that carry no identity and must never be
+  # treated as one. `000000000000` is what an unconfigured or loopback interface
+  # reports for ifPhysAddress, and `FFFFFFFFFFFF` is the broadcast address.
+  #
+  # Both used to pass every guard in this module: they match @mac_value_pattern,
+  # and locally_administered_mac?/1 returns false for each because bit 0x02 of
+  # the first octet is clear. So they were registered as :strong identity, and
+  # any two devices reporting one became a two-device duplicate component that
+  # the scheduled reconciler merged unattended. Observed in production as a
+  # display merged into an unrelated IP camera, which then destroyed the display
+  # record when the camera was later deleted.
+  #
+  # The Go mapper already refuses these values -- see usableHardwareMAC and
+  # isAllZeroMAC in go/pkg/mapper -- so this closes the gap on the Elixir side
+  # rather than inventing a new rule.
+  @reserved_mac_values ["000000000000", "FFFFFFFFFFFF"]
+
+  @doc """
+  Values that look like MACs but are never identity. Exposed so callers that
+  hold an already-normalized value can apply the same rule.
+  """
+  @spec reserved_mac_value?(String.t() | nil) :: boolean()
+  def reserved_mac_value?(value) when is_binary(value), do: value in @reserved_mac_values
+  def reserved_mac_value?(_), do: false
+
   @doc """
   Normalize a raw MAC field into a list of valid atomic MAC values.
 
@@ -60,7 +85,8 @@ defmodule ServiceRadar.Inventory.Identity.Mac do
       |> String.replace("-", "")
       |> String.replace(".", "")
 
-    if Regex.match?(@mac_value_pattern, normalized), do: normalized
+    if Regex.match?(@mac_value_pattern, normalized) and normalized not in @reserved_mac_values,
+      do: normalized
   end
 
   @doc """

@@ -710,7 +710,6 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
   end
 
   defp mode_strip_notice([], _mode), do: nil
-  defp mode_strip_notice(nil, _mode), do: nil
 
   defp mode_strip_notice(fields, mode) when is_list(fields) do
     names = fields |> Enum.uniq() |> Enum.join(", ")

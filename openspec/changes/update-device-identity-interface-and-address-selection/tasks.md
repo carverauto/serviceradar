@@ -10,7 +10,7 @@
 - [ ] 1.3 Register the tests in `test/INTEGRATION_SOURCE_DISPOSITIONS.tsv` and project into
   `build/integration_test_dispositions.bzl`, or add them to an already-registered source with the
   same disposition and update its selected-test count. There is no generator;
-  `//:ci_heavy_gate_contract_test`, `//build:integration_selection_equivalence_test` and
+  `//build/contracts:ci_heavy_gate_contract_test`, `//build:integration_selection_equivalence_test` and
   `//build:integration_shards_topology_test` all enforce the projection, and the shard topology
   pins exact per-lane counts.
 

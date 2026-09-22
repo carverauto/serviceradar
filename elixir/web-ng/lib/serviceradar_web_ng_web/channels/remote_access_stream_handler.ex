@@ -4,7 +4,10 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
 
   The browser first sends an attach frame containing the short-lived ticket.
   After attach, only terminal/protocol bytes, resize requests, ready, close, and
-  sanitized error messages cross the browser boundary.
+  sanitized error messages cross the browser boundary. A close caused by SSH
+  host-key verification additionally carries the target address and the offered
+  public key's algorithm and fingerprint, so the console can present the trust
+  decision instead of a dead end. See `ServiceRadarWebNGWeb.Channels.RemoteAccessHostKeyFailure`.
   """
 
   @behaviour WebSock
@@ -15,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   alias ServiceRadar.Edge.RemoteAccessSessions
   alias ServiceRadar.Edge.RemoteAccessSSHSessionCredentials
   alias ServiceRadarWebNG.RemoteDesktopWebRTC
+  alias ServiceRadarWebNGWeb.Channels.RemoteAccessHostKeyFailure
 
   require Logger
 
@@ -147,7 +151,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
                  :ok <- state.broker_module.send_input(state.broker, payload) do
               {:ok, reset_idle_timer(state)}
             else
-              {:error, reason} -> stop_for_broker_error(reason, state)
+              {:error, reason} -> handle_broker_error(reason, state)
             end
 
           {:ok, %{"type" => "resize", "cols" => cols, "rows" => rows}} ->
@@ -156,7 +160,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
                  :ok <- state.broker_module.resize(state.broker, cols, rows) do
               {:ok, reset_idle_timer(state)}
             else
-              {:error, reason} -> stop_for_broker_error(reason, state)
+              {:error, reason} -> handle_broker_error(reason, state)
             end
 
           {:ok, %{"type" => "app_request"} = message} ->
@@ -164,7 +168,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
                  :ok <- state.broker_module.send_application_request(state.broker, payload) do
               {:ok, reset_idle_timer(state)}
             else
-              {:error, reason} -> stop_for_broker_error(reason, state)
+              {:error, reason} -> handle_broker_error(reason, state)
             end
 
           {:ok, %{"type" => "app_data"} = message} ->
@@ -172,7 +176,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
                  :ok <- state.broker_module.send_application_data(state.broker, payload) do
               {:ok, reset_idle_timer(state)}
             else
-              {:error, reason} -> stop_for_broker_error(reason, state)
+              {:error, reason} -> handle_broker_error(reason, state)
             end
 
           {:ok, %{"type" => "tcp_data"} = message} ->
@@ -180,7 +184,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
                  :ok <- state.broker_module.send_tcp_data(state.broker, payload) do
               {:ok, reset_idle_timer(state)}
             else
-              {:error, reason} -> stop_for_broker_error(reason, state)
+              {:error, reason} -> handle_broker_error(reason, state)
             end
 
           {:ok, %{"type" => "file_transfer_data"} = message} ->
@@ -188,7 +192,7 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
                  :ok <- state.broker_module.send_file_transfer_data(state.broker, payload) do
               {:ok, reset_idle_timer(state)}
             else
-              {:error, reason} -> stop_for_broker_error(reason, state)
+              {:error, reason} -> handle_broker_error(reason, state)
             end
 
           {:ok, %{"type" => "activity"} = message} ->
@@ -254,14 +258,15 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
 
   def handle_info({:remote_access_closed, reason}, state) do
     with_current_authority(state, fn state ->
+      close_reason = format_close_reason(reason)
+
       _ =
         state.sessions_module.close_session(state.session.id,
-          reason: format_close_reason(reason),
+          reason: close_reason,
           scope: state.scope
         )
 
-      {:stop, :normal, 1000, [{:text, encode(%{type: "close", reason: format_close_reason(reason)})}],
-       %{state | closing_action: :closed}}
+      {:stop, :normal, 1000, [{:text, encode(close_message(close_reason))}], %{state | closing_action: :closed}}
     end)
   end
 
@@ -286,6 +291,29 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
       {:ok, state} -> {:ok, schedule_reauth_timer(state)}
       {:error, :permission_revoked} -> stop_for_permission_revoked(state)
     end
+  end
+
+  # `start_broker/3` links the broker to the Bandit/ThousandIsland connection,
+  # which traps exits and forwards unmatched messages to this handler. An agent
+  # close notice arrives before the broker's exit signal. Bandit's stop reply
+  # begins the WebSocket close handshake without ending the connection process,
+  # so `closing_action` must suppress a second close when that signal arrives.
+  # Without a prior notice, the exit must close or fail the stream instead of
+  # leaving it open until the idle timeout. The broker-exit cases in
+  # remote_access_stream_handler_test.exs cover both paths.
+  def handle_info({:EXIT, broker, _reason}, %{broker: broker, closing_action: action} = state)
+      when is_pid(broker) and not is_nil(action) do
+    {:ok, state}
+  end
+
+  def handle_info({:EXIT, broker, reason}, %{broker: broker} = state) when is_pid(broker) do
+    stop_for_broker_exit(reason, state)
+  end
+
+  # Ash and Task run parts of attach in linked helper processes; their ordinary
+  # teardown is not an unknown stream message and must not be logged as one.
+  def handle_info({:EXIT, _pid, reason}, state) when reason in [:normal, :shutdown] do
+    {:ok, state}
   end
 
   def handle_info(message, state) do
@@ -979,6 +1007,32 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   defp normalize_map(value) when is_map(value), do: value
   defp normalize_map(_value), do: %{}
 
+  defp stop_for_broker_exit(reason, state) do
+    if orderly_exit?(reason) do
+      _ =
+        state.sessions_module.close_session(state.session.id,
+          reason: "broker_stopped",
+          scope: state.scope
+        )
+
+      {:stop, :normal, 1000, [{:text, encode(%{type: "close", reason: "closed"})}], %{state | closing_action: :closed}}
+    else
+      stop_for_broker_error(reason, state)
+    end
+  end
+
+  defp orderly_exit?(:normal), do: true
+  defp orderly_exit?(:shutdown), do: true
+  defp orderly_exit?({:shutdown, _details}), do: true
+  defp orderly_exit?(_reason), do: false
+
+  # An unavailable broker may have queued its close notice while this browser
+  # frame was in flight. Let handle_info/2 deliver that reason, or handle the
+  # linked broker's exit if no notice exists, instead of replacing the reason
+  # with a generic "stream failed".
+  defp handle_broker_error(:broker_unavailable, state), do: {:ok, state}
+  defp handle_broker_error(reason, state), do: stop_for_broker_error(reason, state)
+
   defp stop_for_broker_error(reason, state) do
     _ = state.sessions_module.fail_session(state.session_id, reason, scope: state.scope)
 
@@ -1154,6 +1208,18 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
   defp decode_base64(_value), do: {:error, :invalid_data_size}
 
   defp encode(payload), do: Jason.encode!(payload)
+
+  # A host-key verification failure is the one close reason the browser can act
+  # on, so it crosses the boundary as structured fields alongside the reason
+  # text. Everything here is derived from the reason already being sent: the
+  # target address the console already displays and the target's public host-key
+  # fingerprint, which is the value an operator is meant to compare out of band.
+  defp close_message(close_reason) do
+    case RemoteAccessHostKeyFailure.classify(close_reason) do
+      nil -> %{type: "close", reason: close_reason}
+      host_key -> %{type: "close", reason: close_reason, host_key: host_key}
+    end
+  end
 
   defp format_close_reason(nil), do: "closed"
   defp format_close_reason(reason) when is_binary(reason), do: reason

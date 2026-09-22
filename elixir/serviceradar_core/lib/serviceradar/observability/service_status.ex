@@ -26,12 +26,21 @@ defmodule ServiceRadar.Observability.ServiceStatus do
     routes do
       base "/service_status"
 
-      index :read
+      index :api_index
     end
   end
 
   actions do
     defaults [:read]
+
+    read :api_index do
+      pagination do
+        offset? true
+        default_limit 100
+        max_page_size 1000
+        required? true
+      end
+    end
 
     create :create do
       primary? true
@@ -73,12 +82,13 @@ defmodule ServiceRadar.Observability.ServiceStatus do
   end
 
   policies do
-    policy action_type(:read) do
-      authorize_if always()
-    end
+    import ServiceRadar.Policies
+
+    system_bypass()
+    read_viewer_plus()
 
     policy action([:create, :insert_once]) do
-      authorize_if always()
+      authorize_if actor_attribute_equals(:role, :system)
     end
   end
 

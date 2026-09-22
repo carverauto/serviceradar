@@ -17,6 +17,7 @@
 package remoteaccess
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -31,6 +32,7 @@ const defaultSFTPChunkBytes = 32 * 1024
 
 var (
 	ErrSFTPInputRequired                = errors.New("sftp input is required")
+	ErrSFTPInputEmpty                   = errors.New("sftp upload file must not be empty")
 	ErrSFTPOutputRequired               = errors.New("sftp output is required")
 	ErrSFTPOperationMetadataRequired    = errors.New("sftp operation metadata is required")
 	ErrSFTPDirectionOperationMismatch   = errors.New("sftp direction does not match operation")
@@ -316,12 +318,21 @@ func (a SFTPAdapter) upload(
 		return FileTransferResult{}, err
 	}
 
+	bufferedInput := bufio.NewReader(input)
+	if _, err := bufferedInput.Peek(1); err != nil {
+		if errors.Is(err, io.EOF) {
+			return FileTransferResult{}, ErrSFTPInputEmpty
+		}
+
+		return FileTransferResult{}, fmt.Errorf("read sftp upload file: %w", err)
+	}
+
 	file, err := client.Create(request.Path)
 	if err != nil {
 		return FileTransferResult{}, err
 	}
 
-	written, copyErr := copyWithFileTransferQuota(ctx, file, input, a.Policy.MaxBytes, a.chunkBytes())
+	written, copyErr := copyWithFileTransferQuota(ctx, file, bufferedInput, a.Policy.MaxBytes, a.chunkBytes())
 	closeErr := file.Close()
 	if copyErr != nil {
 		_ = client.Remove(request.Path)

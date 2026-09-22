@@ -14,6 +14,8 @@ defmodule ServiceRadar.Dashboards.AuthoredDashboard do
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.AshContext
+  alias ServiceRadar.Dashboards.Checks.ActorCanEditDashboard
+  alias ServiceRadar.Dashboards.Preparations.PolicyEditorAudience
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @view_check {ActorHasPermission, permission: "analytics.view"}
@@ -21,6 +23,8 @@ defmodule ServiceRadar.Dashboards.AuthoredDashboard do
   @create_check {ActorHasPermission, permission: "analytics.dashboards.create"}
   @edit_check {ActorHasPermission, permission: "analytics.dashboards.edit"}
   @delete_check {ActorHasPermission, permission: "analytics.dashboards.delete"}
+  @rbac_manage_check {ActorHasPermission, permission: "settings.rbac.manage"}
+  @share_check {ActorHasPermission, permission: "analytics.dashboards.share"}
 
   @fields [
     :dashboard_ref,
@@ -52,7 +56,7 @@ defmodule ServiceRadar.Dashboards.AuthoredDashboard do
   paper_trail do
     primary_key_type :uuid
     table_name "authored_dashboard_versions"
-    mixin {ServiceRadar.Dashboards.PaperTrailMixin, :mixin, []}
+    mixin {ServiceRadar.Dashboards.PaperTrailMixin, :mixin_with_audit_actor, []}
     change_tracking_mode :changes_only
     store_action_name? true
     store_action_inputs? true
@@ -96,6 +100,28 @@ defmodule ServiceRadar.Dashboards.AuthoredDashboard do
       filter expr(status != :archived)
     end
 
+    read :policy_editor_audience do
+      argument :group_id, :uuid, allow_nil?: false
+      pagination keyset?: true, required?: true, default_limit: 50, max_page_size: 50
+      prepare {PolicyEditorAudience, source: :authored}
+    end
+
+    read :policy_editor_group_access_target do
+      argument :id, :uuid, allow_nil?: false
+      argument :group_id, :uuid, allow_nil?: false
+      get? true
+      filter expr(id == ^arg(:id))
+      prepare {PolicyEditorAudience, source: :authored}
+    end
+
+    read :local_group_access_target do
+      argument :id, :uuid, allow_nil?: false
+      argument :group_id, :uuid, allow_nil?: false
+      get? true
+      filter expr(id == ^arg(:id))
+      prepare {PolicyEditorAudience, source: :authored}
+    end
+
     create :create do
       accept @fields -- [:owner_id]
 
@@ -129,17 +155,29 @@ defmodule ServiceRadar.Dashboards.AuthoredDashboard do
 
     system_bypass()
 
-    policy action_type(:read) do
+    policy action([:read, :by_id, :by_ref, :by_slug, :active]) do
       forbid_unless @view_check
       authorize_if @view_all_check
       authorize_if ServiceRadar.Dashboards.Checks.ActorCanAccessDashboard
+    end
+
+    policy action([:policy_editor_audience, :policy_editor_group_access_target]) do
+      forbid_unless @rbac_manage_check
+      forbid_unless @share_check
+      authorize_if @edit_check
+      authorize_if ActorCanEditDashboard
+    end
+
+    policy action(:local_group_access_target) do
+      forbid_unless @share_check
+      authorize_if ActorCanEditDashboard
     end
 
     action_with_permission(:create, @create_check)
 
     policy action([:update, :restore]) do
       authorize_if @edit_check
-      authorize_if ServiceRadar.Dashboards.Checks.ActorCanEditDashboard
+      authorize_if ActorCanEditDashboard
     end
 
     action_with_permission([:archive, :destroy], @delete_check)
@@ -243,6 +281,10 @@ defmodule ServiceRadar.Dashboards.AuthoredDashboard do
     has_many :access_grants, ServiceRadar.Dashboards.DashboardAccessGrant do
       destination_attribute :dashboard_id
     end
+  end
+
+  calculations do
+    calculate :policy_editor_sort_key, :string, expr(fragment("lower(?)", title))
   end
 
   identities do

@@ -40,6 +40,13 @@ For each of `sweep_groups`, `sweep_profiles`, `sweep_executions`,
 `sweep_results`, `sweep_coverage`, `device_sweep_overlap` and
 `sweep_compiled_config`, follow the established entity pattern.
 
+The shared bullets below stay unticked until the LAST entity satisfies them.
+Six of the seven have landed -- the five typed-table entities in #4303 and
+`device_sweep_overlap` in #4314. `sweep_compiled_config` (3.8) is the only one
+outstanding, so 3.1-3.6 and 3.11 are complete for every entity except that one.
+Read an unticked shared bullet as "sweep_compiled_config still owes this", not
+as "no work has landed".
+
 - [ ] 3.1 `rust/srql/src/schema.rs`: diesel table definitions for the new and
       newly exposed tables.
 - [ ] 3.2 `rust/srql/src/parser/entity.rs`: entity ids and aliases
@@ -50,7 +57,7 @@ For each of `sweep_groups`, `sweep_profiles`, `sweep_executions`,
 - [ ] 3.5 `rust/srql/src/query/<entity>.rs` plus `translate.rs`, `mod.rs` and
       `engine.rs` wiring.
 - [ ] 3.6 `rust/srql/src/query/viz/`: column metadata.
-- [ ] 3.7 `device_sweep_overlap`: a view reporting, per device, which sweep
+- [x] 3.7 `device_sweep_overlap`: a view reporting, per device, which sweep
       groups were DECLARED to target it (from the compiled config's resolved
       `targets` / `device_targets`) versus which actually produced results, plus
       the group and execution that currently own the `device_agent_availability`
@@ -59,6 +66,12 @@ For each of `sweep_groups`, `sweep_profiles`, `sweep_executions`,
       `execute` in an Ecto migration, read through `diesel::sql_query` with a
       `to_jsonb(alias) AS payload` projection, and deliberately NOT added to
       `schema.rs`, which holds real tables only.
+      Also: the view MASKS `scanner_profile_name` and `profile_id` when the
+      group's scanner profile is `admin_only`, rather than dropping the row.
+      `networks.sweeps.view` is granted to every role, so projecting the profile
+      would have handed every authenticated user the identity of a profile that
+      `in:sweep_profiles` correctly hides. The row survives because the alert is
+      the operator's business either way.
 - [ ] 3.8 `sweep_compiled_config`: named-column allowlist over sweep config
       instances only. The `compiled_config` document is never projected.
 - [ ] 3.9 `sweep_profiles`: expose banner grab as `enabled` and `protocols`
@@ -117,7 +130,17 @@ For each of `sweep_groups`, `sweep_profiles`, `sweep_executions`,
 - [ ] 5.3 Add cookbook recipes to `elixir/web-ng/priv/mcp/srql-cookbook.md`:
       which groups target this device, was TCP requested or dropped during
       compilation, which agent last wrote availability, where do groups overlap.
-- [ ] 5.4 Catalog test covering the new entities.
+      The "where do groups overlap" recipe landed with `device_sweep_overlap`
+      (#4314), including the two behaviors an operator would otherwise mis-read:
+      a masked profile means restricted, not absent, and a time window is
+      refused rather than ignored. "Was TCP requested or dropped during
+      compilation" still waits on `sweep_compiled_config`.
+- [ ] 5.4 Catalog test covering the new entities. The `device_sweep_overlap`
+      entry is covered (#4314), including a regression test pinning its blank
+      `default_sort_field`: naming one there makes the visual builder emit a
+      `sort:` token on every query, which replaces the alert-first default and
+      buries every `declared_not_observed` row behind a prefix longer than
+      `max_cursor_offset`.
 
 ## 6. Verification
 

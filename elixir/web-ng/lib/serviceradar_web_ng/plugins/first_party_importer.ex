@@ -109,6 +109,42 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
 
   def list_release_plugins(_attrs, _release_tag), do: {:error, "Plugin import settings are invalid"}
 
+  @doc """
+  Discovers Wasm plugins for unattended sync.
+
+  Uses `FirstPartyReleaseClient.resolve_catalog/3` for feed selection. The
+  returned filter tag is the requested tag on an exact hit and `nil` for recent
+  releases, so callers do not re-filter fallback entries by the missing tag.
+  The settings UI sentinel keeps an exact-only lookup; see
+  `FirstPartyReleaseClient.admin_all_releases_sentinel/0`.
+  """
+  @spec list_plugins_for_sync(map(), keyword()) ::
+          {:ok, [map()], String.t() | nil} | {:error, term()}
+  def list_plugins_for_sync(attrs, opts \\ [])
+
+  def list_plugins_for_sync(attrs, opts) when is_map(attrs) and is_list(opts) do
+    limit = Keyword.get(opts, :limit, @default_recent_release_limit)
+    release_tag = Keyword.get(opts, :release_tag)
+
+    if release_tag == FirstPartyReleaseClient.admin_all_releases_sentinel() do
+      with {:ok, plugins} <- list_release_plugins(attrs, release_tag) do
+        {:ok, plugins, release_tag}
+      end
+    else
+      case FirstPartyReleaseClient.resolve_catalog(
+             release_tag,
+             fn tag -> list_release_plugins(attrs, tag) end,
+             fn -> list_recent_plugins(attrs, limit) end
+           ) do
+        {:ok, plugins, :exact} -> {:ok, plugins, release_tag}
+        {:ok, plugins, :recent} -> {:ok, plugins, nil}
+        {:error, _} = error -> error
+      end
+    end
+  end
+
+  def list_plugins_for_sync(_attrs, _opts), do: {:error, "Plugin import settings are invalid"}
+
   @spec import(map()) :: {:ok, map()} | {:error, term()}
   def import(attrs) when is_map(attrs) do
     with {:ok, repo} <- import_repo(attrs),

@@ -25,8 +25,88 @@ import (
 	"os"
 	"slices"
 	"testing"
+	"testing/iotest"
 	"time"
 )
+
+func TestSFTPAdapterUploadRejectsMissingContentBeforeCreate(t *testing.T) {
+	t.Parallel()
+
+	for _, existing := range []bool{false, true} {
+		for _, name := range []string{"missing", "empty", "stream EOF", "unreadable"} {
+			t.Run(fmt.Sprintf("%s/existing=%t", name, existing), func(t *testing.T) {
+				client := newFakeSFTPClient()
+				path := "/srv/data/upload.txt"
+				if existing {
+					client.files[path] = []byte("original content")
+				}
+				var input io.Reader
+				wantErr := ErrSFTPInputRequired
+				switch name {
+				case "empty":
+					input = bytes.NewReader(nil)
+					wantErr = ErrSFTPInputEmpty
+				case "stream EOF":
+					reader, writer := io.Pipe()
+					defer func() {
+						if err := reader.Close(); err != nil {
+							t.Error(err)
+						}
+					}()
+					if err := writer.Close(); err != nil {
+						t.Fatal(err)
+					}
+					input = reader
+					wantErr = ErrSFTPInputEmpty
+				case "unreadable":
+					input = iotest.ErrReader(os.ErrPermission)
+					wantErr = os.ErrPermission
+				}
+
+				adapter := testSFTPAdapter(client, FileTransferOperationUpload)
+				result, err := adapter.Execute(t.Context(), SSHConfig{},
+					testSFTPRequest(FileTransferOperationUpload, path), input, nil)
+				if !errors.Is(err, wantErr) {
+					t.Fatalf("Execute error = %v, want %v", err, wantErr)
+				}
+				if result.Outcome.Status != FileTransferStatusFailed || result.Outcome.FailureReason == "" {
+					t.Fatalf("expected visible failure, got %#v", result.Outcome)
+				}
+				if slices.Contains(client.ops, "create:"+path) || slices.Contains(client.ops, "remove:"+path) {
+					t.Fatalf("invalid upload mutated destination: %v", client.ops)
+				}
+				data, exists := client.files[path]
+				if exists != existing || (existing && string(data) != "original content") {
+					t.Fatalf("destination changed: exists=%t, data=%q", exists, data)
+				}
+			})
+		}
+	}
+}
+
+func TestSFTPAdapterUploadPreservesBufferedContent(t *testing.T) {
+	t.Parallel()
+
+	for _, content := range []string{"x", "complete upload content"} {
+		t.Run(content, func(t *testing.T) {
+			client := newFakeSFTPClient()
+			adapter := testSFTPAdapter(client, FileTransferOperationUpload)
+			adapter.MaxChunkBytes = 3
+			result, err := adapter.Execute(t.Context(), SSHConfig{},
+				testSFTPRequest(FileTransferOperationUpload, "/srv/data/upload.txt"),
+				iotest.OneByteReader(bytes.NewBufferString(content)), nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(client.files["/srv/data/upload.txt"]) != content {
+				t.Fatalf("uploaded content = %q, want %q", client.files["/srv/data/upload.txt"], content)
+			}
+			if result.Outcome.Status != FileTransferStatusCompleted || result.Outcome.BytesTransferred != int64(len(content)) {
+				t.Fatalf("unexpected outcome: %#v", result.Outcome)
+			}
+		})
+	}
+}
 
 func TestSFTPAdapterDownloadUsesSharedSSHDialerAndPolicy(t *testing.T) {
 	t.Parallel()

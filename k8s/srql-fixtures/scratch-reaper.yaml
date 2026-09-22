@@ -29,6 +29,9 @@ data:
           'srql_fixture',
           'sr_core_template'
       )
+      -- Reserve the entire generation namespace, including malformed candidates.
+      -- Only dedicated registry cleanup may remove template generations.
+      AND d.datname !~ '^sr_tpl_'
       AND d.datname ~ '^[A-Za-z_][A-Za-z0-9_]{0,62}$'
       AND t.spcname = 'pg_default'
       AND (pg_stat_file(format('base/%s/PG_VERSION', d.oid), true)).modification

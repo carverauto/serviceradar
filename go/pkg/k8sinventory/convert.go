@@ -101,6 +101,45 @@ func EndpointSliceFromDiscovery(es *discoveryv1.EndpointSlice) EndpointSliceView
 	return out
 }
 
+// NodeFromCore converts a corev1.Node into NodeView.
+func NodeFromCore(node *corev1.Node) NodeView {
+	if node == nil {
+		return NodeView{}
+	}
+	out := NodeView{
+		Name:           node.Name,
+		UID:            string(node.UID),
+		Labels:         cloneStringMap(node.Labels),
+		Unschedulable:  node.Spec.Unschedulable,
+		KubeletVersion: node.Status.NodeInfo.KubeletVersion,
+		OSImage:        node.Status.NodeInfo.OSImage,
+	}
+	for _, cond := range node.Status.Conditions {
+		if cond.Type != corev1.NodeReady {
+			continue
+		}
+		out.Ready = cond.Status == corev1.ConditionTrue
+		out.ReadyReason = cond.Reason
+		out.ReadyMessage = cond.Message
+		break
+	}
+	for _, addr := range node.Status.Addresses {
+		switch addr.Type {
+		case corev1.NodeInternalIP:
+			if out.InternalIP == "" {
+				out.InternalIP = addr.Address
+			}
+		case corev1.NodeExternalIP:
+			if out.ExternalIP == "" {
+				out.ExternalIP = addr.Address
+			}
+		case corev1.NodeHostName, corev1.NodeInternalDNS, corev1.NodeExternalDNS:
+			// DNS names are not IP addresses; node identity comes from metadata.Name.
+		}
+	}
+	return out
+}
+
 func cloneStringMap(in map[string]string) map[string]string {
 	if len(in) == 0 {
 		return nil

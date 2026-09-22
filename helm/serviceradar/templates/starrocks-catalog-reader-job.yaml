@@ -1,0 +1,167 @@
+{{- /* Converges the CNPG JDBC catalog reader role.
+
+     Migration 20260918120000 owns the same role and grant set, but it runs as
+     the CNPG application user, which holds neither SUPERUSER nor CREATEROLE on
+     a default cluster -- so there it creates nothing and, because every grant
+     is role-existence guarded, issues nothing either. That is deliberate: a
+     migration that attempts role DDL without the privilege aborts the whole
+     run. It does mean the migration alone never converges on the workflow the
+     chart documents (install with the catalog off, enable it later): by the
+     time CNPG's managed.roles creates the role, the migration is already
+     recorded in schema_migrations and never replays.
+
+     This Job closes that gap. It runs on every install/upgrade where the
+     catalog is enabled, connects as the CNPG superuser, and is idempotent, so
+     enabling the catalog after install converges on the next helm upgrade.
+     Login and password stay owned by managed.roles; this Job never sets them. */ -}}
+{{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
+{{- $cat := default (dict) $sr.catalog -}}
+{{- if and $sr.enabled $cat.enabled }}
+{{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $reader := default "serviceradar_starrocks_reader" $cat.user -}}
+{{- $superSecretName := default "cnpg-superuser" $cnpg.superuserSecret -}}
+{{- $database := default "serviceradar" $cnpg.database -}}
+{{- $cnpgClusterName := include "serviceradar.cnpgClusterName" . -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-starrocks-catalog-reader
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: serviceradar
+    app.kubernetes.io/component: starrocks-catalog-reader
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    # After core migrations (which create the catalog views this grants on) and
+    # before the catalog Job, which is the first thing to read as this role.
+    "helm.sh/hook-weight": "15"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: serviceradar
+        app.kubernetes.io/component: starrocks-catalog-reader
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: grant-reader
+          image: {{ include "serviceradar.cnpgImageName" (dict "Values" .Values "Chart" .Chart "cnpg" $cnpg) }}
+          imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+          {{- include "serviceradar.containerSecurityContext" . | nindent 10 }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              exec psql -X -v ON_ERROR_STOP=1 -d {{ $database | quote }} -f /sql/reader.sql
+          {{- /* libpq reads the connection from PG* rather than a URL: a
+                 superuser password containing ':', '@', '/', '?' or '#' would
+                 have to be percent-encoded into a URL, and a $(VAR) reference
+                 only expands against env entries declared before it. */}}
+          env:
+            - name: PGHOST
+              value: {{ include "serviceradar.cnpgDirectHost" . | quote }}
+            - name: PGPORT
+              value: {{ default 5432 $cnpg.port | quote }}
+            - name: PGUSER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $superSecretName | quote }}
+                  key: username
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $superSecretName | quote }}
+                  key: password
+            - name: PGSSLMODE
+              value: {{ default "verify-full" $cnpg.sslmode | quote }}
+            - name: PGSSLROOTCERT
+              value: {{ default "/etc/serviceradar/cnpg/ca.crt" $cnpg.caFile | quote }}
+            {{- if $cnpg.requireClientCert }}
+            - name: PGSSLCERT
+              value: {{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client.pem" $cnpg.clientCertName) | quote }}
+            - name: PGSSLKEY
+              value: {{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client-key.pem" $cnpg.clientKeyName) | quote }}
+            {{- end }}
+            {{- /* readOnlyRootFilesystem is on, so keep psql's temp files off $HOME. */}}
+            - name: HOME
+              value: /tmp
+          volumeMounts:
+            - name: sql
+              mountPath: /sql
+              readOnly: true
+            - name: {{ $cnpgClusterName }}-ca
+              mountPath: /etc/serviceradar/cnpg
+              readOnly: true
+            {{- if $cnpg.requireClientCert }}
+            - name: cert-data
+              mountPath: /etc/serviceradar/certs
+              readOnly: true
+            {{- end }}
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: sql
+          configMap:
+            name: {{ include "serviceradar.fullname" . }}-starrocks-catalog-reader
+        - name: {{ $cnpgClusterName }}-ca
+          secret:
+            secretName: {{ $cnpgClusterName }}-ca
+        {{- if $cnpg.requireClientCert }}
+        - name: cert-data
+          secret:
+            secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+            items:
+{{ include "serviceradar.runtimeCertItems" (list "root.pem" "cnpg-client.pem" "cnpg-client-key.pem") | indent 14 }}
+        {{- end }}
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-starrocks-catalog-reader
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: serviceradar
+    app.kubernetes.io/component: starrocks-catalog-reader
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "14"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+data:
+  reader.sql: |
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '{{ $reader }}') THEN
+        CREATE ROLE {{ $reader }} NOLOGIN;
+      END IF;
+    END $$;
+
+    GRANT CONNECT ON DATABASE {{ $database }} TO {{ $reader }};
+    GRANT USAGE ON SCHEMA platform TO {{ $reader }};
+
+    GRANT SELECT ON platform.netflow_local_cidrs_catalog TO {{ $reader }};
+    GRANT SELECT (uid, uid_alt, hostname, name, ip)
+      ON platform.ocsf_devices TO {{ $reader }};
+    GRANT SELECT (device_id, identifier_type, identifier_value)
+      ON platform.device_identifiers TO {{ $reader }};
+    GRANT SELECT (device_id, device_ip)
+      ON platform.discovered_interfaces TO {{ $reader }};
+    GRANT SELECT (device_id, ip)
+      ON platform.device_interface_addresses_catalog TO {{ $reader }};
+    GRANT SELECT (uid, uid_alt, alias)
+      ON platform.device_inventory_aliases_catalog TO {{ $reader }};
+    GRANT SELECT (device_id, alias_type, state, alias_value)
+      ON platform.device_alias_states TO {{ $reader }};
+    GRANT SELECT (device_uid, sampler_address, exporter_name)
+      ON platform.netflow_exporter_cache TO {{ $reader }};
+    GRANT SELECT (sampler_address, if_index, if_name, if_speed_bps)
+      ON platform.netflow_interface_cache TO {{ $reader }};
+    GRANT SELECT (ip, country_iso2, expires_at)
+      ON platform.ip_geo_enrichment_cache TO {{ $reader }};
+{{- end }}

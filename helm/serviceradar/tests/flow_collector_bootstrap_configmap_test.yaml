@@ -12,6 +12,7 @@ tests:
   - it: fires before the bootstrap Job so the Job's ConfigMap dependency exists
     set:
       flowCollector.enabled: true
+      analytics.starrocks.enabled: true
     template: templates/flow-collector-bootstrap-configmap.yaml
     asserts:
       - equal:
@@ -31,6 +32,7 @@ tests:
   - it: is what the bootstrap Job actually mounts, not the ordinary ConfigMap
     set:
       flowCollector.enabled: true
+      analytics.starrocks.enabled: true
     template: templates/flow-collector-bootstrap-job.yaml
     asserts:
       - equal:

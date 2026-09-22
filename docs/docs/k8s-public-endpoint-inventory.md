@@ -11,7 +11,7 @@ incident.
 
 Typical IR question:
 
-> We see NetFlow from Colombia to `23.138.124.7:22`. Is that a host shell,
+> We see NetFlow from Colombia to `198.51.100.10:22`. Is that a host shell,
 > a git SSH listener, or something else?
 
 With inventory enabled, the collector maps that VIP to the Envoy
@@ -46,8 +46,8 @@ API and rebuilds a snapshot of *public edge ownership*.
 | Scope question | Default behavior today |
 |---|---|
 | Where does the Deployment run? | ServiceRadar **release namespace** (e.g. `demo`, `serviceradar`) |
-| What API can it list? | **Cluster-wide** `ClusterRole`: Services, EndpointSlices, Gateway API objects in **all namespaces** (unless narrowed) |
-| What is stored? | Only endpoints that look **public/edge** (LoadBalancer ingress, ExternalIP, Gateway listeners)—not every ClusterIP |
+| What API can it list? | **Cluster-wide** `ClusterRole`: Services, EndpointSlices, Nodes (Ready), Gateway API objects in **all namespaces** (unless narrowed) |
+| What is stored? | Endpoints that look **public/edge** (LoadBalancer ingress, ExternalIP, Gateway listeners), plus a separate Node readiness catalog when enabled; not every ClusterIP |
 | Does it see pod traffic? | No. Backend `endpoint_targets` are **control-plane** EndpointSlice refs (pod IP:port, name, node)—not flow bytes |
 | Multi-tenant isolation | Rows are tagged with `cluster_id`. Namespace allow-lists are optional (see below) |
 
@@ -119,7 +119,8 @@ k8sInventory:
 ```
 
 ```bash
-helm upgrade --install serviceradar ./helm/serviceradar \
+helm upgrade --install serviceradar oci://registry.carverauto.dev/serviceradar/charts/serviceradar \
+  --version <chart-version> \
   --namespace serviceradar --create-namespace \
   -f values-customer.yaml \
   --set k8sInventory.enabled=true \
@@ -281,7 +282,7 @@ You can:
 3. Query current ownership via SRQL (core EventWriter + migration):
 
    ```text
-   in:public_endpoints ip:23.138.124.7 port:22
+   in:public_endpoints ip:198.51.100.10 port:22
    in:public_endpoints cluster_id:acme-prod-eks exposure_class:Gateway
    ```
 
@@ -291,7 +292,7 @@ You can:
 
    ```text
    /inventory/public-endpoints
-   /inventory/public-endpoints?q=in:public_endpoints+ip:23.138.124.7
+   /inventory/public-endpoints?q=in:public_endpoints+ip:198.51.100.10
    ```
 
    Submitting `in:public_endpoints …` from the global SRQL bar on other pages
@@ -319,6 +320,7 @@ When `k8sInventory.enabled: true`, the chart template
 Read-only verbs only: `get`, `list`, `watch` on:
 
 - `services` (core)
+- `nodes` (core), when `k8sInventory.nodes.enabled` is true (the default)
 - `endpointslices` (`discovery.k8s.io`)
 - Gateway API resources when `k8sInventory.gatewayAPI.enabled: true`
   (`gateways`, `httproutes`, `grpcroutes`, `tcproutes`, `udproutes`, `tlsroutes`)
@@ -327,6 +329,18 @@ Read-only verbs only: `get`, `list`, `watch` on:
 
 **Not granted:** secrets, pods/exec, nodes/proxy, create/update/delete on
 cluster objects.
+
+Node snapshots publish on `inventory.k8s.nodes`. EventWriter upserts
+`platform.k8s_nodes_current`. For readiness behavior and notification setup,
+see [Kubernetes node NotReady](./notifications.md#kubernetes-node-notready).
+
+The standalone collector defaults `K8S_INVENTORY_NODES` to `false`; the main
+Helm chart sets it from `k8sInventory.nodes.enabled` (default `true`) when
+inventory is enabled. Node watching needs cluster-wide Nodes RBAC and is
+unaffected by namespace allow-lists. Enabling it with `PUBLISH_MODE=agent_spool`
+is rejected at startup because that sink holds only the endpoint snapshot.
+Node snapshots use the fixed subject above, independent of
+`K8S_INVENTORY_SUBJECT`.
 
 ### Values
 
@@ -400,24 +414,29 @@ on the same release is a common source of “it disappeared after sync.”
 ### Fresh Helm install (not Argo)
 
 ```bash
-helm upgrade --install serviceradar ./helm/serviceradar \
-  --namespace demo \
-  -f helm/serviceradar/values-demo.yaml \
+helm upgrade --install serviceradar oci://registry.carverauto.dev/serviceradar/charts/serviceradar \
+  --version <chart-version> \
+  --namespace <namespace> --create-namespace \
+  -f my-values.yaml \
   --set k8sInventory.enabled=true \
-  --set k8sInventory.clusterId=demo \
-  --set global.imageTag=<tag-that-includes-k8s-inventory>
+  --set k8sInventory.clusterId=<cluster-id>
 ```
+
+Pick a `<chart-version>` whose release includes `serviceradar-k8s-inventory`.
+The chart tags that image `v<chart-version>`, like every other first-party
+image, so `--version` alone selects it. Leave `global.imageTag` unset; if you
+do set it, it must be `v<chart-version>`.
 
 ## Incident response workflow
 
 1. **Alert / flow:** external source → public `IP` or LB hostname + port
-   (for example NetFlow `dst_ip=23.138.124.7 dst_port=22` from a geo-tagged peer).
+   (for example NetFlow `dst_ip=198.51.100.10 dst_port=22` from a geo-tagged peer).
 2. **Ownership (cluster-plane inventory):**
 
    Preferred in the product UI / SRQL:
 
    ```text
-   in:public_endpoints ip:23.138.124.7 port:22
+   in:public_endpoints ip:198.51.100.10 port:22
    ```
 
    Open `/inventory/public-endpoints` or submit that query from the SRQL bar
@@ -427,11 +446,11 @@ helm upgrade --install serviceradar ./helm/serviceradar \
 
    ```bash
    # Workstation with kubeconfig
-   k8s-inventory snapshot --cluster-id demo --ip 23.138.124.7 --port 22
+   k8s-inventory snapshot --cluster-id demo --ip 198.51.100.10 --port 22
 
    # Live collector snapshot API
    kubectl -n demo port-forward svc/serviceradar-k8s-inventory 9109:9109
-   curl -s localhost:9109/snapshot | jq '.endpoints[] | select(.ip=="23.138.124.7")'
+   curl -s localhost:9109/snapshot | jq '.endpoints[] | select(.ip=="198.51.100.10")'
    ```
 
 3. **Interpret:**
@@ -448,7 +467,7 @@ helm upgrade --install serviceradar ./helm/serviceradar \
    stamps process + owner onto `attributed_flow` rows. Prefer:
 
    ```text
-   in:attributed_flows dst_ip:23.138.124.7 dst_port:22 time:last_24h
+   in:attributed_flows dst_ip:198.51.100.10 dst_port:22 time:last_24h
    in:attributed_flows service_name:git-ssh time:last_24h
    in:attributed_flows exposure_class:Gateway process:sshd time:last_24h
    ```
@@ -492,8 +511,8 @@ Build from source (or use a released binary when available):
 go build -o k8s-inventory ./go/cmd/k8s-inventory
 # or: bazel build //go/cmd/k8s-inventory:k8s-inventory
 
-k8s-inventory snapshot --cluster-id demo --ip 23.138.124.7 --port 22
-k8s-inventory snapshot --cluster-id demo --hints-only --ip 23.138.124.7
+k8s-inventory snapshot --cluster-id demo --ip 198.51.100.10 --port 22
+k8s-inventory snapshot --cluster-id demo --hints-only --ip 198.51.100.10
 ```
 
 Long-running with stdout (validates watch/rebuild without NATS):

@@ -166,6 +166,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceStateData do
   def display_name(_), do: "Device"
 
   def proxmox_console_target?(%{kind: :host, host: %{provider: "proxmox"}}), do: true
+  def proxmox_console_target?(%{kind: :guest, guest: %{provider: "proxmox"}}), do: true
   def proxmox_console_target?(_summary), do: false
 
   def proxmox_console_action_label(%{kind: :host}), do: "Open PVE shell"

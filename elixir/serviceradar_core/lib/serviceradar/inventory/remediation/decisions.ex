@@ -14,6 +14,7 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.Inventory.IdentityReconciler
+  alias ServiceRadar.Inventory.IntegrationIdentity
 
   @valid_mac_pattern ~r/^[0-9A-F]{12}$/
 
@@ -243,11 +244,27 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
   `:host_refs` as `MapSet`s of normalized tokens; absent both (network-probed
   candidates with no MAC and no enrichment ref), no corroboration exists and the
   pair is treated as distinct.
+
+  Proxmox host references must satisfy the admissibility contract in
+  `IntegrationIdentity`. Shared atomic MACs remain separate evidence.
   """
   @spec same_physical_host?(map(), map()) :: boolean()
   def same_physical_host?(a, b) do
     shared_tokens?(Map.get(a, :macs), Map.get(b, :macs)) or
-      shared_tokens?(Map.get(a, :host_refs), Map.get(b, :host_refs))
+      shared_tokens?(strong_host_refs(a), strong_host_refs(b))
+  end
+
+  # Host references minus the ambiguous name-keyed values that fuse
+  # same-named devices across clusters (GitHub #4051). Operates on the token
+  # sets (not the device maps) so callers keep passing raw `host_refs`.
+  defp strong_host_refs(device) do
+    case Map.get(device, :host_refs) do
+      %MapSet{} = refs ->
+        MapSet.reject(refs, &IntegrationIdentity.ambiguous_name_keyed?/1)
+
+      _ ->
+        nil
+    end
   end
 
   @doc """
@@ -276,6 +293,209 @@ defmodule ServiceRadar.Inventory.Remediation.Decisions do
     do: MapSet.size(a) > 0 and not MapSet.disjoint?(a, b)
 
   defp shared_tokens?(_, _), do: false
+
+  # ---------------------------------------------------------------------------
+  # Proxmox cross-cluster unfuse (GitHub #4051)
+  # ---------------------------------------------------------------------------
+
+  @doc """
+  Plan the split of one Proxmox-fused device back into per-cluster devices.
+
+  Before the name-key guard existed, resolve-time lookups on legacy
+  name-keyed bridges (`proxmox:vm:<name>` and kin) collapsed updates from
+  different Proxmox clusters onto one row, which then accumulated every
+  cluster's v2 identifiers. That collapse wrote no reversible merge_audit, so
+  like `plan_armis_unmerge/2` the target grouping is reconstructed from
+  current state — here the cluster segment of the registered
+  `proxmox:v2:<cluster>:<kind>:<ref>` integration ids, which ARE unique
+  within their scope.
+
+    * `device` — `%{uid, partition, tombstoned?}`
+    * `v2_rows` — `[%{id, value, partition, first_seen, source_id}]`, the
+      device's registered v2 integration_id rows (caller parses nothing; the
+      planner validates each value with `IntegrationIdentity.parse_v2/1`)
+    * `mac_rows` — `[%{id, value, partition, source_id}]`, the device's
+      registered atomic MAC rows with their registration provenance
+
+  Returns `{:skip, reason}` or `{:split, plan}`. Fail-closed throughout:
+
+    * `:no_v2_identifiers` / `:unexpected_identifier_shape` — nothing, or
+      nothing parseable, to group by
+    * `:single_cluster` — a normal device, not an over-merge
+    * `:tombstoned` — fused tombstones need operator judgment, never an
+      automatic restore
+    * `:multiple_partitions` — every row must carry the device's own
+      canonical partition; no default is synthesized
+    * `:ambiguous_mac_attribution` — a MAC row whose registration source
+      matches zero or several cluster groups cannot be placed. Leaving it on
+      the survivor would re-trigger a cross-device conflict on the next sync
+      (and re-fuse past the unmerge cooldown), so the candidate waits for
+      manual attribution instead
+    * `:uid_collision` — a split target UID already equals the source UID or
+      a sibling target (never emit a self-target or a fork)
+
+  The survivor group is the earliest-registered cluster (lowest row
+  `first_seen`, ties broken by cluster name): the original owner keeps the
+  row. Every other cluster gets a fresh remediation-stable UID derived from
+  its own v2 id alone, so later ingest resolves through the reassigned
+  strong identifier rows regardless of UID parity.
+  """
+  @spec plan_proxmox_unfuse(map(), [map()], [map()]) :: {:skip, atom()} | {:split, map()}
+  def plan_proxmox_unfuse(device, v2_rows, mac_rows)
+      when is_map(device) and is_list(v2_rows) and is_list(mac_rows) do
+    with {:ok, groups} <- proxmox_cluster_groups(v2_rows),
+         :ok <- check_proxmox_multi_cluster(groups),
+         :ok <- check_proxmox_live(device),
+         :ok <- check_proxmox_partitions(device, v2_rows, mac_rows),
+         {:ok, plan} <- build_proxmox_split_plan(device, groups, mac_rows) do
+      {:split, plan}
+    end
+  end
+
+  defp proxmox_cluster_groups([]), do: {:skip, :no_v2_identifiers}
+
+  defp proxmox_cluster_groups(v2_rows) do
+    Enum.reduce_while(v2_rows, {:ok, %{}}, fn row, {:ok, acc} ->
+      case IntegrationIdentity.parse_v2(row[:value]) do
+        {:ok, %{cluster: cluster}} ->
+          {:cont, {:ok, Map.update(acc, cluster, [row], &[row | &1])}}
+
+        :error ->
+          {:halt, {:skip, :unexpected_identifier_shape}}
+      end
+    end)
+  end
+
+  defp check_proxmox_multi_cluster(groups) when map_size(groups) < 2, do: {:skip, :single_cluster}
+
+  defp check_proxmox_multi_cluster(_groups), do: :ok
+
+  defp check_proxmox_live(%{tombstoned?: true}), do: {:skip, :tombstoned}
+  defp check_proxmox_live(_device), do: :ok
+
+  defp check_proxmox_partitions(device, v2_rows, mac_rows) do
+    partition = device[:partition]
+
+    rows_ok? =
+      is_binary(partition) and partition != "" and
+        Enum.all?(v2_rows ++ mac_rows, &(&1[:partition] == partition))
+
+    if rows_ok?, do: :ok, else: {:skip, :multiple_partitions}
+  end
+
+  defp build_proxmox_split_plan(device, groups, mac_rows) do
+    partition = device[:partition]
+    {survivor_cluster, _} = earliest_proxmox_cluster(groups)
+
+    split_clusters = groups |> Map.keys() |> Enum.sort() |> Enum.reject(&(&1 == survivor_cluster))
+
+    with {:ok, mac_assignments} <- assign_proxmox_macs(groups, mac_rows) do
+      splits =
+        Enum.map(split_clusters, fn cluster ->
+          rows = Map.fetch!(groups, cluster)
+          v2_values = rows |> Enum.map(& &1[:value]) |> Enum.uniq() |> Enum.sort()
+
+          %{
+            cluster: cluster,
+            new_uid: proxmox_split_uid(partition, v2_values),
+            v2_values: v2_values,
+            row_ids: rows |> Enum.map(& &1[:id]) |> Enum.sort(),
+            mac_row_ids: mac_assignments |> Map.get(cluster, []) |> Enum.sort()
+          }
+        end)
+
+      uids = Enum.map(splits, & &1.new_uid)
+
+      if device[:uid] in uids or length(uids) != length(Enum.uniq(uids)) do
+        {:skip, :uid_collision}
+      else
+        {:split,
+         %{
+           device_uid: device[:uid],
+           partition: partition,
+           survivor: %{
+             cluster: survivor_cluster,
+             uid: device[:uid],
+             row_ids: groups |> Map.fetch!(survivor_cluster) |> Enum.map(& &1[:id]) |> Enum.sort()
+           },
+           splits: splits
+         }}
+      end
+    end
+  end
+
+  # Survivor = the cluster that registered first (lowest row first_seen, ties
+  # by cluster name): the original owner keeps the device row. `first_seen`
+  # may be a DateTime or NaiveDateTime depending on the reader; values are
+  # normalized to unix microseconds for comparison, and missing values sort
+  # last so dated evidence always wins over absent evidence.
+  defp earliest_proxmox_cluster(groups) do
+    groups
+    |> Enum.map(fn {cluster, rows} ->
+      earliest =
+        rows
+        |> Enum.map(&proxmox_first_seen_rank(&1[:first_seen]))
+        |> Enum.reject(&is_nil/1)
+        |> Enum.sort()
+        |> List.first()
+
+      {cluster, earliest}
+    end)
+    |> Enum.sort_by(fn {cluster, earliest} -> {is_nil(earliest), earliest, cluster} end)
+    |> List.first()
+    |> case do
+      {cluster, _} -> {cluster, Map.fetch!(groups, cluster)}
+    end
+  end
+
+  defp proxmox_first_seen_rank(%DateTime{} = dt), do: DateTime.to_unix(dt, :microsecond)
+
+  defp proxmox_first_seen_rank(%NaiveDateTime{} = dt),
+    do: dt |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_unix(:microsecond)
+
+  defp proxmox_first_seen_rank(_), do: nil
+
+  # Attribute each MAC row to exactly one cluster group via its registration
+  # provenance (`metadata.sync_service_id`): attributable iff the row's source
+  # matches that group's v2 rows and no other group's. Anything else —
+  # missing source, a source shared across groups, an unknown source — fails
+  # the whole candidate closed: a MAC left on the survivor while its cluster
+  # moves away re-fires the cross-device conflict on the next sync and
+  # re-fuses past the unmerge cooldown. Attribution trusts reporter
+  # provenance, so the dry-run report lists every MAC assignment (value and
+  # source per cluster) for operator review before any execute allowlist.
+  defp assign_proxmox_macs(groups, mac_rows) do
+    group_sources = Map.new(groups, fn {cluster, rows} -> {cluster, group_source_ids(rows)} end)
+
+    Enum.reduce_while(mac_rows, {:ok, %{}}, fn row, {:ok, acc} ->
+      source = row[:source_id]
+
+      owners =
+        group_sources
+        |> Enum.filter(fn {_cluster, sources} ->
+          is_binary(source) and MapSet.member?(sources, source)
+        end)
+        |> Enum.map(&elem(&1, 0))
+
+      case owners do
+        [cluster] -> {:cont, {:ok, Map.update(acc, cluster, [row[:id]], &[row[:id] | &1])}}
+        _ -> {:halt, {:skip, :ambiguous_mac_attribution}}
+      end
+    end)
+  end
+
+  defp group_source_ids(rows) do
+    rows
+    |> Enum.map(& &1[:source_id])
+    |> Enum.filter(&is_binary/1)
+    |> MapSet.new()
+  end
+
+  # Stable remediation UID over {partition, cluster v2 id}. Later ingest
+  # resolves through the reassigned strong integration_id row, not this UID.
+  defp proxmox_split_uid(partition, [primary_v2 | _]) do
+    Ids.generate_deterministic_device_id(%{integration_id: primary_v2, partition: partition})
+  end
 
   # ---------------------------------------------------------------------------
   # Shared helpers

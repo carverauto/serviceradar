@@ -2,23 +2,34 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
   @moduledoc """
   Settings → Audit → History.
 
-  Unified AshPaperTrail version timeline across the resources in
-  the `ServiceRadar.Security.AuditHistory` allow-list. Operators
-  filter by resource type, actor identifier, action type, and
-  time range, and drill into a single version's `changes` map for
-  the diff detail. Gated by `settings.audit.view`.
+  Unified timeline across the resources in
+  `ServiceRadar.Security.AuditHistory`'s two allow-lists: AshPaperTrail
+  version rows (`resources/0`) and AshEvents `ApiEvent` rows
+  (`ash_events_resources/0`, adapted to the same shape by
+  `AuditHistory.list_recent/1`). Operators filter by resource type, actor
+  identifier, action type, and time range, and drill into a single row's
+  `changes` map for the diff detail. The "Origin" column shows `api` / `web`
+  for AshEvents rows and "—" for PaperTrail rows, which have no transport
+  concept. The "Actor" column resolves the recorded actor UUID to the
+  user's login email (linked to the user detail page for viewers holding
+  `settings.auth.manage`), falling back to the raw recorded value when the
+  user cannot be read. Gated by `settings.audit.view`.
   """
 
   use ServiceRadarWebNGWeb, :live_view
 
   alias ServiceRadar.Identity.RBAC
+  alias ServiceRadar.Identity.User
   alias ServiceRadar.Security.AuditHistory
   alias ServiceRadarWebNGWeb.Settings.Shell
+
+  require Ash.Query
 
   on_mount {ServiceRadarWebNGWeb.UserAuth, :require_authenticated}
 
   @page_size 50
   @action_types ~w(create update destroy)
+  @uuid_re ~r/\A[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\z/
 
   @impl true
   def mount(_params, _session, socket) do
@@ -108,7 +119,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
   defp blank_to_nil(value), do: value
 
   defp resource_options do
-    AuditHistory.resources()
+    AuditHistory.all_resources()
     |> Enum.map(fn module ->
       label = module |> Module.split() |> List.last()
       {label, to_string(module)}
@@ -132,7 +143,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
           _ -> []
         end
 
-      assign(socket, :versions, versions)
+      socket
+      |> assign(:versions, versions)
+      |> assign_actor_users()
     else
       assign(socket, :versions, [])
     end
@@ -157,12 +170,18 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
   defp maybe_put_actor_filter(opts, actor), do: Keyword.put(opts, :actor_id, actor)
 
   defp resolve_resource(resource_str) when is_binary(resource_str) do
-    Enum.find(AuditHistory.resources(), &(to_string(&1) == resource_str))
+    Enum.find(AuditHistory.all_resources(), &(to_string(&1) == resource_str))
   end
 
   defp resolve_resource(_), do: nil
 
   defp resource_label(module), do: module |> Module.split() |> List.last()
+
+  # `entry.origin` is "api"/"web" for an AshEvents-adapted row (see
+  # `AuditHistory.adapt_ash_event/1`) and nil for a PaperTrail row, which has
+  # no transport concept.
+  defp origin_label(nil), do: "—"
+  defp origin_label(origin) when is_binary(origin), do: origin
 
   defp truncate_json(nil), do: ""
 
@@ -180,21 +199,127 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
     truncate_json(json)
   end
 
+  # Resolves the actor UUIDs on the current page to `%User{}` records so
+  # the Actor column can show the login email (linked to the user detail
+  # page) instead of a bare UUID. Reads go through the viewer's own actor,
+  # so the `User` read policies stay in force: rows this viewer may not
+  # read simply stay unresolved and fall back to `extract_actor/1`.
+  defp assign_actor_users(socket) do
+    users = load_actor_users(socket.assigns.versions, socket.assigns.ash_actor)
+    assign(socket, :actor_users, users)
+  end
+
+  defp load_actor_users(_versions, nil), do: %{}
+
+  defp load_actor_users(versions, ash_actor) do
+    ids =
+      versions
+      |> Enum.map(&actor_uuid(&1.version))
+      |> Enum.filter(&is_binary/1)
+      |> Enum.uniq()
+
+    case ids do
+      [] ->
+        %{}
+
+      _ ->
+        User
+        |> Ash.Query.for_read(:read, %{}, actor: ash_actor)
+        |> Ash.Query.filter(id in ^ids)
+        |> Ash.read(actor: ash_actor)
+        |> case do
+          {:ok, users} -> Map.new(users, &{to_string(&1.id), &1})
+          {:error, _} -> %{}
+        end
+    end
+  rescue
+    _ -> %{}
+  end
+
+  # Pulls the raw actor identifier out of a version row for user lookup.
+  # Returns the UUID string when the row carries one, else nil (an email
+  # actor or a missing actor needs no lookup). Reads the stamped action
+  # inputs first, then the version row's own actor attributes, which the
+  # `StampAuditContext` mixins populate on the same write.
+  defp actor_uuid(version) do
+    inputs = Map.get(version, :version_action_inputs) || %{}
+
+    candidate =
+      case inputs do
+        %{"actor" => %{"id" => id}} when is_binary(id) -> id
+        %{"actor" => actor} when is_binary(actor) -> actor
+        %{"actor_id" => actor_id} when is_binary(actor_id) -> actor_id
+        _ -> top_level_actor_id(version)
+      end
+
+    if is_binary(candidate) and Regex.match?(@uuid_re, candidate), do: candidate
+  end
+
+  defp top_level_actor_id(version) do
+    case Map.get(version, :actor_id) do
+      id when is_binary(id) ->
+        id
+
+      _ ->
+        case Map.get(version, :actor) do
+          %{"id" => id} when is_binary(id) -> id
+          %{id: id} when is_binary(id) -> id
+          _ -> nil
+        end
+    end
+  end
+
+  defp user_email(%{email: email}), do: to_string(email)
+
   defp extract_actor(version) do
     # Not every version record carries `version_action_inputs` — e.g. an
-    # `ActionInvocation.Version` shape omits it — so read it defensively via
-    # `Map.get/2` (returns nil for a missing struct key) rather than struct
-    # access, which would raise `KeyError`.
+    # `ActionInvocation.Version` (`store_action_inputs? false`) omits the
+    # attribute entirely, so `ServiceRadar.Security.Changes.StampAuditActor`
+    # can only reach it there through the dedicated `:actor`/`:actor_id`
+    # attributes it also sets. Check those first, then fall back to
+    # `version_action_inputs` for resources that only carry it there.
+    # `Map.get/2` (rather than struct access, which would raise `KeyError`)
+    # handles both a missing struct key and a resource with neither.
+    case Map.get(version, :actor) do
+      %{"id" => "system:" <> _ = id} ->
+        system_actor_label(id)
+
+      %{"email" => email} when is_binary(email) ->
+        email
+
+      %{"id" => id} when is_binary(id) ->
+        id
+
+      _ ->
+        case Map.get(version, :actor_id) do
+          actor_id when is_binary(actor_id) -> actor_label(actor_id)
+          _ -> extract_actor_from_inputs(version)
+        end
+    end
+  end
+
+  defp extract_actor_from_inputs(version) do
     inputs = Map.get(version, :version_action_inputs) || %{}
 
     case inputs do
+      %{"actor" => %{"id" => "system:" <> _ = id}} -> system_actor_label(id)
       %{"actor" => %{"email" => email}} when is_binary(email) -> email
       %{"actor" => %{"id" => id}} when is_binary(id) -> id
-      %{"actor" => actor} when is_binary(actor) -> actor
-      %{"actor_id" => actor_id} when is_binary(actor_id) -> actor_id
+      %{"actor" => actor} when is_binary(actor) -> actor_label(actor)
+      %{"actor_id" => actor_id} when is_binary(actor_id) -> actor_label(actor_id)
       _ -> "—"
     end
   end
+
+  # `ServiceRadar.Actors.SystemActor.system/1` builds ids as "system:<component>"
+  # -- a stable, id-only signal (present even when only `actor_id` survived,
+  # e.g. via `ApiEvent`'s `metadata["actor_id"]` fallback) that a row was
+  # written by a background/plugin actor rather than a person, so it's worth
+  # calling out explicitly instead of showing the raw id.
+  defp actor_label("system:" <> _ = id), do: system_actor_label(id)
+  defp actor_label(id), do: id
+
+  defp system_actor_label("system:" <> component), do: "System · #{component}"
 
   @impl true
   def render(assigns) do
@@ -213,7 +338,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
         <header class="space-y-1">
           <h1 class="text-2xl font-semibold">Audit · History</h1>
           <p class="text-sm text-sr-muted">
-            Cross-resource AshPaperTrail timeline. Filter by resource, actor, action, and time range; click a row for the diff.
+            Cross-resource timeline (AshPaperTrail versions and AshEvents API events). Filter by resource, actor, action, and time range; click a row for the diff.
           </p>
         </header>
 
@@ -261,6 +386,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
                   <th class="px-4 py-2 text-left">Resource</th>
                   <th class="px-4 py-2 text-left">Action</th>
                   <th class="px-4 py-2 text-left">Actor</th>
+                  <th class="px-4 py-2 text-left">Origin</th>
                   <th class="px-4 py-2 text-left">Source row</th>
                 </tr>
               </thead>
@@ -283,13 +409,30 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
                     </td>
                     <td class="px-4 py-2">{resource_label(entry.resource)}</td>
                     <td class="px-4 py-2">{entry.version.version_action_type}</td>
-                    <td class="px-4 py-2 font-mono text-xs">{extract_actor(entry.version)}</td>
+                    <td class="px-4 py-2 font-mono text-xs">
+                      <%= case @actor_users[actor_uuid(entry.version)] do %>
+                        <% nil -> %>
+                          {extract_actor(entry.version)}
+                        <% user -> %>
+                          <%= if MapSet.member?(@permissions, "settings.auth.manage") do %>
+                            <.link
+                              navigate={~p"/settings/auth/users/#{user.id}"}
+                              class="underline decoration-dotted underline-offset-2"
+                            >
+                              {user_email(user)}
+                            </.link>
+                          <% else %>
+                            {user_email(user)}
+                          <% end %>
+                      <% end %>
+                    </td>
+                    <td class="px-4 py-2 font-mono text-xs">{origin_label(entry.origin)}</td>
                     <td class="px-4 py-2 font-mono text-xs">{entry.version.version_source_id}</td>
                   </tr>
                 <% end %>
                 <%= if Enum.empty?(@versions) do %>
                   <tr>
-                    <td colspan="5" class="px-4 py-8 text-center text-sr-muted">
+                    <td colspan="6" class="px-4 py-8 text-center text-sr-muted">
                       No version history for the current filters.
                     </td>
                   </tr>
@@ -298,33 +441,33 @@ defmodule ServiceRadarWebNGWeb.Settings.AuditLive.History do
             </table>
           </div>
 
-          <%= if @selected_version do %>
-            <div class="space-y-3 rounded-lg border border-sr-line bg-sr-surface p-4">
-              <div class="flex items-center justify-between">
-                <h2 class="font-semibold">
-                  {resource_label(@selected_version.resource)} · {@selected_version.version.version_action_type} ·
-                  <.user_time
-                    id={"settings-audit-selected-version-#{@selected_version.version.id}-inserted-at"}
-                    value={@selected_version.version.version_inserted_at}
-                    timezone={@current_scope.user.timezone || "Etc/UTC"}
-                    style={:compact}
-                    fallback="—"
-                  />
-                </h2>
-                <button type="button" class="ui-button" phx-click="close-version">Close</button>
-              </div>
+          <.ui_modal
+            :if={@selected_version}
+            id="audit-history-version-modal"
+            size="lg"
+            on_cancel="close-version"
+          >
+            <:title>
+              {resource_label(@selected_version.resource)} · {@selected_version.version.version_action_type} ·
+              <.user_time
+                id={"settings-audit-selected-version-#{@selected_version.version.id}-inserted-at"}
+                value={@selected_version.version.version_inserted_at}
+                timezone={@current_scope.user.timezone || "Etc/UTC"}
+                style={:compact}
+                fallback="—"
+              />
+            </:title>
 
-              <div>
-                <h3 class="mb-1 text-sm text-sr-muted">Changes</h3>
-                <pre class="overflow-x-auto rounded bg-sr-subtle/70 p-3 text-xs">{truncate_json(@selected_version.version.changes)}</pre>
-              </div>
-
-              <div>
-                <h3 class="mb-1 text-sm text-sr-muted">Action inputs</h3>
-                <pre class="overflow-x-auto rounded bg-sr-subtle/70 p-3 text-xs">{truncate_json(@selected_version.version.version_action_inputs)}</pre>
-              </div>
+            <div>
+              <h3 class="mb-1 text-sm text-sr-muted">Changes</h3>
+              <pre class="overflow-x-auto rounded bg-sr-subtle/70 p-3 text-xs">{truncate_json(@selected_version.version.changes)}</pre>
             </div>
-          <% end %>
+
+            <div>
+              <h3 class="mb-1 text-sm text-sr-muted">Action inputs</h3>
+              <pre class="overflow-x-auto rounded bg-sr-subtle/70 p-3 text-xs">{truncate_json(@selected_version.version.version_action_inputs)}</pre>
+            </div>
+          </.ui_modal>
         <% else %>
           <p class="text-sm text-error">
             You need <code>settings.audit.view</code> to see version history.

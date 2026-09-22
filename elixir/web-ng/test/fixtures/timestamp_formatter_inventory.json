@@ -248,6 +248,14 @@
     "reason": null
   },
   {
+    "path": "lib/serviceradar_web_ng/configuration_request.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "b73d0c875e0bdc74a2aa46d50878494dfc023c6620b78709d8839ebfe95ede90",
+    "classification": "canonical_machine",
+    "reason": "Canonical UTC timestamp used as an HTTP resource ETag."
+  },
+  {
     "path": "lib/serviceradar_web_ng/dashboards/authored/validation.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 1,
@@ -504,6 +512,22 @@
     "reason": "shared explicit-zone presentation contract"
   },
   {
+    "path": "lib/serviceradar_web_ng_web/components/metric_window_components.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "17fe0ea0750ac8bf08ba475d694ec3ebca0a1b42b9c9b592ff3b8c590de5cffe",
+    "classification": "canonical_machine",
+    "reason": "custom UTC history window encoded as an SRQL time range"
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/components/metric_window_components.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 2,
+    "fingerprint": "46277cf4b85411655037b525cc5ef722eb394d1da07b8c74cdbe2ac0fbd15344",
+    "classification": "canonical_machine",
+    "reason": "custom UTC history window encoded as an SRQL time range"
+  },
+  {
     "path": "lib/serviceradar_web_ng_web/components/observability/signal_display_components.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 1,
@@ -526,6 +550,38 @@
     "fingerprint": "5de3f70952a98b875c21d585bb20538f3b92e141f1287c1d9fd01ec07f5f0ef2",
     "classification": "canonical_machine",
     "reason": null
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/controllers/api/ansible_controller_controller.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "b7b7be4a67fe8fa8c732d5274117e911e0eeec57057641f999afd1c118ac9abe",
+    "classification": "canonical_machine",
+    "reason": null
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/controllers/api/ansible_controller_controller.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 2,
+    "fingerprint": "a60a1e79fb962ffa384e832faa65b6b70440de4f1e98ae5eb5aa9bfb2bf1f43a",
+    "classification": "canonical_machine",
+    "reason": null
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/controllers/api/ansible_controller_controller.ex",
+    "matcher": "naive_datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "50539cdf7ef968ec4def1461aab09f8deef40677639892052f6c4f351c0bb98d",
+    "classification": "canonical_machine",
+    "reason": null
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/controllers/api/ansible_repository_controller.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "ed6177a5d9c945316e8819fc9ea4a0a4e95fabc4c1cf1789170daa1c39c96d0b",
+    "classification": "canonical_machine",
+    "reason": "Canonical UTC timestamp serialized in the repository API."
   },
   {
     "path": "lib/serviceradar_web_ng_web/controllers/api/camera_analysis_worker_controller.ex",
@@ -580,6 +636,54 @@
     "matcher": "datetime_iso8601",
     "occurrence": 1,
     "fingerprint": "516a9dddacb7a726af3b2e8e7c703e7c8a26cf0335bd9e8b0d0ee6042ba086e9",
+    "classification": "canonical_machine",
+    "reason": null
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/controllers/api/network_credential_rule_controller.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "b7b7be4a67fe8fa8c732d5274117e911e0eeec57057641f999afd1c118ac9abe",
+    "classification": "canonical_machine",
+    "reason": null
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/controllers/api/network_credential_rule_controller.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 2,
+    "fingerprint": "a60a1e79fb962ffa384e832faa65b6b70440de4f1e98ae5eb5aa9bfb2bf1f43a",
+    "classification": "canonical_machine",
+    "reason": null
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/controllers/api/network_credential_rule_controller.ex",
+    "matcher": "naive_datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "50539cdf7ef968ec4def1461aab09f8deef40677639892052f6c4f351c0bb98d",
+    "classification": "canonical_machine",
+    "reason": null
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/controllers/api/network_credential_secret_controller.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "b7b7be4a67fe8fa8c732d5274117e911e0eeec57057641f999afd1c118ac9abe",
+    "classification": "canonical_machine",
+    "reason": null
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/controllers/api/network_credential_secret_controller.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 2,
+    "fingerprint": "a60a1e79fb962ffa384e832faa65b6b70440de4f1e98ae5eb5aa9bfb2bf1f43a",
+    "classification": "canonical_machine",
+    "reason": null
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/controllers/api/network_credential_secret_controller.ex",
+    "matcher": "naive_datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "50539cdf7ef968ec4def1461aab09f8deef40677639892052f6c4f351c0bb98d",
     "classification": "canonical_machine",
     "reason": null
   },
@@ -824,6 +928,22 @@
     "reason": "canonical timestamp payload for the shared UserTime chart-axis presentation contract; browser localization preserves the instant"
   },
   {
+    "path": "lib/serviceradar_web_ng_web/live/dashboard_live/window.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "cd038e6ca76606c737ce1f12797f4aba63ddd07a4028c2dac666b2016f470d51",
+    "classification": "canonical_machine",
+    "reason": "dashboard history window encoded as an SRQL time range"
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/live/dashboard_live/window.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 2,
+    "fingerprint": "3fed276ffa0b9c7e3c3a75d59f93d8ef1ea3483be3aa512fb144315ee46111d0",
+    "classification": "canonical_machine",
+    "reason": "dashboard history window encoded as an SRQL time range"
+  },
+  {
     "path": "lib/serviceradar_web_ng_web/live/device_live/anomaly_capacity_data.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 1,
@@ -838,6 +958,38 @@
     "fingerprint": "7483a20c7c917b46e9b1dcc5add64542a237a3cedbf57183e23327b04814b5de",
     "classification": "canonical_machine",
     "reason": null
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/live/device_live/anomaly_capacity_data.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 3,
+    "fingerprint": "b4cf6599dc218233ea0847939110d7163eee6524d10f364de19541cd0b49d1f8",
+    "classification": "canonical_machine",
+    "reason": "Canonical seasonal bucket midpoint passed to metric query windows and chart overlays."
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/live/device_live/availability_data.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "2288351a74832178aed9194490917af1d22b2b62c0a7954dce699bcd23f7d61e",
+    "classification": "canonical_machine",
+    "reason": "ICMP availability window encoded as an SRQL time range"
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/live/device_live/availability_data.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 2,
+    "fingerprint": "298b6dddfaf392ee6fce7b6c2f4f7916bf67f3e9dfca32abd6c6a56867b8f558",
+    "classification": "canonical_machine",
+    "reason": "ICMP availability window encoded as an SRQL time range"
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/live/device_live/availability_data.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 3,
+    "fingerprint": "888956ed48508add77a32aecc1362e96279466008f2c4b766d07d26964132365",
+    "classification": "canonical_machine",
+    "reason": "availability bucket identity encoded as canonical UTC"
   },
   {
     "path": "lib/serviceradar_web_ng_web/live/device_live/endpoint_inventory_components.ex",

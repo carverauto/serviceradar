@@ -8,6 +8,7 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
   """
 
   alias ServiceRadar.Inventory.Identity.Ids
+  alias ServiceRadar.Inventory.IntegrationIdentity
   alias ServiceRadar.Repo
 
   require Logger
@@ -460,6 +461,17 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
           COALESCE(d.metadata->>'integration_type', '') = 'armis'
           AND NULLIF(d.metadata->>'integration_id', '') IS NOT NULL
           AND d.metadata->>'integration_id' <> typed.typed_armis_ids[1]
+          AND d.metadata->>'integration_id' IS DISTINCT FROM (
+            'armis:' || NULLIF(
+              array_to_string(
+                array_remove(
+                  regexp_split_to_array(lower(COALESCE(NULLIF(d.metadata->>'sync_service_id', ''), typed.source_ids[1])), '[[:space:]:]+'),
+                  ''
+                ),
+                '-'
+              ), ''
+            ) || ':device:' || typed.typed_armis_ids[1]
+          )
         )
       )
     """
@@ -632,6 +644,17 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
               COALESCE(d.metadata->>'integration_type', '') = 'armis'
               AND NULLIF(d.metadata->>'integration_id', '') IS NOT NULL
               AND d.metadata->>'integration_id' <> typed.typed_armis_ids[1]
+              AND d.metadata->>'integration_id' IS DISTINCT FROM (
+                'armis:' || NULLIF(
+                  array_to_string(
+                    array_remove(
+                      regexp_split_to_array(lower(COALESCE(NULLIF(d.metadata->>'sync_service_id', ''), typed.source_ids[1])), '[[:space:]:]+'),
+                      ''
+                    ),
+                    '-'
+                  ), ''
+                ) || ':device:' || typed.typed_armis_ids[1]
+              )
             )
           )
           AND NOT EXISTS (
@@ -719,7 +742,7 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
 
         integration_matches? =
           repair.integration_type != "armis" or
-            metadata["integration_id"] == repair.typed_armis_id
+            metadata["integration_id"] == repair.integration_id
 
         if armis_matches? and integration_matches?,
           do: :ok,
@@ -773,21 +796,27 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
       },
       "repaired" => %{
         "armis_device_id" => repair.typed_armis_id,
-        "integration_id" => if(repair.integration_type == "armis", do: repair.typed_armis_id)
+        "integration_id" => if(repair.integration_type == "armis", do: repair.integration_id)
       }
     }
 
     maybe_put(
       %{"armis_device_id" => repair.typed_armis_id, "source_identity_repair" => audit},
       "integration_id",
-      if(repair.integration_type == "armis", do: repair.typed_armis_id)
+      if(repair.integration_type == "armis", do: repair.integration_id)
     )
   end
 
   defp repair_row(row) do
     metadata = row["metadata"] || %{}
 
+    integration_id =
+      if String.contains?(row["old_integration_id"] || "", ":") do
+        IntegrationIdentity.scoped_device_id("armis", row["source_id"], row["typed_armis_id"])
+      end
+
     %{
+      integration_id: integration_id || row["typed_armis_id"],
       source_type: "armis",
       source_id: normalize_string(row["source_id"]),
       source_identifier_type: "armis_device_id",

@@ -151,7 +151,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries do
         annotations: annotations,
         reference_lines: reference_lines,
         y_scale: y_scale,
-        chart_overlays: chart_overlays
+        chart_overlays: chart_overlays,
+        time_window: Map.get(assigns, :time_window)
       )
 
     {combined_charts, individual_series} =

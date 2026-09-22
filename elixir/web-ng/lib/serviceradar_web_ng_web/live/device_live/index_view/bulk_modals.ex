@@ -2,9 +2,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.BulkModals do
   @moduledoc false
   use ServiceRadarWebNGWeb, :html
 
+  import ServiceRadarWebNGWeb.DeviceLive.IndexView.Rows, only: [has_any_filter?: 1]
+
   # Bulk Edit Modal Component
   attr(:form, :any, required: true)
+  attr(:state_form, :any, required: true)
+  attr(:scope_form, :any, required: true)
   attr(:selected_count, :integer, required: true)
+  attr(:target_scope, :string, default: "selected")
+  attr(:matching_count, :integer, default: nil)
+  attr(:srql, :map, default: %{})
 
   def bulk_edit_modal(assigns) do
     ~H"""
@@ -12,8 +19,30 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.BulkModals do
       <:title>Bulk Edit Devices</:title>
 
       <p class="text-sm text-sr-muted">
-        Apply tags to {@selected_count} selected device(s).
+        <%= if @target_scope == "all_matching" do %>
+          Targeting all {@matching_count} matching device(s) from the current query.
+        <% else %>
+          Targeting {@selected_count} selected device(s).
+        <% end %>
       </p>
+
+      <.form
+        for={@scope_form}
+        id="bulk-scope-form"
+        phx-change="bulk_state_scope_change"
+        class="mb-5 rounded-sr-control border border-sr-line bg-sr-control/40 px-3.5 py-3"
+      >
+        <.input
+          field={@scope_form[:scope]}
+          id="bulk-state-scope"
+          type="select"
+          label="Apply to"
+          options={scope_options(@srql, @selected_count, @matching_count)}
+        />
+        <p class="mt-1 text-xs text-sr-muted">
+          Applies to both the tags and the state changes you submit below.
+        </p>
+      </.form>
 
       <.form for={@form} id="bulk-tags-form" phx-submit="apply_bulk_tags" class="space-y-4">
         <div>
@@ -39,8 +68,76 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.BulkModals do
           </.ui_button>
         </div>
       </.form>
+
+      <div class="mt-6 border-t border-sr-line pt-4">
+        <.form for={@state_form} id="bulk-state-form" phx-submit="apply_bulk_state" class="space-y-4">
+          <div class="grid gap-4 sm:grid-cols-2">
+            <.input
+              field={@state_form[:service_state]}
+              id="bulk-state-service"
+              type="select"
+              label="Service state"
+              options={service_state_options()}
+            />
+            <.input
+              field={@state_form[:managed_state]}
+              id="bulk-state-managed"
+              type="select"
+              label="Managed"
+              options={managed_state_options()}
+            />
+          </div>
+
+          <p class="text-xs text-sr-muted">
+            "Out of service" marks the device inactive without deleting it. Agent-backed
+            devices are never marked unmanaged.
+          </p>
+
+          <div class="flex justify-end gap-2 pt-2">
+            <.ui_button type="button" phx-click="close_bulk_edit_modal" variant="ghost">
+              Cancel
+            </.ui_button>
+            <.ui_button type="submit" variant="primary">
+              Apply Changes
+            </.ui_button>
+          </div>
+        </.form>
+      </div>
     </.ui_modal>
     """
+  end
+
+  defp service_state_options do
+    [
+      {"Leave unchanged", "no_change"},
+      {"In service (active)", "active"},
+      {"Out of service (inactive)", "inactive"}
+    ]
+  end
+
+  defp managed_state_options do
+    [
+      {"Leave unchanged", "no_change"},
+      {"Managed", "managed"},
+      {"Unmanaged", "unmanaged"}
+    ]
+  end
+
+  defp scope_options(srql, selected_count, total_matching_count) do
+    selected = [{"Selected (#{selected_count})", "selected"}]
+
+    if has_any_filter?(srql) do
+      all_label =
+        if is_integer(total_matching_count) do
+          "All #{total_matching_count} matching"
+        else
+          "All matching"
+        end
+
+      selected ++ [{all_label, "all_matching"}]
+    else
+      selected
+    end
   end
 
   # Bulk Delete Modal Component

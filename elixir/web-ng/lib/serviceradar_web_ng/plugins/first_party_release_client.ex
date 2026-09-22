@@ -23,6 +23,8 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
   alias ServiceRadarWebNG.Plugins.CosignVerifier
   alias ServiceRadarWebNG.Plugins.Storage
 
+  require Logger
+
   Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
   @github_host "github.com"
@@ -93,6 +95,97 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
         %Req.Response{status: status} when status in [401, 403] -> {:error, credential_reason(repo, status)}
         %Req.Response{status: status} -> {:error, "Release import failed with HTTP #{status}"}
       end
+    end
+  end
+
+  @doc """
+  True when GitHub answered that the requested release catalog does not exist.
+
+  Used by automatic sync to distinguish "this tag was never published" or
+  "this private repository is invisible without a token" from retryable
+  credential/transport failures. GitHub reports both cases as HTTP 404.
+  """
+  @spec missing_release?(term()) :: boolean()
+  def missing_release?(reason) when is_binary(reason) do
+    (String.contains?(reason, "Release tag ") and String.contains?(reason, " was not found")) or
+      String.contains?(reason, "Repository or releases not found")
+  end
+
+  def missing_release?(_reason), do: false
+
+  @doc """
+  True when a discovery failure is a property of the published release rather
+  than of the attempt, so every retry reports the same thing.
+
+  Kept separate from `missing_release?/1`, which decides only whether discovery
+  falls back to the recent-release feed: a release GitHub does serve but that
+  publishes no catalog index asset must still surface as that repository's sync
+  error instead of quietly importing a different release. Neither outcome
+  changes when Oban tries again seconds later, so an unattended sync records the
+  reason and leaves the next attempt to its scheduled successor.
+  """
+  @spec permanent_failure?(term()) :: boolean()
+  def permanent_failure?(reason) when is_binary(reason) do
+    missing_release?(reason) or
+      (String.contains?(reason, "Release asset ") and String.contains?(reason, " was not found"))
+  end
+
+  def permanent_failure?(_reason), do: false
+
+  # Sentinel release option in the Plugins settings UI meaning "every release
+  # this repository publishes" (see @all_releases_tag in
+  # Admin.PluginPackageLive.Index). It is not a GitHub tag, so the
+  # unattended-sync fallback must not treat it as an unpublished deployed tag:
+  # the admin import keeps its historical exact-only lookup and the 404
+  # surfaces instead of silently importing another feed.
+  @admin_all_releases_sentinel "__all_releases__"
+
+  @doc """
+  The Plugins settings UI "all releases" sentinel, which is never a GitHub tag.
+  """
+  @spec admin_all_releases_sentinel() :: String.t()
+  def admin_all_releases_sentinel, do: @admin_all_releases_sentinel
+
+  @doc """
+  Discovers catalog entries for unattended sync.
+
+  Prefers the exact deployed release tag when GitHub has that release.
+  When that tag 404s -- unpublished VERSION, a sha-style demo rollout, or a
+  private repository the process cannot see -- falls back to the recent-release
+  feed. Errors from that feed are returned to the caller. The success triple
+  reports which feed served the entries so callers do not re-filter a fallback
+  feed by the tag that 404d.
+  """
+  @spec resolve_catalog(String.t() | nil, (String.t() -> {:ok, term()} | {:error, term()}), (-> {:ok, term()}
+                                                                                                | {:error, term()})) ::
+          {:ok, term(), :exact | :recent} | {:error, term()}
+  def resolve_catalog(release_tag, exact_fun, recent_fun)
+      when is_binary(release_tag) and release_tag != "" and is_function(exact_fun, 1) and is_function(recent_fun, 0) do
+    case exact_fun.(release_tag) do
+      {:ok, items} ->
+        {:ok, items, :exact}
+
+      {:error, reason} ->
+        if missing_release?(reason) do
+          Logger.warning(
+            "Deployed GitHub release #{release_tag} is not available; falling back to recent releases",
+            reason: inspect(reason, limit: 20, printable_limit: 500)
+          )
+
+          case recent_fun.() do
+            {:ok, items} -> {:ok, items, :recent}
+            {:error, _} = error -> error
+          end
+        else
+          {:error, reason}
+        end
+    end
+  end
+
+  def resolve_catalog(_release_tag, _exact_fun, recent_fun) when is_function(recent_fun, 0) do
+    case recent_fun.() do
+      {:ok, items} -> {:ok, items, :recent}
+      {:error, _} = error -> error
     end
   end
 

@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
+  alias ServiceRadarWebNG.Plugins.FirstPartyReleaseClient
   alias ServiceRadarWebNG.Plugins.Packages
   alias ServiceRadarWebNG.Plugins.Repositories
 
@@ -85,14 +86,31 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
         # was only one source so there was nothing to isolate.
         results = Enum.map(repositories, &sync_repository(&1, args, actor))
 
-        if Enum.any?(results, &match?({:error, _}, &1)) do
-          # Reported as an error so Oban retries, but only after every
-          # repository has had its turn.
-          {:error, :partial_plugin_sync_failure}
-        else
-          :ok
-        end
+        aggregate_results(results)
     end
+  end
+
+  @doc """
+  Folds per-repository sync outcomes into the Oban job result.
+
+  Any failure a retry could still resolve (expired token, HTTP 5xx, invalid
+  settings -- including atom reasons such as `:invalid_attributes`) fails the
+  job as `:partial_plugin_sync_failure` so Oban retries, but only after every
+  repository has had its turn. A failure that describes the published release
+  itself -- an unpublished tag, or a release carrying no plugin index asset --
+  reports identically on all three attempts, so the per-repository
+  `last_sync_error` records why and the job succeeds, leaving the next attempt
+  to the hourly successor.
+  """
+  @spec aggregate_results([:ok | {:error, term()}]) :: :ok | {:error, :partial_plugin_sync_failure}
+  def aggregate_results(results) when is_list(results) do
+    retryable? =
+      Enum.any?(results, fn
+        {:error, reason} -> not FirstPartyReleaseClient.permanent_failure?(reason)
+        _ -> false
+      end)
+
+    if retryable?, do: {:error, :partial_plugin_sync_failure}, else: :ok
   end
 
   defp sync_repository(repository, args, actor) do
@@ -102,6 +120,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
           Keyword.put(
             [
               actor: actor,
+              allow_release_fallback: true,
               repo_url: import_attrs["repo_url"],
               index_asset_name: import_attrs["index_asset_name"],
               github_token: import_attrs["github_token"],
@@ -198,7 +217,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorker do
   defp check_existing_job do
     query =
       from(j in Oban.Job,
-        where: j.worker == ^to_string(__MODULE__),
+        where: j.worker == ^Oban.Worker.to_string(__MODULE__),
         where: j.state in ^@bootstrap_states,
         where: fragment("COALESCE(?->>'force', 'false') <> 'true'", j.args),
         limit: 1

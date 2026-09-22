@@ -3,7 +3,7 @@
 package main
 
 import (
-	"github.com/carverauto/serviceradar-sdk-go/sdk"
+	"github.com/carverauto/serviceradar-sdk-go/v2/sdk"
 )
 
 // Config is decoded from the per-assignment configuration an operator sets in

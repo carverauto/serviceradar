@@ -105,6 +105,37 @@ pub(super) fn memory_metrics() -> VizMeta {
     }
 }
 
+pub(super) fn timeseries_metric_disk_hourly() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col(
+                "bucket",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+            col("device_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("metric_type", ColumnType::Text, None),
+            col("metric_name", ColumnType::Text, None),
+            col("series_key", ColumnType::Text, None),
+            col(
+                "mount_point",
+                ColumnType::Text,
+                Some(ColumnSemantic::Series),
+            ),
+            col("avg_value", ColumnType::Float, Some(ColumnSemantic::Value)),
+            col("min_value", ColumnType::Float, Some(ColumnSemantic::Value)),
+            col("max_value", ColumnType::Float, Some(ColumnSemantic::Value)),
+            col("sample_count", ColumnType::Int, None),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Timeseries,
+            x: Some("bucket".to_string()),
+            y: Some("avg_value".to_string()),
+            series: Some("mount_point".to_string()),
+        }],
+    }
+}
+
 pub(super) fn disk_metrics() -> VizMeta {
     VizMeta {
         columns: vec![

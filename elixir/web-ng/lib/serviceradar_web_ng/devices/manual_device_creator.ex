@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.Fence
   alias ServiceRadar.Inventory.IdentityReconciler
+  alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Devices.HostnameResolver
 
   require Ash.Query
@@ -142,7 +143,7 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
       is_managed: true,
       is_active: true,
       tags: normalize_tags(device_data.tags),
-      metadata: device_data.metadata,
+      metadata: Map.put(device_data.metadata, "type_manually_set", meaningful_type?(device_data.type)),
       discovery_sources: ["manual"],
       first_seen_time: now,
       last_seen_time: now,
@@ -385,12 +386,21 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
     end
   end
 
-  defp update_existing_device(%Device{} = device, attrs, scope) do
+  @doc false
+  def update_existing_device(%Device{} = device, attrs, scope) do
     update_attrs = additional_update_attrs(device, attrs)
 
-    device
-    |> Ash.Changeset.for_update(:update, update_attrs)
-    |> Ash.update(scope: scope)
+    Repo.transaction(fn ->
+      with {:ok, device} <- put_type_ownership(device, update_attrs),
+           {:ok, updated} <-
+             device
+             |> Ash.Changeset.for_update(:update, update_attrs)
+             |> Ash.update(scope: scope) do
+        updated
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
   end
 
   @doc false
@@ -413,6 +423,43 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
       merge_discovery_sources(Map.get(device, :discovery_sources), incoming_sources)
     )
   end
+
+  defp put_type_ownership(device, update) do
+    submitted_ownership =
+      case Map.fetch(update, :type) do
+        {:ok, type} -> meaningful_type?(type)
+        :error -> nil
+      end
+
+    case Repo.query(
+           """
+           UPDATE platform.ocsf_devices
+           SET metadata = COALESCE(metadata, '{}'::jsonb) ||
+             jsonb_build_object('type_manually_set', COALESCE(
+               $2::boolean,
+               metadata->'type_manually_set' = 'true'::jsonb,
+               'manual' = ANY(COALESCE(discovery_sources, ARRAY[]::text[]))
+                 AND lower(COALESCE(NULLIF(btrim(type), ''), 'unknown')) <> 'unknown'
+             ))
+           WHERE uid = $1
+           RETURNING metadata, type, type_id
+           """,
+           [device.uid, submitted_ownership]
+         ) do
+      {:ok, %{rows: [[metadata, type, type_id]]}} ->
+        {:ok, %{device | metadata: metadata, type: type, type_id: type_id}}
+
+      {:ok, %{rows: []}} ->
+        {:error, :not_found}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp meaningful_type?(type) when is_binary(type), do: String.downcase(String.trim(type)) not in ["", "unknown"]
+
+  defp meaningful_type?(_type), do: false
 
   defp maybe_put_hostname(update, _device, attrs) do
     case Map.get(attrs, :hostname) do
@@ -455,7 +502,9 @@ defmodule ServiceRadarWebNG.Devices.ManualDeviceCreator do
 
   defp maybe_merge_metadata(device, %{metadata: metadata}, scope) when is_map(metadata) and map_size(metadata) > 0 do
     device
-    |> Ash.Changeset.for_update(:merge_metadata, %{metadata_patch: metadata})
+    |> Ash.Changeset.for_update(:merge_metadata, %{
+      metadata_patch: Map.delete(metadata, "type_manually_set")
+    })
     |> Ash.update(scope: scope)
   end
 

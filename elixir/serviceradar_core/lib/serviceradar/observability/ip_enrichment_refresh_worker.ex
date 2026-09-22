@@ -24,6 +24,7 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
   alias Oban.Engine
   alias Oban.Job
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Analytics.StarRocks.Readers
   alias ServiceRadar.Observability.GeoIP
   alias ServiceRadar.Observability.IpGeoEnrichmentCache
   alias ServiceRadar.Observability.IpInfo
@@ -69,7 +70,7 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
   defp check_existing_job do
     query =
       from(j in Job,
-        where: j.worker == ^to_string(__MODULE__),
+        where: j.worker == ^Oban.Worker.to_string(__MODULE__),
         where: j.state in ["available", "scheduled", "executing", "retryable"],
         limit: 1
       )
@@ -78,22 +79,18 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
   end
 
   defp reap_stale_executing_jobs do
-    config = Application.get_env(:serviceradar_core, __MODULE__, [])
-
-    stale_minutes =
-      Keyword.get(config, :stale_executing_minutes, @default_stale_executing_minutes)
-
-    cutoff = DateTime.add(DateTime.utc_now(), -max(stale_minutes, 1) * 60, :second)
+    stale_minutes = stale_executing_minutes()
+    cutoff = DateTime.add(DateTime.utc_now(), -stale_minutes * 60, :second)
 
     query =
       from(j in Job,
-        where: j.worker == ^to_string(__MODULE__),
+        where: j.worker == ^Oban.Worker.to_string(__MODULE__),
         where: j.state == "executing",
         where: not is_nil(j.attempted_at) and j.attempted_at < ^cutoff
       )
 
     case Engine.rescue_jobs(Oban.config(Oban), query,
-           rescue_after: to_timeout(minute: max(stale_minutes, 1))
+           rescue_after: to_timeout(minute: stale_minutes)
          ) do
       {:ok, []} ->
         :ok
@@ -117,8 +114,42 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
       :ok
   end
 
+  defp stale_executing_minutes do
+    :serviceradar_core
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(:stale_executing_minutes, @default_stale_executing_minutes)
+    |> max(1)
+  end
+
+  # reap_stale_executing_jobs/0 rescues any executing refresh job attempted more than
+  # :stale_executing_minutes ago without checking that it stopped, so a run is ended well before
+  # then and is never rescued while it is still running.
   @impl Oban.Worker
-  def perform(_job) do
+  def timeout(_job), do: div(to_timeout(minute: stale_executing_minutes()), 2)
+
+  @impl Oban.Worker
+  def perform(job) do
+    # Flows are warehouse-only. Until the dataset is cut over there is nothing
+    # to read, and every helper below degrades an empty read to "no traffic",
+    # so the refusal is said out loud here rather than looking like an idle
+    # network forever -- but at debug, because the scheduler re-arms this job
+    # every minute and a stock install has flows uncut forever. It is a
+    # configured state, not a job failure, so the pass reports itself
+    # inapplicable and does nothing else.
+    case Readers.mode_for(:flows) do
+      {:error, :starrocks_required} ->
+        Logger.debug(
+          "#{inspect(__MODULE__)}: flows are not cut over to StarRocks; skipping this pass"
+        )
+
+        {:ok, :not_applicable}
+
+      _mode ->
+        refresh(job)
+    end
+  end
+
+  defp refresh(_job) do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
     scan_window = Keyword.get(config, :scan_window, @default_scan_window)
     limit = Keyword.get(config, :limit, @default_limit)

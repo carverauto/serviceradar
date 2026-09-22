@@ -163,13 +163,19 @@ defmodule ServiceRadarWebNGWeb.Auth.SSOProvisioning do
   defp maybe_sync_group_memberships({:ok, user}, resolution, actor) do
     record_mapping_provenance(user, resolution)
     group_ids = MappedUserGroups.ids_for_resolution(resolution, actor: actor)
-    result = IdpGroupMemberships.sync(user.id, group_ids, actor: actor)
 
-    if result.added != [] or result.withdrawn != [] do
-      Logger.info(
-        "Synced IdP group memberships for user #{user.id}: " <>
-          "added=#{length(result.added)} withdrawn=#{length(result.withdrawn)}"
-      )
+    case IdpGroupMemberships.sync(user.id, group_ids, actor: actor) do
+      %{added: added, withdrawn: withdrawn} when added != [] or withdrawn != [] ->
+        Logger.info(
+          "Synced IdP group memberships for user #{user.id}: " <>
+            "added=#{length(added)} withdrawn=#{length(withdrawn)}"
+        )
+
+      %{added: _added, withdrawn: _withdrawn} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Could not reconcile IdP group memberships for user #{user.id}: #{inspect(reason)}")
     end
 
     {:ok, user}

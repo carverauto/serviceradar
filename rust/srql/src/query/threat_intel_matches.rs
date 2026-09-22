@@ -281,16 +281,16 @@ fn indicator_condition(filter: &Filter, binds: &mut Vec<BindParam>) -> Result<St
         let value = values.into_iter().next().unwrap();
         binds.push(BindParam::Text(value));
         if cidr_like {
-            Ok("i.indicator = ?::cidr".into())
+            Ok("i.indicator = ?::text::cidr".into())
         } else {
-            Ok("i.indicator >>= ?::inet".into())
+            Ok("i.indicator >>= ?::text::inet".into())
         }
     } else {
         binds.push(BindParam::TextArray(values));
         if cidr_like {
-            Ok("i.indicator = ANY(?::cidr[])".into())
+            Ok("i.indicator = ANY(?::text[]::cidr[])".into())
         } else {
-            Ok("i.indicator >>= ANY(?::inet[])".into())
+            Ok("i.indicator >>= ANY(?::text[]::inet[])".into())
         }
     }
 }

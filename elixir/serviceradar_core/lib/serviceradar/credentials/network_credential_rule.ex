@@ -12,10 +12,12 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
     extensions: [AshPaperTrail.Resource],
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Credentials.Changes.GuardCredentialRuleLifecycle
   alias ServiceRadar.Credentials.NetworkCredentialRulePreview
   alias ServiceRadar.Credentials.NetworkCredentialRuleTestDispatcher
   alias ServiceRadar.Credentials.NetworkCredentialRuleTestPlan
   alias ServiceRadar.Credentials.Validations.TargetQuery
+  alias ServiceRadar.Credentials.Validations.TrustMaterial
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @credential_manage_check {ActorHasPermission, permission: "settings.credentials.manage"}
@@ -35,6 +37,8 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
     :allowed_ports,
     :tls_policy,
     :ssh_host_key_policy,
+    :ca_bundle_pem,
+    :server_cert_fingerprint,
     :metadata
   ]
 
@@ -42,6 +46,13 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
     table "network_credential_rules"
     repo ServiceRadar.Repo
     schema "platform"
+
+    foreign_key_names [
+      {:id, "proxmox_console_sessions_credential_rule_id_fkey", "credential_rule_in_use"},
+      {:id, "remote_access_sessions_credential_rule_id_fkey", "credential_rule_in_use"},
+      {:id, "remote_access_requests_credential_rule_id_fkey", "credential_rule_in_use"},
+      {:id, "remote_access_desktop_targets_credential_rule_id_fkey", "credential_rule_in_use"}
+    ]
 
     references do
       reference :secret, on_delete: :restrict
@@ -51,11 +62,11 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
   paper_trail do
     primary_key_type :uuid_v7
     table_name "network_credential_rule_versions"
-    mixin {ServiceRadar.Credentials.PaperTrailMixin, :mixin, []}
+    mixin {ServiceRadar.Credentials.PaperTrailMixin, :retained_versions_with_audit_actor, []}
     change_tracking_mode :changes_only
     store_action_name? true
     store_action_inputs? true
-    create_version_on_destroy? false
+    create_version_on_destroy? true
     ignore_attributes [:inserted_at, :updated_at]
   end
 
@@ -68,6 +79,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
 
     define :create_rule, action: :create
     define :update_rule, action: :update
+    define :destroy_rule, action: :destroy
     define :preview, action: :preview, args: [:id]
     define :proxmox_api_test_plan, action: :proxmox_api_test_plan, args: [:id]
     define :dispatch_proxmox_api_test, action: :dispatch_proxmox_api_test, args: [:id]
@@ -99,11 +111,13 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
     create :create do
       accept @fields
       validate TargetQuery
+      validate TrustMaterial
     end
 
     update :update do
       accept @fields
       validate TargetQuery
+      validate TrustMaterial
     end
 
     update :enable do
@@ -112,6 +126,10 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
 
     update :disable do
       change set_attribute(:enabled, false)
+    end
+
+    destroy :destroy do
+      change {GuardCredentialRuleLifecycle, mode: :destroy}
     end
 
     update :record_test_result do
@@ -160,7 +178,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
 
     system_bypass()
     read_with_permission(@credential_manage_check)
-    action_type_with_permission([:create, :update], @credential_manage_check)
+    action_type_with_permission([:create, :update, :destroy], @credential_manage_check)
     action_with_permission(:preview, @credential_manage_check)
     action_with_permission(:proxmox_api_test_plan, @credential_manage_check)
     action_with_permission(:dispatch_proxmox_api_test, @credential_manage_check)
@@ -267,6 +285,19 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
       public? true
       default :known_hosts
       constraints one_of: [:known_hosts, :trust_on_first_use, :skip_verify]
+    end
+
+    # Trust anchors, not secrets: publishing a CA certificate reveals nothing,
+    # and keeping them on the rule lets an operator read back what a rule
+    # trusts. See Validations.TrustMaterial.
+    attribute :ca_bundle_pem, :string do
+      allow_nil? true
+      public? true
+    end
+
+    attribute :server_cert_fingerprint, :string do
+      allow_nil? true
+      public? true
     end
 
     attribute :last_test_status, :atom do

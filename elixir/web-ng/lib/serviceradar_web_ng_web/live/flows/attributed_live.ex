@@ -2,15 +2,18 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
+  import ServiceRadarWebNGWeb.MetricWindowComponents, only: [metric_window_controls: 1]
+
   alias ServiceRadar.Observability.IpRdnsCache
+  alias ServiceRadarWebNGWeb.MetricWindowComponents
   alias ServiceRadarWebNGWeb.NetFlow.EnrichmentExpiry
+  alias ServiceRadarWebNGWeb.SRQL.Builder
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   require Ash.Query
   require Logger
 
   @refresh_interval_ms 5_000
-  @time_window_hours 24
   @default_filter "attributed"
   @filters ~w(attributed unmatched all)
   @default_page_size 50
@@ -22,7 +25,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
       socket
       |> assign(:page_title, "Attributed Flows")
       |> assign(:current_path, "/observability/flows/attributed")
-      |> assign(:time_window_hours, @time_window_hours)
+      |> assign(:time_window, "last_24h")
       |> assign(:filter, @default_filter)
       |> assign(:page, 1)
       |> assign(:page_size, @default_page_size)
@@ -96,7 +99,22 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   end
 
   def handle_event("set_filter", %{"filter" => filter}, socket) do
-    {:noreply, push_patch(socket, to: patch_path(filter, 1, socket.assigns.page_size))}
+    {:noreply, push_patch(socket, to: attributed_patch_path(socket, filter, 1))}
+  end
+
+  def handle_event("attributed_set_range", %{"range" => range}, socket) do
+    if range in MetricWindowComponents.ranges() do
+      {:noreply, patch_attributed_window(socket, range)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("attributed_custom_range", %{"window" => params}, socket) do
+    case MetricWindowComponents.custom_range(params, max_days: 90) do
+      {:ok, range} -> {:noreply, patch_attributed_window(socket, range)}
+      {:error, message} -> {:noreply, put_flash(socket, :error, message)}
+    end
   end
 
   def handle_event("goto_page", %{"page" => page}, socket) do
@@ -105,7 +123,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
     {:noreply,
      socket
      |> assign(:live?, false)
-     |> push_patch(to: patch_path(socket.assigns.filter, page, socket.assigns.page_size))}
+     |> push_patch(to: attributed_patch_path(socket, socket.assigns.filter, page))}
   end
 
   def handle_event("toggle_live", _params, socket) do
@@ -119,7 +137,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
         {:noreply,
          socket
          |> assign(:live?, true)
-         |> push_patch(to: patch_path(socket.assigns.filter, 1, socket.assigns.page_size))}
+         |> push_patch(to: attributed_patch_path(socket, socket.assigns.filter, 1))}
 
       true ->
         schedule_refresh()
@@ -191,15 +209,15 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
       |> assign(:loading?, true)
       |> assign(:load_request, request_id)
       |> start_async({:attributed_flows_load, request_id}, fn ->
-        load_flows_data(srql_module, scope, query, page, page_size, filter)
+        load_flows_data(srql_module, scope, query, page, page_size, filter, time_from_query(query))
       end)
     else
       socket
     end
   end
 
-  defp load_flows_data(srql_module, scope, query, page, page_size, filter) do
-    summary = fetch_summary(srql_module, scope)
+  defp load_flows_data(srql_module, scope, query, page, page_size, filter, time) do
+    summary = fetch_summary(srql_module, scope, time)
     total_for_filter = summary_count(summary, filter)
     page_count = page_count(total_for_filter, page_size)
     page = min(page, page_count)
@@ -232,12 +250,14 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
         loading: false
       })
 
-    assign(socket, :srql, srql)
+    socket
+    |> assign(:srql, srql)
+    |> assign(:time_window, time_from_query(query))
   end
 
-  defp fetch_summary(srql_module, scope) do
+  defp fetch_summary(srql_module, scope, time) do
     query =
-      ~s|in:attributed_flows time:last_24h stats:"count(*) as total, sum(bytes_total) as total_bytes by attribution_status" sort:total:desc limit:10|
+      ~s|in:attributed_flows time:#{time} stats:"count(*) as total, sum(bytes_total) as total_bytes by attribution_status" sort:total:desc limit:10|
 
     case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => rows}} when is_list(rows) ->
@@ -375,17 +395,38 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
       %{}
   end
 
+  @doc false
+  def map_srql_row(row), do: row_from_srql(row)
+
   defp row_from_srql(%{} = row) do
-    payload = map_value(row, "ocsf_payload") || %{}
-    attribution = map_value(payload, "attribution") || %{}
-    workload = map_value(attribution, "workload_identity") || %{}
-    public_endpoint = map_value(attribution, "public_endpoint") || %{}
-    pid = attribution |> map_value("pid") |> parse_int()
-    uid = attribution |> map_value("uid") |> parse_int()
+    payload = as_map(map_value(row, "ocsf_payload"))
+    attribution = as_map(map_value(payload, "attribution"))
+
+    workload =
+      as_map(
+        first_value([
+          map_value(row, "workload_identity"),
+          map_value(attribution, "workload_identity")
+        ])
+      )
+
+    public_endpoint = as_map(map_value(attribution, "public_endpoint"))
+
+    pid =
+      [map_value(row, "pid"), map_value(attribution, "pid")]
+      |> first_value()
+      |> parse_int()
+
+    uid =
+      [map_value(row, "uid"), map_value(attribution, "uid")]
+      |> first_value()
+      |> parse_int()
+
     protocol_num = row |> map_value("protocol_num") |> parse_int()
+    status = row |> map_value("attribution_status") |> clean_string()
 
     %{
-      id: flow_id(row, attribution),
+      id: flow_id(row, attribution, pid),
       timestamp: map_value(row, "time"),
       source: row |> map_value("src_endpoint_ip") |> clean_string(),
       source_port: row |> map_value("src_endpoint_port") |> parse_int(),
@@ -396,13 +437,26 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
       protocol_num: protocol_num,
       protocol: protocol_name(map_value(row, "protocol_name"), protocol_num),
       pid: pid,
-      comm: attribution |> map_value("comm") |> clean_string(),
-      cmdline: attribution |> map_value("redacted_cmdline") |> clean_string(),
+      comm:
+        [map_value(row, "comm"), map_value(attribution, "comm")]
+        |> first_value()
+        |> clean_string(),
+      cmdline:
+        [
+          map_value(row, "cmdline"),
+          map_value(attribution, "redacted_cmdline"),
+          map_value(attribution, "cmdline")
+        ]
+        |> first_value()
+        |> clean_string(),
       uid: uid,
-      container_id: attribution |> map_value("container_id") |> clean_string(),
-      agent_id: attribution_agent_id(payload),
+      container_id:
+        [map_value(row, "container_id"), map_value(attribution, "container_id")]
+        |> first_value()
+        |> clean_string(),
+      agent_id: [map_value(row, "agent_id"), attribution_agent_id(payload)] |> first_value() |> clean_string(),
       partition: clean_string(map_value(row, "partition") || map_value(payload, "partition")),
-      attributed?: not is_nil(pid),
+      attributed?: not is_nil(pid) or status == "attributed",
       source_hostname: nil,
       destination_hostname: nil,
       threat: nil,
@@ -466,9 +520,51 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
     end
   end
 
-  defp patch_path(filter, page, page_size) do
-    ~p"/observability/flows/attributed?#{%{filter: filter, page: page, per_page: page_size}}"
+  defp patch_path(filter, page, page_size, query) do
+    params = %{filter: filter, page: page, per_page: page_size}
+
+    params =
+      if is_binary(query) and query != "" and query != query_for_filter(filter, page_size) do
+        Map.put(params, :q, query)
+      else
+        params
+      end
+
+    ~p"/observability/flows/attributed?#{params}"
   end
+
+  defp attributed_patch_path(socket, filter, page) do
+    page_size = socket.assigns.page_size
+    time = time_from_query(socket.assigns.srql.query)
+    patch_path(filter, page, page_size, query_for_filter(filter, page_size, time))
+  end
+
+  defp patch_attributed_window(socket, range) do
+    query =
+      Builder.with_time_range(
+        socket.assigns.srql.query || query_for_filter(socket.assigns.filter, socket.assigns.page_size),
+        range
+      )
+
+    push_patch(socket, to: patch_path(socket.assigns.filter, 1, socket.assigns.page_size, query))
+  end
+
+  defp time_from_query(query) when is_binary(query) do
+    case Regex.run(~r/(?:^|\s)time:(\S+)/, query) do
+      [_, time] -> time
+      _ -> "last_24h"
+    end
+  end
+
+  defp time_from_query(_), do: "last_24h"
+
+  defp window_label("last_1h"), do: "Last hour"
+  defp window_label("last_6h"), do: "Last 6 hours"
+  defp window_label("last_24h"), do: "Last 24 hours"
+  defp window_label("last_7d"), do: "Last 7 days"
+  defp window_label("last_30d"), do: "Last 30 days"
+  defp window_label("last_90d"), do: "Last 90 days"
+  defp window_label(_), do: "Selected range"
 
   defp normalize_query(query, filter, page_size) when is_binary(query) do
     case String.trim(query) do
@@ -492,7 +588,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
     end
   end
 
-  defp query_for_filter(filter, page_size) do
+  defp query_for_filter(filter, page_size, time \\ "last_24h") do
     filter_token =
       case filter do
         "attributed" -> " attribution_status:attributed"
@@ -500,7 +596,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
         _ -> ""
       end
 
-    "in:attributed_flows time:last_24h#{filter_token} sort:time:desc limit:#{page_size}"
+    "in:attributed_flows time:#{time}#{filter_token} sort:time:desc limit:#{page_size}"
   end
 
   defp schedule_refresh, do: Process.send_after(self(), :refresh, @refresh_interval_ms)
@@ -581,10 +677,16 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
                   {filter_title(@filter)}
                 </div>
                 <div class="text-xs leading-relaxed text-sr-muted">
-                  Last {@time_window_hours} hours. Page {@page} of {@page_count}.
+                  {window_label(@time_window)}. Page {@page} of {@page_count}.
                 </div>
               </div>
-              <div class="flex items-center gap-2">
+              <div class="flex flex-wrap items-center justify-end gap-2">
+                <.metric_window_controls
+                  id="attributed-window"
+                  range={@time_window}
+                  event="attributed_set_range"
+                  custom_event="attributed_custom_range"
+                />
                 <.ui_button
                   type="button"
                   variant={if @live?, do: "primary", else: "ghost"}
@@ -688,7 +790,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
 
           <div :if={@rows == []} class="px-4 py-12 text-center">
             <div class="text-sm font-medium">
-              No {filter_empty_label(@filter)} flows in the last {@time_window_hours} hours.
+              No {filter_empty_label(@filter)} flows in {String.downcase(window_label(@time_window))}.
             </div>
             <div class="mt-1 text-xs text-sr-muted">
               Toggle to all rows or wait for the next flow-correlation cycle.
@@ -1086,6 +1188,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
 
   defp known_atom_key("agent_id"), do: :agent_id
   defp known_atom_key("attribution"), do: :attribution
+  defp known_atom_key("attribution_status"), do: :attribution_status
   defp known_atom_key("bytes_total"), do: :bytes_total
   defp known_atom_key("cmdline"), do: :cmdline
   defp known_atom_key("comm"), do: :comm
@@ -1119,7 +1222,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
     clean_string(map_value(payload, "agent_id") || map_value(map_value(payload, "metadata"), "agent_id"))
   end
 
-  defp flow_id(row, attribution) do
+  defp flow_id(row, attribution, pid) do
     [
       map_value(row, "time"),
       map_value(row, "src_endpoint_ip"),
@@ -1127,12 +1230,31 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
       map_value(row, "dst_endpoint_ip"),
       map_value(row, "dst_endpoint_port"),
       map_value(row, "protocol_num"),
-      attribution_agent_id(map_value(row, "ocsf_payload") || %{}),
-      map_value(attribution, "pid")
+      attribution_agent_id(as_map(map_value(row, "ocsf_payload"))),
+      pid || map_value(attribution, "pid")
     ]
     |> Enum.map_join("|", &to_string(&1 || ""))
     |> then(&:crypto.hash(:md5, &1))
     |> Base.encode16(case: :lower)
+  end
+
+  defp as_map(%{} = map), do: map
+
+  defp as_map(value) when is_binary(value) do
+    case Jason.decode(value) do
+      {:ok, %{} = map} -> map
+      _ -> %{}
+    end
+  end
+
+  defp as_map(_), do: %{}
+
+  defp first_value(values) when is_list(values) do
+    Enum.find_value(values, fn
+      nil -> nil
+      "" -> nil
+      value -> value
+    end)
   end
 
   defp clean_string(nil), do: nil

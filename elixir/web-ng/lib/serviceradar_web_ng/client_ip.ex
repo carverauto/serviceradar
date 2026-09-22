@@ -12,6 +12,8 @@ defmodule ServiceRadarWebNG.ClientIP do
 
   alias ServiceRadar.Policies.NetworkAddressPolicy
 
+  require Logger
+
   @xff_header "x-forwarded-for"
 
   @spec get(Plug.Conn.t()) :: String.t()
@@ -83,6 +85,21 @@ defmodule ServiceRadarWebNG.ClientIP do
       {:ok, parsed} -> {:ok, parsed}
       {:error, _} -> :error
     end
+  end
+
+  # No hop in the chain was outside `trusted_proxy_cidrs`, or the header carried no address
+  # at all. That is a MISCONFIGURATION, not a property of the request: the trusted list
+  # includes the range real clients connect from, so the client's own address was discarded
+  # as a proxy hop (listing RFC1918 wholesale does this to every LAN user). The direct peer
+  # is the only address left that is known to be real, so report it -- and say why. In
+  # v1.4.56 this raised instead, and every audited or rate-limited route was a 500.
+  defp valid_ip_or(nil, fallback) do
+    Logger.warning(
+      "x-forwarded-for had no address outside trusted_proxy_cidrs; recording the direct " <>
+        "peer #{fallback}. Narrow :client_ip trusted_proxy_cidrs to the proxy's own range."
+    )
+
+    fallback
   end
 
   defp valid_ip_or(ip, fallback) when is_binary(ip) do

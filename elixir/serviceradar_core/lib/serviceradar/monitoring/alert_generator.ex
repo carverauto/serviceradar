@@ -424,6 +424,11 @@ defmodule ServiceRadar.Monitoring.AlertGenerator do
 
   # Writing the row is the whole job: the row IS the notification request. See
   # the "Notification" section of the moduledoc for why nothing is enqueued here.
+  #
+  # Live tails learn about the new row through
+  # `ServiceRadar.Monitoring.AlertNotifier`, which fires on every Alert create
+  # (including writers that bypass this module, like the camera alert router),
+  # so nothing is broadcast here.
   defp create_alert(attrs, opts) do
     # DB connection's search_path determines the schema
     actor = Keyword.get(opts, :actor) || SystemActor.system(:alert_generator)

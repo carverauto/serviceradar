@@ -2,6 +2,8 @@
 // Help printing is owned by the top-level `printHelp()` in src/cli.ts, matching
 // the `dashboard` group, so the whole CLI surface is described in one place.
 
+import {applyCommand} from "./apply.js"
+import {dispatchPluginConfig} from "./config.js"
 import {initCommand} from "./init.js"
 import {publishCommand} from "./publish.js"
 import {statusCommand} from "./status.js"
@@ -22,6 +24,13 @@ export async function dispatchPlugin(
       return publishCommand(options)
     case "status":
       return statusCommand(options)
+    case "apply":
+      return applyCommand(options)
+    case "assignments":
+    case "secrets":
+    case "rules":
+    case "controllers":
+      return dispatchPluginConfig(subcommand, options)
     case "help":
     case "--help":
     case "-h":

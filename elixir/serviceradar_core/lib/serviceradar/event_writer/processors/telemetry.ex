@@ -79,7 +79,11 @@ defmodule ServiceRadar.EventWriter.Processors.Telemetry do
     if Enum.empty?(rows) do
       {:ok, 0}
     else
-      insert_telemetry_rows(rows)
+      ServiceRadar.Analytics.StarRocks.Destination.ack_cnpg_batch(
+        :metrics,
+        rows,
+        &insert_telemetry_rows/1
+      )
     end
   end
 

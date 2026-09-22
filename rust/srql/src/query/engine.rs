@@ -1,14 +1,15 @@
 use super::{
+    PaginationMeta, QueryPlan, QueryRequest, QueryResponse, TranslateRequest, TranslateResponse,
     addon_fleet, addon_statuses, advisory_coordinates, agents, alerts, bmp_events,
     build_query_plan, capacity_forecasts, composite_results, cpu_metrics, dashboard_service_views,
-    dashboards, device_graph, devices, disk_metrics, downsample, endpoint_inventory_scans,
-    endpoint_package_catalog, endpoint_packages, endpoint_vulnerability_matches, events,
-    field_survey, flows, gateways, graph_cypher, identity, interfaces, is_full_profile_query, logs,
-    memory_metrics, mtr_traces, otel_metric_points, otel_metrics, process_metrics,
-    public_endpoints, services, source_fact_disagreements, sweep_coverage, sweep_executions,
-    sweep_groups, sweep_profiles, sweep_results, threat_intel_matches, timeseries_metrics,
-    trace_summaries, traces, translate_request, virtualization, vulnerability_advisories, wifi_map,
-    PaginationMeta, QueryPlan, QueryRequest, QueryResponse, TranslateRequest, TranslateResponse,
+    dashboards, device_graph, device_sweep_overlap, devices, disk_metrics, downsample,
+    endpoint_inventory_scans, endpoint_package_catalog, endpoint_packages,
+    endpoint_vulnerability_matches, events, field_survey, flows, gateways, graph_cypher, graph_dql,
+    identity, interfaces, is_exhaustive_profile_query, logs, memory_metrics, mtr_traces,
+    otel_metric_points, otel_metrics, process_metrics, public_endpoints, services,
+    source_fact_disagreements, sweep_coverage, sweep_executions, sweep_groups, sweep_profiles,
+    sweep_results, threat_intel_matches, timeseries_metrics, trace_summaries, traces,
+    translate_request, virtualization, vulnerability_advisories, wifi_map,
 };
 use crate::{
     config::AppConfig,
@@ -38,6 +39,7 @@ impl QueryEngine {
     pub async fn execute_query(&self, request: QueryRequest) -> Result<QueryResponse> {
         let ast = parser::parse(&request.query)?;
         let plan = build_query_plan(&self.config, &request, ast)?;
+
         let mut conn = self.pool.get().await.map_err(|err| {
             error!(error = ?err, "failed to acquire database connection");
             ServiceError::Internal(anyhow::anyhow!("{err:?}"))
@@ -94,6 +96,9 @@ impl QueryEngine {
                 Entity::GraphCypher => {
                     graph_cypher::execute(&mut conn, &plan, &self.config.age_graph_name).await?
                 }
+                Entity::GraphDql => {
+                    graph_dql::execute(&plan, self.config.dgraph_url.as_deref()).await?
+                }
                 Entity::Events
                 | Entity::SecurityFindings
                 | Entity::ScanActivity
@@ -127,6 +132,7 @@ impl QueryEngine {
                 Entity::RperfMetrics
                 | Entity::TimeseriesMetrics
                 | Entity::TimeseriesMetricInterfaceHourly
+                | Entity::TimeseriesMetricDiskHourly
                 | Entity::SnmpMetrics => timeseries_metrics::execute(&mut conn, &plan).await?,
                 Entity::CpuMetrics => cpu_metrics::execute(&mut conn, &plan).await?,
                 Entity::MemoryMetrics => memory_metrics::execute(&mut conn, &plan).await?,
@@ -162,6 +168,9 @@ impl QueryEngine {
                 Entity::SweepExecutions => sweep_executions::execute(&mut conn, &plan).await?,
                 Entity::SweepResults => sweep_results::execute(&mut conn, &plan).await?,
                 Entity::SweepCoverage => sweep_coverage::execute(&mut conn, &plan).await?,
+                Entity::DeviceSweepOverlap => {
+                    device_sweep_overlap::execute(&mut conn, &plan).await?
+                }
                 Entity::VulnerabilityAdvisories => {
                     vulnerability_advisories::execute(&mut conn, &plan).await?
                 }
@@ -189,13 +198,9 @@ impl QueryEngine {
     fn build_pagination(&self, plan: &QueryPlan, fetched: i64) -> Result<PaginationMeta> {
         let next_offset = plan.offset.saturating_add(plan.limit);
         let next_cursor = if fetched >= plan.limit {
-            // Full hour-of-week profiles are consumed by the edge baseline
-            // producer in deterministic pages. A normal fleet needs 168 rows
-            // per series, so the generic offset cap previously turned a
-            // large-but-valid delivery into an empty failed run after 150k
-            // rows. Keep the public-query guard, but let this bounded,
-            // server-side profile aggregation paginate to completion.
-            if next_offset > self.config.max_cursor_offset && !is_full_profile_query(plan) {
+            // Share the profile classification with cursor decoding and translation;
+            // see is_exhaustive_profile_query for the pagination contract.
+            if next_offset > self.config.max_cursor_offset && !is_exhaustive_profile_query(plan) {
                 return Err(ServiceError::InvalidRequest(format!(
                     "query pagination reached the configured cursor limit of {} rows; narrow the query or raise srql_max_cursor_offset",
                     self.config.max_cursor_offset
@@ -248,13 +253,13 @@ mod tests {
 
     #[test]
     fn full_hour_of_week_profiles_are_exempt_from_the_generic_cursor_cap() {
-        assert!(is_full_profile_query(&plan(
+        assert!(is_exhaustive_profile_query(&plan(
             "profile_hour_of_week_full(value)"
         )));
     }
 
     #[test]
     fn ordinary_queries_remain_cursor_capped() {
-        assert!(!is_full_profile_query(&plan("profile_hour_of_week(value)")));
+        assert!(!is_exhaustive_profile_query(&plan("avg(value)")));
     }
 }

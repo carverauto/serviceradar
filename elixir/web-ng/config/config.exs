@@ -68,6 +68,10 @@ config :logger, :default_formatter,
     :viewer_id
   ]
 
+# The credentials API receives provider-specific material under `values`.
+# Filter the entire envelope before Phoenix formats request parameters.
+config :phoenix, :filter_parameters, ["password", "token", "secret", "values"]
+
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
 
@@ -255,7 +259,7 @@ config :serviceradar_web_ng, :first_party_plugin_import,
   # with no key to verify it against makes CosignVerifier fail closed, which is
   # how every install that did not hand-set a key ended up unable to import any
   # plugin at all. Public release key, byte-identical to docs/cosign.pub, kept in
-  # step by //:first_party_plugin_cosign_key_consistency_test.
+  # step by //build/contracts:first_party_plugin_cosign_key_consistency_test.
   cosign_public_key: """
   -----BEGIN PUBLIC KEY-----
   MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEhJcdPbybyipSl8sNHSKStAYiqhP7
@@ -267,6 +271,7 @@ config :serviceradar_web_ng, :first_party_plugin_import,
 config :serviceradar_web_ng, :god_view_enabled, false
 config :serviceradar_web_ng, :mcp_client_credentials_enabled, true
 config :serviceradar_web_ng, :mcp_enabled, false
+config :serviceradar_web_ng, :mcp_idp_refresh_client, ServiceRadarWebNGWeb.Auth.OIDCClient
 config :serviceradar_web_ng, :mcp_refresh_ttl_seconds, 8 * 3600
 
 config :serviceradar_web_ng, :native_addon_import,
@@ -302,7 +307,7 @@ config :serviceradar_web_ng, :plugin_verification,
   # when this map is empty, so an empty default meant no install could import a first-party
   # plugin -- the same failure as an unset cosign_public_key, one gate further in. Public
   # verification key, not a secret; kept in step by
-  # //:first_party_plugin_cosign_key_consistency_test.
+  # //build/contracts:first_party_plugin_cosign_key_consistency_test.
   # Fallback only. A package imported from a registered repository is verified
   # against that repository's `signing_public_key` instead of this map; see
   # `Packages.repository_policy/2`.
@@ -391,10 +396,7 @@ config :serviceradar_web_ng,
   ecto_repos: [ServiceRadar.Repo],
   generators: [timestamp_type: :utc_datetime]
 
-# Import environment specific config. This must remain at the bottom
-
-# Configure tailwind (the version is required)
-# of this file so it overrides the configuration defined above.
+# Configure tailwind (the version is required).
 config :tailwind,
   version: "4.1.12",
   serviceradar_web_ng: [
@@ -405,28 +407,11 @@ config :tailwind,
     cd: Path.expand("..", __DIR__)
   ]
 
-# Lint-only builds opt out of building the Rustler NIFs.
-#
-# //elixir/web-ng:precommit_check runs `mix precommit_fast`, which is
-# ["deps.unlock --unused", "format --check-formatted", "credo"] -- three source-level checks
-# that never load a NIF (`mix credo` declares @requirements ["loadpaths"], not ["compile"]).
-# Building them anyway costs several minutes per run: cargo updates the crates.io index and
-# compiles four crates in release mode.
-#
-# Rustler resolves its options as
-#   defaults |> Keyword.merge(use_opts) |> Keyword.merge(app_env_config)
-# (rustler/lib/rustler/compiler/config.ex), so this app-env config wins over the
-# `use Rustler, ...` options in each module. With :skip_compilation? set, Rustler also skips
-# the `cargo metadata` shell-out, so cargo is never invoked at all -- which is what lets the
-# precommit action drop the Rust toolchain and the rust/* source staging entirely.
-#
-# The root project's config applies to path dependencies too, because `mix deps.compile`
-# loads it before compiling them. That is why all four modules are configured from here.
-#
-# Guarded by an env var so lint-only CI and the Bazel lint action are affected;
-# every other build (dev, test, prod, //elixir/web-ng:release_tar) still
-# compiles the NIFs normally.
 if System.get_env("SERVICERADAR_SKIP_NIF_COMPILATION") == "1" do
+  # Rustler app-env options override module options, including in path dependencies.
+  # Skip both cargo metadata and NIF builds for source-only lint; other builds keep them.
+  config :serviceradar_core, ServiceRadar.Dgraph.Native, skip_compilation?: true
+  config :serviceradar_core, ServiceRadar.NetworkConfig.Native, skip_compilation?: true
   config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true
   config :serviceradar_core, ServiceRadar.Observability.Zen.Native, skip_compilation?: true
 
@@ -435,4 +420,5 @@ if System.get_env("SERVICERADAR_SKIP_NIF_COMPILATION") == "1" do
   config :serviceradar_web_ng, ServiceRadarWebNG.Topology.Native, skip_compilation?: true
 end
 
+# Import environment-specific config last so it overrides the configuration above.
 import_config "#{config_env()}.exs"

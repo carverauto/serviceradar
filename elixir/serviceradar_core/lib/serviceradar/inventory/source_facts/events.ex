@@ -6,6 +6,7 @@ defmodule ServiceRadar.Inventory.SourceFacts.Events do
   emitted only on state changes.
   """
 
+  alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Repo
 
@@ -63,6 +64,8 @@ defmodule ServiceRadar.Inventory.SourceFacts.Events do
       conflict_target: [:time, :id],
       returning: false
     )
+
+    _ = Destination.persist_after_cnpg(:events, [row])
 
     :ok
   rescue

@@ -31,6 +31,8 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
 
   @categories ~w(healthy updating action_required unavailable expected_inactive observed_only)
 
+  @finished_rollout_page_size 10
+
   @impl true
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
@@ -97,7 +99,21 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
   end
 
   def handle_event("toggle_finished_rollouts", _params, socket) do
-    {:noreply, assign(socket, :show_finished_rollouts, !socket.assigns.show_finished_rollouts)}
+    {:noreply,
+     socket
+     |> assign(:show_finished_rollouts, !socket.assigns.show_finished_rollouts)
+     |> assign(:finished_rollout_page, 1)}
+  end
+
+  def handle_event("finished_rollout_page", %{"page" => page}, socket) do
+    finished_count =
+      socket.assigns.rollouts
+      |> Enum.reject(& &1.active?)
+      |> length()
+
+    page = clamp_page(page, finished_count, socket.assigns.finished_rollout_page_size)
+
+    {:noreply, assign(socket, :finished_rollout_page, page)}
   end
 
   def handle_event("focus_rollout", %{"id" => id}, socket) do
@@ -107,9 +123,20 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
       socket.assigns.show_finished_rollouts or
         (is_map(rollout) and not rollout.active?)
 
+    finished_index =
+      socket.assigns.rollouts
+      |> Enum.reject(& &1.active?)
+      |> Enum.find_index(&(&1.id == id))
+
+    page =
+      if is_integer(finished_index),
+        do: div(finished_index, socket.assigns.finished_rollout_page_size) + 1,
+        else: socket.assigns.finished_rollout_page
+
     {:noreply,
      socket
      |> assign(:show_finished_rollouts, show_finished)
+     |> assign(:finished_rollout_page, page)
      |> assign(:expanded_rollouts, MapSet.put(socket.assigns.expanded_rollouts, id))}
   end
 
@@ -140,7 +167,10 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
       AddonFleet.overview(scope: socket.assigns.current_scope)
 
     show_finished = Map.get(socket.assigns, :show_finished_rollouts, false)
+    finished_page = Map.get(socket.assigns, :finished_rollout_page, 1)
     rollouts = AddonRollouts.list(scope: socket.assigns.current_scope)
+    finished_count = Enum.count(rollouts, &(not &1.active?))
+    finished_page = clamp_page(finished_page, finished_count, @finished_rollout_page_size)
 
     socket
     |> assign(:page_title, "Add-on Fleet")
@@ -149,6 +179,8 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
     |> assign(:catalog_only, catalog_only)
     |> assign(:rollouts, rollouts)
     |> assign(:show_finished_rollouts, show_finished)
+    |> assign(:finished_rollout_page, finished_page)
+    |> assign(:finished_rollout_page_size, @finished_rollout_page_size)
     |> assign(:expanded_rows, MapSet.new())
     |> assign(:expanded_rollouts, MapSet.new())
     |> assign(:categories, @categories)
@@ -329,6 +361,10 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
             </div>
           </:header>
 
+          <% visible_finished_rollouts =
+            @rollouts
+            |> visible_rollouts(@show_finished_rollouts)
+            |> Enum.reject(& &1.active?) %>
           <div class="sr-ui-table-shell">
             <table class={ui_table_class(size: "sm")}>
               <thead>
@@ -341,7 +377,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
                 </tr>
               </thead>
               <tbody>
-                <%= for rollout <- visible_rollouts(@rollouts, @show_finished_rollouts) do %>
+                <%= for rollout <- paged_rollouts(@rollouts, @show_finished_rollouts, @finished_rollout_page, @finished_rollout_page_size) do %>
                   <% expanded? = MapSet.member?(@expanded_rollouts, rollout.id) %>
                   <tr
                     id={"addon-rollout-#{rollout.id}"}
@@ -474,6 +510,14 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
                 <% end %>
               </tbody>
             </table>
+            <.pagination_controls
+              :if={length(visible_finished_rollouts) > @finished_rollout_page_size}
+              id_prefix="addon-finished-rollouts"
+              event="finished_rollout_page"
+              page={@finished_rollout_page}
+              total_items={length(visible_finished_rollouts)}
+              page_size={@finished_rollout_page_size}
+            />
           </div>
         </.ui_panel>
 
@@ -1088,6 +1132,112 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
     if Enum.any?(rollouts, & &1.active?),
       do: Enum.filter(rollouts, & &1.active?),
       else: rollouts
+  end
+
+  # Active rollouts always render in full; the finished history pages at
+  # @finished_rollout_page_size so a long tail stays reachable.
+  defp paged_rollouts(rollouts, show_finished, page, page_size) do
+    {active, finished} =
+      rollouts
+      |> visible_rollouts(show_finished)
+      |> Enum.split_with(& &1.active?)
+
+    active ++ paginated_items(finished, page, page_size)
+  end
+
+  defp paginated_items(items, page, page_size) when is_list(items) do
+    page = clamp_page(page, length(items), page_size)
+
+    items
+    |> Enum.drop((page - 1) * page_size)
+    |> Enum.take(page_size)
+  end
+
+  defp page_count(total_items, page_size) when is_integer(total_items) and total_items > 0,
+    do: max(1, ceil(total_items / page_size))
+
+  defp page_count(_total_items, _page_size), do: 1
+
+  defp page_range(total_items, page, page_size) when total_items > 0 do
+    page = clamp_page(page, total_items, page_size)
+    first_item = (page - 1) * page_size + 1
+    last_item = min(page * page_size, total_items)
+
+    {first_item, last_item}
+  end
+
+  defp page_range(_total_items, _page, _page_size), do: {0, 0}
+
+  defp clamp_page(page, total_items, page_size) do
+    page =
+      case page do
+        page when is_integer(page) -> page
+        page when is_binary(page) -> page |> Integer.parse() |> parsed_page()
+        _ -> 1
+      end
+
+    page
+    |> max(1)
+    |> min(page_count(total_items, page_size))
+  end
+
+  defp parsed_page({page, _rest}), do: page
+  defp parsed_page(:error), do: 1
+
+  attr(:id_prefix, :string, required: true)
+  attr(:event, :string, required: true)
+  attr(:page, :integer, required: true)
+  attr(:total_items, :integer, required: true)
+  attr(:page_size, :integer, required: true)
+
+  defp pagination_controls(assigns) do
+    page_count = page_count(assigns.total_items, assigns.page_size)
+    {first_item, last_item} = page_range(assigns.total_items, assigns.page, assigns.page_size)
+
+    assigns =
+      assign(assigns,
+        page_count: page_count,
+        first_item: first_item,
+        last_item: last_item
+      )
+
+    ~H"""
+    <div
+      :if={@total_items > 0}
+      class="flex flex-wrap items-center justify-between gap-3 border-t border-sr-line px-4 py-3 text-xs text-sr-muted"
+    >
+      <span>
+        Showing {@first_item}-{@last_item} of {@total_items}
+      </span>
+      <div class={ui_join_class()}>
+        <.ui_button
+          id={"#{@id_prefix}-prev-page"}
+          type="button"
+          phx-click={@event}
+          phx-value-page={@page - 1}
+          disabled={@page <= 1}
+          size="xs"
+          variant="neutral"
+        >
+          Previous
+        </.ui_button>
+        <.ui_button type="button" disabled size="xs" variant="ghost">
+          Page {@page} of {@page_count}
+        </.ui_button>
+        <.ui_button
+          id={"#{@id_prefix}-next-page"}
+          type="button"
+          phx-click={@event}
+          phx-value-page={@page + 1}
+          disabled={@page >= @page_count}
+          size="xs"
+          variant="neutral"
+        >
+          Next
+        </.ui_button>
+      </div>
+    </div>
+    """
   end
 
   defp rollout_state_badge_variant(:completed), do: "success"

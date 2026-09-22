@@ -1631,4 +1631,48 @@ describe("RemoteDesktopWebRTCClient", () => {
       "/api/desktop-sessions/session-ice-filter/webrtc/session/viewer-ice-filter/candidates"
     )
   })
+
+  it("calls the global fetch with a Window receiver when no fetchImpl is injected", async () => {
+    // Browsers enforce the WebIDL receiver check on Window.fetch: invoking a
+    // detached reference with any other receiver throws
+    // "Failed to execute 'fetch' on 'Window': Illegal invocation" before a
+    // request is ever issued, which the RDP launcher surfaces to the operator.
+    const originalFetch = globalThis.fetch
+    const receivers = []
+    const responses = [
+      {
+        ok: true,
+        json: async () => ({
+          data: {viewer_session_id: "viewer-default", offer_sdp: "v=0\r\nm=application"},
+        }),
+      },
+      {ok: true, json: async () => ({data: {signaling_state: "answer_applied"}})},
+    ]
+
+    globalThis.fetch = function fetch() {
+      receivers.push(this)
+
+      if (this !== globalThis) {
+        throw new TypeError("Failed to execute 'fetch' on 'Window': Illegal invocation")
+      }
+
+      return Promise.resolve(responses.shift())
+    }
+
+    try {
+      const client = new RemoteDesktopWebRTCClient({
+        signalingPath: "/api/desktop-sessions/session-default/webrtc/session",
+        documentRef: documentStub(),
+        peerConnectionFactory: () => new MockPeerConnection({}),
+      })
+
+      const result = await client.connect()
+
+      expect(result.viewerSessionId).toBe("viewer-default")
+      expect(receivers).toHaveLength(2)
+      expect(receivers.every((receiver) => receiver === globalThis)).toBe(true)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
 })

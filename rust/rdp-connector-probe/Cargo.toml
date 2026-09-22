@@ -25,7 +25,7 @@ ironrdp-graphics = { version = "=0.9.0", default-features = false }
 ironrdp-pdu = { version = "=0.9.0", default-features = false, features = ["std"] }
 # audited 2026-07-13; exact-pinned active-session state machine.
 ironrdp-session = { version = "=0.11.0", default-features = false }
-rustls = { version = "0.23.40", default-features = false, features = ["ring", "std", "tls12"] }
+rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-native-certs = "0.8.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

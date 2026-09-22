@@ -12,6 +12,7 @@ pub enum Entity {
     Interfaces,
     DeviceGraph,
     GraphCypher,
+    GraphDql,
     Events,
     SecurityFindings,
     ScanActivity,
@@ -57,6 +58,7 @@ pub enum Entity {
     CompositeResults,
     TimeseriesMetrics,
     TimeseriesMetricInterfaceHourly,
+    TimeseriesMetricDiskHourly,
     SnmpMetrics,
     TraceSummaries,
     Traces,
@@ -84,6 +86,7 @@ pub enum Entity {
     SweepExecutions,
     SweepResults,
     SweepCoverage,
+    DeviceSweepOverlap,
 }
 
 #[derive(Debug, Clone, Serialize)]

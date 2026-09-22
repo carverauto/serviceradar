@@ -86,6 +86,19 @@ fn implicitly_promotes_mtr_error_wildcards_to_like() {
     assert_implicit_wildcard_filter_is_like("error");
 }
 
+// `vendor` was on the implicit-LIKE allowlist but `vendor_name` (the OCSF
+// device field the UI and docs use) was not, so `vendor_name:%aruba%` stayed an
+// equality match on the literal `%aruba%` and found nothing.
+#[test]
+fn implicitly_promotes_device_vendor_name_wildcards_to_like() {
+    assert_implicit_wildcard_filter_is_like("vendor_name");
+}
+
+#[test]
+fn implicitly_promotes_device_model_wildcards_to_like() {
+    assert_implicit_wildcard_filter_is_like("model");
+}
+
 #[test]
 fn implicitly_promotes_device_type_wildcards_to_like() {
     for query in ["in:devices type:%rids%", "in:devices device_type:%rids%"] {
@@ -428,6 +441,40 @@ fn parses_device_graph_entity() {
 }
 
 #[test]
+fn parses_graph_dql_aliases_and_quoted_dql() {
+    let cases = ["graph", "graph_dql"];
+    for raw in cases {
+        let ast = parse(&format!(
+            r#"in:{raw} dql:'{{ q(func: eq(device.id, "sr:host01.example.com")) {{ device.id }} }}'"#
+        ))
+        .unwrap();
+        assert!(matches!(ast.entity, Entity::GraphDql), "entity alias {raw}");
+        assert_eq!(ast.filters[0].field, "dql");
+        assert!(
+            ast.filters[0]
+                .value
+                .as_scalar()
+                .unwrap()
+                .contains(r#"eq(device.id, "sr:host01.example.com")"#),
+            "inner DQL quotes must survive SRQL quoting for {raw}"
+        );
+    }
+
+    for rejected in ["graphdql", "dql"] {
+        assert!(
+            parse(&format!(
+                "in:{rejected} dql:'{{ q(func: uid(0x1)) {{ uid }} }}'"
+            ))
+            .is_err(),
+            "{rejected} is not a spelling the SRQL spec names"
+        );
+    }
+
+    let cypher = parse("in:graph_cypher cypher:\"MATCH (n) RETURN n\"").unwrap();
+    assert!(matches!(cypher.entity, Entity::GraphCypher));
+}
+
+#[test]
 fn parses_wifi_map_entities() {
     let cases = [
         ("wifi_sites", Entity::WifiSites),
@@ -561,6 +608,17 @@ fn parses_sweep_coverage_aliases() {
         let ast = parse(&format!("in:{alias} limit:1")).unwrap();
         assert!(
             matches!(ast.entity, Entity::SweepCoverage),
+            "alias {alias} failed"
+        );
+    }
+}
+
+#[test]
+fn parses_device_sweep_overlap_aliases() {
+    for alias in ["device_sweep_overlap", "sweep_overlap"] {
+        let ast = parse(&format!("in:{alias} limit:1")).unwrap();
+        assert!(
+            matches!(ast.entity, Entity::DeviceSweepOverlap),
             "alias {alias} failed"
         );
     }

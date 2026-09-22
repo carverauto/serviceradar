@@ -2,6 +2,8 @@
 
 Discovers **public / edge Kubernetes endpoint ownership** and builds
 **VIP → backend socket** correlation hints.
+Optional Node readiness collection is described in the
+[operator RBAC guide](../../../docs/docs/k8s-public-endpoint-inventory.md#helm-serviceaccount-and-rbac).
 
 **Operator documentation:** [docs/docs/k8s-public-endpoint-inventory.md](../../../docs/docs/k8s-public-endpoint-inventory.md)
 (ServiceAccount/RBAC via Helm, Argo CD notes, IR workflow).
@@ -23,7 +25,7 @@ lives in the operator doc above.
 
 ## What it answers
 
-Given a public flow destination such as `23.138.124.7:22`:
+Given a public flow destination such as `198.51.100.10:22`:
 
 1. **Ownership** — LoadBalancer Service and/or Gateway API route
 2. **Backends** — EndpointSlice pod/node/port
@@ -45,7 +47,7 @@ go test ./go/pkg/k8sinventory/ -count=1
 go build -o k8s-inventory ./go/cmd/k8s-inventory
 
 # one-shot dump
-./k8s-inventory snapshot --cluster-id demo --ip 23.138.124.7 --port 22
+./k8s-inventory snapshot --cluster-id demo --ip 198.51.100.10 --port 22
 
 # long-running with stdout publish (validates watch/rebuild without NATS)
 PUBLISH_MODE=stdout CLUSTER_ID=demo K8S_INVENTORY_METRICS_ADDR=:9109 \

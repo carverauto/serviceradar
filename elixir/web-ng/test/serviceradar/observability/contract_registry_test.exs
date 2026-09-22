@@ -91,7 +91,7 @@ defmodule ServiceRadarWebNG.Observability.ContractRegistryTest do
       package_key: :addon_id,
       ref: %{
         "producer_id" => "anomaly",
-        "producer_version" => "0.3.6",
+        "producer_version" => "0.3.11",
         "schema_id" => "com.carverauto.anomaly.detection_finding",
         "schema_version" => "1.0.0"
       }
@@ -101,7 +101,7 @@ defmodule ServiceRadarWebNG.Observability.ContractRegistryTest do
       package_key: :addon_id,
       ref: %{
         "producer_id" => "powerdns",
-        "producer_version" => "0.1.7",
+        "producer_version" => "0.1.8",
         "schema_id" => "com.carverauto.powerdns.dns_activity",
         "schema_version" => "1.0.0"
       }
@@ -121,7 +121,7 @@ defmodule ServiceRadarWebNG.Observability.ContractRegistryTest do
       package_key: :plugin_id,
       ref: %{
         "producer_id" => "proxmox-inventory",
-        "producer_version" => "0.1.7",
+        "producer_version" => "0.1.8",
         "schema_id" => "com.carverauto.proxmox.resource_event",
         "schema_version" => "1.0.0"
       }

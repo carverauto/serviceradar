@@ -85,7 +85,7 @@ type EndpointTarget struct {
 // CorrelationHint maps a public VIP:port to backend socket identities
 // that netprobe/process attribution may observe after kube-proxy/IPVS DNAT.
 //
-// Example: 23.138.124.7:22 → 10.42.221.140:10022 (envoy pod).
+// Example: 198.51.100.10:22 → 192.0.2.40:10022 (envoy pod).
 type CorrelationHint struct {
 	PublicIP       string `json:"public_ip,omitempty"`
 	PublicHostname string `json:"public_hostname,omitempty"`
@@ -99,7 +99,7 @@ type CorrelationHint struct {
 	PodName      string `json:"pod_name,omitempty"`
 	NodeName     string `json:"node_name,omitempty"`
 
-	// Owner summary for IR without full Endpoint copy.
+	// Owner summary for IR without a full Endpoint copy.
 	Namespace   string        `json:"namespace,omitempty"`
 	ServiceName string        `json:"service_name,omitempty"`
 	GatewayName string        `json:"gateway_name,omitempty"`
@@ -114,6 +114,37 @@ type Snapshot struct {
 	GeneratedAt time.Time         `json:"generated_at"`
 	Endpoints   []Endpoint        `json:"endpoints"`
 	Hints       []CorrelationHint `json:"correlation_hints"`
+}
+
+// NodeRoleControlPlane is the inventory role for Nodes with a control-plane
+// or master role label. Every other Node is NodeRoleWorker.
+const (
+	NodeRoleControlPlane = "control-plane"
+	NodeRoleWorker       = "worker"
+)
+
+// NodeInventory is one Kubernetes Node's current Ready/identity facts.
+type NodeInventory struct {
+	ClusterID      string    `json:"cluster_id"`
+	Name           string    `json:"name"`
+	UID            string    `json:"uid,omitempty"`
+	Role           string    `json:"role"`
+	Ready          bool      `json:"ready"`
+	ReadyReason    string    `json:"ready_reason,omitempty"`
+	ReadyMessage   string    `json:"ready_message,omitempty"`
+	Unschedulable  bool      `json:"unschedulable"`
+	InternalIP     string    `json:"internal_ip,omitempty"`
+	ExternalIP     string    `json:"external_ip,omitempty"`
+	KubeletVersion string    `json:"kubelet_version,omitempty"`
+	OSImage        string    `json:"os_image,omitempty"`
+	ObservedAt     time.Time `json:"observed_at"`
+}
+
+// NodeSnapshot is the current-state Node catalog published on inventory.k8s.nodes.
+type NodeSnapshot struct {
+	ClusterID   string          `json:"cluster_id"`
+	GeneratedAt time.Time       `json:"generated_at"`
+	Nodes       []NodeInventory `json:"nodes"`
 }
 
 // BuildInput is a pure in-memory view of cluster objects used by BuildSnapshot.
@@ -141,6 +172,21 @@ type ServiceView struct {
 	Ingress               []LoadBalancerIngressView
 	Annotations           map[string]string
 	Labels                map[string]string
+}
+
+// NodeView is the subset of corev1.Node needed for Ready inventory.
+type NodeView struct {
+	Name           string
+	UID            string
+	Labels         map[string]string
+	Unschedulable  bool
+	Ready          bool
+	ReadyReason    string
+	ReadyMessage   string
+	InternalIP     string
+	ExternalIP     string
+	KubeletVersion string
+	OSImage        string
 }
 
 // ServicePortView is a service port mapping.

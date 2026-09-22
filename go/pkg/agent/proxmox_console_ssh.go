@@ -386,7 +386,9 @@ func validateProxmoxConsoleSSHConfig(cfg proxmoxConsoleSSHConfig) error {
 }
 
 func proxmoxConsoleSSHTargetAddress(target proxmoxConsoleSSHTarget) (string, int, error) {
-	host := strings.TrimSpace(firstNonEmpty(target.Hostname, target.IP))
+	// Device-reported node names need not resolve from this agent. Keep the IP
+	// preference aligned with consoleSpecCanonicalOrigin's authorization target.
+	host := strings.TrimSpace(firstNonEmpty(target.IP, target.Hostname))
 	if host == "" && strings.TrimSpace(target.BaseURL) != "" {
 		if len(strings.TrimSpace(target.BaseURL)) > maxProxmoxSSHTargetHostBytes*2 {
 			return "", 0, errInvalidProxmoxSSHFieldSize

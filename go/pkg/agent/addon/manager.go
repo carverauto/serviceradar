@@ -23,6 +23,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -34,36 +35,43 @@ import (
 )
 
 const (
-	defaultRuntimeDir             = "/run/serviceradar/addons"
-	defaultHealthInterval         = 5 * time.Second
-	defaultUnhealthyThreshold     = 3
-	defaultConfigureTimeout       = 10 * time.Second
-	defaultCommandTimeout         = 300 * time.Second
-	defaultHealthTimeout          = 5 * time.Second
-	defaultRestartBackoffInitial  = time.Second
-	defaultRestartBackoffMax      = time.Minute
-	defaultRestartLimitPerMinute  = 5
-	defaultCircuitBreakerCooldown = time.Minute
-	restartLimitWindow            = time.Minute
+	defaultRuntimeDir         = "/run/serviceradar/addons"
+	defaultHealthInterval     = 5 * time.Second
+	defaultUnhealthyThreshold = 3
+	// A process whose gRPC server is gone never exits on its own; after this many
+	// consecutive failed probes (a minute at the default interval) it is restarted.
+	defaultUnresponsiveRestartThreshold = 12
+	defaultConfigureTimeout             = 10 * time.Second
+	defaultCommandTimeout               = 300 * time.Second
+	defaultHealthTimeout                = 5 * time.Second
+	defaultRestartBackoffInitial        = time.Second
+	defaultRestartBackoffMax            = time.Minute
+	defaultRestartLimitPerMinute        = 5
+	defaultCircuitBreakerCooldown       = time.Minute
+	restartLimitWindow                  = time.Minute
 )
 
 // Config controls add-on manager paths and supervision timing.
 type Config struct {
 	// RuntimeDir is the base directory under which go-plugin creates per-add-on
 	// Unix-domain sockets (UnixSocketConfig.TempDir).
-	RuntimeDir             string
-	HealthInterval         time.Duration
-	HealthTimeout          time.Duration
-	UnhealthyThreshold     int
-	ConfigureTimeout       time.Duration
-	RestartBackoffInitial  time.Duration
-	RestartBackoffMax      time.Duration
-	RestartLimitPerMinute  int
-	CircuitBreakerCooldown time.Duration
-	ArtifactMaxBytes       int64
-	CredentialResolver     coreaddon.CredentialResolver
-	TelemetryHandler       func(addonID string, batch *coreaddon.TelemetryBatch)
-	ArtifactHandler        ArtifactHandler
+	RuntimeDir         string
+	HealthInterval     time.Duration
+	HealthTimeout      time.Duration
+	UnhealthyThreshold int
+	// UnresponsiveRestartThreshold is how many consecutive failed health probes
+	// (no answer at all, as opposed to an answer reporting unhealthy) end the
+	// supervision run so the add-on is killed and restarted.
+	UnresponsiveRestartThreshold int
+	ConfigureTimeout             time.Duration
+	RestartBackoffInitial        time.Duration
+	RestartBackoffMax            time.Duration
+	RestartLimitPerMinute        int
+	CircuitBreakerCooldown       time.Duration
+	ArtifactMaxBytes             int64
+	CredentialResolver           coreaddon.CredentialResolver
+	TelemetryHandler             func(addonID string, batch *coreaddon.TelemetryBatch)
+	ArtifactHandler              ArtifactHandler
 	// OtlpRelayRunner, when set, is invoked on its own goroutine for every
 	// running add-on that advertises CapabilityOtlpRelayV1 and supports the
 	// client-side relay stream. It owns the acked OTLP relay pump for one
@@ -99,6 +107,9 @@ func applyDefaults(cfg Config) Config {
 	}
 	if cfg.UnhealthyThreshold <= 0 {
 		cfg.UnhealthyThreshold = defaultUnhealthyThreshold
+	}
+	if cfg.UnresponsiveRestartThreshold <= 0 {
+		cfg.UnresponsiveRestartThreshold = defaultUnresponsiveRestartThreshold
 	}
 	if cfg.ConfigureTimeout <= 0 {
 		cfg.ConfigureTimeout = defaultConfigureTimeout
@@ -511,6 +522,19 @@ func (r *runner) runOnce(ctx context.Context) error {
 		localEndpoint = r.localOtlpEndpoint()
 	}
 	cmd.Env = addonProcessEnv(os.Environ(), r.id, localEndpoint)
+
+	// Persistent per-add-on state directory (SERVICERADAR_ADDON_STATE_DIR). Created
+	// at every spawn so it exists before the add-on's first Configure, and
+	// best-effort: a host that cannot provide it still gets a running add-on, one
+	// that cold-starts on restart the way it always did.
+	if dir := strings.TrimSpace(spec.StateDir); dir != "" {
+		if err := ensureAddonStateDir(dir); err != nil {
+			r.cfg.Logger.Warn().Err(err).Str("addon", r.id).Str("state_dir", dir).
+				Msg("addon state directory unavailable; launching without one")
+		} else {
+			cmd.Env = addonStateEnv(cmd.Env, dir)
+		}
+	}
 
 	// Enforce the manifest resource limits on the add-on subprocess (cgroup v2 on
 	// Linux). Best-effort: a failure to enforce logs, is surfaced through status,
@@ -976,6 +1000,16 @@ func (r *runner) supervise(ctx context.Context, client *goplugin.Client, ac core
 					r.setExited(errString(err))
 					return fmt.Errorf("%w: %s: %w", ErrAddonExited, r.id, err)
 				}
+				// A process that is alive but no longer answers never exits on its own:
+				// a SIGTERM that shut its gRPC server down, a deadlock, a wedged runtime.
+				// Waiting for Exited() left such an add-on unhealthy forever, and a
+				// version change could not replace it either. Ending the run hands it to
+				// runOnce's deferred client.Kill (graceful, then SIGKILL) and the normal
+				// restart path with its backoff and circuit breaker.
+				if failures >= unresponsiveRestartThreshold(r.cfg) {
+					return fmt.Errorf("%w: %s: %d consecutive health probes failed: %w",
+						ErrAddonUnresponsive, r.id, failures, err)
+				}
 				continue
 			}
 
@@ -988,6 +1022,13 @@ func (r *runner) supervise(ctx context.Context, client *goplugin.Client, ac core
 			}
 		}
 	}
+}
+
+func unresponsiveRestartThreshold(cfg Config) int {
+	if cfg.UnresponsiveRestartThreshold > 0 {
+		return cfg.UnresponsiveRestartThreshold
+	}
+	return defaultUnresponsiveRestartThreshold
 }
 
 func (r *runner) probeHealth(parent context.Context, ac coreaddon.Addon) (coreaddon.Health, error) {

@@ -112,6 +112,42 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
 
   def list_release_addons(_attrs, _release_tag), do: {:error, :invalid_attributes}
 
+  @doc """
+  Discovers native add-ons for unattended sync.
+
+  Uses `ServiceRadarWebNG.Plugins.FirstPartyReleaseClient.resolve_catalog/3`
+  for feed selection. The returned filter tag is the requested tag on an exact
+  hit and `nil` for recent releases, so callers do not re-filter fallback entries
+  by the missing tag. The settings UI sentinel keeps an exact-only lookup; see
+  `ServiceRadarWebNG.Plugins.FirstPartyReleaseClient.admin_all_releases_sentinel/0`.
+  """
+  @spec list_addons_for_sync(map(), keyword()) ::
+          {:ok, [map()], String.t() | nil} | {:error, term()}
+  def list_addons_for_sync(attrs, opts \\ [])
+
+  def list_addons_for_sync(attrs, opts) when is_map(attrs) and is_list(opts) do
+    limit = Keyword.get(opts, :limit, @default_recent_release_limit)
+    release_tag = Keyword.get(opts, :release_tag)
+
+    if release_tag == Client.admin_all_releases_sentinel() do
+      with {:ok, addons} <- list_release_addons(attrs, release_tag) do
+        {:ok, addons, release_tag}
+      end
+    else
+      case Client.resolve_catalog(
+             release_tag,
+             fn tag -> list_release_addons(attrs, tag) end,
+             fn -> list_recent_addons(attrs, limit) end
+           ) do
+        {:ok, addons, :exact} -> {:ok, addons, release_tag}
+        {:ok, addons, :recent} -> {:ok, addons, nil}
+        {:error, _} = error -> error
+      end
+    end
+  end
+
+  def list_addons_for_sync(_attrs, _opts), do: {:error, :invalid_attributes}
+
   @spec import(map()) :: {:ok, AddonPackage.t()} | {:error, term()}
   def import(attrs) when is_map(attrs) do
     with {:ok, package, _disposition} <- import_with_disposition(attrs) do

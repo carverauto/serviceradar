@@ -48,6 +48,8 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
                  ticket
                  insecure_skip_verify
                  ssh_host_key_policy
+                 ca_bundle_pem
+                 server_cert_fingerprint
                ))
 
   @target_id_keys ~w(
@@ -281,20 +283,19 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
              target |> target_ids() |> binding_target_ids(plugin_id) do
         binding_grant = scope_grant_to_origin(grant, origin, plugin_id, auth_mode, target)
 
-        maybe_put(
-          %{
-            "binding_id" => binding_id(assignment_id, credential_rule_id, origin, target_ids),
-            "provider" => @provider,
-            "credential_rule_id" => rule_id,
-            "origin" => origin,
-            "assignment_policy_version" => policy_binding.policy_version,
-            "assignment_policy_fingerprint" => policy_binding.fingerprint,
-            "credential_broker" => binding_grant,
-            "target_ids" => target_ids
-          },
-          "ssh_host_key_policy",
-          ssh_host_key_policy
-        )
+        %{
+          "binding_id" => binding_id(assignment_id, credential_rule_id, origin, target_ids),
+          "provider" => @provider,
+          "credential_rule_id" => rule_id,
+          "origin" => origin,
+          "assignment_policy_version" => policy_binding.policy_version,
+          "assignment_policy_fingerprint" => policy_binding.fingerprint,
+          "credential_broker" => binding_grant,
+          "target_ids" => target_ids
+        }
+        |> maybe_put("ssh_host_key_policy", ssh_host_key_policy)
+        |> maybe_put("ca_bundle_pem", ca_bundle_pem(params))
+        |> maybe_put("server_cert_fingerprint", server_cert_fingerprint(params))
       else
         _ -> nil
       end
@@ -303,6 +304,31 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
     |> Enum.uniq_by(fn binding ->
       {binding["origin"], binding["credential_rule_id"], binding["target_ids"]}
     end)
+    |> single_origin_fingerprint(server_cert_fingerprint(params), plugin_id, assignment_id)
+  end
+
+  # A cluster CA signs every node leaf, so one ca_bundle_pem legitimately anchors
+  # every target. A server_cert_fingerprint names one certificate, and therefore
+  # one host: stamped across sibling origins it yields anchors that can only ever
+  # fail the handshake. Refuse the assignment and name the remedy instead of
+  # shipping bindings that are known-broken for every origin but the first.
+  defp single_origin_fingerprint(bindings, nil, _plugin_id, _assignment_id), do: bindings
+
+  defp single_origin_fingerprint(bindings, _fingerprint, plugin_id, assignment_id) do
+    origins = bindings |> Enum.map(& &1["origin"]) |> Enum.uniq()
+
+    if length(origins) > 1 do
+      Logger.warning(
+        "Proxmox host authority: server_cert_fingerprint pins a single certificate but " <>
+          "assignment #{inspect(assignment_id)} (plugin=#{plugin_id}) resolves to " <>
+          "#{length(origins)} origins (#{Enum.join(origins, ", ")}); pin the cluster CA " <>
+          "with ca_bundle_pem to cover every node"
+      )
+
+      []
+    else
+      bindings
+    end
   end
 
   defp binding_targets(params, plugin_id) do
@@ -621,6 +647,23 @@ defmodule ServiceRadar.Plugins.ProxmoxHostAuthority do
   end
 
   defp auth_mode(_plugin_id, _params, _grant), do: :api_token
+
+  # Operator-supplied trust material, delivered by the manifest params template
+  # as $source: rule. The agent verifies against this anchor alone; it never
+  # reaches the Wasm guest (see @secret_keys).
+  defp ca_bundle_pem(params) do
+    first_string([
+      value(map_value(params, "template"), "ca_bundle_pem"),
+      value(params, "ca_bundle_pem")
+    ])
+  end
+
+  defp server_cert_fingerprint(params) do
+    first_string([
+      value(map_value(params, "template"), "server_cert_fingerprint"),
+      value(params, "server_cert_fingerprint")
+    ])
+  end
 
   defp ssh_host_key_policy(:api_token, _params), do: {:ok, nil}
 

@@ -95,6 +95,13 @@ Important guards:
 - saturation gates: bounded percent gauges require meaningful absolute load.
 - host aggregate CPU: host-level CPU is the Critical-eligible alerting unit;
   per-core series are context and are capped below Critical.
+- recent-burst envelope: for interface counter rates, an upward sample no
+  taller than `multiplier x quantile(lagged raw history)` does not breach.
+  The add-on computes the level from the series' raw tail, lagged by at least
+  twice `confirm_slots` so a sustained surge's confirming samples cannot vouch
+  for themselves; the core applies it once to the combined signal set (a
+  sub-hour burst breaches the hourly seasonal signal too) and names the
+  suppression on each signal's reason. Downward moves and drift are untouched.
 
 ## CUSUM Drift Detection
 
@@ -106,20 +113,68 @@ The production drift contract is:
 - Seasonal classes default to `deseasonalized_only`.
 - A series without a delivered seasonal baseline has drift inactive.
 - Scale floors use the same near-zero protection as the z path.
-- Entry uses latch-and-confirm plus practical effect-size gates.
+- The residual the accumulator consumes is clipped to
+  `drift_residual_clip` sigma (default 1.5), so one sample contributes at
+  most `clip - k` and a confirmation at `h * h_confirm_mult` needs at least
+  `h * h_confirm_mult / (clip - k)` samples of evidence (twelve with the
+  defaults). A burst of a few samples at twenty sigma is the spike path's
+  finding, not a level shift; unclipped it confirmed a drift on its own.
+- Entry uses latch-and-confirm plus practical effect-size gates. The effect
+  size is the mean of the unclipped residuals over the run, in sigma: how far
+  the level moved, not the bounded accumulator.
+- An open episode keeps running the same accumulator, reset at the open.
+  A sample counts toward recovery when the accumulator in the drift's
+  direction has not crossed `h`; the episode clears after `drift_clear_slots`
+  such samples in a row. A persistent shift re-crosses `h` every
+  `h / (clip - k)` samples and keeps the episode open; ordinary noise and the
+  odd blip decay out of the accumulator and let it close. Judging recovery one
+  sample at a time (`|residual| < k`) kept episodes open for hours on series
+  whose normal noise exceeds `k`.
 - Open drift episodes do not emit every poll cycle.
 - A stable non-saturated new level is adopted as baseline and cleared.
 
+Drift findings carry `drift_target` and `drift_scale` (the level and scale the
+residual was measured against, in the metric's units) and `drift_shift_sigma`
+(the effect size), so a consumer can draw the baseline the series departed from.
+
 Default drift knobs include `cusum_k = 0.5`, `cusum_h = 8.0`,
-`h_confirm_mult = 1.5`, `drift_confirm_window = 30`,
-`drift_min_effect = 2.0`, `drift_clear_slots = 30`,
-`drift_adopt_after_samples = 600`, and
+`h_confirm_mult = 1.5`, `drift_residual_clip = 1.5`,
+`drift_confirm_window = 30`, `drift_min_effect = 2.0`,
+`drift_clear_slots = 30`, `drift_adopt_after_samples = 600`, and
 `drift_escalate_after_secs = 3600`.
+
+### Anchor Maturity And The Reported Level
+
+The anchor is captured only once the rolling window holds
+`drift_anchor_min_samples` samples (default: the full `window_size`,
+never below `min_samples`). Anchoring on the first `min_samples` of a
+cold start was the cause of a false drift on demo: the add-on restarted in
+the overnight trough, froze its anchor there, and the ordinary morning ramp
+confirmed as "sustained upward drift" that only "recovered" once the window
+had adopted the new level.
+
+Drift verdicts carry `drift_level`, the mean raw value over the run in the
+metric's units. Consumers draw that as the sustained level. Reconstructing
+it as `drift_target + drift_shift_sigma * drift_scale` is not equivalent:
+the anchor's scale is refreshed every sample while its center stays frozen,
+so the residuals behind `drift_shift_sigma` were measured against earlier,
+smaller scales and the product overstates the level.
 
 ## Seasonal Baselines
 
 Core builds hour-of-week baselines from Timescale continuous aggregates and
 delivers them through anomaly add-on params.
+
+The producer first discovers series using the latest-bucket profile, then fetches
+full profiles one device per statement (the statement cost grows non-linearly
+with the device count and a fleet-wide statement exceeds the database
+statement timeout). Interface queries additionally select disjoint
+interface-index groups within each device, including wide devices. A failed
+chunk fails that source fetch rather than delivering a partial profile; the
+other sources are still delivered, and the run's heartbeat is recorded
+unhealthy naming the failed sources so the freshness tripwire fires with a
+reason.
+Profile pagination follows the [SRQL pagination contract](srql-language-reference.md#sorting-and-pagination).
 
 - Host baselines are safe to write on the AddonProfile.
 - Interface baselines are scoped to AddonAssignments for every agent that the
@@ -154,6 +209,10 @@ window reuses the prior episode UID and an eventual clear carries `flap_merged`.
 Core also folds independent producers for one canonical finding: it remains open
 while any fresh producer reports open and clears only when all are clean or stale.
 Stale close sweeps prevent producer crashes from leaving permanent open episodes.
+Central seasonal episodes are stamped with the evaluation time (the bucket
+window rides in the `seasonal_disposition` payload) and are swept with a
+producer-cadence window (at least 150 minutes) instead of the edge heartbeat
+window. A clear that resolves no open episode is not persisted as an episode.
 
 Episode folding in the event writer is enabled by default.
 `EVENT_WRITER_ANOMALY_EPISODES` is a kill switch: set it to `false`, `0`, `no`,
@@ -204,7 +263,9 @@ a silently dead pipeline, is covered by the scheduled tripwires in
 Capacity forecasting emits runway episodes only for sound targets by default:
 monotone consumable resources such as disk usage and memory working set. CPU
 and interface utilization are bursty mean-reverting gauges and are excluded by
-default.
+default. Disk usage is projected per (device, mount point) from the
+`timeseries_metrics_disk_hourly` continuous aggregate rather than from the
+device-level hourly average, so one full filesystem stands on its own.
 
 A projected finding requires:
 
@@ -215,7 +276,10 @@ A projected finding requires:
 - ETA gated on the prediction-interval lower-bound crossing.
 
 Findings emit on state transitions (`projected` to `cleared` and back), not once
-per series per hourly run.
+per series per hourly run. The kernel reports the uncapped crossing alongside
+the capped ETA: a crossing inside the horizon but beyond twice the observed
+history is recorded as `exhaustion_beyond_history_cap` with the crossing time,
+the history span, and the cap in its diagnostics.
 
 The excluded bursty sources are explicit opt-ins. Set
 `SERVICERADAR_CAPACITY_FORECASTING_SOURCE_OPT_INS` (comma-separated:
@@ -248,6 +312,15 @@ managed defaults < operator-explicit top-level profile/assignment params
 The baseline producer writes `seasonal_baselines`; the config projector writes
 `managed`. The writers are intentionally disjoint.
 
+The settings singleton is seeded once, from chart values, and never rewritten
+afterwards, so a default added in a later release does not reach an existing
+deployment on its own. Per-class `drift_mode` is the exception that was
+backfilled: migration `20260914120000_backfill_anomaly_drift_mode_defaults`
+fills in `drift_mode` for every metric class that has none (cpu, memory and
+interface `deseasonalized_only`; disk, icmp and other `off`) and leaves any
+value an operator set untouched. The projector carries the filled values to the
+edge on its next run.
+
 The projector is enabled by default and its cron ships in the production
 release (default `57 * * * *`), so operator Settings reach the edge without
 extra deployment config. The projector writes only the reserved `managed`
@@ -261,6 +334,31 @@ Kill switches exist at multiple layers:
   `true`; set `false` to stop projecting Settings to the edge).
 - event-writer episode kill switch `EVENT_WRITER_ANOMALY_EPISODES` (default
   on; set `false` to fall back to per-row anomaly ingest).
+
+## Restart Checkpoint
+
+The detector's per-series state (rolling window, robust scale, CUSUM
+accumulators, open episodes and the pending latch) lives only in the add-on
+process. Without a checkpoint, every add-on upgrade and every agent restart
+cold-starts the detector: it is blind for `min_samples`, its open episodes are
+never cleared by the producer (core stale-closes them instead of recording a
+recovery), and the first samples after the gap are scored against an empty
+window.
+
+The add-on persists a checkpoint every 100 feed frames and re-warms from it on
+`configure()`. Where the file lives is resolved in this order:
+
+```text
+checkpoint_path (explicit operator param)
+  > $SERVICERADAR_ADDON_STATE_DIR/checkpoint.json (agent-provided state dir)
+    > no checkpoint (cold start on every restart)
+```
+
+The agent hands every sidecar add-on a persistent state directory,
+`<agent runtime root>/addons/anomaly/state`, created before each spawn and kept
+across artifact upgrades, so the default is a working checkpoint with no
+operator configuration. Series older than `checkpoint_max_age_secs` (default
+6 h) are not reseeded from the file.
 
 ## Alert Pipeline
 

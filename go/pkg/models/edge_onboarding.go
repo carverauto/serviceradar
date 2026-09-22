@@ -21,7 +21,7 @@ const (
 type EdgeOnboardingComponentType string
 
 const (
-	EdgeOnboardingComponentTypeGateway  EdgeOnboardingComponentType = "gateway"
+	EdgeOnboardingComponentTypeGateway EdgeOnboardingComponentType = "gateway"
 	EdgeOnboardingComponentTypeAgent   EdgeOnboardingComponentType = "agent"
 	EdgeOnboardingComponentTypeChecker EdgeOnboardingComponentType = "checker"
 	EdgeOnboardingComponentTypeSync    EdgeOnboardingComponentType = "sync"
@@ -54,7 +54,7 @@ const (
 var (
 	ErrEdgeOnboardingDisabled          = errors.New("edge onboarding: service disabled")
 	ErrEdgeOnboardingInvalidRequest    = errors.New("edge onboarding: invalid request")
-	ErrEdgeOnboardingGatewayConflict    = errors.New("edge onboarding: gateway already provisioned")
+	ErrEdgeOnboardingGatewayConflict   = errors.New("edge onboarding: gateway already provisioned")
 	ErrEdgeOnboardingComponentConflict = errors.New("edge onboarding: component already provisioned")
 	ErrEdgeOnboardingSpireUnavailable  = errors.New("edge onboarding: spire admin unavailable")
 	ErrEdgeOnboardingDownloadRequired  = errors.New("edge onboarding: download token required")
@@ -73,7 +73,7 @@ type EdgeOnboardingPackage struct {
 	ComponentType          EdgeOnboardingComponentType `json:"component_type"`
 	ParentType             EdgeOnboardingComponentType `json:"parent_type,omitempty"`
 	ParentID               string                      `json:"parent_id,omitempty"`
-	GatewayID               string                      `json:"gateway_id"`
+	GatewayID              string                      `json:"gateway_id"`
 	Site                   string                      `json:"site,omitempty"`
 	Status                 EdgeOnboardingStatus        `json:"status"`
 	SecurityMode           string                      `json:"security_mode,omitempty"`
@@ -115,7 +115,7 @@ type EdgeOnboardingEvent struct {
 
 // EdgeOnboardingListFilter allows filtering onboarding packages.
 type EdgeOnboardingListFilter struct {
-	GatewayID    string
+	GatewayID   string
 	ComponentID string
 	ParentID    string
 	Statuses    []EdgeOnboardingStatus
@@ -131,7 +131,7 @@ type EdgeOnboardingCreateRequest struct {
 	ParentType         EdgeOnboardingComponentType
 	SecurityMode       string
 	ParentID           string
-	GatewayID           string
+	GatewayID          string
 	Site               string
 	Selectors          []string
 	MetadataJSON       string
@@ -142,7 +142,7 @@ type EdgeOnboardingCreateRequest struct {
 	JoinTokenTTL       time.Duration
 	DownloadTokenTTL   time.Duration
 	DownstreamSPIFFEID string
-	DataSvcEndpoint    string // DataSvc gRPC endpoint (e.g., "23.138.124.23:50057")
+	DataSvcEndpoint    string // DataSvc gRPC endpoint (e.g., "192.0.2.10:50057")
 }
 
 // EdgeOnboardingCreateResult bundles the stored package and sensitive artifacts.
@@ -216,24 +216,24 @@ type CollectorPackage struct {
 
 // NatsCredential represents a NATS user credential issued to a collector.
 type NatsCredential struct {
-	CredentialID   string        `json:"credential_id"`
-	UserName       string        `json:"user_name"`
-	UserPublicKey  string        `json:"user_public_key"`
-	CredentialType string        `json:"credential_type"` // collector, service, admin
-	CollectorType  CollectorType `json:"collector_type,omitempty"`
-	Status         string        `json:"status"` // active, revoked, expired
-	IssuedAt       time.Time     `json:"issued_at"`
-	ExpiresAt      *time.Time    `json:"expires_at,omitempty"`
-	RevokedAt      *time.Time    `json:"revoked_at,omitempty"`
-	RevokeReason   string        `json:"revoke_reason,omitempty"`
+	CredentialID   string                 `json:"credential_id"`
+	UserName       string                 `json:"user_name"`
+	UserPublicKey  string                 `json:"user_public_key"`
+	CredentialType string                 `json:"credential_type"` // collector, service, admin
+	CollectorType  CollectorType          `json:"collector_type,omitempty"`
+	Status         string                 `json:"status"` // active, revoked, expired
+	IssuedAt       time.Time              `json:"issued_at"`
+	ExpiresAt      *time.Time             `json:"expires_at,omitempty"`
+	RevokedAt      *time.Time             `json:"revoked_at,omitempty"`
+	RevokeReason   string                 `json:"revoke_reason,omitempty"`
 	Metadata       map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // CollectorDownloadResult contains the package contents for a collector download.
 type CollectorDownloadResult struct {
 	Package         *CollectorPackage `json:"package"`
-	NatsCredsFile   string            `json:"nats_creds_file"`   // .creds file content
-	CollectorConfig string            `json:"collector_config"`  // Collector-specific config
-	MTLSBundle      []byte            `json:"mtls_bundle"`       // mTLS certificates from deployment CA
-	InstallScript   string            `json:"install_script"`    // Installation instructions
+	NatsCredsFile   string            `json:"nats_creds_file"`  // .creds file content
+	CollectorConfig string            `json:"collector_config"` // Collector-specific config
+	MTLSBundle      []byte            `json:"mtls_bundle"`      // mTLS certificates from deployment CA
+	InstallScript   string            `json:"install_script"`   // Installation instructions
 }

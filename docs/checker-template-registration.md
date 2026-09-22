@@ -149,7 +149,7 @@ The `docker-compose.yml` includes a `checker-templates-seed` service:
 
 ```yaml
 checker-templates-seed:
-  image: ghcr.io/carverauto/serviceradar-tools:${APP_TAG}
+  image: registry.carverauto.dev/serviceradar/serviceradar-tools:${APP_TAG}
   volumes:
     - ./checker-templates:/templates:ro
     - cert-data:/etc/serviceradar/certs:ro
@@ -175,7 +175,8 @@ spec:
     spec:
       containers:
         - name: kv-bootstrap
-          image: ghcr.io/carverauto/serviceradar-tools:{{ .Values.image.tags.tools }}
+          # By default renders registry.carverauto.dev/serviceradar/serviceradar-tools:v<chart appVersion>
+          image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-tools" "service" "tools") }}
           volumeMounts:
             - name: checker-templates
               mountPath: /etc/serviceradar/checker-templates

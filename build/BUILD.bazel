@@ -18,6 +18,16 @@ load(":template_authority.bzl", "template_authority_file")
 package(default_visibility = ["//visibility:public"])
 
 ex_unit_test(
+    name = "web_ng_db_config_test",
+    size = "small",
+    srcs = ["web_ng_db_config_test.exs"],
+    data = [
+        "//elixir/serviceradar_core:config/test_database_guard.exs",
+        "//elixir/web-ng:config/test.exs",
+    ],
+)
+
+ex_unit_test(
     name = "integration_selection_formatter_test",
     size = "small",
     srcs = ["integration_selection_formatter_test.exs"],
@@ -89,7 +99,7 @@ exports_files([
     "integration_test_dispositions.bzl",
     "integration_tests.bzl",
     "repo_alias.bzl",
-    # Read as text by //:ci_heavy_gate_contract_test, which pins the authority marker written
+    # Read as text by //build/contracts:ci_heavy_gate_contract_test, which pins the authority marker written
     # here against the two consumers that must agree with it.
     "template_authority.bzl",
 ])

@@ -1,6 +1,6 @@
 import {describe, expect, test} from "vitest"
 
-import {isDynamicKeyField, isValidJsonbKey, tokenize} from "./tokenizer.js"
+import {baseFieldName, isDynamicKeyField, isValidJsonbKey, tokenize} from "./tokenizer.js"
 
 describe("SRQL tokenizer", () => {
   test("empty input starts at the control slot", () => {
@@ -173,5 +173,19 @@ describe("JSONB key validation", () => {
     expect(isDynamicKeyField("labels.team")).toBe(false)
     expect(isDynamicKeyField("hostname")).toBe(false)
     expect(isDynamicKeyField(".gateway_id")).toBe(false)
+  })
+})
+
+describe("negated field names", () => {
+  test("baseFieldName strips one leading ! like the engine", () => {
+    expect(baseFieldName("!discovery_sources")).toBe("discovery_sources")
+    expect(baseFieldName("discovery_sources")).toBe("discovery_sources")
+    expect(baseFieldName("!is_active")).toBe("is_active")
+  })
+
+  test("baseFieldName strips exactly one !, matching strip_prefix semantics", () => {
+    expect(baseFieldName("!!hostname")).toBe("!hostname")
+    expect(baseFieldName("!")).toBe("")
+    expect(baseFieldName("")).toBe("")
   })
 })

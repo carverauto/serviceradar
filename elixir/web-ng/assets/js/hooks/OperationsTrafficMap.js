@@ -770,6 +770,18 @@ function netflowPathClass(link) {
   return "is-netflow-external"
 }
 
+// How many of the heaviest NetFlow arcs frame the automatic view, and how many
+// get the decorative glow. Neither decides which arcs are drawn: every arc the
+// server sends is drawn. Framing on all of them would zoom out to the whole
+// world whenever one light flow crosses an ocean, and the glow is an emphasis
+// for the busiest paths that stops reading as emphasis on hundreds of lines.
+export const NETFLOW_FRAMING_LINKS = 26
+export const NETFLOW_HALO_LINKS = 60
+
+export function netflowVisualLinks(links) {
+  return topVisualLinks(links, Infinity)
+}
+
 function topVisualLinks(links, limit, {includeIdle = false} = {}) {
   return [...links]
     .filter((link) => includeIdle || visualMagnitude(link) > 0)
@@ -1143,7 +1155,7 @@ export default {
       this.svgOverlay.dataset.clickBound = "true"
     }
 
-    this.svgOverlay.setAttribute("viewBox", this.currentViewBox || viewBoxForMap(this.mapView, topVisualLinks(this.links, 26)))
+    this.svgOverlay.setAttribute("viewBox", this.currentViewBox || viewBoxForMap(this.mapView, topVisualLinks(this.links, NETFLOW_FRAMING_LINKS)))
 
     return this.svgOverlay
   },
@@ -1185,7 +1197,7 @@ export default {
       this.worldMapBackground.appendChild(group)
     }
 
-    this.worldMapBackground.setAttribute("viewBox", this.currentViewBox || viewBoxForMap(this.mapView, topVisualLinks(this.links, 26)))
+    this.worldMapBackground.setAttribute("viewBox", this.currentViewBox || viewBoxForMap(this.mapView, topVisualLinks(this.links, NETFLOW_FRAMING_LINKS)))
 
     return this.worldMapBackground
   },
@@ -1539,7 +1551,10 @@ export default {
     let overlayLinks = []
 
     if (this.mapView === "netflow") {
-      visualLinks = topVisualLinks(this.links, 26)
+      // Every arc. Drawing only the 26 heaviest hid almost all of the map: the
+      // server sends one arc per pair of places, which is already bounded by
+      // geography, and the heaviest few all run between the same regions.
+      visualLinks = netflowVisualLinks(this.links)
     } else {
       const rawTopologyLinks = topVisualLinks(this.topologyLinks, 24, {includeIdle: true}).map((link) => ({
         ...link,
@@ -1555,7 +1570,9 @@ export default {
       overlayLinks = schematicLinks.filter((link) => link.overlayKind === "mtr")
     }
 
-    this._syncViewBoxForLinks(visualLinks)
+    this._syncViewBoxForLinks(
+      this.mapView === "netflow" ? visualLinks.slice(0, NETFLOW_FRAMING_LINKS) : visualLinks,
+    )
 
     if (visualLinks.length === 0 && overlayLinks.length === 0) {
       svg.replaceChildren()
@@ -1570,7 +1587,9 @@ export default {
     const particleGroup = document.createElementNS("http://www.w3.org/2000/svg", "g")
     const nodeGroup = document.createElementNS("http://www.w3.org/2000/svg", "g")
     const labelGroup = document.createElementNS("http://www.w3.org/2000/svg", "g")
-    const linksForNodes = this.mapView === "netflow" ? visualLinks.slice(0, 16) : visualLinks.slice(0, 18)
+    // An arc without a dot at its far end reads as a line to nowhere, so NetFlow
+    // draws every endpoint. Labels are limited separately, by zoom and collision.
+    const linksForNodes = this.mapView === "netflow" ? visualLinks : visualLinks.slice(0, 18)
 
     linkGroup.setAttribute("class", "sr-ops-traffic-overlay-links")
     particleGroup.setAttribute("class", "sr-ops-traffic-overlay-particles")
@@ -1583,7 +1602,7 @@ export default {
       const baseStrokeWidth = this.mapView === "topology_traffic" && visualMagnitude(link) <= 0 ? 1.15 : strokeWidthFor(link, this.mapView)
       const strokeWidth = this.mapView === "netflow" ? baseStrokeWidth * geometryStyle.scale : baseStrokeWidth
 
-      if (this.mapView === "netflow") {
+      if (this.mapView === "netflow" && idx < NETFLOW_HALO_LINKS) {
         const halo = document.createElementNS("http://www.w3.org/2000/svg", "path")
         halo.setAttribute("d", pathData)
         halo.setAttribute("class", `sr-ops-traffic-path-halo ${netflowPathClass(link)}`)

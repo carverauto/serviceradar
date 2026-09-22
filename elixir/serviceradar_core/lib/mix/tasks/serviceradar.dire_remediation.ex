@@ -23,10 +23,14 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
     * `--execute` — apply changes (default: dry run)
     * `--step <name>` — run a single step (repeatable). One of:
       `blob-purge`, `test-debris`, `stale-agent-devices`, `agent-links`,
-      `proxmox-dups`, `armis-unmerge`, `armis-dups`, `all` (default `all`).
+      `proxmox-dups`, `proxmox-unfuse`, `armis-unmerge`, `armis-dups`,
+      `all` (default `all`).
       `all` cannot be combined with another step.
       `armis-unmerge` is explicit-only: dry-run is available for live scoping,
       while execute is disabled until the runtime signoff gate is enabled.
+      `proxmox-unfuse` is explicit-only: dry-run reports fused devices with
+      per-cluster MAC attribution for review, while execute is disabled until
+      its own runtime signoff gate is enabled.
       `armis-dups` is disabled unless separately enabled by runtime config.
     * `--manifest <path>` — rollback manifest path (execute mode)
     * `--batch-size <n>` — blob purge delete/extract batch size (default 50000)
@@ -64,9 +68,21 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
     * `--armis-unmerge-live-source <id>` — permit one live sync source ID during
       execute (repeatable; must be paired with at least one live device UID).
       Known faker-backed sources remain ineligible inside the remediation step.
+    * `--proxmox-unfuse-candidate-limit <n>` — maximum unfuse candidates
+      inspected in one run (1..5000; default: dry-run 5000, execute 25)
+    * `--proxmox-unfuse-plan-sample-limit <n>` — maximum unfuse split plans
+      printed in the report (0..5000; default 50)
+    * `--proxmox-unfuse-live-device <uid>` — permit one live device UID during
+      execute (repeatable; must be paired with at least one live source ID)
+    * `--proxmox-unfuse-live-source <id>` — permit one live sync source ID during
+      execute (repeatable; must be paired with at least one live device UID).
+      Every v2/MAC identifier row that would move must come from a permitted
+      source; a row with missing or foreign provenance excludes its candidate.
+      Known faker-backed sources remain ineligible inside the remediation step.
 
   Every `--armis-unmerge-*` option requires an explicit
-  `--step armis-unmerge` selection.
+  `--step armis-unmerge` selection. Every `--proxmox-unfuse-*` option
+  requires an explicit `--step proxmox-unfuse` selection.
 
   `armis-unmerge --execute` is rejected unless live scoping has been reviewed
   and the release runtime configuration deliberately sets:
@@ -76,6 +92,16 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
 
   The gate does not add the step to `all`; execute still requires an explicit
   `--step armis-unmerge`.
+
+  `proxmox-unfuse --execute` is rejected unless the split plan (cluster
+  grouping plus per-cluster MAC attribution) has been reviewed against the
+  live clusters and the release runtime configuration deliberately sets:
+
+      config :serviceradar_core, ServiceRadar.Inventory.Remediation.DireRemediation,
+        enable_proxmox_unfuse_execute: true
+
+  The gate does not add the step to `all`; execute still requires an explicit
+  `--step proxmox-unfuse`.
 
   ## Examples
 
@@ -96,6 +122,18 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
           --armis-unmerge-live-device sr:reviewed-device \\
           --armis-unmerge-live-source reviewed-sync-source
 
+      # Proxmox cross-cluster split planning (GitHub #4051); safe while
+      # execute is gated off. Review the cluster/MAC attribution plan first.
+      mix serviceradar.dire_remediation --step proxmox-unfuse \\
+          --proxmox-unfuse-candidate-limit 500 \\
+          --proxmox-unfuse-plan-sample-limit 25
+
+      # After plan review and config enablement, execute only an explicitly
+      # reviewed live device/source intersection
+      mix serviceradar.dire_remediation --step proxmox-unfuse --execute \\
+          --proxmox-unfuse-live-device sr:reviewed-device \\
+          --proxmox-unfuse-live-source reviewed-sync-source
+
       # Execute the test-debris cleanup with a manifest path
       mix serviceradar.dire_remediation --step test-debris --execute \\
           --manifest /var/tmp/dire_remediation.ndjson
@@ -107,12 +145,21 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
 
   @max_armis_unmerge_candidate_limit 5_000
   @max_armis_unmerge_plan_sample_limit 5_000
+  @max_proxmox_unfuse_candidate_limit 5_000
+  @max_proxmox_unfuse_plan_sample_limit 5_000
 
   @armis_unmerge_switches [
     :armis_unmerge_candidate_limit,
     :armis_unmerge_plan_sample_limit,
     :armis_unmerge_live_device,
     :armis_unmerge_live_source
+  ]
+
+  @proxmox_unfuse_switches [
+    :proxmox_unfuse_candidate_limit,
+    :proxmox_unfuse_plan_sample_limit,
+    :proxmox_unfuse_live_device,
+    :proxmox_unfuse_live_source
   ]
 
   @report_step_order [
@@ -123,6 +170,7 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
     "netprobe-alias-debris",
     "agent-links",
     "proxmox-dups",
+    "proxmox-unfuse",
     "armis-unmerge",
     "armis-dups"
   ]
@@ -149,7 +197,11 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
     armis_unmerge_candidate_limit: :integer,
     armis_unmerge_plan_sample_limit: :integer,
     armis_unmerge_live_device: :keep,
-    armis_unmerge_live_source: :keep
+    armis_unmerge_live_source: :keep,
+    proxmox_unfuse_candidate_limit: :integer,
+    proxmox_unfuse_plan_sample_limit: :integer,
+    proxmox_unfuse_live_device: :keep,
+    proxmox_unfuse_live_source: :keep
   ]
 
   @impl true
@@ -171,6 +223,7 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
 
     validate_step_selection!(opts)
     validate_armis_unmerge_selection!(opts)
+    validate_proxmox_unfuse_selection!(opts)
 
     engine_opts = build_engine_opts(opts)
     mode = Keyword.fetch!(engine_opts, :mode)
@@ -203,6 +256,13 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
           "armis-unmerge execute mode is disabled pending live-scoping signoff. " <>
             "Run without --execute to review the bounded plan; only then enable " <>
             ":enable_armis_unmerge_execute in the DireRemediation runtime config."
+        )
+
+      {:error, {:execute_disabled, ["proxmox-unfuse"]}} ->
+        Mix.raise(
+          "proxmox-unfuse execute mode is disabled pending split-plan review. " <>
+            "Run without --execute to review the cluster/MAC attribution plan; only then enable " <>
+            ":enable_proxmox_unfuse_execute in the DireRemediation runtime config."
         )
 
       {:error, {:disabled_steps, disabled}} ->
@@ -256,6 +316,25 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
       )
     )
     |> put_armis_unmerge_live_scope(opts)
+    |> put_if(
+      :proxmox_unfuse_candidate_limit,
+      validate_range(
+        opts[:proxmox_unfuse_candidate_limit],
+        "--proxmox-unfuse-candidate-limit",
+        1,
+        @max_proxmox_unfuse_candidate_limit
+      )
+    )
+    |> put_if(
+      :proxmox_unfuse_plan_sample_limit,
+      validate_range(
+        opts[:proxmox_unfuse_plan_sample_limit],
+        "--proxmox-unfuse-plan-sample-limit",
+        0,
+        @max_proxmox_unfuse_plan_sample_limit
+      )
+    )
+    |> put_proxmox_unfuse_live_scope(opts)
   end
 
   defp values_or(opts, key, default) do
@@ -279,6 +358,15 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
 
     if armis_opts? and not armis_step? do
       Mix.raise("Armis unmerge options require an explicit --step armis-unmerge selection")
+    end
+  end
+
+  defp validate_proxmox_unfuse_selection!(opts) do
+    unfuse_opts? = Enum.any?(@proxmox_unfuse_switches, &Keyword.has_key?(opts, &1))
+    unfuse_step? = "proxmox-unfuse" in Keyword.get_values(opts, :step)
+
+    if unfuse_opts? and not unfuse_step? do
+      Mix.raise("Proxmox unfuse options require an explicit --step proxmox-unfuse selection")
     end
   end
 
@@ -352,6 +440,34 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
         |> Keyword.put(:armis_unmerge_include_live, true)
         |> Keyword.put(:armis_unmerge_live_device_uids, devices)
         |> Keyword.put(:armis_unmerge_live_source_ids, sources)
+    end
+  end
+
+  defp put_proxmox_unfuse_live_scope(engine_opts, opts) do
+    device_uids = validate_nonempty_values(opts, :proxmox_unfuse_live_device)
+    source_ids = validate_nonempty_values(opts, :proxmox_unfuse_live_source)
+
+    case {device_uids, source_ids} do
+      {[], []} ->
+        engine_opts
+
+      {[], _sources} ->
+        Mix.raise(
+          "--proxmox-unfuse-live-source requires at least one " <>
+            "--proxmox-unfuse-live-device"
+        )
+
+      {_devices, []} ->
+        Mix.raise(
+          "--proxmox-unfuse-live-device requires at least one " <>
+            "--proxmox-unfuse-live-source"
+        )
+
+      {devices, sources} ->
+        engine_opts
+        |> Keyword.put(:proxmox_unfuse_include_live, true)
+        |> Keyword.put(:proxmox_unfuse_live_device_uids, devices)
+        |> Keyword.put(:proxmox_unfuse_live_source_ids, sources)
     end
   end
 

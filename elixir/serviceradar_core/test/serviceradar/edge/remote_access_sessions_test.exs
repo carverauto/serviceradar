@@ -76,6 +76,21 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     :ok
   end
 
+  test "falls back to the discovering sync service when the device has no owning agent" do
+    uid = unique_uid("sync-scope")
+    insert_device!(uid, metadata: %{"sync_service_id" => "agent-sync-scope"})
+
+    assert {:ok, %{session: session}} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{protocol: "ssh", credential_custody_mode: "user_present", cols: 120, rows: 40},
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert session.agent_id == "agent-sync-scope"
+  end
+
   test "attach tickets are single-use and credential material is not persisted in metadata" do
     uid = unique_uid("ticket")
     insert_device!(uid, agent_id: "agent-ticket", gateway_id: "gateway-ticket")
@@ -400,6 +415,41 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert options["accounts"] == [%{"name" => "mfreeman"}]
     refute inspect(options) =~ "srp_v1_"
     refute inspect(options) =~ "principals"
+  end
+
+  test "ssh_console_options reports no accounts when the policy lists other targets only" do
+    uid = unique_uid("ssh-options-unlisted")
+    listed_uid = unique_uid("ssh-options-listed")
+
+    # Shape of a real deployment policy: a per-target allow list that grants a
+    # sibling host and no top-level `accounts` fallback. The unlisted device must
+    # surface an empty account list so the console can say the target has no
+    # certificate policy instead of offering a free-text account that can only
+    # ever be refused at connect time.
+    Application.put_env(:serviceradar_core, :remote_access_ssh_certificate_policy, %{
+      "ttl_seconds" => 1800,
+      "targets" => %{
+        listed_uid => %{
+          "accounts" => [%{"name" => "opsuser", "principals" => [@target_principal]}],
+          "ttl_seconds" => 1800
+        }
+      }
+    })
+
+    insert_device!(uid, agent_id: "agent-unlisted", gateway_id: "gateway-unlisted")
+
+    assert {:ok, options} = RemoteAccessSessions.ssh_console_options(uid)
+    assert options["accounts"] == []
+    assert options["device_uid"] == uid
+    assert options["default_credential_mode"] == "ssh_certificate"
+
+    assert {:error, :ssh_principal_policy_required} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{protocol: :ssh, credential_custody_mode: :ssh_certificate},
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
   end
 
   test "SSH certificate sessions materialize only trusted account policy from deployment config" do
@@ -1192,6 +1242,58 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert denial_audit[:action] == :remote_access_session_denied
     assert denial_audit[:details][:rbac_decision] == "denied"
     assert denial_audit[:details][:failure_reason] == "approval_denied"
+  end
+
+  test "an inventory-device session dials the device address rather than its hostname" do
+    uid = unique_uid("dial-target")
+
+    insert_device!(uid,
+      agent_id: "agent-dial-target",
+      gateway_id: "gateway-dial-target",
+      hostname: "host01",
+      ip: "192.0.2.10"
+    )
+
+    assert {:ok, %{session: session}} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{protocol: :ssh, credential_custody_mode: :user_present},
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, _create_audit}
+
+    assert session.target_host == "192.0.2.10"
+    assert session.metadata["target"]["hostname"] == "host01"
+    assert session.metadata["target"]["ip"] == "192.0.2.10"
+  end
+
+  test "an operator-supplied target host still overrides the device address" do
+    uid = unique_uid("dial-target-override")
+
+    insert_device!(uid,
+      agent_id: "agent-dial-override",
+      gateway_id: "gateway-dial-override",
+      hostname: "host01",
+      ip: "192.0.2.10"
+    )
+
+    assert {:ok, %{session: session}} =
+             RemoteAccessSessions.request_open(
+               uid,
+               %{
+                 protocol: :ssh,
+                 credential_custody_mode: :user_present,
+                 target_host: "jump01.example.com"
+               },
+               actor: @system_actor,
+               audit_writer: AuditSink
+             )
+
+    assert_receive {:remote_access_audit, _create_audit}
+
+    assert session.target_host == "jump01.example.com"
   end
 
   test "lifecycle transitions write sanitized terminal outcomes" do
@@ -2075,12 +2177,13 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
       %{
         uid: uid,
         type_id: 0,
-        hostname: uid,
+        hostname: Keyword.get(opts, :hostname, uid),
+        ip: Keyword.get(opts, :ip),
         vendor_name: "Linux",
         agent_id: Keyword.get(opts, :agent_id),
         gateway_id: Keyword.get(opts, :gateway_id),
         is_available: true,
-        metadata: %{},
+        metadata: Keyword.get(opts, :metadata, %{}),
         first_seen_time: now,
         last_seen_time: now
       }

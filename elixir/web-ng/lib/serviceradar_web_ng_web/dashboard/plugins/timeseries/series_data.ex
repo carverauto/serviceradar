@@ -33,11 +33,32 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
       rate_mode: Keyword.get(opts, :rate_mode, :none),
       reference_lines: Keyword.get(opts, :reference_lines, []),
       spec: Keyword.get(opts, :spec),
+      time_window: Keyword.get(opts, :time_window),
       y_scale: Keyword.get(opts, :y_scale, :linear)
     }
 
     build_series_data_from_options(series_points, opts)
   end
+
+  defp geometry_with_window(geometry, {:ok, %DateTime{} = start, %DateTime{} = finish}) do
+    geometry_with_window(geometry, {:ok, DateTime.to_unix(start, :millisecond), DateTime.to_unix(finish, :millisecond)})
+  end
+
+  defp geometry_with_window(geometry, {:ok, first, last}) when is_integer(first) and is_integer(last) do
+    if last - first >= Points.month_axis_ms() do
+      Map.merge(geometry, %{time_first: first, time_last: last})
+    else
+      geometry
+    end
+  end
+
+  defp geometry_with_window(geometry, _window), do: geometry
+
+  defp stored_window(%{time_first: first, time_last: last}) when is_integer(first) and is_integer(last) do
+    {:ok, first, last}
+  end
+
+  defp stored_window(_series), do: :error
 
   defp build_series_data_from_options(series_points, opts) when is_map(opts) do
     series_points
@@ -95,7 +116,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
     y_domain = Points.y_domain(chart_points ++ reference_points(reference_values), unit, y_scale)
     y_ticks = Points.y_ticks(y_domain, compact, unit)
     chart_left_pad = Paths.chart_left_pad(y_ticks)
-    geometry = %{chart_left_pad: chart_left_pad}
+    geometry = geometry_with_window(%{chart_left_pad: chart_left_pad}, Map.get(opts, :time_window))
     paths = chart_points |> Paths.chart_paths(y_domain, geometry) |> Map.merge(raw_stats)
     utilization = Metrics.compute_utilization(paths.avg, effective_max)
 
@@ -112,6 +133,8 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
       x_ticks: Points.x_ticks(points, compact, geometry),
       y_ticks: y_ticks,
       chart_left_pad: chart_left_pad,
+      time_first: Map.get(geometry, :time_first),
+      time_last: Map.get(geometry, :time_last),
       chart_min: y_domain.min,
       chart_max: y_domain.max,
       y_scale: y_domain.scale,
@@ -133,7 +156,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
     y_domain = combined_y_domain(traffic_series, unit, y_scale)
     y_ticks = Points.y_ticks(y_domain, compact, unit)
     chart_left_pad = Paths.chart_left_pad(y_ticks)
-    geometry = %{chart_left_pad: chart_left_pad}
+    geometry = geometry_with_window(%{chart_left_pad: chart_left_pad}, stored_window(first_series))
     traffic_series = apply_shared_domain(traffic_series, y_domain, unit, compact, geometry)
     x_ticks = first_series && Points.x_ticks(first_series.raw_points || [], compact, geometry)
 
@@ -164,7 +187,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
     y_domain = combined_y_domain(series_data, unit, y_scale)
     y_ticks = Points.y_ticks(y_domain, compact, unit)
     chart_left_pad = Paths.chart_left_pad(y_ticks)
-    geometry = %{chart_left_pad: chart_left_pad}
+    geometry = geometry_with_window(%{chart_left_pad: chart_left_pad}, stored_window(first_series))
     series_data = apply_shared_domain(series_data, y_domain, unit, compact, geometry)
     x_ticks = first_series && Points.x_ticks(first_series.raw_points || [], compact, geometry)
 
@@ -274,8 +297,10 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.SeriesData do
   end
 
   defp point_data(points, geometry) when is_list(points) do
+    domain = Paths.time_domain(points)
+
     Enum.map(points, fn {dt, v} ->
-      %{dt: canonical_time(dt), v: v, x: Paths.datetime_to_x(dt, points, geometry)}
+      %{dt: canonical_time(dt), v: v, x: Paths.datetime_to_x(dt, domain, geometry)}
     end)
   end
 

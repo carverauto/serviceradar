@@ -4,6 +4,8 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicy do
   agent_id must not become a device identifier), when MACs are eligible,
   and the effective identifier set for an update.
   """
+  alias ServiceRadar.Identity.AliasPolicy
+  alias ServiceRadar.Inventory.Identity.Address
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.Inventory.IdentityReconciler
@@ -50,16 +52,16 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicy do
   Return the identifier types that may be looked up and registered for an
   update.
 
-  Armis has a typed, source-authoritative identifier. Its raw integration_id
-  is a compatibility field in the payload, not a second device identity.
-  Keeping that rule here makes both batch lookup and registration use the same
-  policy instead of relying on the extractor's current representation.
+  Integration admission belongs to the extractor (`Ids`), so lookup and
+  registration share its decision without a second provider-specific veto.
   """
   def identifier_types(update, ids) do
     Ids.identifier_priority()
     |> Enum.reject(&(&1 == :mac))
     |> Enum.reject(&(&1 == :agent_id and not include_agent_identifier?(update, ids)))
-    |> Enum.reject(&(&1 == :integration_id and armis_source?(update)))
+    |> Enum.reject(
+      &(&1 == :integration_id and Ids.get_identifier_values(:integration_id, ids) == [])
+    )
   end
 
   def include_mac_identifier?(update) do
@@ -162,12 +164,17 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicy do
 
   SyncIngestor consults this BEFORE BatchResolver mints a uid, so a "no"
   cannot be bypassed by the raw-Ecto writer that follows.
+
+  Passive census creation requires a parseable, non-loopback, non-unspecified
+  address and either an eligible MAC identifier or an IP accepted by
+  `AliasPolicy.valid_alias_ip?/1`. A link-local address therefore needs an
+  eligible MAC; a rotating MAC alone cannot anchor that sighting.
   """
   @spec sufficient_to_create?(map() | term()) :: boolean()
   def sufficient_to_create?(update) when is_map(update) do
     cond do
       enrichment_only_source?(update) -> false
-      addressless_census?(update) -> false
+      passive_census_source?(update) -> census_may_create?(update)
       ip_required_source?(update) and not valid_ip?(ip_of(update)) -> false
       true -> true
     end
@@ -175,11 +182,39 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicy do
 
   def sufficient_to_create?(_update), do: false
 
-  # A census observation with no address is an ARP/NDP probe, not a held
-  # address. Decoder keeps it (golden-pinned); this is what stops it becoming
-  # a device. Missing `:ip` is treated as addressless.
-  defp addressless_census?(update) do
-    passive_census_source?(update) and not valid_ip?(ip_of(update))
+  # A census sighting may mint a device only when it saw an address a device can
+  # actually HOLD, and carries something able to anchor the row. Both halves
+  # reuse a predicate that already exists; the create gate simply never
+  # consulted either one.
+  #
+  # First half -- `valid_ip?/1` asks only whether the string is non-empty, which
+  # is why the previous ARP-probe rule let two probe shapes through:
+  #
+  #   * `::` is the source address of an IPv6 DAD neighbour solicitation, and
+  #     `0.0.0.0` is an RFC 5227 ARP probe that spells its zero sender address
+  #     out instead of leaving the field blank. Both ask the same "is this
+  #     address free?" question the blank case is already refused for; they just
+  #     do not arrive as an empty string. `Address.rank/1` scores them 0, along
+  #     with loopback and anything unparseable.
+  #
+  # Second half -- a link-local address IS held, so it clears the first half.
+  # What it cannot do is identify: `AliasPolicy` bars `fe80::/10` and
+  # `169.254/16` as identity evidence for THIS source (a vendor shipping a fixed
+  # `fe80::1` would otherwise merge every router into one device), and
+  # `include_mac_identifier?/1` bars a rotating MAC from anchoring. A sighting
+  # that fails both mints a device with no identifier at all, so nothing can
+  # ever match it again and the next rotation mints another -- the anchorless
+  # failure `census_anchorable_mac?/1` exists to prevent, reached around the
+  # side by a link-local address. NDP runs on link-local by design, so this is
+  # the census's normal traffic, not an edge case.
+  #
+  # A link-local sighting with a burned-in MAC still creates: the MAC anchors
+  # it, and refusing it would drop a real IPv6-only host from inventory.
+  defp census_may_create?(update) do
+    ip = ip_of(update)
+
+    Address.rank(ip) > 0 and
+      (include_mac_identifier?(update) or AliasPolicy.valid_alias_ip?(ip))
   end
 
   # Producers that already refuse an empty IP. Defense in depth: if an
@@ -243,16 +278,6 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicy do
       enrichment_only_source?(update) or
       source in ["armis", "snmp", "snmp-metrics", "snmp_metrics"]
   end
-
-  def armis_source?(update) when is_map(update) do
-    source = String.downcase(to_string(update.source || ""))
-    metadata = update.metadata || %{}
-    integration_type = String.downcase(to_string(metadata["integration_type"] || ""))
-
-    source == "armis" or integration_type == "armis"
-  end
-
-  def armis_source?(_update), do: false
 
   defp mapper_primary_mac?(metadata) when is_map(metadata) do
     kind =

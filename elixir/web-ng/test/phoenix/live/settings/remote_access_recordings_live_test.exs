@@ -86,7 +86,13 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLiveTest do
 
   test "RDP user with view-all permission can review another user's RDP recording", %{conn: conn} do
     user = AccountsFixtures.user_fixture(%{role: :viewer})
-    user = grant_permissions(user, ["devices.remote_access.rdp.open", "devices.remote_access.recordings.view_all"])
+
+    user =
+      grant_permissions(user, [
+        "devices.remote_access.rdp.open",
+        "devices.remote_access.recordings.view_all"
+      ])
+
     owner = AccountsFixtures.user_fixture(%{role: :viewer})
     rdp_recording = recording_fixture(owner, protocol: :rdp, store_payloads?: false)
     conn = log_in_user(conn, user)
@@ -204,7 +210,8 @@ defmodule ServiceRadarWebNGWeb.Settings.RemoteAccessRecordingsLiveTest do
           description: "Test profile for RDP recording LiveView permissions",
           permissions: permissions
         },
-        actor: system_actor()
+        actor: system_actor(),
+        context: %{privilege_boundary_owned: true}
       )
       |> Ash.create!()
 

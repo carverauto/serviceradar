@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "NMS plugins into Scrith; ServiceRadar is the reference",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "output": "sr-scrith-architecture.html",
+    "views": [
+      { "id": "evidence-path", "label": "Evidence path", "focus": ["opentext", "sr-core", "cnpg", "sr-dgraph"], "note": "OpenText and mapper land in ServiceRadar. CNPG keeps blobs and facts. The NMS Dgraph keeps traversal." },
+      { "id": "plugin-path", "label": "Extension path", "focus": ["sr-core", "extension", "scrith"], "note": "ServiceRadar implements the NMS plugin. Other NMS systems use the same extension layer. No shared Dgraph." },
+      { "id": "reason-path", "label": "Reasoning path", "focus": ["scrith", "scrith-dgraph", "deepcausality"], "note": "Scrith copies the snapshot into DeepBrain and runs DeepCausality there." }
+    ]
+  },
+  "components": [
+    { "id": "opentext", "type": "external", "label": "OpenText NA", "sublabel": "inventory + configs", "pos": [40, 90], "size": [150, 64] },
+    { "id": "sr-core", "type": "backend", "label": "ServiceRadar", "sublabel": "reference NMS", "pos": [280, 190], "size": [168, 72] },
+    { "id": "cnpg", "type": "database", "label": "CNPG", "sublabel": "facts + revisions", "pos": [280, 360], "size": [168, 64] },
+    { "id": "sr-dgraph", "type": "database", "label": "SR Dgraph", "sublabel": "NMS topology", "pos": [530, 190], "size": [150, 72] },
+    { "id": "extension", "type": "backend", "label": "NMS extension", "sublabel": "CXP plugin", "pos": [780, 90], "size": [150, 64] },
+    { "id": "scrith", "type": "backend", "label": "Scrith core", "sublabel": "intelligence layer", "pos": [780, 220], "size": [150, 72] },
+    { "id": "scrith-dgraph", "type": "database", "label": "DeepBrain", "sublabel": "scrith Dgraph", "pos": [780, 380], "size": [150, 64] },
+    { "id": "deepcausality", "type": "backend", "label": "DeepCausality", "sublabel": "intervene + ethos", "pos": [1040, 220], "size": [160, 72] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Reference NMS", "wraps": ["sr-core", "cnpg", "sr-dgraph"] },
+    { "kind": "region", "label": "Scrith SaaS", "wraps": ["extension", "scrith", "scrith-dgraph", "deepcausality"] }
+  ],
+  "connections": [
+    { "id": "ot-sr", "from": "opentext", "to": "sr-core", "label": "configs", "variant": "emphasis" },
+    { "id": "sr-cnpg", "from": "sr-core", "to": "cnpg", "label": "facts", "labelDy": 24 },
+    { "id": "sr-srdg", "from": "sr-core", "to": "sr-dgraph", "label": "project", "labelAt": [405, 276] },
+    { "id": "sr-ext", "from": "sr-core", "to": "extension", "label": "NMS snapshot", "variant": "emphasis" },
+    { "id": "ext-scrith", "from": "extension", "to": "scrith", "label": "CXP", "labelDy": 24 },
+    { "id": "scrith-sdg", "from": "scrith", "to": "scrith-dgraph", "label": "ontology", "labelDy": 24 },
+    { "id": "scrith-dc", "from": "scrith", "to": "deepcausality", "label": "intervene", "variant": "emphasis" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "ServiceRadar is a knowledge source", "items": ["CNPG stores config bodies, parsed facts, and change rows", "The NMS Dgraph stores Device, Interface, Prefix, Change, TopologyEdge"] },
+    { "dot": "emerald", "title": "Extension layer, not a shared graph", "items": ["Scrith is a generalized ontology and reasoner, not an NMS", "NMS systems plug in through connectors and CXP", "Two Dgraphs; namespaces cannot be queried across"] },
+    { "dot": "rose", "title": "Scrith core reasons", "items": ["DeepCausality and Ethos live in scrith", "Do not assume add-causal-engine ships inside ServiceRadar", "Any NMS that emits the snapshot can use ChangeImpact"] }
+  ]
+}

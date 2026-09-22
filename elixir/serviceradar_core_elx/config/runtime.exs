@@ -428,12 +428,6 @@ otx_raw_storage =
     _ -> :file
   end
 
-# Terminal agent_command pruning (platform.agent_commands has a documented
-# bloat history, so these are incident-response levers).
-config :serviceradar_core, ServiceRadar.Edge.AgentCommandCleanupWorker,
-  retention_days: "AGENT_COMMAND_RETENTION_DAYS" |> parse_int_env.(2) |> max(1),
-  reschedule_seconds: "AGENT_COMMAND_CLEANUP_INTERVAL_SECONDS" |> parse_int_env.(3_600) |> max(60)
-
 # ---------------------------------------------------------------------------
 # Config blocks owned by the serviceradar_core APPLICATION.
 #
@@ -462,6 +456,19 @@ config :serviceradar_core, ServiceRadar.Edge.AgentCommandCleanupWorker,
 #
 # Keep in sync with elixir/serviceradar_core/config/runtime.exs.
 # ---------------------------------------------------------------------------
+
+# EventWriter shadow/cutover destination. Helm injects SERVICERADAR_STARROCKS_*
+# on this release; without this block those env vars are inert and Destination
+# reads enabled: false.
+config :serviceradar_core,
+       ServiceRadar.Analytics.StarRocks,
+       ServiceRadar.Analytics.StarRocks.Env.config()
+
+# Terminal agent_command pruning (platform.agent_commands has a documented
+# bloat history, so these are incident-response levers).
+config :serviceradar_core, ServiceRadar.Edge.AgentCommandCleanupWorker,
+  retention_days: "AGENT_COMMAND_RETENTION_DAYS" |> parse_int_env.(2) |> max(1),
+  reschedule_seconds: "AGENT_COMMAND_CLEANUP_INTERVAL_SECONDS" |> parse_int_env.(3_600) |> max(60)
 
 # Canonical-topology rebuild + its mass-deletion guardrail. The guard refuses a
 # stale-prune pass deleting more than canonical_prune_max_fraction of the
@@ -505,6 +512,9 @@ config :serviceradar_core, :spiffe,
   trust_domain: System.get_env("SPIFFE_TRUST_DOMAIN", "serviceradar.local"),
   cert_dir: System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs"),
   workload_api_socket: System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock")
+
+config :serviceradar_core,
+  egress_proxy: ServiceRadar.HTTP.EgressProxy.from_env()
 
 config :serviceradar_core,
   mapper_topology_edge_stale_minutes: parse_int_env.("SERVICERADAR_MAPPER_TOPOLOGY_EDGE_STALE_MINUTES", 180)
@@ -955,6 +965,37 @@ if config_env() == :prod do
       oban_config
     end
 
+  # Object store retention. `serviceradar_core`'s runtime.exs configures this
+  # too, but THIS release is what a deployment actually loads, so a cron entry
+  # that exists only there never runs in production. The chart has rendered
+  # OBJECT_STORE_RETENTION_* onto the core pod since the feature shipped while
+  # this release ignored every one of them: `:object_store_retention` resolved
+  # to nil, the worker's own `enabled?` default is false, and no cron entry was
+  # ever registered. The mirrored agent-release and native add-on artifacts
+  # therefore accumulated forever, and because the object store stream is
+  # created DiscardNew with a MaxBytes cap, a full bucket does not evict
+  # anything -- it rejects new uploads outright with NATS 10077 "maximum bytes
+  # exceeded", which surfaces as a failed agent release import. Keep this entry
+  # in step with the one in serviceradar_core/config/runtime.exs.
+  object_store_retention_enabled =
+    System.get_env("OBJECT_STORE_RETENTION_ENABLED", "true") in ~w(true 1 yes)
+
+  object_store_retention_dry_run =
+    System.get_env("OBJECT_STORE_RETENTION_DRY_RUN", "false") in ~w(true 1 yes)
+
+  object_store_retention_cron =
+    System.get_env("OBJECT_STORE_RETENTION_CRON", "0 3 * * *")
+
+  object_store_retention_crontab =
+    if object_store_retention_enabled do
+      [
+        {object_store_retention_cron, ServiceRadar.ObjectStore.RetentionWorker, args: %{"enabled" => true},
+         queue: :maintenance}
+      ]
+    else
+      []
+    end
+
   extra_cron_entries =
     [
       {"*/2 * * * *", ServiceRadar.Jobs.ReapStalePeriodicJobsWorker, queue: :maintenance},
@@ -971,6 +1012,7 @@ if config_env() == :prod do
       {System.get_env("SERVICERADAR_CREDENTIAL_BROKER_RETENTION_CRON") || "43 3 * * *",
        ServiceRadar.Credentials.BrokerRetentionWorker, queue: :maintenance}
     ] ++
+      object_store_retention_crontab ++
       capacity_forecasting_crontab ++
       ProductionSchedule.cron_entries() ++ DispatchSchedule.cron_entries()
 
@@ -1077,12 +1119,29 @@ if config_env() == :prod do
   config :serviceradar_core, :age_graph_name, age_graph_name
   config :serviceradar_core, :oban_enabled, oban_enabled
 
+  config :serviceradar_core, :object_store_retention,
+    enabled?: object_store_retention_enabled,
+    dry_run?: object_store_retention_dry_run,
+    agent_release_keep_latest:
+      String.to_integer(System.get_env("OBJECT_STORE_RETENTION_AGENT_RELEASE_KEEP_LATEST") || "1"),
+    native_addon_orphan_grace_seconds:
+      String.to_integer(System.get_env("OBJECT_STORE_RETENTION_NATIVE_ADDON_ORPHAN_GRACE_SECONDS") || "604800"),
+    datasvc_timeout_ms: String.to_integer(System.get_env("OBJECT_STORE_RETENTION_DATASVC_TIMEOUT_MS") || "30000")
+
   config :serviceradar_core,
          :periodic_job_stale_threshold_minutes,
          periodic_job_stale_threshold_minutes
 
   config :serviceradar_core, :platform_sync_component_id, platform_sync_component_id
   config :serviceradar_core, :start_ash_oban_scheduler, ash_oban_scheduler_enabled
+
+  config :serviceradar_core,
+    graph_backend: System.get_env("GRAPH_BACKEND", "dual"),
+    graph_read: System.get_env("GRAPH_READ", "age"),
+    dgraph_url: System.get_env("DGRAPH_URL"),
+    dgraph_host: System.get_env("DGRAPH_HOST"),
+    dgraph_port: parse_int_env.("DGRAPH_PORT", 9080),
+    dgraph_tls_mode: System.get_env("DGRAPH_TLS_MODE", "disable")
 
   # Operator-set stale thresholds for the scheduled anomaly workers; the
   # worker modules' own defaults apply when unset.
@@ -1243,6 +1302,7 @@ if config_env() == :prod do
           stream_max_bytes: 1_073_741_824,
           stream_max_age: 86_400_000_000_000
         },
+        Config.k8s_nodes_stream(),
         %{
           name: "OTEL_METRICS",
           stream_name: "events",

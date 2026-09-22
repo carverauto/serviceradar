@@ -5,6 +5,7 @@ tests:
   - it: runs the collector in bootstrap-stream mode as a pre-upgrade hook
     set:
       flowCollector.enabled: true
+      analytics.starrocks.enabled: true
     asserts:
       - isKind:
           of: Job
@@ -31,6 +32,7 @@ tests:
   - it: uses scratch storage on a fresh install, before the durable PVC exists
     set:
       flowCollector.enabled: true
+      analytics.starrocks.enabled: true
     asserts:
       - equal:
           path: spec.template.spec.volumes[3].name
@@ -46,6 +48,7 @@ tests:
   - it: claims the durable PVC on upgrade, once it already exists
     set:
       flowCollector.enabled: true
+      analytics.starrocks.enabled: true
     release:
       upgrade: true
     asserts:

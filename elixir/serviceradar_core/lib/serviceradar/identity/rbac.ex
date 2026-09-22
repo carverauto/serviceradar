@@ -2,10 +2,9 @@ defmodule ServiceRadar.Identity.RBAC do
   @moduledoc """
   RBAC evaluation helpers for role profiles.
 
-  Uses a two-tier permission cache:
-  - **L1**: Process dictionary (fastest, per-process)
-  - **L2**: Shared ETS table via `RBAC.Cache` (cross-process, TTL-based)
-  - **L3**: Database query via `effective_profile/2` (fallback)
+  Uses one shared permission cache:
+  - **L1**: Shared ETS table via `RBAC.Cache` (cross-process, TTL-based)
+  - **L2**: Database query via `effective_authority/2` (fallback)
 
   Permissions are stored as `MapSet.t(String.t())` for O(1) membership checks.
   """
@@ -15,6 +14,8 @@ defmodule ServiceRadar.Identity.RBAC do
   alias ServiceRadar.Identity.RBAC.Catalog
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Identity.User
+  alias ServiceRadar.Identity.UserGroup
+  alias ServiceRadar.Identity.UserGroupMembership
 
   require Ash.Query
 
@@ -28,24 +29,12 @@ defmodule ServiceRadar.Identity.RBAC do
   def permissions_for_user(user, opts \\ [])
 
   def permissions_for_user(%User{} = user, opts) do
-    process_key = {:rbac_permissions, user.id}
-
     if Keyword.get(opts, :fresh?, false) do
       permissions = query_permissions(user, opts)
       Cache.put(user.id, permissions)
-      Process.put(process_key, permissions)
       permissions
     else
-      # L1: Process dictionary (fastest)
-      case Process.get(process_key) do
-        %MapSet{} = permissions ->
-          permissions
-
-        nil ->
-          permissions = fetch_cached_or_query(user, opts)
-          Process.put(process_key, permissions)
-          permissions
-      end
+      fetch_cached_or_query(user, opts)
     end
   end
 
@@ -64,7 +53,7 @@ defmodule ServiceRadar.Identity.RBAC do
 
   def permissions_for_user(_, _opts), do: MapSet.new()
 
-  # L2: Shared ETS cache → L3: Database query
+  # Shared ETS cache → database query
   defp fetch_cached_or_query(user, opts) do
     case Cache.get(user.id) do
       {:ok, %MapSet{} = cached} ->
@@ -80,20 +69,14 @@ defmodule ServiceRadar.Identity.RBAC do
   defp query_permissions(user, opts) do
     actor = Keyword.get(opts, :actor, SystemActor.system(:rbac))
 
-    case effective_profile(user, actor) do
-      {:ok, %RoleProfile{permissions: permissions}} -> MapSet.new(permissions)
-      {:ok, nil} -> Catalog.permissions_for_role(user.role)
+    case effective_authority(user, actor) do
+      {:ok, %{permissions: %MapSet{} = permissions}} -> permissions
       {:error, _} -> Catalog.permissions_for_role(user.role)
     end
   end
 
-  @doc "Clears the process-level RBAC cache."
-  def clear_process_cache do
-    Enum.each(Process.get_keys(), fn
-      {:rbac_permissions, _} = key -> Process.delete(key)
-      _ -> :ok
-    end)
-  end
+  @doc "Compatibility no-op: RBAC caching is shared ETS only."
+  def clear_process_cache, do: :ok
 
   @spec has_permission?(User.t() | map(), String.t(), keyword()) :: boolean()
   def has_permission?(user, permission, opts \\ []) do
@@ -153,4 +136,66 @@ defmodule ServiceRadar.Identity.RBAC do
         {:error, :no_profile}
     end
   end
+
+  @spec effective_authority(User.t(), map()) ::
+          {:ok,
+           %{
+             permissions: MapSet.t(String.t()),
+             profile_versions: [%{id: String.t(), updated_at: DateTime.t()}]
+           }}
+          | {:error, term()}
+  def effective_authority(%User{} = user, actor) do
+    with {:ok, base} <- strict_base_profile(user, actor),
+         {:ok, memberships} <- UserGroupMembership.list_by_user(user.id, actor: actor),
+         {:ok, groups} <- load_groups_with_profiles(memberships, actor) do
+      profiles =
+        [base | Enum.map(groups, & &1.role_profile)]
+        |> Enum.reject(&is_nil/1)
+        |> Enum.uniq_by(& &1.id)
+        |> Enum.sort_by(&to_string(&1.id))
+
+      {:ok,
+       %{
+         permissions: union_permissions(profiles),
+         profile_versions: Enum.map(profiles, &profile_version/1)
+       }}
+    end
+  end
+
+  @spec effective_permissions(User.t(), map()) :: {:ok, MapSet.t(String.t())} | {:error, term()}
+  def effective_permissions(%User{} = user, actor) do
+    with {:ok, %{permissions: permissions}} <- effective_authority(user, actor),
+         do: {:ok, permissions}
+  end
+
+  defp strict_base_profile(user, actor) do
+    case effective_profile(user, actor) do
+      {:ok, %RoleProfile{} = profile} -> {:ok, profile}
+      {:ok, nil} -> {:error, :no_profile}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp load_groups_with_profiles([], _actor), do: {:ok, []}
+
+  defp load_groups_with_profiles(memberships, actor) do
+    group_ids = memberships |> Enum.map(& &1.group_id) |> Enum.uniq()
+
+    UserGroup
+    |> Ash.Query.filter(id in ^group_ids)
+    |> Ash.read(actor: actor, load: [:role_profile])
+    |> case do
+      {:ok, groups} when length(groups) == length(group_ids) -> {:ok, groups}
+      {:ok, _groups} -> {:error, :group_not_found}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp union_permissions(profiles) do
+    Enum.reduce(profiles, MapSet.new(), fn profile, permissions ->
+      MapSet.union(permissions, MapSet.new(profile.permissions || []))
+    end)
+  end
+
+  defp profile_version(profile), do: %{id: to_string(profile.id), updated_at: profile.updated_at}
 end

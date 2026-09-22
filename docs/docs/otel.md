@@ -391,7 +391,7 @@ OTLP_ENDPOINT=serviceradar-log-collector:4317 TG_FLAGS="--otlp-insecure-skip-ver
   ./scripts/otel-conformance.sh --kubectl
 ```
 
-When `PSQL_DSN` is set the script polls (trace summaries refresh on a 2-minute cron) and
+When `PSQL_DSN` is set the script polls for the [maintained storage outputs](#storage-model) and
 exits nonzero if any of these checks stays at zero: span count and distinct trace count in
 `otel_traces`, summed `span_count` in `otel_trace_summaries`, row count in `logs`, and
 `metric_name = 'gen'` rows in `otel_metric_points` for the generated service name.
@@ -404,10 +404,17 @@ All tables live in CNPG (TimescaleDB hypertables). Retention is enforced by the 
 | Table | Contents | Default retention |
 |---|---|---|
 | `otel_traces` | One row per span (`trace_id`, `span_id`, `parent_span_id`, timing, status, attributes) | 3 days |
-| `otel_trace_summaries` | One row per trace: root span, `span_count`, `error_count`, `duration_ms`, `service_set`. Refreshed every 2 minutes by an incremental worker | 3 days |
+| `otel_trace_summaries` | One row per trace: root span, `span_count`, `error_count`, `duration_ms`, `service_set`. Maintained by an incremental worker | 3 days |
 | `otel_metrics` | Span-derived performance samples from `otel.metrics.derived` protobuf MetricBatch payloads (spans slower than 100 ms are flagged `is_slow`) | 30 days |
 | `otel_metric_points` | OTLP metric data points: Sums, Gauges, Histograms, keyed by `(timestamp, metric_name, service_name, attributes_hash)`. Exponential histograms and summaries are counted in pipeline accounting but not yet decoded (spec'd follow-up) | 30 days |
 | `logs` | OTLP logs and syslog/GELF, with `trace_id`/`span_id` when the SDK provides them | 30 days |
+
+Successful nonempty span writes request an immediate Oban summary refresh. Pending
+requests are coalesced, and ingest during an executing refresh can queue a follow-up.
+Refreshes are serialized with a transaction-scoped advisory lock; a competing worker
+snoozes and retries. After commit, changed summaries trigger a Live UI refresh.
+The default two-minute cron remains a fallback. Summary visibility depends on worker
+availability and completion, rather than requiring a cron tick for every batch.
 
 Canonical identifier contract: `trace_id` is stored as 32-character lowercase hex and
 `span_id`/`parent_span_id` as 16-character lowercase hex in every table (absent or
@@ -479,7 +486,7 @@ WHERE t.service_name = 'checkout'
 | TLS handshake rejected on compose `localhost:4317` (e.g. `certificate required`) | Compose ships `[grpc_tls]` with a CA and the default `client_auth = "required"` | Present the workstation client cert pair, or set `client_auth = "none"`/`"optional"` in `docker/compose/otel.docker.toml` and restart |
 | Export succeeds but SDK logs a partial-success warning | Individual records exceed `max_request_bytes` and were rejected | Raise `[server] max_request_bytes`, or reduce record/batch size |
 | HTTP 503 / gRPC `UNAVAILABLE` on export | Collector could not publish to NATS (broker down or stream unavailable) | Retryable; check `kubectl logs deploy/serviceradar-log-collector -n <namespace>` and NATS health |
-| Telemetry accepted but missing from queries | Wrong table/entity, or trace summaries not refreshed yet (2-minute cron) | Use the storage-model table above; wait for the summary refresh; run `scripts/otel-conformance.sh` to isolate the failing signal |
+| Telemetry accepted but missing from queries | Wrong table/entity, or trace summaries not refreshed yet | Check the [storage model](#storage-model) and [rollup recovery runbook](./observability-rollup-recovery.md); run `scripts/otel-conformance.sh` to isolate the failing signal |
 
 For ingestion volume and Timescale retention jobs, use the
 [CNPG Monitoring dashboards](./cnpg-monitoring.md) or run ad-hoc SQL from the

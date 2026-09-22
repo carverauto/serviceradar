@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Identity
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Processes
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Sections
+  alias ServiceRadarWebNGWeb.MetricWindowComponents
 
   defdelegate load_process_metrics(srql_module, filter_tokens, scope), to: Processes
 
@@ -15,6 +16,31 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
   defdelegate sysmon_identity(device_row, device_uid), to: Identity
 
   defdelegate resolve_sysmon_filter_tokens(srql_module, identity, scope), to: Identity
+  defdelegate resolve_sysmon_filter_tokens(srql_module, identity, scope, opts), to: Identity
+
+  @doc """
+  The sysmon assigns for a device page showing `time_range`.
+
+  Whether the device is reporting now, and its live process table, never depend on
+  the chart window. Only the chart sections do, and only a window other than the
+  default needs its own identity resolution.
+  """
+  def load_device_metrics(srql_module, identity, scope, time_range) do
+    live_filters = resolve_sysmon_filter_tokens(srql_module, identity, scope)
+
+    chart_filters =
+      if time_range == MetricWindowComponents.default_range() do
+        live_filters
+      else
+        resolve_sysmon_filter_tokens(srql_module, identity, scope, time_range: time_range)
+      end
+
+    %{
+      metric_sections: load_metric_sections(srql_module, chart_filters, scope, time_range: time_range),
+      process_metrics: load_process_metrics(srql_module, live_filters, scope),
+      sysmon_presence: live_filters != []
+    }
+  end
 
   def annotate_metric_sections(sections, anomaly_overview, selected_row \\ nil)
 
@@ -85,8 +111,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
     |> Kernel.==("escalate")
   end
 
+  defp finding_marker_time(%{"metric_context_time" => time}) when is_binary(time), do: parse_datetime(time)
+
   defp finding_marker_time(row) do
     episode_peak_time(row) || finding_time(row)
+  end
+
+  defp finding_episode_start_time(%{"seasonal_disposition" => %{"bucket_started_at" => time}}) when is_binary(time) do
+    parse_datetime(time)
   end
 
   defp finding_episode_start_time(row) do
@@ -102,6 +134,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
       ["anomaly", "episode_started_at_unix_nano"]
     ])
     |> unix_nano_datetime()
+  end
+
+  defp finding_episode_end_time(%{"seasonal_disposition" => %{"bucket_ended_at" => time}}) when is_binary(time) do
+    parse_datetime(time)
   end
 
   defp finding_episode_end_time(row) do

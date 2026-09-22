@@ -1,0 +1,19 @@
+-- Marker for a warehouse created before daily partitioning. Executes nothing.
+-- Not a Mix/Postgres migration; BUILD.bazel here says how these are applied.
+--
+-- 0001-0004 once created the telemetry tables with PRIMARY KEY (id) and no
+-- PARTITION BY. StarRocks can neither add partitioning to an existing table
+-- nor change a primary key with ALTER, so on such a warehouse the retention
+-- property (`partition_live_number`) is rejected, nothing ever expires, and the
+-- hourly rollups can only refresh in full.
+--
+-- This used to document a destructive procedure to run by hand, and only on a
+-- warehouse that was not yet serving reads. It is now done for you: at startup
+-- ServiceRadar.Analytics.StarRocks.PartitionRebuild rebuilds each such table
+-- beside itself, swaps it in atomically and copies across what arrived during
+-- the copy, while the warehouse keeps serving and taking writes. It is driven
+-- by what the warehouse holds rather than by this ledger, so it is not a
+-- numbered migration and there is nothing to apply here.
+--
+-- The version stays because warehouses have already recorded it.
+SELECT 'partitioned telemetry rebuild is automatic; nothing to apply' AS status;

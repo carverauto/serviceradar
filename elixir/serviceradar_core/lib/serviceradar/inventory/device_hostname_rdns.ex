@@ -245,16 +245,7 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
   end
 
   defp default_query_page(query, opts) do
-    SRQLRunner.query_page(
-      query,
-      Keyword.merge(
-        [
-          direction: "next",
-          text_param_decoder: &decode_cidr_text_param/1
-        ],
-        opts
-      )
-    )
+    SRQLRunner.query_page(query, Keyword.merge([direction: "next"], opts))
   end
 
   defp process_srql_pages(
@@ -377,19 +368,6 @@ defmodule ServiceRadar.Inventory.DeviceHostnameRdns do
   defp maybe_put(opts, _key, nil), do: opts
   defp maybe_put(opts, _key, ""), do: opts
   defp maybe_put(opts, key, value), do: Keyword.put(opts, key, value)
-
-  defp decode_cidr_text_param(value) when is_binary(value) do
-    if String.contains?(value, "/") do
-      case Cidr.dump_to_native(value, []) do
-        {:ok, inet} -> {:ok, inet}
-        _ -> {:ok, value}
-      end
-    else
-      {:ok, value}
-    end
-  end
-
-  defp decode_cidr_text_param(value), do: {:ok, value}
 
   defp normalize_device_query(query) when is_binary(query) do
     normalized = SRQLQuery.ensure_target(query, :devices)

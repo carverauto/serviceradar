@@ -1,0 +1,31 @@
+suite: remote access SSH browser key remember defaults off
+templates:
+  - templates/web.yaml
+# See docs/docs/remote-access.md, "Remembered browser keys", for the opt-in
+# policy and memory-only lifetime enforced by the console.
+tests:
+  - it: disables browser key remember by default
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_REMOTE_ACCESS_BROWSER_KEY_REMEMBER_ENABLED
+            value: "false"
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: enables browser key remember only when explicitly set
+    set:
+      remoteAccess.ssh.browserKeyRemember.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_REMOTE_ACCESS_BROWSER_KEY_REMEMBER_ENABLED
+            value: "true"
+        template: templates/web.yaml
+        documentSelector:
+          path: kind
+          value: Deployment

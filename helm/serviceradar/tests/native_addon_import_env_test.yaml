@@ -1,0 +1,58 @@
+suite: native add-on import environment
+templates:
+  - templates/web.yaml
+tests:
+  # Auto-sync is what lets a track_latest_approved profile ever see a newer
+  # package. With it off the catalog never learns a new version exists and
+  # managed add-on updates are silently inert. Pin the default so it cannot
+  # quietly regress, and pin that approval stays opt-in.
+  - it: enables native add-on auto-sync by default without auto-approving anything
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_NATIVE_ADDON_AUTO_SYNC
+            value: "true"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_NATIVE_ADDON_AUTO_APPROVE_IDS
+            value: ""
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: honours an operator opting out of auto-sync
+    set:
+      webNg.nativeAddonImport.autoSyncEnabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_NATIVE_ADDON_AUTO_SYNC
+            value: "false"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: renders an explicit auto-approve list
+    set:
+      webNg.nativeAddonImport.autoApproveAddonIds:
+        - netprobe
+        - anomaly
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_NATIVE_ADDON_AUTO_APPROVE_IDS
+            value: "netprobe,anomaly"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment

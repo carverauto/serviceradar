@@ -1,0 +1,42 @@
+[package]
+name = "dgraph-topology"
+version = "0.1.0"
+description = "ServiceRadar topology schema and typed Dgraph operations. Schema string is a parameter to dgraph-migrate; SMDB schema stays in scrith."
+edition = "2024"
+license = "Apache-2.0"
+autotests = false
+
+[lib]
+name = "dgraph_topology"
+path = "src/lib.rs"
+
+[[test]]
+name = "lib_tests"
+path = "tests/lib_tests.rs"
+
+[[test]]
+name = "schema_lifecycle"
+path = "tests/schema_lifecycle.rs"
+required-features = ["integration-tests"]
+
+[[bin]]
+name = "dgraph-migrate"
+path = "src/bin/dgraph-migrate.rs"
+
+[features]
+default = []
+integration-tests = [
+    "dgraph_client/test-utils",
+    "dgraph-migrate/integration-tests",
+]
+
+[dependencies]
+chrono = { workspace = true }
+dgraph-migrate = { path = "../dgraph-migrate" }
+dgraph_client = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

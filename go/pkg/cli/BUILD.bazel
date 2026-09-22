@@ -3,10 +3,12 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "cli",
     srcs = [
+        "auth.go",
         "checker.go",
         "cli.go",
         "edge_onboarding.go",
         "enroll.go",
+        "enroll_paths.go",
         "errors.go",
         "flags.go",
         "help.go",
@@ -33,7 +35,9 @@ go_library(
 go_test(
     name = "cli_test",
     srcs = [
+        "auth_test.go",
         "cli_tls_test.go",
+        "enroll_paths_test.go",
         "nats_bootstrap_acl_integration_test.go",
         "nats_bootstrap_acl_test.go",
     ],
@@ -43,5 +47,6 @@ go_test(
         "@com_github_nats_io_jwt_v2//:jwt",
         "@com_github_nats_io_nats_go//:nats_go",
         "@com_github_nats_io_nats_server_v2//server",
+        "@org_golang_x_crypto//bcrypt",
     ],
 )

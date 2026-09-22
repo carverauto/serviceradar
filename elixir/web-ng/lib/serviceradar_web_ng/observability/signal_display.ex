@@ -124,6 +124,8 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplay do
       @proxmox_contract_path |> File.read!() |> Jason.decode!(),
     {"proxmox-inventory", "0.1.7", "com.carverauto.proxmox.resource_event", "1.0.0"} =>
       @proxmox_contract_path |> File.read!() |> Jason.decode!(),
+    {"proxmox-inventory", "0.1.8", "com.carverauto.proxmox.resource_event", "1.0.0"} =>
+      @proxmox_contract_path |> File.read!() |> Jason.decode!(),
     {"trivy", "0.69.1", "com.carverauto.trivy.vulnerability_report", "1.0.0"} =>
       @trivy_contract_path |> File.read!() |> Jason.decode!(),
     {"falco", "1.0.0", "com.carverauto.falco.runtime_event", "1.0.0"} =>
@@ -196,8 +198,9 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplay do
     end
   end
 
-  defp runtime_contract(_key), do: nil
-
+  # NOTE: contract_key/1 always builds a 4-tuple, so runtime_contract/1 is
+  # total without a catch-all. Do not re-add one: a non-tuple key would be a
+  # caller bug that should raise, not silently resolve to nil.
   defp contract_map(%{} = contract), do: contract
   defp contract_map(_value), do: nil
 

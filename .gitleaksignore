@@ -7,6 +7,13 @@ ddc5367687b6cbb2303b4b6a14954a3529773490:scripts/sign-wasm-plugin-publish.sh:gen
 993886f218e1f847b8d569c12d7a3ff2ed96b8e7:elixir/serviceradar_core/test/serviceradar/automation/ansible/controller_provenance_test.exs:generic-api-key:390
 # Synthetic PEM-shaped rejection fixture removed from the tip but retained in PR history.
 1f50b9c46160066a551450f2362eaceecff655cf:elixir/serviceradar_core/test/serviceradar/automation/ansible/awx_client_test.exs:private-key:711
+# Synthetic PEM-shaped mock in the sr-4383 SSH-console regression test, removed
+# from the tip by de-armoring the fixture. Retained in PR history; listed so a
+# push range that re-scans that commit does not block on it.
+21fa883d46c4a5a3d3916e1255febf74b12cc303:elixir/web-ng/assets/component/test/RemoteAccessSSHConsoleRememberKey.test.jsx:private-key:15
+# Intermediate armor-free sentinel on the same mock, likewise replaced at the
+# tip by "not-a-private-key". Retained in PR history only.
+2f1514deb2e445a86bcade2e314eb5725f279278:elixir/web-ng/assets/component/test/RemoteAccessSSHConsoleRememberKey.test.jsx:generic-api-key:15
 # Synthetic OpenSSH key fixture: the base64 body decodes to the ASCII string
 # "openssh-test-key-material", and it sits beside "private_key" => "not-a-private-key"
 # in the same test. Already on staging; listed so a push range that re-scans that
@@ -29,6 +36,10 @@ ddc5367687b6cbb2303b4b6a14954a3529773490:scripts/sign-wasm-plugin-publish.sh:gen
 9ab295e3fb7e1e0f7e838166194e818bc877044f:elixir/serviceradar_core/test/serviceradar/notifications/transports/slack_test.exs:slack-bot-token:51
 9ab295e3fb7e1e0f7e838166194e818bc877044f:elixir/serviceradar_core/test/serviceradar/notifications/transports/stream_test.exs:generic-api-key:108
 9ab295e3fb7e1e0f7e838166194e818bc877044f:elixir/serviceradar_core/test/serviceradar/notifications/transports/stream_test.exs:generic-api-key:254
+# Synthetic PKCS#1 / PKCS#8 PEMs for host01.example.com. Invented for
+# age-to-dgraph CNPG client-key parsing tests; not a live dump.
+94c52d45044125ef11cdaa61eadeda36973572e5:rust/age-to-dgraph/src/tls.rs:private-key:125
+94c52d45044125ef11cdaa61eadeda36973572e5:rust/age-to-dgraph/src/tls.rs:private-key:154
 
 # Vendored Rust dependency file-integrity manifest, not a credential.
 #
@@ -49,3 +60,8 @@ ddc5367687b6cbb2303b4b6a14954a3529773490:scripts/sign-wasm-plugin-publish.sh:gen
 # -- any branch far enough behind that remote_oid..local_oid spans it -- does
 # not block on it.
 75fe4330a71c9dc675ac2b1bd2a442c60775f934:MODULE.bazel.lock:generic-api-key:1998
+# Removed architecture diagrams: generic-api-key mistakes the adjacent diagram
+# node IDs "kube-api" and "k8s-inventory" for a credential. Scope to these two
+# historical findings so new content remains scanned.
+988187b9cb6d2c3ae1c5eda6bc6de08fb7914db3:openspec/changes/add-k8s-node-readiness-alerts/architecture.json:generic-api-key:13
+988187b9cb6d2c3ae1c5eda6bc6de08fb7914db3:openspec/changes/add-k8s-node-readiness-alerts/architecture.html:generic-api-key:4962

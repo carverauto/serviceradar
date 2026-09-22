@@ -2,13 +2,18 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Config do
   @moduledoc """
   Configuration + feature flags for core advisory feed ingestion (design D8).
 
-  For operator-settable values (cadence, VulnCheck credential) the resolution
-  order is: per-feed `VulnerabilityFeedDefinition` row column → application env
-  override → environment variable → built-in default. The seeded feed-def row is
-  therefore the primary source operators edit from the settings UI, with env as
-  the fallback for un-seeded / pre-migration deployments. Feature flag
-  `advisory_feeds_core_enabled` defaults **on** (demo); the nist-nvd2 sub-gate
-  lets KEV enrichment run independently of the large NVD load.
+  For the cadence the resolution order is: per-feed
+  `VulnerabilityFeedDefinition` row column → application env override →
+  environment variable → built-in default. The seeded feed-def row is therefore
+  the primary source operators edit from the settings UI, with env as the
+  fallback for un-seeded / pre-migration deployments.
+
+  The VulnCheck credential does **not** follow that order. It comes from the
+  feed row's `credential_ref` and nowhere else -- see `vulncheck_token/1`.
+
+  Feature flag `advisory_feeds_core_enabled` defaults **on** (demo); the
+  nist-nvd2 sub-gate lets KEV enrichment run independently of the large NVD
+  load.
   """
 
   alias ServiceRadar.Actors.SystemActor
@@ -26,6 +31,15 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Config do
   @cisa_kev_url "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
   @ubuntu_osv_url "https://security-metadata.canonical.com/osv/osv-all.tar.xz"
   @ubuntu_vex_url "https://security-metadata.canonical.com/vex/vex-all.tar.xz"
+
+  # Recorded verbatim in the feed row's last_error, so it names both halves of
+  # the operator's job: the credential does not exist until it is created, and
+  # creating it does nothing until a feed row points at it.
+  @missing_credential_message "no VulnCheck credential is attached to a VulnCheck-backed feed: " <>
+                                "create a vulncheck API token credential at " <>
+                                "/settings/networks/credentials, then select it on the " <>
+                                "vulncheck-kev or nist-nvd2 row at " <>
+                                "/settings/security/vulnerability-feeds"
 
   @refresh_seconds %{
     "cisa-kev" => 3_600,
@@ -175,12 +189,16 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Config do
   @doc """
   VulnCheck API token.
 
-  Primary source is a VulnCheck-backed feed-def row's `credential_ref` column,
+  The only source is a VulnCheck-backed feed-def row's `credential_ref` column,
   which stores a reusable `NetworkCredentialSecret` ID and resolves through the
-  credential broker. Environment/application values remain plaintext fallback
-  inputs for existing headless deployments.
+  credential broker. There is deliberately no environment or application-config
+  fallback: an integration credential that arrives as plaintext in the process
+  environment is never brokered, never audited, and never rotated, and a
+  deployment that has both would silently run on whichever the code preferred.
+  A missing credential is an error naming what to create.
   """
-  @spec vulncheck_token(keyword()) :: {:ok, String.t()} | {:error, term()}
+  @spec vulncheck_token(keyword()) ::
+          {:ok, String.t()} | {:error, {:missing_vulncheck_credential, String.t()} | term()}
   def vulncheck_token(opts \\ []) do
     case definition_credential_ref() do
       ref when is_binary(ref) ->
@@ -188,19 +206,24 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Config do
         resolver.(ref, opts)
 
       nil ->
-        fallback_vulncheck_token()
+        {:error, {:missing_vulncheck_credential, @missing_credential_message}}
     end
   end
 
-  defp fallback_vulncheck_token do
-    token =
-      System.get_env("VULNCHECK_API_TOKEN") ||
-        System.get_env("SERVICERADAR_VULNCHECK_TOKEN") ||
-        config(:vulncheck_token, nil)
+  @doc """
+  Whether a VulnCheck-backed feed row carries a `credential_ref`.
 
-    case token do
-      value when is_binary(value) -> present_token(value)
-      _ -> {:error, :missing_vulncheck_token}
+  This is the check a diagnostic wants: it reads the reference and stops there.
+  `vulncheck_token/1` resolves through the credential broker, which mints a
+  persisted grant and decrypts the secret, so calling it merely to decide
+  whether to warn would materialize plaintext material nothing is about to use.
+  """
+  @spec vulncheck_credential_attached() ::
+          :ok | {:error, {:missing_vulncheck_credential, String.t()}}
+  def vulncheck_credential_attached do
+    case definition_credential_ref() do
+      ref when is_binary(ref) -> :ok
+      nil -> {:error, {:missing_vulncheck_credential, @missing_credential_message}}
     end
   end
 
@@ -222,7 +245,10 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Config do
   end
 
   # Best-effort read of a feed-def row by provider/feed_key. Returns nil on any
-  # failure (repo down, no row, query error) so env/default fallback always wins.
+  # failure (repo down, no row, query error) so the cadence default wins. For
+  # the credential there is no default to fall back to: a repo failure reads as
+  # "no credential", and the feed fails with the message rather than running on
+  # something it found elsewhere.
   defp read_definition(provider, feed_key) do
     if repo_ready?() do
       actor = SystemActor.system(:advisory_feeds_config)
@@ -256,13 +282,6 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Config do
       nil -> default
       "" -> default
       value -> String.downcase(value) in ["1", "true", "yes", "on"]
-    end
-  end
-
-  defp present_token(value) do
-    case String.trim(value) do
-      "" -> {:error, :missing_vulncheck_token}
-      token -> {:ok, token}
     end
   end
 

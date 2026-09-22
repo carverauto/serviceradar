@@ -13,12 +13,12 @@ func TestGatewayFromUnstructured(t *testing.T) {
 		"apiVersion": "gateway.networking.k8s.io/v1",
 		"kind":       "Gateway",
 		"metadata": map[string]any{
-			"name":      "forgejo-gateway",
-			"namespace": "forgejo",
+			"name":      "gitsrv-gateway",
+			"namespace": "gitsrv",
 			"uid":       "gw-1",
 		},
 		"spec": map[string]any{
-			"gatewayClassName": "forgejo-envoy",
+			"gatewayClassName": "gitsrv-envoy",
 			"listeners": []any{
 				map[string]any{"name": "ssh", "port": int64(22), "protocol": "TCP"},
 				map[string]any{"name": "https-web", "port": int64(443), "protocol": "HTTPS", "hostname": "code.carverauto.dev"},
@@ -26,7 +26,7 @@ func TestGatewayFromUnstructured(t *testing.T) {
 		},
 		"status": map[string]any{
 			"addresses": []any{
-				map[string]any{"type": "IPAddress", "value": "23.138.124.7"},
+				map[string]any{"type": "IPAddress", "value": "198.51.100.10"},
 			},
 		},
 	}}
@@ -35,13 +35,13 @@ func TestGatewayFromUnstructured(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if gw.Name != "forgejo-gateway" || gw.GatewayClass != "forgejo-envoy" {
+	if gw.Name != "gitsrv-gateway" || gw.GatewayClass != "gitsrv-envoy" {
 		t.Fatalf("gateway: %+v", gw)
 	}
 	if len(gw.Listeners) != 2 || gw.Listeners[0].Port != 22 {
 		t.Fatalf("listeners: %+v", gw.Listeners)
 	}
-	if len(gw.Addresses) != 1 || gw.Addresses[0].Value != "23.138.124.7" {
+	if len(gw.Addresses) != 1 || gw.Addresses[0].Value != "198.51.100.10" {
 		t.Fatalf("addresses: %+v", gw.Addresses)
 	}
 }
@@ -53,14 +53,14 @@ func TestRouteFromUnstructured_TCPRoute(t *testing.T) {
 		"apiVersion": "gateway.networking.k8s.io/v1alpha2",
 		"kind":       "TCPRoute",
 		"metadata": map[string]any{
-			"name":      "forgejo-ssh",
-			"namespace": "forgejo",
+			"name":      "gitsrv-ssh",
+			"namespace": "gitsrv",
 		},
 		"spec": map[string]any{
 			"parentRefs": []any{
 				map[string]any{
-					"name":        "forgejo-gateway",
-					"namespace":   "forgejo",
+					"name":        "gitsrv-gateway",
+					"namespace":   "gitsrv",
 					"sectionName": "ssh",
 				},
 			},
@@ -68,7 +68,7 @@ func TestRouteFromUnstructured_TCPRoute(t *testing.T) {
 				map[string]any{
 					"backendRefs": []any{
 						map[string]any{
-							"name": "forgejo-ssh",
+							"name": "gitsrv-ssh",
 							"port": int64(22),
 							"kind": "Service",
 						},
@@ -82,13 +82,13 @@ func TestRouteFromUnstructured_TCPRoute(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Kind != "TCPRoute" || r.Name != "forgejo-ssh" {
+	if r.Kind != "TCPRoute" || r.Name != "gitsrv-ssh" {
 		t.Fatalf("route: %+v", r)
 	}
 	if len(r.ParentRefs) != 1 || r.ParentRefs[0].SectionName != "ssh" {
 		t.Fatalf("parentRefs: %+v", r.ParentRefs)
 	}
-	if len(r.Backends) != 1 || r.Backends[0].Name != "forgejo-ssh" || r.Backends[0].Port != 22 {
+	if len(r.Backends) != 1 || r.Backends[0].Name != "gitsrv-ssh" || r.Backends[0].Port != 22 {
 		t.Fatalf("backends: %+v", r.Backends)
 	}
 }

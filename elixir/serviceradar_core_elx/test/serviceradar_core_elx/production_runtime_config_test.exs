@@ -6,6 +6,7 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
   # would (required env stubbed) and asserts the Oban crontab is complete.
   use ExUnit.Case, async: false
 
+  alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.Automation.Ansible.FileCallbackResponsePolicyProvider
   alias ServiceRadar.Edge.AgentCommandCleanupWorker
   alias ServiceRadar.EventWriter.Config, as: EventWriterConfig
@@ -306,7 +307,8 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     AgentCommandCleanupWorker,
     TopologyGraph,
     ServiceRadar.Observability.ThreatIntelRawPayloadStore,
-    ServiceRadar.WorkloadIdentity
+    ServiceRadar.WorkloadIdentity,
+    StarRocks
   ]
 
   @topology_graph TopologyGraph
@@ -319,6 +321,44 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
              "config :serviceradar_core, #{inspect(module)} is missing from this release's " <>
                "runtime.exs, so its env vars are inert in production"
     end
+  end
+
+  test "prod config enables StarRocks shadow from Helm env" do
+    with_env("SERVICERADAR_STARROCKS_ENABLED", "true")
+    with_env("SERVICERADAR_STARROCKS_CATALOG_ENABLED", "true")
+    with_env("SERVICERADAR_STARROCKS_SHADOW_DATASETS", "flows,metrics,logs,events")
+    with_env("SERVICERADAR_STARROCKS_FE_HTTP", "http://lab-fe-service.starrocks.svc:8030")
+    with_env("SERVICERADAR_STARROCKS_FE_HOST", "lab-fe-service.starrocks.svc")
+    with_env("SERVICERADAR_STARROCKS_FE_QUERY_PORT", "9030")
+    with_env("SERVICERADAR_STARROCKS_DATABASE", "serviceradar")
+
+    starrocks =
+      read_prod_config()[:serviceradar_core][StarRocks]
+
+    assert starrocks[:enabled] == true
+    assert starrocks[:catalog_enabled] == true
+    assert starrocks[:cutover_datasets] == []
+    assert starrocks[:shadow_datasets] == [:flows, :metrics, :logs, :events]
+    assert starrocks[:fe_http] == "http://lab-fe-service.starrocks.svc:8030"
+    assert starrocks[:fe_mysql_host] == "lab-fe-service.starrocks.svc"
+    assert starrocks[:fe_mysql_port] == 9030
+    assert starrocks[:database] == "serviceradar"
+  end
+
+  test "prod config wires the egress CONNECT proxy for external downloads" do
+    with_env("SERVICERADAR_EGRESS_PROXY", "http://proxy.example.com:8080")
+
+    assert read_prod_config()[:serviceradar_core][:egress_proxy] == %{
+             scheme: :http,
+             host: "proxy.example.com",
+             port: 8080
+           }
+  end
+
+  test "prod config leaves the egress proxy unset when the deployment has none" do
+    with_env("SERVICERADAR_EGRESS_PROXY", nil)
+
+    assert read_prod_config()[:serviceradar_core][:egress_proxy] == nil
   end
 
   test "canonical prune guard override is reachable from the environment" do

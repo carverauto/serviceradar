@@ -1,0 +1,25 @@
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "network_config_downparser",
+    srcs = glob(["src/**/*.rs"]),
+    crate_name = "network_config_downparser",
+    crate_root = "src/lib.rs",
+    edition = "2024",
+)
+
+rust_test(
+    name = "network_config_downparser_test",
+    crate = ":network_config_downparser",
+)
+
+rust_test(
+    name = "parse_tests",
+    srcs = ["tests/parse_tests.rs"],
+    crate_root = "tests/parse_tests.rs",
+    edition = "2024",
+    deps = [":network_config_downparser"],
+)

@@ -407,7 +407,7 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
   defp load_metric(socket, srql, span_id) do
     query = detail_query_for_span(span_id) <> " limit:1"
 
-    case srql.query(query) do
+    case srql.query(query, %{scope: socket.assigns.current_scope}) do
       {:ok, %{"results" => [%{} = metric | _]}} ->
         socket
         |> assign(:metric, metric)
@@ -428,7 +428,7 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
   defp load_recent(socket, srql, %{} = metric) do
     query = build_recent_query(metric)
 
-    case srql.query(query) do
+    case srql.query(query, %{scope: socket.assigns.current_scope}) do
       {:ok, %{"results" => rows}} when is_list(rows) ->
         socket
         |> assign(:recent, rows)

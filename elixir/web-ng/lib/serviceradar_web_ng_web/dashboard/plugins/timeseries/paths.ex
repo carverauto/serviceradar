@@ -48,13 +48,15 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths do
 
       _ ->
         point_stats = stats(points)
+        domain = time_domain(points)
+        len = length(points)
 
         coords =
           points
           |> Enum.with_index()
           |> Enum.map(fn
             {{dt, v}, idx} when is_number(v) ->
-              x = datetime_to_x(dt, points, opts) || idx_to_x(idx, length(points), opts)
+              x = datetime_to_x(dt, domain, opts) || idx_to_x(idx, len, opts)
 
               case value_to_y(v, min_v, max_v, scale) do
                 y when is_number(y) -> {x, y}
@@ -121,45 +123,105 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Paths do
     round(geometry.left_pad + idx / (len - 1) * usable)
   end
 
+  @typedoc "The first and last plottable instants of a series, and how many there are."
+  @type time_domain :: %{count: non_neg_integer(), first: integer() | nil, last: integer() | nil}
+
+  @doc """
+  The time extent of `points`, in one pass.
+
+  `datetime_to_x/3` places an instant between the first and last points, which
+  is all it needs from the series. It used to rebuild that from the whole list
+  on every call, and it is called once per point, so drawing N points cost N
+  squared timestamp conversions: a 1,430-point interface chart spent about two
+  seconds here, and a device page with several of them about eight. Callers
+  that place many instants compute the domain once and pass it instead.
+  """
+  @spec time_domain(list()) :: time_domain()
+  def time_domain(points) when is_list(points) do
+    Enum.reduce(points, %{count: 0, first: nil, last: nil}, fn
+      {%DateTime{} = point_dt, _value}, %{count: count, first: first} ->
+        ms = DateTime.to_unix(point_dt, :millisecond)
+        %{count: count + 1, first: first || ms, last: ms}
+
+      _point, domain ->
+        domain
+    end)
+  end
+
   def datetime_to_x(%DateTime{} = dt, points), do: datetime_to_x(dt, points, %{})
 
   def datetime_to_x(%DateTime{} = dt, points, opts) when is_list(points) do
-    times =
-      points
-      |> Enum.map(fn
-        {%DateTime{} = point_dt, _value} -> DateTime.to_unix(point_dt, :millisecond)
-        _point -> nil
-      end)
-      |> Enum.reject(&is_nil/1)
+    datetime_to_x(dt, widen_time_domain(time_domain(points), opts), opts)
+  end
 
-    case times do
-      [] ->
-        nil
-
-      [only] ->
-        if DateTime.to_unix(dt, :millisecond) == only, do: geometry(opts).left_pad
-
-      _ ->
-        target = DateTime.to_unix(dt, :millisecond)
-        first = List.first(times)
-        last = List.last(times)
-
-        cond do
-          target < first or target > last ->
-            nil
-
-          last == first ->
-            geometry(opts).left_pad
-
-          true ->
-            geometry = geometry(opts)
-            usable = @chart_width - geometry.left_pad - geometry.right_pad
-            Float.round(geometry.left_pad + (target - first) / (last - first) * usable, 2)
-        end
-    end
+  def datetime_to_x(%DateTime{} = dt, domain, opts) when is_map(domain) do
+    place_datetime(dt, widen_time_domain(domain, opts), opts)
   end
 
   def datetime_to_x(_dt, _points, _opts), do: nil
+
+  # A long selected window is the axis, not the samples that happen to exist
+  # inside it. `time_first` / `time_last` are unix milliseconds.
+  def widen_time_domain(domain, opts) when is_map(domain) do
+    first = earlier(Map.get(domain, :first), window_bound(opts, :time_first))
+    last = later(Map.get(domain, :last), window_bound(opts, :time_last))
+
+    count =
+      if is_integer(first) and is_integer(last) and last > first do
+        max(Map.get(domain, :count) || 0, 2)
+      else
+        Map.get(domain, :count) || 0
+      end
+
+    %{count: count, first: first, last: last}
+  end
+
+  def widen_time_domain(domain, _opts), do: domain
+
+  defp place_datetime(_dt, %{count: 0}, _opts), do: nil
+
+  defp place_datetime(%DateTime{} = dt, %{count: 1, first: only}, opts) do
+    if DateTime.to_unix(dt, :millisecond) == only, do: geometry(opts).left_pad
+  end
+
+  defp place_datetime(%DateTime{} = dt, %{count: count, first: first, last: last}, opts)
+       when is_integer(count) and count > 1 do
+    target = DateTime.to_unix(dt, :millisecond)
+
+    cond do
+      target < first or target > last ->
+        nil
+
+      last == first ->
+        geometry(opts).left_pad
+
+      true ->
+        geometry = geometry(opts)
+        usable = @chart_width - geometry.left_pad - geometry.right_pad
+        Float.round(geometry.left_pad + (target - first) / (last - first) * usable, 2)
+    end
+  end
+
+  defp place_datetime(_dt, _domain, _opts), do: nil
+
+  defp window_bound(opts, key) when is_map(opts) do
+    case Map.get(opts, key) do
+      value when is_integer(value) -> value
+      _ -> nil
+    end
+  end
+
+  defp window_bound(_opts, _key), do: nil
+
+  defp earlier(nil, other), do: other
+  defp earlier(current, nil), do: current
+  defp earlier(current, other) when other < current, do: other
+  defp earlier(current, _other), do: current
+
+  defp later(nil, other), do: other
+  defp later(current, nil), do: current
+  defp later(current, other) when other > current, do: other
+  defp later(current, _other), do: current
 
   def value_to_y(_v, min_v, max_v) when min_v == max_v, do: round(@chart_height / 2)
 

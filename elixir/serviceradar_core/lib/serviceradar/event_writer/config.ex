@@ -144,7 +144,9 @@ defmodule ServiceRadar.EventWriter.Config do
           optional(:consumer_ack_wait_ns) => pos_integer() | nil,
           optional(:consumer_pull_batch_size) => pos_integer() | nil,
           optional(:consumer_deliver_policy) => atom() | nil,
-          optional(:consumer_inactive_threshold) => non_neg_integer() | nil
+          optional(:consumer_inactive_threshold) => non_neg_integer() | nil,
+          optional(:allow_stream_fallback) => boolean() | nil,
+          optional(:reconcile_stream_shape) => boolean() | nil
         }
 
   @doc """
@@ -411,6 +413,23 @@ defmodule ServiceRadar.EventWriter.Config do
     end
   end
 
+  @spec k8s_nodes_stream() :: stream_config()
+  def k8s_nodes_stream do
+    %{
+      name: "K8S_NODES",
+      stream_name: "k8s_inventory",
+      subject: "inventory.k8s.nodes",
+      processor: ServiceRadar.EventWriter.Processors.K8sNodes,
+      batch_size: 1,
+      batch_timeout: 2_000,
+      stream_retention: "limits",
+      stream_storage: "file",
+      stream_discard: "old",
+      stream_max_bytes: 1_073_741_824,
+      stream_max_age: 86_400_000_000_000
+    }
+  end
+
   @doc """
   The dedicated ANALYTICS_PREDICTIONS stream/consumer definition.
 
@@ -505,6 +524,7 @@ defmodule ServiceRadar.EventWriter.Config do
         stream_max_bytes: 1_073_741_824,
         stream_max_age: 86_400_000_000_000
       },
+      k8s_nodes_stream(),
       %{
         name: "OTEL_METRICS",
         stream_name: "events",

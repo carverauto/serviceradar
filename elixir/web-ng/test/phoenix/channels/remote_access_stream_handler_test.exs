@@ -106,34 +106,28 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
       {:ok, pid}
     end
 
-    def send_input(pid, data) do
-      send(pid, {:send_input, self(), data})
-      :ok
-    end
+    def send_input(pid, data), do: call(pid, {:send_input, self(), data})
 
-    def send_application_request(pid, payload) do
-      send(pid, {:send_application_request, self(), payload})
-      :ok
-    end
+    def send_application_request(pid, payload), do: call(pid, {:send_application_request, self(), payload})
 
-    def send_application_data(pid, payload) do
-      send(pid, {:send_application_data, self(), payload})
-      :ok
-    end
+    def send_application_data(pid, payload), do: call(pid, {:send_application_data, self(), payload})
 
-    def send_tcp_data(pid, payload) do
-      send(pid, {:send_tcp_data, self(), payload})
-      :ok
-    end
+    def send_tcp_data(pid, payload), do: call(pid, {:send_tcp_data, self(), payload})
 
-    def send_file_transfer_data(pid, payload) do
-      send(pid, {:send_file_transfer_data, self(), payload})
-      :ok
-    end
+    def send_file_transfer_data(pid, payload), do: call(pid, {:send_file_transfer_data, self(), payload})
 
-    def resize(pid, cols, rows) do
-      send(pid, {:resize, self(), cols, rows})
-      :ok
+    def resize(pid, cols, rows), do: call(pid, {:resize, self(), cols, rows})
+
+    # Mirrors RemoteAccessBroker's client boundary: a broker that has already
+    # stopped answers `{:error, :broker_unavailable}` rather than exiting the
+    # caller.
+    defp call(pid, message) do
+      if Process.alive?(pid) do
+        send(pid, message)
+        :ok
+      else
+        {:error, :broker_unavailable}
+      end
     end
 
     def close(pid, reason) do
@@ -172,6 +166,14 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
           :ok
       end
     end
+  end
+
+  defmodule FailingBrokerStub do
+    @moduledoc false
+
+    def resize(_pid, _cols, _rows), do: {:error, :broker_call_failed}
+
+    def close(_pid, _reason), do: :ok
   end
 
   defmodule CentralCredentialGrantResolverStub do
@@ -391,6 +393,208 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
                       source: :server_info,
                       topic: "remote_access:session-unknown-info"
                     }}
+  end
+
+  test "a resize racing the broker shutdown keeps the close reason reaching the browser" do
+    {:ok, state} = init_state("session-resize-race")
+
+    assert {:push, {:text, _ready}, attached} =
+             RemoteAccessStreamHandler.handle_in({attach_payload("session-resize-race"), [opcode: :text]}, state)
+
+    stop_broker(attached.broker)
+
+    resize = Jason.encode!(%{type: "resize", cols: 126, rows: 39})
+
+    assert {:ok, still_open} =
+             RemoteAccessStreamHandler.handle_in({resize, [opcode: :text]}, attached)
+
+    assert {:stop, :normal, 1000, [{:text, close}], _closed} =
+             RemoteAccessStreamHandler.handle_info(
+               {:remote_access_closed, "ssh: handshake failed: knownhosts: key is unknown"},
+               still_open
+             )
+
+    assert %{
+             "type" => "close",
+             "reason" => "ssh: handshake failed: knownhosts: key is unknown"
+           } = Jason.decode!(close)
+
+    assert_receive {:close_session, "session-resize-race", opts}
+    assert opts[:reason] == "ssh: handshake failed: knownhosts: key is unknown"
+    refute_receive {:fail_session, "session-resize-race", _reason, _opts}
+  end
+
+  test "an unknown host key close carries the trust decision the console needs" do
+    {:ok, state} = init_state("session-host-key-unknown")
+
+    assert {:push, {:text, _ready}, attached} =
+             RemoteAccessStreamHandler.handle_in(
+               {attach_payload("session-host-key-unknown"), [opcode: :text]},
+               state
+             )
+
+    reason =
+      "ssh: handshake failed: ssh host key is not trusted: host01.example.com:22 offered " <>
+        "ssh-ed25519 SHA256:AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIIIJJJJKKK and the agent " <>
+        "known-hosts store has no entry for it; review the fingerprint, then reconnect " <>
+        "with the trust-on-first-use host key policy to pin it"
+
+    assert {:stop, :normal, 1000, [{:text, close}], _closed} =
+             RemoteAccessStreamHandler.handle_info({:remote_access_closed, reason}, attached)
+
+    assert %{
+             "type" => "close",
+             "reason" => ^reason,
+             "host_key" => %{
+               "state" => "unknown",
+               "target" => "host01.example.com:22",
+               "algorithm" => "ssh-ed25519",
+               "fingerprint" => "SHA256:AAAABBBBCCCCDDDDEEEEFFFFGGGGHHHHIIIIJJJJKKK"
+             }
+           } = Jason.decode!(close)
+  end
+
+  test "a changed host key close is reported as a mismatch, never as enrollable" do
+    {:ok, state} = init_state("session-host-key-mismatch")
+
+    assert {:push, {:text, _ready}, attached} =
+             RemoteAccessStreamHandler.handle_in(
+               {attach_payload("session-host-key-mismatch"), [opcode: :text]},
+               state
+             )
+
+    reason =
+      "ssh: handshake failed: ssh host key does not match the trusted entry: " <>
+        "host01.example.com:22 offered ssh-rsa SHA256:ZZZZYYYYXXXXWWWWVVVVUUUUTTTTSSSSRRR but " <>
+        "the agent known-hosts store holds a different key for it; verify the change out of " <>
+        "band before trusting this host again"
+
+    assert {:stop, :normal, 1000, [{:text, close}], _closed} =
+             RemoteAccessStreamHandler.handle_info({:remote_access_closed, reason}, attached)
+
+    assert %{"host_key" => %{"state" => "mismatch", "algorithm" => "ssh-rsa"}} = Jason.decode!(close)
+  end
+
+  test "an ordinary close carries no host key decision" do
+    {:ok, state} = init_state("session-plain-close")
+
+    assert {:push, {:text, _ready}, attached} =
+             RemoteAccessStreamHandler.handle_in({attach_payload("session-plain-close"), [opcode: :text]}, state)
+
+    assert {:stop, :normal, 1000, [{:text, close}], _closed} =
+             RemoteAccessStreamHandler.handle_info({:remote_access_closed, "agent closed"}, attached)
+
+    decoded = Jason.decode!(close)
+
+    assert decoded["type"] == "close"
+    refute Map.has_key?(decoded, "host_key")
+  end
+
+  test "a browser frame sent to a stopped broker is dropped without failing the session" do
+    {:ok, state} = init_state("session-input-after-stop")
+
+    assert {:push, {:text, _ready}, attached} =
+             RemoteAccessStreamHandler.handle_in(
+               {attach_payload("session-input-after-stop"), [opcode: :text]},
+               state
+             )
+
+    stop_broker(attached.broker)
+
+    input = Jason.encode!(%{type: "data", data: Base.encode64("ls\n")})
+
+    assert {:ok, ^attached} = RemoteAccessStreamHandler.handle_in({input, [opcode: :text]}, attached)
+
+    refute_receive {:fail_session, "session-input-after-stop", _reason, _opts}
+  end
+
+  test "a broker call failure still fails the stream" do
+    {:ok, state} = init_state("session-broker-call-failed")
+
+    assert {:push, {:text, _ready}, attached} =
+             RemoteAccessStreamHandler.handle_in(
+               {attach_payload("session-broker-call-failed"), [opcode: :text]},
+               state
+             )
+
+    stop_broker(attached.broker)
+    failing = %{attached | broker_module: FailingBrokerStub}
+
+    resize = Jason.encode!(%{type: "resize", cols: 126, rows: 39})
+
+    assert {:stop, :normal, 1011, [{:text, response}], _failed} =
+             RemoteAccessStreamHandler.handle_in({resize, [opcode: :text]}, failing)
+
+    assert %{"type" => "error", "message" => "Remote access stream failed."} = Jason.decode!(response)
+    assert_receive {:fail_session, "session-broker-call-failed", :broker_call_failed, _opts}
+  end
+
+  test "the broker exiting normally closes the stream instead of being ignored" do
+    {:ok, state} = init_state("session-broker-exit")
+
+    assert {:push, {:text, _ready}, attached} =
+             RemoteAccessStreamHandler.handle_in({attach_payload("session-broker-exit"), [opcode: :text]}, state)
+
+    log =
+      capture_log(fn ->
+        assert {:stop, :normal, 1000, [{:text, close}], closed} =
+                 RemoteAccessStreamHandler.handle_info({:EXIT, attached.broker, :normal}, attached)
+
+        assert %{"type" => "close", "reason" => "closed"} = Jason.decode!(close)
+        assert closed.closing_action == :closed
+      end)
+
+    refute log =~ "Ignored unknown remote access stream message"
+    assert_receive {:close_session, "session-broker-exit", _opts}
+  end
+
+  test "a broker crash fails the stream rather than leaving it open until the idle timeout" do
+    {:ok, state} = init_state("session-broker-crash")
+
+    assert {:push, {:text, _ready}, attached} =
+             RemoteAccessStreamHandler.handle_in({attach_payload("session-broker-crash"), [opcode: :text]}, state)
+
+    assert {:stop, :normal, 1011, [{:text, response}], _failed} =
+             RemoteAccessStreamHandler.handle_info({:EXIT, attached.broker, :killed}, attached)
+
+    assert %{"type" => "error", "message" => "Remote access stream failed."} = Jason.decode!(response)
+    assert_receive {:fail_session, "session-broker-crash", :killed, _opts}
+  end
+
+  test "the broker exit that follows an already sent close is not reported twice" do
+    {:ok, state} = init_state("session-broker-exit-tail")
+
+    assert {:push, {:text, _ready}, attached} =
+             RemoteAccessStreamHandler.handle_in(
+               {attach_payload("session-broker-exit-tail"), [opcode: :text]},
+               state
+             )
+
+    assert {:stop, :normal, 1000, [{:text, _close}], closed} =
+             RemoteAccessStreamHandler.handle_info({:remote_access_closed, "agent closed"}, attached)
+
+    assert_receive {:close_session, "session-broker-exit-tail", _opts}
+
+    log =
+      capture_log(fn ->
+        assert {:ok, ^closed} =
+                 RemoteAccessStreamHandler.handle_info({:EXIT, attached.broker, :normal}, closed)
+      end)
+
+    refute log =~ "Ignored unknown remote access stream message"
+    refute_receive {:close_session, "session-broker-exit-tail", _opts}
+  end
+
+  test "an unrelated linked process exiting normally is not logged as an unknown message" do
+    {:ok, state} = init_state("session-unrelated-exit")
+
+    log =
+      capture_log(fn ->
+        assert {:ok, ^state} =
+                 RemoteAccessStreamHandler.handle_info({:EXIT, self(), :normal}, state)
+      end)
+
+    refute log =~ "Ignored unknown remote access stream message"
   end
 
   test "user-present attach passes SSH credential to broker without echoing it" do
@@ -1513,6 +1717,14 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
       authorization_module: authorization_module,
       reauth_interval_ms: Keyword.get(opts, :reauth_interval_ms, 30_000)
     )
+  end
+
+  defp stop_broker(broker) do
+    ref = Process.monitor(broker)
+    send(broker, {:close, self(), :agent_error})
+    assert_receive {:DOWN, ^ref, :process, ^broker, _reason}
+    assert_receive {:broker_close, _caller, :agent_error}
+    :ok
   end
 
   defp attach_payload(session_id) do

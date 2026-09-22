@@ -77,7 +77,7 @@ defmodule ServiceRadarWebNGWeb.Admin.CollectorLiveTest do
       assert html =~ "./deploy.sh"
 
       refute html =~ "sudo apt install serviceradar-falcosidekick"
-      refute html =~ "/usr/local/bin/serviceradar-cli enroll --token"
+      refute html =~ "/usr/local/bin/srctl enroll --token"
     end
   end
 

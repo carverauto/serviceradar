@@ -350,6 +350,227 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     assert drain_srql_calls() == []
   end
 
+  test "events default to non-live browsing", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/observability/events")
+
+    assert has_element?(lv, "#events-live-status", "Off")
+    _ = drain_srql_calls()
+
+    send(lv.pid, {:ocsf_event, %{}})
+    send(lv.pid, {:debounced_refresh, "events"})
+    render(lv)
+
+    assert drain_srql_calls() == []
+    assert has_element?(lv, "#events-live-status", "Off")
+  end
+
+  test "enabling live mode allows event-ingest refreshes", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/observability/events")
+
+    _ = drain_srql_calls()
+
+    lv
+    |> element("#events-live-toggle")
+    |> render_click()
+
+    assert has_element?(lv, "#events-live-status", "On")
+    assert [%{cursor: nil} | _] = drain_srql_calls()
+
+    send(lv.pid, {:ocsf_event, %{}})
+    send(lv.pid, {:debounced_refresh, "events"})
+    render(lv)
+
+    assert [%{cursor: nil} | _] = drain_srql_calls()
+  end
+
+  test "manual pagination pauses events live mode before subsequent refreshes", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/observability/events")
+
+    _ = drain_srql_calls()
+
+    lv
+    |> element("#events-live-toggle")
+    |> render_click()
+
+    assert has_element?(lv, "#events-live-status", "On")
+    _ = drain_srql_calls()
+
+    lv
+    |> element("a", "Next")
+    |> render_click()
+
+    assert has_element?(lv, "#events-live-status", "Off")
+    assert [%{cursor: "cursor-page-2"}] = drain_srql_calls()
+
+    send(lv.pid, {:ocsf_event, %{}})
+    send(lv.pid, {:debounced_refresh, "events"})
+    render(lv)
+
+    assert drain_srql_calls() == []
+  end
+
+  test "traces default to non-live browsing", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/observability/traces")
+
+    assert has_element?(lv, "#traces-live-status", "Off")
+    _ = drain_srql_calls()
+
+    send(lv.pid, {:otel_traces_ingested, %{count: 3}})
+    send(lv.pid, {:debounced_refresh, "traces"})
+    render(lv)
+
+    assert drain_srql_calls() == []
+    assert has_element?(lv, "#traces-live-status", "Off")
+  end
+
+  test "enabling live mode allows trace-ingest refreshes", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/observability/traces")
+
+    _ = drain_srql_calls()
+
+    lv
+    |> element("#traces-live-toggle")
+    |> render_click()
+
+    assert has_element?(lv, "#traces-live-status", "On")
+    assert drain_srql_calls() != []
+
+    send(lv.pid, {:otel_traces_ingested, %{count: 3}})
+    send(lv.pid, {:debounced_refresh, "traces"})
+    render(lv)
+
+    assert drain_srql_calls() != []
+  end
+
+  test "trace summary refreshes drive live mode, not just span ingest", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/observability/traces")
+
+    _ = drain_srql_calls()
+
+    lv
+    |> element("#traces-live-toggle")
+    |> render_click()
+
+    assert has_element?(lv, "#traces-live-status", "On")
+    assert drain_srql_calls() != []
+
+    send(lv.pid, {:otel_trace_summaries_refreshed, %{count: 2}})
+    send(lv.pid, {:debounced_refresh, "traces"})
+    render(lv)
+
+    assert drain_srql_calls() != []
+  end
+
+  test "trace summary refreshes stay quiet when live is off", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/observability/traces")
+
+    assert has_element?(lv, "#traces-live-status", "Off")
+    _ = drain_srql_calls()
+
+    send(lv.pid, {:otel_trace_summaries_refreshed, %{count: 2}})
+    send(lv.pid, {:debounced_refresh, "traces"})
+    render(lv)
+
+    assert drain_srql_calls() == []
+    assert has_element?(lv, "#traces-live-status", "Off")
+  end
+
+  test "metrics default to non-live browsing", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/observability/metrics")
+
+    assert has_element?(lv, "#metrics-live-status", "Off")
+    _ = drain_srql_calls()
+
+    send(lv.pid, {:otel_metrics_ingested, %{count: 5}})
+    send(lv.pid, {:debounced_refresh, "metrics"})
+    render(lv)
+
+    assert drain_srql_calls() == []
+    assert has_element?(lv, "#metrics-live-status", "Off")
+  end
+
+  test "enabling live mode allows metric-ingest refreshes", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/observability/metrics")
+
+    _ = drain_srql_calls()
+
+    lv
+    |> element("#metrics-live-toggle")
+    |> render_click()
+
+    assert has_element?(lv, "#metrics-live-status", "On")
+    assert drain_srql_calls() != []
+
+    send(lv.pid, {:otel_metrics_ingested, %{count: 5}})
+    send(lv.pid, {:debounced_refresh, "metrics"})
+    render(lv)
+
+    assert drain_srql_calls() != []
+  end
+
+  test "alerts default to non-live browsing", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/observability/alerts")
+
+    assert has_element?(lv, "#alerts-live-status", "Off")
+    _ = drain_srql_calls()
+
+    send(lv.pid, {:ocsf_event, %{}})
+    send(lv.pid, {:debounced_refresh, "alerts"})
+    render(lv)
+
+    assert drain_srql_calls() == []
+    assert has_element?(lv, "#alerts-live-status", "Off")
+  end
+
+  test "unrelated events do not schedule live alert refreshes", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/observability/alerts")
+
+    lv
+    |> element("#alerts-live-toggle")
+    |> render_click()
+
+    _ = drain_srql_calls()
+    send(lv.pid, {:ocsf_event, %{}})
+    render(lv)
+
+    assert drain_srql_calls() == []
+    timers = :sys.get_state(lv.pid).socket.assigns[:_refresh_timers] || %{}
+    refute Map.has_key?(timers, "alerts")
+  end
+
+  test "alert creation drives live mode", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/observability/alerts")
+
+    _ = drain_srql_calls()
+
+    lv
+    |> element("#alerts-live-toggle")
+    |> render_click()
+
+    assert has_element?(lv, "#alerts-live-status", "On")
+    assert [%{cursor: nil} | _] = drain_srql_calls()
+
+    send(lv.pid, {:alert_created, %{id: "alert-1"}})
+    send(lv.pid, {:debounced_refresh, "alerts"})
+    render(lv)
+
+    assert [%{cursor: nil} | _] = drain_srql_calls()
+  end
+
+  test "alert creation stays quiet when live is off", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/observability/alerts")
+
+    assert has_element?(lv, "#alerts-live-status", "Off")
+    _ = drain_srql_calls()
+
+    send(lv.pid, {:alert_created, %{id: "alert-1"}})
+    send(lv.pid, {:debounced_refresh, "alerts"})
+    render(lv)
+
+    assert drain_srql_calls() == []
+    assert has_element?(lv, "#alerts-live-status", "Off")
+  end
+
   test "netflows keep the shared observability shell visible", %{conn: conn} do
     {:ok, _lv, html} =
       live(conn, ~p"/observability?#{%{tab: "netflows", q: "in:flows time:last_1h sort:timestamp:desc", limit: 20}}")

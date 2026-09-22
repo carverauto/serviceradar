@@ -403,7 +403,7 @@ lives in one place: the `LargeIngestionGate` action, which triggers on a push to
 It is the only action that may, and that is enforced by the targets rather than by where they
 are named. All three template writers -- those two plus `//rust/integration-db:reset_template` --
 refuse unless the caller passes `--//build:template_authority=true`, the checkout declaring
-itself to be trunk. `LargeIngestionGate` passes it; `//:ci_heavy_gate_contract_test` fails if
+itself to be trunk. `LargeIngestionGate` passes it; `//build/contracts:ci_heavy_gate_contract_test` fails if
 any other action does. The decision reaches Rust and Elixir as the same staged file
 (`//build:template_authority_file`), for the reason the run id does: several invocations must
 agree, and ambient environment lets them differ. It fails closed -- an absent, empty or mangled
@@ -683,7 +683,8 @@ only once it is on `staging`, applied there by the trunk lifecycle.
 
 Two rules for migrations that this tier enforces the hard way:
 
-- `CREATE INDEX CONCURRENTLY` needs **both** `@disable_ddl_transaction true` **and**
+- `CREATE INDEX CONCURRENTLY`, and any other `CONCURRENTLY` index statement such as
+  `REINDEX INDEX CONCURRENTLY`, needs **both** `@disable_ddl_transaction true` **and**
   `@disable_migration_lock true`. Without the second it deadlocks deterministically against
   Ecto's own migration lock -- and it will hang `mix ash.migrate` on a fresh database too.
 - Everything goes in the `platform` schema (`prefix: "platform"`). Never `public`.
@@ -874,7 +875,8 @@ bazel build //elixir/...
 
 ### Quality gates
 
-Formatting, Credo and Dialyzer are not Bazel targets; they run through Mix.
+Formatting, Credo and Dialyzer run through Mix; web-ng also wraps its fast lint
+tasks in the Bazel target described below.
 
 Pull requests gate `mix format --check-formatted` and `mix credo --strict` via
 `.github/workflows/elixir-quality.yml` (`--lint-only`). Compile warnings, xref,
@@ -886,6 +888,10 @@ dependency audits, Sobelow, and the OpenAPI dump check run daily from
 ./scripts/elixir_quality.sh --project elixir/web-ng --lint-only
 ./scripts/elixir_quality.sh --all --skip-dialyzer --skip-nif
 ```
+
+For web-ng Dialyzer, run `mix dialyzer` from `elixir/web-ng`.
+[`web-ng/mix.exs`](web-ng/mix.exs) owns PLT locations and unused-filter checking;
+[the ignore list](web-ng/.dialyzer_ignore.exs) owns suppression maintenance guidance.
 
 web-ng additionally has `//elixir/web-ng:precommit`, which runs `mix precommit_fast` (three
 source-level lint tasks) as a **cacheable build action** rather than a test: `precommit_check`

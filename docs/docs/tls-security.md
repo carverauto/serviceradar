@@ -69,6 +69,16 @@ Inspect the full SPIRE value tree for your chart version with
 See [Helm Deployment and Configuration](./helm-configuration.md) for deployment
 mechanics.
 
+### Dgraph server TLS (separate path)
+
+Neither option covers the topology graph. When the chart installs Dgraph
+(`dgraph.enabled=true`, the default), its server certificates come from
+**cert-manager** resources the chart renders, so cert-manager must be installed
+in the cluster. The schema and migrator Jobs verify Dgraph against that CA;
+application pods connect encrypted without verifying it (`sslmode=require`).
+See [Helm Deployment and Configuration](./helm-configuration.md) and
+[Network Topology](./network-topology.md).
+
 ## Self-Signed Certificates
 
 Use self-signed certificates for local or air-gapped deployments.

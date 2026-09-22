@@ -1,14 +1,15 @@
 use super::{
-    addon_fleet, addon_statuses, advisory_coordinates, agents, alerts, bmp_events,
-    build_query_plan, capacity_forecasts, composite_results, cpu_metrics, dashboard_service_views,
-    dashboards, device_graph, devices, disk_metrics, downsample, endpoint_inventory_scans,
+    PaginationMeta, QueryRequest, TranslateResponse, addon_fleet, addon_statuses,
+    advisory_coordinates, agents, alerts, bmp_events, build_query_plan, capacity_forecasts,
+    composite_results, cpu_metrics, dashboard_service_views, dashboards, device_graph,
+    device_sweep_overlap, devices, disk_metrics, downsample, endpoint_inventory_scans,
     endpoint_package_catalog, endpoint_packages, endpoint_vulnerability_matches, events,
-    field_survey, flows, gateways, graph_cypher, identity, interfaces, is_full_profile_query, logs,
-    memory_metrics, mtr_traces, otel_metric_points, otel_metrics, process_metrics,
-    public_endpoints, services, source_fact_disagreements, sweep_coverage, sweep_executions,
-    sweep_groups, sweep_profiles, sweep_results, threat_intel_matches, timeseries_metrics,
-    trace_summaries, traces, virtualization, viz, vulnerability_advisories, wifi_map,
-    PaginationMeta, QueryRequest, TranslateResponse,
+    field_survey, flows, gateways, graph_cypher, graph_dql, identity, interfaces,
+    is_exhaustive_profile_query, logs, memory_metrics, mtr_traces, otel_metric_points,
+    otel_metrics, process_metrics, public_endpoints, services, source_fact_disagreements,
+    starrocks, sweep_coverage, sweep_executions, sweep_groups, sweep_profiles, sweep_results,
+    threat_intel_matches, timeseries_metrics, trace_summaries, traces, virtualization, viz,
+    vulnerability_advisories, wifi_map,
 };
 use crate::{
     config::AppConfig,
@@ -22,24 +23,23 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
     let plan = build_query_plan(config, &request, ast)?;
     let viz = viz::meta_for_plan(&plan);
 
-    // A `profile_hour_of_week[_peak]` stats query is a profile aggregation, never a
-    // downsample — even though its `bucket:1h` clause sets `plan.downsample`. Without this
-    // guard it dispatches to the downsample builder (which rejects the `timezone` filter
-    // the profile route needs), so the query never reaches the profile/peak SQL builders.
-    // (Discovered via a real-DB check: the seasonal-disposition profile query failed here.)
-    let is_profile_stats = plan
-        .stats
-        .as_ref()
-        .map(|stats| {
-            stats
-                .as_raw()
-                .trim_start()
-                .to_ascii_lowercase()
-                .starts_with("profile_hour_of_week")
-        })
-        .unwrap_or(false);
+    // Without this guard a profile query dispatches to the downsample builder
+    // (which rejects the `timezone` filter the profile route needs), so it never
+    // reaches the profile/peak SQL builders. (Discovered via a real-DB check: the
+    // seasonal-disposition profile query failed here.)
+    let is_profile_stats = starrocks::is_profile_stats(&plan);
 
-    let (sql, params) = if plan.downsample.is_some() && !is_profile_stats {
+    let (sql, params) = if request.mode.as_deref() == Some("starrocks") {
+        let compiled = starrocks::translate(&plan, &config.starrocks_database)?;
+        (compiled.sql, compiled.params)
+    } else if request.mode.as_deref() == Some("starrocks_raw") {
+        // Rollup-freshness fallback: same StarRocks dialect, but hourly
+        // materialized views are stale, so compile from the raw tables.
+        // This arm must stay ahead of the downsample branch below, or a
+        // bucketed query would fall through to the CNPG downsample builder.
+        let compiled = starrocks::translate_raw(&plan, &config.starrocks_database)?;
+        (compiled.sql, compiled.params)
+    } else if plan.downsample.is_some() && !is_profile_stats {
         downsample::to_sql_and_params(&plan)?
     } else {
         match plan.entity {
@@ -60,6 +60,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             Entity::Devices => devices::to_sql_and_params(&plan)?,
             Entity::DeviceGraph => device_graph::to_sql_and_params(&plan)?,
             Entity::GraphCypher => graph_cypher::to_sql_and_params(&plan, &config.age_graph_name)?,
+            Entity::GraphDql => graph_dql::to_sql_and_params(&plan)?,
             Entity::Events
             | Entity::SecurityFindings
             | Entity::ScanActivity
@@ -91,6 +92,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             Entity::RperfMetrics
             | Entity::TimeseriesMetrics
             | Entity::TimeseriesMetricInterfaceHourly
+            | Entity::TimeseriesMetricDiskHourly
             | Entity::SnmpMetrics => timeseries_metrics::to_sql_and_params(&plan)?,
             Entity::CpuMetrics => cpu_metrics::to_sql_and_params(&plan)?,
             Entity::MemoryMetrics => memory_metrics::to_sql_and_params(&plan)?,
@@ -118,6 +120,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             Entity::SweepExecutions => sweep_executions::to_sql_and_params(&plan)?,
             Entity::SweepResults => sweep_results::to_sql_and_params(&plan)?,
             Entity::SweepCoverage => sweep_coverage::to_sql_and_params(&plan)?,
+            Entity::DeviceSweepOverlap => device_sweep_overlap::to_sql_and_params(&plan)?,
             Entity::VulnerabilityAdvisories => vulnerability_advisories::to_sql_and_params(&plan)?,
             Entity::AdvisoryCoordinates => advisory_coordinates::to_sql_and_params(&plan)?,
             Entity::EndpointVulnerabilityAssessments => {
@@ -127,11 +130,12 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
     };
 
     let next_offset = plan.offset.saturating_add(plan.limit);
-    let next_cursor = if next_offset <= config.max_cursor_offset || is_full_profile_query(&plan) {
-        Some(encode_cursor(next_offset, &config.cursor_secret)?)
-    } else {
-        None
-    };
+    let next_cursor =
+        if next_offset <= config.max_cursor_offset || is_exhaustive_profile_query(&plan) {
+            Some(encode_cursor(next_offset, &config.cursor_secret)?)
+        } else {
+            None
+        };
     let prev_cursor = if plan.offset > 0 {
         Some(encode_cursor(
             plan.offset.saturating_sub(plan.limit),

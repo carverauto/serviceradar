@@ -124,6 +124,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconcilerTest do
     assert {:error, {:stale_awx_membership_generation, @controller_id, 10, 11}} =
              AwxMembershipReconciler.reconcile(payload([host(100, 7, "node-1")]),
                actor: :system,
+               lock_observation: fn _ -> {:ok, :advance} end,
+               advance_observation: fn _ -> :ok end,
                transaction: & &1.(),
                load_existing: fn @controller_id, :system -> {:ok, existing} end,
                resolve_links: fn _aggregate, _actor ->
@@ -246,6 +248,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconcilerTest do
     assert :ok =
              AwxMembershipReconciler.reconcile(payload([host(100, 7, "node-1")]),
                actor: :system,
+               lock_observation: fn _ -> {:ok, :advance} end,
+               advance_observation: fn _ -> :ok end,
                transaction: fn fun ->
                  case fun.() do
                    {:ok, notifications} = result ->
@@ -289,6 +293,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconcilerTest do
              AwxMembershipReconciler.reconcile(
                payload([host(100, 7, "node-1"), host(101, 7, "node-2")]),
                actor: :system,
+               lock_observation: fn _ -> {:ok, :advance} end,
+               advance_observation: fn _ -> :ok end,
                transaction: & &1.(),
                load_existing: fn @controller_id, :system -> {:ok, []} end,
                resolve_links: fn _aggregate, :system -> {:ok, %{}} end,
@@ -313,6 +319,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconcilerTest do
     assert {:error, {:awx_membership_notifications_not_dispatched, 1}} =
              AwxMembershipReconciler.reconcile(payload([host(100, 7, "node-1")]),
                actor: :system,
+               lock_observation: fn _ -> {:ok, :advance} end,
+               advance_observation: fn _ -> :ok end,
                transaction: & &1.(),
                load_existing: fn @controller_id, :system -> {:ok, []} end,
                resolve_links: fn _aggregate, :system -> {:ok, %{}} end,
@@ -324,11 +332,101 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconcilerTest do
              )
   end
 
+  test "unchanged approved authority retains its generation while refreshing observation metadata" do
+    parent = self()
+    input = payload([host(100, 7, "host01.example.com")])
+    evidence = %{{@controller_id, 7, 100} => ["synthetic-device"]}
+    assert :ok = reconcile_with_spies(input, [], parent, evidence: evidence)
+    assert_receive {:upsert, created}
+    assert_receive {:advanced_observation, 10}
+
+    approved =
+      created
+      |> Map.merge(%{source_generation: 9, link_disposition: :approved, metadata: %{}})
+      |> Map.put(:last_seen_at, ~U[2030-01-01 00:00:00.000000Z])
+      |> Map.update!(:link_evidence, &Map.put(&1, "approval_id", "synthetic-approval"))
+
+    assert :ok = reconcile_with_spies(input, [approved], parent, evidence: evidence)
+    assert_receive {:upsert, refreshed}
+    assert refreshed.source_generation == 9
+    assert refreshed.link_disposition == :approved
+    assert refreshed.link_evidence == approved.link_evidence
+    assert refreshed.last_seen_at != approved.last_seen_at
+    assert refreshed.metadata != approved.metadata
+    assert_receive {:advanced_observation, 10}
+  end
+
+  test "changed exact device evidence quarantines approved authority at the new generation" do
+    parent = self()
+    input = payload([host(100, 7, "host01.example.com")])
+
+    assert :ok =
+             reconcile_with_spies(input, [], parent,
+               evidence: %{{@controller_id, 7, 100} => ["first-device"]}
+             )
+
+    assert_receive {:upsert, created}
+    assert_receive {:advanced_observation, 10}
+    approved = %{created | source_generation: 9, link_disposition: :approved}
+
+    assert :ok =
+             reconcile_with_spies(input, [approved], parent,
+               evidence: %{{@controller_id, 7, 100} => ["other-device"]}
+             )
+
+    assert_receive {:upsert,
+                    %{
+                      source_generation: 10,
+                      link_disposition: :quarantined,
+                      canonical_device_uid: nil
+                    }}
+  end
+
+  test "same-observation replay cannot rewrite changed link evidence or advance the watermark" do
+    parent = self()
+    input = payload([host(100, 7, "host01.example.com")])
+
+    assert :ok =
+             reconcile_with_spies(input, [], parent,
+               evidence: %{{@controller_id, 7, 100} => ["first-device"]}
+             )
+
+    assert_receive {:upsert, created}
+    assert_receive {:advanced_observation, 10}
+    approved = %{created | source_generation: 9, link_disposition: :approved}
+
+    assert {:error, {:awx_membership_upsert_failed, _, :same_observation_authority_changed}} =
+             reconcile_with_spies(input, [approved], parent,
+               observation: :replay,
+               evidence: %{{@controller_id, 7, 100} => ["other-device"]}
+             )
+
+    refute_received {:upsert, _}
+    refute_received {:advanced_observation, _}
+  end
+
+  test "legacy rows require a newer observation to establish a complete ordering fence" do
+    parent = self()
+    input = payload([host(100, 7, "node-100")])
+    existing = membership(100, 7, 10, @fingerprint)
+
+    assert {:error, :awx_inventory_observation_bootstrap_requires_newer_generation} =
+             reconcile_with_spies(input, [existing], parent, observation: :initial, evidence: %{})
+
+    refute_received {:upsert, _}
+    refute_received {:advanced_observation, _}
+  end
+
   defp reconcile_with_spies(payload, existing, parent, opts) do
     evidence = Keyword.fetch!(opts, :evidence)
 
     AwxMembershipReconciler.reconcile(payload,
       actor: :system,
+      lock_observation: fn _ -> {:ok, Keyword.get(opts, :observation, :advance)} end,
+      advance_observation: fn aggregate ->
+        send(parent, {:advanced_observation, aggregate.source_generation})
+        :ok
+      end,
       transaction: & &1.(),
       load_existing: fn @controller_id, :system -> {:ok, existing} end,
       resolve_links: fn _aggregate, :system -> {:ok, evidence} end,

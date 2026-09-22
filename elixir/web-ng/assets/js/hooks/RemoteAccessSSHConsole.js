@@ -6,7 +6,14 @@ import {createRoot} from "react-dom/client"
 import RemoteAccessSSHConsole from "../../component/src/RemoteAccessSSHConsole.jsx"
 
 let terminalModules = null
-const STRING_PROPS = new Set(["deviceUid", "createPath", "fileTransferPath", "approvalId", "title"])
+const STRING_PROPS = new Set([
+  "deviceUid",
+  "createPath",
+  "fileTransferPath",
+  "sshOptionsPath",
+  "approvalId",
+  "title",
+])
 const BOOLEAN_PROPS = new Set([
   "allowRememberedKeys",
   "allowSkipVerifyHostKeyPolicy",

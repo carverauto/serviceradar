@@ -11,6 +11,10 @@ pub struct AppConfig {
     pub listen_addr: SocketAddr,
     pub database_url: String,
     pub age_graph_name: String,
+    /// Warehouse database the StarRocks compiler qualifies tables with. Must match
+    /// `SERVICERADAR_STARROCKS_DATABASE` / Helm `analytics.starrocks.database`.
+    pub starrocks_database: String,
+    pub dgraph_url: Option<String>,
     pub max_pool_size: u32,
     /// PEM CONTENT, not paths. A path is meaningful only on the host that resolves it, and
     /// SecretManager yields content because the same secret is a Kubernetes secret, a Docker
@@ -48,6 +52,8 @@ struct RawConfig {
     database_url: Option<String>,
     #[serde(default)]
     srql_age_graph_name: Option<String>,
+    #[serde(default)]
+    dgraph_url: Option<String>,
     #[serde(default = "default_pool_size")]
     srql_max_pool_size: u32,
     #[serde(default)]
@@ -135,6 +141,11 @@ impl AppConfig {
             .or_else(|| env::var("AGE_GRAPH_NAME").ok())
             .unwrap_or_else(|| "platform_graph".to_string());
 
+        let dgraph_url = raw
+            .dgraph_url
+            .and_then(non_empty_string)
+            .or_else(|| env::var("DGRAPH_URL").ok().and_then(non_empty_string));
+
         let allowed_origins = raw.srql_allowed_origins.and_then(|csv| {
             let trimmed: Vec<_> = csv
                 .split(',')
@@ -164,6 +175,8 @@ impl AppConfig {
             listen_addr,
             database_url,
             age_graph_name,
+            starrocks_database: starrocks_database_from_env(),
+            dgraph_url,
             max_pool_size: raw.srql_max_pool_size,
             database_ca_pem: tls.ca_pem,
             database_client_cert_pem: tls.client_cert_pem,
@@ -192,6 +205,8 @@ impl AppConfig {
             listen_addr: "127.0.0.1:0".parse().expect("valid socket addr"),
             database_url,
             age_graph_name: "platform_graph".to_string(),
+            starrocks_database: starrocks_database_from_env(),
+            dgraph_url: env::var("DGRAPH_URL").ok().and_then(non_empty_string),
             max_pool_size: default_pool_size(),
             database_ca_pem: None,
             database_client_cert_pem: None,
@@ -209,6 +224,13 @@ impl AppConfig {
             rate_limit_max_requests: default_rate_limit_requests(),
             rate_limit_window: Duration::from_secs(default_rate_limit_window_secs()),
         }
+    }
+}
+
+pub fn starrocks_database_from_env() -> String {
+    match std::env::var("SERVICERADAR_STARROCKS_DATABASE") {
+        Ok(value) if !value.trim().is_empty() => value.trim().to_string(),
+        _ => "serviceradar".to_string(),
     }
 }
 
@@ -260,8 +282,8 @@ pub struct DatabaseTls {
 impl DatabaseTls {
     pub fn resolve() -> Result<Self> {
         use serviceradar_config_manager::{
-            built_ins, fetch_ca_bundle, ConfigManager, Filesystem, Identity, DATABASE_CA_CERT,
-            DATABASE_CLIENT_CERT, DATABASE_CLIENT_KEY,
+            ConfigManager, DATABASE_CA_CERT, DATABASE_CLIENT_CERT, DATABASE_CLIENT_KEY, Filesystem,
+            Identity, built_ins, fetch_ca_bundle,
         };
         use serviceradar_config_schema::TlsMode;
         use serviceradar_secret_manager::{EnvironmentProvider, Manifest, SecretManager};
@@ -308,9 +330,11 @@ impl DatabaseTls {
             Manifest::new([DATABASE_CA_CERT, DATABASE_CLIENT_CERT, DATABASE_CLIENT_KEY]),
         );
 
-        let ca = secrets
-            .resolve(DATABASE_CA_CERT)
-            .map_err(|e| anyhow::anyhow!("database.tls_mode verifies the server, so {DATABASE_CA_CERT} is required: {e}"))?;
+        let ca = secrets.resolve(DATABASE_CA_CERT).map_err(|e| {
+            anyhow::anyhow!(
+                "database.tls_mode verifies the server, so {DATABASE_CA_CERT} is required: {e}"
+            )
+        })?;
 
         // Client certificates are optional: a server that does not ask for one is the common
         // case. Both or neither -- srql::tls rejects half an identity rather than silently
@@ -326,4 +350,3 @@ impl DatabaseTls {
         })
     }
 }
-

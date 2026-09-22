@@ -4,7 +4,14 @@ title: Docker Setup
 
 # Docker Setup
 
-Use Docker Compose to run the full ServiceRadar platform stack (core-elx, agent-gateway, web-ng, NATS JetStream, CNPG) with mTLS enabled by default.
+Use Docker Compose to run the full ServiceRadar platform stack (core-elx, agent-gateway, web-ng, NATS JetStream, CNPG, Dgraph) with mTLS enabled by default.
+
+Dgraph is the topology graph store. Compose runs it with ACL on and TLS off,
+bound to loopback, then runs two one-shot containers that exit when they finish:
+`dgraph-migrate` applies the topology schema, and `age-to-dgraph` rebuilds the
+graph from AGE and checksums the result. Topology writes go to both stores
+(`GRAPH_BACKEND=dual`) while reads stay on AGE (`GRAPH_READ=age`) until you cut
+over. See [Network Topology](./network-topology.md).
 
 ## Quick Start
 

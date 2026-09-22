@@ -1,0 +1,145 @@
+{{- $d := default (dict) .Values.dgraph -}}
+{{- $migrator := default (dict) $d.migrator -}}
+{{- $externalHost := default "" (default (dict) $d.external).host -}}
+{{- $migratorEnabled := true -}}
+{{- if hasKey $migrator "enabled" -}}
+{{- $migratorEnabled = $migrator.enabled -}}
+{{- end -}}
+{{- if and (or $d.enabled (ne $externalHost "")) $migratorEnabled }}
+{{- $host := include "serviceradar.dgraph.host" . -}}
+{{- $port := include "serviceradar.dgraph.port" . -}}
+{{- $tlsMode := "verify-ca" -}}
+{{- if not $d.enabled -}}
+{{- $tlsMode = default "disable" (default (dict) $d.external).tlsMode -}}
+{{- end -}}
+{{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $cnpgClusterName := include "serviceradar.cnpgClusterName" . }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: serviceradar-dgraph-migrator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: dgraph-migrator
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "6"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        app: serviceradar-dgraph-migrator
+        app.kubernetes.io/part-of: serviceradar
+        app.kubernetes.io/component: dgraph-migrator
+    spec:
+      restartPolicy: OnFailure
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
+      containers:
+      - name: age-to-dgraph
+        image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-dgraph-migrate" "service" "dgraphMigrate") }}
+        imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+        {{- include "serviceradar.nonRootContainerSecurityContext" . | nindent 8 }}
+        env:
+        {{- if $d.enabled }}
+        - name: DGRAPH_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "serviceradar.dgraph.aclSecretName" . | quote }}
+              key: groot_password
+        - name: DGRAPH_URL
+          value: {{ printf "dgraph://groot:$(DGRAPH_PASSWORD)@%s:%s?sslmode=%s" $host $port $tlsMode | quote }}
+        {{- else }}
+        {{- $ext := default (dict) $d.external }}
+        {{- if ne (default "" $ext.credentialsSecret) "" }}
+        - name: DGRAPH_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ $ext.credentialsSecret | quote }}
+              key: {{ default "password" $ext.credentialsKey | quote }}
+        {{- end }}
+        - name: DGRAPH_URL
+          value: {{ printf "dgraph://%s%s:%s?sslmode=%s" (include "serviceradar.dgraph.externalUserinfo" .) $host $port $tlsMode | quote }}
+        {{- end }}
+        - name: CNPG_HOST
+          value: {{ include "serviceradar.cnpgDirectHost" . | quote }}
+        - name: CNPG_PORT
+          value: {{ default 5432 $cnpg.port | quote }}
+        - name: CNPG_DATABASE
+          value: {{ default "serviceradar" $cnpg.database | quote }}
+        - name: CNPG_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: {{ default "serviceradar-db-credentials" $cnpg.credentialsSecret | quote }}
+              key: username
+        - name: CNPG_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ default "serviceradar-db-credentials" $cnpg.credentialsSecret | quote }}
+              key: password
+        - name: CNPG_SSL_MODE
+          value: {{ default "verify-full" $cnpg.sslmode | quote }}
+        - name: CNPG_CA_FILE
+          value: {{ default "/etc/serviceradar/cnpg/ca.crt" $cnpg.caFile | quote }}
+        - name: CNPG_TLS_SERVER_NAME
+          value: {{ include "serviceradar.cnpgDirectHost" . | quote }}
+        {{- if $cnpg.requireClientCert }}
+        - name: CNPG_CERT_FILE
+          value: {{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client.pem" $cnpg.clientCertName) | quote }}
+        - name: CNPG_KEY_FILE
+          value: {{ printf "%s/%s" (default "/etc/serviceradar/certs" $cnpg.certDir) (default "cnpg-client-key.pem" $cnpg.clientKeyName) | quote }}
+        {{- end }}
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          # /bin/sh on this image is dash, which has no `pipefail`; asking for it
+          # is a fatal `set: Illegal option` before the first command runs. These
+          # scripts contain no pipelines, so errexit and nounset are the whole
+          # contract.
+          set -eu
+          URL="${DGRAPH_URL}"
+          if [ -f /etc/dgraph-ca/ca.crt ]; then
+            URL="${URL}&sslrootcert=/etc/dgraph-ca/ca.crt"
+          fi
+          export DGRAPH_URL="${URL}"
+          /usr/local/bin/age-to-dgraph rebuild
+          /usr/local/bin/age-to-dgraph checksum
+        volumeMounts:
+        - name: {{ $cnpgClusterName }}-ca
+          mountPath: /etc/serviceradar/cnpg
+          readOnly: true
+        {{- if $cnpg.requireClientCert }}
+        - name: cert-data
+          mountPath: /etc/serviceradar/certs
+          readOnly: true
+        {{- end }}
+        {{- if eq $tlsMode "verify-ca" }}
+        - name: dgraph-ca
+          mountPath: /etc/dgraph-ca
+          readOnly: true
+        {{- end }}
+      volumes:
+      - name: {{ $cnpgClusterName }}-ca
+        secret:
+          secretName: {{ $cnpgClusterName }}-ca
+          optional: true
+      {{- if $cnpg.requireClientCert }}
+      - name: cert-data
+        secret:
+          secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
+          items:
+{{ include "serviceradar.runtimeCertItems" (list "root.pem" "cnpg-client.pem" "cnpg-client-key.pem") | indent 12 }}
+      {{- end }}
+      {{- if eq $tlsMode "verify-ca" }}
+      - name: dgraph-ca
+        secret:
+          secretName: {{ default "dgraph-ca" (default (dict) $d.external).caSecret }}
+          items:
+          - key: {{ default "ca.crt" (default (dict) $d.external).caKey }}
+            path: ca.crt
+      {{- end }}
+{{- end }}

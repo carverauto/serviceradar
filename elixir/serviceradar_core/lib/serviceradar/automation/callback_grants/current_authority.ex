@@ -202,11 +202,13 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthority do
     end
   end
 
-  defp current_principal(grant, %{principal: principal, owner: owner, profile: profile}, now) do
+  defp current_principal(grant, %{principal: principal, owner: owner, authority: authority}, now) do
     type = normalize_principal_type(value(grant, :principal_type))
 
     profile_permissions =
-      profile |> value(:permissions) |> List.wrap() |> Enum.sort() |> Enum.uniq()
+      authority |> value(:permissions) |> MapSet.new() |> Enum.sort()
+
+    profile_versions = profile_versions(value(authority, :profile_versions))
 
     permissions =
       if type == :human or service_principal_write_scope?(principal),
@@ -226,10 +228,16 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthority do
          true <-
            Enum.all?(@required_permissions, &(&1 in permissions)) ||
              {:error, :current_permission_denied},
-         authorization_version =
-           authorization_version(type, principal, owner, profile, profile_permissions),
+         authorization_version = to_string(value(grant, :authorization_version)),
          true <-
-           secure_equal(authorization_version, to_string(value(grant, :authorization_version))) ||
+           authorization_version_matches?(
+             authorization_version,
+             type,
+             principal,
+             owner,
+             profile_versions,
+             profile_permissions
+           ) ||
              {:error, :principal_changed} do
       {:ok,
        %{
@@ -915,19 +923,18 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthority do
 
   defp response_policy_provider(_context), do: nil
 
-  defp authorization_version(:human, _principal, owner, profile, permissions) do
+  defp authorization_version(:human, _principal, owner, profile_versions, permissions) do
     Targeting.snapshot_digest(%{
       "actor_id" => value(owner, :id),
       "actor_status" => to_string(value(owner, :status)),
       "actor_role" => to_string(value(owner, :role)),
       "actor_updated_at" => iso8601(value(owner, :updated_at)),
-      "profile_id" => value(profile, :id),
-      "profile_updated_at" => iso8601(value(profile, :updated_at)),
+      "profile_versions" => profile_versions,
       "fresh_permissions" => permissions
     })
   end
 
-  defp authorization_version(:service_principal, principal, owner, profile, permissions) do
+  defp authorization_version(:service_principal, principal, owner, profile_versions, permissions) do
     Targeting.snapshot_digest(%{
       "schema" => "serviceradar.service_principal_authorization.v1",
       "service_principal_id" => value(principal, :id),
@@ -937,8 +944,82 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthority do
       "owner_status" => to_string(value(owner, :status)),
       "owner_role" => to_string(value(owner, :role)),
       "owner_updated_at" => iso8601(value(owner, :updated_at)),
-      "profile_id" => value(profile, :id),
-      "profile_updated_at" => iso8601(value(profile, :updated_at)),
+      "profile_versions" => profile_versions,
+      "fresh_permissions" => permissions
+    })
+  end
+
+  # Grants issued before group profiles existed carry the original singular-profile
+  # digest. Adding a group profile deliberately invalidates that legacy grant.
+  defp authorization_version_matches?(
+         stored_version,
+         type,
+         principal,
+         owner,
+         profile_versions,
+         permissions
+       ) do
+    secure_equal(
+      authorization_version(type, principal, owner, profile_versions, permissions),
+      stored_version
+    ) or
+      case profile_versions do
+        [{profile_id, profile_updated_at}] ->
+          secure_equal(
+            legacy_authorization_version(
+              type,
+              principal,
+              owner,
+              profile_id,
+              profile_updated_at,
+              permissions
+            ),
+            stored_version
+          )
+
+        _ ->
+          false
+      end
+  end
+
+  defp legacy_authorization_version(
+         :human,
+         _principal,
+         owner,
+         profile_id,
+         profile_updated_at,
+         permissions
+       ) do
+    Targeting.snapshot_digest(%{
+      "actor_id" => value(owner, :id),
+      "actor_status" => to_string(value(owner, :status)),
+      "actor_role" => to_string(value(owner, :role)),
+      "actor_updated_at" => iso8601(value(owner, :updated_at)),
+      "profile_id" => profile_id,
+      "profile_updated_at" => profile_updated_at,
+      "fresh_permissions" => permissions
+    })
+  end
+
+  defp legacy_authorization_version(
+         :service_principal,
+         principal,
+         owner,
+         profile_id,
+         profile_updated_at,
+         permissions
+       ) do
+    Targeting.snapshot_digest(%{
+      "schema" => "serviceradar.service_principal_authorization.v1",
+      "service_principal_id" => value(principal, :id),
+      "service_principal_owner_id" => value(owner, :id),
+      "service_principal_updated_at" => iso8601(value(principal, :updated_at)),
+      "service_principal_scopes" => principal |> value(:scopes) |> List.wrap() |> Enum.sort(),
+      "owner_status" => to_string(value(owner, :status)),
+      "owner_role" => to_string(value(owner, :role)),
+      "owner_updated_at" => iso8601(value(owner, :updated_at)),
+      "profile_id" => profile_id,
+      "profile_updated_at" => profile_updated_at,
       "fresh_permissions" => permissions
     })
   end
@@ -1084,6 +1165,16 @@ defmodule ServiceRadar.Automation.CallbackGrants.CurrentAuthority do
   defp iso8601(%DateTime{} = value), do: DateTime.to_iso8601(value)
   defp iso8601(nil), do: nil
   defp iso8601(value), do: to_string(value)
+
+  defp profile_versions(versions) when is_list(versions) do
+    versions
+    |> Enum.map(fn version ->
+      {to_string(value(version, :id)), iso8601(value(version, :updated_at))}
+    end)
+    |> Enum.sort()
+  end
+
+  defp profile_versions(_versions), do: []
 
   defp secure_equal(left, right)
        when is_binary(left) and is_binary(right) and byte_size(left) == byte_size(right),

@@ -18,7 +18,7 @@
 //
 // CI only sweeps `sr_core_test_*` at the start of a guarded run, so workstation clones
 // (codex_*, cc_*, serviceradar_bootstrap_test_*, …) accumulate until Timescale background
-// workers exhaust the instance. Anything not in ProtectedDatabases is fair game: this
+// workers exhaust the instance. Anything not covered by IsProtected is fair game: this
 // cluster is a disposable fixture, not a place to keep long-lived databases.
 package reaper
 
@@ -36,7 +36,8 @@ const (
 	DefaultMaxAge = 6 * time.Hour
 )
 
-// ProtectedDatabases are never dropped, regardless of age. Keep this list in
+// ProtectedDatabases lists the exact names that are never dropped, regardless of
+// age. IsProtected also protects reserved namespaces. Keep these exclusions in
 // sync with k8s/srql-fixtures/scratch-reaper.sql and rust/integration-db.
 func ProtectedDatabases() []string {
 	return []string{
@@ -61,12 +62,12 @@ func ShouldDrop(db Database, maxAge time.Duration) (bool, string) {
 		return false, "max age must be greater than zero"
 	}
 
-	if !SafeIdent(db.Name) {
-		return false, "name is not a safe identifier"
-	}
-
 	if IsProtected(db.Name) {
 		return false, "protected"
+	}
+
+	if !SafeIdent(db.Name) {
+		return false, "name is not a safe identifier"
 	}
 
 	if db.HasLiveClient {
@@ -80,8 +81,14 @@ func ShouldDrop(db Database, maxAge time.Duration) (bool, string) {
 	return true, "stale unprotected"
 }
 
-// IsProtected reports whether name is in the never-drop set.
+// IsProtected reports whether name is an exact protected name or belongs to the
+// reserved template generation namespace. Protect even malformed reserved names:
+// only dedicated registry cleanup may manage generations and private candidates.
 func IsProtected(name string) bool {
+	if strings.HasPrefix(name, "sr_tpl_") {
+		return true
+	}
+
 	for _, protected := range ProtectedDatabases() {
 		if name == protected {
 			return true
@@ -126,12 +133,12 @@ func QuoteIdent(name string) string {
 // DropStatement returns the SQL that drops one scratch database, forcing off
 // Timescale background workers that would otherwise keep the DROP waiting.
 func DropStatement(name string) (string, error) {
-	if !SafeIdent(name) {
-		return "", fmt.Errorf("%w: %s", ErrUnsafeIdent, name)
-	}
-
 	if IsProtected(name) {
 		return "", fmt.Errorf("%w: %s", ErrProtected, name)
+	}
+
+	if !SafeIdent(name) {
+		return "", fmt.Errorf("%w: %s", ErrUnsafeIdent, name)
 	}
 
 	return "DROP DATABASE IF EXISTS " + QuoteIdent(name) + " WITH (FORCE)", nil

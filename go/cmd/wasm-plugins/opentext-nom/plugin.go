@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 
-	"github.com/carverauto/serviceradar-sdk-go/sdk"
+	"github.com/carverauto/serviceradar-sdk-go/v2/sdk"
 )
 
 func runPlugin() error {

@@ -14,6 +14,8 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
 
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Identity.Ids
+  alias ServiceRadar.Inventory.Identity.MergeEngine
   alias ServiceRadar.Inventory.SourceIdentityDrift
   alias ServiceRadar.Inventory.Sync.DeviceRecords
   alias ServiceRadar.Inventory.Sync.SourcePolicy
@@ -36,7 +38,8 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   ]
 
   # DB connection's search_path determines the schema
-  def bulk_upsert_devices(records, strong_uids \\ MapSet.new()) do
+  def bulk_upsert_devices(records, strong_uids \\ MapSet.new(), resolved_updates \\ nil) do
+    records = attach_identity_claims(records, resolved_updates)
     update_query = device_upsert_update_query()
     refresh_rollups? = inventory_rollup_bulk_refresh_required?(length(records))
     do_bulk_upsert_devices(records, update_query, strong_uids, refresh_rollups?)
@@ -340,7 +343,11 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   # insert so same-batch handoffs are atomic).
   defp prepare_active_ip_claims(records, strong_uids, reason) do
     {remapped_records, remap, releases} = remap_records_to_existing_ip(records, strong_uids)
-    prepared_records = DeviceRecords.merge_records_by_uid(remapped_records)
+
+    prepared_records =
+      remapped_records
+      |> Enum.map(&Map.delete(&1, :identity_claims))
+      |> DeviceRecords.merge_records_by_uid()
 
     if map_size(remap) > 0 or active_ip_claims_changed?(records, prepared_records) or
          releases != [] do
@@ -410,6 +417,16 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
 
     incoming_ip_owners = incoming_ip_owners(records)
 
+    # Registration owners for the hostname-agreement adoption below. Loaded
+    # once per batch and only when a strong record actually collides with a
+    # different holder; batches without such collisions pay no extra query.
+    identity_regs =
+      if Enum.any?(records, &strong_ip_collision?(&1, strong_uids, active_holders)) do
+        load_identity_registrations(records, existing_by_ip)
+      else
+        %{}
+      end
+
     {remapped_records, {remap, conflicts, _anchors}} =
       Enum.map_reduce(records, {%{}, [], :not_loaded}, fn record, acc ->
         resolve_record_active_ip(
@@ -418,6 +435,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
           active_holders,
           existing_by_ip,
           incoming_ip_owners,
+          identity_regs,
           acc
         )
       end)
@@ -540,6 +558,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
          active_holders,
          existing_by_ip,
          incoming_ip_owners,
+         identity_regs,
          {remap, conflicts, anchors}
        ) do
     ip = Map.get(record, :ip)
@@ -564,23 +583,193 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
             {Map.put(record, :uid, existing_uid),
              {Map.put(remap, record.uid, existing_uid), conflicts, anchors}}
           else
-            # Strong identities never adopt an arbitrary IP owner. A
-            # truly provisional seed is the sole exception and is safe
-            # only while it has no registered identity anchor.
-            Logger.info(
-              "SyncIngestor: dropping conflicting IP #{ip} from strong-identified " <>
-                "device #{record.uid} (held by #{existing_uid})"
-            )
+            if adopt_on_hostname_agreement?(record, existing, existing_uid, identity_regs) and
+                 merge_existing_duplicate(record.uid, existing_uid) do
+              Logger.info(
+                "SyncIngestor: adopting active IP #{ip} holder #{existing_uid} for " <>
+                  "strong-identified device #{record.uid} (hostname agreement)"
+              )
 
-            conflict = SourceIdentityDrift.build_active_ip_conflict(record, existing_uid, ip)
+              {Map.put(record, :uid, existing_uid),
+               {Map.put(remap, record.uid, existing_uid), conflicts, anchors}}
+            else
+              # Strong identities never adopt an arbitrary IP owner. A
+              # truly provisional seed is the sole exception and is safe
+              # only while it has no registered identity anchor.
+              Logger.info(
+                "SyncIngestor: dropping conflicting IP #{ip} from strong-identified " <>
+                  "device #{record.uid} (held by #{existing_uid})"
+              )
 
-            {Map.put(record, :ip, nil), {remap, prepend_conflict(conflicts, conflict), anchors}}
+              conflict = SourceIdentityDrift.build_active_ip_conflict(record, existing_uid, ip)
+
+              {Map.put(record, :ip, nil), {remap, prepend_conflict(conflicts, conflict), anchors}}
+            end
           end
         else
           {Map.put(record, :uid, existing_uid),
            {Map.put(remap, record.uid, existing_uid), conflicts, anchors}}
         end
     end
+  end
+
+  defp merge_existing_duplicate(incoming_uid, holder_uid) do
+    if Repo.exists?(from(d in Device, where: d.uid == ^incoming_uid)) do
+      case MergeEngine.merge_devices(incoming_uid, holder_uid,
+             reason: "sync_ip_hostname_agreement"
+           ) do
+        :ok -> true
+        {:error, _reason} -> false
+      end
+    else
+      true
+    end
+  end
+
+  defp attach_identity_claims(records, nil), do: records
+
+  defp attach_identity_claims(records, resolved_updates) do
+    claims =
+      Enum.reduce(resolved_updates, %{}, fn {update, uid}, acc ->
+        ids = SourcePolicy.effective_identifiers(update)
+        pairs = identity_pairs(ids, ids.partition)
+        Map.update(acc, uid, pairs, &Enum.uniq(&1 ++ pairs))
+      end)
+
+    Enum.map(records, &Map.put(&1, :identity_claims, Map.get(claims, &1.uid, [])))
+  end
+
+  # True when this record can take the strong-collision branch: it carries a
+  # strong identity and its IP is held by a different active device. Mirrors
+  # the branch condition so the registration lookup below is loaded exactly
+  # when it will be consulted.
+  defp strong_ip_collision?(record, strong_uids, active_holders) do
+    MapSet.member?(strong_uids, Map.get(record, :uid)) and
+      case Map.get(active_holders, record_ip_key(record)) do
+        %{uid: holder_uid} -> holder_uid != Map.get(record, :uid)
+        _ -> false
+      end
+  end
+
+  # Owners of every anchor identifier claimed by this batch's records and by
+  # the holders they may collide with, keyed by {type, value, partition}.
+  # One query per batch, only on batches with a strong collision.
+  defp load_identity_registrations(records, existing_by_ip) do
+    record_pairs = Enum.flat_map(records, &record_identity_pairs(&1, record_partition(&1)))
+
+    holder_pairs =
+      Enum.flat_map(existing_by_ip, fn {{partition, _ip}, holder} ->
+        record_identity_pairs(holder, partition)
+      end)
+
+    case Enum.uniq(record_pairs ++ holder_pairs) do
+      [] ->
+        %{}
+
+      pairs ->
+        # Composite `in` over a runtime pair list is not expressible to the
+        # Ecto query planner, so match the triple through unnest arrays, the
+        # same shape the release-clear below uses for (uid, ip).
+        {types, values, partitions} =
+          Enum.reduce(pairs, {[], [], []}, fn {type, value, partition},
+                                              {types, values, partitions} ->
+            {[to_string(type) | types], [value | values], [partition | partitions]}
+          end)
+
+        DeviceIdentifier
+        |> where(
+          [i],
+          fragment(
+            "(?::text, ?::text, ?::text) IN (SELECT * FROM unnest(?::text[], ?::text[], ?::text[]))",
+            i.identifier_type,
+            i.identifier_value,
+            i.partition,
+            ^types,
+            ^values,
+            ^partitions
+          )
+        )
+        |> select([i], {i.identifier_type, i.identifier_value, i.partition, i.device_id})
+        |> Repo.all()
+        |> Enum.group_by(
+          # Raw Ecto select bypasses Ash type casting, so the atom column
+          # arrives as text; key on strings to match the pairs below.
+          fn {type, value, partition, _uid} -> {to_string(type), value, partition} end,
+          fn {_type, _value, _partition, uid} -> uid end
+        )
+    end
+  end
+
+  # Anchor identifier claims on a record or holder map, extracted with the
+  # same vocabulary registrations are written in (`Ids`). Values the
+  # extractor rejects (integration compatibility echoes, placeholder serials,
+  # unparseable MACs) never become claims, exactly as they never become rows.
+  defp record_identity_pairs(%{identity_claims: claims}, _partition), do: claims
+
+  defp record_identity_pairs(map, partition) do
+    ids = map |> Map.put(:partition, partition) |> Ids.extract_strong_identifiers()
+    identity_pairs(ids, ids.partition)
+  end
+
+  defp identity_pairs(ids, partition) do
+    for type <- @identity_anchor_types,
+        value <- Ids.get_identifier_values(type, ids),
+        Ids.present_id?(value),
+        do: {Atom.to_string(type), value, partition}
+  end
+
+  # Hostname-agreement adoption: a strong-identified
+  # record may converge onto the holder when both sides name the same
+  # hostname and neither side's strong identity is claimed by a third
+  # device. Either hostname blank vetoes: two records that say nothing about
+  # a name do not agree, they are merely silent. Any third-device claim
+  # vetoes: that is the over-merge shape (a collector's agent_id, a
+  # re-pointed integration id) the fork rule exists to refuse.
+  defp adopt_on_hostname_agreement?(record, holder, holder_uid, identity_regs) do
+    hostnames_agree?(Map.get(record, :hostname), Map.get(holder, :hostname)) and
+      compatible_identity_claims?(record, holder) and
+      not third_party_identity_claim?(
+        record,
+        holder,
+        holder_uid,
+        record_partition(record),
+        identity_regs
+      )
+  end
+
+  defp compatible_identity_claims?(record, holder) do
+    partition = record_partition(record)
+    incoming = record_identity_pairs(record, partition)
+    existing = record_identity_pairs(holder, partition)
+
+    partitions = Enum.uniq(Enum.map(incoming ++ existing, &elem(&1, 2)))
+    incoming_serials = for {"hardware_serial", value, _} <- incoming, do: value
+    existing_serials = for {"hardware_serial", value, _} <- existing, do: value
+
+    length(partitions) <= 1 and
+      (incoming_serials == [] or existing_serials == [] or
+         Enum.any?(incoming_serials, &(&1 in existing_serials)))
+  end
+
+  defp hostnames_agree?(a, b) when is_binary(a) and is_binary(b) do
+    a = String.trim(a)
+    b = String.trim(b)
+    a != "" and b != "" and String.downcase(a) == String.downcase(b)
+  end
+
+  defp hostnames_agree?(_, _), do: false
+
+  defp third_party_identity_claim?(record, holder, holder_uid, partition, identity_regs) do
+    allowed = MapSet.new([Map.get(record, :uid), holder_uid])
+
+    [record, holder]
+    |> Enum.flat_map(&record_identity_pairs(&1, partition))
+    |> Enum.any?(fn pair ->
+      case Map.get(identity_regs, pair) do
+        nil -> false
+        uids -> Enum.any?(uids, &(not MapSet.member?(allowed, &1)))
+      end
+    end)
   end
 
   defp ensure_anchored_uids(:not_loaded, existing_by_ip) do
@@ -621,11 +810,9 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   #      was left with `ip: nil`, re-collided on the next sync, and the conflict
   #      was re-detected forever instead of converging.
   #
-  # Case 2 is deliberately narrow. Treating every unanchored holder as a seed
-  # covers 6,906 rows on the deployment surveyed, of which 6,749 carry a
-  # hostname or MAC and are precisely what "a strong identity never adopts an IP
-  # owner" exists to protect; only 157 are true IP-only seeds. A hostname is
-  # evidence; an IP by itself is not, because IPs move.
+  # Case 2 is deliberately narrow: a hostname or MAC is identity evidence;
+  # an IP alone is not, because IPs move. Established holders instead use the
+  # separate hostname-agreement and identifier-ownership guard above.
   #
   # Adoption does not discard the seed. The incoming record takes the *existing*
   # uid, so an operator-added "something is at this IP" row survives and gains
@@ -836,50 +1023,25 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
           mac: fragment("COALESCE(EXCLUDED.mac, ?)", d.mac),
           hostname: fragment("COALESCE(EXCLUDED.hostname, ?)", d.hostname),
           name: fragment("COALESCE(EXCLUDED.name, ?)", d.name),
-          # A type an operator set by hand outranks one an integration inferred.
-          #
-          # Without this, `type` was the one identity field with no precedence
-          # at all: any non-empty incoming string won unconditionally, unlike
-          # `ip` directly above. So an Armis sync relabelled 280 of 412
-          # hand-imported RIDS displays as "Interactive Kiosks", "Thin Client",
-          # "IP Cameras" -- Armis' own inventory categories, passed through
-          # verbatim by `Enrichment.explicit_type_tuple/1`'s `{explicit, 99}`
-          # catch-all. Every SRQL query and rollup selecting `type:rids` then
-          # silently matched a third of the fleet and reported it as the whole.
-          #
-          # The claim is keyed on `discovery_sources` containing 'manual',
-          # which is durable: every writer merges that array rather than
-          # replacing it, so the manual origin survives any number of later
-          # syncs. In `ON CONFLICT DO UPDATE`, `d.` is the PRE-update row
-          # regardless of SET-clause order, so this reads the same array the
-          # `discovery_sources` clause below is about to extend.
-          #
-          # 'Unknown' is not a human answer, it is the absence of one. Both
-          # `Enrichment` (via `Normalize.first_meaningful_string/2`) and SRQL
-          # (`COALESCE(NULLIF(trim(type), ''), 'Unknown')`) already treat it as
-          # the no-type sentinel, and the 20260521 backfill migration selected
-          # rows on exactly that expression. A device carrying it is protecting
-          # nothing, so an integration's guess is still strictly better.
-          #
-          # This is narrower than the `ip` rank guard on purpose. It is not a
-          # general "first writer wins": an integration still freely overwrites
-          # a type another integration inferred, and still fills a blank one.
-          # The only thing it refuses is demoting a human's answer to a guess.
-          #
-          # `type` and `type_id` MUST move together -- holding one and not the
-          # other yields type='rids' with type_id=99, a row that agrees with
-          # neither source. Both carry the identical condition for that reason.
+          # Classification ownership is separate from discovery provenance:
+          # an untyped manual duplicate must not freeze the survivor's inference.
+          # An explicit false marker overrides legacy manual-source fallback;
+          # absent markers retain compatibility with older manually typed rows.
+          # Read ownership from the pre-update row, before provenance is unioned.
+          # Keep type and type_id under the same guard so they cannot disagree.
           type:
             fragment(
               """
               CASE
-                WHEN 'manual' = ANY(COALESCE(?, ARRAY[]::text[]))
+                WHEN COALESCE(?->'type_manually_set' = 'true'::jsonb,
+                     'manual' = ANY(COALESCE(?, ARRAY[]::text[])))
                      AND NOT ('manual' = ANY(COALESCE(EXCLUDED.discovery_sources, ARRAY[]::text[])))
                      AND lower(COALESCE(NULLIF(btrim(?), ''), 'unknown')) <> 'unknown'
                   THEN ?
                 ELSE COALESCE(NULLIF(EXCLUDED.type, ''), ?)
               END
               """,
+              d.metadata,
               d.discovery_sources,
               d.type,
               d.type,
@@ -889,7 +1051,8 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
             fragment(
               """
               CASE
-                WHEN 'manual' = ANY(COALESCE(?, ARRAY[]::text[]))
+                WHEN COALESCE(?->'type_manually_set' = 'true'::jsonb,
+                     'manual' = ANY(COALESCE(?, ARRAY[]::text[])))
                      AND NOT ('manual' = ANY(COALESCE(EXCLUDED.discovery_sources, ARRAY[]::text[])))
                      AND lower(COALESCE(NULLIF(btrim(?), ''), 'unknown')) <> 'unknown'
                   THEN ?
@@ -898,6 +1061,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
                 ELSE ?
               END
               """,
+              d.metadata,
               d.discovery_sources,
               d.type,
               d.type_id,
@@ -924,8 +1088,22 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
           owner: fragment("COALESCE(EXCLUDED.owner, ?)", d.owner),
           metadata:
             fragment(
-              "(COALESCE(?, '{}'::jsonb) - 'classification_source' - 'classification_rule_id' - 'classification_confidence' - 'classification_reason' - 'mac_vendor' - 'mac_vendor_source' - 'mac_vendor_oui_prefix' - 'mac_vendor_oui_snapshot_id') || COALESCE(EXCLUDED.metadata, '{}'::jsonb)",
-              d.metadata
+              """
+              (COALESCE(?, '{}'::jsonb) - 'classification_source' - 'classification_rule_id' - 'classification_confidence' - 'classification_reason' - 'mac_vendor' - 'mac_vendor_source' - 'mac_vendor_oui_prefix' - 'mac_vendor_oui_snapshot_id') || COALESCE(EXCLUDED.metadata, '{}'::jsonb) ||
+              jsonb_build_object('type_manually_set',
+                CASE
+                  WHEN 'manual' = ANY(COALESCE(EXCLUDED.discovery_sources, ARRAY[]::text[]))
+                       AND NULLIF(EXCLUDED.type, '') IS NOT NULL
+                    THEN lower(COALESCE(NULLIF(btrim(EXCLUDED.type), ''), 'unknown')) <> 'unknown'
+                  ELSE COALESCE(?->'type_manually_set' = 'true'::jsonb,
+                         'manual' = ANY(COALESCE(?, ARRAY[]::text[])))
+                       AND lower(COALESCE(NULLIF(btrim(?), ''), 'unknown')) <> 'unknown'
+                END)
+              """,
+              d.metadata,
+              d.metadata,
+              d.discovery_sources,
+              d.type
             ),
           deleted_at: nil,
           deleted_by: nil,

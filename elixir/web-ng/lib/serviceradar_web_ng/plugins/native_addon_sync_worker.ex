@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
   alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
+  alias ServiceRadarWebNG.Plugins.FirstPartyReleaseClient
   alias ServiceRadarWebNG.Plugins.NativeAddonImporter
   alias ServiceRadarWebNG.Plugins.NativeAddonSync
 
@@ -85,10 +86,10 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
     discovery_attrs = maybe_put(%{}, :repo_url, repo_url)
 
     case discover_addons(discovery_attrs, limit, release_tag) do
-      {:ok, addons} ->
+      {:ok, addons, filter_tag} ->
         results =
           addons
-          |> NativeAddonSync.candidates(release_tag: release_tag, addon_ids: addon_ids)
+          |> NativeAddonSync.candidates(release_tag: filter_tag, addon_ids: addon_ids)
           |> Enum.map(fn addon ->
             {addon,
              NativeAddonSync.import_or_reuse(addon,
@@ -121,20 +122,27 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
         :ok
 
       {:error, reason} ->
-        Logger.warning("First-party native add-on sync failed",
-          reason: bounded_failure_reason(reason)
-        )
+        if FirstPartyReleaseClient.permanent_failure?(reason) do
+          Logger.error("First-party native add-on sync failed",
+            reason: bounded_failure_reason(reason)
+          )
 
-        {:error, reason}
+          :ok
+        else
+          Logger.warning("First-party native add-on sync failed",
+            reason: bounded_failure_reason(reason)
+          )
+
+          {:error, reason}
+        end
     end
   end
 
-  defp discover_addons(discovery_attrs, _limit, release_tag) when is_binary(release_tag) do
-    NativeAddonImporter.list_release_addons(discovery_attrs, release_tag)
-  end
-
-  defp discover_addons(discovery_attrs, limit, nil) do
-    NativeAddonImporter.list_recent_addons(discovery_attrs, limit)
+  defp discover_addons(discovery_attrs, limit, release_tag) do
+    NativeAddonImporter.list_addons_for_sync(discovery_attrs,
+      limit: limit,
+      release_tag: release_tag
+    )
   end
 
   defp schedule_next do

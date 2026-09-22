@@ -6,6 +6,8 @@ defmodule ServiceRadar.ResultsRouterLargeIngestionReleaseGateTest do
   use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Repo
   alias ServiceRadar.ResultsRouter
   alias ServiceRadar.TestSupport
@@ -67,8 +69,19 @@ defmodule ServiceRadar.ResultsRouterLargeIngestionReleaseGateTest do
     count = large_ingestion_device_count()
     chunk_size = large_ingestion_chunk_size()
     run_id = Ash.UUID.generate()
-    sync_service_id = "large-ingestion-#{System.unique_integer([:positive])}"
+    source = create_armis_source!()
+    sync_service_id = source.id
     total_chunks = ceil_div(count, chunk_size)
+
+    population = %{
+      "raw_rows" => count,
+      "excluded_rows" => 0,
+      "invalid_rows" => 0,
+      "valid_occurrences" => count,
+      "distinct_source_ids" => count,
+      "duplicate_occurrences" => 0,
+      "conflicting_duplicate_ids" => 0
+    }
 
     for chunk_index <- 0..(total_chunks - 1) do
       start_index = chunk_index * chunk_size + 1
@@ -91,14 +104,19 @@ defmodule ServiceRadar.ResultsRouterLargeIngestionReleaseGateTest do
               "integration_type" => "armis",
               "query_label" => label
             },
-            "sync_meta" => %{
-              "sync_service_id" => sync_service_id,
-              "sync_run_id" => run_id,
-              "chunk_index" => chunk_index,
-              "total_chunks" => total_chunks,
-              "total_devices" => count,
-              "is_final" => is_final
-            }
+            "sync_meta" =>
+              maybe_put_population(
+                %{
+                  "sync_service_id" => sync_service_id,
+                  "sync_run_id" => run_id,
+                  "chunk_index" => chunk_index,
+                  "total_chunks" => total_chunks,
+                  "total_devices" => count,
+                  "is_final" => is_final
+                },
+                is_final,
+                population
+              )
           }
         end)
 
@@ -157,10 +175,57 @@ defmodule ServiceRadar.ResultsRouterLargeIngestionReleaseGateTest do
                """,
                [sync_service_id]
              )
+
+    # The final chunk's `population` accounting (added above) is what lets
+    # `ServiceRadar.Inventory.ArmisSourceSnapshot.activate/3` run at all --
+    # without it, `validate_population/1` rejects the sync_meta and
+    # activation never happens, silently (a `Results processing failed`
+    # warning log, not a raised error or a failed assertion). Assert the
+    # snapshot this run's activation is supposed to produce actually landed,
+    # so a regression here fails loudly instead of going unnoticed again.
+    assert 1 ==
+             scalar_count!(
+               """
+               SELECT COUNT(*)::bigint
+               FROM platform.device_source_snapshots
+               WHERE source = 'armis'
+                 AND source_instance = $1
+                 AND collection_id = $2
+               """,
+               [sync_service_id, run_id]
+             ),
+           "expected ArmisSourceSnapshot.activate/3 to record a device_source_snapshots row for this run"
   end
 
   defp system_actor do
     SystemActor.system(:test)
+  end
+
+  defp maybe_put_population(sync_meta, true, population),
+    do: Map.put(sync_meta, "population", population)
+
+  defp maybe_put_population(sync_meta, false, _population), do: sync_meta
+
+  defp create_armis_source! do
+    actor = system_actor()
+    uid = "agent-large-ingestion-#{System.unique_integer([:positive])}"
+
+    Agent
+    |> Ash.Changeset.for_create(:register_connected, %{uid: uid, name: uid}, actor: actor)
+    |> Ash.create!(actor: actor)
+
+    IntegrationSource
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        name: "armis-large-ingestion-gate-#{System.unique_integer([:positive])}",
+        source_type: :armis,
+        endpoint: "https://armis-large-ingestion-gate.test",
+        agent_id: uid
+      },
+      actor: actor
+    )
+    |> Ash.create!(actor: actor)
   end
 
   defp large_ingestion_device_count do

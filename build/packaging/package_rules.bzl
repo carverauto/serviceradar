@@ -3,8 +3,10 @@
 load(
     "@rules_pkg//pkg:mappings.bzl",
     "pkg_attributes",
+    "pkg_filegroup",
     "pkg_files",
     "pkg_mkdirs",
+    "pkg_mklink",
 )
 load("@rules_pkg//pkg:pkg.bzl", "pkg_deb", "pkg_tar")
 load("@rules_pkg//pkg:rpm.bzl", "pkg_rpm")
@@ -165,6 +167,7 @@ def serviceradar_package(
         systemd = None,
         postinst = None,
         prerm = None,
+        symlinks = None,
         homepage = _DEFAULT_HOMEPAGE,
         license = _DEFAULT_LICENSE,
         rpm_release = "1",
@@ -209,6 +212,32 @@ def serviceradar_package(
         normalized_files.append(_normalize_file_entry(entry))
 
     data_targets.extend(_emit_pkg_files(name, "file", normalized_files))
+
+    # Symlinks ----------------------------------------------------------------
+    # Keys are absolute destination paths (e.g. "/usr/local/bin/foo"),
+    # values are the link targets. Prefer a target relative to the link's
+    # directory (e.g. "srctl") so the package stays relocatable.
+    if symlinks:
+        link_targets = []
+        for idx, (dest, target) in enumerate(symlinks.items()):
+            if not dest.startswith("/"):
+                fail("Symlink destination must be absolute: %s" % dest)
+            link_name = "{}_link_{}".format(name, idx)
+            pkg_mklink(
+                name = link_name,
+                link_name = dest.lstrip("/"),
+                target = target,
+            )
+            link_targets.append(":{}".format(link_name))
+
+        # NOTE: this must be a pkg_filegroup, not pkg_files: the pkg_files
+        # implementation only forwards srcs carrying DefaultInfo, silently
+        # dropping symlink providers.
+        pkg_filegroup(
+            name = "{}_symlinks".format(name),
+            srcs = link_targets,
+        )
+        data_targets.append(":{}_symlinks".format(name))
 
     # Trees -------------------------------------------------------------------
     for idx, tree in enumerate(trees or []):
@@ -343,7 +372,24 @@ PY
         )
         rpm_extra_kwargs["spec_template"] = ":{}".format(rpm_template_target)
 
-    rpm_arch = "x86_64" if architecture == "amd64" else architecture
+    rpm_arch = {"amd64": "x86_64", "arm64": "aarch64"}.get(architecture, architecture)
+    if architecture == "arm64":
+        # These binaries were cross-compiled by Bazel. BuildArch would ask the
+        # x86 RPM host to rebuild the spec for a compatible machine; instead set
+        # the target macros used for the package header and dependency metadata.
+        rpm_extra_kwargs["defines"] = {
+            # RPM initializes platform ISA macros before applying --define;
+            # changing _target_cpu alone leaves host ISA Provides behind.
+            "__isa_bits": "64",
+            "__isa_name": "aarch",
+            # Preserve Bazel's linked payload. The RPM host's x86-only strip
+            # cannot process AArch64 executables and must not rewrite them.
+            "__strip": "/bin/true",
+            "_arch": "aarch64",
+            "_target": "aarch64-linux",
+            "_target_cpu": "aarch64",
+            "_target_os": "linux",
+        }
 
     pkg_rpm(
         name = "{}_rpm".format(name),
@@ -351,7 +397,7 @@ PY
         package_file_name = "{}-{}-{}.{}.rpm".format(package_name, VERSION, RELEASE, rpm_arch),
         version_file = ":{}".format(rpm_version_output),
         release_file = ":{}".format(rpm_release_output),
-        architecture = rpm_arch,
+        architecture = "" if architecture == "arm64" else rpm_arch,
         summary = summary or description,
         description = description,
         license = license,

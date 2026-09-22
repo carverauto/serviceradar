@@ -23,10 +23,14 @@ defmodule ServiceRadar.Observability.OtelTraceSummary do
   json_api do
     type "otel_trace_summary"
 
+    primary_key do
+      keys [:trace_id]
+    end
+
     routes do
       base "/otel_trace_summaries"
 
-      index :read
+      index :api_index
     end
   end
 
@@ -35,6 +39,15 @@ defmodule ServiceRadar.Observability.OtelTraceSummary do
   actions do
     # Read-only - this table is populated by RefreshTraceSummariesWorker
     defaults [:read]
+
+    read :api_index do
+      pagination do
+        offset? true
+        default_limit 100
+        max_page_size 1000
+        required? true
+      end
+    end
 
     read :by_service do
       argument :service_name, :string, allow_nil?: false
@@ -53,9 +66,10 @@ defmodule ServiceRadar.Observability.OtelTraceSummary do
   end
 
   policies do
-    policy action_type(:read) do
-      authorize_if always()
-    end
+    import ServiceRadar.Policies
+
+    system_bypass()
+    read_viewer_plus()
   end
 
   attributes do

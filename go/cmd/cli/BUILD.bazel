@@ -9,7 +9,31 @@ go_library(
 )
 
 go_binary(
-    name = "cli",
+    name = "srctl",
     embed = [":cli_lib"],
+    visibility = ["//visibility:public"],
+)
+
+# srctl for the Windows agent MSIs, installed beside the agent and put on PATH.
+[
+    go_binary(
+        name = "srctl_windows_{}".format(arch),
+        embed = [":cli_lib"],
+        goarch = arch,
+        goos = "windows",
+        pure = "on",
+        visibility = ["//visibility:public"],
+    )
+    for arch in ("amd64", "arm64")
+]
+
+# srctl for the macOS agent installer. Pure Go, so it cross-compiles on the Linux
+# executors; the installer signs it with the agent's Developer ID.
+go_binary(
+    name = "srctl_darwin_arm64",
+    embed = [":cli_lib"],
+    goarch = "arm64",
+    goos = "darwin",
+    pure = "on",
     visibility = ["//visibility:public"],
 )

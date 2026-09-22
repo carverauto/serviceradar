@@ -412,6 +412,10 @@ cold_window = fn name ->
   end
 end
 
+config :serviceradar_core,
+       ServiceRadar.Analytics.StarRocks,
+       ServiceRadar.Analytics.StarRocks.Env.config()
+
 config :serviceradar_core, ServiceRadar.ColdTier,
   enabled: System.get_env("SERVICERADAR_COLD_TIER_ENABLED") in ["true", "1"],
   bucket_url: System.get_env("SERVICERADAR_COLD_TIER_BUCKET_URL"),
@@ -1173,6 +1177,14 @@ if config_env() == :prod do
   config :serviceradar_core,
     control_repo_enabled: System.get_env("CONTROL_REPO_ENABLED", "true") in ~w(true 1 yes)
 
+  config :serviceradar_core,
+    graph_backend: System.get_env("GRAPH_BACKEND", "dual"),
+    graph_read: System.get_env("GRAPH_READ", "age"),
+    dgraph_url: System.get_env("DGRAPH_URL"),
+    dgraph_host: System.get_env("DGRAPH_HOST"),
+    dgraph_port: parse_int_env.("DGRAPH_PORT", 9080),
+    dgraph_tls_mode: System.get_env("DGRAPH_TLS_MODE", "disable")
+
   if topologies != [] do
     config :libcluster, topologies: topologies
   end
@@ -1750,6 +1762,7 @@ if config_env() == :prod do
           stream_max_bytes: 1_073_741_824,
           stream_max_age: 86_400_000_000_000
         },
+        Config.k8s_nodes_stream(),
         %{
           name: "OTEL_METRICS",
           subject: "otel.metrics.>",

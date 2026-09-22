@@ -3,6 +3,17 @@ load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
 load("@rules_rs//rs:rust_library.bzl", "rust_library")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
 
+# Only connection behavior participates in template construction, not SRQL queries.
+filegroup(
+    name = "schema_template_connection_inputs",
+    srcs = [
+        "Cargo.toml",
+        "src/db.rs",
+        "src/tls.rs",
+    ],
+    visibility = ["//visibility:public"],
+)
+
 filegroup(
     name = "srcs",
     srcs = glob(
@@ -26,6 +37,7 @@ rust_library(
         normal = True,
     ) + [
         "//rust/kvutil",
+        "//rust/dgraph-topology:dgraph_topology",
         # Database TLS comes from the environment SERVICERADAR_ENV names, not from PGSSL*.
         # `cargo_only = True` above deliberately excludes first-party members, so these are
         # named here -- Bazel does not infer them from Cargo.toml.

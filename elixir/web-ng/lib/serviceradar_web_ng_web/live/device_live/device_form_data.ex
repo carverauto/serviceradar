@@ -10,6 +10,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceFormData do
 
   def format_tags(_), do: ""
 
+  @doc """
+  Normalize a raw device tags value into a sorted, unique list of display
+  strings (`"key=value"` or `"key"`), suitable for chip rendering.
+  """
+  def format_tag_list(tags) when is_map(tags) do
+    tags
+    |> Enum.map(fn
+      {key, nil} -> to_string(key)
+      {key, ""} -> to_string(key)
+      {key, value} -> "#{key}=#{value}"
+    end)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  def format_tag_list(_), do: []
+
   def parse_tags(nil), do: %{}
   def parse_tags(""), do: %{}
 

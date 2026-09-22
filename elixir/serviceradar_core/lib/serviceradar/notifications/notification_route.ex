@@ -75,7 +75,7 @@ defmodule ServiceRadar.Notifications.NotificationRoute do
   use Ash.Resource,
     domain: ServiceRadar.Notifications,
     data_layer: AshPostgres.DataLayer,
-    extensions: [AshPaperTrail.Resource],
+    extensions: [AshPaperTrail.Resource, AshJsonApi.Resource],
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.Notifications.MatchExpression
@@ -131,6 +131,19 @@ defmodule ServiceRadar.Notifications.NotificationRoute do
     store_action_inputs? true
     create_version_on_destroy? false
     ignore_attributes [:inserted_at, :updated_at]
+  end
+
+  json_api do
+    type "notification_route"
+
+    routes do
+      base "/notification-routes"
+
+      index :read
+      post :create
+      patch :update
+      patch :enable, route: "/:id/enable"
+    end
   end
 
   code_interface do
@@ -217,7 +230,7 @@ defmodule ServiceRadar.Notifications.NotificationRoute do
   end
 
   validations do
-    validate {MatchExpression, attribute: :match_expression}
+    validate {MatchExpression, attribute: :match_expression, reject_empty_equals?: true}
 
     validate {MatchFieldAllowList,
               attribute: :match_expression,

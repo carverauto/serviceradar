@@ -6,7 +6,7 @@ const (
 )
 
 // SignalSchemaRef exactly mirrors the package-managed display reference in the
-// pinned serviceradar-sdk-go v0.3.1. The rest of this file is the smallest
+// SDK pinned in go/cmd/wasm-plugins/axis/go.mod. The rest of this file is the smallest
 // compile-only surface needed to build the real plugin signal_schema.go files.
 type SignalSchemaRef struct {
 	ProducerID             string

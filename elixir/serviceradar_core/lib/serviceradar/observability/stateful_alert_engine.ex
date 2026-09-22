@@ -168,8 +168,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   end
 
   defp dispatch_shard(shard, message_tag, records) do
-    with {:ok, _pid} <- ensure_started(shard) do
-      call(shard, {message_tag, records})
+    with {:ok, pid} <- ensure_started(shard) do
+      call(shard, pid, {message_tag, records})
     end
   end
 
@@ -199,8 +199,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   end
 
   defp dispatch_resolve_shard(shard, message) do
-    with {:ok, _pid} <- ensure_started(shard) do
-      call(shard, message)
+    with {:ok, pid} <- ensure_started(shard) do
+      call(shard, pid, message)
     end
   end
 
@@ -215,24 +215,26 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
         shard: shard,
         table: table,
         rules: [],
+        snapshots_loaded?: false,
         rules_loaded_at: nil,
         ash_opts: ash_opts,
         repo_unavailable_logged: false,
         rules_load_error_logged: false
       })
 
-    load_state_snapshots(state)
-
     {:ok, state}
   end
 
   @impl true
   def handle_call({:evaluate_logs, rows}, _from, state) do
-    {state, rules} = load_rules_if_needed(state)
+    case load_rules_if_needed(state) do
+      {:ok, state, rules} ->
+        result = process_records(rows, &StateMachine.process_log_rules(&1, rules, state))
+        {:reply, result, state}
 
-    Enum.each(rows, &StateMachine.process_log_rules(&1, rules, state))
-
-    {:reply, :ok, state}
+      {:error, reason, state} ->
+        {:reply, {:error, reason}, state}
+    end
   rescue
     error ->
       Logger.warning("Stateful alert evaluation failed: #{inspect(error)}")
@@ -241,11 +243,14 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
 
   @impl true
   def handle_call({:evaluate_events, events}, _from, state) do
-    {state, rules} = load_rules_if_needed(state)
+    case load_rules_if_needed(state) do
+      {:ok, state, rules} ->
+        result = process_records(events, &StateMachine.process_event_rules(&1, rules, state))
+        {:reply, result, state}
 
-    Enum.each(events, &StateMachine.process_event_rules(&1, rules, state))
-
-    {:reply, :ok, state}
+      {:error, reason, state} ->
+        {:reply, {:error, reason}, state}
+    end
   rescue
     error ->
       Logger.warning("Stateful alert evaluation failed: #{inspect(error)}")
@@ -254,11 +259,14 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
 
   @impl true
   def handle_call({:evaluate_metrics, rows}, _from, state) do
-    {state, rules} = load_rules_if_needed(state)
+    case load_rules_if_needed(state) do
+      {:ok, state, rules} ->
+        result = process_records(rows, &StateMachine.process_metric_rules(&1, rules, state))
+        {:reply, result, state}
 
-    Enum.each(rows, &StateMachine.process_metric_rules(&1, rules, state))
-
-    {:reply, :ok, state}
+      {:error, reason, state} ->
+        {:reply, {:error, reason}, state}
+    end
   rescue
     error ->
       Logger.warning("Stateful alert evaluation failed: #{inspect(error)}")
@@ -271,16 +279,20 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
         _from,
         state
       ) do
-    {state, rules} = load_rules_if_needed(state)
+    case load_rules_if_needed(state) do
+      {:ok, state, rules} ->
+        # Only the shard that owns the rule will find it in its loaded set.
+        resolved =
+          case Enum.find(rules, fn rule -> rule.name == rule_name end) do
+            nil -> 0
+            rule -> StateMachine.sweep_stale_anomalies(rule, cutoff, now, state, live_series_keys)
+          end
 
-    # Only the shard that owns the rule will find it in its loaded set.
-    resolved =
-      case Enum.find(rules, fn rule -> rule.name == rule_name end) do
-        nil -> 0
-        rule -> StateMachine.sweep_stale_anomalies(rule, cutoff, now, state, live_series_keys)
-      end
+        {:reply, {:ok, resolved}, state}
 
-    {:reply, {:ok, resolved}, state}
+      {:error, reason, state} ->
+        {:reply, {:error, reason}, state}
+    end
   rescue
     error ->
       Logger.warning("Stale-anomaly auto-resolve failed: #{inspect(error)}")
@@ -292,7 +304,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   # with the legacy 3-tuple (no live-set). Treat it as an empty live-set sweep,
   # which is exactly the pre-live-set behavior. The reverse skew — this node's
   # 4-tuple reaching an old-code shard — cannot be patched here: the old shard
-  # crashes with a FunctionClauseError, the caller's `call/2` catch maps the
+  # crashes with a FunctionClauseError, the caller's `call/3` catch maps the
   # exit to `{:error, _}` (so the Oban job retries instead of crashing), Horde
   # restarts the shard, and the next 30-minute sweep after the deploy finishes
   # succeeds. The tradeoff is bounded by the sweep cadence.
@@ -301,8 +313,42 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     handle_call({:resolve_stale_anomalies, {rule_name, cutoff, now, MapSet.new()}}, from, state)
   end
 
-  defp call(shard, message) do
-    GenServer.call(via_tuple(shard), message, to_timeout(second: 15))
+  defp process_records(records, process) do
+    Enum.reduce(records, :ok, fn record, result ->
+      case process.(record) do
+        :ok -> result
+        {:error, _} = error -> if result == :ok, do: error, else: result
+      end
+    end)
+  end
+
+  # Call the pid `ensure_started/1` resolved, not the shard's registered name.
+  # Horde's registry replies to a registration right after the CRDT put, but the
+  # keys ETS row that `Horde.Registry.lookup/2` (and so `whereis_name/1`) reads is
+  # written later, by `process_diff/2` when the asynchronous CRDT diff is
+  # handled. A name lookup can therefore lag the pid
+  # `start_child`/`{:already_started, pid}` just returned and exit `:noproc` for
+  # a shard that is running. The pid is authoritative, so use it.
+  #
+  # That pid can still die between resolution and the call (shard crash, Horde
+  # restart, rolling deploy). Re-resolve and retry once so a just-restarted shard
+  # takes the batch instead of dropping it; only then report the shard as not
+  # running.
+  defp call(shard, pid, message) when is_pid(pid) do
+    case call_pid(pid, message) do
+      {:error, :engine_not_running} -> retry_call(shard, message)
+      result -> result
+    end
+  end
+
+  defp retry_call(shard, message) do
+    with {:ok, pid} <- ensure_started(shard) do
+      call_pid(pid, message)
+    end
+  end
+
+  defp call_pid(pid, message) do
+    GenServer.call(pid, message, to_timeout(second: 15))
   catch
     :exit, {:noproc, _} ->
       {:error, :engine_not_running}
@@ -352,17 +398,23 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   defp registry_key(0), do: :stateful_alert_engine
   defp registry_key(shard), do: {:stateful_alert_engine, shard}
 
-  defp load_rules_if_needed(%{rules_loaded_at: nil} = state) do
+  defp load_rules_if_needed(state) do
+    with {:ok, state} <- load_state_snapshots(state) do
+      load_cached_rules(state)
+    end
+  end
+
+  defp load_cached_rules(%{rules_loaded_at: nil} = state) do
     load_rules(state)
   end
 
-  defp load_rules_if_needed(state) do
+  defp load_cached_rules(state) do
     now = System.monotonic_time(:millisecond)
 
     if now - state.rules_loaded_at > @rules_cache_ms do
       load_rules(state)
     else
-      {state, state.rules}
+      {:ok, state, state.rules}
     end
   end
 
@@ -392,22 +444,14 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
               rules_load_error_logged: false
           }
 
-          {updated, rules}
+          {:ok, updated, rules}
 
         {:error, error} ->
-          # A returned query error (e.g. schema drift: code selecting a column
-          # an unapplied migration adds) must not be mistaken for "zero rules".
-          # Keep serving the previously loaded rules, leave rules_loaded_at
-          # unstamped so recovery is retried, and fail loudly.
           :telemetry.execute(
             [:serviceradar, :stateful_alert_engine, :rules_load_failed],
             %{count: 1},
             %{shard: state.shard, node: node()}
           )
-
-          # Reset the cache stamp so the next evaluation retries the load
-          # instead of serving the stale-success stamp for the cache window.
-          state = %{state | rules_loaded_at: nil}
 
           state =
             if state.rules_load_error_logged do
@@ -421,16 +465,21 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
               %{state | rules_load_error_logged: true}
             end
 
-          {state, state.rules}
+          rules_load_failure(state, error)
       end
     else
-      {report_repo_unavailable(state), []}
+      {:error, :repo_unavailable, report_repo_unavailable(state)}
     end
   rescue
     error ->
       Logger.error("Failed to load stateful alert rules: #{inspect(error)}")
-      {state, state.rules}
+      rules_load_failure(state, error)
   end
+
+  defp rules_load_failure(%{rules_loaded_at: nil} = state, error),
+    do: {:error, {:rules_load_failed, error}, state}
+
+  defp rules_load_failure(state, _error), do: {:ok, state, state.rules}
 
   defp read_active_rules(%{rules_reader: reader}) when is_function(reader, 0), do: reader.()
 
@@ -461,32 +510,53 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     else
       Logger.warning(
         "StatefulAlertEngine shard #{state.shard} on #{node()} has no repo available; " <>
-          "loading zero alert rules"
+          "cannot evaluate alert rules"
       )
 
       %{state | repo_unavailable_logged: true}
     end
   end
 
+  defp load_state_snapshots(%{snapshots_loaded?: true} = state), do: {:ok, state}
+
   defp load_state_snapshots(state) do
     if repo_available?() do
-      StatefulAlertRuleState
-      |> Ash.Query.for_read(:read, %{})
-      |> Ash.read(state.ash_opts)
-      |> case do
-        {:ok, %Keyset{results: results}} -> results
-        {:ok, results} when is_list(results) -> results
-        _ -> []
+      case read_state_snapshots(state) do
+        {:ok, results} ->
+          snapshots =
+            results
+            |> Enum.filter(fn snapshot -> shard_for_rule_id(snapshot.rule_id) == state.shard end)
+            |> Enum.map(fn snapshot ->
+              {{snapshot.rule_id, snapshot.group_key}, normalize_snapshot(snapshot)}
+            end)
+
+          :ets.insert(state.table, snapshots)
+          {:ok, %{state | snapshots_loaded?: true}}
+
+        {:error, reason} ->
+          {:error, {:snapshot_restore_failed, reason}, state}
       end
-      |> Enum.filter(fn snapshot -> shard_for_rule_id(snapshot.rule_id) == state.shard end)
-      |> Enum.each(fn snapshot ->
-        key = {snapshot.rule_id, snapshot.group_key}
-        :ets.insert(state.table, {key, normalize_snapshot(snapshot)})
-      end)
+    else
+      {:error, :repo_unavailable, report_repo_unavailable(state)}
     end
   rescue
     error ->
       Logger.warning("Failed to load rule snapshots: #{inspect(error)}")
+      {:error, {:snapshot_restore_failed, error}, state}
+  end
+
+  defp read_state_snapshots(%{snapshots_reader: reader}) when is_function(reader, 0),
+    do: reader.()
+
+  defp read_state_snapshots(state) do
+    StatefulAlertRuleState
+    |> Ash.Query.for_read(:read, %{})
+    |> Ash.read(state.ash_opts)
+    |> case do
+      {:ok, %Keyset{results: results}} -> {:ok, results}
+      {:ok, results} when is_list(results) -> {:ok, results}
+      {:error, _} = error -> error
+    end
   end
 
   defp repo_available? do

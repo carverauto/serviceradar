@@ -69,7 +69,7 @@ For the full hosted onboarding path (SSO, collectors, RBAC, and day-2 ops), see 
 After install, confirm the CLI exists:
 
 ```bash
-/usr/local/bin/serviceradar-cli --help
+/usr/local/bin/srctl --help
 ```
 
 ## 2. Create An Agent Package (UI)
@@ -84,7 +84,7 @@ In the web UI:
 The enroll command looks like:
 
 ```bash
-sudo /usr/local/bin/serviceradar-cli enroll --core-url https://<SERVICERADAR_HOST> --token edgepkg-v3:<token>
+sudo /usr/local/bin/srctl enroll --core-url https://<SERVICERADAR_HOST> --token edgepkg-v3:<token>
 ```
 
 ## 3. Enroll The Host
@@ -92,7 +92,7 @@ sudo /usr/local/bin/serviceradar-cli enroll --core-url https://<SERVICERADAR_HOS
 On the host where you installed the agent, paste the enroll command from the UI:
 
 ```bash
-sudo /usr/local/bin/serviceradar-cli enroll --core-url https://<SERVICERADAR_HOST> --token edgepkg-v3:<token>
+sudo /usr/local/bin/srctl enroll --core-url https://<SERVICERADAR_HOST> --token edgepkg-v3:<token>
 ```
 
 Notes:
@@ -101,7 +101,7 @@ Notes:
 - Enrollment **automates agent identity and mTLS** — you do not generate or
   distribute certificates by hand for standard Cloud or chart-managed installs.
 - Bundle/package download tokens are accepted only in explicit request headers or POST bodies, never in URL query strings.
-- Enrollment requires verified HTTPS. `serviceradar-cli enroll` no longer supports an insecure TLS bypass.
+- Enrollment requires verified HTTPS. `srctl enroll` no longer supports an insecure TLS bypass.
 - Newly issued agent enrollment tokens use the signed `edgepkg-v3` format.
   Signed `edgepkg-v2` tokens remain accepted for upgrade compatibility.
 - The signed token embeds the deployment's public API origin. When

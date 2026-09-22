@@ -31,7 +31,6 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	coreaddon "github.com/carverauto/serviceradar/go/pkg/addon"
@@ -1605,7 +1604,7 @@ func (p *PushLoop) handleAgentUpdateRelease(ctx context.Context, cmd *proto.Comm
 
 	go func() {
 		time.Sleep(250 * time.Millisecond)
-		_ = syscall.Kill(os.Getpid(), syscall.SIGTERM)
+		requestSelfTermination()
 	}()
 }
 

@@ -66,6 +66,10 @@ defmodule ServiceRadar.Application do
         # Database (can be disabled for standalone tests)
         repo_child(),
         control_repo_child(),
+        starrocks_schema_migrator_child(),
+        starrocks_mysql_child(),
+        starrocks_rollup_freshness_cache_child(),
+        starrocks_retention_child(),
 
         # Supervise asynchronous config dependency notifications so shutdown and
         # database ownership boundaries can drain them deterministically.
@@ -215,6 +219,26 @@ defmodule ServiceRadar.Application do
     end
   end
 
+  # Serialised across replicas with a PostgreSQL advisory lock, so it only
+  # starts where the repo does.
+  defp starrocks_schema_migrator_child do
+    if repo_enabled?() do
+      ServiceRadar.Analytics.StarRocks.SchemaMigrator.child_spec([])
+    end
+  end
+
+  defp starrocks_mysql_child do
+    ServiceRadar.Analytics.StarRocks.MySQL.child_spec([])
+  end
+
+  defp starrocks_rollup_freshness_cache_child do
+    ServiceRadar.Analytics.StarRocks.RollupFreshnessCache.child_spec([])
+  end
+
+  defp starrocks_retention_child do
+    ServiceRadar.Analytics.StarRocks.Retention.child_spec([])
+  end
+
   defp as_lookup_child do
     # Start AS lookup cache when repo is available (always enabled)
     if Application.get_env(:serviceradar_core, :repo_enabled, true) do
@@ -224,8 +248,11 @@ defmodule ServiceRadar.Application do
 
   defp finch_child do
     if Application.get_env(:serviceradar_core, :http_client_enabled, true) do
-      # CAStore + optional SERVICERADAR_EGRESS_PROXY CONNECT hop. Release
-      # images are intentionally minimal and may not include OS CA bundles.
+      # CAStore, and no SERVICERADAR_EGRESS_PROXY hop: the pool connects
+      # directly, and hosts outside the deployment go through
+      # ServiceRadar.HTTP.EgressClient (ServiceRadar.HTTP.EgressProxy says why).
+      # Release images are intentionally minimal and may not include OS CA
+      # bundles.
       #
       # Call sites opt in with `finch: [name: ServiceRadar.Finch]` (see
       # ServiceRadar.HTTP.EgressProxy.req_opts/1). Do not set

@@ -42,7 +42,12 @@ SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallFilter=~@privileged @resources
 StateDirectory=serviceradar/bumblebee serviceradar/bumblebee/cache serviceradar/bumblebee/catalog serviceradar/bumblebee/profile serviceradar/bumblebee/spool serviceradar/bumblebee/spool/runs serviceradar/bumblebee/tmp
-StateDirectoryMode=0750
+# 0770, not 0750: the agent runs as the serviceradar user (the only member of
+# that group) and writes profile/runtime.json, catalog/current and the tmp
+# handoff files into these directories. systemd re-applies this mode on every
+# start, so a group-unwritable mode leaves every config or catalog update
+# deferred forever with "permission denied" (#437).
+StateDirectoryMode=0770
 # The staged binary path must be writable so ExecStartPre=+ chcon can set
 # bin_t under ProtectSystem=strict. Without it, chcon fails silently (|| true)
 # and systemd still hits 203/EXEC on Enforcing hosts.

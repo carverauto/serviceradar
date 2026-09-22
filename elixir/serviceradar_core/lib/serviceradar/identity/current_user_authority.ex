@@ -12,13 +12,16 @@ defmodule ServiceRadar.Identity.CurrentUserAuthority do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.Identity.RBAC.Catalog
-  alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadar.Identity.User
 
   @store_actor SystemActor.system(:current_user_authority_store)
   @denied {:error, :current_authority_denied}
 
-  @type authority :: %{user: User.t() | map(), permissions: MapSet.t(String.t())}
+  @type authority :: %{
+          user: User.t() | map(),
+          permissions: MapSet.t(String.t()),
+          profile_versions: [%{id: String.t(), updated_at: DateTime.t()}]
+        }
 
   @doc """
   Reloads the initiating human and requires every requested permission.
@@ -37,9 +40,9 @@ defmodule ServiceRadar.Identity.CurrentUserAuthority do
          {:ok, actor_id} <- initiating_actor_id(scope_or_actor),
          {:ok, current_user} <- load_current_user(dependencies, actor_id),
          :ok <- validate_current_user(current_user, actor_id),
-         {:ok, current_permissions} <- load_current_permissions(dependencies, current_user),
-         true <- Enum.all?(permissions_required, &Catalog.holds?(current_permissions, &1)) do
-      {:ok, %{user: current_user, permissions: current_permissions}}
+         {:ok, authority} <- load_authority(dependencies, current_user),
+         true <- Enum.all?(permissions_required, &Catalog.holds?(authority.permissions, &1)) do
+      {:ok, Map.put(authority, :user, current_user)}
     else
       _ -> @denied
     end
@@ -57,7 +60,7 @@ defmodule ServiceRadar.Identity.CurrentUserAuthority do
     Map.merge(
       %{
         load_user: &default_load_user/1,
-        load_permissions: &default_load_permissions/1
+        load_authority: &default_load_authority/1
       },
       overrides
     )
@@ -112,25 +115,21 @@ defmodule ServiceRadar.Identity.CurrentUserAuthority do
     end
   end
 
-  defp load_current_permissions(dependencies, current_user) do
-    case dependencies.load_permissions.(current_user) do
-      {:ok, %MapSet{} = permissions} -> {:ok, permissions}
-      {:ok, permissions} when is_list(permissions) -> {:ok, MapSet.new(permissions)}
-      _ -> @denied
-    end
-  end
-
-  defp default_load_user(actor_id), do: User.get_by_id(actor_id, actor: @store_actor)
-
-  defp default_load_permissions(current_user) do
-    case RBAC.effective_profile(current_user, @store_actor) do
-      {:ok, %RoleProfile{permissions: permissions}} when is_list(permissions) ->
-        {:ok, MapSet.new(permissions)}
+  defp load_authority(dependencies, current_user) do
+    case dependencies.load_authority.(current_user) do
+      {:ok, %{permissions: %MapSet{} = permissions, profile_versions: profile_versions}}
+      when is_list(profile_versions) ->
+        {:ok, %{permissions: permissions, profile_versions: profile_versions}}
 
       _ ->
         @denied
     end
   end
+
+  defp default_load_user(actor_id), do: User.get_by_id(actor_id, actor: @store_actor)
+
+  defp default_load_authority(current_user),
+    do: RBAC.effective_authority(current_user, @store_actor)
 
   defp canonical_id(nil), do: nil
 

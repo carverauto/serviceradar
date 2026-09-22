@@ -850,9 +850,19 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             <label class="flex items-center justify-between gap-2">
               <span class="text-sm font-medium text-sr-ink">Selector Limit</span>
             </label>
+            <%!-- The form key MUST be @selector_limit_key ("limit"), not
+                  :selector_limit. Both directions of this field go through that
+                  one key: profile_to_form_params/1 writes the persisted value
+                  under "limit", and save_profile/validate_profile read it back
+                  with Map.get(params, @selector_limit_key). A mismatched atom
+                  renders blank and silently discards the operator's input,
+                  because parse_int/3 then falls through to its 100 default --
+                  so the selector limit can never be changed from the UI. Same
+                  rule as :srql_query above. --%>
             <.input
               type="number"
-              field={@form[:selector_limit]}
+              id="mtr-profile-selector-limit"
+              field={@form[:limit]}
               class={ui_field_class(class: "w-full")}
               min="1"
             />

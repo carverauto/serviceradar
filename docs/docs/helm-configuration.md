@@ -21,7 +21,7 @@ Install/upgrade
 - Namespace: create once: `kubectl create ns serviceradar` (or change `namespace` in chart values).
 - Deploy from the official OCI chart (recommended):
   - `helm upgrade --install serviceradar oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version <chart-version> -n serviceradar --create-namespace -f my-values.yaml`
-- Deploy from a repo checkout (development):
+- Test unreleased chart changes from a source checkout (chart development only; operators use the OCI chart above):
   - `helm upgrade --install serviceradar ./helm/serviceradar -n serviceradar -f my-values.yaml`
 - Quick overrides without a file: add `--set` flags (examples below).
 - MCP (`/mcp`) is off by default. Enable with `--set webNg.mcpEnabled="true"`
@@ -32,21 +32,27 @@ Install/upgrade
 OCI chart quick start
 - Inspect chart metadata and defaults:
   - `helm show chart oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version <chart-version>`
-  - `helm show values oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version <chart-version> > values.yaml`
+  - `helm show values oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version <chart-version> > default-values.yaml` (reference only; put just the keys you change in `my-values.yaml`)
 - Image tags follow the chart by default:
   - If you leave `global.imageTag` empty (the default), every first-party
-    ServiceRadar image uses the chart's `appVersion`. The chart and the
-    application it deploys are released together, so this is normally what you
-    want and needs no configuration.
+    ServiceRadar image except `serviceradar-cnpg` (pinned by digest) uses the
+    chart's `appVersion`, pulled as
+    `registry.carverauto.dev/serviceradar/serviceradar-<component>:v<chart-version>`.
+    The chart and the application it deploys are released together, so
+    `--version <chart-version>` alone selects matching images and needs no
+    further configuration.
+- Treat `global.imageTag` as an override, not a release selector:
+  - If you set it, it must be `v<chart-version>` for the same `--version` you
+    install. Any other tag drifts from the `core.migrations.expectedVersion`
+    and templates that chart version ships. To change releases, change
+    `--version`.
 - Pin images explicitly (immutable rollouts):
-  - `--set global.imageTag="sha-<gitsha>"`, or pin per-service digests with
+  - Pin per-service digests of those `v<chart-version>` images with
     `image.digests.*`.
-- Track mutable images (staging/dev):
-  - `--set global.imageTag="latest" --set global.imagePullPolicy="Always"`
 
 HA profile overlay
 - `values.yaml` stays conservative by default. Most stateful or queue-backed services start at `1` replica unless you opt into a larger topology.
-- `helm/serviceradar/values-ha.yaml` ships as a purpose-named HA overlay. Apply it with `-f values-ha.yaml` as the starting point for a multi-replica deployment. (`values-demo.yaml` is a broader demo overlay that also raises replica counts.)
+- `values-ha.yaml` ships inside the published chart as a purpose-named HA overlay. Extract it from the chart version you install with `helm pull oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version <chart-version> --untar --untardir serviceradar-<chart-version>`, then apply it with `-f serviceradar-<chart-version>/serviceradar/values-ha.yaml`, before your own `-f my-values.yaml`, as the starting point for a multi-replica deployment.
 - The HA overlay runs these at `3` replicas:
   - `core`
   - `webNg`
@@ -98,6 +104,23 @@ Key values: workload identity (`spire`)
 - Set `spire.enabled=true` to provision SPIFFE/SPIRE workload identities, and
   set `spire.trustDomain` to your environment's trust domain.
 
+Key values: topology graph (`dgraph`, `graph`)
+- `dgraph.enabled` defaults to `true`. The chart installs Dgraph (Zero + Alpha)
+  as a subchart, generates its ACL credential, issues its TLS certificates, and
+  applies the topology schema through a post-install Job.
+- **cert-manager is required for that default.** The Dgraph `Issuer` and
+  `Certificate` objects are plain cert-manager resources; without cert-manager
+  installed in the cluster the install fails on unknown kinds.
+- To reuse a Dgraph cluster you already run, set `dgraph.enabled=false` and
+  `dgraph.external.host`. Its ACL credential comes from a Secret that already
+  exists in the namespace (`dgraph.external.credentialsSecret`), never from a
+  chart value.
+- `graph.backend` and `graph.read` select where topology is written and read.
+  Reads stay on AGE until you cut over deliberately.
+- The store layout, the migrator Job, credential handling, and the
+  cutover/rollback procedure are in
+  [Network Topology](./network-topology.md).
+
 Key values: `sweep`
 
 The chart exposes the full sweep configuration tree (`sweep.networks`,
@@ -131,8 +154,8 @@ ServiceRadar publishes two independent paths during agent onboarding:
   `https://serviceradar.example.com`). A trailing root slash is canonicalized
   away. Only the standard HTTPS port 443 is supported.
 - This is the canonical origin embedded in edge onboarding tokens and generated
-  `serviceradar-cli enroll` commands. It also drives Phoenix external URL
-  generation. Never use an in-cluster Service name here.
+  [enrollment commands](./edge-agent-onboarding.md#3-enroll-the-host). It also
+  drives Phoenix external URL generation. Never use an in-cluster Service name here.
 - When `webNg.publicUrl` is empty, the chart falls back through `webNg.host`,
   `ingress.host`, and `gatewayApi.host`. Set `webNg.publicUrl` explicitly in
   production so changing the exposure implementation does not change issued
@@ -163,7 +186,7 @@ Choose one exposure pattern:
 
 1. **Dedicated agent-gateway LoadBalancer.** Give the Service a dedicated DNS
    name, expose `50052` and `50053`, and point `webNg.gatewayAddress` at it.
-   This is the pattern used by the bundled `values-demo.yaml` overlay.
+   This is the pattern the repository's demo overlay (`helm/serviceradar/values-demo.yaml`) uses.
 
    ```yaml
    webNg:
@@ -482,6 +505,28 @@ Operational notes:
 - Keep migrations and bootstrap direct to `cnpg-rw`; PgBouncer transaction
   pooling is not appropriate for DDL, extension setup, or migration locks.
 
+## Optional StarRocks Analytics
+
+`analytics.starrocks.*` enables an opt-in telemetry warehouse for flows, scalar
+metrics, logs and event history. It is off by default, and NetFlow collection
+does not depend on it (`flowCollector.enabled` is independent). Metric, log and
+event reads stay on CNPG until the dataset is named in
+`analytics.starrocks.cutoverDatasets`. **Flow reads are the exception: they are
+warehouse-only.** Until `flows` is listed there, the NetFlow dashboard and
+`in:flows` are refused with a warehouse-required error rather than answered from
+CNPG, which stays the flow write target only.
+
+web-ng and core read these settings once at boot, so the chart stamps a digest
+of `analytics.starrocks.*` on both pods: a `helm upgrade` that changes the
+cut-over or shadow datasets rolls them without a manual restart. Removing
+`metrics`, `logs` or `events` from the list falls back to CNPG; removing `flows`
+does not, it refuses flow reads again.
+
+The chart does not create the warehouse schema. Cluster install, the DDL under
+`elixir/serviceradar_core/priv/starrocks/`, the CNPG JDBC catalog and its reader
+role are documented in `k8s/starrocks/README.md`. Per-key defaults, including
+retention, are commented in the chart's `values.yaml`.
+
 ## Deployment Provisioning
 
 ServiceRadar does not provision per-customer workloads from inside the Helm chart.
@@ -489,11 +534,17 @@ Each deployment is self-contained. In managed environments, a separate control
 plane provisions namespaces, CNPG accounts, and NATS accounts, then installs the
 chart for that deployment.
 
+After the application is ready, use the supported
+[provisioning API](./ansible-provisioning-api.md) or
+[Terraform provider](./terraform-provider.md) for its bounded application resources.
+Follow [Declarative environments](./declarative-environments.md) for the ordered
+installation, identity bootstrap, configuration, and recovery workflow.
+
 ## Mapper Discovery Settings
 
 Mapper discovery is embedded in `serviceradar-agent` and configured via Settings → Networks → Discovery. Discovery jobs, seeds, and credentials are stored in CNPG and delivered to agents through the GetConfig pipeline.
 
-If you need to bootstrap discovery configuration in an automated fashion, use the admin API or seed the CNPG data directly, then trigger an agent config refresh.
+Configure discovery through Settings or its supported admin API, then trigger an agent config refresh. Do not seed CNPG directly. The current Terraform provider does not manage mapper discovery resources.
 
 ## Device Enrichment Rule Overrides
 
@@ -524,7 +575,8 @@ kubectl create configmap serviceradar-device-enrichment-rules \
 Apply/verify:
 
 ```bash
-helm upgrade --install serviceradar ./helm/serviceradar -n serviceradar -f my-values.yaml
+helm upgrade --install serviceradar oci://registry.carverauto.dev/serviceradar/charts/serviceradar \
+  --version <chart-version> -n serviceradar -f my-values.yaml
 kubectl logs deploy/serviceradar-core -n serviceradar | rg "Device enrichment rules loaded"
 ```
 

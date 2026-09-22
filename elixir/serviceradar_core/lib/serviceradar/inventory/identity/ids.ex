@@ -13,6 +13,7 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
 
   alias ServiceRadar.Inventory.Identity.HardwareSerial
   alias ServiceRadar.Inventory.Identity.Mac
+  alias ServiceRadar.Inventory.IntegrationIdentity
 
   require Logger
 
@@ -25,18 +26,24 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
     :mac
   ]
 
+  # Every reader (`ids_get/2`, `ids_get_string/2`, `ids_get_partition/1`,
+  # `generate_deterministic_device_id/1`) is `Map.get`-based with a default,
+  # so callers routinely pass partial maps (e.g. `%{integration_id: id,
+  # partition: partition}` in remediation decisions). All keys are therefore
+  # optional in the type; `extract_strong_identifiers/1` still returns the
+  # full shape.
   @type strong_identifiers :: %{
-          agent_id: String.t() | nil,
-          armis_id: String.t() | nil,
-          integration_id: String.t() | nil,
-          netbox_id: String.t() | nil,
-          hardware_serial: String.t() | nil,
-          mac: String.t() | nil,
-          macs: [String.t()],
-          legacy_mac: String.t() | nil,
-          legacy_integration_ids: [String.t()],
-          ip: String.t() | nil,
-          partition: String.t()
+          optional(:agent_id) => String.t() | nil,
+          optional(:armis_id) => String.t() | nil,
+          optional(:integration_id) => String.t() | nil,
+          optional(:netbox_id) => String.t() | nil,
+          optional(:hardware_serial) => String.t() | nil,
+          optional(:mac) => String.t() | nil,
+          optional(:macs) => [String.t()],
+          optional(:legacy_mac) => String.t() | nil,
+          optional(:legacy_integration_ids) => [String.t()],
+          optional(:ip) => String.t() | nil,
+          optional(:partition) => String.t() | nil
         }
 
   @type device_update :: %{
@@ -59,7 +66,8 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
     partition = identifier_partition(update, metadata)
     raw_mac = update[:mac]
     macs = extract_mac_values(update, metadata)
-    integration_id = get_integration_id(metadata)
+    hardware_serial = HardwareSerial.from_update(update)
+    integration_id = get_integration_id(metadata, hardware_serial)
     legacy_integration_ids = get_legacy_integration_ids(metadata, integration_id)
 
     emit_rejected_mac_telemetry(raw_mac, macs, update)
@@ -71,7 +79,7 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
       armis_id: get_armis_id(metadata),
       integration_id: integration_id,
       netbox_id: get_trimmed(metadata, "netbox_device_id"),
-      hardware_serial: HardwareSerial.from_update(update),
+      hardware_serial: hardware_serial,
       mac: List.first(macs),
       macs: macs,
       legacy_mac: legacy_mac_blob(raw_mac),
@@ -197,23 +205,35 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
     end
   end
 
-  defp get_integration_id(metadata) when is_map(metadata) do
-    raw = get_trimmed(metadata, "integration_id")
-    integration_type = metadata["integration_type"] |> to_string() |> String.downcase()
+  defp get_integration_id(metadata, hardware_serial) when is_map(metadata) do
+    raw = ids_get(%{integration_id: get_trimmed(metadata, "integration_id")}, :integration_id)
+    candidate = source_scoped_integration_id(metadata, raw)
 
-    case integration_type do
-      "armis" ->
-        nil
-
-      "netbox" ->
-        raw
-
-      _ ->
-        source_scoped_integration_id(metadata, raw)
+    cond do
+      not is_binary(candidate) -> nil
+      Regex.match?(~r/\A[0-9]+\z/, candidate) -> nil
+      self_scoped_value?(metadata, candidate) -> candidate
+      typed_identifier_present?(metadata, hardware_serial) -> nil
+      true -> candidate
     end
   end
 
-  defp get_integration_id(_metadata), do: nil
+  defp get_integration_id(_metadata, _hardware_serial), do: nil
+
+  # A bare integration_id coexisting with a typed provider identifier is the
+  # legacy compatibility echo of that identifier, not a second device
+  # identity: the typed identifier wins outright. Without a typed identifier
+  # the value stands on its own under legacy raw admission.
+  defp typed_identifier_present?(metadata, hardware_serial) do
+    hardware_serial != nil or
+      get_trimmed(metadata, "armis_device_id") != nil or
+      get_trimmed(metadata, "netbox_device_id") != nil
+  end
+
+  defp self_scoped_value?(metadata, value) do
+    integration_type = get_trimmed(metadata, "integration_type") || "integration"
+    self_scoped?(value, integration_type)
+  end
 
   defp source_scoped_integration_id(_metadata, nil), do: nil
 
@@ -222,6 +242,11 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
     source_id = get_trimmed(metadata, "sync_service_id")
 
     cond do
+      # These drivers own their persisted identity format. Synthesizing another
+      # scope here would split driver-minted identities from existing rows.
+      String.downcase(integration_type) in ["armis", "netbox"] ->
+        raw
+
       source_id in [nil, ""] ->
         raw
 
@@ -394,6 +419,11 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
     "sr:" <> uuid
   end
 
+  def ids_get(ids, :integration_id) when is_map(ids) do
+    value = Map.get(ids, :integration_id)
+    if IntegrationIdentity.ambiguous_name_keyed?(value), do: nil, else: value
+  end
+
   def ids_get(ids, key) when is_map(ids), do: Map.get(ids, key)
   def ids_get(_ids, _key), do: nil
 
@@ -419,10 +449,13 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
   def get_identifier_values(:integration_id, ids) do
     primary = List.wrap(ids_get(ids, :integration_id))
 
-    case ids_get(ids, :legacy_integration_ids) do
-      list when is_list(list) -> Enum.uniq(primary ++ list)
-      _ -> primary
-    end
+    values =
+      case ids_get(ids, :legacy_integration_ids) do
+        list when is_list(list) -> Enum.uniq(primary ++ list)
+        _ -> primary
+      end
+
+    Enum.reject(values, &IntegrationIdentity.ambiguous_name_keyed?/1)
   end
 
   def get_identifier_values(id_type, ids) do

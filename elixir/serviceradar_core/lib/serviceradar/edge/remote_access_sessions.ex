@@ -12,6 +12,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
   alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Edge.RemoteAccessApplicationTarget
+  alias ServiceRadar.Edge.RemoteAccessDialTarget
   alias ServiceRadar.Edge.RemoteAccessRequests
   alias ServiceRadar.Edge.RemoteAccessSession
   alias ServiceRadar.Edge.RemoteAccessTargetPolicy
@@ -911,17 +912,36 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
   end
 
   defp resolve_agent_id(device, request) do
-    case blank_to_nil(value(request, :agent_id) || value_string(device, [:agent_id, "agent_id"])) do
+    case blank_to_nil(
+           value(request, :agent_id) || value_string(device, [:agent_id, "agent_id"]) ||
+             device_metadata_agent_id(device)
+         ) do
       nil -> {:error, :missing_agent_scope}
       agent_id -> {:ok, agent_id}
     end
   end
 
+  # Devices inventoried by sync (SNMP/mapper) carry no owning agent_id
+  # column; route via the sync service that discovered them — the same
+  # scope the Proxmox console path uses. Request-supplied agent ids are
+  # rejected upstream, so this only selects the default route.
+  defp device_metadata_agent_id(%{metadata: metadata}) when is_map(metadata) do
+    value_string(metadata, [
+      :sync_service_id,
+      "sync_service_id",
+      :agent_id,
+      "agent_id",
+      :source_agent_id,
+      "source_agent_id",
+      :discovered_by_agent_id,
+      "discovered_by_agent_id"
+    ])
+  end
+
+  defp device_metadata_agent_id(_device), do: nil
+
   defp resolve_target_host(device, request) do
-    case blank_to_nil(value(request, :target_host) || device_hostname(device)) do
-      nil -> {:error, :missing_remote_access_target}
-      target_host -> {:ok, target_host}
-    end
+    RemoteAccessDialTarget.resolve(device, blank_to_nil(value(request, :target_host)))
   end
 
   defp authorize_approval(request, protocol, custody_mode, opts) do
@@ -1003,12 +1023,6 @@ defmodule ServiceRadar.Edge.RemoteAccessSessions do
       true ->
         {:error, :approval_denied}
     end
-  end
-
-  defp device_hostname(device) do
-    value_string(device, [:hostname, "hostname", :name, "name"]) ||
-      value_string(device, [:ip, "ip"]) ||
-      value_string(device, [:uid, "uid"])
   end
 
   defp session_metadata(device, request, protocol, custody_mode) do

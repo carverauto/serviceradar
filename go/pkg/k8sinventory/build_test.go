@@ -5,32 +5,32 @@ import (
 	"time"
 )
 
-// Fixture values reused across the Forgejo VIP cases below.
+// Fixture values reused across the Gitsrv VIP cases below.
 const (
-	testEnvoyPodIP    = "10.42.221.140"
-	testForgejoSSHSvc = "forgejo-ssh"
+	testEnvoyPodIP   = "192.0.2.40"
+	testGitsrvSSHSvc = "gitsrv-ssh"
 )
 
-func TestBuildSnapshot_ForgejoVIPOwnershipAndDNATHint(t *testing.T) {
+func TestBuildSnapshot_VIPOwnershipAndDNATHint(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 8, 5, 16, 0, 0, 0, time.UTC)
 	ready := true
 
-	// Mirrors live demo: MetalLB VIP 23.138.124.7 → Envoy Service ports 443/22
-	// with targetPorts 10443/10022 and EndpointSlice to envoy pod.
+	// A MetalLB VIP fronting an Envoy Service on 443/22, targetPorts
+	// 10443/10022, with an EndpointSlice pointing at the envoy pod.
 	in := BuildInput{
 		ClusterID: "demo",
 		Now:       now,
 		Services: []ServiceView{
 			{
 				Namespace:             "envoy-gateway-system",
-				Name:                  "envoy-forgejo-forgejo-gateway-6a27ab25",
+				Name:                  "envoy-gitsrv-gitsrv-gateway-1a2b3c4d",
 				UID:                   "svc-uid-1",
 				Type:                  "LoadBalancer",
 				ExternalTrafficPolicy: "Local",
 				Annotations: map[string]string{
-					"metallb.io/loadBalancerIPs":                "23.138.124.7",
+					"metallb.io/loadBalancerIPs":                "198.51.100.10",
 					"metallb.universe.tf/address-pool":          "k3s-pool",
 					"metallb.io/ip-allocated-from-pool":         "k3s-pool",
 					"external-dns.alpha.kubernetes.io/hostname": "",
@@ -40,13 +40,13 @@ func TestBuildSnapshot_ForgejoVIPOwnershipAndDNATHint(t *testing.T) {
 					{Name: "tcp-22", Port: 22, Protocol: "TCP", TargetPort: 10022},
 				},
 				Ingress: []LoadBalancerIngressView{
-					{IP: "23.138.124.7", IPMode: "VIP"},
+					{IP: "198.51.100.10", IPMode: "VIP"},
 				},
 			},
-			// Backend ClusterIP service for forgejo-ssh (no public exposure itself).
+			// Backend ClusterIP service for gitsrv-ssh (no public exposure itself).
 			{
-				Namespace: "forgejo",
-				Name:      testForgejoSSHSvc,
+				Namespace: "gitsrv",
+				Name:      testGitsrvSSHSvc,
 				UID:       "svc-uid-ssh",
 				Type:      "ClusterIP",
 				Ports: []ServicePortView{
@@ -57,15 +57,15 @@ func TestBuildSnapshot_ForgejoVIPOwnershipAndDNATHint(t *testing.T) {
 		EndpointSlices: []EndpointSliceView{
 			{
 				Namespace: "envoy-gateway-system",
-				Name:      "envoy-forgejo-forgejo-gateway-6a27ab25-abc",
-				Labels:    map[string]string{"kubernetes.io/service-name": "envoy-forgejo-forgejo-gateway-6a27ab25"},
+				Name:      "envoy-gitsrv-gitsrv-gateway-1a2b3c4d-abc",
+				Labels:    map[string]string{"kubernetes.io/service-name": "envoy-gitsrv-gitsrv-gateway-1a2b3c4d"},
 				Endpoints: []SliceEndpointView{
 					{
 						Addresses:    []string{testEnvoyPodIP},
 						Ready:        &ready,
-						NodeName:     "k8s-cp3-worker3",
+						NodeName:     "node-worker-3.example.com",
 						PodNamespace: "envoy-gateway-system",
-						PodName:      "envoy-forgejo-forgejo-gateway-6a27ab25-7fdd957dcd-6phgs",
+						PodName:      "envoy-gitsrv-gitsrv-gateway-1a2b3c4d-6d4c8b9f77-k2xqp",
 					},
 				},
 				Ports: []SlicePortView{
@@ -74,16 +74,16 @@ func TestBuildSnapshot_ForgejoVIPOwnershipAndDNATHint(t *testing.T) {
 				},
 			},
 			{
-				Namespace: "forgejo",
-				Name:      "forgejo-ssh-xyz",
-				Labels:    map[string]string{"kubernetes.io/service-name": testForgejoSSHSvc},
+				Namespace: "gitsrv",
+				Name:      "gitsrv-ssh-xyz",
+				Labels:    map[string]string{"kubernetes.io/service-name": testGitsrvSSHSvc},
 				Endpoints: []SliceEndpointView{
 					{
-						Addresses:    []string{"10.42.68.186"},
+						Addresses:    []string{"192.0.2.41"},
 						Ready:        &ready,
-						NodeName:     "k8s-cp3-worker1",
-						PodNamespace: "forgejo",
-						PodName:      "forgejo-5d58f77f85-9vpzn",
+						NodeName:     "node-worker-1.example.com",
+						PodNamespace: "gitsrv",
+						PodName:      "gitsrv-7b9c5d4f86-r4mts",
 					},
 				},
 				Ports: []SlicePortView{
@@ -93,32 +93,32 @@ func TestBuildSnapshot_ForgejoVIPOwnershipAndDNATHint(t *testing.T) {
 		},
 		Gateways: []GatewayView{
 			{
-				Namespace:    "forgejo",
-				Name:         "forgejo-gateway",
+				Namespace:    "gitsrv",
+				Name:         "gitsrv-gateway",
 				UID:          "gw-uid",
-				GatewayClass: "forgejo-envoy",
+				GatewayClass: "gitsrv-envoy",
 				Listeners: []GatewayListenerView{
 					{Name: "https-web", Port: 443, Protocol: "HTTPS", Hostname: "code.carverauto.dev"},
 					{Name: "ssh", Port: 22, Protocol: "TCP"},
 				},
 				Addresses: []GatewayAddressView{
-					{Type: "IPAddress", Value: "23.138.124.7"},
+					{Type: "IPAddress", Value: "198.51.100.10"},
 				},
 				Annotations: map[string]string{
-					"metallb.io/loadBalancerIPs": "23.138.124.7",
+					"metallb.io/loadBalancerIPs": "198.51.100.10",
 				},
 			},
 		},
 		Routes: []RouteView{
 			{
-				Namespace: "forgejo",
-				Name:      testForgejoSSHSvc,
+				Namespace: "gitsrv",
+				Name:      testGitsrvSSHSvc,
 				Kind:      "TCPRoute",
 				ParentRefs: []ParentRefView{
-					{Name: "forgejo-gateway", Namespace: "forgejo", SectionName: "ssh"},
+					{Name: "gitsrv-gateway", Namespace: "gitsrv", SectionName: "ssh"},
 				},
 				Backends: []BackendRef{
-					{Kind: "Service", Name: testForgejoSSHSvc, Namespace: "forgejo", Port: 22},
+					{Kind: "Service", Name: testGitsrvSSHSvc, Namespace: "gitsrv", Port: 22},
 				},
 			},
 		},
@@ -134,14 +134,14 @@ func TestBuildSnapshot_ForgejoVIPOwnershipAndDNATHint(t *testing.T) {
 	}
 
 	// Service-level ownership for VIP:22
-	svcHits := FindByPublicAddr(snap.Endpoints, "23.138.124.7", "", 22)
+	svcHits := FindByPublicAddr(snap.Endpoints, "198.51.100.10", "", 22)
 	if len(svcHits) == 0 {
-		t.Fatalf("no endpoints for 23.138.124.7:22; all=%v", summarizeEndpoints(snap.Endpoints))
+		t.Fatalf("no endpoints for 198.51.100.10:22; all=%v", summarizeEndpoints(snap.Endpoints))
 	}
 
 	var foundService, foundGatewayRoute bool
 	for _, ep := range svcHits {
-		if ep.ExposureClass == ExposureLoadBalancer && ep.ServiceName == "envoy-forgejo-forgejo-gateway-6a27ab25" {
+		if ep.ExposureClass == ExposureLoadBalancer && ep.ServiceName == "envoy-gitsrv-gitsrv-gateway-1a2b3c4d" {
 			foundService = true
 			if ep.ServiceTargetPort != 10022 {
 				t.Errorf("service target port: want 10022 got %d", ep.ServiceTargetPort)
@@ -156,21 +156,21 @@ func TestBuildSnapshot_ForgejoVIPOwnershipAndDNATHint(t *testing.T) {
 			if t0.IP != testEnvoyPodIP || t0.Port != 10022 {
 				t.Errorf("envoy target: got %s:%d", t0.IP, t0.Port)
 			}
-			if t0.PodName == "" || t0.NodeName != "k8s-cp3-worker3" {
+			if t0.PodName == "" || t0.NodeName != "node-worker-3.example.com" {
 				t.Errorf("pod/node: got pod=%q node=%q", t0.PodName, t0.NodeName)
 			}
 		}
-		if ep.ExposureClass == ExposureGateway && ep.RouteKind == "TCPRoute" && ep.RouteName == testForgejoSSHSvc {
+		if ep.ExposureClass == ExposureGateway && ep.RouteKind == "TCPRoute" && ep.RouteName == testGitsrvSSHSvc {
 			foundGatewayRoute = true
 			if ep.ListenerName != "ssh" {
 				t.Errorf("listener: got %q", ep.ListenerName)
 			}
-			if len(ep.BackendRefs) != 1 || ep.BackendRefs[0].Name != testForgejoSSHSvc {
+			if len(ep.BackendRefs) != 1 || ep.BackendRefs[0].Name != testGitsrvSSHSvc {
 				t.Errorf("backend refs: %+v", ep.BackendRefs)
 			}
-			// Gateway path should associate forgejo-ssh EndpointSlice backends.
+			// Gateway path should associate gitsrv-ssh EndpointSlice backends.
 			if len(ep.EndpointTargets) == 0 {
-				t.Errorf("expected gateway route endpoint targets for forgejo-ssh")
+				t.Errorf("expected gateway route endpoint targets for gitsrv-ssh")
 			}
 		}
 	}
@@ -182,9 +182,9 @@ func TestBuildSnapshot_ForgejoVIPOwnershipAndDNATHint(t *testing.T) {
 	}
 
 	// Correlation: public NetFlow dst VIP:22 → backend podIP:10022
-	hints := FindHints(snap.Hints, "23.138.124.7", 22)
+	hints := FindHints(snap.Hints, "198.51.100.10", 22)
 	if len(hints) == 0 {
-		t.Fatal("expected correlation hints for 23.138.124.7:22")
+		t.Fatal("expected correlation hints for 198.51.100.10:22")
 	}
 	var sawEnvoyDNAT bool
 	for _, h := range hints {
@@ -196,7 +196,7 @@ func TestBuildSnapshot_ForgejoVIPOwnershipAndDNATHint(t *testing.T) {
 		}
 	}
 	if !sawEnvoyDNAT {
-		t.Errorf("expected DNAT hint VIP:22 → 10.42.221.140:10022; hints=%+v", hints)
+		t.Errorf("expected DNAT hint VIP:22 → 192.0.2.40:10022; hints=%+v", hints)
 	}
 }
 

@@ -132,8 +132,13 @@ type Client struct {
 	droppedProcessSnapshots  atomic.Uint64
 	droppedUnknownFrames     atomic.Uint64
 	unknownArmsSeen          sync.Map
-	logger                   zerolog.Logger
-	eventDropRecorder        EventDropRecorder
+
+	// Capture sessions are kept apart from the event channels above because
+	// they are the one stream that must not drop: see capture_session.go.
+	captureMu         sync.Mutex
+	captureSessions   map[string]*captureSink
+	logger            zerolog.Logger
+	eventDropRecorder EventDropRecorder
 }
 
 // Dial connects to a netprobe Unix-domain socket and starts the read loop.
@@ -603,6 +608,16 @@ func (c *Client) readLoop() {
 					c.recordEventDrop(EventStreamProcessSnap, EventDropBackpressure)
 				}
 			}
+			if block := frame.GetPcapngBlock(); block != nil {
+				// Deliberately NOT the `select`/`default: drop` shape used
+				// above. Every other arm here is lossy on purpose -- a missed
+				// fingerprint is a missed observation. A missed pcapng block is
+				// undetectable corruption, so this one applies backpressure and
+				// ends the session rather than dropping. A block for a session
+				// this agent does not know about is left unhandled on purpose,
+				// so it is counted and logged instead of vanishing.
+				handled = c.routeCaptureBlock(block)
+			}
 
 			// Deliberate default branch. Without it an arm this build has no
 			// handler for is dropped here with no log, no metric and no
@@ -697,6 +712,12 @@ func (c *Client) closeWithError(err error) {
 		if c.conn != nil {
 			_ = c.conn.Close()
 		}
+
+		// Capture sessions die with the connection. Without this a capture
+		// whose netprobe went away hangs its reader until some outer context
+		// expires, and upstream keeps showing the session as active -- which
+		// for a surveillance capability is the wrong way to fail.
+		c.failAllCaptureSessions(err)
 
 		c.pendingMu.Lock()
 		for sequence, ch := range c.pending {

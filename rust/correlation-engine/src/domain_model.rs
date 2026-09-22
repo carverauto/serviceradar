@@ -15,7 +15,7 @@ pub type EntityId = String;
 pub const DEFAULT_OPERATOR_RULE_TTL_MS: i64 = 24 * 60 * 60 * 1_000;
 
 /// A topology edge kind projected from the AGE graph.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum EdgeKind {
     /// Physical link (`CONNECTS_TO`, undirected) — the graph causaloids
     /// (C5/C5b/C9) reason over this view.

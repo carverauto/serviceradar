@@ -25,9 +25,9 @@ EEF-CVE-2026-53424
 # - lib/serviceradar_web_ng_web/controllers/saml_controller.ex
 # - lib/serviceradar_web_ng_web/auth/saml_strategy.ex
 #
-# There is no newer Hex release than esaml 4.6.0 available to upgrade to at
-# this time, so we track the advisory here until upstream publishes a patched
-# package or the dependency is replaced.
+# There is no newer Hex release than esaml 4.6.0 available to upgrade to
+# (re-verified 2026-09-09 via hex.info), so we track the advisory here until
+# upstream publishes a patched package or the dependency is replaced.
 GHSA-4g2h-vm7x-747c
 
 # EEF-CVE-2026-53424 (CRITICAL) / EEF-CVE-2026-53425 (HIGH) / samly 1.4.0
@@ -56,15 +56,8 @@ EEF-CVE-2026-53425
 # accepts Decimal 3.x or the dependency is otherwise removed from this release.
 GHSA-rhv4-8758-jx7v
 
-# EEF-CVE-2026-43966 / cowlib HTTP response splitting,
-# EEF-CVE-2026-43969 / GHSA-g2wm-735q-3f56 / cowlib cookie encoder, and
-# EEF-CVE-2026-43971 / cowlib Link header directive smuggling have no patched
-# Hex release as of cowlib 2.19.0. That release fixed only the HPACK/QPACK
-# decoder DoS (EEF-CVE-2026-59248). 43966/43969 still list every release from
-# 2.9.0 as affected. 43971 (published 2026-08-18) is the same story: a git
-# fix exists at ninenines/cowlib@89da27ee but Hex has not published a package
-# that closes the range. Keep these waivers until cowlib publishes a patched
-# release or the dependency is replaced.
+# Cowlib waiver rationale and removal criteria:
+# ../serviceradar_core/.deps_audit_ignore (EEF-CVE-2026-43966 block).
 EEF-CVE-2026-43966
 EEF-CVE-2026-43969
 EEF-CVE-2026-43971

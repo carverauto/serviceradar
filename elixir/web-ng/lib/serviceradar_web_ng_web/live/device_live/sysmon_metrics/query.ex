@@ -30,6 +30,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Query do
 
   @default_bucket "5m"
 
+  @raw_retention_seconds 7 * 86_400
+  @rollup_bucket_seconds 3_600
+
   @unit_seconds %{
     "s" => 1,
     "m" => 60,
@@ -47,17 +50,87 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Query do
     * relative windows like `"last_1h"`, `"last_24h"`, `"last_7d"`
     * absolute ranges like `"[2026-06-26T06:30:00Z,2026-06-26T08:30:00Z]"`
 
-  Falls back to `"5m"` when the range cannot be interpreted.
+  A window that starts before raw retention gets a bucket of at least an hour;
+  see `beyond_raw_retention?/2`. Falls back to `"5m"` when the range cannot be
+  interpreted.
   """
-  @spec bucket_for_time_range(term()) :: String.t()
-  def bucket_for_time_range(time_range) do
+  @spec bucket_for_time_range(term(), DateTime.t()) :: String.t()
+  def bucket_for_time_range(time_range, now \\ DateTime.utc_now()) do
     case window_seconds(time_range) do
       seconds when is_integer(seconds) and seconds > 0 ->
-        pick_bucket(seconds / @bucket_target_points)
+        target = seconds / @bucket_target_points
+        pick_bucket(if beyond_raw_retention?(time_range, now), do: max(target, @rollup_bucket_seconds), else: target)
 
       _ ->
         @default_bucket
     end
+  end
+
+  @doc """
+  The start and finish of a relative or absolute window.
+
+  Relative windows end at `now`. A window that cannot be read returns `:error`.
+  """
+  @spec window_bounds(term(), DateTime.t()) :: {:ok, DateTime.t(), DateTime.t()} | :error
+  def window_bounds(range, now \\ DateTime.utc_now()) do
+    with %DateTime{} = start <- window_start(range, now),
+         %DateTime{} = finish <- window_finish(range, now),
+         :lt <- DateTime.compare(start, finish) do
+      {:ok, start, finish}
+    else
+      _ -> :error
+    end
+  end
+
+  @doc """
+  Whether a window starts before the raw metric table's retention.
+
+  Raw samples are kept for a week; older history lives in the hourly rollup.
+  SRQL reads the rollup only when the bucket is an hour or more AND the window
+  spans at least six hours. `bucket_for_time_range/2` floors the bucket at an
+  hour for such a window, which satisfies the first condition: a window of six
+  hours or more would otherwise pick a fine bucket, read the raw table, and draw
+  nothing for a period the rollup covers.
+
+  The floor does not help a window shorter than six hours. SRQL still serves
+  that one from the raw table, so it stays empty once it is older than raw
+  retention (issue #4514).
+  """
+  @spec beyond_raw_retention?(term(), DateTime.t()) :: boolean()
+  def beyond_raw_retention?(time_range, now \\ DateTime.utc_now()) do
+    case window_start(time_range, now) do
+      %DateTime{} = start -> DateTime.diff(now, start, :second) > @raw_retention_seconds
+      nil -> false
+    end
+  end
+
+  defp window_start("[" <> _ = range, _now) do
+    with {:ok, start_raw, _end_raw} <- absolute_parts(range),
+         {:ok, start, _} <- DateTime.from_iso8601(start_raw) do
+      start
+    else
+      _ -> nil
+    end
+  end
+
+  defp window_start(range, now) do
+    case window_seconds(range) do
+      seconds when is_integer(seconds) -> DateTime.add(now, -seconds, :second)
+      _ -> nil
+    end
+  end
+
+  defp window_finish("[" <> _ = range, _now) do
+    with {:ok, _start_raw, end_raw} <- absolute_parts(range),
+         {:ok, finish, _} <- DateTime.from_iso8601(end_raw) do
+      finish
+    else
+      _ -> nil
+    end
+  end
+
+  defp window_finish(range, now) do
+    if is_integer(window_seconds(range)), do: now
   end
 
   defp pick_bucket(target_seconds) do
@@ -96,12 +169,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics.Query do
     end
   end
 
-  defp absolute_window_seconds(bracketed) do
+  defp absolute_parts(bracketed) do
     inner = bracketed |> String.trim_leading("[") |> String.trim_trailing("]")
 
-    with [start_raw, end_raw] <- String.split(inner, ",", parts: 2),
-         {:ok, start_dt, _} <- DateTime.from_iso8601(String.trim(start_raw)),
-         {:ok, end_dt, _} <- DateTime.from_iso8601(String.trim(end_raw)) do
+    case String.split(inner, ",", parts: 2) do
+      [start_raw, end_raw] -> {:ok, String.trim(start_raw), String.trim(end_raw)}
+      _ -> :error
+    end
+  end
+
+  defp absolute_window_seconds(bracketed) do
+    with {:ok, start_raw, end_raw} <- absolute_parts(bracketed),
+         {:ok, start_dt, _} <- DateTime.from_iso8601(start_raw),
+         {:ok, end_dt, _} <- DateTime.from_iso8601(end_raw) do
       case DateTime.diff(end_dt, start_dt, :second) do
         seconds when seconds > 0 -> seconds
         _ -> nil

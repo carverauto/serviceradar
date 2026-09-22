@@ -48,6 +48,7 @@ var (
 	errResolverPathNotSet       = errors.New("resolver path not configured")
 	errAccountKeyJWTRequired    = errors.New("account public key and JWT are required")
 	errObjectTooLarge           = errors.New("object exceeds configured maximum size")
+	errObjectStoreFull          = errors.New("object store bucket is full")
 	errInvalidPageToken         = errors.New("invalid page token")
 )
 

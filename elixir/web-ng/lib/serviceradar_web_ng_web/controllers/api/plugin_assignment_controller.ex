@@ -10,7 +10,7 @@ defmodule ServiceRadarWebNGWeb.Api.PluginAssignmentController do
   alias ServiceRadarWebNG.Plugins
   alias ServiceRadarWebNG.RBAC
 
-  action_fallback ServiceRadarWebNGWeb.Api.FallbackController
+  action_fallback(ServiceRadarWebNGWeb.Api.FallbackController)
 
   def index(conn, params) do
     with :ok <- require_authenticated(conn),
@@ -18,6 +18,19 @@ defmodule ServiceRadarWebNGWeb.Api.PluginAssignmentController do
       scope = get_scope(conn)
       assignments = Plugins.list_assignments(params, scope: scope)
       json(conn, Enum.map(assignments, &assignment_to_json/1))
+    end
+  end
+
+  def show(conn, %{"id" => id}) do
+    with :ok <- require_authenticated(conn),
+         :ok <- require_permission(conn, "plugins.view") do
+      scope = get_scope(conn)
+
+      case Plugins.get_assignment(id, scope: scope) do
+        {:ok, assignment} -> json(conn, assignment_to_json(assignment))
+        {:error, :not_found} -> {:error, :not_found}
+        {:error, error} -> {:error, error}
+      end
     end
   end
 
@@ -55,6 +68,7 @@ defmodule ServiceRadarWebNGWeb.Api.PluginAssignmentController do
       scope = get_scope(conn)
 
       attrs = %{
+        plugin_package_id: params["plugin_package_id"],
         enabled: params["enabled"],
         interval_seconds: params["interval_seconds"],
         timeout_seconds: params["timeout_seconds"],
@@ -86,6 +100,7 @@ defmodule ServiceRadarWebNGWeb.Api.PluginAssignmentController do
     %{
       id: assignment.id,
       agent_uid: assignment.agent_uid,
+      plugin_id: assignment.plugin_id,
       plugin_package_id: assignment.plugin_package_id,
       enabled: assignment.enabled,
       interval_seconds: assignment.interval_seconds,

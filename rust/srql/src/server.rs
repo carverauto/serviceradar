@@ -308,6 +308,8 @@ mod tests {
             listen_addr: SocketAddr::from(([127, 0, 0, 1], 8480)),
             database_url: "postgres://unused/db".to_string(),
             age_graph_name: "platform_graph".to_string(),
+            starrocks_database: "serviceradar".to_string(),
+            dgraph_url: None,
             max_pool_size: 1,
             database_ca_pem: None,
             database_client_cert_pem: None,

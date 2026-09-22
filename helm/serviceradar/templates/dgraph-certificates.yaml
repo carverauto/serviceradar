@@ -1,0 +1,111 @@
+{{- $d := default (dict) .Values.dgraph -}}
+{{- if $d.enabled }}
+{{- $ns := .Release.Namespace -}}
+{{- $alpha := include "serviceradar.dgraph.alphaFullname" . -}}
+{{- $zero := include "serviceradar.dgraph.zeroFullname" . -}}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: dgraph-selfsigned
+  namespace: {{ $ns }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: dgraph
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: dgraph-ca
+  namespace: {{ $ns }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: dgraph
+spec:
+  isCA: true
+  commonName: dgraph-ca
+  secretName: dgraph-ca
+  duration: 87600h
+  renewBefore: 720h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: dgraph-selfsigned
+    kind: Issuer
+    group: cert-manager.io
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: dgraph-ca-issuer
+  namespace: {{ $ns }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: dgraph
+spec:
+  ca:
+    secretName: dgraph-ca
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: dgraph-alpha-tls
+  namespace: {{ $ns }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: dgraph
+spec:
+  secretName: {{ include "serviceradar.dgraph.alphaTLSSecretName" . }}
+  usages:
+    - digital signature
+    - key encipherment
+    - server auth
+    - client auth
+  commonName: {{ $alpha }}.{{ $ns }}.svc.cluster.local
+  dnsNames:
+    - {{ $alpha }}.{{ $ns }}.svc.cluster.local
+    - {{ $alpha }}-headless.{{ $ns }}.svc.cluster.local
+    - "*.{{ $alpha }}-headless.{{ $ns }}.svc.cluster.local"
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    encoding: PKCS8
+  issuerRef:
+    name: dgraph-ca-issuer
+    kind: Issuer
+    group: cert-manager.io
+{{- $zeroTLS := default (dict) (default (dict) $d.zero).tls -}}
+{{- if default false $zeroTLS.enabled }}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: dgraph-zero-tls
+  namespace: {{ $ns }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: dgraph
+spec:
+  secretName: {{ include "serviceradar.dgraph.zeroTLSSecretName" . }}
+  commonName: {{ $zero }}.{{ $ns }}.svc.cluster.local
+  dnsNames:
+    - {{ $zero }}.{{ $ns }}.svc.cluster.local
+    - {{ $zero }}-headless.{{ $ns }}.svc.cluster.local
+    - "*.{{ $zero }}-headless.{{ $ns }}.svc.cluster.local"
+  usages:
+    - digital signature
+    - key encipherment
+    - server auth
+    - client auth
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    encoding: PKCS8
+  issuerRef:
+    name: dgraph-ca-issuer
+    kind: Issuer
+    group: cert-manager.io
+{{- end }}
+{{- end }}

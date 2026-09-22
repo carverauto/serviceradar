@@ -50,6 +50,7 @@ test("help command documents the dashboard workflow + auth group", async () => {
   assert.match(stdout, /serviceradar-cli auth login/)
   assert.match(stdout, /serviceradar-cli auth status/)
   assert.match(stdout, /serviceradar-cli auth logout/)
+  assert.match(stdout, /notifications/)
 })
 
 test("validate accepts a clean dashboard config", async () => {

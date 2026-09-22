@@ -281,7 +281,10 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   end
 
   defp resolve_target(device, _request, system_opts) do
-    RemoteConsoleTargetResolver.resolve_proxmox(device, %{}, ash_opts: system_opts)
+    RemoteConsoleTargetResolver.resolve_proxmox(device, %{},
+      ash_opts: system_opts,
+      identity_scope: identity_scope_for_device(device, system_opts)
+    )
   end
 
   defp resolve_credential_rule(_device, target, _request, opts) do
@@ -549,7 +552,7 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
   defp resolve_active_assignment(rule, agent_id, opts) do
     result =
       case Keyword.get(opts, :assignment_resolver) do
-        resolver when is_atom(resolver) ->
+        resolver when is_atom(resolver) and not is_nil(resolver) ->
           resolver.resolve(rule, agent_id, opts)
 
         resolver when is_function(resolver, 3) ->
@@ -1002,6 +1005,42 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessions do
         {:error, :console_actor_identity_required}
     end
   end
+
+  defp identity_scope_for_device(device, system_opts) do
+    actor = Keyword.get(system_opts, :actor, SystemActor.system(:proxmox_console_identity_scope))
+
+    scopes =
+      device
+      |> rule_scopes()
+      |> Enum.flat_map(fn {scope_type, scope_value} ->
+        case NetworkCredentialRule.list_enabled_for_scope("proxmox", scope_type, scope_value,
+               actor: actor
+             ) do
+          {:ok, rules} when is_list(rules) -> rules
+          _other -> []
+        end
+      end)
+      |> Enum.map(&rule_identity_scope/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    case scopes do
+      [scope] -> scope
+      _other -> nil
+    end
+  end
+
+  defp rule_identity_scope(rule) do
+    integration_id = value_string(rule, [:integration_id, "integration_id"])
+    controller_id = value_string(rule, [:controller_id, "controller_id"])
+
+    if present_text?(integration_id) and present_text?(controller_id) do
+      %{integration_id: integration_id, controller_id: controller_id}
+    end
+  end
+
+  defp present_text?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present_text?(_value), do: false
 
   defp rule_scopes(device) do
     [

@@ -257,25 +257,22 @@ jobs:
           COSIGN_KEY_REF: hashivault://cosign-release
         run: |
           set -euo pipefail
-          # --remote_download_outputs=all overrides the --remote_download_minimal that
-          # --config=remote inherits: sign-oci-publish.sh below reads the image metadata back out
-          # of `bazel info bazel-bin`, which is empty when outputs stay in the CAS.
-          cmd=(bazel run -c opt --config=remote --remote_download_outputs=all --stamp //:push)
+          cmd=(bazel run -c opt --config=remote --stamp //:push)
           if [[ -n "${EXTRA_TAG}" ]]; then
             cmd+=(-- --tag "${EXTRA_TAG}")
           fi
           "${cmd[@]}"
-
-          if ! command -v skopeo >/dev/null 2>&1; then
-            ./scripts/install-skopeo.sh
-          fi
 
           verify_tags=(latest "sha-${GITHUB_SHA}")
           if [[ -n "${EXTRA_TAG}" ]]; then
             verify_tags+=("${EXTRA_TAG}")
           fi
           source ./scripts/ci/prepare-openbao-cosign-env.sh
-          ./scripts/sign-oci-publish.sh
+          # Sign what the registry holds under this commit's tag, as release.yml does.
+          # Without the tag the signer reads image digests out of `bazel info bazel-bin`,
+          # and that path encodes the build configuration: asked without `-c opt
+          # --config=remote` it names k8-fastbuild, where this build wrote nothing.
+          SERVICERADAR_SIGN_REGISTRY_TAG="sha-${GITHUB_SHA}" ./scripts/sign-oci-publish.sh
           ./scripts/verify-oci-publish.sh "${verify_tags[@]}"
           unset VAULT_TOKEN VAULT_ADDR COSIGN_KEY_REF
 

@@ -1,6 +1,8 @@
 import {describe, expect, it} from "vitest"
 
 import {
+  axisStyleForInstants,
+  axisStyleForSpanMs,
   axisUserTimeFormatter,
   canonicalUtcInstant,
   formatUserTime,
@@ -196,6 +198,26 @@ describe("formatUserTime", () => {
     expect(formatUserTime("2026-08-30T18:00:00Z", {...options, style: "axis"}).text).not.toContain("GMT")
     expect(formatUserTime("2026-08-30T18:00:00Z", {...options, style: "full"}).text).toContain("GMT")
     expect(formatUserTime("2026-08-30T18:00:00Z", {...options, style: "tooltip"}).text).toContain("GMT")
+  })
+
+  it("labels a 90 day axis with the month and a week-long axis with the date and hour", () => {
+    const day = 24 * 60 * 60 * 1000
+
+    expect(axisStyleForSpanMs(12 * 60 * 60 * 1000)).toBe("axis")
+    expect(axisStyleForSpanMs(5 * day)).toBe("axisDayTime")
+    expect(axisStyleForSpanMs(30 * day)).toBe("axisDate")
+    expect(axisStyleForSpanMs(90 * day)).toBe("axisMonth")
+
+    expect(axisStyleForInstants(["2026-06-23T12:00:00Z", "2026-09-01T12:00:00Z"])).toBe("axisMonth")
+    expect(axisStyleForInstants(["2025-12-01T12:00:00Z", "2026-02-01T12:00:00Z"])).toBe("axisMonthYear")
+
+    expect(
+      formatUserTime("2026-07-01T12:00:00Z", {
+        timeZone: "America/Chicago",
+        locale: "en-US",
+        style: "axisMonth",
+      }).text,
+    ).toBe("Jul")
   })
 
   it("formats chart axis input values without changing them", () => {

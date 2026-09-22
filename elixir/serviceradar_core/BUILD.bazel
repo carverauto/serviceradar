@@ -11,6 +11,7 @@ load(
     "partition_by_lane",
 )
 load("@serviceradar//build:integration_tests.bzl", "requires_shared_fixture")
+load("@serviceradar//build/schema_template:replay_env.bzl", "SCHEMA_TEMPLATE_REPLAY_ENV")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -233,6 +234,53 @@ filegroup(
     ),
 )
 
+# Schema-template identity inputs. Keep these separate from the migration execution
+# target: adding the manifest must not change which database any consumer uses.
+filegroup(
+    name = "schema_template_baseline_sql",
+    srcs = ["priv/repo/baseline/platform_schema.sql"],
+)
+
+filegroup(
+    name = "schema_template_baseline_metadata",
+    srcs = ["priv/repo/baseline/metadata.json"],
+)
+
+# Migrations currently use Ecto/Oban directly (versions pinned in mix.lock).
+# SchemaBootstrap calls SchemaSql; the Repo and lifecycle loaders supply its
+# configuration. Add any future application helper called by migrations here.
+filegroup(
+    name = "schema_template_helpers",
+    srcs = [
+        "lib/mix/tasks/serviceradar.db.migrate.ex",
+        "lib/serviceradar/cluster/startup_migrations.ex",
+        "lib/serviceradar/postgres/schema_sql.ex",
+        "lib/serviceradar/repo.ex",
+        "lib/serviceradar/repo/schema_bootstrap.ex",
+        "test/db/db_task_helper.exs",
+        "test/db/fixture_config.exs",
+        "test/db/migrate_db_test.exs",
+        "test/db/migrate_generation_test.exs",
+        "test/db/template_env.exs",
+        "test/db/template_generation.exs",
+        "test/db/template_generation_env.exs",
+    ],
+)
+
+filegroup(
+    name = "schema_template_configuration",
+    srcs = [
+        "config/config.exs",
+        "config/dev.exs",
+        "config/prod.exs",
+        "config/runtime.exs",
+        "config/test.exs",
+        "config/test_database_guard.exs",
+        "mix.exs",
+        "mix.lock",
+    ],
+)
+
 # Bootstrap files only -- what `mix deps.get` needs to resolve this project as a path
 # dependency, with none of its lib/ sources. Keeping this separate from :srcs is what lets
 # //elixir/web-ng:deps_cache stay keyed on lockfiles, so it stays a remote cache hit across
@@ -251,6 +299,10 @@ filegroup(
 # Shared between the :test and :prod compilations below, which differ only in mix_env.
 CORE_SRCS = [
     ":compile_srcs",
+    # Read at compile time by ServiceRadar.Analytics.StarRocks.Schema and baked in with
+    # @external_resource. priv/starrocks is a package of its own, so the priv/** glob in
+    # :compile_srcs stops at its boundary and the files have to be named here.
+    "//elixir/serviceradar_core/priv/starrocks:schema_sql",
     # Read at compile time, from outside this package. The *_addon_package_seeder
     # modules do Path.expand("../../../../../addons/<x>/config.schema.json", __DIR__)
     # and bake the result in with @external_resource, so these have to be declared
@@ -278,10 +330,14 @@ CORE_SRCS = [
 CORE_EXTRA_CONFIG = [
     "config :serviceradar_core, ServiceRadar.Observability.Zen.Native, skip_compilation?: true",
     "config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true",
+    "config :serviceradar_core, ServiceRadar.Dgraph.Native, skip_compilation?: true",
+    "config :serviceradar_core, ServiceRadar.NetworkConfig.Native, skip_compilation?: true",
 ]
 
 CORE_NATIVE_LIBS = {
     "//elixir/serviceradar_core/native/anomaly_disposition_nif:anomaly_disposition_nif": "anomaly_disposition_nif",
+    "//elixir/serviceradar_core/native/dgraph_nif:dgraph_nif": "dgraph_nif",
+    "//elixir/serviceradar_core/native/network_config_nif:network_config_nif": "network_config_nif",
     "//elixir/serviceradar_core/native/zen_nif:zen_nif": "zen_nif",
 }
 
@@ -293,6 +349,7 @@ CORE_DEPS = [
     "@hexpm//:ash",
     "@hexpm//:ash_admin",
     "@hexpm//:ash_cloak",
+    "@hexpm//:ash_events",
     "@hexpm//:ash_json_api",
     "@hexpm//:ash_oban",
     "@hexpm//:ash_paper_trail",
@@ -314,6 +371,7 @@ CORE_DEPS = [
     "@hexpm//:horde",
     "@hexpm//:jason",
     "@hexpm//:libcluster",
+    "@hexpm//:myxql",
     "@hexpm//:oban",
     "@hexpm//:open_api_spex",
     "@hexpm//:opentelemetry",
@@ -450,6 +508,9 @@ ex_unit_tests(
         # still needs them staged. The glob above covers lib/priv/test but not bench/.
         "//proto/edge/v1:edge_testdata",
         "bench/sweep_ingress_fixtures.exs",
+        # StarRocks schema SQL lives in a nested package, so priv/** does not
+        # stage it. Attribution load_columns coverage reads these files.
+        "//elixir/serviceradar_core/priv/starrocks:schema_sql",
     ],
     test_helper = "test/test_helper.exs",
     deps = [":erlang_app"],
@@ -681,6 +742,64 @@ ex_unit_test(
         "//config/environments:ci_binpb",
     ],
     deps = [
+        "//config/manager_config/elixir:manager",
+        "//config/manager_secret/elixir:secret",
+    ],
+)
+
+ex_unit_test(
+    name = "template_generation_test",
+    size = "small",
+    srcs = ["test/db/template_generation_test.exs"],
+    data = [
+        "test/db/template_generation.exs",
+        ":migrations",
+        "//build/schema_template:manifest",
+        "//build/schema_template:policy.json",
+    ],
+    deps = [":erlang_app"],
+)
+
+# Ordered, opt-in lifecycle step. Keep the singleton target below available
+# until the keyed lifecycle and reaper protections are qualified in-cluster.
+ex_unit_test(
+    name = "migrate_generation",
+    size = "enormous",
+    srcs = ["test/db/migrate_generation_test.exs"],
+    data = glob(
+        [
+            "config/**",
+            "priv/repo/**",
+        ],
+        allow_empty = True,
+    ) + [
+        "test/db/db_task_helper.exs",
+        "test/db/fixture_config.exs",
+        "test/db/template_generation.exs",
+        "test/db/template_generation_env.exs",
+        "//build:elixir_test_config_loader.exs",
+        "//build/schema_template:manifest",
+        "//build/schema_template:policy.json",
+        "//config/environments:ci_binpb",
+    ],
+    elixir_opts = [
+        "-r",
+        "test/db/fixture_config.exs",
+        "-r",
+        "test/db/template_generation_env.exs",
+        "-r",
+        "../../build/elixir_test_config_loader.exs",
+        "-r",
+        "test/db/db_task_helper.exs",
+    ],
+    env = SCHEMA_TEMPLATE_REPLAY_ENV,
+    tags = [
+        "external",
+        "manual",
+    ],
+    target_compatible_with = requires_shared_fixture(),
+    deps = [
+        ":erlang_app",
         "//config/manager_config/elixir:manager",
         "//config/manager_secret/elixir:secret",
     ],

@@ -28,7 +28,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/carverauto/serviceradar-sdk-go/sdk"
+	"github.com/carverauto/serviceradar-sdk-go/v2/sdk"
 	"github.com/tidwall/gjson"
 )
 
@@ -95,12 +95,16 @@ type Config struct {
 	NetworkBlacklist   []string `json:"network_blacklist"`
 }
 
+// sourceConfigs returns the sources to sync. A flat source counts as
+// configured as soon as any of its identifying fields is set, so a source that
+// is only half-configured reaches runInventorySyncSource and is reported by the
+// field it is missing rather than as "no source configured".
 func (c Config) sourceConfigs() []SourceConfig {
 	if len(c.Sources) > 0 {
 		return c.Sources
 	}
 
-	if c.BaseURL == "" {
+	if c.BaseURL == "" && c.APIToken == "" && c.SourceID == "" && c.SourceName == "" {
 		return nil
 	}
 
@@ -121,19 +125,34 @@ func inventory_sync() {
 	primeTinyGoJSON()
 
 	_ = sdk.Execute(func() (*sdk.Result, error) {
-		var cfg Config
-		if err := sdk.LoadConfig(&cfg); err != nil {
+		raw, err := loadRawConfigBytes()
+		if err != nil {
 			return sdk.Unknown("NetBox configuration could not be loaded"), nil
 		}
 
-		return runInventorySync(cfg), nil
+		return inventorySyncFromRawConfig(raw), nil
 	})
+}
+
+// inventorySyncFromRawConfig is the entrypoint body minus the host config
+// read, so the parse-failure branch is reachable from a test without a wasm
+// host.
+func inventorySyncFromRawConfig(raw []byte) *sdk.Result {
+	cfg, err := decodeConfig(raw)
+	if err != nil {
+		return sdk.Unknown("NetBox configuration could not be parsed")
+	}
+
+	return runInventorySync(cfg)
 }
 
 func runInventorySync(cfg Config) *sdk.Result {
 	sources := cfg.sourceConfigs()
 	if len(sources) == 0 {
-		return sdk.Unknown("NetBox inventory_sync has no sources configured")
+		return sdk.Unknown(
+			"NetBox inventory_sync has no source configured: set base_url and api_token, " +
+				"or attach a NetBox credential rule",
+		)
 	}
 
 	if len(sources) == 1 {
@@ -192,9 +211,13 @@ func runInventorySync(cfg Config) *sdk.Result {
 
 func runInventorySyncSource(src SourceConfig) *sdk.Result {
 	sourceID := normalizeSourceInstance(src.SourceID, src.BaseURL)
+	if strings.TrimSpace(src.BaseURL) == "" {
+		return sdk.Unknown("NetBox source " + sourceID + " has no base_url configured")
+	}
+
 	origin, basePath, err := splitBaseURL(src.BaseURL)
 	if err != nil {
-		return sdk.Unknown("NetBox source " + sourceID + " has an invalid base_url")
+		return sdk.Unknown("NetBox source " + sourceID + " has an invalid base_url: " + err.Error())
 	}
 	if strings.TrimSpace(src.APIToken) == "" {
 		return sdk.Unknown("NetBox source " + sourceID + " has no api_token configured")

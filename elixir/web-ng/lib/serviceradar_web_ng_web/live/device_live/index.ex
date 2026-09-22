@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   import ServiceRadarWebNGWeb.DeviceLive.IndexRefresh,
     only: [
       apply_device_enrichments: 3,
+      apply_device_icmp: 3,
       apply_device_stats: 3,
       cancel_device_refresh_timer: 1,
       clear_task_ref: 3,
@@ -20,6 +21,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   alias ServiceRadarWebNGWeb.CompositeChecks.Catalog, as: CompositeCatalog
   alias ServiceRadarWebNGWeb.DeviceLive.IndexData
   alias ServiceRadarWebNGWeb.DeviceLive.IndexEvents
+  alias ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Helpers
   alias ServiceRadarWebNGWeb.DeviceLive.IndexView
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
@@ -49,6 +51,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:device_enrichment_task, nil)
      |> assign(:device_stats_task, nil)
      |> assign(:device_refresh_timer, nil)
+     |> assign(:device_refresh_pending, false)
      |> assign(:limit, @default_limit)
      |> assign(:total_device_count, nil)
      |> assign(:managed_device_count, nil)
@@ -73,6 +76,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:show_bulk_delete_modal, false)
      |> assign(:show_bulk_availability_source_modal, false)
      |> assign(:bulk_edit_form, to_form(%{"tags" => ""}, as: :bulk))
+     |> assign(:bulk_state_form, Helpers.bulk_state_form())
+     |> assign(:bulk_scope_form, Helpers.bulk_scope_form())
+     |> assign(:bulk_target_scope, "selected")
+     |> assign(:bulk_target_matching_count, nil)
      |> assign(:availability_source_form, to_form(%{"agent_id" => ""}, as: :availability_source))
      |> assign(
        :availability_source_agent_options,
@@ -140,6 +147,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> refresh_devices(preserve_async_data?: true)}
   end
 
+  def handle_info({:device_icmp_loaded, token, icmp}, socket) do
+    apply_device_icmp(socket, token, icmp)
+  end
+
   def handle_info({:device_enrichments_loaded, token, enrichments}, socket) do
     # Backward compatibility path for previous message format.
     apply_device_enrichments(socket, token, enrichments)
@@ -169,12 +180,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
 
         {:noreply,
          socket
-         |> assign(:device_stats_task, nil)
+         |> clear_task_ref(:device_stats_task, ref)
          |> assign(:device_stats_loading, false)}
 
       task_ref(socket.assigns[:device_enrichment_task]) == ref ->
         log_device_task_exit(:enrichment, reason)
-        {:noreply, assign(socket, :device_enrichment_task, nil)}
+        {:noreply, clear_task_ref(socket, :device_enrichment_task, ref)}
 
       true ->
         {:noreply, socket}
@@ -201,14 +212,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   def handle_async({:device_stats, token}, {:exit, reason}, socket) do
-    log_device_task_exit(:stats, reason)
+    if socket.assigns.device_stats_task == {:device_stats, token} do
+      log_device_task_exit(:stats, reason)
 
-    socket =
-      socket
-      |> clear_task_ref(:device_stats_task, {:device_stats, token})
-      |> assign(:device_stats_loading, false)
+      socket =
+        socket
+        |> clear_task_ref(:device_stats_task, {:device_stats, token})
+        |> assign(:device_stats_loading, false)
 
-    {:noreply, socket}
+      {:noreply, socket}
+    else
+      {:noreply, socket}
+    end
   end
 
   def handle_async(:northbound_device_actions, {:ok, actions}, socket) when is_list(actions) do

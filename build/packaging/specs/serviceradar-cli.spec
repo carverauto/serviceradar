@@ -12,10 +12,13 @@ mkdir -p %{buildroot}/usr/local/bin
 mkdir -p %{buildroot}/lib/systemd/system
 mkdir -p %{buildroot}/etc/serviceradar
 
-install -m 755 %{_builddir}/serviceradar-cli %{buildroot}/usr/local/bin/
+install -m 755 %{_builddir}/srctl %{buildroot}/usr/local/bin/
+# Deprecated alias for the pre-rename binary name (see #4260).
+ln -sfn srctl %{buildroot}/usr/local/bin/serviceradar-cli
 
 %files
-%attr(0755, root, root) /usr/local/bin/serviceradar-cli
+%attr(0755, root, root) /usr/local/bin/srctl
+/usr/local/bin/serviceradar-cli
 
 %pre
 # Ensure serviceradar group exists before user creation
@@ -36,5 +39,5 @@ else
 fi
 
 %post
-chown -R serviceradar:serviceradar /usr/local/bin/serviceradar-cli
-chmod 755 /usr/local/bin/serviceradar-cli
+chown -R serviceradar:serviceradar /usr/local/bin/srctl
+chmod 755 /usr/local/bin/srctl

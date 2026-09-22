@@ -133,6 +133,85 @@ bundles. `make push_all_release` only covers the container/Wasm portion and is
 not a complete release recovery. Rerun the appropriate Forgejo workflow at the
 release tag when recovery is required.
 
+## Recovery: Release Published But `demo/prod-release` Was Not Advanced
+
+The `Advance demo release source branch` step in `.github/workflows/release.yml`
+is conditional: it runs only when the release is not a prerelease AND the
+parallel-asset and finalize steps both succeeded. An unrelated asset failure --
+a Wasm plugin publish, for example -- therefore leaves a fully published,
+correctly signed release with `demo/prod-release` still pointing at the previous
+version. The release is fine; only the deploy pointer is stale.
+
+What that step actually does is force-push the release commit itself:
+
+```bash
+git push --force-with-lease demo-release "HEAD:refs/heads/demo/prod-release"
+```
+
+where `HEAD` is the release commit, `git rev-list -n1 "refs/tags/v<version>^{commit}"`.
+So the recovery is to reproduce that push, NOT to hand-write a commit that edits
+`.argocd-source-serviceradar-demo-prod.yaml`. `scripts/cut-release.sh` already
+wrote `global.imageTag: v<version>` into that file at the release commit, and
+that commit is also the only tree carrying the matching `Chart.yaml` version and
+migration `expectedVersion`. Adding a tag-only commit on top of the stale branch
+would run new images against the old chart.
+
+Verify all of these BEFORE pushing, because the push is what rolls `demo`:
+
+```bash
+# 1. Release commit is the tag's commit and is reachable from staging.
+RC="$(git rev-list -n1 'v<version>^{commit}')"
+git merge-base --is-ancestor "$RC" refs/remotes/origin/staging
+./scripts/validate-release-metadata.sh "v<version>" "$RC"
+
+# 2. The file at that commit already carries the tag, with no digest pins.
+git show "$RC:helm/serviceradar/.argocd-source-serviceradar-demo-prod.yaml"
+
+# 3. Every image the chart renders exists and is signed with the key Kyverno
+#    enforces. Render from the release tree, not the working tree.
+helm template serviceradar <release-tree>/helm/serviceradar -n demo \
+  -f <release-tree>/helm/serviceradar/values-demo.yaml \
+  --set-string global.imageTag=v<version> |
+  grep -oE 'registry[.]carverauto[.]dev/serviceradar/[a-z0-9.-]+:[^ "]+' | sort -u
+cosign verify --key docs/cosign.pub --insecure-ignore-tlog=true <each image>
+```
+
+`docs/cosign.pub` is the same key the `verify-serviceradar-images` ClusterPolicy
+carries; diff them rather than assuming. That policy sets `mutateDigest: true`,
+so admitted pods show `:<tag>@sha256:...` -- comparing that digest against
+`crane digest <image>:v<version>` is the proof of which artifact is running.
+
+### The digest-pin trap
+
+Between releases, `demo/prod-release` accumulates ad-hoc commits that add
+`image.digests.<service>` parameters pinning individual services to `sha-...`
+builds. Per `serviceradar.imageRefSuffix` in `templates/_helpers.tpl`, **a digest
+pin completely overrides `global.imageTag`**. Bumping only the tag while those
+pins remain is inert for exactly the services people care about most.
+
+The force-push discards those commits, which is intended -- but confirm first
+that nothing regresses. Map each pinned digest back to its build commit and
+prove it is contained in the release:
+
+```bash
+for t in $(crane ls registry.carverauto.dev/serviceradar/<image> | grep '^sha-'); do
+  [ "$(crane digest registry.carverauto.dev/serviceradar/<image>:$t)" = "<pinned digest>" ] && echo "$t"
+done
+git merge-base --is-ancestor <build-commit> 'v<version>^{commit}'
+```
+
+A pin whose build commit is NOT an ancestor is not automatically a regression --
+branch builds are often squash-merged, so the work lands under a different SHA.
+Resolve it by diffing the owning package between that commit and the release tag
+rather than by trusting the ancestry check alone. Pinning commits also sometimes
+carry chart edits that were never upstreamed; diff
+`origin/demo/prod-release..v<version> -- helm/serviceradar/` and account for
+every removal before pushing.
+
+After pushing, Argo picks the new revision up on its own. Do not sync manually;
+confirm the operation was automatic with
+`.status.operationState.operation.initiatedBy.automated`.
+
 ## Roll Demo To The Release Tag
 
 The release workflow advances `demo/prod-release` only after the complete

@@ -57,7 +57,19 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
   `{device_id, metric_name, if_index}` against recent persisted metrics, with
   the interface hourly rollup as a longer-retention fallback.
   """
-  @spec resolve_snmp_interface_metric(candidate()) :: String.t() | nil
+  # The SNMP/interface path normalizes free-form anomaly payload values
+  # (`candidate_value/2`, `normalize_if_index/1`, `canonical_device_uid/1`
+  # all accept `term()`), so its input shape is wider than `candidate/0`.
+  @type snmp_metric_candidate :: %{
+          optional(:device_uid) => term(),
+          optional(:target_device_ip) => term(),
+          optional(:ip) => term(),
+          optional(:partition) => term(),
+          optional(:metric_name) => term(),
+          optional(:if_index) => term()
+        }
+
+  @spec resolve_snmp_interface_metric(snmp_metric_candidate()) :: String.t() | nil
   def resolve_snmp_interface_metric(candidate) when is_map(candidate) do
     case snmp_interface_metric_candidate(candidate) do
       nil ->

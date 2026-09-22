@@ -247,7 +247,12 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
 
     with {:ok, profile} <- resolve_profile(profile_or_provider, actor, opts),
          {:ok, rules} <- rules_for_agent_scope(profile, agent_id, purpose, actor, opts) do
-      {:ok, Enum.filter(rules, &(rule_enabled?(&1) and scope_allows_agent?(&1, agent_id)))}
+      {:ok,
+       Enum.filter(
+         rules,
+         &(rule_enabled?(&1) and scope_allows_agent?(&1, agent_id) and
+             rule_runs_on_agent?(profile, &1, purpose, agent_id))
+       )}
     end
   end
 
@@ -423,9 +428,43 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
 
     with {:ok, selected_rules} <- selected_rules_for_agent(profile, rules, agent_id, purpose) do
       Enum.reduce_while(selected_rules, {:ok, empty_summary()}, fn rule, {:ok, acc} ->
-        with {:ok, consumer} <- CredentialIntegration.consumer_for_rule(profile, rule, purpose),
-             {:ok, resolved_package} <-
-               resolve_consumer_package(package, consumer, actor, opts) do
+        case CredentialIntegration.consumer_for_rule(profile, rule, purpose) do
+          {:ok, consumer} ->
+            reconcile_selected_rule(
+              consumer,
+              rule,
+              agent_id,
+              package,
+              profile,
+              purpose,
+              actor,
+              reconciler,
+              acc,
+              opts
+            )
+
+          {:error, reason} ->
+            {:halt, {:error, reason}}
+        end
+      end)
+    end
+  end
+
+  defp reconcile_selected_rule(
+         consumer,
+         rule,
+         agent_id,
+         package,
+         profile,
+         purpose,
+         actor,
+         reconciler,
+         acc,
+         opts
+       ) do
+    if single_instance_owner?(consumer, rule, agent_id) do
+      case resolve_consumer_package(package, consumer, actor, opts) do
+        {:ok, resolved_package} ->
           case reconcile_rule(
                  profile,
                  consumer,
@@ -437,16 +476,37 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
                  reconciler,
                  opts
                ) do
-            {:ok, result} ->
-              {:cont, {:ok, merge_summary(acc, result)}}
-
-            {:error, reason} ->
-              maybe_skip_policy_rejection(consumer, reason, acc)
+            {:ok, result} -> {:cont, {:ok, merge_summary(acc, result)}}
+            {:error, reason} -> maybe_skip_policy_rejection(consumer, reason, acc)
           end
-        else
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
-      end)
+
+        {:error, reason} ->
+          {:halt, {:error, reason}}
+      end
+    else
+      {:cont, {:ok, merge_summary(acc, skip_summary(:single_target_rule_not_agent_scoped))}}
+    end
+  end
+
+  # A `single` consumer does the rule's whole job in one run, so exactly one
+  # agent may run it. This function is reconciled per agent, and a gateway- or
+  # partition-scoped rule is in scope for every agent underneath it, so without
+  # this the rule would be delivered once per agent -- for NetBox, one complete
+  # /api/dcim/devices/ walk and one complete DeviceDiscovery snapshot each, all
+  # under the same source_instance. Core does not elect a runner instead:
+  # whether an agent can reach the instance is not something core knows, so the
+  # rule has to name it. Approved manifests can no longer offer a wider scope
+  # (`IntegrationDescriptor.validate_single_cardinality_scope_types/4`); this
+  # covers rows written before that, or by something other than the rule form.
+  defp single_instance_owner?(consumer, rule, agent_id) do
+    not CredentialIntegration.single_target_cardinality?(consumer) or
+      rule_scope_agent(rule) == agent_id
+  end
+
+  defp rule_runs_on_agent?(profile, rule, purpose, agent_id) do
+    case CredentialIntegration.consumer_for_rule(profile, rule, purpose) do
+      {:ok, consumer} -> single_instance_owner?(consumer, rule, agent_id)
+      {:error, _reason} -> true
     end
   end
 
@@ -465,10 +525,17 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
          {:ok, policy} <-
            policy_for_rule(consumer, rule, package, purpose, agent_id, actor, opts),
          {:ok, input_defs} <- input_defs_for_rule(rule, purpose) do
+      # A `target_cardinality: single` consumer syncs the rule's own endpoint,
+      # not the resolved targets, so chunking it would run one complete sync
+      # per chunk against the same base URL. The manifest declares that; the
+      # rule's chunk_size metadata must not be able to override it.
+      single_assignment? = CredentialIntegration.single_target_cardinality?(consumer)
+
       reconcile_opts =
         opts
         |> Keyword.put(:actor, actor)
         |> Keyword.put(:chunk_size, metadata_int(rule, "chunk_size", 100))
+        |> Keyword.put(:single_assignment, single_assignment?)
         |> Keyword.put(:target_agent_uid, agent_id)
         # A policy id is shared by every agent covered by a credential rule.
         # This invocation is for one agent only, so stale-row retraction must

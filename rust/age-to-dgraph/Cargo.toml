@@ -1,0 +1,27 @@
+[package]
+name = "age-to-dgraph"
+version = "0.1.0"
+description = "Rebuild ServiceRadar topology into Dgraph from mapper evidence, and checksum AGE against Dgraph."
+edition = "2024"
+license = "Apache-2.0"
+autotests = false
+
+[[bin]]
+name = "age-to-dgraph"
+path = "src/main.rs"
+
+[[test]]
+name = "lib_tests"
+path = "tests/lib_tests.rs"
+
+[dependencies]
+dgraph-topology = { path = "../dgraph-topology" }
+rustls = { workspace = true }
+rustls-pemfile = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "fs"] }
+tokio-postgres = { workspace = true }
+tokio-postgres-rustls = { workspace = true }

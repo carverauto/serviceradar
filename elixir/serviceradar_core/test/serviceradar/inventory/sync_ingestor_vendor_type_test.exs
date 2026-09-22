@@ -724,7 +724,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
                    "hostname" => "integration-type-test",
                    "source" => "netbox",
                    "metadata" => %{
-                     "integration_id" => "netbox-reclass-#{System.unique_integer([:positive])}",
+                     "integration_id" =>
+                       "netbox:source-a:device:netbox-reclass-#{System.unique_integer([:positive])}",
                      "integration_type" => "netbox",
                      "netbox_device_type" => "Switch"
                    }
@@ -759,6 +760,346 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     # than forking. This is what regresses if the exemption above is dropped.
     assert "netbox" in reclassified.discovery_sources
     assert "armis" in reclassified.discovery_sources
+  end
+
+  test "a later strong integration converges when hostname agrees and no third identity claims it",
+       %{actor: actor} do
+    # The reverse arrival order of the test above (GitHub #4059): armis
+    # classifies first, then a strong-identified netbox record claims the same
+    # IP. Same hostname on both sides and neither strong identifier registered
+    # anywhere else, so the netbox record adopts the armis row instead of
+    # forking an IP-less duplicate -- and the better inference lands.
+    ip = unique_ip()
+    hostname = "converge-type-test-#{System.unique_integer([:positive])}"
+
+    assert :ok =
+             SyncIngestor.ingest_updates(
+               [
+                 %{
+                   "ip" => ip,
+                   "hostname" => hostname,
+                   "source" => "armis",
+                   "metadata" => %{
+                     "integration_id" => "armis-converge-#{System.unique_integer([:positive])}",
+                     "integration_type" => "armis",
+                     "armis_type" => "Tablet"
+                   }
+                 }
+               ],
+               actor: actor
+             )
+
+    assert fetch_device_by_ip!(actor, ip).type == "Tablet"
+
+    assert :ok =
+             SyncIngestor.ingest_updates(
+               [
+                 %{
+                   "ip" => ip,
+                   "hostname" => hostname,
+                   "source" => "netbox",
+                   "metadata" => %{
+                     "integration_id" =>
+                       "netbox:source-a:device:netbox-converge-#{System.unique_integer([:positive])}",
+                     "integration_type" => "netbox",
+                     "netbox_device_type" => "Switch"
+                   }
+                 }
+               ],
+               actor: actor
+             )
+
+    reclassified = fetch_device_by_ip!(actor, ip)
+    assert reclassified.type == "Switch"
+    assert reclassified.type_id == 10
+    assert "netbox" in reclassified.discovery_sources
+    assert "armis" in reclassified.discovery_sources
+  end
+
+  test "merges an existing IP-less integration duplicate with an audit", %{actor: actor} do
+    ip = "192.0.2.81"
+    hostname = "merge-switch.example.com"
+
+    integration_id =
+      "netbox:source-a:device:synthetic-netbox-#{System.unique_integer([:positive])}"
+
+    holder_update = %{
+      "ip" => ip,
+      "hostname" => hostname,
+      "source" => "armis",
+      "metadata" => %{"armis_type" => "Tablet"}
+    }
+
+    duplicate_update = %{
+      "ip" => "192.0.2.85",
+      "hostname" => hostname,
+      "source" => "netbox",
+      "metadata" => %{
+        "integration_id" => integration_id,
+        "integration_type" => "netbox",
+        "netbox_device_type" => "Switch",
+        "synthetic_history" => "retained"
+      }
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([holder_update], actor: actor)
+    holder = fetch_device_by_ip!(actor, ip)
+    assert :ok = SyncIngestor.ingest_updates([duplicate_update], actor: actor)
+
+    assert %{rows: [[duplicate_uid]]} =
+             Repo.query!(
+               "SELECT device_id FROM platform.device_identifiers WHERE identifier_type = 'integration_id' AND identifier_value = $1",
+               [integration_id]
+             )
+
+    refute duplicate_uid == holder.uid
+
+    # Reproduce a previously persisted duplicate whose address was cleared.
+    assert %{num_rows: 1} =
+             Repo.query!("UPDATE platform.ocsf_devices SET ip = NULL WHERE uid = $1", [
+               duplicate_uid
+             ])
+
+    followup =
+      duplicate_update
+      |> Map.put("ip", ip)
+      |> Map.update!("metadata", &Map.delete(&1, "synthetic_history"))
+
+    assert :ok = SyncIngestor.ingest_updates([followup], actor: actor)
+    assert :ok = SyncIngestor.ingest_updates([followup], actor: actor)
+
+    survivor = fetch_device_by_ip!(actor, ip)
+    assert survivor.uid == holder.uid
+    assert survivor.type == "Switch"
+    assert survivor.type_id == 10
+    assert "armis" in survivor.discovery_sources
+    assert "netbox" in survivor.discovery_sources
+    assert survivor.metadata["synthetic_history"] == "retained"
+
+    assert %{rows: [[1]]} =
+             Repo.query!(
+               "SELECT count(*) FROM platform.ocsf_devices WHERE hostname = $1 AND deleted_at IS NULL",
+               [hostname]
+             )
+
+    assert %{rows: [[true]]} =
+             Repo.query!(
+               "SELECT deleted_at IS NOT NULL FROM platform.ocsf_devices WHERE uid = $1",
+               [
+                 duplicate_uid
+               ]
+             )
+
+    assert %{rows: [[owner_uid]]} =
+             Repo.query!(
+               "SELECT device_id FROM platform.device_identifiers WHERE identifier_type = 'integration_id' AND identifier_value = $1",
+               [integration_id]
+             )
+
+    assert owner_uid == holder.uid
+
+    assert %{rows: [[1]]} =
+             Repo.query!(
+               "SELECT count(*) FROM platform.merge_audit WHERE from_device_id = $1 AND to_device_id = $2",
+               [duplicate_uid, holder.uid]
+             )
+  end
+
+  test "untyped manual provenance remains reclassifiable after merging", %{actor: actor} do
+    ip = "192.0.2.83"
+    hostname = "untyped-merge.example.com"
+
+    integration_id =
+      "netbox:source-a:device:synthetic-untyped-#{System.unique_integer([:positive])}"
+
+    duplicate = %{
+      "hostname" => hostname,
+      "source" => "manual",
+      "metadata" => %{
+        "integration_id" => integration_id,
+        "integration_type" => "netbox",
+        "type" => "Unknown"
+      }
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([duplicate], actor: actor)
+
+    assert %{rows: [[duplicate_uid]]} =
+             Repo.query!(
+               "SELECT device_id FROM platform.device_identifiers WHERE identifier_type = 'integration_id' AND identifier_value = $1",
+               [integration_id]
+             )
+
+    assert :ok =
+             SyncIngestor.ingest_updates(
+               [
+                 %{
+                   "ip" => ip,
+                   "hostname" => hostname,
+                   "source" => "armis",
+                   "metadata" => %{"armis_type" => "Tablet"}
+                 }
+               ],
+               actor: actor
+             )
+
+    holder = fetch_device_by_ip!(actor, ip)
+    refute holder.uid == duplicate_uid
+    assert holder.type == "Tablet"
+
+    followup = %{
+      "ip" => ip,
+      "hostname" => hostname,
+      "source" => "netbox",
+      "metadata" => %{
+        "integration_id" => integration_id,
+        "integration_type" => "netbox",
+        "netbox_device_type" => "Switch"
+      }
+    }
+
+    for type <- ["Switch", "Router", "Switch"] do
+      update = put_in(followup, ["metadata", "netbox_device_type"], type)
+      assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+      survivor = fetch_device_by_ip!(actor, ip)
+      assert survivor.uid == holder.uid
+      assert survivor.type == type
+      assert survivor.type_id == if(type == "Switch", do: 10, else: 12)
+      assert "manual" in survivor.discovery_sources
+      assert "armis" in survivor.discovery_sources
+      assert "netbox" in survivor.discovery_sources
+      assert survivor.metadata["type_manually_set"] == false
+    end
+
+    assert %{rows: [[true]]} =
+             Repo.query!(
+               "SELECT deleted_at IS NOT NULL FROM platform.ocsf_devices WHERE uid = $1",
+               [
+                 duplicate_uid
+               ]
+             )
+
+    assert :ok =
+             SyncIngestor.ingest_updates(
+               [
+                 %{
+                   "ip" => ip,
+                   "hostname" => hostname,
+                   "source" => "manual",
+                   "metadata" => %{"type" => "Firewall"}
+                 }
+               ],
+               actor: actor
+             )
+
+    assert :ok = SyncIngestor.ingest_updates([followup], actor: actor)
+    manually_typed = fetch_device_by_ip!(actor, ip)
+    assert manually_typed.type == "Firewall"
+    assert manually_typed.type_id == 9
+    assert manually_typed.metadata["type_manually_set"] == true
+  end
+
+  test "snapshot identity claims prevent adopting an unrelated holder", %{actor: actor} do
+    ip = "192.0.2.82"
+    hostname = "guard-switch.example.com"
+
+    integration_id =
+      "netbox:source-a:device:synthetic-snapshot-#{System.unique_integer([:positive])}"
+
+    existing_update = %{
+      "ip" => "192.0.2.84",
+      "hostname" => "other-switch.example.com",
+      "mac" => "00:00:5e:00:53:81",
+      "source" => "netbox",
+      "metadata" => %{
+        "integration_id" => integration_id,
+        "integration_type" => "netbox",
+        "plugin_inventory_snapshot" => true,
+        "netbox_device_type" => "Switch"
+      }
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([existing_update], actor: actor)
+
+    assert :ok =
+             SyncIngestor.ingest_updates(
+               [
+                 %{
+                   "ip" => ip,
+                   "hostname" => hostname,
+                   "source" => "armis",
+                   "metadata" => %{"armis_type" => "Tablet"}
+                 }
+               ],
+               actor: actor
+             )
+
+    holder = fetch_device_by_ip!(actor, ip)
+
+    snapshot =
+      existing_update
+      |> Map.put("ip", ip)
+      |> Map.put("hostname", hostname)
+      |> Map.put("mac", "00:00:5e:00:53:82")
+
+    assert :ok = SyncIngestor.ingest_updates([snapshot], actor: actor)
+    unchanged = fetch_device_by_ip!(actor, ip)
+    assert unchanged.uid == holder.uid
+    assert unchanged.type == "Tablet"
+    refute "netbox" in unchanged.discovery_sources
+
+    assert %{rows: [[nil]]} =
+             Repo.query!(
+               "SELECT ip FROM platform.ocsf_devices WHERE mac = $1 AND deleted_at IS NULL",
+               ["00:00:5e:00:53:82"]
+             )
+  end
+
+  test "a later strong integration still forks when hostnames disagree", %{actor: actor} do
+    # The guardrail on the convergence above: different hostnames mean no
+    # agreement, so the strong-identity fork rule still fires and the two
+    # identities stay distinct devices.
+    ip = unique_ip()
+
+    assert :ok =
+             SyncIngestor.ingest_updates(
+               [
+                 %{
+                   "ip" => ip,
+                   "hostname" => "holder-#{System.unique_integer([:positive])}",
+                   "source" => "armis",
+                   "metadata" => %{
+                     "integration_id" => "armis-diverge-#{System.unique_integer([:positive])}",
+                     "integration_type" => "armis",
+                     "armis_type" => "Tablet"
+                   }
+                 }
+               ],
+               actor: actor
+             )
+
+    assert :ok =
+             SyncIngestor.ingest_updates(
+               [
+                 %{
+                   "ip" => ip,
+                   "hostname" => "claimer-#{System.unique_integer([:positive])}",
+                   "source" => "netbox",
+                   "metadata" => %{
+                     "integration_id" =>
+                       "netbox:source-a:device:netbox-diverge-#{System.unique_integer([:positive])}",
+                     "integration_type" => "netbox",
+                     "netbox_device_type" => "Switch"
+                   }
+                 }
+               ],
+               actor: actor
+             )
+
+    holder = fetch_device_by_ip!(actor, ip)
+    assert holder.type == "Tablet"
+    assert "armis" in holder.discovery_sources
+    refute "netbox" in holder.discovery_sources
   end
 
   test "an integration still fills a blank type on a manually created device", %{actor: actor} do

@@ -9,23 +9,24 @@ defmodule ServiceRadar.Observability.MemoryMetric do
   use ServiceRadar.Observability.RawMetricResource,
     table: "memory_metrics",
     type: "memory_metric",
-    route: "/memory_metrics"
+    route: "/memory_metrics",
+    primary_key: [:timestamp, :gateway_id]
 
   actions do
-    defaults [:read]
+    defaults([:read])
 
     read :by_device do
-      argument :device_id, :string, allow_nil?: false
-      filter expr(device_id == ^arg(:device_id))
+      argument(:device_id, :string, allow_nil?: false)
+      filter(expr(device_id == ^arg(:device_id)))
     end
 
     read :recent do
-      description "Metrics from the last 24 hours"
-      filter expr(timestamp > ago(24, :hour))
+      description("Metrics from the last 24 hours")
+      filter(expr(timestamp > ago(24, :hour)))
     end
 
     create :create do
-      accept [
+      accept([
         :timestamp,
         :gateway_id,
         :agent_id,
@@ -37,71 +38,71 @@ defmodule ServiceRadar.Observability.MemoryMetric do
         :device_id,
         :partition,
         :created_at
-      ]
+      ])
     end
   end
 
   attributes do
     # TimescaleDB hypertable - no traditional PK
     attribute :timestamp, :utc_datetime_usec do
-      allow_nil? false
-      public? true
-      description "When the metric was recorded"
+      allow_nil?(false)
+      public?(true)
+      description("When the metric was recorded")
     end
 
     attribute :gateway_id, :string do
-      public? true
-      description "Gateway that collected this metric"
+      public?(true)
+      description("Gateway that collected this metric")
     end
 
     attribute :agent_id, :string do
-      public? true
-      description "Agent ID"
+      public?(true)
+      description("Agent ID")
     end
 
     attribute :host_id, :string do
-      public? true
-      description "Host identifier"
+      public?(true)
+      description("Host identifier")
     end
 
     attribute :total_bytes, :integer do
-      public? true
-      description "Total memory in bytes"
+      public?(true)
+      description("Total memory in bytes")
     end
 
     attribute :used_bytes, :integer do
-      public? true
-      description "Used memory in bytes"
+      public?(true)
+      description("Used memory in bytes")
     end
 
     attribute :available_bytes, :integer do
-      public? true
-      description "Available memory in bytes"
+      public?(true)
+      description("Available memory in bytes")
     end
 
     attribute :usage_percent, :float do
-      public? true
-      description "Memory usage percentage"
+      public?(true)
+      description("Memory usage percentage")
     end
 
     attribute :device_id, :string do
-      public? true
-      description "Device identifier"
+      public?(true)
+      description("Device identifier")
     end
 
     attribute :partition, :string do
-      public? true
-      description "Partition"
+      public?(true)
+      description("Partition")
     end
 
     attribute :created_at, :utc_datetime_usec do
-      allow_nil? false
-      public? true
-      description "When the record was created"
+      allow_nil?(false)
+      public?(true)
+      description("When the record was created")
     end
   end
 
   identities do
-    identity :unique_memory_metric, [:timestamp, :gateway_id]
+    identity(:unique_memory_metric, [:timestamp, :gateway_id])
   end
 end

@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNGWeb.DeviceLive.FlowData do
   @moduledoc false
 
+  alias ServiceRadar.Analytics.StarRocks.FlowConsumers
   alias ServiceRadar.Repo
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceTaskData
 
@@ -551,7 +552,30 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowData do
     end
   end
 
+  # Flows cut over to the warehouse are probed there; the CNPG table is for an
+  # installation without it, and with it may no longer be written.
   defp flow_seen_for_ip?(ip) do
+    if FlowConsumers.cut_over?() do
+      ip |> FlowConsumers.seen_for_ip?(flow_probe_since()) |> probe_result()
+    else
+      cnpg_flow_seen_for_ip?(ip)
+    end
+  end
+
+  defp flow_seen_for_sampler?(sampler) do
+    if FlowConsumers.cut_over?() do
+      sampler |> FlowConsumers.seen_for_sampler?(flow_probe_since()) |> probe_result()
+    else
+      cnpg_flow_seen_for_sampler?(sampler)
+    end
+  end
+
+  defp flow_probe_since, do: DateTime.add(DateTime.utc_now(), -24, :hour)
+
+  defp probe_result({:ok, seen?}) when is_boolean(seen?), do: {:ok, seen?}
+  defp probe_result({:error, _reason}), do: :error
+
+  defp cnpg_flow_seen_for_ip?(ip) do
     with {:ok, false} <-
            interpret_exists(fn ->
              Repo.query(
@@ -578,7 +602,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowData do
     end
   end
 
-  defp flow_seen_for_sampler?(sampler) do
+  defp cnpg_flow_seen_for_sampler?(sampler) do
     interpret_exists(fn ->
       Repo.query(
         """

@@ -142,7 +142,7 @@ defmodule ServiceRadar.Plugins.AddonUpdatePolicyBackfillWorker do
   def backfill_scheduled? do
     query =
       from(job in Oban.Job,
-        where: job.worker == ^to_string(__MODULE__),
+        where: job.worker == ^Oban.Worker.to_string(__MODULE__),
         where: job.state in ^successful_state_names(),
         where: fragment("?->>'migration_version' = ?", job.args, ^@backfill_version),
         limit: 1

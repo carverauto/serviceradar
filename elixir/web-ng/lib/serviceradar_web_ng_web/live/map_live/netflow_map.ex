@@ -3,15 +3,19 @@ defmodule ServiceRadarWebNGWeb.MapLive.NetflowMap do
   use ServiceRadarWebNGWeb, :live_view
 
   alias ServiceRadarWebNGWeb.DashboardLive.Data
+  alias ServiceRadarWebNGWeb.DashboardLive.Window
 
   @netflow_map_path "/netflow-map"
 
   @impl true
-  def mount(_params, _session, socket) do
+  def mount(params, _session, socket) do
+    window = Window.resolve(params["window"], "netflow")
+
     socket =
       socket
       |> assign(:page_title, "NetFlow Map")
       |> assign(:current_path, @netflow_map_path)
+      |> assign(:netflow_window, window.value)
       |> assign_netflow_map(empty_netflow_map())
 
     socket =
@@ -19,7 +23,7 @@ defmodule ServiceRadarWebNGWeb.MapLive.NetflowMap do
         scope = socket.assigns.current_scope
 
         start_async(socket, :netflow_map_load, fn ->
-          Data.load_netflow_map(scope)
+          Data.load_netflow_map(scope, window: window)
         end)
       else
         socket
@@ -33,7 +37,9 @@ defmodule ServiceRadarWebNGWeb.MapLive.NetflowMap do
     {:noreply, assign_netflow_map(socket, map_assigns)}
   end
 
-  def handle_async(:netflow_map_load, {:exit, _reason}, socket), do: {:noreply, socket}
+  def handle_async(:netflow_map_load, {:exit, _reason}, socket) do
+    {:noreply, assign_netflow_map(socket, failed_netflow_map())}
+  end
 
   @impl true
   def render(assigns) do
@@ -152,6 +158,20 @@ defmodule ServiceRadarWebNGWeb.MapLive.NetflowMap do
       map_empty_title: empty.map_empty_title,
       map_empty_detail: empty.map_empty_detail
     }
+  end
+
+  defp failed_netflow_map do
+    Map.merge(empty_netflow_map(), %{
+      netflow_state: :error,
+      traffic_links: [],
+      traffic_links_json: "[]",
+      topology_links: [],
+      topology_links_json: "[]",
+      mtr_overlays: [],
+      mtr_overlays_json: "[]",
+      map_empty_title: "Unable to load NetFlow map",
+      map_empty_detail: "Select a time window to retry the query."
+    })
   end
 
   defp netflow_map_empty?(traffic_links) do

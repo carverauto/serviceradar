@@ -59,6 +59,9 @@ These ports are for internal service-to-service traffic and should not be reacha
 | NATS | 4222 | TCP | JetStream client port (internal) |
 | NATS monitoring | 8222 | HTTP | Internal only |
 | NATS cluster | 6222 | TCP | Internal only |
+| Dgraph Alpha | 9080 | gRPC | Topology graph (DQL); clients are `core` and `web-ng` |
+| Dgraph Alpha HTTP | 8080 | HTTP | Health and admin endpoints; internal only |
+| Dgraph Zero/Alpha internal | 5080, 6080, 7080 | TCP | Raft, membership, and Zero admin; never expose |
 | ERTS distribution | 4369, 9100-9155 | TCP | Never expose outside the cluster/host network |
 
 ## Notes
@@ -69,5 +72,6 @@ These ports are for internal service-to-service traffic and should not be reacha
 - Docker Compose defaults:
   - `agent-gateway` binds to `127.0.0.1:50052` unless you set `GATEWAY_PUBLIC_BIND=0.0.0.0`.
   - CNPG binds to `127.0.0.1:${CNPG_PUBLIC_PORT:-5455}` unless you set `CNPG_PUBLIC_BIND=0.0.0.0`.
+  - Dgraph binds to `127.0.0.1:9080` (gRPC) and `127.0.0.1:8080` (HTTP).
 
 For TLS setup, see [TLS Security](./tls-security.md).

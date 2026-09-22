@@ -1790,6 +1790,21 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   defp maybe_add_policy_credential_secret_fields(config_schema, _params, _assignment),
     do: config_schema
 
+  # These four names are a hardcoded coupling between a plugin manifest and
+  # config delivery, and nothing validates it.
+  #
+  # A manifest's `$source: secret_ref` param may be named anything: the
+  # integration descriptor validates the template, not the key. Resolution only
+  # works because the key lands in this list, which synthesizes the secretRef
+  # property the delivered config schema needs. Rename the param in a manifest
+  # -- `api_token_secret_ref` to `token_secret_ref`, say -- and the manifest
+  # still validates, the assignment still materializes, and the credential is
+  # silently never resolved at delivery.
+  #
+  # A manifest adding a secret_ref param must therefore use one of these names,
+  # or add its name here in the same change. Do not generalize this to "any key
+  # ending in _secret_ref": the allowlist is what keeps a package from teaching
+  # config generation to mint secretRef properties of its own choosing.
   defp maybe_add_policy_secret_field_from_params(config_schema, params) do
     params = normalize_map(params)
 

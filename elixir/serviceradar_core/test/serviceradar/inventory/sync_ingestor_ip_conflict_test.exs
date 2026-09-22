@@ -7,12 +7,19 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
   incoming strong device (pre-resolved before insert when the holder is already
   visible, or via reactive recovery on a true race). Same-batch handoffs must
   free the relinquished IP for the new claimant rather than clearing it.
+
+  Interactive device edits (`Device :update`, GitHub #4357) take the same
+  index through the atomic single-record path: a taken IP must surface as an
+  `ip` "has already been taken" validation error instead of
+  `Ash.Error.Unknown`. Inactive and stale holders retain their addresses
+  when a conflicting update is rejected.
   """
 
   use ServiceRadar.DataCase, async: false
 
   import ExUnit.CaptureLog
 
+  alias Ash.Error.Invalid
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Inventory.Device
@@ -363,6 +370,137 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
     assert hd(devices_at_ip).uid in [first_uid, second_uid]
   end
 
+  describe "interactive device update IP conflicts (GitHub #4357)" do
+    test "update reports a usable ip error when another active device owns the IP", %{
+      actor: actor
+    } do
+      {taken_ip, free_ip} = doc_ip_pair()
+      _holder = create_device!(actor, "4357-holder", taken_ip)
+      subject = create_device!(actor, "4357-subject", free_ip)
+
+      assert {:error, %Invalid{errors: errors}} =
+               subject
+               |> Ash.Changeset.for_update(:update, %{ip: taken_ip})
+               |> Ash.update(actor: actor)
+
+      assert Enum.any?(errors, &ip_taken_error?/1)
+    end
+
+    test "update preserves an inactive holder and reports a usable ip error", %{actor: actor} do
+      {taken_ip, free_ip} = doc_ip_pair()
+      holder = create_device!(actor, "4357-inactive-holder", taken_ip)
+      subject = create_device!(actor, "4357-inactive-subject", free_ip)
+
+      {:ok, _} = Device.mark_inactive(holder, actor: actor)
+
+      assert {:error, %Invalid{errors: errors}} =
+               subject
+               |> Ash.Changeset.for_update(:update, %{ip: taken_ip})
+               |> Ash.update(actor: actor)
+
+      assert Enum.any?(errors, &ip_taken_error?/1)
+
+      assert {:ok, %Device{ip: ^taken_ip}} =
+               Device.get_by_uid(holder.uid, false, actor: actor)
+
+      assert {:ok, %Device{ip: ^free_ip}} =
+               Device.get_by_uid(subject.uid, false, actor: actor)
+    end
+
+    test "update preserves a stale holder and reports a usable ip error", %{actor: actor} do
+      {taken_ip, free_ip} = doc_ip_pair()
+      holder = create_device!(actor, "4357-stale-holder", taken_ip)
+      subject = create_device!(actor, "4357-stale-subject", free_ip)
+
+      stale_at =
+        DateTime.utc_now()
+        |> DateTime.add(-30 * 24 * 3600, :second)
+        |> DateTime.truncate(:second)
+        |> DateTime.to_naive()
+
+      {:ok, _} =
+        Repo.query("UPDATE platform.ocsf_devices SET last_seen_time = $1 WHERE uid = $2", [
+          stale_at,
+          holder.uid
+        ])
+
+      assert {:error, %Invalid{errors: errors}} =
+               subject
+               |> Ash.Changeset.for_update(:update, %{ip: taken_ip})
+               |> Ash.update(actor: actor)
+
+      assert Enum.any?(errors, &ip_taken_error?/1)
+
+      assert {:ok, %Device{ip: ^taken_ip}} =
+               Device.get_by_uid(holder.uid, false, actor: actor)
+
+      assert {:ok, %Device{ip: ^free_ip}} =
+               Device.get_by_uid(subject.uid, false, actor: actor)
+    end
+
+    test "update keeps working when resubmitting the device's own IP", %{actor: actor} do
+      {ip, _free_ip} = doc_ip_pair()
+      subject = create_device!(actor, "4357-self", ip)
+
+      assert {:ok, updated} =
+               subject
+               |> Ash.Changeset.for_update(:update, %{hostname: "4357-renamed", ip: ip})
+               |> Ash.update(actor: actor)
+
+      assert updated.hostname == "4357-renamed"
+      assert updated.ip == ip
+    end
+
+    test "update succeeds when the previous holder was soft-deleted", %{actor: actor} do
+      {taken_ip, free_ip} = doc_ip_pair()
+      holder = create_device!(actor, "4357-deleted-holder", taken_ip)
+      subject = create_device!(actor, "4357-deleted-subject", free_ip)
+
+      {:ok, _} = Device.soft_delete(holder, "test-retired", "test", actor: actor)
+
+      assert {:ok, updated} =
+               subject
+               |> Ash.Changeset.for_update(:update, %{ip: taken_ip})
+               |> Ash.update(actor: actor)
+
+      assert updated.ip == taken_ip
+    end
+
+    test "update succeeds when the requested IP is unassigned", %{actor: actor} do
+      {new_ip, old_ip} = doc_ip_pair()
+      subject = create_device!(actor, "4357-free-subject", old_ip)
+
+      assert {:ok, updated} =
+               subject
+               |> Ash.Changeset.for_update(:update, %{ip: new_ip})
+               |> Ash.update(actor: actor)
+
+      assert updated.ip == new_ip
+
+      assert {:ok, %Device{ip: ^new_ip}} =
+               Device.get_by_uid(subject.uid, false, actor: actor)
+    end
+
+    test "same IP in another partition does not conflict", %{actor: actor} do
+      {taken_ip, free_ip} = doc_ip_pair()
+
+      other =
+        create_device!(actor, "4357-other-partition", taken_ip, %{partition: "test-partition"})
+
+      subject = create_device!(actor, "4357-partition-subject", free_ip)
+
+      assert {:ok, updated} =
+               subject
+               |> Ash.Changeset.for_update(:update, %{ip: taken_ip})
+               |> Ash.update(actor: actor)
+
+      assert updated.ip == taken_ip
+
+      assert {:ok, %Device{ip: ^taken_ip}} =
+               Device.get_by_uid(other.uid, false, actor: actor)
+    end
+  end
+
   describe "primary address preference (GitHub #3905)" do
     test "the SQL rank and the Elixir rank agree", %{actor: _actor} do
       # Two implementations exist on purpose: the upsert must compare against
@@ -628,5 +766,30 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
   defp unique_test_ip do
     n = System.unique_integer([:positive, :monotonic])
     "100.124.#{rem(div(n, 254), 254) + 1}.#{rem(n, 254) + 1}"
+  end
+
+  # Documentation-range pair from a single monotonic draw. The two addresses
+  # are in different /24s, so they can never equal each other: an intra-test
+  # collision is always the conflict under test, never the fixture.
+  defp doc_ip_pair do
+    n = System.unique_integer([:positive, :monotonic])
+    {"203.0.113.#{rem(n, 254) + 1}", "198.51.100.#{rem(n, 254) + 1}"}
+  end
+
+  defp create_device!(actor, hostname, ip, extra \\ %{}) do
+    {:ok, device} =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        Map.merge(%{uid: "sr:4357-#{Ecto.UUID.generate()}", hostname: hostname, ip: ip}, extra)
+      )
+      |> Ash.create(actor: actor)
+
+    device
+  end
+
+  defp ip_taken_error?(error) do
+    fields = List.wrap(Map.get(error, :fields) || []) ++ List.wrap(Map.get(error, :field))
+    :ip in fields and Map.get(error, :message) == "has already been taken"
   end
 end

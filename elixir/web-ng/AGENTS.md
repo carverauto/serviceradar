@@ -4,6 +4,7 @@ This is a web application written using the Phoenix web framework with Ash Frame
 
 - Use `mix precommit` alias when you are done with all changes and fix any pending issues
 - Use the already included and available `:req` (`Req`) library for HTTP requests, **avoid** `:httpoison`, `:tesla`, and `:httpc`. Req is included by default and is the preferred HTTP client for Phoenix apps
+- Always set an explicit `retry` policy on outbound `Req` calls. The defaults (`retry: :safe_transient`, `max_retries: 3`, `retry_log_level: :warning`) turn one timeout into ~4 attempts with backoff and log a crash-like `** (Req.TransportError) ...` warning per attempt (see `Auth.OutboundURLPolicy.req_opts/0` for the shared auth policy)
 
 ## Ash Framework guidelines
 
@@ -127,9 +128,10 @@ Available actors: `system_actor/0`, `admin_actor/0`, `operator_actor/0`, `viewer
 
 - **Always** begin your LiveView templates with `<Layouts.app flash={@flash} ...>` which wraps all inner content
 - The `MyAppWeb.Layouts` module is aliased in the `my_app_web.ex` file, so you can use it without needing to alias it again
-- Anytime you run into errors with no `current_scope` assign:
-  - You failed to follow the Authenticated Routes guidelines, or you failed to pass `current_scope` to `<Layouts.app>`
-  - **Always** fix the `current_scope` error by moving your routes to the proper `live_session` and ensure you pass `current_scope` as needed
+- For missing `current_scope` in a LiveView or layout, check the Authenticated Routes
+  guidelines and the assigns passed to `<Layouts.app>`. For function components, see
+  the explicit timezone attribute boundary in
+  `lib/serviceradar_web_ng_web/live/settings/ansible_live.ex`.
 - Phoenix v1.8 moved the `<.flash_group>` component to the `Layouts` module. You are **forbidden** from calling `<.flash_group>` outside of the `layouts.ex` module
 - Out of the box, `core_components.ex` imports an `<.icon name="hero-x-mark" class="w-5 h-5"/>` component for for hero icons. **Always** use the `<.icon>` component for icons, **never** use `Heroicons` modules or similar
 - **Always** use the imported `<.input>` component for form inputs from `core_components.ex` when available. `<.input>` is imported and using it will save steps and prevent errors
@@ -153,6 +155,9 @@ custom classes must fully style the input
   - Primitives: `UIComponents` (`ui_button`, `ui_input`, `ui_badge`, `ui_panel`, `ui_dropdown`, `ui_pagination`) and token-styled `<.input>` / `<.button>` in `core_components.ex`.
   - Shell chrome: ops topbar / public topbar in `layouts.ex` must not introduce new daisyUI `btn`/`menu`/`dropdown` classes.
   - OpenSpec: `openspec/changes/align-web-ng-with-marketing-design-system` tracks the phased daisyUI retirement. Existing page-level daisy classes may remain until their phase migrates them; do not add new daisy shell chrome.
+  - daisyUI's plugin is disabled in `assets/css/app.css`; residual classes receive
+    only the custom styles defined there. React components cannot use HEEx
+    primitives, so use the shared tokens and Tailwind utilities described above.
   - Custom Tailwind is fine for layout and bespoke visuals when primitives do not cover the case.
 - Out of the box **only the app.js and app.css bundles are supported**
   - You cannot reference an external vendor'd script `src` or link `href` in the layouts
@@ -168,6 +173,29 @@ custom classes must fully style the input
 
 
 <!-- phoenix-gen-auth-start -->
+## SRQL catalog guidelines
+
+`lib/serviceradar_web_ng_web/srql/catalog.ex` is not documentation. The visual
+query builder reads it and emits SRQL tokens from it, so a wrong entry produces
+a wrong query rather than a wrong help string. Two failure modes, both silent:
+
+- **`Catalog.entity/1` never fails on an unknown id.** It falls through to a
+  synthesized entry with `default_sort_field: "timestamp"` and
+  `filter_fields: []`. An entity alias that the SRQL parser accepts and
+  `EntityAccess` gates but `@entity_aliases` does not map therefore reaches the
+  builder as a plausible-looking entity, and the builder emits
+  `sort:timestamp:desc` against a table with no `timestamp` column. Every alias
+  in `rust/srql/src/parser/entity.rs` needs a matching `@entity_aliases` entry;
+  nothing enforces this, so assert it in a test.
+- **`default_sort_field` overrides the Rust query's default, it does not
+  describe it.** `Builder.maybe_add_sort/3` emits a `sort:` token for whatever
+  the catalog names, and an explicit `sort:` replaces a per-entity compound
+  default entirely. When the Rust side has a compound default that is
+  load-bearing -- `device_sweep_overlap` lifting `declared_not_observed` rows
+  ahead of rows that would otherwise bury them past `max_cursor_offset`,
+  `vulnerability_advisories` ordering by `published_at` then `cve_id` -- leave
+  `default_sort_field` blank and say why in a comment.
+
 ## Authentication
 
 - **Always** handle authentication flow at the router level with proper redirects

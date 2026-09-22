@@ -93,12 +93,27 @@ deploy() {
   echo "waiting for certificate dgraph-alpha-tls to be issued..."
   kubectl wait --for=condition=Ready --timeout=300s \
     -n "$namespace" certificate/dgraph-alpha-tls
+  if kubectl get certificate dgraph-zero-tls -n "$namespace" >/dev/null 2>&1; then
+    echo "waiting for certificate dgraph-zero-tls to be issued..."
+    kubectl wait --for=condition=Ready --timeout=300s \
+      -n "$namespace" certificate/dgraph-zero-tls
+  fi
 
   helm upgrade --install "$RELEASE_NAME" "${CHART_REPO_NAME}/dgraph" \
     --version "$CHART_VERSION" \
     -n "$namespace" \
     -f "$values" \
     --wait --timeout 15m
+
+  # Monitoring. The ServiceMonitors scrape Dgraph's own
+  # /debug/prometheus_metrics over HTTPS (TLS is on everywhere here), and the
+  # dashboard ConfigMap is picked up by Grafana's sidecar from any namespace.
+  # Both are additive and safe to re-apply; neither touches the Dgraph pods.
+  for extra in servicemonitor.yaml dashboard-configmap.yaml; do
+    if [[ -f "${here}/${env}/${extra}" ]]; then
+      kubectl apply -n "$namespace" --server-side -f "${here}/${env}/${extra}"
+    fi
+  done
 
   # CI publishes ca.crt as the Envoy backend. Same live-cluster exception as
   # certificate.yaml above: this is not a build artifact. HTTPRoutes are owned
@@ -116,7 +131,7 @@ deploy() {
 
 case "${1:-}" in
   ci)     deploy ci   dgraph-ci ;;
-  demo)   deploy demo dgraph ;;
+  demo)   deploy demo demo ;;
   mirror) mirror_images ;;
   *)      usage ;;
 esac

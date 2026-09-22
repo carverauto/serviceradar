@@ -538,6 +538,7 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
           where: di.device_id != im.device_id,
           where: not like(im.device_id, "serviceradar:%"),
           where: not like(di.device_id, "serviceradar:%"),
+          where: owner.partition == other.partition,
           select: {im.mac, im.device_id, di.device_id, di.partition}
         )
       )
@@ -550,13 +551,15 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
   # without a database. Locally-administered MACs are rejected here as well as by
   # the writer: tap/veth/dummy addresses are synthesised, not hardware, and that
   # guarantee must not depend on which rows the query happens to return.
+  # Reserved MACs (all-zeros, broadcast) carry no device identity and must not
+  # drive a merge even if pre-fix rows already exist in DeviceInterfaceMac.
   @spec interface_mac_chassis_groups_from_rows([
           {String.t(), String.t(), String.t(), String.t()}
         ]) :: [{{String.t(), atom(), String.t()}, MapSet.t()}]
   def interface_mac_chassis_groups_from_rows(rows) when is_list(rows) do
     rows
     |> Enum.reject(fn {mac, _owner, _other, _partition} ->
-      Mac.locally_administered_mac?(mac)
+      Mac.locally_administered_mac?(mac) or Mac.reserved_mac_value?(mac)
     end)
     |> Enum.map(fn {mac, owner, other, partition} ->
       {{partition, :interface_mac_chassis, mac}, MapSet.new([owner, other])}

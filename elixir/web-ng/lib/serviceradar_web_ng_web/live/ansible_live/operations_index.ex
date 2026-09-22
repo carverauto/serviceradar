@@ -12,8 +12,8 @@ defmodule ServiceRadarWebNGWeb.AnsibleLive.OperationsIndex do
     authorization_module: ServiceRadarWebNGWeb.Authorization,
     resource_module: ServiceRadar.Automation.Ansible.AutomationOperation
 
+  alias ServiceRadarWebNG.AnsibleAutomation.History, as: AutomationHistory
   alias ServiceRadarWebNG.RBAC
-  alias ServiceRadarWebNGWeb.AnsibleLive.AutomationHistory
   alias ServiceRadarWebNGWeb.AnsibleLive.AutomationHistoryComponents
 
   require Logger

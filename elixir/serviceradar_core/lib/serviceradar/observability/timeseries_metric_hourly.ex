@@ -6,40 +6,41 @@ defmodule ServiceRadar.Observability.TimeseriesMetricHourly do
   use ServiceRadar.Observability.HourlyMetricResource,
     table: "timeseries_metrics_hourly",
     type: "timeseries_metric_hourly",
-    route: "/timeseries_metrics_hourly"
+    route: "/timeseries_metrics_hourly",
+    primary_key: [:bucket, :device_id, :metric_type, :metric_name]
 
   attributes do
     attribute :bucket, :utc_datetime_usec do
-      allow_nil? false
-      public? true
+      allow_nil?(false)
+      public?(true)
     end
 
     attribute :device_id, :string do
-      public? true
+      public?(true)
     end
 
     attribute :metric_type, :string do
-      public? true
+      public?(true)
     end
 
     attribute :metric_name, :string do
-      public? true
+      public?(true)
     end
 
     attribute :avg_value, :float do
-      public? true
+      public?(true)
     end
 
     attribute :min_value, :float do
-      public? true
+      public?(true)
     end
 
     attribute :max_value, :float do
-      public? true
+      public?(true)
     end
 
     attribute :sample_count, :integer do
-      public? true
+      public?(true)
     end
   end
 end

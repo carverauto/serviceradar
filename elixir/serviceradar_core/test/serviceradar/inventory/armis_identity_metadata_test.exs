@@ -7,6 +7,77 @@ defmodule ServiceRadar.Inventory.ArmisIdentityMetadataTest do
   alias ServiceRadar.Inventory.Sync.Normalize
   alias ServiceRadar.Inventory.Sync.SourcePolicy
 
+  test "self-scoped admission and bare numeric rejection are provider-neutral" do
+    for provider <- ["armis", "netbox", "test-integration", "future-provider"],
+        source_id <- [nil, "source-a"] do
+      scoped = "#{provider}:source-a:device:101"
+
+      metadata = %{
+        "integration_type" => provider,
+        "integration_id" => scoped,
+        "sync_service_id" => source_id
+      }
+
+      assert %{integration_id: ^scoped} = Ids.extract_strong_identifiers(%{metadata: metadata})
+
+      unscoped = metadata |> Map.put("integration_id", "101") |> Map.delete("sync_service_id")
+      assert %{integration_id: nil} = Ids.extract_strong_identifiers(%{metadata: unscoped})
+    end
+  end
+
+  test "existing opaque and hypervisor integration identities retain their values" do
+    for {provider, value} <- [
+          {"test-integration", "integration-device-a"},
+          {"hypervisor", "testhv:node:host-a"},
+          {"hypervisor", "proxmox:v2:cluster-a:node:host-a"}
+        ] do
+      update = %{
+        metadata: %{"integration_type" => provider, "integration_id" => value}
+      }
+
+      assert %{integration_id: ^value} = Ids.extract_strong_identifiers(update)
+    end
+  end
+
+  test "driver-owned bare IDs are not synthesized when a sync service is present" do
+    for provider <- ["armis", "netbox"] do
+      metadata = %{
+        "integration_type" => provider,
+        "integration_id" => "101",
+        "sync_service_id" => "source-a"
+      }
+
+      assert %{integration_id: nil, legacy_integration_ids: []} =
+               Ids.extract_strong_identifiers(%{metadata: metadata})
+    end
+  end
+
+  test "bare integration_id coexisting with a typed identifier is its legacy echo" do
+    cases = [
+      {"armis", "armis", "armis_device_id", "armis-legacy-101", :armis_id},
+      {"netbox", "netbox", "netbox_device_id", "netbox-legacy-101", :netbox_id}
+    ]
+
+    for {source, integration_type, type_key, typed_value, typed_field} <- cases do
+      update =
+        Normalize.normalize_update(%{
+          "hostname" => "legacy-echo",
+          "source" => source,
+          "metadata" => %{
+            "integration_type" => integration_type,
+            type_key => typed_value,
+            "integration_id" => typed_value
+          }
+        })
+
+      ids = Ids.extract_strong_identifiers(update)
+
+      assert ids.integration_id == nil
+      assert Ids.get_identifier_values(:integration_id, ids) == []
+      assert Map.fetch!(ids, typed_field) == typed_value
+    end
+  end
+
   test "legacy Armis source_device_id is not promoted to strong identity" do
     update =
       Normalize.normalize_update(%{
@@ -104,6 +175,62 @@ defmodule ServiceRadar.Inventory.ArmisIdentityMetadataTest do
              record.identifier_type == :integration_id and
                record.identifier_value == "shared-device-42"
            end)
+  end
+
+  test "source-scoped Armis integration IDs resolve through the generic path" do
+    update =
+      Normalize.normalize_update(%{
+        "hostname" => "armis-scoped",
+        "source" => "armis",
+        "metadata" => %{
+          "integration_type" => "armis",
+          "armis_device_id" => "18497",
+          "integration_id" => "armis:source-a:device:18497"
+        },
+        "sync_meta" => %{"sync_service_id" => "source-a"}
+      })
+
+    ids = Ids.extract_strong_identifiers(update)
+
+    assert ids.armis_id == "18497"
+    assert ids.integration_id == "armis:source-a:device:18497"
+    assert ids.partition == "default:armis:source-a"
+    assert Ids.highest_priority_identifier(ids) == {:armis_device_id, "18497"}
+
+    assert {:armis_device_id, "18497", "default:armis:source-a"} in Lookups.extract_all_identifiers(
+             [
+               update
+             ]
+           )
+
+    assert {:integration_id, "armis:source-a:device:18497", "default:armis:source-a"} in Lookups.extract_all_identifiers(
+             [
+               update
+             ]
+           )
+
+    records = IdentifierRecords.build_identifier_records([{update, "sr:test-device"}])
+
+    assert Enum.any?(records, fn record ->
+             record.identifier_type == :armis_device_id and
+               record.identifier_value == "18497" and
+               record.partition == "default:armis:source-a"
+           end)
+
+    assert Enum.any?(records, fn record ->
+             record.identifier_type == :integration_id and
+               record.identifier_value == "armis:source-a:device:18497" and
+               record.partition == "default:armis:source-a"
+           end)
+
+    # Policy check, mirroring how Lookups/IdentifierRecords derive `ids`:
+    # a scoped value carries its own provenance, so the generic type is
+    # offered alongside the typed Armis identifier.
+    ids = SourcePolicy.effective_identifiers(update)
+    id_types = SourcePolicy.identifier_types(update, ids)
+
+    assert :armis_device_id in id_types
+    assert :integration_id in id_types
   end
 
   test "Armis typed identifiers are partition-scoped by sync source" do

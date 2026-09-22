@@ -3,7 +3,7 @@ package main
 import (
 	"net/http"
 
-	"github.com/carverauto/serviceradar-sdk-go/sdk"
+	"github.com/carverauto/serviceradar-sdk-go/v2/sdk"
 )
 
 // otxHTTP is package-level so tests can swap it for a fake.

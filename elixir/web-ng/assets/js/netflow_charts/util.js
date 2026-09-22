@@ -1,7 +1,7 @@
 import * as d3 from "d3"
 
 import {hoverPosition} from "../utils/chart_hover_geometry"
-import {axisUserTimeFormatter, canonicalUtcInstant, formatUserTime} from "../utils/user_time"
+import {canonicalUtcInstant, formatUserTime, userTimeFormatter} from "../utils/user_time"
 
 const DEFAULT_NETFLOW_TIME_ZONE = "Etc/UTC"
 
@@ -11,8 +11,25 @@ export function netflowDisplayTimeZone(timeZone) {
     : DEFAULT_NETFLOW_TIME_ZONE
 }
 
-export function netflowAxisTimeFormatter(timeZone) {
-  return axisUserTimeFormatter({timeZone: netflowDisplayTimeZone(timeZone)})
+const DAY_MS = 24 * 60 * 60 * 1000
+
+// Picks tick labels that can tell the ticks apart: clock time within a day,
+// date and hour within a week, date alone beyond that. `domain` is the x
+// scale's [start, end]; without it the label stays clock time.
+export function netflowAxisStyle(domain) {
+  if (!Array.isArray(domain) || domain.length < 2) return "axis"
+
+  const span = Math.abs(new Date(domain[1]).getTime() - new Date(domain[0]).getTime())
+  if (!Number.isFinite(span) || span <= DAY_MS) return "axis"
+
+  return span <= 7 * DAY_MS ? "axisDayTime" : "axisDate"
+}
+
+export function netflowAxisTimeFormatter(timeZone, domain) {
+  return userTimeFormatter({
+    timeZone: netflowDisplayTimeZone(timeZone),
+    style: netflowAxisStyle(domain),
+  })
 }
 
 export function netflowTooltipTimeLabel(canonical, timeZone) {

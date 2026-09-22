@@ -4,6 +4,7 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
   """
 
   alias ServiceRadar.Edge.ReleaseFetchPolicy
+  alias ServiceRadar.HTTP.EgressClient
   alias ServiceRadar.Sync.Client, as: SyncClient
 
   @default_timeout 30_000
@@ -235,7 +236,10 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
       {:ok, %Req.Response{status: status}} ->
         {:error, "artifact download failed with HTTP #{status}"}
 
-      {:error, :artifact_too_large} ->
+      # :artifact_too_large comes from the streaming callback below;
+      # :response_too_large from EgressClient's own :max_bytes guard. Same limit,
+      # so operators get one message either way.
+      {:error, reason} when reason in [:artifact_too_large, :response_too_large] ->
         {:error, "artifact exceeds #{@max_artifact_bytes} byte mirror limit"}
 
       {:error, reason} ->
@@ -350,21 +354,19 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
     }
   end
 
+  # EgressClient owns CONNECT-proxy compatibility; see its module documentation.
   defp default_http_get(url, opts) do
-    req_opts =
+    client_opts =
       Keyword.merge(
         [
-          url: url,
           headers: [{"user-agent", "serviceradar"}],
-          finch: [name: ServiceRadar.Finch],
-          redirect: false,
-          max_redirects: 0,
-          receive_timeout: @default_timeout
+          receive_timeout: @default_timeout,
+          max_bytes: @max_artifact_bytes
         ],
         opts
       )
 
-    Req.get(req_opts)
+    EgressClient.get(url, client_opts)
   end
 
   defp default_upload_object(metadata, data, opts) do
@@ -394,6 +396,13 @@ defmodule ServiceRadar.Edge.ReleaseArtifactMirror do
   defp format_reason(:disallowed_scheme), do: "artifact URL must use https"
   defp format_reason(:dns_resolution_failed), do: "artifact URL host could not be resolved"
   defp format_reason(:invalid_url), do: "artifact URL is invalid"
+
+  # gRPC 8 = RESOURCE_EXHAUSTED. datasvc returns this when the object store
+  # bucket is at its MaxBytes cap; its message already explains how to reclaim
+  # space, so surface it directly instead of burying it behind a status code.
+  defp format_reason(%GRPC.RPCError{status: 8} = error) do
+    "release artifact could not be stored: #{error.message}"
+  end
 
   defp format_reason(%GRPC.RPCError{} = error) do
     if upload_stream_closed_error?(error) do

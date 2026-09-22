@@ -29,9 +29,11 @@ pub use seasonal_profile::{
     SeasonalSettings,
 };
 pub use types::{
-    AnomalyEpisode, AnomalyTransition, CusumDirection, CusumDrift, DriftClearReason, DriftMode,
-    DriftUpdateReason, MetricClassOverride, SeriesProfile, SeverityPolicy, SpikeClearReason,
-    SpikeUpdateReason, TransitionVerdict,
+    AnomalyEpisode, AnomalyTransition, BurstEnvelope, CusumDirection, CusumDrift,
+    DEFAULT_BURST_ENVELOPE_LAG_SAMPLES, DEFAULT_BURST_ENVELOPE_MIN_SAMPLES,
+    DEFAULT_BURST_ENVELOPE_MULTIPLIER, DEFAULT_BURST_ENVELOPE_QUANTILE, DriftClearReason,
+    DriftMode, DriftUpdateReason, MetricClassOverride, SeriesProfile, SeverityPolicy,
+    SpikeClearReason, SpikeUpdateReason, TransitionVerdict,
 };
 
 use episode::{
@@ -58,6 +60,13 @@ pub const DEFAULT_CUSUM_H: f64 = 8.0;
 pub const DEFAULT_H_CONFIRM_MULT: f64 = 1.5;
 pub const DEFAULT_DRIFT_CONFIRM_WINDOW: u64 = 30;
 pub const DEFAULT_DRIFT_MIN_EFFECT: f64 = 2.0;
+/// Bound on the standardized residual the CUSUM consumes, in sigma units. One
+/// sample can contribute at most `clip - k` to the accumulator, so reaching the
+/// confirmation threshold `h * h_confirm_mult` takes at least
+/// `h * h_confirm_mult / (clip - k)` samples of evidence: twelve with the defaults.
+/// Deviations beyond the clip are the spike path's business; a three-sample burst
+/// at twenty sigma is not a level shift, and unclipped it confirmed one on its own.
+pub const DEFAULT_DRIFT_RESIDUAL_CLIP: f64 = 1.5;
 pub const DEFAULT_DRIFT_CLEAR_SLOTS: u64 = 30;
 pub const DEFAULT_DRIFT_ADOPT_AFTER_SAMPLES: u64 = 600;
 pub const DEFAULT_SPIKE_ADOPT_AFTER_SAMPLES: u64 = 600;
@@ -102,6 +111,15 @@ pub struct EngineConfig {
     /// Minimum estimated sustained shift, in sigma units, before a CUSUM alarm
     /// becomes an emitted drift finding.
     pub drift_min_effect: f64,
+    /// Bound on the standardized residual fed to the CUSUM (sigma units). Capping a
+    /// sample's contribution at `clip - k` keeps a short burst from carrying a drift
+    /// confirmation by itself and makes "sustained" a minimum sample count.
+    pub drift_residual_clip: f64,
+    /// Rolling-window samples required before the CUSUM anchor is captured. The
+    /// anchor freezes the level drift is measured against, so it must come from a
+    /// mature baseline: a cold start that anchors on its first `min_samples` in an
+    /// overnight trough reads the morning ramp as sustained drift.
+    pub drift_anchor_min_samples: usize,
     /// Consecutive recovered samples before an open drift episode clears.
     pub drift_clear_slots: u64,
     /// Samples after open before a persistent new level is adopted and cleared.
@@ -145,6 +163,8 @@ impl Default for EngineConfig {
             h_confirm_mult: DEFAULT_H_CONFIRM_MULT,
             drift_confirm_window: DEFAULT_DRIFT_CONFIRM_WINDOW,
             drift_min_effect: DEFAULT_DRIFT_MIN_EFFECT,
+            drift_residual_clip: DEFAULT_DRIFT_RESIDUAL_CLIP,
+            drift_anchor_min_samples: DEFAULT_WINDOW_SIZE,
             drift_clear_slots: DEFAULT_DRIFT_CLEAR_SLOTS,
             drift_adopt_after_samples: DEFAULT_DRIFT_ADOPT_AFTER_SAMPLES,
             spike_adopt_after_samples: DEFAULT_SPIKE_ADOPT_AFTER_SAMPLES,
@@ -164,9 +184,17 @@ impl Default for EngineConfig {
     }
 }
 
-fn drift_shift_estimate(k: f64, accumulator: f64, samples: u64) -> f64 {
-    let samples = samples.max(1) as f64;
-    k.max(0.0) + accumulator.max(0.0) / samples
+/// Bound the residual the CUSUM consumes. The bound never drops to the slack `k`,
+/// because an accumulator whose input can never exceed `k` cannot grow at all.
+fn clip_drift_residual(standardized: f64, clip: f64, k: f64) -> f64 {
+    let bound = clip.max(k + f64::EPSILON);
+    standardized.clamp(-bound, bound)
+}
+
+/// The sustained shift in sigma units: the mean of the UNCLIPPED residuals over a
+/// run. The clipped accumulator is a detection statistic, not a size estimate.
+fn mean_shift(sum: f64, samples: u64) -> f64 {
+    (sum / samples.max(1) as f64).abs()
 }
 
 fn drift_direction_for(pos: f64, neg: f64) -> CusumDirection {
@@ -192,6 +220,13 @@ struct DriftSample {
     shift_estimate: f64,
     standardized_residual: f64,
     target: f64,
+    scale: f64,
+    /// Mean raw value over the run, in metric units: the level the series moved to.
+    level: f64,
+    /// Whether the accumulator in the drift's direction crossed `h` on this sample.
+    /// While an episode is open this is the recovery test: an episode clears once
+    /// the same statistic that opened it stops alarming.
+    re_alarmed: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -230,11 +265,23 @@ fn drift_episode(state: &SeriesState, ended_at_unix_nano: u64) -> Option<Anomaly
     })
 }
 
+/// Samples the rolling window must hold before the drift anchor is captured: the
+/// configured `drift_anchor_min_samples`, never below `min_samples` and never
+/// above the window itself.
+pub(crate) fn drift_anchor_min_samples(config: &EngineConfig) -> usize {
+    config
+        .drift_anchor_min_samples
+        .max(config.min_samples)
+        .min(config.window_size.max(1))
+}
+
 fn reset_drift_pending_and_cusum(state: &mut SeriesState) {
     if let Some(cusum) = state.cusum.as_mut() {
         cusum.reset();
     }
     state.cusum_run_samples = 0;
+    state.cusum_run_residual_sum = 0.0;
+    state.cusum_run_value_sum = 0.0;
     state.cusum_pending_direction = None;
     state.cusum_pending_samples = 0;
 }
@@ -249,6 +296,8 @@ fn clear_drift_episode_state(state: &mut SeriesState) {
     state.drift_peak_severity_band = 0;
     state.drift_active_samples = 0;
     state.drift_clear_samples = 0;
+    state.drift_active_residual_sum = 0.0;
+    state.drift_active_value_sum = 0.0;
     state.drift_last_emitted_at_unix_nano = None;
 }
 
@@ -321,6 +370,50 @@ fn refresh_drift_anchor_scale(
     state.cusum_anchor = Some((center, scale));
 }
 
+/// The envelope level for one sample: `multiplier x quantile` of the raw history
+/// older than the newest `lag` samples (the sample under evaluation has already
+/// been pushed onto `raw_tail`, so it is excluded too) and older than the
+/// current breaching run (`burst_run_start`), or `None` while that history is
+/// shorter than `min_samples`. Excluding the run is what keeps a sustained surge
+/// from training the envelope on itself and clearing early as "recovered"; the
+/// lag keeps a burst's own first samples from vouching for it before the run
+/// marker is set.
+fn burst_envelope_level(
+    raw_tail: &[f64],
+    burst_run_start: Option<usize>,
+    envelope: BurstEnvelope,
+    confirm_slots: usize,
+) -> Option<f64> {
+    let lag = envelope
+        .lag_samples
+        .max(confirm_slots.saturating_mul(2))
+        .saturating_add(1);
+    let usable = raw_tail
+        .len()
+        .checked_sub(lag)?
+        .min(burst_run_start.unwrap_or(usize::MAX));
+    let min_samples = envelope.min_samples.max(2);
+    if usable < min_samples {
+        return None;
+    }
+
+    let mut history: Vec<f64> = raw_tail[..usable]
+        .iter()
+        .copied()
+        .filter(|value| value.is_finite())
+        .collect();
+    if history.len() < min_samples {
+        return None;
+    }
+
+    let quantile = envelope.quantile.clamp(0.0, 1.0);
+    let index = (((history.len() - 1) as f64) * quantile).round() as usize;
+    let index = index.min(history.len() - 1);
+    let (_, value, _) = history.select_nth_unstable_by(index, |a, b| a.total_cmp(b));
+    let level = *value * envelope.multiplier;
+    level.is_finite().then_some(level)
+}
+
 fn seasonal_drift_scale(
     bucket: SeasonalBucket,
     min_std_floor: f64,
@@ -370,6 +463,9 @@ fn clear_open_drift_episode(
         pos: sample.pos,
         neg: sample.neg,
         direction: sample.direction,
+        target: sample.target,
+        scale: sample.scale,
+        level: sample.level,
         shift_estimate: sample.shift_estimate,
         transition: AnomalyTransition::Clear,
         episode,
@@ -394,11 +490,15 @@ fn apply_drift_lifecycle(
             state,
             ctx.value,
             ctx.observed_at_unix_nano,
-            sample.shift_estimate,
+            sample.standardized_residual.abs(),
         );
 
-        let recovered = sample.standardized_residual.abs() < config.cusum_k
-            || state.drift_active_direction != Some(sample.direction);
+        // Recovery is judged by the accumulator, not the sample: the episode is
+        // still open while the CUSUM keeps re-alarming in its direction and clears
+        // after `drift_clear_slots` samples without an alarm. Ordinary noise and
+        // the odd blip decay out of the accumulator; a persistent shift re-crosses
+        // `h` every `h / (clip - k)` samples and keeps the episode open.
+        let recovered = !sample.re_alarmed;
         if recovered {
             state.drift_clear_samples = state.drift_clear_samples.saturating_add(1);
         } else {
@@ -453,6 +553,9 @@ fn apply_drift_lifecycle(
                 pos: sample.pos,
                 neg: sample.neg,
                 direction: sample.direction,
+                target: sample.target,
+                scale: sample.scale,
+                level: sample.level,
                 shift_estimate: sample.shift_estimate,
                 transition: AnomalyTransition::Update,
                 episode: drift_episode(state, ctx.observed_at_unix_nano),
@@ -503,6 +606,9 @@ fn apply_drift_lifecycle(
         pos: sample.pos,
         neg: sample.neg,
         direction: sample.direction,
+        target: sample.target,
+        scale: sample.scale,
+        level: sample.level,
         shift_estimate: sample.shift_estimate,
         transition: if reuse_previous_episode {
             AnomalyTransition::Update
@@ -879,6 +985,37 @@ impl DetectorEngine {
             profile.spike_adopt_after_samples = Some(spike_adopt_after_samples.max(1));
         }
 
+        match class_override.burst_envelope_enabled {
+            Some(false) => profile.burst_envelope = None,
+            Some(true) if profile.burst_envelope.is_none() => {
+                profile.burst_envelope = Some(BurstEnvelope::default());
+            }
+            _ => {}
+        }
+        if let Some(envelope) = profile.burst_envelope.as_mut() {
+            if let Some(quantile) = class_override
+                .burst_envelope_quantile
+                .filter(|value| value.is_finite() && *value > 0.0 && *value <= 1.0)
+            {
+                envelope.quantile = quantile;
+            }
+            if let Some(multiplier) = class_override
+                .burst_envelope_multiplier
+                .filter(|value| value.is_finite() && *value >= 1.0)
+            {
+                envelope.multiplier = multiplier;
+            }
+            if let Some(lag) = class_override.burst_envelope_lag_samples {
+                envelope.lag_samples = usize::try_from(lag).unwrap_or(usize::MAX);
+            }
+            if let Some(min_samples) = class_override
+                .burst_envelope_min_samples
+                .filter(|value| *value > 0)
+            {
+                envelope.min_samples = usize::try_from(min_samples).unwrap_or(usize::MAX);
+            }
+        }
+
         profile
     }
 
@@ -1020,6 +1157,9 @@ impl DetectorEngine {
         if state.raw_tail.len() > raw_tail_limit {
             let keep_from = state.raw_tail.len().saturating_sub(self.config.window_size);
             state.raw_tail.drain(0..keep_from);
+            state.burst_run_start = state
+                .burst_run_start
+                .map(|start| start.saturating_sub(keep_from));
         }
 
         // A global operator floor override (fix #2) only ever RAISES the floor:
@@ -1047,7 +1187,9 @@ impl DetectorEngine {
         }
 
         if profile.drift_mode != DriftMode::Off {
-            if state.cusum_anchor.is_none() && state.window_tail.len() >= self.config.min_samples {
+            if state.cusum_anchor.is_none()
+                && state.window_tail.len() >= drift_anchor_min_samples(&self.config)
+            {
                 // Anchor to the ROBUST center/scale (median + MAD*1.4826), matching
                 // the rolling detector's dispersion. The scale uses the same
                 // magnitude-aware floor as robust scoring so a quiet series cannot
@@ -1065,7 +1207,7 @@ impl DetectorEngine {
                 && state.cusum_anchor.is_some()
                 && !state.drift_active
                 && state.cusum_pending_direction.is_none()
-                && state.window_tail.len() >= self.config.min_samples
+                && state.window_tail.len() >= drift_anchor_min_samples(&self.config)
                 && elapsed_ns(
                     observed_at_unix_nano,
                     state.cusum_anchor_captured_at_unix_nano,
@@ -1104,34 +1246,55 @@ impl DetectorEngine {
 
             if let (Some((target, scale)), Some(cusum)) = (drift_target, state.cusum.as_mut()) {
                 let standardized_residual = (value - target) / scale;
+                let clipped = clip_drift_residual(
+                    standardized_residual,
+                    self.config.drift_residual_clip,
+                    self.config.cusum_k,
+                );
 
                 if state.drift_active {
-                    let direction = if standardized_residual >= 0.0 {
-                        CusumDirection::Up
-                    } else {
-                        CusumDirection::Down
-                    };
-                    let shift_estimate = standardized_residual.abs();
-                    let (pos, neg) = match direction {
-                        CusumDirection::Up => (shift_estimate, 0.0),
-                        CusumDirection::Down => (0.0, shift_estimate),
-                    };
+                    // Keep running the same accumulator that opened the episode. It
+                    // re-alarms while the level stays shifted and idles near zero once
+                    // the series is back, blips included; the lifecycle below counts
+                    // alarm-free samples toward the clear.
+                    let step = cusum.update_retaining(clipped);
+                    let direction = state
+                        .drift_active_direction
+                        .unwrap_or_else(|| drift_direction_for(step.pos, step.neg));
+                    let re_alarmed =
+                        drift_accumulator_for(direction, step.pos, step.neg) > self.config.cusum_h;
+                    if re_alarmed {
+                        cusum.reset();
+                    }
+                    state.drift_active_residual_sum += standardized_residual;
+                    state.drift_active_value_sum += value;
+                    let active_samples = state.drift_active_samples.saturating_add(1);
+                    let shift_estimate =
+                        mean_shift(state.drift_active_residual_sum, active_samples);
+                    let level = state.drift_active_value_sum / active_samples.max(1) as f64;
                     drift_sample = Some(DriftSample {
-                        pos,
-                        neg,
+                        pos: step.pos,
+                        neg: step.neg,
                         direction,
                         shift_estimate,
                         standardized_residual,
                         target,
+                        scale,
+                        level,
+                        re_alarmed,
                     });
                 } else {
-                    let step = cusum.update_retaining(standardized_residual);
+                    let step = cusum.update_retaining(clipped);
                     if step.pos <= 0.0 && step.neg <= 0.0 {
                         state.cusum_run_samples = 0;
+                        state.cusum_run_residual_sum = 0.0;
+                        state.cusum_run_value_sum = 0.0;
                         state.cusum_pending_direction = None;
                         state.cusum_pending_samples = 0;
                     } else {
                         state.cusum_run_samples = state.cusum_run_samples.saturating_add(1);
+                        state.cusum_run_residual_sum += standardized_residual;
+                        state.cusum_run_value_sum += value;
                     }
 
                     if let Some(pending_direction) = state.cusum_pending_direction {
@@ -1144,11 +1307,12 @@ impl DetectorEngine {
                             let gate_allows = profile
                                 .saturation_gate
                                 .is_none_or(|gate| gate.allows_breach(value, target));
-                            let shift_estimate = drift_shift_estimate(
-                                self.config.cusum_k,
-                                pending_accumulator,
-                                state.cusum_run_samples,
-                            );
+                            // Effect size from the unclipped residuals over the run:
+                            // how far the level actually moved, in sigma.
+                            let shift_estimate =
+                                mean_shift(state.cusum_run_residual_sum, state.cusum_run_samples);
+                            let level =
+                                state.cusum_run_value_sum / state.cusum_run_samples.max(1) as f64;
 
                             if gate_allows && shift_estimate >= self.config.drift_min_effect {
                                 drift_sample = Some(DriftSample {
@@ -1158,11 +1322,16 @@ impl DetectorEngine {
                                     shift_estimate,
                                     standardized_residual,
                                     target,
+                                    scale,
+                                    level,
+                                    re_alarmed: true,
                                 });
                             }
                         } else if state.cusum_pending_samples >= self.config.drift_confirm_window {
                             cusum.reset();
                             state.cusum_run_samples = 0;
+                            state.cusum_run_residual_sum = 0.0;
+                            state.cusum_run_value_sum = 0.0;
                             state.cusum_pending_direction = None;
                             state.cusum_pending_samples = 0;
                         }
@@ -1174,6 +1343,18 @@ impl DetectorEngine {
                 }
             }
         }
+
+        // The recent-burst envelope comes from the RAW tail (not the winsorized
+        // scoring window), lagged so this sample and its immediate predecessors
+        // cannot vouch for themselves.
+        let burst_envelope = profile.burst_envelope.and_then(|envelope| {
+            burst_envelope_level(
+                &state.raw_tail,
+                state.burst_run_start,
+                envelope,
+                self.config.confirm_slots,
+            )
+        });
 
         let context = ReasonContext {
             baseline: Vec::new(),
@@ -1196,6 +1377,7 @@ impl DetectorEngine {
             min_std_floor: Some(min_std_floor),
             min_cv: Some(min_cv),
             saturation_gate: profile.saturation_gate,
+            burst_envelope,
         };
         let sample = ReasonSample {
             value,
@@ -1211,6 +1393,19 @@ impl DetectorEngine {
                 state.window_tail = std::mem::take(&mut verdict.next_window_tail);
                 state.consecutive_anomalous = verdict.next_consecutive_anomalous;
                 state.last_observed_at_unix_nano = observed_at_unix_nano;
+
+                // Track the breaching run for the burst envelope: it starts at the
+                // first breaching sample and ends once the series is clean with no
+                // open spike episode (`active_anomalous` still reflects the
+                // previous sample's lifecycle here, so the reset lands one sample
+                // after the clear, which is harmless).
+                if verdict.breached {
+                    if state.burst_run_start.is_none() {
+                        state.burst_run_start = Some(state.raw_tail.len().saturating_sub(1));
+                    }
+                } else if !state.active_anomalous {
+                    state.burst_run_start = None;
+                }
 
                 if let Some(reason) = seasonal_unavailable_reason
                     && let Some(signal) = verdict

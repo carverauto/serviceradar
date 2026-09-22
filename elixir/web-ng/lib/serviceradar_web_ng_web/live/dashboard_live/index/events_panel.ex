@@ -142,7 +142,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel do
                 phx-hook="UserTime"
                 data-user-time-iso={label.iso}
                 data-user-time-zone={@timezone}
-                data-user-time-style="axis"
+                data-user-time-style={event_axis_style(@security_trend)}
                 data-user-time-fallback={label.iso}
                 title={"#{label.iso} (UTC); display zone #{@timezone}"}
                 aria-label={"#{label.iso} UTC; display zone #{@timezone}"}
@@ -230,7 +230,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel do
 
     points
     |> Enum.with_index()
-    |> Enum.filter(fn {_point, idx} -> idx == 0 or idx == count - 1 or rem(idx, step) == 0 end)
+    |> Enum.filter(fn {_point, idx} -> event_axis_tick?(idx, count, step) end)
     |> Enum.map(fn {point, idx} ->
       {x, _y} = event_xy(idx, count, 0, 1)
       canonical = canonical_bucket(point.bucket)
@@ -241,6 +241,42 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel do
         iso: DateTime.to_iso8601(canonical)
       }
     end)
+  end
+
+  # The first and last points are always labelled, plus every `step`-th between.
+  # When the count is not a multiple of the step, the last regular tick lands
+  # right beside the final point and the two labels overlap, so a regular tick
+  # less than a full step from the end gives way to it. Measured on a 29-point
+  # week, a tick 0.6 of a step from the end still overlapped its neighbour.
+  defp event_axis_tick?(idx, count, step) do
+    last = count - 1
+
+    cond do
+      idx == 0 or idx == last -> true
+      rem(idx, step) != 0 -> false
+      true -> last - idx >= step
+    end
+  end
+
+  # A clock time can only tell ticks apart within a day. Past that, the buckets
+  # are hours or days wide and every tick lands on the same time of day, so a
+  # 90-day chart read "07:00 PM" six times over.
+  defp event_axis_style(points) do
+    buckets = points |> Enum.map(&canonical_bucket(&1.bucket)) |> Enum.reject(&is_nil/1)
+
+    case buckets do
+      [first | _] = all ->
+        span = DateTime.diff(List.last(all), first, :second)
+
+        cond do
+          span <= 86_400 -> "axis"
+          span <= 7 * 86_400 -> "axisDayTime"
+          true -> "axisDate"
+        end
+
+      [] ->
+        "axis"
+    end
   end
 
   defp canonical_bucket(%DateTime{} = bucket), do: DateTime.truncate(bucket, :second)
@@ -276,12 +312,17 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.EventsPanel do
     ])
   end
 
-  defp event_tick_label(value) when value >= 1_000_000, do: "#{event_tick_decimal(value / 1_000_000)}M"
-
-  defp event_tick_label(value) when value >= 1_000, do: "#{event_tick_decimal(value / 1_000)}K"
+  # The labels sit in a 36-unit left margin and are clipped at the chart's edge,
+  # so they have to stay short: "812.4K" lost its first character and read as
+  # "12.4K". Three significant figures is as much as a tick needs.
+  defp event_tick_label(value) when value >= 1_000_000_000, do: "#{event_tick_scaled(value / 1_000_000_000)}B"
+  defp event_tick_label(value) when value >= 1_000_000, do: "#{event_tick_scaled(value / 1_000_000)}M"
+  defp event_tick_label(value) when value >= 1_000, do: "#{event_tick_scaled(value / 1_000)}K"
   defp event_tick_label(value), do: Integer.to_string(value)
 
-  defp event_tick_decimal(value) do
+  defp event_tick_scaled(value) when value >= 100, do: value |> round() |> Integer.to_string()
+
+  defp event_tick_scaled(value) do
     value
     |> Float.round(1)
     |> :erlang.float_to_binary(decimals: 1)

@@ -163,6 +163,7 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
         | Entity::TimeseriesMetricInterfaceHourly
         | Entity::SnmpMetrics
         | Entity::RperfMetrics => metrics::timeseries_metrics(),
+        Entity::TimeseriesMetricDiskHourly => metrics::timeseries_metric_disk_hourly(),
         Entity::CpuMetrics => metrics::cpu_metrics(),
         Entity::MemoryMetrics => metrics::memory_metrics(),
         Entity::DiskMetrics => metrics::disk_metrics(),
@@ -170,6 +171,7 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
         Entity::Alerts => services::alerts(),
         Entity::DeviceGraph => inventory::device_graph(),
         Entity::GraphCypher => inventory::graph_cypher(),
+        Entity::GraphDql => inventory::graph_cypher(),
         Entity::Flows | Entity::AttributedFlows => network::flows(),
         Entity::PublicEndpoints => network::public_endpoints(),
         Entity::ThreatIntelMatches => network::threat_intel_matches(),
@@ -179,6 +181,7 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
         Entity::SweepExecutions => inventory::sweep_executions(),
         Entity::SweepResults => inventory::sweep_results(),
         Entity::SweepCoverage => inventory::sweep_coverage(),
+        Entity::DeviceSweepOverlap => inventory::device_sweep_overlap(),
         Entity::MergeAudit => inventory::merge_audit(),
         Entity::DeviceRevivalAudit => inventory::device_revival_audit(),
         Entity::DeviceIdentifiers => inventory::device_identifiers(),

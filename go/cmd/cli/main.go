@@ -77,6 +77,8 @@ func dispatchCommand(cfg *cli.CmdConfig) error {
 		return cli.RunNatsBootstrap(cfg)
 	case "admin":
 		return dispatchAdminCommand(cfg)
+	case "auth":
+		return cli.RunAuthCommand(cfg)
 	default:
 		return runBcryptMode(cfg)
 	}

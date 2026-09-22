@@ -23,17 +23,9 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncher.AshAdapter do
 
   @impl true
   def fresh_authorization(%User{} = actor) do
-    case RBAC.effective_profile(actor, @actor) do
-      {:ok, nil} ->
-        {:error, :role_profile_not_found}
-
-      {:ok, profile} ->
-        {:ok,
-         %{
-           permissions: MapSet.new(profile.permissions),
-           profile_id: profile.id,
-           profile_updated_at: profile.updated_at
-         }}
+    case RBAC.effective_authority(actor, @actor) do
+      {:ok, %{permissions: %MapSet{} = permissions, profile_versions: profile_versions}} ->
+        {:ok, %{permissions: permissions, profile_versions: profile_versions}}
 
       {:error, reason} ->
         {:error, {:fresh_authorization_failed, reason}}

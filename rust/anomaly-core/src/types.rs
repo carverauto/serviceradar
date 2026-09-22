@@ -73,6 +73,14 @@ pub struct ReasonContext {
     /// Optional absolute/directional breach gate for saturation gauges. `None`
     /// leaves the series purely z-based (counters / interface rates).
     pub saturation_gate: Option<SaturationGate>,
+    /// Optional practical-significance ceiling for UPWARD moves, in the metric's
+    /// own units: a sample above the rolling center but at or below this level
+    /// is within the series' recent burst envelope and does not breach, whatever
+    /// its rolling or seasonal z-score says. The caller derives it from the
+    /// series' lagged raw history (a recurring bulk transfer leaves its own
+    /// samples in that history, so the next one is "expected"). `None` keeps the
+    /// pure z-based behavior; downward moves are never gated.
+    pub burst_envelope: Option<f64>,
 }
 
 /// A single observed sample.

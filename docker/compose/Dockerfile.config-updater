@@ -6,7 +6,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -o serviceradar-cli ./go/cmd/cli
+RUN CGO_ENABLED=0 GOOS=linux go build -o srctl ./go/cmd/cli
 
 # Runtime stage
 FROM alpine:3.20
@@ -14,9 +14,10 @@ FROM alpine:3.20
 # Install runtime dependencies
 RUN apk add --no-cache jq openssl
 
-# Copy the CLI binary
-COPY --from=builder /src/serviceradar-cli /usr/local/bin/serviceradar-cli
-RUN chmod +x /usr/local/bin/serviceradar-cli
+# Copy the CLI binary (plus deprecated serviceradar-cli symlink)
+COPY --from=builder /src/srctl /usr/local/bin/srctl
+RUN chmod +x /usr/local/bin/srctl \
+    && ln -s srctl /usr/local/bin/serviceradar-cli
 
 COPY docker/compose/update-config.sh /update-config.sh
 RUN chmod +x /update-config.sh

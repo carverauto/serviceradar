@@ -114,8 +114,12 @@ defmodule ServiceRadar.Automation.Ansible.SecureChildLauncherTest do
     Map.merge(
       %{
         permissions: MapSet.new(["ansible.runs.launch", "ansible.catalog.view"]),
-        profile_id: "018f3f56-1111-7222-8333-123456789a07",
-        profile_updated_at: ~U[2026-07-12 14:54:00.000000Z]
+        profile_versions: [
+          %{
+            id: "018f3f56-1111-7222-8333-123456789a07",
+            updated_at: ~U[2026-07-12 14:54:00.000000Z]
+          }
+        ]
       },
       overrides
     )

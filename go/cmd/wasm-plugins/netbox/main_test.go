@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/carverauto/serviceradar-sdk-go/sdk"
+	"github.com/carverauto/serviceradar-sdk-go/v2/sdk"
 )
 
 type fakeHTTP struct {
@@ -431,15 +431,58 @@ func TestRunInventorySyncFlatSingleSourceConfig(t *testing.T) {
 	}
 }
 
-func TestRunInventorySyncMissingConfig(t *testing.T) {
-	result := runInventorySync(Config{})
-	if result.Status != sdk.StatusUnknown {
-		t.Fatalf("expected Unknown for empty config, got %v", result.Status)
+func TestRunInventorySyncMissingConfigNamesTheMissingPiece(t *testing.T) {
+	cases := []struct {
+		name    string
+		cfg     Config
+		summary string
+	}{
+		{
+			name:    "nothing configured",
+			cfg:     Config{},
+			summary: "has no source configured",
+		},
+		{
+			name:    "token without base_url",
+			cfg:     Config{SourceID: "lab", APIToken: "secret-token"},
+			summary: "NetBox source lab has no base_url configured",
+		},
+		{
+			name:    "base_url without token",
+			cfg:     Config{SourceID: "lab", BaseURL: "https://netbox.example.com"},
+			summary: "NetBox source lab has no api_token configured",
+		},
+		{
+			name:    "base_url without a scheme",
+			cfg:     Config{SourceID: "lab", BaseURL: "netbox.example.com", APIToken: "t"},
+			summary: "NetBox source lab has an invalid base_url: base url must be http or https",
+		},
 	}
 
-	result = runInventorySyncSource(SourceConfig{SourceID: "x", BaseURL: "https://x.example.com"})
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := runInventorySync(tc.cfg)
+
+			if result.Status != sdk.StatusUnknown {
+				t.Fatalf("expected Unknown, got %v", result.Status)
+			}
+			if !strings.Contains(result.Summary, tc.summary) {
+				t.Fatalf("summary must name the missing piece %q, got %q", tc.summary, result.Summary)
+			}
+		})
+	}
+}
+
+func TestRunInventorySyncMissingBaseURLInSourcesEntry(t *testing.T) {
+	cfg := Config{Sources: []SourceConfig{{SourceID: "lab", APIToken: "secret-token"}}}
+
+	result := runInventorySync(cfg)
+
 	if result.Status != sdk.StatusUnknown {
-		t.Fatalf("expected Unknown for missing token, got %v", result.Status)
+		t.Fatalf("expected Unknown, got %v", result.Status)
+	}
+	if !strings.Contains(result.Summary, "NetBox source lab has no base_url configured") {
+		t.Fatalf("summary must name base_url, got %q", result.Summary)
 	}
 }
 
