@@ -143,8 +143,8 @@ change should not claim to deliver it unless it does.
 - **The reproduction may disprove the hypothesis.** Mitigation: that branch is written into the
   plan and re-scopes the change rather than being absorbed. The baseline work (tasks 3-5) does
   not depend on the outcome and proceeds either way.
-- **`platform_schema.sql` is a declared input to `//build/contracts:ci_heavy_gate_contract_test`** (root
-  `BUILD.bazel`). Changing its consumers turns that gate red, and a red contract gate masks the
+- **`platform_schema.sql` is a declared input to `//build/contracts:ci_heavy_gate_contract_test`**.
+  Changing its consumers turns that gate red, and a red contract gate masks the
   integration failures behind it. Mitigation: refresh the contract as its own step and confirm
   what becomes visible afterwards, rather than bundling it with the behaviour change.
 - **Extracting from `StartupMigrations` touches the production bootstrap path.** Mitigation: the

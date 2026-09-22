@@ -54,7 +54,7 @@ a fresh database runs that migration at all.
   - `elixir/serviceradar_core/priv/repo/migrations/20260126120000_move_public_schema_objects_to_platform.exs`
   - `elixir/serviceradar_core/priv/repo/baseline/` and its freshness gate
 - Gate impact: `priv/repo/baseline/platform_schema.sql` is a declared input to
-  `//build/contracts:ci_heavy_gate_contract_test` (root `BUILD.bazel`). That contract is refreshed first, in
+  `//build/contracts:ci_heavy_gate_contract_test`. That contract is refreshed first, in
   its own step - a red contract gate masks the integration failures behind it.
 - Operational impact: none for deployed installs. Service startup behaviour is unchanged; this
   change only gives the developer and CI paths the bootstrap that startup already has.
