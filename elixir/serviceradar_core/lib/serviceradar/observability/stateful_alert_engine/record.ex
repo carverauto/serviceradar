@@ -128,7 +128,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Record do
 
     %{
       "source_signal" => "event",
-      "source_event_id" => to_string(fetch_attr(record, :id)),
+      "source_event_id" => source_record_id(fetch_attr(record, :id)),
       "source_event_time" => fetch_attr(record, :time),
       "source_log_name" => fetch_attr(record, :log_name),
       "source_log_provider" => fetch_attr(record, :log_provider),
@@ -141,11 +141,16 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Record do
   def log_source_details(record) do
     %{
       "source_signal" => "log",
-      "source_log_id" => to_string(fetch_attr(record, :id)),
+      "source_log_id" => source_record_id(fetch_attr(record, :id)),
       "source_log_time" => fetch_attr(record, :timestamp),
       "source_service" => fetch_attr(record, :service_name)
     }
   end
+
+  # Bulk-insert event/log rows carry PostgreSQL UUID bytes; source references
+  # are JSON strings. Normalize this typed ID before it enters alert metadata.
+  defp source_record_id(<<_::128>> = id), do: Ecto.UUID.load!(id)
+  defp source_record_id(id), do: to_string(id)
 
   def metric_source_details(record) do
     condition = fetch_attr(record, :__stateful_alert_condition__) || %{}

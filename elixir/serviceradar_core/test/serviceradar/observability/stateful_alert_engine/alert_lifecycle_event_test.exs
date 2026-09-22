@@ -54,6 +54,16 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycleEventTest
     end
   end
 
+  test "bulk-insert event UUIDs remain usable JSON source references" do
+    uuid = "00000000-0000-4000-8000-0000000000cc"
+    source = record(%{id: Ecto.UUID.dump!(uuid)})
+    event = AlertLifecycle.build_event(rule("Anomaly finding"), snapshot(), source, @now, %{})
+
+    assert event.unmapped["source_event_id"] == uuid
+    assert {:ok, encoded} = Jason.encode(event.unmapped)
+    assert Jason.decode!(encoded)["source_event_id"] == uuid
+  end
+
   describe "event_device/3" do
     test "takes the resolved device with the triggering event's hostname and ip" do
       assert AlertLifecycle.event_device(record(), @device_uid, true) == %{

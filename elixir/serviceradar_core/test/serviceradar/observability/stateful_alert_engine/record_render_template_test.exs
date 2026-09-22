@@ -92,4 +92,22 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.RecordRenderTemplateTes
              {:ok, "subject=synthetic-subject|active=false|index=7",
               %{"subject" => "synthetic-subject", "active" => "false", "index" => "7"}}
   end
+
+  test "log and event source references normalize database UUIDs before JSON encoding" do
+    uuid = "00000000-0000-4000-8000-0000000000dd"
+
+    for id <- [Ecto.UUID.dump!(uuid), uuid] do
+      event = Record.source_record_details(%{id: id, time: ~U[2026-01-01 00:00:00Z]})
+      log = Record.source_record_details(%{id: id, timestamp: ~U[2026-01-01 00:00:00Z]})
+      assert Jason.decode!(Jason.encode!(event))["source_event_id"] == uuid
+      assert Jason.decode!(Jason.encode!(log))["source_log_id"] == uuid
+    end
+  end
+
+  test "source references preserve existing textual and absent identifiers" do
+    for id <- ["synthetic-event", nil] do
+      assert Record.event_source_details(%{id: id})["source_event_id"] == to_string(id)
+      assert Record.log_source_details(%{id: id})["source_log_id"] == to_string(id)
+    end
+  end
 end
