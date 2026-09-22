@@ -104,10 +104,18 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.RecordRenderTemplateTes
     end
   end
 
-  test "source references preserve existing textual and absent identifiers" do
-    for id <- ["synthetic-event", nil] do
-      assert Record.event_source_details(%{id: id})["source_event_id"] == to_string(id)
-      assert Record.log_source_details(%{id: id})["source_log_id"] == to_string(id)
+  test "source references preserve textual identifiers, including a 16-byte one" do
+    sixteen_byte_text_id = "source-log-id-01"
+    assert byte_size(sixteen_byte_text_id) == 16
+
+    for id <- ["synthetic-event", sixteen_byte_text_id] do
+      assert Record.event_source_details(%{id: id})["source_event_id"] == id
+      assert Record.log_source_details(%{id: id})["source_log_id"] == id
     end
+  end
+
+  test "source references preserve an absent identifier" do
+    assert Record.event_source_details(%{id: nil})["source_event_id"] == ""
+    assert Record.log_source_details(%{id: nil})["source_log_id"] == ""
   end
 end

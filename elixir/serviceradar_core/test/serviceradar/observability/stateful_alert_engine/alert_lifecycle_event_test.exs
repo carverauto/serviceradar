@@ -10,6 +10,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycleEventTest
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle
+  alias ServiceRadar.Observability.StatefulAlertEngine.Diagnostics
 
   @device_uid "sr:00000000-0000-4000-8000-000000000001"
   @now ~U[2026-01-05 05:47:01Z]
@@ -62,6 +63,41 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycleEventTest
     assert event.unmapped["source_event_id"] == uuid
     assert {:ok, encoded} = Jason.encode(event.unmapped)
     assert Jason.decode!(encoded)["source_event_id"] == uuid
+  end
+
+  test "bulk-insert event UUIDs stay encodable through populated diagnostics" do
+    uuid = "00000000-0000-4000-8000-0000000000cc"
+    source = record(%{id: Ecto.UUID.dump!(uuid)})
+
+    diagnostics = Diagnostics.update_diagnostics(nil, source, @now)
+    snapshot = %{snapshot() | diagnostics: diagnostics}
+
+    event = AlertLifecycle.build_event(rule("Anomaly finding"), snapshot, source, @now, %{})
+
+    assert diagnostics["source_event_ids"] == [uuid]
+    assert event.unmapped["source_event_id"] == uuid
+    assert event.unmapped["diagnostics"]["representative_event_ids"] == [uuid]
+
+    assert event.metadata[:serviceradar][:diagnostics]["representative_event_ids"] == [uuid]
+
+    assert {:ok, encoded_unmapped} = Jason.encode(event.unmapped)
+    decoded_unmapped = Jason.decode!(encoded_unmapped)
+    assert decoded_unmapped["diagnostics"]["representative_event_ids"] == [uuid]
+
+    assert {:ok, encoded_metadata} = Jason.encode(event.metadata)
+    decoded_metadata = Jason.decode!(encoded_metadata)
+
+    assert decoded_metadata["serviceradar"]["diagnostics"]["representative_event_ids"] == [uuid]
+  end
+
+  test "populated diagnostics preserve a 16-byte textual source id" do
+    text_id = "source-event-001"
+    assert byte_size(text_id) == 16
+
+    diagnostics = Diagnostics.update_diagnostics(nil, record(%{id: text_id}), @now)
+
+    assert diagnostics["source_event_ids"] == [text_id]
+    assert diagnostics["latest_source"]["source_event_id"] == text_id
   end
 
   describe "event_device/3" do
