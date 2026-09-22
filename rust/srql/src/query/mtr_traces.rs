@@ -27,6 +27,11 @@ pub(super) async fn execute(
     plan: &QueryPlan,
 ) -> Result<Vec<serde_json::Value>> {
     ensure_entity(plan)?;
+    if plan.stats.is_some() {
+        return Err(ServiceError::InvalidRequest(
+            "mtr_traces does not support stats: aggregations; use in:mtr_hops for hop-level analytics".into(),
+        ));
+    }
     let query = build_query(plan)?;
     let rows: Vec<MtrTraceRow> = query
         .select(MtrTraceRow::as_select())
@@ -41,6 +46,11 @@ pub(super) async fn execute(
 
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
     ensure_entity(plan)?;
+    if plan.stats.is_some() {
+        return Err(ServiceError::InvalidRequest(
+            "mtr_traces does not support stats: aggregations; use in:mtr_hops for hop-level analytics".into(),
+        ));
+    }
     let query = build_query(plan)?.limit(plan.limit).offset(plan.offset);
     let sql = super::diesel_sql(&query)?;
 
@@ -434,6 +444,16 @@ mod tests {
         assert!(
             lower.contains("order by \"mtr_traces\".\"time\" asc, \"mtr_traces\".\"id\" asc"),
             "{sql}"
+        );
+    }
+
+    #[test]
+    fn stats_clause_is_rejected() {
+        let plan = plan_for("in:mtr_traces stats:avg(total_hops) as v by agent_id limit:10");
+        let result = to_sql_and_params(&plan);
+        assert!(
+            matches!(result, Err(ServiceError::InvalidRequest(_))),
+            "mtr_traces does not support stats: — should be rejected"
         );
     }
 

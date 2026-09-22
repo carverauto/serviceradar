@@ -41,6 +41,7 @@ mod identity;
 mod interfaces;
 mod logs;
 mod memory_metrics;
+mod mtr_hops;
 mod mtr_traces;
 mod otel_metric_points;
 mod otel_metrics;

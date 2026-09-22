@@ -89,6 +89,7 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
       otel_traces traces trace_spans
       otel_trace_summaries trace_summaries traces_summaries
       mtr_traces
+      mtr_hops mtr_hop_stats
     ),
     "observability.events.view" => ~w(
       events activity

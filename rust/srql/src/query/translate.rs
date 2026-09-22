@@ -5,7 +5,7 @@ use super::{
     device_sweep_overlap, devices, disk_metrics, downsample, endpoint_inventory_scans,
     endpoint_package_catalog, endpoint_packages, endpoint_vulnerability_matches, events,
     field_survey, flows, gateways, graph_cypher, graph_dql, identity, interfaces,
-    is_exhaustive_profile_query, logs, memory_metrics, mtr_traces, otel_metric_points,
+    is_exhaustive_profile_query, logs, memory_metrics, mtr_hops, mtr_traces, otel_metric_points,
     otel_metrics, process_metrics, public_endpoints, services, source_fact_disagreements,
     starrocks, sweep_coverage, sweep_executions, sweep_groups, sweep_profiles, sweep_results,
     threat_intel_matches, timeseries_metrics, trace_summaries, traces, virtualization, viz,
@@ -66,6 +66,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             | Entity::ScanActivity
             | Entity::DnsActivity => events::to_sql_and_params(&plan)?,
             Entity::BmpEvents => bmp_events::to_sql_and_params(&plan)?,
+            Entity::MtrHops => mtr_hops::to_sql_and_params(&plan)?,
             Entity::MtrTraces => mtr_traces::to_sql_and_params(&plan)?,
             Entity::CapacityForecasts => capacity_forecasts::to_sql_and_params(&plan)?,
             Entity::CompositeResults => composite_results::to_sql_and_params(&plan)?,

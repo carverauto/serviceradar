@@ -10,6 +10,62 @@ use serde::Serialize;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Queryable, Selectable, Serialize)]
+#[diesel(table_name = crate::schema::mtr_hops, check_for_backend(diesel::pg::Pg))]
+pub struct MtrHopRow {
+    pub time: DateTime<Utc>,
+    pub id: Uuid,
+    pub trace_id: Uuid,
+    pub hop_number: i32,
+    pub addr: Option<String>,
+    pub hostname: Option<String>,
+    pub ecmp_addrs: Option<Vec<String>>,
+    pub asn: Option<i32>,
+    pub asn_org: Option<String>,
+    pub mpls_labels: Option<DbJson>,
+    pub sent: i32,
+    pub received: i32,
+    pub loss_pct: f64,
+    pub last_us: Option<i64>,
+    pub avg_us: Option<i64>,
+    pub min_us: Option<i64>,
+    pub max_us: Option<i64>,
+    pub stddev_us: Option<i64>,
+    pub jitter_us: Option<i64>,
+    pub jitter_worst_us: Option<i64>,
+    pub jitter_interarrival_us: Option<i64>,
+    pub created_at: DateTime<Utc>,
+}
+
+impl MtrHopRow {
+    pub fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "time": self.time,
+            "id": self.id.to_string(),
+            "trace_id": self.trace_id.to_string(),
+            "hop_number": self.hop_number,
+            "addr": self.addr,
+            "hostname": self.hostname,
+            "ecmp_addrs": self.ecmp_addrs,
+            "asn": self.asn,
+            "asn_org": self.asn_org,
+            "mpls_labels": self.mpls_labels.map(|j| j.0),
+            "sent": self.sent,
+            "received": self.received,
+            "loss_pct": self.loss_pct,
+            "last_us": self.last_us,
+            "avg_us": self.avg_us,
+            "min_us": self.min_us,
+            "max_us": self.max_us,
+            "stddev_us": self.stddev_us,
+            "jitter_us": self.jitter_us,
+            "jitter_worst_us": self.jitter_worst_us,
+            "jitter_interarrival_us": self.jitter_interarrival_us,
+            "created_at": self.created_at,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
 #[diesel(table_name = crate::schema::capacity_forecasts, check_for_backend(diesel::pg::Pg))]
 pub struct CapacityForecastRow {
     pub forecasted_at: DateTime<Utc>,
