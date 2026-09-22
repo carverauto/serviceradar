@@ -250,8 +250,16 @@ fn apply_asn_filter<'a>(query: MtrHopsQuery<'a>, filter: &Filter) -> Result<MtrH
     match filter.op {
         FilterOp::Eq => Ok(query.filter(col_asn.eq(asn))),
         FilterOp::NotEq => Ok(query.filter(col_asn.ne(asn))),
+        // `asn` is populated only by a GeoLite2 lookup, so it is NULL for any
+        // hop the database does not resolve — every internal address, and every
+        // private AS. `asn:>0` is how a caller restricts a query to resolved
+        // ASNs, since NULL fails the comparison.
+        FilterOp::Gt => Ok(query.filter(col_asn.gt(asn))),
+        FilterOp::Gte => Ok(query.filter(col_asn.ge(asn))),
+        FilterOp::Lt => Ok(query.filter(col_asn.lt(asn))),
+        FilterOp::Lte => Ok(query.filter(col_asn.le(asn))),
         _ => Err(ServiceError::InvalidRequest(
-            "asn only supports equality comparisons".into(),
+            "asn supports equality and ordered comparisons".into(),
         )),
     }
 }
@@ -870,12 +878,22 @@ fn build_stats_filter_clause(filter: &Filter) -> Result<Option<(String, Vec<HopS
                     filter.field
                 ))
             })?;
+            // Ordered comparisons matter for `asn` specifically: the column is
+            // populated only by a GeoLite2 lookup, which resolves public ASNs
+            // for public addresses and returns nothing for an internal hop. A
+            // panel restricted to resolved ASNs says so with `asn:>0` — NULL
+            // fails the comparison — rather than the group-by silently dropping
+            // unresolved hops into a single bucket.
             let clause = match filter.op {
                 FilterOp::Eq => format!("{} = ?", filter.field),
                 FilterOp::NotEq => format!("{} <> ?", filter.field),
+                FilterOp::Gt => format!("{} > ?", filter.field),
+                FilterOp::Gte => format!("{} >= ?", filter.field),
+                FilterOp::Lt => format!("{} < ?", filter.field),
+                FilterOp::Lte => format!("{} <= ?", filter.field),
                 _ => {
                     return Err(ServiceError::InvalidRequest(format!(
-                        "{} only supports equality in stats queries",
+                        "{} supports equality and ordered comparisons in stats queries",
                         filter.field
                     )));
                 }
