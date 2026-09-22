@@ -38,7 +38,7 @@ load(
 
 package(default_visibility = ["//visibility:public"])
 
-# Read by //:first_party_plugin_cosign_key_consistency_test. config/ has no BUILD file of its
+# Read by //build/contracts:first_party_plugin_cosign_key_consistency_test. config/ has no BUILD file of its
 # own, so the file lives in this package. It is already swept up by the `config/**` globs in
 # :deps_srcs and :unit_tests, but naming it here is deliberate: relying on incidental
 # filegroup membership would break the test the moment one of those globs is reorganised.

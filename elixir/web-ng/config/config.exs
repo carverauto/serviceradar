@@ -259,7 +259,7 @@ config :serviceradar_web_ng, :first_party_plugin_import,
   # with no key to verify it against makes CosignVerifier fail closed, which is
   # how every install that did not hand-set a key ended up unable to import any
   # plugin at all. Public release key, byte-identical to docs/cosign.pub, kept in
-  # step by //:first_party_plugin_cosign_key_consistency_test.
+  # step by //build/contracts:first_party_plugin_cosign_key_consistency_test.
   cosign_public_key: """
   -----BEGIN PUBLIC KEY-----
   MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEhJcdPbybyipSl8sNHSKStAYiqhP7
@@ -307,7 +307,7 @@ config :serviceradar_web_ng, :plugin_verification,
   # when this map is empty, so an empty default meant no install could import a first-party
   # plugin -- the same failure as an unset cosign_public_key, one gate further in. Public
   # verification key, not a secret; kept in step by
-  # //:first_party_plugin_cosign_key_consistency_test.
+  # //build/contracts:first_party_plugin_cosign_key_consistency_test.
   # Fallback only. A package imported from a registered repository is verified
   # against that repository's `signing_public_key` instead of this map; see
   # `Packages.repository_policy/2`.

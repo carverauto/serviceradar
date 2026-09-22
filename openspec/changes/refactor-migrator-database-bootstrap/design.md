@@ -143,7 +143,7 @@ change should not claim to deliver it unless it does.
 - **The reproduction may disprove the hypothesis.** Mitigation: that branch is written into the
   plan and re-scopes the change rather than being absorbed. The baseline work (tasks 3-5) does
   not depend on the outcome and proceeds either way.
-- **`platform_schema.sql` is a declared input to `//:ci_heavy_gate_contract_test`** (root
+- **`platform_schema.sql` is a declared input to `//build/contracts:ci_heavy_gate_contract_test`** (root
   `BUILD.bazel`). Changing its consumers turns that gate red, and a red contract gate masks the
   integration failures behind it. Mitigation: refresh the contract as its own step and confirm
   what becomes visible afterwards, rather than bundling it with the behaviour change.
@@ -159,7 +159,7 @@ change should not claim to deliver it unless it does.
 ## Migration Plan
 
 1. Reproduce and record the mechanism. Land the recorded evidence before the fix.
-2. Refresh `//:ci_heavy_gate_contract_test` inputs, confirm green, and note what that unmasks.
+2. Refresh `//build/contracts:ci_heavy_gate_contract_test` inputs, confirm green, and note what that unmasks.
 3. Extract `SchemaBootstrap`; `StartupMigrations` delegates. No behaviour change.
 4. Wire `migrate_db_test.exs` and the new mix task to it.
 5. Exclude the ledger tables from the relocation migration.

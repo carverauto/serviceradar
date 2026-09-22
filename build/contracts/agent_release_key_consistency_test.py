@@ -33,7 +33,7 @@ import unittest
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[2]
 EMBEDDED_KEY = ROOT / "go/pkg/agent/release_signing_key.txt"
 CHART_VALUES = (
     ROOT / "helm/serviceradar/values.yaml",

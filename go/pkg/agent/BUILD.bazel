@@ -1,7 +1,7 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 load("//build:benchmarks.bzl", "go_benchmark")
 
-# Read by //:agent_release_key_consistency_test, which asserts this key matches the
+# Read by //build/contracts:agent_release_key_consistency_test, which asserts this key matches the
 # agentReleasePublicKey the control plane gets from the helm charts. This package sets no
 # default_visibility, so without the export the label is private and that test cannot see it.
 exports_files(["release_signing_key.txt"])

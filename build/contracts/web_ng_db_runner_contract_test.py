@@ -5,7 +5,7 @@ import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[2]
 TARGET = "//elixir/web-ng:networks_live_db_test"
 SHARED_FIXTURE_SOURCES = {
     "test/app_domain/dashboards/group_access_db_test.exs",

@@ -2,7 +2,7 @@ load("@rules_python//python:py_test.bzl", "py_test")
 
 package(default_visibility = ["//visibility:public"])
 
-# Read by //:agent_release_key_consistency_test, which asserts the agentReleasePublicKey in both
+# Read by //build/contracts:agent_release_key_consistency_test, which asserts the agentReleasePublicKey in both
 # files matches the key embedded in the agent binary.
 #
 # BOTH are listed even though values.yaml already resolves today -- it does so only incidentally,

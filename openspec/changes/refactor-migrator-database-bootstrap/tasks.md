@@ -20,7 +20,7 @@
 
 ## 2. Refresh the CI contract first
 
-- [ ] 2.1 Refresh `//:ci_heavy_gate_contract_test` for the inputs this change touches, as its
+- [ ] 2.1 Refresh `//build/contracts:ci_heavy_gate_contract_test` for the inputs this change touches, as its
       own commit, and confirm it is green before any behaviour change lands.
 - [ ] 2.2 Record what became visible once the contract was green - a red contract gate masks the
       integration failures behind it.
@@ -97,7 +97,7 @@
 
 ## 7. Gate baseline freshness
 
-- [x] 7.1 `schema_baseline_freshness_test.py` + `//:schema_baseline_freshness_test`. Four
+- [x] 7.1 `schema_baseline_freshness_test.py` + `//build/contracts:schema_baseline_freshness_test`. Four
       checks: required metadata fields, checksum matches the SQL file, drift within
       `MAX_MIGRATIONS_BEHIND` (150), and `included_through` names a real migration.
       Proved it can fail: temporarily lowering the threshold to 10 produced

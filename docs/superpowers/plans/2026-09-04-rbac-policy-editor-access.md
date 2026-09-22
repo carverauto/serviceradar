@@ -241,7 +241,7 @@ Classify `effective_permissions_db_test.exs` in `INTEGRATION_SOURCE_DISPOSITIONS
 Run the command from Step 3 plus the integration selection-equivalence gates. Expect all selected tests to pass with no warnings:
 
 ```bash
-bazel test -c opt --config=remote //build:integration_selection_equivalence_test //:ci_heavy_gate_contract_test --test_output=errors
+bazel test -c opt --config=remote //build:integration_selection_equivalence_test //build/contracts:ci_heavy_gate_contract_test --test_output=errors
 ```
 
 Commit:
@@ -366,7 +366,7 @@ Run the guarded DB cases, then:
 
 ```bash
 bazel test -c opt --config=remote //elixir/serviceradar_core:unit_tests_serviceradar_identity //elixir/web-ng:unit_tests_phoenix_live --test_output=errors
-bazel test -c opt --config=remote //build:integration_selection_equivalence_test //:ci_heavy_gate_contract_test --test_output=errors
+bazel test -c opt --config=remote //build:integration_selection_equivalence_test //build/contracts:ci_heavy_gate_contract_test --test_output=errors
 ```
 
 Commit:

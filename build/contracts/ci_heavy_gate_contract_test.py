@@ -11,7 +11,7 @@ import unittest
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[2]
 BAZELRC = ROOT / ".bazelrc"
 MODULE_FILE = ROOT / "MODULE.bazel"
 WORKFLOW = ROOT / "buildbuddy.yaml"
@@ -623,7 +623,7 @@ def assert_test_output_mode(action: str, expected: str) -> None:
     The two lanes that run on pull requests and staging therefore pin `errors`,
     and the branch-only IntegrationBenchmark harness keeps `all`: it never runs
     on a PR, so it contributes none of that noise, and its command block is
-    hashed verbatim by //:integration_benchmark_harness_hash. Editing it for
+    hashed verbatim by //build/contracts:integration_benchmark_harness_hash. Editing it for
     consistency alone would invalidate published benchmark evidence for a
     console nobody reads. See the mode-drift test below.
 
@@ -774,7 +774,7 @@ class IntegrationBenchmarkContractTest(unittest.TestCase):
         self.assertRegex(digest, r"^[0-9a-f]{64}$")
         self.assertNotEqual(harness_hash(), digest)
 
-        root_build = (ROOT / "BUILD.bazel").read_text(encoding="utf-8")
+        root_build = (ROOT / "build/contracts/BUILD.bazel").read_text(encoding="utf-8")
         hash_rule = named_starlark_rule(
             root_build,
             "py_binary",
@@ -1682,7 +1682,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
                         "rust/srql/src/main.rs",
                         "helm/serviceradar/values.yaml",
                         ".github/workflows/web-ng-lint.yml",
-                        "ci_heavy_gate_contract_test.py",
+                        "build/contracts/ci_heavy_gate_contract_test.py",
                     ),
                     remote_tracking_ref=remote_tracking_ref,
                 )

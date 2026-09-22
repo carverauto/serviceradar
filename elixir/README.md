@@ -403,7 +403,7 @@ lives in one place: the `LargeIngestionGate` action, which triggers on a push to
 It is the only action that may, and that is enforced by the targets rather than by where they
 are named. All three template writers -- those two plus `//rust/integration-db:reset_template` --
 refuse unless the caller passes `--//build:template_authority=true`, the checkout declaring
-itself to be trunk. `LargeIngestionGate` passes it; `//:ci_heavy_gate_contract_test` fails if
+itself to be trunk. `LargeIngestionGate` passes it; `//build/contracts:ci_heavy_gate_contract_test` fails if
 any other action does. The decision reaches Rust and Elixir as the same staged file
 (`//build:template_authority_file`), for the reason the run id does: several invocations must
 agree, and ambient environment lets them differ. It fails closed -- an absent, empty or mangled

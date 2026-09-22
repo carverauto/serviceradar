@@ -198,7 +198,7 @@ def partition_by_lane(all_test_sources):
 
     ``all_test_sources`` is the complete BUILD glob. Unit-only sources are intentionally ignored,
     but every audited selected source must be present. The disposition inventory and its exact
-    Starlark projection are checked independently by //:ci_heavy_gate_contract_test.
+    Starlark projection are checked independently by //build/contracts:ci_heavy_gate_contract_test.
     """
     source_set = {source: True for source in all_test_sources}
     selected_sources = integration_selected_sources()
