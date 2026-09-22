@@ -302,9 +302,9 @@ type StartRemoteCaptureSession struct {
 	// The interface netprobe was asked to capture, echoed so the gateway can
 	// report it without a round trip to core.
 	Interface string `protobuf:"bytes,5,opt,name=interface,proto3" json:"interface,omitempty"`
-	// How much the gateway is willing to receive before its first `CaptureAck`.
-	// Zero means the agent MUST wait for an ack before sending any block, which
-	// is the safe default for an unknown peer.
+	// Reserved for wire compatibility. The gateway is the only authority that
+	// can grant send credit, so agents MUST ignore this field and wait for the
+	// first CaptureAck before sending any block.
 	InitialCreditBytes uint32 `protobuf:"varint,6,opt,name=initial_credit_bytes,json=initialCreditBytes,proto3" json:"initial_credit_bytes,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
