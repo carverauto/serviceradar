@@ -47,7 +47,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkTags do
           {:noreply,
            socket
            |> assign(:bulk_edit_form, to_form(params, as: :bulk))
-           |> put_flash(:error, "Failed to apply tags: #{reason}")}
+           |> put_flash(:error, "Failed to apply tags: #{Helpers.format_transaction_error(reason)}")}
       end
     end
   end

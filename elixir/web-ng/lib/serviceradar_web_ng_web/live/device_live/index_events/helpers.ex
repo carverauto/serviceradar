@@ -67,6 +67,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Helpers do
     %{"service_state" => "no_change", "managed_state" => "no_change"}
   end
 
+  def format_transaction_error(reason) when is_binary(reason), do: reason
+  def format_transaction_error(reason) when is_exception(reason), do: Exception.message(reason)
+  def format_transaction_error(reason), do: inspect(reason)
+
   def handle_bulk_update_result(result, existing_count, requested_count) do
     case result do
       %Ash.BulkResult{status: :success} ->

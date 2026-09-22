@@ -78,31 +78,49 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkState do
   defp apply_changes(socket, params, uids, service_state, managed_state) do
     scope = socket.assigns.current_scope
 
-    with {:ok, service_result} <- maybe_apply_service(scope, uids, service_state),
-         {:ok, managed_result} <- maybe_apply_managed(scope, uids, managed_state) do
-      count = max(service_result.count, managed_result.count)
-      labels = service_result.labels ++ managed_result.labels
-      query = Map.get(socket.assigns.srql || %{}, :query, "")
+    case apply_state_changes(scope, uids, service_state, managed_state) do
+      {:ok, service_result, managed_result} ->
+        count = max(service_result.count, managed_result.count)
+        labels = service_result.labels ++ managed_result.labels
+        query = Map.get(socket.assigns.srql || %{}, :query, "")
 
-      {:noreply,
-       socket
-       |> assign(:show_bulk_edit_modal, false)
-       |> assign(:bulk_state_form, Helpers.bulk_state_form())
-       |> assign(:bulk_scope_form, Helpers.bulk_scope_form())
-       |> assign(:bulk_edit_form, to_form(%{"tags" => ""}, as: :bulk))
-       |> assign(:bulk_target_scope, "selected")
-       |> assign(:bulk_target_matching_count, nil)
-       |> assign(:selected_devices, MapSet.new())
-       |> assign(:select_all_matching, false)
-       |> assign(:total_matching_count, nil)
-       |> put_flash(:info, success_message(count, labels, managed_result.skipped))
-       |> push_patch(to: Helpers.device_list_path(query, socket.assigns.limit))}
-    else
+        {:noreply,
+         socket
+         |> assign(:show_bulk_edit_modal, false)
+         |> assign(:bulk_state_form, Helpers.bulk_state_form())
+         |> assign(:bulk_scope_form, Helpers.bulk_scope_form())
+         |> assign(:bulk_edit_form, to_form(%{"tags" => ""}, as: :bulk))
+         |> assign(:bulk_target_scope, "selected")
+         |> assign(:bulk_target_matching_count, nil)
+         |> assign(:selected_devices, MapSet.new())
+         |> assign(:select_all_matching, false)
+         |> assign(:total_matching_count, nil)
+         |> put_flash(:info, success_message(count, labels, managed_result.skipped))
+         |> push_patch(to: Helpers.device_list_path(query, socket.assigns.limit))}
+
       {:error, reason} ->
         {:noreply,
          socket
          |> assign(:bulk_state_form, to_form(params, as: :bulk_state))
          |> put_flash(:error, "Failed to update devices: #{reason}")}
+    end
+  end
+
+  defp apply_state_changes(scope, uids, service_state, managed_state) do
+    resources = [Device]
+
+    resources
+    |> Ash.transaction(fn ->
+      with {:ok, service_result} <- maybe_apply_service(scope, uids, service_state),
+           {:ok, managed_result} <- maybe_apply_managed(scope, uids, managed_state) do
+        {service_result, managed_result}
+      else
+        {:error, reason} -> Ash.DataLayer.rollback(resources, reason)
+      end
+    end)
+    |> case do
+      {:ok, {service_result, managed_result}} -> {:ok, service_result, managed_result}
+      {:error, reason} -> {:error, Helpers.format_transaction_error(reason)}
     end
   end
 
