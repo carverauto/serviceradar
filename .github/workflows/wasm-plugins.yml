@@ -114,7 +114,12 @@ jobs:
         if: ${{ env.BUILDBUDDY_ORG_API_KEY != '' }}
         run: |
           umask 077
+          # --lockfile_mode=error: a release build consumes the committed MODULE.bazel.lock
+          # without rewriting it, so a stale fact fails here instead of publishing signed
+          # artifacts from silently regenerated dependency facts. It is `common` so that
+          # query, build, run and mod all inherit it without changing the publish wrapper.
           cat <<'EOF' | sed 's/^ *//' > .bazelrc.remote
+            common --lockfile_mode=error
             build --bes_results_url=https://carverauto.buildbuddy.io/invocation/
             build --bes_backend=grpcs://carverauto.buildbuddy.io
             build --remote_cache=grpcs://carverauto.buildbuddy.io
@@ -150,6 +155,11 @@ jobs:
             echo "Expected Bazel ${expected}, got ${actual}" >&2
             exit 1
           fi
+
+      # Evaluate every module extension before any release assets are published.
+      # A target-specific build may not load the extension with stale facts.
+      - name: Verify committed dependency lockfile
+        run: bazel mod deps --lockfile_mode=error
 
       - name: Login to Harbor
         run: |
