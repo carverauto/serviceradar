@@ -209,9 +209,8 @@ ships compiled JS + sourcemaps in `dist/`. The bins under `bin/` are
 - The published tarball is what consumers actually run; shipping
   compiled JS + sourcemaps from `dist/` keeps the install path
   toolchain-free.
-- `prepublishOnly` runs `npm run build`, so `npm publish` always emits
-  fresh `dist/` from the current `src/` — no chance of drift between
-  the two.
+- `prepublishOnly` runs `npm run build` as a local guard, but the
+  canonical release path is the CI workflow — see **Release** below.
 
 `npm run typecheck` runs `tsc --noEmit` against `src/**/*.ts`.
 `npm run build` compiles `src/` to `dist/` via `tsconfig.build.json`
@@ -225,6 +224,17 @@ The CLI is a leaf package — no `@carverauto/*` runtime deps. To work on
 it, `cd js/cli && npm install` then `npm run ci` (typecheck → build →
 test → pack dry-run). The bazel target `//js/cli:ci` runs the same
 pipeline opt-in.
+
+## Release
+
+1. Bump `version` in `package.json` (and `package-lock.json`); update `CHANGELOG.md`.
+2. Push a tag `cli-v<version>` (e.g. `cli-v0.1.7`).
+
+The `.github/workflows/cli-npm-publish.yml` workflow triggers on that tag, builds
+from a clean checkout, verifies that every `src/*.ts` has compiled output in the
+packed tarball, and publishes to npm with provenance via OIDC trusted publishing.
+Do not run `npm publish` by hand — the 0.1.6 incident shows that a manual publish
+from a working directory with a stale `dist/` silently ships the wrong build.
 
 ## Documentation
 
