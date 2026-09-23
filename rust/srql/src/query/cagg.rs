@@ -8,17 +8,18 @@ use std::sync::OnceLock;
 
 const CAGG_ROUTING_THRESHOLD_HOURS: i64 = 6;
 const CAGG_MAX_TIME_RANGE_DAYS: i64 = 395;
-/// Mirrors the deployed TimescaleDB retention policies on the raw hypertables
-/// the hourly CAGGs roll up: 7 days for the high-volume metric tables
-/// (cpu/disk/memory/process/timeseries) and for raw flows. Set
-/// `SRQL_RAW_TELEMETRY_RETENTION_HOURS` when those policies change.
+/// Mirrors the deployed TimescaleDB retention policies on the raw metric
+/// hypertables the hourly CAGGs roll up: 7 days for cpu/disk/memory/process/
+/// timeseries. Flows are deliberately excluded from the retention arm — CNPG
+/// netflow is deprecated in favour of the StarRocks migration, so its longer
+/// raw retention does not participate. Set
+/// `SRQL_RAW_TELEMETRY_RETENTION_HOURS` when those metric policies change.
 const DEFAULT_RAW_TELEMETRY_RETENTION_HOURS: i64 = 168;
 
-/// Hours of raw data the deployment retains on the metric and flow
-/// hypertables. Read once per process from
-/// `SRQL_RAW_TELEMETRY_RETENTION_HOURS`; an unparsable or non-positive value
-/// falls back to the default with a warning rather than disabling the
-/// retention routing arm silently.
+/// Hours of raw data the deployment retains on the raw metric hypertables.
+/// Read once per process from `SRQL_RAW_TELEMETRY_RETENTION_HOURS`; an
+/// unparsable or non-positive value falls back to the default with a warning
+/// rather than disabling the retention routing arm silently.
 fn raw_telemetry_retention_hours() -> i64 {
     static OVERRIDE: OnceLock<i64> = OnceLock::new();
     *OVERRIDE.get_or_init(|| {
@@ -159,9 +160,12 @@ pub(crate) fn max_time_range_days_for_ast(ast: &QueryAst) -> i64 {
 ///   raw tables' retention horizon must read the rollup regardless of span,
 ///   because the raw table has already dropped every row in that window — the
 ///   span arm alone answers a short old window from an empty source (#4514).
-///   A sub-threshold span can never reach past the horizon into live raw
-///   data, so this arm only fires for windows that are entirely beyond
-///   retention.
+///   The test is start-based, so a sub-threshold window can straddle the
+///   horizon (start beyond it, end inside it); such a window is served wholly
+///   from the hourly CAGG at hourly grain, giving complete coverage instead of
+///   a partially-empty raw read. Flows are excluded from this arm: CNPG netflow
+///   is deprecated in favour of the StarRocks migration, so the flow path keeps
+///   its span-only routing unchanged.
 pub(crate) fn should_route_to_hourly_cagg(
     entity: &Entity,
     time_range: Option<&TimeRange>,
@@ -180,6 +184,10 @@ pub(crate) fn should_route_to_hourly_cagg(
     let span = time_range.end.signed_duration_since(time_range.start);
     if span.ge(&ChronoDuration::hours(CAGG_ROUTING_THRESHOLD_HOURS)) {
         return true;
+    }
+
+    if matches!(entity, Entity::Flows) {
+        return false;
     }
 
     time_range
