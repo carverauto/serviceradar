@@ -18,6 +18,7 @@ import {HARNESS_DIR} from "../paths.js"
 import {errorStack, openBrowser, relativePath, relativeUrl} from "../utils.js"
 import {formatValidationFailures, validateProject} from "../validation.js"
 import {buildCommand} from "./build.js"
+import {assertReactResolvable, devViteAliases, projectReactAliases} from "./resolve.js"
 
 const DEFAULT_HOST = "127.0.0.1"
 const DEFAULT_PORT = 4177
@@ -57,6 +58,10 @@ async function devCommandHmr({projectDir, config, options}: DevContext): Promise
     throw new Error(`renderer entry does not exist: ${relativePath(projectDir, entryPath)}\n→ set \`renderer.entry\` in dashboard.config.mjs to the correct path, or create the entry file`)
   }
 
+  // Resolved from the project, so a hoisted install is found.
+  const reactAliases = projectReactAliases(projectDir)
+  assertReactResolvable(projectDir, reactAliases)
+
   const vite = await createViteServer({
     root: projectDir,
     configFile: false,
@@ -69,15 +74,8 @@ async function devCommandHmr({projectDir, config, options}: DevContext): Promise
     },
     resolve: {
       ...(config.vite?.resolve || {}),
-      alias: [
-        {find: /^react$/, replacement: join(projectDir, "node_modules/react")},
-        {find: /^react-dom\/client$/, replacement: join(projectDir, "node_modules/react-dom/client")},
-        {find: /^mapbox-gl\/dist\/mapbox-gl\.css$/, replacement: cliRequire.resolve("mapbox-gl/dist/mapbox-gl.css")},
-        {find: /^mapbox-gl$/, replacement: cliRequire.resolve("mapbox-gl")},
-        {find: /^@deck\.gl\/layers$/, replacement: cliRequire.resolve("@deck.gl/layers")},
-        {find: /^@deck\.gl\/mapbox$/, replacement: cliRequire.resolve("@deck.gl/mapbox")},
-        ...normalizeViteAlias(config.vite?.resolve?.alias),
-      ],
+      // Precedence is the contract — see devViteAliases.
+      alias: devViteAliases(projectDir, config.vite?.resolve?.alias, (s) => cliRequire.resolve(s)),
     },
   })
 
@@ -161,12 +159,6 @@ async function devCommandHmr({projectDir, config, options}: DevContext): Promise
   watchProjectForValidation(projectDir, config)
 
   if (options.open) await openBrowser(baseUrl)
-}
-
-function normalizeViteAlias(alias: any): any[] {
-  if (Array.isArray(alias)) return alias
-  if (!alias || typeof alias !== "object") return []
-  return Object.entries(alias).map(([find, replacement]) => ({find, replacement}))
 }
 
 function dashboardHarnessPlugin() {

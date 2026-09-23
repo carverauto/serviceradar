@@ -10,6 +10,7 @@ import {spawn} from "node:child_process"
 import {credentialsDir, credentialsPath, readCredentials} from "./auth/credentials.js"
 import {loadConfig, resolveConfigPath} from "./config.js"
 import {DEFAULT_RENDERER_ENTRY} from "./manifest.js"
+import {resolveProjectPackageManifest} from "./dashboard/resolve.js"
 import {CLI_ROOT, HARNESS_DIR, TEMPLATES_DIR} from "./paths.js"
 import {defaultCaBundlePath, resolveExtraCaFile} from "./tls_ca.js"
 import {relativePath} from "./utils.js"
@@ -125,12 +126,18 @@ async function detectExecVersion(command: string): Promise<string | null> {
   })
 }
 
+const SDK_PACKAGE = "@carverauto/serviceradar-dashboard-sdk"
+
 function resolveSdkVersion(projectDir: string): string | null {
   for (const candidate of [
+    // Resolved from the project, so a hoisted install is found. The literal
+    // paths below stay as fallbacks: they cover an SDK that is present on disk
+    // but not resolvable (no `./package.json` export, a broken install tree).
+    resolveProjectPackageManifest(projectDir, SDK_PACKAGE),
     join(projectDir, "node_modules", "@carverauto", "serviceradar-dashboard-sdk", "package.json"),
     join(CLI_ROOT, "node_modules", "@carverauto", "serviceradar-dashboard-sdk", "package.json"),
   ]) {
-    if (existsSync(candidate)) {
+    if (candidate && existsSync(candidate)) {
       try {
         const payload = JSON.parse(readFileSync(candidate, "utf8"))
         if (payload?.version) return payload.version
