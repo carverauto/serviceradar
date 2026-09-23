@@ -107,12 +107,21 @@ func decodeRunningConfigBody(raw []byte) (string, error) {
 		if err := json.Unmarshal(raw, &envelope); err != nil {
 			return "", runError("opentext_nom_config_invalid")
 		}
-		for _, key := range []string{"config", "output", "runningConfig", "running_config", "body"} {
-			if text, ok := envelope[key].(string); ok && strings.TrimSpace(text) != "" {
-				if !utf8.ValidString(text) {
-					return "", runError("opentext_nom_config_invalid")
+		if text, ok := runningConfigText(envelope); ok {
+			return text, nil
+		}
+		// The automation wrapper nests its payload the same way list device
+		// responses do (see decodeDeviceRows).
+		for _, key := range []string{"result", "data"} {
+			switch value := envelope[key].(type) {
+			case string:
+				if strings.TrimSpace(value) != "" && utf8.ValidString(value) {
+					return value, nil
 				}
-				return text, nil
+			case map[string]any:
+				if text, ok := runningConfigText(value); ok {
+					return text, nil
+				}
 			}
 		}
 		return "", runError("opentext_nom_config_invalid")
@@ -121,4 +130,13 @@ func decodeRunningConfigBody(raw []byte) (string, error) {
 		return "", runError("opentext_nom_config_invalid")
 	}
 	return trimmed, nil
+}
+
+func runningConfigText(envelope map[string]any) (string, bool) {
+	for _, key := range []string{"config", "output", "runningConfig", "running_config", "body"} {
+		if text, ok := envelope[key].(string); ok && strings.TrimSpace(text) != "" && utf8.ValidString(text) {
+			return text, true
+		}
+	}
+	return "", false
 }

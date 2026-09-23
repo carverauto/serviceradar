@@ -51,8 +51,10 @@ This is the Network Automation REST **automation wrapper**, not the NA web UI
 and not an NNMi URL. In a default NOM install the path is
 `/nom/api/automation/v1/wrapper` on the NA host.
 
-The plugin POSTs JSON. Operators never choose the command; it is always
-`list device`. Pagination (`startid`, `limitcount`) is also plugin-owned.
+The plugin POSTs JSON. Operators never choose the command: inventory always
+sends `list device`, and the `opentext-nom.config.retrieve` action always sends
+`show running-config`. Pagination (`startid`, `limitcount`) is also
+plugin-owned.
 
 ```json
 {

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/carverauto/serviceradar-sdk-go/v2/sdk"
 )
 
 const syntheticIOS = `
@@ -85,6 +87,67 @@ func TestRetrieveRunningConfigDoesNotEmitInterfaceFacts(t *testing.T) {
 	}
 	if strings.Contains(result.Summary, "vlan") {
 		t.Fatal("plugin must not parse config facts")
+	}
+}
+
+func TestDecodeRunningConfigBodyUnwrapsAutomationEnvelope(t *testing.T) {
+	cases := map[string]string{
+		"top-level config":       `{"config":` + jsonString(syntheticIOS) + `}`,
+		"result string":          `{"result":` + jsonString(syntheticIOS) + `}`,
+		"result object output":   `{"result":{"output":` + jsonString(syntheticIOS) + `}}`,
+		"data object config":     `{"data":{"config":` + jsonString(syntheticIOS) + `}}`,
+		"plain text, no wrapper": syntheticIOS,
+	}
+	for name, body := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, err := decodeRunningConfigBody([]byte(body))
+			if err != nil {
+				t.Fatalf("decodeRunningConfigBody: %v", err)
+			}
+			if !strings.Contains(got, "interface GigabitEthernet0/1") {
+				t.Fatalf("decoded body = %q", got)
+			}
+		})
+	}
+
+	for name, body := range map[string]string{
+		"empty result":    `{"result":""}`,
+		"unknown wrapper": `{"result":{"rows":[]}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := decodeRunningConfigBody([]byte(body)); err == nil {
+				t.Fatal("expected opentext_nom_config_invalid")
+			}
+		})
+	}
+}
+
+func TestConfigRetrieveResultCarriesArtifactNotBody(t *testing.T) {
+	result := buildConfigRetrieveResult(RunningConfig{
+		DeviceID:  "71061",
+		DeviceUID: "sr:host01.example.com",
+		Body:      syntheticIOS,
+		Hash:      "abc",
+	}, &sdk.ArtifactCommitResponse{
+		ObjectKey:   "agent-artifacts/agent-01/assign-01/opentext-nom/running-config/71061",
+		ContentType: "text/plain",
+		SHA256:      "abc",
+		SizeBytes:   int64(len(syntheticIOS)),
+	})
+
+	var details map[string]any
+	if err := json.Unmarshal([]byte(result.Details), &details); err != nil {
+		t.Fatal(err)
+	}
+	if _, exists := details["body"]; exists {
+		t.Fatal("running-config body must not be embedded in status details")
+	}
+	if strings.Contains(result.Details, "GigabitEthernet0/1") {
+		t.Fatal("running-config content leaked into status details")
+	}
+	artifact, ok := details["artifact"].(map[string]any)
+	if !ok || artifact["object_key"] == "" || artifact["sha256"] != "abc" {
+		t.Fatalf("artifact reference = %#v", details["artifact"])
 	}
 }
 
