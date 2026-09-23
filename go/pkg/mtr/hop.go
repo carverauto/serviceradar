@@ -74,6 +74,10 @@ type HopResult struct {
 	unreachableCode int
 	hasUnreachable  bool
 
+	// replySYNACK and replyRST count the target's TCP answers credited here.
+	replySYNACK int
+	replyRST    int
+
 	// Last is the most recent RTT in microseconds.
 	Last int64 `json:"last_us,omitempty"`
 
@@ -134,6 +138,8 @@ func (h *HopResult) Reset(hopNumber int, ringBufferSize int) {
 	h.InFlight = 0
 	h.unreachableCode = 0
 	h.hasUnreachable = false
+	h.replySYNACK = 0
+	h.replyRST = 0
 	h.Last = 0
 	h.Best = 0
 	h.Worst = 0
@@ -317,6 +323,19 @@ func (h *HopResult) SetUnreachableCode(code int) {
 	h.hasUnreachable = true
 }
 
+// RecordTCPReply counts the target's SYN-ACK or RST credited to this hop.
+func (h *HopResult) RecordTCPReply(synAck, rst bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if synAck {
+		h.replySYNACK++
+	}
+	if rst {
+		h.replyRST++
+	}
+}
+
 // SetMPLS records MPLS label stack entries for this hop.
 func (h *HopResult) SetMPLS(labels []MPLSLabel) {
 	h.mu.Lock()
@@ -421,17 +440,19 @@ func (h *HopResult) Snapshot() HopSnapshot {
 	defer h.mu.RUnlock()
 
 	snap := HopSnapshot{
-		HopNumber:  h.HopNumber,
-		Hostname:   h.Hostname,
-		ASN:        h.ASN,
-		MPLSLabels: h.MPLSLabels,
-		Sent:       h.Sent,
-		Received:   h.Received,
-		LossPct:    h.lossPctLocked(),
-		LastUs:     h.Last,
-		AvgUs:      int64(math.Round(h.mean)),
-		MinUs:      h.Best,
-		MaxUs:      h.Worst,
+		HopNumber:   h.HopNumber,
+		Hostname:    h.Hostname,
+		ASN:         h.ASN,
+		MPLSLabels:  h.MPLSLabels,
+		Sent:        h.Sent,
+		Received:    h.Received,
+		LossPct:     h.lossPctLocked(),
+		LastUs:      h.Last,
+		AvgUs:       int64(math.Round(h.mean)),
+		MinUs:       h.Best,
+		MaxUs:       h.Worst,
+		ReplySynack: h.replySYNACK,
+		ReplyRst:    h.replyRST,
 	}
 
 	if h.Addr != nil {
@@ -493,6 +514,8 @@ type HopSnapshot struct {
 	JitterWorstUs        int64       `json:"jitter_worst_us,omitempty"`
 	JitterInterarrivalUs int64       `json:"jitter_interarrival_us,omitempty"`
 	UnreachableCode      *int        `json:"unreachable_code,omitempty"`
+	ReplySynack          int         `json:"reply_synack,omitempty"`
+	ReplyRst             int         `json:"reply_rst,omitempty"`
 }
 
 // TraceResult is the complete result of an MTR trace, ready for serialization.
@@ -508,13 +531,17 @@ type TraceResult struct {
 	LastRespondingHop int    `json:"last_responding_hop"`
 	Protocol          string `json:"protocol"`
 	// TCPPort is the destination port of a TCP trace (0 for ICMP/UDP).
-	TCPPort    int           `json:"tcp_port,omitempty"`
-	IPVersion  int           `json:"ip_version"`
-	PacketSize int           `json:"packet_size"`
-	Hops       []HopSnapshot `json:"hops"`
-	AgentID    string        `json:"agent_id,omitempty"`
-	GatewayID  string        `json:"gateway_id,omitempty"`
-	Timestamp  int64         `json:"timestamp"`
+	TCPPort int `json:"tcp_port,omitempty"`
+	// TCPProbeMode reports how a TCP trace sent its probes: "syn" for crafted
+	// SYNs on one stable flow, "connect" for the connect() fallback. Empty for
+	// ICMP/UDP traces.
+	TCPProbeMode string        `json:"tcp_probe_mode,omitempty"`
+	IPVersion    int           `json:"ip_version"`
+	PacketSize   int           `json:"packet_size"`
+	Hops         []HopSnapshot `json:"hops"`
+	AgentID      string        `json:"agent_id,omitempty"`
+	GatewayID    string        `json:"gateway_id,omitempty"`
+	Timestamp    int64         `json:"timestamp"`
 }
 
 func abs64(x int64) int64 {
