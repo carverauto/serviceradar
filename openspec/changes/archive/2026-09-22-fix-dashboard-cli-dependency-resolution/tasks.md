@@ -34,5 +34,5 @@
 
 ## 7. Release
 - [x] 7.1 Add a `js/cli/CHANGELOG.md` patch entry describing the resolution fix and the `dev` alias precedence change.
-- [x] 7.2 No bump needed: `package.json` was already at an unpublished `0.1.6` (npm latest is `0.1.5`) and the changelog had no `0.1.6` section, so the entries landed under that version.
+- [x] 7.2 Landed under `0.1.6`, which `package.json` already carried unpublished. **That release did not deliver this change**: 0.1.6 was published from a tree whose `dist/` predated the fix, so the npm tarball carried the previous build. npm versions are immutable, so it was re-released as `0.1.7` (#4568), which also moved CLI publishing into CI to prevent a recurrence. `^0.1.7` is the real floor for this fix.
 - [x] 7.3 Note in the changelog that consumers carrying a symlink workaround can drop it once on this release.

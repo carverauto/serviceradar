@@ -55,7 +55,7 @@ This also unblocks a real consumer: the UAL dashboards monorepo currently ships 
   - `js/cli/src/doctor.ts` — SDK probe via the helper.
   - `js/cli/tests/` — unit tests over the resolver for project-local, hoisted, and missing layouts; a regression test asserting a config alias overrides the CLI default in `dev`.
   - `js/cli/CHANGELOG.md` — patch entry.
-- Consumer follow-up (separate repo, not this change): delete the `postinstall` symlink workaround in the UAL `serviceradar-dashboards` monorepo once a CLI release carries this fix.
+- Consumer follow-up (separate repo, not this change): delete the `postinstall` symlink workaround in the UAL `serviceradar-dashboards` monorepo once a CLI release carries this fix. **Done** — United-Airlines-Org/serviceradar-dashboards#5 removed it and raised the floor to `^0.1.7`.
 - Risk: low. The change is additive at the resolution layer with a fallback to today's behavior. The one behavioral change beyond bug-fixing is `dev` alias precedence, which makes `dev` agree with `build`; an author who was (unknowingly) relying on the CLI's React alias winning in `dev` would now get their own override — which is what writing the override meant.
 
 ## Note on OpenSpec conventions
