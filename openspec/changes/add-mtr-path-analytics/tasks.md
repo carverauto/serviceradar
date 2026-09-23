@@ -155,19 +155,30 @@ already exist there rather than being added under cutover pressure.
 
 ## 9. Validation
 
-- [ ] 9.1 `cargo check --workspace --lib --bins --tests` and
-      `cargo fmt` / `cargo clippy` clean on touched crates.
-- [ ] 9.2 `bazel build //rust/...` clean.
-- [ ] 9.3 `make test` green.
-- [ ] 9.4 `./scripts/elixir_quality.sh --project elixir/web-ng --phoenix --lint-only` clean.
+- [x] 9.1 `cargo check --workspace --lib --bins --tests` and
+      `cargo fmt` / `cargo clippy` clean on touched crates. Clippy green in CI on
+      the merge of PR #4565 (2m22s); `cargo fmt` and clippy also clean locally on
+      lib and test targets.
+- [x] 9.2 `bazel build //rust/...` clean. Covered by BazelCI, green in 14m on
+      PR #4565. Could not be run locally: no `.bazelrc.remote` exists on the
+      development machine, so RBE cannot authenticate.
+- [x] 9.3 `make test` green. Covered by BazelCI on PR #4565, which builds and
+      tests the same Bazel graph including the Elixir unit shards that are
+      invisible to `go test`/`cargo test`/`mix test`. Same local RBE limitation as
+      9.2.
+- [x] 9.4 `./scripts/elixir_quality.sh --project elixir/web-ng --phoenix --lint-only` clean.
+      Elixir Quality (web-ng) green in CI on PR #4565 (3m6s); `mix format
+      --check-formatted` also clean locally on both changed files.
 - [ ] 9.5 Verify each panel query returns correct aggregates against synthetic MTR
       data, including a group with zero probes sent (expect NULL, not zero) and a
       group whose hops sent unequal probe counts (expect the ratio-of-sums result
       to differ from the mean-of-ratios result).
 - [ ] 9.6 Verify the built-in dashboard renders every panel, and that a second
       startup does not duplicate it.
-- [ ] 9.7 Verify a `stats:` clause against each module from section 5 errors
-      rather than returning rows.
+- [x] 9.7 Verify a `stats:` clause against each module from section 5 errors
+      rather than returning rows. Asserted by
+      `entities_without_aggregation_refuse_a_stats_clause`, which exercises all six
+      modules and was confirmed to fail with a guard removed.
 
 ## 10. Coverage limits found while testing, recorded rather than papered over
 

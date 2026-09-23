@@ -119,7 +119,7 @@ reaches them, but the API and MCP surfaces do. Each gains the explicit refusal
 - The fail-closed and warehouse/CNPG parity requirements are owned by
   `extend-starrocks-to-all-telemetry`. This change states only the aggregate-level
   instance of them and the relational-path modules that change does not reach.
-- Amends the pending `add-srql-mtr-hops-entity` rather than duplicating it. That
+- Amended the now-archived `add-srql-mtr-hops-entity` rather than duplicating it. That
   change's sections 1-3 are implemented and correct and are not revisited.
 - No existing aggregate changes behavior. `avg` keeps its current meaning, and a
   test asserts it still emits `AVG`.
