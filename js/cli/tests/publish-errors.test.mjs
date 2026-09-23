@@ -1,4 +1,5 @@
-// Black-box tests for `serviceradar-cli dashboard publish` error envelopes.
+// Black-box tests for `serviceradar-cli dashboard publish` — error envelopes,
+// and the identity it reports back to the author on success.
 //
 // We spin up a tiny http server that returns a canned response shaped like
 // the controller's structured error envelope, then run the CLI subprocess
@@ -330,6 +331,76 @@ test("not_found on enable surfaces the id-not-found hint", async () => {
     assert.match(out, /not_found/)
     assert.match(out, /pkg-uuid/)
     assert.ok(calls >= 2, "expected at least one publish hop and one enable hop")
+  } finally {
+    srv.close()
+  }
+})
+
+
+// --- what the author is told on success -------------------------------------
+//
+// The instance keys packages by a UUID and returns it as `payload.id`. That UUID
+// is required for the enable endpoint's path, but it is meaningless to the person
+// who just ran publish: it is not in their config, it is not greppable, and it is
+// not what docs/publishing.md says this command prints. These pin the manifest id
+// as the thing a human reads.
+
+async function runPublishEnabled({instance, route}) {
+  const projectDir = await buildProject()
+  const result = await execFileAsync(process.execPath, [
+    cliPath, "dashboard", "publish",
+    "--instance", instance,
+    "--token", "fake-jwt-for-testing",
+    "--route", route,
+    "--enable",
+    "--yes",
+  ], {cwd: projectDir})
+  return result.stdout
+}
+
+const SERVER_UUID = "00000000-0000-4000-8000-000000000001"
+
+test("publish reports the manifest id, not the server UUID", async () => {
+  const {srv, instance} = await startServer((req, res) => {
+    if (req.url.includes("/enable")) return jsonReply(res, 200, {ok: true})
+    jsonReply(res, 200, {id: SERVER_UUID, version: "0.1.0"})
+  })
+
+  try {
+    const stdout = await runPublishEnabled({instance, route: "errtest"})
+
+    const published = stdout.split("\n").find((l) => l.includes("Published"))
+    const enabled = stdout.split("\n").find((l) => l.includes("Enabled"))
+    assert.ok(published, "expected a Published line")
+    assert.ok(enabled, "expected an Enabled line")
+
+    // The manifest id is what the author recognises, so it leads.
+    assert.match(published, /com\.example\.errtest@0\.1\.0/)
+    assert.match(enabled, /com\.example\.errtest/)
+
+    // The UUID must not be presented AS the package identity.
+    assert.doesNotMatch(published, new RegExp(`Published ${SERVER_UUID}`))
+    assert.doesNotMatch(enabled, new RegExp(`Enabled ${SERVER_UUID}`))
+
+    // But it stays visible for support/API use.
+    assert.ok(published.includes(SERVER_UUID), "server id should still be shown alongside")
+  } finally {
+    srv.close()
+  }
+})
+
+test("publish omits the server id suffix when the instance echoes the manifest id", async () => {
+  // A host that keys packages by manifest id should not produce "com.x (com.x)".
+  const {srv, instance} = await startServer((req, res) => {
+    if (req.url.includes("/enable")) return jsonReply(res, 200, {ok: true})
+    jsonReply(res, 200, {id: "com.example.errtest"})
+  })
+
+  try {
+    const stdout = await runPublishEnabled({instance, route: "errtest"})
+    const published = stdout.split("\n").find((l) => l.includes("Published"))
+    assert.match(published, /com\.example\.errtest@0\.1\.0/)
+    assert.doesNotMatch(published, /\(com\.example\.errtest\)/)
   } finally {
     srv.close()
   }
