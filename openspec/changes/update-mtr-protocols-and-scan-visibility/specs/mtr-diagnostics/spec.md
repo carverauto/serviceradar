@@ -76,27 +76,28 @@ The system SHALL support policy-driven baseline MTR collection for managed devic
 ## ADDED Requirements
 
 ### Requirement: TCP SYN Probe Flow
-The agent SHALL send all TCP probes of one trace on a single stable flow -- one source port reserved for the trace and one destination port -- varying only TTL and TCP sequence number, and SHALL identify each probe by its TCP sequence number in both quoted ICMP errors and SYN-ACK/RST acknowledgement numbers.
+For TCP traces on agents advertising the `mtr_tcp_syn` capability, the agent SHALL send all TCP probes of one trace on a single stable flow -- one source port reserved for the trace and one destination port -- varying only TTL and TCP sequence number, and SHALL identify each probe by its TCP sequence number in both quoted ICMP errors and SYN-ACK/RST acknowledgement numbers.
 
 #### Scenario: ECMP-stable TCP path
-- **WHEN** a TCP trace probes TTL 1 through N
+- **WHEN** a TCP trace on an agent advertising `mtr_tcp_syn` probes TTL 1 through N
 - **THEN** every probe shares the same source address, source port, destination address and destination port
 - **AND** probes differ only in TTL and TCP sequence number
 
 #### Scenario: Reply matched by acknowledgement number
-- **WHEN** the target returns a SYN-ACK whose acknowledgement number is one greater than an in-flight probe's sequence number
+- **WHEN** a TCP trace on an agent advertising `mtr_tcp_syn` receives a SYN-ACK whose acknowledgement number is one greater than an in-flight probe's sequence number
 - **THEN** that probe is credited with the reply at its TTL
 - **AND** a reply whose acknowledgement matches no in-flight probe is counted as an acknowledgement mismatch and credited to no hop
 
 #### Scenario: Reserved source port is never listening
-- **WHEN** the agent reserves the trace's TCP source port
+- **WHEN** an agent advertising `mtr_tcp_syn` reserves the trace's TCP source port
 - **THEN** the reservation socket is bound but never placed in listen or connect state
 - **AND** the host kernel answers target SYN-ACKs with RST, tearing down the target's half-open connection
 
 #### Scenario: Platform without raw TCP receive
-- **WHEN** the agent runs on a platform that cannot receive raw TCP segments
-- **THEN** TCP probes detect reach by observing the non-blocking connect outcome within the probe timeout
-- **AND** the agent does not advertise the `mtr_tcp_syn` capability and TCP handshake diagnostics are left empty
+- **WHEN** a TCP trace runs on an agent that cannot receive raw TCP segments and therefore does not advertise `mtr_tcp_syn`
+- **THEN** probes target the configured destination port `tcp_port` while a fresh source port per probe is permitted, so this path makes no stable-flow or ECMP path guarantee
+- **AND** reach is detected from the non-blocking connect outcome within the probe timeout, where the connect completing means SYN-ACK and refusal means RST
+- **AND** TCP handshake diagnostics are left empty
 
 ### Requirement: TCP Handshake Diagnostics
 For TCP traces on agents advertising `mtr_tcp_syn`, the agent SHALL run a bounded destination handshake phase and report SYNs sent, SYN-ACKs received, RSTs received, unanswered SYNs, SYN drop percentage, SYN retransmissions, handshakes answered only after retransmission, acknowledgement mismatches, duplicate SYN-ACKs, handshake RTT (min/avg/max), and an estimated server response time; and the agent SHALL report per-hop reply-type counters for every protocol.

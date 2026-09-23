@@ -118,7 +118,8 @@ poorly for everything around it.
   - a link to the job on `/diagnostics/mtr`
 - MTR progress updates arrive on the `agent:commands` PubSub messages the tab
   already receives, which it currently discards.
-- MTR rows are shown only to users who hold the MTR view permission.
+- MTR rows are shown only to users who hold the `networks.sweeps.view`
+  permission.
 
 ## Impact
 
