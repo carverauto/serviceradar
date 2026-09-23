@@ -121,45 +121,50 @@ no-mistakes gate, in order. All fixtures are synthetic
   - web-ng: render test for the panel.
 
 ## 4. Multi-protocol MTR profiles (#4579)
-- [ ] 4.1 Migration:
+- [x] 4.1 Migration:
   - `mtr_policies.baseline_protocols text[] NOT NULL DEFAULT '{icmp}'`,
     backfilled from `baseline_protocol`; add `tcp_port integer NOT NULL
     DEFAULT 443`.
   - `mtr_bulk_job_targets.protocol text NOT NULL DEFAULT 'icmp'`; replace the
     unique index with `(command_id, target, protocol)`.
-- [ ] 4.2 `MtrPolicy`:
+- [x] 4.2 `MtrPolicy`:
   - `baseline_protocols` with atom items `[:icmp, :udp, :tcp]`,
     `min_length: 1`, canonical order and dedupe.
   - `tcp_port` constrained to 1..65535.
-  - Stop writing `baseline_protocol`; update seeds and fixtures.
-- [ ] 4.3 `AgentCommandBus.dispatch_bulk_mtr`:
+  - `baseline_protocol` is kept in step with the first protocol (for
+    rollback and callers that still set it) instead of being dropped.
+- [x] 4.3 `AgentCommandBus.dispatch_bulk_mtr`:
   - Payload `protocols` + `tcp_port`, keeping `protocol` = the first entry.
-  - Fan out one job per protocol for agents without `mtr_protocol_set`.
+  - Agents without `mtr_protocol_set` get the first protocol only (an agent
+    runs one bulk job at a time, so per-protocol fan-out would be rejected);
+    capability is checked before the command is created.
   - Bulk target rows keyed per protocol.
-- [ ] 4.4 Agent bulk worker: when `protocols` is present, trace each target
+- [x] 4.4 Agent bulk worker: when `protocols` is present, trace each target
   once per protocol on one worker slot; progress counts (target, protocol)
   units; per-target results carry `protocol`; advertise `mtr_protocol_set`.
-- [ ] 4.5 `MtrAutomationDispatcher` and `MtrRuntime`: fan out one `mtr.run`
+- [x] 4.5 `MtrAutomationDispatcher` and `MtrRuntime`: fan out one `mtr.run`
   per protocol; one cooldown window per target for the set.
-- [ ] 4.6 `status_handler` / bulk result ingest: update bulk target rows by
+- [x] 4.6 `status_handler` / bulk result ingest: update bulk target rows by
   `(command_id, target, protocol)`.
-- [ ] 4.7 Profile form (`settings/mtr_profiles_live`):
+- [x] 4.7 Profile form (`settings/mtr_profiles_live`):
   - Protocol multi-select (the ICMP/UDP/TCP combinations).
   - TCP port input shown when TCP is selected.
   - Probe-volume multiplier hint.
   - Keep the existing ICMP-on-Kubernetes warning.
-- [ ] 4.8 Interval guidance: scale the recommended interval by the protocol
+- [x] 4.8 Interval guidance: scale the recommended interval by the protocol
   count until a multi-protocol run is measured.
-- [ ] 4.9 Views: protocol filter on `/diagnostics/mtr`; the device MTR tab shows
-  the latest trace per protocol side by side; the compare view warns when two
-  traces use different protocols.
-- [ ] 4.10 Update `openspec/changes/add-sweep-profile-mtr-mode/design.md` D4 to
+- [x] 4.9 Views: the device MTR tab shows the latest trace per protocol; the
+  compare view warns when two traces use different protocols.
+  `/diagnostics/mtr` already filters by protocol through its SRQL box
+  (`protocol:tcp`), so no separate control was added.
+- [x] 4.10 Update `openspec/changes/add-sweep-profile-mtr-mode/design.md` D4 to
   adopt the protocol set (`mtr_protocols`) instead of a single `mtr_protocol`.
-- [ ] 4.11 Tests:
-  - core: backfill migration; payload shape; fan-out for a legacy agent;
-    per-protocol bulk target rows.
-  - Go: a multi-protocol bulk job produces N traces per target.
-  - web-ng: the form persists sets and validates non-empty.
+- [x] 4.11 Tests:
+  - core: payload shape and per-protocol bulk target rows and updates
+    (integration), first-protocol fallback for a legacy agent, protocol helpers.
+  - Go: protocol parsing, unit expansion, protocol on target updates.
+  - web-ng: form protocol parsing (empty selection rejected), labels, device
+    latest-by-protocol, compare warning (db_free).
 
 ## 5. MTR jobs in Active Scans (#4577)
 - [ ] 5.1 `NetworksLive.Index.MtrJobs` loader: running and recent

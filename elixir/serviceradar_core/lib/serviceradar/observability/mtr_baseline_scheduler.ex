@@ -131,7 +131,8 @@ defmodule ServiceRadar.Observability.MtrBaselineScheduler do
            AgentCommandBus.dispatch_bulk_mtr(
              agent_id,
              bulk_targets,
-             protocol: Map.get(policy, :baseline_protocol),
+             protocols: MtrPolicy.protocol_names(policy),
+             tcp_port: MtrPolicy.tcp_port(policy),
              concurrency: concurrency,
              execution_profile: execution_profile,
              actor: actor,

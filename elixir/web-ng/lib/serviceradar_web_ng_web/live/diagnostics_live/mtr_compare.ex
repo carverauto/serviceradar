@@ -322,6 +322,18 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
 
         <%= if @mode == mode_trace() do %>
           <.trace_pair_controls recent_traces={@recent_traces} trace_a={@trace_a} trace_b={@trace_b} />
+          <div
+            :if={mixed_protocols?(@trace_a, @trace_b)}
+            id="mtr-compare-mixed-protocols"
+            class={ui_alert_class("warning")}
+          >
+            <span>
+              These traces use different protocols ({String.upcase(@trace_a["protocol"] || "icmp")} and {String.upcase(
+                @trace_b["protocol"] || "icmp"
+              )}). Hop differences may come from how routers and firewalls treat each protocol,
+              not from a path change.
+            </span>
+          </div>
           <.trace_pair_result
             trace_a={@trace_a}
             trace_b={@trace_b}
@@ -453,6 +465,14 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
     </div>
     """
   end
+
+  @doc false
+  def mixed_protocols?(%{} = trace_a, %{} = trace_b) do
+    protocol = fn trace -> trace |> Map.get("protocol", "icmp") |> to_string() |> String.downcase() end
+    protocol.(trace_a) != protocol.(trace_b)
+  end
+
+  def mixed_protocols?(_trace_a, _trace_b), do: false
 
   attr(:state, :map, required: true)
 

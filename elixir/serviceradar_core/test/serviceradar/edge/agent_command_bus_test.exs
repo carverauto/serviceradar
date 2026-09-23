@@ -929,6 +929,103 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       assert rows == [["1.1.1.1", "queued"], ["router-a", "queued"]]
     end
 
+    test "multi-protocol bulk mtr dispatch queues one row per target and protocol", %{
+      agent_id: agent_id,
+      actor: actor
+    } do
+      {_pid, _metadata} =
+        start_control_session(agent_id, self(), %{
+          partition_id: "default",
+          capabilities: ["mtr", "mtr_protocol_set"]
+        })
+
+      assert {:ok, command_id} =
+               AgentCommandBus.dispatch_bulk_mtr(agent_id, ["192.0.2.1", "192.0.2.2"],
+                 protocols: ["tcp", "icmp"],
+                 tcp_port: 8443
+               )
+
+      assert_receive {:send_command, %Monitoring.CommandRequest{} = command, _context}, 1_000
+
+      payload = Jason.decode!(command.payload_json)
+      assert payload["protocols"] == ["icmp", "tcp"]
+      assert payload["protocol"] == "icmp"
+      assert payload["tcp_port"] == 8443
+
+      command = wait_for_status(command_id, :sent, actor)
+
+      assert {:ok, %{rows: rows}} =
+               ServiceRadar.Repo.query(
+                 """
+                 SELECT target, protocol, status
+                 FROM platform.mtr_bulk_job_targets
+                 WHERE command_id::text = $1
+                 ORDER BY target, protocol
+                 """,
+                 [uuid_text(command.id)]
+               )
+
+      assert rows == [
+               ["192.0.2.1", "icmp", "queued"],
+               ["192.0.2.1", "tcp", "queued"],
+               ["192.0.2.2", "icmp", "queued"],
+               ["192.0.2.2", "tcp", "queued"]
+             ]
+
+      ensure_status_handler_started()
+
+      send(
+        StatusHandler,
+        {:command_progress,
+         %{
+           command_id: uuid_text(command.id),
+           command_type: "mtr.bulk_run",
+           agent_id: agent_id,
+           partition_id: "default",
+           message: "running",
+           progress_percent: 25,
+           payload: %{
+             "target_updates" => [
+               %{"target" => "192.0.2.1", "protocol" => "tcp", "status" => "completed", "attempt_count" => 1}
+             ]
+           }
+         }}
+      )
+
+      _ = :sys.get_state(StatusHandler)
+      _command = wait_for_status(command.id, :running, actor)
+
+      assert {:ok, %{rows: statuses}} =
+               ServiceRadar.Repo.query(
+                 """
+                 SELECT protocol, status
+                 FROM platform.mtr_bulk_job_targets
+                 WHERE command_id::text = $1 AND target = '192.0.2.1'
+                 ORDER BY protocol
+                 """,
+                 [uuid_text(command.id)]
+               )
+
+      assert statuses == [["icmp", "queued"], ["tcp", "completed"]]
+    end
+
+    test "multi-protocol bulk mtr to an agent without protocol-set support runs the first protocol", %{
+      agent_id: agent_id
+    } do
+      {_pid, _metadata} =
+        start_control_session(agent_id, self(), %{partition_id: "default", capabilities: ["mtr"]})
+
+      assert {:ok, _command_id} =
+               AgentCommandBus.dispatch_bulk_mtr(agent_id, ["192.0.2.1"], protocols: ["udp", "tcp"])
+
+      assert_receive {:send_command, %Monitoring.CommandRequest{} = command, _context}, 1_000
+
+      payload = Jason.decode!(command.payload_json)
+      assert payload["protocols"] == ["udp"]
+      assert payload["protocol"] == "udp"
+      refute Map.has_key?(payload, "tcp_port")
+    end
+
     test "bulk mtr progress persists multiple target updates", %{
       agent_id: agent_id,
       actor: actor

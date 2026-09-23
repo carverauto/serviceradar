@@ -244,32 +244,29 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   end
 
   defp persist_bulk_mtr_targets(command_id, payload_json) do
-    with {:ok, %{"targets" => targets}} <- Jason.decode(payload_json),
+    with {:ok, %{"targets" => targets} = payload} <- Jason.decode(payload_json),
          true <- is_list(targets),
          {:ok, command_uuid} <- Ecto.UUID.dump(command_id) do
       now = DateTime.utc_now()
+      protocols = payload_mtr_protocols(payload)
 
       rows =
-        targets
-        |> Enum.map(&to_string/1)
-        |> Enum.map(&String.trim/1)
-        |> Enum.reject(&(&1 == ""))
-        |> Enum.uniq()
-        |> Enum.map(fn target ->
+        for target <- normalize_bulk_targets(targets), protocol <- protocols do
           %{
             command_id: command_uuid,
             target: target,
+            protocol: protocol,
             status: "queued",
             inserted_at: now,
             updated_at: now
           }
-        end)
+        end
 
       if rows != [] do
         control_repo().insert_all("mtr_bulk_job_targets", rows,
           prefix: "platform",
           on_conflict: :nothing,
-          conflict_target: [:command_id, :target]
+          conflict_target: [:command_id, :target, :protocol]
         )
       end
     else
@@ -700,13 +697,17 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
       |> Enum.reject(&(&1 == ""))
       |> Enum.uniq()
 
+    protocols = bulk_mtr_protocols(agent_id, opts)
+
     payload =
       %{
         "targets" => normalized_targets,
-        "protocol" => normalize_mtr_protocol(Keyword.get(opts, :protocol, "icmp")),
+        "protocol" => hd(protocols),
+        "protocols" => protocols,
         "execution_profile" =>
           normalize_bulk_execution_profile(Keyword.get(opts, :execution_profile, "fast"))
       }
+      |> maybe_put("tcp_port", if("tcp" in protocols, do: Keyword.get(opts, :tcp_port)))
       |> maybe_put("target_query", normalize_optional_string(Keyword.get(opts, :target_query)))
       |> maybe_put("selector_limit", Keyword.get(opts, :selector_limit))
       |> maybe_put("max_hops", Keyword.get(opts, :max_hops))
@@ -714,7 +715,10 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
     ttl_seconds =
       opts
-      |> Keyword.get(:ttl_seconds, bulk_mtr_ttl_seconds(length(normalized_targets)))
+      |> Keyword.get(
+        :ttl_seconds,
+        bulk_mtr_ttl_seconds(length(normalized_targets) * length(protocols))
+      )
       |> max(60)
 
     dispatch(agent_id, "mtr.bulk_run", payload,
@@ -2680,6 +2684,75 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     |> case do
       "" -> nil
       normalized -> normalized
+    end
+  end
+
+  # A multi-protocol set goes to an agent only when it advertises
+  # mtr_protocol_set. An older agent runs one bulk job at a time and rejects a
+  # second, so the set cannot be split into parallel jobs for it; it gets the
+  # first protocol and the rest of the set is skipped for that run.
+  @doc false
+  def bulk_mtr_protocols(agent_id, opts) do
+    protocols =
+      opts
+      |> Keyword.get(:protocols, [Keyword.get(opts, :protocol, "icmp")])
+      |> List.wrap()
+      |> Enum.map(&normalize_mtr_protocol/1)
+      |> then(fn names -> Enum.filter(["icmp", "udp", "tcp"], &(&1 in names)) end)
+      |> case do
+        [] -> ["icmp"]
+        names -> names
+      end
+
+    supports_set? =
+      Keyword.get_lazy(opts, :protocol_set_supported?, fn ->
+        agent_capability?(agent_id, "mtr_protocol_set")
+      end)
+
+    if length(protocols) > 1 and not supports_set? do
+      Logger.warning(
+        "Agent does not advertise mtr_protocol_set; bulk MTR runs only the first protocol",
+        agent_id: agent_id,
+        protocols: Enum.join(protocols, ","),
+        running: hd(protocols)
+      )
+
+      [hd(protocols)]
+    else
+      protocols
+    end
+  end
+
+  @doc """
+  Whether a connected control session for `agent_id` advertises `capability`.
+
+  Reads the registry locally on member nodes and over RPC elsewhere, like the
+  other session lookups here, so it is safe to call from web nodes.
+  """
+  @spec agent_capability?(String.t(), String.t()) :: boolean()
+  def agent_capability?(agent_id, capability) when is_binary(agent_id) and is_binary(capability) do
+    agent_id
+    |> list_control_session_entries()
+    |> Enum.any?(fn
+      {_pid, metadata} when is_map(metadata) -> capability in capabilities_from_metadata(metadata)
+      _entry -> false
+    end)
+  end
+
+  def agent_capability?(_agent_id, _capability), do: false
+
+  defp normalize_bulk_targets(targets) do
+    targets
+    |> Enum.map(&to_string/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  defp payload_mtr_protocols(payload) do
+    case Map.get(payload, "protocols") do
+      [_ | _] = protocols -> Enum.map(protocols, &normalize_mtr_protocol/1)
+      _ -> [normalize_mtr_protocol(Map.get(payload, "protocol", "icmp"))]
     end
   end
 

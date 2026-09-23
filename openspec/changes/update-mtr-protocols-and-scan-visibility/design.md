@@ -163,11 +163,18 @@ probing described here; the non-Linux connect-observe fallback is D2.
     payload, set to the first protocol, so older agents still get a valid
     single-protocol job.
   - An agent advertising `mtr_protocol_set` runs every protocol for a target
-    inside one job. Each target is traced once per protocol, sequentially, on
-    one worker slot. The traces are serialised so they don't compete for the
-    same path at the same moment.
-  - For an agent without `mtr_protocol_set`, core dispatches one bulk job per
-    protocol.
+    inside one job, one trace per (target, protocol).
+  - For an agent without `mtr_protocol_set`, core dispatches a single-protocol
+    job with the first protocol of the set and logs the skip. Splitting the set
+    into one job per protocol does not work: an agent runs one bulk job at a
+    time and rejects a concurrent one as busy. Capability is checked before the
+    command is created (`AgentCommandBus.agent_capability?/2`), so no failed
+    command row is left behind.
+  - As implemented, the agent expands the job into (target, protocol) units
+    that flow through the existing slot, progress and adaptive-concurrency
+    accounting, so a target's protocols can run on concurrent workers rather
+    than strictly one after another. Progress `total_targets` counts units,
+    and progress payloads carry `protocols`.
 - **Target rows.** `mtr_bulk_job_targets` gains `protocol text NOT NULL
   DEFAULT 'icmp'`, and the unique index becomes `(command_id, target,
   protocol)`.
@@ -175,13 +182,14 @@ probing described here; the non-Linux connect-observe fallback is D2.
   Active Scans row shows targets x protocols.
 - **Single-target path** (dispatcher incident/recovery, device Queue MTR).
   Core fans out one `mtr.run` per protocol. The existing single-trace result
-  handling stays unchanged.
+  handling stays unchanged. The agent's concurrent on-demand trace limit rises
+  from 2 to 3 so a full icmp/udp/tcp set for one target is admitted at once.
 - **Cooldown.** One `mtr_dispatch_windows` row still covers the whole set.
   Cooldown is about how often a target is disturbed, not about which
   protocols are used.
-- **Interval guidance.** The recommended minimum interval from first-run
-  calibration is multiplied by the protocol count until a multi-protocol run
-  has been measured.
+- **Interval guidance.** Measured throughput is in (target, protocol) units,
+  so the runtime estimate multiplies the scoped target count by the protocol
+  count.
 - **Spec correction.** The old spec scenario "UDP/TCP are not auto-executed in
   baseline mode" no longer matches the product: baseline TCP is already
   selectable. The modified requirement replaces it with "the policy's protocol

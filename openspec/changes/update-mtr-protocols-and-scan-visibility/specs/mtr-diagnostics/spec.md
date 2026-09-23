@@ -146,8 +146,8 @@ An MTR profile (policy) SHALL carry a non-empty set of probe protocols drawn fro
 
 #### Scenario: Agent without protocol-set support
 - **WHEN** a multi-protocol bulk run targets an agent that does not advertise `mtr_protocol_set`
-- **THEN** core dispatches one bulk job per protocol to that agent
-- **AND** the resulting traces are indistinguishable from a single multi-protocol job's traces
+- **THEN** core dispatches a single-protocol bulk job carrying the first protocol of the set, because such an agent runs one bulk job at a time and rejects a concurrent one
+- **AND** core logs that the rest of the set was skipped for that agent
 
 #### Scenario: Per-protocol comparison on the device page
 - **WHEN** a device has recent traces for more than one protocol
