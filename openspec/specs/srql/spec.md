@@ -297,7 +297,7 @@ SRQL SHALL provide a “latest snapshot per interface” result shape for UI que
 - **THEN** SRQL returns the latest observation per interface
 
 ### Requirement: Automatic time-based CAGG routing
-The SRQL service SHALL automatically route `stats:` and `bucket:` queries to hourly Continuous Aggregate views when the requested time window spans 6 hours or more. Queries with time windows under 6 hours SHALL continue to query the raw hypertable. The response shape SHALL be identical regardless of which backend serves the query.
+The SRQL service SHALL automatically route `stats:` and `bucket:` queries to hourly Continuous Aggregate views when either the requested time window spans 6 hours or more, or the window starts before the raw hypertable's retention horizon (the raw tier has already dropped every row in that window). The retention arm is start-based, so a window under 6 hours that straddles the horizon is served wholly from the rollup at hourly grain. It applies only to metric entities whose raw hypertables retain less history than their rollups; flows keep span-only routing. Queries that meet neither condition SHALL continue to query the raw hypertable. The response shape SHALL be identical regardless of which backend serves the query.
 
 #### Scenario: Stats query with large time window routes to CAGG
 - **GIVEN** the `cpu_metrics_hourly` CAGG exists and has been refreshed
@@ -308,7 +308,13 @@ The SRQL service SHALL automatically route `stats:` and `bucket:` queries to hou
 #### Scenario: Stats query with small time window hits raw table
 - **GIVEN** the `cpu_metrics_hourly` CAGG exists
 - **WHEN** a client sends `in:cpu_metrics time:last_1h stats:avg(usage_percent) as avg_usage`
-- **THEN** SRQL queries the raw `cpu_metrics` hypertable (time window < 6h threshold)
+- **THEN** SRQL queries the raw `cpu_metrics` hypertable (time window under 6h and within the raw retention horizon)
+
+#### Scenario: Short old window routes to CAGG by retention
+- **GIVEN** the `cpu_metrics_hourly` CAGG exists and has been refreshed
+- **AND** the raw `cpu_metrics` hypertable retains only 7 days
+- **WHEN** a client sends a `time:` window shorter than 6 hours that starts before that 7-day horizon
+- **THEN** SRQL queries the `cpu_metrics_hourly` CAGG instead of the empty raw table
 
 #### Scenario: Bucket query with large time window routes to CAGG
 - **GIVEN** the `memory_metrics_hourly` CAGG exists and has been refreshed
