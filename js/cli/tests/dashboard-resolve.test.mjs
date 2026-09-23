@@ -198,6 +198,24 @@ describe("assertReactResolvable", () => {
       },
     )
   })
+
+  test("uses the absolute project path when the project is the working directory", () => {
+    const projectDir = process.cwd()
+    const fakeAliases = {
+      react: join(projectDir, "node_modules", "react"),
+      "react-dom": join(projectDir, "node_modules", "react-dom"),
+      "react-dom/client": join(projectDir, "node_modules", "react-dom", "client"),
+    }
+
+    assert.throws(
+      () => assertReactResolvable(projectDir, fakeAliases),
+      (error) => {
+        assert.ok(error.message.includes(projectDir), "error must contain the absolute project path")
+        assert.ok(!error.message.includes("at ."), "error must not render '.' as the project label")
+        return true
+      },
+    )
+  })
 })
 
 describe("devViteAliases precedence", () => {

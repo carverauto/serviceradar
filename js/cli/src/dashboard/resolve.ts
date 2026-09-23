@@ -178,7 +178,8 @@ export function devViteAliases(
  * invoked, naming a directory rather than the problem.
  */
 export function assertReactResolvable(projectDir: string, aliases: ReactAliases): void {
-  const proj = relativePath(process.cwd(), projectDir)
+  const rel = relativePath(process.cwd(), projectDir)
+  const proj = rel === "." ? projectDir : rel
   for (const name of ["react", "react-dom"] as const) {
     if (!existsSync(aliases[name])) {
       throw new Error(
@@ -188,10 +189,11 @@ export function assertReactResolvable(projectDir: string, aliases: ReactAliases)
       )
     }
   }
-  if (!existsSync(`${aliases["react-dom/client"]}.js`)) {
+  const clientJs = `${aliases["react-dom/client"]}.js`
+  if (!existsSync(clientJs)) {
     throw new Error(
       `cannot resolve "react-dom/client" from dashboard project at ${proj}\n` +
-        `→ looked for it at ${aliases["react-dom/client"]}\n` +
+        `→ looked for it at ${clientJs}\n` +
         `→ run \`npm install\` (or add "react-dom" to this project's dependencies)`,
     )
   }
