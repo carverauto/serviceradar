@@ -44,8 +44,8 @@ defmodule ServiceRadarWebNGWeb.Components.MtrProfilesLiveTest do
   # Regression: the selector-limit input was bound to :selector_limit while every
   # reader used @selector_limit_key ("limit"). That mismatch broke the field in
   # both directions at once -- it rendered blank whatever was persisted, and
-  # submitted nothing, so parse_int/3 fell through to its 100 default and the
-  # limit could never be moved off 100 from the UI. Assert the round trip.
+  # submitted nothing, so parse_optional_limit/1 silently returned nil (no limit)
+  # regardless of what was stored. Assert the round trip.
   test "profile form round-trips the selector limit under the selector key" do
     form =
       Phoenix.Component.to_form(

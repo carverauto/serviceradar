@@ -853,9 +853,9 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
                   under "limit", and save_profile/validate_profile read it back
                   with Map.get(params, @selector_limit_key). A mismatched atom
                   renders blank and silently discards the operator's input,
-                  because parse_int/3 then falls through to its 100 default --
-                  so the selector limit can never be changed from the UI. Same
-                  rule as :srql_query above. --%>
+                  causing parse_optional_limit/1 to return nil -- which is the
+                  "no limit" sentinel, so the selector limit can never be set
+                  from the UI. Same rule as :srql_query above. --%>
             <.input
               type="number"
               id="mtr-profile-selector-limit"
