@@ -1,3 +1,57 @@
+# ServiceRadar v1.4.69
+
+StarRocks-backed flow analytics, expanded device metrics, MTR path
+analytics, and more reliable alerting and inventory reconciliation.
+
+## Whats New
+
+**1.4.69**
+- Analytics: NetFlow reads now require StarRocks. Warehouse schema
+  migration and retention support flows, scalar metrics, logs and events;
+  dataset cutover remains explicit. Counter charts calculate rates from
+  counter deltas, with fixes for tag-split series, newest-N limits, flow
+  filters and dashboard readers following the configured backend.
+- Topology: Dgraph deployment, schema provisioning and migration checks
+  are available alongside AGE, with a Grafana dashboard for Dgraph.
+- MTR: automated baseline, trigger and consensus processing is enabled
+  by default. The new path analytics dashboard exposes packet-weighted
+  loss and latency through SRQL, with time-bucketed trends and transit-ASN
+  analysis. Built-in dashboard definitions preserve operator edits.
+- Devices: bulk state editing, longer metric windows, and faster chart
+  rendering. Inventory fixes reject reserved MAC identities, tighten
+  duplicate-sweep policy and interface guards, and correct device
+  pagination, vendor filters and event queries through identity aliases.
+- Network changes: change-impact tracking records network changes and
+  their affected devices.
+- Alerts: stateful rules dispatch to the correct shard, handle structured
+  grouping values without crashing, and serialize source UUIDs in both
+  event details and diagnostics while preserving textual IDs.
+- Dashboards: improved NetFlow loading, map arcs, Sankey edge selection
+  and time-axis labels. The dashboard CLI resolves hoisted workspace
+  dependencies and respects configured aliases during development.
+
+## Upgrade Notes
+
+- NetFlow dashboards and `in:flows` no longer fall back to CNPG. Configure
+  a working StarRocks warehouse and explicitly include `flows` in
+  `analytics.starrocks.cutoverDatasets` before using flow reads. CNPG-only
+  installations can continue reading metrics, logs and events.
+- StarRocks remains optional in the base Helm values. Shared-nothing
+  deployments use durable backend volumes; shared-data deployments need
+  object storage. This release does not retire CNPG telemetry writes or
+  automatically cut over every dataset. Warehouse migration can rebuild
+  existing tables; allow capacity and time for that work.
+- The Helm chart enables Dgraph by default and provisions TLS through
+  cert-manager. Install cert-manager and provide persistent storage before
+  upgrading with Dgraph enabled. Topology reads remain on AGE by default;
+  the migration checksum must pass before deliberately switching reads.
+  Set `dgraph.enabled=false` to retain an installation without an in-chart
+  Dgraph cluster.
+- Automated MTR processing can produce additional probes. To opt out, set
+  `MTR_AUTOMATION_ENABLED=false`; explicitly configured baseline, trigger
+  and consensus flags override that shared default and must also be
+  disabled if set. MTR telemetry continues to use CNPG in this release.
+
 # ServiceRadar v1.4.68
 
 Events raised by stateful alert rules now carry the affected
