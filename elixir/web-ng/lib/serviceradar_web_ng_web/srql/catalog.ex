@@ -1890,6 +1890,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       default_filter_field: "addr",
       filter_fields: [
         "trace_id",
+        "target_ip",
+        "device_id",
         "addr",
         "hostname",
         "asn",
@@ -1921,7 +1923,20 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "error"
       ],
       boolean_fields: ["target_reached"],
-      downsample: false
+      downsample: false,
+      stats: true,
+      # target_reached aggregates as a 0/1 indicator, so avg(target_reached) is the
+      # reach rate -- the endpoint signal hop metrics cannot express, because a
+      # trace that never reached its target has no terminal hop to measure.
+      stats_agg_fields: ["total_hops", "target_reached"],
+      stats_group_fields: [
+        "target_ip",
+        "target",
+        "device_id",
+        "agent_id",
+        "protocol",
+        "check_name"
+      ]
     },
     %{
       id: "interfaces",

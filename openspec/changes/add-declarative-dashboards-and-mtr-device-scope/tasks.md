@@ -52,29 +52,48 @@
 - [x] 5.1 Elixir migration adding `target_ip` and `device_id` to
       `platform.mtr_hops`, `prefix: "platform"`, with indexes supporting a
       `target_ip` filter over a time range.
-- [ ] 5.2 Populate both at ingest in `MtrMetricsIngestor` from the owning trace.
-- [ ] 5.3 Chunk-aware, batched, idempotent, resumable backfill for existing rows.
-      Not a single `UPDATE`: `mtr_hops` is a hypertable and one statement across
-      all chunks is the shape that OOM-kills a node.
+- [x] 5.2 Populate both at ingest in `MtrMetricsIngestor` from the owning trace.
+      Read off the trace ROW rather than the payload, so a hop cannot disagree
+      with its own trace about the target.
+- [x] 5.3 Chunk-aware, batched, idempotent, resumable backfill for existing rows.
+      `MtrHopAttributionBackfill` plus a dry-run-by-default mix task. Verified on a
+      real hypertable: correct attribution, an orphan hop left NULL rather than
+      mis-attributed, and `UPDATE 0` on a second pass so the drain loop ends.
 - [x] 5.4 Handle compressed chunks. **Measured: not needed.** `UPDATE` on a
       compressed chunk succeeds and persists on TimescaleDB 2.24.0 — verified by
       compressing a 60-day-old chunk, updating it, and reading the value back.
       DML on compressed chunks is supported from 2.11. The backfill instead checks
       the extension version and refuses below 2.11 with a clear message.
-- [ ] 5.5 Accept `target_ip` and `device_id` as `in:mtr_hops` filters in the
-      relational compiler, and add them to the web-ng SRQL catalog
-      `filter_fields` so the query builder and `srql/page.ex` accept them.
-- [ ] 5.6 Same filters in `starrocks.rs`, or an explicit refusal there.
+- [x] 5.5 Accept `target_ip` and `device_id` as `in:mtr_hops` filters in the
+      relational compiler. Wired through five sites that each drop the filter
+      silently on their own: Diesel schema, row-filter dispatch, stats WHERE
+      builder, row-path bind collection, and MtrHopRow's projection.
+      **Still open: the web-ng SRQL catalog `filter_fields`** -- tracked as 5.7.
+- [x] 5.6 Same filters in `starrocks.rs`, or an explicit refusal there.
+      **Refusal, and it already existed.** `dataset_for/1` has no mapping for MTR
+      entities, so `translate/3` returns `starrocks_unsupported_entity` -- an
+      explicit refusal, not a silent partial answer. No dialect code was needed.
+      Added a guard test instead, which is what would catch a future
+      half-implementation: a dataset mapping added without the target_ip/device_id
+      field mappings would otherwise return fleet-wide rows under a per-device
+      title. MTR in the warehouse is owned by extend-starrocks-to-all-telemetry
+      task 3.4.
+- [ ] 5.7 Add `target_ip` and `device_id` to the `mtr_hops` catalog
+      `filter_fields`, so `srql/page.ex` stops rejecting them and the query builder
+      offers them.
 
 ## 6. Trace-level aggregation
 
-- [ ] 6.1 Replace the blanket `stats:` rejection in `mtr_traces.rs` with real
-      aggregation: grouping by `target_ip`, `device_id`, `agent_id`, `protocol`,
-      and counting with `target_reached` to give reach rate per target.
-- [ ] 6.2 Same in `starrocks.rs`, or an explicit refusal.
-- [ ] 6.3 Update the error text that currently advises "use `in:mtr_hops` for
-      hop-level analytics" — advice that led nowhere, since `in:mtr_hops` could not
-      name a device.
+- [x] 6.1 Replace the blanket `stats:` rejection in `mtr_traces.rs` with real
+      aggregation. Reach rate needs no new function: `target_reached` is an
+      aggregatable 0/1 indicator cast to int, and the mean of an indicator is the
+      proportion. `loss_ratio`/`wavg` are refused here with a pointer to
+      `in:mtr_hops`, since probe counters live on hops.
+- [x] 6.2 Same in `starrocks.rs`, or an explicit refusal. Covered by the same
+      pre-existing entity refusal and guard test as 5.6.
+- [x] 6.3 Update the error text that currently advises "use `in:mtr_hops` for
+      hop-level analytics". Removed with the rejection itself; the remaining
+      pointer to `in:mtr_hops` is on `loss_ratio`/`wavg`, where it is correct.
 - [ ] 6.4 Register `mtr_traces` stats fields in the web-ng SRQL catalog.
 
 ## 7. The dashboard
