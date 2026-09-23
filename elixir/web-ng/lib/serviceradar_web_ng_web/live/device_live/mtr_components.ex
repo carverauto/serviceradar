@@ -341,7 +341,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
   attr(:timezone, :string, default: "Etc/UTC")
 
   def mtr_trace_modal(assigns) do
-    assigns = assign(assigns, :hop_dashboard, mtr_hop_dashboard(assigns.trace, assigns.hops))
+    {hop_rows, silent_tail} = MtrDepth.collapse_trailing_loss(assigns.hops || [])
+
+    assigns =
+      assigns
+      |> assign(:hop_dashboard, mtr_hop_dashboard(assigns.trace, assigns.hops))
+      |> assign(:hop_rows, hop_rows)
+      |> assign(:silent_tail, silent_tail)
+      |> assign(:depth_trace, is_map(assigns.trace) && Map.put(assigns.trace, "hops", assigns.hops || []))
 
     ~H"""
     <%= if @show and @trace do %>
@@ -381,6 +388,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
               <div class="sr-mtr-label">Protocol</div>
               <div class="mt-1 text-sm font-medium text-sr-ink">
                 {String.upcase(@trace["protocol"] || "icmp")}
+                <span :if={@trace["tcp_port"]} class="text-sr-muted">port {@trace["tcp_port"]}</span>
               </div>
             </div>
             <div class="min-w-0 rounded-lg border border-sr-line bg-sr-subtle/40 px-3 py-2.5">
@@ -402,7 +410,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
           >
             <div class="sr-mtr-card p-4">
               <div class="sr-mtr-label">Hop Count</div>
-              <div class="sr-mtr-value mt-2 text-2xl tabular-nums">{@hop_dashboard.hop_count}</div>
+              <div class="sr-mtr-value mt-2 text-2xl tabular-nums">
+                {MtrDepth.hop_count_label(@depth_trace)}
+              </div>
+              <div class="sr-mtr-muted mt-1 text-xs">{MtrDepth.depth_summary(@depth_trace)}</div>
             </div>
             <div class="sr-mtr-card p-4">
               <div class="sr-mtr-label">Destination Loss</div>
@@ -436,12 +447,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
               <div class="sr-mtr-muted text-xs">latency width · loss tint</div>
             </div>
             <div class="mt-4 space-y-3">
-              <div :for={hop <- @hops} class="space-y-1.5">
+              <div :for={hop <- @hop_rows} class="space-y-1.5">
                 <div class="flex items-baseline justify-between gap-3 text-xs">
                   <span class="min-w-0 truncate font-mono text-sr-ink">
                     <span class="text-sr-muted">hop {hop["hop_number"]}</span>
                     <span class="text-sr-muted"> · </span>
                     <span title={hop["addr"] || "???"}>{hop["addr"] || "???"}</span>
+                    <span
+                      :if={MtrDepth.unreachable_kind(hop["unreachable_code"], @trace["ip_version"])}
+                      class="text-warning"
+                    >
+                      · {MtrDepth.unreachable_kind(hop["unreachable_code"], @trace["ip_version"])}
+                    </span>
                   </span>
                   <span class="shrink-0 tabular-nums text-sr-muted">
                     {format_us_mtr(hop["avg_us"])}
@@ -480,7 +497,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
                 </tr>
               </thead>
               <tbody>
-                <tr :for={hop <- @hops}>
+                <tr :for={hop <- @hop_rows}>
                   <td class="text-center font-mono tabular-nums">{hop["hop_number"]}</td>
                   <td class="font-mono text-sm">{hop["addr"] || "???"}</td>
                   <td class="max-w-[14rem] truncate text-sm" title={hop["hostname"]}>
@@ -503,6 +520,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
                   </td>
                   <td class="text-right font-mono text-sm tabular-nums">
                     {format_us_mtr(hop["max_us"])}
+                  </td>
+                </tr>
+                <tr :if={@silent_tail} class="opacity-50">
+                  <td class="text-center font-mono tabular-nums">{@silent_tail.from}-{@silent_tail.to}</td>
+                  <td colspan="7" class="text-sm text-sr-muted">
+                    {@silent_tail.count} hops with no reply (probing continued past the last answer)
                   </td>
                 </tr>
                 <tr :if={@hops == []}>

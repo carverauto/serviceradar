@@ -290,4 +290,46 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponentsTest do
     assert html =~ "Destination Loss"
     assert html =~ ~r/Destination Loss<\/div>\s*<div[^>]*>\s*-/s
   end
+
+  test "trace modal describes an unreached TCP trace by its last reply and folds the silent tail" do
+    silent = fn number -> %{"hop_number" => number, "sent" => 3, "received" => 0, "loss_pct" => 100.0} end
+
+    html =
+      render_component(&MtrComponents.mtr_trace_modal/1,
+        show: true,
+        trace: %{
+          "target" => "198.51.100.10",
+          "agent_id" => "agent-1",
+          "protocol" => "tcp",
+          "tcp_port" => 443,
+          "ip_version" => 4,
+          "time" => ~U[2026-08-30 12:00:00Z],
+          "target_reached" => false,
+          "total_hops" => 5,
+          "probed_hops" => 5,
+          "last_responding_hop" => 2
+        },
+        hops: [
+          %{"hop_number" => 1, "addr" => "192.0.2.1", "sent" => 3, "received" => 3, "loss_pct" => 0.0},
+          %{
+            "hop_number" => 2,
+            "addr" => "192.0.2.2",
+            "sent" => 3,
+            "received" => 3,
+            "loss_pct" => 0.0,
+            "unreachable_code" => 13
+          },
+          silent.(3),
+          silent.(4),
+          silent.(5)
+        ]
+      )
+
+    assert html =~ "No reply past hop 2 (5 probed)"
+    assert html =~ "2/5"
+    assert html =~ "port 443"
+    assert html =~ "administratively prohibited"
+    assert html =~ "3 hops with no reply"
+    refute html =~ ~r/<td class="text-center font-mono tabular-nums">4<\/td>/
+  end
 end

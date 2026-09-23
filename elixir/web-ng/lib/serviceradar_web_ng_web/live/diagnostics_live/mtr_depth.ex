@@ -110,7 +110,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDepth do
   defp probed_hops(trace) do
     case trace["probed_hops"] do
       value when is_integer(value) -> value
-      _ -> max(int(trace["total_hops"]), deepest(trace, &(int(&1["sent"]) > 0)))
+      _ -> deepest(trace, &(int(&1["sent"]) > 0))
     end
   end
 
