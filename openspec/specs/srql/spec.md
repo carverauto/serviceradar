@@ -629,13 +629,13 @@ Supported `stats:` aggregation functions on numeric columns: `avg`, `min`, `max`
 Default ordering: `time DESC, id DESC`. Stats queries order by the first aggregated alias descending by default.
 
 #### Scenario: Hop-level loss aggregation by address
-- **WHEN** a client sends `in:mtr_hops time:last_24h stats:avg(loss_pct) as avg_loss by addr sort:avg_loss:desc limit:50`
-- **THEN** SRQL returns rows of `{"addr": "...", "avg_loss": F}` sorted highest loss first
+- **WHEN** a client sends `in:mtr_hops time:last_24h stats:loss_ratio(sent, received) as loss by addr sort:loss:desc limit:50`
+- **THEN** SRQL returns rows of `{"addr": "...", "loss": F}` sorted highest loss first
 - **AND** only hops within the last 24 hours are included
 
 #### Scenario: Latency aggregation by ASN
-- **WHEN** a client sends `in:mtr_hops time:last_6h stats:avg(avg_us) as avg_latency by asn sort:avg_latency:desc`
-- **THEN** SRQL returns rows of `{"asn": N, "avg_latency": F}` grouped by ASN number
+- **WHEN** a client sends `in:mtr_hops time:last_6h asn:>0 stats:wavg(avg_us, received) as latency by asn sort:latency:desc`
+- **THEN** SRQL returns rows of `{"asn": N, "latency": F}` grouped by ASN number, excluding hops with unresolved ASNs
 
 #### Scenario: Trace-scoped hop listing
 - **WHEN** a client sends `in:mtr_hops trace_id:some-uuid sort:hop_number:asc`
