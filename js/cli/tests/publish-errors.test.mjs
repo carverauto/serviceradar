@@ -261,20 +261,11 @@ test("rate_limited envelope echoes Retry-After", async () => {
   }
 })
 
+const SERVER_UUID = "00000000-0000-4000-8000-000000000001"
+
 test("idempotent_noop on a successful re-publish prints the noop line", async () => {
-  // Exercise the success path for the "Re-published … nothing changed" hint.
-  // The server returns only a UUID as id (no dashboard_id), so the old code
-  // path (installedId) would have printed "pkg-uuid" while the fixed code
-  // path (displayId = manifest.id) prints "com.example.errtest".
   const {srv, instance} = await startServer((req, res) => {
-    jsonReply(res, 200, {
-      id: "pkg-uuid",
-      version: "0.1.0",
-      route_slug: "x",
-      status: "staged",
-      content_hash: "deadbeef".repeat(8),
-      result: "idempotent_noop",
-    })
+    jsonReply(res, 200, {dashboard_id: SERVER_UUID, result: "idempotent_noop"})
   })
   try {
     const r = await runPublish({instance, route: "x", expectError: false})
@@ -282,7 +273,8 @@ test("idempotent_noop on a successful re-publish prints the noop line", async ()
     assert.match(r.stdout, /Re-published/)
     assert.match(r.stdout, /already at this content_hash/)
     assert.match(r.stdout, /Re-published com\.example\.errtest@0\.1\.0/)
-    assert.doesNotMatch(r.stdout, /Re-published pkg-uuid/)
+    assert.doesNotMatch(r.stdout, new RegExp(`Re-published ${SERVER_UUID}`))
+    assert.ok(r.stdout.includes(SERVER_UUID), "server id should still appear")
   } finally {
     srv.close()
   }
@@ -361,8 +353,6 @@ async function runPublishEnabled({instance, route}) {
   ], {cwd: projectDir})
   return result.stdout
 }
-
-const SERVER_UUID = "00000000-0000-4000-8000-000000000001"
 
 test("publish reports the manifest id, not the server UUID", async () => {
   const {srv, instance} = await startServer((req, res) => {
