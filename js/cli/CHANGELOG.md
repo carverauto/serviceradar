@@ -1,6 +1,12 @@
 # `@carverauto/serviceradar-cli` Changelog
 
-## 0.1.6
+## 0.1.7
+
+Re-release of the changes below. **0.1.6 shipped without them**: it was
+published from a tree whose `dist/` predated the fix, so the tarball contained
+the previous build. npm versions are immutable, so the corrected build goes out
+as 0.1.7. Anything depending on `^0.1.6` to get the resolution fix must move to
+`^0.1.7`.
 
 - Resolve the dashboard project's `react`, `react-dom`, and
   `@carverauto/serviceradar-dashboard-sdk` through Node's module resolution
