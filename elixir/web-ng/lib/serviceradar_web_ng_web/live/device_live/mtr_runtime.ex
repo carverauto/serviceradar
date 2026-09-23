@@ -9,6 +9,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrRuntime do
   alias ServiceRadar.Observability.MtrSettingsRuntime
   alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrData
 
+  require Logger
+
   @default_page_size 50
   @max_page_size 200
 
@@ -207,13 +209,28 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrRuntime do
       |> Map.put_new(:baseline_canary_vantages, 0)
       |> Map.put_new("baseline_canary_vantages", 0)
 
-    case MtrAutomationDispatcher.dispatch_for_mode(target_ctx, policy, :baseline) do
+    case dispatch_policy(target_ctx, policy) do
       {:ok, selected_agents} when is_list(selected_agents) and selected_agents != [] ->
         {:ok, selected_agents}
 
       _ ->
         dispatch_with_first_matching_policy(rest, target_ctx)
     end
+  end
+
+  # A policy dispatch that raises must not take the device LiveView down with
+  # it; log it and let the caller fall through to the next policy and finally
+  # the direct-dispatch path.
+  defp dispatch_policy(target_ctx, policy) do
+    MtrAutomationDispatcher.dispatch_for_mode(target_ctx, policy, :baseline)
+  rescue
+    error ->
+      Logger.warning(
+        "[MtrRuntime] MTR policy dispatch raised for policy #{inspect(Map.get(policy, :id))}: " <>
+          Exception.message(error)
+      )
+
+      {:error, :policy_dispatch_failed}
   end
 
   defp build_mtr_target_ctx(socket, target_ip) do
