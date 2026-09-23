@@ -179,68 +179,10 @@ func (s *darwinRawSocket) SendUDP(dst net.IP, ttl, srcPort, dstPort int, payload
 	return syscall.Sendto(fd, payload, 0, dstSA)
 }
 
-func (s *darwinRawSocket) SendTCP(dst net.IP, ttl, srcPort, dstPort int) (err error) {
-	family := syscall.AF_INET
-	if s.ipv6 {
-		family = syscall.AF_INET6
-	}
-
-	fd, err := syscall.Socket(family, syscall.SOCK_STREAM, syscall.IPPROTO_TCP)
-	if err != nil {
-		return fmt.Errorf("create TCP socket: %w", err)
-	}
-	defer func() {
-		if closeErr := syscall.Close(fd); closeErr != nil && err == nil {
-			err = fmt.Errorf("close TCP socket: %w", closeErr)
-		}
-	}()
-
-	if s.ipv6 {
-		if err := syscall.SetsockoptInt(fd, syscall.IPPROTO_IPV6, syscall.IPV6_UNICAST_HOPS, ttl); err != nil {
-			return fmt.Errorf("set TCP hop limit: %w", err)
-		}
-	}
-	if !s.ipv6 {
-		if err := syscall.SetsockoptInt(fd, syscall.IPPROTO_IP, syscall.IP_TTL, ttl); err != nil {
-			return fmt.Errorf("set TCP TTL: %w", err)
-		}
-	}
-
-	if err := syscall.SetNonblock(fd, true); err != nil {
-		return fmt.Errorf("set TCP nonblock: %w", err)
-	}
-
-	if s.ipv6 {
-		sa := &syscall.SockaddrInet6{Port: srcPort}
-		if err := syscall.Bind(fd, sa); err != nil {
-			return fmt.Errorf("bind TCP6: %w", err)
-		}
-
-		dstSA := &syscall.SockaddrInet6{Port: dstPort}
-		copy(dstSA.Addr[:], dst.To16())
-		err = syscall.Connect(fd, dstSA)
-	}
-	if !s.ipv6 {
-		sa := &syscall.SockaddrInet4{Port: srcPort}
-		if err := syscall.Bind(fd, sa); err != nil {
-			return fmt.Errorf("bind TCP: %w", err)
-		}
-
-		dstSA := &syscall.SockaddrInet4{Port: dstPort}
-		copy(dstSA.Addr[:], dst.To4())
-		err = syscall.Connect(fd, dstSA)
-	}
-
-	if err == nil ||
-		errors.Is(err, syscall.EINPROGRESS) ||
-		errors.Is(err, syscall.EALREADY) ||
-		errors.Is(err, syscall.EINTR) ||
-		errors.Is(err, syscall.EWOULDBLOCK) ||
-		errors.Is(err, syscall.ECONNREFUSED) {
-		return nil
-	}
-
-	return fmt.Errorf("connect TCP probe: %w", err)
+// OpenTCPFlow uses kernel connect() probes on macOS, which detect the target
+// answering but cannot produce handshake diagnostics.
+func (s *darwinRawSocket) OpenTCPFlow(dst net.IP, dstPort int, timeout time.Duration) (TCPFlow, error) {
+	return newConnectTCPFlow(dst, dstPort, timeout, s.ipv6), nil
 }
 
 func (s *darwinRawSocket) Receive(deadline time.Time) (*ICMPResponse, error) {
@@ -328,21 +270,7 @@ func (s *darwinRawSocket) parseInnerPacketV4(resp *ICMPResponse) {
 	proto := inner[9]
 	icmpData := inner[ihl:]
 
-	switch proto {
-	case syscall.IPPROTO_ICMP:
-		if len(icmpData) >= darwinICMPHeaderLen {
-			resp.InnerID = int(binary.BigEndian.Uint16(icmpData[4:6]))
-			resp.InnerSeq = int(binary.BigEndian.Uint16(icmpData[6:8]))
-		}
-	case syscall.IPPROTO_UDP:
-		if len(icmpData) >= 4 { //nolint:mnd
-			resp.InnerSeq = int(binary.BigEndian.Uint16(icmpData[2:4]))
-		}
-	case syscall.IPPROTO_TCP:
-		if len(icmpData) >= 4 { //nolint:mnd
-			resp.InnerSeq = int(binary.BigEndian.Uint16(icmpData[2:4]))
-		}
-	}
+	parseQuotedTransport(resp, proto, icmpData)
 }
 
 func (s *darwinRawSocket) parseICMPv6(buf []byte, resp *ICMPResponse) (*ICMPResponse, error) {
@@ -382,21 +310,7 @@ func (s *darwinRawSocket) parseInnerPacketV6(resp *ICMPResponse) {
 	nextHeader := inner[6]
 	transportData := inner[ipv6HeaderLen:]
 
-	switch nextHeader {
-	case syscall.IPPROTO_ICMPV6:
-		if len(transportData) >= darwinICMPHeaderLen {
-			resp.InnerID = int(binary.BigEndian.Uint16(transportData[4:6]))
-			resp.InnerSeq = int(binary.BigEndian.Uint16(transportData[6:8]))
-		}
-	case syscall.IPPROTO_UDP:
-		if len(transportData) >= 4 { //nolint:mnd
-			resp.InnerSeq = int(binary.BigEndian.Uint16(transportData[2:4]))
-		}
-	case syscall.IPPROTO_TCP:
-		if len(transportData) >= 4 { //nolint:mnd
-			resp.InnerSeq = int(binary.BigEndian.Uint16(transportData[2:4]))
-		}
-	}
+	parseQuotedTransport(resp, nextHeader, transportData)
 }
 
 func (s *darwinRawSocket) Close() error {
