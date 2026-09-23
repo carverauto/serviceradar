@@ -13,36 +13,36 @@ defmodule ServiceRadar.Observability.MtrHop do
     authorizers: [Ash.Policy.Authorizer]
 
   postgres do
-    table("mtr_hops")
-    repo(ServiceRadar.Repo)
-    schema("platform")
-    migrate?(false)
+    table "mtr_hops"
+    repo ServiceRadar.Repo
+    schema "platform"
+    migrate? false
   end
 
   resource do
-    require_primary_key?(false)
+    require_primary_key? false
   end
 
   actions do
-    defaults([:read])
+    defaults [:read]
 
     read :by_trace do
-      argument(:trace_id, :uuid, allow_nil?: false)
-      filter(expr(trace_id == ^arg(:trace_id)))
+      argument :trace_id, :uuid, allow_nil?: false
+      filter expr(trace_id == ^arg(:trace_id))
     end
 
     read :by_addr do
-      argument(:addr, :string, allow_nil?: false)
-      filter(expr(addr == ^arg(:addr)))
+      argument :addr, :string, allow_nil?: false
+      filter expr(addr == ^arg(:addr))
     end
 
     read :recent do
-      description("Hops from the last 24 hours")
-      filter(expr(time > ago(24, :hour)))
+      description "Hops from the last 24 hours"
+      filter expr(time > ago(24, :hour))
     end
 
     create :create do
-      accept([
+      accept [
         :id,
         :time,
         :trace_id,
@@ -66,146 +66,136 @@ defmodule ServiceRadar.Observability.MtrHop do
         :jitter_us,
         :jitter_worst_us,
         :jitter_interarrival_us
-      ])
+      ]
     end
   end
 
   policies do
     policy action_type(:read) do
-      authorize_if(always())
+      authorize_if always()
     end
 
     policy action(:create) do
-      authorize_if(always())
+      authorize_if always()
     end
   end
 
   attributes do
     attribute :id, :uuid do
-      allow_nil?(false)
-      public?(true)
+      allow_nil? false
+      public? true
     end
 
     attribute :time, :utc_datetime_usec do
-      allow_nil?(false)
-      public?(true)
-      description("When this hop was recorded")
+      allow_nil? false
+      public? true
+      description "When this hop was recorded"
     end
 
     attribute :trace_id, :uuid do
-      allow_nil?(false)
-      public?(true)
-      description("Parent trace ID")
+      allow_nil? false
+      public? true
+      description "Parent trace ID"
     end
 
     attribute :target_ip, :string do
-      public?(true)
+      public? true
 
-      description("""
-      Target address of the owning trace, denormalised so hop metrics can be
-      scoped to the device they measured. Nullable: rows written before the
-      attribution backfill carry nil, which is also the backfill's resume marker.
-      This is the reliable device key -- prefer it over device_id.
-      """)
+      description "Owning trace's target, denormalised so hop metrics can be scoped to the device they measured. Nil on rows written before the attribution backfill, which is also its resume marker. Prefer this over device_id."
     end
 
     attribute :device_id, :string do
-      public?(true)
+      public? true
 
-      description("""
-      Device id of the owning trace, denormalised alongside target_ip. On the
-      bulk-scheduled path this holds the originating command's id rather than a
-      device uid, so grouping by it yields one row per command; use target_ip
-      unless a single-run trace is known to be the source.
-      """)
+      description "Owning trace's device_id, denormalised alongside target_ip. On the bulk-scheduled path this is the originating command's id rather than a device uid, so grouping by it yields one row per command."
     end
 
     attribute :hop_number, :integer do
-      allow_nil?(false)
-      public?(true)
+      allow_nil? false
+      public? true
     end
 
     attribute :addr, :string do
-      public?(true)
-      description("Responding IP address (nil for non-responding hops)")
+      public? true
+      description "Responding IP address (nil for non-responding hops)"
     end
 
     attribute :hostname, :string do
-      public?(true)
+      public? true
     end
 
     attribute :ecmp_addrs, {:array, :string} do
-      public?(true)
-      description("Additional ECMP addresses seen at this hop")
+      public? true
+      description "Additional ECMP addresses seen at this hop"
     end
 
     attribute :asn, :integer do
-      public?(true)
+      public? true
     end
 
     attribute :asn_org, :string do
-      public?(true)
+      public? true
     end
 
     attribute :mpls_labels, :map do
-      public?(true)
-      description("MPLS label stack (JSONB)")
+      public? true
+      description "MPLS label stack (JSONB)"
     end
 
     attribute :sent, :integer do
-      allow_nil?(false)
-      default(0)
-      public?(true)
+      allow_nil? false
+      default 0
+      public? true
     end
 
     attribute :received, :integer do
-      allow_nil?(false)
-      default(0)
-      public?(true)
+      allow_nil? false
+      default 0
+      public? true
     end
 
     attribute :loss_pct, :float do
-      allow_nil?(false)
-      default(0.0)
-      public?(true)
+      allow_nil? false
+      default 0.0
+      public? true
     end
 
     attribute :last_us, :integer do
-      public?(true)
-      description("Last RTT in microseconds")
+      public? true
+      description "Last RTT in microseconds"
     end
 
     attribute :avg_us, :integer do
-      public?(true)
-      description("Average RTT in microseconds")
+      public? true
+      description "Average RTT in microseconds"
     end
 
     attribute :min_us, :integer do
-      public?(true)
+      public? true
     end
 
     attribute :max_us, :integer do
-      public?(true)
+      public? true
     end
 
     attribute :stddev_us, :integer do
-      public?(true)
+      public? true
     end
 
     attribute :jitter_us, :integer do
-      public?(true)
+      public? true
     end
 
     attribute :jitter_worst_us, :integer do
-      public?(true)
+      public? true
     end
 
     attribute :jitter_interarrival_us, :integer do
-      public?(true)
+      public? true
     end
 
     attribute :created_at, :utc_datetime_usec do
-      public?(true)
+      public? true
     end
   end
 end
