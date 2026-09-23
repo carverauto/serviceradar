@@ -263,10 +263,12 @@ test("rate_limited envelope echoes Retry-After", async () => {
 
 test("idempotent_noop on a successful re-publish prints the noop line", async () => {
   // Exercise the success path for the "Re-published … nothing changed" hint.
+  // The server returns only a UUID as id (no dashboard_id), so the old code
+  // path (installedId) would have printed "pkg-uuid" while the fixed code
+  // path (displayId = manifest.id) prints "com.example.errtest".
   const {srv, instance} = await startServer((req, res) => {
     jsonReply(res, 200, {
       id: "pkg-uuid",
-      dashboard_id: "com.example.errtest",
       version: "0.1.0",
       route_slug: "x",
       status: "staged",
@@ -279,6 +281,8 @@ test("idempotent_noop on a successful re-publish prints the noop line", async ()
     assert.equal(r.ok, true)
     assert.match(r.stdout, /Re-published/)
     assert.match(r.stdout, /already at this content_hash/)
+    assert.match(r.stdout, /Re-published com\.example\.errtest@0\.1\.0/)
+    assert.doesNotMatch(r.stdout, /Re-published pkg-uuid/)
   } finally {
     srv.close()
   }
