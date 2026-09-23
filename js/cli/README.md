@@ -174,7 +174,7 @@ js/cli/
 ├── bin/
 │   ├── serviceradar-cli.js          # 5-line shim → ../dist/cli.js
 │   └── serviceradar-dashboard.js    # transitional alias → serviceradar-cli
-├── src/                             # CLI implementation (TypeScript, 18 modules)
+├── src/                             # CLI implementation (TypeScript, 22 modules)
 │   ├── cli.ts, args.ts, config.ts, manifest.ts, validation.ts,
 │   │   doctor.ts, paths.ts, utils.ts
 │   ├── auth/                        # auth/{credentials,login,status,logout,index}.ts
