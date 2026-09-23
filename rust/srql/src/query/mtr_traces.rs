@@ -27,11 +27,12 @@ pub(super) async fn execute(
     plan: &QueryPlan,
 ) -> Result<Vec<serde_json::Value>> {
     ensure_entity(plan)?;
-    if plan.stats.is_some() {
-        return Err(ServiceError::InvalidRequest(
-            "mtr_traces does not support stats: aggregations; use in:mtr_hops for hop-level analytics".into(),
-        ));
+
+    if let Some(stats) = &plan.stats {
+        let sql = build_stats_sql(plan, stats.as_raw())?;
+        return execute_stats(conn, &sql).await;
     }
+
     let query = build_query(plan)?;
     let rows: Vec<MtrTraceRow> = query
         .select(MtrTraceRow::as_select())
@@ -46,11 +47,13 @@ pub(super) async fn execute(
 
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
     ensure_entity(plan)?;
-    if plan.stats.is_some() {
-        return Err(ServiceError::InvalidRequest(
-            "mtr_traces does not support stats: aggregations; use in:mtr_hops for hop-level analytics".into(),
-        ));
+
+    if let Some(stats) = &plan.stats {
+        let sql = build_stats_sql(plan, stats.as_raw())?;
+        let params = sql.binds.into_iter().map(bind_param_from_trace).collect();
+        return Ok((rewrite_placeholders(&sql.sql), params));
     }
+
     let query = build_query(plan)?.limit(plan.limit).offset(plan.offset);
     let sql = super::diesel_sql(&query)?;
 
@@ -448,12 +451,72 @@ mod tests {
     }
 
     #[test]
-    fn stats_clause_is_rejected() {
-        let plan = plan_for("in:mtr_traces stats:avg(total_hops) as v by agent_id limit:10");
+    fn reach_rate_per_target_is_expressible() {
+        // The endpoint signal. A trace that never reached its target has no
+        // terminal hop, so "this device is not being reached at all" is only
+        // visible at trace level -- hop metrics cannot express it.
+        let plan = plan_for(
+            "in:mtr_traces time:last_24h stats:\"count() as traces, avg(target_reached) as reach_rate by target_ip\" limit:50",
+        );
+        let (sql, _) = to_sql_and_params(&plan).expect("trace stats should translate");
+        let lower = sql.to_lowercase();
+
+        assert!(lower.contains("count(*)"), "{sql}");
+        // Cast so AVG yields the reached proportion instead of erroring on a bool.
+        assert!(lower.contains("avg(target_reached::int)"), "{sql}");
+        assert!(lower.contains("group by target_ip"), "{sql}");
+    }
+
+    #[test]
+    fn trace_stats_accept_a_time_bucket_and_render_ascending() {
+        let plan =
+            plan_for("in:mtr_traces time:last_24h stats:count() as traces by time:1h limit:500");
+        let (sql, _) = to_sql_and_params(&plan).expect("bucketed trace stats should translate");
+        let lower = sql.to_lowercase();
+
+        assert!(lower.contains("extract(epoch from time) / 3600"), "{sql}");
+        assert!(lower.contains("order by __bucket asc"), "{sql}");
+    }
+
+    #[test]
+    fn trace_stats_refuse_hop_only_aggregates() {
+        // loss_ratio and wavg consume probe counters, which live on hops. Offering
+        // them here would invite computing loss from rows that do not carry it.
+        for query in [
+            "in:mtr_traces stats:loss_ratio(sent, received) as loss by target_ip limit:10",
+            "in:mtr_traces stats:wavg(avg_us, received) as latency by target_ip limit:10",
+        ] {
+            let result = to_sql_and_params(&plan_for(query));
+            assert!(
+                matches!(result, Err(ServiceError::InvalidRequest(_))),
+                "{query} should be refused with a pointer to in:mtr_hops"
+            );
+        }
+    }
+
+    #[test]
+    fn trace_stats_reject_an_unsupported_group_field() {
+        let plan = plan_for("in:mtr_traces stats:count() as n by total_hops limit:10");
         let result = to_sql_and_params(&plan);
         assert!(
             matches!(result, Err(ServiceError::InvalidRequest(_))),
-            "mtr_traces does not support stats: — should be rejected"
+            "an aggregatable measure is not a grouping dimension"
+        );
+    }
+
+    #[test]
+    fn trace_stats_scope_to_a_device() {
+        let plan = plan_for(
+            "in:mtr_traces time:last_24h target_ip:192.0.2.50 stats:count() as traces by agent_id limit:10",
+        );
+        let (sql, params) = to_sql_and_params(&plan).expect("scoped trace stats should translate");
+
+        assert!(sql.to_lowercase().contains("target_ip"), "{sql}");
+        assert!(
+            params
+                .iter()
+                .any(|p| matches!(p, BindParam::Text(v) if v == "192.0.2.50")),
+            "target_ip bind not found: {params:?}"
         );
     }
 
@@ -470,4 +533,418 @@ mod tests {
             );
         }
     }
+}
+
+// ─── stats ───────────────────────────────────────────────────────────────────
+//
+// Trace-level aggregation answers a question hop-level data cannot. A trace that
+// never reached its target has no terminal hop to measure, so "this device is not
+// being reached at all" is only visible here. That is the endpoint signal, as
+// distinct from which path segment is lossy.
+//
+// Reach rate needs no new aggregate function: `target_reached` is exposed as an
+// aggregatable 0/1 indicator, and the mean of an indicator IS the proportion. So
+// `avg(target_reached)` is the reach rate, computed correctly, with the aggregates
+// that already exist.
+//
+// This builder deliberately does NOT offer `loss_ratio` or `wavg`. Those consume
+// probe counters, which live on hops; offering them here would invite a caller to
+// compute loss from trace rows that do not carry it.
+
+/// Aggregatable columns, mapped to the SQL that makes them numeric.
+const TRACE_AGGREGATABLE_COLUMNS: &[(&str, &str)] = &[
+    ("total_hops", "total_hops"),
+    // Cast so AVG yields the reached proportion rather than erroring on a bool.
+    ("target_reached", "target_reached::int"),
+];
+
+const TRACE_GROUP_BY_FIELDS: &[&str] = &[
+    "target_ip",
+    "target",
+    "device_id",
+    "agent_id",
+    "protocol",
+    "check_name",
+];
+
+const TRACE_BUCKET_ALIAS: &str = "bucket";
+
+#[derive(Debug, Clone)]
+struct TraceStatsSql {
+    sql: String,
+    binds: Vec<TraceStatsBind>,
+}
+
+#[derive(Debug, Clone)]
+enum TraceStatsBind {
+    Text(String),
+    Timestamp(chrono::DateTime<chrono::Utc>),
+    Bool(bool),
+}
+
+#[derive(Debug, Clone)]
+struct TraceAgg {
+    expr: String,
+    alias: String,
+}
+
+#[derive(Debug, Clone)]
+enum TraceGroupDim {
+    Column(&'static str),
+    TimeBucket { seconds: i64 },
+}
+
+impl TraceGroupDim {
+    fn expr(&self) -> String {
+        match self {
+            TraceGroupDim::Column(col) => (*col).to_string(),
+            TraceGroupDim::TimeBucket { seconds } => {
+                format!("to_timestamp(floor(extract(epoch from time) / {seconds}) * {seconds})")
+            }
+        }
+    }
+
+    fn alias(&self) -> &str {
+        match self {
+            TraceGroupDim::Column(col) => col,
+            TraceGroupDim::TimeBucket { .. } => TRACE_BUCKET_ALIAS,
+        }
+    }
+}
+
+fn build_stats_sql(plan: &QueryPlan, raw: &str) -> Result<TraceStatsSql> {
+    let (agg_part, group_part) = split_trace_group_clause(raw).ok_or_else(|| {
+        ServiceError::InvalidRequest(
+            "mtr_traces stats expression must include 'by <field>' — e.g. \
+             stats:count() as traces by target_ip"
+                .into(),
+        )
+    })?;
+
+    let dims = parse_trace_group_dims(group_part.trim())?;
+    let aggs = parse_trace_aggs(agg_part.trim())?;
+
+    let mut clauses: Vec<String> = Vec::new();
+    let mut binds: Vec<TraceStatsBind> = Vec::new();
+
+    if let Some(TimeRange { start, end }) = &plan.time_range {
+        clauses.push("time >= ?".into());
+        binds.push(TraceStatsBind::Timestamp(*start));
+        clauses.push("time < ?".into());
+        binds.push(TraceStatsBind::Timestamp(*end));
+    }
+
+    for filter in &plan.filters {
+        if let Some((clause, mut filter_binds)) = build_trace_stats_filter(filter)? {
+            clauses.push(clause);
+            binds.append(&mut filter_binds);
+        }
+    }
+
+    let json_kv: Vec<String> = aggs
+        .iter()
+        .flat_map(|agg| [format!("'{}'", agg.alias), agg.expr.clone()])
+        .chain(
+            dims.iter()
+                .flat_map(|dim| [format!("'{}'", dim.alias()), dim.expr()]),
+        )
+        .collect();
+
+    let payload = format!("jsonb_build_object({})", json_kv.join(", "));
+    let group_exprs: Vec<String> = dims.iter().map(TraceGroupDim::expr).collect();
+
+    let bucket = dims.iter().find_map(|dim| match dim {
+        TraceGroupDim::TimeBucket { .. } => Some(dim.expr()),
+        TraceGroupDim::Column(_) => None,
+    });
+
+    let mut body = format!("SELECT {payload} AS payload");
+    if let Some(b) = &bucket {
+        body.push_str(&format!(", {b} AS __bucket"));
+    }
+    body.push_str("\nFROM mtr_traces");
+    if !clauses.is_empty() {
+        body.push_str("\nWHERE ");
+        body.push_str(&clauses.join(" AND "));
+    }
+    body.push_str(&format!("\nGROUP BY {}", group_exprs.join(", ")));
+
+    let sql = match &bucket {
+        // Newest buckets when limit truncates, still rendered ascending — the
+        // defect recorded in downsample/sql.rs.
+        Some(_) => {
+            body.push_str("\nORDER BY __bucket DESC");
+            body.push_str(&format!("\nLIMIT {} OFFSET {}", plan.limit, plan.offset));
+            format!("SELECT payload\nFROM (\n{body}\n) AS bucketed\nORDER BY __bucket ASC")
+        }
+        None => {
+            // Via `as_slice`: a bare `aggs.first()` on the Vec resolves to Diesel's
+            // FirstDsl through the prelude rather than to Vec::first.
+            if let Some(first) = aggs.as_slice().first() {
+                body.push_str(&format!("\nORDER BY {} DESC", first.expr));
+            }
+            body.push_str(&format!("\nLIMIT {} OFFSET {}", plan.limit, plan.offset));
+            body
+        }
+    };
+
+    Ok(TraceStatsSql { sql, binds })
+}
+
+fn split_trace_group_clause(raw: &str) -> Option<(&str, &str)> {
+    let lower = raw.to_ascii_lowercase();
+    let pos = lower.find(" by ")?;
+    Some((&raw[..pos], &raw[pos + 4..]))
+}
+
+fn parse_trace_group_dims(part: &str) -> Result<Vec<TraceGroupDim>> {
+    let mut dims: Vec<TraceGroupDim> = Vec::new();
+
+    for raw in part.split(',') {
+        let token = raw.trim();
+        if token.is_empty() {
+            continue;
+        }
+
+        if let Some((key, value)) = token.split_once(':') {
+            if !key.trim().eq_ignore_ascii_case("time") {
+                return Err(ServiceError::InvalidRequest(format!(
+                    "only the 'time' group dimension takes a duration; got '{token}'"
+                )));
+            }
+            if dims
+                .iter()
+                .any(|d| matches!(d, TraceGroupDim::TimeBucket { .. }))
+            {
+                return Err(ServiceError::InvalidRequest(
+                    "only one time bucket dimension is supported".into(),
+                ));
+            }
+            let seconds = crate::parser::parse_group_bucket_seconds(value.trim())?;
+            dims.push(TraceGroupDim::TimeBucket { seconds });
+        } else {
+            let lower = token.to_ascii_lowercase();
+            let field = TRACE_GROUP_BY_FIELDS
+                .iter()
+                .find(|&&f| f == lower.as_str())
+                .copied()
+                .ok_or_else(|| {
+                    ServiceError::InvalidRequest(format!(
+                        "unsupported group-by field '{token}' for mtr_traces stats; supported: {}",
+                        TRACE_GROUP_BY_FIELDS.join(", ")
+                    ))
+                })?;
+            dims.push(TraceGroupDim::Column(field));
+        }
+    }
+
+    if dims.is_empty() {
+        return Err(ServiceError::InvalidRequest(
+            "mtr_traces stats requires at least one group dimension".into(),
+        ));
+    }
+
+    Ok(dims)
+}
+
+fn parse_trace_aggs(part: &str) -> Result<Vec<TraceAgg>> {
+    let mut result = Vec::new();
+
+    for expr in crate::parser::split_top_level_commas(part) {
+        let expr = expr.trim();
+        if expr.is_empty() {
+            continue;
+        }
+        result.push(parse_trace_agg(expr)?);
+    }
+
+    if result.is_empty() {
+        return Err(ServiceError::InvalidRequest(
+            "mtr_traces stats requires at least one aggregation expression".into(),
+        ));
+    }
+
+    Ok(result)
+}
+
+fn parse_trace_agg(expr: &str) -> Result<TraceAgg> {
+    let lower = expr.to_ascii_lowercase();
+
+    let (call, alias) = match lower.find(" as ") {
+        Some(pos) => (expr[..pos].trim(), expr[pos + 4..].trim()),
+        None => (expr, ""),
+    };
+
+    let open = call.find('(').ok_or_else(|| {
+        ServiceError::InvalidRequest(format!("expected aggregation like count(), got '{expr}'"))
+    })?;
+    let close = call.rfind(')').ok_or_else(|| {
+        ServiceError::InvalidRequest(format!("unmatched parenthesis in '{expr}'"))
+    })?;
+
+    let func = call[..open].trim().to_ascii_lowercase();
+    let arg = call[open + 1..close].trim();
+
+    let (expr_sql, default_alias) = match (func.as_str(), arg.is_empty()) {
+        ("count", true) => ("COUNT(*)".to_string(), "count".to_string()),
+        ("count", false) => {
+            let col = validate_trace_agg_column(arg)?;
+            (format!("COUNT({col})"), format!("count_{arg}"))
+        }
+        ("sum" | "avg" | "min" | "max", false) => {
+            let col = validate_trace_agg_column(arg)?;
+            let sql_func = func.to_ascii_uppercase();
+            (format!("{sql_func}({col})"), format!("{func}_{arg}"))
+        }
+        ("loss_ratio" | "wavg", _) => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "'{func}' aggregates probe counters, which live on hops; \
+                 use in:mtr_hops for loss and latency"
+            )));
+        }
+        (other, _) => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "unsupported aggregation '{other}' for mtr_traces; \
+                 use count, sum, avg, min, or max"
+            )));
+        }
+    };
+
+    let alias = if alias.is_empty() {
+        sanitize_trace_alias(&default_alias)?
+    } else {
+        sanitize_trace_alias(alias)?
+    };
+
+    Ok(TraceAgg {
+        expr: expr_sql,
+        alias,
+    })
+}
+
+fn validate_trace_agg_column(col: &str) -> Result<String> {
+    let lower = col.to_ascii_lowercase();
+
+    TRACE_AGGREGATABLE_COLUMNS
+        .iter()
+        .find(|(name, _)| *name == lower.as_str())
+        .map(|(_, sql)| (*sql).to_string())
+        .ok_or_else(|| {
+            ServiceError::InvalidRequest(format!(
+                "unsupported column '{col}' for mtr_traces stats; supported: {}",
+                TRACE_AGGREGATABLE_COLUMNS
+                    .iter()
+                    .map(|(name, _)| *name)
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))
+        })
+}
+
+fn sanitize_trace_alias(raw: &str) -> Result<String> {
+    let clean: String = raw
+        .chars()
+        .filter(|c| c.is_alphanumeric() || *c == '_')
+        .collect();
+
+    if clean.is_empty() || clean.starts_with(|c: char| c.is_ascii_digit()) {
+        return Err(ServiceError::InvalidRequest(format!(
+            "invalid alias '{raw}'"
+        )));
+    }
+
+    Ok(clean)
+}
+
+fn build_trace_stats_filter(filter: &Filter) -> Result<Option<(String, Vec<TraceStatsBind>)>> {
+    let field = filter.field.as_str();
+
+    match field {
+        "target" | "target_ip" | "agent_id" | "protocol" | "check_name" | "device_id" | "error" => {
+            let value = filter.value.as_scalar()?.to_string();
+            let op = match filter.op {
+                FilterOp::Eq => "=",
+                FilterOp::NotEq => "<>",
+                FilterOp::Like => "LIKE",
+                FilterOp::NotLike => "NOT LIKE",
+                _ => {
+                    return Err(ServiceError::InvalidRequest(format!(
+                        "unsupported operator for '{field}' in mtr_traces stats"
+                    )));
+                }
+            };
+            Ok(Some((
+                format!("{field} {op} ?"),
+                vec![TraceStatsBind::Text(value)],
+            )))
+        }
+        "target_reached" => {
+            let value = parse_bool(filter.value.as_scalar()?)?;
+            Ok(Some((
+                "target_reached = ?".to_string(),
+                vec![TraceStatsBind::Bool(value)],
+            )))
+        }
+        _ => Ok(None),
+    }
+}
+
+fn bind_param_from_trace(bind: TraceStatsBind) -> BindParam {
+    match bind {
+        TraceStatsBind::Text(v) => BindParam::Text(v),
+        TraceStatsBind::Timestamp(v) => BindParam::timestamptz(v),
+        TraceStatsBind::Bool(v) => BindParam::Bool(v),
+    }
+}
+
+fn rewrite_placeholders(sql: &str) -> String {
+    let mut out = String::with_capacity(sql.len() + 16);
+    let mut index = 1;
+
+    for ch in sql.chars() {
+        if ch == '?' {
+            out.push('$');
+            out.push_str(&index.to_string());
+            index += 1;
+        } else {
+            out.push(ch);
+        }
+    }
+
+    out
+}
+
+async fn execute_stats(
+    conn: &mut AsyncPgConnection,
+    sql: &TraceStatsSql,
+) -> Result<Vec<serde_json::Value>> {
+    use diesel::sql_query;
+    use diesel::sql_types::{Bool, Text, Timestamptz};
+
+    let mut q = sql_query(rewrite_placeholders(&sql.sql)).into_boxed::<Pg>();
+
+    for bind in &sql.binds {
+        q = match bind {
+            TraceStatsBind::Text(v) => q.bind::<Text, _>(v.clone()),
+            TraceStatsBind::Timestamp(v) => q.bind::<Timestamptz, _>(*v),
+            TraceStatsBind::Bool(v) => q.bind::<Bool, _>(*v),
+        };
+    }
+
+    #[derive(Debug, diesel::QueryableByName)]
+    #[diesel(check_for_backend(diesel::pg::Pg))]
+    struct TraceStatsPayload {
+        #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Jsonb>)]
+        payload: Option<crate::jsonb::DbJson>,
+    }
+
+    let rows: Vec<TraceStatsPayload> = q
+        .load::<TraceStatsPayload>(conn)
+        .await
+        .map_err(|err| ServiceError::Internal(err.into()))?;
+
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| row.payload.map(|p| p.0))
+        .collect())
 }
