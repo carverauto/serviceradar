@@ -73,6 +73,61 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsTest do
       end
     end
 
+    test "every panel declares an explicit grid layout" do
+      # An omitted layout is not "let the renderer choose". LayoutHelpers defaults
+      # a missing layout to x=0, y=0, w=12, h=4, so panels that all omit it land in
+      # one grid cell and only one is visible on the dashboard view — while the
+      # builder canvas still shows them spread out by its own placement, which is
+      # what made this look like a renderer bug.
+      for spec <- SystemReports.dashboard_specs(), panel <- spec.panels do
+        layout = Map.get(panel, :layout)
+
+        assert is_map(layout) and layout != %{},
+               "#{spec.slug}/#{panel.title} has no layout, so it would stack on the others"
+
+        for key <- ["x", "y", "w", "h"] do
+          assert is_integer(Map.get(layout, key)),
+                 "#{spec.slug}/#{panel.title} layout is missing an integer #{key}"
+        end
+
+        assert layout["x"] >= 0 and layout["x"] <= 11,
+               "#{spec.slug}/#{panel.title} x is outside the 12-column grid"
+
+        assert layout["x"] + layout["w"] <= 12,
+               "#{spec.slug}/#{panel.title} overflows the 12-column grid"
+      end
+    end
+
+    test "no two panels on a dashboard occupy the same grid cell" do
+      for spec <- SystemReports.dashboard_specs() do
+        cells =
+          Enum.flat_map(spec.panels, fn panel ->
+            l = panel.layout
+
+            for cx <- l["x"]..(l["x"] + l["w"] - 1),
+                cy <- l["y"]..(l["y"] + l["h"] - 1),
+                do: {cx, cy}
+          end)
+
+        assert length(Enum.uniq(cells)) == length(cells),
+               "#{spec.slug} has overlapping panel layouts, so a panel would be hidden"
+      end
+    end
+
+    test "the panel attribute allowlist passes layout through to the resource" do
+      # Map.take/2 in create_panels/3 silently drops any key not listed, so a
+      # layout added to the spec but missing from the allowlist would look applied
+      # and change nothing.
+      spec = hd(SystemReports.dashboard_specs())
+      panel = hd(spec.panels)
+
+      attrs = Map.take(panel, [:title, :srql_query, :visual_type, :data_binding, :layout, :position])
+
+      assert Map.has_key?(attrs, :layout)
+      assert attrs.layout == panel.layout
+      assert :layout in Info.action(DashboardPanel, :create).accept
+    end
+
     test "every panel's visual type is one the resource accepts" do
       allowed =
         DashboardPanel

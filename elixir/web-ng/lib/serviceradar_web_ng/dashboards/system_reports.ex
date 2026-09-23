@@ -75,6 +75,7 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReports do
           srql_query: @new_devices_query,
           visual_type: :table,
           data_binding: %{},
+          layout: %{"x" => 0, "y" => 0, "w" => 12, "h" => 8},
           position: 0
         }
       ]
@@ -87,11 +88,18 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReports do
       default_time_range: "last_24h",
       report_kind: "mtr_path_analytics",
       panels: [
+        # Every panel sets an explicit layout. An empty layout is not "let the
+        # renderer decide": LayoutHelpers.panel_grid_style/2 defaults a missing
+        # layout to x=0, y=0, w=12, h=4, so a dashboard whose panels all omit it
+        # places every one of them in the SAME grid cell, stacked, and only one is
+        # visible. The builder canvas does its own placement, so the dashboard
+        # looks correct there while the view shows a single panel.
         %{
           title: "Highest-loss hops",
           srql_query: @mtr_loss_query,
           visual_type: :bar,
           data_binding: %{"label_field" => "addr", "value_field" => "loss"},
+          layout: %{"x" => 0, "y" => 0, "w" => 6, "h" => 5},
           position: 0
         },
         %{
@@ -99,17 +107,20 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReports do
           srql_query: @mtr_latency_query,
           visual_type: :bar,
           data_binding: %{"label_field" => "addr", "value_field" => "latency"},
+          layout: %{"x" => 6, "y" => 0, "w" => 6, "h" => 5},
           position: 1
         },
         # `asn` is populated only by a GeoLite2 lookup, which carries no private
         # ASNs and no RFC1918 addresses. It is therefore NULL for every internal
         # hop, so this panel is restricted to resolved ASNs and titled as
-        # external rather than presented as fleet-wide.
+        # external rather than presented as fleet-wide. On a fleet whose internal
+        # BGP runs on private ASNs it will legitimately render empty.
         %{
           title: "Loss by external AS (transit only)",
           srql_query: @mtr_asn_query,
           visual_type: :bar,
           data_binding: %{"label_field" => "asn", "value_field" => "loss"},
+          layout: %{"x" => 0, "y" => 5, "w" => 6, "h" => 5},
           position: 2
         },
         %{
@@ -117,6 +128,7 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReports do
           srql_query: @mtr_trend_query,
           visual_type: :line,
           data_binding: %{"time_field" => "bucket", "value_field" => "loss"},
+          layout: %{"x" => 6, "y" => 5, "w" => 6, "h" => 5},
           position: 3
         }
       ]
@@ -291,7 +303,7 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReports do
     Enum.reduce_while(spec.panels, {:ok, dashboard}, fn panel, {:ok, dashboard} ->
       attrs =
         panel
-        |> Map.take([:title, :srql_query, :visual_type, :data_binding, :position])
+        |> Map.take([:title, :srql_query, :visual_type, :data_binding, :layout, :position])
         |> Map.put(:dashboard_id, dashboard.id)
 
       case DashboardPanel
