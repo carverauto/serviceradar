@@ -13,6 +13,12 @@
 #
 # `palisade-v*` sets the house convention for a component tag; the main product
 # owns bare `v*` in release.yml, so the CLI must not use that prefix.
+#
+# Prerequisites: npm trusted publishing (OIDC) requires a publisher configured
+# for @carverauto/serviceradar-cli on npmjs.com that points at
+# carverauto/serviceradar and this workflow file. Until that is set up the
+# publish step fails on OIDC; the dry_run flag on workflow_dispatch lets every
+# pre-publish check and tarball verification run in that window.
 name: Publish CLI npm Package
 
 on:
