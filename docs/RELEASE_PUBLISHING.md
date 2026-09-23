@@ -29,6 +29,15 @@ stay draft until both catalogs and both security bundles have arrived. This
 ordering matters when GitHub immutable releases are enabled because a late
 asset upload to an already-published release is rejected.
 
+The three Bazel-backed publishers (`release.yml` package job,
+`native-addons.yml`, and `wasm-plugins.yml`) validate the committed
+`MODULE.bazel.lock` in strict mode before they publish: each runs
+`bazel mod deps --lockfile_mode=error` and passes `--lockfile_mode=error` to its
+release Bazel commands, so a stale dependency lockfile fails the release
+instead of being silently regenerated. Fix it with
+`bazel mod deps --lockfile_mode=update`, commit the lockfile, and cut a new
+release commit.
+
 ## Prepare Release Metadata
 
 Update the top `CHANGELOG` entry and `VERSION` before cutting the release. Use

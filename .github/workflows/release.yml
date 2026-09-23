@@ -165,7 +165,7 @@ jobs:
           RELEASE_COMMIT: ${{ steps.source.outputs.commit }}
         run: |
           set -euo pipefail
-          bazelisk run -c opt --config=darwin_local --config=cache_only \
+          bazelisk run -c opt --config=darwin_local --config=cache_only --lockfile_mode=error \
             //build/ci:wait_for_large_ingestion_gate -- \
             --repository "${GITHUB_REPOSITORY}" --commit "${RELEASE_COMMIT}" \
             --base-ref origin/staging --token-env GH_TOKEN \
@@ -179,7 +179,7 @@ jobs:
           set -euo pipefail
           umask 077
           mkdir -p "${RUNNER_TEMP}/macos-validation"
-          bazelisk run -c opt --config=darwin_local --config=cache_only \
+          bazelisk run -c opt --config=darwin_local --config=cache_only --lockfile_mode=error \
             --platforms=//build/platforms:darwin_aarch64 \
             //build/packaging/agent/macos:package -- \
             --mode=unsigned --source-commit="${RELEASE_COMMIT}" \
@@ -215,7 +215,7 @@ jobs:
           done
           umask 077
           mkdir -p "${RUNNER_TEMP}/macos-release"
-          bazelisk run -c opt --config=darwin_local --config=cache_only \
+          bazelisk run -c opt --config=darwin_local --config=cache_only --lockfile_mode=error \
             --platforms=//build/platforms:darwin_aarch64 \
             //build/packaging/agent/macos:package -- \
             --mode=release --source-commit="${RELEASE_COMMIT}" \
@@ -272,7 +272,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "${RELEASE_COMMIT}"
           command -v bazelisk
           mkdir -p "${RUNNER_TEMP}/windows-inputs"
-          bazelisk run -c opt --config=remote //build/packaging/agent/windows:stage -- \
+          bazelisk run -c opt --config=remote --lockfile_mode=error //build/packaging/agent/windows:stage -- \
             --source-commit="${RELEASE_COMMIT}" --output-dir="${RUNNER_TEMP}/windows-inputs"
 
       - name: Transfer staged inputs to the Windows job
@@ -389,7 +389,8 @@ jobs:
       # workflow-runner volume). --config=ci therefore dies with Permission
       # denied on the repo-contents cache. --config=remote is the same
       # remote_base RBE graph with $HOME caches.
-      BAZEL_BUILD_FLAGS: -c opt --config=remote --remote_download_outputs=all
+      # Release builds must consume the committed lockfile without rewriting source.
+      BAZEL_BUILD_FLAGS: -c opt --config=remote --remote_download_outputs=all --lockfile_mode=error
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # actions/checkout@v7.0.1
@@ -490,6 +491,11 @@ jobs:
           tar -xzf "${tmpdir}/${archive}" -C "${tmpdir}"
           install -m 0755 "${tmpdir}/gh_${VERSION}_linux_amd64/bin/gh" "${INSTALL_DIR}/gh"
           echo "Installed gh $("${INSTALL_DIR}/gh" --version | head -n1) to ${INSTALL_DIR}/gh"
+
+      # Evaluate every module extension before any release assets are published.
+      # A target-specific build may not load the extension with stale facts.
+      - name: Verify committed dependency lockfile
+        run: bazel mod deps --lockfile_mode=error
 
       - name: Wait for large-ingestion gate
         env:

@@ -186,13 +186,18 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # Evaluate every module extension before any release assets are published.
+      # A target-specific build may not load the extension with stale facts.
+      - name: Verify committed dependency lockfile
+        run: bazel mod deps --lockfile_mode=error
+
       - name: Verify indexed Git metadata
         run: >-
-          bazel run -c opt --config=remote //build/ci:verify_git_metadata --
-          --expected-commit "${GITHUB_SHA}"
+          bazel run -c opt --config=remote --lockfile_mode=error
+          //build/ci:verify_git_metadata -- --expected-commit "${GITHUB_SHA}"
 
       - name: Run hermetic native add-on gate fixtures
-        run: bazel test -c opt --config=remote //build/native_addons:build_gates_test
+        run: bazel test -c opt --config=remote --lockfile_mode=error //build/native_addons:build_gates_test
 
       # Only check_addon_no_stdlib_plugin and check_addon_deadcode_elimination remain here;
       # both shell out to `go list -deps` / `go build -ldflags=-dumpdep`, which is why the
@@ -241,7 +246,11 @@ jobs:
           # from build:remote_base) because these are `bazel run` targets: the sh_binary and
           # its runfiles -- bundle zip, metadata.json, tarballs, signature tool -- must be on
           # local disk for oras to upload them.
-          BAZEL_BUILD_FLAGS: -c opt --config=remote --remote_download_outputs=all
+          #
+          # --lockfile_mode=error: a release build consumes the committed MODULE.bazel.lock
+          # without rewriting it, so a stale fact fails here instead of publishing signed
+          # artifacts from silently regenerated dependency facts.
+          BAZEL_BUILD_FLAGS: -c opt --config=remote --remote_download_outputs=all --lockfile_mode=error
           OPENBAO_ADDR: https://openbao-active.openbao-system.svc.cluster.local:8200
           OPENBAO_K8S_ROLE: github-signing-runner
           COSIGN_KEY_REF: hashivault://cosign-release
@@ -294,7 +303,7 @@ jobs:
           # runs `bazel build //build/native_addons:all_metadata` inside
           # generate-native-addon-import-index.sh and then READS the metadata.json files out
           # of bazel-bin, so --remote_download_outputs=all is what puts them on local disk.
-          BAZEL_BUILD_FLAGS: -c opt --config=remote --remote_download_outputs=all
+          BAZEL_BUILD_FLAGS: -c opt --config=remote --remote_download_outputs=all --lockfile_mode=error
         run: |
           set -euo pipefail
           tag="${EXTRA_TAG:-sha-${GITHUB_SHA}}"
