@@ -208,71 +208,21 @@ func (s *linuxRawSocket) SendUDP(dst net.IP, ttl, srcPort, dstPort int, payload 
 	return syscall.Sendto(fd, payload, 0, dstSA)
 }
 
-func (s *linuxRawSocket) SendTCP(dst net.IP, ttl, srcPort, dstPort int) (err error) {
-	// Create a TCP socket with controlled TTL/hop-limit.
-	family := syscall.AF_INET
-	if s.ipv6 {
-		family = syscall.AF_INET6
-	}
-
-	fd, err := syscall.Socket(family, syscall.SOCK_STREAM, syscall.IPPROTO_TCP)
-	if err != nil {
-		return fmt.Errorf("create TCP socket: %w", err)
-	}
-	defer func() {
-		if closeErr := syscall.Close(fd); closeErr != nil && err == nil {
-			err = fmt.Errorf("close TCP socket: %w", closeErr)
+// OpenTCPFlow crafts SYNs on a raw TCP socket when the process may open one,
+// and otherwise falls back to kernel connect() probes (reach detection only).
+func (s *linuxRawSocket) OpenTCPFlow(dst net.IP, dstPort int, timeout time.Duration) (TCPFlow, error) {
+	if s.sendFD >= 0 {
+		flow, err := openRawTCPFlow(dst, dstPort, s.ipv6)
+		if err == nil {
+			return flow, nil
 		}
-	}()
 
-	if s.ipv6 {
-		if err := syscall.SetsockoptInt(fd, syscall.IPPROTO_IPV6, syscall.IPV6_UNICAST_HOPS, ttl); err != nil {
-			return fmt.Errorf("set TCP hop limit: %w", err)
-		}
-	}
-	if !s.ipv6 {
-		if err := syscall.SetsockoptInt(fd, syscall.IPPROTO_IP, syscall.IP_TTL, ttl); err != nil {
-			return fmt.Errorf("set TCP TTL: %w", err)
+		if !errors.Is(err, errRawTCPPermission) {
+			return nil, err
 		}
 	}
 
-	// Non-blocking connect lets us dispatch SYN probes without stalling on connect timeouts.
-	if err := syscall.SetNonblock(fd, true); err != nil {
-		return fmt.Errorf("set TCP nonblock: %w", err)
-	}
-
-	if s.ipv6 {
-		sa := &syscall.SockaddrInet6{Port: srcPort}
-		if err := syscall.Bind(fd, sa); err != nil {
-			return fmt.Errorf("bind TCP6: %w", err)
-		}
-
-		dstSA := &syscall.SockaddrInet6{Port: dstPort}
-		copy(dstSA.Addr[:], dst.To16())
-		err = syscall.Connect(fd, dstSA)
-	}
-	if !s.ipv6 {
-		sa := &syscall.SockaddrInet4{Port: srcPort}
-		if err := syscall.Bind(fd, sa); err != nil {
-			return fmt.Errorf("bind TCP: %w", err)
-		}
-
-		dstSA := &syscall.SockaddrInet4{Port: dstPort}
-		copy(dstSA.Addr[:], dst.To4())
-		err = syscall.Connect(fd, dstSA)
-	}
-
-	// These indicate the SYN probe has been dispatched/asynchronously in progress.
-	if err == nil ||
-		errors.Is(err, syscall.EINPROGRESS) ||
-		errors.Is(err, syscall.EALREADY) ||
-		errors.Is(err, syscall.EINTR) ||
-		errors.Is(err, syscall.EWOULDBLOCK) ||
-		errors.Is(err, syscall.ECONNREFUSED) {
-		return nil
-	}
-
-	return fmt.Errorf("connect TCP probe: %w", err)
+	return newConnectTCPFlow(dst, dstPort, timeout, s.ipv6), nil
 }
 
 func (s *linuxRawSocket) sendRaw(dst net.IP, ttl int, data []byte) error {
@@ -385,24 +335,7 @@ func (s *linuxRawSocket) parseInnerPacketV4(resp *ICMPResponse) {
 	proto := inner[9]
 	icmpData := inner[ihl:]
 
-	switch proto {
-	case syscall.IPPROTO_ICMP:
-		// Inner ICMP: extract ID and Seq from the original Echo Request.
-		if len(icmpData) >= icmpHeaderLen {
-			resp.InnerID = int(binary.BigEndian.Uint16(icmpData[4:6]))
-			resp.InnerSeq = int(binary.BigEndian.Uint16(icmpData[6:8]))
-		}
-	case syscall.IPPROTO_UDP:
-		// Inner UDP: extract destination port as sequence.
-		if len(icmpData) >= 4 { //nolint:mnd
-			resp.InnerSeq = int(binary.BigEndian.Uint16(icmpData[2:4]))
-		}
-	case syscall.IPPROTO_TCP:
-		// Inner TCP: extract destination port as sequence.
-		if len(icmpData) >= 4 { //nolint:mnd
-			resp.InnerSeq = int(binary.BigEndian.Uint16(icmpData[2:4]))
-		}
-	}
+	parseQuotedTransport(resp, proto, icmpData)
 }
 
 func (s *linuxRawSocket) parseICMPv6(buf []byte, resp *ICMPResponse) (*ICMPResponse, error) {
@@ -443,21 +376,7 @@ func (s *linuxRawSocket) parseInnerPacketV6(resp *ICMPResponse) {
 	nextHeader := inner[6]
 	transportData := inner[ipv6HeaderLen:]
 
-	switch nextHeader {
-	case syscall.IPPROTO_ICMPV6:
-		if len(transportData) >= icmpHeaderLen {
-			resp.InnerID = int(binary.BigEndian.Uint16(transportData[4:6]))
-			resp.InnerSeq = int(binary.BigEndian.Uint16(transportData[6:8]))
-		}
-	case syscall.IPPROTO_UDP:
-		if len(transportData) >= 4 { //nolint:mnd
-			resp.InnerSeq = int(binary.BigEndian.Uint16(transportData[2:4]))
-		}
-	case syscall.IPPROTO_TCP:
-		if len(transportData) >= 4 { //nolint:mnd
-			resp.InnerSeq = int(binary.BigEndian.Uint16(transportData[2:4]))
-		}
-	}
+	parseQuotedTransport(resp, nextHeader, transportData)
 }
 
 func (s *linuxRawSocket) Close() error {

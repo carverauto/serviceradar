@@ -69,6 +69,11 @@ type HopResult struct {
 	// InFlight is the number of probes awaiting response.
 	InFlight int `json:"-"`
 
+	// unreachableCode is the most recent ICMP Destination Unreachable code
+	// this hop returned; hasUnreachable reports whether one was seen.
+	unreachableCode int
+	hasUnreachable  bool
+
 	// Last is the most recent RTT in microseconds.
 	Last int64 `json:"last_us,omitempty"`
 
@@ -127,6 +132,8 @@ func (h *HopResult) Reset(hopNumber int, ringBufferSize int) {
 	h.Sent = 0
 	h.Received = 0
 	h.InFlight = 0
+	h.unreachableCode = 0
+	h.hasUnreachable = false
 	h.Last = 0
 	h.Best = 0
 	h.Worst = 0
@@ -299,6 +306,17 @@ func (h *HopResult) AddAddress(addr net.IP) {
 	h.ECMPAddrs = append(h.ECMPAddrs, addr)
 }
 
+// SetUnreachableCode records the ICMP Destination Unreachable code this hop
+// returned. The code is interpreted with the trace's IP version (ICMPv4 type 3
+// and ICMPv6 type 1 number their codes differently).
+func (h *HopResult) SetUnreachableCode(code int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	h.unreachableCode = code
+	h.hasUnreachable = true
+}
+
 // SetMPLS records MPLS label stack entries for this hop.
 func (h *HopResult) SetMPLS(labels []MPLSLabel) {
 	h.mu.Lock()
@@ -420,6 +438,11 @@ func (h *HopResult) Snapshot() HopSnapshot {
 		snap.Addr = h.Addr.String()
 	}
 
+	if h.hasUnreachable {
+		code := h.unreachableCode
+		snap.UnreachableCode = &code
+	}
+
 	if h.Received >= 2 {
 		variance := h.m2 / float64(h.Received-1)
 		snap.StdDevUs = int64(math.Round(math.Sqrt(variance)))
@@ -469,21 +492,29 @@ type HopSnapshot struct {
 	JitterUs             int64       `json:"jitter_us,omitempty"`
 	JitterWorstUs        int64       `json:"jitter_worst_us,omitempty"`
 	JitterInterarrivalUs int64       `json:"jitter_interarrival_us,omitempty"`
+	UnreachableCode      *int        `json:"unreachable_code,omitempty"`
 }
 
 // TraceResult is the complete result of an MTR trace, ready for serialization.
 type TraceResult struct {
-	Target        string        `json:"target"`
-	TargetIP      string        `json:"target_ip"`
-	TargetReached bool          `json:"target_reached"`
-	TotalHops     int           `json:"total_hops"`
-	Protocol      string        `json:"protocol"`
-	IPVersion     int           `json:"ip_version"`
-	PacketSize    int           `json:"packet_size"`
-	Hops          []HopSnapshot `json:"hops"`
-	AgentID       string        `json:"agent_id,omitempty"`
-	GatewayID     string        `json:"gateway_id,omitempty"`
-	Timestamp     int64         `json:"timestamp"`
+	Target        string `json:"target"`
+	TargetIP      string `json:"target_ip"`
+	TargetReached bool   `json:"target_reached"`
+	TotalHops     int    `json:"total_hops"`
+	// ProbedHops is the deepest TTL that was probed. For an unreached trace it
+	// reflects the run's time budget and unknown-hop limit, not the path length.
+	ProbedHops int `json:"probed_hops"`
+	// LastRespondingHop is the deepest TTL that received any reply (0 if none).
+	LastRespondingHop int    `json:"last_responding_hop"`
+	Protocol          string `json:"protocol"`
+	// TCPPort is the destination port of a TCP trace (0 for ICMP/UDP).
+	TCPPort    int           `json:"tcp_port,omitempty"`
+	IPVersion  int           `json:"ip_version"`
+	PacketSize int           `json:"packet_size"`
+	Hops       []HopSnapshot `json:"hops"`
+	AgentID    string        `json:"agent_id,omitempty"`
+	GatewayID  string        `json:"gateway_id,omitempty"`
+	Timestamp  int64         `json:"timestamp"`
 }
 
 func abs64(x int64) int64 {

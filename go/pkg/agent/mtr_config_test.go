@@ -153,6 +153,36 @@ func TestParseMtrCheckConfig_ProtocolTCP(t *testing.T) {
 	assert.Equal(t, mtr.ProtocolTCP, cfg.Protocol)
 }
 
+func TestParseMtrCheckConfig_TCPPort(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		setting string
+		want    int
+	}{
+		{setting: "8443", want: 8443},
+		{setting: "80\n", want: 80},
+		{setting: "0", want: mtr.DefaultTCPPort},
+		{setting: "70000", want: mtr.DefaultTCPPort},
+		{setting: "https", want: mtr.DefaultTCPPort},
+	}
+
+	for _, tc := range cases {
+		setting, want := tc.setting, tc.want
+		check := &proto.AgentCheckConfig{
+			CheckId:   "mtr-tcp-port",
+			CheckType: "mtr",
+			Enabled:   true,
+			Target:    "host01.example.com",
+			Settings:  map[string]string{"protocol": "tcp", "tcp_port": setting},
+		}
+
+		cfg := parseMtrCheckConfig(check)
+		require.NotNil(t, cfg)
+		assert.Equal(t, want, cfg.TCPPort, "tcp_port=%q", setting)
+	}
+}
+
 func TestParseMtrCheckConfig_DNSResolveFalse(t *testing.T) {
 	t.Parallel()
 
