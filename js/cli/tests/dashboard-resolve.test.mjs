@@ -8,7 +8,7 @@ import assert from "node:assert/strict"
 import {mkdir, mkdtemp, readFile, writeFile} from "node:fs/promises"
 import {existsSync, realpathSync} from "node:fs"
 import {tmpdir} from "node:os"
-import {dirname, join} from "node:path"
+import {dirname, join, relative} from "node:path"
 import test, {describe} from "node:test"
 
 import {
@@ -156,10 +156,9 @@ describe("assertReactResolvable", () => {
     assert.throws(
       () => assertReactResolvable(projectDir, projectReactAliases(projectDir)),
       (error) => {
-        // The point of the assertion is that the author sees the package name and
-        // a next step, not a bare path from esbuild or vite.
         assert.match(error.message, /cannot resolve "react"/)
         assert.match(error.message, /npm install/)
+        assert.ok(error.message.includes(relative(process.cwd(), projectDir)), "error must name the project directory")
         return true
       },
     )
@@ -194,6 +193,7 @@ describe("assertReactResolvable", () => {
       (error) => {
         assert.match(error.message, /cannot resolve "react-dom\/client"/)
         assert.match(error.message, /npm install/)
+        assert.ok(error.message.includes(relative(process.cwd(), projectDir)), "error must name the project directory")
         return true
       },
     )

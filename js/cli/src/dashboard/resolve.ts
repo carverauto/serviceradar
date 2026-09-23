@@ -17,6 +17,7 @@
 import {existsSync, readFileSync} from "node:fs"
 import {createRequire} from "node:module"
 import {dirname, join} from "node:path"
+import {relativePath} from "../utils.js"
 
 /**
  * Resolves `specifier` as if it were imported from the dashboard project.
@@ -177,10 +178,11 @@ export function devViteAliases(
  * invoked, naming a directory rather than the problem.
  */
 export function assertReactResolvable(projectDir: string, aliases: ReactAliases): void {
+  const proj = relativePath(process.cwd(), projectDir)
   for (const name of ["react", "react-dom"] as const) {
     if (!existsSync(aliases[name])) {
       throw new Error(
-        `cannot resolve "${name}" from this dashboard project\n` +
+        `cannot resolve "${name}" from dashboard project at ${proj}\n` +
           `→ looked for it at ${aliases[name]}\n` +
           `→ run \`npm install\` (or add "${name}" to this project's dependencies)`,
       )
@@ -188,7 +190,7 @@ export function assertReactResolvable(projectDir: string, aliases: ReactAliases)
   }
   if (!existsSync(`${aliases["react-dom/client"]}.js`)) {
     throw new Error(
-      `cannot resolve "react-dom/client" from this dashboard project\n` +
+      `cannot resolve "react-dom/client" from dashboard project at ${proj}\n` +
         `→ looked for it at ${aliases["react-dom/client"]}\n` +
         `→ run \`npm install\` (or add "react-dom" to this project's dependencies)`,
     )
