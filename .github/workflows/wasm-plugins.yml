@@ -151,6 +151,11 @@ jobs:
             exit 1
           fi
 
+      # Evaluate every module extension before any release assets are published.
+      # A target-specific build may not load the extension with stale facts.
+      - name: Verify committed dependency lockfile
+        run: bazel mod deps --lockfile_mode=error
+
       - name: Login to Harbor
         run: |
           set -euo pipefail
@@ -164,6 +169,10 @@ jobs:
       - name: Publish Wasm plugin OCI artifacts
         env:
           EXTRA_TAG: ${{ github.event.inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
+          # --lockfile_mode=error: a release build consumes the committed MODULE.bazel.lock
+          # without rewriting it, so a stale fact fails here instead of publishing signed
+          # artifacts from silently regenerated dependency facts.
+          BAZEL_BUILD_FLAGS: --lockfile_mode=error
           OPENBAO_ADDR: https://openbao-active.openbao-system.svc.cluster.local:8200
           OPENBAO_K8S_ROLE: github-signing-runner
           OPENBAO_SIGNING_ALLOWED_REFS_REGEX: '^refs/(tags/v.*|heads/(staging|main|master))$'
