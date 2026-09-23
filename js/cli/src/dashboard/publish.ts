@@ -105,11 +105,25 @@ export async function publishCommand(options: Record<string, any>): Promise<void
     throw publishError("publish", response.status, payload, response.headers)
   }
 
+  // Two identities here, and they are not interchangeable.
+  //
+  // `installedId` is whatever the instance calls this package — in practice a
+  // UUID — and it is what the enable endpoint's path requires.
+  //
+  // `displayId` is the manifest id the author wrote and recognises
+  // (`com.ual.rids`). Printing the UUID instead told the author nothing they
+  // could act on, did not match the output `docs/publishing.md` documents for
+  // this command, and could not be grepped for in their own config. The server
+  // id is appended so it can still be quoted in a support request or used
+  // against the API by hand.
+  const installedId = payload?.id || payload?.dashboard_id || manifest.id
+  const displayId = manifest.id || installedId
+  const serverSuffix = installedId && installedId !== displayId ? ` (${installedId})` : ""
+
   if (payload?.result === "idempotent_noop") {
-    console.log(`✓ Re-published ${payload.dashboard_id || manifest.id}@${manifest.version} (already at this content_hash; nothing changed)`)
+    console.log(`✓ Re-published ${displayId}@${manifest.version}${serverSuffix} (already at this content_hash; nothing changed)`)
   } else {
-    const installedId = payload?.id || payload?.dashboard_id || manifest.id
-    console.log(`✓ Published ${installedId}@${manifest.version} to ${instance}`)
+    console.log(`✓ Published ${displayId}@${manifest.version}${serverSuffix} to ${instance}`)
   }
 
   if (!options.enable) {
@@ -117,7 +131,6 @@ export async function publishCommand(options: Record<string, any>): Promise<void
     return
   }
 
-  const installedId = payload?.id || payload?.dashboard_id || manifest.id
   const enableUrl = `${instance}/api/v1/dashboard-packages/${encodeURIComponent(installedId)}/enable`
   let enableResponse: Response
   try {
@@ -144,7 +157,7 @@ export async function publishCommand(options: Record<string, any>): Promise<void
     throw publishError("enable", enableResponse.status, enablePayload, enableResponse.headers)
   }
 
-  console.log(`✓ Enabled ${installedId} at /dashboards/${route}`)
+  console.log(`✓ Enabled ${displayId} at /dashboards/${route}`)
 }
 
 async function readJson(response: Response): Promise<any> {
