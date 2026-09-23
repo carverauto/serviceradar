@@ -1,0 +1,154 @@
+# Publishes @carverauto/serviceradar-cli to npm.
+#
+# This exists because 0.1.6 was published by hand from a tree whose `dist/` was
+# stale: the tarball shipped the previous build, the fix it was meant to carry
+# was absent, and npm versions are immutable — so the release had to be redone as
+# 0.1.7. Publishing from CI removes the whole class of problem. The tarball is
+# always built from a clean checkout of the tag, never from whatever happens to
+# be in a working directory.
+#
+# Release flow:
+#   1. Land the version bump in js/cli/package.json on the default branch.
+#   2. Tag it `cli-v<version>` (e.g. cli-v0.1.7) and push the tag.
+#
+# `palisade-v*` sets the house convention for a component tag; the main product
+# owns bare `v*` in release.yml, so the CLI must not use that prefix.
+#
+# Prerequisites: npm trusted publishing (OIDC) requires a publisher configured
+# for @carverauto/serviceradar-cli on npmjs.com that points at
+# carverauto/serviceradar and this workflow file. Until that is set up the
+# publish step fails on OIDC; the dry_run flag on workflow_dispatch lets every
+# pre-publish check and tarball verification run in that window.
+name: Publish CLI npm Package
+
+on:
+  push:
+    tags:
+      - "cli-v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish, for example cli-v0.1.7."
+        required: true
+        type: string
+      dry_run:
+        description: "Run every check and pack the tarball without publishing."
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cli-npm-publish-${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      # Required for npm trusted publishing (OIDC) and provenance.
+      id-token: write
+    defaults:
+      run:
+        working-directory: js/cli
+    env:
+      INPUT_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+      INPUT_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.dry_run || 'false' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ env.INPUT_TAG }}
+
+      - name: Setup Node
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: js/cli/package-lock.json
+
+      # Catches a tag that does not name the version it claims to publish,
+      # before anything reaches the registry.
+      - name: Verify release tag matches package version
+        run: |
+          set -euo pipefail
+
+          version="$(node -p "require('./package.json').version")"
+          expected="cli-v${version}"
+          if [ "${INPUT_TAG}" != "${expected}" ]; then
+            echo "Release tag ${INPUT_TAG} does not match package version ${version}; expected ${expected}." >&2
+            exit 1
+          fi
+          echo "Publishing @carverauto/serviceradar-cli ${version} from ${INPUT_TAG}."
+
+      # Refuse to reuse a version already on the registry. npm would reject the
+      # publish anyway, but failing here says why instead of surfacing a 403.
+      - name: Verify version is not already published
+        run: |
+          set -euo pipefail
+
+          version="$(node -p "require('./package.json').version")"
+          if npm view "@carverauto/serviceradar-cli@${version}" version >/dev/null 2>&1; then
+            echo "@carverauto/serviceradar-cli@${version} is already published; npm versions are immutable." >&2
+            echo "Bump the version in js/cli/package.json and tag again." >&2
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      # Builds dist/ from this checkout's src/, so a stale dist cannot ship.
+      # Also runs typecheck, the test suite, and a pack dry-run.
+      - name: Run checks and build
+        run: npm run ci
+
+      # Proves the built tarball carries the source it was built from, rather
+      # than trusting that the build step did something. This is the specific
+      # failure that made 0.1.6 a no-op release.
+      - name: Verify the tarball matches the built source
+        run: |
+          set -euo pipefail
+
+          tarball="$(npm pack --silent)"
+          trap 'rm -f "${tarball}"' EXIT
+
+          missing=0
+          while IFS= read -r src; do
+            rel="${src#src/}"
+            expected="package/dist/${rel%.ts}.js"
+            if ! tar -tzf "${tarball}" | grep -qxF "${expected}"; then
+              echo "::error::${src} has no compiled counterpart ${expected#package/} in the tarball" >&2
+              missing=1
+            fi
+          done < <(find src -name '*.ts' ! -name '*.d.ts' | sort)
+
+          if [ "${missing}" -ne 0 ]; then
+            echo "The tarball is missing compiled output for files present in src/." >&2
+            echo "This is how 0.1.6 shipped without its fix. Refusing to publish." >&2
+            exit 1
+          fi
+
+          echo "Every src/*.ts has compiled output in the tarball."
+
+      - name: Publish package with trusted publishing
+        if: ${{ env.INPUT_DRY_RUN != 'true' }}
+        run: |
+          set -euo pipefail
+          npm --version
+          # setup-node node-version 24 installs v24.21.0, which bundles npm 11.19.0.
+          # OIDC floor is npm 11.5.1. Pin to npm@11 so a runner image whose bundled
+          # npm predates that floor is covered, without letting a future npm major
+          # change --provenance or OIDC semantics underneath this release.
+          npm install -g npm@11
+          npm --version
+          npm publish --access public --provenance
+
+      - name: Dry run summary
+        if: ${{ env.INPUT_DRY_RUN == 'true' }}
+        run: |
+          echo "Dry run: every check passed and the tarball was verified, nothing was published."
