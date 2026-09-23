@@ -5,6 +5,37 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunnerTest do
 
   @moduletag :db_free
 
+  defmodule MutatingSRQL do
+    @moduledoc """
+    Returns the same NUMBER of rows every call, with different values.
+
+    This is the shape that defeated change detection: id, encoding, status, query
+    and row count are all stable, so nothing the client could see moved.
+    """
+    def query("in:devices", opts) do
+      limit = Map.fetch!(opts, :limit)
+      n = :counters.add(counter(), 1, 1) && :counters.get(counter(), 1)
+
+      {:ok,
+       %{
+         "results" => [%{"id" => 1, "last_seen" => "2026-09-23T00:00:#{:io_lib.format(~c"~2..0B", [rem(n, 60)])}Z"}],
+         "pagination" => %{"limit" => limit}
+       }}
+    end
+
+    def counter do
+      case :persistent_term.get({__MODULE__, :counter}, nil) do
+        nil ->
+          ref = :counters.new(1, [])
+          :persistent_term.put({__MODULE__, :counter}, ref)
+          ref
+
+        ref ->
+          ref
+      end
+    end
+  end
+
   defmodule FakeSRQL do
     @moduledoc false
     def query("in:devices", opts) do
@@ -439,5 +470,84 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunnerTest do
                true
              end
            end)
+  end
+
+  describe "frame freshness identity" do
+    test "a frame carrying fresh rows is stamped with refreshed_at, checked_at and content_hash" do
+      frames = [%{"id" => "devices", "query" => "in:devices", "limit" => 2}]
+
+      [frame] = FrameRunner.run(frames, :scope, srql_module: FakeSRQL)
+
+      assert frame["status"] == "ok"
+      assert is_binary(frame["refreshed_at"]), "fresh rows must carry refreshed_at"
+      assert is_binary(frame["checked_at"]), "every frame must carry checked_at"
+      assert is_binary(frame["content_hash"]), "fresh rows must carry content_hash"
+      assert {:ok, _, _} = DateTime.from_iso8601(frame["refreshed_at"])
+    end
+
+    test "content_hash moves when row VALUES change even though nothing else does" do
+      # The production defect: the SDK's frameDigest reads id, encoding, row_count,
+      # refreshed_at, generated_at, status and query — never row data. With none of
+      # those moving, a json_rows digest was a constant and refreshes were discarded.
+      frames = [%{"id" => "devices", "query" => "in:devices", "limit" => 1}]
+
+      [first] = FrameRunner.run(frames, :scope, srql_module: MutatingSRQL)
+      [second] = FrameRunner.run(frames, :scope, srql_module: MutatingSRQL)
+
+      # Everything the old digest could see is identical...
+      assert first["id"] == second["id"]
+      assert first["encoding"] == second["encoding"]
+      assert first["status"] == second["status"]
+      assert first["query"] == second["query"]
+      assert length(first["results"]) == length(second["results"])
+
+      # ...but the rows differ, so the hash must differ.
+      refute first["results"] == second["results"]
+
+      refute first["content_hash"] == second["content_hash"],
+             "content_hash must distinguish frames whose rows changed"
+    end
+
+    test "an errored frame is checked but not stamped fresh" do
+      # It has no rows of its own to timestamp. The channel may merge the previous
+      # frame's rows in and is responsible for carrying that frame's refreshed_at —
+      # stamping "now" here would report stale rows as fresh.
+      frames = [%{"id" => "broken", "query" => "bad"}]
+
+      [frame] = FrameRunner.run(frames, :scope, srql_module: FakeSRQL)
+
+      assert frame["status"] == "error"
+      assert is_binary(frame["checked_at"]), "a failed check is still a check"
+
+      refute Map.has_key?(frame, "refreshed_at"),
+             "an errored frame must not claim freshly-refreshed rows"
+    end
+  end
+
+  describe "cursor direction" do
+    defmodule DirectionSRQL do
+      @moduledoc false
+      def query("in:devices", opts) do
+        {:ok, %{"results" => [%{"direction" => Map.get(opts, :direction)}], "pagination" => %{}}}
+      end
+    end
+
+    test "a backward page request reaches SRQL as a direction" do
+      # srql_query_opts/3 never passed :direction while SRQL.query/2 reads it, so
+      # prev() re-fetched the NEXT page.
+      frames = [%{"id" => "devices", "query" => "in:devices", "cursor" => "c1", "direction" => "prev"}]
+
+      [frame] = FrameRunner.run(frames, :scope, srql_module: DirectionSRQL)
+
+      assert [%{"direction" => "prev"}] = frame["results"]
+    end
+
+    test "omitting a direction leaves it unset, as before" do
+      frames = [%{"id" => "devices", "query" => "in:devices", "cursor" => "c1"}]
+
+      [frame] = FrameRunner.run(frames, :scope, srql_module: DirectionSRQL)
+
+      assert [%{"direction" => nil}] = frame["results"]
+    end
   end
 end
