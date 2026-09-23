@@ -472,12 +472,9 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
   # Only two directions are meaningful, and anything else must not reach SRQL.
   # Nil means "forward", which is what every existing caller gets.
   defp normalize_direction(value) when is_binary(value) do
-    case String.trim(value) do
+    case value do
       "prev" -> "prev"
-      "previous" -> "prev"
-      "backward" -> "prev"
       "next" -> "next"
-      "forward" -> "next"
       _ -> nil
     end
   end
