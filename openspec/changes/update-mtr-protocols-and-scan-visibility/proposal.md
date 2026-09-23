@@ -160,6 +160,6 @@ poorly for everything around it.
 - **Coordination:**
   - `add-sweep-profile-mtr-mode` (pending, not started) plans a single
     `mtr_protocol` per sweep profile. It is expected to adopt the protocol set
-    defined here, and its design note is updated to say so.
+    defined here; task 4.10 updates its design note to say so.
   - The ad-hoc scan (`add-adhoc-network-scan`) keeps its single
     `mtr_protocol`. Out of scope.
