@@ -68,7 +68,9 @@ not.
 
 ## Decisions
 
-### D1: Raw SYN probing on Linux with a stable flow
+### D1: Raw SYN probing on Linux with a stable flow (`mtr_tcp_syn`)
+Agents advertising `mtr_tcp_syn` (Linux with a raw socket) use the stable-flow
+probing described here; the non-Linux connect-observe fallback is D2.
 - **Send.** Build the IPv4/IPv6 + TCP SYN in the engine and send it on the raw
   socket the tracer already requires for UDP/TCP (`sendFD`).
   - IPv4: an `IPPROTO_TCP` raw socket with `IP_TTL`. The engine computes the
@@ -120,6 +122,9 @@ not.
 - On darwin and other non-Linux builds, the TCP probe is a non-blocking
   connect whose socket is kept open until the probe timeout and polled
   (`EISCONN` or writable means SYN-ACK; `ECONNREFUSED` means RST).
+- Every probe targets the configured destination port `tcp_port`; a fresh
+  source port per probe is permitted, so this path makes no stable-flow or ECMP
+  path guarantee.
 - The socket is closed with `SO_LINGER 0` as soon as it resolves or times out.
   That keeps the kernel from retransmitting the SYN inside the probe window.
 - This mode fixes reach detection. It cannot fill the D5 counters, so the agent
@@ -242,7 +247,7 @@ for example, "hop 7: 3 sent / 0 replies" versus
 - **Refresh.** `Infos` routes `{:command_progress | :command_result, ...}` for
   `mtr.bulk_run` into the MTR rows. The 15 s poll remains the backstop.
 - **Permissions.** MTR rows and the filter are rendered only when the user
-  holds the MTR diagnostics view permission. Sweep rows keep their existing
+  holds the `networks.sweeps.view` permission. Sweep rows keep their existing
   gate.
 
 ## Risks / Trade-offs

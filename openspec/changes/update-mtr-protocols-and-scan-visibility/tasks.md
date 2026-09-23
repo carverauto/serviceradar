@@ -169,7 +169,8 @@ no-mistakes gate, in order. All fixtures are synthetic
   - MTR included in the Running badge and statistics cards
 - [ ] 5.3 `Infos`: route `{:command_progress | :command_result, ...}` for
   `mtr.bulk_run` into MTR rows; the 15 s poll stays as the backstop.
-- [ ] 5.4 Gate MTR rows and the filter on the MTR diagnostics view permission.
+- [ ] 5.4 Gate MTR rows and the filter on the `networks.sweeps.view`
+  permission.
 - [ ] 5.5 Tests:
   - loader normalisation
   - running -> completed transition via PubSub
