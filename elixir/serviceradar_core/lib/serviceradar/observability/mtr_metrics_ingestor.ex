@@ -76,7 +76,8 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
   defp normalize_results(result) when is_map(result), do: [result]
   defp normalize_results(_), do: []
 
-  defp enrich_results_asn(results) when is_list(results), do: Enum.map(results, &enrich_result_asn/1)
+  defp enrich_results_asn(results) when is_list(results),
+    do: Enum.map(results, &enrich_result_asn/1)
 
   defp enrich_results_asn(results), do: results
 
@@ -227,12 +228,11 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
       trace_row =
         build_trace_row(result, trace, trace_id, trace_time, agent_id, gateway_id, partition)
 
-      # Hops inherit their attribution from the trace row rather than recomputing
-      # it from the payload. Hop rows carry no target of their own, so without this
-      # the only link from a hop back to the device it measured is `trace_id` --
-      # and SRQL cannot join entities, which made device-scoped hop analytics
-      # inexpressible. Reading the values off `trace_row` guarantees a hop can
-      # never disagree with its own trace about what it was measuring.
+      # Hops inherit attribution from the trace ROW, not from the payload. Hop rows
+      # carry no target of their own, so `trace_id` was the only link back to the
+      # device a hop measured -- and SRQL cannot join entities, which made
+      # device-scoped hop analytics inexpressible. Reading off `trace_row`
+      # guarantees a hop cannot disagree with its own trace about the target.
       hop_rows =
         build_hop_rows(
           map_get_any(trace, ["hops", :hops], []),
@@ -374,10 +374,8 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
       id: Ecto.UUID.generate(),
       time: trace_time,
       trace_id: trace_id,
-      # Denormalised from the owning trace so hop metrics can be scoped to the
-      # device they measured. `target_ip` is the reliable key: on the
-      # bulk-scheduled path a trace's `device_id` is the originating command's id
-      # rather than a device uid, so grouping by it yields one row per command.
+      # target_ip is the reliable device key; device_id is the command id on the
+      # bulk-scheduled path.
       target_ip: target_ip,
       device_id: device_id,
       hop_number: hop["hop_number"] || 0,
