@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
   alias Ash.Page.Keyset
   alias ServiceRadar.Observability.MtrHop
   alias ServiceRadar.Observability.MtrTrace
+  alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrDepth
 
   require Ash.Query
 
@@ -21,6 +22,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
      |> assign(:page_path, "/diagnostics/mtr")
      |> assign(:trace, nil)
      |> assign(:hops, [])
+     |> assign(:hop_rows, [])
+     |> assign(:silent_tail, nil)
      |> assign(:hop_sparklines, %{})
      |> assign(:error, nil)}
   end
@@ -44,10 +47,13 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
       trace_map = trace_to_map(trace)
       hop_maps = Enum.map(hops, &hop_to_map/1)
       sparklines = load_hop_sparklines(hop_maps, scope)
+      {hop_rows, silent_tail} = MtrDepth.collapse_trailing_loss(hop_maps)
 
       socket
       |> assign(:trace, trace_map)
       |> assign(:hops, hop_maps)
+      |> assign(:hop_rows, hop_rows)
+      |> assign(:silent_tail, silent_tail)
       |> assign(:hop_sparklines, sparklines)
       |> assign(:page_title, "MTR Trace: #{trace_map["target"]}")
       |> assign(:error, nil)
@@ -114,7 +120,12 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
             </div>
             <div class="stat">
               <div class="sr-ui-stat-title">Hops</div>
-              <div class="sr-ui-stat-value text-lg">{@trace["total_hops"]}</div>
+              <div class="sr-ui-stat-value text-lg">
+                {MtrDepth.hop_count_label(Map.put(@trace, "hops", @hops))}
+              </div>
+              <div class="sr-ui-stat-desc">
+                {MtrDepth.depth_summary(Map.put(@trace, "hops", @hops))}
+              </div>
             </div>
             <div class="stat">
               <div class="sr-ui-stat-title">Protocol</div>
@@ -122,6 +133,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
                 {String.upcase(@trace["protocol"] || "icmp")}
                 <span :if={@trace["ip_version"] == 6} class="text-sm text-info ml-1">IPv6</span>
               </div>
+              <div :if={@trace["tcp_port"]} class="sr-ui-stat-desc">port {@trace["tcp_port"]}</div>
             </div>
             <div class="stat">
               <div class="sr-ui-stat-title">Time</div>
@@ -160,11 +172,19 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
                 </tr>
               </thead>
               <tbody>
-                <tr :for={hop <- @hops} class={hop_row_class(hop)}>
+                <tr :for={hop <- @hop_rows} class={hop_row_class(hop)}>
                   <td class="font-mono text-center">{hop["hop_number"]}</td>
                   <td class="text-xs">
                     <div class="font-mono text-sm">
                       {hop["addr"] || "???"}
+                      <.ui_badge
+                        :if={MtrDepth.unreachable_kind(hop["unreachable_code"], @trace["ip_version"])}
+                        size="sm"
+                        variant="warning"
+                        class="ml-1"
+                      >
+                        {MtrDepth.unreachable_kind(hop["unreachable_code"], @trace["ip_version"])}
+                      </.ui_badge>
                       <span
                         :if={hop["ecmp_addrs"] && hop["ecmp_addrs"] != []}
                         class="ml-1 inline-flex items-center rounded-full border border-sr-brand/30 bg-sr-brand/10 px-1.5 text-[0.65rem] font-semibold text-sr-brand-strong"
@@ -206,6 +226,12 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
                   </td>
                   <td class="text-xs">
                     {format_mpls(hop["mpls_labels"])}
+                  </td>
+                </tr>
+                <tr :if={@silent_tail} class="opacity-50">
+                  <td class="font-mono text-center">{@silent_tail.from}-{@silent_tail.to}</td>
+                  <td colspan="10" class="text-sm text-sr-muted">
+                    {@silent_tail.count} hops with no reply (probing continued past the last answer)
                   </td>
                 </tr>
                 <tr :if={@hops == []}>
@@ -422,7 +448,10 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
       "target_ip" => trace.target_ip,
       "target_reached" => trace.target_reached,
       "total_hops" => trace.total_hops,
+      "probed_hops" => trace.probed_hops,
+      "last_responding_hop" => trace.last_responding_hop,
       "protocol" => trace.protocol,
+      "tcp_port" => trace.tcp_port,
       "ip_version" => trace.ip_version,
       "packet_size" => trace.packet_size,
       "partition" => trace.partition,
@@ -449,7 +478,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
       "stddev_us" => hop.stddev_us,
       "jitter_us" => hop.jitter_us,
       "jitter_worst_us" => hop.jitter_worst_us,
-      "jitter_interarrival_us" => hop.jitter_interarrival_us
+      "jitter_interarrival_us" => hop.jitter_interarrival_us,
+      "unreachable_code" => hop.unreachable_code
     }
   end
 

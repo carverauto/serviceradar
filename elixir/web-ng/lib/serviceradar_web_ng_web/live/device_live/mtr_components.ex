@@ -5,6 +5,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
 
   import ServiceRadarWebNGWeb.SRQLComponents, only: [srql_sparkline: 1]
 
+  alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrDepth
+
   attr(:device_uid, :string, required: true)
   attr(:fallback_target, :string, default: nil)
   attr(:traces, :list, default: [])
@@ -262,7 +264,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
                   Unreachable
                 </.ui_badge>
               </td>
-              <td class="text-center">{trace["total_hops"]}</td>
+              <td class="text-center font-mono" title={MtrDepth.depth_summary(trace)}>
+                {MtrDepth.hop_count_label(trace)}
+              </td>
               <td>
                 <.ui_badge size="sm" variant="ghost">
                   {String.upcase(trace["protocol"] || "icmp")}

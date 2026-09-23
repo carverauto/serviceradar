@@ -59,7 +59,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     query = """
     WITH selected_traces AS (
       SELECT id, time, agent_id, check_id, check_name, device_id, target, target_ip,
-             target_reached, total_hops, protocol, ip_version, error
+             target_reached, total_hops, probed_hops, last_responding_hop, protocol, tcp_port,
+             ip_version, error
       FROM mtr_traces
       #{where_clause}
       ORDER BY time DESC, id DESC
@@ -82,7 +83,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
       WHERE terminal_rank = 1
     )
     SELECT st.id::text AS id, st.time, st.agent_id, st.check_id, st.check_name, st.device_id,
-           st.target, st.target_ip, st.target_reached, st.total_hops, st.protocol, st.ip_version,
+           st.target, st.target_ip, st.target_reached, st.total_hops, st.probed_hops,
+           st.last_responding_hop, st.protocol, st.tcp_port, st.ip_version,
            st.error, destination.sent AS destination_sent,
            destination.received AS destination_received,
            destination.avg_us AS destination_avg_us,
@@ -123,7 +125,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
 
     query = """
     SELECT id::text AS id, time, agent_id, check_id, check_name, device_id, target, target_ip,
-           target_reached, total_hops, protocol, ip_version, error
+           target_reached, total_hops, probed_hops, last_responding_hop, protocol, tcp_port,
+           ip_version, error
     FROM mtr_traces
     #{where_clause}
     ORDER BY #{order_clause}
@@ -323,8 +326,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     else
       trace_query = """
       SELECT id::text AS id, time, agent_id, gateway_id, check_id, check_name, device_id,
-             target, target_ip, target_reached, total_hops, protocol,
-             ip_version, packet_size, partition, error
+             target, target_ip, target_reached, total_hops, probed_hops, last_responding_hop,
+             protocol, tcp_port, ip_version, packet_size, partition, error
       FROM mtr_traces
       WHERE id::text = $1
       LIMIT 1
@@ -334,7 +337,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
       SELECT id::text AS id, time, hop_number, addr, hostname, ecmp_addrs, asn, asn_org,
              mpls_labels, sent, received, loss_pct,
              last_us, avg_us, min_us, max_us, stddev_us,
-             jitter_us, jitter_worst_us, jitter_interarrival_us
+             jitter_us, jitter_worst_us, jitter_interarrival_us, unreachable_code
       FROM mtr_hops
       WHERE trace_id::text = $1
       ORDER BY hop_number ASC, time DESC, id DESC

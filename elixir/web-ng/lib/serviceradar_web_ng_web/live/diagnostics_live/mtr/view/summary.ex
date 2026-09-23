@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.Summary do
   import ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.Helpers
 
   alias ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.Config
+  alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrDepth
 
   attr(:traces, :list, required: true)
   attr(:trace_coverage, :map, required: true)
@@ -123,7 +124,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.Summary do
                 {trace[Config.payload_target_key()]}
               </span>
               <span class={if trace["target_reached"], do: "text-success", else: "text-error"}>
-                {trace["total_hops"] || 0} hops
+                {MtrDepth.depth_summary(trace)}
               </span>
             </div>
             <div class="sr-mtr-track h-2">
