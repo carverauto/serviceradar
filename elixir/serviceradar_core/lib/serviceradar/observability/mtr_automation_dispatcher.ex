@@ -12,7 +12,6 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
   alias ServiceRadar.Observability.MtrDispatchWindow
   alias ServiceRadar.Observability.MtrVantageSelector
   alias ServiceRadar.Observability.SRQLRunner
-  alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.Repo
 
   require Ash.Query
@@ -163,7 +162,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
 
     with {:ok, target_ctx} <- normalize_target_ctx(target_ctx),
          true <- target_matches_policy_scope?(target_ctx, policy),
-         {:ok, selected_agents} <- select_agents(target_ctx, policy, mode),
+         {:ok, selected_agents} <- select_agents(target_ctx, policy, mode, opts),
          false <- cooldown_active?(target_ctx, mode, transition_class),
          {:ok, _} <-
            dispatch_to_agents(
@@ -227,8 +226,8 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     })
   end
 
-  defp select_agents(target_ctx, policy, :baseline) do
-    candidates = candidate_agents(target_ctx)
+  defp select_agents(target_ctx, policy, :baseline, opts) do
+    candidates = candidate_agents(target_ctx, opts)
 
     with {:ok, preferred} <- select_preferred_agents(policy, candidates) do
       if preferred == [] do
@@ -239,8 +238,8 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     end
   end
 
-  defp select_agents(target_ctx, policy, mode) when mode in [:incident, :recovery] do
-    candidates = candidate_agents(target_ctx)
+  defp select_agents(target_ctx, policy, mode, opts) when mode in [:incident, :recovery] do
+    candidates = candidate_agents(target_ctx, opts)
 
     with {:ok, preferred} <- select_preferred_agents(policy, candidates) do
       if preferred == [] do
@@ -343,11 +342,17 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     end
   end
 
-  defp candidate_agents(target_ctx) do
+  # Candidates come from the command bus's online-session listing, not a direct
+  # ProcessRegistry read: web-ng dispatches here too and does not join the Horde
+  # registry, so a local select there raises on the missing ETS table. The
+  # listing reads locally on registry members and over RPC everywhere else.
+  @doc false
+  @spec candidate_agents(target_ctx(), keyword()) :: [map()]
+  def candidate_agents(target_ctx, opts \\ []) do
     target_partition = blank_to_nil(Map.get(target_ctx, :partition_id))
+    list_sessions = Keyword.get(opts, :session_lister, &AgentCommandBus.list_online_agents/0)
 
-    :agent_control
-    |> ProcessRegistry.select_by_type()
+    list_sessions.()
     |> Enum.map(&session_to_candidate/1)
     |> Enum.reject(&is_nil/1)
     |> Enum.filter(fn candidate ->
@@ -355,9 +360,10 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     end)
   end
 
-  defp session_to_candidate(
-         {{:agent_control, partition_id, agent_id, _gateway_node}, _pid, metadata}
-       )
+  defp session_to_candidate(%{
+         key: {:agent_control, partition_id, agent_id, _gateway_node},
+         metadata: metadata
+       })
        when is_binary(partition_id) and is_binary(agent_id) do
     metadata = metadata || %{}
     metadata_agent_id = metadata_value(metadata, "agent_id")

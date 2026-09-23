@@ -190,4 +190,62 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcherTest do
                )
     end
   end
+
+  describe "candidate_agents/2" do
+    test "builds candidates from the command bus session listing" do
+      sessions = [
+        session("agent-a", "default", %{"capabilities" => ["mtr", "sweep"], "in_flight" => 2}),
+        session("agent-b", "default", %{"capabilities" => ["sweep"]})
+      ]
+
+      candidates =
+        MtrAutomationDispatcher.candidate_agents(%{partition_id: "default"},
+          session_lister: fn -> sessions end
+        )
+
+      assert [
+               %{agent_id: "agent-a", partition_id: "default", mtr_capable: true, in_flight: 2},
+               %{agent_id: "agent-b", mtr_capable: false}
+             ] = candidates
+    end
+
+    test "keeps only sessions in the target partition" do
+      sessions = [
+        session("agent-a", "default", %{"capabilities" => ["mtr"]}),
+        session("agent-b", "site-02", %{"capabilities" => ["mtr"]})
+      ]
+
+      assert [%{agent_id: "agent-b"}] =
+               MtrAutomationDispatcher.candidate_agents(%{partition_id: "site-02"},
+                 session_lister: fn -> sessions end
+               )
+
+      assert ["agent-a", "agent-b"] =
+               %{partition_id: nil}
+               |> MtrAutomationDispatcher.candidate_agents(session_lister: fn -> sessions end)
+               |> Enum.map(& &1.agent_id)
+    end
+
+    test "rejects legacy keys and sessions whose metadata names another principal" do
+      sessions = [
+        %{key: {:agent_control, "agent-legacy", :gateway@host01}, pid: self(), metadata: %{}},
+        session("agent-a", "default", %{"agent_id" => "agent-other"})
+      ]
+
+      assert [] =
+               MtrAutomationDispatcher.candidate_agents(%{partition_id: "default"},
+                 session_lister: fn -> sessions end
+               )
+    end
+  end
+
+  defp session(agent_id, partition_id, metadata) do
+    %{
+      key: {:agent_control, partition_id, agent_id, :gateway@host01},
+      agent_id: agent_id,
+      pid: self(),
+      partition_id: partition_id,
+      metadata: Map.merge(%{"agent_id" => agent_id, "partition_id" => partition_id}, metadata)
+    }
+  end
 end
