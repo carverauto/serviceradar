@@ -220,7 +220,20 @@ bazel run //third_party/crate_mirror:sync
 # 4. Bazel side. Cargo passing is NOT proof -- see the warning below.
 bazel build //rust/...
 bazel test  //rust/...
+
+# 5. Refresh the resolved facts the strict release build reads. Commit the result.
+bazel mod deps --lockfile_mode=update
+git add MODULE.bazel.lock
 ```
+
+> **A Cargo version change is also a `MODULE.bazel.lock` change.** The versions
+> Bazel resolves from `//:Cargo.lock` are recorded as facts in
+> `MODULE.bazel.lock`, and a target-specific build does not necessarily rewrite
+> them. Run `bazel mod deps --lockfile_mode=update` after a bump and commit the
+> lockfile with the Cargo change; the `make update-rust-deps` wrapper does not
+> run that step. Release publishing runs its Bazel commands with
+> `--lockfile_mode=error`, so a stale lockfile fails publication instead of
+> being silently regenerated.
 
 > **A green `cargo check` does not mean Bazel is green.** Cargo.lock is
 > feature-independent and keeps optional deps that are never activated; `cargo vendor`
