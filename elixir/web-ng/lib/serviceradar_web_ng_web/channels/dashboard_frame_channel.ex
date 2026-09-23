@@ -100,35 +100,60 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
 
   @impl true
   def handle_in("frames:refresh", _payload, socket) do
-    socket =
-      socket
-      |> assign(:last_frame_hash, nil)
-      |> assign(:frame_cursors, %{})
-      |> assign(:deferred_frame_sent, false)
-      |> start_frame_refresh(socket.assigns.initial_data_frames, :initial)
+    # Two defects previously lived here. It cleared `frame_cursors`, so forcing a
+    # refresh silently threw away the user's paging position; and it then called
+    # start_frame_refresh/3, which returns the socket unchanged when a task is
+    # already in flight — so it could destroy dedupe state, do no work, and still
+    # reply {:ok, %{}}. Now it refuses rather than lying, and never moves the page.
+    if refresh_in_flight?(socket) do
+      {:reply, {:error, %{reason: "refresh_in_progress"}}, socket}
+    else
+      socket =
+        socket
+        |> assign(:last_frame_hash, nil)
+        |> assign(:deferred_frame_sent, false)
+        |> start_frame_refresh(socket.assigns.initial_data_frames, :initial)
 
-    {:reply, {:ok, %{}}, socket}
+      {:reply, {:ok, %{}}, socket}
+    end
   end
 
   def handle_in("frames:page", payload, socket) do
     frame_id = payload |> Map.get("frame_id") |> to_string() |> String.trim()
     cursor = payload |> Map.get("cursor") |> to_string() |> String.trim()
 
-    if frame_id == "" or cursor == "" do
-      {:reply, {:error, %{reason: "frame_id and cursor are required"}}, socket}
-    else
-      case find_data_frame(socket, frame_id) do
-        nil ->
-          {:reply, {:error, %{reason: "unknown_frame"}}, socket}
+    cond do
+      frame_id == "" or cursor == "" ->
+        {:reply, {:error, %{reason: "frame_id and cursor are required"}}, socket}
 
-        frame ->
-          socket =
-            socket
-            |> assign(:frame_cursors, Map.put(socket.assigns.frame_cursors, frame_id, cursor))
-            |> start_frame_refresh([Map.put(frame, "cursor", cursor)], :page)
+      # start_frame_refresh/3 no-ops while a task is in flight, and this used to
+      # reply {:ok, %{}} anyway — telling the renderer its page request had been
+      # accepted when it had been dropped. Refuse instead, so the caller can retry.
+      refresh_in_flight?(socket) ->
+        {:reply, {:error, %{reason: "refresh_in_progress"}}, socket}
 
-          {:reply, {:ok, %{}}, socket}
-      end
+      true ->
+        page_frame(socket, frame_id, cursor, normalize_direction(Map.get(payload, "direction")))
+    end
+  end
+
+  defp page_frame(socket, frame_id, cursor, direction) do
+    case find_data_frame(socket, frame_id) do
+      nil ->
+        {:reply, {:error, %{reason: "unknown_frame"}}, socket}
+
+      frame ->
+        paged_frame =
+          frame
+          |> Map.put("cursor", cursor)
+          |> maybe_put_direction(direction)
+
+        socket =
+          socket
+          |> assign(:frame_cursors, Map.put(socket.assigns.frame_cursors, frame_id, cursor))
+          |> start_frame_refresh([paged_frame], :page)
+
+        {:reply, {:ok, %{}}, socket}
     end
   end
 
@@ -171,9 +196,28 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
       |> Map.get(:last_frames, [])
       |> merge_frames(updates)
 
-    hash = :erlang.phash2(frames)
+    # Hash the frames WITHOUT their freshness stamps.
+    #
+    # FrameRunner now stamps `refreshed_at`/`checked_at`/`content_hash` on every
+    # frame so clients can detect a genuine change (the SDK's frameDigest reads
+    # `refreshed_at`, and without it a json_rows digest was constant and every
+    # refresh was discarded). But `checked_at` advances on every tick by
+    # definition, so hashing the whole frame would make this dedupe always miss:
+    # a full `frames:replace` plus a re-push of every arrow binary, every tick,
+    # for every viewer, with clients re-decoding each time.
+    #
+    # Stripping the volatile fields keeps the hash meaning what it has always
+    # meant — "did the data change" — while the stamps still reach the client on
+    # the pushes that do happen.
+    hash = :erlang.phash2(Enum.map(frames, &strip_volatile_fields/1))
 
     if socket.assigns[:last_frame_hash] == hash do
+      # Nothing changed, so no frame is sent. Tell the client we looked, so it can
+      # show liveness ("as of 14:02") without a frame round-trip. Carries no rows.
+      push(socket, "frames:heartbeat", %{
+        "checked_at" => DateTime.to_iso8601(DateTime.utc_now())
+      })
+
       socket
     else
       {metadata_frames, binary_frames} = prepare_frame_transport(frames)
@@ -372,6 +416,14 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
       |> Map.put("stale", true)
       |> Map.put("stale_reason", Map.get(update, "error") || "frame_refresh_failed")
       |> Map.put("last_success_status", "ok")
+      # These rows are the PREVIOUS run's, so they keep the previous run's
+      # timestamp and content hash. FrameRunner deliberately leaves `refreshed_at`
+      # off a non-ok frame for exactly this reason: stamping "now" here would
+      # report stale rows as fresh, which is the defect this change exists to fix.
+      # `checked_at` still reflects the failed attempt, so a renderer can say
+      # "as of 14:02, last checked 14:17".
+      |> maybe_put_previous("refreshed_at", previous)
+      |> maybe_put_previous("content_hash", previous)
     else
       update
     end
@@ -405,6 +457,39 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
 
   defp row_count(results) when is_list(results), do: length(results)
   defp row_count(_results), do: 0
+
+  # The fields FrameRunner stamps that move on every evaluation, whether or not the
+  # data did. Excluded from the dedupe hash so it keeps meaning "did the data
+  # change". `content_hash` is deliberately KEPT: it is derived from the rows, so
+  # it moving is exactly the signal we want.
+  @volatile_frame_fields ~w(refreshed_at checked_at)
+
+  defp strip_volatile_fields(frame) when is_map(frame), do: Map.drop(frame, @volatile_frame_fields)
+  defp strip_volatile_fields(frame), do: frame
+
+  defp refresh_in_flight?(socket), do: not is_nil(socket.assigns[:refresh_task_ref])
+
+  # Only two directions are meaningful, and anything else must not reach SRQL.
+  # Nil means "forward", which is what every existing caller gets.
+  defp normalize_direction(value) when is_binary(value) do
+    case value do
+      "prev" -> "prev"
+      "next" -> "next"
+      _ -> nil
+    end
+  end
+
+  defp normalize_direction(_value), do: nil
+
+  defp maybe_put_direction(frame, nil), do: frame
+  defp maybe_put_direction(frame, direction), do: Map.put(frame, "direction", direction)
+
+  defp maybe_put_previous(update, key, previous) do
+    case Map.get(previous, key) do
+      nil -> update
+      value -> Map.put(update, key, value)
+    end
+  end
 
   defp prepare_frame_transport(frames) do
     frames

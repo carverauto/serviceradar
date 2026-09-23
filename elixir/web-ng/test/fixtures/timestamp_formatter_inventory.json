@@ -264,6 +264,14 @@
     "reason": null
   },
   {
+    "path": "lib/serviceradar_web_ng/dashboards/frame_runner.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "2060830da943a730156b76df6ea02c9d7e1ce0a22fa4a69922f4251f9a55387a",
+    "classification": "canonical_machine",
+    "reason": null
+  },
+  {
     "path": "lib/serviceradar_web_ng/dashboards/report_delivery_worker.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 1,
@@ -483,6 +491,14 @@
     "path": "lib/serviceradar_web_ng_web/channels/dashboard_frame_channel.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 1,
+    "fingerprint": "6a1e671d36d0d06dd5db2d3b5f644f7ee1352cb63501a583097331da3897a726",
+    "classification": "canonical_machine",
+    "reason": null
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/channels/dashboard_frame_channel.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 2,
     "fingerprint": "2229b83575b3c51aa8d88723578fdc0e86ca6a51923cd534e10e3a02b24645d8",
     "classification": "canonical_machine",
     "reason": null
