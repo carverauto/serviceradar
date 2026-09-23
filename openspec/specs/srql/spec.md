@@ -624,7 +624,7 @@ The SRQL service SHALL expose `platform.mtr_hops` as the `in:mtr_hops` query ent
 
 Supported filter fields: `trace_id` (UUID equality), `addr` (text, supports `%` wildcards), `hostname` (text, supports `%` wildcards), `asn` (integer equality), `asn_org` (text, supports `%` wildcards), `hop_number` (integer equality and range).
 
-Supported `stats:` aggregation functions on numeric columns: `avg`, `min`, `max`, `sum`, `count`. Aggregatable columns: `loss_pct`, `avg_us`, `min_us`, `max_us`, `jitter_us`. Supported `by` grouping fields: `addr`, `asn`, `asn_org`, `hop_number`.
+Supported `stats:` aggregation functions on numeric columns: `avg`, `min`, `max`, `sum`, `count`, and the two-argument aggregates `loss_ratio(<sent>, <received>)` and `wavg(<value>, <weight>)`. Aggregatable columns: `loss_pct`, `avg_us`, `min_us`, `max_us`, `jitter_us`, `sent`, `received`. Supported `by` grouping fields: `addr`, `asn`, `asn_org`, `hop_number`, and `time:<duration>` (time-bucket grouping; not emitted by the query builder).
 
 Default ordering: `time DESC, id DESC`. Stats queries order by the first aggregated alias descending by default.
 
