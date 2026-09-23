@@ -78,12 +78,27 @@ a future panel does not pick the wrong one.
 
 `mtr_hops` is a TimescaleDB hypertable. The backfill is therefore chunk-aware and
 batched, not one `UPDATE`: a single statement across all chunks on a large
-installation is the shape that exhausts memory and gets a node OOM-killed. Where
-compression is enabled, compressed chunks must be handled explicitly rather than
-failing mid-migration.
+installation is the shape that exhausts memory and gets a node OOM-killed.
 
 Backfill is idempotent and resumable — it must be safe to run again after an
-interruption, because on a large table it will be interrupted.
+interruption, because on a large table it will be interrupted. A NULL `target_ip`
+is the resume marker, which is why the column is nullable and its index partial.
+
+**Measured, not assumed: `UPDATE` on a compressed chunk works.** An earlier draft
+of this design asserted that compression would force a
+decompress-update-recompress cycle. That is false on the version in use. Verified
+against TimescaleDB **2.24.0** by inserting a row into a 60-day-old chunk,
+compressing the chunk, updating `target_ip`, and reading the value back — the
+artefact, not the `UPDATE 1` row count. DML on compressed chunks has been
+supported since 2.11.
+
+So the backfill does not need a decompression dance. Two caveats survive:
+
+- An installation on TimescaleDB older than 2.11 would fail. The backfill checks
+  the extension version and refuses with a clear message rather than erroring
+  mid-chunk.
+- DML against a compressed chunk is slower and writes through staging, so batching
+  still matters for reasons of bloat and lock duration even though it succeeds.
 
 ## D5: `stats:` on `mtr_traces` answers a different question
 
@@ -118,11 +133,28 @@ and the spec says so rather than implying the panels settle it. `mtr_data.ex`
 already computes terminal-hop loss correctly via a `ROW_NUMBER` CTE for the
 existing diagnostics pages, which remains the place to confirm a finding.
 
-## Open gates
+## D7: Compression is configured, and not segmented by the new column
 
-- Whether compression is enabled on `mtr_hops` in any deployed installation, which
-  determines how much compressed-chunk handling the backfill needs. Locally it is
-  off.
+Neither `mtr_hops` nor `mtr_traces` had any compression or retention policy, so MTR
+data accumulated uncompressed indefinitely — and hop rows are the bulk of it, one
+row per hop per trace, traced repeatedly by the baseline scheduler.
+
+`compress_segmentby` for hops is **`addr`, deliberately not `target_ip`**. The new
+column is NULL on every existing row until the backfill runs, and segmenting by a
+mostly-NULL column produces one enormous NULL segment, which is the worst case for
+both compression ratio and segment exclusion. `addr` is populated today and is what
+the hop-address panels filter on. `mtr_traces` segments by `target_ip`, which is a
+real populated column there and its primary filter.
+
+Re-segmenting hops by `target_ip` after the backfill, once device-scoped queries
+dominate, is a deliberate follow-up rather than an oversight: changing
+`compress_segmentby` requires decompressing and recompressing every chunk, too
+expensive to do speculatively.
+
+`compression_after` is longer than the dashboard's default window so the chunks
+those panels read stay uncompressed and cheap to scan.
+
+## Open gates
 - Whether export should include access grants and report schedules. Excluded here
   because they reference principals that may not exist in the importing
   installation, but an operator moving a dashboard between environments may expect

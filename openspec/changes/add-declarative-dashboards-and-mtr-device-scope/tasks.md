@@ -42,15 +42,25 @@
 
 ## 5. MTR device attribution
 
-- [ ] 5.1 Elixir migration adding `target_ip` and `device_id` to
+- [x] 5.0 Configure TimescaleDB compression and retention for `mtr_hops` and
+      `mtr_traces`, which had neither. Segment hops by `addr`, not by the new
+      `target_ip`: that column is NULL on every existing row until the backfill,
+      and segmenting on it would create one enormous NULL segment. Traces segment
+      by `target_ip`, which is populated there. Verified every statement against a
+      real TimescaleDB 2.24.0 hypertable.
+
+- [x] 5.1 Elixir migration adding `target_ip` and `device_id` to
       `platform.mtr_hops`, `prefix: "platform"`, with indexes supporting a
       `target_ip` filter over a time range.
 - [ ] 5.2 Populate both at ingest in `MtrMetricsIngestor` from the owning trace.
 - [ ] 5.3 Chunk-aware, batched, idempotent, resumable backfill for existing rows.
       Not a single `UPDATE`: `mtr_hops` is a hypertable and one statement across
       all chunks is the shape that OOM-kills a node.
-- [ ] 5.4 Handle compressed chunks explicitly where compression is enabled, rather
-      than failing mid-migration.
+- [x] 5.4 Handle compressed chunks. **Measured: not needed.** `UPDATE` on a
+      compressed chunk succeeds and persists on TimescaleDB 2.24.0 — verified by
+      compressing a 60-day-old chunk, updating it, and reading the value back.
+      DML on compressed chunks is supported from 2.11. The backfill instead checks
+      the extension version and refuses below 2.11 with a clear message.
 - [ ] 5.5 Accept `target_ip` and `device_id` as `in:mtr_hops` filters in the
       relational compiler, and add them to the web-ng SRQL catalog
       `filter_fields` so the query builder and `srql/page.ex` accept them.
