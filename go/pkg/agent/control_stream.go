@@ -130,6 +130,7 @@ type mtrRunPayload struct {
 	Target   string `json:"target"`
 	Protocol string `json:"protocol,omitempty"`
 	MaxHops  int    `json:"max_hops,omitempty"`
+	TCPPort  int    `json:"tcp_port,omitempty"`
 }
 
 type proxmoxCredentialTestPayload struct {
@@ -1693,6 +1694,10 @@ func onDemandMtrOptions(payload mtrRunPayload) mtr.Options {
 
 	if payload.MaxHops > 0 {
 		opts.MaxHops = clampInt(payload.MaxHops, mtrMaxHopsUpperBound)
+	}
+
+	if validMtrTCPPort(payload.TCPPort) {
+		opts.TCPPort = payload.TCPPort
 	}
 
 	return opts

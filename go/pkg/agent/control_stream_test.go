@@ -152,6 +152,20 @@ func TestOnDemandMtrOptions_UsesPayloadProtocolAndMaxHops(t *testing.T) {
 	}
 }
 
+func TestOnDemandMtrOptions_TCPPort(t *testing.T) {
+	t.Parallel()
+
+	opts := onDemandMtrOptions(mtrRunPayload{Target: "192.0.2.10", Protocol: "tcp", TCPPort: 22})
+	if opts.TCPPort != 22 {
+		t.Fatalf("expected tcp_port 22, got %d", opts.TCPPort)
+	}
+
+	opts = onDemandMtrOptions(mtrRunPayload{Target: "192.0.2.10", Protocol: "tcp"})
+	if opts.TCPPort != mtr.DefaultTCPPort {
+		t.Fatalf("expected default tcp_port %d, got %d", mtr.DefaultTCPPort, opts.TCPPort)
+	}
+}
+
 func TestOnDemandMtrOptions_ClampsMaxHops(t *testing.T) {
 	t.Parallel()
 
