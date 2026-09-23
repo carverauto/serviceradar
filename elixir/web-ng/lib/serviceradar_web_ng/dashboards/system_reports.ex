@@ -46,6 +46,8 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReports do
   @create_delay_ms 7_000
   @retry_delay_ms 30_000
 
+  @panel_attribute_keys [:title, :srql_query, :visual_type, :data_binding, :layout, :position]
+
   @new_devices_slug "new-devices"
   @new_devices_query "in:devices first_seen:last_30d sort:first_seen:desc limit:200"
 
@@ -177,6 +179,10 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReports do
   @spec dashboard_specs() :: [map()]
   def dashboard_specs, do: @dashboards
 
+  @doc "The map keys accepted when persisting a panel spec. Keys not in this list are silently dropped by Map.take/2 in create_panels/3."
+  @spec panel_attribute_keys() :: [atom()]
+  def panel_attribute_keys, do: @panel_attribute_keys
+
   @spec new_devices_query() :: String.t()
   def new_devices_query, do: @new_devices_query
 
@@ -303,7 +309,7 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReports do
     Enum.reduce_while(spec.panels, {:ok, dashboard}, fn panel, {:ok, dashboard} ->
       attrs =
         panel
-        |> Map.take([:title, :srql_query, :visual_type, :data_binding, :layout, :position])
+        |> Map.take(@panel_attribute_keys)
         |> Map.put(:dashboard_id, dashboard.id)
 
       case DashboardPanel
