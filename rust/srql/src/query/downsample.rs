@@ -406,8 +406,16 @@ mod tests {
 
     #[test]
     fn flow_avg_short_window_stays_on_raw_table() {
-        // Below the 6h CAGG routing threshold: must stay on the raw hypertable.
-        let plan = flow_plan(300, DownsampleAgg::Avg, ChronoDuration::hours(1));
+        // Below the 6h CAGG routing threshold AND starting inside the raw
+        // retention horizon: must stay on the raw hypertable. A window that
+        // starts beyond retention routes to the CAGG union instead (#4514),
+        // so the helper's fixed 2025-01-01 start would no longer hold here.
+        let mut plan = flow_plan(300, DownsampleAgg::Avg, ChronoDuration::hours(1));
+        let start = Utc::now() - ChronoDuration::hours(3);
+        plan.time_range = Some(TimeRange {
+            start,
+            end: start + ChronoDuration::hours(1),
+        });
         let (sql, _params) = to_sql_and_params(&plan).unwrap();
 
         assert!(
