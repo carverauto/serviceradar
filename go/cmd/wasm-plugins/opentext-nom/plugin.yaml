@@ -130,6 +130,7 @@ producer_schedules:
         - instance_id
         - api_url
         - device_id
+        - device_uid
       properties:
         instance_id:
           type: string

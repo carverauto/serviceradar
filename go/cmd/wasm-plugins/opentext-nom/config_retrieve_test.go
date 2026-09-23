@@ -57,6 +57,19 @@ func TestRetrieveRunningConfigPostsShowRunningConfigNotListDevice(t *testing.T) 
 	}
 }
 
+func TestRetrieveRunningConfigRequiresDeviceUID(t *testing.T) {
+	httpClient := &fakeHTTPDoer{}
+	collector := &Collector{HTTP: httpClient, Now: func() time.Time { return time.Unix(1, 0).UTC() }, Sleep: sleepWithContext}
+
+	_, err := collector.RetrieveRunningConfig(context.Background(), mustValidConfig(t), "71061", "  ")
+	if err == nil || !strings.Contains(err.Error(), "opentext_nom_config_device_uid_invalid") {
+		t.Fatalf("err = %v, want opentext_nom_config_device_uid_invalid", err)
+	}
+	if len(httpClient.requests) != 0 {
+		t.Fatalf("requests = %d, want none before identity is valid", len(httpClient.requests))
+	}
+}
+
 func TestRetrieveRunningConfigDoesNotEmitInterfaceFacts(t *testing.T) {
 	result := buildConfigRetrieveResult(RunningConfig{
 		DeviceID:  "71061",

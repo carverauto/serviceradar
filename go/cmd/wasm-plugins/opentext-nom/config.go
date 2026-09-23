@@ -51,7 +51,11 @@ type Config struct {
 	MaxRetries            int          `json:"max_retries"`
 	L2Endpoints           []L2Endpoint `json:"l2_endpoints,omitempty"`
 	InsecureSkipVerify    bool         `json:"insecure_skip_verify,omitempty"`
-	tokenAuthMode         tokenAuthMode
+	// DeviceID and DeviceUID identify the device for the config.retrieve
+	// action. Action input values override them per invocation.
+	DeviceID      string `json:"device_id,omitempty"`
+	DeviceUID     string `json:"device_uid,omitempty"`
+	tokenAuthMode tokenAuthMode
 }
 
 type L2Endpoint struct {

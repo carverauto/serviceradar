@@ -41,6 +41,12 @@ func (c *Collector) RetrieveRunningConfig(
 	if deviceID == "" {
 		return RunningConfig{}, runError("opentext_nom_config_device_id_invalid")
 	}
+	// Core records the revision against device_uid; without one the result
+	// could only be rejected downstream.
+	deviceUID = strings.TrimSpace(deviceUID)
+	if deviceUID == "" {
+		return RunningConfig{}, runError("opentext_nom_config_device_uid_invalid")
+	}
 
 	payload, err := json.Marshal(map[string]any{
 		"command": runningConfigCommand,
