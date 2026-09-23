@@ -113,7 +113,8 @@ all are in these two files, and all are invisible to a caller today:
 - Affected code:
   - `elixir/web-ng/lib/serviceradar_web_ng/dashboards/frame_runner.ex` — stamp
     `refreshed_at` / `content_hash` / `checked_at`; pass `:direction` through
-    `srql_query_opts/3`; turn the `@max_frames` overflow into error frames.
+    `srql_query_opts/3`. (`@max_frames` overflow → error frames deferred to
+    `add-derived-frame-completeness`; see tasks.md item 3.4.)
   - `elixir/web-ng/lib/serviceradar_web_ng_web/channels/dashboard_frame_channel.ex`
     — volatile-stripped dedupe hash; `frames:heartbeat`; stop `frames:refresh`
     clearing cursors; typed error replies for `frames:refresh` and `frames:page`

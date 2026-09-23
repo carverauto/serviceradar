@@ -119,7 +119,7 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelTest do
     route_slug = "test-dashboard-#{System.unique_integer([:positive])}"
     data_frames = [%{"id" => "rows", "query" => "in:test_paged_rows", "encoding" => "json_rows", "limit" => 1}]
     create_dashboard_instance!(route_slug, data_frames, scope)
-    token = DashboardFrameChannel.stream_token(route_slug, data_frames)
+    token = DashboardFrameChannel.stream_token(route_slug, data_frames, user.id)
 
     assert {:ok, _reply, socket} =
              UserSocket
