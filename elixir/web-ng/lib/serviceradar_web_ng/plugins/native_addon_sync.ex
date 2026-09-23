@@ -26,6 +26,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
   alias ServiceRadar.Plugins.AddonProfile
   alias ServiceRadar.Plugins.NativeAddonArtifactMirror
   alias ServiceRadar.Plugins.RetiredNativeAddons
+  alias ServiceRadarWebNG.Plugins.AddonFleet
   alias ServiceRadarWebNG.Plugins.NativeAddonImporter
 
   require Ash.Query
@@ -151,11 +152,9 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
   defp release_order(tag, tag) when is_binary(tag), do: :eq
 
   defp release_order(existing, incoming) when is_binary(existing) and is_binary(incoming) do
-    with {:ok, previous} <- Version.parse(String.trim_leading(existing, "v")),
-         {:ok, candidate} <- Version.parse(String.trim_leading(incoming, "v")) do
-      Version.compare(candidate, previous)
-    else
-      _ -> :unknown
+    case AddonFleet.compare_versions(String.trim_leading(incoming, "v"), String.trim_leading(existing, "v")) do
+      :incomparable -> :unknown
+      order -> order
     end
   end
 
