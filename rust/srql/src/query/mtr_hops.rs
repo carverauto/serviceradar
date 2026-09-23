@@ -5,8 +5,9 @@ use crate::{
     parser::{Entity, Filter, FilterOp, OrderClause, OrderDirection},
     schema::mtr_hops::dsl::{
         addr as col_addr, asn as col_asn, asn_org as col_asn_org, created_at as col_created_at,
-        hop_number as col_hop_number, hostname as col_hostname, id as col_id,
-        loss_pct as col_loss_pct, mtr_hops, time as col_time, trace_id as col_trace_id,
+        device_id as col_device_id, hop_number as col_hop_number, hostname as col_hostname,
+        id as col_id, loss_pct as col_loss_pct, mtr_hops, target_ip as col_target_ip,
+        time as col_time, trace_id as col_trace_id,
     },
     time::TimeRange,
 };
@@ -35,7 +36,14 @@ const AGGREGATABLE_COLUMNS: &[(&str, &str)] = &[
 ];
 
 /// Valid grouping fields for stats queries.
-const GROUP_BY_FIELDS: &[&str] = &["addr", "asn", "asn_org", "hop_number"];
+const GROUP_BY_FIELDS: &[&str] = &[
+    "addr",
+    "asn",
+    "asn_org",
+    "hop_number",
+    "target_ip",
+    "device_id",
+];
 
 /// Columns `wavg` may average. `loss_pct` is excluded deliberately: a weighted
 /// mean of percentages is still a mean of ratios, and `loss_ratio` is the
@@ -214,6 +222,10 @@ fn build_query(plan: &QueryPlan) -> Result<MtrHopsQuery<'static>> {
 fn apply_filter<'a>(mut query: MtrHopsQuery<'a>, filter: &Filter) -> Result<MtrHopsQuery<'a>> {
     match filter.field.as_str() {
         "addr" => query = apply_text_filter!(query, filter, col_addr)?,
+        // Denormalised from the owning trace. target_ip is the reliable device key;
+        // device_id is the originating command id on the bulk-scheduled path.
+        "target_ip" => query = apply_text_filter!(query, filter, col_target_ip)?,
+        "device_id" => query = apply_text_filter!(query, filter, col_device_id)?,
         "hostname" => query = apply_text_filter!(query, filter, col_hostname)?,
         "asn_org" => query = apply_text_filter!(query, filter, col_asn_org)?,
         "trace_id" => query = apply_trace_id_filter(query, filter)?,
@@ -283,7 +295,9 @@ fn apply_hop_number_filter<'a>(
 
 fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
     match filter.field.as_str() {
-        "addr" | "hostname" | "asn_org" => collect_text_params(params, filter),
+        "addr" | "hostname" | "asn_org" | "target_ip" | "device_id" => {
+            collect_text_params(params, filter)
+        }
         "trace_id" => {
             let raw = filter.value.as_scalar()?;
             let uuid = uuid::Uuid::parse_str(raw).map_err(|_| {
@@ -863,6 +877,8 @@ fn build_stats_filter_clause(filter: &Filter) -> Result<Option<(String, Vec<HopS
         "addr" => Ok(Some(build_text_clause("addr", filter)?)),
         "hostname" => Ok(Some(build_text_clause("hostname", filter)?)),
         "asn_org" => Ok(Some(build_text_clause("asn_org", filter)?)),
+        "target_ip" => Ok(Some(build_text_clause("target_ip", filter)?)),
+        "device_id" => Ok(Some(build_text_clause("device_id", filter)?)),
         "trace_id" => {
             let raw = filter.value.as_scalar()?;
             uuid::Uuid::parse_str(raw).map_err(|_| {
@@ -1032,11 +1048,14 @@ mod tests {
 
     #[test]
     fn unsupported_filter_field_is_rejected() {
-        let plan = plan_for("in:mtr_hops device_id:some-device limit:10");
+        // `device_id` used to be the example here. It is now a real filter, since
+        // hop rows carry their trace's attribution, so this asserts the guard with
+        // a field the entity genuinely does not have.
+        let plan = plan_for("in:mtr_hops gateway_id:some-gateway limit:10");
         let result = to_sql_and_params(&plan);
         assert!(
             matches!(result, Err(ServiceError::InvalidRequest(_))),
-            "device_id filter should be rejected"
+            "an unknown filter field should be rejected"
         );
     }
 
@@ -1065,11 +1084,13 @@ mod tests {
 
     #[test]
     fn unsupported_group_field_is_rejected() {
-        let plan = plan_for("in:mtr_hops stats:avg(loss_pct) as v by device_id limit:10");
+        // Same correction: `device_id` is groupable now, so the guard is asserted
+        // against a column that is not a valid grouping dimension.
+        let plan = plan_for("in:mtr_hops stats:avg(loss_pct) as v by hostname limit:10");
         let result = to_sql_and_params(&plan);
         assert!(
             matches!(result, Err(ServiceError::InvalidRequest(_))),
-            "grouping by device_id should be rejected"
+            "grouping by a non-dimension column should be rejected"
         );
     }
 
@@ -1092,6 +1113,64 @@ mod tests {
             lower.contains("order by \"mtr_hops\".\"hop_number\" asc"),
             "{sql}"
         );
+    }
+
+    #[test]
+    fn target_ip_filter_scopes_hops_to_a_device() {
+        // The whole point of the denormalised column: before it existed, hop
+        // metrics and device identity sat on opposite sides of a join SRQL cannot
+        // cross, so no device-scoped hop aggregate was expressible at all.
+        let plan = plan_for("in:mtr_hops target_ip:192.0.2.50 limit:10");
+        let (sql, params) = to_sql_and_params(&plan).expect("SQL should translate");
+        let lower = sql.to_lowercase();
+
+        assert!(lower.contains("\"mtr_hops\".\"target_ip\""), "{sql}");
+        assert!(
+            params
+                .iter()
+                .any(|p| matches!(p, BindParam::Text(v) if v == "192.0.2.50")),
+            "target_ip bind not found: {params:?}"
+        );
+    }
+
+    #[test]
+    fn device_scoped_stats_constrain_on_the_attribution_column() {
+        // A device-scoped aggregate must actually filter. If the clause were
+        // dropped the panel would render fleet-wide numbers under a per-device
+        // title, which is the exact class of wrong-but-plausible answer this
+        // change exists to remove.
+        let plan = plan_for(
+            "in:mtr_hops time:last_24h target_ip:192.0.2.50 stats:loss_ratio(sent, received) as loss by addr limit:20",
+        );
+        let (sql, _) = to_sql_and_params(&plan).expect("SQL should translate");
+        let lower = sql.to_lowercase();
+
+        assert!(lower.contains("target_ip"), "{sql}");
+        assert!(lower.contains("group by addr"), "{sql}");
+    }
+
+    #[test]
+    fn device_id_is_filterable_and_groupable() {
+        let plan = plan_for(
+            "in:mtr_hops device_id:sr:device-a stats:loss_ratio(sent, received) as loss by device_id limit:10",
+        );
+        let (sql, _) = to_sql_and_params(&plan).expect("SQL should translate");
+        let lower = sql.to_lowercase();
+
+        assert!(lower.contains("device_id"), "{sql}");
+        assert!(lower.contains("group by device_id"), "{sql}");
+    }
+
+    #[test]
+    fn hop_rows_project_their_attribution() {
+        // A panel that filters by target_ip but cannot read it back would give an
+        // operator no way to confirm which device a row belongs to.
+        let plan = plan_for("in:mtr_hops limit:5");
+        let (sql, _) = to_sql_and_params(&plan).expect("SQL should translate");
+        let lower = sql.to_lowercase();
+
+        assert!(lower.contains("\"target_ip\""), "{sql}");
+        assert!(lower.contains("\"device_id\""), "{sql}");
     }
 
     #[test]

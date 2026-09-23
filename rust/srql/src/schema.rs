@@ -342,6 +342,8 @@ diesel::table! {
         time -> Timestamptz,
         id -> Uuid,
         trace_id -> Uuid,
+        target_ip -> Nullable<Text>,
+        device_id -> Nullable<Text>,
         hop_number -> Int4,
         addr -> Nullable<Text>,
         hostname -> Nullable<Text>,
