@@ -635,5 +635,9 @@ and rebuild AGE from evidence (the evidence tables never moved).
   matching today's `graph_cypher` contract.
 - OpenText config-retrieve command name and whether startup-config is in
   v1 or running-config only. Default: running-config only.
+- OpenText config-retrieve request and response shape, unverified against a
+  live Network Automation wrapper: the plugin sends the device as
+  `parameters.id` (inventory filters use `ids`) and accepts the body at the
+  top level or nested under `result`/`data`, mirroring `list device`.
 - Whether a change selector that is "this VRF" or "this device group" is
   v1. Default: v1 selectors are device uid, IP, and CIDR prefix only.

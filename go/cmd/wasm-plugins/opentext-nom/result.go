@@ -111,7 +111,6 @@ func buildConfigRetrieveResult(cfg RunningConfig, artifact *sdk.ArtifactCommitRe
 		"device_id":    cfg.DeviceID,
 		"device_uid":   cfg.DeviceUID,
 		"content_hash": cfg.Hash,
-		"body":         cfg.Body,
 		"artifact":     artifactMeta(artifact),
 	})
 	return sdk.Ok("OpenText NOM running-config retrieved").

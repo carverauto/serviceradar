@@ -39,7 +39,12 @@ func runConfigRetrieve(cfg Config) error {
 	if err != nil {
 		return submitPluginError(err)
 	}
-	artifact, _ := stageRunningConfigArtifact(retrieved)
+	// The artifact is the only carrier of the body: status details are
+	// viewer-readable and running-configs routinely hold device secrets.
+	artifact, err := stageRunningConfigArtifact(retrieved)
+	if err != nil || artifact == nil || artifact.ObjectKey == "" {
+		return submitPluginError(runError("opentext_nom_config_artifact_failed"))
+	}
 	result := buildConfigRetrieveResult(retrieved, artifact)
 	return sdk.Execute(func() (*sdk.Result, error) { return result, nil })
 }
