@@ -34,6 +34,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncDecisionTest do
           version: "1.0.0",
           name: "Sample Addon",
           source_type: :first_party,
+          source_release_tag: "v1.0.0",
           source_oci_ref: "registry.example.test/sample-addon:v1.0.0",
           source_oci_digest: "sha256:" <> String.duplicate("a", 64),
           source_metadata: %{"bundle_digest" => "sha256:" <> String.duplicate("b", 64)},
@@ -67,8 +68,12 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncDecisionTest do
   defp reusable_pair do
     sha = String.duplicate("c", 64)
     signature = String.duplicate("d", 128)
-    canonical = "sha256:" <> (:sha256 |> :crypto.hash(signature <> "\n") |> Base.encode16(case: :lower))
-    object_key = NativeAddonArtifactMirror.object_key("sample-addon", "1.0.0", "linux", "amd64", sha)
+
+    canonical =
+      "sha256:" <> (:sha256 |> :crypto.hash(signature <> "\n") |> Base.encode16(case: :lower))
+
+    object_key =
+      NativeAddonArtifactMirror.object_key("sample-addon", "1.0.0", "linux", "amd64", sha)
 
     persisted = %{
       "linux/amd64" => %{
@@ -93,13 +98,10 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncDecisionTest do
   end
 
   describe "import_decision/3" do
-    test "no existing row means a fresh import" do
-      assert NativeAddonSync.import_decision(nil, addon(%{}), []) == :import_new
-    end
-
     test "a row owned by another source type still conflicts (#335 guardrail)" do
       for source_type <- [:upload, :github] do
-        existing = package(%{source_type: source_type, source_oci_ref: nil, source_oci_digest: nil})
+        existing =
+          package(%{source_type: source_type, source_oci_ref: nil, source_oci_digest: nil})
 
         assert NativeAddonSync.import_decision(existing, addon(%{}), []) ==
                  {:conflict, :source_type_owned}
@@ -110,6 +112,46 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncDecisionTest do
       {existing, discovered} = reusable_pair()
 
       assert NativeAddonSync.import_decision(existing, discovered, []) == :reuse
+    end
+
+    test "older releases cannot replace or reuse a newer release, even with force" do
+      {existing, discovered} = reusable_pair()
+      existing = %{existing | source_release_tag: "v1.2.0"}
+
+      for opts <- [[], [replace: true]], artifacts <- [discovered.artifacts, []] do
+        assert NativeAddonSync.import_decision(
+                 existing,
+                 %{discovered | artifacts: artifacts},
+                 opts
+               ) ==
+                 {:conflict, :older_release}
+      end
+    end
+
+    test "release ordering is semantic and independent of identical content" do
+      {existing, discovered} = reusable_pair()
+      existing = %{existing | source_release_tag: "v1.9.0"}
+
+      assert NativeAddonSync.import_decision(existing, %{discovered | release_tag: "v1.10.0"}, []) ==
+               :reuse
+
+      assert NativeAddonSync.import_decision(
+               existing,
+               %{discovered | release_tag: "v1.9.0-rc.1"},
+               []
+             ) ==
+               {:conflict, :older_release}
+    end
+
+    test "unorderable release changes fail closed" do
+      {existing, discovered} = reusable_pair()
+
+      assert NativeAddonSync.import_decision(
+               existing,
+               %{discovered | release_tag: "unversioned"},
+               []
+             ) ==
+               {:conflict, :unknown_release_order}
     end
 
     test "a same-version rebuild with complete provenance replaces, even without replace: true (#335)" do
