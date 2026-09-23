@@ -114,7 +114,12 @@ jobs:
         if: ${{ env.BUILDBUDDY_ORG_API_KEY != '' }}
         run: |
           umask 077
+          # --lockfile_mode=error: a release build consumes the committed MODULE.bazel.lock
+          # without rewriting it, so a stale fact fails here instead of publishing signed
+          # artifacts from silently regenerated dependency facts. It is `common` so that
+          # query, build, run and mod all inherit it without changing the publish wrapper.
           cat <<'EOF' | sed 's/^ *//' > .bazelrc.remote
+            common --lockfile_mode=error
             build --bes_results_url=https://carverauto.buildbuddy.io/invocation/
             build --bes_backend=grpcs://carverauto.buildbuddy.io
             build --remote_cache=grpcs://carverauto.buildbuddy.io
@@ -169,10 +174,6 @@ jobs:
       - name: Publish Wasm plugin OCI artifacts
         env:
           EXTRA_TAG: ${{ github.event.inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
-          # --lockfile_mode=error: a release build consumes the committed MODULE.bazel.lock
-          # without rewriting it, so a stale fact fails here instead of publishing signed
-          # artifacts from silently regenerated dependency facts.
-          BAZEL_BUILD_FLAGS: --lockfile_mode=error
           OPENBAO_ADDR: https://openbao-active.openbao-system.svc.cluster.local:8200
           OPENBAO_K8S_ROLE: github-signing-runner
           OPENBAO_SIGNING_ALLOWED_REFS_REGEX: '^refs/(tags/v.*|heads/(staging|main|master))$'
