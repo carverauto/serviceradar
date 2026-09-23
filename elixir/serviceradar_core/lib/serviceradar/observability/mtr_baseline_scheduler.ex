@@ -72,9 +72,23 @@ defmodule ServiceRadar.Observability.MtrBaselineScheduler do
         stats
       )
     else
+      # List online sessions once per policy run: candidate_agents/2 (via
+      # AgentCommandBus.list_online_agents/0) issues an :rpc.call per remote pid,
+      # so enumerating inside the per-target reduce would repeat that cost for
+      # every target. The listing is threaded through opts so each dispatch
+      # reuses the same snapshot.
+      sessions = AgentCommandBus.list_online_agents()
+      dispatch_opts = [session_lister: fn -> sessions end]
+
       stats =
         Enum.reduce(targets, init_dispatch_stats(), fn target_ctx, acc ->
-          case MtrAutomationDispatcher.dispatch_for_mode(target_ctx, policy, :baseline) do
+          case MtrAutomationDispatcher.dispatch_for_mode(
+                 target_ctx,
+                 policy,
+                 :baseline,
+                 nil,
+                 dispatch_opts
+               ) do
             {:ok, _selected_agents} ->
               Map.update!(acc, :dispatched, &(&1 + 1))
 

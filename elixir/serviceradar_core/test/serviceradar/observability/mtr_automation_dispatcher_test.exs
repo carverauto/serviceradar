@@ -190,4 +190,93 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcherTest do
                )
     end
   end
+
+  describe "candidate_agents/2" do
+    test "builds candidates from the command bus session listing" do
+      sessions = [
+        session("agent-a", "default", %{"capabilities" => ["mtr", "sweep"], "in_flight" => 2}),
+        session("agent-b", "default", %{"capabilities" => ["sweep"]})
+      ]
+
+      candidates =
+        MtrAutomationDispatcher.candidate_agents(%{partition_id: "default"},
+          session_lister: fn -> sessions end
+        )
+
+      assert [
+               %{agent_id: "agent-a", partition_id: "default", mtr_capable: true, in_flight: 2},
+               %{agent_id: "agent-b", mtr_capable: false}
+             ] = candidates
+    end
+
+    test "keeps only sessions in the target partition" do
+      sessions = [
+        session("agent-a", "default", %{"capabilities" => ["mtr"]}),
+        session("agent-b", "site-02", %{"capabilities" => ["mtr"]})
+      ]
+
+      assert [%{agent_id: "agent-b"}] =
+               MtrAutomationDispatcher.candidate_agents(%{partition_id: "site-02"},
+                 session_lister: fn -> sessions end
+               )
+
+      assert ["agent-a", "agent-b"] =
+               %{partition_id: nil}
+               |> MtrAutomationDispatcher.candidate_agents(session_lister: fn -> sessions end)
+               |> Enum.map(& &1.agent_id)
+    end
+
+    test "rejects legacy keys and sessions whose metadata names another principal" do
+      sessions = [
+        %{key: {:agent_control, "agent-legacy", :gateway@host01}, pid: self(), metadata: %{}},
+        session("agent-a", "default", %{"agent_id" => "agent-other"})
+      ]
+
+      assert [] =
+               MtrAutomationDispatcher.candidate_agents(%{partition_id: "default"},
+                 session_lister: fn -> sessions end
+               )
+    end
+  end
+
+  describe "dispatch_for_mode/5" do
+    test "threads an injected session_lister to candidate selection" do
+      counter = :counters.new(1, [])
+
+      lister = fn ->
+        :counters.add(counter, 1, 1)
+        []
+      end
+
+      target_ctx = %{
+        target: "192.0.2.10",
+        target_ip: "192.0.2.10",
+        partition_id: "default",
+        target_key: "device:sr:00000000-0000-0000-0000-000000000001"
+      }
+
+      policy = %{target_selector: %{}, baseline_canary_vantages: 0}
+
+      assert {:error, :no_candidates} =
+               MtrAutomationDispatcher.dispatch_for_mode(
+                 target_ctx,
+                 policy,
+                 :baseline,
+                 nil,
+                 session_lister: lister
+               )
+
+      assert :counters.get(counter, 1) == 1
+    end
+  end
+
+  defp session(agent_id, partition_id, metadata) do
+    %{
+      key: {:agent_control, partition_id, agent_id, :gateway@host01},
+      agent_id: agent_id,
+      pid: self(),
+      partition_id: partition_id,
+      metadata: Map.merge(%{"agent_id" => agent_id, "partition_id" => partition_id}, metadata)
+    }
+  end
 end
