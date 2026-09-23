@@ -115,17 +115,21 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsTest do
     end
 
     test "the panel attribute allowlist passes layout through to the resource" do
-      # Map.take/2 in create_panels/3 silently drops any key not listed, so a
-      # layout added to the spec but missing from the allowlist would look applied
-      # and change nothing.
-      spec = hd(SystemReports.dashboard_specs())
-      panel = hd(spec.panels)
-
-      attrs = Map.take(panel, [:title, :srql_query, :visual_type, :data_binding, :layout, :position])
-
-      assert Map.has_key?(attrs, :layout)
-      assert attrs.layout == panel.layout
+      assert :layout in SystemReports.panel_attribute_keys()
       assert :layout in Info.action(DashboardPanel, :create).accept
+    end
+
+    test "every key a shipped panel sets is in the panel attribute allowlist" do
+      allowed = MapSet.new(SystemReports.panel_attribute_keys())
+
+      for spec <- SystemReports.dashboard_specs(), panel <- spec.panels do
+        panel_keys = MapSet.new(Map.keys(panel))
+        dropped = MapSet.difference(panel_keys, allowed)
+
+        assert MapSet.size(dropped) == 0,
+               "#{spec.slug}/#{panel.title} sets keys not in panel_attribute_keys/0 " <>
+                 "(would be silently dropped by Map.take): #{inspect(MapSet.to_list(dropped))}"
+      end
     end
 
     test "every panel's visual type is one the resource accepts" do
