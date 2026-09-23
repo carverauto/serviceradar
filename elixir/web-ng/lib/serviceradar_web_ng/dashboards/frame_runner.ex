@@ -38,9 +38,9 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
     )
     |> Enum.zip(Enum.take(data_frames, @max_frames))
     |> Enum.map(fn
-      {{:ok, frame}, _source_frame} -> frame
-      {{:exit, :timeout}, source_frame} -> timeout_frame(source_frame, limit)
-      {{:exit, reason}, source_frame} -> failed_frame(source_frame, limit, reason)
+      {{:ok, frame}, _source_frame} -> frame |> stamp_fresh() |> stamp_checked()
+      {{:exit, :timeout}, source_frame} -> source_frame |> timeout_frame(limit) |> stamp_checked()
+      {{:exit, reason}, source_frame} -> source_frame |> failed_frame(limit, reason) |> stamp_checked()
     end)
   end
 
@@ -52,8 +52,9 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
     requested_encoding = normalize_string(frame["encoding"] || frame[:encoding]) || "json_rows"
     limit = frame_limit(frame["limit"] || frame[:limit], default_limit)
     cursor = normalize_string(frame["cursor"] || frame[:cursor])
+    direction = normalize_string(frame["direction"] || frame[:direction])
     fields = frame_fields(frame)
-    srql_opts = srql_query_opts(scope, limit, cursor)
+    srql_opts = srql_query_opts(scope, limit, cursor, direction)
 
     base = %{
       "id" => id,
@@ -480,11 +481,64 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
   defp normalize_field(field) when is_binary(field), do: normalize_string(field)
   defp normalize_field(_field), do: nil
 
-  defp srql_query_opts(scope, limit, cursor) do
+  # Freshness identity.
+  #
+  # A renderer has to be able to tell a refreshed frame from the one it already
+  # holds, and it must be able to do so from metadata alone — the SDK's
+  # `frameDigest` deliberately does not hash row data, and an `arrow_ipc` client
+  # must not have to decode a payload to notice it changed.
+  #
+  # Before this, nothing on a frame moved when its rows did: `refreshed_at` was
+  # never set, `row_count` lives only in the channel's envelope summary, and
+  # `payload` is null for `json_rows`. The digest was therefore a constant after
+  # first delivery and every refresh was silently discarded by the client.
+  #
+  # `refreshed_at`  when these rows were produced. Only on frames carrying their
+  #                 own freshly-run rows — see the error paths, which must keep
+  #                 the timestamp of the rows they actually contain.
+  # `content_hash`  derived from the rows (or the payload), so change detection
+  #                 never depends on a field that happens not to move.
+  # `checked_at`    when the host last evaluated this query, whether or not the
+  #                 result changed. This is what lets a UI say "as of 14:02"
+  #                 instead of implying the data is live.
+  defp stamp_fresh(%{"status" => "ok"} = frame) do
+    frame
+    |> Map.put("refreshed_at", now_iso8601())
+    |> Map.put("content_hash", content_hash(frame))
+  end
+
+  # Anything not "ok" has no fresh rows of its own to timestamp. The channel may
+  # later merge the previous frame's rows into it, and it is responsible for
+  # carrying that frame's `refreshed_at` across — stamping "now" here would report
+  # stale rows as fresh, which is the defect this whole change exists to fix.
+  defp stamp_fresh(frame), do: frame
+
+  defp stamp_checked(frame), do: Map.put(frame, "checked_at", now_iso8601())
+
+  defp content_hash(%{"payload" => payload}) when is_binary(payload), do: hash_term(payload)
+  defp content_hash(%{"results" => results}) when is_list(results), do: hash_term(results)
+  defp content_hash(_frame), do: nil
+
+  defp hash_term(term), do: term |> :erlang.phash2() |> Integer.to_string(16)
+
+  defp now_iso8601 do
+    DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+  end
+
+  defp srql_query_opts(scope, limit, cursor, direction) do
     opts = %{scope: scope, limit: limit}
 
-    case cursor do
-      cursor when is_binary(cursor) and cursor != "" -> Map.put(opts, :cursor, cursor)
+    opts =
+      case cursor do
+        cursor when is_binary(cursor) and cursor != "" -> Map.put(opts, :cursor, cursor)
+        _ -> opts
+      end
+
+    # `SRQL.query/2` reads `opts[:direction]` (srql.ex:38, :47) but this function
+    # never supplied it, so a backward page request re-fetched the NEXT page.
+    # Nil is the same as before for every caller that does not page backward.
+    case direction do
+      direction when is_binary(direction) and direction != "" -> Map.put(opts, :direction, direction)
       _ -> opts
     end
   end
