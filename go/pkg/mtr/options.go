@@ -65,7 +65,11 @@ const (
 	DefaultTraceInterval   = 5 * time.Minute
 	DefaultMaxUnknownHops  = 10
 	DefaultUDPBasePort     = 33434
-	DefaultRingBufferSize  = 200
+	// DefaultTCPPort is the destination port for TCP traces. 443 is the port
+	// edge policies most often admit; an RST from a closed port still counts as
+	// the target answering.
+	DefaultTCPPort        = 443
+	DefaultRingBufferSize = 200
 
 	// MinPort is the minimum port used for probe sequence encoding.
 	MinPort = 33434
@@ -109,6 +113,10 @@ type Options struct {
 
 	// SrcAddr optionally sets the source address for probes.
 	SrcAddr string
+
+	// TCPPort is the destination port for TCP probes. Every TCP probe of a
+	// trace uses this port so the whole trace follows one ECMP flow.
+	TCPPort int
 }
 
 // DefaultOptions returns Options with sensible defaults.
@@ -124,5 +132,6 @@ func DefaultOptions(target string) Options {
 		DNSResolve:     true,
 		MaxUnknownHops: DefaultMaxUnknownHops,
 		RingBufferSize: DefaultRingBufferSize,
+		TCPPort:        DefaultTCPPort,
 	}
 }

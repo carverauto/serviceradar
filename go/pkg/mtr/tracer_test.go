@@ -2,6 +2,7 @@ package mtr
 
 import (
 	"context"
+	"errors"
 	"net"
 	"testing"
 	"time"
@@ -231,7 +232,9 @@ type fakeRawSocket struct {
 
 func (f *fakeRawSocket) SendICMP(_ net.IP, _ int, _ int, _ int, _ []byte) error { return nil }
 func (f *fakeRawSocket) SendUDP(_ net.IP, _ int, _ int, _ int, _ []byte) error  { return nil }
-func (f *fakeRawSocket) SendTCP(_ net.IP, _ int, _ int, _ int) error            { return nil }
+func (f *fakeRawSocket) OpenTCPFlow(_ net.IP, _ int, _ time.Duration) (TCPFlow, error) {
+	return nil, errFakeNoTCPFlow
+}
 func (f *fakeRawSocket) Receive(deadline time.Time) (*ICMPResponse, error) {
 	time.Sleep(time.Until(deadline))
 	return nil, fakeTimeoutError{}
@@ -241,6 +244,8 @@ func (f *fakeRawSocket) Close() error {
 	return nil
 }
 func (f *fakeRawSocket) IsIPv6() bool { return false }
+
+var errFakeNoTCPFlow = errors.New("fake socket has no TCP flow")
 
 type fakeTimeoutError struct{}
 

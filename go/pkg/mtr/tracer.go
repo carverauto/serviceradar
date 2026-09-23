@@ -31,9 +31,15 @@ import (
 
 var (
 	errNoTargetAddresses = errors.New("no addresses found for target")
+	errNoProbesSent      = errors.New("no MTR probes could be sent")
 )
 
 const receivePollInterval = 250 * time.Millisecond
+
+const (
+	icmpv4DestUnreachableType = 3
+	icmpv6DestUnreachableType = 1
+)
 
 // TargetInfo captures a resolved target address for tracer reuse.
 type TargetInfo struct {
@@ -79,6 +85,13 @@ type Tracer struct {
 	icmpID         int
 	payload        []byte
 	expiredScratch []probeRecord
+
+	// tcpFlow carries a TCP trace's probes; nil for ICMP/UDP.
+	tcpFlow TCPFlow
+
+	// lastSendErr is the most recent probe send failure, reported when a run
+	// could not send a single probe.
+	lastSendErr error
 
 	// target reached flag
 	targetReached atomic.Bool
@@ -219,6 +232,16 @@ func (t *Tracer) Run(ctx context.Context) (*TraceResult, error) {
 
 	t.resetRunState()
 
+	if t.opts.Protocol == ProtocolTCP {
+		flow, err := t.sock.OpenTCPFlow(t.targetIP, t.tcpPort(), t.opts.Timeout)
+		if err != nil {
+			return nil, fmt.Errorf("open TCP probe flow: %w", err)
+		}
+
+		t.tcpFlow = flow
+		defer t.closeTCPFlow()
+	}
+
 	// Initialize DNS resolver if enabled.
 	if t.opts.DNSResolve && t.dns == nil {
 		t.dns = NewDNSResolver(ctx)
@@ -242,6 +265,16 @@ func (t *Tracer) Run(ctx context.Context) (*TraceResult, error) {
 		t.receiveLoop(receiveCtx)
 	}()
 
+	tcpRecvDone := make(chan struct{})
+
+	go func() {
+		defer close(tcpRecvDone)
+
+		if t.tcpFlow != nil {
+			t.tcpReceiveLoop(receiveCtx)
+		}
+	}()
+
 	// Send probe cycles.
 	t.sendProbes(ctx)
 
@@ -255,9 +288,14 @@ func (t *Tracer) Run(ctx context.Context) (*TraceResult, error) {
 		}
 	}
 	<-recvDone
+	<-tcpRecvDone
 
 	// Mark unanswered probes as timed out before computing loss snapshots.
 	t.finalizeTimeouts()
+
+	if t.lastSendErr != nil && t.probedHops() == 0 {
+		return nil, fmt.Errorf("%w: %w", errNoProbesSent, t.lastSendErr)
+	}
 
 	t.resolveHopHostnames(ctx)
 
@@ -323,6 +361,14 @@ func (t *Tracer) sendProbes(ctx context.Context) {
 				break
 			}
 
+			// Once the target has answered at a lower TTL, deeper probes only
+			// reach the target again. Without this, the first cycle always ran to
+			// MaxHops, because the reply for the TTL just sent has not arrived
+			// when the post-send check below runs.
+			if reachedAt := t.targetHopNumber(); reachedAt > 0 && hopIdx+1 > reachedAt {
+				break
+			}
+
 			seq := t.allocateSeq()
 			ttl := hopIdx + 1
 			probeKey := seq
@@ -354,14 +400,12 @@ func (t *Tracer) sendProbes(ctx context.Context) {
 			case ProtocolICMP:
 				sendErr = t.sock.SendICMP(t.targetIP, ttl, t.icmpID, seq, t.makePayload())
 			case ProtocolTCP:
-				// TCP correlation uses the quoted destination port from ICMP errors.
-				srcPort := MinPort + seq%1000 //nolint:mnd
-				dstPort := seq
-				probeKey = dstPort
-				sendErr = t.sock.SendTCP(t.targetIP, ttl, srcPort, dstPort)
+				// The flow identifies the probe on the wire; the tracer keys it by seq.
+				sendErr = t.tcpFlow.SendSYN(ttl, seq)
 			}
 
 			if sendErr != nil {
+				t.lastSendErr = sendErr
 				t.logger.Debug().Err(sendErr).Int("ttl", ttl).Int("cycle", cycle).Msg("send probe failed")
 				// Roll back optimistic probe accounting on send failures.
 				t.probesMu.Lock()
@@ -438,28 +482,12 @@ func (t *Tracer) handleResponse(resp *ICMPResponse) {
 		return
 	}
 
-	t.probesMu.Lock()
-	probe, ok := t.probes[seq]
+	hop, ok := t.creditProbe(seq, resp.RecvTime)
 	if !ok {
-		t.probesMu.Unlock()
 		return
 	}
 
-	delete(t.probes, seq)
-	t.probesMu.Unlock()
-	t.pendingProbes.Add(-1)
-	t.signalProbeStateChanged()
-
-	rtt := resp.RecvTime.Sub(probe.sentAt)
-	hop := t.hops[probe.hopIndex]
 	isIPv6 := t.ipVersion == 6
-
-	hop.mu.Lock()
-	hop.InFlight--
-	hop.mu.Unlock()
-
-	hop.AddResponse(rtt)
-	hop.AddAddress(resp.SrcAddr)
 
 	// Parse MPLS labels only from ICMP error payloads that can carry RFC4884 extensions.
 	if !isIPv6 && (resp.Type == 11 || resp.Type == 3) && len(resp.Payload) > 0 {
@@ -468,15 +496,89 @@ func (t *Tracer) handleResponse(resp *ICMPResponse) {
 		}
 	}
 
-	// Check if target was reached.
-	if resp.SrcAddr.Equal(t.targetIP) {
+	if isDestUnreachable(resp.Type, isIPv6) {
+		hop.SetUnreachableCode(resp.Code)
+	}
+
+	t.recordHopAddress(hop, resp.SrcAddr)
+}
+
+// tcpReceiveLoop reads the target's SYN-ACK/RST answers for a TCP trace.
+func (t *Tracer) tcpReceiveLoop(ctx context.Context) {
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+
+		reply, err := t.tcpFlow.Receive(receiveDeadline(ctx, t.opts.Timeout))
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+
+			if isTimeoutError(err) {
+				continue
+			}
+
+			return
+		}
+
+		t.handleTCPReply(reply)
+	}
+}
+
+// handleTCPReply credits the target's answer to the probe it acknowledges.
+// Either a SYN-ACK or an RST means the target's TCP stack answered at that TTL.
+func (t *Tracer) handleTCPReply(reply *TCPReply) {
+	if reply == nil || reply.Seq < 0 {
+		return
+	}
+
+	hop, ok := t.creditProbe(reply.Seq, reply.RecvTime)
+	if !ok {
+		return
+	}
+
+	hop.RecordTCPReply(reply.SYNACK, reply.RST)
+	t.recordHopAddress(hop, t.targetIP)
+}
+
+// creditProbe retires an in-flight probe and records its RTT on the probe's hop.
+func (t *Tracer) creditProbe(seq int, recvTime time.Time) (*HopResult, bool) {
+	t.probesMu.Lock()
+	probe, ok := t.probes[seq]
+	if !ok {
+		t.probesMu.Unlock()
+		return nil, false
+	}
+
+	delete(t.probes, seq)
+	t.probesMu.Unlock()
+	t.pendingProbes.Add(-1)
+	t.signalProbeStateChanged()
+
+	hop := t.hops[probe.hopIndex]
+
+	hop.mu.Lock()
+	hop.InFlight--
+	hop.mu.Unlock()
+
+	hop.AddResponse(recvTime.Sub(probe.sentAt))
+
+	return hop, true
+}
+
+// recordHopAddress records the address that answered for a hop, marks the
+// target reached when it answered, and starts reverse DNS.
+func (t *Tracer) recordHopAddress(hop *HopResult, addr net.IP) {
+	hop.AddAddress(addr)
+
+	if addr.Equal(t.targetIP) {
 		t.setTargetReached(true)
 	}
 
-	// Async DNS resolution.
 	if t.dns != nil {
-		ipStr := resp.SrcAddr.String()
-		t.dns.Resolve(ipStr, func(hostname string) {
+		t.dns.Resolve(addr.String(), func(hostname string) {
 			hop.mu.Lock()
 			hop.Hostname = hostname
 			hop.mu.Unlock()
@@ -484,17 +586,35 @@ func (t *Tracer) handleResponse(resp *ICMPResponse) {
 	}
 }
 
-func (t *Tracer) matchProbeResponse(resp *ICMPResponse) (int, bool) {
-	seq := resp.InnerSeq
-	if seq < MinPort || seq > MaxPort {
-		return 0, false
+func isDestUnreachable(icmpType int, ipv6 bool) bool {
+	if ipv6 {
+		return icmpType == icmpv6DestUnreachableType
 	}
 
+	return icmpType == icmpv4DestUnreachableType
+}
+
+func (t *Tracer) matchProbeResponse(resp *ICMPResponse) (int, bool) {
 	isIPv6 := t.ipVersion == 6
 	switch {
 	case isIPv6 && resp.Type != 129 && resp.Type != 3 && resp.Type != 1: // ICMPv6 Echo Reply / Time Exceeded / Dest Unreachable
 		return 0, false
 	case !isIPv6 && resp.Type != 0 && resp.Type != 11 && resp.Type != 3: // ICMP Echo Reply / Time Exceeded / Dest Unreachable
+		return 0, false
+	}
+
+	// TCP probes are identified by their flow (sequence number or source
+	// port), not by the quoted destination port, which is fixed for the trace.
+	if t.opts.Protocol == ProtocolTCP {
+		if t.tcpFlow == nil || !t.matchTargetAddr(resp.InnerDstAddr) {
+			return 0, false
+		}
+
+		return t.tcpFlow.MatchQuoted(resp)
+	}
+
+	seq := resp.InnerSeq
+	if seq < MinPort || seq > MaxPort {
 		return 0, false
 	}
 
@@ -514,8 +634,10 @@ func (t *Tracer) matchProbeResponse(resp *ICMPResponse) (int, bool) {
 			return 0, false
 		}
 
-	case ProtocolUDP, ProtocolTCP:
-		// UDP/TCP probes are keyed by destination port, so require quoted destination match.
+	case ProtocolTCP:
+		// Matched by the TCP flow above.
+	case ProtocolUDP:
+		// UDP probes are keyed by destination port, so require quoted destination match.
 		if !t.matchTargetAddr(resp.InnerDstAddr) {
 			return 0, false
 		}
@@ -607,6 +729,7 @@ func (t *Tracer) buildResult() *TraceResult {
 	hops := make([]HopSnapshot, 0, len(t.hops))
 
 	totalHops := 0
+	lastResponding := 0
 
 	for _, hop := range t.hops {
 		if hop.Sent == 0 {
@@ -616,6 +739,10 @@ func (t *Tracer) buildResult() *TraceResult {
 		totalHops++
 		hops = append(hops, hop.Snapshot())
 
+		if hop.Received > 0 {
+			lastResponding = hop.HopNumber
+		}
+
 		// Stop at target.
 		if hop.Addr != nil && hop.Addr.Equal(t.targetIP) {
 			break
@@ -623,16 +750,96 @@ func (t *Tracer) buildResult() *TraceResult {
 	}
 
 	return &TraceResult{
-		Target:        t.opts.Target,
-		TargetIP:      t.targetIP.String(),
-		TargetReached: t.isTargetReached(),
-		TotalHops:     totalHops,
-		Protocol:      t.opts.Protocol.String(),
-		IPVersion:     t.ipVersion,
-		PacketSize:    t.opts.PacketSize,
-		Hops:          hops,
-		Timestamp:     time.Now().Unix(),
+		Target:            t.opts.Target,
+		TargetIP:          t.targetIP.String(),
+		TargetReached:     t.isTargetReached(),
+		TotalHops:         totalHops,
+		ProbedHops:        t.probedHops(),
+		LastRespondingHop: lastResponding,
+		Protocol:          t.opts.Protocol.String(),
+		TCPPort:           t.resultTCPPort(),
+		TCPProbeMode:      t.resultTCPProbeMode(),
+		IPVersion:         t.ipVersion,
+		PacketSize:        t.opts.PacketSize,
+		Hops:              hops,
+		Timestamp:         time.Now().Unix(),
 	}
+}
+
+// targetHopNumber is the lowest hop the target itself answered, or 0.
+func (t *Tracer) targetHopNumber() int {
+	if !t.isTargetReached() {
+		return 0
+	}
+
+	for _, hop := range t.hops {
+		if hop == nil {
+			continue
+		}
+
+		hop.mu.RLock()
+		atTarget := hop.Addr != nil && hop.Addr.Equal(t.targetIP)
+		hop.mu.RUnlock()
+
+		if atTarget {
+			return hop.HopNumber
+		}
+	}
+
+	return 0
+}
+
+// probedHops is the deepest TTL any probe was sent at.
+func (t *Tracer) probedHops() int {
+	deepest := 0
+
+	for _, hop := range t.hops {
+		if hop != nil && hop.Sent > 0 {
+			deepest = hop.HopNumber
+		}
+	}
+
+	return deepest
+}
+
+func (t *Tracer) tcpPort() int {
+	if t.opts.TCPPort > 0 && t.opts.TCPPort <= MaxPort {
+		return t.opts.TCPPort
+	}
+
+	return DefaultTCPPort
+}
+
+func (t *Tracer) resultTCPPort() int {
+	if t.opts.Protocol != ProtocolTCP {
+		return 0
+	}
+
+	return t.tcpPort()
+}
+
+func (t *Tracer) resultTCPProbeMode() string {
+	if t.opts.Protocol != ProtocolTCP || t.tcpFlow == nil {
+		return ""
+	}
+
+	if t.tcpFlow.Crafted() {
+		return tcpProbeModeSyn
+	}
+
+	return tcpProbeModeConnect
+}
+
+func (t *Tracer) closeTCPFlow() {
+	if t.tcpFlow == nil {
+		return
+	}
+
+	if err := t.tcpFlow.Close(); err != nil {
+		t.logger.Debug().Err(err).Msg("close TCP probe flow")
+	}
+
+	t.tcpFlow = nil
 }
 
 func (t *Tracer) finalizeTimeouts() {
@@ -801,6 +1008,7 @@ func (t *Tracer) setTargetReached(v bool) {
 
 func (t *Tracer) resetRunState() {
 	t.targetReached.Store(false)
+	t.lastSendErr = nil
 	t.nextSeq = nextProbeSeqStart()
 	t.icmpID = nextICMPID()
 	clear(t.probes)

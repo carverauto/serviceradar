@@ -53,6 +53,7 @@ type mtrBulkRunPayload struct {
 	MaxHops          int      `json:"max_hops,omitempty"`
 	Concurrency      int      `json:"concurrency,omitempty"`
 	ExecutionProfile string   `json:"execution_profile,omitempty"`
+	TCPPort          int      `json:"tcp_port,omitempty"`
 }
 
 type mtrBulkTargetUpdate struct {
@@ -460,6 +461,10 @@ func bulkMtrOptions(payload mtrBulkRunPayload) mtr.Options {
 
 	if payload.MaxHops > 0 {
 		opts.MaxHops = clampInt(payload.MaxHops, mtrMaxHopsUpperBound)
+	}
+
+	if validMtrTCPPort(payload.TCPPort) {
+		opts.TCPPort = payload.TCPPort
 	}
 
 	return opts

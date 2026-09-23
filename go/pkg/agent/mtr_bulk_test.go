@@ -137,6 +137,18 @@ func TestBulkMtrOptions_ExplicitMaxHopsOverridesProfileDefault(t *testing.T) {
 	}
 }
 
+func TestBulkMtrOptions_TCPPort(t *testing.T) {
+	opts := bulkMtrOptions(mtrBulkRunPayload{Protocol: "tcp", TCPPort: 8443})
+	if opts.TCPPort != 8443 {
+		t.Fatalf("expected tcp_port 8443, got %d", opts.TCPPort)
+	}
+
+	opts = bulkMtrOptions(mtrBulkRunPayload{Protocol: "tcp", TCPPort: -1})
+	if opts.TCPPort != mtr.DefaultTCPPort {
+		t.Fatalf("expected an invalid tcp_port to keep the default, got %d", opts.TCPPort)
+	}
+}
+
 func TestBuildBulkMtrTargetUpdate_MapsCanceledContext(t *testing.T) {
 	update := buildBulkMtrTargetUpdate("example.com", nil, context.Canceled)
 
