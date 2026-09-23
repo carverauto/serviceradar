@@ -33,6 +33,7 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
   alias ServiceRadar.Observability.MtrGraph
   alias ServiceRadar.Observability.MtrHop
   alias ServiceRadar.Observability.MtrTrace
+  alias ServiceRadar.Observability.MtrTraceDepth
 
   require Logger
 
@@ -322,12 +323,22 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
       target_ip: first_present([trace["target_ip"], result["target"]], ""),
       target_reached: first_non_nil([result["available"], trace["target_reached"]], false),
       total_hops: trace["total_hops"] || 0,
+      probed_hops: MtrTraceDepth.probed_hops(trace, trace_hops(trace)),
+      last_responding_hop: MtrTraceDepth.last_responding_hop(trace, trace_hops(trace)),
       protocol: trace["protocol"] || "icmp",
+      tcp_port: MtrTraceDepth.tcp_port(trace),
       ip_version: trace["ip_version"] || 4,
       packet_size: trace["packet_size"],
       partition: partition,
       error: result["error"]
     }
+  end
+
+  defp trace_hops(trace) do
+    case map_get_any(trace, ["hops", :hops], []) do
+      hops when is_list(hops) -> hops
+      _ -> []
+    end
   end
 
   defp build_hop_rows([], _trace_id, _trace_time, _target_ip, _device_id), do: []
@@ -395,7 +406,8 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
       stddev_us: hop["stddev_us"],
       jitter_us: hop["jitter_us"],
       jitter_worst_us: hop["jitter_worst_us"],
-      jitter_interarrival_us: hop["jitter_interarrival_us"]
+      jitter_interarrival_us: hop["jitter_interarrival_us"],
+      unreachable_code: hop["unreachable_code"]
     }
   end
 
