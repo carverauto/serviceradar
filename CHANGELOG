@@ -51,7 +51,6 @@ Release builds now reject stale dependency metadata before publishing.
   `SRQL_RAW_TELEMETRY_RETENTION_HOURS` to match and restart the process.
   Eligible old windows use hourly aggregate resolution; a window that
   crosses the raw retention horizon is served from aggregates throughout.
-
 - NetFlow dashboards and `in:flows` no longer fall back to CNPG. Configure
   a working StarRocks warehouse and explicitly include `flows` in
   `analytics.starrocks.cutoverDatasets` before using flow reads. CNPG-only
