@@ -120,6 +120,46 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLiveTest do
              "120 eligible managed device(s) match the SRQL query, and the selector limit caps each run at 25 target(s)."
   end
 
+  # Regression: the selector limit defaulted to 100 on every save, so a profile
+  # whose scope matched more than that silently traced only its first 100 targets
+  # with nothing in the UI indicating the scope had been cut. Blank must persist
+  # as "no limit" -- the absence of the key -- not as a number.
+  test "saving with a blank selector limit stores no limit at all", %{conn: conn, scope: scope} do
+    {:ok, profile} =
+      MtrPolicy.create_policy(
+        %{
+          name: "Uncapped Scope Profile",
+          enabled: true,
+          partition_id: "default",
+          target_selector: %{
+            "srql_query" => "in:devices tags.role:edge",
+            "limit" => 100
+          },
+          baseline_interval_sec: 300,
+          baseline_protocol: "icmp",
+          baseline_canary_vantages: 0,
+          incident_fanout_max_agents: 3,
+          incident_cooldown_sec: 600,
+          recovery_capture: true,
+          consensus_mode: "majority",
+          consensus_threshold: 0.66,
+          consensus_min_agents: 2
+        },
+        scope: scope
+      )
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/mtr/#{profile.id}/edit")
+
+    lv
+    |> form("#mtr-profile-form", form: %{"limit" => ""})
+    |> render_submit()
+
+    {:ok, reloaded} = Ash.get(MtrPolicy, profile.id, scope: scope)
+
+    refute Map.has_key?(reloaded.target_selector, "limit")
+    assert reloaded.target_selector["srql_query"] == "in:devices tags.role:edge"
+  end
+
   defp create_completed_bulk_job(actor, agent_id, total_targets) do
     targets =
       Enum.map(1..total_targets, fn idx ->

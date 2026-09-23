@@ -18,7 +18,16 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
   require Ash.Query
   require Logger
 
-  @default_target_limit 100
+  # Target selection is uncapped by default: a profile that declares a scope is
+  # asking for every device in that scope, and the dashboards consuming these
+  # targets do not paginate. A selector `limit` is therefore an OPTIONAL operator
+  # ceiling, and its absence means "all matches" rather than a built-in cap.
+  #
+  # A default cap here is actively harmful rather than merely conservative: it
+  # silently shrinks a profile's coverage to the first N matches with nothing
+  # logged and nothing in the UI to indicate truncation, so the profile looks
+  # healthy while most of its scope is never traced.
+  @target_page_size 500
 
   # Keyset page size for the managed-device enforcement stream. Deliberately far
   # below `Device.read`'s `default_limit: 5000`: a single page that large returns
@@ -38,7 +47,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
   def baseline_targets(policy) when is_map(policy) do
     actor = SystemActor.system(:mtr_automation)
     selector = Map.get(policy, :target_selector, %{}) || %{}
-    limit = selector_int(selector, "limit", @default_target_limit)
+    limit = normalize_target_limit(selector_int(selector, "limit", nil))
     ips = selector_list(selector, "ips")
     device_uids = selector_list(selector, "device_uids")
     srql_query = selector_string(selector, "srql_query")
@@ -46,34 +55,68 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     if is_binary(srql_query) and srql_query != "" do
       baseline_targets_from_srql(srql_query, limit)
     else
-      query =
-        Device
-        |> Ash.Query.for_read(:read, %{include_deleted: false})
-        |> Ash.Query.filter(expr(is_managed == true and not is_nil(ip)))
-        |> maybe_filter_uids(device_uids)
-        |> maybe_filter_ips(ips)
-        |> Ash.Query.limit(limit)
-
-      case Ash.read(query, actor: actor) do
-        {:ok, %Keyset{results: results}} ->
-          Enum.map(results, &device_to_target_ctx/1)
-
-        {:ok, results} when is_list(results) ->
-          Enum.map(results, &device_to_target_ctx/1)
-
-        {:error, reason} ->
-          Logger.warning("MTR baseline target query failed", reason: inspect(reason))
-          []
-      end
+      Device
+      |> Ash.Query.for_read(:read, %{include_deleted: false})
+      |> Ash.Query.filter(expr(is_managed == true and not is_nil(ip)))
+      |> maybe_filter_uids(device_uids)
+      |> maybe_filter_ips(ips)
+      |> read_baseline_devices(limit, actor)
     end
   end
 
-  @spec target_contexts_from_srql(String.t(), pos_integer(), keyword()) ::
+  # Uncapped: stream rather than read one page. `Device.read` declares
+  # `default_limit: 5000`, so a bare `Ash.read/2` would silently reimpose 5000 as
+  # the cap this clause exists to remove. `Ash.stream!/2` pages internally and has
+  # no ceiling.
+  defp read_baseline_devices(query, nil, actor) do
+    query
+    |> Ash.stream!(actor: actor, batch_size: @target_page_size)
+    |> Enum.map(&device_to_target_ctx/1)
+  rescue
+    error ->
+      Logger.warning("MTR baseline target query failed", reason: Exception.message(error))
+      []
+  end
+
+  defp read_baseline_devices(query, limit, actor) when is_integer(limit) and limit > 0 do
+    case Ash.read(Ash.Query.limit(query, limit), actor: actor) do
+      {:ok, %Keyset{results: results}} ->
+        Enum.map(results, &device_to_target_ctx/1)
+
+      {:ok, results} when is_list(results) ->
+        Enum.map(results, &device_to_target_ctx/1)
+
+      {:error, reason} ->
+        Logger.warning("MTR baseline target query failed", reason: inspect(reason))
+        []
+    end
+  end
+
+  @spec target_contexts_from_srql(String.t(), pos_integer() | nil, keyword()) ::
           {:ok, [target_ctx()]} | {:error, term()}
   def target_contexts_from_srql(srql_query, limit, opts \\ [])
-      when is_binary(srql_query) and is_integer(limit) and limit > 0 and is_list(opts) do
-    query = normalize_srql_target_query(srql_query, limit)
+      when is_binary(srql_query) and is_list(opts) and
+             (is_nil(limit) or (is_integer(limit) and limit > 0)) do
+    query = normalize_srql_target_query(srql_query, page_size_for(limit, opts))
     collect_target_contexts(query, srql_query, limit, nil, [], MapSet.new(), MapSet.new(), opts)
+  end
+
+  # A stored zero or negative ceiling is treated as no ceiling, so a legacy or
+  # hand-edited selector cannot silently select nothing.
+  defp normalize_target_limit(limit) when is_integer(limit) and limit > 0, do: limit
+  defp normalize_target_limit(_), do: nil
+
+  # Page size is independent of the optional ceiling: `nil` means walk every page
+  # the cursor offers, it does not mean "ask for everything in one page". A
+  # ceiling below one page shrinks the request so the last page is not oversized.
+  defp page_size_for(limit, opts) do
+    page_size = Keyword.get(opts, :page_size, @target_page_size)
+
+    if is_integer(limit) and limit > 0 do
+      min(limit, page_size)
+    else
+      page_size
+    end
   end
 
   defp baseline_targets_from_srql(srql_query, limit) do
@@ -103,7 +146,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
        ) do
     page_opts =
       opts
-      |> Keyword.put(:limit, limit)
+      |> Keyword.put(:limit, page_size_for(limit, opts))
       |> maybe_put_cursor(cursor)
 
     case SRQLRunner.query_page(query, page_opts) do
@@ -124,7 +167,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
           end)
 
         cond do
-          length(acc) >= limit ->
+          is_integer(limit) and length(acc) >= limit ->
             {:ok, Enum.take(acc, limit)}
 
           is_binary(next_cursor) and next_cursor != "" and
@@ -884,7 +927,10 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     if Atom.to_string(atom_key) == key, do: value
   end
 
-  defp normalize_srql_target_query(query, limit) when is_binary(query) do
+  # `page_size` bounds one page, not the result set: collect_target_contexts/8
+  # keeps following the cursor. An explicit `limit:` already in the operator's
+  # query is left alone, because there it means the ceiling they asked for.
+  defp normalize_srql_target_query(query, page_size) when is_binary(query) do
     query =
       query
       |> String.trim()
@@ -893,7 +939,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     if String.contains?(query, " limit:") or String.starts_with?(query, "limit:") do
       query
     else
-      "#{query} limit:#{limit}"
+      "#{query} limit:#{page_size}"
     end
   end
 
