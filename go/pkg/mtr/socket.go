@@ -154,6 +154,11 @@ const (
 	tcpSynLen = 24
 	// tcpSynWindow is the advertised receive window on probe SYNs.
 	tcpSynWindow = 64240
+
+	// tcpProbeModeSyn and tcpProbeModeConnect report how a TCP trace sent its
+	// probes: crafted SYNs on one stable flow, or the connect() fallback.
+	tcpProbeModeSyn     = "syn"
+	tcpProbeModeConnect = "connect"
 )
 
 // parseQuotedTransport fills the quoted-transport fields of resp from the first

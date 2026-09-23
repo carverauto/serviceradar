@@ -304,6 +304,13 @@ func TestTracerTCP_SynAckMarksTargetReachedAtItsTTL(t *testing.T) {
 	if result.TCPPort != DefaultTCPPort {
 		t.Fatalf("expected the TCP port to be reported, got %d", result.TCPPort)
 	}
+	if result.TCPProbeMode != tcpProbeModeSyn {
+		t.Fatalf("expected the crafted-SYN probe mode, got %q", result.TCPProbeMode)
+	}
+	if result.Hops[3].ReplySynack != 1 || result.Hops[3].ReplyRst != 0 {
+		t.Fatalf("expected the target hop to count one SYN-ACK, got synack=%d rst=%d",
+			result.Hops[3].ReplySynack, result.Hops[3].ReplyRst)
+	}
 }
 
 func TestTracer_StopsProbingPastTheTargetOnceItAnswers(t *testing.T) {
@@ -354,6 +361,13 @@ func TestTracerTCP_RSTMarksTargetReached(t *testing.T) {
 	if !result.TargetReached || result.TotalHops != 3 {
 		t.Fatalf("expected an RST from the target to end the path at hop 3, got reached=%v total=%d",
 			result.TargetReached, result.TotalHops)
+	}
+	if result.TCPProbeMode != tcpProbeModeSyn {
+		t.Fatalf("expected the crafted-SYN probe mode, got %q", result.TCPProbeMode)
+	}
+	if result.Hops[2].ReplyRst != 1 || result.Hops[2].ReplySynack != 0 {
+		t.Fatalf("expected the target hop to count one RST, got synack=%d rst=%d",
+			result.Hops[2].ReplySynack, result.Hops[2].ReplyRst)
 	}
 }
 

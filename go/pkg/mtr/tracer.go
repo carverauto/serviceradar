@@ -539,6 +539,7 @@ func (t *Tracer) handleTCPReply(reply *TCPReply) {
 		return
 	}
 
+	hop.RecordTCPReply(reply.SYNACK, reply.RST)
 	t.recordHopAddress(hop, t.targetIP)
 }
 
@@ -757,6 +758,7 @@ func (t *Tracer) buildResult() *TraceResult {
 		LastRespondingHop: lastResponding,
 		Protocol:          t.opts.Protocol.String(),
 		TCPPort:           t.resultTCPPort(),
+		TCPProbeMode:      t.resultTCPProbeMode(),
 		IPVersion:         t.ipVersion,
 		PacketSize:        t.opts.PacketSize,
 		Hops:              hops,
@@ -814,6 +816,18 @@ func (t *Tracer) resultTCPPort() int {
 	}
 
 	return t.tcpPort()
+}
+
+func (t *Tracer) resultTCPProbeMode() string {
+	if t.opts.Protocol != ProtocolTCP || t.tcpFlow == nil {
+		return ""
+	}
+
+	if t.tcpFlow.Crafted() {
+		return tcpProbeModeSyn
+	}
+
+	return tcpProbeModeConnect
 }
 
 func (t *Tracer) closeTCPFlow() {
