@@ -123,20 +123,20 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
       "type_uid" => field(row, :type_uid),
       "activity_id" => field(row, :activity_id),
       "severity_id" => field(row, :severity_id),
-      "severity" => stringify(field(row, :severity)),
-      "source" => stringify(field(row, :source)),
-      "src_endpoint_ip" => stringify(src_endpoint_ip(row)),
-      "firewall_rule_name" => stringify(firewall_rule_name(row)),
-      "source_type" => stringify(source_type(row)),
-      "message" => stringify(field(row, :message)),
-      "activity_name" => stringify(field(row, :activity_name)),
-      "status" => stringify(field(row, :status)),
+      "severity" => bounded_string(:severity, field(row, :severity)),
+      "source" => bounded_string(:source, field(row, :source)),
+      "src_endpoint_ip" => bounded_string(:src_endpoint_ip, src_endpoint_ip(row)),
+      "firewall_rule_name" => bounded_string(:firewall_rule_name, firewall_rule_name(row)),
+      "source_type" => bounded_string(:source_type, source_type(row)),
+      "message" => bounded_string(:message, field(row, :message)),
+      "activity_name" => bounded_string(:activity_name, field(row, :activity_name)),
+      "status" => bounded_string(:status, field(row, :status)),
       "status_id" => field(row, :status_id),
-      "log_name" => stringify(field(row, :log_name)),
-      "log_provider" => stringify(field(row, :log_provider)),
-      "trace_id" => stringify(field(row, :trace_id)),
-      "span_id" => stringify(field(row, :span_id)),
-      "log_level" => stringify(field(row, :log_level)),
+      "log_name" => bounded_string(:log_name, field(row, :log_name)),
+      "log_provider" => bounded_string(:log_provider, field(row, :log_provider)),
+      "trace_id" => bounded_string(:trace_id, field(row, :trace_id)),
+      "span_id" => bounded_string(:span_id, field(row, :span_id)),
+      "log_level" => bounded_string(:log_level, field(row, :log_level)),
       "metadata" => document(row, :metadata),
       "unmapped" => document(row, :unmapped),
       "device" => document(row, :device),
@@ -149,6 +149,64 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
   # event itself still lands. That event is then outside every document-path
   # filter, so the drop is reported rather than left invisible.
   @max_document_bytes 1_048_576
+
+  # priv/starrocks/0004: the scalar event columns are bounded VARCHARs whose
+  # CNPG counterparts are unbounded text. A value wider than its column makes
+  # StarRocks FILTER that row out of the Stream Load batch: the row never
+  # reaches the warehouse while StreamLoad.interpret_load/4 reports "filtered
+  # rows" and Destination.persist_starrocks/4 still returns success. That is
+  # the events-only row-count shortfall -- logs match exactly because none of
+  # their columns overflow. Truncate here (UTF-8-safe) so the row always lands,
+  # and report the truncation rather than leaving a silent drop.
+  @scalar_limits %{
+    severity: 32,
+    source: 256,
+    src_endpoint_ip: 64,
+    firewall_rule_name: 256,
+    source_type: 64,
+    message: 65_533,
+    activity_name: 128,
+    status: 64,
+    log_name: 256,
+    log_provider: 128,
+    trace_id: 64,
+    span_id: 64,
+    log_level: 32
+  }
+
+  defp bounded_string(column, value) do
+    value = stringify(value)
+    max = Map.fetch!(@scalar_limits, column)
+
+    if is_binary(value) and byte_size(value) > max do
+      scalar_truncated(column, byte_size(value), max)
+      truncate_binary(value, max)
+    else
+      value
+    end
+  end
+
+  defp truncate_binary(value, max_bytes) do
+    value
+    |> binary_part(0, max_bytes)
+    |> trim_incomplete_utf8()
+  end
+
+  defp trim_incomplete_utf8(value) do
+    if String.valid?(value) do
+      value
+    else
+      trim_incomplete_utf8(binary_part(value, 0, byte_size(value) - 1))
+    end
+  end
+
+  defp scalar_truncated(column, bytes, max) do
+    :telemetry.execute(
+      [:serviceradar, :starrocks, :events, :scalar_truncated],
+      %{bytes: bytes, max_bytes: max},
+      %{field: Atom.to_string(column)}
+    )
+  end
 
   defp document(row, key) do
     value = field(row, key)
