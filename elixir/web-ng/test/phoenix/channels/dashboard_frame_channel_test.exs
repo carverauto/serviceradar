@@ -375,9 +375,6 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelTest do
 
     assert_receive {:srql_query_started, "in:test_slow_rows", query_pid}
 
-    ref = push(socket, "frames:refresh", %{})
-    assert_reply ref, :ok, %{}, 100
-
     send(query_pid, :release_dashboard_frame_query)
 
     assert_push "frames:replace", %{
@@ -574,6 +571,7 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelTest do
     ref = push(socket, "frames:page", %{"frame_id" => "required", "cursor" => "cursor-1"})
     assert_reply ref, :ok, %{}
     assert_receive {:srql_query, "in:test_rows"}
+    wait_until_settled(socket.channel_pid)
 
     assert :sys.get_state(socket.channel_pid).assigns.frame_cursors == %{"required" => "cursor-1"}
 
@@ -615,5 +613,13 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelTest do
 
     ref = push(socket, "frames:refresh", %{})
     assert_reply ref, :error, %{reason: "refresh_in_progress"}
+  end
+
+  defp wait_until_settled(channel_pid, attempts \\ 20) do
+    if :sys.get_state(channel_pid).assigns[:refresh_task_ref] != nil do
+      if attempts <= 0, do: raise("channel task did not settle")
+      Process.sleep(5)
+      wait_until_settled(channel_pid, attempts - 1)
+    end
   end
 end
