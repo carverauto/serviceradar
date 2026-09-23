@@ -134,9 +134,11 @@ jobs:
         run: |
           set -euo pipefail
           npm --version
-          # Node 24 should ship npm 11.5.1+, which is the OIDC floor.
-          # Re-pin latest so a runner image with an older bundled npm still works.
-          npm install -g npm@latest
+          # setup-node node-version 24 installs v24.21.0, which bundles npm 11.19.0.
+          # OIDC floor is npm 11.5.1. Pin to npm@11 so a runner image whose bundled
+          # npm predates that floor is covered, without letting a future npm major
+          # change --provenance or OIDC semantics underneath this release.
+          npm install -g npm@11
           npm --version
           npm publish --access public --provenance
 
