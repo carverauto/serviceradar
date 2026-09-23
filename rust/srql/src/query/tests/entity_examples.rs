@@ -1017,7 +1017,10 @@ fn device_sweep_overlap_example_declared_not_observed() {
         ),
         "expected alert-first default ordering, got: {sql}"
     );
-    assert!(!sql.contains('?'), "no literal '?' should survive rewrite: {sql}");
+    assert!(
+        !sql.contains('?'),
+        "no literal '?' should survive rewrite: {sql}"
+    );
     // relationship filter, then LIMIT, then OFFSET.
     assert_eq!(binds.len(), 3);
 }

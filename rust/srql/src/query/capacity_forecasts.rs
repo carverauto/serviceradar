@@ -55,6 +55,7 @@ pub(super) async fn execute(
     plan: &QueryPlan,
 ) -> Result<Vec<serde_json::Value>> {
     ensure_entity(plan)?;
+    super::reject_stats(plan, "capacity_forecasts")?;
     let query = build_query(plan)?;
     let rows: Vec<CapacityForecastRow> = query
         .select(CapacityForecastRow::as_select())
@@ -72,6 +73,7 @@ pub(super) async fn execute(
 
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
     ensure_entity(plan)?;
+    super::reject_stats(plan, "capacity_forecasts")?;
     let query = build_query(plan)?.limit(plan.limit).offset(plan.offset);
     let sql = super::diesel_sql(&query)?;
 

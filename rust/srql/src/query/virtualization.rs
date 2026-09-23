@@ -32,6 +32,7 @@ pub(super) async fn execute(
     plan: &QueryPlan,
 ) -> Result<Vec<serde_json::Value>> {
     ensure_entity(plan)?;
+    super::reject_stats(plan, "virtualization")?;
     let (sql, params) = to_sql_and_params(plan)?;
     let mut query = sql_query(&sql).into_boxed::<Pg>();
 
@@ -52,6 +53,7 @@ pub(super) async fn execute(
 
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
     ensure_entity(plan)?;
+    super::reject_stats(plan, "virtualization")?;
     let spec = entity_spec(&plan.entity)?;
     let mut params = Vec::new();
     let mut predicates = Vec::new();

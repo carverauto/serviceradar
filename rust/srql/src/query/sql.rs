@@ -222,6 +222,21 @@ pub(crate) fn reconcile_limit_offset_binds(
     }
 }
 
+/// Refuse a `stats:` clause for an entity that implements no aggregation.
+///
+/// Discarding the clause and returning raw rows is worse than refusing it: the
+/// request succeeds and answers a different question than the one asked, and a
+/// caller that counts the returned page counts a page rather than the fleet.
+/// Every entity module without a stats path calls this.
+pub(crate) fn reject_stats(plan: &super::QueryPlan, entity: &str) -> Result<()> {
+    if plan.stats.is_some() {
+        return Err(ServiceError::InvalidRequest(format!(
+            "{entity} does not support stats: aggregations"
+        )));
+    }
+    Ok(())
+}
+
 pub(crate) fn diesel_sql<T>(query: &T) -> Result<String>
 where
     T: diesel::query_builder::QueryFragment<diesel::pg::Pg>,

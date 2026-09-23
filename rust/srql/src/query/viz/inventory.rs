@@ -586,7 +586,11 @@ pub(super) fn device_sweep_overlap() -> VizMeta {
             col("covering_declarations", ColumnType::TextArray, None),
             col("observed_ip", ColumnType::Text, None),
             col("sweep_group_id", ColumnType::Text, None),
-            col("sweep_group_name", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col(
+                "sweep_group_name",
+                ColumnType::Text,
+                Some(ColumnSemantic::Label),
+            ),
             col("profile_id", ColumnType::Text, None),
             col("scanner_profile_name", ColumnType::Text, None),
             col("declared_modes", ColumnType::TextArray, None),
@@ -594,7 +598,11 @@ pub(super) fn device_sweep_overlap() -> VizMeta {
             col("agent_id", ColumnType::Text, None),
             col("declared", ColumnType::Bool, None),
             col("observed", ColumnType::Bool, None),
-            col("relationship", ColumnType::Text, Some(ColumnSemantic::Series)),
+            col(
+                "relationship",
+                ColumnType::Text,
+                Some(ColumnSemantic::Series),
+            ),
             col("match_kind", ColumnType::Text, None),
             col("match_via", ColumnType::Text, None),
             col(

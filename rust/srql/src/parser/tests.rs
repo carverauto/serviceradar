@@ -769,6 +769,59 @@ fn parses_multiple_stats() {
 }
 
 #[test]
+fn parses_two_argument_aggregations_into_both_fields() {
+    let ast = parse("in:mtr_hops stats:\"loss_ratio(sent, received) as loss by addr\"").unwrap();
+    let stats = ast.stats.as_ref().unwrap();
+
+    assert_eq!(stats.aggregations.len(), 1);
+    assert!(matches!(
+        stats.aggregations[0].agg_type,
+        StatsAggType::LossRatio
+    ));
+    assert_eq!(stats.aggregations[0].field.as_deref(), Some("sent"));
+    assert_eq!(stats.aggregations[0].field2.as_deref(), Some("received"));
+    assert_eq!(stats.aggregations[0].alias, "loss");
+}
+
+#[test]
+fn parses_wavg_without_colliding_with_avg() {
+    // `strip_prefix` is anchored, so "wavg(" must not be read as "avg(".
+    let ast = parse("in:mtr_hops stats:\"wavg(avg_us, received) as latency by addr\"").unwrap();
+    let stats = ast.stats.as_ref().unwrap();
+
+    assert_eq!(stats.aggregations.len(), 1);
+    assert!(matches!(stats.aggregations[0].agg_type, StatsAggType::Wavg));
+    assert_eq!(stats.aggregations[0].field.as_deref(), Some("avg_us"));
+    assert_eq!(stats.aggregations[0].field2.as_deref(), Some("received"));
+}
+
+#[test]
+fn single_argument_aggregations_carry_no_second_field() {
+    let ast = parse("in:devices stats:\"sum(value) as total_value\"").unwrap();
+    let stats = ast.stats.as_ref().unwrap();
+    assert!(stats.aggregations[0].field2.is_none());
+}
+
+#[test]
+fn parses_time_bucket_group_dimension_unquoted() {
+    let ast =
+        parse("in:mtr_hops stats:loss_ratio(sent, received) as loss by addr,time:1h").unwrap();
+    let stats = ast.stats.as_ref().unwrap();
+    assert!(
+        stats.raw.contains("by addr,time:1h"),
+        "group dimensions should survive tokenizing: {}",
+        stats.raw
+    );
+}
+
+#[test]
+fn stats_group_by_rejects_a_swallowed_following_clause() {
+    // Relaxing the colon guard for `time:` must not let an omitted group field
+    // through: here `limit:10` would silently become the grouping field.
+    assert!(parse("in:devices stats:count() as n by limit:10").is_err());
+}
+
+#[test]
 fn parses_repeated_stats_tokens_by_merging_aggregations() {
     let ast = parse(
         "in:flows stats:sum(bytes_total) as bytes_total stats:sum(packets_total) as packets_total by src_endpoint_ip",

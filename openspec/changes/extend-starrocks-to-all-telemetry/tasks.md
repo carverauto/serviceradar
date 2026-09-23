@@ -27,6 +27,25 @@
 - [ ] 3.2 OTel traces/spans with RED and summary rollups as MVs; trace-by-id lookup.
 - [ ] 3.3 Sysmon CPU/memory/disk/process: table(s), destination, routing, hourly rollups.
 - [ ] 3.4 MTR traces and hops, BMP routing events, service status history.
+      Two findings handed over from `add-mtr-path-analytics`, which built the MTR
+      path analytics dashboard against the relational backend:
+      - **MTR is not on JetStream today.**
+        `ServiceRadar.Observability.MtrMetricsIngestor` holds no NATS, subject or
+        consumer reference; it receives a payload straight from the agent
+        (`go/pkg/agent/mtr_checker.go:128` streams results to the gateway) and
+        writes CNPG. An MTR warehouse destination therefore needs a JetStream
+        publication step first to satisfy the JetStream-first /
+        EventWriter-single-owner rule — the same class of exception the repository
+        rules record for sysmon.
+      - **MTR rollups must not be built on `AVG(loss_pct)` or `AVG(avg_us)`.**
+        Loss is a ratio of summed probe counts and hop latency is a
+        received-weighted mean; averaging either is a mean of ratios and disagrees
+        with the correct figure whenever hops sent unequal probe counts, which is
+        the normal case. `loss_ratio(sent, received)` and `wavg(value, weight)`
+        now exist in both the relational and StarRocks dialects, so a materialized
+        rollup should use them. `mtr_hops.asn` is GeoLite2-only and NULL for every
+        internal hop and every private AS, so an AS-level rollup must not be
+        presented as fleet-wide.
 - [ ] 3.5 Measure trace-by-id and single-device detail latency cold and warm; record against the detail-page budget.
 - [ ] 3.6 Retention defaults per new dataset in Helm/Compose, applied by the existing retention task.
 
