@@ -103,12 +103,14 @@ func loadRuntimeActionID() string {
 }
 
 func loadRuntimeDeviceIdentity() (deviceID, deviceUID string) {
-	raw := loadRawConfigMap()
+	return deviceIdentityFromRaw(loadRawConfigMap())
+}
+
+func deviceIdentityFromRaw(raw map[string]json.RawMessage) (deviceID, deviceUID string) {
 	if raw == nil {
 		return "", ""
 	}
-	deviceID = stringFromRaw(raw, "device_id")
-	deviceUID = stringFromRaw(raw, "device_uid")
+	var targetUID string
 	if invocationJSON, ok := raw["action_invocation"]; ok && len(bytes.TrimSpace(invocationJSON)) > 0 {
 		var invocation struct {
 			ActionID    string           `json:"action_id"`
@@ -116,16 +118,22 @@ func loadRuntimeDeviceIdentity() (deviceID, deviceUID string) {
 			Targets     []map[string]any `json:"targets"`
 		}
 		if err := json.Unmarshal(invocationJSON, &invocation); err == nil {
-			if deviceID == "" {
-				deviceID = stringFromAny(invocation.InputValues["device_id"])
-			}
-			if deviceUID == "" {
-				deviceUID = stringFromAny(invocation.InputValues["device_uid"])
-			}
-			if deviceUID == "" && len(invocation.Targets) > 0 {
-				deviceUID = stringFromAny(invocation.Targets[0]["device_uid"])
+			deviceID = stringFromAny(invocation.InputValues["device_id"])
+			deviceUID = stringFromAny(invocation.InputValues["device_uid"])
+			if len(invocation.Targets) > 0 {
+				targetUID = stringFromAny(invocation.Targets[0]["device_uid"])
 			}
 		}
+	}
+	// Per-invocation input wins over the configured default.
+	if deviceID == "" {
+		deviceID = stringFromRaw(raw, "device_id")
+	}
+	if deviceUID == "" {
+		deviceUID = stringFromRaw(raw, "device_uid")
+	}
+	if deviceUID == "" {
+		deviceUID = targetUID
 	}
 	return deviceID, deviceUID
 }
