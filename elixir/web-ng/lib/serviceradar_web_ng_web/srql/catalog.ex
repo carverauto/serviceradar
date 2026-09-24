@@ -1902,7 +1902,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       downsample: false,
       stats: true,
       stats_agg_fields: ["loss_pct", "avg_us", "min_us", "max_us", "jitter_us", "sent", "received"],
-      stats_group_fields: ["addr", "asn", "asn_org", "hop_number"]
+      stats_group_fields: ["addr", "asn", "asn_org", "hop_number", "target_ip", "device_id"]
     },
     %{
       id: "mtr_traces",
