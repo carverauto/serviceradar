@@ -169,6 +169,7 @@ defmodule ServiceRadar.Inventory.StreamedDeviceReadsTest do
 
     ids = %{
       armis_id: "armis-veto-#{state}-#{primary}",
+      ip: nil,
       mac: hd(macs),
       macs: macs,
       partition: "default"
