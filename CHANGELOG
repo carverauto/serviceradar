@@ -1,3 +1,88 @@
+# ServiceRadar v1.4.71
+
+MTR profiles trace every device in scope unless a limit is set,
+TCP traces record when the target answers, and hop metrics can
+be scoped to a device. Device import shows progress and a
+result, and an IP shared by a live device and a deleted one
+resolves to the live device.
+
+## Whats New
+
+**1.4.71**
+- MTR: a profile with a blank target limit traces every device
+  its scope matches. The settings form and the dispatcher were
+  both applying a default of 100, so a wider scope looked
+  healthy while only the first hundred devices were traced. An
+  explicit limit is still honored (PR #4587).
+- MTR: a TCP trace watches the target's reply on one stable
+  flow, and a target that answers is marked reached. Linux
+  sends a crafted SYN and matches the reply by sequence
+  number. The trace records SYN, SYN-ACK and RST counts
+  (PR #4583, issue #4580).
+- MTR: Queue MTR on a device page dispatches through the
+  command bus, including on a web-ng node that does not run
+  the process registry (PR #4585, issue #4578).
+- SRQL: hop loss and latency accept target_ip and device_id
+  as filters and group fields, mtr_traces accepts aggregates,
+  and mtr_hops accepts a bare count(). New hops copy
+  target_ip and device_id from the trace at ingest.
+  mtr_hops and mtr_traces compress after 7 days and expire
+  after 90 (PR #4588).
+- Dashboards: the built-in MTR dashboard lays its four panels
+  out on the grid, so the view shows the same panels as the
+  builder (PR #4584).
+- Dashboards: each refreshed frame carries a timestamp, so a
+  client that stays open applies the new rows. Reachability
+  on a long-lived display follows the latest sweep
+  (PR #4586).
+- Devices: CSV import shows a spinner while it runs, then a
+  summary of created, failed and skipped rows. The import
+  runs outside the LiveView process and the button stays
+  disabled until it finishes (PR #4590).
+- Identity: an IP that belongs to both a live device and a
+  soft-deleted one resolves to the live device, so sweep
+  observations refresh the surviving device (PR #4589).
+- CLI: dashboard publish prints the manifest id on the
+  Published and Enabled lines (PR #4574). `@carverauto/serviceradar-cli`
+  0.1.8 carries the same fix.
+
+## Upgrade Notes
+
+- An MTR profile whose stored target selector has no limit
+  traces every matching device. A profile that previously
+  relied on the implicit cap of 100 will trace the rest of
+  its scope after this upgrade. Set an explicit limit first
+  if that is more traffic than you want. A selector that
+  already stores a limit is unchanged.
+- TCP MTR results change. A trace now stops when the target
+  answers, on one source port and one sequence base for the
+  whole trace. Hop counts and the reached flag on new TCP
+  traces differ from traces recorded on 1.4.70.
+- Two migrations apply: 20260923120000 adds nullable
+  target_ip and device_id to platform.mtr_hops, and
+  20260923130000 enables compression after 7 days and
+  retention of 90 days on platform.mtr_hops and
+  platform.mtr_traces. The chart waits for
+  core.migrations.expectedVersion 20260923130000. Existing
+  hop rows stay unattributed until the backfill runs. It
+  plans by default and writes only with --execute:
+
+      mix serviceradar.mtr_hop_attribution_backfill
+      mix serviceradar.mtr_hop_attribution_backfill --execute
+
+  It is resumable and safe to interrupt. Hops whose trace
+  has already aged out are reported as unrecoverable.
+  Device-scoped hop queries include new hops immediately
+  and older hops as each chunk is backfilled. Once the
+  retention policy is in place, MTR hops and traces older
+  than 90 days are dropped.
+- Sweep ingestion writes to the live device when a deleted
+  device shares its IP. Observations already stored on the
+  deleted device stay there.
+- serviceradar-cli prints the manifest id on the Published
+  and Enabled lines. The enable request still addresses the
+  server-assigned id.
+
 # ServiceRadar v1.4.70
 
 Replacement for the incomplete 1.4.69 publication, including its
