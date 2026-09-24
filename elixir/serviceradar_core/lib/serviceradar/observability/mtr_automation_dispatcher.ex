@@ -347,7 +347,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
       trigger_mode = trigger_mode(mode)
       partition_id = blank_to_nil(Map.get(target_ctx, :partition_id))
 
-      payloads = protocol_payloads(target, policy)
+      payloads = protocol_payloads(target, policy, mode)
       context = dispatch_context(target_ctx, trigger_mode, incident_correlation_id)
       actor = SystemActor.system(:mtr_automation)
       now = DateTime.utc_now()
@@ -869,13 +869,22 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     int_value(Map.get(policy, :incident_cooldown_sec), 600)
   end
 
+  # Incident and recovery captures feed the cohort consensus, which keeps one
+  # outcome per agent; they trace only the set's first protocol so each agent
+  # contributes one comparable result. Baseline traces the whole set.
   @doc false
-  def protocol_payloads(target, policy) do
-    Enum.map(MtrPolicy.protocol_names(policy), fn
+  def protocol_payloads(target, policy, mode \\ :baseline) do
+    policy
+    |> MtrPolicy.protocol_names()
+    |> protocols_for_mode(mode)
+    |> Enum.map(fn
       "tcp" -> %{"target" => target, "protocol" => "tcp", "tcp_port" => MtrPolicy.tcp_port(policy)}
       protocol -> %{"target" => target, "protocol" => protocol}
     end)
   end
+
+  defp protocols_for_mode([first | _], mode) when mode in [:incident, :recovery], do: [first]
+  defp protocols_for_mode(protocols, _mode), do: protocols
 
   defp selector_int(selector, key, default) do
     selector

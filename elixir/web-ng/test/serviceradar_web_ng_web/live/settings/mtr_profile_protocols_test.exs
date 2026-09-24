@@ -16,10 +16,6 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.ProtocolsTest do
       assert Protocols.from_params(%{"baseline_protocols" => [""]}) == []
     end
 
-    test "older params with a single protocol still count" do
-      assert Protocols.from_params(%{"baseline_protocol" => "UDP"}) == ["udp"]
-    end
-
     test "count/1 is at least one" do
       assert Protocols.count(%{"baseline_protocols" => ["icmp", "udp", "tcp"]}) == 3
       assert Protocols.count(%{"baseline_protocols" => [""]}) == 1

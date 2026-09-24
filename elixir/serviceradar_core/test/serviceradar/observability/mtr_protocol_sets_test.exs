@@ -41,6 +41,20 @@ defmodule ServiceRadar.Observability.MtrProtocolSetsTest do
     end
   end
 
+  describe "consensus-feeding captures" do
+    test "incident and recovery trace only the first protocol of the set" do
+      policy = %{baseline_protocols: [:icmp, :tcp]}
+
+      for mode <- [:incident, :recovery] do
+        assert MtrAutomationDispatcher.protocol_payloads("192.0.2.10", policy, mode) == [
+                 %{"target" => "192.0.2.10", "protocol" => "icmp"}
+               ]
+      end
+
+      assert length(MtrAutomationDispatcher.protocol_payloads("192.0.2.10", policy, :baseline)) == 2
+    end
+  end
+
   describe "bulk protocol selection" do
     test "an agent that runs protocol sets gets the whole set in canonical order" do
       assert AgentCommandBus.bulk_mtr_protocols("agent-a",

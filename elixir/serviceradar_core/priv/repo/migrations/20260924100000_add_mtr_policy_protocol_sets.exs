@@ -6,6 +6,13 @@ defmodule ServiceRadar.Repo.Migrations.AddMtrPolicyProtocolSets do
   place (and in step with the first protocol of the set) so a rollback keeps
   working; it is dropped in a later migration. Bulk job target rows gain the
   protocol, because a multi-protocol job traces each target once per protocol.
+
+  Rollout and rollback: the (command_id, target) unique index is replaced by
+  (command_id, target, protocol), and the previous release upserts bulk target
+  rows with `ON CONFLICT (command_id, target)`. Pods still running the previous
+  release therefore fail bulk MTR dispatches until they roll, and a code-only
+  rollback must first run this migration's `down`, which collapses
+  multi-protocol rows and restores the old index.
   """
   use Ecto.Migration
 

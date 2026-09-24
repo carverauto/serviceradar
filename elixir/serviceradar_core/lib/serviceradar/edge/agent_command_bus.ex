@@ -2704,12 +2704,9 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
         names -> names
       end
 
-    supports_set? =
-      Keyword.get_lazy(opts, :protocol_set_supported?, fn ->
-        agent_capability?(agent_id, "mtr_protocol_set")
-      end)
-
-    if length(protocols) > 1 and not supports_set? do
+    # Only a multi-protocol set needs the capability; skip the registry lookup
+    # (an RPC fan-out from web nodes) for single-protocol jobs.
+    if length(protocols) > 1 and not protocol_set_supported?(agent_id, opts) do
       Logger.warning(
         "Agent does not advertise mtr_protocol_set; bulk MTR runs only the first protocol",
         agent_id: agent_id,
@@ -2721,6 +2718,12 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     else
       protocols
     end
+  end
+
+  defp protocol_set_supported?(agent_id, opts) do
+    Keyword.get_lazy(opts, :protocol_set_supported?, fn ->
+      agent_capability?(agent_id, "mtr_protocol_set")
+    end)
   end
 
   @doc """

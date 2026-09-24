@@ -15,17 +15,9 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Protocols do
     Enum.filter(@protocols, &(&1 in names))
   end
 
-  @doc """
-  The protocols selected in form params. Params saved before protocol sets
-  existed carry a single `baseline_protocol`, which still counts.
-  """
+  @doc "The protocols selected in form params."
   @spec from_params(map()) :: [String.t()]
-  def from_params(params) when is_map(params) do
-    case normalize(Map.get(params, "baseline_protocols")) do
-      [] -> normalize(Map.get(params, "baseline_protocol"))
-      protocols -> protocols
-    end
-  end
+  def from_params(params) when is_map(params), do: normalize(Map.get(params, "baseline_protocols"))
 
   def from_params(_params), do: []
 

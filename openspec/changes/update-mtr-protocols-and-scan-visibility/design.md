@@ -180,8 +180,10 @@ probing described here; the non-Linux connect-observe fallback is D2.
   protocol)`.
 - **Progress units.** Progress counters count (target, protocol) units. The
   Active Scans row shows targets x protocols.
-- **Single-target path** (dispatcher incident/recovery, device Queue MTR).
-  Core fans out one `mtr.run` per protocol. The existing single-trace result
+- **Single-target path** (dispatcher baseline, device Queue MTR). Core fans
+  out one `mtr.run` per protocol. Incident and recovery captures trace only the
+  set's first protocol: they feed the cohort consensus, which keeps one outcome
+  per agent, so several protocols per agent would overwrite each other. The existing single-trace result
   handling stays unchanged. The agent's concurrent on-demand trace limit rises
   from 2 to 3 so a full icmp/udp/tcp set for one target is admitted at once.
 - **Cooldown.** One `mtr_dispatch_windows` row still covers the whole set.
@@ -290,10 +292,21 @@ for example, "hop 7: 3 sent / 0 replies" versus
 6. Verify on demo: the live baseline TCP profile must show targets reached at
    the ICMP-equivalent depth. See tasks for the artefact queries.
 
+**Rolling upgrade (multi-protocol migration).** Replacing the
+`(command_id, target)` unique index on `mtr_bulk_job_targets` with
+`(command_id, target, protocol)` means pods still on the previous release fail
+bulk MTR dispatches (their `ON CONFLICT (command_id, target)` has no matching
+index) until they roll. Rollouts are short in a single deployment, so this is
+accepted and documented rather than split into an expand/contract release.
+
 **Rollback.**
 - Each step is independently revertible.
 - The policy backfill keeps `baseline_protocol` populated until the follow-up
   drop, so rolling back step 4 loses nothing.
+- Rolling back step 4 in code alone is not enough: run the multi-protocol
+  migration's `down` first. It collapses multi-protocol bulk target rows to one
+  per target and restores the `(command_id, target)` unique index the previous
+  release upserts against.
 
 ## Open Questions
 
