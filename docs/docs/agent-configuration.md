@@ -87,10 +87,15 @@ Each MTR check supports these settings:
 | `probe_interval_ms` | Delay between probes, in milliseconds. | provider default (cap: 10000) |
 | `packet_size` | Probe packet size, in bytes. | provider default (cap: 1500) |
 | `dns_resolve` | Whether to resolve hop IPs to hostnames. | `true` |
+| `tcp_port` | Destination port for `tcp` probes. | `443` |
 
 To protect the agent and the network, all remotely supplied MTR values are
 **clamped to safe upper bounds** (shown above). Any value below 1 is raised to
 1, and any value above the cap is reduced to the cap.
+
+ICMP, UDP, and TCP traces to the same target can report different paths and
+hop counts. [MTR Probe Protocols](./mtr-protocols.md) explains why and how to
+read an unreached trace.
 
 MTR checks can also be run interactively from the Web UI under
 **Diagnostics → MTR**, and recurring MTR profiles are managed under
