@@ -1,6 +1,7 @@
 defmodule ServiceRadar.Identity.DeviceLookupAliasTest do
   @moduledoc """
-  Integration coverage for IP alias resolution in DeviceLookup.
+  Integration coverage for DeviceLookup IP resolution: confirmed aliases, cache
+  behaviour, and which record wins when several share one address.
   """
 
   use ServiceRadar.DataCase, async: false
@@ -65,6 +66,60 @@ defmodule ServiceRadar.Identity.DeviceLookupAliasTest do
     result = DeviceLookup.batch_lookup_by_ip([alias_ip], actor: actor)
 
     assert result[alias_ip].canonical_device_id == uid
+  end
+
+  # Regression: a soft-deleted device could win canonical selection over the live
+  # record sharing its IP. The sweep path passes `include_deleted: true` on
+  # purpose, and that used to be the only thing gating the `deleted_at` check --
+  # so with it set, the winner was whichever uid sorted first. Every subsequent
+  # write then landed on the tombstone while the survivor was never refreshed.
+  #
+  # The tombstone is deliberately given the LOWER uid so it sorts first. Without
+  # the liveness preference this assertion fails; with it, uid order is irrelevant.
+  test "batch lookup prefers the live device over a tombstone sharing its IP", %{actor: actor} do
+    ip = unique_ip("tombstone-preference")
+
+    [low, high] = Enum.sort([Ash.UUID.generate(), Ash.UUID.generate()])
+    tombstone_uid = "sr:" <> low
+    survivor_uid = "sr:" <> high
+    assert tombstone_uid < survivor_uid
+
+    assert {:ok, tombstone} =
+             Device
+             |> Ash.Changeset.for_create(:create, %{
+               uid: tombstone_uid,
+               ip: ip,
+               hostname: "merged-away-01"
+             })
+             |> Ash.create(actor: actor)
+
+    # Tombstone first: the live uniqueness index permits a second row at this IP
+    # only once the first is soft-deleted, which is exactly the post-merge shape.
+    assert {:ok, _deleted} =
+             tombstone
+             |> Ash.Changeset.for_update(:soft_delete, %{
+               deleted_reason: "merged",
+               deleted_by: "identity_reconciler"
+             })
+             |> Ash.update(actor: actor)
+
+    assert {:ok, _survivor} =
+             Device
+             |> Ash.Changeset.for_create(:create, %{
+               uid: survivor_uid,
+               ip: ip,
+               hostname: "survivor-01"
+             })
+             |> Ash.create(actor: actor)
+
+    result =
+      DeviceLookup.batch_lookup_by_ip([ip],
+        actor: actor,
+        include_deleted: true,
+        use_cache: false
+      )
+
+    assert result[ip].canonical_device_id == survivor_uid
   end
 
   test "batch lookup ignores stale identity cache by default", %{actor: actor} do
