@@ -493,14 +493,20 @@ defmodule ServiceRadar.Identity.DeviceLookup do
   end
 
   defp do_lookup_devices_by_ips_sql(ips, include_deleted, partition) do
+    # `deleted_at IS NULL` is the FIRST ordering key after the grouping column, and
+    # must stay there. Ordering by `modified_time DESC` ahead of liveness is
+    # actively self-reinforcing: every sweep write bumps `modified_time` on
+    # whichever row it resolved to, so once a tombstone was picked it kept winning
+    # and the surviving record sank further down the order on each pass.
     sql = """
-    SELECT uid, ip, hostname, metadata, partition
+    SELECT uid, ip, hostname, metadata, partition, deleted_at
     FROM ocsf_devices
     WHERE ip = ANY($1)
       AND ($2 OR deleted_at IS NULL)
       AND partition = $3
     ORDER BY
       ip ASC,
+      CASE WHEN deleted_at IS NULL THEN 0 ELSE 1 END ASC,
       CASE WHEN COALESCE(metadata, '{}'::jsonb) ? '_merged_into' THEN 1 ELSE 0 END ASC,
       CASE WHEN lower(COALESCE(metadata->>'_deleted', '')) = 'true' THEN 1 ELSE 0 END ASC,
       is_active DESC,
@@ -535,11 +541,15 @@ defmodule ServiceRadar.Identity.DeviceLookup do
 
   defp select_canonical_row([]), do: nil
 
+  # Mirrors select_canonical_device/2: liveness decides, and the dead metadata
+  # markers are only a secondary filter. The ORDER BY above already puts live rows
+  # first; this keeps the choice correct even if that ordering is ever changed.
   defp select_canonical_row(rows) do
     Enum.find(rows, fn row ->
       metadata = row["metadata"] || %{}
 
-      not Map.has_key?(metadata, "_merged_into") and
+      is_nil(row["deleted_at"]) and
+        not Map.has_key?(metadata, "_merged_into") and
         String.downcase(to_string(metadata["_deleted"] || "")) != "true"
     end) || List.first(rows)
   end
@@ -711,18 +721,36 @@ defmodule ServiceRadar.Identity.DeviceLookup do
 
   defp select_canonical_device([], _include_deleted), do: nil
 
-  defp select_canonical_device(devices, include_deleted) do
-    # Filter out tombstoned/deleted devices
-    valid_devices =
-      Enum.reject(devices, fn device ->
-        metadata = device.metadata || %{}
+  # A soft-deleted device is never preferred over a live one sharing the same IP.
+  #
+  # Callers on the sweep path pass `include_deleted: true` on purpose, because an
+  # IP may only be carried by a merged-away record. That used to let a tombstone
+  # win the selection outright: `deleted_at` was consulted only when
+  # `include_deleted` was false, so with it true the list was ordered by `uid` and
+  # which of a survivor and its own tombstone came first was decided by UUID.
+  # Every write keyed off the result then landed on the tombstone --
+  # `last_seen_time`, `is_available`, and the `device_agent_availability` rows --
+  # while the surviving record was never refreshed again and read as stale.
+  #
+  # The `_merged_into` / `_deleted` metadata markers are kept as candidates for
+  # rejection but are NOT load-bearing: nothing in this codebase writes either
+  # key. They are Go-era markers, and relying on them is what left `deleted_at`
+  # unchecked.
+  defp select_canonical_device(devices, _include_deleted) do
+    live = Enum.filter(devices, &live_canonical_candidate?/1)
 
-        Map.has_key?(metadata, "_merged_into") or
-          String.downcase(to_string(metadata["_deleted"] || "")) == "true" or
-          (not include_deleted and not is_nil(device.deleted_at))
-      end)
+    # The trailing fallback preserves the previous contract: a non-empty list
+    # always resolves to some device, so a caller that has only a tombstone to go
+    # on still gets it and can follow the merge redirect itself.
+    List.first(live) || List.first(devices)
+  end
 
-    List.first(valid_devices) || List.first(devices)
+  defp live_canonical_candidate?(device) do
+    metadata = device.metadata || %{}
+
+    is_nil(device.deleted_at) and
+      not Map.has_key?(metadata, "_merged_into") and
+      String.downcase(to_string(metadata["_deleted"] || "")) != "true"
   end
 
   defp maybe_record_for_ip(nil, _ip), do: []
