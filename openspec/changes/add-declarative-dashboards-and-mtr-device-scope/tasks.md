@@ -40,6 +40,50 @@
 - [ ] 4.3 State in the spec which fields are outside the format — ids, timestamps,
       `dashboard_ref`, ownership, grants, schedules — so "equivalent" is defined.
 
+## 4b. Shared package-source module (extraction)
+
+The repository-source logic is generic but namespaced under `Plugins`. Reports are
+the third consumer, so it moves once rather than being copied a third time.
+
+- [ ] 4b.1 Extract a project-owned shared module from `Plugins.RepoUrl`,
+      `Plugins.GithubImporter`, `Plugins.FirstPartyImporter` and
+      `Plugins.FirstPartyReleaseClient`: repository-URL parsing and boundary
+      enforcement, ref resolution, signature verification and policy, release
+      listing, and index-asset reading.
+- [ ] 4b.2 **Route every external fetch through `ServiceRadar.HTTP.EgressClient`.**
+      `GithubImporter` currently calls `api.github.com` and
+      `raw.githubusercontent.com` with raw `Req`, including a streaming artifact
+      download, and no importer under `plugins/` references `EgressClient` at all.
+      Per that client's own documentation the shared Finch pool bypasses the egress
+      allowlist and Mint cannot tunnel through the CONNECT proxy this deployment
+      runs behind -- so GitHub import cannot work in a proxied deployment today,
+      and only there. Use `fetch_body/2` for API responses and
+      `download_to_file/3` for artifacts.
+- [ ] 4b.3 Repoint plugins and add-ons at the shared module with no behaviour
+      change other than the egress fix, and keep their existing tests green as the
+      evidence.
+- [ ] 4b.4 A test asserting no module under the package-source namespace calls
+      `Req` directly for an external host, so the violation cannot return.
+
+## 4c. Report import sources
+
+- [ ] 4c.1 Give a report definition the same source model as an add-on package:
+      `source_type` one_of `[:upload, :github, :first_party]` with release tag,
+      commit, content hash and signature provenance.
+- [ ] 4c.2 `:first_party` resolves against the OSS repository's default repo URL
+      and its index asset, listing the reports available to import; some ship
+      enabled by default.
+- [ ] 4c.3 `:github` resolves against an operator-nominated repository, subject to
+      the same repo-boundary and signature policy as a plugin import.
+- [ ] 4c.4 `:upload` accepts a definition directly, validated on the same path as
+      one fetched from a source, so an uploaded report cannot reach the database
+      under looser rules.
+- [ ] 4c.5 Import is idempotent and never overwrites operator edits, exactly as for
+      a shipped definition. An imported report that has been customised is not
+      stomped by re-importing a newer version of it.
+- [ ] 4c.6 A report needs no renderer artifact, so do NOT route it through
+      `GithubImporter.fetch_dashboard/1`, which requires one.
+
 ## 5. MTR device attribution
 
 - [x] 5.0 Configure TimescaleDB compression and retention for `mtr_hops` and
@@ -81,6 +125,18 @@
 - [ ] 5.7 Add `target_ip` and `device_id` to the `mtr_hops` catalog
       `filter_fields`, so `srql/page.ex` stops rejecting them and the query builder
       offers them.
+
+## 5b. count() parity across the MTR entities
+
+- [ ] 5b.1 Accept a zero-argument `count()` on `in:mtr_hops` as `COUNT(*)`, and
+      keep `count(<column>)` working. It currently fails with
+      `unsupported column ''` because the aggregation parser requires exactly one
+      column argument, which blocks the trace-count panel -- the very thing that
+      distinguishes a genuinely shared hop from one seen twice.
+      `mtr_traces` already accepts both forms, so this is symmetry a caller can
+      reasonably expect.
+- [ ] 5b.2 Tests for both forms on both entities, with the zero-argument case
+      confirmed to fail before the fix.
 
 ## 6. Trace-level aggregation
 
