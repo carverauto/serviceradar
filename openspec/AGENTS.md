@@ -402,10 +402,10 @@ notifications/spec.md
 
 ### Version Format
 - **Release versions**: `X.Y.Z` (e.g., `1.0.70`) - Only via `cut-release.sh` + GitHub Release
-- **Pre-release versions**: `X.Y.Z-preN` (e.g., `1.0.71-pre1`) - For development/testing
+- **Pre-release versions**: `X.Y.Z-pre.N` (e.g., `1.0.71-pre.1`) - For development/testing
 
 ### Pre-release Suffixes (auto-detected)
-- `-preN` - Pre-release (e.g., `1.0.71-pre1`, `1.0.71-pre2`)
+- `-pre.N` - Pre-release (e.g., `1.0.71-pre.1`, `1.0.71-pre.2`)
 - `-rcN` - Release candidate (e.g., `1.0.71-rc1`)
 - `-alphaN` - Alpha release
 - `-betaN` - Beta release
@@ -430,12 +430,12 @@ When changing versions, update ALL of these:
 gh release list --limit 1   # e.g., v1.0.70
 
 # Cut a pre-release (auto-detects from version string, skips CHANGELOG)
-./scripts/cut-release.sh --version 1.0.71-pre1 --push
+./scripts/cut-release.sh --version 1.0.71-pre.1 --push
 
 # This will:
-# - Update VERSION and Chart.yaml to 1.0.71-pre1
-# - Create commit "chore: pre-release v1.0.71-pre1"
-# - Create tag v1.0.71-pre1
+# - Update VERSION and Chart.yaml to 1.0.71-pre.1
+# - Create commit "chore: pre-release v1.0.71-pre.1"
+# - Create tag v1.0.71-pre.1
 # - Trigger release workflow (marks as prerelease on GitHub)
 # - Run e2e tests
 ```

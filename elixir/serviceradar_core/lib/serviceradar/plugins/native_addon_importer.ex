@@ -106,6 +106,11 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
     * `:replace_existing` — when true, an operator-initiated replace may restage
       the existing first-party `addon_id` + `version` onto a later signed
       bundle. Default false: same-version source drift is a conflict.
+    * `:expected_source_release_tag` — the `source_release_tag` the caller's
+      import decision was made against (`nil` when it saw no row). When given,
+      an existing row now carrying a different tag is a conflict rather than a
+      reimport, so a decision taken against a stale row cannot replace a newer
+      release that landed meanwhile.
   """
   @spec import_entry(map(), map(), [fetched_artifact()], keyword()) ::
           {:ok, AddonPackage.t()} | {:error, term()}
@@ -182,15 +187,16 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
           source_bundle_digests_match?(package, attrs) ->
         {:ok, package, :reused}
 
+      release_changed?(package, opts) ->
+        {:error, source_conflict(package, attrs, :release_changed)}
+
       source_disagrees?(package, attrs) and not replace_existing?(opts) ->
         {:error, source_conflict(package, attrs, :oci_source_mismatch)}
 
       true ->
         with {:ok, updated} <-
                package
-               |> Ash.Changeset.for_update(:reimport, Map.drop(attrs, [:addon_id, :version]),
-                 actor: actor
-               )
+               |> Ash.Changeset.for_update(:reimport, Map.drop(attrs, [:addon_id, :version]), actor: actor)
                |> Ash.update(),
              :ok <- ProducerScheduleCatalog.sync_package(updated, actor: actor) do
           {:ok, updated, :repaired}
@@ -270,6 +276,13 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
 
   defp replace_existing?(opts), do: Keyword.get(opts, :replace_existing, false) == true
 
+  defp release_changed?(package, opts) do
+    case Keyword.fetch(opts, :expected_source_release_tag) do
+      {:ok, expected} -> package.source_release_tag != expected
+      :error -> false
+    end
+  end
+
   defp source_conflict(package, attrs, reason) do
     {:native_addon_version_source_conflict,
      %{
@@ -277,6 +290,8 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
        addon_id: attrs.addon_id,
        version: attrs.version,
        existing_source_type: package.source_type,
+       existing_release_tag: package.source_release_tag,
+       discovered_release_tag: attrs.source_release_tag,
        existing_oci_ref: package.source_oci_ref,
        existing_oci_digest: package.source_oci_digest,
        discovered_oci_ref: attrs.source_oci_ref,
@@ -517,8 +532,7 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
          source_type: :first_party,
          source_oci_ref: string_value(entry, "oci_ref"),
          source_oci_digest: string_value(entry, "oci_digest"),
-         source_metadata:
-           source_metadata(entry, Keyword.get(opts, :display_contract_errors) || []),
+         source_metadata: source_metadata(entry, Keyword.get(opts, :display_contract_errors) || []),
          source_release_tag: Keyword.get(opts, :release_tag),
          imported_at: DateTime.truncate(now, :second),
          verification_status: "verified",
