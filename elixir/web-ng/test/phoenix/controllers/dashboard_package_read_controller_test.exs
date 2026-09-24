@@ -25,7 +25,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageReadControllerTest do
   alias ServiceRadarWebNG.Dashboards.Packages
   alias ServiceRadarWebNG.Plugins.Storage
 
-  @moduletag :integration
+  @moduletag :web_ng_shared_fixture_db
 
   @renderer "export default {mount(){},destroy(){}}"
 

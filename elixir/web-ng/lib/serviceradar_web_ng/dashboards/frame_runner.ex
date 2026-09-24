@@ -519,7 +519,7 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
   defp content_hash(%{"results" => results}) when is_list(results), do: hash_term(results)
   defp content_hash(_frame), do: nil
 
-  defp hash_term(term), do: term |> :erlang.phash2() |> Integer.to_string(16)
+  defp hash_term(term), do: term |> :erlang.phash2(4_294_967_296) |> Integer.to_string(16)
 
   defp now_iso8601 do
     DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
