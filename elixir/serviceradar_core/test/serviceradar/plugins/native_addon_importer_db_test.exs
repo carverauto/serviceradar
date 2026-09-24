@@ -281,7 +281,8 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
       |> Ash.create()
 
     assert {:error,
-            {:native_addon_version_source_conflict, %{reason: :source_type_owned, existing_source_type: :upload}}} =
+            {:native_addon_version_source_conflict,
+             %{reason: :source_type_owned, existing_source_type: :upload}}} =
              import_package(addon_id, uid, actor, pub, priv)
 
     {:ok, persisted} = Ash.get(AddonPackage, owned.id, actor: actor)
@@ -527,7 +528,8 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
       })
 
     assert {:error,
-            {:native_addon_version_source_conflict, %{reason: :oci_source_mismatch, existing_source_type: :first_party}}} =
+            {:native_addon_version_source_conflict,
+             %{reason: :oci_source_mismatch, existing_source_type: :first_party}}} =
              Importer.import_entry_with_disposition(
                manifest(addon_id, uid),
                changed_entry,
@@ -621,7 +623,8 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
       })
 
     assert {:error,
-            {:native_addon_version_source_conflict, %{reason: :oci_source_mismatch, existing_source_type: :first_party}}} =
+            {:native_addon_version_source_conflict,
+             %{reason: :oci_source_mismatch, existing_source_type: :first_party}}} =
              Importer.import_entry_with_disposition(
                manifest(addon_id, uid),
                later_entry,
@@ -668,7 +671,8 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
       })
 
     assert {:error,
-            {:native_addon_version_source_conflict, %{reason: :oci_source_mismatch, existing_source_type: :first_party}}} =
+            {:native_addon_version_source_conflict,
+             %{reason: :oci_source_mismatch, existing_source_type: :first_party}}} =
              Importer.import_entry_with_disposition(
                changed_manifest,
                changed_entry,
