@@ -1,0 +1,33 @@
+# Frozen ROUTE-LEVEL vectors: contract components -> the COMPLETE resolved route.
+#
+# Each row binds the whole ResolvedRoute tuple, not just the subject. Asserting the subject
+# alone let two production mutants pass: shifting route.partition by one while keeping the
+# subject suffix, and renaming both physical streams without incrementing placement_version.
+#
+# RECOVERY rows are included. Its singular subject and nil partition were covered only by
+# behavioural tests, so its VERSIONED TUPLE was unbound -- a placement or version change on the
+# recovery lane would have slipped past the corpus that exists to catch exactly that. Recovery's
+# partition column is the literal `nil`, never `0`: zero is a real partition.
+#
+# Format:
+#   <route_profile>\t<traffic_class>\t<scope hex>\t<agent id>\t<spool hex>\t<subject>\t<partition|nil>\t<stream>\t<placement_v>\t<partition_scheme_v>
+durable	bulk	6e340b9cffb37a989ca544e6bb780a2c	agent-0	fc19b4e65da0883011250133c637b644	telemetry.edge-record.v1.bulk.p44	44	TELEMETRY_EDGE_RECORD_V1_BULK	1	1
+durable	interactive	4bf5122f344554c53bde2ebb8cd2b7e3	agent-1	c68f94989b5a0773b1013e8c498a92c1	telemetry.edge-record.v1.interactive.p00	0	TELEMETRY_EDGE_RECORD_V1_INTERACTIVE	1	1
+durable	bulk	dbc1b4c900ffe48d575b5da5c6380401	agent-2	65698814c98d9da863397aec5211c5b2	telemetry.edge-record.v1.bulk.p61	61	TELEMETRY_EDGE_RECORD_V1_BULK	1	1
+durable	interactive	084fed08b978af4d7d196a7446a86b58	agent-3	4be19c8c7200640ca49ad9d4eaf78b05	telemetry.edge-record.v1.interactive.p53	53	TELEMETRY_EDGE_RECORD_V1_INTERACTIVE	1	1
+durable	bulk	e52d9c508c502347344d8c07ad91cbd6	agent-4	67ab8f1b87a934bf37f695b0de926828	telemetry.edge-record.v1.bulk.p32	32	TELEMETRY_EDGE_RECORD_V1_BULK	1	1
+durable	interactive	e77b9a9ae9e30b0dbdb6f510a264ef9d	agent-5	3ba18e8e6cf7090ea49170e0dcae8907	telemetry.edge-record.v1.interactive.p43	43	TELEMETRY_EDGE_RECORD_V1_INTERACTIVE	1	1
+durable	bulk	67586e98fad27da0b9968bc039a1ef34	agent-6	7a7832ae7e90e0a2bfbfee8af11a0808	telemetry.edge-record.v1.bulk.p28	28	TELEMETRY_EDGE_RECORD_V1_BULK	1	1
+durable	interactive	ca358758f6d27e6cf45272937977a748	agent-7	d62f8923c1e16d00ed0d714ee7960bb5	telemetry.edge-record.v1.interactive.p47	47	TELEMETRY_EDGE_RECORD_V1_INTERACTIVE	1	1
+durable	bulk	beead77994cf573341ec17b58bbf7eb3	agent-8	91d0b157a68ec07c375ee251d5f83819	telemetry.edge-record.v1.bulk.p26	26	TELEMETRY_EDGE_RECORD_V1_BULK	1	1
+durable	interactive	2b4c342f5433ebe591a1da77e013d1b7	agent-9	e5b7df02dd83be20fff307e83e2bef84	telemetry.edge-record.v1.interactive.p10	10	TELEMETRY_EDGE_RECORD_V1_INTERACTIVE	1	1
+durable	bulk	01ba4719c80b6fe911b091a7c05124b6	agent-10	f803ecaf782a68ab35fd4c17b97629fc	telemetry.edge-record.v1.bulk.p63	63	TELEMETRY_EDGE_RECORD_V1_BULK	1	1
+durable	interactive	e7cf46a078fed4fafd0b5e3aff144802	agent-11	2a925c42485c523e83d4d95f982a69be	telemetry.edge-record.v1.interactive.p40	40	TELEMETRY_EDGE_RECORD_V1_INTERACTIVE	1	1
+durable	bulk	992a93455c71fedd36ac9bbc439952c0	agent-other-0	ec18eac8d758b1eba52d3c10d39adc6d	telemetry.edge-record.v1.bulk.p43	43	TELEMETRY_EDGE_RECORD_V1_BULK	1	1
+durable	bulk	992a93455c71fedd36ac9bbc439952c0	agent-other-1	e8bc163c82eee18733288c7d4ac636db	telemetry.edge-record.v1.bulk.p43	43	TELEMETRY_EDGE_RECORD_V1_BULK	1	1
+durable	bulk	992a93455c71fedd36ac9bbc439952c0	agent-other-2	ad328846aa18b32a335816374511cac1	telemetry.edge-record.v1.bulk.p43	43	TELEMETRY_EDGE_RECORD_V1_BULK	1	1
+durable	bulk	992a93455c71fedd36ac9bbc439952c0	agent-other-3	41242b9fae56fad4e6e77dfe33cb18d1	telemetry.edge-record.v1.bulk.p43	43	TELEMETRY_EDGE_RECORD_V1_BULK	1	1
+recovery	bulk	16c4cdf4386ae15fee0c26151be62d28	agent-rec-0	91e91f9c37c515f868444200f8131ec7	telemetry.edge-record-recovery.v1	nil	TELEMETRY_EDGE_RECORD_RECOVERY_V1	1	1
+recovery	interactive	c97c121a37e664a6ccbe874f9b0afb22	agent-rec-1	8c4bba9e7c828a1bbd6fb23f09d445de	telemetry.edge-record-recovery.v1	nil	TELEMETRY_EDGE_RECORD_RECOVERY_V1	1	1
+recovery	bulk	191904440c3a567c054e56ee1831204c	agent-rec-2	b604257892f6c012bf913cef1edd2d3a	telemetry.edge-record-recovery.v1	nil	TELEMETRY_EDGE_RECORD_RECOVERY_V1	1	1
+recovery	interactive	b08c811619ab6a28242d275d964c74c9	agent-rec-3	b266db9649984b4dd680ab7dd39fb64f	telemetry.edge-record-recovery.v1	nil	TELEMETRY_EDGE_RECORD_RECOVERY_V1	1	1

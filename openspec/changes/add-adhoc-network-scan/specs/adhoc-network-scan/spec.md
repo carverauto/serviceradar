@@ -12,7 +12,12 @@ and choosing the agent that egresses the scan.
   mode (`icmp`, `tcp`, or `mtr`), and an online agent
 - **THEN** the system SHALL create a `ScanRun` record capturing the agent,
   modes, ports, normalized targets, and options, and dispatch the work to
-  the chosen agent
+  the chosen agent through a bounded immutable plan
+- **AND** it SHALL derive and bind authoritative `network_scope_id` from the
+  selected agent/site rather than caller-supplied scope text
+- **AND** the scheduler SHALL attest `interactive` only when the estimated
+  target/probe/duration/result cost fits its configured envelope; otherwise it
+  SHALL select `bulk` or reject before probing
 
 #### Scenario: TCP mode requires ports
 - **WHEN** a scan request includes mode `tcp` but no ports
@@ -20,7 +25,9 @@ and choosing the agent that egresses the scan.
   create no `ScanRun`
 
 #### Scenario: Agent must be online and capable
-- **WHEN** the chosen agent is offline or lacks the required scan capability
+- **WHEN** the chosen agent is offline, lacks `scan.run_adhoc` or
+  `edge-results:v1`, is below the configured minimum result-path version, or its
+  complete gateway/stream/consumer path is not ready
 - **THEN** the system SHALL reject the request and report why, creating no
   dispatch
 
@@ -40,18 +47,22 @@ them before dispatch.
 - **THEN** the system SHALL show which entries were rejected and why before
   the user confirms the scan
 
-### Requirement: Reuse the on-demand agent command bus
-Ad-hoc scans SHALL be dispatched as a single `scan.run_adhoc` command over
-the existing addressed-to-one-agent command bus, carrying all requested
-modes (icmp/tcp/mtr) with the inline target and port list. The command SHALL
-run in an ephemeral engine pass that never mutates the agent's scheduled
-sweep config.
+### Requirement: Reuse the on-demand agent command bus with bounded assignments
+Ad-hoc scans SHALL use the existing addressed-to-one-agent command bus for
+bounded `scan.run_adhoc` assignments. One logical `ScanRun` SHALL own an
+immutable plan and MAY use one or more target-plan pages/ranges; no command SHALL
+carry an unbounded uploaded list. Every assignment SHALL carry all requested
+modes for its bounded range plus authoritative network scope, agent, execution,
+range/epoch, and scheduler-attested traffic class. The command SHALL run in an
+ephemeral engine pass that never mutates the agent's scheduled sweep config.
 
-#### Scenario: Single-command dispatch for all modes
+#### Scenario: Bounded assignment dispatches all modes
 - **WHEN** a `ScanRun` requests any combination of `icmp`, `tcp`, and `mtr`
-- **THEN** the system SHALL dispatch one `scan.run_adhoc` command carrying
-  those modes, the target list, and (for tcp) the port list, subject to TTL
-  and per-agent concurrency limits
+- **THEN** every bounded `scan.run_adhoc` assignment SHALL carry those modes,
+  its target-plan range, and (for tcp) the port list, subject to TTL and
+  per-agent concurrency/result-pressure limits
+- **AND** a small run MAY fit one assignment while a large run SHALL use
+  multiple independently fenced assignments rather than one oversized command
 
 #### Scenario: Ephemeral run does not disturb scheduled sweeps
 - **WHEN** an agent receives a `scan.run_adhoc` command
@@ -63,6 +74,8 @@ sweep config.
 - **WHEN** an agent is running a scan over a large target list
 - **THEN** the agent SHALL stream progress updates over the command channel
   so the UI can show completion as targets finish
+- **AND** progress SHALL reconcile bounded assignment watermarks rather than
+  depend on one command or transport EOF
 
 ### Requirement: MTR is a first-class sweep mode
 MTR SHALL be a first-class sweep mode (`mtr`) available to both ad-hoc scans
@@ -80,30 +93,45 @@ than a separate command path.
 - **THEN** the system SHALL record a reachability summary (target reached +
   end-to-end RTT) in the unified results alongside ICMP/TCP, and SHALL retain
   the full per-hop trace for that target
+- **AND** every completed trace SHALL enter the bounded canonical builder/spool
+  and release producer memory while later traces continue; the run SHALL NOT
+  retain a completed-trace slice
 
 ### Requirement: Durable results via JetStream
 Scan results SHALL be persisted by emitting them onto NATS JetStream and
 writing them to the database through the event-writer consumer pipeline,
 never by a direct database write from the agent or gateway. The interactive
 command channel SHALL be used only for live progress, not as the system of
-record.
+record. Immutable scheduler-attested traffic class SHALL select the disjoint
+bulk or interactive sweep/MTR streams and SHALL survive reconciliation, graph,
+DLQ, redrive, and quarantine.
 
 #### Scenario: Results land in the durable store
 - **WHEN** an agent completes ICMP/TCP checks for a `ScanRun`
-- **THEN** the agent SHALL emit an `adhoc-scan-metrics` batch onto the
-  metrics JetStream stream, and an event-writer processor SHALL persist per
-  target/port rows (availability, response time, port state) into the
-  `adhoc_scan_results` hypertable keyed by `scan_run_id`
+- **THEN** the agent SHALL emit canonical `SweepObservationBatchV1` events with
+  `source=ad_hoc` and `scan_run_id` through the durable edge result lane
+- **AND** the sweep EventWriter projector SHALL persist per-target/check rows
+  into `adhoc_scan_results` under authoritative `network_scope_id`
+- **AND** core SHALL NOT republish command results or create a duplicate generic
+  `MetricBatch`
 
 #### Scenario: Results table has retention
 - **WHEN** the `adhoc_scan_results` hypertable is created
 - **THEN** a retention policy SHALL drop rows older than the configured
   window (default 30 days)
+- **AND** every row SHALL carry a non-null canonical check key derived from mode,
+  protocol, and normalized port/sentinel so the physical uniqueness key never
+  depends on nullable `port`
+- **AND** its Timescale partition/uniqueness time SHALL be the immutable
+  scheduler-owned ScanRun identity time, while actual observation time remains a
+  separately stored semantic field
 
 #### Scenario: MTR results correlate to the run
 - **WHEN** a `ScanRun` included `mtr`
-- **THEN** its MTR traces SHALL be retrievable for that `scan_run_id` and be
-  joinable with the ICMP/TCP results for display and export
+- **THEN** the agent SHALL emit the small correlated sweep summary plus a full
+  `MtrTraceBatchV1` trace using the same `scan_run_id`
+- **AND** its MTR traces SHALL be retrievable and joinable with ICMP/TCP results
+  for display and export
 
 ### Requirement: View scan runs and results
 Authorized users SHALL be able to view a scan run's status and its results
@@ -111,8 +139,10 @@ in a table.
 
 #### Scenario: Watch a run to completion
 - **WHEN** a user with `scans.read` opens a running scan
-- **THEN** the UI SHALL show per-target/per-port results as they arrive and
-  reflect the run's terminal status when finished
+- **THEN** the UI SHALL show per-target/per-port rows as canonical projections
+  commit and reflect the reconciled terminal status when finished
+- **AND** command progress SHALL carry only bounded counters/watermarks rather
+  than a second copy of result rows
 
 ### Requirement: Export scan results
 Authorized users SHALL be able to export a scan run's results as CSV and as
@@ -140,7 +170,10 @@ device inventory.
 
 #### Scenario: Disabled setting allows arbitrary targets
 - **WHEN** the inventory-scoping setting is disabled
-- **THEN** the system SHALL allow any well-formed target list
+- **THEN** the system SHALL NOT reject a well-formed target solely because it is
+  absent from inventory
+- **AND** ordinary target, plan-page, traffic-class, probe, duration, spool, and
+  downstream-capacity admission limits SHALL still apply
 
 #### Scenario: Only managers can change the setting
 - **WHEN** a user without `scans.manage` attempts to toggle the setting

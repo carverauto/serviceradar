@@ -22,7 +22,7 @@ problem.
   findings, Bumblebee scan activity/findings, endpoint inventory, and future security
   sidecars without producer-specific aliases in EventWriter.
 - Keep transforms bounded, inspectable, testable, and safe to execute in core.
-- Preserve gateway/agent-attested provenance and device correlation.
+- Preserve host-attested, gateway-verified provenance and device correlation.
 - Allow processor registry updates without requiring an application release for every
   new integration.
 
@@ -30,8 +30,8 @@ problem.
 - Do not allow packages to load arbitrary Elixir modules into core.
 - Do not allow packages to provide SQL, HTML, JavaScript, native code, or database DDL
   as an EventWriter processor.
-- Do not let processor manifests decide tenancy, partition routing, RBAC, or trust
-  boundaries.
+- Do not let processor manifests decide installation/network scope, route profile,
+  traffic class, partition routing, RBAC, or trust boundaries.
 - Do not require core/web-ng to call running add-ons to fetch processor definitions,
   catalogs, or mapping logic at event-processing time.
 - Do not move EventWriter processing into add-ons.
@@ -45,8 +45,10 @@ Add a `event_processors` or equivalent section to package metadata. Each contrib
 declares:
 
 - stable `id`, `version`, `producer_id`, and package version binding
-- one or more NATS subject filters it owns
-- payload kind, for example `ocsf_event`, `otel_log`, `json`, `scan_activity`,
+- one or more approved output-contract/projector requests; the platform output
+  registry assigns route profile, subject slot, traffic class, partition rule, and
+  immutable bundle digest
+- contract family, for example `ocsf_event`, `otel_log`, `json`, `scan_activity`, or
   `security_finding`
 - platform processor engine id
 - destination family, for example `ocsf_events`, `logs`, `metrics`, or a platform
@@ -56,7 +58,7 @@ declares:
 - device-correlation mappings
 - severity/action/status mapping rules
 - promotion policy for log-to-event or event-to-alert input
-- priority and conflict behavior for overlapping subject filters
+- priority and conflict behavior for overlapping contract/projector ownership
 
 The processor contribution is versioned with the package. Importing, installing, or
 registering a new package version can stage a new processor version without changing
@@ -79,14 +81,15 @@ Introduce a processor registry read model that EventWriter can load at startup a
 refresh after package approval/revocation. The registry snapshot contains normalized
 routes and engine configuration, not package source files.
 
-EventWriter SHALL build producer subscriptions, Broadway batchers, and processor
-resolution from this snapshot. The pipeline must not contain producer-specific clauses
+EventWriter SHALL build contract dispatch and Broadway batchers from this snapshot
+while consuming the finite platform-owned stream/consumer map from
+`unify-sweep-results-proto`. The pipeline must not contain producer-specific clauses
 such as `get_processor(:pdns_ocsf)` or aliases for PowerDNS/Falco/Trivy.
 
-Dynamic package-contributed JetStream consumers should use the same Broadway-backed
-EventWriter path as the existing pipeline. Shared JetStream helper modules may keep
-consumer creation/API utilities, but message consumption and back-pressure should remain
-Broadway-owned rather than growing independent receive loops.
+Package contributions SHALL NOT create dynamic JetStream streams, consumers,
+connections, or receive loops. Shared Broadway producers consume the finite physical
+route map and dispatch decoded canonical `EdgeRecordV1` values by exact contract ID,
+version, bundle digest, and registry epoch.
 
 ### D4: Core owns processor engines
 Packages select from platform-owned engines. Initial engines:
@@ -109,16 +112,18 @@ Mapping rules may read fields from the incoming payload, set constants, apply se
 or enum maps, and render short string templates. They may not execute code, run SQL,
 perform network I/O, allocate unbounded payloads, or mutate package/catalog state.
 
-Validation enforces maximum manifest size, subject count, mapping count, field path
+Validation enforces maximum manifest size, contract count, mapping count, field path
 depth, template length, output payload size, and batch processing time. Invalid records
 are dropped or stored as raw logs according to the contribution's error policy and must
 emit processor telemetry.
 
-### D6: Subjects remain platform-governed
-Processor manifests declare requested subject filters, but the platform validates them
-against allowed producer namespaces. A PowerDNS package can own `pdns.ocsf` or a
-namespaced equivalent because the approved package owns that source. It cannot claim
-internal health subjects, unrelated producer subjects, or cross-partition routes.
+### D6: Routing remains platform-owned
+Processor manifests request an output contract and bounded projector but never declare
+subjects, streams, consumers, traffic class, partition rules, database destinations,
+SQL, or DDL. The signed platform output registry assigns every approved contract to the
+finite route map and validates package/projector ownership. A PowerDNS package can own
+an approved OCSF DNS Activity contract; it cannot claim internal health routes,
+unrelated producer contracts, cross-scope authority, or a dedicated transport topology.
 
 ### D7: Device correlation is declarative and provenance-aware
 Processor manifests may declare correlation candidates such as:
@@ -130,7 +135,8 @@ Processor manifests may declare correlation candidates such as:
 - `host.hostname`
 - package-specific payload paths
 
-The correlation engine uses these hints together with gateway/agent-attested metadata.
+The correlation engine uses these hints together with host-attested,
+gateway-verified canonical record context.
 Manifest-provided fields are candidates, not authoritative identity.
 
 ### D8: First-party integrations become examples, not special cases
@@ -173,8 +179,9 @@ not expose an API that implies the add-on will be called at runtime to process e
 - **Declarative mapping may not cover every case immediately.** Mitigate with a
   short-lived platform adapter escape hatch while moving common logic into reusable
   engines.
-- **Subject conflicts can drop data or duplicate processing.** Mitigate with registry
-  validation, priority rules, and explicit conflict errors during package approval.
+- **Contract/projector conflicts can drop data or duplicate processing.** Mitigate with
+  exact bundle identity, registry validation, priority rules, and explicit conflict
+  errors during package approval.
 - **Registry refresh can disrupt EventWriter.** Mitigate with versioned snapshots,
   atomic reload, and keeping the previous snapshot active when validation fails.
 - **Third-party manifests could be abusive.** Mitigate with signing, approval,
@@ -195,12 +202,13 @@ not expose an API that implies the add-on will be called at runtime to process e
 7. Add typed add-on SDK, Go SDK, and Rust SDK helpers for processor/catalog
    contributions.
 8. Remove producer-specific aliases, subject matchers, and batcher clauses from
-   EventWriter.
+   EventWriter while retaining the finite platform-owned stream/consumer map.
 9. Document processor contribution authoring for native add-ons, sidecars, and Wasm
    packages.
 
 ## Open Questions
-- Should EventWriter reload registry snapshots through PubSub, Oban job scheduling, or
-  supervisor restart?
+- The output-contract registry activation protocol in `unify-sweep-results-proto`
+  decides distribution, readiness, and atomic epoch switching; this change SHALL NOT
+  create an independent hot-path reload mechanism.
 - Which OCSF 1.9.0-dev finding/scan fields should be mandatory in the first migration
   for Bumblebee, Falco, Trivy, and endpoint inventory?

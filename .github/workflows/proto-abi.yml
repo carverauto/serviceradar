@@ -1,0 +1,251 @@
+# MIGRATED FROM .forgejo/workflows/proto-abi.yml after the move back to GitHub. The Forgejo host
+# is READ-ONLY now, so the copy there no longer runs; this is the live gate.
+#
+# ONE CLAIM BELOW DOES NOT HOLD ON THIS HOST. The note about `main.yml` running the full
+# Go/Elixir/Bazel graph on every pull request describes the FORGEJO suite. Most of that suite IS
+# now on GitHub -- rust-checks, native-addons, golangci-lint, elixir-quality and others -- but
+# `main.yml` itself has NO GitHub equivalent, so its single aggregate build is not reproduced and
+# no one workflow covers the whole graph. Treat this file as a proto/ABI drift guard, and check
+# what actually runs before calling anything gated.
+#
+# THIS WORKFLOW NOW RUNS ROUTINELY on pull requests touching the paths below, and has caught real
+# regressions. The banner that used to sit here -- "this workflow has never run ... only ported"
+# -- was true when the file was migrated and is no longer. GitHub still has no required status
+# checks configured, so it reports rather than blocks; that part stands.
+#
+# AND IF IT IS EVER MADE A REQUIRED CHECK, THE `paths:` FILTER BELOW MUST GO FIRST. A workflow-level
+# path filter means the job never STARTS on an unrelated pull request, and a required check that
+# never starts sits pending forever rather than passing. The fix is to drop the workflow-level
+# filter and decide inside the job -- always report, skip the work -- not to mark it required as
+# it stands.
+#
+name: Proto ABI
+
+# Stack-aware ABI gate: this runs on EVERY pull request that touches the proto ABI,
+# its generated bindings, or the edge record-plane validators, regardless of base
+# branch, so stacked contract PRs are gated too. It is path-filtered so it stays
+# cheap.
+#
+# Single-source model: protoc (via `make generate-proto`) is the ONE generator for
+# the checked-in *.pb.go; Bazel compiles those exact files (a plain go_library), so
+# there is no second generator to drift against and no Bazel-vs-Make parity gate.
+# `make verify-proto-go` / `make verify-proto-elixir` (regenerate into a clean temp
+# tree, then compare the file manifest AND bytes vs committed) are the sole drift
+# guards. This job needs no Bazel toolchain because `main.yml` ran the full
+# Go/Elixir/Bazel graph on every pull request -- ON FORGEJO. THAT WORKFLOW IS NOT MIGRATED,
+# so on THIS host nothing else runs the edge Bazel build and the sentence below about a
+# required full-CI status describes the old host, not this one. It is kept because it
+# states the intended end state; it is not a description of current coverage.
+#
+# The pull_request and push path lists MUST stay identical (Forgejo's parser does
+# not support YAML anchors, so they are duplicated verbatim).
+on:
+  pull_request:
+    paths:
+      # --- KEEP IN SYNC with push.paths below ---
+      - 'proto/**'
+      - 'buf.yaml'
+      - 'go.mod'
+      - 'go.sum'
+      - 'go/pkg/edge/edgerecord/**'
+      # execstate builds the lifecycle events that carry the completion proof, so a
+      # producer change there can break the frozen ABI without touching edgerecord.
+      - 'go/pkg/edge/execstate/**'
+      # 1.5-c's canonicalization helper lives here. Without this a helper-only
+      # regression skips the very workflow that gates its shared vectors.
+      - 'go/pkg/edge/projection/**'
+      - 'elixir/serviceradar_core/lib/serviceradar/proto/**'
+      - 'elixir/serviceradar_core/lib/serviceradar/edge/**'
+      - 'elixir/serviceradar_core/test/serviceradar/proto/**'
+      - 'elixir/serviceradar_core/test/serviceradar/edge/**'
+      - 'elixir/serviceradar_core/test/fixtures/edge/**'
+      # The gateway publisher wires the frozen identity grammar onto NATS headers. A change here
+      # can break the ABI binding without touching serviceradar_core.
+      - 'elixir/serviceradar_agent_gateway/lib/serviceradar_agent_gateway/jet_stream_publisher.ex'
+      - 'elixir/serviceradar_agent_gateway/test/serviceradar_agent_gateway/jet_stream_publisher_test.exs'
+      - 'elixir/serviceradar_agent_gateway/mix.exs'
+      - 'elixir/serviceradar_agent_gateway/mix.lock'
+      # Bazel registration and the test helper: a change to either can leave the shard running
+      # nothing, and the shard IS the gate now that the per-file Mix steps are gone.
+      - 'elixir/serviceradar_agent_gateway/BUILD.bazel'
+      - 'elixir/serviceradar_agent_gateway/test/test_helper.exs'
+      - 'elixir/serviceradar_core/BUILD.bazel'
+      - 'elixir/serviceradar_core/test/test_helper.exs'
+      # The SHARED benchmark fixture generator. Without this the verifier that guards it
+      # does not run on the change that breaks it -- a required test absent from the very
+      # edit it exists to catch.
+      - 'elixir/serviceradar_core/bench/sweep_ingress_fixtures.exs'
+      - 'scripts/patch_edge_enum_negatives.exs'
+      - 'scripts/test_patch_edge_enum_negatives.exs'
+      - 'elixir/serviceradar_core/mix.exs'
+      - 'elixir/serviceradar_core/mix.lock'
+      - 'elixir/serviceradar_core/.formatter.exs'
+      - 'Makefile'
+      - '.github/workflows/proto-abi.yml'
+  push:
+    branches: [staging]
+    paths:
+      # --- KEEP IN SYNC with pull_request.paths above ---
+      - 'proto/**'
+      - 'buf.yaml'
+      - 'go.mod'
+      - 'go.sum'
+      - 'go/pkg/edge/edgerecord/**'
+      # execstate builds the lifecycle events that carry the completion proof, so a
+      # producer change there can break the frozen ABI without touching edgerecord.
+      - 'go/pkg/edge/execstate/**'
+      # 1.5-c's canonicalization helper lives here. Without this a helper-only
+      # regression skips the very workflow that gates its shared vectors.
+      - 'go/pkg/edge/projection/**'
+      - 'elixir/serviceradar_core/lib/serviceradar/proto/**'
+      - 'elixir/serviceradar_core/lib/serviceradar/edge/**'
+      - 'elixir/serviceradar_core/test/serviceradar/proto/**'
+      - 'elixir/serviceradar_core/test/serviceradar/edge/**'
+      - 'elixir/serviceradar_core/test/fixtures/edge/**'
+      # The gateway publisher wires the frozen identity grammar onto NATS headers. A change here
+      # can break the ABI binding without touching serviceradar_core.
+      - 'elixir/serviceradar_agent_gateway/lib/serviceradar_agent_gateway/jet_stream_publisher.ex'
+      - 'elixir/serviceradar_agent_gateway/test/serviceradar_agent_gateway/jet_stream_publisher_test.exs'
+      - 'elixir/serviceradar_agent_gateway/mix.exs'
+      - 'elixir/serviceradar_agent_gateway/mix.lock'
+      # Bazel registration and the test helper: a change to either can leave the shard running
+      # nothing, and the shard IS the gate now that the per-file Mix steps are gone.
+      - 'elixir/serviceradar_agent_gateway/BUILD.bazel'
+      - 'elixir/serviceradar_agent_gateway/test/test_helper.exs'
+      - 'elixir/serviceradar_core/BUILD.bazel'
+      - 'elixir/serviceradar_core/test/test_helper.exs'
+      # The SHARED benchmark fixture generator. Without this the verifier that guards it
+      # does not run on the change that breaks it -- a required test absent from the very
+      # edit it exists to catch.
+      - 'elixir/serviceradar_core/bench/sweep_ingress_fixtures.exs'
+      - 'scripts/patch_edge_enum_negatives.exs'
+      - 'scripts/test_patch_edge_enum_negatives.exs'
+      - 'elixir/serviceradar_core/mix.exs'
+      - 'elixir/serviceradar_core/mix.lock'
+      - 'elixir/serviceradar_core/.formatter.exs'
+      - 'Makefile'
+      - '.github/workflows/proto-abi.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  proto-abi:
+    runs-on: arc-runner-set
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - name: Setup Go
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
+        with:
+          go-version-file: go.mod
+      - name: Setup BEAM (Elixir/OTP)
+        uses: erlef/setup-beam@fc68ffb90438ef2936bbb3251622353b3dcb2f93
+        with:
+          otp-version: '28.3'
+          elixir-version: '1.19.4'
+      # verify-proto-elixir compiles the Elixir tree, which includes the
+      # serviceradar_srql path dependency's Rust NIF; without cargo on PATH `mix`
+      # aborts with `System.cmd("cargo", ...) :enoent` before the drift guard runs
+      # (the root cause of the earlier red run #38747). Install the moving-stable
+      # toolchain, matching main.yml -- this job only needs a cargo that can compile
+      # the NIF so the drift guard runs; the authoritative Rust build is elsewhere.
+      - name: Setup Rust
+        run: |
+          set -euo pipefail
+
+          export PATH="${HOME}/.cargo/bin:${PATH}"
+          echo "${HOME}/.cargo/bin" >> "${GITHUB_PATH}"
+
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+              | sh -s -- -y --profile minimal --default-toolchain stable
+          fi
+
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+          cargo --version
+      # Pin protoc to the exact version the committed bindings were generated with
+      # (libprotoc 34.1 -> "// protoc v7.34.1"), installed WITHOUT sudo so the
+      # runner's passworded-sudo restriction cannot skip the gate. The byte-exact
+      # regeneration drift guard requires this precise version.
+      - name: Install pinned protoc (no sudo)
+        env:
+          PROTOC_VERSION: "34.1"
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.local"
+          url="https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/protoc-${PROTOC_VERSION}-linux-x86_64.zip"
+          curl -fsSL "$url" -o /tmp/protoc.zip
+          unzip -o -q /tmp/protoc.zip -d "$HOME/.local"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/protoc" --version
+      # protoc-gen-go / protoc-gen-go-grpc are pinned by the Makefile's `proto-tools`
+      # target (protoc-gen-go built from go.mod, go-grpc pinned to v1.5.1) so the
+      # regenerated Go bindings match the committed ones byte-for-byte.
+      - name: Build pinned proto codegen toolchain
+        run: make proto-tools
+      # Elixir codegen + the golden test need project deps and the pinned
+      # protoc-gen-elixir escript. Without deps.get, `mix format`/`mix test` fail
+      # before the drift guard even runs.
+      - name: Fetch Elixir deps
+        working-directory: elixir/serviceradar_core
+        run: mix deps.get
+      - name: Buf lint (incl. proto/edge/v1)
+        run: make proto-lint
+      - name: Go binding regeneration drift guard
+        run: make verify-proto-go
+      - name: Elixir binding regeneration drift guard
+        run: make verify-proto-elixir
+      # TESTS MOVED TO BAZEL.
+      #
+      # 33 sequential `mix test --no-start` steps and one `go test` used to live here.
+      #
+      # MEASURED, end to end: 36m29s pre-migration, 9m28s-12m26s after. The removed sequential
+      # block alone accounted for about 22m08s.
+      #
+      # Three wrong numbers were published before this one, in both directions. "20m44s -> 2m22s"
+      # compared an old run against six Bazel targets in isolation rather than this job, and
+      # over-claimed. "12m26s -> 9m28s, about 24%" then treated 12m26s as the pre-migration
+      # baseline when it was already a post-migration observation, and under-claimed by roughly
+      # 24 minutes. The honest figure is the first line.
+      #
+      # SPEED IS THE SMALLER WIN. The larger ones are that these suites now run under Bazel at all
+      # on this branch (cached, parallel, on the workflow fleet), and that a target discovers a new
+      # test file while a hand-maintained list of step names does not.
+      #
+      # Every file the removed steps named is ALREADY a Bazel target:
+      #   31 files -> //elixir/serviceradar_core:unit_tests_serviceradar_edge
+      #    1 file  -> //elixir/serviceradar_core:unit_tests_serviceradar_other
+      #    gateway -> //elixir/serviceradar_agent_gateway:unit_tests_serviceradar_agent_gateway
+      #    Go      -> //proto/edge/v1:edgev1_golden_test and
+      #               //go/pkg/edge/{edgerecord,execstate,projection}:*_test
+      #
+      # The gateway target was omitted from the first version of this inventory even though the
+      # publisher suite was one of the removed steps -- an inventory that misses a target is the
+      # same defect as a list that misses a file.
+      #
+      # They were duplicated here for one reason: BazelCI's `pull_request` trigger was filtered to
+      # `staging`, so NOTHING Bazel ran on PRs into the usp-01-proposal integration branch. That
+      # filter is now `[staging, usp-01-proposal]` in //buildbuddy.yaml, so the real targets run --
+      # cached, parallel, on the workflow fleet -- and cover MORE than the hand-maintained list
+      # did, because a target picks up a new test file automatically while a list does not.
+      #
+      # WHAT STAYS HERE, and why: buf lint and the two codegen drift guards above need the pinned
+      # protoc/Rust toolchain this job installs, and the enum-transform fixture below is a plain
+      # script with no Bazel target. Giving it one is worthwhile follow-up; deleting the step
+      # without one would silently drop the check.
+      #
+      # DISCOVERY: `go test ./...` FOUND test files; a go_test target LISTS them, so dropping the
+      # go step traded a complete run for a silently incomplete one. //build:go_test_inventory_test
+      # closes that: it fails when a *_test.go exists that its package's go_test does not name.
+
+      # Fixture test for the post-generation transform itself: proves it is idempotent and
+      # fails closed on inventory / generator-version / partial-patch drift.
+      - name: Edge enum transform fail-closed fixture
+        run: elixir scripts/test_patch_edge_enum_negatives.exs

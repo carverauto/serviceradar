@@ -1,0 +1,39 @@
+# SHARED TRANSPORT-PROVENANCE GUARD CORPUS (task 1.5-h).
+#
+# ONE BOUND, ONE TESTABLE SITE. `MaxTransportProvenanceHeaderBytes` bounds ONE encoded
+# `Sr-Edge-Transport-Provenance` header on RECEIVED bytes, before decode. The only site that
+# can fail for its own reason is the RECEIVE path -- `DecodeTransportProvenance` in Go,
+# `decode_transport_provenance/1` here. The EMIT-side check is DEFENCE IN DEPTH over output the
+# same function just built, so it gets no row: a row that cannot fail for its own reason is a
+# vacuous row.
+#
+# A GUARD, NOT AN ATTAINABLE MAXIMUM, and the difference is the whole point. No conforming
+# producer emits a header at the ceiling: the LARGEST one either runtime can build is 468 bytes
+# -- an edge slot with a 128-byte principal (`MaxPrincipalBytes`, itself the maximum), a
+# 32-byte delivery proof, and valid fixed-width numeric fields. So the corpus does NOT
+# claim "512 accepted": it claims the largest CONFORMING header decodes, and that 513 is
+# refused BEFORE the parser runs.
+#
+# THE STAGE IS THE OBLIGATION, NOT THE REFUSAL. Both runtimes refuse an oversize header either
+# way; what the bound exists to prevent is PARSING one. A verdict pair cannot show that, so
+# each runtime carries a WITNESS PAIR built from the same malformed suffix:
+#
+#   at   512 bytes, malformed base64  -> refused, AND THE PARSER RAN. This is the LIVE-WITNESS
+#                                       control: without it, "the parser did not run" below
+#                                       would also be what a broken observation reports.
+#   over 513 bytes, same malformation -> refused, AND THE PARSER DID NOT RUN.
+#
+# HOW EACH RUNTIME OBSERVES IT, using what already exists rather than new taxonomy:
+#   * Go wraps the decoder's own `base64.CorruptInputError` with `%w`, so `errors.As` answers
+#     whether the parser was entered. This is WHITE-BOX STAGE EVIDENCE ONLY -- the typed error
+#     is NOT a normative refusal class, and consumers SHALL keep matching the package sentinel.
+#   * This runtime already returns distinct tags -- `:bad_base64` from the decoder,
+#     `:too_large` from the guard -- so the same pair reads directly off the verdict.
+#
+# Neither runtime freezes diagnostic TEXT, and neither mints an error class for the test.
+#
+# field                value  meaning
+bound                  512    the frozen ceiling, on received bytes, before decode
+largest_conforming     468    the largest header either runtime can EMIT; MUST decode
+witness_parser_ran     512    malformed at the ceiling; refused with the parser ENTERED
+witness_parser_skipped 513    malformed one over; refused with the parser NOT entered

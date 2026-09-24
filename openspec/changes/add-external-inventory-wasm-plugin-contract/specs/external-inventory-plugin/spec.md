@@ -1,14 +1,15 @@
 ## ADDED Requirements
 
 ### Requirement: Sandboxed external inventory plugin
-The system SHALL support signed external Go/TinyGo Wasm packages that acquire provider inventory through approved host capabilities and emit `serviceradar.plugin_result.v1` with `serviceradar.device_discovery.v1`. A plugin MUST NOT access ServiceRadar databases, NATS, the host filesystem, raw sockets, or arbitrary internal APIs unless a separately approved capability explicitly provides that access.
+The system SHALL support signed external Go/TinyGo Wasm packages that acquire provider inventory through approved host capabilities and emit assignment-approved binary inventory pages and terminal manifests through the agent-owned durable producer sink. `serviceradar.plugin_result.v1` SHALL remain limited to bounded action/check status and MUST NOT carry persistent inventory pages. A plugin MUST NOT access ServiceRadar databases, NATS, transport frames, broker subjects, the host filesystem, raw sockets, or arbitrary internal APIs unless a separately approved capability explicitly provides that access.
 
 #### Scenario: Inventory collection runs at the assigned edge
 - **GIVEN** an approved inventory package is assigned to an agent that can reach its provider
 - **WHEN** the agent executes the package action
 - **THEN** the plugin SHALL use only approved configuration and host capabilities
-- **AND** its inventory SHALL enter ServiceRadar through normal plugin-result ingestion
+- **AND** its inventory SHALL enter ServiceRadar as bounded typed records through the common durable producer sink
 - **AND** any source credential or derived access token SHALL remain inside trusted host adapters
+- **AND** the command result SHALL contain only bounded status, counts, identifiers, and hashes
 
 #### Scenario: Unapproved capability is requested
 - **GIVEN** the package was not approved for a requested host capability or endpoint
@@ -53,19 +54,31 @@ An inventory package MAY declare an assignment-scoped producer schedule using `p
 - **AND** RBAC, audit, timeout, credential, and result policies SHALL remain identical
 
 ### Requirement: Complete bounded inventory snapshots
-An inventory plugin SHALL emit a source snapshot only after its provider collection completes within package and platform row, metadata, and byte limits. A partial, malformed, duplicate, non-advancing, or oversized result MUST NOT replace current source inventory.
+An inventory plugin SHALL stream independently bounded source-snapshot pages while collection is in progress and SHALL emit a bounded terminal manifest only after provider collection completes within package and platform page, row, metadata, byte, duration, and outstanding-record limits. Every page SHALL have a stable idempotency key and content digest. A complete terminal SHALL bind the exact source instance, coverage scope, page/object counts, bounded Merkle or checkpoint root, and a provider snapshot token/revision or contract-specific consistency proof. A partial, malformed, duplicate-conflicting, non-advancing, stale, missing-page, or oversized run MUST NOT replace current source inventory.
 
 #### Scenario: Complete collection succeeds
 - **GIVEN** all provider pages complete and every source object is valid and unique
-- **WHEN** the plugin emits its result
-- **THEN** the envelope SHALL identify the source, source instance, collection, observed time, content hash, and completion state
-- **AND** ServiceRadar SHALL activate the source observations only after canonical reconciliation succeeds
+- **WHEN** the plugin emits a complete terminal manifest
+- **THEN** the staged run SHALL identify the source, source instance, coverage scope, collection, observed time, page/object counts, content root, provider consistency proof, and completion state
+- **AND** ServiceRadar SHALL activate the source observations with one atomic current-version pointer swap only after every declared page and canonical reconciliation validates
 
 #### Scenario: Collection exceeds bounds
 - **GIVEN** provider results exceed an approved row, metadata, or serialized-byte limit
 - **WHEN** the bound is reached
 - **THEN** the run SHALL fail with a stable bounded error
 - **AND** the previous complete source snapshot SHALL remain current
+
+#### Scenario: A terminal arrives with a missing or conflicting page
+- **GIVEN** inventory pages have been staged for a run
+- **WHEN** its complete terminal references a missing page, conflicting content digest, duplicate source object, or inconsistent provider revision
+- **THEN** activation SHALL fail deterministically
+- **AND** the previous current snapshot SHALL remain unchanged
+
+#### Scenario: Provider cannot prove a consistent complete view
+- **GIVEN** a provider exposes pagination without a snapshot token, revision, or contract-approved consistency proof
+- **WHEN** an inventory run completes
+- **THEN** ServiceRadar MAY apply validated observations as upserts
+- **AND** it SHALL NOT infer absence or deletion for objects omitted from that run
 
 ### Requirement: Generic source normalization
 Each valid inventory row SHALL carry a bounded source object ID, a stable source-prefixed integration ID, standard canonical device fields, and optional provider values only under `source_metadata`. Raw provider rows and unapproved secret or protocol fields SHALL NOT be forwarded.

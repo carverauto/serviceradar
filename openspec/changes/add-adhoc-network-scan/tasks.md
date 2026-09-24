@@ -2,10 +2,14 @@
 
 ## 1. Data model + migrations (serviceradar_core)
 - [ ] 1.1 Migration: `platform.adhoc_scan_results` hypertable (reuse
-  `maybe_create_hypertable`) + 30-day retention (`add_retention_policy`).
+  `maybe_create_hypertable`) with authoritative `network_scope_id` in every
+  physical identity/query, a non-null canonical check key for nullable-port
+  modes, scheduler-owned `identity_time` as its partition/uniqueness time,
+  separate semantic `observed_at`, + 30-day retention (`add_retention_policy`).
 - [ ] 1.2 Ash aggregate `ServiceRadar.Scans.ScanRun` (Ash-managed table,
   `platform`) with attributes, status enum, code interface, and policy
-  (`scans.execute` create / `scans.read` read / `system_bypass`).
+  (`scans.execute` create / `scans.read` read / `system_bypass`), binding
+  authoritative network scope from the selected agent/site.
 - [ ] 1.3 Ash read resource `ServiceRadar.Scans.ScanResult` (`migrate?
   false`) with `by_scan_run` / `by_agent` / `recent` reads.
 - [ ] 1.4 Singleton `ServiceRadar.Scans.ScanPolicySettings`
@@ -26,18 +30,22 @@
   first-class mode (used by both ad-hoc and scheduled sweeps).
 - [ ] 3.1 Add `commandTypeAdhocScan = "scan.run_adhoc"` +
   `handleAdhocScan` in `go/pkg/agent/control_stream.go` (payload
-  `{scan_run_id, targets, ports, modes, timeout_ms, concurrency,
-  icmp_count, mtr_protocol, mtr_max_hops}`), building `[]models.Target`
+  `{scan_run_id, plan_id, range_id, range_digest, targets, ports, modes,
+  timeout_ms, concurrency, icmp_count, mtr_protocol, mtr_max_hops,
+  traffic_class, assignment_epoch, capability}`), where `targets` is one
+  hard-bounded immutable plan page/range, building `[]models.Target`
   and running an ephemeral scan for all requested modes (ICMP
   `NewICMPSweeper`, TCP `NewTCPSweeper`, MTR `mtr.Tracer`) in throwaway
   instances. MUST NOT touch `MultiSweepService`/scheduled config or reuse
   `sweep.run_group`.
-- [ ] 3.2 Progress batching (result rows per completed target/port) +
-  `CommandAck`/TTL handling; final summary CommandResult.
-- [ ] 3.3 Return structured result rows in the command channel for live UI;
-  the durable copy is published to JetStream by core (see 4.2/4.3), NOT a
-  direct agent/gateway DB write. MTR rows carry both the reachability
-  summary and the full trace payload.
+- [ ] 3.2 Emit rate-limited count/watermark `CommandProgress` plus
+  `CommandAck`/TTL handling and a bounded final summary `CommandResult`; do not
+  put per-target or per-hop result rows on the command channel.
+- [ ] 3.3 Emit the sole durable per-target/per-hop copy from the agent as
+  canonical `SweepObservationBatchV1` and correlated `MtrTraceBatchV1` events
+  (see 4.2/4.3), never republished by core and never written directly by
+  agent/gateway. Feed each completed host/trace directly into the bounded
+  builder/spool and release it; forbid run-wide host or completed-trace slices.
 - [ ] 3.4 Advertise the `scan.run_adhoc` capability in the agent hello.
 - [ ] 3.5 Go tests: payload parse, target build, ICMP/TCP/MTR result
   mapping, progress batching. `gofmt` + BUILD.bazel updates;
@@ -53,17 +61,21 @@
   alongside ICMP/TCP (+ MTR options: protocol, max hops).
 
 ## 4. Dispatch + ingestion (serviceradar_core)
-- [ ] 4.1 `AgentCommandBus.dispatch_adhoc_scan/3` (concurrency caps,
-  `required_capability: "scan.run_adhoc"`), mirroring `dispatch_bulk_mtr`.
-- [ ] 4.2 On receiving `scan.run_adhoc` progress/result over the command
-  channel, core publishes the result rows onto a JetStream subject (so they
-  traverse JetStream before the DB, per the hard rule); the command channel
-  itself is live-UI only.
-- [ ] 4.3 EventWriter processor `event_writer/processors/adhoc_scan.ex` ->
-  `adhoc_scan_results`; MTR rows also persist the full trace to
-  `mtr_traces`/`mtr_hops`. Wire into the processor registry.
-- [ ] 4.4 Update `ScanRun` status/counters from progress/terminal events
-  (PubSub) so the LiveView reflects live state.
+- [ ] 4.1 `AgentCommandBus.dispatch_adhoc_scan/3` (concurrency caps), mirroring
+  `dispatch_bulk_mtr`. Require `scan.run_adhoc`, `edge-results:v1`, the configured
+  minimum agent/gateway version, and complete gateway/stream/consumer readiness
+  before probing.
+  Persist an immutable plan, split large target lists into bounded independently
+  fenced assignments, and scheduler-attest `interactive` only within configured
+  target/probe/duration/result budgets; select `bulk` or reject larger work.
+- [ ] 4.2 Keep `scan.run_adhoc` command progress bounded and UI-only; correlate
+  it by `scan_run_id` and do not republish authoritative result rows from core.
+- [ ] 4.3 Extend the canonical sweep/MTR EventWriter projectors so
+  `source=ad_hoc` writes `adhoc_scan_results` and correlated full traces to
+  `mtr_traces`/`mtr_hops`; do not add `adhoc-scan-metrics`.
+- [ ] 4.4 Treat command progress as a live estimate, reconcile authoritative
+  `ScanRun` status/counters from canonical execution/projection events, and
+  publish bounded notifications so LiveView pages newly persisted rows.
 - [ ] 4.5 ExUnit: dispatch gating, router routing, processor persistence
   (`:integration` where a DB is needed).
 
@@ -72,8 +84,8 @@
   action); targets textarea + `allow_upload(:targets)` + `phx-drop-target`;
   parse/validate/de-dupe via the existing CSV parser.
 - [ ] 5.2 Options form (modes, ports, agent picker via
-  `list_online_agents/0`); submit -> `dispatch_adhoc_scan` (+ `mtr.bulk_run`
-  when MTR selected).
+  `list_online_agents/0`); submit one logical `ScanRun` whose dispatcher emits
+  bounded all-mode assignments, without a separate `mtr.bulk_run`.
 - [ ] 5.3 Inventory-scoping check before dispatch (`Device.get_by_ip`);
   when blocked, show offending IPs + add-missing UI.
 - [ ] 5.4 Add-missing: single + bulk via `ManualDeviceCreator` /
@@ -105,7 +117,12 @@
   `ScanLive` against a small list, confirm results land via JetStream in
   `adhoc_scan_results`, MTR in `mtr_traces`, CSV+XLSX export, and the
   inventory guardrail block + bulk add-missing.
+- [ ] 8.3a Verify a plan larger than one command becomes multiple bounded
+  assignments, completed hosts/traces become queryable before terminal state,
+  RSS stays independent of total target count, caller priority cannot promote
+  bulk work, and interactive progress remains bounded during bulk catch-up.
 - [ ] 8.4 `openspec validate add-adhoc-network-scan --strict`.
 - [ ] 8.5 `./scripts/elixir_quality.sh --project elixir/web-ng --phoenix`
   and `--project elixir/serviceradar_core`.
-- [ ] 8.6 File the MTR-onto-JetStream follow-up change/issue.
+- [ ] 8.6 Verify dependency/rebase compatibility with
+  `unify-sweep-results-proto` and issue #4669.

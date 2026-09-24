@@ -1,0 +1,7 @@
+compiled_reject_body_digest.bin edgerecord: compiled sweep assignment digest mismatch
+compiled_reject_artifact_digest.bin edgerecord: compiled sweep assignment digest mismatch
+compiled_reject_no_capability.bin edgerecord: compiled sweep assignment capability invalid
+compiled_reject_wrong_purpose.bin edgerecord: capability purpose does not match its position
+compiled_reject_claim_cross_bound.bin edgerecord: compiled sweep assignment capability invalid
+compiled_reject_zero_config_generation.bin edgerecord: compiled sweep assignment invalid
+compiled_reject_unknown_result_format.bin edgerecord: compiled sweep assignment invalid

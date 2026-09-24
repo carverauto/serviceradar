@@ -246,15 +246,25 @@ authorization result. The four dimensions and their typed outcome sets are:
    `EDGE_SOURCE_AUTHORIZATION_KIND_RECOVERY_CONTROL`.
    ABSENCE AND PRESENT-ZERO ARE DIFFERENT. `source_authorization` is OPTIONAL, and
    its ABSENCE is the only way to express "no source authorization"; such a record
-   is valid. A PRESENT `source_authorization` whose kind is
-   `EDGE_SOURCE_AUTHORIZATION_KIND_UNSPECIFIED` SHALL be REJECTED: it asserts a
-   source authorization while naming none.
+   is REPRESENTABLE and valid AT THIS LAYER. A PRESENT `source_authorization` whose
+   kind is `EDGE_SOURCE_AUTHORIZATION_KIND_UNSPECIFIED` SHALL be REJECTED: it
+   asserts a source authorization while naming none.
+   THESE RULES ARE RECORD-LAYER REPRESENTABILITY, SUBJECT TO PAYLOAD-SPECIFIC
+   REQUIREMENTS. "Valid at the record layer" does NOT mean every payload accepts it:
+   a payload contract MAY REQUIRE source authorization, and `SweepObservationBatchV1`
+   DOES -- see the sweep correlation requirements below. The record layer says the
+   field is optional and therefore no structural gate can demand it; a payload
+   contract may still demand it, and where it does that demand governs. Read as an
+   unqualified permission, this paragraph would contradict the sweep matrix.
    SOURCE PRESENCE IS INDEPENDENT OF ATTRIBUTION CLASSIFICATION. Absence SHALL NOT
    be read as, or equated with, PASSIVE -- PASSIVE asserts only that a record claims
    no produced target range, which is a different question from whether a source
    authorization is carried. All four combinations of
    {ACTIVE, PASSIVE} x {source present, source absent} are legal and SHALL each be
-   representable; no component SHALL infer one axis from the other.
+   REPRESENTABLE at the record and classification layers; no component SHALL infer
+   one axis from the other. Representable is not the same as accepted by every
+   payload: a payload contract requiring source authorization narrows which of the
+   four its own records may use, without making any of them unrepresentable.
    The OUTPUT -- the historical-proof RESULT -- is NOT frozen here. It is not
    carried on the wire, it is not this enum (which says which authorization a record
    CLAIMS, never whether that claim proved out), and it exists even for records with
@@ -331,16 +341,78 @@ it.
 - **WHEN** a record carries a present `source_authorization` whose kind is
   `EDGE_SOURCE_AUTHORIZATION_KIND_UNSPECIFIED`
 - **THEN** it SHALL be rejected
-- **AND** an ABSENT `source_authorization` SHALL remain valid, being the only way to
-  express no source authorization
+- **AND** an ABSENT `source_authorization` SHALL remain valid AT THE RECORD LAYER, being the
+  only way to express no source authorization
+- **AND** this SHALL NOT be read as accepting absence in a payload whose own contract
+  REQUIRES source authorization, such as `SweepObservationBatchV1`
 
 #### Scenario: Source presence is not read as an attribution classification
 - **GIVEN** a record whose `source_authorization` is absent
 - **WHEN** its attribution classification is determined
 - **THEN** the absence SHALL NOT make it PASSIVE, and an ACTIVE record with no
-  source authorization SHALL remain legal
+  source authorization SHALL remain legal AT THE RECORD AND CLASSIFICATION LAYERS
 - **AND** neither axis SHALL be inferred from the other
+- **AND** a payload contract MAY still require source authorization, narrowing which
+  combinations its own records may use without making any of them unrepresentable
 
+
+### Requirement: Broker publication identity is separate from the semantic envelope
+Broker publication identity SHALL be a SEPARATE identity from the record identities
+above. It is carried in TRANSPORT HEADERS, never as a field of `EdgeRecordV1`, and it
+SHALL NOT be derived from, equal to, or substitutable for `semantic_envelope_sha256`.
+
+Three transcripts are frozen for the agent `edge_slot` path. Each SHALL begin with its
+OWN string domain tag followed by its OWN `u64` version constant, and SHALL frame every
+field by the same primitives the semantic-envelope transcript uses: unsigned integers
+as 8-byte big-endian, and every bytes or string field length-prefixed by an 8-byte
+big-endian length. Each header value SHALL be the base64url (NO padding) encoding of
+the SHA-256 of its transcript.
+
+- `Nats-Msg-Id` SHALL frame, under domain `serviceradar.edge.msgid` with
+  `msgid_version = 1`: the attested `authenticated_agent_id`, `network_scope_id`,
+  `spool_id`, `sequence`, `semantic_envelope_sha256`, then `record_sha256`. It COMMITS
+  the semantic-envelope digest as an INPUT. Committing a value does not make the two
+  the same object, and no component SHALL accept one where the other is required.
+- `Sr-Edge-Delivery-Id` SHALL frame, under domain `serviceradar.edge.delivery-id` with
+  `delivery_id_version = 1`, ONLY the `edge_slot` tuple: `network_scope_id`,
+  `authenticated_agent_id`, `spool_id`, `sequence`. It SHALL NOT commit a semantic,
+  payload, or record digest. It names the SLOT, which is what makes it stable across a
+  re-encode that changes `record_sha256`.
+- `Sr-Edge-Transport-Provenance` SHALL frame, under domain
+  `serviceradar.edge.transport-provenance` with `provenance_version = 1`: a slot-kind
+  discriminant, the slot tuple, `record_sha256`, the delivery mode, a 1-byte presence
+  marker for `delivery_proof_digest` with the digest when present, and the route-map
+  version.
+
+The service variants of all three are defined by the requirement below and SHALL carry
+DISTINCT domain tags, so an edge value and a service value cannot collide even when
+every remaining framed field agrees.
+
+The semantic envelope carries NO string domain tag and its own version constant is
+`semantic_digest_version = 3`, so no publication transcript shares its preimage shape.
+A publication identity SHALL NOT appear in the semantic-envelope preimage at any
+nesting depth.
+
+#### Scenario: A re-encoded record changes its message id but not its delivery id
+- **WHEN** a record occupying one `edge_slot` is re-encoded so that `record_sha256`
+  changes
+- **THEN** its `Nats-Msg-Id` SHALL change, so a broker cannot dedupe the two encodings
+  as one message
+- **AND** its `Sr-Edge-Delivery-Id` SHALL NOT change, because the delivery id names the
+  slot and not the bytes
+
+#### Scenario: The message id commits the semantic envelope without becoming it
+- **WHEN** two records in the same `edge_slot` differ only in
+  `semantic_envelope_sha256`
+- **THEN** their `Nats-Msg-Id` values SHALL differ
+- **AND** neither `Nats-Msg-Id` SHALL equal the record's `semantic_envelope_sha256`
+  under any encoding of it
+
+#### Scenario: Edge and service publication values cannot collide
+- **WHEN** an `edge_slot` and a `service_slot` agree on every field their transcripts
+  frame in common
+- **THEN** their `Nats-Msg-Id` values SHALL differ, and their `Sr-Edge-Delivery-Id`
+  values SHALL differ, because each variant carries its own domain tag
 
 ### Requirement: The service-ingress publication slot is a frozen wire identity
 A service-originated record SHALL bind to the frozen `service_slot` tuple, which SHALL play the same wire role for service records that `edge_slot` plays for agent records.
@@ -1013,6 +1085,203 @@ not an implementation-time choice between alternatives.
 - **THEN** enum numbers, fields, bounds, unknown handling, digest version, and
   the Appendix A transcript SHALL already be frozen
 
+### Requirement: The authoritative assignment record owns the MTR expectation
+An append-only, SCHEDULER-authored `SweepAssignmentRecordV1` SHALL be the authority
+for what an assignment attempt was authorized to cover. Every record SHALL carry a
+REQUIRED `SweepMtrExpectationV1` submessage holding BOTH `ordinal_count` AND
+`ordinal_range_commitment`.
+
+An ABSENT expectation SHALL be rejected and SHALL NOT be read as zero. Zero is an
+assignment that admits no MTR and still owes the canonical zero-leaf completion
+proof; absent is a record that never stated what it expected, and treating the two
+alike turns a missing authority into an implicit waiver.
+
+`ordinal_count == 0` and a 32-ZERO-byte `ordinal_range_commitment` SHALL be required
+to agree in BOTH directions. This biconditional is what makes the zero-MTR rule
+CHECKABLE: the commitment is an additive multiset hash and cannot be inverted to a
+count, so without a carried count "32 zero bytes means no MTR admitted" is
+unfalsifiable.
+
+The count SHALL be CARRIED, never DERIVED. It SHALL NOT be taken from the producer's
+`SweepExecutionEventV1` counters (producer-self-reported, the hole the mandatory
+completion proof closes), from `ordinal_range_commitment` (not invertible), or from
+`TargetRangeV1.mtr_admission_budget` (a CEILING, not an exact count).
+
+A completion proof for an assignment attempt SHALL verify against THAT ASSIGNMENT's
+expectation. `ScheduledPlanHeaderV1.mtr_ordinal_range_commitment` remains the
+PLAN-WIDE commitment and SHALL NOT be used as the per-attempt authority: a plan may
+be divided across assignments, so the two are equal only when one assignment covers
+the whole plan.
+
+An assignment SHALL cover EXACTLY ONE plan range in v1 and SHALL name it directly as
+`target_range_id` + `target_range_sha256`, both REQUIRED. It SHALL NOT be a
+self-reported field of the producer's lifecycle event, and it SHALL NOT be an opaque
+set commitment: a non-invertible digest cannot say WHICH ranges were assigned, so it
+would be verifiable only for length. The retired `range_root_sha256` (tag 20,
+reserved by number and name) was exactly that defect on the lifecycle event.
+
+FROZEN v1 ORDINAL MODEL. Each plan range SHALL own ONE CONTIGUOUS plan-global ordinal
+window. `TargetRangeV1` SHALL carry the EXACT admitted MTR count with REQUIRED
+PRESENCE (0 legal and distinct from absent); `mtr_admission_budget` remains a CEILING
+only and the count SHALL NOT exceed it, nor SHALL the count ever be DERIVED from it.
+`SweepMtrExpectationV1` SHALL carry `plan_ordinal_offset` with REQUIRED PRESENCE,
+because offset 0 is the first range's legal window and MUST be distinguishable from
+an unset field. Completion-leaf ordinals SHALL remain LOCAL `{1..ordinal_count}`; the
+plan-global ordinal is `plan_ordinal_offset + local_ordinal`, and membership SHALL be
+hashed as `(plan_ordinal_offset + local_ordinal, target_range_sha256)`. In v1 a retry
+or supersession SHALL replay the SAME COMPLETE range window; sparse remainders and
+fan-out splitting are NOT v1 and require a bounded subset representation with its own
+frozen grammar.
+
+BOTH the assignment's `ordinal_range_commitment` AND the plan header's plan-wide
+`mtr_ordinal_range_commitment` SHALL be RECOMPUTED from committed plan data and
+compared, never accepted as carried bytes. The count and the range digest DETERMINE
+the assignment value, and the plan-wide value is the ADDITIVE SUM of every range's
+window -- which is what makes a split plan verifiable without renumbering any
+attempt. A carried value nothing derives is self-asserted authority.
+
+The TOTAL admitted MTR ordinals across ONE plan SHALL NOT exceed
+`MaxPlanMtrOrdinals = 1048576` (2^20), and every implementation SHALL enforce it.
+This is a WORK ceiling distinct from `MaxMtrCompletionOrdinals` (2^31), which bounds
+what the ordinal space can REPRESENT: recomputing a commitment costs one hash per
+ordinal, so without this bound a compact plan could demand billions of SHA-256
+operations inside a validator. The bound SHALL be decided BEFORE any hashing, so an
+over-budget plan costs a walk rather than a fold. A ceiling enforced in only one
+runtime is a DIVERGENCE, not a safeguard, so shared vectors SHALL cover exactly the
+limit (accepted) and the limit plus one (rejected).
+
+The relation SHALL reject: ordinal-space overflow; a plan total over
+`MaxPlanMtrOrdinals`; an `ordinal_count` that is not the
+selected range's admitted count; a count exceeding the range's admission budget; an
+absent or wrong `plan_ordinal_offset`; a commitment that is not the recomputed window;
+and a range identity whose digest is not the plan's.
+
+The plan header SHALL NOT commit an assignment epoch. `assignment_epoch` (tag 9) is
+RETIRED and reserved by number and name: the plan is IMMUTABLE while reassignment
+ADVANCES the epoch without changing the plan, so committing it inside the plan's
+content-addressed header made the two contradict each other. The monotonic authority
+epoch lives on assignment records and capabilities.
+
+#### Scenario: A second, non-prefix assignment is representable
+- **WHEN** a plan's ranges are assigned separately and a later range's window does not
+  start at ordinal 1
+- **THEN** its assignment SHALL carry that window's `plan_ordinal_offset`
+- **AND** its completion-leaf ordinals SHALL still be exactly `{1..ordinal_count}`
+
+#### Scenario: The expectation is recomputed, not trusted
+- **WHEN** an assignment carries an `ordinal_range_commitment` that is not the window
+  recomputed from the selected plan range
+- **THEN** the relation SHALL be rejected
+
+#### Scenario: The plan work ceiling is enforced by every runtime
+- **WHEN** a plan's total admitted MTR ordinals exceed `MaxPlanMtrOrdinals`
+- **THEN** EVERY runtime SHALL reject it
+- **AND** the verdict SHALL be reached without computing the commitment
+
+#### Scenario: The budget is a ceiling, never a count
+- **WHEN** a range's admitted MTR count exceeds its `mtr_admission_budget`
+- **THEN** the plan SHALL be rejected
+- **AND** the count SHALL NOT be derived from the budget
+
+#### Scenario: An absent ordinal offset is not offset zero
+- **WHEN** an expectation omits `plan_ordinal_offset`
+- **THEN** it SHALL be rejected rather than read as the first range's window
+
+#### Scenario: The plan header commits no assignment epoch
+- **WHEN** reassignment advances the authority epoch
+- **THEN** the immutable plan's identity SHALL NOT change
+
+`record_sequence` SHALL start at 1 and strictly increase per
+`producer_assignment_id`; a state change SHALL be a NEW record, never an edit.
+`superseded_by_assignment_id` SHALL be present EXACTLY when the state is
+`SUPERSEDED`, and SHALL NOT name the record itself.
+
+#### Scenario: An absent expectation is not zero
+- **WHEN** an assignment record carries no `mtr_expectation`
+- **THEN** it SHALL be rejected
+- **AND** it SHALL NOT be treated as admitting zero MTR ordinals
+
+#### Scenario: Count and commitment agree in both directions
+- **WHEN** `ordinal_count` is 0 and the commitment is not 32 zero bytes, or the
+  commitment is 32 zero bytes and `ordinal_count` is not 0
+- **THEN** the record SHALL be rejected
+
+#### Scenario: The per-attempt authority is the assignment, not the plan
+- **WHEN** a completion proof is verified for an assignment attempt
+- **THEN** the expected count and commitment SHALL come from that assignment's
+  expectation
+- **AND** the plan header's commitment SHALL NOT be substituted for it
+
+#### Scenario: An append-only record is never edited
+- **WHEN** an assignment changes state
+- **THEN** a NEW record with a higher `record_sequence` SHALL be appended
+- **AND** `record_sequence` 0 SHALL be rejected
+
+#### Scenario: A supersede link is exact
+- **WHEN** a record's state is not `SUPERSEDED` but it names a successor, or its
+  state is `SUPERSEDED` and it names none or names itself
+- **THEN** it SHALL be rejected
+
+### Requirement: A zero-MTR completion is a mandatory canonical proof, not an absence
+Every `SWEEP_EXECUTION_EVENT_KIND_COMPLETED` event SHALL carry a completion proof --
+`mtr_completion_digest_version`, `mtr_completion_digest`, and `plan_root_sha256` --
+INCLUDING when the plan admits no MTR targets. It SHALL NOT carry a range root:
+`range_root_sha256` (tag 20) is RETIRED and reserved by number and name, because a
+range binding the PRODUCER asserts about its own attempt is not evidence. The
+authoritative range binding is the assignment record's `target_range_id` +
+`target_range_sha256`, which resolve against the committed plan. A plan admitting
+no MTR targets SHALL carry the CANONICAL ZERO-LEAF proof: `MtrCompletionDigestVersion
+= 2`, `expected = 0`, no leaves, all three accumulators the 32-byte zero value, and the
+ordinary root framing `SHA-256(version || expected || plan_root_sha256 ||
+mtr_ordinal_range_commitment || leaf_accumulator)` still bound to `plan_root_sha256`.
+
+`ScheduledPlanHeaderV1.mtr_ordinal_range_commitment` SHALL ALWAYS be exactly 32 bytes.
+A plan admitting no MTR targets SHALL carry the empty-set multiset hash -- 32 ZERO
+bytes -- and SHALL NOT carry empty bytes. Empty bytes would be a second spelling of
+"no MTR" that no comparison can distinguish from an omitted commitment, and the
+zero-leaf proof verifies its (zero) member accumulator against exactly this field.
+
+The expected ordinal count and the commitment SHALL be taken from the ASSIGNMENT
+RECORD's required `SweepMtrExpectationV1` (see "The authoritative assignment record
+owns the MTR expectation"), never from the event's own `expected_mtr_*` /
+`emitted_mtr_*` counters. Those counters are producer-reported: allowing them to establish "expected
+0" would let a producer waive its own evidence, which is precisely what this
+requirement exists to prevent. Field-shape validation alone SHALL NOT be treated as
+verification -- it cannot distinguish a correct proof from a well-formed wrong one.
+
+The following SHALL be rejected: any leaf presented at `expected = 0`; an omitted or
+non-32-byte completion digest on a COMPLETED event; an empty, non-32-byte, or
+non-matching `mtr_ordinal_range_commitment`; a digest version other than the frozen
+one; and a digest that does not equal the plan-derived root, including one that is a
+valid completion of a DIFFERENT plan root.
+
+This is candidate (B) of the previously open zero-MTR decision. Candidate (A) -- no
+proof required when no MTR is admitted -- is REJECTED: it would have permitted both an
+absent and a present proof for one state, and would have rested the choice between
+them on a self-reported counter.
+
+#### Scenario: A zero-MTR completion still carries a proof
+- **WHEN** a COMPLETED event's plan admits no MTR targets
+- **THEN** it SHALL carry the canonical zero-leaf proof
+- **AND** an omitted completion digest SHALL be rejected
+
+#### Scenario: The empty-set commitment is 32 zero bytes
+- **WHEN** a plan admits no MTR targets
+- **THEN** `mtr_ordinal_range_commitment` SHALL be 32 zero bytes
+- **AND** empty bytes SHALL be rejected
+
+#### Scenario: A leaf cannot appear at expected zero
+- **WHEN** a completion with `expected = 0` presents any leaf
+- **THEN** it SHALL be rejected
+
+#### Scenario: Producer counters cannot waive evidence
+- **WHEN** an event reports zero expected MTR but validated plan state expects more
+- **THEN** the zero-leaf proof SHALL be rejected
+
+#### Scenario: A zero-MTR proof is bound to its plan
+- **WHEN** a zero-leaf proof is presented against a different `plan_root_sha256`
+- **THEN** it SHALL be rejected
+
 ### Requirement: MTR completion disposition is one generated enum
 The MTR completion leaf's terminal disposition SHALL be declared ONCE, as a
 generated protobuf enum `MtrCompletionDisposition`, with these exact
@@ -1031,18 +1300,27 @@ by references to the generated enum, and no document SHALL describe the values a
 pinned in `domain.go`.
 
 This is not tidiness. The disposition number is hashed INTO the frozen completion
-leaf preimage, so the numbering is part of the digest grammar. It is currently
+leaf preimage, so the numbering is part of the digest grammar. It was previously
 written twice and generated from nothing -- as a Go `iota` block
 (`MtrTerminalDisposition`) and as literal integers in Elixir guards -- which is
 exactly the hand-maintained numeric parity that can silently diverge. Two
 implementations that disagree by one produce two different completion roots for
 the same completion, and the disagreement surfaces as an unexplained proof
-mismatch rather than as a compile error.
+mismatch rather than as a compile error. The generated enum now exists and both
+runtimes consume it (task 1.4's disposition sub-target); the rule above is what
+keeps a future runtime from reintroducing a local copy.
 
 `MtrCompletionDisposition` SHALL be distinct from the per-hop `MtrOutcome` and
 SHALL NOT reuse its numbering. They describe different things -- what happened to
 a planned MTR ordinal versus what a probe observed at a hop -- and collapsing them
 would make the leaf grammar depend on an enum that evolves for unrelated reasons.
+"SHALL NOT reuse its numbering" governs the MAPPING, not the number space: both
+enums allocate small integers and MAY coincide at a number (`PROBE_FAILED` is 3
+in both), and the frozen members above are themselves the authority on which
+number carries which meaning. What is forbidden is adopting `MtrOutcome`'s
+symbol-to-number assignment or reading one enum's value through the other --
+`NOT_ADMITTED` is 2 here and 5 there, so a consumer that conflates them
+mis-hashes the leaf.
 
 No new leaf message SHALL be introduced: the disposition is a field of the
 existing completion leaf grammar. `MTR_COMPLETION_DISPOSITION_TRACE_ALLOCATED`
@@ -1094,9 +1372,28 @@ must hold and forward, which is the received size.
 This applies to every paged contract that declares a ceiling, including the
 recovery manifest page and the scheduler plan page.
 
+The scheduler plan page's ceiling is `MaxPlanPageBytes` = 128 KiB, frozen in the
+bounds table alongside the record/frame bounds.
+
+A validator that accepts DECODED messages cannot enforce this: the received bytes are
+already gone by the time it runs. Every such contract SHALL therefore be enforced at a
+boundary that sees the RECEIVED BYTES and bounds them BEFORE decoding, and that
+boundary SHALL be the authoritative one. A size check computed from a decoded message
+SHALL NOT be presented as enforcing the physical ceiling; it is at best a coarse guard
+for callers that legitimately hold decoded structs.
+
+WHICH function each runtime exposes for that boundary, and at which hop it runs, is
+RUNTIME -- this requirement freezes the VALUE and the RULE, not API names. (The
+current implementations are noted in the task list, not here.)
+
 #### Scenario: Bloated page is refused
 - **WHEN** a page's received bytes exceed its ceiling but its re-encode does not
 - **THEN** the page SHALL be rejected
+
+#### Scenario: The authoritative boundary takes raw bytes
+- **WHEN** a runtime enforces a paged contract's physical ceiling
+- **THEN** it SHALL do so on the received bytes, before decoding
+- **AND** a decoded-struct size check SHALL NOT be presented as that enforcement
 
 ### Requirement: An attributed span carries one frozen assignment identity
 An `ATTRIBUTED_ACTIVE` or `ATTRIBUTED_PASSIVE` span SHALL carry exactly ONE
@@ -1251,10 +1548,18 @@ sequence intervals are adjacent and their classification matches.
 ### Requirement: The assignment mapping's key is the frozen span identity
 The durable assignment mapping's KEY SHALL be the ordered pair `(trust_namespace, span_identity)`, frozen here because the attributed span omits execution and plan identity on the strength of it.
 
-This ABI change freezes the KEY and the tagged VALUE shape only. Whether such a
-mapping EXISTS, and everything it then does, is downstream runtime work with its
-own task -- this requirement SHALL NOT be read as asserting the mapping's
-existence, which would make an ABI change depend on runtime it does not own.
+This ABI change freezes the KEY ONLY. Whether such a mapping EXISTS, and everything
+it then does, is downstream runtime work with its own task -- this requirement SHALL
+NOT be read as asserting the mapping's existence, which would make an ABI change
+depend on runtime it does not own.
+
+The tagged VALUE is explicitly NOT frozen here, and ownership of it moves DOWNSTREAM.
+An earlier revision claimed both, which contradicted the proposal and task list and,
+more importantly, was not backed by anything: no message in this change represents a
+POSITIVE / EXPLICIT_NEGATIVE body or a durable negative reason, so "frozen" described
+prose rather than a contract. The paragraph below therefore states what such a value
+must eventually distinguish, as GUIDANCE for the downstream task that owns it, not as
+a frozen shape.
 
 The key SHALL be the ordered pair `(trust_namespace, span_identity)`:
 
@@ -1277,16 +1582,28 @@ that owns this mapping; until then the tuple is the key.
 `producer_assignment_id` SHALL NOT be assumed globally unique -- which is why the
 trust namespace is a named member of the key rather than assumed context.
 
+`run_shard` and `authority_epoch` have exactly ONE wire representation on the
+scheduler-authored assignment record: `execution_shard` and `assignment_epoch`. A
+comparison against those key members SHALL cross that naming rather than expect
+duplicate producer-named copies on the record.
+
+The AUTHORITY-RESOLVED scheduler record is the positive authority -- PRESENTED bytes are
+not self-authenticating and carry no authority until they match it -- so restating the same
+two facts under producer names would create disagreement states with no adjudication
+rule -- a record could carry `execution_shard` = 3 and a producer copy = 4, and nothing
+would say which the mapping used. A payload variant that lacks these members lacks only
+SECONDARY CORROBORATION; the mapping still compares the FULL key.
+
 Stating the key as "exactly the span identity" would be AMBIGUOUS: the span
 identity as defined does NOT include the trust namespace, while the key must, so
 that phrasing permits two incompatible implementations. The pair is explicit for
 that reason.
 
-The VALUE SHALL be a TAGGED body: POSITIVE (execution, plan, and range identities
-and digests, shard, epoch, and the contract-specific correlation operand) or
-EXPLICIT NEGATIVE (durable negative evidence and reason, no positive-only fields).
-A single untagged schema cannot express both, because a durable negative means
-there is no execution.
+GUIDANCE FOR THE DOWNSTREAM OWNER (not frozen here): the value will need to be a
+TAGGED body -- POSITIVE (execution, plan, and range identities and digests, shard,
+epoch, and the contract-specific correlation operand) or EXPLICIT NEGATIVE (durable
+negative evidence and reason, no positive-only fields). A single untagged schema
+cannot express both, because a durable negative means there is no execution.
 
 Its DURABLE STORAGE, replay and repair state machine, conflict resolution,
 retention, garbage collection, and lookup-outcome transitions are DOWNSTREAM and
@@ -1303,7 +1620,1675 @@ them alongside the wire ABI is what made the predecessor change unreviewable.
 - **AND** a key built from the span identity ALONE SHALL be rejected: the span
   identity does not include the trust namespace
 
-#### Scenario: A durable negative is representable
-- **WHEN** an assignment has no scheduler execution
-- **THEN** the mapping SHALL be able to record an explicit negative
-- **AND** SHALL NOT require fabricating positive-only fields
+#### Scenario: Shard and epoch are compared across their two names
+- **WHEN** a record's assignment identity is compared against the key's `run_shard`
+  and `authority_epoch`
+- **THEN** the comparison SHALL use `execution_shard` and `assignment_epoch`
+- **AND** a duplicate producer-named copy on the record SHALL NOT be required
+
+#### Scenario: The value shape is not frozen by this change
+- **WHEN** a reader asks what this ABI change froze about the mapping
+- **THEN** it SHALL be the KEY only
+- **AND** the tagged value's shape SHALL be owned downstream
+
+### Requirement: A compiled sweep assignment is an immutable carrier with two digests
+A compiled sweep assignment SHALL be ONE immutable carrier, `CompiledSweepAssignmentV1`,
+which the append-only assignment record REFERENCES rather than restates. It SHALL hold the
+facts a scheduler decides when it COMPILES an assignment: config generation, typed result
+format, check-set identity, traffic class, and validity window.
+
+Restating them on every state record would need a reconciliation rule per fact. The
+carrier gives each fact exactly one home.
+
+The carrier SHALL carry TWO digests under `CompiledAssignmentDigestVersion`, with
+SEPARATE frozen domain tags so neither can be presented where the other is required:
+
+- `compiled_assignment_body_sha256` -- the canonical digest over every BODY field,
+  excluding BOTH digests and the capability. This is what the capability SIGNS. A
+  signature cannot cover itself.
+- `compiled_assignment_sha256` -- the ARTIFACT CONTENT ADDRESS, over the body digest
+  PLUS the attached capability.
+
+A referencing record SHALL pin the ARTIFACT digest, not the body digest. A body digest
+is not a content address for an artifact that also carries an authority: two carriers
+with identical bodies and different capabilities -- one valid, one signed by a revoked
+key -- share a body digest, so a reference pinning only the body would not say WHICH
+authority it accepted.
+
+The carrier SHALL declare a physical received-byte ceiling of 64 KiB. It is reachable
+as a STANDALONE artifact, fetched by digest, so it does not inherit a containing
+message's bound.
+
+#### Scenario: The reference pins the artifact, not the body
+- **WHEN** an assignment record references a carrier
+- **THEN** it SHALL carry the carrier id AND the ARTIFACT digest
+- **AND** two carriers differing only in their attached capability SHALL NOT satisfy
+  the same reference
+
+#### Scenario: The signed digest excludes the signature over it
+- **WHEN** the body digest is computed
+- **THEN** it SHALL exclude both digest fields and the capability
+
+### Requirement: Scheduler attestation and host execution permission are separate
+Scheduler attestation and host execution permission SHALL be two different capability
+purposes, and neither SHALL be inferable from the other: they are two DIFFERENT decisions
+by two DIFFERENT principals.
+
+- `EDGE_CAPABILITY_PURPOSE_COLLECTION` is the SCHEDULER's ATTESTATION of what it
+  compiled. It ATTESTS the scope and agent an assignment was COMPILED FOR. It SHALL
+  NOT be read as permission for anyone to run that assignment.
+- `EDGE_CAPABILITY_PURPOSE_ASSIGNMENT_EXECUTION` is a HOST authority's PERMISSION to
+  execute one compiled assignment. It SHALL be signed by an authority over the
+  executing host, NEVER by the scheduler key family that signs carriers.
+
+Collapsing them would let the scheduler grant itself host permission.
+
+The execution grant SHALL bind ONE EXACT CARRIER, by id AND artifact digest, and is
+therefore NOT reusable across carrier revisions. A grant that floated free would
+authorize a recompiled carrier's config generation, result format and check set --
+precisely the facts the carrier exists to pin. Recompiling requires a new grant.
+
+The execution grant's claim SHALL be interpretable IN FULL against the assignment
+record and its carrier. It SHALL NOT reuse the record-plane PRODUCTION or SOURCE
+claim contracts: their full semantics -- contract id and version, registry epoch,
+package digest, cost model, projected row and write bounds, origin and instance
+identity -- can only be interpreted against an `EdgeRecordV1`, which an assignment
+record is not. A grant reusing them could interpret only a SUBSET, leaving every
+unchecked member free.
+
+The grant's inner collection window SHALL be CONTAINED IN the envelope window that
+carries it. A grant cannot be wider than the capability carrying it, and an inner
+window reaching outside would authorize instants the envelope never covered. Both
+bounds SHALL be positive; zero is the proto default and SHALL NOT pose as an
+open-ended grant.
+
+The grant SHALL declare a physical received-byte ceiling of 16 KiB; it travels
+standalone.
+
+#### Scenario: A scheduler key cannot mint execution permission
+- **WHEN** an execution grant is presented that was issued by the scheduler key family
+- **THEN** it SHALL be refused as unauthorized, a permanent rejection
+
+#### Scenario: A grant does not carry over to a recompiled carrier
+- **WHEN** a carrier is recompiled and its artifact digest changes
+- **THEN** a grant naming the previous artifact digest SHALL be refused
+
+#### Scenario: The inner window cannot exceed the envelope
+- **WHEN** a grant's collection window starts before, or ends after, its envelope
+- **THEN** the grant SHALL be refused, not silently intersected
+
+### Requirement: Permitting collection now is one composed decision
+Permitting an agent to collect for an assignment AT AN INSTANT SHALL require ALL of the
+following to hold together, and a runtime SHALL expose it as ONE decision. It SHALL NOT
+expose a constituent check in a form a caller could mistake for the whole.
+
+1. The record/carrier relation, and the carrier's own validity, from the carrier's
+   RECEIVED BYTES.
+2. The scheduler's attestation over the carrier, verified against a resolved issuer
+   key, with status EXACTLY valid. A compromise-revoked key verifies -- the signature
+   WAS valid when made -- but SHALL NOT permit new work.
+3. The host execution grant, validated in full and FRESH at the instant, against BOTH
+   its envelope window and its inner collection window.
+4. The CALLER's identity, obtained from the authority that performed the transport
+   authentication, which SHALL affirm that the authenticated peer is EXACTLY the
+   record's (`network_scope_id`, `authenticated_agent_id`) pair. An answer that is
+   merely "some peer is authenticated" SHALL NOT satisfy this. Every identity on the
+   record or in a capability is one the scheduler NAMED; none is evidence about who
+   presented the bytes.
+5. The AUTHORITATIVE record's state SHALL be exactly OPEN. Every other state --
+   COMPLETED, ABORTED, LOST, EXPIRED, SUPERSEDED -- describes work that must not
+   continue, and the lease and window fields say nothing about that.
+6. The AUTHORITATIVE record and its COMMITTED PLAN, resolved by a key DERIVED from
+   the record, not supplied by the caller.
+7. The COMMITTED PLAN SHALL validate from its RAW bytes AND the authoritative record
+   SHALL satisfy the assignment/plan relation against it. Without this the record, the
+   carrier and the grant can all agree on a range that no committed plan contains.
+8. The carrier, capability and lease windows containing the instant.
+
+Each of these has been observed to be insufficient alone. In particular a check of
+structure and time only -- with no signature verification, no state, no authoritative
+position -- admits a forged signature behind a resealed digest, a compromise-revoked
+key, a terminal assignment, and a superseded record that is still nominally open.
+
+The authoritative-record lookup key SHALL be the structured tuple
+(`network_scope_id`, `authenticated_agent_id`, `producer_assignment_id`), DERIVED
+from the record inside the decision. An opaque caller-chosen namespace is not
+checkable, so a caller could name any namespace whose authority answered
+conveniently.
+
+The resolved authority SHALL carry the COMPLETE authoritative record and the
+committed plan, and the presented record SHALL equal the authoritative one IN FULL.
+A projection of selected fields leaves every field it omits unconstrained --
+including fields added later -- so a record differing only in an unlisted field
+would pass.
+
+The resolver SHALL ECHO the requested key, and the echo SHALL be checked BEFORE the
+resolution's status is interpreted. A response carrying a different key is no
+evidence about the assignment that was asked for; reading its status first would let
+an answer to another question become a permanent "this assignment does not exist".
+A cross-key response is unauthoritative and therefore RETRYABLE.
+
+An unresolvable lookup (retryable) and a genuinely unknown assignment (permanent)
+SHALL remain distinct outcomes.
+
+Values a decision depends on SHALL NOT be supplied by its caller where they can be
+derived or resolved instead, and every callback SHALL receive COPIES: a protobuf
+bytes field aliases its backing storage, so a callback handed a slice from the
+message under evaluation can rewrite fields whose signatures were already checked.
+
+#### Scenario: A revoked key does not permit new work
+- **WHEN** the attestation or the grant resolves to a compromise-revoked key
+- **THEN** collection SHALL NOT be permitted
+- **AND** the signature SHALL still be verifiable for audit
+
+#### Scenario: A superseded record does not permit collection
+- **WHEN** the presented record differs from the authoritative record in ANY field
+- **THEN** collection SHALL NOT be permitted
+
+#### Scenario: A terminal assignment does not permit collection
+- **WHEN** the authoritative record's state is anything other than OPEN
+- **THEN** collection SHALL NOT be permitted
+- **AND** this SHALL hold even when the presented record is IDENTICAL to the
+  authoritative one, since agreement about a terminal state is still terminal
+
+#### Scenario: The transport must affirm the exact identity
+- **WHEN** the authenticated peer is not exactly the record's network scope and agent
+- **THEN** collection SHALL NOT be permitted
+
+#### Scenario: A range absent from the committed plan does not permit collection
+- **WHEN** the authoritative record does not satisfy the assignment/plan relation
+  against the committed plan
+- **THEN** collection SHALL NOT be permitted
+
+#### Scenario: A cross-key resolver response is retryable
+- **WHEN** the authority's response does not echo the requested key
+- **THEN** the outcome SHALL be retryable, never a permanent "unknown assignment"
+
+### Requirement: Current permission and historical verification are separate questions
+A runtime SHALL distinguish "was this signature validly issued" from "may this work happen
+now", and SHALL provide both.
+
+A signature remains checkable over the bytes it covers FOR AS LONG AS THE ISSUING KEY'S
+EVIDENCE IS RETAINED, which is what lets an ARCHIVED record be re-verified. Permission to
+act expires on its own schedule. Conflating them yields either an archive that cannot be
+re-checked once a window closes, or a lapsed grant that still permits work.
+
+("Forever" appeared here in an earlier revision and is WITHDRAWN: it contradicted the
+retention condition stated below, and a spec that carries both readings lets an
+implementer pick either.)
+
+The instant supplied to trust resolution SHALL be the CURRENT instant, and it decides
+CURRENT rotation and compromise state -- NOT "was this key trusted back then". A key
+used validly inside its window and compromise-revoked afterwards SHALL resolve as
+historically revoked when asked at a later instant. That is what makes a revocation
+discovered after the fact actionable. The SIGNED EVIDENCE INTERVAL is a separate
+input and comes from the capability itself.
+
+An API whose contract is "permission" SHALL return an error for EVERY non-valid key
+status, so a caller inspecting only the error cannot fail open. An API whose contract is
+VERIFICATION returns a non-valid status without an error ONLY for the statuses the frozen
+matrix below permits -- HISTORICALLY_REVOKED -- and SHALL error on the rest. An earlier
+revision said such an API "MAY return a non-valid status without an error" generically,
+which is WITHDRAWN: it admitted INVALID and UNAVAILABLE as silent successes, contradicting
+the matrix.
+
+Historical verification remains possible ONLY while the KEY EVIDENCE is retained. A
+runtime SHALL NOT claim a signature is re-verifiable after its issuing key's history has
+been discarded; retention of that history is what makes the claim true, and it is a
+deployment property, not a wire one.
+
+The status matrix is FROZEN. Exactly TWO resolutions may return a VERIFIED SIGNATURE
+without an error:
+
+- VALID -- the key was validly issued and is not compromised.
+- HISTORICALLY_REVOKED -- the signature verifies (it was valid when made) but trust is
+  deliberately withdrawn. Reachable as audit/quarantine evidence; NEVER a permanent
+  reject, and NEVER permission for new work.
+
+The other two SHALL remain errors, and SHALL NOT be merged:
+
+- INVALID -- unknown, never-issued, or not authorized for the requested role. PERMANENT.
+- UNAVAILABLE -- the lookup could not answer. RETRYABLE.
+
+Collapsing INVALID into UNAVAILABLE turns a rejection into a retry loop; the reverse
+turns an outage into a permanent refusal.
+
+The TRUST-POLICY EPOCH pins one immutable policy snapshot for a whole decision. The
+request's epoch SHALL be NONZERO -- a zero epoch is a configuration error and SHALL fail
+closed BEFORE the resolver is consulted, never as a retryable lookup failure. The
+response SHALL echo it EXACTLY, and that echo SHALL be checked BEFORE the resolution's
+status is interpreted: a zero or mismatched echo is a stale or cross-snapshot reply from
+a revocation race, so it is UNAVAILABLE regardless of what status it carries.
+
+#### Scenario: Only two resolutions verify without error
+- **WHEN** a resolution is INVALID or UNAVAILABLE
+- **THEN** it SHALL be an error, permanent and retryable respectively
+- **AND** VALID and HISTORICALLY_REVOKED SHALL both return a verified signature
+
+#### Scenario: The epoch echo is checked before the status
+- **WHEN** a resolution's epoch echo is zero or does not match the request
+- **THEN** the outcome SHALL be unavailable, whatever status it carried
+
+#### Scenario: A compromise after expiry is visible
+- **WHEN** a grant has expired and its key is compromise-revoked afterwards
+- **THEN** historical verification at the current instant SHALL report the revocation
+
+### Requirement: Capability trust resolution is purpose-scoped and response-bound
+A trust resolver SHALL be told the ROLE a capability is being resolved for, and SHALL ECHO
+it in its response. The echo is RESPONSE CORRELATION: it proves the answer belongs to the
+question asked, exactly as the trust-policy epoch echo does. An unset or mismatched
+echo SHALL be treated as unavailable.
+
+The echo SHALL NOT be read as establishing that a key is authorized for that role.
+AUTHORIZING (issuer, key, purpose) is a CONTRACT OBLIGATION on the resolver: it SHALL
+resolve a key that is not authorized to issue the requested role as invalid, a
+permanent rejection. Only the resolver holds that knowledge, so no verifier can check
+it, and an implementation that skips it lets one role's key validate another.
+
+#### Scenario: An unechoed purpose is not an answer
+- **WHEN** a resolution does not echo the requested purpose
+- **THEN** it SHALL be treated as unavailable, never as authorizing
+
+### Requirement: Compression admission is frozen by value, stage, and frame shape
+A ZSTD-compressed `EdgeRecordV1` payload SHALL be admitted only under the frozen
+EXTRACTED-BODY BOUNDS, enforced BEFORE any decompression, and only when the payload is
+exactly ONE standard Zstd frame.
+
+THE THREE VALUES ARE FROZEN HERE, and this is their normative source. Until now they existed
+only in runtime source, so every consumer asserting them -- including the Elixir sweep body
+decoder -- pinned a number with nothing behind it:
+
+- `MaxUncompressedBytes` = **33_554_432** bytes (32 MiB). The EXTRACTED-BODY output ceiling.
+- `MaxCompressionRatio` = **100**. The maximum ratio of extracted output to encoded input.
+- `MaxZstdWindowBytes` = **33_554_432** bytes (32 MiB). The maximum Zstd WINDOW a frame may
+  advertise.
+
+THE WINDOW CEILING IS A THIRD, INDEPENDENT LIMIT, and v1 assigning it the same value as the
+output ceiling is a COINCIDENCE OF VALUE, not a rule. They bound different things: output
+size is what the body costs to hold, window size is what the DECODER must retain as history
+while producing it. A frame advertising a 64 MiB window while emitting 1 MiB of output
+passes both the output ceiling and the ratio, and SHALL still be rejected. Without this
+frozen, a runtime that admitted such a frame would diverge from one that did not, on a
+record both agree is otherwise valid.
+
+THESE ARE WORK CEILINGS ON THE EXTRACTED BODY, not physical bounds on the record. The record
+and its encoded payload remain bounded by `MaxRecordBytes` (512 KiB) on RECEIVED BYTES. A
+compressed payload under that physical bound may legitimately EXPAND past it -- that is the
+entire point of the ratio -- so a physical bound applied to the extracted body would
+permanently reject valid records.
+
+THE STAGE IS PART OF THE FREEZE. The DECLARED-OUTPUT and RATIO bounds SHALL be evaluated on
+the DECLARED sizes BEFORE the payload is decompressed, so a decompression bomb is refused without ever being expanded.
+A ratio checked after expansion has already paid the cost it exists to avoid.
+
+THE RATIO IS MEANINGLESS UNLESS `encoded_size` IS BOUND TO THE RECEIVED BYTES FIRST. It is
+the denominator, so an unbound `encoded_size` buys arbitrary ratio headroom: declare a large
+encoded size, pass the ratio trivially, and only the absolute ceiling still applies. The
+implementation SHALL therefore reject a record whose `encoded_size` differs from the actual
+payload length before evaluating the ratio.
+
+THE DECLARATION SHALL NOT BE TRUSTED AS THE OUTCOME. `uncompressed_size` is what the bounds
+are evaluated against, so the ACTUAL decoded output SHALL be required to equal it exactly. A
+validator that bounds the declaration and never checks the real output has bounded a claim,
+not a body.
+
+RATIO ARITHMETIC SHALL BE OVERFLOW-SAFE. A wrapped product admits exactly the bombs the
+ratio excludes, so the comparison SHALL NOT be evaluated in a width the product can exceed.
+This is a property, not an accumulator width: once `encoded_size` is bound to a payload
+already under the 512 KiB physical ceiling, the denominator is at most 524_288 and the
+product at most 52_428_800, which any 32-bit or wider accumulator holds. The freeze is that
+the binding happens FIRST -- an unbound `uint32` denominator times 100 exceeds 32 bits, so a
+runtime evaluating the ratio before the binding would need a wider accumulator to stay
+correct, and one that did neither would wrap.
+
+VALIDATION SHALL NOT RESERVE THE FULL OUTPUT. The frame is validated by streaming through a
+fixed scratch buffer, so refusing a 32 MiB body does not first allocate 32 MiB. That buffer
+bounds the CALLER'S OUTPUT BUFFERING ONLY. It is not a bound on decoder memory, which retains
+up to O(window) of history regardless -- and `MaxZstdWindowBytes` bounds that HISTORY/WINDOW
+REQUIREMENT, not total decoder memory: a decoder holds tables and buffers beyond the window,
+and neither runtime guarantees a ceiling on the whole of it.
+
+EXACTLY ONE COMPRESSION LAYER IS ADMITTED. Once decoded, the extracted bytes are a CONTRACT
+MESSAGE and SHALL NOT be interpreted as another compressed envelope, so there is no
+RECURSIVE COMPRESSION to bound and no runtime may introduce one. This is a rule about LAYERS,
+not about passes: a runtime MAY validate the frame and materialize the body in separate
+decode passes, which is implementation topology rather than an ABI property. (Protobuf
+MESSAGE recursion is a different limit entirely and is owned by 1.5-a.)
+
+Decoding SHALL use no dictionary.
+
+#### Scenario: The extracted-body bounds are refused before expansion
+- **WHEN** a record declares an `uncompressed_size` of zero, above 33_554_432, or above
+  `encoded_size` times 100
+- **THEN** it SHALL be rejected WITHOUT decompressing the payload
+- **AND** the same rejection SHALL apply whether or not the frame would have decoded
+
+#### Scenario: A declared size that the frame does not produce is refused
+- **WHEN** a payload decodes to a byte count different from `uncompressed_size`
+- **THEN** it SHALL be rejected
+- **AND** this SHALL hold in both directions -- fewer bytes and more bytes
+
+#### Scenario: The payload is exactly one Zstd frame
+- **WHEN** a payload carries trailing bytes after a valid frame, a second concatenated frame,
+  an empty concatenated frame, or a skippable frame
+- **THEN** it SHALL be rejected as trailing data
+- **AND** the check SHALL parse the FRAME STRUCTURE and require the frame to end at exactly
+  the payload length, because a decode-side output-size check cannot see these: a conforming
+  decoder consumes no-output trailing frames transparently, producing the declared byte count
+  from a payload that carries more than one frame
+
+#### Scenario: An oversized advertised window is refused on its own
+- **WHEN** a frame advertises a required window ABOVE 33_554_432 bytes
+- **THEN** it SHALL be rejected BEFORE expansion
+- **AND** this SHALL hold even when the decoded output size and the compression ratio are
+  both within their ceilings, since the window bounds decoder history rather than output
+- **AND** a frame advertising exactly 33_554_432 bytes SHALL be accepted, so the boundary is
+  inclusive and the two vectors sit either side of it
+
+#### Scenario: The ratio denominator is bound to received bytes
+- **WHEN** `encoded_size` differs from the actual payload length
+- **THEN** the record SHALL be rejected before the ratio is evaluated
+
+### Requirement: Only a raw-byte plan boundary may claim physical enforcement
+A plan's PHYSICAL ceilings and wire hygiene SHALL be claimed ONLY by a boundary that sees
+the RECEIVED BYTES and bounds them BEFORE decoding. The plan header's ceiling SHALL be
+512 KiB, alongside the page ceiling of 128 KiB, both on received bytes.
+
+This freezes a BEHAVIOURAL rule, not API topology. Decoded relational helpers -- validators
+that take an already-decoded header and pages and check the plan's internal relations --
+MAY exist and are useful; both current runtimes expose them. What such a helper SHALL NOT
+do is CLAIM to enforce a physical ceiling or wire hygiene, because it cannot: a
+duplicate-field header over the bound collapses on decode and reaches it looking compliant.
+An earlier revision of this requirement demanded exactly one entry point and forbade
+decoded-header APIs outright, which froze a shape neither signed-off runtime has.
+
+A caller that needs the physical guarantee SHALL obtain it from the raw boundary. A
+runtime SHALL make clear, at each such helper, which guarantee it does NOT provide.
+
+WHAT IS FROZEN IS PER-ARTIFACT: each artifact's raw size SHALL be checked BEFORE THAT
+ARTIFACT is decoded. Decoding an artifact and bounding it afterwards performs exactly the
+work its bound exists to prevent.
+
+WHAT IS NOT FROZEN is the cross-artifact ORCHESTRATION: whether every size in a plan is
+preflighted before any decode, whether the header's failure takes precedence over a page's,
+and what a raw entry point returns. Those are RUNTIME choices, and the two runtimes make
+them differently today -- Go preflights the whole plan and validates the header before
+decoding pages; Elixir decodes the header, then the pages, and validates the plan relation
+afterwards, so an unsupported header with a malformed page reports the page. Both satisfy
+the byte rule.
+
+An earlier revision froze the Go orchestration as normative, which made the signed-off
+Elixir non-conforming for a difference that changes no wire artifact and no accept/reject
+outcome -- only which of two rejections is reported first. Freezing an implementation's
+call order because it is the one that happened to be written first is the failure this
+requirement now avoids.
+
+Preferring the header's failure IS better diagnostics, and Go's tests pin it; it is stated
+here as GUIDANCE, not a SHALL.
+
+#### Scenario: A decoded helper does not claim the physical ceiling
+- **WHEN** a decoded-input plan validator accepts a header whose RECEIVED bytes exceeded
+  the ceiling but whose decode collapsed below it
+- **THEN** that is NOT a defect in the helper
+- **AND** the helper SHALL NOT be presented as enforcing the physical ceiling
+
+#### Scenario: An artifact is bounded before it is decoded
+- **WHEN** an artifact's received bytes exceed its ceiling
+- **THEN** it SHALL be rejected without being decoded
+
+#### Scenario: Report-order differences are conformant
+- **WHEN** two runtimes reject the same plan for different reasons because one preflights
+  the whole plan and the other decodes page-by-page
+- **THEN** both SHALL be conformant, provided each bounded every artifact before decoding it
+- **AND** the plan SHALL be rejected by both
+
+### Requirement: A sweep batch's execution source selects its authority kind and context operand
+A record whose payload is a `SweepObservationBatchV1` SHALL carry SIGNED SOURCE AUTHORITY in
+its ENCLOSING `EdgeRecordV1.source_authorization`, and the BODY's `source` SHALL select both
+the `EdgeSourceAuthorizationKind` that authority must carry and WHICH body field the signed
+context operand is compared against.
+
+THE BATCH CANNOT CARRY AUTHORITY. `SweepObservationBatchV1` has no authorization field and no
+signature; authority lives one level up, on the record that encloses it. An earlier revision
+said the batch "SHALL carry signed source authority", which named a field that does not exist.
+The correlation is precisely a join ACROSS that boundary -- body fields against the enclosing
+record's signed claims -- and collapsing the two messages into one obscures the only thing the
+rule does.
+
+Source authority is OPTIONAL at the record level, and that optionality SHALL NOT be read
+as making it optional here: a sweep body without it has no signed statement of what was
+authorized, so there is nothing for the correlation to compare against. A sweep record
+lacking source authority SHALL be rejected.
+
+The mapping is FROZEN and EXHAUSTIVE over the declared non-zero sources:
+
+| `SweepExecutionSource` | `EdgeSourceAuthorizationKind` | signed context operand | `source_run_id` |
+| --- | --- | --- | --- |
+| `SCHEDULED_SWEEP` (1) | `SCHEDULED_SWEEP` (1) | `execution_id` | FORBIDDEN |
+| `SWEEP_PROFILE` (2) | `SWEEP_PROFILE` (2) | `execution_id` | FORBIDDEN |
+| `AD_HOC` (3) | `AD_HOC` (4) | `source_run_id` (scan_run_id) | REQUIRED |
+| `ON_DEMAND` (4) | `ON_DEMAND` (5) | `source_run_id` (command_id) | REQUIRED |
+| `SCHEDULED_CHECK` (5) | `SCHEDULED_CHECK` (3) | `source_run_id` (check_id) | REQUIRED |
+
+`source_run_id` is REQUIRED exactly where the signed `context_id` names a source-side run
+rather than the execution, and FORBIDDEN otherwise. Permitting it in the forbidden
+positions would leave a second, unchecked correlation candidate on the wire: a consumer
+could bind on it while the validator bound on `execution_id`, and nothing would say which
+was authoritative. Where it is required it SHALL be a canonical UUID.
+
+The KIND NUMBERS deliberately do not line up. Only TWO ordinals coincide --
+`SCHEDULED_SWEEP` and `SWEEP_PROFILE`; `AD_HOC`, `ON_DEMAND` and `SCHEDULED_CHECK` all
+differ. An implementation correlating by NUMBER rather than by this table would accept an
+ad-hoc body under scheduled-check authority. The table is the contract.
+
+`SWEEP_EXECUTION_SOURCE_UNSPECIFIED` (0) has NO authorized kind and SHALL be rejected
+before any other correlation runs. It is the proto default, so accepting it would let an
+unset field select a mapping.
+
+`EDGE_SOURCE_AUTHORIZATION_KIND_INTEGRATION_RUN` and `..._RECOVERY_CONTROL` are NOT in the
+range of this mapping. A sweep record presenting either SHALL be rejected, and this
+requirement SHALL NOT be read as reserving them for later sweep use.
+
+BOTH RUNTIMES SHALL PIN THE MAPPING'S EXACT MEMBERSHIP as an inventory, in addition to any
+behavioural vectors. Vectors sample; only an exhaustive inventory shows that the mapping is
+TOTAL over the declared sources, that it is INJECTIVE, and that the two unreachable kinds
+are absent from its range. A vector set cannot establish absence.
+
+The inventory has TWO parts, and only one of them is descriptor-derived. The SOURCE and KIND
+columns SHALL be checked against the generated enum descriptors, so a renumbering or a new
+member fails. The CONTEXT OPERAND and `source_run_id` DISPOSITION columns are NOT enum
+domains and no descriptor knows them: they SHALL be pinned as LITERAL table entries, exactly
+as the frozen field inventories elsewhere in this change are literals a human wrote. A
+descriptor check over the operand column would assert nothing.
+
+#### Scenario: A body's source must match the signed kind
+- **WHEN** a sweep record's body `source` maps to a kind other than the one its signed
+  source authority carries
+- **THEN** the record SHALL be rejected
+
+#### Scenario: A sweep batch without source authority is rejected
+- **WHEN** a sweep record carries no source authorization
+- **THEN** it SHALL be rejected, whatever its body says
+
+#### Scenario: source_run_id is required or forbidden, never optional
+- **WHEN** a body carries `source_run_id` under `SCHEDULED_SWEEP` or `SWEEP_PROFILE`
+- **THEN** the record SHALL be rejected
+- **AND WHEN** it omits `source_run_id` under `AD_HOC`, `ON_DEMAND` or `SCHEDULED_CHECK`
+- **THEN** the record SHALL be rejected
+- **AND** both SHALL be decided by BODY VALIDATION, without consulting signed authority
+
+#### Scenario: The source selects which body field the signed context is compared against
+- **WHEN** a `source_run_id` row's body has `execution_id != source_run_id` and the signed
+  `context_id` equals the NON-SELECTED `execution_id`
+- **THEN** the record SHALL be rejected, even though the context matches a field the body
+  carries
+- **AND WHEN** an `execution_id` row's body omits `source_run_id`, as that row requires, and
+  its `execution_id` differs from the signed `context_id`
+- **THEN** the record SHALL be rejected
+- **AND** the mismatch SHALL NOT be shown by adding `source_run_id` to an `execution_id` row,
+  which would breach the disposition rule instead
+
+#### Scenario: An unspecified source is rejected before correlation
+- **WHEN** a sweep body carries `SWEEP_EXECUTION_SOURCE_UNSPECIFIED`
+- **THEN** the record SHALL be rejected, and no other correlation SHALL be consulted
+
+#### Scenario: An unreachable kind is refused, not merely unmapped
+- **WHEN** a sweep record's source authority carries `INTEGRATION_RUN` alongside an
+  otherwise-valid body
+- **THEN** the record SHALL be rejected at CORRELATION, not only absent from the inventory
+- **AND WHEN** it carries `RECOVERY_CONTROL` instead
+- **THEN** the record SHALL be rejected by the RESERVED RECOVERY LANE, which runs first, and
+  the vector SHALL assert that rejection rather than a correlation one
+
+### Requirement: The sweep correlation is proven by gate-owned vectors, labelled where frozen
+Every sweep correlation rule SHALL be proven by SHARED cross-language vectors. Each
+CORRELATION-OWNED negative SHALL differ from a committed POSITIVE control in EXACTLY ONE
+CORRELATION COMPARISON, and SHALL be carried by a SIGNATURE-VALID enclosing record.
+
+THE ONE-COMPARISON RULE IS SCOPED, in two ways that the gate table and its scenarios detail
+and that this opening SHALL NOT overrule:
+
+- vectors owned by an EARLIER gate change one INPUT and are refused there; the correlation
+  comparisons downstream of them are UNDEFINED, not required to hold;
+- `source_authority_absent` is the exception WITHIN correlation. It reaches correlation and
+  fails the PRESENCE check, which leaves EVERY claim relation undefined at once -- there are
+  no claims to compare against. It is one comparison in the only sense available, and a rule
+  demanding it differ in exactly one claim relation would be unsatisfiable.
+
+A negative that breaks two things at once proves whichever rule runs first, which is not the
+rule it is named after.
+
+"RE-SIGNED RECORD" IS NOT A THING THAT EXISTS, and an earlier revision requiring one was
+demanding the impossible. `EdgeRecordV1` carries NO signature field; signatures live on
+`EdgeSignedCapabilityV1.signature`, over that capability's own canonical signing bytes. What
+a negative SHALL do is:
+
+REBUILD THE RECORD IN THIS EXACT ORDER. The order is itself frozen, because two of these
+steps consume the output of others and a plausible-looking rearrangement silently produces an
+invalid record:
+
+1. APPLY every mutation the vector intends -- to the body, to record fields, to wrapper
+   fields, and to capabilities;
+2. IF THE BODY CHANGED: re-encode it to the exact bytes the vector carries, re-compress if
+   the record's `compression` is not NONE, update `encoded_size` to the payload length and
+   `uncompressed_size` to the decoded length (equal when compression is NONE), and recompute
+   `payload_sha256` over the exact encoded payload;
+3. RE-SIGN every capability whose COMPLETE SIGNING PREIMAGE changed -- not only those whose
+   claims changed;
+4. RECOMPUTE `semantic_envelope_sha256` LAST;
+5. REBUILD downstream authority that binds record bytes the vector changed.
+
+STEP 4 IS LAST BECAUSE THE SEMANTIC PREIMAGE CONTAINS CAPABILITY SIGNATURES. It frames each
+capability field-by-field INCLUDING its `signature` bytes, and frames the source authorization
+with a PRESENCE marker. Two consequences an earlier revision got wrong by recomputing the
+digest before re-signing:
+
+- computing the semantic digest and THEN re-signing leaves the digest stale, so the record
+  fails its own envelope check and the vector never reaches the gate it is named for;
+- REMOVING SOURCE AUTHORITY CHANGES THE SEMANTIC PREIMAGE WITH NO BODY CHANGE AT ALL, via that
+  presence marker. A rebuild conditioned only on "did the body change" would skip step 4 and
+  produce a stale digest for exactly the `source_authority_absent` vector.
+
+STEP 3 IS THE COMPLETE PREIMAGE, NOT THE CLAIMS. A capability's signing bytes cover its
+version, issuer id, issuer key id, algorithm, purpose, BOTH window endpoints and its claims. A
+vector that shifts a capability's validity window changes no claim and still invalidates the
+signature, so "re-sign when claims change" would leave it unsigned-for-its-content.
+
+STEP 2's SIZE FIELDS ARE NOT AN AFTERTHOUGHT: `encoded_size` MUST equal the payload length and
+`uncompressed_size` the decoded length, so a body mutation that changes length -- which nearly
+every one here does, since adding or removing `source_run_id` changes it -- otherwise leaves a
+record that fails WHOLE-RECORD VALIDATION.
+
+Sealing matters for the same reason re-signing was thought to: an unsealed mutation is refused
+by the payload or envelope digest check before any correlation is consulted.
+
+EVERY NEGATIVE SHALL DECLARE ITS OWNING GATE, and the last-gate obligation applies to the
+CORRELATION vectors only. "Every negative reaches correlation" would be UNSATISFIABLE: some
+of the vectors this requirement demands are refused, correctly and by design, by an EARLIER
+gate, and no re-signing can carry them further.
+
+| owning gate | vectors it owns | why it cannot reach correlation |
+| --- | --- | --- |
+| ENUM ADMISSION | `SWEEP_EXECUTION_SOURCE_UNSPECIFIED` | the value is outside the field's admitted domain, so it is refused as an ENUM before any field is interpreted |
+| BODY VALIDATION | every `source_run_id` DISPOSITION vector (forbidden-presence, required-absence, malformed) | decidable from the batch ALONE -- `source` and `source_run_id` are fields of the SAME message and no signed authority is consulted to compare them |
+| RECOVERY LANE | source authority carrying `RECOVERY_CONTROL` | the reserved-lane rule refuses recovery authority on a non-recovery route, ahead of correlation |
+| CORRELATION | ABSENT source authority; kind mismatch; selected-context mismatch; `INTEGRATION_RUN`; every PER RELATION and endpoint vector | each compares a body field against a SIGNED claim, so nothing earlier can decide them |
+
+ABSENT SOURCE AUTHORITY IS CORRELATION-OWNED, not a structural omission caught earlier. The
+field is OPTIONAL at the record level, so no structural gate can require it; the sweep
+correlation is the first thing that asks for it, and it carries the full last-gate
+obligation.
+
+THE DISPOSITION IS BODY-OWNED BECAUSE IT IS BODY-DECIDABLE, and an implementation SHALL NOT
+defer it to correlation. Deferring a body-decidable rule past the body validator means a
+malformed batch is carried into authority comparison, where the reason it is refused depends
+on which mismatch is noticed first. The line is drawn by what the rule READS, not by which
+requirement introduced it: `source` and `source_run_id` are fields 14 and 15 of
+`SweepObservationBatchV1`, and the whole disposition column is a function of those two.
+
+UNSPECIFIED IS OWNED BY ENUM ADMISSION, not by body validation, and the distinction is not
+cosmetic. Its admitted domain is the five non-zero members; a zero value is outside that
+domain and is refused as an ENUM DOMAIN violation, which is a different claim from "the body
+is malformed". The two runtimes reach that conclusion in different places -- Go's sweep body
+validator refuses an unknown source inline, Elixir's enum-admission policy excludes the member
+before the body is interpreted -- and BOTH conform, because the semantic owner is the enum
+domain either way. A requirement naming body validation as the owner would make Elixir's
+placement non-conforming for no reason.
+
+The UNSPECIFIED rejection and the recovery-lane rejection are PRE-EXISTING behaviour that this
+requirement merely locates. The disposition rejections are NEW: `source_run_id` is currently
+not read by any validator at all, so the body validator SHALL be extended to enforce presence,
+absence and canonical form.
+
+A vector filed under the wrong gate is a false coverage claim: it would be refused whether or
+not the rule it is named after exists. `INTEGRATION_RUN` and `RECOVERY_CONTROL` are BOTH
+outside the mapping's range but are NOT owned by the same gate, and a design that treated them
+as one pair would mis-file one of them.
+
+FOR THE CORRELATION VECTORS, "OTHERWISE VALID" IS A CHECKABLE CLAIM, NOT A DESCRIPTION. Each
+SHALL be shown to pass EVERY gate that precedes correlation, IMMEDIATELY BEFORE the
+correlation call that refuses it. The composed sweep validator's gates, in the order it runs
+them, are:
+
+1. WHOLE-RECORD VALIDATION, including signature verification;
+2. CONTRACT DISPATCH -- the record's `EdgeOutputContractRef` must equal the expected one in
+   all four members: contract id, contract version, bundle digest, registry epoch;
+3. FRAMING FAMILY -- the record's `payload_family` must be the one family this typed ingress
+   frames. It runs BEFORE extraction and decode, so a wrongly framed record is never read as a
+   contract message;
+4. BOUNDED PAYLOAD EXTRACTION -- the inner payload is unwrapped and decompressed under its
+   size bounds;
+5. BOUNDED DECODE of the extracted bytes into the batch message;
+6. BODY VALIDATION, which is where the sweep `source` enum is admitted;
+7. correlation.
+
+RAW WIRE HYGIENE IS NOT IN THIS LIST because it is EXTERNAL to the composed validator -- it
+runs on received bytes before this entry point, and a vector reaches step 1 having already
+passed it. ENUM ADMISSION IS NOT A SEPARATE LEADING STEP either: for the sweep `source` it is
+part of step 6 in Go, while Elixir admits it before interpreting the body. The gate table above
+records enum admission as UNSPECIFIED's semantic owner precisely because the two runtimes place
+it differently; this list is about ORDER within the Go composed path, and asserting a global
+enum-first order would contradict it.
+
+CONTRACT DISPATCH DOES NOT CHECK PAYLOAD FAMILY, and deliberately does not. An earlier
+revision of this list said it checked "payload family and output-contract reference"; it checks
+only the contract reference. THE TWO ANSWER DIFFERENT QUESTIONS: the contract selects the
+semantic validator and the projector, while the family selects which typed ingress a record may
+enter. That is why the family is step 3 above rather than part of step 2, and why no
+registry-wide contract-to-family table exists.
+
+An earlier revision of this paragraph called the binding a REAL GAP and offered task 1.5 two
+outcomes -- freeze a contract relation, or record that v1 needs none. BOTH ARE WITHDRAWN: the
+resolution is neither. See "The payload family is a framing discriminator bound to the typed
+entry point".
+
+STEPS 2, 4 AND 5 ARE EASY TO OMIT AND WERE OMITTED by an earlier revision, which jumped from
+record validation to body validation. They are not bookkeeping: a vector that mutates a sweep
+body changes its length and its digest, so a nominally correct correlation vector can die at
+contract dispatch, at a payload bound, or in the decoder while passing every control the list
+named -- and would then be recorded as proving a correlation rule it never reached.
+
+The REBUILD obligations are stated ONCE, as the numbered sequence in this requirement's
+opening, and are deliberately NOT paraphrased here. A paraphrase is how the withdrawn
+claims-only rule kept coming back: this paragraph previously restated it, one requirement after
+the sequence that replaced it. Follow the numbered steps.
+
+VECTORS OWNED BY AN EARLIER GATE SHALL ASSERT THAT GATE'S OWN REJECTION rather than a
+correlation label they never reach. Where that gate has a FROZEN PORTABLE LABEL -- the whole
+`source_run_id` disposition column does -- the vector SHALL assert it exactly.
+
+WHERE IT DOES NOT, THE VECTOR SHALL ASSERT ONLY THAT THE OWNING GATE REFUSED, and the manifest
+SHALL record it as an UNLABELLED rejection. This is an explicit permission, not an oversight:
+enum admission and the recovery lane are PRE-EXISTING gates whose reasons are typed
+per-runtime -- Go returns sentinel errors, Elixir a tagged tuple -- and no portable label is
+frozen for either. Demanding an exact label for them would be unsatisfiable against the very
+contract that excludes them.
+
+A manifest SHALL NOT present an unlabelled rejection as exact-reason parity, and SHALL mark
+which vectors are unlabelled, so the gap is visible rather than inferred from its absence.
+
+REJECTION LABELS ARE PART OF THE CONTRACT. `ErrSweepJoin` with a formatted string suffix is
+not comparable across runtimes -- Elixir has no access to Go's message text -- so each of the
+FIFTEEN LABELLED RULES BELOW SHALL carry a PORTABLE SEMANTIC LABEL that both runtimes emit and
+the shared manifest pins. This is deliberately NOT "each rule": the enum-admission and
+recovery-lane rejections are excluded by name further down, and a universal SHALL here would
+contradict that exclusion. The frozen list is exactly these fifteen:
+`source_authority_absent`, `source_kind`, `source_run_id_disposition`, `context_id`,
+`range_id`, `scope_digest`, `target_range_digest`, `plan_digest`, `execution_shard`,
+`assignment_epoch`, `batch_time_window`, `host_time_window`, `host_time_overflow`,
+`trace_time_window`, `trace_time_overflow`. Until both runtimes emit these labels, a vector
+manifest SHALL NOT claim exact-reason parity -- it may pin only "rejected", and SHALL say so.
+
+`source_run_id_disposition` is in this list but is emitted by the BODY VALIDATOR, per the gate
+table: the list freezes the labels for the rejections this matrix INTRODUCES, and the gate
+table says which gate emits each. The two are orthogonal, and a label does not imply a gate.
+
+The rejections this matrix merely LOCATES keep their existing reasons and are not frozen here
+-- the body validator's unknown-source rejection and the recovery-lane rejection.
+`source_unspecified` is deliberately ABSENT from the list: enum admission already owns it with
+a pre-existing typed reason, and its vector is an UNLABELLED rejection under the rule above.
+
+PER SOURCE -- and these SHALL vary the CONTEXT OPERAND, not only the kind. A vector set
+that varies kind alone is satisfied by an implementation that pins a correct static
+inventory and still compares `context_id == execution_id` for every source while ignoring
+`source_run_id` -- which is exactly what the current Go join does. For each of the five
+permitted values:
+
+- a POSITIVE vector. On the three `source_run_id` sources it SHALL be built so that
+  `execution_id != source_run_id` AND the signed `context_id` equals `source_run_id`. If
+  the two ids coincide, the vector passes under either operand rule and proves nothing
+  about which was selected;
+- a SELECTED-CONTEXT MISMATCH vector, for EVERY source. Its construction DIFFERS BY ROW,
+  because "point the signed context at the other body field" is not constructible on the
+  forbidden rows -- the other field is `source_run_id`, which those sources forbid, so such
+  a vector would break the disposition rule as well and prove whichever runs first:
+  - on the `execution_id` rows, `source_run_id` stays ABSENT and `execution_id` is moved
+    away from the signed `context_id`;
+  - on the `source_run_id` rows, `execution_id != source_run_id` and the signed
+    `context_id` is set to the NON-SELECTED `execution_id`.
+
+  Either way the vector fails against an implementation reading the wrong operand, and it
+  is per-source because the operand is per-source;
+- a KIND-MISMATCH vector whose signed kind is the one mapped from a DIFFERENT source.
+
+ONE WRONG-KIND SAMPLE PER SOURCE DOES NOT PIN THE MAPPING'S BEHAVIOUR. Five sources against
+seven declared kinds is a 5x7 accept/reject matrix with exactly five accepting cells; a single
+wrong-kind sample per source exercises five of the thirty rejecting cells and leaves an
+implementation free to accept an extra pair nobody tested. The inventory pins the TABLE, and
+these vectors pin five points -- neither pins the mapping's behaviour on the rest.
+
+THE RUNTIME SHALL THEREFORE CONSUME THE PINNED MAPPING AS ITS SOLE KIND LOOKUP: one table, one
+lookup, no second source-to-kind decision anywhere in the correlation. Under that construction
+the inventory's coverage IS the behaviour's coverage, and the per-source vectors prove the
+lookup is consulted rather than re-deriving what it returns.
+
+THIS IS UNCONDITIONAL. An earlier revision offered "or exhaust the full source x kind reject
+matrix" as an alternative for implementations computing the kind some other way. That
+alternative was incoherent and is WITHDRAWN: five of the matrix's thirty-five cells pair a
+sweep body with `RECOVERY_CONTROL` authority, and those are refused by the RESERVED RECOVERY
+LANE before correlation is reached -- so they cannot demonstrate correlation behaviour at all.
+An option whose cells are owned by a different gate, and whose count contradicts the one
+recovery vector the ordinary inventory requires, is not a second path to the same proof. The
+single pinned lookup is the requirement.
+
+PER SOURCE_RUN_ID DISPOSITION -- the disposition is a rule in its own right, and it is
+declared PER ROW, so presence and absence SHALL be covered PER ROW rather than sampled:
+
+- FORBIDDEN-PRESENCE on BOTH forbidden rows -- two vectors;
+- REQUIRED-ABSENCE on ALL THREE required rows -- three vectors.
+
+All five are BODY-VALIDATION vectors, per the gate table. The disposition HAS a frozen
+portable label, so all five -- and all THREE malformed vectors -- assert it exactly.
+
+A single sampled row would leave the other rows' disposition unenforced, which is exactly
+the state a per-row table exists to prevent.
+
+MALFORMEDNESS IS FROZEN AS ONE SOURCE-INDEPENDENT PREDICATE: where `source_run_id` is
+required it SHALL be a canonical UUID, by the SAME check on every row, with no per-source
+variation.
+
+THAT FREEZE STILL OWES ONE MALFORMED VECTOR PER REQUIRED ROW -- three, not one. The freeze
+says the three rows share a predicate; it does not show that all three rows INVOKE it. A
+single sampled row is satisfied by an implementation that checks canonical form on one source
+and skips it on the other two, which is precisely the per-row gap the rest of this inventory
+exists to close.
+
+What the freeze DOES buy is that each row needs only ONE malformed vector rather than a
+catalogue of malformed SHAPES -- wrong LENGTH, wrong VERSION nibble, wrong VARIANT bits.
+Those belong to the shared canonical-UUID predicate's OWN test suite, which every caller
+inherits, and restating them per row here would prove nothing about the sweep matrix.
+
+TWO SHAPES AN EARLIER REVISION LISTED ARE NOT SHAPES. `source_run_id` is `bytes`, not a
+string: "non-hex" names a textual encoding the field never has, and "empty" is
+INDISTINGUISHABLE from absent for a non-optional proto3 `bytes` field, so it restates the
+required-absence vector rather than adding a malformed one.
+
+PER UNREACHABLE KIND -- a negative for `INTEGRATION_RUN` and one for `RECOVERY_CONTROL`: a
+record whose signed authority carries that kind alongside an otherwise-valid sweep body.
+Their absence from the mapping is a STATIC property of the inventory; that a runtime actually
+REFUSES them is a behavioural one, and the inventory cannot establish it.
+
+THE TWO ARE REFUSED BY DIFFERENT GATES and SHALL NOT be filed as a matching pair.
+`INTEGRATION_RUN` reaches correlation and is refused there, so it carries the full last-gate
+obligation. `RECOVERY_CONTROL` never gets that far: the reserved recovery lane refuses
+recovery authority on a non-recovery route first, so its vector asserts the LANE rejection.
+Both prove refusal; only one proves the correlation refuses.
+
+Vectors for `SWEEP_EXECUTION_SOURCE_UNSPECIFIED` and for a sweep record with NO source
+authority SHALL be inventoried explicitly rather than left implied by the prose above.
+
+PER RELATION -- one negative for each rule below, on a single representative source, since
+these are source-independent and crossing them with source would restate one rule five times.
+
+WITH ONE EXCEPTION, which heads the list: the SELECTED OPERAND is source-DEPENDENT, is proven
+per source above, and appears below only for inventory completeness. Every OTHER entry is
+genuinely source-independent:
+
+- THE SELECTED OPERAND against the signed `context_id` -- ALREADY DISCHARGED by the five
+  per-source selected-context mismatch vectors above, and listed here only so the relation
+  inventory is complete. It owes NO SIXTH vector. Unlike every other relation below it is
+  NOT source-independent, which is exactly why it is proven per source rather than once on a
+  representative one. There is exactly ONE selected operand per source and never two: the
+  row's operand column names it, and the non-selected field is not a second thing to agree
+  with. A relation phrased as "`execution_id`, and also `source_run_id` where present" would
+  require both and contradict the table;
+- `target_range_id` against the signed `scope_id`;
+- `target_range_sha256` against the signed `scope_sha256` (label `scope_digest`);
+- `target_range_sha256` against the signed `target_range_sha256` (label
+  `target_range_digest`) -- a SEPARATE vector AND a SEPARATE LABEL, because the signed claim
+  carries BOTH and the two predicates are independently removable: one label covering both
+  would let either be deleted with the manifest still matching;
+- `execution_plan_sha256` against the signed plan digest;
+- `execution_shard` against the attested producer's `run_shard`;
+- `assignment_epoch` against the attested `authority_epoch`;
+- the batch `observed_at_unix_nano` outside the signed collection window -- TWO vectors, one
+  BEFORE the start and one AFTER the expiry;
+- a per-host absolute time outside it -- batch time plus `observed_at_delta_nano`, which is
+  a SIGNED INTEGER (int64), not a cryptographic signature -- with a delta that does NOT
+  overflow. TWO vectors, before-start and after-expiry; a negative delta is what reaches the
+  before-start side. Label `host_time_window`;
+- SEPARATELY, a per-host delta chosen so the sum OVERFLOWS int64 and the naively wrapped
+  result lands INSIDE the window, which SHALL be rejected rather than accepted on the
+  wrapped value. Label `host_time_overflow`. THE HOST PATH THEREFORE OWES THREE VECTORS --
+  before-start, after-expiry, and overflow -- not one described several ways: the two labels
+  are distinct, and a single vector satisfying both would let either predicate be deleted
+  while the manifest still matched;
+- an MTR trace identity time outside the window, on a host whose outcome allocated a trace
+  id -- TWO vectors, before-start and after-expiry;
+- an MTR trace id whose 48-bit UUIDv7 MILLISECOND timestamp overflows when converted to
+  nanoseconds. A valid UUIDv7 can carry a timestamp up to 2^48-1 ms, and multiplying by
+  1e6 exceeds int64 -- so an UNCHECKED conversion wraps a far-future identity into the
+  signed window. This is a distinct vector from the in-range-but-outside-window case.
+
+THE MILLISECOND-TO-NANOSECOND CONVERSION SHALL BE ONE CHECKED HELPER, used at EVERY call site
+that converts a UUIDv7 timestamp for comparison against a signed window. The overflow is a
+property of the CONVERSION, not of the sweep matrix, and it is currently unchecked at THREE
+independent call sites -- the record's own event-identity check, the sweep summary's MTR trace
+id, and the full-MTR trace and event ids. Fixing only the one this matrix happens to exercise
+would leave two live wraps behind a vector set that looks complete.
+
+EACH CALL SITE OWES ITS OWN VECTOR, because a shared helper proves nothing about a caller that
+does not use it. Those vectors are assigned by OWNING TASK, not absorbed here: the sweep
+summary's is task 1.3's and is the bullet above; the record event-identity site belongs to
+task 1.1 and the full-MTR sites to task 1.4. 1.3 introduces the shared helper and its own call
+site; it SHALL NOT be read as having proven the other two.
+
+THE INNER COLLECTION PREDICATE IS INCLUSIVE AT BOTH ENDPOINTS: an observation exactly at
+`EdgeSourceClaimsV1.collection_not_before_unix_nano`, or exactly at that message's
+`collection_expires_unix_nano`, is INSIDE.
+
+THAT MESSAGE QUALIFIER IS LOAD-BEARING, and this statement is scoped to that predicate
+alone. `EdgeAssignmentExecutionClaimsV1` declares fields with THE SAME TWO NAMES and they
+are HALF-OPEN -- an instant exactly at expiry is already outside. Two messages, identical
+field names, deliberately opposite endpoint conventions.
+
+Nor is "capability envelopes are half-open" true as a general claim: the record's
+EVENT-IDENTITY envelope checks -- production window, source window, and the inline collection
+window -- are INCLUSIVE at both ends; only the assignment-execution grant and the capability
+envelopes on the compiled-assignment path are half-open. Each convention is pinned where it
+applies and none generalises.
+
+CLOCK TOLERANCE IS NOT PART OF ANY OF THIS. The event-identity envelope checks are inclusive
+and take NO tolerance: they ask whether an identity time lies inside a signed window, which is
+a question about the record, not about now. Tolerance widens a DIFFERENT decision -- whether an
+authority is CURRENT at the validating instant -- and an earlier revision of this requirement
+wrongly attached it to the envelope checks. Endpoint vectors SHALL therefore not be built or
+explained in terms of tolerance; it does not reach them.
+
+Endpoint controls SHALL use an envelope STRICTLY WIDER than the collection window, so the
+envelope's own endpoint rule cannot be what decides them, and SHALL exercise all three time
+paths -- batch, per-host absolute, and MTR trace identity -- at BOTH endpoints.
+
+EVERY TIME WINDOW OWES A NEGATIVE ON BOTH SIDES, for all three paths. An ACCEPTED endpoint
+control does NOT catch deletion of the opposite bound: an implementation that dropped its
+expiry comparison entirely still accepts both endpoints and still rejects a before-start
+value, so a one-sided negative set leaves the deleted half invisible. Six window negatives
+result -- three paths, two sides -- plus the two overflow vectors, for EIGHT time negatives
+in total: batch two, host three, trace three.
+
+Each OVERFLOW vector SHALL be constructed so that the naively WRAPPED result lands INSIDE
+the window. An overflow whose wrapped value falls outside is refused either way, so it
+cannot distinguish a checked conversion from an unchecked one.
+
+#### Scenario: A correlation-owned negative differs from its control in one comparison
+- **WHEN** a CORRELATION-owned negative vector is compared with its committed positive control
+- **THEN** they SHALL differ in exactly one correlation COMPARISON
+- **AND** the record SHALL be REBUILT in the frozen order -- mutate, then re-encode/compress
+  and update both sizes and `payload_sha256`, then re-sign every capability whose complete
+  signing preimage changed, then recompute `semantic_envelope_sha256` LAST -- so neither a
+  size, a signature, nor a digest check is what refuses it
+- **AND** `EdgeRecordV1` carries no signature of its own, so "re-signing" always means
+  re-signing capabilities, never the record
+
+#### Scenario: Absent source authority leaves every claim relation undefined
+- **WHEN** the `source_authority_absent` negative is compared with its control
+- **THEN** it SHALL be exempt from differing in exactly one CLAIM relation, having no claims
+- **AND** it SHALL still be refused at CORRELATION, by the presence check
+
+#### Scenario: An earlier-gate negative is one input change refused at its own gate
+- **WHEN** a negative owned by enum admission, body validation or the recovery lane is
+  compared with its committed positive control
+- **THEN** they SHALL differ in exactly one INPUT
+- **AND** it SHALL be refused at its OWN gate, with later correlation relations left
+  UNDEFINED rather than required to hold
+
+#### Scenario: Every time window is refused on both sides
+- **WHEN** an observation falls before a window's start, or after its expiry, on the batch,
+  per-host absolute, or MTR trace identity path
+- **THEN** it SHALL be rejected in all six cases
+- **AND** an accepted-endpoint control alone SHALL NOT be treated as covering either bound
+
+#### Scenario: Both source-claim collection endpoints are inside
+- **WHEN** an observation falls exactly on either endpoint of the `EdgeSourceClaimsV1`
+  collection window, inside a strictly wider envelope
+- **THEN** it SHALL be accepted
+- **AND** the identically named `EdgeAssignmentExecutionClaimsV1` window SHALL remain
+  half-open, so the two conventions are pinned separately
+
+#### Scenario: An overflowing time does not wrap into the window
+- **WHEN** a host delta sum, or a UUIDv7 millisecond-to-nanosecond conversion, overflows
+  int64
+- **THEN** the record SHALL be rejected, not accepted on the wrapped value
+- **AND** the conversion SHALL be performed by ONE checked helper shared by every call site
+  that compares a UUIDv7 time against a signed window
+
+### Requirement: An MTR hop's ASN is diagnostic enrichment, not an allocation claim
+`MtrTraceHopV1.asn` SHALL be admitted for EVERY value the generated `uint32` can carry, and
+its NUMERIC VALUE SHALL be preserved through decode. Implementations SHALL NOT apply
+allocation-status filtering: admission SHALL NOT consult whether a value is allocated,
+transitional, private-use, reserved, or unassigned. A **zero** value SHALL mean UNAVAILABLE
+OR NOT SUPPLIED.
+
+THE FIELD IS PRODUCER-SUPPLIED DIAGNOSTIC ENRICHMENT associated with a hop address. It is
+frequently lookup-derived today, but this ABI fixes NO provenance: no invariant requires any
+particular dataset, cache, or lookup path, and a producer may supply it from any source or
+leave it zero.
+
+ALLOCATION AND ROUTING POLICY DO NOT GOVERN ADMISSION OF DIAGNOSTIC ENRICHMENT. That is the
+whole rule, and it is narrower than "these ASNs are special":
+
+- Private-use status alone (RFC 6996) is not an admission error. Such ASNs are ordinary
+  inside the operator networks this product is deployed in. Downstream analysis MAY still
+  flag one contextually; that is a judgement about what was observed, not a reason to refuse
+  the record carrying it.
+- The Last ASNs (RFC 7300) are reserved, and RFC 7300 asks that they not be treated as BGP
+  PROTOCOL ERRORS. Recording one as an observation is not a protocol action at all.
+
+Rejecting a value on either ground would fail a whole record over one enrichment field,
+discarding the sweep or trace observations that are the record's actual purpose.
+
+WHAT IS FROZEN IS THE SEMANTICS -- zero means absent, every other value is carried through
+unchanged -- and it is pinned by shared vectors rather than by a rejection path. The generated
+`uint32` already supplies the wire domain: there is no value a conforming decoder can produce
+that this rule would reject, so a filter could only NARROW the contract below what the type
+admits.
+
+`asn_org` IS ADMITTED INDEPENDENTLY, subject to the ordinary UTF-8, string-length, batch and
+wire bounds that apply to any hop string. It is NOT a second source of truth for the number.
+Disagreement between the two SHALL NOT affect admission of either, and neither SHALL be
+altered on account of the other.
+
+OMITTED AND EXPLICITLY-ENCODED ZERO ARE THE SAME OBSERVATION. `asn` is not `optional`, so a
+field absent from the wire and a field encoded as `0` decode to the same value and mean the
+same thing. The two encodings produce DIFFERENT PAYLOAD BYTES, and therefore a different
+`payload_sha256` and semantic envelope. Each encoding SHALL be INDEPENDENTLY ADMISSIBLE. This
+does not make them two logical records: carried under the same `(network_scope_id, event_id)`
+they are conflicting encodings of one record, not a pair.
+
+HOW THIS IS STORED IS NOT THIS TASK'S TO DECIDE. Projection -- how "unavailable" is
+represented in SQL, and how wide the column must be to hold `uint32` -- is owned by
+`unify-sweep-results-proto`'s "TimescaleDB Storage" requirement and its task 5.4. This
+requirement constrains the ABI; it SHALL NOT be read as specifying DDL.
+
+#### Scenario: Zero is admitted whether omitted or explicitly encoded
+- **WHEN** one record omits `asn` entirely and a SEPARATELY IDENTIFIED record encodes it
+  explicitly as `0`
+- **THEN** each record is independently admitted
+- **AND** both decode to `0`, meaning unavailable or not supplied
+
+#### Scenario: Allocation status does not affect admission
+- **WHEN** a hop carries `asn` = 23456, 64512, 65534, 65535, 4200000000, 4294967294, or
+  4294967295
+- **THEN** the record is admitted
+- **AND** the numeric value survives decode with no substitution and no clamping
+
+#### Scenario: asn_org is admitted independently of the number
+- **WHEN** a hop carries any `asn` value together with an `asn_org` that is ordinarily valid
+  under the UTF-8, string-length, batch and wire bounds
+- **THEN** both fields are admitted on their own terms
+- **AND** neither is altered or refused on account of the other's content
+
+### Requirement: Nanosecond time is canonicalized to microseconds only at the projection boundary
+Every wire timestamp SHALL remain UNMODIFIED NANOSECONDS through decode, through both contract
+hashes, and through every PRE-PROJECTION comparison -- those that decide CONTRACT IDENTITY and
+admission. Conversion to microseconds SHALL happen ONLY where a value crosses into the
+projection domain, and SHALL yield the CONTAINING microsecond bucket, computed without forming
+an unrepresentable intermediate for any `int64` input.
+
+THE ORDER IS THE RULE, and it is the part an implementation gets wrong silently:
+
+1. `payload_sha256` hashes the EXACT CARRIED PAYLOAD BYTES.
+2. `semantic_envelope_sha256` hashes the frozen FIELD-FRAMED TRANSCRIPT, which commits
+   `payload_sha256` and the RAW NANOSECOND values.
+3. ONLY THEN may a value be canonicalized, and only for a database-derived key or ordering.
+
+NEITHER HASH MAY EVER SEE A CANONICALIZED TIME. CONTRACT IDENTITY is defined over what was
+received; a
+digest taken over a normalized value would make identity depend on the normalization step, and
+two implementations rounding differently would disagree about whether they hold the same
+record while both believing they conform.
+
+FLOOR, NOT TRUNCATION TOWARD ZERO -- and the reason is the CONTAINING-BUCKET INVARIANT, not
+monotonicity. Both methods are monotonic, so monotonicity cannot distinguish them and is not
+the argument.
+
+The requirement is that the canonical value `u` names the microsecond bucket the instant falls
+in: `u * 1000 <= ns < (u + 1) * 1000`. That inequality is MATHEMATICAL, stated in widened
+arithmetic -- near the extremes of `int64` both bounds overflow the type, so an implementation
+checks it by reasoning about the division, not by evaluating the products. Floor satisfies it
+everywhere. Truncation toward zero
+satisfies it only for non-negative inputs: `-1500ns` truncates to `-1us`, whose bucket spans
+`[-1000, 0)` and does not contain `-1500`. Floor gives `-2us`, spanning `[-2000, -1000)`, which
+does. A coordinate naming a bucket that does not contain its own instant places the row in the
+WRONG PROJECTED BUCKET and compares equal to instants it did not share a microsecond with.
+
+THE COMPUTATION SHALL NOT FORM AN UNREPRESENTABLE INTERMEDIATE. That is the language-neutral
+requirement: an implementation SHALL NOT compute the positive magnitude of the operand, because
+the minimum `int64` has no representable positive counterpart. Floor division applied directly
+to the signed value never forms one.
+
+CONCRETELY IN GO, where signed overflow is DEFINED as wrapping rather than undefined, a
+negation-then-add implementation fails across `[MinInt64, MinInt64 + 999]` -- but for TWO
+DIFFERENT REASONS, and conflating them hides one of the cases:
+
+- At EXACTLY `MinInt64`, the unary negation itself wraps, because the value has no representable
+  positive counterpart. The subsequent `+999` then does NOT overflow.
+- For `MinInt64 + 1` through `MinInt64 + 999`, the negation IS representable -- it lands in
+  `MaxInt64 - 998 .. MaxInt64` -- and it is the `+999` bias that wraps.
+
+Either way the result is not a rounding error but a SIGN FLIP: the earliest representable
+instants yield large POSITIVE microsecond values, so an ordering coordinate built on them sorts
+those instants as the latest.
+
+WHAT CONSUMES THIS IS ENUMERATED, and the list is exactly the projection-domain STORAGE AND
+ORDERING coordinates -- not hashes, and not identity comparisons. No projection hash or identity
+comparison consumes a canonicalized time, and none SHALL be added by inference; if one is ever
+built, it joins this list in the same change.
+
+- `mtr_traces.time` (`TIMESTAMPTZ`): the AUTHORITATIVE OBSERVATION TIME, floor-canonicalized
+  for storage and ordering.
+- `mtr_hops.time` (`TIMESTAMPTZ`): likewise.
+
+`timestamptz` carries MICROSECOND resolution, so a nanosecond value cannot round-trip through
+either column, which is why the conversion exists at all.
+
+THESE ARE NOT THE PARTITION IDENTITY. `trace_identity_time` is, and it derives from the UUIDv7
+MILLISECOND timestamp rather than from any wire nanosecond -- so it SHALL NEVER be routed
+through this conversion. `mtr_hops` references the trace's physical identity rather than
+re-deriving one. Conflating the two would send a millisecond-derived partition key through a
+nanosecond canonicalizer and change what the row is, not merely where it sorts.
+
+AGE GRAPH ORDERING STAYS IN RAW NANOSECONDS, deliberately. The `(observed_at, trace_id)`
+comparison that decides whether a property update is newer than the stored order is NOT bounded
+by `timestamptz`, so it has no reason to lose precision. Canonicalizing it would collapse
+observations within one microsecond into ties broken arbitrarily by `trace_id`, turning a
+determinate order into an arbitrary one. It is named here so its absence from the list above is
+a decision rather than an oversight.
+
+SUB-MICROSECOND FIDELITY IS NOT DISCARDED. Where it is part of the domain or audit contract,
+the original signed nanosecond value SHALL be retained separately from the canonicalized key,
+because the canonical value is a storage coordinate and not a replacement for the observation.
+
+PROJECTOR INTEGRATION AND SCHEMA ARE NOT THIS TASK'S. Wiring the conversion into the consumers,
+and any DDL it implies, belong to `unify-sweep-results-proto`. This requirement fixes the
+mathematics, the ordering relative to the hashes, and the list of consumers.
+
+#### Scenario: Two instants in one bucket share a projection-time coordinate, not an identity
+THE TWO VALUES MUST ENCODE TO THE SAME WIDTH, or the vector proves less than it appears to.
+`observed_at_unix_nano` is an `int64` and encodes as a base-128 varint, so 1 ns occupies one
+byte while 999 ns occupies two. That difference propagates into `encoded_size` and
+`uncompressed_size`, which the semantic transcript frames directly -- so the digests would
+differ even if the transcript's dependency on `payload_sha256` were deleted, and the vector
+would survive the very regression it exists to catch.
+
+**128 ns and 999 ns are both two-byte varints.** With them, `payload_sha256` is the only
+transcript member that moves.
+
+- **WHEN** two valid payloads differ ONLY in `MtrTraceEventV1.observed_at_unix_nano`, carrying
+  128 ns and 999 ns, with every enclosing transcript member -- `event_id`, `payload_family`,
+  `compression`, `encoded_size`, `uncompressed_size`, the output contract, the producer context
+  and the capability -- held IDENTICAL
+- **THEN** their canonicalized PROJECTION-TIME COORDINATES are EQUAL, both naming bucket 0
+  (equal time alone does not make the full projection keys equal -- the other key members are
+  not constrained by this scenario)
+- **AND** their carried payload bytes differ
+- **AND** their `payload_sha256` values differ
+- **AND** their `semantic_envelope_sha256` values differ, which -- since nothing else in the
+  transcript moved -- is attributable to `payload_sha256` alone
+
+#### Scenario: A framed capability nanosecond moves the semantic digest on its own
+This is a DIGEST-ONLY construction and is NOT an admission scenario. Moving a signed timestamp
+while retaining the original signature makes the record cryptographically invalid; the pair
+exists solely to isolate the digest's dependence on a raw nanosecond value, and neither member
+is expected to be admitted.
+
+THE FIELD IS NAMED, because "a capability timestamp" could otherwise be implemented against
+delivery authority, which the semantic envelope deliberately EXCLUDES -- and such an
+implementation would show no digest movement at all. The transcript frames
+`production_capability.not_before_unix_nano` directly.
+
+- **WHEN** `production_capability.not_before_unix_nano` is 128 ns in one member and 999 ns in
+  the other -- again equal-width varints -- with `expires_at_unix_nano`, the payload bytes,
+  `payload_sha256`, the claims and a fixed dummy signature all held IDENTICAL
+- **THEN** the `semantic_envelope_sha256` values differ
+- **AND** the difference is attributable to the raw nanosecond value, since nothing else moved
+
+#### Scenario: Canonicalization floors toward negative infinity
+- **WHEN** a wire value of `-1500` nanoseconds is canonicalized
+- **THEN** the result is `-2` microseconds
+- **AND** a value of `1500` nanoseconds canonicalizes to `1` microsecond
+- **AND** the mapping is monotonic: no two inputs in true order produce outputs in reverse
+
+#### Scenario: The bottom of the int64 range canonicalizes to literal values
+These are stated as LITERAL input/output pairs, not as a described neighbourhood, and they
+straddle the exact bucket edge at `MinInt64 + 808`. An implementation SHALL produce exactly:
+
+| nanoseconds | microseconds |
+|---|---|
+| `MinInt64` (-9223372036854775808) | -9223372036854776 |
+| `MinInt64 + 807` | -9223372036854776 |
+| `MinInt64 + 808` | -9223372036854775 |
+| `MinInt64 + 999` | -9223372036854775 |
+| `MinInt64 + 1000` | -9223372036854775 |
+
+- **WHEN** any of the above nanosecond values is canonicalized
+- **THEN** the result is exactly the paired microsecond value
+- **AND** every result remains NEGATIVE, rather than the large POSITIVE value a wrapped
+  negation or a wrapped `+999` bias produces
+
+### Requirement: An unknown field is refused and an unknown enum is retained, and both runtimes reach the same verdict
+A record carrying a RETAINED UNKNOWN FIELD SHALL be REFUSED, at EVERY message depth. An
+UNKNOWN ENUM VALUE SHALL instead be RETAINED with its exact number through decode and refused
+SEMANTICALLY, by the closed per-field member sets. Both runtimes SHALL reach the SAME
+accept/reject verdict on the SAME BYTES.
+
+"EVERY MESSAGE DEPTH" MEANS ONE GRAPH, AND THE BOUNDARY IS THE SCHEMA. The rule applies to
+the message being validated and to every message reachable from it through SCHEMA-DECLARED
+MESSAGE FIELDS -- at any depth, and including oneof members, repeated messages, and
+message-valued map entries. Three exclusions make that a boundary rather than a slogan:
+
+- A `bytes` FIELD IS OPAQUE, even when its content is itself protobuf. The record's `payload`
+  carries a CONTRACT message, admitted by the rules of the contract that selects its validator --
+  NOT by the payload family, which decides only which typed ingress the record may enter.
+  Walking it here would apply the record's field inventory to a different schema and refuse
+  valid contract bytes.
+- EACH RECEIVED CARRIER IS ITS OWN GRAPH. The client message, the delivery frame, the record,
+  the plan page and the compiled assignment are validated when each is received, on its own
+  schema. This requirement does not merge them into a single walk, and satisfying it for one
+  carrier does not satisfy it for another.
+- A MESSAGE THE SCHEMA DOES NOT DECLARE IS NOT DESCENDED INTO. It is refused as an unknown
+  field, which is the rule above, so there is no schema to walk it against.
+
+THESE TWO RULES POINT IN OPPOSITE DIRECTIONS, DELIBERATELY. The edge ABI is frozen closed, so
+an unknown field is a record a later reader might reinterpret and is refused. An unknown enum
+is refused too, but only AFTER the effective value is resolved by a real decoder: a raw wire
+walk cannot reproduce LAST-ONE-WINS, oneof resolution, or embedded-message merging, so a
+first-occurrence verdict would refuse messages whose effective value is valid.
+
+THE VERDICT IS FROZEN; THE LAYER IS NOT. The two runtimes refuse the same bytes through
+different mechanisms, and requiring one mechanism would freeze an implementation detail:
+
+- An out-of-range field number (above 2^29-1) and a 10-BYTE UINT64-OVERFLOW VARINT are refused
+  by Go's WIRE PARSER, while the generated Elixir decoder ACCEPTS both -- masking a `2^64 + N`
+  varint to its low 64 bits -- so a project-owned structural preflight is what refuses them
+  there.
+- An ordinary unknown field and a well-formed GROUP are PARSED AND RETAINED by Go and refused
+  by its own unknown-field walk, while the Elixir decoder silently DISCARDS a group, so
+  nothing downstream of the decoder could ever see it.
+
+A CONFORMING IMPLEMENTATION MAY REFUSE AT EITHER LAYER. What it SHALL NOT do is admit.
+
+THE RETAINED ENUM NUMBER IS PART OF THE CONTRACT, not an implementation artifact. An
+implementation SHALL NOT clamp, substitute, or drop an unknown enum value on decode. This is
+NOT implied by the refusal: the closed member sets refuse a clamped value exactly as they
+refuse the original, so a decoder that silently rewrote 99 to 0 would pass every admission
+check while corrupting what a reject audit reports.
+
+A DECLARED-BUT-EXCLUDED MEMBER IS STILL REFUSED. `UNSPECIFIED` is declared by every edge enum
+and permitted by none of the closed sets, so it is refused by the FIELD POLICY rather than by
+unknown-value retention -- a distinction that matters because only the latter can be
+recognised by "the field holds a raw integer".
+
+WHAT IS NOT FROZEN HERE is anything about a refusal beyond the fact of it: the CLASSIFICATION
+it carries -- whether the bytes are dead, the deployment is broken, or a schema is simply not
+deployed yet -- the DISPOSITION it resolves to, and the stream or dead-letter queue it routes
+to. Those decide RETRYABILITY rather than admissibility, they are stage- and slot-specific, and
+they are owned separately (see task 1.5-l). This requirement is satisfied by refusing; it takes
+no position on what the refusal is then called.
+
+#### Scenario: An unknown field is refused at every depth
+- **WHEN** a record carries a field number the schema does not declare, at the record's top
+  level or nested inside a signed capability
+- **THEN** the record is refused by both runtimes
+- **AND** the refusal does not depend on the field's wire type, including a well-formed group
+
+#### Scenario: The field-number bound is inclusive
+- **WHEN** one record carries field number 2^29-1 and another carries 2^29
+- **THEN** both are refused
+- **AND** neither refusal depends on which layer produced it
+
+#### Scenario: An unknown field two messages deep is refused
+- **WHEN** a record carries an undeclared field number inside the claims of its production
+  capability -- two schema-declared message fields below the record
+- **THEN** the record is refused
+- **AND** the refusal does not depend on the depth at which the field appears
+
+#### Scenario: An unknown enum survives decode with its exact value and is then refused
+- **WHEN** a record carries a `traffic_class` of 99 or -1, neither declared by the enum
+- **THEN** the decoded value is exactly 99 or -1, with no clamping or substitution
+- **AND** the record is refused by the closed member set for that field
+
+#### Scenario: A declared member outside the permitted set is refused by the field policy
+- **WHEN** a record carries `traffic_class` = 0 (`UNSPECIFIED`), which the enum declares
+- **THEN** the value decodes as a DECLARED member rather than as a raw number
+- **AND** the record is still refused, because the permitted set for that field excludes it
+
+### Requirement: Every versioned object fails closed, by one of two proof classes
+Every versioned object in this ABI SHALL REFUSE an artifact produced under a version it does
+not support, and each object SHALL belong to EXACTLY ONE of two proof classes.
+
+CLASS A -- the object DECODES a version from its input. It SHALL refuse an input carrying an
+unsupported version.
+
+CLASS B -- the version is a COMPILE-TIME CONSTANT inside a preimage and the received value is a
+digest or an opaque identifier. There is no version input to corrupt, so the object SHALL
+refuse an artifact RECOMPUTED under a different version constant, as a mismatch.
+
+THE PARTITION IS PER OBJECT, NOT PER GRAMMAR OR PER VERSION FIELD. One grammar may contain
+several objects, and one version field may govern two grammars: `CompiledSweepAssignmentV1`'s
+`digest_version` governs both the body digest and the artifact address, and is therefore ONE
+Class-A member rather than two. Conversely the three recovery-operation scope transcripts share
+a version constant and are THREE Class-B members, because each is separately computed and
+separately compared.
+
+AN OBJECT LISTED IN BOTH CLASSES IS DOUBLE-COUNTED, and an object listed in neither is
+unproven. Asking a Class-B object for an unsupported-INPUT vector is not merely redundant --
+it cannot be satisfied, because no version reaches that object from the wire.
+
+THE CLASS IS DECIDED BY WHERE THE VERSION ENTERS, not by what the object is used for. A digest
+OVER a message that itself carries `digest_version` belongs to Class A, because the version the
+digest commits is the field the message already exposes, and the Class-A vector exercises both.
+
+EVIDENCE SHALL BE A COMMITTED ARTIFACT, NOT A REGENERATED ONE. The alternate-version artifact
+SHALL be committed bytes read by both runtimes, and SHALL be driven through the SAME verifier
+that trusts that value in production. A version check written for a test suite proves only that
+the suite can refuse its own inputs, and an artifact regenerated at test time proves only that
+the generator agrees with itself.
+
+THE INVENTORY SHALL BE ASSERTED AGAINST AN INDEPENDENT STATEMENT of its membership, in both
+directions, and its classes checked. A count derived from the same artifact that lists the
+objects cannot detect an object's removal: the count and the list move together.
+
+#### Scenario: A Class-A object refuses an unsupported input version
+- **WHEN** an object that decodes a version from its input receives one outside the supported set
+- **THEN** the object is refused
+- **AND** an otherwise identical artifact carrying a supported version is accepted
+
+#### Scenario: A Class-B object refuses an artifact built under another version constant
+- **WHEN** a digest or identifier is recomputed with the grammar version altered, and every
+  enclosing digest is rebuilt so it is the only unreconciled value
+- **THEN** the object carrying it is refused as a mismatch
+- **AND** the same object carrying the artifact built under the frozen constant is accepted
+
+#### Scenario: The inventory is exhaustive
+- **WHEN** the committed inventory is compared against an independently written list of every
+  versioned object and its class
+- **THEN** every object appears exactly once, in exactly one class, with the expected class
+- **AND** no object appears that the independent list does not name
+
+### Requirement: Optional-scalar presence is preserved, and its meaning is per field
+An explicitly optional scalar SHALL preserve its PRESENCE through decode. An implementation
+SHALL NOT coerce an absent field to zero, nor drop a present zero, in either direction.
+
+THE TWO STATES ARE DISTINGUISHABLE ON THE WIRE: absent emits nothing, present-zero emits a tag
+and a zero. Preserving that distinction is the rule; WHAT the distinction means is a property of
+the individual field, and this ABI carries two kinds.
+
+MEASUREMENTS -- the per-hop MTR timings, the ICMP and MTR summaries' loss and round-trip values,
+the open port's response time, and the host observation's first/last-seen deltas. For these,
+ABSENT MEANS NOT MEASURED and PRESENT-ZERO MEANS MEASURED, AND THE ANSWER WAS ZERO. A producer
+that encodes the zero spends bytes to say so.
+
+REQUIRED AUTHORITY AND WINDOW STATEMENTS -- `EdgeProducerContext.authority_epoch`,
+`SweepMtrExpectationV1.plan_ordinal_offset`, and `TargetRangeV1.mtr_ordinal_count`. These are NOT
+measurements and their absence is not "not measured": each is a value a consumer cannot proceed
+without, so its consumer SHALL refuse the artifact when it is absent, while present-zero remains
+a legitimate value. They are optional in the schema so that ABSENT is distinguishable from ZERO,
+not so that they may be omitted.
+
+A DECODE-SIDE COLLAPSE IS INVISIBLE TO EVERY DIGEST. Whether presence is committed depends on the
+carrier -- `semantic_envelope_sha256` frames `authority_epoch`'s presence directly, and a
+payload-carried field's presence changes the payload bytes and therefore `payload_sha256` -- so a
+PRODUCER that drops the zero emits a different, self-consistent artifact. What no digest can see
+is a READER that coerces after verifying: the bytes and every digest over them remain valid while
+the decoded meaning is gone.
+
+WHETHER PRESENCE IS REQUIRED IS PER FIELD, and is a property of the validator that consumes it,
+not of the type. An implementation SHALL NOT generalise from one field to its siblings, and
+evidence SHALL be per-field: a vector that toggles a carrier's optional fields TOGETHER cannot
+distinguish a field that became required from siblings that stayed indifferent, and would record
+a policy it cannot observe.
+
+THE FIELD SET SHALL BE DERIVED FROM THE GENERATED DESCRIPTORS rather than maintained by hand. An
+explicit proto3 `optional` scalar is exactly a field whose containing oneof is synthetic, so the
+complete set is mechanically knowable; a hand-written list falls behind the schema silently, and
+the count derived from it agrees with itself while doing so.
+
+WHAT IS NOT REQUIRED is that both runtimes reach an admission verdict for every field. Where a
+runtime has no production validator for a carrier, it SHALL claim only what it can observe --
+that the encodings differ, that decoded presence differs, and that a present value is exactly
+zero -- and SHALL NOT introduce a check written for the test suite in order to appear at parity.
+
+#### Scenario: A present zero survives decode as present
+- **WHEN** an optional scalar is encoded explicitly as zero
+- **THEN** it decodes as PRESENT with the value zero
+- **AND** an otherwise identical message omitting it decodes as ABSENT
+
+#### Scenario: An absent measurement is not a measured zero
+- **WHEN** a measurement field is omitted rather than encoded as zero
+- **THEN** the artifact is admitted, and the field reads as NOT MEASURED
+- **AND** it is not reported as a measurement whose value was zero
+
+#### Scenario: A required authority or window value is refused when absent
+- **WHEN** `authority_epoch`, `plan_ordinal_offset` or `mtr_ordinal_count` is omitted
+- **THEN** the artifact is refused by the validator that consumes it
+- **AND** the refusal comes from that validator, not from an inability to construct the input
+
+#### Scenario: Presence policy is observed per field, not per carrier
+- **WHEN** one optional field of a carrier is omitted while its siblings remain present-zero
+- **THEN** the verdict reflects that field's own policy
+- **AND** the artifacts differ in that field's presence and in nothing else
+
+### Requirement: The payload family is a framing discriminator bound to the typed entry point
+`payload_family` SHALL be an IMMUTABLE FRAMING AND LIFECYCLE DISCRIMINATOR. Each TYPED ingress
+SHALL admit exactly one family and SHALL refuse every other declared family:
+
+| typed ingress | admitted family |
+|---|---|
+| sweep, MTR | `EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1` |
+| lifecycle | `EDGE_RECORD_PAYLOAD_FAMILY_RUN_EVENT_V1` |
+| recovery | `EDGE_RECORD_PAYLOAD_FAMILY_RECOVERY_CONTROL_V1` |
+| a future snapshot ingress | its named snapshot family |
+
+THERE IS NO CONTRACT-SPECIFIC MAPPING, and no registry-wide contract-to-family table SHALL be
+introduced. The EXACT OUTPUT CONTRACT selects the semantic validator and the projector; contract
+dispatch compares the contract reference and nothing else. The family answers a different
+question -- which typed ingress this record may enter -- and the two SHALL NOT be conflated.
+
+THE OBLIGATION IS CONDITIONAL ON THE INGRESS, AND IT IS NOT WAIVABLE. A runtime that has no
+typed ingress for a family has nothing to bind and owes no check for it; the moment it
+introduces one, that ingress SHALL admit exactly one family under this requirement, as its first
+act on the record. This is stated so that "runtime X does not implement this ingress" can never
+be read as an exemption for an ingress that later exists.
+
+THE FAMILY IS NOT AUTHORIZATION and NOT AN INFRASTRUCTURE ROUTING KEY. It does not widen or
+narrow what a capability permits, and a component that routes on it without validating it is
+trusting a value no boundary checked.
+
+THE CHECK SHALL LIVE AT EACH TYPED BOUNDARY, before the TYPED CONTRACT BODY is decoded or
+materialised. It is deliberately NOT stated as "before any extraction": whole-record validation
+may already have streamed a bounded decompression to enforce physical ceilings, and that is a
+size-bounded operation over opaque bytes, not an interpretation of them under a schema. What the
+framing check precedes is the moment the payload is read AS a contract message.
+
+Protobuf bytes are not intrinsically type-tagged: a body decodes under an unintended schema
+without complaint, so a record declaring one family while entering another ingress would be
+ADMITTED AND AUTHENTICATED carrying contradictory metadata, and every later reader that selected
+a decoder from the family would be choosing from a value nothing validated. A record whose
+family is wrong AND whose payload is malformed SHALL be refused at the framing boundary, which is
+what demonstrates the typed decode was not entered.
+
+THE GENERIC RECORD VALIDATOR SHALL REMAIN PERMISSIVE across the known non-recovery families. It
+has no entry-point context and cannot choose among them; requiring it to would either freeze one
+family for every record or force it to guess. Its permissiveness is part of this contract, not an
+omission in it.
+
+RECOVERY IS ALREADY CONSTRAINED ELSEWHERE, by the biconditional between the recovery family and
+the recovery route profile, which preempts generic admission. That rule is not restated here, and
+evidence for this requirement SHALL exclude the recovery family so a refusal produced by the lane
+rule is never read as evidence for this one.
+
+#### Scenario: A typed ingress refuses a declared family it does not frame
+- **WHEN** a record carrying a valid body for a NON-RECOVERY typed ingress declares any other
+  declared non-recovery family
+- **THEN** the typed ingress refuses it
+- **AND** the generic record validator still admits the same bytes
+- **AND** this scenario is stated for non-recovery ingresses only: a recovery family on an
+  ordinary route is refused by the LANE biconditional, so the generic validator does not admit
+  it and the second clause above would be false
+
+#### Scenario: The framing check precedes decoding
+- **WHEN** a record declares a family the ingress does not frame AND carries a payload that
+  cannot decode
+- **THEN** the refusal is the framing decision, not the decode failure
+
+#### Scenario: Each typed ingress enforces the invariant at its own call site
+- **WHEN** the check is removed from one typed ingress whose family is not otherwise constrained
+- **THEN** that ingress admits a wrongly framed record
+- **AND** the other typed ingresses continue to refuse one
+- **AND** the recovery ingress is EXEMPT from this scenario: the recovery family is already
+  constrained by the lane biconditional before its typed check is reached, so removing that
+  check alone changes no verdict and the scenario cannot be satisfied for it
+
+### Requirement: Residual domain-semantic bounds are frozen by value, each as an attainable maximum or a pre-parse guard
+Each bound below SHALL hold the stated value in every implementation.
+
+FOR AN ATTAINABLE MAXIMUM the bound SHALL be INCLUSIVE: a value AT the bound SHALL be accepted
+and a value ONE OVER SHALL be refused. The inclusivity half is normative on its own. A boundary
+asserted only as "too big is refused" permits an implementation to tighten `>` into `>=` and
+silently refuse conforming producers at the exact ceiling, which is a compatibility break no
+refusal-only evidence can detect.
+
+FOR A GUARD-CLASS BOUND the obligation is DIFFERENT, because no valid value reaches the
+ceiling: the LARGEST VALID input SHALL be accepted, and an over-limit input SHALL be refused
+BEFORE the parser the guard protects is entered. "Accepted at the ceiling" is not required of
+these and SHALL NOT be demanded as evidence -- there is no such input to construct. The table
+names which bounds are which.
+
+| bound | value | applies to | lower bound | class |
+| --- | --- | --- | --- | --- |
+| `MaxPolicyIDBytes` | 128 | `availability_policy_id` on a plan HEADER and on a `SweepAssignmentRecordV1` | 1 (empty is refused) | attainable |
+| `MaxRangeStrBytes` | 64 | `cidr`, `first_address`, `last_address` on a `TargetRangeV1` | none | **GUARD** |
+| `MaxTransportProvenanceHeaderBytes` | 512 | one encoded `Sr-Edge-Transport-Provenance` header, on RECEIVED bytes before decode | none | **GUARD** |
+| `MaxPrincipalBytes` | 128 | an authenticated component-id principal, at every site that carries one | 1 (empty is refused) | attainable |
+| `MaxManifestPages` | 1024 | the supplied page LIST of a PLAN, matching the value already frozen for a recovery manifest | 1 (an empty list is refused) | attainable |
+| `MaxRangesPerPage` | 256 | `TargetRangeV1` entries in one plan page | 1 (an empty page is refused) | attainable |
+| `MaxSweepHostsPerBatch` | 2000 | host entries in one `SweepObservationBatchV1` | none | attainable |
+| `MaxTraceStrBytes` | 256 | `abort_reason` on a `SweepExecutionEventV1`, **only when its kind is ABORTED** | 1 when ABORTED; **exactly 0 for every other kind** | attainable |
+
+A RANGE's `availability_policy_id` is NOT an independent bound. It SHALL equal the plan header's,
+and the header's is already bounded, so the range's length is DERIVED. An implementation MAY
+check it defensively but SHALL NOT treat that check as the enforcement point, and no evidence
+SHALL claim the range site as an independently provable one: no input can reach the length
+comparison without failing the equality first.
+
+TWO OF THESE ARE DEFENSIVE PRE-PARSE GUARDS rather than attainable maxima, and this requirement
+does not pretend otherwise. No valid transport-provenance header approaches 512 bytes, and once
+zones are forbidden no canonical range string approaches 64. Their obligation is that oversize
+input is refused BEFORE the parser they protect is entered; the inclusivity rule above binds them
+only in the sense that a conforming value SHALL NOT be refused for length.
+
+#### Scenario: An ATTAINABLE maximum admits a value at the ceiling
+- **WHEN** a field bounded by an attainable maximum carries exactly that value and is
+  otherwise valid
+- **THEN** the boundary accepts it
+
+#### Scenario: An ATTAINABLE maximum refuses one over
+- **WHEN** a field bounded by an attainable maximum carries exactly one more than it
+- **THEN** the boundary refuses it
+
+#### Scenario: A GUARD-class bound admits the largest valid input
+- **WHEN** an input bounded by a pre-parse guard carries the largest value its own grammar
+  permits
+- **THEN** the boundary accepts it, and no at-ceiling input is required to exist
+
+#### Scenario: A GUARD-class bound refuses before parsing
+- **WHEN** an input exceeds a pre-parse guard
+- **THEN** it is refused before the parser that guard protects is entered
+
+#### Scenario: A derived length check cannot be reached on its own
+- **WHEN** a plan range's `availability_policy_id` is longer than the frozen maximum
+- **THEN** the refusal is the header-equality rule, because a header holding that value was
+  already refused
+
+### Requirement: A plan range address string SHALL NOT carry an IPv6 zone
+A `cidr`, `first_address` or `last_address` containing `%` SHALL be REFUSED, and the check SHALL
+run BEFORE the address parser is entered in every implementation.
+
+A zone identifies an interface on the machine that WROTE the string. It has no meaning at any
+other node, so a scheduler plan naming a scoped address describes a target the receiving agent
+cannot resolve to the same thing the author meant -- if it can resolve it at all.
+
+THE RUNTIMES DISAGREE WITHOUT THIS RULE, in a way neither reports as a zone problem. A permissive
+address parser may accept a scoped address and round-trip it canonically, admitting it; a parser
+that accepts the text but DISCARDS the zone will then refuse the same input as a non-canonical
+SPELLING, because the re-encoded form no longer matches what arrived. One accepts, one refuses,
+and neither says "zone".
+
+THE ZONE SHALL NOT BE STRIPPED, NORMALISED, OR OTHERWISE REPAIRED. These strings are inputs to
+the range, page, PLAN-ROOT, header and assignment digest chain, so rewriting one changes every
+digest above it and silently forks a plan's identity from the bytes its author signed. The
+only conforming handling is refusal. A plan carrying zoned addresses SHALL be REGENERATED by its
+author, not rewritten by a consumer.
+
+#### Scenario: A scoped address is refused before parsing
+- **WHEN** any plan range address string contains `%`
+- **THEN** it is refused, and the address parser is not entered
+
+
+### Requirement: A spool-loss tombstone reason is bounded on BOTH sides
+A tombstone's `reason` SHALL be at least 1 and at most `MaxReasonBytes` bytes. An EMPTY reason
+SHALL be REFUSED.
+
+The maximum was already frozen; the LOWER bound was not, and leaving it open let one runtime
+refuse an empty reason permanently while another admitted it. A tombstone records that spooled
+records were lost, and it is read by an operator reconstructing what happened. An empty reason
+is a tombstone that says data was lost and declines to say why, which is the one thing this
+message exists to carry.
+
+THE BOUND LIVES ON THE SIGNED RECOVERY-CONTROL BODY PATH, not on a bare tombstone validator. A
+peer that recomputes a tombstone digest without verifying the signature first is a DIFFERENT
+boundary, and satisfying this requirement there would not satisfy it here.
+
+#### Scenario: An empty reason is refused
+- **WHEN** a tombstone carries a zero-length `reason`
+- **THEN** the signed recovery-control boundary refuses it
+
+### Requirement: A count ceiling SHALL be enforced before the traversal it bounds, and SHALL NOT require that traversal to enforce
+A count ceiling on a collection THIS CHANGE OWNS SHALL be applied BEFORE any recursive walk
+over that collection, and SHALL be obtained without traversing more than `ceiling + 1` elements.
+The owned collections are a plan's page list and each page's range list, a recovery manifest's
+page list and each page's classification-span list, and a sweep batch's host list.
+
+SCOPED DELIBERATELY. Stating it of "every structural count ceiling" would reallocate bounds
+other tasks own, and this requirement is not a licence to restructure them.
+
+These are two rules because they fail independently, and both were violated while every
+implementation returned the correct verdict.
+
+ORDER. A ceiling checked after a recursive walk has already permitted the work it exists to
+forbid. Rejecting unknown fields before hashing is a real obligation and is NOT weakened here:
+what changes is that a COUNT -- available without interpreting anything -- SHALL precede the
+walk. Where a per-element count bounds a nested collection, it SHALL precede descent into that
+element's children.
+
+WHAT THE COUNT DOES NOT OVERTAKE: rules that validate the CONTAINER the collection arrived
+with. A plan header, or a tombstone's own identity and digest version, is validated before
+that container's collection is counted, so a stale header digest is reported as a digest fault
+rather than masked by a count mismatch. The ceilings move ahead of the WALK, not ahead of
+everything.
+
+WHAT THE COUNT DOES OVERTAKE: any RELATION over that collection's SIZE, including a count the
+container declares for it. An over-ceiling collection is a BOUNDS fault whatever the container
+declares, and reporting it as a mismatch describes the wrong problem -- the collection is not
+merely the wrong size, it is a size no conforming producer may send. This is also the only
+order every implementation can hold: obtaining a declared-count comparison first requires
+knowing the actual count, and an implementation whose count is not O(1) cannot learn it
+without the traversal the ceiling forbids. A declared count is therefore compared ONLY once
+the collection is known to be within its ceiling.
+
+#### Scenario: A ceiling outranks a declared count
+- **WHEN** a collection exceeds its ceiling AND its container declares a different size
+- **THEN** the refusal is the ceiling's, not the mismatch
+
+COST. `length/1`-style measurement of an attacker-supplied list performs exactly the traversal
+the ceiling forbids: the list is walked in full to discover it is too long. A conforming
+implementation stops at `ceiling + 1` elements, which is the smallest walk that can distinguish
+"at the ceiling" from "over" it. An implementation whose language makes the count O(1) satisfies
+this trivially and SHALL NOT restructure to imitate the bounded walk.
+
+NEITHER RULE IS OBSERVABLE FROM A VERDICT, which is why this requirement exists at all. A
+correct implementation and a violating one refuse the same inputs and admit the same inputs;
+they differ only in WHICH refusal arrives when two rules are violated at once, and in how much
+work precedes it. Evidence SHALL therefore assert PRECEDENCE -- an input violating both a count
+ceiling and the walk's rule, refused by the ceiling -- and SHALL assert bounded traversal by a
+means that fails deterministically, not by timing.
+
+A COUNT RUNNING AHEAD OF A STRUCTURAL WALK SEES UNVALIDATED SHAPES, and SHALL remain TOTAL over
+them: a collection element that is not the expected shape has no count to take, which is a
+refusal and never a crash.
+
+#### Scenario: The ceiling wins when both rules are violated
+- **WHEN** a supplied collection is over its count ceiling AND its elements would also fail the
+  recursive walk
+- **THEN** the refusal is the count ceiling's
+
+#### Scenario: The walk still precedes semantics
+- **WHEN** a collection is within every count ceiling and an element fails both the recursive
+  walk and a semantic rule
+- **THEN** the refusal is the walk's
+
+#### Scenario: Counting does not walk the whole collection
+- **WHEN** a supplied collection exceeds its ceiling
+- **THEN** the refusal is produced without examining elements beyond `ceiling + 1`
+
+### Requirement: A recovery manifest's page list SHALL be bounded BELOW as well as above
+A recovery manifest's supplied page list SHALL admit exactly `1..MaxManifestPages` pages: an
+EMPTY list SHALL be refused, and a list of exactly ONE page SHALL be admitted. This holds at the
+RAW and at the DECODED representation alike, because each is an independently reachable
+boundary.
+
+NARROWLY SCOPED, AND THE OTHER MINIMA ARE NOT RESTATED. A plan's page list and each page's
+range list already carry a minimum of 1 in the residual-bounds table, and every manifest page
+already SHALL carry at least one span. `MaxSweepHostsPerBatch` deliberately carries NO minimum
+and is untouched here. What was missing is only this one: the shared `MaxManifestPages` ceiling
+is stated for a recovery manifest, but its minimum column speaks for the PLAN page list alone,
+so an empty recovery manifest was refused by both implementations without any requirement
+saying it must be.
+
+BOTH CONTROLS ARE REQUIRED, and the second is not redundant. A refusal of the empty case alone
+does not pin the minimum: an implementation tightened to demand two pages refuses the empty case
+exactly as before, so a conforming and a non-conforming implementation are indistinguishable
+without the ONE-page acceptance.
+
+WHAT THIS DOES NOT CLAIM. Refusing an empty list is a property of the BOUNDARY, not evidence
+that an implementation's local emptiness predicate is independently removable. At the raw
+boundary in particular the check may be shadowed by the decoded one, which refuses the same
+input for the same reason. Conformance is judged at the boundary.
+
+#### Scenario: An empty recovery manifest page list is refused
+- **WHEN** a supplied recovery manifest page list is empty, in either its raw or its decoded representation
+- **THEN** the boundary refuses it
+
+#### Scenario: A single-page recovery manifest is admitted
+- **WHEN** a recovery manifest carries exactly one page and is otherwise conforming
+- **THEN** the boundary admits it
+
+### Requirement: A signed tombstone's declared manifest page count SHALL be bounded 1..MaxManifestPages
+A `SpoolLossTombstoneV1` reaching the SIGNED recovery-control boundary SHALL declare a
+`manifest_page_count` of `1..MaxManifestPages`: 0 SHALL be refused, 1 SHALL be admitted,
+`MaxManifestPages` SHALL be admitted and one over SHALL be refused.
+
+A DISTINCT RULE FROM THE PAGE-LIST BOUND, because it bounds a DECLARED SCALAR rather than a
+supplied list. Where a tombstone is validated ALONGSIDE its pages, the declaration is reconciled
+against the pages actually present and the list's own bound governs. On the signed path NO PAGE
+LIST ACCOMPANIES IT: nothing reconciles the declaration, and the scope digest commits it exactly
+as signed. A count bounded only from below therefore travels signed and unbounded, to be
+questioned -- if ever -- only at assembly.
+
+#### Scenario: A signed tombstone declaring zero pages is refused
+- **WHEN** a signed recovery-control tombstone declares `manifest_page_count` of 0
+- **THEN** the signed boundary refuses it
+
+#### Scenario: A signed tombstone declaring more pages than the ceiling is refused
+- **WHEN** a signed recovery-control tombstone declares a `manifest_page_count` above `MaxManifestPages`
+- **THEN** the signed boundary refuses it
+
+### Requirement: A record's declared projected cost SHALL NOT exceed the maxima its production capability carries
+A record's `cost_model_version` SHALL equal the one in its production capability, and its
+`projected_row_count` and `projected_write_bytes` SHALL each be less than or equal to the
+corresponding maximum that capability declares. A record failing any of the three SHALL be
+refused.
+
+THIS IS A STRUCTURAL RULE, NOT AN AUTHORIZATION ONE, and the distinction is normative. The
+comparison runs during whole-record validation, which performs NO cryptographic verification, so
+the maxima being compared against are UNVERIFIED at that moment. It bounds a record's declared
+self-description against the grant it claims to fit; it does not establish that the grant is
+genuine. An implementation SHALL NOT present this check as evidence that a capability was
+honoured.
+
+THE RELATION IS INCLUSIVE on both quantities: a record declaring EXACTLY its maximum SHALL be
+accepted. Each of the three conditions SHALL be independently refusable -- evidence moving two
+at once cannot show which one a validator read.
+
+WHETHER A DECLARED COST COVERS THE WORK A RECORD ACTUALLY CAUSES is a different question and is
+NOT frozen here.
+
+#### Scenario: A declared cost at the maximum is admitted
+- **WHEN** a record declares exactly the row count and write bytes its capability permits
+- **THEN** it is admitted
+
+#### Scenario: Each operand refuses on its own
+- **WHEN** a record exceeds exactly one of row count or write bytes, or disagrees on
+  `cost_model_version`, with the others valid
+- **THEN** it is refused

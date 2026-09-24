@@ -2,4 +2,15 @@
 # any text normalization would corrupt them outright.
 third_party/crate_mirror/** -text
 third_party/netprobe_ebpf_vendor/** -text
+
+# Cross-language ABI fixtures are EXACT BYTES: every digest, signature and identifier in the
+# shared corpora is computed over them, so a text-mode EOL rewrite on checkout would silently
+# invalidate the contract they freeze -- and `git diff --check` reports them as whitespace
+# damage because Git otherwise reads protobuf as text.
+# `binary` rather than bare `-text`: it expands to `-diff -merge -text`, which stops the EOL
+# rewrite AND stops Git rendering protobuf as a text diff. `-text` alone leaves
+# `git diff --check` reporting these fixtures as whitespace damage, and leaves a merge free to
+# splice two versions of a digest-bearing artifact line by line.
+proto/edge/v1/testdata/*.bin binary
+proto/edge/v1/testdata/*.pub binary
 third_party/netprobe_corpora/** -text
