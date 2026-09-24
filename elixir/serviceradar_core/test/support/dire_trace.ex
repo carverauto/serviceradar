@@ -781,12 +781,22 @@ defmodule ServiceRadar.DireTrace do
 
   defp tamper_entry(var, _rec, _trace) when var in ["owner", "into"], do: "NoRec"
 
+  # Resolved at RUNTIME. The compile-time `@traces_dir` is right under plain `mix`, which
+  # compiles in place. Under Bazel mix_app compiles in its own build tree and the test runs
+  # from `elixir/serviceradar_core` in a sandbox holding only declared runfiles, so the baked
+  # path does not exist there; the traces are declared data and sit two levels above the cwd.
+  defp traces_dir do
+    [@traces_dir, Path.expand("../../formal/dire/traces", File.cwd!())]
+    |> Enum.find(@traces_dir, &File.dir?/1)
+  end
+
   defp golden!(name, tla, cfg) do
-    tla_path = Path.join(@traces_dir, "Trace_#{name}.tla")
-    cfg_path = Path.join(@traces_dir, "Trace_#{name}.cfg")
+    traces_dir = traces_dir()
+    tla_path = Path.join(traces_dir, "Trace_#{name}.tla")
+    cfg_path = Path.join(traces_dir, "Trace_#{name}.cfg")
 
     if System.get_env("DIRE_TRACE_WRITE") == "1" do
-      File.mkdir_p!(@traces_dir)
+      File.mkdir_p!(traces_dir)
       File.write!(tla_path, tla)
       File.write!(cfg_path, cfg)
     else
