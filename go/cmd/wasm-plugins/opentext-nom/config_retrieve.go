@@ -5,13 +5,23 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
 const (
-	runningConfigCommand   = "show running-config"
+	// The plugin reads configs NA already stored; it never sends a device show
+	// command such as "show running-config", which opens a live device session.
+	// list config returns the device's stored revisions (oldest first), and
+	// show config -mask returns one with passwords and SNMP communities masked
+	// by NA, so no device secret leaves NA.
+	listConfigCommand      = "list config"
+	showConfigCommand      = "show config"
+	configBlockType        = "configuration"
 	maxRunningConfigBytes  = 2 * 1024 * 1024
+	maxConfigListBytes     = 4 * 1024 * 1024
 	configRetrieveActionID = "opentext-nom.config.retrieve"
 )
 
@@ -20,6 +30,7 @@ const (
 type RunningConfig struct {
 	DeviceID  string
 	DeviceUID string
+	ConfigID  string
 	Body      string
 	Hash      string
 }
@@ -47,16 +58,48 @@ func (c *Collector) RetrieveRunningConfig(
 		return RunningConfig{}, runError("opentext_nom_config_device_uid_invalid")
 	}
 
-	payload, err := json.Marshal(map[string]any{
-		"command": runningConfigCommand,
-		"parameters": map[string]any{
-			"id": deviceID,
-		},
-	})
+	listed, err := c.postCommand(ctx, cfg, listConfigCommand, map[string]any{"deviceid": deviceID}, maxConfigListBytes)
 	if err != nil {
-		return RunningConfig{}, runError("opentext_nom_request_invalid")
+		return RunningConfig{}, err
+	}
+	configID, err := newestStoredConfigID(listed)
+	if err != nil {
+		return RunningConfig{}, err
 	}
 
+	// A valueless CLI flag is sent as an empty string: the wrapper renders
+	// each parameter as "-key value", and "mask": true fails with
+	// "Unformatted Entity true is not valid".
+	shown, err := c.postCommand(ctx, cfg, showConfigCommand, map[string]any{"id": configID, "mask": ""}, maxRunningConfigBytes)
+	if err != nil {
+		return RunningConfig{}, err
+	}
+	body, err := decodeRunningConfigBody(shown)
+	if err != nil {
+		return RunningConfig{}, err
+	}
+	sum := sumSHA256([]byte(body))
+	return RunningConfig{
+		DeviceID:  deviceID,
+		DeviceUID: deviceUID,
+		ConfigID:  configID,
+		Body:      body,
+		Hash:      hex.EncodeToString(sum[:]),
+	}, nil
+}
+
+// postCommand sends one wrapper command and returns the body of a 200.
+func (c *Collector) postCommand(
+	ctx context.Context,
+	cfg Config,
+	command string,
+	parameters map[string]any,
+	maxBytes int,
+) ([]byte, error) {
+	payload, err := json.Marshal(map[string]any{"command": command, "parameters": parameters})
+	if err != nil {
+		return nil, runError("opentext_nom_request_invalid")
+	}
 	response, err := c.doWithRetry(ctx, cfg, HTTPRequest{
 		Method: http.MethodPost,
 		URL:    cfg.APIURL,
@@ -68,32 +111,80 @@ func (c *Collector) RetrieveRunningConfig(
 		TimeoutMS: cfg.RequestTimeoutSeconds * 1000,
 	})
 	if err != nil {
-		return RunningConfig{}, err
+		return nil, err
 	}
-	if response.Status == http.StatusUnauthorized {
-		return RunningConfig{}, runError("opentext_nom_auth_failed")
+	switch response.Status {
+	case http.StatusOK:
+	case http.StatusUnauthorized:
+		return nil, runError("opentext_nom_auth_failed")
+	case http.StatusForbidden:
+		return nil, runError("opentext_nom_forbidden")
+	default:
+		return nil, runError("opentext_nom_api_unavailable")
 	}
-	if response.Status == http.StatusForbidden {
-		return RunningConfig{}, runError("opentext_nom_forbidden")
+	if len(response.Body) > maxBytes {
+		return nil, runError("opentext_nom_config_too_large")
 	}
-	if response.Status != http.StatusOK {
-		return RunningConfig{}, runError("opentext_nom_api_unavailable")
-	}
-	if len(response.Body) > maxRunningConfigBytes {
-		return RunningConfig{}, runError("opentext_nom_config_too_large")
+	return response.Body, nil
+}
+
+type storedConfigRow struct {
+	DeviceDataID json.Number `json:"deviceDataID"`
+	BlockType    string      `json:"blockType"`
+	CreateDate   string      `json:"createDate"`
+}
+
+// newestStoredConfigID picks the latest configuration revision. NA lists
+// revisions oldest first, so order is not trusted: the newest createDate wins,
+// and the higher revision ID breaks a tie or an unparseable date.
+func newestStoredConfigID(raw []byte) (string, error) {
+	var rows []storedConfigRow
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		var envelope struct {
+			Result []storedConfigRow `json:"result"`
+		}
+		if err := json.Unmarshal(raw, &envelope); err != nil {
+			return "", runError("opentext_nom_config_list_invalid")
+		}
+		rows = envelope.Result
 	}
 
-	body, err := decodeRunningConfigBody(response.Body)
-	if err != nil {
-		return RunningConfig{}, err
+	var (
+		bestID   int64
+		bestDate time.Time
+		found    bool
+	)
+	for _, row := range rows {
+		if !strings.EqualFold(strings.TrimSpace(row.BlockType), configBlockType) {
+			continue
+		}
+		id, err := row.DeviceDataID.Int64()
+		if err != nil || id <= 0 {
+			continue
+		}
+		created := parseNATime(row.CreateDate)
+		if !found || created.After(bestDate) || (created.Equal(bestDate) && id > bestID) {
+			bestID, bestDate, found = id, created, true
+		}
 	}
-	sum := sumSHA256([]byte(body))
-	return RunningConfig{
-		DeviceID:  deviceID,
-		DeviceUID: strings.TrimSpace(deviceUID),
-		Body:      body,
-		Hash:      hex.EncodeToString(sum[:]),
-	}, nil
+	if !found {
+		return "", runError("opentext_nom_config_not_found")
+	}
+	return strconv.FormatInt(bestID, 10), nil
+}
+
+// parseNATime reads NA's "2026-09-21T18:52:05.864Z[UTC]" timestamps. An
+// unparseable value is the zero time, which never beats a parsed one.
+func parseNATime(value string) time.Time {
+	value = strings.TrimSpace(value)
+	if i := strings.IndexByte(value, '['); i >= 0 {
+		value = value[:i]
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		return time.Time{}
+	}
+	return parsed
 }
 
 func decodeRunningConfigBody(raw []byte) (string, error) {

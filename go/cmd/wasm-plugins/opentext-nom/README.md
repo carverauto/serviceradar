@@ -12,12 +12,14 @@ The implementation follows the approved ServiceRadar OpenSpec change
 
 ## Security Boundary
 
-- The plugin can execute only two fixed OpenText Network Automation commands:
-  `list device` for inventory, and `show running-config` for the
-  `opentext-nom.config.retrieve` action. Operators cannot choose the command.
-- A retrieved running-config is staged only as a plugin artifact. It is never
-  written into the result details, because status details are readable by
-  viewers and running-configs routinely contain device secrets.
+- The plugin can execute only fixed, read-only OpenText Network Automation
+  commands: `list device` for inventory, and `list config` then
+  `show config -mask` for the `opentext-nom.config.retrieve` action. Operators
+  cannot choose the command. The plugin reads configs NA already stored and
+  never opens a device session.
+- A retrieved config is masked by NA (passwords and SNMP communities become
+  `xxx`) and staged only as a plugin artifact. It is never written into the
+  result details, because status details are readable by viewers.
 - Query parameters are validated against a strict allowlist.
 - Username and password are injected into the OAuth form by the ServiceRadar
   agent host and are never exposed to Wasm.
@@ -104,8 +106,10 @@ The default query is:
 Operators may configure up to eight query sets using the allowlisted network automation list
 filters in `config.schema.json`. The plugin always owns `command=list device`,
 `startid`, and `limitcount`; those values cannot be supplied by an operator.
-The config retrieve action always sends `command=show running-config` with the
-device ID as its only parameter.
+The config retrieve action sends `list config` with the device ID, picks the
+newest `configuration` revision by `createDate` (NA lists oldest first), then
+sends `show config` with that revision's ID and the `mask` flag. A valueless
+CLI flag such as `mask` is sent as an empty string.
 
 ## Supply Chain
 

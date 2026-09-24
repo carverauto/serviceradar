@@ -21,12 +21,32 @@ interface GigabitEthernet0/1
 !
 `
 
-func TestRetrieveRunningConfigPostsShowRunningConfigNotListDevice(t *testing.T) {
+// syntheticConfigList mirrors NA's list config shape: oldest revision first,
+// plus a non-configuration block that must be ignored.
+const syntheticConfigList = `[
+  {"deviceDataID":5001,"deviceID":71061,"blockType":"configuration","createDate":"2026-01-02T03:04:05.000Z[UTC]"},
+  {"deviceDataID":5009,"deviceID":71061,"blockType":"diagnostic","createDate":"2026-03-01T00:00:00.000Z[UTC]"},
+  {"deviceDataID":5007,"deviceID":71061,"blockType":"configuration","createDate":"2026-02-02T03:04:05.000Z[UTC]"}
+]`
+
+func decodeCommand(t *testing.T, request HTTPRequest) (string, map[string]any) {
+	t.Helper()
+	var envelope struct {
+		Command    string         `json:"command"`
+		Parameters map[string]any `json:"parameters"`
+	}
+	if err := json.Unmarshal(request.Body, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	return envelope.Command, envelope.Parameters
+}
+
+func TestRetrieveRunningConfigReadsNewestMaskedStoredConfig(t *testing.T) {
 	httpClient := &fakeHTTPDoer{
-		responses: []HTTPResponse{{
-			Status: 200,
-			Body:   []byte(`{"config":` + jsonString(syntheticIOS) + `}`),
-		}},
+		responses: []HTTPResponse{
+			{Status: 200, Body: []byte(syntheticConfigList)},
+			{Status: 200, Body: []byte(`{"result":` + jsonString(syntheticIOS) + `}`)},
+		},
 	}
 	collector := &Collector{HTTP: httpClient, Now: func() time.Time { return time.Unix(1, 0).UTC() }, Sleep: sleepWithContext}
 	cfg := mustValidConfig(t)
@@ -35,27 +55,54 @@ func TestRetrieveRunningConfigPostsShowRunningConfigNotListDevice(t *testing.T) 
 	if err != nil {
 		t.Fatalf("RetrieveRunningConfig: %v", err)
 	}
-	if got.DeviceID != "71061" || got.DeviceUID != "sr:host01.example.com" {
-		t.Fatalf("identity = %#v", got)
+	if got.DeviceID != "71061" || got.DeviceUID != "sr:host01.example.com" || got.ConfigID != "5007" {
+		t.Fatalf("identity = %#v, want newest configuration revision 5007", got)
 	}
-	if !strings.Contains(got.Body, "interface GigabitEthernet0/1") {
-		t.Fatalf("body missing invented interface stanza")
+	if !strings.Contains(got.Body, "interface GigabitEthernet0/1") || got.Hash == "" {
+		t.Fatalf("unexpected body/hash: %#v", got)
 	}
-	if got.Hash == "" {
-		t.Fatal("expected content hash")
+	if len(httpClient.requests) != 2 {
+		t.Fatalf("requests = %d, want list config then show config", len(httpClient.requests))
 	}
-	if len(httpClient.requests) != 1 {
-		t.Fatalf("requests = %d", len(httpClient.requests))
+
+	command, params := decodeCommand(t, httpClient.requests[0])
+	if command != listConfigCommand || len(params) != 1 || params["deviceid"] != "71061" {
+		t.Fatalf("first request = %q %#v", command, params)
 	}
-	var envelope map[string]any
-	if err := json.Unmarshal(httpClient.requests[0].Body, &envelope); err != nil {
-		t.Fatal(err)
+	command, params = decodeCommand(t, httpClient.requests[1])
+	if command != showConfigCommand || params["id"] != "5007" || len(params) != 2 {
+		t.Fatalf("second request = %q %#v", command, params)
 	}
-	if envelope["command"] != runningConfigCommand {
-		t.Fatalf("command = %#v, want %q", envelope["command"], runningConfigCommand)
+	if mask, ok := params["mask"]; !ok || mask != "" {
+		t.Fatalf("mask flag = %#v, want an empty-string flag", params["mask"])
 	}
-	if envelope["command"] == "list device" {
-		t.Fatal("config retrieve must not use list device")
+	for _, request := range httpClient.requests {
+		if command, _ := decodeCommand(t, request); command == "show running-config" || command == "show device config" {
+			t.Fatalf("config retrieve sent %q; it must only read NA's masked stored config", command)
+		}
+	}
+}
+
+func TestNewestStoredConfigIDHandlesEnvelopesAndEmptyLists(t *testing.T) {
+	wrapped := `{"result":` + syntheticConfigList + `}`
+	if id, err := newestStoredConfigID([]byte(wrapped)); err != nil || id != "5007" {
+		t.Fatalf("wrapped list: id=%q err=%v", id, err)
+	}
+	sameDate := `[
+	  {"deviceDataID":10,"blockType":"configuration","createDate":"2026-01-01T00:00:00.000Z[UTC]"},
+	  {"deviceDataID":12,"blockType":"configuration","createDate":"2026-01-01T00:00:00.000Z[UTC]"}
+	]`
+	if id, err := newestStoredConfigID([]byte(sameDate)); err != nil || id != "12" {
+		t.Fatalf("tie on date: id=%q err=%v, want the higher revision", id, err)
+	}
+	for name, body := range map[string]string{
+		"empty list":       `[]`,
+		"no configuration": `[{"deviceDataID":3,"blockType":"diagnostic","createDate":"2026-01-01T00:00:00.000Z[UTC]"}]`,
+		"not a list":       `{"message":"nope"}`,
+	} {
+		if _, err := newestStoredConfigID([]byte(body)); err == nil {
+			t.Fatalf("%s: expected an error", name)
+		}
 	}
 }
 

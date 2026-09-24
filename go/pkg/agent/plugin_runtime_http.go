@@ -217,7 +217,9 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 	}
 	hostCredentialBound = hostCredentialBound || proxmoxBinding != nil
 
-	if err := e.applyCredentialBrokerInjection(ctx, httpReq, grant, payload.InsecureSkipVerify); err != nil {
+	// reqCtx carries the plugin's own request timeout, so a slow token endpoint
+	// gets the budget the plugin asked for instead of the 15s default.
+	if err := e.applyCredentialBrokerInjection(reqCtx, httpReq, grant, payload.InsecureSkipVerify); err != nil {
 		e.logPluginHostHTTPDenied(err, reqURL, method, pluginHTTPDeniedReasonCredentialPolicy)
 		return pluginErrDenied
 	}
@@ -254,6 +256,7 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 	defer func() {
 		_ = resp.Body.Close()
 	}()
+	e.invalidateRejectedOAuth2Token(httpReq, grant, resp.StatusCode)
 
 	return e.writePluginHTTPResponse(mod, resp, payload, method, respPtr, respLen, proxmoxBinding, reqURL)
 }

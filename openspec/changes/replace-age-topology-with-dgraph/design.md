@@ -635,9 +635,13 @@ and rebuild AGE from evidence (the evidence tables never moved).
   matching today's `graph_cypher` contract.
 - OpenText config-retrieve command name and whether startup-config is in
   v1 or running-config only. Default: running-config only.
-- OpenText config-retrieve request and response shape, unverified against a
-  live Network Automation wrapper: the plugin sends the device as
-  `parameters.id` (inventory filters use `ids`) and accepts the body at the
-  top level or nested under `result`/`data`, mirroring `list device`.
+- Resolved (verified against a live NA wrapper): config-retrieve reads NA's
+  stored config, never a device show command. `list config -deviceid` returns
+  revisions oldest first; the plugin picks the newest `configuration` revision
+  by `createDate` and sends `show config -id <rev> -mask`, which returns
+  `{"result": "<config>"}` with secrets replaced by `xxx`. Valueless CLI flags
+  are sent as empty strings. `show configlet -deviceid -start -end` returns a
+  scoped block the same way and is the basis for interface-scoped config
+  checks (not yet a plugin mode).
 - Whether a change selector that is "this VRF" or "this device group" is
   v1. Default: v1 selectors are device uid, IP, and CIDR prefix only.

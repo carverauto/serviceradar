@@ -22,6 +22,10 @@ import (
 const (
 	localTokenResponseLimit = 64 * 1024
 	localTokenLimit         = 8 * 1024
+	// Same reuse policy as the agent's credential broker: honor expires_in,
+	// but never beyond NA's documented 20-minute token, and refresh early.
+	localTokenMaxTTL       = 15 * time.Minute
+	localTokenExpiryMargin = 60 * time.Second
 )
 
 type localOAuthBroker struct {
@@ -31,10 +35,15 @@ type localOAuthBroker struct {
 	httpClient *http.Client
 	errorMu    sync.Mutex
 	safeError  string
+	tokenMu    sync.Mutex
+	token      []byte
+	tokenUntil time.Time
+	now        func() time.Time
 }
 
 type localOAuthTokenResponse struct {
-	AccessToken string `json:"access_token"`
+	AccessToken string      `json:"access_token"`
+	ExpiresIn   json.Number `json:"expires_in"`
 }
 
 func newLocalOAuthBroker(
@@ -87,7 +96,7 @@ func (b *localOAuthBroker) Handle(
 		return nil, b.fail("opentext_nom_local_target_denied")
 	}
 
-	token, err := b.exchangeToken(ctx)
+	token, err := b.bearerToken(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -117,6 +126,9 @@ func (b *localOAuthBroker) Handle(
 		return nil, b.fail("opentext_nom_local_upstream_unavailable")
 	}
 	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode == http.StatusUnauthorized {
+		b.dropCachedToken()
+	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, int64(sdk.MaxHTTPResponseBytes)+1))
 	if err != nil {
 		return nil, b.fail("opentext_nom_local_upstream_unavailable")
@@ -184,7 +196,56 @@ func (b *localOAuthBroker) exchangeToken(ctx context.Context) ([]byte, error) {
 		clear(token)
 		return nil, b.fail("opentext_nom_local_token_exchange_failed")
 	}
+	expiresIn, _ := tokenResponse.ExpiresIn.Int64()
+	b.cacheToken(token, expiresIn)
 	return token, nil
+}
+
+// bearerToken returns a copy of the cached token while it is still valid, and
+// otherwise exchanges a new one. The caller clears its copy after use.
+func (b *localOAuthBroker) bearerToken(ctx context.Context) ([]byte, error) {
+	b.tokenMu.Lock()
+	if len(b.token) > 0 && b.clock().Before(b.tokenUntil) {
+		token := append([]byte(nil), b.token...)
+		b.tokenMu.Unlock()
+		return token, nil
+	}
+	b.tokenMu.Unlock()
+	return b.exchangeToken(ctx)
+}
+
+func (b *localOAuthBroker) cacheToken(token []byte, expiresIn int64) {
+	if expiresIn <= 0 {
+		return
+	}
+	ttl := time.Duration(expiresIn) * time.Second
+	if ttl > localTokenMaxTTL {
+		ttl = localTokenMaxTTL
+	}
+	ttl -= localTokenExpiryMargin
+	if ttl <= 0 {
+		return
+	}
+	b.tokenMu.Lock()
+	defer b.tokenMu.Unlock()
+	clear(b.token)
+	b.token = append([]byte(nil), token...)
+	b.tokenUntil = b.clock().Add(ttl)
+}
+
+func (b *localOAuthBroker) dropCachedToken() {
+	b.tokenMu.Lock()
+	defer b.tokenMu.Unlock()
+	clear(b.token)
+	b.token = nil
+	b.tokenUntil = time.Time{}
+}
+
+func (b *localOAuthBroker) clock() time.Time {
+	if b.now != nil {
+		return b.now()
+	}
+	return time.Now()
 }
 
 func (b *localOAuthBroker) SafeError() string {

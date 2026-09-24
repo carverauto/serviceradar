@@ -15,7 +15,8 @@ import (
 )
 
 // TestLocalHostRunsConfigRetrieveAndStagesArtifact drives the real
-// config.retrieve action natively: local OAuth broker, show running-config
+// config.retrieve action natively: local OAuth broker, list config then masked
+// show config
 // request, artifact staging into a directory, and the result details.
 func TestLocalHostRunsConfigRetrieveAndStagesArtifact(t *testing.T) {
 	const token = "local-short-lived-token"
@@ -34,11 +35,16 @@ func TestLocalHostRunsConfigRetrieveAndStagesArtifact(t *testing.T) {
 				response.WriteHeader(http.StatusBadRequest)
 				return
 			}
-			if command.Command != runningConfigCommand || command.Parameters["id"] != "1001" {
-				t.Errorf("unexpected command: %#v", command)
-			}
 			response.Header().Set("Content-Type", "application/json")
-			_, _ = fmt.Fprintf(response, `{"result":%s}`, jsonString(syntheticIOS))
+			switch {
+			case command.Command == listConfigCommand && command.Parameters["deviceid"] == "1001":
+				_, _ = fmt.Fprint(response, `[{"deviceDataID":2002,"blockType":"configuration","createDate":"2026-01-01T00:00:00.000Z[UTC]"}]`)
+			case command.Command == showConfigCommand && command.Parameters["id"] == "2002" && command.Parameters["mask"] == "":
+				_, _ = fmt.Fprintf(response, `{"result":%s}`, jsonString(syntheticIOS))
+			default:
+				t.Errorf("unexpected command: %#v", command)
+				response.WriteHeader(http.StatusBadRequest)
+			}
 		default:
 			response.WriteHeader(http.StatusNotFound)
 		}
