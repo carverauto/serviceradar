@@ -456,7 +456,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
   end
 
   defp trace_to_map(trace) do
-    %{
+    map = %{
       "id" => trace.id && to_string(trace.id),
       "time" => trace.time,
       "agent_id" => trace.agent_id,
@@ -477,7 +477,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
       "partition" => trace.partition,
       "error" => trace.error
     }
-    |> Map.merge(Map.new(@handshake_fields, &{Atom.to_string(&1), Map.get(trace, &1)}))
+
+    Map.merge(map, Map.new(@handshake_fields, &{Atom.to_string(&1), Map.get(trace, &1)}))
   end
 
   defp hop_to_map(hop) do

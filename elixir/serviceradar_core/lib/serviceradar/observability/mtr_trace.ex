@@ -264,6 +264,7 @@ defmodule ServiceRadar.Observability.MtrTrace do
 
     attribute :tcp_server_response_us, :integer do
       public? true
+
       description "Estimated time in the target: handshake RTT average minus last transit hop RTT average"
     end
 

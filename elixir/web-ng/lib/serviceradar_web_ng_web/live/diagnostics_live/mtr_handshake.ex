@@ -16,8 +16,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrHandshake do
     rst: "Handshake attempts the target answered with RST or RST+ACK (port closed or rejected)",
     drop:
       "Handshakes that never got an answer, as a share of handshakes attempted (first SYN plus retries is one attempt)",
-    retx:
-      "SYNs re-sent after the per-probe timeout, and attempts that succeeded only on a retry (loss on the first try)",
+    retx: "SYNs re-sent after the per-probe timeout, and attempts that succeeded only on a retry (loss on the first try)",
     anomalies:
       "Replies whose acknowledgement matches no SYN we sent (sequence rewriting, a SYN proxy or a middlebox), and repeated SYN-ACKs for one attempt (return-path loss)",
     rtt: "SYN to SYN-ACK/RST time at the destination: minimum / average / maximum",

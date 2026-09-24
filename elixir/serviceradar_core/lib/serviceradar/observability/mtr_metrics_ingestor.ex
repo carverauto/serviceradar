@@ -312,7 +312,7 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
   end
 
   defp build_trace_row(result, trace, trace_id, trace_time, agent_id, gateway_id, partition) do
-    %{
+    row = %{
       id: trace_id,
       time: trace_time,
       agent_id: agent_id,
@@ -333,7 +333,8 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
       partition: partition,
       error: result["error"]
     }
-    |> Map.merge(MtrTcpHandshake.trace_fields(trace))
+
+    Map.merge(row, MtrTcpHandshake.trace_fields(trace))
   end
 
   defp trace_hops(trace) do
@@ -378,7 +379,7 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
         %{"labels" => mpls_labels}
       end
 
-    %{
+    row = %{
       id: Ecto.UUID.generate(),
       time: trace_time,
       trace_id: trace_id,
@@ -406,7 +407,8 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
       jitter_interarrival_us: hop["jitter_interarrival_us"],
       unreachable_code: hop["unreachable_code"]
     }
-    |> Map.merge(MtrTcpHandshake.hop_fields(hop, counters?))
+
+    Map.merge(row, MtrTcpHandshake.hop_fields(hop, counters?))
   end
 
   defp build_hop_row(_hop, _trace_id, _trace_time), do: nil
