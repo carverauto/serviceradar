@@ -111,10 +111,12 @@ defmodule ServiceRadar.DireTrace do
       actor: actor,
       world: world,
       real: real,
-      pre_uids: existing_uids(actor),
+      pre_uids: MapSet.new(),
       handler: handler,
       ip_at: Map.new(Map.keys(world.ifaces), &{&1, "NoIp"})
     }
+
+    trace = %{trace | pre_uids: trace |> scoped_devices() |> MapSet.new(& &1.uid)}
 
     record(trace, %{
       name: "Init",
@@ -660,19 +662,53 @@ defmodule ServiceRadar.DireTrace do
   # ---------------------------------------------------------------------------------------
   # Database reads
 
-  defp existing_uids(actor) do
-    Device
-    |> Ash.Query.for_read(:read, %{include_deleted: true})
-    |> Ash.read!(actor: actor)
-    |> Page.unwrap!()
-    |> MapSet.new(& &1.uid)
+  @device_read_limit 1000
+
+  # Reads only the devices the trace's world can have produced: the ones already named, the ones
+  # holding a world address, and the ones owning a world identifier. Device :read is paginated,
+  # so the read is sized explicitly and refuses to truncate.
+  defp scoped_devices(trace) do
+    uids = trace.names |> Map.keys() |> Enum.concat(identifier_owner_uids(trace)) |> Enum.uniq()
+    ips = Map.values(trace.real.ip)
+
+    devices =
+      Device
+      |> Ash.Query.for_read(:read, %{include_deleted: true})
+      |> Ash.Query.filter(uid in ^uids or ip in ^ips)
+      |> Ash.read!(actor: trace.actor, page: [limit: @device_read_limit])
+      |> Page.unwrap!()
+
+    if length(devices) >= @device_read_limit,
+      do: flunk("DIRE trace #{trace.name}: device read reached #{@device_read_limit} rows")
+
+    devices
+  end
+
+  defp identifier_owner_uids(trace) do
+    values = world_identifier_values(trace)
+
+    DeviceIdentifier
+    |> Ash.Query.filter(identifier_value in ^values)
+    |> Ash.read!(actor: trace.actor)
+    |> Enum.map(& &1.device_id)
+  end
+
+  defp world_identifier_values(trace) do
+    src = Map.values(trace.real.src)
+
+    macs =
+      for mac <- Map.values(trace.real.mac),
+          do: mac |> String.replace(":", "") |> String.upcase()
+
+    src
+    |> Enum.concat(Enum.map(src, &"armis:source-trace:device:#{&1}"))
+    |> Enum.concat(macs)
+    |> Enum.concat(Map.values(trace.real.agent))
   end
 
   defp trace_devices(trace) do
-    Device
-    |> Ash.Query.for_read(:read, %{include_deleted: true})
-    |> Ash.read!(actor: trace.actor)
-    |> Page.unwrap!()
+    trace
+    |> scoped_devices()
     |> Enum.reject(&MapSet.member?(trace.pre_uids, &1.uid))
     |> Enum.sort_by(& &1.uid)
   end
