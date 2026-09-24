@@ -76,7 +76,7 @@ no-mistakes gate, in order. All fixtures are synthetic
     "no reply past hop N (M probed)".
   - Collapse trailing all-loss hops.
   - Show the unreachable kind.
-- [ ] 2.11 Docs: `docs/docs/mtr-protocols.md` explains:
+- [x] 2.11 Docs: `docs/docs/mtr-protocols.md` explains:
   - why ICMP, UDP and TCP paths and depths differ (ECMP flow hashing,
     per-protocol filtering, rate limiting, firewall answer-on-behalf)
   - how to read `last_responding_hop` vs `probed_hops`
