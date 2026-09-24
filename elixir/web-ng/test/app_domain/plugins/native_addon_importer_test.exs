@@ -18,10 +18,12 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
   alias Oban.Job
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Plugins.AddonPackage
+  alias ServiceRadar.Plugins.AddonProfile
   alias ServiceRadar.Plugins.NativeAddonArtifactMirror
   alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Plugins.AddonPackages
   alias ServiceRadarWebNG.Plugins.NativeAddonImporter
+  alias ServiceRadarWebNG.Plugins.NativeAddonSync
   alias ServiceRadarWebNG.Plugins.NativeAddonSyncWorker
 
   require Ash.Query
@@ -60,9 +62,12 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     @moduledoc false
 
     def get(url, _opts) do
+      release = Process.get(:native_addon_release)
+      release_tag = if is_map(release), do: release["tag_name"]
+
       cond do
-        String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases/tags/v1.0.0") ->
-          {:ok, %Req.Response{status: 200, body: Process.get(:native_addon_release)}}
+        is_binary(release_tag) and String.ends_with?(url, "/releases/tags/" <> release_tag) ->
+          {:ok, %Req.Response{status: 200, body: release}}
 
         String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases?per_page=") ->
           Process.put(
@@ -81,6 +86,8 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
             :native_addon_manifest_requests,
             Process.get(:native_addon_manifest_requests, 0) + 1
           )
+
+          if on_fetch = Process.get(:native_addon_on_manifest_fetch), do: on_fetch.()
 
           Process.get(:native_addon_manifest_result) ||
             {:ok,
@@ -108,9 +115,16 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
 
   setup do
     original_logger_level = Logger.level()
-    original_http_client = Application.get_env(:serviceradar_web_ng, :first_party_plugin_import_http_client)
-    original_cosign = Application.get_env(:serviceradar_web_ng, :first_party_plugin_cosign_verifier)
-    original_public_key = Application.get_env(:serviceradar_web_ng, :native_addon_release_public_key)
+
+    original_http_client =
+      Application.get_env(:serviceradar_web_ng, :first_party_plugin_import_http_client)
+
+    original_cosign =
+      Application.get_env(:serviceradar_web_ng, :first_party_plugin_cosign_verifier)
+
+    original_public_key =
+      Application.get_env(:serviceradar_web_ng, :native_addon_release_public_key)
+
     original_upload = Application.get_env(:serviceradar_web_ng, :native_addon_artifact_upload)
     original_native_addon_import = Application.get_env(:serviceradar_web_ng, :native_addon_import)
 
@@ -119,9 +133,23 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
 
     Logger.configure(level: :info)
 
-    Application.put_env(:serviceradar_web_ng, :first_party_plugin_import_http_client, FakeOciClient)
-    Application.put_env(:serviceradar_web_ng, :first_party_plugin_cosign_verifier, FakeCosignVerifier)
-    Application.put_env(:serviceradar_web_ng, :native_addon_release_public_key, Base.encode16(public_key, case: :lower))
+    Application.put_env(
+      :serviceradar_web_ng,
+      :first_party_plugin_import_http_client,
+      FakeOciClient
+    )
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :first_party_plugin_cosign_verifier,
+      FakeCosignVerifier
+    )
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :native_addon_release_public_key,
+      Base.encode16(public_key, case: :lower)
+    )
 
     Application.put_env(:serviceradar_web_ng, :native_addon_artifact_upload, fn metadata, data, _opts ->
       send(test_pid, {:uploaded, metadata.key, byte_size(data)})
@@ -171,7 +199,13 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert artifact["signature_digest"] == signature_digest(private_key, "amd64")
 
     expected_key =
-      NativeAddonArtifactMirror.object_key("sample-addon", "1.0.0", "linux", "amd64", tarball_sha256())
+      NativeAddonArtifactMirror.object_key(
+        "sample-addon",
+        "1.0.0",
+        "linux",
+        "amd64",
+        tarball_sha256()
+      )
 
     assert artifact["object_key"] == expected_key
 
@@ -222,7 +256,9 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     original_release_version = System.get_env("SERVICERADAR_RELEASE_VERSION")
     System.put_env("SERVICERADAR_RELEASE_VERSION", "v1.0.0")
 
-    on_exit(fn -> restore_system_env("SERVICERADAR_RELEASE_VERSION", original_release_version) end)
+    on_exit(fn ->
+      restore_system_env("SERVICERADAR_RELEASE_VERSION", original_release_version)
+    end)
 
     assert :ok = NativeAddonSyncWorker.perform(%Job{args: %{"force" => true}})
     assert Process.get(:native_addon_recent_release_requests) == 0
@@ -238,7 +274,9 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     original_release_version = System.get_env("SERVICERADAR_RELEASE_VERSION")
     System.put_env("SERVICERADAR_RELEASE_VERSION", "v1.4.51")
 
-    on_exit(fn -> restore_system_env("SERVICERADAR_RELEASE_VERSION", original_release_version) end)
+    on_exit(fn ->
+      restore_system_env("SERVICERADAR_RELEASE_VERSION", original_release_version)
+    end)
 
     assert :ok = NativeAddonSyncWorker.perform(%Job{args: %{"force" => true}})
     assert Process.get(:native_addon_recent_release_requests) >= 1
@@ -254,7 +292,9 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     original_release_version = System.get_env("SERVICERADAR_RELEASE_VERSION")
     System.put_env("SERVICERADAR_RELEASE_VERSION", "v1.4.51")
 
-    on_exit(fn -> restore_system_env("SERVICERADAR_RELEASE_VERSION", original_release_version) end)
+    on_exit(fn ->
+      restore_system_env("SERVICERADAR_RELEASE_VERSION", original_release_version)
+    end)
 
     assert :ok = NativeAddonSyncWorker.perform(%Job{args: %{"force" => true}})
     assert [] = sample_packages()
@@ -270,16 +310,19 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     original_release_version = System.get_env("SERVICERADAR_RELEASE_VERSION")
     System.put_env("SERVICERADAR_RELEASE_VERSION", "v1.0.0")
 
-    on_exit(fn -> restore_system_env("SERVICERADAR_RELEASE_VERSION", original_release_version) end)
+    on_exit(fn ->
+      restore_system_env("SERVICERADAR_RELEASE_VERSION", original_release_version)
+    end)
 
     assert :ok = NativeAddonSyncWorker.perform(%Job{args: %{"force" => true}})
     assert Process.get(:native_addon_recent_release_requests) == 0
     assert [] = sample_packages()
   end
 
-  test "sync worker imports every discovered native add-on and only auto-approves configured ids", %{
-    private_key: private_key
-  } do
+  test "sync worker imports every discovered native add-on and only auto-approves configured ids",
+       %{
+         private_key: private_key
+       } do
     install_fixtures(private_key)
 
     Application.put_env(:serviceradar_web_ng, :native_addon_import,
@@ -403,7 +446,11 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     Process.put(:native_addon_recent_releases, [])
 
     executing = insert_executing_sync_job!()
-    assert Keyword.fetch!(Application.fetch_env!(:serviceradar_web_ng, :native_addon_import), :auto_sync_enabled)
+
+    assert Keyword.fetch!(
+             Application.fetch_env!(:serviceradar_web_ng, :native_addon_import),
+             :auto_sync_enabled
+           )
 
     assert :ok = NativeAddonSyncWorker.perform(%{executing | args: %{}})
 
@@ -484,9 +531,10 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert Enum.map(worker_jobs, & &1.id) == [executing.id]
   end
 
-  test "sync worker skips an exact verified package before fetching a removed historical manifest", %{
-    private_key: private_key
-  } do
+  test "sync worker skips an exact verified package before fetching a removed historical manifest",
+       %{
+         private_key: private_key
+       } do
     install_fixtures(private_key)
     configure_sync_worker()
 
@@ -755,7 +803,9 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     [repaired] = sample_packages()
     assert repaired.status == :approved
     assert repaired.artifacts["linux/amd64"]["signature"] == signature_hex(private_key)
-    assert repaired.artifacts["linux/amd64"]["signature_digest"] == signature_digest(private_key, "amd64")
+
+    assert repaired.artifacts["linux/amd64"]["signature_digest"] ==
+             signature_digest(private_key, "amd64")
   end
 
   test "sync worker fetches a package that is missing locally", %{private_key: private_key} do
@@ -781,9 +831,10 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert sample_packages() == []
   end
 
-  test "sync worker reports an immutable source conflict after verifying the discovered envelope", %{
-    private_key: private_key
-  } do
+  test "sync worker reports an immutable source conflict after verifying the discovered envelope",
+       %{
+         private_key: private_key
+       } do
     install_fixtures(private_key)
     configure_sync_worker()
 
@@ -939,7 +990,8 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
   test "sync worker recursively redacts secrets in discovery failures" do
     configure_sync_worker()
 
-    private_key = "-----BEGIN OPENSSH PRIVATE KEY-----\nprivate-key-secret\n-----END OPENSSH PRIVATE KEY-----"
+    private_key =
+      "-----BEGIN OPENSSH PRIVATE KEY-----\nprivate-key-secret\n-----END OPENSSH PRIVATE KEY-----"
 
     secrets = [
       "api-token-secret",
@@ -1128,9 +1180,140 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
 
       assert {:ok, reused, :skipped} = AddonPackages.import_first_party_addon(addon)
       assert reused.id == imported.id
-      assert reused.source_release_tag == source_release_tag
+      assert reused.source_release_tag == "v1.0.0"
       assert Process.get(:native_addon_manifest_requests) == 0
     end
+  end
+
+  for new_envelope? <- [false, true] do
+    test "content reuse advances provenance and rejects rollback (new envelope: #{new_envelope?})",
+         %{
+           private_key: private_key
+         } do
+      install_fixtures(private_key)
+
+      assert {:ok, [addon]} =
+               NativeAddonImporter.list_recent_addons(%{"repo_url" => @repo_url}, 10)
+
+      assert {:ok, imported, :imported} = AddonPackages.import_first_party_addon(addon)
+
+      Process.put(
+        :native_addon_release,
+        Map.put(Process.get(:native_addon_release), "tag_name", "v1.2.0")
+      )
+
+      newer = %{addon | release_tag: "v1.2.0"}
+
+      newer =
+        if unquote(new_envelope?) do
+          newer = %{
+            newer
+            | oci_ref: "registry.carverauto.dev/#{@oci_repository}:v1.2.0",
+              oci_digest: "sha256:" <> String.duplicate("e", 64)
+          }
+
+          Process.put(:native_addon_oci_digest, newer.oci_digest)
+
+          Process.put(
+            :native_addon_index_body,
+            Jason.encode!(index_map(oci_ref: newer.oci_ref, oci_digest: newer.oci_digest))
+          )
+
+          newer
+        else
+          newer
+        end
+
+      assert {:skipped, reused} = NativeAddonSync.import_or_reuse(newer)
+      assert reused.id == imported.id
+      assert reused.source_release_tag == "v1.2.0"
+      assert reused.source_oci_ref == newer.oci_ref
+      assert reused.source_oci_digest == newer.oci_digest
+
+      # The same bytes from an older envelope are a no-op, including review state.
+      historical = %{addon | release_tag: "v1.1.0"}
+      assert {:skipped, unchanged} = NativeAddonSync.import_or_reuse(historical, replace: true)
+      assert unchanged.source_release_tag == reused.source_release_tag
+      assert unchanged.source_oci_ref == reused.source_oci_ref
+      assert unchanged.source_oci_digest == reused.source_oci_digest
+      assert unchanged.status == reused.status
+      assert unchanged.updated_at == reused.updated_at
+
+      older = %{
+        addon
+        | release_tag: "v1.1.0",
+          bundle_digest: "sha256:" <> String.duplicate("f", 64)
+      }
+
+      assert {:error, {:native_addon_version_source_conflict, %{reason: :older_release}}} =
+               NativeAddonSync.import_or_reuse(older)
+
+      [persisted] = sample_packages()
+      assert persisted.source_release_tag == "v1.2.0"
+      assert persisted.source_oci_digest == newer.oci_digest
+      assert persisted.updated_at == reused.updated_at
+    end
+  end
+
+  test "content reuse leaves a row that advanced to a newer release mid-import unchanged", %{
+    private_key: private_key
+  } do
+    install_fixtures(private_key)
+
+    assert {:ok, [addon]} =
+             NativeAddonImporter.list_recent_addons(%{"repo_url" => @repo_url}, 10)
+
+    assert {:ok, imported, :imported} = AddonPackages.import_first_party_addon(addon)
+
+    Process.put(
+      :native_addon_release,
+      Map.put(Process.get(:native_addon_release), "tag_name", "v1.1.0")
+    )
+
+    candidate = %{
+      addon
+      | release_tag: "v1.1.0",
+        oci_ref: "registry.carverauto.dev/#{@oci_repository}:v1.1.0",
+        oci_digest: "sha256:" <> String.duplicate("e", 64)
+    }
+
+    Process.put(:native_addon_oci_digest, candidate.oci_digest)
+
+    Process.put(
+      :native_addon_index_body,
+      Jason.encode!(index_map(oci_ref: candidate.oci_ref, oci_digest: candidate.oci_digest))
+    )
+
+    test_pid = self()
+
+    Application.put_env(:serviceradar_web_ng, :native_addon_artifact_upload, fn metadata, data, _opts ->
+      if is_nil(Process.get(:native_addon_advanced_package)) do
+        advanced =
+          update_sample_package!(imported, %{
+            source_release_tag: "v1.2.0",
+            source_oci_ref: "registry.carverauto.dev/#{@oci_repository}:v1.2.0",
+            source_oci_digest: "sha256:" <> String.duplicate("d", 64)
+          })
+
+        Process.put(:native_addon_advanced_package, advanced)
+      end
+
+      send(test_pid, {:uploaded, metadata.key, byte_size(data)})
+      {:ok, %{key: metadata.key}}
+    end)
+
+    assert {:skipped, unchanged} = NativeAddonSync.import_or_reuse(candidate)
+    advanced = Process.get(:native_addon_advanced_package)
+
+    assert unchanged.id == imported.id
+    assert unchanged.source_release_tag == "v1.2.0"
+
+    [persisted] = sample_packages()
+    assert persisted.source_release_tag == "v1.2.0"
+    assert persisted.source_oci_ref == advanced.source_oci_ref
+    assert persisted.source_oci_digest == advanced.source_oci_digest
+    assert persisted.status == advanced.status
+    assert persisted.updated_at == advanced.updated_at
   end
 
   test "sync_first_party_addons repairs an exact-version package with a corrupt object key", %{
@@ -1226,9 +1409,13 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert persisted.source_metadata["bundle_digest"] == bundle_digest()
   end
 
-  test "sync_first_party_addons rejects changed bundle content under a later OCI envelope", %{
+  test "sync_first_party_addons replaces changed bundle content under a later OCI envelope", %{
     private_key: private_key
   } do
+    # GitHub #335: a release that rebuilds an already-imported version must not
+    # fail Import All. The existing row carries complete provenance, so the
+    # verified new build restages it through the replace path; review starts
+    # over because the bytes changed.
     install_fixtures(private_key)
 
     assert {:ok, %{imported: 1}} =
@@ -1267,28 +1454,334 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
                limit: 10
              )
 
-    assert summary.imported == 0
+    assert summary.imported == 1
     assert summary.skipped == 0
+    assert summary.failed == []
 
-    assert [
-             %{
-               error:
-                 {:native_addon_version_source_conflict,
-                  %{reason: :oci_source_mismatch, existing_source_type: :first_party}}
-             }
-           ] = summary.failed
+    assert Process.get(:native_addon_manifest_requests) == 1
+    [persisted] = sample_packages()
+    assert persisted.name == "Changed Addon"
+    assert persisted.source_oci_ref == later_ref
+    assert persisted.source_oci_digest == later_digest
+    assert persisted.status == :staged
+  end
 
-    assert Process.get(:native_addon_manifest_requests) == 0
+  test "a replace decided against a stale row cannot overwrite a release that landed during the fetch",
+       %{private_key: private_key} do
+    install_fixtures(private_key)
+
+    assert {:ok, %{imported: 1}} =
+             AddonPackages.sync_first_party_addons(
+               repo_url: @repo_url,
+               release_tag: "v1.0.0",
+               limit: 10
+             )
+
+    changed_bundle =
+      bundle_with_manifest(String.replace(@manifest_yaml, "name: Sample Addon", "name: Changed Addon"))
+
+    later_ref = "registry.carverauto.dev/#{@oci_repository}:v1.0.1"
+    later_digest = "sha256:" <> String.duplicate("e", 64)
+    newer_ref = "registry.carverauto.dev/#{@oci_repository}:v1.0.2"
+    newer_digest = "sha256:" <> String.duplicate("f", 64)
+
+    Process.put(:native_addon_bundle, changed_bundle)
+    Process.put(:native_addon_manifest, oci_manifest())
+    Process.put(:native_addon_oci_digest, later_digest)
+
+    Process.put(
+      :native_addon_blobs,
+      Map.put(Process.get(:native_addon_blobs), digest(changed_bundle), changed_bundle)
+    )
+
+    Process.put(
+      :native_addon_index_body,
+      Jason.encode!(index_map(oci_ref: later_ref, oci_digest: later_digest))
+    )
+
+    Process.put(:native_addon_on_manifest_fetch, fn ->
+      Process.delete(:native_addon_on_manifest_fetch)
+      [package] = sample_packages()
+
+      update_sample_package!(package, %{
+        source_release_tag: "v1.0.2",
+        source_oci_ref: newer_ref,
+        source_oci_digest: newer_digest
+      })
+    end)
+
+    assert {:ok, %{imported: 0, failed: [failure]}} =
+             AddonPackages.sync_first_party_addons(
+               repo_url: @repo_url,
+               release_tag: "v1.0.0",
+               limit: 10
+             )
+
+    assert {:native_addon_version_source_conflict,
+            %{reason: :release_changed, existing_release_tag: "v1.0.2", discovered_release_tag: "v1.0.0"}} =
+             failure.error
+
     [persisted] = sample_packages()
     assert persisted.name == "Sample Addon"
-    assert persisted.source_oci_ref == @oci_ref
-    assert persisted.source_oci_digest == @oci_digest
+    assert persisted.source_release_tag == "v1.0.2"
+    assert persisted.source_oci_ref == newer_ref
+    assert persisted.source_oci_digest == newer_digest
+  end
+
+  test "a rebuild of an approved tracked add-on stays approved without re-review", %{
+    private_key: private_key
+  } do
+    # GitHub #335 + #337: the operator approved this add-on and left its
+    # profile on automatic updates, so a same-version rebuild must flow through
+    # replace + profile-driven auto-approval with no new review click.
+    install_fixtures(private_key)
+
+    assert {:ok, %{imported: 1}} =
+             AddonPackages.sync_first_party_addons(
+               repo_url: @repo_url,
+               release_tag: "v1.0.0",
+               limit: 10
+             )
+
+    [package] = sample_packages()
+    approved = move_package_to_status!(package, :approved)
+    create_tracking_profile!(approved.id)
+
+    changed_bundle =
+      bundle_with_manifest(String.replace(@manifest_yaml, "name: Sample Addon", "name: Changed Addon"))
+
+    later_ref = "registry.carverauto.dev/#{@oci_repository}:v1.0.1"
+    later_digest = "sha256:" <> String.duplicate("e", 64)
+
+    Process.put(:native_addon_bundle, changed_bundle)
+    Process.put(:native_addon_manifest, oci_manifest())
+    Process.put(:native_addon_oci_digest, later_digest)
+
+    Process.put(
+      :native_addon_blobs,
+      Map.put(Process.get(:native_addon_blobs), digest(changed_bundle), changed_bundle)
+    )
+
+    Process.put(
+      :native_addon_index_body,
+      Jason.encode!(index_map(oci_ref: later_ref, oci_digest: later_digest))
+    )
+
+    assert {:ok, summary} =
+             AddonPackages.sync_first_party_addons(
+               repo_url: @repo_url,
+               release_tag: "v1.0.0",
+               limit: 10
+             )
+
+    assert summary.imported == 1
+    assert summary.failed == []
+
+    [persisted] = sample_packages()
+    assert persisted.id == approved.id
+    assert persisted.name == "Changed Addon"
+    assert persisted.status == :approved
+    assert persisted.approved_by == "system:native_addon_sync"
+    assert persisted.approved_capabilities == ["submit_result"]
+  end
+
+  test "a rebuild without a tracking profile stays staged despite prior approval", %{
+    private_key: private_key
+  } do
+    install_fixtures(private_key)
+
+    assert {:ok, %{imported: 1}} =
+             AddonPackages.sync_first_party_addons(
+               repo_url: @repo_url,
+               release_tag: "v1.0.0",
+               limit: 10
+             )
+
+    [package] = sample_packages()
+    approved = move_package_to_status!(package, :approved)
+
+    changed_bundle =
+      bundle_with_manifest(String.replace(@manifest_yaml, "name: Sample Addon", "name: Changed Addon"))
+
+    later_ref = "registry.carverauto.dev/#{@oci_repository}:v1.0.1"
+    later_digest = "sha256:" <> String.duplicate("e", 64)
+
+    Process.put(:native_addon_bundle, changed_bundle)
+    Process.put(:native_addon_manifest, oci_manifest())
+    Process.put(:native_addon_oci_digest, later_digest)
+
+    Process.put(
+      :native_addon_blobs,
+      Map.put(Process.get(:native_addon_blobs), digest(changed_bundle), changed_bundle)
+    )
+
+    Process.put(
+      :native_addon_index_body,
+      Jason.encode!(index_map(oci_ref: later_ref, oci_digest: later_digest))
+    )
+
+    assert {:ok, summary} =
+             AddonPackages.sync_first_party_addons(
+               repo_url: @repo_url,
+               release_tag: "v1.0.0",
+               limit: 10
+             )
+
+    assert summary.imported == 1
+    assert summary.failed == []
+
+    [persisted] = sample_packages()
+    assert persisted.id == approved.id
+    assert persisted.name == "Changed Addon"
+    assert persisted.status == :staged
+    assert persisted.approved_by == nil
+    assert persisted.approved_capabilities == []
+  end
+
+  test "a rebuild that expands capabilities stays staged despite a tracking profile", %{
+    private_key: private_key
+  } do
+    # The tracking profile opts into automatic updates, not into new
+    # permissions: a rebuild asking for an unreviewed capability must wait for
+    # a human even though the add-on is tracked.
+    install_fixtures(private_key)
+
+    assert {:ok, %{imported: 1}} =
+             AddonPackages.sync_first_party_addons(
+               repo_url: @repo_url,
+               release_tag: "v1.0.0",
+               limit: 10
+             )
+
+    [package] = sample_packages()
+    approved = move_package_to_status!(package, :approved)
+    create_tracking_profile!(approved.id)
+
+    expanded_manifest =
+      String.replace(
+        @manifest_yaml,
+        "  - submit_result",
+        "  - submit_result\n  - raw_exec"
+      )
+
+    expanded_bundle = bundle_with_manifest(expanded_manifest)
+
+    later_ref = "registry.carverauto.dev/#{@oci_repository}:v1.0.1"
+    later_digest = "sha256:" <> String.duplicate("e", 64)
+
+    Process.put(:native_addon_bundle, expanded_bundle)
+    Process.put(:native_addon_manifest, oci_manifest())
+    Process.put(:native_addon_oci_digest, later_digest)
+
+    Process.put(
+      :native_addon_blobs,
+      Map.put(Process.get(:native_addon_blobs), digest(expanded_bundle), expanded_bundle)
+    )
+
+    Process.put(
+      :native_addon_index_body,
+      Jason.encode!(index_map(oci_ref: later_ref, oci_digest: later_digest))
+    )
+
+    assert {:ok, summary} =
+             AddonPackages.sync_first_party_addons(
+               repo_url: @repo_url,
+               release_tag: "v1.0.0",
+               limit: 10
+             )
+
+    assert summary.imported == 1
+    assert summary.failed == []
+
+    [persisted] = sample_packages()
+    assert persisted.id == approved.id
+    assert persisted.status == :staged
+    assert "raw_exec" in persisted.capabilities
+  end
+
+  test "historical raw_exec approval cannot widen a narrow tracking profile ceiling", %{
+    private_key: private_key
+  } do
+    # The tracking profile opts into automatic updates, not into new
+    # permissions: a rebuild asking for an unreviewed capability must wait for
+    # a human even though the add-on is tracked.
+    install_fixtures(private_key)
+
+    assert {:ok, %{imported: 1}} =
+             AddonPackages.sync_first_party_addons(
+               repo_url: @repo_url,
+               release_tag: "v1.0.0",
+               limit: 10
+             )
+
+    [package] = sample_packages()
+    approved = move_package_to_status!(package, :approved)
+    create_tracking_profile!(approved.id)
+
+    AddonPackage
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        addon_id: "sample-addon",
+        version: "0.9.0",
+        name: "Historical sample",
+        source_type: :first_party,
+        verification_status: "verified",
+        capabilities: ["submit_result", "raw_exec"],
+        artifacts: %{}
+      },
+      actor: SystemActor.system(:native_addon_sync_test)
+    )
+    |> Ash.create!()
+    |> move_package_to_status!(:approved)
+
+    expanded_manifest =
+      String.replace(
+        @manifest_yaml,
+        "  - submit_result",
+        "  - submit_result\n  - raw_exec"
+      )
+
+    expanded_bundle = bundle_with_manifest(expanded_manifest)
+
+    later_ref = "registry.carverauto.dev/#{@oci_repository}:v1.0.1"
+    later_digest = "sha256:" <> String.duplicate("e", 64)
+
+    Process.put(:native_addon_bundle, expanded_bundle)
+    Process.put(:native_addon_manifest, oci_manifest())
+    Process.put(:native_addon_oci_digest, later_digest)
+
+    Process.put(
+      :native_addon_blobs,
+      Map.put(Process.get(:native_addon_blobs), digest(expanded_bundle), expanded_bundle)
+    )
+
+    Process.put(
+      :native_addon_index_body,
+      Jason.encode!(index_map(oci_ref: later_ref, oci_digest: later_digest))
+    )
+
+    assert {:ok, summary} =
+             AddonPackages.sync_first_party_addons(
+               repo_url: @repo_url,
+               release_tag: "v1.0.0",
+               limit: 10
+             )
+
+    assert summary.imported == 1
+    assert summary.failed == []
+
+    [persisted] = sample_packages()
+    assert persisted.id == approved.id
+    assert persisted.status == :staged
+    assert "raw_exec" in persisted.capabilities
   end
 
   for source_type <- [:upload, :github] do
-    test "sync_first_party_addons never overwrites a #{source_type}-owned version with nil OCI fields", %{
-      private_key: private_key
-    } do
+    test "sync_first_party_addons never overwrites a #{source_type}-owned version with nil OCI fields",
+         %{
+           private_key: private_key
+         } do
       source_type = unquote(source_type)
       install_fixtures(private_key)
       actor = SystemActor.system(:native_addon_sync_test)
@@ -1338,9 +1831,10 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     end
   end
 
-  test "sync_first_party_addons replaces an unverified seeder placeholder with the real artifact", %{
-    private_key: private_key
-  } do
+  test "sync_first_party_addons replaces an unverified seeder placeholder with the real artifact",
+       %{
+         private_key: private_key
+       } do
     # Reproduces GitHub #4039. The in-cluster seeder pre-creates a first-party row
     # for a version it cannot verify, carrying NO source identity. That row used to
     # take the source-conflict path, so the importer refused to deliver its own
@@ -1387,12 +1881,15 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert persisted.source_oci_digest == @oci_digest
   end
 
-  test "sync_first_party_addons still refuses a VERIFIED first-party version whose source differs", %{
-    private_key: private_key
-  } do
-    # The narrowing in #4039 must not disarm the guard it sits next to. A row that
-    # was genuinely verified against a different source is a real claim, and the
-    # importer must keep refusing it rather than overwriting silently.
+  test "sync_first_party_addons replaces a coherent VERIFIED first-party version from a different source",
+       %{
+         private_key: private_key
+       } do
+    # GitHub #335: complete provenance from another registry is still a
+    # coherent first-party claim, so the verified release build supersedes it
+    # through the replace path. Rows with only partial provenance keep the
+    # conflict guard (see "preserves a partial mismatched provenance
+    # conflict").
     install_fixtures(private_key)
     actor = SystemActor.system(:native_addon_sync_test)
 
@@ -1421,18 +1918,18 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
                limit: 10
              )
 
-    assert summary.imported == 0
+    assert summary.imported == 1
+    assert summary.skipped == 0
+    assert summary.failed == []
 
-    assert [
-             %{
-               error:
-                 {:native_addon_version_source_conflict,
-                  %{reason: :oci_source_mismatch, existing_source_type: :first_party}}
-             }
-           ] = summary.failed
-
+    # Gate on the artefact, not the summary: the same row id must now carry
+    # the verified release build.
     {:ok, persisted} = Ash.get(AddonPackage, claimed.id, actor: actor)
-    assert persisted.source_oci_ref == "registry.example.test/other/sample-addon:v9.9.9"
+    assert persisted.name == "Sample Addon"
+    assert persisted.source_oci_ref == @oci_ref
+    assert persisted.source_oci_digest == @oci_digest
+    assert persisted.verification_status == "verified"
+    assert persisted.status == :staged
   end
 
   test "rejects a tarball signed with a key other than the release key" do
@@ -1470,7 +1967,9 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     refute_received {:uploaded, _key, _size}
   end
 
-  test "rejects a blob whose bytes do not match its manifest-declared digest", %{private_key: private_key} do
+  test "rejects a blob whose bytes do not match its manifest-declared digest", %{
+    private_key: private_key
+  } do
     install_fixtures(private_key)
 
     # The registry serves tampered bundle bytes under the (still manifest-declared)
@@ -1676,7 +2175,13 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
       "schemaVersion" => 2,
       "mediaType" => "application/vnd.oci.image.manifest.v1+json",
       "layers" =>
-        [%{"mediaType" => "application/zip", "digest" => bundle_digest(), "size" => byte_size(bundle())}] ++
+        [
+          %{
+            "mediaType" => "application/zip",
+            "digest" => bundle_digest(),
+            "size" => byte_size(bundle())
+          }
+        ] ++
           artifact_layers
     }
   end
@@ -1694,7 +2199,8 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
   end
 
   defp bundle_with_manifest(manifest_yaml) do
-    path = Path.join(System.tmp_dir!(), "sr-native-addon-#{System.unique_integer([:positive])}.zip")
+    path =
+      Path.join(System.tmp_dir!(), "sr-native-addon-#{System.unique_integer([:positive])}.zip")
 
     try do
       {:ok, _zip} =
@@ -1792,6 +2298,29 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
       actor: SystemActor.system(:native_addon_sync_test)
     )
     |> Ash.update!()
+  end
+
+  defp create_tracking_profile!(package_id) do
+    actor = SystemActor.system(:native_addon_sync_test)
+
+    {:ok, profile} =
+      AddonProfile
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Sample auto-update profile",
+          addon_package_id: package_id,
+          target_query: "in:agents",
+          params: %{},
+          update_policy: :track_latest_approved
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    assert profile.update_policy == :track_latest_approved
+    assert profile.explicit_version_pin == false
+    profile
   end
 
   defp expected_review_status(status) when status in [:denied, :revoked], do: status

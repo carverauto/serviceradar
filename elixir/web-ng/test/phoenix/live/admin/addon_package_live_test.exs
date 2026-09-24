@@ -45,7 +45,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
     older_release = "v#{release_major}.0.0"
     newer_release = "v#{release_major}.1.0"
 
-    _older =
+    older =
       create_addon_package!(actor, %{
         addon_id: "latest-only-addon-#{unique}",
         name: "Latest Only Add-on #{unique}",
@@ -89,20 +89,18 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
 
     assert html =~ "Add-on catalog"
     refute html =~ "Available add-ons"
-    assert html =~ newer.id
-    assert html =~ "0.2.0"
-    refute html =~ "0.1.0"
+    assert has_element?(lv, ~s(button[phx-click="view_package"][phx-value-id="#{newer.id}"]))
+    refute has_element?(lv, ~s(button[phx-click="view_package"][phx-value-id="#{older.id}"]))
     refute html =~ "netprobe-0.2.20-demo-#{unique}"
     refute html =~ "Non Release Add-on #{unique}"
     refute html =~ "Rust Sample Add-on #{unique}"
 
-    html =
-      lv
-      |> element("#select-addon-release-form")
-      |> render_change(%{"release_tag" => older_release})
+    lv
+    |> element("#select-addon-release-form")
+    |> render_change(%{"release_tag" => older_release})
 
-    assert html =~ "0.1.0"
-    refute html =~ "0.2.0"
+    assert has_element?(lv, ~s(button[phx-click="view_package"][phx-value-id="#{older.id}"]))
+    refute has_element?(lv, ~s(button[phx-click="view_package"][phx-value-id="#{newer.id}"]))
   end
 
   test "catalog matches an imported bundle reused through a newer release envelope", %{
@@ -228,6 +226,118 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
              lv,
              ~s(button[phx-click="import_first_party_addon"][phx-value-addon_id="#{addon_id}"])
            )
+  end
+
+  test "catalog refuses to roll a version back onto an older release's build", %{
+    conn: conn,
+    actor: actor
+  } do
+    unique = System.unique_integer([:positive])
+    addon_id = "rollback-catalog-addon-#{unique}"
+    version = "1.0.0"
+    release_major = 30_000 + rem(unique, 100_000)
+    older_release = "v#{release_major}.1.0"
+    newer_release = "v#{release_major}.2.0"
+    tarball_sha256 = String.duplicate("b", 64)
+
+    package =
+      create_addon_package!(actor, %{
+        addon_id: addon_id,
+        name: "Rollback Catalog Add-on #{unique}",
+        version: version,
+        source_oci_ref: "registry.example.test/#{addon_id}:#{newer_release}",
+        source_oci_digest: "sha256:" <> String.duplicate("a", 64),
+        source_release_tag: newer_release,
+        source_metadata: %{"bundle_digest" => "sha256:" <> String.duplicate("d", 64)}
+      })
+
+    release = %{
+      "tag_name" => older_release,
+      "name" => "ServiceRadar #{older_release}",
+      "html_url" => "https://github.com/carverauto/serviceradar/releases/tag/#{older_release}",
+      "assets" => [
+        %{
+          "name" => "serviceradar-native-addon-index.json",
+          "browser_download_url" =>
+            "https://github.com/carverauto/serviceradar/releases/download/#{older_release}/serviceradar-native-addon-index.json"
+        }
+      ]
+    }
+
+    index = %{
+      "schema_version" => 1,
+      "addons" => [
+        %{
+          "addon_id" => addon_id,
+          "name" => package.name,
+          "version" => version,
+          "oci_ref" => "registry.example.test/#{addon_id}:#{older_release}",
+          "oci_digest" => "sha256:" <> String.duplicate("e", 64),
+          "bundle_digest" => "sha256:" <> String.duplicate("f", 64),
+          "artifacts" => [
+            %{
+              "os" => "linux",
+              "arch" => "amd64",
+              "tarball_digest" => "sha256:#{tarball_sha256}",
+              "signature_digest" => "sha256:" <> String.duplicate("c", 64),
+              "tarball_sha256" => tarball_sha256
+            }
+          ]
+        }
+      ]
+    }
+
+    original_client =
+      Application.get_env(:serviceradar_web_ng, :first_party_plugin_import_http_client)
+
+    original_fixture =
+      Application.get_env(:serviceradar_web_ng, :native_addon_live_catalog_fixture)
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :first_party_plugin_import_http_client,
+      FakeNativeAddonCatalogClient
+    )
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :native_addon_live_catalog_fixture,
+      %{release: release, index: index}
+    )
+
+    on_exit(fn ->
+      restore_env(:first_party_plugin_import_http_client, original_client)
+      restore_env(:native_addon_live_catalog_fixture, original_fixture)
+    end)
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/agents/addons")
+    render_click(lv, "sync_first_party_catalog", %{})
+    render_async(lv, 5_000)
+    html = render_click(lv, "select_first_party_release", %{"release_tag" => older_release})
+
+    assert html =~ addon_id
+    refute html =~ "Import All replaces them"
+
+    refute has_element?(
+             lv,
+             ~s(button[phx-click="import_first_party_addon"][phx-value-addon_id="#{addon_id}"])
+           )
+
+    html =
+      render_click(lv, "import_first_party_addon", %{
+        "addon_id" => addon_id,
+        "version" => version,
+        "release_tag" => older_release,
+        "replace" => "true"
+      })
+
+    assert html =~ "already installed from newer release #{newer_release}"
+    assert html =~ "would roll it back"
+    refute html =~ "Use Replace on that catalog row"
+
+    {:ok, persisted} = Ash.get(AddonPackage, package.id, actor: actor)
+    assert persisted.source_release_tag == newer_release
+    assert persisted.source_oci_digest == package.source_oci_digest
   end
 
   test "approves a staged add-on package with narrowed capabilities", %{conn: conn, actor: actor} do

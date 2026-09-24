@@ -45,7 +45,7 @@ var (
 	wixArch       = map[string]string{"amd64": "x64", "arm64": "arm64"}
 	peMachine     = map[string]uint16{"amd64": pe.IMAGE_FILE_MACHINE_AMD64, "arm64": pe.IMAGE_FILE_MACHINE_ARM64}
 
-	versionPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(pre|rc|alpha|beta)(0|[1-9][0-9]*))?$`)
+	versionPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(pre|rc|alpha|beta)\.?(0|[1-9][0-9]*))?$`)
 	commitPattern  = regexp.MustCompile(`^[0-9a-f]{40}$`)
 )
 

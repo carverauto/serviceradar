@@ -117,6 +117,18 @@ agent. Existing managed assignments and profiles track the newest approved compa
 package through a health-gated rollout. Explicit pins and non-first-party packages
 remain manual.
 
+Sync never moves a package backwards. Release order follows strict SemVer, so an
+older release cannot replace or re-stamp an add-on that a newer release already
+supplied; identical content from an older release is skipped without changing the
+row, and differing content is reported as a conflict.
+
+A staged first-party package is approved automatically in two independent cases: its
+add-on id is on the deployment allowlist, or an enabled **Track latest approved**
+profile that is not version-pinned has a capability ceiling that covers every
+capability the package requests. Each profile is judged on its own ceiling; earlier
+package approvals and other profiles never widen it. A request beyond the ceiling
+stays staged for review.
+
 This boundary is deliberate:
 
 - **Import and approval** answer whether an immutable package digest is trusted and
