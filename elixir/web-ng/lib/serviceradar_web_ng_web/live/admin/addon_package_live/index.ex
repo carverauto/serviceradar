@@ -2529,8 +2529,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
          status: :approved,
          verification_status: "verified",
          verification_error: nil
-       }),
-       do: "track_latest_approved"
+       }), do: "track_latest_approved"
 
   defp default_update_policy(_), do: "manual_pin"
 
