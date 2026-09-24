@@ -94,10 +94,10 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceController do
   end
 
   defp parse_export_params(params) when is_map(params) do
-    # The 1000 ceiling must stay at or below `Device.read`'s `max_page_size`. Ash
-    # clamps a larger page down silently, so a documented maximum above it is not
-    # merely optimistic -- the endpoint would return fewer rows than promised and
-    # report them as the complete export.
+    # The 1000 here is this endpoint's documented per-request bound, enforced at the
+    # HTTP surface. `Device.read` imposes no ceiling of its own, so exporting the
+    # whole inventory means following `next_offset` -- which is now derived from the
+    # page's real `more?` rather than inferred from the row count.
     with {:ok, limit} <- parse_export_limit(Map.get(params, "limit"), 100, 1000),
          {:ok, offset} <- parse_offset_value(Map.get(params, "offset", 0)),
          {:ok, type_id} <- parse_optional_int(Map.get(params, "type_id")),

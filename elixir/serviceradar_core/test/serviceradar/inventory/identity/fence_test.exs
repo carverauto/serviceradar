@@ -212,6 +212,41 @@ defmodule ServiceRadar.Inventory.Identity.FenceTest do
       assert map_size(pins) == batch_size
       assert Enum.all?(uids, &Map.has_key?(pins, &1))
     end
+
+    # Guards the resource declaration itself, not a caller. Ash's `max_page_size`
+    # defaults to 250 and clamps any larger requested page with a silent
+    # `Enum.min/1`, computing `more?` against the unclamped request -- so a clamped
+    # page claims to be complete. `Device.read` therefore declares a max large
+    # enough that the clamp never fires.
+    #
+    # Any finite ceiling reintroduces the trap for callers asking above it, which a
+    # `default_limit <= max_page_size` check cannot detect: that invariant held
+    # while a 1000 ceiling still silently truncated a request for 5000. Only asking
+    # for more than the old default and checking what comes back catches it.
+    test "a requested page larger than Ash's default ceiling is honoured", %{actor: actor} do
+      requested = 260
+
+      Enum.each(1..requested, fn _ -> {:ok, _} = create_device(actor) end)
+
+      page =
+        Device
+        |> Ash.Query.for_read(:read, %{include_deleted: true})
+        |> Ash.read!(actor: actor, page: [limit: requested])
+
+      assert length(page.results) == requested,
+             "asked for #{requested} rows and got #{length(page.results)}; the action's " <>
+               "max_page_size is clamping the request"
+
+      # The clamped-page failure mode is a short page reporting completeness, so the
+      # row count alone is not enough -- assert the flag is truthful too.
+      smaller =
+        Device
+        |> Ash.Query.for_read(:read, %{include_deleted: true})
+        |> Ash.read!(actor: actor, page: [limit: 100])
+
+      assert length(smaller.results) == 100
+      assert smaller.more? == true
+    end
   end
 
   defp capture_fence_events(fun) do

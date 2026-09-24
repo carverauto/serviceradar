@@ -19,6 +19,12 @@ defmodule ServiceRadar.PrefixTags.PrefixTag do
   alias ServiceRadar.Types.Cidr
   alias ServiceRadar.Types.Jsonb
 
+  # Ash requires a positive integer, so "no ceiling" is spelled as a number larger
+  # than any real result set. Declaring it is the only escape from Ash's default of
+  # 250, which silently clamps a larger requested page and calls it complete. Not a
+  # capacity limit; raise it rather than truncating if anything nears it.
+  @unbounded_page_size 1_000_000_000
+
   @manage_check {ServiceRadar.Policies.Checks.ActorHasPermission,
                  permission: "settings.prefix_tags.manage"}
 
@@ -90,10 +96,10 @@ defmodule ServiceRadar.PrefixTags.PrefixTag do
     read :by_snapshot do
       argument :snapshot_id, :uuid, allow_nil?: false
       filter expr(snapshot_id == ^arg(:snapshot_id))
-      # default_limit must stay <= max_page_size (Ash defaults the latter to 250).
-      # A larger default is unreachable: Ash clamps it silently, then reports the
-      # short page as complete.
-      pagination keyset?: true, default_limit: 250, max_page_size: 500
+      # max_page_size exists only to escape Ash's default of 250, which silently
+      # clamps larger requested pages and then reports them as complete. It is not
+      # a ceiling on what may be read.
+      pagination keyset?: true, default_limit: 250, max_page_size: @unbounded_page_size
     end
 
     read :list_active do
@@ -101,12 +107,11 @@ defmodule ServiceRadar.PrefixTags.PrefixTag do
       prepare build(load: [:snapshot])
       filter expr(snapshot.is_active == true)
 
-      # "All" is the intent, but no paginated action can deliver all of anything
-      # in one page, and declaring a default_limit above max_page_size made that
-      # failure silent instead of visible. Callers needing every active tag either
-      # stream this action or use :list_active_for_rebuild, which is deliberately
-      # unpaginated.
-      pagination keyset?: true, default_limit: 250, max_page_size: 1000
+      # "All" is the intent and nothing here caps it: a caller may request any page
+      # size and follow the cursor, or use :list_active_for_rebuild, which is
+      # deliberately unpaginated. default_limit is only the page used when no
+      # preference is expressed.
+      pagination keyset?: true, default_limit: 250, max_page_size: @unbounded_page_size
     end
 
     read :list_active_for_rebuild do

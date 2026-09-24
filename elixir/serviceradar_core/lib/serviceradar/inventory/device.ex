@@ -41,6 +41,15 @@ defmodule ServiceRadar.Inventory.Device do
 
   require Ash.Query
 
+  # Ash requires `max_page_size` to be a positive integer, so "no ceiling" has to
+  # be spelled as a number larger than any real result set. Declaring it is the
+  # only way to escape Ash's own default of 250, which silently clamps any larger
+  # requested page and then reports the short page as complete.
+  #
+  # This is NOT a capacity limit and must not be treated as one. If a request ever
+  # legitimately approaches it, raise it -- do not add truncation.
+  @unbounded_page_size 1_000_000_000
+
   @devices_view_check {ActorHasPermission, permission: "devices.view"}
   @devices_create_check {ActorHasPermission, permission: "devices.create"}
   @devices_update_check {ActorHasPermission, permission: "devices.update"}
@@ -202,27 +211,26 @@ defmodule ServiceRadar.Inventory.Device do
 
       filter expr(is_nil(deleted_at) or ^arg(:include_deleted))
 
-      # Both numbers are deliberate, and `default_limit` must stay <= `max_page_size`.
+      # `max_page_size` is declared ONLY to defeat Ash's own default of 250. It is
+      # not a policy ceiling, and it must not become one: nothing in this system
+      # caps how much of the inventory a caller may read.
       #
-      # This previously read `default_limit: 5000` with no `max_page_size`, which
-      # Ash defaults to 250. The declared page was therefore unreachable: Ash
-      # clamped every request down with a bare `Enum.min/1`, then computed `more?`
-      # against the *requested* limit rather than the clamped one -- so a read
-      # asking for 5000 returned a short page and reported itself COMPLETE. No
-      # error, no log, and no in-band way for a caller to tell truncation from the
-      # end of the data.
+      # Ash's `max_page_size` defaults to 250 when an action omits it
+      # (`Ash.Resource.Actions.Read`), and any larger requested page is clamped
+      # down by a bare `Enum.min/1` -- no error, no log. Ash then computes `more?`
+      # by splitting on the *requested* limit rather than the clamped one, so the
+      # short page reports itself COMPLETE. That is the whole defect, and it makes
+      # every finite ceiling a trap: a caller asking above it is silently told it
+      # received everything. Raising the ceiling only moves that trap to a larger
+      # number, where it fires more rarely and on the biggest installations.
       #
-      # The fix is not a bigger ceiling. Raising the maximum only moves the silent
-      # cliff to a larger number, which fails later, more rarely, and on the
-      # largest installations -- where the missing devices matter most. A single
-      # page of this resource is expensive regardless: `metadata`, `tags` and
-      # `network_interfaces` are all jsonb.
-      #
-      # So: bound one page, and get completeness from iteration instead. Anything
-      # that needs every device must use `Ash.stream!/2`, which opts out of the
-      # clamp (`bypass_max_page_size?`) and pages internally. Taking one page and
-      # treating it as the whole inventory is never correct here.
-      pagination keyset?: true, default_limit: 250, max_page_size: 1000
+      # So the ceiling is removed rather than retuned. A caller asking for a page of
+      # any size now gets it, with a truthful `more?`, and reads the rest by
+      # following the cursor. `default_limit` below is the page size used when a
+      # caller expresses no preference -- a DEFAULT, not a limit on what may be
+      # requested. `Ash.stream!/2` remains the right tool for internal callers that
+      # need every row, since it pages for them.
+      pagination keyset?: true, default_limit: 250, max_page_size: @unbounded_page_size
       prepare build(sort: [uid: :asc])
     end
 
