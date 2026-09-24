@@ -62,12 +62,12 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     @moduledoc false
 
     def get(url, _opts) do
+      release = Process.get(:native_addon_release)
+      release_tag = if is_map(release), do: release["tag_name"]
+
       cond do
-        String.ends_with?(
-          url,
-          "/releases/tags/" <> Process.get(:native_addon_release)["tag_name"]
-        ) ->
-          {:ok, %Req.Response{status: 200, body: Process.get(:native_addon_release)}}
+        is_binary(release_tag) and String.ends_with?(url, "/releases/tags/" <> release_tag) ->
+          {:ok, %Req.Response{status: 200, body: release}}
 
         String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases?per_page=") ->
           Process.put(
@@ -1208,7 +1208,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
         if unquote(new_envelope?) do
           newer = %{
             newer
-            | oci_ref: "registry.example.com/sample-addon:v1.2.0",
+            | oci_ref: "registry.carverauto.dev/#{@oci_repository}:v1.2.0",
               oci_digest: "sha256:" <> String.duplicate("e", 64)
           }
 
@@ -1414,9 +1414,9 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     newer_ref = "registry.carverauto.dev/#{@oci_repository}:v1.0.2"
     newer_digest = "sha256:" <> String.duplicate("f", 64)
 
+    Process.put(:native_addon_bundle, changed_bundle)
     Process.put(:native_addon_manifest, oci_manifest())
     Process.put(:native_addon_oci_digest, later_digest)
-    Process.put(:native_addon_bundle, changed_bundle)
 
     Process.put(
       :native_addon_blobs,
@@ -2162,8 +2162,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
   defp tarball_digest(arch), do: digest(tarball(arch))
   defp signature_digest(private_key, arch), do: digest(signature_blob(private_key, arch))
 
-  defp digest(bytes),
-    do: "sha256:" <> (:sha256 |> :crypto.hash(bytes) |> Base.encode16(case: :lower))
+  defp digest(bytes), do: "sha256:" <> (:sha256 |> :crypto.hash(bytes) |> Base.encode16(case: :lower))
 
   defp configure_sync_worker(overrides \\ []) do
     config =

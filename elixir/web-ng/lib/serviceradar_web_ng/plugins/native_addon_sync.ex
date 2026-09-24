@@ -24,6 +24,8 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
   are never touched.
   """
 
+  import Ash.Expr, only: [expr: 1]
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.AddonProfile
@@ -32,10 +34,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
   alias ServiceRadarWebNG.Plugins.AddonFleet
   alias ServiceRadarWebNG.Plugins.NativeAddonImporter
 
-  import Ash.Expr, only: [expr: 1]
-
   require Ash.Query
-  require Logger
 
   @type sync_result ::
           {:imported, AddonPackage.t()}
@@ -280,14 +279,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
           {:skipped, package}
         end
 
-      {:error, reason} = error ->
-        Logger.warning("Native add-on import failed",
-          addon_id: addon.addon_id,
-          version: addon.version,
-          release_tag: addon.release_tag,
-          reason: inspect(reason, limit: 16)
-        )
-
+      {:error, _reason} = error ->
         error
     end
   end
@@ -427,8 +419,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
       )
   end
 
-  defp source_bundle_digest_matches?(%AddonPackage{source_metadata: metadata}, addon)
-       when is_map(metadata) do
+  defp source_bundle_digest_matches?(%AddonPackage{source_metadata: metadata}, addon) when is_map(metadata) do
     with digest when is_binary(digest) <- normalize_digest(Map.get(metadata, "bundle_digest")),
          ^digest <- normalize_digest(addon.bundle_digest) do
       true
@@ -439,8 +430,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
 
   defp source_bundle_digest_matches?(_package, _addon), do: false
 
-  defp source_type_owned?(%AddonPackage{source_type: source_type}),
-    do: source_type != :first_party
+  defp source_type_owned?(%AddonPackage{source_type: source_type}), do: source_type != :first_party
 
   # A row an in-cluster seeder created for a version it cannot verify (GitHub
   # #4039): first-party, never verified, carrying NO source identity at all.
@@ -481,8 +471,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
   end
 
   defp artifact_contract_matches?(addon_id, version, persisted, declared)
-       when is_binary(addon_id) and is_binary(version) and is_map(persisted) and is_list(declared) and
-              declared != [] do
+       when is_binary(addon_id) and is_binary(version) and is_map(persisted) and is_list(declared) and declared != [] do
     with {:ok, declared_contracts} <- declared_artifact_contracts(declared),
          {:ok, persisted_contracts} <-
            persisted_artifact_contracts(addon_id, version, persisted) do
@@ -533,8 +522,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
     end)
   end
 
-  defp persisted_artifact_contract(addon_id, version, platform_key, artifact)
-       when is_map(artifact) do
+  defp persisted_artifact_contract(addon_id, version, platform_key, artifact) when is_map(artifact) do
     platform = normalize_platform(platform_key)
     object_key = normalize_string(map_value(artifact, :object_key))
     sha256 = normalize_sha256(map_value(artifact, :sha256))
@@ -679,8 +667,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
     end
   end
 
-  defp normalize_string(value) when is_atom(value),
-    do: value |> Atom.to_string() |> normalize_string()
+  defp normalize_string(value) when is_atom(value), do: value |> Atom.to_string() |> normalize_string()
 
   defp normalize_string(_value), do: nil
 
