@@ -82,7 +82,7 @@ Wasm inventory plugins are not `IntegrationSource` rows. Armis is. Winner policy
 
 - Decision: Normalize before compare, store both raw and normalized.
   - Switch hostname: trim, case-insensitive. Do not strip DNS suffixes unless both values share a suffix (v1 compares the hostname as stored).
-  - Port: trim, case-insensitive (`gi1/0/7` == `Gi1/0/7`). Do not strip media prefixes (`gi` vs `1/3`); that can collide.
+  - Port: trim, case-insensitive (`gi1/0/7` == `Gi1/0/7`). Do not strip media prefixes (`gi1/0/7` vs `1/0/7`); that can collide.
   - Armis parser: split `armis_access_switch` on the last colon into hostname and port.
   - VLAN: parse `armis_vlans` JSON/array/scalar; canonical `vlan_uid` is the single access VLAN when one numeric id is present. Extra VLANs stay in source metadata.
   - NNMi VLAN titles that are not ids populate `vlan_name` only.
@@ -105,7 +105,7 @@ Wasm inventory plugins are not `IntegrationSource` rows. Armis is. Winner policy
 ## Migration Plan
 
 1. Add nullable `switch_port_attachment` and the fact/disagreement/authority tables. Do not change Armis metadata writers.
-2. Parse existing `armis_access_switch` / `armis_vlans` into per-source facts and promote where no conflict exists (the current Daktronics-style rows).
+2. Parse existing `armis_access_switch` / `armis_vlans` into per-source facts and promote where no conflict exists (existing rows that carry Armis attachment metadata).
 3. Ship operator authority controls. Default remains conservative (no silent clobber).
 4. Enable disagreement events and the SRQL report.
 5. Add the optional NOM NNMi L2 pass against endpoint MAC/IP.

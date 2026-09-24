@@ -4,7 +4,7 @@
 The system SHALL record normalized inventory facts per canonical device, discovery source, and source instance for a platform-owned fact vocabulary. The initial keys SHALL be `switch_port_attachment` and `vlan_uid`. Built-in integrations and inventory plugins SHALL write the same keys. A new source that emits those keys SHALL participate in comparison without a core provider module.
 
 #### Scenario: Two sources record the same fact key independently
-- **GIVEN** Armis reports switch-port `switch01.example.com:gi1/0/7` for device `sr:01b95a66-67dd-41db-9286-358d11e2a7b6`
+- **GIVEN** Armis reports switch-port `switch01.example.com:gi1/0/7` for device `sr:00000000-0000-4000-8000-000000000001`
 - **AND** OpenText NOM reports switch-port hostname `switch01.example.com` and port `gi1/0/7` for the same canonical device
 - **WHEN** both observations are present
 - **THEN** the system SHALL store one fact row per source for `switch_port_attachment`

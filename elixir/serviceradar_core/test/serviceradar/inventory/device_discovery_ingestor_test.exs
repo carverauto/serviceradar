@@ -339,7 +339,7 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestorTest do
           "devices" => [
             %{
               "device_id" => "201",
-              "hostname" => "iad-asw-01",
+              "hostname" => "site02-sw-01",
               "ip" => "192.0.2.20",
               "serial" => "FOC1234ABC",
               "vendor_name" => "Cisco",
@@ -398,7 +398,7 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestorTest do
           "schema" => "serviceradar.device_discovery.v1",
           "source" => "example-inventory",
           "devices" => [
-            %{"device_id" => "example-inventory:v1:lab:device:1", "hostname" => "iad-asw-01"}
+            %{"device_id" => "example-inventory:v1:lab:device:1", "hostname" => "site02-sw-01"}
           ]
         }
       ]
@@ -433,7 +433,7 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestorTest do
           "schema" => "serviceradar.device_discovery.v1",
           "source" => "example-inventory",
           "devices" => [
-            %{"device_id" => "example-inventory:v1:lab:device:1", "hostname" => "iad-asw-01"}
+            %{"device_id" => "example-inventory:v1:lab:device:1", "hostname" => "site02-sw-01"}
           ]
         }
       ]

@@ -36,7 +36,7 @@ defmodule ServiceRadar.Inventory.PluginSourceInventoryIntegrationTest do
              SyncIngestor.ingest_updates(
                [
                  %{
-                   "hostname" => "iad-asw-#{suffix}",
+                   "hostname" => "site02-sw-#{suffix}",
                    "ip" => "10.240.#{unique_octet()}.10",
                    "source" => "armis",
                    "metadata" => %{
@@ -58,7 +58,7 @@ defmodule ServiceRadar.Inventory.PluginSourceInventoryIntegrationTest do
                  "lab-#{suffix}",
                  "collection-#{suffix}-1",
                  ~U[2026-07-13 18:00:00Z],
-                 [inventory_device("201", "iad-asw-#{suffix}", serial)]
+                 [inventory_device("201", "site02-sw-#{suffix}", serial)]
                ),
                %{partition: "default"},
                actor: actor
@@ -194,8 +194,8 @@ defmodule ServiceRadar.Inventory.PluginSourceInventoryIntegrationTest do
     assert :ok =
              DeviceDiscoveryIngestor.ingest(
                inventory_payload(instance, first_collection, ~U[2026-07-13 18:00:00Z], [
-                 inventory_device("501", "iad-asw-501", "SNX#{suffix}501"),
-                 inventory_device("502", "iad-asw-502", "SNX#{suffix}502")
+                 inventory_device("501", "site02-sw-501", "SNX#{suffix}501"),
+                 inventory_device("502", "site02-sw-502", "SNX#{suffix}502")
                ]),
                %{partition: "default"},
                actor: actor
@@ -234,7 +234,7 @@ defmodule ServiceRadar.Inventory.PluginSourceInventoryIntegrationTest do
                  instance,
                  "reader-collection-#{suffix}-2",
                  ~U[2026-07-13 19:00:00Z],
-                 [inventory_device("501", "iad-asw-501", "SNX#{suffix}501")]
+                 [inventory_device("501", "site02-sw-501", "SNX#{suffix}501")]
                ),
                %{partition: "default"},
                actor: actor

@@ -6,7 +6,7 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestorTest do
   test "normalizes a complete plugin inventory snapshot after canonical resolution" do
     parent = self()
     envelope = inventory_envelope()
-    updates = [inventory_update("101", "iad-asw-01")]
+    updates = [inventory_update("101", "site02-sw-01")]
 
     resolver = fn devices, partition ->
       send(parent, {:resolve, devices, partition})
@@ -36,7 +36,7 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestorTest do
     assert snapshot.collection_id == "collection-1"
     assert snapshot.content_hash == String.duplicate("a", 64)
     assert observation.device_id == "sr:canonical-101"
-    assert observation.hostname == "iad-asw-01"
+    assert observation.hostname == "site02-sw-01"
     assert observation.vendor_name == "Cisco"
     assert observation.serial_number == "FOC1234ABC"
     assert observation.management_status == "Managed"
@@ -49,7 +49,7 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestorTest do
     assert :ok =
              DeviceSourceObservationIngestor.ingest(
                envelope,
-               [inventory_update("101", "iad-asw-01")],
+               [inventory_update("101", "site02-sw-01")],
                %{partition: "default"},
                resolver: fn _, _ -> flunk("resolver must not run") end,
                activator: fn _, _ -> flunk("activator must not run") end
@@ -57,7 +57,7 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestorTest do
   end
 
   test "rejects duplicate source objects in one complete collection" do
-    updates = [inventory_update("101", "iad-asw-01"), inventory_update("101", "iad-asw-02")]
+    updates = [inventory_update("101", "site02-sw-01"), inventory_update("101", "site02-sw-02")]
 
     assert {:error, :duplicate_source_object} =
              DeviceSourceObservationIngestor.ingest(
@@ -91,7 +91,7 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestorTest do
     assert {:ok, :idempotent} =
              DeviceSourceObservationIngestor.preflight(
                inventory_envelope(),
-               [inventory_update("101", "iad-asw-01")],
+               [inventory_update("101", "site02-sw-01")],
                %{partition: "default"},
                checker: checker
              )
@@ -107,7 +107,7 @@ defmodule ServiceRadar.Inventory.DeviceSourceObservationIngestorTest do
     assert {:error, :invalid_content_hash} =
              DeviceSourceObservationIngestor.preflight(
                invalid,
-               [inventory_update("101", "iad-asw-01")],
+               [inventory_update("101", "site02-sw-01")],
                %{partition: "default"},
                checker: fn _ -> flunk("checker must not run") end
              )
