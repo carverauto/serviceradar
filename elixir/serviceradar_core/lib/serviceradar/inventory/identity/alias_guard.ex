@@ -114,16 +114,30 @@ defmodule ServiceRadar.Inventory.Identity.AliasGuard do
     |> Ash.Query.filter(device_id == ^device_id)
     |> Ash.Query.limit(1)
     |> Ash.read(query_opts)
-    |> case do
-      {:ok, [_ | _]} -> true
-      _ -> false
-    end
+    |> log_identifier_read_error(device_id)
+    |> identified_read_result?()
   rescue
     e ->
       Logger.warning("Failed to load identifiers for #{device_id}: #{inspect(e)}")
       # Fail closed: an unreadable device is treated as identified, so the veto holds and no
       # address-driven merge happens on missing evidence.
       true
+  end
+
+  # Pure decision table for the identifier read, public for tests.
+  @doc false
+  @spec identified_read_result?(term()) :: boolean()
+  def identified_read_result?({:ok, [_ | _]}), do: true
+  def identified_read_result?({:ok, []}), do: false
+  # Any error fails closed, treating the device as identified so the veto holds and nothing
+  # merges on missing evidence.
+  def identified_read_result?(_error), do: true
+
+  defp log_identifier_read_error({:ok, _} = result, _device_id), do: result
+
+  defp log_identifier_read_error(error, device_id) do
+    Logger.warning("Failed to load identifiers for #{device_id}: #{inspect(error)}")
+    error
   end
 
   # Whether one device's OWN interface table claims a MAC the other device is
