@@ -11,6 +11,10 @@ defmodule ServiceRadar.Observability.MtrResultPublisherTest do
     end
   end
 
+  defp assert_recent(%DateTime{} = time) do
+    assert abs(DateTime.diff(DateTime.utc_now(), time, :second)) <= 5
+  end
+
   defp result(target) do
     %{"target" => target, "trace" => %{"target_ip" => target, "hops" => []}}
   end
@@ -78,7 +82,7 @@ defmodule ServiceRadar.Observability.MtrResultPublisherTest do
 
     assert_received {:published, _subject, message, _opts}
     [stamped] = message["payload"]["results"]
-    assert %DateTime{} = MtrMetricsIngestor.trace_time(stamped)
+    assert_recent(MtrMetricsIngestor.trace_time(stamped))
   end
 
   test "stamps a result whose timestamps are unparseable" do
@@ -94,7 +98,7 @@ defmodule ServiceRadar.Observability.MtrResultPublisherTest do
 
     assert_received {:published, _subject, message, _opts}
     [stamped] = message["payload"]["results"]
-    assert %DateTime{} = MtrMetricsIngestor.trace_time(stamped)
+    assert_recent(MtrMetricsIngestor.trace_time(stamped))
   end
 
   test "keeps the timestamp a result already carries" do

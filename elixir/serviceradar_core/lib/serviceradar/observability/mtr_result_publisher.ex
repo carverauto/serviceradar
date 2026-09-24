@@ -79,7 +79,7 @@ defmodule ServiceRadar.Observability.MtrResultPublisher do
 
   defp stamp_time(result) do
     case MtrMetricsIngestor.trace_time(result) do
-      nil -> Map.put(result, "timestamp", System.os_time(:microsecond))
+      nil -> Map.put(result, "timestamp", System.os_time(:second))
       _time -> result
     end
   end
