@@ -354,7 +354,12 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     trace_query = """
     SELECT id::text AS id, time, agent_id, gateway_id, check_id, check_name, device_id,
            target, target_ip, target_reached, total_hops, probed_hops, last_responding_hop,
-           protocol, tcp_port, ip_version, packet_size, partition, error
+           protocol, tcp_port, ip_version, packet_size, partition, error,
+           tcp_handshake_ttl, tcp_handshake_attempts, tcp_syn_sent, tcp_synack_received,
+           tcp_rst_received, tcp_syn_unanswered, tcp_syn_drop_pct, tcp_syn_retransmits,
+           tcp_answered_after_retx, tcp_ack_mismatch, tcp_synack_duplicates,
+           tcp_handshake_rtt_min_us, tcp_handshake_rtt_avg_us, tcp_handshake_rtt_max_us,
+           tcp_server_response_us
     FROM mtr_traces
     WHERE id = $1 #{time_clause}
     LIMIT 1
@@ -364,7 +369,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     SELECT id::text AS id, time, hop_number, addr, hostname, ecmp_addrs, asn, asn_org,
            mpls_labels, sent, received, loss_pct,
            last_us, avg_us, min_us, max_us, stddev_us,
-           jitter_us, jitter_worst_us, jitter_interarrival_us, unreachable_code
+           jitter_us, jitter_worst_us, jitter_interarrival_us, unreachable_code,
+           reply_time_exceeded, reply_unreachable, reply_synack, reply_rst
     FROM mtr_hops
     WHERE trace_id = $1 AND time >= $2
     ORDER BY hop_number ASC, time DESC, id DESC

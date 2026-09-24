@@ -1,3 +1,4 @@
+use super::filters_common::{NumericComparison, NumericKind, NumericValue};
 use super::{BindParam, QueryPlan};
 use crate::{
     error::{Result, ServiceError},
@@ -7,7 +8,19 @@ use crate::{
         agent_id as col_agent_id, check_name as col_check_name, created_at as col_created_at,
         device_id as col_device_id, error as col_error, id as col_id, mtr_traces,
         protocol as col_protocol, target as col_target, target_ip as col_target_ip,
-        target_reached as col_target_reached, time as col_time, total_hops as col_total_hops,
+        target_reached as col_target_reached, tcp_ack_mismatch as col_tcp_ack_mismatch,
+        tcp_answered_after_retx as col_tcp_answered_after_retx,
+        tcp_handshake_attempts as col_tcp_handshake_attempts,
+        tcp_handshake_rtt_avg_us as col_tcp_handshake_rtt_avg_us,
+        tcp_handshake_rtt_max_us as col_tcp_handshake_rtt_max_us,
+        tcp_handshake_rtt_min_us as col_tcp_handshake_rtt_min_us,
+        tcp_handshake_ttl as col_tcp_handshake_ttl, tcp_rst_received as col_tcp_rst_received,
+        tcp_server_response_us as col_tcp_server_response_us,
+        tcp_syn_drop_pct as col_tcp_syn_drop_pct, tcp_syn_retransmits as col_tcp_syn_retransmits,
+        tcp_syn_sent as col_tcp_syn_sent, tcp_syn_unanswered as col_tcp_syn_unanswered,
+        tcp_synack_duplicates as col_tcp_synack_duplicates,
+        tcp_synack_received as col_tcp_synack_received, time as col_time,
+        total_hops as col_total_hops,
     },
     time::TimeRange,
 };
@@ -21,6 +34,41 @@ type MtrTracesTable = crate::schema::mtr_traces::table;
 type MtrTracesFromClause = FromClause<MtrTracesTable>;
 type MtrTracesQuery<'a> =
     BoxedSelectStatement<'a, <MtrTracesTable as AsQuery>::SqlType, MtrTracesFromClause, Pg>;
+
+/// TCP SYN handshake diagnostics, filterable with equality and ordered
+/// comparisons and aggregatable in `stats:`.
+///
+/// Every column is nullable, and NULL means "not reported": an older agent, or a
+/// trace that did not run the raw SYN handshake (a non-TCP protocol, or the
+/// connect() fallback). NULL fails every comparison, so `tcp_syn_drop_pct:>=0`
+/// is how a caller restricts a query to traces that measured a handshake.
+const TRACE_HANDSHAKE_FIELDS: &[(&str, NumericKind)] = &[
+    ("tcp_handshake_ttl", NumericKind::Int4),
+    ("tcp_handshake_attempts", NumericKind::Int4),
+    ("tcp_syn_sent", NumericKind::Int4),
+    ("tcp_synack_received", NumericKind::Int4),
+    ("tcp_rst_received", NumericKind::Int4),
+    ("tcp_syn_unanswered", NumericKind::Int4),
+    ("tcp_syn_drop_pct", NumericKind::Float8),
+    ("tcp_syn_retransmits", NumericKind::Int4),
+    ("tcp_answered_after_retx", NumericKind::Int4),
+    ("tcp_ack_mismatch", NumericKind::Int4),
+    ("tcp_synack_duplicates", NumericKind::Int4),
+    ("tcp_handshake_rtt_min_us", NumericKind::Int8),
+    ("tcp_handshake_rtt_avg_us", NumericKind::Int8),
+    ("tcp_handshake_rtt_max_us", NumericKind::Int8),
+    ("tcp_server_response_us", NumericKind::Int8),
+];
+
+/// Resolves a handshake filter to its column name and a parsed comparison, or
+/// `None` when the field is not a handshake column.
+fn handshake_comparison(filter: &Filter) -> Result<Option<(&'static str, NumericComparison)>> {
+    TRACE_HANDSHAKE_FIELDS
+        .iter()
+        .find(|(name, _)| *name == filter.field)
+        .map(|&(name, kind)| Ok((name, NumericComparison::parse(filter, kind)?)))
+        .transpose()
+}
 
 pub(super) async fn execute(
     conn: &mut AsyncPgConnection,
@@ -116,14 +164,76 @@ fn apply_filter<'a>(mut query: MtrTracesQuery<'a>, filter: &Filter) -> Result<Mt
         "device_id" => query = apply_text_filter!(query, filter, col_device_id)?,
         "error" => query = apply_text_filter!(query, filter, col_error)?,
         "target_reached" => query = apply_target_reached_filter(query, filter)?,
-        other => {
-            return Err(ServiceError::InvalidRequest(format!(
-                "unsupported filter field for mtr_traces: '{other}'"
-            )));
-        }
+        other => match handshake_comparison(filter)? {
+            Some((_, comparison)) => {
+                query = apply_handshake_filter(query, filter, comparison.value)?;
+            }
+            None => {
+                return Err(ServiceError::InvalidRequest(format!(
+                    "unsupported filter field for mtr_traces: '{other}'"
+                )));
+            }
+        },
     }
 
     Ok(query)
+}
+
+fn apply_handshake_filter<'a>(
+    query: MtrTracesQuery<'a>,
+    filter: &Filter,
+    value: NumericValue,
+) -> Result<MtrTracesQuery<'a>> {
+    use NumericValue::{Float8, Int4, Int8};
+
+    match (filter.field.as_str(), value) {
+        ("tcp_handshake_ttl", Int4(v)) => {
+            apply_ordered_filter!(query, filter, col_tcp_handshake_ttl, v)
+        }
+        ("tcp_handshake_attempts", Int4(v)) => {
+            apply_ordered_filter!(query, filter, col_tcp_handshake_attempts, v)
+        }
+        ("tcp_syn_sent", Int4(v)) => apply_ordered_filter!(query, filter, col_tcp_syn_sent, v),
+        ("tcp_synack_received", Int4(v)) => {
+            apply_ordered_filter!(query, filter, col_tcp_synack_received, v)
+        }
+        ("tcp_rst_received", Int4(v)) => {
+            apply_ordered_filter!(query, filter, col_tcp_rst_received, v)
+        }
+        ("tcp_syn_unanswered", Int4(v)) => {
+            apply_ordered_filter!(query, filter, col_tcp_syn_unanswered, v)
+        }
+        ("tcp_syn_drop_pct", Float8(v)) => {
+            apply_ordered_filter!(query, filter, col_tcp_syn_drop_pct, v)
+        }
+        ("tcp_syn_retransmits", Int4(v)) => {
+            apply_ordered_filter!(query, filter, col_tcp_syn_retransmits, v)
+        }
+        ("tcp_answered_after_retx", Int4(v)) => {
+            apply_ordered_filter!(query, filter, col_tcp_answered_after_retx, v)
+        }
+        ("tcp_ack_mismatch", Int4(v)) => {
+            apply_ordered_filter!(query, filter, col_tcp_ack_mismatch, v)
+        }
+        ("tcp_synack_duplicates", Int4(v)) => {
+            apply_ordered_filter!(query, filter, col_tcp_synack_duplicates, v)
+        }
+        ("tcp_handshake_rtt_min_us", Int8(v)) => {
+            apply_ordered_filter!(query, filter, col_tcp_handshake_rtt_min_us, v)
+        }
+        ("tcp_handshake_rtt_avg_us", Int8(v)) => {
+            apply_ordered_filter!(query, filter, col_tcp_handshake_rtt_avg_us, v)
+        }
+        ("tcp_handshake_rtt_max_us", Int8(v)) => {
+            apply_ordered_filter!(query, filter, col_tcp_handshake_rtt_max_us, v)
+        }
+        ("tcp_server_response_us", Int8(v)) => {
+            apply_ordered_filter!(query, filter, col_tcp_server_response_us, v)
+        }
+        (other, value) => Err(ServiceError::Internal(anyhow::anyhow!(
+            "TRACE_HANDSHAKE_FIELDS maps '{other}' to {value:?}, which has no column binding"
+        ))),
+    }
 }
 
 fn apply_target_reached_filter<'a>(
@@ -169,9 +279,15 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
             params.push(BindParam::Bool(parse_bool(filter.value.as_scalar()?)?));
             Ok(())
         }
-        other => Err(ServiceError::InvalidRequest(format!(
-            "unsupported filter field for mtr_traces: '{other}'"
-        ))),
+        other => match handshake_comparison(filter)? {
+            Some((_, comparison)) => {
+                params.push(comparison.value.bind_param());
+                Ok(())
+            }
+            None => Err(ServiceError::InvalidRequest(format!(
+                "unsupported filter field for mtr_traces: '{other}'"
+            ))),
+        },
     }
 }
 
@@ -532,6 +648,185 @@ mod tests {
         );
     }
 
+    /// Whether `param` is the bind a filter value of `1` must produce for a
+    /// column of `kind`.
+    fn is_one_bind(kind: NumericKind, param: Option<&BindParam>) -> bool {
+        match kind {
+            NumericKind::Int4 | NumericKind::Int8 => matches!(param, Some(BindParam::Int(1))),
+            NumericKind::Float8 => matches!(param, Some(BindParam::Float(v)) if *v == 1.0),
+        }
+    }
+
+    #[test]
+    fn every_handshake_field_filters_with_a_typed_bind() {
+        for &(field, kind) in TRACE_HANDSHAKE_FIELDS {
+            for (token, op_sql) in [
+                ("1", "="),
+                (">1", ">"),
+                (">=1", ">="),
+                ("<1", "<"),
+                ("<=1", "<="),
+            ] {
+                let query = format!("in:mtr_traces {field}:{token} limit:1");
+                let (sql, params) = to_sql_and_params(&plan_for(&query))
+                    .unwrap_or_else(|err| panic!("{query} should translate: {err}"));
+                let lower = sql.to_lowercase();
+
+                assert!(
+                    where_predicates(&lower)
+                        .contains(&format!("\"mtr_traces\".\"{field}\" {op_sql} $1")),
+                    "{query} must render a {op_sql} predicate on {field}: {sql}"
+                );
+                assert!(
+                    is_one_bind(kind, params.as_slice().first()),
+                    "{query} must bind the value as its column type: {params:?}"
+                );
+            }
+
+            let negated = format!("in:mtr_traces !{field}:1 limit:1");
+            let (sql, _) = to_sql_and_params(&plan_for(&negated))
+                .unwrap_or_else(|err| panic!("{negated} should translate: {err}"));
+            assert!(
+                where_predicates(&sql.to_lowercase())
+                    .contains(&format!("\"mtr_traces\".\"{field}\" != $1")),
+                "{negated} must render an inequality: {sql}"
+            );
+        }
+    }
+
+    #[test]
+    fn syn_drop_pct_ordered_comparison_binds_a_float() {
+        let plan = plan_for("in:mtr_traces time:last_24h tcp_syn_drop_pct:>12.5 limit:10");
+        let (sql, params) = to_sql_and_params(&plan).expect("drop filter should translate");
+        let lower = sql.to_lowercase();
+
+        // $1 and $2 are the time window.
+        assert!(
+            where_predicates(&lower).contains("\"mtr_traces\".\"tcp_syn_drop_pct\" > $3"),
+            "{sql}"
+        );
+        assert!(
+            matches!(params.get(2), Some(BindParam::Float(v)) if *v == 12.5),
+            "{params:?}"
+        );
+    }
+
+    #[test]
+    fn handshake_rtt_filter_binds_a_bigint_value() {
+        // RTTs are microseconds in BIGINT columns; a value past i32::MAX must
+        // still parse rather than overflow into a rejection.
+        let plan = plan_for("in:mtr_traces tcp_handshake_rtt_avg_us:>=3000000000 limit:10");
+        let (sql, params) = to_sql_and_params(&plan).expect("rtt filter should translate");
+
+        assert!(
+            sql.to_lowercase()
+                .contains("\"mtr_traces\".\"tcp_handshake_rtt_avg_us\" >= $1"),
+            "{sql}"
+        );
+        assert!(
+            matches!(
+                params.as_slice().first(),
+                Some(BindParam::Int(3_000_000_000))
+            ),
+            "{params:?}"
+        );
+    }
+
+    #[test]
+    fn handshake_filters_reject_values_that_are_not_numbers_of_the_column_type() {
+        for query in [
+            "in:mtr_traces tcp_syn_sent:many",
+            // An integer column refuses a fractional value instead of truncating it.
+            "in:mtr_traces tcp_syn_unanswered:1.5",
+            // Beyond INTEGER range for an Int4 column.
+            "in:mtr_traces tcp_syn_sent:3000000000",
+            "in:mtr_traces tcp_syn_drop_pct:abc",
+            "in:mtr_traces tcp_syn_drop_pct:NaN",
+            "in:mtr_traces tcp_syn_drop_pct:inf",
+            "in:mtr_traces tcp_handshake_rtt_avg_us:fast",
+            // Lists are not a numeric comparison.
+            "in:mtr_traces tcp_syn_sent:(1,2)",
+            // The same guard applies inside a stats query.
+            "in:mtr_traces tcp_syn_drop_pct:high stats:count() as n by target_ip limit:10",
+            "in:mtr_traces tcp_rst_received:(1,2) stats:count() as n by target_ip limit:10",
+        ] {
+            let result = to_sql_and_params(&plan_for(query));
+            assert!(
+                matches!(result, Err(ServiceError::InvalidRequest(_))),
+                "{query} should be rejected, got {result:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn handshake_columns_are_projected_in_row_results() {
+        let (sql, _) =
+            to_sql_and_params(&plan_for("in:mtr_traces limit:1")).expect("SQL should translate");
+        let lower = sql.to_lowercase();
+
+        for &(field, _) in TRACE_HANDSHAKE_FIELDS {
+            assert!(
+                lower.contains(&format!("\"mtr_traces\".\"{field}\"")),
+                "row projection is missing {field}: {sql}"
+            );
+        }
+    }
+
+    #[test]
+    fn stats_aggregate_the_handshake_rtt_by_target() {
+        let plan = plan_for(
+            "in:mtr_traces time:last_24h stats:\"avg(tcp_handshake_rtt_avg_us) as rtt by target_ip\" limit:50",
+        );
+        let (sql, params) = to_sql_and_params(&plan).expect("handshake stats should translate");
+        let lower = sql.to_lowercase();
+
+        assert!(
+            lower.contains("'rtt', avg(tcp_handshake_rtt_avg_us)"),
+            "{sql}"
+        );
+        assert!(lower.contains("group by target_ip"), "{sql}");
+        assert_eq!(params.len(), 2, "only the time window binds: {params:?}");
+    }
+
+    #[test]
+    fn every_handshake_field_is_aggregatable() {
+        for &(field, _) in TRACE_HANDSHAKE_FIELDS {
+            for func in ["sum", "avg", "min", "max"] {
+                let query =
+                    format!("in:mtr_traces stats:{func}({field}) as v by target_ip limit:10");
+                let (sql, _) = to_sql_and_params(&plan_for(&query))
+                    .unwrap_or_else(|err| panic!("{query} should translate: {err}"));
+                assert!(
+                    sql.to_lowercase().contains(&format!("{func}({field})")),
+                    "{query}: {sql}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn handshake_filters_constrain_stats_queries() {
+        let plan = plan_for(
+            "in:mtr_traces time:last_24h protocol:tcp tcp_syn_drop_pct:>0 tcp_handshake_attempts:>=3 stats:\"count() as lossy, max(tcp_syn_drop_pct) as worst by target_ip\" limit:20",
+        );
+        let (sql, params) = to_sql_and_params(&plan).expect("filtered stats should translate");
+        let lower = sql.to_lowercase();
+
+        // $1/$2 time window, $3 protocol, then the handshake predicates in order.
+        assert!(lower.contains("tcp_syn_drop_pct > $4"), "{sql}");
+        assert!(lower.contains("tcp_handshake_attempts >= $5"), "{sql}");
+        assert!(lower.contains("max(tcp_syn_drop_pct)"), "{sql}");
+        assert!(
+            matches!(params.get(3), Some(BindParam::Float(v)) if *v == 0.0),
+            "{params:?}"
+        );
+        assert!(
+            matches!(params.get(4), Some(BindParam::Int(3))),
+            "{params:?}"
+        );
+        assert_eq!(params.len(), 5, "{params:?}");
+    }
+
     #[test]
     fn invalid_boolean_and_unknown_filter_are_rejected() {
         for query in [
@@ -564,10 +859,28 @@ mod tests {
 // compute loss from trace rows that do not carry it.
 
 /// Aggregatable columns, mapped to the SQL that makes them numeric.
+///
+/// The TCP handshake columns aggregate as-is; SQL aggregates skip NULL, so a
+/// trace that reported no handshake does not pull an average toward zero.
 const TRACE_AGGREGATABLE_COLUMNS: &[(&str, &str)] = &[
     ("total_hops", "total_hops"),
     // Cast so AVG yields the reached proportion rather than erroring on a bool.
     ("target_reached", "target_reached::int"),
+    ("tcp_handshake_ttl", "tcp_handshake_ttl"),
+    ("tcp_handshake_attempts", "tcp_handshake_attempts"),
+    ("tcp_syn_sent", "tcp_syn_sent"),
+    ("tcp_synack_received", "tcp_synack_received"),
+    ("tcp_rst_received", "tcp_rst_received"),
+    ("tcp_syn_unanswered", "tcp_syn_unanswered"),
+    ("tcp_syn_drop_pct", "tcp_syn_drop_pct"),
+    ("tcp_syn_retransmits", "tcp_syn_retransmits"),
+    ("tcp_answered_after_retx", "tcp_answered_after_retx"),
+    ("tcp_ack_mismatch", "tcp_ack_mismatch"),
+    ("tcp_synack_duplicates", "tcp_synack_duplicates"),
+    ("tcp_handshake_rtt_min_us", "tcp_handshake_rtt_min_us"),
+    ("tcp_handshake_rtt_avg_us", "tcp_handshake_rtt_avg_us"),
+    ("tcp_handshake_rtt_max_us", "tcp_handshake_rtt_max_us"),
+    ("tcp_server_response_us", "tcp_server_response_us"),
 ];
 
 const TRACE_GROUP_BY_FIELDS: &[&str] = &[
@@ -592,6 +905,7 @@ enum TraceStatsBind {
     Text(String),
     Timestamp(chrono::DateTime<chrono::Utc>),
     Bool(bool),
+    Numeric(NumericValue),
 }
 
 #[derive(Debug, Clone)]
@@ -897,7 +1211,12 @@ fn build_trace_stats_filter(filter: &Filter) -> Result<Option<(String, Vec<Trace
                 vec![TraceStatsBind::Bool(value)],
             )))
         }
-        _ => Ok(None),
+        _ => Ok(handshake_comparison(filter)?.map(|(column, comparison)| {
+            (
+                format!("{column} {} ?", comparison.op_sql),
+                vec![TraceStatsBind::Numeric(comparison.value)],
+            )
+        })),
     }
 }
 
@@ -906,6 +1225,7 @@ fn bind_param_from_trace(bind: TraceStatsBind) -> BindParam {
         TraceStatsBind::Text(v) => BindParam::Text(v),
         TraceStatsBind::Timestamp(v) => BindParam::timestamptz(v),
         TraceStatsBind::Bool(v) => BindParam::Bool(v),
+        TraceStatsBind::Numeric(v) => v.bind_param(),
     }
 }
 
@@ -940,6 +1260,7 @@ async fn execute_stats(
             TraceStatsBind::Text(v) => q.bind::<Text, _>(v.clone()),
             TraceStatsBind::Timestamp(v) => q.bind::<Timestamptz, _>(*v),
             TraceStatsBind::Bool(v) => q.bind::<Bool, _>(*v),
+            TraceStatsBind::Numeric(v) => v.bind_sql_query(q),
         };
     }
 

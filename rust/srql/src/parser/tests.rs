@@ -28,6 +28,23 @@ fn parses_canonical_mtr_traces_query() {
 }
 
 #[test]
+fn parses_mtr_handshake_and_reply_type_comparisons() {
+    let ast = parse("in:mtr_traces tcp_syn_drop_pct:>=12.5 !tcp_syn_unanswered:0").unwrap();
+    assert_eq!(ast.filters.len(), 2);
+    assert_eq!(ast.filters[0].field, "tcp_syn_drop_pct");
+    assert!(matches!(ast.filters[0].op, FilterOp::Gte));
+    assert_eq!(ast.filters[0].value.as_scalar().unwrap(), "12.5");
+    assert_eq!(ast.filters[1].field, "tcp_syn_unanswered");
+    assert!(matches!(ast.filters[1].op, FilterOp::NotEq));
+
+    let ast = parse("in:mtr_hops reply_rst:>0").unwrap();
+    assert!(matches!(ast.entity, Entity::MtrHops));
+    assert_eq!(ast.filters[0].field, "reply_rst");
+    assert!(matches!(ast.filters[0].op, FilterOp::Gt));
+    assert_eq!(ast.filters[0].value.as_scalar().unwrap(), "0");
+}
+
+#[test]
 fn parses_lists() {
     let ast = parse("in:devices discovery_sources:(sweep,armis)").unwrap();
     assert_eq!(ast.filters.len(), 1);

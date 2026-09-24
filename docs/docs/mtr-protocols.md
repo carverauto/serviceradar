@@ -70,5 +70,38 @@ A closed port is fine: the target's RST still marks it reached. A port dropped
 by a firewall is not fine, because the trace can never reach the target. 443 is
 the default because edge policies most often admit it.
 
+## TCP handshake diagnostics
+
+Agents that can craft raw TCP segments (Linux with `CAP_NET_RAW`) end every
+TCP trace with a short handshake phase: `probes_per_hop` SYNs sent at the
+target's TTL, each re-sent up to `tcp_syn_retries` times (default 1, at most 3)
+when unanswered. The trace detail and the device MTR tab show the result in a
+TCP Handshake panel. These are measurements of active SYN probes, not of
+observed application traffic:
+
+- **SYN sent**: handshake SYNs, retransmissions included.
+- **SYN-ACK / RST**: attempts the target answered with SYN-ACK, or with RST
+  (port closed or rejected).
+- **SYN drop**: attempts that got no answer after every retransmission, as a
+  share of attempts (a first SYN plus its retries is one attempt).
+- **Retx**: SYNs re-sent after the probe timeout, and attempts answered only
+  after a retry (loss on the first try).
+- **Ack anomalies**: replies whose acknowledgement matches no SYN that was sent
+  (sequence rewriting, a SYN proxy or another middlebox), and repeated SYN-ACKs
+  for one attempt (the target re-sent it, which points at return-path loss).
+- **Handshake RTT**: SYN to SYN-ACK or RST time at the destination.
+- **Server response**: the handshake RTT average minus the RTT average of the
+  last transit hop, floored at zero. It estimates time spent in the target
+  rather than on the path, and is empty when either side is missing.
+
+Agents that fall back to `connect()` probes, and agents older than this
+feature, do not run the phase; the panel says the diagnostics are unavailable
+rather than showing zeros. Hop tables also list replies by kind: Time Exceeded
+(TE), Destination Unreachable, SYN-ACK and RST.
+
+The same figures are queryable in SRQL, for example
+`in:mtr_traces protocol:tcp tcp_syn_drop_pct:>0` or
+`in:mtr_hops reply_rst:>0`.
+
 See [Agent Configuration](./agent-configuration.md) for the MTR check settings,
 including `tcp_port`.

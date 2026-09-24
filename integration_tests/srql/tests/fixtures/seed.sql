@@ -2095,6 +2095,80 @@ VALUES
         '2026-06-01T01:00:01Z'::timestamptz
     );
 
+-- Synthetic TCP SYN handshake traces, outside every relative time window so the
+-- last_1h contract above is unaffected. One clean handshake, one fully
+-- unanswered, and one ICMP trace that reports no handshake (all NULL).
+INSERT INTO mtr_traces (
+    id,
+    time,
+    agent_id,
+    target,
+    target_ip,
+    target_reached,
+    total_hops,
+    protocol,
+    ip_version,
+    created_at,
+    tcp_handshake_ttl,
+    tcp_handshake_attempts,
+    tcp_syn_sent,
+    tcp_synack_received,
+    tcp_rst_received,
+    tcp_syn_unanswered,
+    tcp_syn_drop_pct,
+    tcp_syn_retransmits,
+    tcp_answered_after_retx,
+    tcp_ack_mismatch,
+    tcp_synack_duplicates,
+    tcp_handshake_rtt_min_us,
+    tcp_handshake_rtt_avg_us,
+    tcp_handshake_rtt_max_us,
+    tcp_server_response_us
+)
+VALUES
+    (
+        '00000000-0000-4000-8000-000000000200'::uuid,
+        '2026-06-02T00:00:00Z'::timestamptz,
+        'agent-mtr-handshake',
+        'host01.example.com',
+        '198.51.100.30',
+        TRUE,
+        6,
+        'tcp',
+        4,
+        '2026-06-02T00:00:01Z'::timestamptz,
+        64, 3, 3, 3, 0, 0, 0.0, 0, 0, 0, 0,
+        1200, 1500, 1800, 900
+    ),
+    (
+        '00000000-0000-4000-8000-000000000201'::uuid,
+        '2026-06-02T00:10:00Z'::timestamptz,
+        'agent-mtr-handshake',
+        'host02.example.com',
+        '198.51.100.31',
+        FALSE,
+        30,
+        'tcp',
+        4,
+        '2026-06-02T00:10:01Z'::timestamptz,
+        64, 3, 3, 0, 0, 3, 100.0, 2, 0, 0, 0,
+        NULL, NULL, NULL, NULL
+    ),
+    (
+        '00000000-0000-4000-8000-000000000202'::uuid,
+        '2026-06-02T00:20:00Z'::timestamptz,
+        'agent-mtr-handshake',
+        'host03.example.com',
+        '198.51.100.32',
+        TRUE,
+        5,
+        'icmp',
+        4,
+        '2026-06-02T00:20:01Z'::timestamptz,
+        NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+        NULL, NULL, NULL, NULL
+    );
+
 -- Seed AGE graph data for device_graph SRQL queries (best-effort when privileges allow).
 SET LOCAL search_path = ag_catalog, public, "$user";
 

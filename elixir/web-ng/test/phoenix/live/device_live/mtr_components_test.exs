@@ -435,4 +435,34 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponentsTest do
     assert html =~ "3 hops with no reply"
     refute html =~ ~r/<td class="text-center font-mono tabular-nums">4<\/td>/
   end
+
+  test "trace modal shows the TCP handshake panel and per-hop reply kinds" do
+    html =
+      render_component(&MtrComponents.mtr_trace_modal/1,
+        show: true,
+        trace: %{
+          "target" => "198.51.100.10",
+          "agent_id" => "agent-1",
+          "protocol" => "tcp",
+          "tcp_port" => 443,
+          "time" => ~U[2026-08-30 12:00:00Z],
+          "target_reached" => true,
+          "total_hops" => 2,
+          "tcp_handshake_attempts" => 3,
+          "tcp_syn_sent" => 3,
+          "tcp_synack_received" => 3,
+          "tcp_syn_unanswered" => 0,
+          "tcp_syn_drop_pct" => 0.0
+        },
+        hops: [
+          %{"hop_number" => 1, "addr" => "192.0.2.1", "sent" => 3, "received" => 3, "reply_time_exceeded" => 3},
+          %{"hop_number" => 2, "addr" => "198.51.100.10", "sent" => 3, "received" => 3, "reply_synack" => 3}
+        ]
+      )
+
+    assert html =~ ~s(id="device-mtr-tcp-handshake")
+    assert html =~ "0.0% (0/3)"
+    assert html =~ "3 TE"
+    assert html =~ "3 SYN-ACK"
+  end
 end

@@ -100,21 +100,21 @@ no-mistakes gate, in order. All fixtures are synthetic
 - [x] 3.3 Agent: advertise the `mtr_tcp_syn` capability on Linux builds with a
   raw socket (probed each time capabilities are computed, by opening one); parse `tcp_syn_retries`
   (0..3) in check settings, `mtr.run` and bulk payloads.
-- [ ] 3.4 Migration: nullable columns.
+- [x] 3.4 Migration: nullable columns.
   - `mtr_traces`: the D5 trace-level fields.
   - `mtr_hops`: the reply counters.
 
   Update the `MtrTrace` and `MtrHop` Ash resources and `MtrMetricsIngestor`
   row builders.
-- [ ] 3.5 SRQL: add the columns to `rust/srql/src/schema.rs`, the
+- [x] 3.5 SRQL: add the columns to `rust/srql/src/schema.rs`, the
   `mtr_traces` / `mtr_hops` entities (filterable, and selectable in `stats:`),
   `integration_tests/srql/tests/fixtures/schema.sql` and the seed data; add
   parser/translate tests.
-- [ ] 3.6 UI: a TCP handshake panel on the trace detail and device MTR tab
+- [x] 3.6 UI: a TCP handshake panel on the trace detail and device MTR tab
   (SYN / SYN-ACK / RST / drop % / retx / ack anomalies / handshake RTT /
   server response), with D5 definitions as tooltips; add per-hop reply-type
   columns to the hop table.
-- [ ] 3.7 Tests:
+- [x] 3.7 Tests:
   - Go: counters for each outcome.
   - Elixir: ingestor maps every field; null when absent (old agent).
   - Rust: SRQL filters.

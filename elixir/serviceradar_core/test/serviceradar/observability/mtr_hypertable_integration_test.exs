@@ -109,6 +109,8 @@ defmodule ServiceRadar.Observability.MtrHypertableIntegrationTest do
     assert trace.probed_hops == 3
     assert trace.last_responding_hop == 3
     assert trace.tcp_port == nil
+    assert trace.tcp_syn_sent == nil
+    assert trace.tcp_syn_drop_pct == nil
 
     # Read back hops
     {:ok, hops} =
@@ -153,14 +155,34 @@ defmodule ServiceRadar.Observability.MtrHypertableIntegrationTest do
             "tcp_port" => 443,
             "ip_version" => 4,
             "timestamp" => System.os_time(:second),
+            "tcp_handshake" => %{
+              "ttl" => 4,
+              "attempts" => 3,
+              "syn_sent" => 6,
+              "synack_received" => 0,
+              "rst_received" => 0,
+              "unanswered" => 3,
+              "syn_drop_pct" => 100.0,
+              "syn_retransmits" => 3,
+              "answered_after_retx" => 0,
+              "ack_mismatch" => 0,
+              "synack_duplicates" => 0
+            },
             "hops" => [
-              %{"hop_number" => 1, "addr" => "192.0.2.1", "sent" => 3, "received" => 3},
+              %{
+                "hop_number" => 1,
+                "addr" => "192.0.2.1",
+                "sent" => 3,
+                "received" => 3,
+                "reply_time_exceeded" => 3
+              },
               %{
                 "hop_number" => 2,
                 "addr" => "192.0.2.2",
                 "sent" => 3,
                 "received" => 3,
-                "unreachable_code" => 13
+                "unreachable_code" => 13,
+                "reply_unreachable" => 3
               },
               %{"hop_number" => 3, "sent" => 3, "received" => 0, "loss_pct" => 100.0},
               %{"hop_number" => 4, "sent" => 3, "received" => 0, "loss_pct" => 100.0}
@@ -184,14 +206,24 @@ defmodule ServiceRadar.Observability.MtrHypertableIntegrationTest do
     assert trace.probed_hops == 4
     assert trace.last_responding_hop == 2
     refute trace.target_reached
+    assert trace.tcp_handshake_attempts == 3
+    assert trace.tcp_syn_sent == 6
+    assert trace.tcp_syn_unanswered == 3
+    assert trace.tcp_syn_drop_pct == 100.0
+    assert trace.tcp_syn_retransmits == 3
+    assert trace.tcp_handshake_rtt_avg_us == nil
+    assert trace.tcp_server_response_us == nil
 
     {:ok, hops} =
       MtrHop
       |> Ash.Query.for_read(:by_trace, %{trace_id: trace.id})
       |> Ash.read(actor: actor)
 
-    codes = hops |> Enum.sort_by(& &1.hop_number) |> Enum.map(& &1.unreachable_code)
-    assert codes == [nil, 13, nil, nil]
+    hops = Enum.sort_by(hops, & &1.hop_number)
+    assert Enum.map(hops, & &1.unreachable_code) == [nil, 13, nil, nil]
+    assert Enum.map(hops, & &1.reply_time_exceeded) == [3, 0, 0, 0]
+    assert Enum.map(hops, & &1.reply_unreachable) == [0, 3, 0, 0]
+    assert Enum.map(hops, & &1.reply_synack) == [0, 0, 0, 0]
   end
 
   test "ingest/2 handles multiple results in one payload" do
