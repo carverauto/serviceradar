@@ -209,8 +209,7 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
         matched_ip_count: matched_ip_count,
         indicator_match_count: indicator_match_count,
         source_count: source_count,
-        window_seconds: threat_match_window_seconds,
-        time_token: time_token
+        window_seconds: threat_match_window_seconds
       }
     )
 
