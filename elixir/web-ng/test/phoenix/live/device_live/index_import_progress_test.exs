@@ -24,7 +24,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexImportProgressTest do
       csv_preview: [%{"hostname" => "a"}],
       csv_errors: [],
       csv_warnings: [],
-      import_status: nil,
       show_import_modal: true
     }
 

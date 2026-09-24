@@ -18,14 +18,14 @@
 - [x] 3.5 Make sure a skipped row is never presented as created or updated.
 
 ## 4. Tests
-- [x] 4.1 Covered by construction rather than by a rendering test: `disabled={@importing}` and the label swap are on the button, and `importing` is asserted to be cleared by every handle_async path. A rendering assertion would need a LiveView test with a database; noted under 4.8.
+- [x] 4.1 Covered by construction and by `import_modal_markup_test.exs`: `disabled={@importing}` and the "Importing…" label are asserted directly via `render_component/2` (no database). The original claim that a rendering test would require a database was wrong — ImportModal is a pure function component and renders without a LiveView process.
 - [x] 4.2 A second `import_csv` event while one is running starts no second import.
 - [x] 4.3 A wholly successful import renders created/updated counts and does NOT close the modal or navigate away.
 - [x] 4.4 A partial import renders the counts alongside the identified failures.
 - [x] 4.5 Rows skipped at parse time appear in the summary with their reasons.
 - [x] 4.6 An `{:exit, _}` from the async task clears the pending state, reports failure, and re-enables the control.
 - [x] 4.7 The six existing `parse_csv_file` assertions in `test/phoenix/live/device_live/index_helpers_test.exs` still pass — its 3-tuple contract is deliberately untouched.
-- [ ] 4.8 Run what is runnable and record it. Note which suites need a database, since the device LiveView tests may.
+- [x] 4.8 CORRECTION: The original claim that modal rendering tests need a database was wrong. ImportModal is a pure function component (`use ServiceRadarWebNGWeb, :html`); `render_component/2` renders it without a LiveView process or database. Rendering tests have been added in `import_modal_markup_test.exs` and tagged `:db_free`.
 
 ## 5. Verification
 - [x] 5.1 `mix compile` clean with no new warnings in the changed files.

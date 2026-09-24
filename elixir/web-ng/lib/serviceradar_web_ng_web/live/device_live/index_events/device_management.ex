@@ -39,7 +39,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.DeviceManagement do
        |> assign(:csv_preview, nil)
        |> assign(:csv_errors, [])
        |> assign(:csv_warnings, [])
-       |> assign(:import_status, nil)
        |> assign(:import_partition_error, nil)}
     else
       {:noreply, put_flash(socket, :error, "You are not authorized to import devices")}
@@ -52,8 +51,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.DeviceManagement do
      |> assign(:show_import_modal, false)
      |> assign(:csv_preview, nil)
      |> assign(:csv_errors, [])
-     |> assign(:csv_warnings, [])
-     |> assign(:import_status, nil)}
+     |> assign(:csv_warnings, [])}
   end
 
   def handle_event("validate_csv", _params, socket) do
@@ -108,7 +106,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.DeviceManagement do
      |> assign(:csv_preview, nil)
      |> assign(:csv_warnings, [])
      |> assign(:csv_errors, [])
-     |> assign(:import_status, nil)
      |> push_patch(to: ~p"/devices")}
   end
 
@@ -197,16 +194,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.DeviceManagement do
              socket
              |> assign(:csv_preview, devices)
              |> assign(:csv_warnings, warnings)
-             |> assign(:csv_errors, [])
-             |> assign(:import_status, nil)}
+             |> assign(:csv_errors, [])}
 
           {:error, errors} ->
             {:noreply,
              socket
              |> assign(:csv_preview, nil)
              |> assign(:csv_warnings, [])
-             |> assign(:csv_errors, errors)
-             |> assign(:import_status, nil)}
+             |> assign(:csv_errors, errors)}
         end
     end
   end
@@ -280,7 +275,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.DeviceManagement do
          # hold on to them: the old success path cleared them before anyone could
          # read them.
          |> assign(:import_skipped, socket.assigns[:csv_warnings] || [])
-         |> assign(:import_status, nil)
          |> start_async(:import_devices, fn -> IndexCsvImport.import_devices(scope, devices) end)}
 
       _ ->
