@@ -108,6 +108,24 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
     end
   end
 
+  @doc """
+  Whether the warehouse is this installation's telemetry backend
+  (`analytics.starrocks.enabled`).
+
+  Exactly one backend is active. A reader with a warehouse implementation
+  that keys on this flag reads the warehouse when it is true and CNPG when it
+  is false, never both: with the warehouse enabled the CNPG telemetry tables
+  stop receiving rows, so a CNPG read would serve history that ends at the
+  moment the warehouse was turned on. MTR readers key on this flag rather than
+  on `cutover_datasets`, which has no MTR entry.
+  """
+  @spec enabled?() :: boolean()
+  def enabled? do
+    :serviceradar_core
+    |> Application.get_env(ServiceRadar.Analytics.StarRocks, [])
+    |> Keyword.get(:enabled, false) == true
+  end
+
   defp cutover_datasets do
     :serviceradar_core
     |> Application.get_env(ServiceRadar.Analytics.StarRocks, [])

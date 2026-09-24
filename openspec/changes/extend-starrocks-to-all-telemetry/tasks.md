@@ -76,6 +76,16 @@
     detail, Compare windows and paths), the dashboard MTR summary and sparklines, the Ash-backed
     trace and Compare pages, the device MTR tab and SRQL `in:mtr_traces`/`in:mtr_hops`; each
     behind its parity comparison.
+    - Warehouse implementations written, selected by `Readers.enabled?/0` (the global
+      `analytics.starrocks.enabled`, not the cutover list), CNPG kept for disabled installations:
+      `DiagnosticsLive.MtrWarehouse` serves every `MtrData` reader (so the device MTR tab too), the
+      dashboard card and sparklines, and the trace and Compare pages' Ash reads. Filters, including
+      the diagnostics page's SRQL-style string (parsed in Elixir, not by the SRQL service), are one
+      term list with a CNPG and a warehouse renderer. Only SQL-shape tests exist: result parity is
+      NOT proven until task 1.4's harness runs these shapes. Still open: SRQL
+      `in:mtr_traces`/`in:mtr_hops` (the system report panels) still route to CNPG, because
+      `Readers.dataset_for_entity/1` has no MTR entry and the StarRocks dialect refuses MTR; and
+      `MtrData.retention_status/1` reports the CNPG retention policy.
   - [x] 3.4.7 Delete the MTR exception from the AGENTS.md JetStream rule when 3.4.1 and 3.4.3 land.
     - Done with 3.4.1: after it, no MTR path bypasses JetStream (ad-hoc traces already arrive on
       `scans.results.>` and are written inside EventWriter). 3.4.3 is about warehouse-awareness,

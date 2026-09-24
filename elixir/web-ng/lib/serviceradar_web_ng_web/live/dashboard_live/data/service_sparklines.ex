@@ -2,6 +2,29 @@
 defmodule ServiceRadarWebNGWeb.DashboardLive.Data.ServiceSparklines do
   @moduledoc false
 
+  alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse
+
+  @sparkline_points 48 * 2
+
+  @doc """
+  The MTR latency or packet-loss sparkline's `[bucket, value]` rows from the
+  warehouse, or `:cnpg` when StarRocks is not enabled and the caller should
+  run its CNPG query instead.
+
+  Exactly one backend is active: with the warehouse enabled the CNPG MTR
+  hypertables receive no rows, so the sparkline never falls back to them. It
+  lives outside the `__using__` block so that block stays a list of loaders.
+  """
+  @spec warehouse_mtr_sparkline_rows(DateTime.t(), pos_integer(), :latency_ms | :loss_pct, keyword()) ::
+          {:ok, map()} | {:error, term()} | :cnpg
+  def warehouse_mtr_sparkline_rows(cutoff, bucket_seconds, metric, opts \\ []) do
+    if MtrWarehouse.enabled?() do
+      MtrWarehouse.destination_sparkline(cutoff, bucket_seconds, metric, @sparkline_points, opts)
+    else
+      :cnpg
+    end
+  end
+
   defmacro __using__(_opts) do
     quote do
       defp service_availability_sparkline(time_window) do
@@ -135,18 +158,31 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.ServiceSparklines do
       @sobelow_skip ["SQL.Query"]
       defp one_value_sparkline(sql, params) do
         case ServiceRadarWebNG.Repo.query(sql, params) do
-          {:ok, %{rows: rows}} ->
-            rows
-            |> Enum.map(fn [_bucket, value] -> to_float(value) end)
-            |> sparkline_tail()
-
-          _ ->
-            []
+          {:ok, %{rows: rows}} -> one_value_rows(rows)
+          _ -> []
         end
       end
 
-      @sobelow_skip ["SQL.Query"]
+      defp one_value_rows(rows) do
+        rows
+        |> Enum.map(fn [_bucket, value] -> to_float(value) end)
+        |> sparkline_tail()
+      end
+
       defp mtr_timeseries_sparkline(time_window, metric) do
+        cutoff = cutoff_for_time_window(time_window)
+
+        case unquote(__MODULE__).warehouse_mtr_sparkline_rows(cutoff, bucket_seconds_for(time_window), metric) do
+          :cnpg -> cnpg_mtr_timeseries_sparkline(time_window, metric)
+          {:ok, %{rows: rows}} -> one_value_rows(rows)
+          {:error, _reason} -> []
+        end
+      rescue
+        _ -> []
+      end
+
+      @sobelow_skip ["SQL.Query"]
+      defp cnpg_mtr_timeseries_sparkline(time_window, metric) do
         if relation_exists?("platform.mtr_traces") and relation_exists?("platform.mtr_hops") do
           {value_expr, denominator_expr} =
             case metric do

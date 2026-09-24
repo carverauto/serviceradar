@@ -1104,6 +1104,14 @@
     "reason": null
   },
   {
+    "path": "lib/serviceradar_web_ng_web/live/diagnostics_live/mtr_warehouse.ex",
+    "matcher": "naive_datetime_string",
+    "occurrence": 1,
+    "fingerprint": "2bcef5cefea33af774a118d5497e9456d2c380dd1726039b9b414a33262ed9fc",
+    "classification": "canonical_machine",
+    "reason": "UTC wall-clock literal bounding a StarRocks DATETIME column in warehouse MTR SQL; never displayed"
+  },
+  {
     "path": "lib/serviceradar_web_ng_web/live/event_live/show.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 1,
