@@ -24,20 +24,34 @@ defmodule ServiceRadar.EventWriter.Processors.Mtr do
   @impl true
   def table_name, do: "mtr_traces"
 
+  @permanent_errors [:missing_target_ip, :invalid_payload]
+
   @impl true
-  def process_batch(messages) do
-    envelopes =
+  def process_batch(messages), do: process_batch(messages, [])
+
+  @doc false
+  def process_batch(messages, opts) do
+    outcomes =
       messages
       |> Enum.map(&parse_message/1)
       |> Enum.reject(&is_nil/1)
+      |> Enum.map(&persist(&1, opts))
+      |> Enum.map(&classify/1)
 
-    Enum.reduce_while(envelopes, {:ok, 0}, fn envelope, {:ok, count} ->
-      case persist(envelope) do
-        :ok -> {:cont, {:ok, count + 1}}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
+    case Enum.find(outcomes, &match?({:error, _}, &1)) do
+      nil -> {:ok, length(outcomes)}
+      {:error, _reason} = error -> error
+    end
   end
+
+  defp classify(:ok), do: :ok
+
+  defp classify({:error, reason}) when reason in @permanent_errors do
+    Logger.warning("Dropping MTR result that can never be stored", reason: inspect(reason))
+    :ok
+  end
+
+  defp classify({:error, _reason} = error), do: error
 
   @impl true
   def parse_message(%{data: data}) when is_binary(data) do

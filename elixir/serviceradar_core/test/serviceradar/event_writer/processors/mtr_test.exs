@@ -56,4 +56,56 @@ defmodule ServiceRadar.EventWriter.Processors.MtrTest do
     assert {:error, :db_down} = Mtr.persist(parsed, ingest: failed, broadcast: broadcast)
     refute_received {:broadcast, _}
   end
+
+  describe "process_batch/2" do
+    defp batch_message(target) do
+      message(envelope(%{"payload" => %{"results" => [%{"target" => target}]}}))
+    end
+
+    defp recording_ingest(failures) do
+      test_pid = self()
+
+      fn %{"results" => [%{"target" => target}]}, _status, _opts ->
+        send(test_pid, {:ingested, target})
+        Map.get(failures, target, :ok)
+      end
+    end
+
+    defp ingested_targets(acc \\ []) do
+      receive do
+        {:ingested, target} -> ingested_targets([target | acc])
+      after
+        0 -> Enum.reverse(acc)
+      end
+    end
+
+    test "a poison message does not stop later messages from being stored" do
+      messages = Enum.map(["192.0.2.1", "", "192.0.2.3"], &batch_message/1)
+      ingest = recording_ingest(%{"" => {:error, :missing_target_ip}})
+
+      assert {:ok, 3} = Mtr.process_batch(messages, ingest: ingest)
+      assert ingested_targets() == ["192.0.2.1", "", "192.0.2.3"]
+    end
+
+    test "a batch with only permanent failures is handled" do
+      messages = Enum.map(["192.0.2.1", "192.0.2.2"], &batch_message/1)
+
+      ingest =
+        recording_ingest(%{
+          "192.0.2.1" => {:error, :missing_target_ip},
+          "192.0.2.2" => {:error, :invalid_payload}
+        })
+
+      assert {:ok, 2} = Mtr.process_batch(messages, ingest: ingest)
+      assert ingested_targets() == ["192.0.2.1", "192.0.2.2"]
+    end
+
+    test "a transient failure is reported after every message was attempted" do
+      messages = Enum.map(["192.0.2.1", "192.0.2.2", "192.0.2.3"], &batch_message/1)
+      ingest = recording_ingest(%{"192.0.2.2" => {:error, :db_down}})
+
+      assert {:error, :db_down} = Mtr.process_batch(messages, ingest: ingest)
+      assert ingested_targets() == ["192.0.2.1", "192.0.2.2", "192.0.2.3"]
+    end
+  end
 end
