@@ -41,13 +41,18 @@ when its switch is on.
 environment: the goal overrides the source-authoritative id's rival record and records that
 decision, so the property must fail.
 
+Every `resolution_goal_*` configuration also checks `AddressNeverMerges`: no merge is ever
+caused by address or IP-alias evidence. No address-only record in the model ever holds an alias
+(sweep-created records get no alias sightings, as in the code), so absorbing one is unreachable
+either way; the property guards against any change that lets address evidence merge records.
+
 `MC*.tla` modules hold TLC-only definitions: environments, symmetry, views, vacuity predicates.
 
 ## Defect switches
 
 | Switch | Model | Code path | Witness property |
 |---|---|---|---|
-| `sync_alias_merge_unguarded` | resolution | `inventory/sync/aliases.ex` `attempt_alias_merge/5` | `NoFalseMerge` |
+| `sync_alias_merge_unguarded` | resolution | `inventory/sync/aliases.ex` `attempt_alias_merge/5` | `NoFalseMerge`; also `AddressNeverMerges` (`resolution_witness_sync_alias_address_merge`) |
 | `alias_merge_on_unknown_mac` | resolution | `inventory/identity/alias_guard.ex` `maybe_merge_ip_alias_device/3` | `NoFalseMerge` |
 | `src_attach_via_mac` | resolution | `inventory/identity/resolver.ex` `lookup_by_strong_identifiers/3` | `DistinctSourceIdsNeverMerge` |
 | `mac_only_conflicts_blocked` | resolution | `inventory/identity/merge_policy.ex` `mac_only_matches?/1` | `EvidenceConverges` |

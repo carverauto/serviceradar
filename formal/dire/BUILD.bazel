@@ -156,6 +156,14 @@ tlc_test(
 )
 
 tlc_test(
+    name = "resolution_witness_sync_alias_address_merge_test",
+    cfg = "resolution_witness_sync_alias_address_merge.cfg",
+    expect = "violation:AddressNeverMerges",
+    spec = "MCDireResolution.tla",
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
     name = "resolution_witness_sync_alias_merge_unguarded_test",
     cfg = "resolution_witness_sync_alias_merge_unguarded.cfg",
     expect = "violation:NoFalseMerge",

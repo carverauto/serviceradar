@@ -87,6 +87,7 @@ Four kinds of configuration:
   - `EvidenceConverges`: once identifiers are reported together, their owners are one record,
     unless two hold different source-authoritative ids.
   - `NoSilentDecision`
+  - `AddressNeverMerges`: no merge is caused by address or IP-alias evidence.
 
 **`DireLifecycle.tla`: merge, unmerge, soft delete, revival (upsert, sweep, gateway sync),
 purge, and the fence.**

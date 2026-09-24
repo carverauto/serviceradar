@@ -92,7 +92,7 @@ without doing both is a defect.
 
 | Requirement | Property (spec) |
 |---|---|
-| Address Is Evidence, Not Identity | `NoFalseMerge` (resolution) |
+| Address Is Evidence, Not Identity | `NoFalseMerge`, `AddressNeverMerges` (resolution) |
 | Source-Authoritative Identifiers Govern Identity | `DistinctSourceIdsNeverMerge` (resolution) |
 | One Live Owner Per Strong Identifier | `TypeOK`: `owner` is a function (both) |
 | Interface Identifiers Belong To Their Device | `EvidenceConverges` (resolution, router environment) |

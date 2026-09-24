@@ -83,7 +83,7 @@ TypeOK ==
     /\ alias \in [Ips -> SUBSET Recs]
     /\ phys \in [Recs -> SUBSET Phys]
     /\ act \in [name: STRING, decisions: SUBSET Decision, recorded: SUBSET Decision,
-                ids: SUBSET Ids]
+                ids: SUBSET Ids, addressMerged: SUBSET Recs]
 
 Live(r) == created[r] /\ into[r] = NoRec
 
@@ -124,14 +124,16 @@ Init ==
     /\ recIp = [r \in Recs |-> NoIp]
     /\ alias = [p \in Ips |-> {}]
     /\ phys = [r \in Recs |-> {}]
-    /\ act = [name |-> "Init", decisions |-> {}, recorded |-> {}, ids |-> {}]
+    /\ act = [name |-> "Init", decisions |-> {}, recorded |-> {}, ids |-> {},
+               addressMerged |-> {}]
 
 \* DHCP: an interface leases a free address or releases its lease.
 Lease(x, p) ==
     /\ p # ipAt[x]
     /\ p = NoIp \/ ~\E y \in Ifaces : ipAt[y] = p
     /\ ipAt' = [ipAt EXCEPT ![x] = p]
-    /\ act' = [name |-> "Lease", decisions |-> {}, recorded |-> {}, ids |-> {}]
+    /\ act' = [name |-> "Lease", decisions |-> {}, recorded |-> {}, ids |-> {},
+                addressMerged |-> {}]
     /\ UNCHANGED <<created, into, owner, recIp, alias, phys>>
 
 \* One observation of physical device h, seen at interface x's address, carrying the
@@ -229,7 +231,8 @@ Resolve(h, x, S, recordAlias, syncAlias, kind) ==
                    LET kept == (alias[q] \ merged) \ (IF q = p THEN step2Inval ELSE {}) IN
                    (IF alias[q] \cap merged # {} THEN kept \cup {target} ELSE kept)
                    \cup (IF recordAlias /\ q = p THEN {target} ELSE {})]
-    /\ act' = [name |-> kind, decisions |-> decisions, recorded |-> recorded, ids |-> S]
+    /\ act' = [name |-> kind, decisions |-> decisions, recorded |-> recorded, ids |-> S,
+                addressMerged |-> step2Merged]
     /\ UNCHANGED ipAt
 
 \* Armis sync: the Armis device id, plus the device's MACs when Armis reports them.
@@ -291,6 +294,10 @@ OwnersAfter(I) == {Canon(owner'[i]) : i \in {j \in I : owner'[j] # NoRec}}
 EvidenceConverges ==
     [][Cardinality(OwnersAfter(act'.ids)) <= 1
        \/ SrcConflictIn(owner', OwnersAfter(act'.ids))]_vars
+
+\* Address Is Evidence, Not Identity: no merge is ever caused by address or IP-alias evidence
+\* (step 2 of Resolve). Identifier conflicts (step 1) are the only merge path.
+AddressNeverMerges == [][act'.addressMerged = {}]_vars
 
 \* Identity Decisions Are Never Silent.
 NoSilentDecision == [][act'.decisions \subseteq act'.recorded]_vars
