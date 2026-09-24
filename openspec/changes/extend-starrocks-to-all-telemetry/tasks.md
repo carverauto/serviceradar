@@ -35,13 +35,18 @@
   already arrive on JetStream (`scans.results.>` -> `AdhocScan`), but `AdhocScan.ingest_mtr_traces`
   persists them through the same `MtrMetricsIngestor` into CNPG, so all four paths write CNPG
   directly today.
-  - [ ] 3.4.1 JetStream subject and stream for MTR trace results; core publishes on the three
+  - [x] 3.4.1 JetStream subject and stream for MTR trace results; core publishes on the three
     core-side paths (scheduled, on-demand, bulk) instead of calling the ingestor. Add it to the
     EventWriter default streams.
+    - `mtr.results.ingest`, stream `mtr_results` (`MTR_RESULTS`), one message per trace published
+      with a JetStream PubAck by `MtrResultPublisher`; core's NATS publish allow-list includes it.
   - [ ] 3.4.2 EventWriter `Mtr` processor: normalizes and enriches as `MtrMetricsIngestor` does
     today, persists traces and hops (warehouse when StarRocks is enabled, CNPG otherwise), then
     runs `MtrGraph.project_traces` and `MtrPubSub.broadcast_ingest` so live pages keep updating.
     The processor is the single owner; core keeps no direct MTR write.
+    - CNPG half done: `Processors.Mtr` stores through `MtrMetricsIngestor` with a per-trace
+      `trace_uuid` and `skip_existing`, so redelivery is a no-op, then announces on `MtrPubSub`.
+      The warehouse half lands with 3.4.4.
   - [ ] 3.4.3 `AdhocScan` hands MTR traces to the same warehouse-aware MTR persistence the `Mtr`
     processor uses instead of calling `MtrMetricsIngestor`, so scheduled, on-demand, bulk and
     ad-hoc traces share one owner and none writes CNPG when StarRocks is enabled.
@@ -56,7 +61,10 @@
     detail, Compare windows and paths), the dashboard MTR summary and sparklines, the Ash-backed
     trace and Compare pages, the device MTR tab and SRQL `in:mtr_traces`/`in:mtr_hops`; each
     behind its parity comparison.
-  - [ ] 3.4.7 Delete the MTR exception from the AGENTS.md JetStream rule when 3.4.1 and 3.4.3 land.
+  - [x] 3.4.7 Delete the MTR exception from the AGENTS.md JetStream rule when 3.4.1 and 3.4.3 land.
+    - Done with 3.4.1: after it, no MTR path bypasses JetStream (ad-hoc traces already arrive on
+      `scans.results.>` and are written inside EventWriter). 3.4.3 is about warehouse-awareness,
+      not JetStream, so it does not keep the exception true.
 - [ ] 3.4b BMP routing events and service status history: table, EventWriter destination, routing,
   readers.
 - [ ] 3.5 Measure trace-by-id and single-device detail latency cold and warm; record against the detail-page budget.
