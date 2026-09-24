@@ -16,6 +16,7 @@
 # 0016 DROPs and recreates the flow hourly rollup; 0017 recreates all three
 # partitioned by day, so a refresh touches only the days that changed.
 # 0018 adds the event JSON documents SRQL filters by path.
+# 0019 creates the MTR trace and hop tables, partitioned by day from the start.
 # The cnpg_platform JDBC catalog is not here: it is created by
 # helm/serviceradar/templates/starrocks-catalog-job.yaml, and the relations it
 # may expose are owned by ServiceRadar.Analytics.StarRocks.CatalogAllowlist.

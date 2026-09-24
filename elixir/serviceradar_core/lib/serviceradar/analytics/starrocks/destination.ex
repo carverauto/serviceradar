@@ -7,6 +7,10 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
   with the same stable identities. Shadow failure does not fail JetStream ACK
   until the dataset is listed in `cutover_datasets`; then Stream Load Success
   or durable quarantine is required before ACK.
+
+  MTR traces and hops (`:mtr_traces`, `:mtr_hops`) are not shadowed: while
+  StarRocks is enabled they are written to the warehouse only, through
+  `persist_warehouse/3`, and a failed load fails the ACK.
   """
 
   alias ServiceRadar.Analytics.StarRocks
@@ -17,7 +21,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
 
   require Logger
 
-  @type dataset :: :flows | :flow_attribution | :metrics | :logs | :events
+  @type dataset ::
+          :flows | :flow_attribution | :metrics | :logs | :events | :mtr_traces | :mtr_hops
   @type dest :: :cnpg | :starrocks
 
   @tables %{
@@ -25,11 +30,50 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
     flow_attribution: "ocsf_network_activity",
     metrics: "timeseries_metrics",
     logs: "logs",
-    events: "events"
+    events: "events",
+    mtr_traces: "mtr_traces",
+    mtr_hops: "mtr_hops"
   }
 
   @spec table_for(dataset()) :: String.t()
   def table_for(dataset) when is_map_key(@tables, dataset), do: Map.fetch!(@tables, dataset)
+
+  @doc """
+  Whether StarRocks is the active telemetry backend (`analytics.starrocks.enabled`).
+  """
+  @spec enabled?() :: boolean()
+  def enabled? do
+    env = Application.get_env(:serviceradar_core, StarRocks, [])
+    Keyword.get(env, :enabled, false) == true
+  end
+
+  @doc """
+  Loads rows into the warehouse only, for a dataset whose rows are written to
+  the warehouse instead of CNPG while StarRocks is enabled.
+
+  Stream Load Success or quarantine is `{:ok, _}`; anything else is
+  `{:error, _}`, so the caller fails its JetStream acknowledgement and the
+  message is redelivered. There is no CNPG fallback.
+  """
+  @spec persist_warehouse(dataset(), [map()], keyword()) :: {:ok, map()} | {:error, term()}
+  def persist_warehouse(dataset, rows, opts \\ [])
+
+  def persist_warehouse(dataset, [], _opts), do: {:ok, %{dataset: dataset, loaded: 0}}
+
+  def persist_warehouse(dataset, rows, opts) when is_list(rows) do
+    encoded = Rows.encode(dataset, rows)
+
+    case persist_starrocks(dataset, encoded, MapSet.new(), opts) do
+      {:ok, result} when is_map(result) ->
+        {:ok, Map.merge(%{dataset: dataset, loaded: length(encoded)}, result)}
+
+      {:error, reason} ->
+        {:error, {:warehouse_load, dataset, reason}}
+
+      other ->
+        {:error, {:warehouse_load, dataset, other}}
+    end
+  end
 
   @spec maybe_shadow(dataset(), [map()], keyword()) ::
           {:ok, map()} | {:ok, :disabled} | {:error, term()}

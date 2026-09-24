@@ -5,7 +5,29 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
 
   alias ServiceRadar.Analytics.StarRocks.Identity
 
-  @type dataset :: Identity.dataset()
+  @type dataset :: Identity.dataset() | :mtr_traces | :mtr_hops
+
+  # priv/starrocks/0019: every column of platform.mtr_traces / platform.mtr_hops
+  # under the same name. Scalars are carried as built by
+  # MtrMetricsIngestor.rows/2; nil stays NULL, and `false` and `0` stay what
+  # they are.
+  @mtr_trace_text ~w(agent_id gateway_id check_id check_name device_id target target_ip
+                     protocol partition error)a
+
+  @mtr_trace_values ~w(target_reached total_hops probed_hops last_responding_hop tcp_port
+                       ip_version packet_size tcp_handshake_ttl tcp_handshake_attempts
+                       tcp_syn_sent tcp_synack_received tcp_rst_received tcp_syn_unanswered
+                       tcp_syn_drop_pct tcp_syn_retransmits tcp_answered_after_retx
+                       tcp_ack_mismatch tcp_synack_duplicates tcp_handshake_rtt_min_us
+                       tcp_handshake_rtt_avg_us tcp_handshake_rtt_max_us
+                       tcp_server_response_us)a
+
+  @mtr_hop_text ~w(target_ip device_id addr hostname asn_org)a
+
+  @mtr_hop_values ~w(hop_number asn sent received loss_pct last_us avg_us min_us max_us
+                     stddev_us jitter_us jitter_worst_us jitter_interarrival_us
+                     unreachable_code reply_time_exceeded reply_unreachable reply_synack
+                     reply_rst)a
 
   @spec encode(dataset(), [map()]) :: [map()]
   def encode(dataset, rows) when is_list(rows) do
@@ -144,6 +166,29 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
     }
   end
 
+  defp encode_row(:mtr_traces, row) do
+    row
+    |> mtr_columns(@mtr_trace_text, @mtr_trace_values)
+    |> Map.merge(%{
+      "id" => uuid_text(value(row, :id)),
+      "time" => datetime(value(row, :time)),
+      "created_at" => created_at(row)
+    })
+  end
+
+  defp encode_row(:mtr_hops, row) do
+    row
+    |> mtr_columns(@mtr_hop_text, @mtr_hop_values)
+    |> Map.merge(%{
+      "id" => uuid_text(value(row, :id)),
+      "time" => datetime(value(row, :time)),
+      "trace_id" => uuid_text(value(row, :trace_id)),
+      "ecmp_addrs" => text_list(value(row, :ecmp_addrs)),
+      "mpls_labels" => json_document(value(row, :mpls_labels)),
+      "created_at" => created_at(row)
+    })
+  end
+
   # priv/starrocks/0018: the documents are VARCHAR(1048576), and a value wider
   # than its column is a load error. An oversized document is dropped so the
   # event itself still lands. That event is then outside every document-path
@@ -254,6 +299,53 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
   defp field(row, key) when is_atom(key) do
     Map.get(row, key) || Map.get(row, Atom.to_string(key))
   end
+
+  # `field/2` reads `false` as absent, which a NOT NULL boolean cannot afford.
+  defp value(row, key) when is_atom(key) do
+    case Map.fetch(row, key) do
+      {:ok, value} -> value
+      :error -> Map.get(row, Atom.to_string(key))
+    end
+  end
+
+  defp mtr_columns(row, text_columns, value_columns) do
+    text = Map.new(text_columns, &{Atom.to_string(&1), stringify(value(row, &1))})
+    values = Map.new(value_columns, &{Atom.to_string(&1), value(row, &1)})
+    Map.merge(text, values)
+  end
+
+  defp uuid_text(id) when is_binary(id) and byte_size(id) == 16 do
+    case Ecto.UUID.load(id) do
+      {:ok, uuid} -> uuid
+      :error -> nil
+    end
+  end
+
+  defp uuid_text(id), do: stringify(id)
+
+  # The CNPG insert leaves created_at to the column default; the warehouse
+  # column has none, so the load stamps it.
+  defp created_at(row) do
+    datetime(value(row, :created_at) || DateTime.utc_now())
+  end
+
+  defp text_list(nil), do: nil
+  defp text_list(values) when is_list(values), do: Enum.map(values, &stringify/1)
+  defp text_list(_values), do: nil
+
+  # A JSON column takes the document itself; a JSON-encoded string would load
+  # as a JSON string rather than an object.
+  defp json_document(nil), do: nil
+  defp json_document(value) when is_map(value) or is_list(value), do: value
+
+  defp json_document(value) when is_binary(value) do
+    case Jason.decode(value) do
+      {:ok, decoded} when is_map(decoded) or is_list(decoded) -> decoded
+      _ -> nil
+    end
+  end
+
+  defp json_document(_value), do: nil
 
   defp src_endpoint_ip(row) do
     case field(row, :src_endpoint_ip) || map_get(field(row, :src_endpoint), "ip") do

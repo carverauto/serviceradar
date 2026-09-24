@@ -5,6 +5,10 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
   Dataset names are mapped from a closed list so operator env cannot mint atoms.
   """
 
+  # These name the datasets the shadow and cutover lists may carry. MTR is
+  # deliberately absent: its traces and hops go to the warehouse whenever
+  # StarRocks is enabled and to CNPG otherwise, with no shadow or cutover stage,
+  # so naming it in either list would mean nothing.
   @datasets %{
     "flows" => :flows,
     "flow_attribution" => :flow_attribution,
@@ -17,8 +21,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
 
   # Daily partitions, so retention is a partition count. Per dataset: flows and
   # metrics mirror the 90-day CNPG raw policy, logs and event history carry the
-  # hosted one-year retention. These are the values baked into the shipped DDL.
-  @default_retention_days [flows: 90, metrics: 90, logs: 365, events: 365]
+  # hosted one-year retention, and MTR (traces and hops together) the default
+  # MTR history of `MtrSettings`. These are the values baked into the shipped DDL.
+  @default_retention_days [flows: 90, metrics: 90, logs: 365, events: 365, mtr: 30]
 
   # How far an hourly materialized view may lag its source table before a
   # reader stops trusting it. The views refresh asynchronously with no

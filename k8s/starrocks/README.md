@@ -240,6 +240,14 @@ backoff, continuing from the days already copied; retention logs
 `is not range partitioned` for a table until its rebuild completes. A fresh
 warehouse is partitioned from `0001` and is not affected.
 
+`0019` creates `mtr_traces` and `mtr_hops`, with the column names of the CNPG
+tables of the same name, partitioned by day from the start, so the rebuild
+never touches them. MTR is not shadowed: while `analytics.starrocks.enabled`
+is true, EventWriter writes MTR traces and hops to these two tables only, and
+a failed load is redelivered from JetStream rather than written to CNPG. Their
+retention is `analytics.starrocks.retentionDays.mtr` (default 30), applied to
+both tables.
+
 `cutoverDatasets` defaults to empty, so metric, log and event panels stay on
 CNPG throughout; the NetFlow panel does not fall back -- it is refused with a
 warehouse-required error until `flows` is cut over to a populated warehouse.

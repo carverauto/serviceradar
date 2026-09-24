@@ -5,6 +5,10 @@ defmodule ServiceRadar.EventWriter.Processors.MtrTest do
 
   defp message(map), do: %{data: Jason.encode!(map), metadata: %{}}
 
+  # The backend is chosen explicitly: other modules toggle the StarRocks switch
+  # in application env, and these tests run concurrently with them.
+  defp cnpg(opts), do: Keyword.put(opts, :starrocks_enabled, false)
+
   defp envelope(extra \\ %{}) do
     Map.merge(
       %{
@@ -38,7 +42,13 @@ defmodule ServiceRadar.EventWriter.Processors.MtrTest do
       :ok
     end
 
-    assert :ok = Mtr.persist(parsed, ingest: ingest, broadcast: fn _ -> flunk("no broadcast") end)
+    assert :ok =
+             Mtr.persist(parsed,
+               starrocks_enabled: false,
+               ingest: ingest,
+               broadcast: fn _ -> flunk("no broadcast") end
+             )
+
     assert_received {:ingest, _payload, %{agent_id: "agent-01"}, [skip_existing: true]}
   end
 
@@ -50,10 +60,10 @@ defmodule ServiceRadar.EventWriter.Processors.MtrTest do
     failed = fn _payload, _status, _opts -> {:error, :db_down} end
     broadcast = fn announced -> send(self(), {:broadcast, announced}) end
 
-    assert :ok = Mtr.persist(parsed, ingest: stored, broadcast: broadcast)
+    assert :ok = Mtr.persist(parsed, cnpg(ingest: stored, broadcast: broadcast))
     assert_received {:broadcast, %{command_id: "cmd-1", target: "192.0.2.1"}}
 
-    assert {:error, :db_down} = Mtr.persist(parsed, ingest: failed, broadcast: broadcast)
+    assert {:error, :db_down} = Mtr.persist(parsed, cnpg(ingest: failed, broadcast: broadcast))
     refute_received {:broadcast, _}
   end
 
@@ -83,7 +93,7 @@ defmodule ServiceRadar.EventWriter.Processors.MtrTest do
       messages = Enum.map(["192.0.2.1", "", "192.0.2.3"], &batch_message/1)
       ingest = recording_ingest(%{"" => {:error, :missing_target_ip}})
 
-      assert {:ok, 3} = Mtr.process_batch(messages, ingest: ingest)
+      assert {:ok, 3} = Mtr.process_batch(messages, cnpg(ingest: ingest))
       assert ingested_targets() == ["192.0.2.1", "", "192.0.2.3"]
     end
 
@@ -96,7 +106,7 @@ defmodule ServiceRadar.EventWriter.Processors.MtrTest do
           "192.0.2.2" => {:error, :invalid_payload}
         })
 
-      assert {:ok, 2} = Mtr.process_batch(messages, ingest: ingest)
+      assert {:ok, 2} = Mtr.process_batch(messages, cnpg(ingest: ingest))
       assert ingested_targets() == ["192.0.2.1", "192.0.2.2"]
     end
 
@@ -104,8 +114,91 @@ defmodule ServiceRadar.EventWriter.Processors.MtrTest do
       messages = Enum.map(["192.0.2.1", "192.0.2.2", "192.0.2.3"], &batch_message/1)
       ingest = recording_ingest(%{"192.0.2.2" => {:error, :db_down}})
 
-      assert {:error, :db_down} = Mtr.process_batch(messages, ingest: ingest)
+      assert {:error, :db_down} = Mtr.process_batch(messages, cnpg(ingest: ingest))
       assert ingested_targets() == ["192.0.2.1", "192.0.2.2", "192.0.2.3"]
+    end
+  end
+
+  describe "with StarRocks enabled" do
+    defp warehouse(opts) do
+      test_pid = self()
+
+      Keyword.merge(
+        [
+          starrocks_enabled: true,
+          ingest: fn _payload, _status, _opts -> flunk("CNPG must not be written") end,
+          load: fn dataset, rows ->
+            send(test_pid, {:load, dataset, rows})
+            {:ok, %{loaded: length(rows)}}
+          end,
+          project: fn results, status -> send(test_pid, {:project, results, status}) end,
+          broadcast: fn announced -> send(test_pid, {:broadcast, announced}) end
+        ],
+        opts
+      )
+    end
+
+    defp trace_message(extra \\ %{}) do
+      trace_uuid = "9c8b7a69-5847-4362-9150-4f3e2d1c0b0a"
+
+      result = %{
+        "target" => "192.0.2.20",
+        "trace_uuid" => trace_uuid,
+        "timestamp" => 1_780_000_000,
+        "trace" => %{
+          "target_ip" => "192.0.2.20",
+          "hops" => [
+            %{"hop_number" => 1, "addr" => "198.51.100.1", "asn" => %{"asn" => 64_500}},
+            %{"hop_number" => 2, "addr" => "192.0.2.20", "asn" => %{"asn" => 64_501}}
+          ]
+        }
+      }
+
+      message(envelope(Map.merge(%{"payload" => %{"results" => [result]}}, extra)))
+    end
+
+    test "traces and hops are loaded into the warehouse, and CNPG is not written" do
+      announce = %{"command_id" => "cmd-2", "target" => "192.0.2.20", "agent_id" => "agent-01"}
+      messages = [trace_message(%{"broadcast" => announce})]
+
+      assert {:ok, 1} = Mtr.process_batch(messages, warehouse([]))
+
+      assert_received {:load, :mtr_traces, [%{id: "9c8b7a69-5847-4362-9150-4f3e2d1c0b0a"}]}
+      assert_received {:load, :mtr_hops, [%{hop_number: 1} = first, %{hop_number: 2}]}
+      assert first.trace_id == "9c8b7a69-5847-4362-9150-4f3e2d1c0b0a"
+      assert_received {:project, [%{"trace_uuid" => _}], %{agent_id: "agent-01"}}
+      assert_received {:broadcast, %{command_id: "cmd-2"}}
+    end
+
+    test "a failed warehouse load fails the batch, and is not written to CNPG instead" do
+      load = fn
+        :mtr_traces, _rows -> {:ok, %{loaded: 1}}
+        :mtr_hops, _rows -> {:error, {:warehouse_load, :mtr_hops, :connect_failed}}
+      end
+
+      assert {:error, {:warehouse_load, :mtr_hops, :connect_failed}} =
+               Mtr.process_batch([trace_message()], warehouse(load: load))
+
+      refute_received {:project, _, _}
+      refute_received {:broadcast, _}
+    end
+
+    test "a redelivered trace loads the same keys again" do
+      keys = fn ->
+        assert {:ok, 1} = Mtr.process_batch([trace_message()], warehouse([]))
+        assert_received {:load, :mtr_traces, traces}
+        assert_received {:load, :mtr_hops, hops}
+        Enum.map(traces ++ hops, &{&1.id, &1.time})
+      end
+
+      assert keys.() == keys.()
+    end
+
+    test "a trace that can never be stored is dropped, not retried" do
+      messages = [message(envelope(%{"payload" => %{"results" => [%{"target" => ""}]}}))]
+
+      assert {:ok, 1} = Mtr.process_batch(messages, warehouse([]))
+      refute_received {:load, _, _}
     end
   end
 end

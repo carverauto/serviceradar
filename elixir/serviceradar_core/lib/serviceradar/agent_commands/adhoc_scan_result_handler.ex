@@ -6,7 +6,9 @@ defmodule ServiceRadar.AgentCommands.AdhocScanResultHandler do
     * republishes each result row onto JetStream (`scans.results.<scan_run_id>`)
       so results traverse JetStream before the event-writer persists them —
       the command channel is used only for interactive delivery, never as the
-      system of record; and
+      system of record. Each publish waits for the stream's PubAck, so a row
+      no stream stored (a missing stream, a denied subject) is logged rather
+      than dropped silently; and
     * advances the owning `ScanRun` lifecycle (running -> completed/partial/
       failed) with a system actor.
 
@@ -15,7 +17,7 @@ defmodule ServiceRadar.AgentCommands.AdhocScanResultHandler do
   """
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.NATS.Connection
+  alias ServiceRadar.NATS.JetStreamPublish
   alias ServiceRadar.Scans.ScanRun
 
   require Logger
@@ -57,7 +59,10 @@ defmodule ServiceRadar.AgentCommands.AdhocScanResultHandler do
 
   # --- JetStream republish ---
 
-  defp publish_rows(payload, data) do
+  @doc false
+  # `:publish` replaces `JetStreamPublish.publish/3` (tests).
+  def publish_rows(payload, data, opts \\ []) do
+    publish = Keyword.get(opts, :publish, &JetStreamPublish.publish/3)
     scan_run_id = payload["scan_run_id"] || payload[:scan_run_id]
     results = payload["results"] || payload[:results] || []
 
@@ -70,7 +75,7 @@ defmodule ServiceRadar.AgentCommands.AdhocScanResultHandler do
       Enum.each(results, fn row ->
         row
         |> enrich_row(scan_run_id, agent_id, gateway_id, partition)
-        |> publish(subject)
+        |> publish_row(subject, publish)
       end)
     end
 
@@ -88,12 +93,17 @@ defmodule ServiceRadar.AgentCommands.AdhocScanResultHandler do
 
   defp enrich_row(_row, _scan_run_id, _agent_id, _gateway_id, _partition), do: nil
 
-  defp publish(nil, _subject), do: :ok
+  defp publish_row(nil, _subject, _publish), do: :ok
 
-  defp publish(row, subject) do
-    case Jason.encode(row) do
-      {:ok, json} -> Connection.publish(subject, json)
-      {:error, reason} -> Logger.warning("Ad-hoc scan row encode failed: #{inspect(reason)}")
+  defp publish_row(row, subject, publish) do
+    with {:ok, json} <- Jason.encode(row),
+         :ok <- publish.(subject, json, []) do
+      :ok
+    else
+      {:error, reason} ->
+        Logger.warning("Ad-hoc scan row not stored on JetStream #{subject}: #{inspect(reason)}")
+
+        :ok
     end
   end
 

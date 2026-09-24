@@ -118,9 +118,12 @@ partitioned by day, so each `STARROCKS_RETENTION_DAYS_*` value is the number of
 daily partitions kept; anything older is dropped.
 `STARROCKS_RETENTION_DAYS_FLOWS` and `STARROCKS_RETENTION_DAYS_METRICS` default
 to 90, `STARROCKS_RETENTION_DAYS_LOGS` and `STARROCKS_RETENTION_DAYS_EVENTS` to
-365. Core applies them at start and retries with backoff until the warehouse
+365, and `STARROCKS_RETENTION_DAYS_MTR` (MTR traces and hops together) to 30.
+Core applies them at start and retries with backoff until the warehouse
 accepts them, so a slow Frontend does not leave the tables on their DDL
-default.
+default. With the warehouse enabled, MTR traces and hops are stored only there,
+so `STARROCKS_RETENTION_DAYS_MTR` is the MTR retention that applies; the value
+saved in Settings -> Networks -> MTR governs the CNPG tables only.
 
 Hourly charts are served from the `*_hourly` materialized views only while
 those views have kept up with the tables they aggregate; otherwise the query

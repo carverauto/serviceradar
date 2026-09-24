@@ -330,6 +330,8 @@ The shadow list is included explicitly because it is derived, not set.
   value: {{ $retention.logs | default 365 | quote }}
 - name: SERVICERADAR_STARROCKS_RETENTION_DAYS_EVENTS
   value: {{ $retention.events | default 365 | quote }}
+- name: SERVICERADAR_STARROCKS_RETENTION_DAYS_MTR
+  value: {{ $retention.mtr | default 30 | quote }}
 {{- /* Not `default`: sprig treats 0 as empty, and 0 is the strictest setting
        this knob accepts (serve only a fully current view), not an absent one. */}}
 {{- $rollupStaleAfter := 7200 }}
