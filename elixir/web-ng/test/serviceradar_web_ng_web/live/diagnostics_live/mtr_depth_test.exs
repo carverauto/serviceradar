@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDepthTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.Helpers
+  alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrData
   alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrDepth
 
   @moduletag :db_free
@@ -104,6 +105,36 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDepthTest do
       assert dashboard.max_hops == 8
       assert Helpers.trace_hop_width(icmp, dashboard.max_hops) == "100.0%"
       assert Helpers.trace_hop_width(tcp, dashboard.max_hops) == "50.0%"
+    end
+  end
+
+  describe "MtrData.build_trends/1 hop series" do
+    test "plots the responding depth, so an unreached TCP trace does not spike the sparkline" do
+      icmp = %{
+        "time" => ~U[2026-08-30 12:00:00Z],
+        "target_reached" => true,
+        "total_hops" => 6,
+        "last_responding_hop" => 6,
+        "probed_hops" => 6
+      }
+
+      tcp = %{
+        "time" => ~U[2026-08-30 11:59:00Z],
+        "target_reached" => false,
+        "total_hops" => 30,
+        "last_responding_hop" => 4,
+        "probed_hops" => 30
+      }
+
+      legacy = %{"time" => ~U[2026-08-30 11:58:00Z], "target_reached" => false, "total_hops" => 9}
+
+      assert %{hops: hops} = MtrData.build_trends([icmp, tcp, legacy])
+
+      assert hops == [
+               {legacy["time"], 9},
+               {tcp["time"], 4},
+               {icmp["time"], 6}
+             ]
     end
   end
 end

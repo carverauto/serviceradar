@@ -62,7 +62,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
           </.ui_badge>
           <.ui_badge :if={trace["target_reached"]} size="sm" variant="success">Reached</.ui_badge>
           <.ui_badge :if={!trace["target_reached"]} size="sm" variant="error">Not reached</.ui_badge>
-          <span class="font-mono">{trace["total_hops"]} hops</span>
+          <span class="font-mono" title={MtrDepth.depth_summary(trace)}>
+            {MtrDepth.hop_count_label(trace)} hops
+          </span>
         </button>
       </div>
 

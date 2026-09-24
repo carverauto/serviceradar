@@ -121,6 +121,45 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponentsTest do
     assert html =~ ~r/id="device-mtr-avg-responding-depth"[^>]*>.*?<div[^>]*>\s*4\.5\s*<\/div>/s
   end
 
+  test "latest-by-protocol strip shows responding depth for an unreached TCP trace, not its recorded hops" do
+    html =
+      render_component(&MtrComponents.mtr_tab_content/1,
+        device_uid: "sr:router-1",
+        recent_traces: [
+          %{
+            "id" => "icmp-reached",
+            "time" => ~U[2026-08-30 12:00:00Z],
+            "target" => "198.51.100.10",
+            "target_reached" => true,
+            "total_hops" => 6,
+            "probed_hops" => 6,
+            "last_responding_hop" => 6,
+            "protocol" => "icmp"
+          },
+          %{
+            "id" => "tcp-unreached",
+            "time" => ~U[2026-08-30 11:59:00Z],
+            "target" => "198.51.100.10",
+            "target_reached" => false,
+            "total_hops" => 30,
+            "probed_hops" => 30,
+            "last_responding_hop" => 4,
+            "protocol" => "tcp",
+            "tcp_port" => 443
+          }
+        ],
+        pending_jobs: [],
+        trends: %{hops: [], latency: []}
+      )
+
+    [strip] = Regex.run(~r/id="device-mtr-latest-by-protocol".*?<\/button>.*?<\/button>/s, html)
+
+    assert strip =~ "6 hops"
+    assert strip =~ "4/30 hops"
+    assert strip =~ "No reply past hop 4 (30 probed)"
+    refute strip =~ "30 hops"
+  end
+
   test "tab summary derives the responding depth from hops for an older unreached trace" do
     html =
       render_component(&MtrComponents.mtr_tab_content/1,
