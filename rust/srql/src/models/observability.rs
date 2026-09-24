@@ -36,6 +36,12 @@ pub struct MtrHopRow {
     pub jitter_worst_us: Option<i64>,
     pub jitter_interarrival_us: Option<i64>,
     pub created_at: DateTime<Utc>,
+    // Reply-type counts for this hop. NULL means the agent did not report them
+    // (an older agent), which is distinct from a reported zero.
+    pub reply_time_exceeded: Option<i32>,
+    pub reply_unreachable: Option<i32>,
+    pub reply_synack: Option<i32>,
+    pub reply_rst: Option<i32>,
 }
 
 impl MtrHopRow {
@@ -65,6 +71,10 @@ impl MtrHopRow {
             "jitter_worst_us": self.jitter_worst_us,
             "jitter_interarrival_us": self.jitter_interarrival_us,
             "created_at": self.created_at,
+            "reply_time_exceeded": self.reply_time_exceeded,
+            "reply_unreachable": self.reply_unreachable,
+            "reply_synack": self.reply_synack,
+            "reply_rst": self.reply_rst,
         })
     }
 }
@@ -221,6 +231,24 @@ pub struct MtrTraceRow {
     pub partition: Option<String>,
     pub error: Option<String>,
     pub created_at: DateTime<Utc>,
+    // TCP SYN handshake diagnostics. NULL means not reported: an older agent,
+    // or a trace that did not run the raw TCP SYN handshake (a non-TCP
+    // protocol, or the connect() fallback).
+    pub tcp_handshake_ttl: Option<i32>,
+    pub tcp_handshake_attempts: Option<i32>,
+    pub tcp_syn_sent: Option<i32>,
+    pub tcp_synack_received: Option<i32>,
+    pub tcp_rst_received: Option<i32>,
+    pub tcp_syn_unanswered: Option<i32>,
+    pub tcp_syn_drop_pct: Option<f64>,
+    pub tcp_syn_retransmits: Option<i32>,
+    pub tcp_answered_after_retx: Option<i32>,
+    pub tcp_ack_mismatch: Option<i32>,
+    pub tcp_synack_duplicates: Option<i32>,
+    pub tcp_handshake_rtt_min_us: Option<i64>,
+    pub tcp_handshake_rtt_avg_us: Option<i64>,
+    pub tcp_handshake_rtt_max_us: Option<i64>,
+    pub tcp_server_response_us: Option<i64>,
 }
 
 impl MtrTraceRow {
@@ -243,6 +271,21 @@ impl MtrTraceRow {
             "partition": self.partition,
             "error": self.error,
             "created_at": self.created_at,
+            "tcp_handshake_ttl": self.tcp_handshake_ttl,
+            "tcp_handshake_attempts": self.tcp_handshake_attempts,
+            "tcp_syn_sent": self.tcp_syn_sent,
+            "tcp_synack_received": self.tcp_synack_received,
+            "tcp_rst_received": self.tcp_rst_received,
+            "tcp_syn_unanswered": self.tcp_syn_unanswered,
+            "tcp_syn_drop_pct": self.tcp_syn_drop_pct,
+            "tcp_syn_retransmits": self.tcp_syn_retransmits,
+            "tcp_answered_after_retx": self.tcp_answered_after_retx,
+            "tcp_ack_mismatch": self.tcp_ack_mismatch,
+            "tcp_synack_duplicates": self.tcp_synack_duplicates,
+            "tcp_handshake_rtt_min_us": self.tcp_handshake_rtt_min_us,
+            "tcp_handshake_rtt_avg_us": self.tcp_handshake_rtt_avg_us,
+            "tcp_handshake_rtt_max_us": self.tcp_handshake_rtt_max_us,
+            "tcp_server_response_us": self.tcp_server_response_us,
         })
     }
 }

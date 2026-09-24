@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
   import ServiceRadarWebNGWeb.SRQLComponents, only: [srql_sparkline: 1]
 
   alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrDepth
+  alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrHandshake
 
   attr(:device_uid, :string, required: true)
   attr(:fallback_target, :string, default: nil)
@@ -441,6 +442,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
             </div>
           </div>
 
+          <div :if={@trace["protocol"] == "tcp"} class="sr-mtr-panel mb-4 p-4">
+            <MtrHandshake.handshake_panel trace={@trace} id="device-mtr-tcp-handshake" />
+          </div>
+
           <div
             :if={@hops != []}
             class="sr-mtr-panel mb-4 p-4"
@@ -497,6 +502,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
                   <th class="text-right">Avg</th>
                   <th class="text-right">Min</th>
                   <th class="text-right">Max</th>
+                  <th title="Replies by kind: Time Exceeded, Destination Unreachable, SYN-ACK, RST">
+                    Replies
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -524,17 +532,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
                   <td class="text-right font-mono text-sm tabular-nums">
                     {format_us_mtr(hop["max_us"])}
                   </td>
+                  <td class="font-mono text-xs">{MtrHandshake.reply_summary(hop)}</td>
                 </tr>
                 <tr :if={@silent_tail} class="opacity-50">
                   <td class="text-center font-mono tabular-nums">
                     {@silent_tail.from}-{@silent_tail.to}
                   </td>
-                  <td colspan="7" class="text-sm text-sr-muted">
+                  <td colspan="8" class="text-sm text-sr-muted">
                     {@silent_tail.count} hops with no reply (probing continued past the last answer)
                   </td>
                 </tr>
                 <tr :if={@hops == []}>
-                  <td colspan="8" class="sr-mtr-muted py-4 text-center">
+                  <td colspan="9" class="sr-mtr-muted py-4 text-center">
                     No hop data available
                   </td>
                 </tr>

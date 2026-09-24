@@ -66,7 +66,11 @@ defmodule ServiceRadar.Observability.MtrHop do
         :jitter_us,
         :jitter_worst_us,
         :jitter_interarrival_us,
-        :unreachable_code
+        :unreachable_code,
+        :reply_time_exceeded,
+        :reply_unreachable,
+        :reply_synack,
+        :reply_rst
       ]
     end
   end
@@ -199,6 +203,26 @@ defmodule ServiceRadar.Observability.MtrHop do
       public? true
 
       description "ICMP Destination Unreachable code this hop returned (ICMPv4 or ICMPv6 numbering)"
+    end
+
+    attribute :reply_time_exceeded, :integer do
+      public? true
+      description "ICMP Time Exceeded replies from this hop"
+    end
+
+    attribute :reply_unreachable, :integer do
+      public? true
+      description "ICMP Destination Unreachable replies from this hop"
+    end
+
+    attribute :reply_synack, :integer do
+      public? true
+      description "TCP SYN-ACK replies from this hop"
+    end
+
+    attribute :reply_rst, :integer do
+      public? true
+      description "TCP RST replies from this hop"
     end
 
     attribute :created_at, :utc_datetime_usec do

@@ -66,7 +66,22 @@ defmodule ServiceRadar.Observability.MtrTrace do
         :ip_version,
         :packet_size,
         :partition,
-        :error
+        :error,
+        :tcp_handshake_ttl,
+        :tcp_handshake_attempts,
+        :tcp_syn_sent,
+        :tcp_synack_received,
+        :tcp_rst_received,
+        :tcp_syn_unanswered,
+        :tcp_syn_drop_pct,
+        :tcp_syn_retransmits,
+        :tcp_answered_after_retx,
+        :tcp_ack_mismatch,
+        :tcp_synack_duplicates,
+        :tcp_handshake_rtt_min_us,
+        :tcp_handshake_rtt_avg_us,
+        :tcp_handshake_rtt_max_us,
+        :tcp_server_response_us
       ]
     end
   end
@@ -175,6 +190,81 @@ defmodule ServiceRadar.Observability.MtrTrace do
 
     attribute :error, :string do
       public? true
+    end
+
+    attribute :tcp_handshake_ttl, :integer do
+      public? true
+      description "TTL the destination handshake SYNs were sent with"
+    end
+
+    attribute :tcp_handshake_attempts, :integer do
+      public? true
+      description "Handshakes attempted; each is one SYN plus its retransmissions"
+    end
+
+    attribute :tcp_syn_sent, :integer do
+      public? true
+      description "Destination-phase SYNs sent, retransmissions included"
+    end
+
+    attribute :tcp_synack_received, :integer do
+      public? true
+      description "Handshake attempts the target answered with SYN-ACK"
+    end
+
+    attribute :tcp_rst_received, :integer do
+      public? true
+      description "Handshake attempts the target answered with RST"
+    end
+
+    attribute :tcp_syn_unanswered, :integer do
+      public? true
+      description "Handshake attempts that got no answer after every retransmission"
+    end
+
+    attribute :tcp_syn_drop_pct, :float do
+      public? true
+      description "Unanswered handshakes as a percentage of handshakes attempted"
+    end
+
+    attribute :tcp_syn_retransmits, :integer do
+      public? true
+      description "SYNs re-sent after the per-probe timeout"
+    end
+
+    attribute :tcp_answered_after_retx, :integer do
+      public? true
+      description "Handshakes answered only after a retransmission"
+    end
+
+    attribute :tcp_ack_mismatch, :integer do
+      public? true
+      description "Replies whose acknowledgement matched no SYN of the trace"
+    end
+
+    attribute :tcp_synack_duplicates, :integer do
+      public? true
+      description "Repeated answers to an already-answered handshake"
+    end
+
+    attribute :tcp_handshake_rtt_min_us, :integer do
+      public? true
+      description "Minimum SYN to SYN-ACK/RST time at the destination"
+    end
+
+    attribute :tcp_handshake_rtt_avg_us, :integer do
+      public? true
+      description "Average SYN to SYN-ACK/RST time at the destination"
+    end
+
+    attribute :tcp_handshake_rtt_max_us, :integer do
+      public? true
+      description "Maximum SYN to SYN-ACK/RST time at the destination"
+    end
+
+    attribute :tcp_server_response_us, :integer do
+      public? true
+      description "Estimated time in the target: handshake RTT average minus last transit hop RTT average"
     end
 
     attribute :created_at, :utc_datetime_usec do

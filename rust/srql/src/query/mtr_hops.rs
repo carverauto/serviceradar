@@ -1,3 +1,4 @@
+use super::filters_common::{NumericComparison, NumericKind, NumericValue};
 use super::{BindParam, QueryPlan};
 use crate::{
     error::{Result, ServiceError},
@@ -6,8 +7,10 @@ use crate::{
     schema::mtr_hops::dsl::{
         addr as col_addr, asn as col_asn, asn_org as col_asn_org, created_at as col_created_at,
         device_id as col_device_id, hop_number as col_hop_number, hostname as col_hostname,
-        id as col_id, loss_pct as col_loss_pct, mtr_hops, target_ip as col_target_ip,
-        time as col_time, trace_id as col_trace_id,
+        id as col_id, loss_pct as col_loss_pct, mtr_hops, reply_rst as col_reply_rst,
+        reply_synack as col_reply_synack, reply_time_exceeded as col_reply_time_exceeded,
+        reply_unreachable as col_reply_unreachable, target_ip as col_target_ip, time as col_time,
+        trace_id as col_trace_id,
     },
     time::TimeRange,
 };
@@ -33,6 +36,22 @@ const AGGREGATABLE_COLUMNS: &[(&str, &str)] = &[
     ("jitter_us", "jitter_us"),
     ("sent", "sent"),
     ("received", "received"),
+    ("reply_time_exceeded", "reply_time_exceeded"),
+    ("reply_unreachable", "reply_unreachable"),
+    ("reply_synack", "reply_synack"),
+    ("reply_rst", "reply_rst"),
+];
+
+/// Per-hop reply-type counts, filterable with equality and ordered comparisons.
+///
+/// NULL means the agent did not report reply types (an older agent), which is
+/// distinct from a reported zero; NULL fails every comparison, so `reply_rst:>0`
+/// selects only hops that reported at least one RST.
+const REPLY_TYPE_FIELDS: &[&str] = &[
+    "reply_time_exceeded",
+    "reply_unreachable",
+    "reply_synack",
+    "reply_rst",
 ];
 
 /// Valid grouping fields for stats queries.
@@ -107,6 +126,7 @@ enum HopStatsBindValue {
     TextArray(Vec<String>),
     Timestamp(DateTime<Utc>),
     Int(i32),
+    Numeric(NumericValue),
 }
 
 impl HopStatsBindValue {
@@ -120,6 +140,7 @@ impl HopStatsBindValue {
             HopStatsBindValue::TextArray(v) => query.bind::<Array<Text>, _>(v.clone()),
             HopStatsBindValue::Timestamp(v) => query.bind::<Timestamptz, _>(*v),
             HopStatsBindValue::Int(v) => query.bind::<Int4, _>(*v),
+            HopStatsBindValue::Numeric(v) => v.bind_sql_query(query),
         }
     }
 }
@@ -231,13 +252,52 @@ fn apply_filter<'a>(mut query: MtrHopsQuery<'a>, filter: &Filter) -> Result<MtrH
         "trace_id" => query = apply_trace_id_filter(query, filter)?,
         "asn" => query = apply_asn_filter(query, filter)?,
         "hop_number" => query = apply_hop_number_filter(query, filter)?,
-        other => {
-            return Err(ServiceError::InvalidRequest(format!(
-                "unsupported filter field for mtr_hops: '{other}'"
-            )));
-        }
+        other => match reply_type_comparison(filter)? {
+            Some((_, comparison)) => {
+                query = apply_reply_type_filter(query, filter, comparison.value)?;
+            }
+            None => {
+                return Err(ServiceError::InvalidRequest(format!(
+                    "unsupported filter field for mtr_hops: '{other}'"
+                )));
+            }
+        },
     }
     Ok(query)
+}
+
+/// Resolves a reply-type filter to its column name and a parsed comparison, or
+/// `None` when the field is not a reply-type column.
+fn reply_type_comparison(filter: &Filter) -> Result<Option<(&'static str, NumericComparison)>> {
+    REPLY_TYPE_FIELDS
+        .iter()
+        .find(|name| **name == filter.field)
+        .map(|&name| Ok((name, NumericComparison::parse(filter, NumericKind::Int4)?)))
+        .transpose()
+}
+
+fn apply_reply_type_filter<'a>(
+    query: MtrHopsQuery<'a>,
+    filter: &Filter,
+    value: NumericValue,
+) -> Result<MtrHopsQuery<'a>> {
+    match (filter.field.as_str(), value) {
+        ("reply_time_exceeded", NumericValue::Int4(v)) => {
+            apply_ordered_filter!(query, filter, col_reply_time_exceeded, v)
+        }
+        ("reply_unreachable", NumericValue::Int4(v)) => {
+            apply_ordered_filter!(query, filter, col_reply_unreachable, v)
+        }
+        ("reply_synack", NumericValue::Int4(v)) => {
+            apply_ordered_filter!(query, filter, col_reply_synack, v)
+        }
+        ("reply_rst", NumericValue::Int4(v)) => {
+            apply_ordered_filter!(query, filter, col_reply_rst, v)
+        }
+        (other, value) => Err(ServiceError::Internal(anyhow::anyhow!(
+            "REPLY_TYPE_FIELDS maps '{other}' to {value:?}, which has no column binding"
+        ))),
+    }
 }
 
 fn apply_trace_id_filter<'a>(query: MtrHopsQuery<'a>, filter: &Filter) -> Result<MtrHopsQuery<'a>> {
@@ -317,9 +377,15 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
             params.push(BindParam::Int(n.into()));
             Ok(())
         }
-        other => Err(ServiceError::InvalidRequest(format!(
-            "unsupported filter field for mtr_hops: '{other}'"
-        ))),
+        other => match reply_type_comparison(filter)? {
+            Some((_, comparison)) => {
+                params.push(comparison.value.bind_param());
+                Ok(())
+            }
+            None => Err(ServiceError::InvalidRequest(format!(
+                "unsupported filter field for mtr_hops: '{other}'"
+            ))),
+        },
     }
 }
 
@@ -935,7 +1001,12 @@ fn build_stats_filter_clause(filter: &Filter) -> Result<Option<(String, Vec<HopS
             };
             Ok(Some((clause, vec![HopStatsBindValue::Int(n)])))
         }
-        _ => Ok(None),
+        _ => Ok(reply_type_comparison(filter)?.map(|(column, comparison)| {
+            (
+                format!("{column} {} ?", comparison.op_sql),
+                vec![HopStatsBindValue::Numeric(comparison.value)],
+            )
+        })),
     }
 }
 
@@ -1014,6 +1085,7 @@ fn bind_param_from_hop(value: HopStatsBindValue) -> BindParam {
         HopStatsBindValue::TextArray(v) => BindParam::TextArray(v),
         HopStatsBindValue::Timestamp(v) => BindParam::timestamptz(v),
         HopStatsBindValue::Int(v) => BindParam::Int(v.into()),
+        HopStatsBindValue::Numeric(v) => v.bind_param(),
     }
 }
 
@@ -1076,6 +1148,109 @@ mod tests {
             matches!(result, Err(ServiceError::InvalidRequest(_))),
             "an unknown filter field should be rejected"
         );
+    }
+
+    #[test]
+    fn every_reply_type_field_filters_with_an_integer_bind() {
+        for field in REPLY_TYPE_FIELDS {
+            for (token, op_sql) in [
+                ("2", "="),
+                (">2", ">"),
+                (">=2", ">="),
+                ("<2", "<"),
+                ("<=2", "<="),
+            ] {
+                let query = format!("in:mtr_hops {field}:{token} limit:5");
+                let (sql, params) = to_sql_and_params(&plan_for(&query))
+                    .unwrap_or_else(|err| panic!("{query} should translate: {err}"));
+
+                assert!(
+                    sql.to_lowercase()
+                        .contains(&format!("\"mtr_hops\".\"{field}\" {op_sql} $1")),
+                    "{query} must render a {op_sql} predicate on {field}: {sql}"
+                );
+                assert!(
+                    matches!(params.as_slice().first(), Some(BindParam::Int(2))),
+                    "{query} must bind an integer: {params:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn reply_type_filters_reject_non_integer_values() {
+        for query in [
+            "in:mtr_hops reply_rst:lots",
+            "in:mtr_hops reply_synack:1.5",
+            "in:mtr_hops reply_time_exceeded:(1,2)",
+            "in:mtr_hops reply_unreachable:some stats:count() as n by addr limit:10",
+        ] {
+            let result = to_sql_and_params(&plan_for(query));
+            assert!(
+                matches!(result, Err(ServiceError::InvalidRequest(_))),
+                "{query} should be rejected, got {result:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn hop_rows_project_their_reply_type_counts() {
+        let (sql, _) =
+            to_sql_and_params(&plan_for("in:mtr_hops limit:5")).expect("SQL should translate");
+        let lower = sql.to_lowercase();
+
+        for field in REPLY_TYPE_FIELDS {
+            assert!(
+                lower.contains(&format!("\"mtr_hops\".\"{field}\"")),
+                "row projection is missing {field}: {sql}"
+            );
+        }
+    }
+
+    #[test]
+    fn reply_type_counts_are_aggregatable_and_filter_stats_queries() {
+        let plan = plan_for(
+            "in:mtr_hops time:last_24h reply_rst:>0 stats:\"sum(reply_rst) as rsts, sum(reply_synack) as synacks by addr\" limit:20",
+        );
+        let (sql, params) = to_sql_and_params(&plan).expect("reply stats should translate");
+        let lower = sql.to_lowercase();
+
+        assert!(lower.contains("'rsts', sum(reply_rst)"), "{sql}");
+        assert!(lower.contains("'synacks', sum(reply_synack)"), "{sql}");
+        // $1/$2 are the time window.
+        assert!(lower.contains("reply_rst > $3"), "{sql}");
+        assert!(
+            matches!(params.get(2), Some(BindParam::Int(0))),
+            "{params:?}"
+        );
+        assert_eq!(params.len(), 3, "{params:?}");
+
+        for field in REPLY_TYPE_FIELDS {
+            for func in ["sum", "avg", "min", "max"] {
+                let query = format!("in:mtr_hops stats:{func}({field}) as v by addr limit:10");
+                let (sql, _) = to_sql_and_params(&plan_for(&query))
+                    .unwrap_or_else(|err| panic!("{query} should translate: {err}"));
+                assert!(
+                    sql.to_lowercase().contains(&format!("{func}({field})")),
+                    "{query}: {sql}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn reply_type_counts_are_not_wavg_or_loss_ratio_inputs() {
+        for query in [
+            "in:mtr_hops stats:wavg(reply_rst, received) as v by addr limit:10",
+            "in:mtr_hops stats:wavg(avg_us, reply_synack) as v by addr limit:10",
+            "in:mtr_hops stats:loss_ratio(reply_synack, reply_rst) as v by addr limit:10",
+        ] {
+            let result = to_sql_and_params(&plan_for(query));
+            assert!(
+                matches!(result, Err(ServiceError::InvalidRequest(_))),
+                "{query} should be rejected"
+            );
+        }
     }
 
     #[test]

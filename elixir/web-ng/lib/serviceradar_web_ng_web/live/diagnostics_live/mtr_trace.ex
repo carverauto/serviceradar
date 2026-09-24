@@ -7,14 +7,18 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
 
   alias Ash.Page.Keyset
   alias ServiceRadar.Observability.MtrHop
+  alias ServiceRadar.Observability.MtrTcpHandshake
   alias ServiceRadar.Observability.MtrTrace
   alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrDepth
+  alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrHandshake
 
   require Ash.Query
 
   @sparkline_points 20
   # Recent points only, and inside the window MTR chunks stay uncompressed.
   @sparkline_days 7
+
+  @handshake_fields MtrTcpHandshake.trace_columns()
 
   @impl true
   def mount(_params, _session, socket) do
@@ -156,6 +160,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
             <span>Error: {@trace["error"]}</span>
           </div>
 
+          <MtrHandshake.handshake_panel trace={@trace} />
+
           <div class="sr-ui-table-shell">
             <table class={ui_table_class(size: "sm")}>
               <thead>
@@ -169,6 +175,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
                   <th class="text-right">Max</th>
                   <th class="text-right">StdDev</th>
                   <th class="text-right">Jitter</th>
+                  <th title="Replies by kind: Time Exceeded, Destination Unreachable, SYN-ACK, RST">
+                    Replies
+                  </th>
                   <th class="w-24">Trend</th>
                   <th>MPLS</th>
                 </tr>
@@ -223,6 +232,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
                   <td class="text-right font-mono text-sm">{format_us(hop["max_us"])}</td>
                   <td class="text-right font-mono text-sm">{format_us(hop["stddev_us"])}</td>
                   <td class="text-right font-mono text-sm">{format_us(hop["jitter_us"])}</td>
+                  <td class="text-xs font-mono">{MtrHandshake.reply_summary(hop)}</td>
                   <td>
                     <.srql_sparkline points={Map.get(@hop_sparklines, hop["addr"], [])} />
                   </td>
@@ -232,12 +242,12 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
                 </tr>
                 <tr :if={@silent_tail} class="opacity-50">
                   <td class="font-mono text-center">{@silent_tail.from}-{@silent_tail.to}</td>
-                  <td colspan="10" class="text-sm text-sr-muted">
+                  <td colspan="11" class="text-sm text-sr-muted">
                     {@silent_tail.count} hops with no reply (probing continued past the last answer)
                   </td>
                 </tr>
                 <tr :if={@hops == []}>
-                  <td colspan="11" class="text-center py-4 text-sr-muted">
+                  <td colspan="12" class="text-center py-4 text-sr-muted">
                     No hop data available
                   </td>
                 </tr>
@@ -467,6 +477,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
       "partition" => trace.partition,
       "error" => trace.error
     }
+    |> Map.merge(Map.new(@handshake_fields, &{Atom.to_string(&1), Map.get(trace, &1)}))
   end
 
   defp hop_to_map(hop) do
@@ -489,7 +500,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
       "jitter_us" => hop.jitter_us,
       "jitter_worst_us" => hop.jitter_worst_us,
       "jitter_interarrival_us" => hop.jitter_interarrival_us,
-      "unreachable_code" => hop.unreachable_code
+      "unreachable_code" => hop.unreachable_code,
+      "reply_time_exceeded" => hop.reply_time_exceeded,
+      "reply_unreachable" => hop.reply_unreachable,
+      "reply_synack" => hop.reply_synack,
+      "reply_rst" => hop.reply_rst
     }
   end
 

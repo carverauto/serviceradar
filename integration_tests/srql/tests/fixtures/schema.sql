@@ -585,6 +585,22 @@ CREATE TABLE mtr_traces (
     partition       TEXT,
     error           TEXT,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    -- TCP SYN handshake diagnostics; NULL means not reported.
+    tcp_handshake_ttl        INTEGER,
+    tcp_handshake_attempts   INTEGER,
+    tcp_syn_sent             INTEGER,
+    tcp_synack_received      INTEGER,
+    tcp_rst_received         INTEGER,
+    tcp_syn_unanswered       INTEGER,
+    tcp_syn_drop_pct         DOUBLE PRECISION,
+    tcp_syn_retransmits      INTEGER,
+    tcp_answered_after_retx  INTEGER,
+    tcp_ack_mismatch         INTEGER,
+    tcp_synack_duplicates    INTEGER,
+    tcp_handshake_rtt_min_us BIGINT,
+    tcp_handshake_rtt_avg_us BIGINT,
+    tcp_handshake_rtt_max_us BIGINT,
+    tcp_server_response_us   BIGINT,
     PRIMARY KEY (time, id)
 );
 

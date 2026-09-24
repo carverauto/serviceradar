@@ -103,6 +103,18 @@ pub(super) fn mtr_hops() -> VizMeta {
                 ColumnType::Timestamptz,
                 Some(ColumnSemantic::Time),
             ),
+            col(
+                "reply_time_exceeded",
+                ColumnType::Int,
+                Some(ColumnSemantic::Value),
+            ),
+            col(
+                "reply_unreachable",
+                ColumnType::Int,
+                Some(ColumnSemantic::Value),
+            ),
+            col("reply_synack", ColumnType::Int, Some(ColumnSemantic::Value)),
+            col("reply_rst", ColumnType::Int, Some(ColumnSemantic::Value)),
         ],
         suggestions: vec![VizSuggestion {
             kind: VizKind::Table,
@@ -137,6 +149,78 @@ pub(super) fn mtr_traces() -> VizMeta {
                 ColumnType::Timestamptz,
                 Some(ColumnSemantic::Time),
             ),
+            col("tcp_handshake_ttl", ColumnType::Int, None),
+            col(
+                "tcp_handshake_attempts",
+                ColumnType::Int,
+                Some(ColumnSemantic::Value),
+            ),
+            col("tcp_syn_sent", ColumnType::Int, Some(ColumnSemantic::Value)),
+            col(
+                "tcp_synack_received",
+                ColumnType::Int,
+                Some(ColumnSemantic::Value),
+            ),
+            col(
+                "tcp_rst_received",
+                ColumnType::Int,
+                Some(ColumnSemantic::Value),
+            ),
+            col(
+                "tcp_syn_unanswered",
+                ColumnType::Int,
+                Some(ColumnSemantic::Value),
+            ),
+            col(
+                "tcp_syn_drop_pct",
+                ColumnType::Float,
+                Some(ColumnSemantic::Value),
+            )
+            .with_unit("%"),
+            col(
+                "tcp_syn_retransmits",
+                ColumnType::Int,
+                Some(ColumnSemantic::Value),
+            ),
+            col(
+                "tcp_answered_after_retx",
+                ColumnType::Int,
+                Some(ColumnSemantic::Value),
+            ),
+            col(
+                "tcp_ack_mismatch",
+                ColumnType::Int,
+                Some(ColumnSemantic::Value),
+            ),
+            col(
+                "tcp_synack_duplicates",
+                ColumnType::Int,
+                Some(ColumnSemantic::Value),
+            ),
+            col(
+                "tcp_handshake_rtt_min_us",
+                ColumnType::Int,
+                Some(ColumnSemantic::Value),
+            )
+            .with_unit("µs"),
+            col(
+                "tcp_handshake_rtt_avg_us",
+                ColumnType::Int,
+                Some(ColumnSemantic::Value),
+            )
+            .with_unit("µs"),
+            col(
+                "tcp_handshake_rtt_max_us",
+                ColumnType::Int,
+                Some(ColumnSemantic::Value),
+            )
+            .with_unit("µs"),
+            col(
+                "tcp_server_response_us",
+                ColumnType::Int,
+                Some(ColumnSemantic::Value),
+            )
+            .with_unit("µs"),
         ],
         suggestions: vec![VizSuggestion {
             kind: VizKind::Table,

@@ -32,6 +32,7 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
   alias ServiceRadar.Observability.GeoIP
   alias ServiceRadar.Observability.MtrGraph
   alias ServiceRadar.Observability.MtrHop
+  alias ServiceRadar.Observability.MtrTcpHandshake
   alias ServiceRadar.Observability.MtrTrace
   alias ServiceRadar.Observability.MtrTraceDepth
 
@@ -332,6 +333,7 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
       partition: partition,
       error: result["error"]
     }
+    |> Map.merge(MtrTcpHandshake.trace_fields(trace))
   end
 
   defp trace_hops(trace) do
@@ -343,17 +345,11 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
 
   defp build_hop_rows([], _trace_id, _trace_time, _target_ip, _device_id), do: []
 
-  defp build_hop_rows(hops, trace_id, trace_time, target_ip, device_id) when is_list(hops) do
-    hops
-    |> Enum.filter(&is_map/1)
-    |> Enum.map(&build_hop_row(&1, trace_id, trace_time, target_ip, device_id))
-  end
-
   defp build_hop_rows(hops, trace_id, trace_time, target_ip, device_id) do
-    hops
-    |> List.wrap()
-    |> Enum.filter(&is_map/1)
-    |> Enum.map(&build_hop_row(&1, trace_id, trace_time, target_ip, device_id))
+    hops = hops |> List.wrap() |> Enum.filter(&is_map/1)
+    counters? = MtrTcpHandshake.reply_counters_reported?(hops)
+
+    Enum.map(hops, &build_hop_row(&1, trace_id, trace_time, target_ip, device_id, counters?))
   end
 
   defp first_present(values, default) when is_list(values) do
@@ -371,7 +367,8 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
     end
   end
 
-  defp build_hop_row(hop, trace_id, trace_time, target_ip, device_id) when is_map(hop) do
+  defp build_hop_row(hop, trace_id, trace_time, target_ip, device_id, counters?)
+       when is_map(hop) do
     ecmp_addrs = hop["ecmp_addrs"] || []
     asn_info = map_get_any(hop, ["asn", :asn], %{})
     mpls_labels = hop["mpls_labels"]
@@ -409,6 +406,7 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
       jitter_interarrival_us: hop["jitter_interarrival_us"],
       unreachable_code: hop["unreachable_code"]
     }
+    |> Map.merge(MtrTcpHandshake.hop_fields(hop, counters?))
   end
 
   defp build_hop_row(_hop, _trace_id, _trace_time), do: nil

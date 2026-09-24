@@ -67,6 +67,35 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
 
   @wifi_device_numeric_fields ["latitude", "lat", "longitude", "lon", "lng"]
 
+  # TCP SYN handshake diagnostics on mtr_traces. Each is nullable -- NULL means
+  # not reported (an older agent, or a non-TCP / connect-fallback trace) -- and
+  # supports equality, ordered comparison, and sum/avg/min/max in stats:.
+  @mtr_trace_handshake_fields [
+    "tcp_handshake_ttl",
+    "tcp_handshake_attempts",
+    "tcp_syn_sent",
+    "tcp_synack_received",
+    "tcp_rst_received",
+    "tcp_syn_unanswered",
+    "tcp_syn_drop_pct",
+    "tcp_syn_retransmits",
+    "tcp_answered_after_retx",
+    "tcp_ack_mismatch",
+    "tcp_synack_duplicates",
+    "tcp_handshake_rtt_min_us",
+    "tcp_handshake_rtt_avg_us",
+    "tcp_handshake_rtt_max_us",
+    "tcp_server_response_us"
+  ]
+
+  # Per-hop reply-type counts on mtr_hops; NULL means not reported.
+  @mtr_hop_reply_type_fields [
+    "reply_time_exceeded",
+    "reply_unreachable",
+    "reply_synack",
+    "reply_rst"
+  ]
+
   @entities [
     %{
       id: "dashboards",
@@ -1888,20 +1917,24 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       default_sort_field: "time",
       default_sort_dir: "desc",
       default_filter_field: "addr",
-      filter_fields: [
-        "trace_id",
-        "target_ip",
-        "device_id",
-        "addr",
-        "hostname",
-        "asn",
-        "asn_org",
-        "hop_number"
-      ],
+      filter_fields:
+        [
+          "trace_id",
+          "target_ip",
+          "device_id",
+          "addr",
+          "hostname",
+          "asn",
+          "asn_org",
+          "hop_number"
+        ] ++ @mtr_hop_reply_type_fields,
       boolean_fields: [],
+      numeric_fields: @mtr_hop_reply_type_fields,
       downsample: false,
       stats: true,
-      stats_agg_fields: ["loss_pct", "avg_us", "min_us", "max_us", "jitter_us", "sent", "received"],
+      stats_agg_fields:
+        ["loss_pct", "avg_us", "min_us", "max_us", "jitter_us", "sent", "received"] ++
+          @mtr_hop_reply_type_fields,
       stats_group_fields: ["addr", "asn", "asn_org", "hop_number", "target_ip", "device_id"]
     },
     %{
@@ -1912,23 +1945,25 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       default_sort_field: "time",
       default_sort_dir: "desc",
       default_filter_field: "target",
-      filter_fields: [
-        "target",
-        "target_ip",
-        "agent_id",
-        "protocol",
-        "check_name",
-        "device_id",
-        "target_reached",
-        "error"
-      ],
+      filter_fields:
+        [
+          "target",
+          "target_ip",
+          "agent_id",
+          "protocol",
+          "check_name",
+          "device_id",
+          "target_reached",
+          "error"
+        ] ++ @mtr_trace_handshake_fields,
       boolean_fields: ["target_reached"],
+      numeric_fields: @mtr_trace_handshake_fields,
       downsample: false,
       stats: true,
       # target_reached aggregates as a 0/1 indicator, so avg(target_reached) is the
       # reach rate -- the endpoint signal hop metrics cannot express, because a
       # trace that never reached its target has no terminal hop to measure.
-      stats_agg_fields: ["total_hops", "target_reached"],
+      stats_agg_fields: ["total_hops", "target_reached"] ++ @mtr_trace_handshake_fields,
       stats_group_fields: [
         "target_ip",
         "target",

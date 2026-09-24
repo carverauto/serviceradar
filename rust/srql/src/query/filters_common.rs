@@ -98,6 +98,132 @@ macro_rules! apply_eq_filter {
     }};
 }
 
+/// Applies an equality or ordered comparison to a Diesel column.
+///
+/// `$value` must already be parsed to the column's Rust type (see
+/// [`NumericComparison`]); on a nullable column a NULL row fails every
+/// comparison, so `field:>0` also restricts the result to rows that reported
+/// the value.
+macro_rules! apply_ordered_filter {
+    ($query:expr, $filter:expr, $column:expr, $value:expr) => {{
+        let __value = $value;
+        let __next = match $filter.op {
+            crate::parser::FilterOp::Eq => $query.filter($column.eq(__value)),
+            crate::parser::FilterOp::NotEq => $query.filter($column.ne(__value)),
+            crate::parser::FilterOp::Gt => $query.filter($column.gt(__value)),
+            crate::parser::FilterOp::Gte => $query.filter($column.ge(__value)),
+            crate::parser::FilterOp::Lt => $query.filter($column.lt(__value)),
+            crate::parser::FilterOp::Lte => $query.filter($column.le(__value)),
+            _ => {
+                return Err(crate::error::ServiceError::InvalidRequest(format!(
+                    "{} supports equality and ordered comparisons",
+                    $filter.field
+                )));
+            }
+        };
+        Ok::<_, crate::error::ServiceError>(__next)
+    }};
+}
+
+/// SQL type of a numeric column that accepts equality and ordered comparisons.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NumericKind {
+    Int4,
+    Int8,
+    Float8,
+}
+
+/// A filter value parsed to the type of the column it is compared against.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum NumericValue {
+    Int4(i32),
+    Int8(i64),
+    Float8(f64),
+}
+
+impl NumericValue {
+    /// The bind reported by `to_sql_and_params`.
+    pub(crate) fn bind_param(self) -> super::BindParam {
+        match self {
+            NumericValue::Int4(v) => super::BindParam::Int(v.into()),
+            NumericValue::Int8(v) => super::BindParam::Int(v),
+            NumericValue::Float8(v) => super::BindParam::Float(v),
+        }
+    }
+
+    /// Binds the value to a raw stats query with the column's own SQL type.
+    pub(crate) fn bind_sql_query<'a>(
+        self,
+        query: diesel::query_builder::BoxedSqlQuery<
+            'a,
+            diesel::pg::Pg,
+            diesel::query_builder::SqlQuery,
+        >,
+    ) -> diesel::query_builder::BoxedSqlQuery<'a, diesel::pg::Pg, diesel::query_builder::SqlQuery>
+    {
+        use diesel::sql_types::{BigInt, Float8, Int4};
+        match self {
+            NumericValue::Int4(v) => query.bind::<Int4, _>(v),
+            NumericValue::Int8(v) => query.bind::<BigInt, _>(v),
+            NumericValue::Float8(v) => query.bind::<Float8, _>(v),
+        }
+    }
+}
+
+/// A validated `field:<op><number>` filter: the SQL comparison operator and
+/// the value parsed to the column's type.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct NumericComparison {
+    pub(crate) op_sql: &'static str,
+    pub(crate) value: NumericValue,
+}
+
+impl NumericComparison {
+    /// Validates the operator first, so a list or LIKE filter on a numeric
+    /// field reports the operator rather than a value-shape error.
+    pub(crate) fn parse(filter: &crate::parser::Filter, kind: NumericKind) -> Result<Self> {
+        use crate::parser::FilterOp;
+
+        let op_sql = match filter.op {
+            FilterOp::Eq => "=",
+            FilterOp::NotEq => "<>",
+            FilterOp::Gt => ">",
+            FilterOp::Gte => ">=",
+            FilterOp::Lt => "<",
+            FilterOp::Lte => "<=",
+            _ => {
+                return Err(ServiceError::InvalidRequest(format!(
+                    "{} supports equality and ordered comparisons",
+                    filter.field
+                )));
+            }
+        };
+
+        let raw = filter.value.as_scalar()?;
+        let value = match kind {
+            NumericKind::Int4 => raw.parse().ok().map(NumericValue::Int4),
+            NumericKind::Int8 => raw.parse().ok().map(NumericValue::Int8),
+            NumericKind::Float8 => raw
+                .parse::<f64>()
+                .ok()
+                .filter(|v| v.is_finite())
+                .map(NumericValue::Float8),
+        }
+        .ok_or_else(|| {
+            let expected = match kind {
+                NumericKind::Int4 | NumericKind::Int8 => "an integer",
+                NumericKind::Float8 => "a finite number",
+            };
+            ServiceError::InvalidRequest(format!(
+                "{} must be {expected}, got '{raw}'",
+                filter.field
+            ))
+        })?;
+
+        Ok(Self { op_sql, value })
+    }
+}
+
 pub(crate) fn is_negated_membership_op(op: &crate::parser::FilterOp) -> bool {
     matches!(
         op,

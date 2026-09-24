@@ -363,6 +363,10 @@ diesel::table! {
         jitter_worst_us -> Nullable<Int8>,
         jitter_interarrival_us -> Nullable<Int8>,
         created_at -> Timestamptz,
+        reply_time_exceeded -> Nullable<Int4>,
+        reply_unreachable -> Nullable<Int4>,
+        reply_synack -> Nullable<Int4>,
+        reply_rst -> Nullable<Int4>,
     }
 }
 
@@ -387,6 +391,21 @@ diesel::table! {
         partition -> Nullable<Text>,
         error -> Nullable<Text>,
         created_at -> Timestamptz,
+        tcp_handshake_ttl -> Nullable<Int4>,
+        tcp_handshake_attempts -> Nullable<Int4>,
+        tcp_syn_sent -> Nullable<Int4>,
+        tcp_synack_received -> Nullable<Int4>,
+        tcp_rst_received -> Nullable<Int4>,
+        tcp_syn_unanswered -> Nullable<Int4>,
+        tcp_syn_drop_pct -> Nullable<Float8>,
+        tcp_syn_retransmits -> Nullable<Int4>,
+        tcp_answered_after_retx -> Nullable<Int4>,
+        tcp_ack_mismatch -> Nullable<Int4>,
+        tcp_synack_duplicates -> Nullable<Int4>,
+        tcp_handshake_rtt_min_us -> Nullable<Int8>,
+        tcp_handshake_rtt_avg_us -> Nullable<Int8>,
+        tcp_handshake_rtt_max_us -> Nullable<Int8>,
+        tcp_server_response_us -> Nullable<Int8>,
     }
 }
 
