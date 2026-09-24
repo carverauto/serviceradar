@@ -491,7 +491,7 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/plugins/addon_profile_action_test.exs": 2,
     "test/serviceradar/plugins/anomaly_addon_profile_seeder_test.exs": 3,
     "test/serviceradar/plugins/display_contracts_db_test.exs": 5,
-    "test/serviceradar/plugins/native_addon_importer_db_test.exs": 14,
+    "test/serviceradar/plugins/native_addon_importer_db_test.exs": 15,
     "test/serviceradar/plugins/plugin_assignment_recovery_test.exs": 18,
     "test/serviceradar/plugins/plugin_assignment_test.exs": 7,
     "test/serviceradar/plugins/policy_owned_assignment_recovery_db_test.exs": 4,
