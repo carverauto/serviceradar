@@ -46,6 +46,8 @@ defmodule ServiceRadar.Observability.MtrHop do
         :id,
         :time,
         :trace_id,
+        :target_ip,
+        :device_id,
         :hop_number,
         :addr,
         :hostname,
@@ -94,6 +96,18 @@ defmodule ServiceRadar.Observability.MtrHop do
       allow_nil? false
       public? true
       description "Parent trace ID"
+    end
+
+    attribute :target_ip, :string do
+      public? true
+
+      description "Owning trace's target, denormalised so hop metrics can be scoped to the device they measured. Nil on rows written before the attribution backfill, which is also its resume marker. Prefer this over device_id."
+    end
+
+    attribute :device_id, :string do
+      public? true
+
+      description "Owning trace's device_id, denormalised alongside target_ip. On the bulk-scheduled path this is the originating command's id rather than a device uid, so grouping by it yields one row per command."
     end
 
     attribute :hop_number, :integer do
