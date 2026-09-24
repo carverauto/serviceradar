@@ -177,3 +177,10 @@ py_test(
         "//scripts:validate-release-tag.sh",
     ],
 )
+
+py_test(
+    name = "release_package_workflow_test",
+    size = "small",
+    srcs = ["release_package_workflow_test.py"],
+    data = ["//:.github/workflows/release.yml"],
+)
