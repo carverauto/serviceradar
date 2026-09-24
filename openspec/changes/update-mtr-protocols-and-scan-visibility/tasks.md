@@ -67,11 +67,11 @@ no-mistakes gate, in order. All fixtures are synthetic
 - [ ] 2.8 Integration test (`//go:build integration`, root): a TCP trace to a
   loopback listener reaches in 1 hop via SYN-ACK; a closed port reaches via
   RST.
-- [ ] 2.9 Core ingest: derive `last_responding_hop` and `probed_hops` when the
+- [x] 2.9 Core ingest: derive `last_responding_hop` and `probed_hops` when the
   agent omits them; migration adds `mtr_traces.last_responding_hop`,
   `probed_hops`, `tcp_port` and `mtr_hops.unreachable_code` (nullable,
   `prefix: "platform"`).
-- [ ] 2.10 UI:
+- [x] 2.10 UI:
   - The trace and device views state "reached in N hops" or
     "no reply past hop N (M probed)".
   - Collapse trailing all-loss hops.
