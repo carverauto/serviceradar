@@ -522,9 +522,8 @@ mod tests {
 
     #[test]
     fn trace_stats_text_filter_uses_case_insensitive_matching() {
-        let plan = plan_for(
-            "in:mtr_traces target:%.Example% stats:count() as n by agent_id limit:10",
-        );
+        let plan =
+            plan_for("in:mtr_traces target:%.Example% stats:count() as n by agent_id limit:10");
         let (sql, _) =
             to_sql_and_params(&plan).expect("text-filtered trace stats should translate");
         assert!(

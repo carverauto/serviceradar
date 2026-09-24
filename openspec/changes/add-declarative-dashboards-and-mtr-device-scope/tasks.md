@@ -112,7 +112,6 @@ the third consumer, so it moves once rather than being copied a third time.
       relational compiler. Wired through five sites that each drop the filter
       silently on their own: Diesel schema, row-filter dispatch, stats WHERE
       builder, row-path bind collection, and MtrHopRow's projection.
-      **Still open: the web-ng SRQL catalog `filter_fields`** -- tracked as 5.7.
 - [x] 5.6 Same filters in `starrocks.rs`, or an explicit refusal there.
       **Refusal, and it already existed.** `dataset_for/1` has no mapping for MTR
       entities, so `translate/3` returns `starrocks_unsupported_entity` -- an
@@ -122,20 +121,20 @@ the third consumer, so it moves once rather than being copied a third time.
       field mappings would otherwise return fleet-wide rows under a per-device
       title. MTR in the warehouse is owned by extend-starrocks-to-all-telemetry
       task 3.4.
-- [ ] 5.7 Add `target_ip` and `device_id` to the `mtr_hops` catalog
+- [x] 5.7 Add `target_ip` and `device_id` to the `mtr_hops` catalog
       `filter_fields`, so `srql/page.ex` stops rejecting them and the query builder
       offers them.
 
 ## 5b. count() parity across the MTR entities
 
-- [ ] 5b.1 Accept a zero-argument `count()` on `in:mtr_hops` as `COUNT(*)`, and
+- [x] 5b.1 Accept a zero-argument `count()` on `in:mtr_hops` as `COUNT(*)`, and
       keep `count(<column>)` working. It currently fails with
       `unsupported column ''` because the aggregation parser requires exactly one
       column argument, which blocks the trace-count panel -- the very thing that
       distinguishes a genuinely shared hop from one seen twice.
       `mtr_traces` already accepts both forms, so this is symmetry a caller can
       reasonably expect.
-- [ ] 5b.2 Tests for both forms on both entities, with the zero-argument case
+- [x] 5b.2 Tests for both forms on both entities, with the zero-argument case
       confirmed to fail before the fix.
 
 ## 6. Trace-level aggregation
@@ -150,7 +149,7 @@ the third consumer, so it moves once rather than being copied a third time.
 - [x] 6.3 Update the error text that currently advises "use `in:mtr_hops` for
       hop-level analytics". Removed with the rejection itself; the remaining
       pointer to `in:mtr_hops` is on `loss_ratio`/`wavg`, where it is correct.
-- [ ] 6.4 Register `mtr_traces` stats fields in the web-ng SRQL catalog.
+- [x] 6.4 Register `mtr_traces` stats fields in the web-ng SRQL catalog.
 
 ## 7. The dashboard
 
