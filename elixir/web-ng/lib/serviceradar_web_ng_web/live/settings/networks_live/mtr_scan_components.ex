@@ -83,7 +83,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.MtrScanComponents do
         <span :if={@job.failed > 0} class="text-error">({@job.failed} failed<span :if={@job.timed_out > 0}>, {@job.timed_out} timed out</span>)</span>
       </td>
       <td class="text-xs">
-        <span :if={@job.reached}>{@job.reached}</span>
+        <span :if={not is_nil(@job.reached)}>{@job.reached}</span>
         <span :if={is_nil(@job.reached)} class="text-sr-muted" title="Reported by agents from this release on">-</span>
       </td>
       <td>

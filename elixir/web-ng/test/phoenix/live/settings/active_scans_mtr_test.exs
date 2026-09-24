@@ -3,8 +3,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansMtrTest do
 
   import Phoenix.LiveViewTest
 
+  alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Executions
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.MtrJobs
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.ActiveScans
+  alias ServiceRadarWebNGWeb.Settings.NetworksLive.MtrScanComponents
 
   @moduletag :db_free
 
@@ -144,6 +146,41 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansMtrTest do
       refute html =~ "Recent MTR Jobs"
       refute html =~ ~s(id="active-scans-filter")
       assert html =~ "Recent Completions"
+    end
+  end
+  describe "loading MTR jobs" do
+    defp socket, do: %Phoenix.LiveView.Socket{assigns: %{__changed__: %{}}}
+
+    test "loaded rows are shown" do
+      running = [MtrJobs.normalize(command(%{}), %{})]
+      assigns = Executions.assign_loaded_mtr_jobs(socket(), {:ok, running}, {:ok, []}).assigns
+
+      assert assigns.can_view_mtr_jobs
+      assert assigns.mtr_running == running
+      assert assigns.mtr_recent == []
+    end
+
+    test "a viewer who may not read agent commands gets no MTR section at all" do
+      for {running, recent} <- [{:forbidden, {:ok, []}}, {{:ok, []}, :forbidden}] do
+        assigns = Executions.assign_loaded_mtr_jobs(socket(), running, recent).assigns
+
+        refute assigns.can_view_mtr_jobs
+        assert assigns.mtr_running == []
+        assert assigns.mtr_recent == []
+      end
+    end
+
+    test "a job that reached none of its targets reports 0, not the pre-release marker" do
+      row =
+        MtrJobs.normalize(
+          command(%{status: :completed, result_payload: %{"total_targets" => 2, "reached_targets" => 0}}),
+          %{}
+        )
+
+      html = render_component(&MtrScanComponents.mtr_recent_row/1, job: row, timezone: "Etc/UTC")
+
+      assert row.reached == 0
+      refute html =~ "Reported by agents from this release on"
     end
   end
 end

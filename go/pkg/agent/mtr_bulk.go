@@ -81,8 +81,10 @@ type mtrBulkProgressPayload struct {
 	FailedTargets    int      `json:"failed_targets"`
 	TimedOutTargets  int      `json:"timed_out_targets,omitempty"`
 	// ReachedTargets counts completed traces that reached their target. It is
-	// reported on the job result, where the whole job's outcome is known.
-	ReachedTargets     int                        `json:"reached_targets,omitempty"`
+	// set only on the job result, where the whole job's outcome is known, and
+	// is a pointer so a job that reached none still reports 0 rather than
+	// looking like an agent that does not report reach at all.
+	ReachedTargets     *int                       `json:"reached_targets,omitempty"`
 	Concurrency        int                        `json:"concurrency,omitempty"`
 	MaxConcurrency     int                        `json:"max_concurrency,omitempty"`
 	ConcurrencyHistory []bulkMtrConcurrencySample `json:"concurrency_history,omitempty"`
@@ -369,7 +371,7 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 		CompletedTargets:   completedTargets,
 		FailedTargets:      failedTargets,
 		TimedOutTargets:    timedOutTargets,
-		ReachedTargets:     reachedTargets,
+		ReachedTargets:     &reachedTargets,
 		Concurrency:        currentConcurrency,
 		MaxConcurrency:     maxConcurrency,
 		ConcurrencyHistory: controller.finalHistorySnapshot(completedTargets, failedTargets),

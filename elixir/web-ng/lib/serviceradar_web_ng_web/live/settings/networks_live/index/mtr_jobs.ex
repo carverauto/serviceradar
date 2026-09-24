@@ -19,8 +19,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.MtrJobs do
   @active_statuses [:queued, :sent, :acknowledged, :running]
   @recent_limit 10
 
-  @doc "MTR bulk jobs that have not reached a terminal state, newest first."
-  @spec load_running(term()) :: [map()]
+  @doc """
+  MTR bulk jobs that have not reached a terminal state, newest first.
+
+  Returns `:forbidden` when the viewer may not read agent commands, which a
+  custom role profile can arrange even when it grants the sweep permissions.
+  """
+  @spec load_running(term()) :: {:ok, [map()]} | :forbidden
   def load_running(scope) do
     AgentCommand
     |> Ash.Query.for_read(:read, %{})
@@ -30,8 +35,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.MtrJobs do
     |> read_rows(scope)
   end
 
-  @doc "The most recent terminal MTR bulk jobs, newest first."
-  @spec load_recent(term()) :: [map()]
+  @doc "The most recent terminal MTR bulk jobs, newest first; see `load_running/1`."
+  @spec load_recent(term()) :: {:ok, [map()]} | :forbidden
   def load_recent(scope) do
     AgentCommand
     |> Ash.Query.for_read(:read, %{})
@@ -43,8 +48,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.MtrJobs do
 
   defp read_rows(query, scope) do
     case Ash.read(query, scope: scope) do
-      {:ok, commands} -> normalize_all(commands, policy_names(scope))
-      {:error, _reason} -> []
+      {:ok, commands} -> {:ok, normalize_all(commands, policy_names(scope))}
+      {:error, %Ash.Error.Forbidden{}} -> :forbidden
+      {:error, _reason} -> {:ok, []}
     end
   end
 

@@ -37,19 +37,29 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Executions do
   @doc """
   Loads MTR bulk jobs for Active Scans, or none when the viewer lacks the
   sweep view permission. Pass `load?: false` for the disconnected mount.
+
+  A viewer who has the permission but may not read agent commands gets no MTR
+  section at all, rather than an empty one that looks like no jobs ran.
   """
   def assign_mtr_jobs(socket, scope, opts \\ []) do
     if Data.can_view_mtr_jobs?(scope) and Keyword.get(opts, :load?, true) do
-      socket
-      |> Phoenix.Component.assign(:can_view_mtr_jobs, true)
-      |> Phoenix.Component.assign(:mtr_running, MtrJobs.load_running(scope))
-      |> Phoenix.Component.assign(:mtr_recent, MtrJobs.load_recent(scope))
+      assign_loaded_mtr_jobs(socket, MtrJobs.load_running(scope), MtrJobs.load_recent(scope))
     else
-      socket
-      |> Phoenix.Component.assign(:can_view_mtr_jobs, Data.can_view_mtr_jobs?(scope))
-      |> Phoenix.Component.assign(:mtr_running, [])
-      |> Phoenix.Component.assign(:mtr_recent, [])
+      assign_mtr_rows(socket, Data.can_view_mtr_jobs?(scope), [], [])
     end
+  end
+
+  @doc false
+  def assign_loaded_mtr_jobs(socket, {:ok, running}, {:ok, recent}),
+    do: assign_mtr_rows(socket, true, running, recent)
+
+  def assign_loaded_mtr_jobs(socket, _running, _recent), do: assign_mtr_rows(socket, false, [], [])
+
+  defp assign_mtr_rows(socket, can_view?, running, recent) do
+    socket
+    |> Phoenix.Component.assign(:can_view_mtr_jobs, can_view?)
+    |> Phoenix.Component.assign(:mtr_running, running)
+    |> Phoenix.Component.assign(:mtr_recent, recent)
   end
 
   def load_running_executions(scope) do

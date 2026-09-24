@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -439,5 +440,32 @@ func TestBuildBulkMtrTargetUpdate_CarriesProtocol(t *testing.T) {
 
 	if update.Protocol != "udp" || update.Status != bulkMtrStatusCompleted {
 		t.Fatalf("expected a completed udp update, got %+v", update)
+	}
+}
+
+func TestMtrBulkPayload_ReachedTargetsZeroIsReported(t *testing.T) {
+	progress, err := json.Marshal(mtrBulkProgressPayload{TotalTargets: 2})
+	if err != nil {
+		t.Fatalf("marshal progress: %v", err)
+	}
+
+	if strings.Contains(string(progress), "reached_targets") {
+		t.Fatalf("progress should not report reach: %s", progress)
+	}
+
+	reached := 0
+
+	result, err := json.Marshal(mtrBulkProgressPayload{TotalTargets: 2, ReachedTargets: &reached})
+	if err != nil {
+		t.Fatalf("marshal result: %v", err)
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(result, &decoded); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+
+	if got, ok := decoded["reached_targets"]; !ok || got != float64(0) {
+		t.Fatalf("result should report reached_targets 0, got %v (present=%v)", got, ok)
 	}
 }
