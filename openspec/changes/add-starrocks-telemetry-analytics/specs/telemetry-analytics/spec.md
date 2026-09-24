@@ -49,10 +49,10 @@ The system SHALL persist migrated telemetry through JetStream and the EventWrite
 - **AND** queue age and JetStream retention risk are observable
 - **AND** unrelated ingestion demand domains remain independently bounded
 
-#### Scenario: Shadow destination partially succeeds
-- **WHEN** one required destination commits and another fails
-- **THEN** the owner retains per-destination progress and retries missing work with stable identities
-- **AND** no message is reported fully persisted before all required destinations satisfy the delivery contract
+#### Scenario: Warehouse load fails
+- **WHEN** StarRocks is enabled and a warehouse load fails
+- **THEN** the acknowledgement fails and the message is redelivered with the same stable identity
+- **AND** no row is written to CNPG as a fallback
 
 ### Requirement: Replay-safe persistence and visible load failures
 The system SHALL preserve stable record identity across retry, batch regrouping, crash recovery and historical overlap, and SHALL acknowledge telemetry only after confirmed durable visible persistence or a durable, observable quarantine disposition.
@@ -119,7 +119,7 @@ The system SHALL validate analytics using synthetic, reproducible workloads with
 
 #### Scenario: Benchmark fails the proposed load target
 - **WHEN** backlog grows persistently, correctness diverges or an agreed latency gate fails
-- **THEN** the candidate workload is reported as failed and cannot justify cutover or a supported-capacity claim
+- **THEN** the candidate workload is reported as failed and cannot justify enabling the warehouse or a supported-capacity claim
 
 #### Scenario: Recovery drill
 - **WHEN** a writer or CN restarts during ingestion or an FE/object-store failure occurs
@@ -151,7 +151,7 @@ The system SHALL provide an opt-in StarRocks JDBC catalog onto CNPG so authorize
 #### Scenario: Catalog is unavailable
 - **WHEN** the JDBC catalog or CNPG reader path fails
 - **THEN** the query returns an explicit error
-- **AND** it does not silently serve cut-over telemetry from CNPG
+- **AND** it does not silently serve warehouse telemetry from CNPG
 - **AND** it does not omit dimension columns without reporting the failure
 
 #### Scenario: Table is not on the allowlist

@@ -2,6 +2,8 @@
 
 Invented identifiers only. No live fleet values.
 
+This record predates `extend-starrocks-to-all-telemetry` design Decision 1: the shadow and cutover columns and wording below describe the superseded dual-write mechanism, and an enabled warehouse is now the only telemetry store.
+
 | Dataset | Writers found | Historical readers found | StarRocks destination | Cutover |
 | --- | --- | --- | --- | --- |
 | OCSF flows | EventWriter `Processors.Flows.insert_rows/1` after JetStream; `Destination.ack_cnpg_batch/4` requires Stream Load when `Readers.mode_for(:flows)` is starrocks, otherwise shadow is best-effort; attribution updates published on `events.flow.attribution` after CNPG persist | All inventoried flow readers dispatch through `Readers.mode_for/1` / `Readers.fetch/2`: SRQL `in:flows`, dashboard NetFlow map, device flow tab, observability loaders, exporter cache, topology (inventory graph, not ocsf), attribution correlation (StarRocks history + CNPG current-state), threat retrohunt observed IPs | `serviceradar.ocsf_network_activity` PK table + hourly MV + Stream Load | demo only: `helm/serviceradar/values-demo.yaml` lists `flows` in `cutoverDatasets`; default chart values list nothing, so `Readers.mode_for(:flows)` stays nil elsewhere |

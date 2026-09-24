@@ -31,27 +31,32 @@
   `Metrics`); full traces and hops do not: scheduled results go gateway -> core
   `ResultsRouter.handle_mtr_results/1`, on-demand and bulk results go through
   `AgentCommands.StatusHandler.ingest_mtr_result/3` and `ingest_bulk_target_traces/3`, and all of
-  them call `MtrMetricsIngestor.ingest/2`, which writes CNPG through Ash. Only ad-hoc scans pass
-  through JetStream (`scans.results.>` -> `AdhocScan`).
-  - [ ] 3.4.1 JetStream subject and stream for MTR trace results; core publishes on all three
-    paths instead of calling the ingestor. Add it to the EventWriter default streams.
+  them call `MtrMetricsIngestor.ingest/2`, which writes CNPG through Ash. Ad-hoc scan results
+  already arrive on JetStream (`scans.results.>` -> `AdhocScan`), but `AdhocScan.ingest_mtr_traces`
+  persists them through the same `MtrMetricsIngestor` into CNPG, so all four paths write CNPG
+  directly today.
+  - [ ] 3.4.1 JetStream subject and stream for MTR trace results; core publishes on the three
+    core-side paths (scheduled, on-demand, bulk) instead of calling the ingestor. Add it to the
+    EventWriter default streams.
   - [ ] 3.4.2 EventWriter `Mtr` processor: normalizes and enriches as `MtrMetricsIngestor` does
     today, persists traces and hops (warehouse when StarRocks is enabled, CNPG otherwise), then
     runs `MtrGraph.project_traces` and `MtrPubSub.broadcast_ingest` so live pages keep updating.
     The processor is the single owner; core keeps no direct MTR write.
-  - [ ] 3.4.3 Warehouse DDL `priv/starrocks/0019_mtr.sql`: `mtr_traces` and `mtr_hops` with every
+  - [ ] 3.4.3 `AdhocScan` hands MTR traces to the same warehouse-aware MTR persistence the `Mtr`
+    processor uses instead of calling `MtrMetricsIngestor`, so scheduled, on-demand, bulk and
+    ad-hoc traces share one owner and none writes CNPG when StarRocks is enabled.
+  - [ ] 3.4.4 Warehouse DDL `priv/starrocks/0019_mtr.sql`: `mtr_traces` and `mtr_hops` with every
     CNPG column, including probed/last-responding depth, TCP port, handshake fields and hop reply
     counters; day partitions and retention. Register the dataset in `Env`, `Destination @tables`,
     `Rows.encode_row/2`, `Retention @tables`, Helm `retentionDays` and the Compose env.
-  - [ ] 3.4.4 Hop rollups as async MVs aggregating loss with `loss_ratio(sent, received)` and
+  - [ ] 3.4.5 Hop rollups as async MVs aggregating loss with `loss_ratio(sent, received)` and
     latency with `wavg(avg_us, received)`. `mtr_hops.asn` is GeoLite2-only and NULL for every
     internal hop and private AS, so an AS-level rollup is not presented as fleet-wide.
-  - [ ] 3.4.5 Warehouse readers for `MtrData` (trace list, paginated list, coverage, trace
+  - [ ] 3.4.6 Warehouse readers for `MtrData` (trace list, paginated list, coverage, trace
     detail, Compare windows and paths), the dashboard MTR summary and sparklines, the Ash-backed
     trace and Compare pages, the device MTR tab and SRQL `in:mtr_traces`/`in:mtr_hops`; each
     behind its parity comparison.
-  - [ ] 3.4.6 Name the MTR results path in the AGENTS.md JetStream rule as a known exception
-    being removed, and delete that exception when 3.4.1 lands.
+  - [ ] 3.4.7 Delete the MTR exception from the AGENTS.md JetStream rule when 3.4.1 and 3.4.3 land.
 - [ ] 3.4b BMP routing events and service status history: table, EventWriter destination, routing,
   readers.
 - [ ] 3.5 Measure trace-by-id and single-device detail latency cold and warm; record against the detail-page budget.
@@ -76,7 +81,7 @@
   warehouse only and a warehouse failure fails the acknowledgement; every EventWriter processor
   and non-broker producer that inserts CNPG telemetry (flows, metrics, logs, events, Falco,
   Trivy, analytics signals, composite-check verdicts, credential events, endpoint inventory,
-  source facts, log promotion) skips the CNPG insert. Remove `shadowDatasets` and
+  source facts, log promotion, MTR traces including `AdhocScan`) skips the CNPG insert. Remove `shadowDatasets` and
   `cutoverDatasets` from Helm, Compose and `Env`; `Readers` routes every dataset to the warehouse
   when enabled.
 - [ ] 5.3 A shared "unavailable with StarRocks enabled" result for readers with no warehouse

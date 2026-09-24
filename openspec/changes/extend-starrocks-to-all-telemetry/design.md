@@ -2,8 +2,8 @@
 
 ## Context
 
-Where things stand, in a deployment that has cut flows over: flows are read only from the
-warehouse; metrics are being cut over; logs and events are shadow-written and read from CNPG;
+Where things stand, in a deployment that has moved flows over: flows are read only from the
+warehouse; metrics readers are being moved; logs and events are dual-written and read from CNPG;
 nothing else is in the warehouse. All four warehouse tables are partitioned by day with
 per-dataset retention, and the three hourly rollups are day-partitioned async materialized
 views. CNPG still receives every telemetry write: that dual-write is what this revision removes
@@ -15,7 +15,7 @@ orders of magnitude over every other dataset, which is why they are retired firs
 ## Goals / Non-Goals
 
 - Goals: with StarRocks enabled, every append-only telemetry dataset stored in and served from
-  the warehouse only; no chart that silently shows different numbers after a cutover; CNPG reduced to
+  the warehouse only; no chart that silently shows different numbers after a reader moves; CNPG reduced to
   transactional state; maintenance safe on a modest warehouse.
 - Non-Goals: moving inventory, identity, credentials, configuration, alert state or jobs;
   replacing the JetStream-first single-owner write path; making StarRocks mandatory (an
@@ -129,13 +129,13 @@ range and structured filters", not a promise of fast free-text search over a yea
 
 ## Migration Plan
 
-1. Remove the dual-write and the per-dataset lists (tasks 5.2): enabling StarRocks makes every
+1. Remove the dual-write and the per-dataset lists (task 5.2): enabling StarRocks makes every
    dataset warehouse-only.
-2. Move every CNPG telemetry reader to the warehouse (tasks 5.1, 2.4, 3.x), highest-traffic pages
+2. Move every CNPG telemetry reader to the warehouse (tasks 5.1, 5.4, 2.4, 3.x), highest-traffic pages
    first: dashboard cards and sparklines, MTR, logs and events pages, OTel, sysmon, BMP, service
    status. Each reader ships behind its parity comparison.
-3. Backfill history that should outlive the switch (task 5.3), then drop CNPG telemetry storage
-   by reviewed migration (task 5.5).
+3. Backfill history that should outlive the switch (task 5.5), then drop CNPG telemetry storage
+   by reviewed migration (task 5.6).
 
 ## Open Questions
 
