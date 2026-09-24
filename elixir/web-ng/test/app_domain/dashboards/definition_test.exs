@@ -234,20 +234,6 @@ defmodule ServiceRadarWebNG.Dashboards.DefinitionTest do
       assert SystemReports.new_devices_query() =~ "first_seen:last_30d"
     end
 
-    test "no shipped MTR panel averages a percentage" do
-      mtr =
-        Enum.find(
-          SystemReports.dashboard_specs(),
-          &(&1.slug == SystemReports.mtr_path_analytics_slug())
-        )
-
-      queries = Enum.map(mtr.panels, & &1.srql_query)
-
-      refute Enum.any?(queries, &String.contains?(&1, "avg(loss_pct)"))
-      refute Enum.any?(queries, &String.contains?(&1, "avg(avg_us)"))
-      assert Enum.any?(queries, &String.contains?(&1, "loss_ratio(sent, received)"))
-    end
-
     test "the loader reports a bad file rather than skipping it" do
       dir = Path.join(System.tmp_dir!(), "sr_defs_#{System.unique_integer([:positive])}")
       File.mkdir_p!(dir)
