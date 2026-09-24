@@ -74,8 +74,11 @@ defmodule ServiceRadarWebNG.Dashboards.DefinitionLoader do
 
   defp decode(body, source) do
     case Jason.decode(body) do
-      {:ok, decoded} -> {:ok, decoded}
-      {:error, %Jason.DecodeError{} = err} -> {:error, "#{source}: invalid JSON (#{Exception.message(err)})"}
+      {:ok, decoded} ->
+        {:ok, decoded}
+
+      {:error, %Jason.DecodeError{} = err} ->
+        {:error, "#{source}: invalid JSON (#{Exception.message(err)})"}
     end
   end
 

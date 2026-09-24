@@ -101,7 +101,8 @@ defmodule ServiceRadarWebNG.Dashboards.Definition do
     end
   end
 
-  defp validate_version(_raw, source), do: {:error, "#{source}: missing required integer \"version\""}
+  defp validate_version(_raw, source),
+    do: {:error, "#{source}: missing required integer \"version\""}
 
   defp required_string(raw, key, source) do
     case Map.get(raw, key) do
@@ -132,7 +133,8 @@ defmodule ServiceRadarWebNG.Dashboards.Definition do
     end
   end
 
-  defp validate_panels(_raw, source), do: {:error, "#{source}: \"panels\" must be a non-empty array"}
+  defp validate_panels(_raw, source),
+    do: {:error, "#{source}: \"panels\" must be a non-empty array"}
 
   defp validate_panel(panel, index, source) when is_map(panel) do
     where = "#{source} panel #{index}"
@@ -157,7 +159,8 @@ defmodule ServiceRadarWebNG.Dashboards.Definition do
     end
   end
 
-  defp validate_panel(_panel, index, source), do: {:error, "#{source} panel #{index}: must be a JSON object"}
+  defp validate_panel(_panel, index, source),
+    do: {:error, "#{source} panel #{index}: must be a JSON object"}
 
   # Compares string forms rather than converting input to an atom, so an unknown
   # visual type cannot create one.
@@ -215,7 +218,8 @@ defmodule ServiceRadarWebNG.Dashboards.Definition do
     end
   end
 
-  defp validate_binding(_binding, _query, where), do: {:error, "#{where}: data_binding must be a JSON object"}
+  defp validate_binding(_binding, _query, where),
+    do: {:error, "#{where}: data_binding must be a JSON object"}
 
   @doc """
   Whether an SRQL query selects `field`, as a stats alias, a group dimension, or

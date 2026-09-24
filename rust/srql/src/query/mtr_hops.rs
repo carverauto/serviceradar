@@ -1554,13 +1554,13 @@ mod tests {
         );
     }
 
-    /// The exact SRQL carried by the built-in MTR path analytics dashboard's
-    /// panels, in `SystemReports`.
+    /// SRQL queries that exercise the mtr_hops aggregate grammar, drawn from
+    /// earlier versions of the built-in MTR path analytics dashboard.
     ///
-    /// These strings live in an Elixir constant, so nothing on that side would
-    /// catch a grammar change breaking them — the dashboard would simply render
-    /// an error at load time. Guarding them here means a grammar change fails a
-    /// test instead.
+    /// The dashboard now loads from JSON at runtime
+    /// (`priv/dashboards/mtr-path-analytics.json`), so grammar regressions
+    /// would surface as runtime errors rather than test failures. These queries
+    /// keep the grammar under test even though the shipped panel set has changed.
     const DASHBOARD_PANEL_QUERIES: &[&str] = &[
         "in:mtr_hops time:last_24h stats:loss_ratio(sent, received) as loss by addr sort:loss:desc limit:20",
         "in:mtr_hops time:last_24h stats:wavg(avg_us, received) as latency by addr sort:latency:desc limit:20",
