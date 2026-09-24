@@ -22,6 +22,19 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.ProtocolsTest do
     end
   end
 
+  describe "Protocols.scaled_target_count/2" do
+    test "scales a known target count by the protocol set size" do
+      assert Protocols.scaled_target_count(10, 1) == 10
+      assert Protocols.scaled_target_count(10, 3) == 30
+      assert Protocols.scaled_target_count(0, 2) == 0
+    end
+
+    test "passes an unknown target count through instead of raising" do
+      assert Protocols.scaled_target_count(nil, 1) == nil
+      assert Protocols.scaled_target_count(nil, 3) == nil
+    end
+  end
+
   describe "Protocols.label/1" do
     test "joins the set and shows the TCP port" do
       assert Protocols.label(%{baseline_protocols: [:icmp, :tcp], tcp_port: 443}) == "ICMP + TCP (TCP 443)"

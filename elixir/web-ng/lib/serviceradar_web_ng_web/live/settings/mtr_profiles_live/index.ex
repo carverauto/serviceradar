@@ -1208,7 +1208,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
         execution_profile,
         # Every target is traced once per protocol, and measured throughput is
         # in those (target, protocol) units.
-        effective_target_count(summary) * max(protocol_count, 1),
+        Protocols.scaled_target_count(effective_target_count(summary), protocol_count),
         configured_interval
       )
     )

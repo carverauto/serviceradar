@@ -25,6 +25,15 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Protocols do
   @spec count(map()) :: pos_integer()
   def count(params), do: params |> from_params() |> length() |> max(1)
 
+  @doc "Scales a target count by the protocol set size; an unknown count stays unknown."
+  @spec scaled_target_count(integer() | nil, integer() | nil) :: integer() | nil
+  def scaled_target_count(count, protocol_count)
+      when is_integer(count) and is_integer(protocol_count) do
+    count * max(protocol_count, 1)
+  end
+
+  def scaled_target_count(_count, _protocol_count), do: nil
+
   @doc "Display label for a profile's protocol set, with the port when TCP is included."
   @spec label(map()) :: String.t()
   def label(profile) do
