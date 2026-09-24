@@ -475,7 +475,9 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
     Map.merge(row, MtrTcpHandshake.hop_fields(hop, counters?))
   end
 
-  defp build_hop_row(_hop, _trace_id, _trace_time), do: nil
+  # Defensive catch-all for a non-map hop. build_hop_rows/5 already filters with
+  # Enum.filter(&is_map/1), so this branch is never reached in practice.
+  defp build_hop_row(_hop, _trace_id, _trace_time, _target_ip, _device_id, _counters?), do: nil
 
   defp map_get_any(map, keys, default) when is_map(map) and is_list(keys) do
     Enum.find_value(keys, default, fn key ->

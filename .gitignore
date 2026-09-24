@@ -325,3 +325,4 @@ __pycache__/
 # re-admits everything the rest of this file is trying to exclude.
 .local-fixture-certs/
 .local-secrets/
+*.beam

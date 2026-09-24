@@ -9,28 +9,28 @@
 
 ## 2. Definition format
 
-- [ ] 2.1 Define the JSON document: mandatory `version`, dashboard identity and
+- [x] 2.1 Define the JSON document: mandatory `version`, dashboard identity and
       fields, ordered panels with query, visual type, bindings and `layout`.
-- [ ] 2.2 Validate on load and refuse with a message naming the file and the
+- [x] 2.2 Validate on load and refuse with a message naming the file and the
       offending field. An unknown `version` is a refusal, never a skip.
-- [ ] 2.3 Reject a definition whose panels overlap in the grid or omit `layout`.
+- [x] 2.3 Reject a definition whose panels overlap in the grid or omit `layout`.
       Panels that all default to the same cell stack and render as one, which is
       how the shipped MTR dashboard showed a single panel.
-- [ ] 2.4 Reject a panel whose `visual_type` the resource would not accept, and a
+- [x] 2.4 Reject a panel whose `visual_type` the resource would not accept, and a
       binding naming a field the panel's own query does not select.
 
 ## 3. Import
 
-- [ ] 3.1 Load definitions from the declared directory and create what is absent,
+- [x] 3.1 Load definitions from the declared directory and create what is absent,
       matched by slug.
-- [ ] 3.2 **Never rewrite an existing dashboard or panel.** No title, description,
+- [x] 3.2 **Never rewrite an existing dashboard or panel.** No title, description,
       time range, query, binding or layout is written back over a stored value.
-- [ ] 3.3 Create panels for a dashboard row that has none, as an interrupted
+- [x] 3.3 Create panels for a dashboard row that has none, as an interrupted
       creation.
-- [ ] 3.4 Reduce `SystemReports` to a loader over shipped definitions, removing the
+- [x] 3.4 Reduce `SystemReports` to a loader over shipped definitions, removing the
       hardcoded `@dashboards` list while preserving the existing `new-devices`
       slug, query and metadata exactly.
-- [ ] 3.5 Move `new-devices` and `mtr-path-analytics` to definition files.
+- [x] 3.5 Move `new-devices` and `mtr-path-analytics` to definition files.
 
 ## 4. Export
 
@@ -153,21 +153,21 @@ the third consumer, so it moves once rather than being copied a third time.
 
 ## 7. The dashboard
 
-- [ ] 7.1 Loss by hop position, so loss that begins at a position and continues is
+- [x] 7.1 Loss by hop position, so loss that begins at a position and continues is
       distinguishable from loss at one position only.
-- [ ] 7.2 Loss by hop address with a trace count beside it, so a shared hop is
+- [x] 7.2 Loss by hop address with a trace count beside it, so a shared hop is
       distinguishable from one seen twice.
-- [ ] 7.3 Reach rate per target from `mtr_traces`, as the endpoint signal.
-- [ ] 7.4 Every panel scopeable to a device set via `target_ip`, with the default
+- [x] 7.3 Reach rate per target from `mtr_traces`, as the endpoint signal.
+- [x] 7.4 Every panel scopeable to a device set via `target_ip`, with the default
       shipped scope documented in the definition.
-- [ ] 7.5 Title and caption each panel so an ICMP-rate-limiting artifact cannot be
+- [x] 7.5 Title and caption each panel so an ICMP-rate-limiting artifact cannot be
       read as a fault, and so the AS panel is not read as fleet-wide.
-- [ ] 7.6 Drop or retitle panels that aggregate loss across all hop positions
+- [x] 7.6 Drop or retitle panels that aggregate loss across all hop positions
       without qualification.
 
 ## 8. Tests
 
-- [ ] 8.1 Definition validation: version, missing layout, overlapping panels,
+- [x] 8.1 Definition validation: version, missing layout, overlapping panels,
       unaccepted visual type, binding naming an unselected field. Each with a
       negative case confirmed red before green.
 - [ ] 8.2 Import creates when absent; does not revert an edited query, title or
@@ -182,7 +182,7 @@ the third consumer, so it moves once rather than being copied a third time.
       guard extended.
 - [ ] 8.5 Backfill: resumable after interruption, idempotent on a second run, and
       correct for a hop whose trace has no `device_id`.
-- [ ] 8.6 A test asserting no shipped definition aggregates loss across all hop
+- [x] 8.6 A test asserting no shipped definition aggregates loss across all hop
       positions without a qualifying title, so the misleading panel cannot return.
 
 ## 9. Validation

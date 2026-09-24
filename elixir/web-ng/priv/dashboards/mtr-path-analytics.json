@@ -1,0 +1,69 @@
+{
+  "version": 1,
+  "slug": "mtr-path-analytics",
+  "title": "MTR path analytics",
+  "description": "Separates a shared network-path fault from a failing endpoint. Loss is total lost probes over total sent, never an average of per-hop percentages, so a low-sample hop cannot dominate. Scope any panel to particular devices by adding target_ip: to its query. Read the hop-position panel first: loss that begins at a position and continues is a real fault, while loss at a single position is usually a router deprioritising replies addressed to itself.",
+  "default_time_range": "last_24h",
+  "metadata": {
+    "system_report": true,
+    "report_kind": "mtr_path_analytics"
+  },
+  "panels": [
+    {
+      "title": "Loss by hop position (does it persist?)",
+      "srql_query": "in:mtr_hops time:last_24h stats:\"loss_ratio(sent, received) as loss, count() as samples by hop_number\" sort:hop_number:asc limit:40",
+      "visual_type": "bar",
+      "data_binding": { "label_field": "hop_number", "value_field": "loss" },
+      "display_config": {
+        "caption": "Loss that starts at a position and continues to later positions is a real fault. Loss at one position only is usually ICMP deprioritisation by that router, not a problem for traffic passing through it."
+      },
+      "layout": { "x": 0, "y": 0, "w": 6, "h": 5 },
+      "position": 0
+    },
+    {
+      "title": "Shared hops by loss (with trace count)",
+      "srql_query": "in:mtr_hops time:last_24h stats:\"loss_ratio(sent, received) as loss, count() as traces by addr\" sort:loss:desc limit:20",
+      "visual_type": "table",
+      "data_binding": { "label_field": "addr", "value_field": "loss" },
+      "display_config": {
+        "caption": "A high trace count means many devices traverse this hop, so loss here is a shared-path problem. A low count is one or two devices and is not evidence of a shared fault."
+      },
+      "layout": { "x": 6, "y": 0, "w": 6, "h": 5 },
+      "position": 1
+    },
+    {
+      "title": "Reach rate per target (endpoint health)",
+      "srql_query": "in:mtr_traces time:last_24h stats:\"count() as traces, avg(target_reached) as reach_rate by target_ip\" sort:reach_rate:asc limit:25",
+      "visual_type": "table",
+      "data_binding": { "label_field": "target_ip", "value_field": "reach_rate" },
+      "display_config": {
+        "caption": "Lowest reach rate first. A trace that never reaches its target has no terminal hop to measure, so this is the only place an unreachable device shows up. Low reach rate with clean upstream hops points at the endpoint, not the path."
+      },
+      "layout": { "x": 0, "y": 5, "w": 6, "h": 5 },
+      "position": 2
+    },
+    {
+      "title": "Hop latency, weighted by samples",
+      "srql_query": "in:mtr_hops time:last_24h stats:\"wavg(avg_us, received) as latency, count() as traces by addr\" sort:latency:desc limit:20",
+      "visual_type": "table",
+      "data_binding": { "label_field": "addr", "value_field": "latency" },
+      "display_config": {
+        "unit": "microseconds",
+        "caption": "Weighted by received packets, so a hop that answered once does not rank beside one that answered five hundred times."
+      },
+      "layout": { "x": 6, "y": 5, "w": 6, "h": 5 },
+      "position": 3
+    },
+    {
+      "title": "Loss trend",
+      "srql_query": "in:mtr_hops time:last_24h stats:loss_ratio(sent, received) as loss by time:1h limit:500",
+      "visual_type": "line",
+      "data_binding": { "time_field": "bucket", "value_field": "loss" },
+      "display_config": {
+        "caption": "Aggregated across all hop positions, so this includes ICMP deprioritisation and is a trend indicator rather than a fleet loss rate. Use it to tell a sustained problem from a transient one."
+      },
+      "layout": { "x": 0, "y": 10, "w": 12, "h": 4 },
+      "position": 4
+    }
+  ]
+}

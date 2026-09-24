@@ -272,7 +272,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     if is_binary(query) and String.trim(query) != "" do
       params
     else
-      Map.put(params, "q", SystemReports.new_devices_query())
+      case SystemReports.new_devices_query() do
+        nil -> params
+        q -> Map.put(params, "q", q)
+      end
     end
   end
 
