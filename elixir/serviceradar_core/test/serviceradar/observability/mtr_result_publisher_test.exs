@@ -116,7 +116,10 @@ defmodule ServiceRadar.Observability.MtrResultPublisherTest do
     assert first_result["trace"]["timestamp"] == 1_700_000_000
     refute Map.has_key?(first_result, "timestamp")
     assert second_result["timestamp"] == 1_700_000_100
-    assert MtrMetricsIngestor.trace_time(first_result) == ~U[2023-11-14 22:13:20.000000Z]
+    assert DateTime.compare(
+             MtrMetricsIngestor.trace_time(first_result),
+             ~U[2023-11-14 22:13:20Z]
+           ) == :eq
   end
 
   test "accepts the single-result shapes the ingestor accepts" do
