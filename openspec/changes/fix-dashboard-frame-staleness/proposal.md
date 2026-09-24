@@ -6,11 +6,11 @@ A dashboard package receives its data frames once and then shows them forever,
 while the relative-time text on screen keeps counting up. The result is a display
 that is confidently wrong rather than visibly broken.
 
-Observed on a long-lived display whose devices are swept
-on a fixed interval: every reachable device read `7m ago`, then `8m ago`, climbing
-past the sweep interval it can never exceed. A browser reload showed the truth.
-A device that goes down keeps rendering green, its age quietly increasing, until
-someone happens to reload — which nobody does on a video wall.
+Observed on a long-lived display whose devices are swept on a fixed interval:
+every reachable device read `7m ago`, then `8m ago`, climbing past the sweep
+interval it can never exceed. A browser reload showed the truth. A device that
+goes down keeps rendering green, its age quietly increasing, until someone
+happens to reload. A video wall is not reloaded.
 
 The refresh machinery is not missing. It works. The client discards its output.
 
@@ -98,7 +98,7 @@ all are in these two files, and all are invisible to a caller today:
   `add-derived-frame-completeness`, which this one deliberately unblocks rather
   than contains. Shipping the staleness fix must not wait on a redesign.
 - Widening `refresh_data_frames/1`. `required: false` frames are never re-run,
-  which is a real defect, but `required` is overloaded — `com.example.inventory`
+  which is a real defect, but `required` is overloaded — a deployed package
   uses it for host-feature degradation, and the required-only filter is asserted by
   a named test (`dashboard_frame_channel_test.exs:220`, "refresh ticks keep cached
   optional frames without re-running them"). Splitting `required` from `refresh` is
@@ -126,8 +126,8 @@ all are in these two files, and all are invisible to a caller today:
   dedupe and amplifying push traffic 1×/15 s/viewer into a full re-push including
   binaries — is addressed in the same commit and must be covered by a test that
   fails if the hash starts seeing the timestamp.
-- Consumers: no SDK bump, no republish, no manifest change. `com.example.board@0.1.0`
-  and `com.example.inventory@0.1.0` benefit as deployed.
+- Consumers: no SDK bump, no republish, no manifest change. Packages already
+  published pick the fix up from the host with no manifest change.
 
 ## Note on OpenSpec conventions
 

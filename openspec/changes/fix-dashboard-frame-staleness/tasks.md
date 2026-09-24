@@ -32,9 +32,9 @@
 - [x] 5.8 Ran what is runnable without a database: `SERVICERADAR_ALLOW_DB_FREE_TESTS=1 mix test <file>` for the two affected db-free suites — `frame_runner_test.exs` 19 tests / 0 failures, `timestamp_formatter_inventory_test.exs` 5 tests / 0 failures. `mix compile` clean with no warnings in either changed file, and `mix format --check-formatted` clean. The whole-suite db-free run fails to COMPILE `test/phoenix/auth/sso_provisioning_test.exs`, which does an unconditional `use ServiceRadar.DataCase` at line 301 — that file can never compile in db-free mode, is unrelated (zero references to anything changed here), and is pre-existing.
 
 ## 6. End-to-end verification against a real instance
-- [ ] 6.1 With the host change deployed, load `com.example.board` (already published, unmodified) and confirm the relative times stop climbing past the sweep interval without a browser reload. This is the acceptance test for the whole change.
+- [ ] 6.1 With the host change deployed, load a published dashboard package that was not modified and confirm the relative times stop climbing past the sweep interval without a browser reload. This is the acceptance test for the whole change.
 - [ ] 6.2 Confirm a device transitioning down is reflected within roughly one refresh interval, rather than staying green until reload.
-- [ ] 6.3 Confirm `com.example.inventory` still pages correctly — it hand-pages a `required: true, limit: 200` frame via `useDashboardFramePagination`, so it is the consumer most exposed to the cursor and reply changes.
+- [ ] 6.3 Confirm a package that hand-pages a `required: true, limit: 200` frame via `useDashboardFramePagination` still pages correctly. That consumer is the one most exposed to the cursor and reply changes.
 - [ ] 6.4 Watch push volume for a viewer sitting on an idle dashboard and confirm it has not increased — the amplification risk from 2.1.
 
 ## 7. Hand-off
