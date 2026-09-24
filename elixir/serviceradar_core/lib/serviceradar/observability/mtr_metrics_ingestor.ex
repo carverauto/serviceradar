@@ -411,7 +411,11 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
     Map.merge(row, MtrTcpHandshake.hop_fields(hop, counters?))
   end
 
-  defp build_hop_row(_hop, _trace_id, _trace_time), do: nil
+  # Defensive catch-all for a non-map hop. Both build_hop_rows/5 clauses already
+  # Enum.filter(&is_map/1), so this is redundancy rather than a live guard -- but it
+  # has to track the arity, because left at /3 it was orphaned entirely and the
+  # compiler flagged it as unused.
+  defp build_hop_row(_hop, _trace_id, _trace_time, _target_ip, _device_id), do: nil
 
   defp map_get_any(map, keys, default) when is_map(map) and is_list(keys) do
     Enum.find_value(keys, default, fn key ->

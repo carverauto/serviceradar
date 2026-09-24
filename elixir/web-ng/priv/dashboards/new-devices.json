@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "slug": "new-devices",
+  "title": "New devices",
+  "description": "Devices first seen in the last 30 days. Schedule this dashboard to email the list.",
+  "default_time_range": "last_30d",
+  "metadata": {
+    "system_report": true,
+    "report_kind": "new_devices"
+  },
+  "panels": [
+    {
+      "title": "Recently added devices",
+      "srql_query": "in:devices first_seen:last_30d sort:first_seen:desc limit:200",
+      "visual_type": "table",
+      "data_binding": {},
+      "layout": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "position": 0
+    }
+  ]
+}

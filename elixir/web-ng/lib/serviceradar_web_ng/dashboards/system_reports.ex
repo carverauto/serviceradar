@@ -39,6 +39,7 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReports do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Dashboards.AuthoredDashboard
   alias ServiceRadar.Dashboards.DashboardPanel
+  alias ServiceRadarWebNG.Dashboards.DefinitionLoader
 
   require Ash.Query
   require Logger
@@ -46,96 +47,15 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReports do
   @create_delay_ms 7_000
   @retry_delay_ms 30_000
 
+  # Dashboards are no longer described here. They are declarative JSON definitions
+  # under priv/dashboards, loaded and validated at runtime by DefinitionLoader.
+  # Amending or adding a built-in dashboard is a data change, not a code change,
+  # and the same format is what an operator exports from the builder.
+
   @panel_attribute_keys [:title, :srql_query, :visual_type, :data_binding, :layout, :position]
 
   @new_devices_slug "new-devices"
-  @new_devices_query "in:devices first_seen:last_30d sort:first_seen:desc limit:200"
-
   @mtr_path_analytics_slug "mtr-path-analytics"
-
-  # Packet loss is a ratio of summed probe counts, never a mean of per-hop
-  # percentages: a hop that sent one lost probe must not weigh as much as one
-  # that sent five hundred cleanly. Hop latency is weighted by received packets
-  # for the same reason. These strings are guarded by
-  # `built_in_dashboard_panel_queries_compile` in rust/srql/src/query/mtr_hops.rs,
-  # so a grammar change fails a test rather than this dashboard at load time.
-  @mtr_loss_query "in:mtr_hops time:last_24h stats:loss_ratio(sent, received) as loss by addr sort:loss:desc limit:20"
-  @mtr_latency_query "in:mtr_hops time:last_24h stats:wavg(avg_us, received) as latency by addr sort:latency:desc limit:20"
-  @mtr_asn_query "in:mtr_hops time:last_24h asn:>0 stats:loss_ratio(sent, received) as loss by asn sort:loss:desc limit:20"
-  @mtr_trend_query "in:mtr_hops time:last_24h stats:loss_ratio(sent, received) as loss by time:1h limit:500"
-
-  @dashboards [
-    %{
-      slug: @new_devices_slug,
-      title: "New devices",
-      description: "Devices first seen in the last 30 days. Schedule this dashboard to email the list.",
-      default_time_range: "last_30d",
-      report_kind: "new_devices",
-      panels: [
-        %{
-          title: "Recently added devices",
-          srql_query: @new_devices_query,
-          visual_type: :table,
-          data_binding: %{},
-          layout: %{"x" => 0, "y" => 0, "w" => 12, "h" => 8},
-          position: 0
-        }
-      ]
-    },
-    %{
-      slug: @mtr_path_analytics_slug,
-      title: "MTR path analytics",
-      description:
-        "Hop-level packet loss and latency across traced paths. Loss is total lost probes over total sent, not an average of per-hop percentages, so a low-sample hop cannot dominate. Edit a panel's query to scope it to particular devices.",
-      default_time_range: "last_24h",
-      report_kind: "mtr_path_analytics",
-      panels: [
-        # Every panel sets an explicit layout. An empty layout is not "let the
-        # renderer decide": LayoutHelpers.panel_grid_style/2 defaults a missing
-        # layout to x=0, y=0, w=12, h=4, so a dashboard whose panels all omit it
-        # places every one of them in the SAME grid cell, stacked, and only one is
-        # visible. The builder canvas does its own placement, so the dashboard
-        # looks correct there while the view shows a single panel.
-        %{
-          title: "Highest-loss hops",
-          srql_query: @mtr_loss_query,
-          visual_type: :bar,
-          data_binding: %{"label_field" => "addr", "value_field" => "loss"},
-          layout: %{"x" => 0, "y" => 0, "w" => 6, "h" => 5},
-          position: 0
-        },
-        %{
-          title: "Highest-latency hops",
-          srql_query: @mtr_latency_query,
-          visual_type: :bar,
-          data_binding: %{"label_field" => "addr", "value_field" => "latency"},
-          layout: %{"x" => 6, "y" => 0, "w" => 6, "h" => 5},
-          position: 1
-        },
-        # `asn` is populated only by a GeoLite2 lookup, which carries no private
-        # ASNs and no RFC1918 addresses. It is therefore NULL for every internal
-        # hop, so this panel is restricted to resolved ASNs and titled as
-        # external rather than presented as fleet-wide. On a fleet whose internal
-        # BGP runs on private ASNs it will legitimately render empty.
-        %{
-          title: "Loss by external AS (transit only)",
-          srql_query: @mtr_asn_query,
-          visual_type: :bar,
-          data_binding: %{"label_field" => "asn", "value_field" => "loss"},
-          layout: %{"x" => 0, "y" => 5, "w" => 6, "h" => 5},
-          position: 2
-        },
-        %{
-          title: "Loss trend",
-          srql_query: @mtr_trend_query,
-          visual_type: :line,
-          data_binding: %{"time_field" => "bucket", "value_field" => "loss"},
-          layout: %{"x" => 6, "y" => 5, "w" => 6, "h" => 5},
-          position: 3
-        }
-      ]
-    }
-  ]
 
   @spec child_spec(keyword()) :: Supervisor.child_spec()
   def child_spec(opts) do
@@ -175,16 +95,29 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReports do
     end
   end
 
-  @doc "The dashboard definitions that ship with the product."
+  @doc "The dashboard definitions that ship with the product, loaded from priv."
   @spec dashboard_specs() :: [map()]
-  def dashboard_specs, do: @dashboards
+  def dashboard_specs do
+    DefinitionLoader.load_all().definitions
+  end
 
   @doc "The map keys accepted when persisting a panel spec. Keys not in this list are silently dropped by Map.take/2 in create_panels/3."
   @spec panel_attribute_keys() :: [atom()]
   def panel_attribute_keys, do: @panel_attribute_keys
 
-  @spec new_devices_query() :: String.t()
-  def new_devices_query, do: @new_devices_query
+  @doc "Load errors for the shipped definitions, so a test can assert there are none."
+  @spec definition_errors() :: [String.t()]
+  def definition_errors do
+    DefinitionLoader.load_all().errors
+  end
+
+  @spec new_devices_query() :: String.t() | nil
+  def new_devices_query do
+    case Enum.find(dashboard_specs(), &(&1.slug == @new_devices_slug)) do
+      %{panels: [%{srql_query: query} | _]} -> query
+      _ -> nil
+    end
+  end
 
   @spec new_devices_slug() :: String.t()
   def new_devices_slug, do: @new_devices_slug
@@ -197,7 +130,15 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReports do
     if repo_enabled?() do
       actor = Keyword.get(opts, :actor) || SystemActor.system(:system_reports)
 
-      @dashboards
+      %{definitions: definitions, errors: errors} = DefinitionLoader.load_all()
+
+      # A malformed definition is logged loudly rather than dropped. A dashboard
+      # silently missing from the library gives no hint where to look.
+      Enum.each(errors, fn error ->
+        Logger.error("Invalid built-in dashboard definition: #{error}")
+      end)
+
+      definitions
       |> Enum.reduce_while({:ok, []}, fn spec, {:ok, acc} ->
         case ensure_dashboard(actor, spec) do
           {:ok, dashboard} -> {:cont, {:ok, [dashboard | acc]}}
