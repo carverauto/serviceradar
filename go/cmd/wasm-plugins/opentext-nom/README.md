@@ -23,7 +23,9 @@ The implementation follows the approved ServiceRadar OpenSpec change
 - Query parameters are validated against a strict allowlist.
 - Username and password are injected into the OAuth form by the ServiceRadar
   agent host and are never exposed to Wasm.
-- The short-lived bearer token exists only for the current plugin execution.
+- The short-lived bearer token is held only in agent memory (and, for the local
+  host, in process memory) and reused for at most 15 minutes; see the OAuth
+  token cache notes in `docs/configuration.md`.
 - Partial or oversized inventory snapshots are rejected rather than emitted.
 
 ## Development
@@ -66,10 +68,10 @@ injection, rejects redirects and mismatched endpoints, and prints only the
 submitted plugin result. It does not grant package approval or production
 authorization.
 
-The `opentext-nom.config.retrieve` action stages the running-config as an
+The `opentext-nom.config.retrieve` action stages the NA-stored config as an
 artifact, so it also needs a directory for the local host to write it to. Keep
-it outside the repository: the file holds the device's full configuration,
-secrets included.
+it outside the repository: the file holds the device's full configuration, and
+NA masking does not cover everything.
 
 ```dotenv
 SERVICERADAR_PLUGIN_ACTION_FILE=/path/outside/repo/retrieve.json

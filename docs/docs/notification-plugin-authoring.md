@@ -355,6 +355,16 @@ Neither mode lets the plugin see the long-lived credential. The host performs
 the token exchange itself and puts only the derived short-lived bearer token on
 the upstream request, so the client secret never crosses the guest boundary.
 
+The host caches the derived token so a plugin run does not log in once per HTTP
+request. The cache key covers the token URL, the full grant form (credential
+material included) and the TLS mode, so a rotated credential or a different
+endpoint never reuses a token. A token is reused for its `expires_in` capped at
+15 minutes, minus a 60-second margin; a response without a usable `expires_in`
+is not cached. An upstream `401` evicts the token, but the rejected request is
+not replayed because plugin requests can be mutating. The exchange has its own
+deadline of `max(15s, the request timeout)`, so a plugin `timeout_ms` below 15
+seconds still gets 15 seconds to log in without shortening the upstream call.
+
 Shorthand spellings some other surfaces accept - `header`, `http_basic_auth`,
 `query_param`, `http_query` - are **not** accepted here, deliberately, so that a
 plugin author never learns a spelling one surface accepts and another rejects. A

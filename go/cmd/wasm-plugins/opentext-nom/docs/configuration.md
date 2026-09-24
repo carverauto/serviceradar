@@ -165,7 +165,7 @@ ServiceRadar provisions a daily inventory producer schedule (`86400` seconds,
 15-minute timeout). Operators change cadence on the credential rule, within the
 package bounds, or trigger **Run Now** from that rule.
 
-## Running-config retrieval
+## Stored config retrieval
 
 The `opentext-nom.config.retrieve` producer schedule (default daily, minimum
 `3600` seconds, 5-minute timeout) retrieves the configuration Network
@@ -199,6 +199,18 @@ Network Automation must have the HTTP-JSON wrapper enabled
 `adjustable_options.rcx`, then restart NA services). Otherwise every request
 returns HTTP 503 `Rest Wrapper is disabled`. Commands and token exchanges can
 take 15-60 seconds, which is why `request_timeout_seconds` defaults to 120.
+
+### OAuth token cache
+
+NA's token endpoint is slow, so the agent host and the native local host reuse
+the bearer token instead of logging in for every request. The cache is keyed by
+the token URL, the full grant form (credentials included) and the TLS mode, so
+rotated credentials never reuse a token. A token is reused for `expires_in`
+capped at 15 minutes (NA advertises 3600 seconds but documents 20-minute
+tokens), minus 60 seconds; a response without `expires_in` is not cached. A
+`401` from NA evicts the token, and the rejected request is not replayed.
+The agent broker's contract is in
+`docs/docs/notification-plugin-authoring.md`.
 
 The signed package declares the `opentext-nom` inventory source and these
 provider-owned observation fields:
