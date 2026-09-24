@@ -189,7 +189,8 @@ the user has to run:
 
 The official Dgraph chart (or in-tree templates that render the same
 StatefulSets) is a Helm dependency of `helm/serviceradar`, enabled by
-default. Images stay on `registry.carverauto.dev/mirror/dgraph/dgraph`.
+default. The chart pulls `docker.io/dgraph/dgraph` (`v25.4.0`); the Harbor
+mirror is kept only for `k8s/dgraph`.
 Application pods get `dgraph://` from the release, not from a hand-edited
 endpoint.
 
