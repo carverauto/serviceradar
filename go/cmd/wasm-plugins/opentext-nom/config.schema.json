@@ -11,7 +11,7 @@
       "minLength": 1,
       "maxLength": 128,
       "title": "Network Automation device ID",
-      "description": "Network Automation device ID whose running-config the config retrieve action fetches. Only used by that action.",
+      "description": "Network Automation device ID whose stored config the config retrieve action fetches. Only used by that action.",
       "x-serviceradar-ui-advanced": true
     },
     "device_uid": {
@@ -19,7 +19,7 @@
       "minLength": 1,
       "maxLength": 256,
       "title": "ServiceRadar device UID",
-      "description": "ServiceRadar device UID the retrieved running-config is recorded against. Only used by the config retrieve action.",
+      "description": "ServiceRadar device UID the retrieved config is recorded against. Only used by the config retrieve action.",
       "x-serviceradar-ui-advanced": true
     },
     "instance_id": {
@@ -116,7 +116,7 @@
       "type": "integer",
       "minimum": 1,
       "maximum": 300,
-      "default": 30,
+      "default": 120,
       "x-serviceradar-ui-advanced": true
     },
     "max_retries": {

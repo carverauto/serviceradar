@@ -14,10 +14,12 @@ import (
 )
 
 const (
-	defaultPageSize              = 1000
-	defaultMaxRows               = 25000
-	defaultMaxResultBytes        = 10 * 1024 * 1024
-	defaultRequestTimeoutSeconds = 30
+	defaultPageSize       = 1000
+	defaultMaxRows        = 25000
+	defaultMaxResultBytes = 10 * 1024 * 1024
+	// NA commands take 15-30s each and its token endpoint can take longer, so
+	// the old 30s default failed routinely.
+	defaultRequestTimeoutSeconds = 120
 	defaultMaxRetries            = 2
 	maxQueries                   = 8
 	maxFilterStringBytes         = 512

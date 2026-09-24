@@ -123,6 +123,7 @@ type PluginManager struct {
 	artifactUploader              PluginArtifactUploader
 	credentialCache               map[string]credentialBrokerCacheEntry
 	credentialNow                 func() time.Time
+	oauth2Tokens                  oauth2TokenCache
 	credentialMu                  sync.Mutex
 	awxCallbackCredentialMu       sync.Mutex
 	artifactMu                    sync.Mutex

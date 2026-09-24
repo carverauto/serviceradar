@@ -26,6 +26,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -79,7 +80,20 @@ func oauth2GrantShapeFor(injectType string) (oauth2GrantShape, bool) {
 }
 
 type credentialBrokerOAuth2TokenResponse struct {
-	AccessToken string `json:"access_token"`
+	AccessToken string          `json:"access_token"`
+	ExpiresIn   json.RawMessage `json:"expires_in"`
+}
+
+// lifetimeSeconds reads expires_in as a JSON number or numeric string. Anything
+// else is 0, which the token cache treats as "do not cache" rather than a
+// failed login.
+func (r credentialBrokerOAuth2TokenResponse) lifetimeSeconds() int64 {
+	raw := strings.Trim(strings.TrimSpace(string(r.ExpiresIn)), `"`)
+	seconds, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || seconds < 0 {
+		return 0
+	}
+	return seconds
 }
 
 func (e *pluginExecution) applyCredentialBrokerOAuth2Bearer(
@@ -103,6 +117,12 @@ func (e *pluginExecution) applyCredentialBrokerOAuth2Bearer(
 	if err != nil {
 		return err
 	}
+	cacheKey := oauth2TokenCacheKey(tokenURL, form, insecureSkipVerify)
+	now := e.manager.credentialNowTime()
+	if token, ok := e.manager.oauth2Tokens.get(cacheKey, now); ok {
+		req.Header.Set("Authorization", "Bearer "+token)
+		return nil
+	}
 
 	tokenReq, err := http.NewRequestWithContext(
 		ctx,
@@ -116,7 +136,7 @@ func (e *pluginExecution) applyCredentialBrokerOAuth2Bearer(
 	tokenReq.Header.Set("Accept", "application/json")
 	tokenReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-	client := pluginHTTPClient(e.manager.httpClient, insecureSkipVerify, pluginDefaultHTTPTimeout)
+	client := pluginHTTPClient(e.manager.httpClient, insecureSkipVerify, oauth2TokenExchangeTimeout(ctx))
 	client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
 		return http.ErrUseLastResponse
 	}
@@ -152,6 +172,7 @@ func (e *pluginExecution) applyCredentialBrokerOAuth2Bearer(
 	if token == "" || len(token) > credentialBrokerTokenLimit || strings.ContainsAny(token, "\r\n") {
 		return errCredentialBrokerTokenExchangeFailed
 	}
+	e.manager.oauth2Tokens.put(cacheKey, token, tokenResponse.lifetimeSeconds(), now)
 	req.Header.Set("Authorization", "Bearer "+token)
 	return nil
 }
@@ -212,4 +233,37 @@ func credentialBrokerTokenForm(
 		}
 	}
 	return form, nil
+}
+
+// invalidateRejectedOAuth2Token drops a cached bearer the upstream rejected, so
+// the plugin's next request exchanges a fresh token. The rejected request is not
+// replayed: plugin requests can be mutating, and the plugin owns its retries.
+func (e *pluginExecution) invalidateRejectedOAuth2Token(
+	req *http.Request,
+	grant *credentialBrokerGrant,
+	status int,
+) {
+	if status != http.StatusUnauthorized || e == nil || e.manager == nil || req == nil || grant == nil {
+		return
+	}
+	if _, ok := oauth2GrantShapeFor(grant.Inject["type"]); !ok {
+		return
+	}
+	token, ok := strings.CutPrefix(req.Header.Get("Authorization"), "Bearer ")
+	if ok {
+		e.manager.oauth2Tokens.invalidateToken(token)
+	}
+}
+
+// oauth2TokenExchangeTimeout lets the token exchange use the time left on the
+// exchange's deadline, never less than the default. Some token endpoints
+// (OpenText NA's IdP) take well over the default to answer.
+func oauth2TokenExchangeTimeout(ctx context.Context) time.Duration {
+	timeout := pluginDefaultHTTPTimeout
+	if deadline, ok := ctx.Deadline(); ok {
+		if remaining := time.Until(deadline); remaining > timeout {
+			timeout = remaining
+		}
+	}
+	return timeout
 }
