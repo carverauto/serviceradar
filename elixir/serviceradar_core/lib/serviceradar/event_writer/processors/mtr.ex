@@ -12,6 +12,11 @@ defmodule ServiceRadar.EventWriter.Processors.Mtr do
   Every message carries a `trace_uuid`. Traces already stored under their id
   are skipped, so a batch that failed part way and is redelivered does not
   duplicate the traces that did land.
+
+  Every message in a batch is attempted. A result that can never be stored
+  (`:missing_target_ip`, `:invalid_payload`) is logged and dropped, since
+  redelivery cannot fix it. Any other failure is returned after the whole batch
+  ran, so JetStream redelivers and the stored traces are skipped.
   """
 
   @behaviour ServiceRadar.EventWriter.Processor
