@@ -1,0 +1,46 @@
+# Tasks
+
+## 1. TLC toolchain (PR 1)
+
+- [ ] 1.1 Pin `tla2tools.jar` as an `http_file` with sha256 in `MODULE.bazel`; add the
+      `rules_java` `bazel_dep` for the remote JDK.
+- [ ] 1.2 `//build/tla:tlc` `java_binary` (`main_class = "tlc2.TLC"`).
+- [ ] 1.3 Run TLC once on a passing and a violating spec; copy the exact result lines and
+      exit statuses before writing the parser.
+- [ ] 1.4 `//build/tla:tlc.bzl` `tlc_test` macro and `py_test` driver with
+      `expect = "pass" | "violation:<Property>"`.
+- [ ] 1.5 `//build/tla/selftest`: one pass config, one deliberate-violation config, and a
+      driver unit test showing a wrong-property violation and an unexpected pass both fail.
+- [ ] 1.6 `bazel test --config=remote //build/tla/...` and `make test` green.
+
+## 2. DIRE model (PR 2)
+
+- [ ] 2.1 `formal/dire/DireLifecycle.tla`: state, actions citing their Elixir functions,
+      invariants and action properties per design D4.
+- [ ] 2.2 `current.cfg`, `fixed.cfg`, one `witness_<switch>.cfg` per D2 switch.
+- [ ] 2.3 For each must-pass invariant, show once that a deliberately broken model variant
+      violates it; record the result in the PR description, not the tree.
+- [ ] 2.4 Check each unconfirmed candidate from the design's risks section; add a switch and
+      witness only for a counterexample confirmed in code.
+- [ ] 2.5 Every configuration finishes within the runtime budget; `make test` green.
+- [ ] 2.6 After merge: file one GitHub issue per switch, citing its witness configuration and
+      counterexample.
+
+## 3. Trace validation (PR 3)
+
+- [ ] 3.1 `test/support/dire_trace.ex` recorder: state projection, uid/identifier to model
+      constant mapping, generated trace module, TLC invocation from runfiles.
+- [ ] 3.2 `formal/dire/TraceCheck.tla`.
+- [ ] 3.3 Recorder self-test with a hand-corrupted trace that TLC must reject.
+- [ ] 3.4 One witness trace test per switch, plus one ordinary-lifecycle trace, all
+      `:integration` on srql-fixtures with synthetic identifiers.
+- [ ] 3.5 Add `:tlc` and the model files to the core integration runtime data; add
+      disposition rows to `test/INTEGRATION_SOURCE_DISPOSITIONS.tsv` and
+      `build/integration_test_dispositions.bzl`;
+      `python3 -m unittest build/contracts/ci_heavy_gate_contract_test.py` green.
+- [ ] 3.6 Run the srql-fixtures lifecycle for the affected shards; `make test` green.
+
+## 4. Close-out
+
+- [ ] 4.1 `formal/dire/README.md`: the switch, witness, promote loop.
+- [ ] 4.2 Archive this change once all three PRs are merged.
