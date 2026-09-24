@@ -2209,8 +2209,8 @@ dgraph:
   migrator:
     enabled: true
   image:
-    registry: registry.carverauto.dev
-    repository: mirror/dgraph/dgraph
+    registry: docker.io
+    repository: dgraph/dgraph
     tag: v25.4.0
     pullPolicy: IfNotPresent
   serviceAccount:
