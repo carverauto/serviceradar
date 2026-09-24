@@ -147,14 +147,18 @@ Keep this managed block so 'openspec update' can refresh the instructions.
   directly to the database.** Every metric source (interface/flow/OTEL metrics,
   SNMP counters, and sysmon cpu/mem/disk/process) MUST publish to a JetStream
   subject and be persisted by the `event_writer` consumer pipeline. CNPG remains
-  the control-plane/current-state store; EventWriter may also persist migrated
-  historical telemetry to opt-in StarRocks (see
-  `openspec/changes/add-starrocks-telemetry-analytics`). Collectors and agents
-  MUST NOT write metrics straight to CNPG or StarRocks, and core MUST NOT
-  ingest a metric path that bypassed JetStream. The legacy agent→gateway→core gRPC
-  `StreamStatus` path that writes sysmon metrics directly to the database is the
-  one known exception, being migrated to JetStream (see
-  `openspec/changes/add-causal-anomaly-detection`); do not add new direct-to-DB
+  the control-plane/current-state store. When StarRocks is enabled it is the ONLY
+  telemetry store: EventWriter writes telemetry to StarRocks and not to CNPG, and
+  telemetry readers read the warehouse, never a CNPG telemetry table (which stops
+  receiving rows); when StarRocks is disabled, EventWriter writes telemetry to CNPG
+  (see `openspec/changes/extend-starrocks-to-all-telemetry`, design Decision 1).
+  Collectors and agents MUST NOT write metrics straight to CNPG or StarRocks, and
+  core MUST NOT ingest a metric path that bypassed JetStream. The legacy
+  agent→gateway→core gRPC `StreamStatus` path that writes sysmon metrics directly
+  to the database is one known exception, being migrated to JetStream (see
+  `openspec/changes/add-causal-anomaly-detection`); MTR traces and hops, which
+  core writes through `MtrMetricsIngestor`, are the other, being moved onto
+  JetStream by that StarRocks change's task 3.4. Do not add new direct-to-DB
   metric writes. The reason is architectural, not stylistic: a metric that lands
   straight in a hypertable is invisible to every real-time consumer (anomaly
   detection, the causal engine) until it is queried back out. Keeping all metrics

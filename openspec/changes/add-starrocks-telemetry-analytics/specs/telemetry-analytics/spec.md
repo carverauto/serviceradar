@@ -17,14 +17,14 @@ The system SHALL treat StarRocks as an optional warehouse for flows, scalar metr
 #### Scenario: StarRocks without NetFlow still warehouses other telemetry
 - **WHEN** an operator enables StarRocks analytics and leaves NetFlow collection disabled
 - **THEN** the flow collector is not deployed
-- **AND** EventWriter shadows scalar metrics, logs and event history into StarRocks
+- **AND** EventWriter persists scalar metrics, logs and event history to StarRocks only, not to CNPG
 - **AND** CNPG remains authoritative for inventory, configuration, credentials and current alert state
-- **AND** serving still follows per-dataset cutover rather than implying every dataset has switched
+- **AND** every telemetry read is served from the warehouse
 
 #### Scenario: StarRocks with NetFlow
 - **WHEN** an operator enables StarRocks analytics and NetFlow collection
 - **THEN** the flow collector is deployed
-- **AND** EventWriter shadows flows together with scalar metrics, logs and event history into StarRocks
+- **AND** EventWriter persists flows together with scalar metrics, logs and event history to StarRocks only, not to CNPG
 
 ### Requirement: Explicit analytics deployment profiles
 The system SHALL provide opt-in StarRocks shared-data analytics with dedicated object storage and a shared-nothing profile with durable local storage, while retaining CNPG for control-plane state and unmigrated datasets.
@@ -49,10 +49,10 @@ The system SHALL persist migrated telemetry through JetStream and the EventWrite
 - **AND** queue age and JetStream retention risk are observable
 - **AND** unrelated ingestion demand domains remain independently bounded
 
-#### Scenario: Shadow destination partially succeeds
-- **WHEN** one required destination commits and another fails
-- **THEN** the owner retains per-destination progress and retries missing work with stable identities
-- **AND** no message is reported fully persisted before all required destinations satisfy the delivery contract
+#### Scenario: Warehouse load fails
+- **WHEN** StarRocks is enabled and a warehouse load fails
+- **THEN** the acknowledgement fails and the message is redelivered with the same stable identity
+- **AND** no row is written to CNPG as a fallback
 
 ### Requirement: Replay-safe persistence and visible load failures
 The system SHALL preserve stable record identity across retry, batch regrouping, crash recovery and historical overlap, and SHALL acknowledge telemetry only after confirmed durable visible persistence or a durable, observable quarantine disposition.
@@ -102,13 +102,13 @@ The system SHALL expose configurable raw and aggregate retention by dataset, def
 - **THEN** deletion is deferred with an observable reason
 - **AND** late replay cannot silently resurrect history already expired by policy
 
-### Requirement: Guarded dataset cutover and retirement
-The system SHALL gate each dataset cutover on complete reader/writer inventory, verified source/target coverage and semantics, scoped query compatibility, measured acceptance and a tested rollback or repair plan.
+### Requirement: Guarded warehouse readers and retirement
+The system SHALL ship each dataset's warehouse readers only with a complete reader/writer inventory, verified semantics, scoped query compatibility and measured acceptance, and SHALL NOT offer a per-dataset switch that returns reads to CNPG while StarRocks is enabled, because CNPG receives no telemetry while the warehouse is enabled.
 
-#### Scenario: Historical source is incomplete
-- **WHEN** the old backend lacks history needed for rollback
-- **THEN** switching reads back is blocked until coverage is repaired or another approved recovery path exists
-- **AND** a healthy deployment or closed PR is not accepted as coverage evidence
+#### Scenario: Reads cannot fall back to CNPG
+- **WHEN** a warehouse reader fails or an operator wants to return one dataset's reads to CNPG while StarRocks is enabled
+- **THEN** there is no per-dataset read switch; the failure is reported instead of served from CNPG
+- **AND** disabling StarRocks returns all telemetry to CNPG, which holds nothing written while the warehouse was enabled
 
 #### Scenario: Withdrawn archive resources remain live
 - **WHEN** an installation still depends on old archive data or checkpoints
@@ -119,7 +119,7 @@ The system SHALL validate analytics using synthetic, reproducible workloads with
 
 #### Scenario: Benchmark fails the proposed load target
 - **WHEN** backlog grows persistently, correctness diverges or an agreed latency gate fails
-- **THEN** the candidate workload is reported as failed and cannot justify cutover or a supported-capacity claim
+- **THEN** the candidate workload is reported as failed and cannot justify enabling the warehouse or a supported-capacity claim
 
 #### Scenario: Recovery drill
 - **WHEN** a writer or CN restarts during ingestion or an FE/object-store failure occurs
@@ -151,7 +151,7 @@ The system SHALL provide an opt-in StarRocks JDBC catalog onto CNPG so authorize
 #### Scenario: Catalog is unavailable
 - **WHEN** the JDBC catalog or CNPG reader path fails
 - **THEN** the query returns an explicit error
-- **AND** it does not silently serve cut-over telemetry from CNPG
+- **AND** it does not silently serve warehouse telemetry from CNPG
 - **AND** it does not omit dimension columns without reporting the failure
 
 #### Scenario: Table is not on the allowlist

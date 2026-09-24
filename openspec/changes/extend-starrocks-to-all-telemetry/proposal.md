@@ -31,9 +31,9 @@ wait is cancelled by Postgres `statement_timeout`.
 
 ## What Changes
 
-- **Parity before cutover, as a gate that can fail.** A dataset is cut over only after every
-  query shape the product sends for it has been run through both dialects against the same data
-  and the results compared. The inventory of query shapes is derived from the code, not from
+- **Parity before a warehouse reader ships, as a gate that can fail.** A reader moves to the
+  warehouse only after every query shape it sends has been run through both dialects against the
+  same data and the results compared. The inventory of query shapes is derived from the code, not from
   memory, and is re-derived when it changes.
 - **The StarRocks dialect refuses what it cannot answer.** Any clause it does not implement
   (`rollup_stats:`, `other:true`, an unknown field) is an error, never dropped. **BREAKING** for
@@ -47,11 +47,16 @@ wait is cancelled by Postgres `statement_timeout`.
   BMP routing events, service status history, and the sysmon CPU/memory/disk/process tables.
   Each gets a warehouse table, an EventWriter destination behind the existing JetStream-first
   single-owner path, SRQL dataset routing, and rollups as async materialized views.
-- **Retire telemetry from CNPG, one dataset at a time, as an explicit one-way step.** After a
-  dataset's reads are cut over, its non-UI consumers are migrated and it has run clean for a
-  declared soak period, an operator action stops CNPG writes for it. After a second, shorter
-  retirement hold with writes off and no reader errors, a separate action drops its hypertable
-  and continuous aggregates. Nothing retires automatically.
+- **An enabled warehouse is the only telemetry store. BREAKING for StarRocks installations.**
+  Enabling StarRocks makes every append-only telemetry dataset warehouse-only at once: EventWriter
+  stops writing it to CNPG and every reader reads the warehouse. The per-dataset
+  `shadowDatasets`/`cutoverDatasets` lists, the dual-write and the soak before retiring writes
+  are removed. A reader that has not been moved yet reports its data as unavailable instead of
+  reading a CNPG table that stopped receiving rows. CNPG hypertables are dropped later by a
+  separate reviewed migration, never by enabling the warehouse.
+- **MTR moves onto JetStream.** Core publishes every MTR trace result to a JetStream subject and
+  EventWriter persists traces and hops (warehouse when enabled, CNPG otherwise), removing the
+  last direct-to-database MTR write path.
 - **State what stays in CNPG**: current state and anything updated in place under transactional
   guarantees -- inventory and identity, credentials, RBAC and configuration, alert and rule
   state, jobs, and the enrichment caches the warehouse joins to through the read-only catalog.
@@ -75,10 +80,11 @@ wait is cancelled by Postgres `statement_timeout`.
   `log_live`, `device_live/flow_data.ex`; non-UI consumers of telemetry (stateful alert engine,
   log promotion, capacity forecasts, anomaly backfill, topology sparklines); Helm/Compose values
   for dataset lists and retention; operator docs.
-- Depends on `add-starrocks-telemetry-analytics` task 5.4 (migrate non-UI scalar-metric
-  consumers). Cutting READS over does not need it, because CNPG still receives every write.
-  Stopping CNPG WRITES does.
+- Moving non-UI consumers (`add-starrocks-telemetry-analytics` task 5.4 and task 5.1 here) is on
+  the critical path: with writes off everywhere, any consumer still reading a CNPG telemetry
+  table reads frozen data until it is moved.
 - Supersedes nothing. `add-tiered-telemetry-offload` addresses cold storage for CNPG-resident
   telemetry; once a dataset is retired from CNPG it no longer applies to that dataset.
-- Risk: write retirement removes the rollback path for that dataset. That is the purpose of the
-  soak that precedes it and of making it a deliberate operator action.
+- Risk: there is no per-dataset rollback, and disabling StarRocks leaves CNPG without the
+  telemetry written while it was enabled. Readers not yet moved are dark until moved. Both are
+  accepted product decisions (design Decision 1).

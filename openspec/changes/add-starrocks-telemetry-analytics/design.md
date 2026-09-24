@@ -17,7 +17,7 @@ Ripwire's structural map was used for orientation; dynamic Elixir dispatch and S
 
 ## Goals and non-goals
 
-Goals: fast, bounded dashboard queries; correct long history; reliable JetStream delivery; preserved operator workflows; reduced CNPG telemetry load; explicit operational ownership and reversible cutover.
+Goals: fast, bounded dashboard queries; correct long history; reliable JetStream delivery; preserved operator workflows; reduced CNPG telemetry load; explicit operational ownership and a single warehouse switch with no per-dataset rollback.
 
 Non-goals: implementation in this session; retiring CNPG for inventory/auth/config/credentials/Oban/AGE/current alert state; replacing NATS with Kafka; deploying pg_duckdb; changing other clusters; automatic recovery of the withdrawn deployment; adopting numeric capacity claims from the pasted discussion.
 
@@ -27,7 +27,7 @@ Hosted: operator-managed shared-data cluster, durable FE metadata volumes, multi
 
 OSS: retain CNPG compatibility until explicit opt-in, and offer StarRocks shared-nothing with durable BE volumes for operators who want analytics without object storage. Shared-data is also available when configured. A single-node development profile is not HA. Do not make OSS install an object store implicitly. Document the resource/operational cost of each supported profile; test both StarRocks modes before claiming support.
 
-StarRocks is optional for the platform and is the warehouse for every EventWriter telemetry dataset (flows, scalar metrics, logs, event history). NetFlow collection stays independently gated by Helm/Compose (`flowCollector.enabled`). Enabling NetFlow without StarRocks is supported and keeps flows on CNPG hypertables. Enabling StarRocks without NetFlow still shadows other telemetry and does not deploy the collector. Disabling StarRocks keeps remaining telemetry on CNPG hypertables. Serving still follows per-dataset `cutoverDatasets`.
+StarRocks is optional for the platform and is the warehouse for every EventWriter telemetry dataset (flows, scalar metrics, logs, event history). NetFlow collection stays independently gated by Helm/Compose (`flowCollector.enabled`). Enabling NetFlow without StarRocks is supported and keeps flows on CNPG hypertables. Enabling StarRocks without NetFlow still makes the warehouse the only store for the other telemetry datasets and does not deploy the collector. Disabling StarRocks keeps telemetry on CNPG hypertables, without the history written to the warehouse meanwhile. Enabling StarRocks is the whole switch: there is no per-dataset shadow or cutover list (see `extend-starrocks-to-all-telemetry` design Decision 1).
 
 Pin a supported StarRocks patch release, operator/chart version, CRD schema and image digests during the foundation task. Validate version-specific MV, primary-key, TLS, backup and architecture support. No `latest` images or copied unvalidated CR YAML. Install operator CRDs at cluster scope under an explicit owner, separately from tenant releases; application charts reference it. Sibling hosted provisioning changes need a separate repository handoff.
 
@@ -47,7 +47,7 @@ This chooses correctness over assuming Duplicate Key append-only behavior. Bench
 
 Use Stream Load with stable labels for retries of the same payload. Persist batch/load bookkeeping before an ambiguous operation when needed; CNPG Ash resources/migrations may hold bounded control metadata, not duplicate all telemetry payloads. Label retention is finite and is not the sole deduplication mechanism. Disable load modes that discard caller labels until their retry semantics are proven. Inspect response status and row counts, not just HTTP status. Reject silent filtered-row loss. `Publish Timeout` and an existing label require transaction-status reconciliation; they are not permission to submit a fresh batch. ACK only after confirmed durable visible completion, or after a defined durable quarantine disposition for poison data; extend acknowledgement deadlines while reconciling. Persist quarantine payloads securely with bounded retention and replay identity, expose operator failure state, and never commit them as fixtures.
 
-During shadowing, the same owner tracks each required destination independently. If one succeeds and another fails, retry only the missing destination with stable identity. Do not assert cross-database atomicity. Test crash points before/after load, commit, status lookup, receipt persistence and ACK. Old replay after retention expiry must not resurrect expired data.
+With StarRocks enabled the warehouse is the only destination, so there is no second destination to reconcile: a failed or ambiguous load fails the acknowledgement and the message is redelivered with the same stable identity, and nothing is written to CNPG as a fallback. Test crash points before/after load, commit, status lookup, receipt persistence and ACK. Old replay after retention expiry must not resurrect expired data.
 
 ## Data model and mutable enrichment
 
@@ -77,8 +77,8 @@ Contract:
 - The catalog is read-only. StarRocks MUST NOT INSERT/UPDATE/DELETE CNPG through it. EventWriter remains the only telemetry writer. The correlator still publishes attribution on JetStream; it does not JDBC-write CNPG from StarRocks or StarRocks from the correlator.
 - The JDBC driver JAR is a Bazel-pinned input served as a `file://` path (or equivalent internal artifact). FE MUST NOT fetch an unpinned driver from the public internet at catalog-create time.
 - Authorized SRQL that needs current attribution, prefix tags or device identity on a StarRocks-served flow compiles a StarRocks SQL join: `serviceradar.ocsf_network_activity` JOIN `cnpg_platform.platform.<allowlisted_table>`. Dashboard and core loaders MUST NOT dual-query CNPG plus StarRocks and merge rows in Elixir/Go.
-- Catalog unavailability or an allowlist miss is an explicit capability/error. It MUST NOT silently serve cut-over telemetry from CNPG, MUST NOT drop attribution/enrichment columns without saying so, and MUST NOT invent current-state process identity from the observation snapshot alone when the caller asked for live correlation.
-- Helm/Compose keep the catalog disabled until the driver, reader role, allowlist and synthetic join tests pass. Empty `cutoverDatasets` still keeps telemetry serving on CNPG; enabling the catalog is independent of dataset cutover.
+- Catalog unavailability or an allowlist miss is an explicit capability/error. It MUST NOT silently serve warehouse telemetry from CNPG, MUST NOT drop attribution/enrichment columns without saying so, and MUST NOT invent current-state process identity from the observation snapshot alone when the caller asked for live correlation.
+- Helm/Compose keep the catalog disabled until the driver, reader role, allowlist and synthetic join tests pass. Enabling the catalog is independent of enabling the warehouse.
 
 This is a query-time broadcast of a small CNPG dimension into StarRocks' vectorized engine against local fact tables. It is not a replacement for Stream Load, not a hybrid-file/pg_duckdb path, and not an application-level N+1 join.
 
@@ -90,7 +90,7 @@ Retain SRQL syntax and authorized Ash-facing entry points. Add an explicit backe
 
 Elixir authorized reads use a pooled MyXQL connection to the Frontend query port (9030, text protocol). Stream Load HTTP remains the EventWriter write path; the two transports are not interchangeable. A MySQL wire client still cannot execute PostgreSQL SRQL output — the StarRocks dialect compiler remains required. Missing query-port connectivity is an explicit error, never a silent CNPG fallback.
 
-Route by configured dataset and migration generation, not time guessed from data presence. Keep PostgreSQL for control-plane entities and unmigrated history. Unsupported StarRocks query shapes return an explicit capability error during preview and block dataset cutover; do not silently fall back to incomplete CNPG data. Inventory and eliminate direct historical SQL assumptions before switching writers.
+Route by configured dataset and migration generation, not time guessed from data presence. Keep PostgreSQL for control-plane entities and unmigrated history. Unsupported StarRocks query shapes return an explicit capability error during preview and block moving the dependent reader to the warehouse; do not silently fall back to incomplete CNPG data. Inventory and eliminate direct historical SQL assumptions before switching writers.
 
 Authorization context must reach every loader and executor. Preserve tenant isolation, device/group access and actor permissions; cache keys include authorization scope/version, backend generation, full query, resolved bounds and timezone. A short scoped cache may reduce repeated refreshes, but cannot conceal missing coverage or errors. Include cross-tenant and revoked-access tests.
 
@@ -107,17 +107,17 @@ Existing SRQL window limits become backend-aware and budgeted. A one-year retent
 | Third | Logs, events and alert history | Search/filters, effective timestamps, rule/retrohunt consumers, audit/history; current alert state stays CNPG |
 | Explicit follow-up contracts | OTEL points/traces, MTR traces/hops, BMP history and remaining time-series tables | Entity/schema/retention/reader inventory before activation; no blanket hypertable move |
 
-For every phase, enumerate all writers/readers/resources, SRQL operators, background jobs, current-state side effects, retention and rollup consumers. Store a coverage matrix in the implementation PR. Unknown consumers block cutover. Coordinate `scale-netflow-ingest-isolation`, `add-event-writer-processor-contributions`, `add-monotonic-counter-metric-semantics`, `update-sysmon-downsampling`, audit retention and causal/anomaly work. Independent compression remains separate. Neither withdrawn proposal is resumed or archive-applied.
+For every phase, enumerate all writers/readers/resources, SRQL operators, background jobs, current-state side effects, retention and rollup consumers. Store a coverage matrix in the implementation PR. Unknown consumers block moving a reader to the warehouse. Coordinate `scale-netflow-ingest-isolation`, `add-event-writer-processor-contributions`, `add-monotonic-counter-metric-semantics`, `update-sysmon-downsampling`, audit retention and causal/anomaly work. Independent compression remains separate. Neither withdrawn proposal is resumed or archive-applied.
 
 ## Migration and rollback
 
 1. Provision isolated synthetic StarRocks environments with Bazel targets; verify both deployment profiles, schema migrations and transport/security.
-2. Complete single-owner shadow writes and read-only parity queries; CNPG remains serving authority for ordinary installations. Existing withdrawn-architecture installations require their own actual source/coverage inventory first.
+2. Complete single-owner warehouse writes and read-only parity queries; CNPG remains the store for installations with StarRocks disabled. Existing withdrawn-architecture installations require their own actual source/coverage inventory first.
 3. Inventory retained raw history, old archives, manifests and checkpoints privately. Do not infer coverage from a healthy deployment or resume a paused restore. Import legacy data through an isolated, bounded migration adapter with source checksums/identities and durable progress; it is not a runtime pg_duckdb dependency.
 4. Define a watermark and disjoint ownership of historical/live ranges, including late arrivals and overlap deduplication. Validate identities when old rows lack JetStream sequence metadata; require a stable historical-key mapping before overlap import. Backfill newest-first, then older history, without stealing live ingestion capacity.
 5. Compare raw counts, byte/packet totals, NULL distributions, samples, rates and relevant aggregates by dataset/time range. Validate attribution and scope. Warm selected views; confirm freshness and reader coverage.
-6. Switch reads per dataset/generation after acceptance. Keep old source and shadow persistence for a bounded rollback interval. Rollback requires verified old-source coverage through the switch time, including enrichment updates; otherwise pause cutover and repair coverage, never blindly redirect reads.
-7. Stop the old writer only after all consumers and rollback conditions pass. Retire old storage/objects/jobs in a separately reviewed operation after re-querying coverage and restore evidence. Never remove the old head, bucket, manifests or checkpoints merely because #488 closed.
+6. Move each reader to the warehouse after its parity acceptance; enabling StarRocks stops CNPG telemetry writes at once, so a reader not yet moved reports unavailable rather than reading a frozen CNPG table. There is no per-dataset rollback to CNPG; disabling StarRocks resumes CNPG writes with a gap covering the warehouse period, and history is repaired by backfill, never by blindly redirecting reads.
+7. Stop the old writer only after all consumers pass. Retire old storage/objects/jobs in a separately reviewed operation after re-querying coverage and restore evidence. Never remove the old head, bucket, manifests or checkpoints merely because #488 closed.
 
 ## Acceptance and benchmark design
 

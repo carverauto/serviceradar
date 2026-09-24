@@ -60,7 +60,7 @@ The system SHALL route migrated telemetry through an explicit StarRocks compiler
 
 #### Scenario: Unsupported query shape
 - **WHEN** a query requires an unimplemented StarRocks capability
-- **THEN** preview returns an explicit capability error and cutover remains blocked for dependent consumers
+- **THEN** preview returns an explicit capability error and the dependent reader is not moved to the warehouse
 - **AND** it does not silently query incomplete CNPG history
 
 #### Scenario: Scoped cached response
