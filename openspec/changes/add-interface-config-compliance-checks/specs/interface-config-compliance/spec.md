@@ -65,3 +65,22 @@ The retrieved configuration text SHALL NOT be included in the plugin result.
 - **GIVEN** the same check and an interface block containing only `dot1x pae authenticator`
 - **WHEN** the check is evaluated
 - **THEN** the verdict is `non_compliant` and `missing` lists `authentication port-control auto`
+
+### Requirement: Bounded Runs Report Coverage
+The plugin SHALL check at most `max_targets` delivered endpoints (default 200) and SHALL stop issuing Network Automation requests once `run_budget_seconds` (default 1440, range 60 to 3600) has elapsed. Every delivered endpoint that is not checked for either reason SHALL be recorded as `unknown` with reason `target_limit_exceeded` rather than dropped. The run summary and result details SHALL report the number of skipped endpoints and the number the query matched beyond what the schedule delivered.
+
+#### Scenario: More endpoints than max_targets
+- **GIVEN** `max_targets` is 2 and three endpoints are delivered
+- **WHEN** the run completes
+- **THEN** the third endpoint's verdicts are `unknown` with reason `target_limit_exceeded`
+- **AND** the run summary reports one endpoint not checked
+
+#### Scenario: Run budget exhausted
+- **GIVEN** the run budget has elapsed before an endpoint's configlet is requested
+- **WHEN** the plugin reaches that endpoint
+- **THEN** no request is sent to Network Automation and that endpoint and every remaining endpoint are `unknown` with reason `target_limit_exceeded`
+
+#### Scenario: Core truncated the target set
+- **GIVEN** the target query matched more devices than the schedule's `max_items`
+- **WHEN** the run completes
+- **THEN** the result details report the matched total and the number not delivered
