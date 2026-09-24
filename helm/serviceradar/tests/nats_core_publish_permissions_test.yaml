@@ -1,0 +1,16 @@
+suite: nats core publish permissions
+templates:
+  - templates/nats.yaml
+tests:
+  # Core publishes to these subjects and EventWriter persists them from a
+  # JetStream stream. A subject missing from core's publish allow-list is
+  # denied by the server, and a plain NATS publish reports success anyway,
+  # so the data is lost without an error. These assertions pin the entries.
+  - it: lets core publish ad-hoc scan results
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: '(?s)user: "CN=serviceradar-core,[^"]*"\s*permissions: \{\s*publish: \{\s*allow: \[[^\]]*"scans\.results\.>"'
+        documentSelector:
+          path: kind
+          value: StatefulSet

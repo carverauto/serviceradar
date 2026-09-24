@@ -235,6 +235,12 @@ spec:
                       # an error - every notification on the firehose is simply
                       # dropped.
                       "notifications.>",
+                      # Ad-hoc scan results (AdhocScanResultHandler). Core
+                      # republishes each row here and EventWriter persists it
+                      # from the scan_results stream. Without this entry the
+                      # plain publish is denied by the server and every result
+                      # is dropped with no error on the publisher side.
+                      "scans.results.>",
                       "\$JS.API.>",
                       "\$JS.ACK.>",
                       "_INBOX.>"
