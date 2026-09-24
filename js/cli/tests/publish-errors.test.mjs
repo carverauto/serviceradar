@@ -261,7 +261,7 @@ test("rate_limited envelope echoes Retry-After", async () => {
   }
 })
 
-const SERVER_UUID = "97581c02-d395-4307-b90e-f37c0654cd41"
+const SERVER_UUID = "00000000-0000-4000-8000-000000000001"
 
 test("idempotent_noop on a successful re-publish prints the noop line", async () => {
   const {srv, instance} = await startServer((req, res) => {

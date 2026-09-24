@@ -2,16 +2,16 @@
 
 ## 0.1.8
 
-- `dashboard publish` reports the manifest id the author wrote, not the instance's
-  internal UUID. The instance keys packages by a UUID and returns it as
-  `payload.id`; the CLI preferred that over `manifest.id`, so a successful publish
-  printed `✓ Published 97581c02-d395-4307-b90e-f37c0654cd41@0.1.3` — an identifier
-  that appears nowhere in the author's project, cannot be grepped for, and does not
+- `dashboard publish` reports the manifest id the author wrote. The instance
+  keys packages by a UUID and returns it as `payload.id`; the CLI preferred
+  that over `manifest.id`, so a successful publish printed the server UUID as
+  the package identity. That value is not in the author's project and does not
   match the output the publishing docs describe. It now prints
-  `✓ Published com.ual.rids@0.1.3 (97581c02-…)`, keeping the server id visible for
-  support and hand API calls while leading with the name a human recognises. The
-  `Enabled` line and the idempotent re-publish line get the same treatment. The
-  UUID is still what the enable endpoint's path uses — only the display changed.
+  `✓ Published com.example.board@0.1.0 (00000000-0000-4000-8000-000000000001)`,
+  keeping the server id visible for support and hand API calls while leading
+  with the manifest id. The Enabled line and the idempotent re-publish line
+  get the same treatment. The UUID is still what the enable endpoint's path
+  uses. Only the display changed.
 
 ## 0.1.7
 

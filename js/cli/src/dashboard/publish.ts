@@ -111,7 +111,7 @@ export async function publishCommand(options: Record<string, any>): Promise<void
   // UUID — and it is what the enable endpoint's path requires.
   //
   // `displayId` is the manifest id the author wrote and recognises
-  // (`com.ual.rids`). Printing the UUID instead told the author nothing they
+  // (`com.example.board`). Printing the UUID instead told the author nothing they
   // could act on, did not match the output `docs/publishing.md` documents for
   // this command, and could not be grepped for in their own config. The server
   // id is appended so it can still be quoted in a support request or used
