@@ -85,16 +85,21 @@ no-mistakes gate, in order. All fixtures are synthetic
   Link it from the MTR profile form.
 
 ## 3. TCP handshake diagnostics (#4581)
-- [ ] 3.1 Engine destination phase (Linux): `ProbesPerHop` SYNs at the reached
+- [x] 3.1 Engine destination phase (Linux): `ProbesPerHop` SYNs at the reached
   TTL (MaxHops if unreached), with `TCPSynRetries` retransmissions.
   - Count sent, SYN-ACK, RST, unanswered, retransmits, answered-after-retx,
     ack mismatches and duplicate SYN-ACKs.
   - Record handshake RTT min/avg/max.
   - Compute `tcp_server_response_us` per D5.
-- [ ] 3.2 Per-hop reply counters (`reply_time_exceeded`, `reply_unreachable`,
+  - Path probing keeps 30% of a deadline-bound trace's remaining budget
+    (capped at (1 + retries) probe timeouts) for this phase, and each round
+    waits at most its share of what is left, so the fast bulk profile still
+    measures the handshake.
+- [x] 3.2 Per-hop reply counters (`reply_time_exceeded`, `reply_unreachable`,
   `reply_synack`, `reply_rst`) for all protocols; add them to `HopSnapshot`.
-- [ ] 3.3 Agent: advertise the `mtr_tcp_syn` capability on Linux builds with a
-  raw socket.
+- [x] 3.3 Agent: advertise the `mtr_tcp_syn` capability on Linux builds with a
+  raw socket (probed at startup by opening one); parse `tcp_syn_retries`
+  (0..3) in check settings, `mtr.run` and bulk payloads.
 - [ ] 3.4 Migration: nullable columns.
   - `mtr_traces`: the D5 trace-level fields.
   - `mtr_hops`: the reply counters.

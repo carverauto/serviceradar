@@ -54,6 +54,8 @@ type mtrBulkRunPayload struct {
 	Concurrency      int      `json:"concurrency,omitempty"`
 	ExecutionProfile string   `json:"execution_profile,omitempty"`
 	TCPPort          int      `json:"tcp_port,omitempty"`
+	// TCPSynRetries is a pointer because 0 (no retransmission) is meaningful.
+	TCPSynRetries *int `json:"tcp_syn_retries,omitempty"`
 }
 
 type mtrBulkTargetUpdate struct {
@@ -465,6 +467,10 @@ func bulkMtrOptions(payload mtrBulkRunPayload) mtr.Options {
 
 	if validMtrTCPPort(payload.TCPPort) {
 		opts.TCPPort = payload.TCPPort
+	}
+
+	if payload.TCPSynRetries != nil && validMtrTCPSynRetries(*payload.TCPSynRetries) {
+		opts.TCPSynRetries = *payload.TCPSynRetries
 	}
 
 	return opts

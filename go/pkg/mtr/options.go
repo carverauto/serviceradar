@@ -68,7 +68,12 @@ const (
 	// DefaultTCPPort is the destination port for TCP traces. 443 is the port
 	// edge policies most often admit; an RST from a closed port still counts as
 	// the target answering.
-	DefaultTCPPort        = 443
+	DefaultTCPPort = 443
+	// DefaultTCPSynRetries is how many times the destination handshake phase
+	// re-sends an unanswered SYN.
+	DefaultTCPSynRetries = 1
+	// MaxTCPSynRetries bounds the retransmissions so the phase stays short.
+	MaxTCPSynRetries      = 3
 	DefaultRingBufferSize = 200
 
 	// MinPort is the minimum port used for probe sequence encoding.
@@ -117,6 +122,10 @@ type Options struct {
 	// TCPPort is the destination port for TCP probes. Every TCP probe of a
 	// trace uses this port so the whole trace follows one ECMP flow.
 	TCPPort int
+
+	// TCPSynRetries is how many times the destination handshake phase of a
+	// TCP trace re-sends a SYN that got no answer (0..MaxTCPSynRetries).
+	TCPSynRetries int
 }
 
 // DefaultOptions returns Options with sensible defaults.
@@ -133,5 +142,6 @@ func DefaultOptions(target string) Options {
 		MaxUnknownHops: DefaultMaxUnknownHops,
 		RingBufferSize: DefaultRingBufferSize,
 		TCPPort:        DefaultTCPPort,
+		TCPSynRetries:  DefaultTCPSynRetries,
 	}
 }

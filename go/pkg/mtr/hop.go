@@ -78,6 +78,10 @@ type HopResult struct {
 	replySYNACK int
 	replyRST    int
 
+	// replyTimeExceeded and replyUnreachable count ICMP errors credited here.
+	replyTimeExceeded int
+	replyUnreachable  int
+
 	// Last is the most recent RTT in microseconds.
 	Last int64 `json:"last_us,omitempty"`
 
@@ -140,6 +144,8 @@ func (h *HopResult) Reset(hopNumber int, ringBufferSize int) {
 	h.hasUnreachable = false
 	h.replySYNACK = 0
 	h.replyRST = 0
+	h.replyTimeExceeded = 0
+	h.replyUnreachable = 0
 	h.Last = 0
 	h.Best = 0
 	h.Worst = 0
@@ -323,6 +329,20 @@ func (h *HopResult) SetUnreachableCode(code int) {
 	h.hasUnreachable = true
 }
 
+// RecordICMPReply counts an ICMP Time Exceeded or Destination Unreachable
+// credited to this hop. Echo replies are neither and are not counted.
+func (h *HopResult) RecordICMPReply(timeExceeded, unreachable bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if timeExceeded {
+		h.replyTimeExceeded++
+	}
+	if unreachable {
+		h.replyUnreachable++
+	}
+}
+
 // RecordTCPReply counts the target's SYN-ACK or RST credited to this hop.
 func (h *HopResult) RecordTCPReply(synAck, rst bool) {
 	h.mu.Lock()
@@ -440,19 +460,21 @@ func (h *HopResult) Snapshot() HopSnapshot {
 	defer h.mu.RUnlock()
 
 	snap := HopSnapshot{
-		HopNumber:   h.HopNumber,
-		Hostname:    h.Hostname,
-		ASN:         h.ASN,
-		MPLSLabels:  h.MPLSLabels,
-		Sent:        h.Sent,
-		Received:    h.Received,
-		LossPct:     h.lossPctLocked(),
-		LastUs:      h.Last,
-		AvgUs:       int64(math.Round(h.mean)),
-		MinUs:       h.Best,
-		MaxUs:       h.Worst,
-		ReplySynack: h.replySYNACK,
-		ReplyRst:    h.replyRST,
+		HopNumber:         h.HopNumber,
+		Hostname:          h.Hostname,
+		ASN:               h.ASN,
+		MPLSLabels:        h.MPLSLabels,
+		Sent:              h.Sent,
+		Received:          h.Received,
+		LossPct:           h.lossPctLocked(),
+		LastUs:            h.Last,
+		AvgUs:             int64(math.Round(h.mean)),
+		MinUs:             h.Best,
+		MaxUs:             h.Worst,
+		ReplySynack:       h.replySYNACK,
+		ReplyRst:          h.replyRST,
+		ReplyTimeExceeded: h.replyTimeExceeded,
+		ReplyUnreachable:  h.replyUnreachable,
 	}
 
 	if h.Addr != nil {
@@ -516,6 +538,48 @@ type HopSnapshot struct {
 	UnreachableCode      *int        `json:"unreachable_code,omitempty"`
 	ReplySynack          int         `json:"reply_synack,omitempty"`
 	ReplyRst             int         `json:"reply_rst,omitempty"`
+	ReplyTimeExceeded    int         `json:"reply_time_exceeded,omitempty"`
+	ReplyUnreachable     int         `json:"reply_unreachable,omitempty"`
+}
+
+// TCPHandshakeStats summarizes the destination handshake phase of a TCP trace:
+// SYNs sent at the target's TTL after path probing, and how the target
+// answered. See the MTR probe protocols documentation for what each counter
+// means for an active SYN probe.
+type TCPHandshakeStats struct {
+	// TTL the handshake SYNs were sent with.
+	TTL int `json:"ttl"`
+	// Attempts is the number of handshakes tried; each is one SYN plus up to
+	// the configured retransmissions.
+	Attempts int `json:"attempts"`
+	// SYNSent counts every SYN, retransmissions included.
+	SYNSent int `json:"syn_sent"`
+	// SYNACKReceived and RSTReceived count the target's first answer to each
+	// attempt.
+	SYNACKReceived int `json:"synack_received"`
+	RSTReceived    int `json:"rst_received"`
+	// Unanswered counts attempts that got no answer after all retransmissions.
+	Unanswered int `json:"unanswered"`
+	// DropPct is Unanswered as a percentage of Attempts.
+	DropPct float64 `json:"syn_drop_pct"`
+	// Retransmits counts SYNs re-sent after the per-probe timeout, and
+	// AnsweredAfterRetx the attempts answered only after one.
+	Retransmits       int `json:"syn_retransmits"`
+	AnsweredAfterRetx int `json:"answered_after_retx"`
+	// AckMismatch counts replies on the flow whose acknowledgement matched no
+	// SYN we sent (sequence rewriting, a SYN proxy or another middlebox).
+	AckMismatch int `json:"ack_mismatch"`
+	// SYNACKDuplicates counts answers to an attempt that was already answered;
+	// the target re-sent its SYN-ACK, which signals return-path loss.
+	SYNACKDuplicates int `json:"synack_duplicates"`
+	// Handshake RTT (SYN to SYN-ACK/RST) over answered attempts.
+	RTTMinUs int64 `json:"rtt_min_us,omitempty"`
+	RTTAvgUs int64 `json:"rtt_avg_us,omitempty"`
+	RTTMaxUs int64 `json:"rtt_max_us,omitempty"`
+	// ServerResponseUs estimates time spent in the target rather than on the
+	// path: handshake RTT average minus the last transit hop's RTT average,
+	// floored at zero. Nil when either side is missing.
+	ServerResponseUs *int64 `json:"server_response_us,omitempty"`
 }
 
 // TraceResult is the complete result of an MTR trace, ready for serialization.
@@ -535,13 +599,16 @@ type TraceResult struct {
 	// TCPProbeMode reports how a TCP trace sent its probes: "syn" for crafted
 	// SYNs on one stable flow, "connect" for the connect() fallback. Empty for
 	// ICMP/UDP traces.
-	TCPProbeMode string        `json:"tcp_probe_mode,omitempty"`
-	IPVersion    int           `json:"ip_version"`
-	PacketSize   int           `json:"packet_size"`
-	Hops         []HopSnapshot `json:"hops"`
-	AgentID      string        `json:"agent_id,omitempty"`
-	GatewayID    string        `json:"gateway_id,omitempty"`
-	Timestamp    int64         `json:"timestamp"`
+	TCPProbeMode string `json:"tcp_probe_mode,omitempty"`
+	// TCPHandshake is the destination handshake phase of a TCP trace. It is
+	// present only for crafted-SYN traces (tcp_probe_mode "syn").
+	TCPHandshake *TCPHandshakeStats `json:"tcp_handshake,omitempty"`
+	IPVersion    int                `json:"ip_version"`
+	PacketSize   int                `json:"packet_size"`
+	Hops         []HopSnapshot      `json:"hops"`
+	AgentID      string             `json:"agent_id,omitempty"`
+	GatewayID    string             `json:"gateway_id,omitempty"`
+	Timestamp    int64              `json:"timestamp"`
 }
 
 func abs64(x int64) int64 {

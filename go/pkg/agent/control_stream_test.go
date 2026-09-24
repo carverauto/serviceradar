@@ -1638,3 +1638,18 @@ func startAgentTCPReadCloseServer(t *testing.T) (string, func(), <-chan struct{}
 
 	return listener.Addr().String(), closeServer, upstreamClosed
 }
+
+func TestOnDemandMtrOptions_TCPSynRetries(t *testing.T) {
+	t.Parallel()
+
+	zero := 0
+	opts := onDemandMtrOptions(mtrRunPayload{Target: "192.0.2.10", Protocol: "tcp", TCPSynRetries: &zero})
+	if opts.TCPSynRetries != 0 {
+		t.Fatalf("expected an explicit 0 to disable retransmission, got %d", opts.TCPSynRetries)
+	}
+
+	opts = onDemandMtrOptions(mtrRunPayload{Target: "192.0.2.10", Protocol: "tcp"})
+	if opts.TCPSynRetries != mtr.DefaultTCPSynRetries {
+		t.Fatalf("expected the default retries when unset, got %d", opts.TCPSynRetries)
+	}
+}

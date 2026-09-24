@@ -131,6 +131,8 @@ type mtrRunPayload struct {
 	Protocol string `json:"protocol,omitempty"`
 	MaxHops  int    `json:"max_hops,omitempty"`
 	TCPPort  int    `json:"tcp_port,omitempty"`
+	// TCPSynRetries is a pointer because 0 (no retransmission) is meaningful.
+	TCPSynRetries *int `json:"tcp_syn_retries,omitempty"`
 }
 
 type proxmoxCredentialTestPayload struct {
@@ -1698,6 +1700,10 @@ func onDemandMtrOptions(payload mtrRunPayload) mtr.Options {
 
 	if validMtrTCPPort(payload.TCPPort) {
 		opts.TCPPort = payload.TCPPort
+	}
+
+	if payload.TCPSynRetries != nil && validMtrTCPSynRetries(*payload.TCPSynRetries) {
+		opts.TCPSynRetries = *payload.TCPSynRetries
 	}
 
 	return opts
