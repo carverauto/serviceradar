@@ -66,18 +66,18 @@ either way; the property guards against any change that lets address evidence me
 
 Code paths are relative to `elixir/serviceradar_core/lib/serviceradar/`.
 
-## Fixed defects
-
-| Switch | Fixed in | Now enforced by |
-|---|---|---|
-| `sync_alias_merge_unguarded` | #4609 (`AliasGuard.distinct_identified_devices?/3` in `Sync.Aliases`) | `NoFalseMerge`, `AddressNeverMerges` in every `resolution_goal_*` |
-
 Two lifecycle witnesses cover defects that only appear together:
 
 - `upsert_zombie` (`upsert_revives_merged` + `fence_observe_only`): the upsert revives a merged
   device only when the fence does not stop the stale write.
 - `merge_cycle` (`gateway_sync_no_bump` + `follow_stale_audit`): every redirect cycle found
   needs `follow_stale_audit` plus some revival path.
+
+## Fixed defects
+
+| Switch | Fixed in | Now enforced by |
+|---|---|---|
+| `sync_alias_merge_unguarded` | #4609 (`AliasGuard.distinct_identified_devices?/3` in `Sync.Aliases`) | `NoFalseMerge`, `AddressNeverMerges` in every `resolution_goal_*` |
 
 ## Resolution environments
 
