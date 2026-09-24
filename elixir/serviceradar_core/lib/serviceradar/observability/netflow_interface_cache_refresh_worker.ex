@@ -255,23 +255,20 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
   # Page by `(sampler_address, if_index)`. `limit` is the page size, not the
   # number of pairs the window is allowed to contain.
   defp collect_interface_pairs(since, limit, after_pair, acc, opts) do
-    pairs = interface_page(since, limit, after_pair, opts)
-    acc = acc ++ pairs
+    rows = interface_page(since, limit, after_pair, opts)
+    acc = [Enum.flat_map(rows, &normalize_pair_tuple/1) | acc]
 
-    if length(pairs) < limit do
-      Enum.uniq(acc)
+    if length(rows) < limit do
+      acc |> Enum.reverse() |> Enum.concat() |> Enum.uniq()
     else
-      collect_interface_pairs(since, limit, List.last(pairs), acc, opts)
+      collect_interface_pairs(since, limit, List.last(rows), acc, opts)
     end
   end
 
   defp interface_page(since, limit, after_pair, opts) do
     case Keyword.get(opts, :pairs) do
-      pairs when is_function(pairs, 3) ->
-        since |> pairs.(limit, after_pair) |> Enum.flat_map(&normalize_pair_tuple/1)
-
-      _ ->
-        interface_page_query(since, limit, after_pair)
+      pairs when is_function(pairs, 3) -> pairs.(since, limit, after_pair)
+      _ -> interface_page_query(since, limit, after_pair)
     end
   end
 
@@ -301,9 +298,7 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
           query
       end
 
-    query
-    |> Repo.all()
-    |> Enum.flat_map(&normalize_pair_tuple/1)
+    Repo.all(query)
   end
 
   defp observed_interface_pairs_from_row(row) when is_map(row) do

@@ -97,6 +97,22 @@ defmodule ServiceRadar.Observability.WindowPageFollowTest do
              [{"192.0.2.1", 1}, {"192.0.2.2", 2}]
   end
 
+  test "interface pair discovery continues past a full page that normalizes to nothing" do
+    pairs = fn _since, limit, after_pair ->
+      page =
+        case after_pair do
+          nil -> [{"  ", 1}]
+          {"  ", 1} -> [{"192.0.2.2", 2}]
+          _ -> []
+        end
+
+      Enum.take(page, limit)
+    end
+
+    assert NetflowInterfaceCacheRefreshWorker.discover_interface_pairs(60, 1, pairs: pairs) ==
+             [{"192.0.2.2", 2}]
+  end
+
   test "threat candidate discovery keeps the page after a full page" do
     assert "last_5m"
            |> NetflowSecurityRefreshWorker.discover_candidate_ips(
@@ -180,8 +196,13 @@ defmodule ServiceRadar.Observability.WindowPageFollowTest do
     assert {:ok, %{devices: 2, hits: 2}} =
              DeviceRiskIocExposure.evaluate(
                flow_limit: 1,
-               query_flow_page: fn _opts, page_size, offset ->
-                 Enum.slice(flows, offset, page_size)
+               query_flow_page: fn _opts, page_size, after_key ->
+                 flows
+                 |> Enum.drop_while(fn flow ->
+                   after_key != nil and {flow.observed_at, flow.row_key} != after_key
+                 end)
+                 |> then(fn remaining -> if after_key, do: tl(remaining), else: remaining end)
+                 |> Enum.take(page_size)
                end,
                query_findings: fn device_uids, _opts ->
                  Enum.map(device_uids, fn device_uid ->
@@ -213,7 +234,8 @@ defmodule ServiceRadar.Observability.WindowPageFollowTest do
       cmdline: nil,
       observed_at: @forecasted_at,
       ioc_sources: ["fixture"],
-      ioc_severity: 4
+      ioc_severity: 4,
+      row_key: "#{device_uid},#{hostile_ip}"
     }
   end
 end

@@ -199,6 +199,20 @@ defmodule ServiceRadar.Observability.NetflowCacheRefreshWorkerTest do
       assert {:ok, ["192.0.2.1", "192.0.2.2"]} =
                Worker.collect_sampler_addresses(since, 1, query: query)
     end
+
+    test "keeps reading when a full page normalizes to nothing" do
+      since = DateTime.utc_now()
+
+      query = fn sql ->
+        cond do
+          sql =~ "sampler_address > '192.0.2.1'" -> {:ok, %{rows: []}}
+          sql =~ "sampler_address > '  '" -> {:ok, %{rows: [["192.0.2.1"]]}}
+          true -> {:ok, %{rows: [["  "]]}}
+        end
+      end
+
+      assert {:ok, ["192.0.2.1"]} = Worker.collect_sampler_addresses(since, 1, query: query)
+    end
   end
 
   describe "PagedQuery.collect/3" do

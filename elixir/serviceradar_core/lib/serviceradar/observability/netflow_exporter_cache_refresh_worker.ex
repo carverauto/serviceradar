@@ -202,13 +202,13 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
   # window whose size is an exact multiple of the page is known to be done.
   defp collect_sampler_pages(since, limit, after_address, acc, opts) do
     case sampler_page(since, limit, after_address, opts) do
-      {:ok, addresses} ->
-        acc = acc ++ addresses
+      {:ok, rows} ->
+        acc = [normalize_sampler_rows(rows) | acc]
 
-        if length(addresses) < limit do
-          {:ok, acc}
+        if length(rows) < limit do
+          {:ok, acc |> Enum.reverse() |> Enum.concat() |> Enum.uniq()}
         else
-          collect_sampler_pages(since, limit, List.last(addresses), acc, opts)
+          collect_sampler_pages(since, limit, raw_sampler_address(List.last(rows)), acc, opts)
         end
 
       {:error, reason} ->
@@ -229,7 +229,7 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
     query = Keyword.get(opts, :query, &ServiceRadar.Analytics.StarRocks.Query.execute/1)
 
     case query.(sql) do
-      {:ok, %{rows: rows}} -> {:ok, normalize_sampler_rows(rows)}
+      {:ok, %{rows: rows}} -> {:ok, rows}
       {:error, reason} -> {:error, reason}
       other -> {:error, {:unexpected_result, other}}
     end
@@ -243,15 +243,14 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
 
   defp normalize_sampler_rows(rows) do
     rows
-    |> Enum.map(fn
-      [address | _] -> address
-      address when is_binary(address) -> address
-      _ -> nil
-    end)
-    |> Enum.map(&to_string/1)
+    |> Enum.map(&raw_sampler_address/1)
     |> Enum.map(&String.trim/1)
     |> Enum.reject(&(&1 == ""))
   end
+
+  defp raw_sampler_address([address | _]), do: to_string(address)
+  defp raw_sampler_address(address) when is_binary(address), do: address
+  defp raw_sampler_address(_row), do: ""
 
   @doc false
   def load_devices_by_ip([], _actor), do: %{}
