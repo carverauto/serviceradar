@@ -8,7 +8,7 @@
 ## 2. Pending state on the control
 - [x] 2.1 Thread an `importing` assign through `index.ex` -> `index_view.ex` -> `import_modal.ex` as a declared `attr`.
 - [x] 2.2 Disable the Import button while importing and relabel it ("Importing…") with a spinner, so the feedback is on the control the operator clicked.
-- [ ] 2.3 Confirm the Cancel/close affordance still behaves sensibly mid-import, and decide deliberately whether closing is allowed while work is in flight. Record the decision.
+- [x] 2.3 Decision recorded: Cancel is **disabled** while importing. Closing mid-flight would leave the async task running against a modal that no longer exists and discard its result — the same class of silence this change removes. Once a result exists, Cancel is replaced by Done as the sole action.
 
 ## 3. The result summary
 - [x] 3.1 Thread an `import_result` assign through the same path as `importing`.
