@@ -228,7 +228,20 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
       trace_row =
         build_trace_row(result, trace, trace_id, trace_time, agent_id, gateway_id, partition)
 
-      hop_rows = build_hop_rows(map_get_any(trace, ["hops", :hops], []), trace_id, trace_time)
+      # Hops inherit attribution from the trace ROW, not from the payload. Hop rows
+      # carry no target of their own, so `trace_id` was the only link back to the
+      # device a hop measured -- and SRQL cannot join entities, which made
+      # device-scoped hop analytics inexpressible. Reading off `trace_row`
+      # guarantees a hop cannot disagree with its own trace about the target.
+      hop_rows =
+        build_hop_rows(
+          map_get_any(trace, ["hops", :hops], []),
+          trace_id,
+          trace_time,
+          trace_row.target_ip,
+          trace_row.device_id
+        )
+
       {:ok, trace_row, hop_rows}
     else
       {:error, :missing_target_ip}
@@ -317,19 +330,19 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
     }
   end
 
-  defp build_hop_rows([], _trace_id, _trace_time), do: []
+  defp build_hop_rows([], _trace_id, _trace_time, _target_ip, _device_id), do: []
 
-  defp build_hop_rows(hops, trace_id, trace_time) when is_list(hops) do
+  defp build_hop_rows(hops, trace_id, trace_time, target_ip, device_id) when is_list(hops) do
     hops
     |> Enum.filter(&is_map/1)
-    |> Enum.map(&build_hop_row(&1, trace_id, trace_time))
+    |> Enum.map(&build_hop_row(&1, trace_id, trace_time, target_ip, device_id))
   end
 
-  defp build_hop_rows(hops, trace_id, trace_time) do
+  defp build_hop_rows(hops, trace_id, trace_time, target_ip, device_id) do
     hops
     |> List.wrap()
     |> Enum.filter(&is_map/1)
-    |> Enum.map(&build_hop_row(&1, trace_id, trace_time))
+    |> Enum.map(&build_hop_row(&1, trace_id, trace_time, target_ip, device_id))
   end
 
   defp first_present(values, default) when is_list(values) do
@@ -347,7 +360,7 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
     end
   end
 
-  defp build_hop_row(hop, trace_id, trace_time) when is_map(hop) do
+  defp build_hop_row(hop, trace_id, trace_time, target_ip, device_id) when is_map(hop) do
     ecmp_addrs = hop["ecmp_addrs"] || []
     asn_info = map_get_any(hop, ["asn", :asn], %{})
     mpls_labels = hop["mpls_labels"]
@@ -361,6 +374,10 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
       id: Ecto.UUID.generate(),
       time: trace_time,
       trace_id: trace_id,
+      # target_ip is the reliable device key; device_id is the command id on the
+      # bulk-scheduled path.
+      target_ip: target_ip,
+      device_id: device_id,
       hop_number: hop["hop_number"] || 0,
       addr: hop["addr"],
       hostname: hop["hostname"],

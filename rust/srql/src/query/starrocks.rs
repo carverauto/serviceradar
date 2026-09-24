@@ -4087,6 +4087,27 @@ mod tests {
     }
 
     #[test]
+    fn mtr_entities_are_refused_by_the_warehouse_dialect() {
+        // MTR is not a warehouse dataset: extend-starrocks-to-all-telemetry task 3.4
+        // owns moving it there. Until it does, the dialect must REFUSE these
+        // entities rather than serve a partial answer. This guard is what would
+        // catch a future half-implementation -- a dataset mapping added without the
+        // target_ip/device_id field mappings the device-scoped panels rely on,
+        // which would silently return fleet-wide rows under a per-device title.
+        for query in [
+            "in:mtr_hops time:last_24h target_ip:192.0.2.50 limit:10",
+            "in:mtr_hops time:last_24h stats:loss_ratio(sent, received) as loss by addr limit:10",
+            "in:mtr_traces time:last_24h stats:count() as traces by target_ip limit:10",
+        ] {
+            let result = translate(&plan(query), "serviceradar");
+            assert!(
+                result.is_err(),
+                "{query} must be refused by the warehouse dialect, not partially served"
+            );
+        }
+    }
+
+    #[test]
     fn every_two_argument_aggregate_compiles_on_the_warehouse_backend() {
         // Parity guard, the warehouse half: adding a name to TWO_ARG_AGGREGATES
         // without implementing it in this dialect fails here, so an aggregate
