@@ -1,0 +1,204 @@
+load("//build/tla:tlc.bzl", "tlc_test")
+
+# DIRE formal models. See README.md, openspec/changes/add-dire-formal-model and
+# openspec/changes/update-dire-strong-identity-goal.
+
+tlc_test(
+    name = "lifecycle_current_test",
+    size = "medium",
+    cfg = "lifecycle_current.cfg",
+    spec = "MCDireLifecycle.tla",
+    workers = 8,
+    deps = ["DireLifecycle.tla"],
+)
+
+tlc_test(
+    name = "lifecycle_goal_test",
+    size = "medium",
+    cfg = "lifecycle_goal.cfg",
+    spec = "MCDireLifecycle.tla",
+    workers = 8,
+    deps = ["DireLifecycle.tla"],
+)
+
+tlc_test(
+    name = "lifecycle_witness_upsert_revives_merged_test",
+    cfg = "lifecycle_witness_upsert_revives_merged.cfg",
+    expect = "violation:RevivalBumpsRevision",
+    spec = "MCDireLifecycle.tla",
+    deps = ["DireLifecycle.tla"],
+)
+
+tlc_test(
+    name = "lifecycle_witness_gateway_sync_no_bump_test",
+    cfg = "lifecycle_witness_gateway_sync_no_bump.cfg",
+    expect = "violation:RevivalBumpsRevision",
+    spec = "MCDireLifecycle.tla",
+    deps = ["DireLifecycle.tla"],
+)
+
+tlc_test(
+    name = "lifecycle_witness_follow_stale_audit_test",
+    cfg = "lifecycle_witness_follow_stale_audit.cfg",
+    expect = "violation:NoStaleRedirect",
+    spec = "MCDireLifecycle.tla",
+    deps = ["DireLifecycle.tla"],
+)
+
+tlc_test(
+    name = "lifecycle_witness_sweep_restores_merged_test",
+    cfg = "lifecycle_witness_sweep_restores_merged.cfg",
+    expect = "violation:NoZombieRevival",
+    spec = "MCDireLifecycle.tla",
+    deps = ["DireLifecycle.tla"],
+)
+
+tlc_test(
+    name = "lifecycle_witness_fence_observe_only_test",
+    cfg = "lifecycle_witness_fence_observe_only.cfg",
+    expect = "violation:NoStaleCommit",
+    spec = "MCDireLifecycle.tla",
+    deps = ["DireLifecycle.tla"],
+)
+
+tlc_test(
+    name = "lifecycle_witness_unmerge_restores_matches_test",
+    cfg = "lifecycle_witness_unmerge_restores_matches.cfg",
+    expect = "violation:UnmergeRestoresExactly",
+    spec = "MCDireLifecycle.tla",
+    deps = ["DireLifecycle.tla"],
+)
+
+tlc_test(
+    name = "lifecycle_witness_purge_forgets_redirect_test",
+    cfg = "lifecycle_witness_purge_forgets_redirect.cfg",
+    expect = "violation:NoPurgedResurrection",
+    spec = "MCDireLifecycle.tla",
+    deps = ["DireLifecycle.tla"],
+)
+
+tlc_test(
+    name = "lifecycle_witness_upsert_zombie_test",
+    cfg = "lifecycle_witness_upsert_zombie.cfg",
+    expect = "violation:NoZombieRevival",
+    spec = "MCDireLifecycle.tla",
+    deps = ["DireLifecycle.tla"],
+)
+
+tlc_test(
+    name = "lifecycle_witness_merge_cycle_test",
+    cfg = "lifecycle_witness_merge_cycle.cfg",
+    expect = "violation:MergeGraphAcyclic",
+    spec = "MCDireLifecycle.tla",
+    deps = ["DireLifecycle.tla"],
+)
+
+tlc_test(
+    name = "resolution_goal_armis_macs_test",
+    size = "medium",
+    cfg = "resolution_goal_armis_macs.cfg",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_goal_armis_nomacs_test",
+    size = "medium",
+    cfg = "resolution_goal_armis_nomacs.cfg",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_goal_mixed_test",
+    size = "medium",
+    cfg = "resolution_goal_mixed.cfg",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_goal_router_test",
+    size = "medium",
+    cfg = "resolution_goal_router.cfg",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_goal_phones_test",
+    size = "medium",
+    cfg = "resolution_goal_phones.cfg",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_goal_armis_shared_mac_test",
+    size = "medium",
+    cfg = "resolution_goal_armis_shared_mac.cfg",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_witness_alias_merge_on_unknown_mac_test",
+    cfg = "resolution_witness_alias_merge_on_unknown_mac.cfg",
+    expect = "violation:NoFalseMerge",
+    spec = "MCDireResolution.tla",
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_witness_sync_alias_merge_unguarded_test",
+    cfg = "resolution_witness_sync_alias_merge_unguarded.cfg",
+    expect = "violation:NoFalseMerge",
+    spec = "MCDireResolution.tla",
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_witness_mac_only_conflicts_blocked_test",
+    cfg = "resolution_witness_mac_only_conflicts_blocked.cfg",
+    expect = "violation:EvidenceConverges",
+    spec = "MCDireResolution.tla",
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_witness_silent_blocks_test",
+    cfg = "resolution_witness_silent_blocks.cfg",
+    expect = "violation:NoSilentDecision",
+    spec = "MCDireResolution.tla",
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_witness_src_attach_via_mac_test",
+    cfg = "resolution_witness_src_attach_via_mac.cfg",
+    expect = "violation:DistinctSourceIdsNeverMerge",
+    spec = "MCDireResolution.tla",
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_vacuity_router_merges_test",
+    cfg = "resolution_vacuity_router_merges.cfg",
+    expect = "violation:NeverMerged",
+    spec = "MCDireResolution.tla",
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_vacuity_armis_converges_test",
+    cfg = "resolution_vacuity_armis_converges.cfg",
+    expect = "violation:NeverConverged",
+    spec = "MCDireResolution.tla",
+    deps = ["DireResolution.tla"],
+)
