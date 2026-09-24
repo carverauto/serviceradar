@@ -63,7 +63,7 @@ func OpenArtifactStreamContext(ctx context.Context, req ArtifactOpenRequest) (*A
 		return nil, err
 	}
 
-	res := hostArtifactOpen(ptrFromBytes(payload), uint32(len(payload)))
+	res := callHostArtifactOpen(payload)
 	if res < 0 {
 		return nil, hostErr(res, "artifact_open")
 	}
@@ -100,13 +100,7 @@ func (s *ArtifactStream) WriteChunk(ctx context.Context, meta ArtifactWriteMetad
 	if err != nil {
 		return 0, err
 	}
-	res := hostArtifactWrite(
-		s.handle,
-		ptrFromBytes(metaJSON),
-		uint32(len(metaJSON)),
-		ptrFromBytes(payload),
-		uint32(len(payload)),
-	)
+	res := callHostArtifactWrite(s.handle, metaJSON, payload)
 	if res < 0 {
 		return 0, hostErr(res, "artifact_write")
 	}
@@ -135,13 +129,7 @@ func (s *ArtifactStream) CommitContext(ctx context.Context, req ArtifactCommitRe
 		return nil, err
 	}
 	respBuf := make([]byte, MaxArtifactCommitResponseBytes)
-	res := hostArtifactCommit(
-		s.handle,
-		ptrFromBytes(payload),
-		uint32(len(payload)),
-		ptrFromBytes(respBuf),
-		uint32(len(respBuf)),
-	)
+	res := callHostArtifactCommit(s.handle, payload, respBuf)
 	if res < 0 {
 		return nil, hostErr(res, "artifact_commit")
 	}
@@ -160,7 +148,7 @@ func (s *ArtifactStream) Abort() error {
 	if s == nil || s.handle == 0 {
 		return errArtifactStreamNotInitialized
 	}
-	res := hostArtifactAbort(s.handle)
+	res := callHostArtifactAbort(s.handle)
 	if res >= 0 {
 		s.handle = 0
 	}

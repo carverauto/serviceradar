@@ -26,3 +26,31 @@ func callHostHTTPRequest(request, response []byte) int32 {
 		uint32(len(response)),
 	)
 }
+
+func callHostArtifactOpen(request []byte) int32 {
+	return hostArtifactOpen(ptrFromBytes(request), uint32(len(request)))
+}
+
+func callHostArtifactWrite(handle uint32, meta, payload []byte) int32 {
+	return hostArtifactWrite(
+		handle,
+		ptrFromBytes(meta),
+		uint32(len(meta)),
+		ptrFromBytes(payload),
+		uint32(len(payload)),
+	)
+}
+
+func callHostArtifactCommit(handle uint32, request, response []byte) int32 {
+	return hostArtifactCommit(
+		handle,
+		ptrFromBytes(request),
+		uint32(len(request)),
+		ptrFromBytes(response),
+		uint32(len(response)),
+	)
+}
+
+func callHostArtifactAbort(handle uint32) int32 {
+	return hostArtifactAbort(handle)
+}

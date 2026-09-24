@@ -40,3 +40,35 @@ func callHostHTTPRequest(request, response []byte) int32 {
 	}
 	return host.httpRequest(request, response)
 }
+
+func callHostArtifactOpen(request []byte) int32 {
+	host := currentLocalHost()
+	if host == nil {
+		return hostErrNotFound
+	}
+	return host.artifactOpen(request)
+}
+
+func callHostArtifactWrite(handle uint32, meta, payload []byte) int32 {
+	host := currentLocalHost()
+	if host == nil {
+		return hostErrNotFound
+	}
+	return host.artifactWrite(handle, meta, payload)
+}
+
+func callHostArtifactCommit(handle uint32, request, response []byte) int32 {
+	host := currentLocalHost()
+	if host == nil {
+		return hostErrNotFound
+	}
+	return host.artifactCommit(handle, request, response)
+}
+
+func callHostArtifactAbort(handle uint32) int32 {
+	host := currentLocalHost()
+	if host == nil {
+		return hostErrNotFound
+	}
+	return host.artifactAbort(handle)
+}

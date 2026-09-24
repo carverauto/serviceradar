@@ -22,6 +22,11 @@ type LocalHTTPHandler func(context.Context, HTTPRequest) (*HTTPResponse, error)
 type LocalHostOptions struct {
 	ConfigJSON  []byte
 	HTTPHandler LocalHTTPHandler
+	// ArtifactDir enables artifact staging. Committed artifacts are written
+	// under this directory at their object key, with owner-only permissions.
+	// When empty, artifact calls fail as they do on a host without an
+	// uploader.
+	ArtifactDir string
 }
 
 // LocalHostLog is one log message captured during a local run.
@@ -35,6 +40,7 @@ type LocalHostCapture struct {
 	ResultJSON    []byte
 	TelemetryJSON [][]byte
 	Logs          []LocalHostLog
+	Artifacts     []LocalHostArtifact
 }
 
 type localHostExecution struct {
@@ -44,6 +50,8 @@ type localHostExecution struct {
 	resultJSON    []byte
 	telemetryJSON [][]byte
 	logs          []LocalHostLog
+	artifactDir   string
+	artifacts     localArtifacts
 }
 
 var (
@@ -70,12 +78,14 @@ func RunLocalHost(options LocalHostOptions, run func() error) (LocalHostCapture,
 	execution := &localHostExecution{
 		configJSON:  append([]byte(nil), options.ConfigJSON...),
 		httpHandler: options.HTTPHandler,
+		artifactDir: options.ArtifactDir,
 	}
 	localHostMu.Lock()
 	previous := localHost
 	localHost = execution
 	localHostMu.Unlock()
 	defer func() {
+		execution.abortOpenArtifacts()
 		localHostMu.Lock()
 		localHost = previous
 		localHostMu.Unlock()
@@ -180,6 +190,7 @@ func (h *localHostExecution) capture() LocalHostCapture {
 	capture := LocalHostCapture{
 		ResultJSON: append([]byte(nil), h.resultJSON...),
 		Logs:       append([]LocalHostLog(nil), h.logs...),
+		Artifacts:  append([]LocalHostArtifact(nil), h.artifacts.committed...),
 	}
 	for _, payload := range h.telemetryJSON {
 		capture.TelemetryJSON = append(capture.TelemetryJSON, append([]byte(nil), payload...))
