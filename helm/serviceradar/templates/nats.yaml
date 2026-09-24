@@ -241,6 +241,11 @@ spec:
                       # plain publish is denied by the server and every result
                       # is dropped with no error on the publisher side.
                       "scans.results.>",
+                      # MTR trace results (MtrResultPublisher). Core publishes;
+                      # EventWriter persists them from the mtr_results stream.
+                      # The publish waits for a PubAck, so a missing entry here
+                      # fails loudly rather than dropping traces.
+                      "mtr.results.>",
                       "\$JS.API.>",
                       "\$JS.ACK.>",
                       "_INBOX.>"

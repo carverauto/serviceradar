@@ -3,6 +3,7 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
 
   alias ServiceRadar.EventWriter.Config
   alias ServiceRadar.EventWriter.Processors.Flows
+  alias ServiceRadar.Observability.MtrResultPublisher
 
   describe "enabled?/0" do
     test "returns false by default" do
@@ -663,6 +664,18 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       # Must NOT overlap the metrics stream, or the Metrics processor would
       # try to decode scan rows as protobuf metric envelopes.
       refute String.starts_with?(scan.subject, "metrics.")
+    end
+
+    test "routes MTR trace results to the Mtr processor from a dedicated stream" do
+      mtr = Enum.find(Config.default_streams(), &(&1.name == "MTR_RESULTS"))
+
+      assert mtr.stream_name == "mtr_results"
+      assert mtr.subject == "mtr.results.>"
+      assert mtr.processor == ServiceRadar.EventWriter.Processors.Mtr
+      # The publisher sends a Nats-Msg-Id per trace; the stream must dedupe it.
+      assert mtr.stream_duplicate_window > 0
+      publisher_subject = MtrResultPublisher.subject()
+      assert String.starts_with?(publisher_subject, "mtr.results.")
     end
 
     test "consumes analytics prediction verdicts from a dedicated retention stream" do

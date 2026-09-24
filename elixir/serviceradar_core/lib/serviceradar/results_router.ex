@@ -31,7 +31,7 @@ defmodule ServiceRadar.ResultsRouter do
   alias ServiceRadar.Inventory.EndpointInventoryIngestorQueue
   alias ServiceRadar.Inventory.SyncIngestorQueue
   alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
-  alias ServiceRadar.Observability.MtrMetricsIngestor
+  alias ServiceRadar.Observability.MtrResultPublisher
   alias ServiceRadar.Observability.PluginResultIngestor
   alias ServiceRadar.Observability.ServiceStateRegistry
   alias ServiceRadar.Observability.ServiceStatusPubSub
@@ -533,9 +533,11 @@ defmodule ServiceRadar.ResultsRouter do
     reject_gateway_metric_status(status)
   end
 
+  # Full traces go to JetStream; EventWriter's Mtr processor stores them.
   defp handle_mtr_results(status) do
     case decode_payload(status[:message]) do
-      {:ok, payload} -> mtr_ingestor().ingest(payload, status)
+      {:ok, payload} when is_map(payload) -> mtr_result_publisher().publish(payload, status)
+      {:ok, _payload} -> {:error, :invalid_payload}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -895,7 +897,7 @@ defmodule ServiceRadar.ResultsRouter do
     Application.get_env(:serviceradar_core, :plugin_result_ingestor, PluginResultIngestor)
   end
 
-  defp mtr_ingestor do
-    Application.get_env(:serviceradar_core, :mtr_metrics_ingestor, MtrMetricsIngestor)
+  defp mtr_result_publisher do
+    Application.get_env(:serviceradar_core, :mtr_result_publisher, MtrResultPublisher)
   end
 end

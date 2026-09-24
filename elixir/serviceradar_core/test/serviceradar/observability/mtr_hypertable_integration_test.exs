@@ -226,6 +226,55 @@ defmodule ServiceRadar.Observability.MtrHypertableIntegrationTest do
     assert Enum.map(hops, & &1.reply_synack) == [0, 0, 0, 0]
   end
 
+  test "ingest/3 with skip_existing stores a redelivered trace once" do
+    actor = SystemActor.system(:test)
+    agent_id = "test-mtr-redeliver-#{System.unique_integer([:positive])}"
+    trace_uuid = Ecto.UUID.generate()
+
+    payload = %{
+      "results" => [
+        %{
+          "check_id" => "chk-mtr-redeliver",
+          "target" => "198.51.100.20",
+          "available" => true,
+          "trace_uuid" => trace_uuid,
+          "trace" => %{
+            "target" => "198.51.100.20",
+            "target_ip" => "198.51.100.20",
+            "target_reached" => true,
+            "total_hops" => 2,
+            "protocol" => "icmp",
+            "ip_version" => 4,
+            "timestamp" => System.os_time(:second),
+            "hops" => [
+              %{"hop_number" => 1, "addr" => "192.0.2.1", "sent" => 3, "received" => 3},
+              %{"hop_number" => 2, "addr" => "198.51.100.20", "sent" => 3, "received" => 3}
+            ]
+          }
+        }
+      ]
+    }
+
+    status = %{agent_id: agent_id, gateway_id: "gw-test", partition: "default"}
+
+    assert :ok = MtrMetricsIngestor.ingest(payload, status, skip_existing: true)
+    assert :ok = MtrMetricsIngestor.ingest(payload, status, skip_existing: true)
+
+    {:ok, traces} =
+      MtrTrace
+      |> Ash.Query.for_read(:by_agent, %{agent_id: agent_id})
+      |> Ash.read(actor: actor)
+
+    assert [%{id: ^trace_uuid} = trace] = traces
+
+    {:ok, hops} =
+      MtrHop
+      |> Ash.Query.for_read(:by_trace, %{trace_id: trace.id})
+      |> Ash.read(actor: actor)
+
+    assert length(hops) == 2
+  end
+
   test "ingest/2 handles multiple results in one payload" do
     actor = SystemActor.system(:test)
     agent_id = "test-mtr-multi-#{System.unique_integer([:positive])}"

@@ -589,6 +589,25 @@ defmodule ServiceRadar.EventWriter.Config do
         stream_max_age: 3_600_000_000_000
       },
       %{
+        name: "MTR_RESULTS",
+        stream_name: "mtr_results",
+        subject: "mtr.results.>",
+        processor: ServiceRadar.EventWriter.Processors.Mtr,
+        batch_size: 100,
+        batch_timeout: 500,
+        # The only path MTR traces take to storage, so the stream is the buffer
+        # while EventWriter or the database is unavailable. Each message carries
+        # a Nats-Msg-Id (its trace id); the duplicate window stores a retried
+        # publish once.
+        stream_retention: "limits",
+        stream_storage: "file",
+        stream_discard: "old",
+        stream_max_bytes: 1_073_741_824,
+        stream_max_age: 86_400_000_000_000,
+        stream_duplicate_window: 120_000_000_000,
+        consumer_max_deliver: 5
+      },
+      %{
         name: "BMP_CAUSAL",
         stream_name: "events",
         subject: "bmp.events.>",

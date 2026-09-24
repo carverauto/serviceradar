@@ -111,12 +111,13 @@ func TestCoreCanPublishToChartSubjects(t *testing.T) {
 
 	const (
 		allowedScan  = "scans.results.run01"
+		allowedMTR   = "mtr.results.ingest"
 		allowedEvent = "events.example"
 		denied       = "zz.not.allowed"
 	)
 
 	received := make(map[string]chan struct{})
-	for _, subject := range []string{allowedScan, allowedEvent, denied} {
+	for _, subject := range []string{allowedScan, allowedMTR, allowedEvent, denied} {
 		ch := make(chan struct{}, 1)
 		received[subject] = ch
 
@@ -129,7 +130,7 @@ func TestCoreCanPublishToChartSubjects(t *testing.T) {
 		t.Fatalf("flush subscriptions: %v", err)
 	}
 
-	for _, subject := range []string{allowedScan, allowedEvent, denied} {
+	for _, subject := range []string{allowedScan, allowedMTR, allowedEvent, denied} {
 		if err := core.Publish(subject, []byte(`{"synthetic":true}`)); err != nil {
 			t.Fatalf("publish %s: %v", subject, err)
 		}
@@ -145,7 +146,7 @@ func TestCoreCanPublishToChartSubjects(t *testing.T) {
 		t.Fatalf("expected a permissions violation for %s, got %v", denied, coreErrs.all())
 	}
 
-	for _, subject := range []string{allowedScan, allowedEvent} {
+	for _, subject := range []string{allowedScan, allowedMTR, allowedEvent} {
 		select {
 		case <-received[subject]:
 		case <-time.After(5 * time.Second):

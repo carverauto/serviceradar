@@ -40,8 +40,18 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
 
   @default_bulk_create_chunk_size 500
 
-  @spec ingest(map() | list(), map()) :: :ok | {:error, term()}
-  def ingest(payload, status) when is_map(payload) or is_list(payload) do
+  @doc """
+  Stores MTR trace results and their hops, then projects them into the graph.
+
+  A result may carry a `trace_uuid`, which becomes the stored trace id instead
+  of a generated one. With `skip_existing: true`, results whose `trace_uuid` is
+  already stored are left out, which makes a redelivered JetStream message a
+  no-op; `:existing_trace_ids` replaces that lookup (tests).
+  """
+  @spec ingest(map() | list(), map(), keyword()) :: :ok | {:error, term()}
+  def ingest(payload, status, opts \\ [])
+
+  def ingest(payload, status, opts) when is_map(payload) or is_list(payload) do
     now = DateTime.truncate(DateTime.utc_now(), :microsecond)
     agent_id = status[:agent_id] || "unknown"
     gateway_id = status[:gateway_id]
@@ -55,7 +65,7 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
     if Enum.empty?(results) do
       :ok
     else
-      case insert_results(results, agent_id, gateway_id, partition, now) do
+      case insert_results(results, agent_id, gateway_id, partition, now, opts) do
         :ok ->
           MtrGraph.project_traces(results, status)
           :ok
@@ -70,7 +80,7 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
       {:error, e}
   end
 
-  def ingest(_payload, _status), do: {:error, :invalid_payload}
+  def ingest(_payload, _status, _opts), do: {:error, :invalid_payload}
 
   defp normalize_results(%{"results" => results}) when is_list(results), do: results
   defp normalize_results(%{"result" => result}) when is_map(result), do: [result]
@@ -162,12 +172,13 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
     end
   end
 
-  defp insert_results(results, agent_id, gateway_id, partition, now) do
+  defp insert_results(results, agent_id, gateway_id, partition, now, opts) do
     actor = SystemActor.system(:mtr_metrics_ingestor)
     domain = ServiceRadar.Observability
 
     with {:ok, trace_rows, hop_rows} <-
-           build_insert_rows(results, agent_id, gateway_id, partition, now) do
+           build_insert_rows(results, agent_id, gateway_id, partition, now),
+         {:ok, trace_rows, hop_rows} <- drop_stored(trace_rows, hop_rows, opts) do
       [MtrTrace, MtrHop]
       |> Ash.transaction(fn ->
         with :ok <- insert_bulk(trace_rows, MtrTrace, actor, domain),
@@ -224,8 +235,8 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
       )
 
     if is_binary(target_value) and String.trim(target_value) != "" do
-      trace_id = Ecto.UUID.generate()
-      trace_time = trace_time(result, trace, now)
+      trace_id = stable_trace_id(result) || Ecto.UUID.generate()
+      trace_time = trace_time(result, now)
 
       trace_row =
         build_trace_row(result, trace, trace_id, trace_time, agent_id, gateway_id, partition)
@@ -251,6 +262,52 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
   end
 
   defp build_result_rows(_result, _agent_id, _gateway_id, _partition, _now), do: {:ok, nil, []}
+
+  defp stable_trace_id(result) do
+    with id when is_binary(id) <- map_get_any(result, ["trace_uuid", :trace_uuid], nil),
+         {:ok, uuid} <- Ecto.UUID.cast(id) do
+      uuid
+    else
+      _ -> nil
+    end
+  end
+
+  # A redelivered message carries trace ids that are already stored. Dropping
+  # them (and their hops) keeps redelivery from creating a second copy.
+  defp drop_stored(trace_rows, hop_rows, opts) do
+    if Keyword.get(opts, :skip_existing, false) and trace_rows != [] do
+      lookup = Keyword.get(opts, :existing_trace_ids, &stored_trace_ids/1)
+
+      with {:ok, stored} <- lookup.(trace_rows) do
+        stored = MapSet.new(stored)
+
+        {:ok, Enum.reject(trace_rows, &MapSet.member?(stored, &1.id)),
+         Enum.reject(hop_rows, &MapSet.member?(stored, &1.trace_id))}
+      end
+    else
+      {:ok, trace_rows, hop_rows}
+    end
+  end
+
+  # Bounded by the rows' own time range so Timescale reads only the chunks
+  # those traces fall in, not every chunk.
+  @sobelow_skip ["SQL.Query"]
+  defp stored_trace_ids(trace_rows) do
+    times = Enum.map(trace_rows, & &1.time)
+    ids = Enum.map(trace_rows, &Ecto.UUID.dump!(&1.id))
+
+    sql = """
+    SELECT id FROM platform.mtr_traces
+    WHERE id = ANY($1) AND time >= $2 AND time <= $3
+    """
+
+    params = [ids, Enum.min(times, DateTime), Enum.max(times, DateTime)]
+
+    case ServiceRadar.Repo.query(sql, params) do
+      {:ok, %{rows: rows}} -> {:ok, Enum.map(rows, fn [id] -> Ecto.UUID.load!(id) end)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
   defp insert_bulk([], _resource, _actor, _domain), do: :ok
 
@@ -304,11 +361,18 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
 
   defp normalize_chunk_size(_value), do: @default_bulk_create_chunk_size
 
-  defp trace_time(result, trace, now) do
-    parse_trace_time(
-      map_get_any(trace, ["timestamp", :timestamp], nil) ||
-        map_get_any(result, ["timestamp", :timestamp], nil)
-    ) || now
+  defp trace_time(result, now), do: trace_time(result) || now
+
+  @doc """
+  The time a result's trace is stored under, or `nil` when the result carries
+  no timestamp the ingestor can parse (the ingest wall clock is used then).
+  """
+  @spec trace_time(map()) :: DateTime.t() | nil
+  def trace_time(result) when is_map(result) do
+    trace = map_get_any(result, ["trace", :trace], %{})
+
+    parse_trace_time(map_get_any(trace, ["timestamp", :timestamp], nil)) ||
+      parse_trace_time(map_get_any(result, ["timestamp", :timestamp], nil))
   end
 
   defp build_trace_row(result, trace, trace_id, trace_time, agent_id, gateway_id, partition) do
