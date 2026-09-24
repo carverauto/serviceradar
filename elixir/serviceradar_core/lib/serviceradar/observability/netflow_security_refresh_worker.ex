@@ -17,11 +17,11 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Analytics.StarRocks.Readers
+  alias ServiceRadar.Observability.FlowEndpointScan
   alias ServiceRadar.Observability.IpThreatIntelCache
   alias ServiceRadar.Observability.NetflowPortAnomalyFlag
   alias ServiceRadar.Observability.NetflowPortScanFlag
   alias ServiceRadar.Observability.NetflowSettings
-  alias ServiceRadar.Observability.PagedQuery
   alias ServiceRadar.Observability.SRQLRunner
   alias ServiceRadar.PrefixTags.Store, as: PrefixTagStore
   alias ServiceRadar.PrefixTags.ThreatIntelSource
@@ -32,7 +32,6 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
 
   @default_scan_window_token "last_5m"
   @default_limit 200
-  @default_threat_candidate_limit 10_000
   @default_reschedule_seconds 86_400
   @min_reschedule_seconds 86_400
   @default_cache_ttl_seconds 86_400
@@ -107,8 +106,7 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
     limit = Keyword.get(config, :limit, @default_limit)
 
-    threat_candidate_limit =
-      Keyword.get(config, :threat_candidate_limit, @default_threat_candidate_limit)
+    scan_page_size = Keyword.get(config, :scan_page_size, FlowEndpointScan.default_page_size())
 
     reschedule_seconds =
       config
@@ -139,7 +137,7 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
         actor,
         now,
         cache_expires_at,
-        threat_candidate_limit,
+        scan_page_size,
         threat_match_window_seconds
       )
 
@@ -162,12 +160,11 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
          actor,
          now,
          expires_at,
-         limit,
+         scan_page_size,
          threat_match_window_seconds
        ) do
     started_at = System.monotonic_time()
-    time_token = window_seconds_to_token(threat_match_window_seconds, fallback: "last_1h")
-    ips = discover_candidate_ips(time_token, limit)
+    ips = discover_candidate_ips(threat_match_window_seconds, scan_page_size)
 
     # For now, keep matching simple: if threat intel is enabled, mark IPs as matched if any
     # indicator contains the IP. We do the match via SQL for index-backed CIDR containment.
@@ -398,39 +395,9 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
   end
 
   @doc false
-  def discover_candidate_ips(scan_window, page_size, runner \\ SRQLRunner) do
-    src_ips = page_endpoint_ips("src_endpoint_ip", scan_window, page_size, runner)
-    dst_ips = page_endpoint_ips("dst_endpoint_ip", scan_window, page_size, runner)
-
-    (src_ips ++ dst_ips)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 in ["", "—", "-", "Unknown"]))
-    |> Enum.uniq()
+  def discover_candidate_ips(window_seconds, page_size, runner \\ SRQLRunner) do
+    FlowEndpointScan.discover(window_seconds, page_size, runner)
   end
-
-  defp page_endpoint_ips(field, scan_window, page_size, runner) do
-    query =
-      ~s|in:flows time:#{scan_window} window_scan:true stats:"sum(bytes_total) as total_bytes by #{field}" sort:#{field}:asc limit:#{page_size}|
-
-    case PagedQuery.collect(runner, query) do
-      {:ok, rows} ->
-        extract_ips({:ok, rows}, field)
-
-      {:error, reason} ->
-        raise "netflow threat candidate scan failed: #{inspect(reason)}"
-    end
-  end
-
-  defp extract_ips({:ok, rows}, key) when is_list(rows) and is_binary(key) do
-    Enum.flat_map(rows, fn
-      %{^key => ip} when is_binary(ip) -> [ip]
-      %{"result" => %{} = payload} -> extract_ips({:ok, [payload]}, key)
-      %{} -> []
-      _ -> []
-    end)
-  end
-
-  defp extract_ips(_other, _key), do: []
 
   defp threat_matches_for_ips(ips) when is_list(ips) do
     ips =

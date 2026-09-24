@@ -4,26 +4,36 @@ defmodule ServiceRadar.Observability.WindowPageFollowTest do
   alias ServiceRadar.Inventory.DeviceRiskIocExposure
   alias ServiceRadar.Observability.CapacityForecasting.Source, as: CapacitySource
   alias ServiceRadar.Observability.CapacityForecasting.Worker, as: CapacityWorker
+  alias ServiceRadar.Observability.FlowEndpointScan
   alias ServiceRadar.Observability.IpEnrichmentRefreshWorker
   alias ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker
   alias ServiceRadar.Observability.NetflowSecurityRefreshWorker
   alias ServiceRadar.Observability.SeasonalDisposition.Source, as: SeasonalSource
   alias ServiceRadar.Observability.SeasonalDisposition.Worker, as: SeasonalWorker
 
-  defmodule WindowPageFixture do
+  defmodule EndpointScanFixture do
     @moduledoc false
+    @ips ["192.0.2.1", "192.0.2.2", "192.0.2.3"]
 
-    def query_page(_query, opts) do
-      case Keyword.get(opts, :cursor) do
-        nil ->
-          {:ok, %{rows: [endpoint_row("192.0.2.1")], next_cursor: "page-2"}}
+    def query_page(query, _opts) do
+      send(self(), {:endpoint_query, query})
+      [_, field] = Regex.run(~r/ by (\w+)"/, query)
+      [_, limit] = Regex.run(~r/limit:(\d+)/, query)
 
-        "page-2" ->
-          {:ok, %{rows: [endpoint_row("192.0.2.2")], next_cursor: nil}}
-      end
+      after_ip =
+        case Regex.run(~r/#{field}:">([^"]+)"/, query) do
+          [_, ip] -> ip
+          nil -> nil
+        end
+
+      rows =
+        @ips
+        |> Enum.filter(&(after_ip == nil or &1 > after_ip))
+        |> Enum.take(String.to_integer(limit))
+        |> Enum.map(&%{field => &1})
+
+      {:ok, %{rows: rows, next_cursor: "offset-cursor"}}
     end
-
-    defp endpoint_row(ip), do: %{"src_endpoint_ip" => ip, "dst_endpoint_ip" => ip}
   end
 
   defmodule CapacityHistoryPageFixture do
@@ -113,22 +123,34 @@ defmodule ServiceRadar.Observability.WindowPageFollowTest do
              [{"192.0.2.2", 2}]
   end
 
-  test "threat candidate discovery keeps the page after a full page" do
-    assert "last_5m"
-           |> NetflowSecurityRefreshWorker.discover_candidate_ips(
-             1,
-             __MODULE__.WindowPageFixture
-           )
-           |> Enum.sort() == ["192.0.2.1", "192.0.2.2"]
+  test "threat candidate discovery keeps every address across full pages" do
+    assert 3_600
+           |> NetflowSecurityRefreshWorker.discover_candidate_ips(2, EndpointScanFixture)
+           |> Enum.sort() == ["192.0.2.1", "192.0.2.2", "192.0.2.3"]
   end
 
-  test "ip enrichment discovery keeps the page after a full page" do
-    assert "last_5m"
-           |> IpEnrichmentRefreshWorker.discover_candidate_ips(
-             1,
-             __MODULE__.WindowPageFixture
+  test "ip enrichment discovery keeps every address across full pages" do
+    assert 3_600
+           |> IpEnrichmentRefreshWorker.discover_candidate_ips(2, EndpointScanFixture)
+           |> Enum.sort() == ["192.0.2.1", "192.0.2.2", "192.0.2.3"]
+  end
+
+  test "endpoint scan pages by keyset inside one absolute window" do
+    now = ~U[2026-06-12 12:00:00Z]
+
+    assert ["192.0.2.1", "192.0.2.2", "192.0.2.3"] ==
+             FlowEndpointScan.discover(3_600, 2, EndpointScanFixture, now)
+
+    queries = drain_endpoint_queries()
+
+    assert Enum.all?(
+             queries,
+             &String.contains?(&1, "time:[2026-06-12T11:00:00Z,2026-06-12T12:00:00Z]")
            )
-           |> Enum.sort() == ["192.0.2.1", "192.0.2.2"]
+
+    assert Enum.count(queries, &String.contains?(&1, "src_endpoint_ip:\">192.0.2.2\"")) == 1
+    assert Enum.count(queries, &String.contains?(&1, "dst_endpoint_ip:\">192.0.2.2\"")) == 1
+    assert length(queries) == 4
   end
 
   test "capacity history keeps the series that arrives on the next page" do
@@ -221,6 +243,14 @@ defmodule ServiceRadar.Observability.WindowPageFollowTest do
                emit_event: fn _payload -> :ok end,
                create_alert: fn _attrs -> {:ok, %{id: "alert-page"}} end
              )
+  end
+
+  defp drain_endpoint_queries(acc \\ []) do
+    receive do
+      {:endpoint_query, query} -> drain_endpoint_queries([query | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
   end
 
   defp flow(device_uid, hostile_ip) do

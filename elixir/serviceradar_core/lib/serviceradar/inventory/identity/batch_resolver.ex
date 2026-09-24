@@ -429,6 +429,9 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
         |> Enum.group_by(& &1.device_id, & &1.identifier_value)
         |> Map.new(fn {device_id, macs} -> {device_id, universal_macs(macs)} end)
 
+      # A soft delete leaves the identifier rows in place, and an empty primary
+      # set disables `historical_mac_veto?/3`, so the read must include tombstones
+      # like the other two preloads in this function.
       primary_macs =
         Device
         |> Ash.Query.for_read(:read, %{include_deleted: true})

@@ -214,27 +214,4 @@ defmodule ServiceRadar.Observability.NetflowCacheRefreshWorkerTest do
       assert {:ok, ["192.0.2.1"]} = Worker.collect_sampler_addresses(since, 1, query: query)
     end
   end
-
-  describe "PagedQuery.collect/3" do
-    alias ServiceRadar.Observability.PagedQuery
-
-    test "follows next_cursor instead of stopping on a full page" do
-      assert {:ok, [%{"ip" => "192.0.2.1"}, %{"ip" => "192.0.2.2"}]} =
-               PagedQuery.collect(
-                 ServiceRadar.Observability.NetflowCachePageFixture,
-                 "in:flows window_scan:true limit:1",
-                 []
-               )
-    end
-  end
-end
-
-defmodule ServiceRadar.Observability.NetflowCachePageFixture do
-  @moduledoc false
-  def query_page(_query, opts) do
-    case Keyword.get(opts, :cursor) do
-      nil -> {:ok, %{rows: [%{"ip" => "192.0.2.1"}], next_cursor: "page-2"}}
-      "page-2" -> {:ok, %{rows: [%{"ip" => "192.0.2.2"}], next_cursor: nil}}
-    end
-  end
 end

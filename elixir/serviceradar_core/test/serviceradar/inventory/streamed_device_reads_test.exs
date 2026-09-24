@@ -10,7 +10,9 @@ defmodule ServiceRadar.Inventory.StreamedDeviceReadsTest do
   alias ServiceRadar.AgentConfig.Compilers.SNMPCompiler
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.BatchResolver
+  alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.Inventory.InterfaceClassifier
   alias ServiceRadar.Observability.NetflowExporterCacheRefreshWorker
@@ -18,6 +20,8 @@ defmodule ServiceRadar.Inventory.StreamedDeviceReadsTest do
   alias ServiceRadar.SweepJobs.MapperPromotion
   alias ServiceRadar.SweepJobs.SweepResultsIngestor
   alias ServiceRadar.TestSupport
+
+  require Ash.Query
 
   @moduletag :integration
   @batch 260
@@ -115,6 +119,144 @@ defmodule ServiceRadar.Inventory.StreamedDeviceReadsTest do
     assert {:ok, deleted} = SweepResultsIngestor.load_deleted_devices(MapSet.to_list(uids), actor)
     assert MapSet.equal?(MapSet.new(deleted, & &1.uid), uids)
   end
+
+  describe "historical MAC veto" do
+    test "a live canonical vetoes an Armis update that only shares a historical MAC", %{
+      actor: actor
+    } do
+      result = resolve_armis_update(actor, :live, "a1", ["a2", "a3"])
+
+      assert result.vetoed?
+      assert result.resolved == Ids.generate_deterministic_device_id(result.ids)
+      refute result.resolved == result.canonical.uid
+    end
+
+    test "a soft-deleted canonical vetoes the same update the same way", %{actor: actor} do
+      result = resolve_armis_update(actor, :deleted, "b1", ["b2", "b3"])
+
+      assert result.vetoed?
+      assert result.resolved == Ids.generate_deterministic_device_id(result.ids)
+      refute result.resolved == result.canonical.uid
+      assert %DateTime{} = result.canonical_after.deleted_at
+    end
+
+    test "an incoming primary MAC still attaches to a live canonical", %{actor: actor} do
+      result = resolve_armis_update(actor, :live, "c1", ["c1", "c3"], ["c2"])
+
+      refute result.vetoed?
+      assert result.resolved == result.canonical.uid
+    end
+  end
+
+  defp resolve_armis_update(actor, state, primary, incoming, historical \\ nil) do
+    historical = historical || [hd(incoming)]
+
+    canonical = create_mac_device!(actor, state, primary)
+
+    Enum.each([primary | historical], &register_mac!(actor, canonical, &1))
+
+    canonical =
+      if state == :deleted do
+        {:ok, deleted} =
+          Device.soft_delete(canonical, "veto-fixture", "streamed-device-reads", actor: actor)
+
+        deleted
+      else
+        canonical
+      end
+
+    macs = Enum.map(incoming, &normalized_mac/1)
+
+    ids = %{
+      armis_id: "armis-veto-#{state}-#{primary}",
+      mac: hd(macs),
+      macs: macs,
+      partition: "default"
+    }
+
+    registered = Enum.map([primary | historical], &normalized_mac/1)
+
+    lookups = %{
+      identifiers:
+        macs
+        |> Enum.filter(&(&1 in registered))
+        |> Map.new(fn mac -> {{:mac, mac, "default"}, canonical.uid} end),
+      ip: %{}
+    }
+
+    handler = "veto-#{state}-#{primary}"
+    test_pid = self()
+
+    :telemetry.attach(
+      handler,
+      [:serviceradar, :identity_reconciler, :resolve, :distinct_mac_veto],
+      fn _event, _measurements, metadata, pid -> send(pid, {:veto, metadata}) end,
+      test_pid
+    )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    {[{_update, resolved}], _strong} =
+      BatchResolver.resolve_batch([{%{device_id: nil}, ids}], lookups, actor)
+
+    canonical_uid = canonical.uid
+
+    vetoed? =
+      receive do
+        {:veto, %{canonical_device_id: ^canonical_uid}} -> true
+      after
+        0 -> false
+      end
+
+    canonical_after =
+      Device
+      |> Ash.Query.for_read(:read, %{include_deleted: true})
+      |> Ash.Query.filter(uid == ^canonical_uid)
+      |> Ash.read_one!(actor: actor)
+
+    %{
+      canonical: canonical,
+      canonical_after: canonical_after,
+      resolved: resolved,
+      ids: ids,
+      vetoed?: vetoed?
+    }
+  end
+
+  defp create_mac_device!(actor, state, octet) do
+    {:ok, device} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{
+        uid: "sr:" <> Ecto.UUID.generate(),
+        hostname: "veto-#{state}-#{octet}.example.com",
+        ip: "198.51.100.#{String.to_integer(octet, 16)}",
+        mac: "00:00:5e:00:53:" <> octet,
+        gateway_id: @gateway_id,
+        partition: "default"
+      })
+      |> Ash.create(actor: actor)
+
+    device
+  end
+
+  defp register_mac!(actor, device, octet) do
+    {:ok, _identifier} =
+      DeviceIdentifier.register(
+        %{
+          device_id: device.uid,
+          identifier_type: :mac,
+          identifier_value: normalized_mac(octet),
+          partition: "default",
+          confidence: :strong,
+          source: "veto-fixture"
+        },
+        actor: actor
+      )
+
+    :ok
+  end
+
+  defp normalized_mac(octet), do: "00005E0053" <> String.upcase(octet)
 
   defp exporter_ips(ips, actor) do
     NetflowExporterCacheRefreshWorker.load_devices_by_ip(ips, actor)

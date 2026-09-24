@@ -25,13 +25,13 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
   alias Oban.Job
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Analytics.StarRocks.Readers
+  alias ServiceRadar.Observability.FlowEndpointScan
   alias ServiceRadar.Observability.GeoIP
   alias ServiceRadar.Observability.IpGeoEnrichmentCache
   alias ServiceRadar.Observability.IpInfo
   alias ServiceRadar.Observability.IpIpinfoCache
   alias ServiceRadar.Observability.IpRdnsCache
   alias ServiceRadar.Observability.NetflowSettings
-  alias ServiceRadar.Observability.PagedQuery
   alias ServiceRadar.Observability.ReverseDns
   alias ServiceRadar.Observability.SRQLRunner
   alias ServiceRadar.Repo
@@ -40,8 +40,7 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
   require Ash.Query
   require Logger
 
-  @default_scan_window "last_1h"
-  @default_scan_page_size 10_000
+  @default_scan_window_seconds 3_600
   @default_rdns_ttl_seconds 86_400
   @default_geo_ttl_seconds 604_800
   @default_ipinfo_ttl_seconds 604_800
@@ -152,8 +151,8 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
 
   defp refresh(_job) do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
-    scan_window = Keyword.get(config, :scan_window, @default_scan_window)
-    scan_page_size = Keyword.get(config, :scan_page_size, @default_scan_page_size)
+    scan_window_seconds = Keyword.get(config, :scan_window_seconds, @default_scan_window_seconds)
+    scan_page_size = Keyword.get(config, :scan_page_size, FlowEndpointScan.default_page_size())
     rdns_ttl_seconds = Keyword.get(config, :rdns_ttl_seconds, @default_rdns_ttl_seconds)
     geo_ttl_seconds = Keyword.get(config, :geo_ttl_seconds, @default_geo_ttl_seconds)
     ipinfo_ttl_seconds = Keyword.get(config, :ipinfo_ttl_seconds, @default_ipinfo_ttl_seconds)
@@ -173,7 +172,7 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
     record_ip_enrichment_attempt(settings, actor, now)
 
     try do
-      ips = discover_candidate_ips(scan_window, scan_page_size)
+      ips = discover_candidate_ips(scan_window_seconds, scan_page_size)
 
       Enum.each(ips, fn ip ->
         refresh_rdns(ip, actor, now, rdns_expires_at, rdns_timeout_ms)
@@ -196,39 +195,9 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
   end
 
   @doc false
-  def discover_candidate_ips(scan_window, page_size, runner \\ SRQLRunner) do
-    src_ips = page_endpoint_ips("src_endpoint_ip", scan_window, page_size, runner)
-    dst_ips = page_endpoint_ips("dst_endpoint_ip", scan_window, page_size, runner)
-
-    (src_ips ++ dst_ips)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 in ["", "—", "-", "Unknown"]))
-    |> Enum.uniq()
+  def discover_candidate_ips(scan_window_seconds, page_size, runner \\ SRQLRunner) do
+    FlowEndpointScan.discover(scan_window_seconds, page_size, runner)
   end
-
-  defp page_endpoint_ips(field, scan_window, page_size, runner) do
-    query =
-      ~s|in:flows time:#{scan_window} window_scan:true stats:"sum(bytes_total) as total_bytes by #{field}" sort:#{field}:asc limit:#{page_size}|
-
-    case PagedQuery.collect(runner, query) do
-      {:ok, rows} ->
-        extract_ips({:ok, rows}, field)
-
-      {:error, reason} ->
-        raise "ip enrichment candidate scan failed: #{inspect(reason)}"
-    end
-  end
-
-  defp extract_ips({:ok, rows}, key) when is_list(rows) and is_binary(key) do
-    Enum.flat_map(rows, fn
-      %{^key => ip} when is_binary(ip) -> [ip]
-      %{"result" => %{} = payload} -> extract_ips({:ok, [payload]}, key)
-      %{} -> []
-      _ -> []
-    end)
-  end
-
-  defp extract_ips(_other, _key), do: []
 
   defp refresh_rdns(ip, actor, now, expires_at, timeout_ms) when is_binary(ip) do
     {hostname, status, err} = rdns_lookup(ip, timeout_ms)

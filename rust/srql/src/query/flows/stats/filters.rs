@@ -46,11 +46,23 @@ fn build_stats_text_filter(
             binds.push(FlowSqlBindValue::TextArray(values));
             Ok(format!("({column} IS NULL OR NOT ({column} = ANY(?)))"))
         }
-        _ => Err(ServiceError::InvalidRequest(format!(
-            "unsupported operator for text filter: {:?}",
-            filter.op
-        ))),
+        FilterOp::Gt => build_stats_text_comparison(column, ">", filter, binds),
+        FilterOp::Gte => build_stats_text_comparison(column, ">=", filter, binds),
+        FilterOp::Lt => build_stats_text_comparison(column, "<", filter, binds),
+        FilterOp::Lte => build_stats_text_comparison(column, "<=", filter, binds),
     }
+}
+
+fn build_stats_text_comparison(
+    column: &str,
+    op: &str,
+    filter: &Filter,
+    binds: &mut Vec<FlowSqlBindValue>,
+) -> Result<String> {
+    binds.push(FlowSqlBindValue::Text(
+        filter.value.as_scalar()?.to_string(),
+    ));
+    Ok(format!("{column} {op} ?"))
 }
 
 fn build_stats_bigint_filter(

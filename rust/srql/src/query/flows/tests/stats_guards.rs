@@ -87,6 +87,43 @@ fn translate_grouped_stats_uses_agg_value_for_order_and_includes_filters() {
 }
 
 #[test]
+fn grouped_stats_pages_by_keyset_on_the_group_column() {
+    let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
+    let end = start + ChronoDuration::hours(1);
+
+    let plan = QueryPlan {
+        entity: Entity::Flows,
+        filters: vec![Filter {
+            field: "src_endpoint_ip".into(),
+            op: FilterOp::Gt,
+            value: FilterValue::Scalar("192.0.2.10".to_string()),
+        }],
+        order: vec![OrderClause {
+            field: "src_endpoint_ip".into(),
+            direction: OrderDirection::Asc,
+        }],
+        limit: 5_000,
+        offset: 0,
+        time_range: Some(TimeRange { start, end }),
+        stats: Some(crate::parser::StatsSpec::from_raw(
+            "sum(bytes_total) as total_bytes by src_endpoint_ip",
+        )),
+        downsample: None,
+        rollup_stats: None,
+        other: false,
+        include_deleted: false,
+        exhaustive_window: true,
+    };
+
+    let (sql, params) = to_sql_and_params_stats(&plan).unwrap();
+    assert!(
+        sql.contains("f.src_endpoint_ip > $3"),
+        "keyset lower bound should bind on the group column, got: {sql}"
+    );
+    assert_eq!(params.len(), 3, "expected time bounds + keyset bind");
+}
+
+#[test]
 fn other_rollup_rejects_non_additive_flow_aggregates() {
     let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
     let end = start + ChronoDuration::hours(1);

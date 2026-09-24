@@ -446,4 +446,30 @@ mod tests {
         let err = plan_with_cursor("in:devices", beyond_ceiling()).expect_err("must reject");
         assert!(err.to_string().contains("cursor offset exceeds maximum"));
     }
+
+    #[test]
+    fn endpoint_keyset_scan_query_plans_an_absolute_window_and_lower_bound() {
+        let query = r#"in:flows time:[2026-06-12T11:00:00Z,2026-06-12T12:00:00Z] window_scan:true stats:"sum(bytes_total) as total_bytes by src_endpoint_ip" src_endpoint_ip:">2001:db8::1" sort:src_endpoint_ip:asc limit:5000"#;
+        let config = AppConfig::embedded("postgres://srql-test".to_string());
+        let request = QueryRequest {
+            query: query.to_string(),
+            limit: None,
+            cursor: None,
+            direction: Default::default(),
+            mode: None,
+        };
+        let plan = build_query_plan(&config, &request, parser::parse(query).expect("parse"))
+            .expect("plan");
+
+        assert!(plan.exhaustive_window);
+        assert_eq!(plan.limit, 5_000);
+        let range = plan.time_range.expect("absolute window");
+        assert_eq!(range.end - range.start, ChronoDuration::hours(1));
+        assert_eq!(plan.filters.len(), 1);
+        assert!(matches!(plan.filters[0].op, crate::parser::FilterOp::Gt));
+        assert_eq!(
+            plan.filters[0].value.as_scalar().expect("scalar"),
+            "2001:db8::1"
+        );
+    }
 }

@@ -22,7 +22,7 @@
 - [x] 3.3 Page `IpEnrichmentRefreshWorker` across uncached observed flow IPs. The top-200-by-bytes query is not the cache population the spec describes.
 - [x] 3.4 Change `CapacityForecasting.Source` and `SeasonalDisposition.Source` so history is complete per series over the horizon. `sort:timestamp:desc limit:50000` across every series is not that read.
 - [x] 3.5 Page `DeviceRiskIocExposure.query_flows/1` across the configured window. The newest 5_000 rows are not the window.
-- [x] 3.6 Tests for 3.1-3.5 use a fixture larger than the old constant and fail if the job stops there. Sampler discovery, `PagedQuery.collect/3`, interface pairs, threat candidates, IP enrichment, capacity history, seasonal history, and the hostile-IOC offset loop each fail if they stop on the first full page.
+- [x] 3.6 Tests for 3.1-3.5 use a fixture larger than the old constant and fail if the job stops there. Sampler discovery, interface pairs, threat candidates, IP enrichment, capacity history, seasonal history, and the hostile-IOC keyset loop each fail if they stop on the first full page.
 
 ## 4. Spec alignment already started
 

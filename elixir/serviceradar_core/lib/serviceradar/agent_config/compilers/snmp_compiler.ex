@@ -302,23 +302,21 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
         default_active?: false,
         log_prefix: "SNMPCompiler"
       )
+      |> Ash.Query.distinct(:device_id)
       |> Ash.Query.load(:device)
 
-    try do
-      query
-      |> Page.stream!(actor: actor)
-      |> Enum.reduce(%{}, fn interface, devices ->
-        case interface.device do
-          nil -> devices
-          device -> Map.put_new(devices, device.uid, device)
-        end
-      end)
-      |> Map.values()
-      |> Enum.filter(&DeviceLifecycle.active?(&1.uid, actor: actor))
-    rescue
-      exception ->
-        Logger.warning("SNMPCompiler: failed to query interfaces - #{inspect(exception)}")
-        reraise exception, __STACKTRACE__
+    case Page.unwrap(Ash.read(query, actor: actor)) do
+      {:ok, interfaces} ->
+        # Extract unique devices
+        interfaces
+        |> Enum.map(& &1.device)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.filter(&DeviceLifecycle.active?(&1.uid, actor: actor))
+        |> Enum.uniq_by(& &1.uid)
+
+      {:error, reason} ->
+        Logger.warning("SNMPCompiler: failed to query interfaces - #{inspect(reason)}")
+        []
     end
   end
 
