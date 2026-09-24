@@ -2,10 +2,19 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorker do
   @moduledoc """
   Reaps stale periodic Oban jobs that remain stuck in `executing`.
 
-  Periodic jobs are identified by the cron metadata Oban stores on rows enqueued by
-  `Oban.Plugins.Cron`. Jobs older than the configured stale threshold are transitioned
-  back to `available` or `discarded`, and the cleanup is emitted via telemetry/logs so
-  operators can see which workers and job ids were affected.
+  Periodic jobs are identified by two complementary mechanisms:
+
+  - `Oban.Plugins.Cron` stamps `meta.cron = "true"` on the rows it enqueues, and
+    the query matches that fragment directly.
+  - AshOban triggers enqueue through their own generated scheduler/worker modules
+    with **empty meta**, so their worker names are derived at query time from the
+    AshOban trigger declarations across all configured domains (see
+    `periodic_worker_names/0`). An explicit `@self_scheduled_workers` allowlist
+    covers workers that self-schedule by other means.
+
+  Jobs older than the configured stale threshold are transitioned back to `available`
+  or `discarded`, and the cleanup is emitted via telemetry/logs so operators can see
+  which workers and job ids were affected.
   """
 
   use Oban.Worker,
@@ -148,6 +157,64 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorker do
     Enum.split_with(stale_jobs, &(&1.attempt < &1.max_attempts))
   end
 
+  @doc """
+  Worker names this reaper is allowed to unstick, as stored in `oban_jobs.worker`.
+
+  Periodic work reaches Oban two ways here and only one of them is self-describing.
+  `Oban.Plugins.Cron` stamps `meta.cron = "true"`, which the query matches directly.
+  An AshOban trigger instead enqueues through its own scheduler/worker modules with
+  **empty meta**, so it matched neither that fragment nor the hand-maintained
+  `@self_scheduled_workers` list -- every AshOban-backed schedule was invisible to
+  the one component whose job is to unstick stranded periodic jobs. A trigger
+  stranded in `executing` by a node restart then blocked its own re-enqueue,
+  because its uniqueness covers incomplete states, and nothing could clear it.
+
+  Deriving the AshOban names from the trigger declarations rather than listing them
+  keeps a newly added trigger covered without anyone remembering to update a list.
+  """
+  @spec periodic_worker_names() :: [String.t()]
+  def periodic_worker_names do
+    Enum.uniq(@self_scheduled_workers ++ ash_oban_worker_names())
+  end
+
+  defp ash_oban_worker_names do
+    :serviceradar_core
+    |> Application.get_env(:ash_domains, [])
+    |> List.wrap()
+    |> Enum.flat_map(&safe_domain_resources/1)
+    |> Enum.uniq()
+    |> Enum.flat_map(&safe_resource_triggers/1)
+    |> Enum.flat_map(fn trigger ->
+      [Map.get(trigger, :scheduler_module_name), Map.get(trigger, :worker_module_name)]
+    end)
+    |> Enum.reject(&is_nil/1)
+    # `oban_jobs.worker` holds the aliased form without the "Elixir." prefix, which
+    # is what inspect/1 produces for a module atom; to_string/1 would not match.
+    |> Enum.map(&inspect/1)
+    |> Enum.uniq()
+  end
+
+  # A resource without the AshOban extension, or a stale domain entry, must not be
+  # able to stop the reap. Reaping fewer jobs is recoverable; crashing the only
+  # thing that clears stranded jobs is not.
+  defp safe_domain_resources(domain) do
+    Ash.Domain.Info.resources(domain)
+  rescue
+    error ->
+      Logger.warning("Skipping domain while listing periodic workers",
+        domain: inspect(domain),
+        reason: Exception.message(error)
+      )
+
+      []
+  end
+
+  defp safe_resource_triggers(resource) do
+    AshOban.Info.oban_triggers_and_scheduled_actions(resource)
+  rescue
+    _error -> []
+  end
+
   @doc false
   def stale_periodic_jobs_query(cutoff) do
     from(j in Job,
@@ -155,7 +222,7 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorker do
       where: not is_nil(j.attempted_at) and j.attempted_at < ^cutoff,
       where:
         fragment("coalesce(?->>'cron', 'false') = 'true'", j.meta) or
-          j.worker in ^@self_scheduled_workers,
+          j.worker in ^periodic_worker_names(),
       order_by: [asc: j.id],
       select: %{
         id: j.id,

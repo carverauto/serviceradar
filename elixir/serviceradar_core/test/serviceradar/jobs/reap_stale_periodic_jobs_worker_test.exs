@@ -93,4 +93,54 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorkerTest do
       assert is_integer(metadata.stale_threshold_minutes)
     end
   end
+
+  describe "periodic_worker_names/0" do
+    # Regression: the reaper matched either `meta.cron = "true"` (stamped only by
+    # Oban.Plugins.Cron) or a hand-maintained module list. An AshOban trigger
+    # enqueues through its own modules with EMPTY meta and was in neither, so a
+    # trigger stranded in `executing` blocked its own re-enqueue and nothing could
+    # clear it. Assert the AshOban-declared modules are covered, derived rather
+    # than listed, so a new trigger cannot silently fall back out of scope.
+    test "covers AshOban trigger scheduler and worker modules" do
+      names = ReapStalePeriodicJobsWorker.periodic_worker_names()
+
+      declared =
+        :serviceradar_core
+        |> Application.get_env(:ash_domains, [])
+        |> List.wrap()
+        |> Enum.flat_map(&Ash.Domain.Info.resources/1)
+        |> Enum.uniq()
+        |> Enum.flat_map(&AshOban.Info.oban_triggers_and_scheduled_actions/1)
+        |> Enum.flat_map(fn trigger ->
+          [Map.get(trigger, :scheduler_module_name), Map.get(trigger, :worker_module_name)]
+        end)
+        |> Enum.reject(&is_nil/1)
+        |> Enum.map(&inspect/1)
+        |> Enum.uniq()
+
+      # There must be something to cover, or this test would pass vacuously.
+      refute declared == []
+
+      for module_name <- declared do
+        assert module_name in names,
+               "AshOban module #{module_name} is not reapable; a stranded run of it would " <>
+                 "block its own schedule until the stale threshold elapses"
+      end
+    end
+
+    test "still covers the explicitly listed self-scheduled workers" do
+      names = ReapStalePeriodicJobsWorker.periodic_worker_names()
+
+      assert inspect(RefreshTraceSummariesWorker) in names
+    end
+
+    test "returns names in the form stored on oban_jobs.worker" do
+      names = ReapStalePeriodicJobsWorker.periodic_worker_names()
+
+      # `to_string/1` on a module atom yields "Elixir."-prefixed output, which would
+      # never match the stored worker column.
+      refute Enum.any?(names, &String.starts_with?(&1, "Elixir."))
+      assert Enum.all?(names, &is_binary/1)
+    end
+  end
 end
