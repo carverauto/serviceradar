@@ -156,6 +156,55 @@ func TestTracerTCP_HandshakePhaseRetransmitsToASilentTarget(t *testing.T) {
 	}
 }
 
+func TestTracerTCP_HandshakeSendFailureIsNotADrop(t *testing.T) {
+	t.Parallel()
+
+	sim := newSimNetwork(4, "synack")
+
+	opts := DefaultOptions(simTarget)
+	opts.Protocol = ProtocolTCP
+	opts.MaxHops = 4
+	opts.ProbesPerHop = 1
+	opts.ProbeInterval = time.Millisecond
+	opts.Timeout = 100 * time.Millisecond
+	opts.TCPSynRetries = 1
+	opts.DNSResolve = false
+
+	// Path probing reaches the target in MaxHops sends; every handshake SYN
+	// after those succeeds-to-send path probes fails to leave the host.
+	sim.failSendAfter = opts.MaxHops
+
+	tracer, err := NewTracerWithResources(t.Context(), opts, logger.NewTestLogger(), TracerResources{
+		Target: &TargetInfo{IP: sim.target, IPVersion: 4},
+		Socket: sim,
+	})
+	if err != nil {
+		t.Fatalf("new tracer: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+
+	result, err := tracer.Run(ctx)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if !result.TargetReached {
+		t.Fatal("expected path probing to succeed before the handshake failures")
+	}
+
+	hs := result.TCPHandshake
+	if hs == nil {
+		t.Fatal("expected handshake statistics for a crafted-SYN trace")
+	}
+	if hs.Attempts != 1 {
+		t.Fatalf("expected one handshake attempt, got %d", hs.Attempts)
+	}
+	if hs.SYNSent != 0 || hs.Unanswered != 0 || hs.Retransmits != 0 || hs.DropPct != 0 {
+		t.Fatalf("failed handshake sends must not count as tries or drops: %+v", hs)
+	}
+}
+
 func TestTracerTCP_ConnectFallbackReportsNoHandshake(t *testing.T) {
 	t.Parallel()
 
