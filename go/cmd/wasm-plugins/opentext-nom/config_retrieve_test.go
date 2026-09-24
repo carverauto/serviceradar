@@ -97,6 +97,7 @@ func TestDecodeRunningConfigBodyUnwrapsAutomationEnvelope(t *testing.T) {
 		"result object output":   `{"result":{"output":` + jsonString(syntheticIOS) + `}}`,
 		"data object config":     `{"data":{"config":` + jsonString(syntheticIOS) + `}}`,
 		"plain text, no wrapper": syntheticIOS,
+		"json string scalar":     jsonString(syntheticIOS),
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -113,6 +114,12 @@ func TestDecodeRunningConfigBodyUnwrapsAutomationEnvelope(t *testing.T) {
 	for name, body := range map[string]string{
 		"empty result":    `{"result":""}`,
 		"unknown wrapper": `{"result":{"rows":[]}}`,
+		"empty string":    `""`,
+		"json array":      `[]`,
+		"json null":       `null`,
+		"json number":     `42`,
+		"json boolean":    `true`,
+		"html error page": `<html><body>Bad Gateway</body></html>`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := decodeRunningConfigBody([]byte(body)); err == nil {
