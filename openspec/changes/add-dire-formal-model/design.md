@@ -62,7 +62,8 @@ Four kinds of configuration:
 - `lifecycle_current`: every lifecycle switch on. The invariants that hold even for today's
   code.
 - `vacuity`: the goal must still merge (a router's interfaces) and converge (Armis with
-  network discovery). A goal model that never merges would pass every safety property.
+  network discovery), and it must still record a decision (a shared-MAC override). A goal
+  model that never merges, or never decides, would pass every safety property.
 
 ### D4. Two models
 
