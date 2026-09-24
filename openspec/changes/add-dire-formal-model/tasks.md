@@ -2,16 +2,16 @@
 
 ## 1. TLC toolchain (PR 1)
 
-- [ ] 1.1 Pin `tla2tools.jar` as an `http_file` with sha256 in `MODULE.bazel`; add the
+- [x] 1.1 Pin `tla2tools.jar` as an `http_file` with sha256 in `MODULE.bazel`; add the
       `rules_java` `bazel_dep` for the remote JDK.
-- [ ] 1.2 `//build/tla:tlc` `java_binary` (`main_class = "tlc2.TLC"`).
-- [ ] 1.3 Run TLC once on a passing and a violating spec; copy the exact result lines and
+- [x] 1.2 `//build/tla:tlc` `java_binary` (`main_class = "tlc2.TLC"`).
+- [x] 1.3 Run TLC once on a passing and a violating spec; copy the exact result lines and
       exit statuses before writing the parser.
-- [ ] 1.4 `//build/tla:tlc.bzl` `tlc_test` macro and `py_test` driver with
+- [x] 1.4 `//build/tla:tlc.bzl` `tlc_test` macro and `py_test` driver with
       `expect = "pass" | "violation:<Property>"`.
-- [ ] 1.5 `//build/tla/selftest`: one pass config, one deliberate-violation config, and a
+- [x] 1.5 `//build/tla/selftest`: one pass config, one deliberate-violation config, and a
       driver unit test showing a wrong-property violation and an unexpected pass both fail.
-- [ ] 1.6 `bazel test --config=remote //build/tla/...` and `make test` green.
+- [x] 1.6 `bazel test --config=remote //build/tla/...` and `make test` green.
 
 ## 2. DIRE model (PR 2)
 

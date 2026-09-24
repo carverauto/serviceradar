@@ -17,6 +17,20 @@ def _check_expect(expect):
         fail("tlc_test expect must be 'pass' or 'violation:<Property>', got %r" % expect)
 
 def tlc_test(name, spec, cfg, deps = [], expect = "pass", workers = 1, check_deadlock = False, size = "small", **kwargs):
+    """Model checks one TLA+ spec/config pair with TLC.
+
+    Args:
+      name: test target name.
+      spec: the root .tla module.
+      cfg: the TLC configuration file.
+      deps: other .tla modules the spec EXTENDS or INSTANCEs.
+      expect: "pass", or "violation:<Property>" naming the one invariant or action
+        property TLC must report violated.
+      workers: TLC worker threads; 1 keeps counterexamples deterministic.
+      check_deadlock: whether TLC treats a state with no successor as an error.
+      size: test size.
+      **kwargs: passed through to py_test.
+    """
     _check_expect(expect)
     tags = kwargs.pop("tags", []) + ["tlc"]
     args = [
