@@ -39,6 +39,8 @@ const receivePollInterval = 250 * time.Millisecond
 const (
 	icmpv4DestUnreachableType = 3
 	icmpv6DestUnreachableType = 1
+	icmpv4TimeExceededType    = 11
+	icmpv6TimeExceededType    = 3
 )
 
 // TargetInfo captures a resolved target address for tracer reuse.
@@ -85,6 +87,13 @@ type Tracer struct {
 	icmpID         int
 	payload        []byte
 	expiredScratch []probeRecord
+
+	// handshake is the destination handshake phase of a crafted-SYN TCP
+	// trace, set while that phase runs; ackMismatch counts replies whose
+	// acknowledgement matched no SYN of the trace.
+	handshake   *tcpHandshake
+	handshakeMu sync.Mutex
+	ackMismatch atomic.Int64
 
 	// tcpFlow carries a TCP trace's probes; nil for ICMP/UDP.
 	tcpFlow TCPFlow
@@ -275,10 +284,16 @@ func (t *Tracer) Run(ctx context.Context) (*TraceResult, error) {
 		}
 	}()
 
-	// Send probe cycles.
-	t.sendProbes(ctx)
+	// Path probing leaves part of the budget for the handshake phase.
+	pathCtx, stopPath := t.pathProbeContext(ctx)
 
-	t.waitForOutstandingProbes(ctx)
+	// Send probe cycles.
+	t.sendProbes(pathCtx)
+
+	t.waitForOutstandingProbes(pathCtx)
+	stopPath()
+
+	t.runTCPHandshake(ctx)
 	stopReceive()
 
 	// Signal receiver to stop.
@@ -496,6 +511,8 @@ func (t *Tracer) handleResponse(resp *ICMPResponse) {
 		}
 	}
 
+	hop.RecordICMPReply(isTimeExceeded(resp.Type, isIPv6), isDestUnreachable(resp.Type, isIPv6))
+
 	if isDestUnreachable(resp.Type, isIPv6) {
 		hop.SetUnreachableCode(resp.Code)
 	}
@@ -530,7 +547,16 @@ func (t *Tracer) tcpReceiveLoop(ctx context.Context) {
 // handleTCPReply credits the target's answer to the probe it acknowledges.
 // Either a SYN-ACK or an RST means the target's TCP stack answered at that TTL.
 func (t *Tracer) handleTCPReply(reply *TCPReply) {
-	if reply == nil || reply.Seq < 0 {
+	if reply == nil {
+		return
+	}
+
+	if reply.Seq < 0 {
+		t.ackMismatch.Add(1)
+		return
+	}
+
+	if t.recordHandshakeReply(reply) {
 		return
 	}
 
@@ -584,6 +610,37 @@ func (t *Tracer) recordHopAddress(hop *HopResult, addr net.IP) {
 			hop.mu.Unlock()
 		})
 	}
+}
+
+func isTimeExceeded(icmpType int, ipv6 bool) bool {
+	if ipv6 {
+		return icmpType == icmpv6TimeExceededType
+	}
+
+	return icmpType == icmpv4TimeExceededType
+}
+
+// handshakeBudgetShare is the part of a crafted-SYN TCP trace's remaining
+// budget kept back from path probing for the destination handshake phase.
+const handshakeBudgetShare = 0.3
+
+// pathProbeContext bounds path probing so a crafted-SYN TCP trace keeps part
+// of its deadline for the handshake phase. Other traces probe until ctx ends.
+func (t *Tracer) pathProbeContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	deadline, ok := ctx.Deadline()
+	if !ok || t.tcpFlow == nil || !t.tcpFlow.Crafted() {
+		return context.WithCancel(ctx)
+	}
+
+	timeout := t.opts.Timeout
+	if timeout <= 0 {
+		timeout = DefaultTimeout
+	}
+
+	rounds := time.Duration(1 + min(max(t.opts.TCPSynRetries, 0), MaxTCPSynRetries))
+	reserve := min(time.Duration(float64(time.Until(deadline))*handshakeBudgetShare), rounds*timeout)
+
+	return context.WithDeadline(ctx, deadline.Add(-reserve))
 }
 
 func isDestUnreachable(icmpType int, ipv6 bool) bool {
@@ -759,6 +816,7 @@ func (t *Tracer) buildResult() *TraceResult {
 		Protocol:          t.opts.Protocol.String(),
 		TCPPort:           t.resultTCPPort(),
 		TCPProbeMode:      t.resultTCPProbeMode(),
+		TCPHandshake:      t.handshakeResult(),
 		IPVersion:         t.ipVersion,
 		PacketSize:        t.opts.PacketSize,
 		Hops:              hops,
@@ -1009,6 +1067,10 @@ func (t *Tracer) setTargetReached(v bool) {
 func (t *Tracer) resetRunState() {
 	t.targetReached.Store(false)
 	t.lastSendErr = nil
+	t.ackMismatch.Store(0)
+	t.handshakeMu.Lock()
+	t.handshake = nil
+	t.handshakeMu.Unlock()
 	t.nextSeq = nextProbeSeqStart()
 	t.icmpID = nextICMPID()
 	clear(t.probes)

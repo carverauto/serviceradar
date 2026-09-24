@@ -249,3 +249,31 @@ func TestMtrCheckerState_NewState(t *testing.T) {
 	assert.Empty(t, state.checks)
 	assert.Empty(t, state.lastRun)
 }
+
+func TestParseMtrCheckConfig_TCPSynRetries(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		setting string
+		want    int
+	}{
+		{setting: "0", want: 0},
+		{setting: "3", want: 3},
+		{setting: "4", want: mtr.DefaultTCPSynRetries},
+		{setting: "-1", want: mtr.DefaultTCPSynRetries},
+	}
+
+	for _, tc := range cases {
+		check := &proto.AgentCheckConfig{
+			CheckId:   "mtr-tcp-retries",
+			CheckType: "mtr",
+			Enabled:   true,
+			Target:    "host01.example.com",
+			Settings:  map[string]string{"protocol": "tcp", "tcp_syn_retries": tc.setting},
+		}
+
+		cfg := parseMtrCheckConfig(check)
+		require.NotNil(t, cfg)
+		assert.Equal(t, tc.want, cfg.TCPSynRetries, "tcp_syn_retries=%q", tc.setting)
+	}
+}

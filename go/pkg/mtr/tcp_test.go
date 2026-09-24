@@ -141,6 +141,19 @@ type simNetwork struct {
 	sendErr error
 	openErr error
 
+	// sendCalls counts SendSYN calls; failSendAfter makes every call after
+	// that many fail, so a test can fail only the handshake phase, while
+	// failSendAt makes exactly one call fail so a later round can succeed.
+	sendCalls     int
+	failSendAfter int
+	failSendAt    int
+
+	// hopDelay is added per TTL to reply times and serverDelay on top for the
+	// target's own answers; connectMode makes the flow report Crafted() false.
+	hopDelay    time.Duration
+	serverDelay time.Duration
+	connectMode bool
+
 	icmp chan *ICMPResponse
 	flow *simTCPFlow
 }
@@ -203,15 +216,24 @@ func (f *simTCPFlow) SendSYN(ttl, seq int) error {
 		return f.net.sendErr
 	}
 
-	now := time.Now()
+	f.net.sendCalls++
+	if f.net.failSendAfter > 0 && f.net.sendCalls > f.net.failSendAfter {
+		return errSimSend
+	}
+	if f.net.failSendAt > 0 && f.net.sendCalls == f.net.failSendAt {
+		return errSimSend
+	}
+
+	now := time.Now().Add(time.Duration(min(ttl, f.net.pathLen)) * f.net.hopDelay)
+	answered := now.Add(f.net.serverDelay)
 
 	switch {
 	case ttl < f.net.pathLen:
 		f.net.icmp <- f.quotedError(net.IPv4(192, 0, 2, byte(ttl)), 11, 0, seq, now)
 	case f.net.mode == "synack":
-		f.replies <- &TCPReply{Seq: seq, SYNACK: true, RecvTime: now}
+		f.replies <- &TCPReply{Seq: seq, SYNACK: true, RecvTime: answered}
 	case f.net.mode == "rst":
-		f.replies <- &TCPReply{Seq: seq, RST: true, RecvTime: now}
+		f.replies <- &TCPReply{Seq: seq, RST: true, RecvTime: answered}
 	case f.net.mode == "unreachable":
 		// A firewall at the last hop answers "administratively prohibited".
 		f.net.icmp <- f.quotedError(net.IPv4(192, 0, 2, byte(ttl)), 3, 13, seq, now)
@@ -254,7 +276,7 @@ func (f *simTCPFlow) MatchQuoted(resp *ICMPResponse) (int, bool) {
 	return int(resp.InnerTCPSeq), true
 }
 
-func (f *simTCPFlow) Crafted() bool { return true }
+func (f *simTCPFlow) Crafted() bool { return !f.net.connectMode }
 func (f *simTCPFlow) Close() error  { return nil }
 
 func runSimTCPTrace(t *testing.T, sim *simNetwork, maxHops int) (*TraceResult, error) {

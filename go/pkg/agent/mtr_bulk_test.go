@@ -345,3 +345,26 @@ func TestShouldFlushBulkMtrProgress_HoldsSmallRecentBatch(t *testing.T) {
 		t.Fatal("expected small recent progress batch to stay buffered")
 	}
 }
+
+func TestBulkMtrOptions_TCPSynRetries(t *testing.T) {
+	two, tooMany := 2, 9
+
+	if opts := bulkMtrOptions(mtrBulkRunPayload{Protocol: "tcp", TCPSynRetries: &two}); opts.TCPSynRetries != 2 {
+		t.Fatalf("expected tcp_syn_retries 2, got %d", opts.TCPSynRetries)
+	}
+	if opts := bulkMtrOptions(mtrBulkRunPayload{Protocol: "tcp", TCPSynRetries: &tooMany}); opts.TCPSynRetries != mtr.DefaultTCPSynRetries {
+		t.Fatalf("expected an out-of-range value to keep the default, got %d", opts.TCPSynRetries)
+	}
+}
+
+func TestAgentCapabilities_MtrTCPSyn(t *testing.T) {
+	with := agentCapabilities(agentCapabilityOptions{mtrAvailable: true, mtrTCPSyn: true})
+	without := agentCapabilities(agentCapabilityOptions{mtrAvailable: true})
+
+	if !containsCapability(with, "mtr_tcp_syn") || !containsCapability(with, "mtr") {
+		t.Fatalf("expected mtr and mtr_tcp_syn, got %v", with)
+	}
+	if containsCapability(without, "mtr_tcp_syn") {
+		t.Fatalf("expected no mtr_tcp_syn without a raw TCP socket, got %v", without)
+	}
+}
