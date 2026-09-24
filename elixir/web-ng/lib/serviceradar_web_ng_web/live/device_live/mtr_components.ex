@@ -526,7 +526,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
                   </td>
                 </tr>
                 <tr :if={@silent_tail} class="opacity-50">
-                  <td class="text-center font-mono tabular-nums">{@silent_tail.from}-{@silent_tail.to}</td>
+                  <td class="text-center font-mono tabular-nums">
+                    {@silent_tail.from}-{@silent_tail.to}
+                  </td>
                   <td colspan="7" class="text-sm text-sr-muted">
                     {@silent_tail.count} hops with no reply (probing continued past the last answer)
                   </td>

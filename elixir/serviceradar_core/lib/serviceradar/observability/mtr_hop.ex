@@ -197,6 +197,7 @@ defmodule ServiceRadar.Observability.MtrHop do
 
     attribute :unreachable_code, :integer do
       public? true
+
       description "ICMP Destination Unreachable code this hop returned (ICMPv4 or ICMPv6 numbering)"
     end
 
