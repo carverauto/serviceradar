@@ -36,6 +36,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents do
     set_import_partition
     preview_csv
     import_csv
+    dismiss_import_result
     validate_device
     save_device
   )
