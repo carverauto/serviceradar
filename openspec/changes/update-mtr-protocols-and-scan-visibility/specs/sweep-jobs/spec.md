@@ -11,8 +11,8 @@ The Network Sweeps Active Scans view SHALL list running and recent MTR bulk jobs
 
 #### Scenario: Completed MTR job appears in recent scans
 - **WHEN** an MTR bulk job completes, fails, expires, or is canceled
-- **THEN** it appears in recent scans with status, start time, duration, completed/failed/timed-out target counts, and the number of targets reached
-- **AND** the row links to that job on the MTR diagnostics page
+- **THEN** it appears in recent scans with status, start time, duration, completed/failed/timed-out target counts, and the number of targets reached (zero when the job reached none, or a placeholder when the agent predates the report)
+- **AND** the row links to the MTR diagnostics page filtered by the job's agent
 
 #### Scenario: Filter by scan kind
 - **WHEN** the user selects the MTR filter
@@ -21,3 +21,8 @@ The Network Sweeps Active Scans view SHALL list running and recent MTR bulk jobs
 #### Scenario: User without sweep view permission
 - **WHEN** a user without the `networks.sweeps.view` permission views the Active Scans tab
 - **THEN** no MTR rows, counts, or filter are shown
+
+#### Scenario: Agent commands are not readable by the user
+- **GIVEN** a user holds the `networks.sweeps.view` permission but lacks the role the agent command read policy requires
+- **WHEN** the user views the Active Scans tab
+- **THEN** no MTR rows, counts, or filter are shown, and the read policy is not widened

@@ -190,9 +190,11 @@ no-mistakes gate, in order. All fixtures are synthetic
   - loader normalisation (running, finished with reached count, manual,
     legacy single protocol) and status mapping
   - the Sweeps / MTR / All filter
-  - permission gating
+  - permission gating, including a forbidden `AgentCommand` read
+  - a zero `reached_targets` renders `0`, distinct from a missing one
   - sweep sections render unchanged without MTR permission
-  - Go: the reached-target predicate behind `reached_targets`
+  - Go: the reached-target predicate, and a zero `reached_targets` being
+    serialized
 
 ## 6. Verification
 - [ ] 6.1 `make test` (all unit shards) and `make lint` green before each PR.

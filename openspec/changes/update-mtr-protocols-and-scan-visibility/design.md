@@ -253,8 +253,9 @@ for example, "hop 7: 3 sent / 0 replies" versus
   without a policy show "Manual".
 - **Reached count.** The agent counts completed traces that reached their
   target and reports `reached_targets` on the bulk job result. This avoids
-  scanning `mtr_traces` for every recent job on each refresh. Jobs from agents
-  that predate the field show "-".
+  scanning `mtr_traces` for every recent job on each refresh. The field is
+  set only on the job result, so a job that reached none reports `0`, while
+  jobs from agents that predate the field show "-".
 - **Link.** A row links to `/diagnostics/mtr` filtered by the job's agent,
   where the bulk jobs panel lists that agent's jobs; the diagnostics page has
   no per-job URL.
@@ -262,7 +263,12 @@ for example, "hop 7: 3 sent / 0 replies" versus
   `mtr.bulk_run` into the MTR rows. The 15 s poll remains the backstop.
 - **Permissions.** MTR rows and the filter are rendered only when the user
   holds the `networks.sweeps.view` permission. Sweep rows keep their existing
-  gate.
+  gate. `AgentCommand` has its own read policy (operator or admin role), so a
+  custom role profile can grant the permission without the role. A forbidden
+  read hides the MTR rows and the filter exactly as a missing permission does;
+  the loaders return `:forbidden` for it, other read errors degrade to empty
+  rows, and the read policy is deliberately not widened. The disconnected
+  mount loads nothing.
 
 ## Risks / Trade-offs
 
