@@ -172,16 +172,22 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
          :ok <- ensure_not_retired_entry(entry),
          {:ok, fetched} <- fetch_artifact(repo, entry),
          {:ok, manifest, config_schema, contracts} <- extract_manifest(fetched.bundle) do
-      Core.import_entry_with_disposition(manifest, entry, fetched.artifacts,
-        public_key: public_key,
-        mirror: build_mirror(addon_id(manifest, entry), version(manifest, entry)),
-        actor: SystemActor.system(:native_addon_importer),
-        config_schema: config_schema,
-        display_contracts: contracts.valid,
-        display_contract_errors: contracts.errors,
-        release_tag: release_tag,
-        replace_existing: replace_existing?(attrs)
-      )
+      opts =
+        put_expected_release_tag(
+          [
+            public_key: public_key,
+            mirror: build_mirror(addon_id(manifest, entry), version(manifest, entry)),
+            actor: SystemActor.system(:native_addon_importer),
+            config_schema: config_schema,
+            display_contracts: contracts.valid,
+            display_contract_errors: contracts.errors,
+            release_tag: release_tag,
+            replace_existing: replace_existing?(attrs)
+          ],
+          attrs
+        )
+
+      Core.import_entry_with_disposition(manifest, entry, fetched.artifacts, opts)
     end
   end
 
@@ -189,6 +195,13 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
 
   defp replace_existing?(attrs) do
     fetch_value(attrs, [:replace_existing, "replace_existing"]) in [true, "true"]
+  end
+
+  defp put_expected_release_tag(opts, attrs) do
+    case Map.fetch(attrs, :expected_source_release_tag) do
+      {:ok, tag} -> Keyword.put(opts, :expected_source_release_tag, tag)
+      :error -> opts
+    end
   end
 
   defp ensure_not_retired_entry(entry) do
@@ -524,7 +537,8 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
     NativeAddonArtifactMirror.mirror_fun(addon_id, version, opts)
   end
 
-  defp addon_id(manifest, entry), do: Client.normalize_string(Map.get(manifest, "id")) || entry_string(entry, "addon_id")
+  defp addon_id(manifest, entry),
+    do: Client.normalize_string(Map.get(manifest, "id")) || entry_string(entry, "addon_id")
 
   defp version(manifest, entry),
     do: Client.normalize_string(Map.get(manifest, "version")) || entry_string(entry, "version")

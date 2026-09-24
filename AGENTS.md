@@ -952,7 +952,7 @@ Restart the checker using the persisted config:
 ## Release Playbook
 
 1. Prep metadata:
-   - Update `VERSION` with the new semver (example: `1.0.54-pre1`).
+   - Update `VERSION` with the new semver (example: `1.0.54-pre.1`).
    - Add a matching entry at the top of `CHANGELOG` that summarizes the release highlights.
    - Run `scripts/cut-release.sh --version <version> --dry-run` to confirm the changelog entry is detected before committing.
 2. Tag the release:

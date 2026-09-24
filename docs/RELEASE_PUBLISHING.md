@@ -52,6 +52,12 @@ Helm metadata changes, and the release branch operation without creating refs.
 It reports the remote-tag check that the real cut will perform but does not
 contact the remote itself.
 
+For prerelease series, use dot-separated numeric identifiers such as
+`1.4.10-pre.1`, `1.4.10-pre.2`, and `1.4.10-pre.10`. Native add-on sync uses
+strict SemVer precedence to prevent release downgrades: numeric identifiers
+sort numerically, while legacy `pre10` and `pre2` identifiers sort as text
+(`pre10` precedes `pre2`). Existing release tags are not reinterpreted.
+
 ## Cut and Push the Release Branch
 
 Run the real cut from a clean feature/release branch, never directly from
