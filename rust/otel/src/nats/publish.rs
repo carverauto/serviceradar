@@ -10,10 +10,10 @@ use tokio::time::timeout;
 use crate::opentelemetry::proto::collector::logs::v1::ExportLogsServiceRequest;
 use crate::opentelemetry::proto::collector::metrics::v1::ExportMetricsServiceRequest;
 use crate::opentelemetry::proto::collector::trace::v1::ExportTraceServiceRequest;
-use crate::opentelemetry::proto::common::v1::{any_value};
+use crate::opentelemetry::proto::common::v1::any_value;
 use crate::output::{
-    DEVICE_ID_ATTRIBUTE, INGEST_IDENTITY_HEADER, SR_DEVICE_ID_HEADER, IngestContext,
-    PerformanceMetric, PublishOutcome, TelemetryOutput, encode_derived_metric_batch,
+    DEVICE_ID_ATTRIBUTE, INGEST_IDENTITY_HEADER, IngestContext, PerformanceMetric, PublishOutcome,
+    SR_DEVICE_ID_HEADER, TelemetryOutput, encode_derived_metric_batch,
 };
 
 use super::NATSOutput;
@@ -25,10 +25,7 @@ use super::chunker::{
 /// Builds the NATS headers for a published chunk. Returns `None` when both
 /// inputs are absent so callers never publish a needless empty-header message.
 /// Downstream consumers (zen, db-event-writer) ignore headers they do not know.
-fn build_headers(
-    identity: Option<&str>,
-    device_ids: &[String],
-) -> Option<async_nats::HeaderMap> {
+fn build_headers(identity: Option<&str>, device_ids: &[String]) -> Option<async_nats::HeaderMap> {
     if identity.is_none() && device_ids.is_empty() {
         return None;
     }
@@ -54,12 +51,12 @@ fn log_chunk_device_ids(chunk: &ExportLogsServiceRequest) -> Vec<String> {
                     if attr.key != DEVICE_ID_ATTRIBUTE {
                         continue;
                     }
-                    if let Some(av) = &attr.value {
-                        if let Some(any_value::Value::StringValue(id)) = &av.value {
-                            if !id.is_empty() && !ids.contains(id) {
-                                ids.push(id.clone());
-                            }
-                        }
+                    if let Some(av) = &attr.value
+                        && let Some(any_value::Value::StringValue(id)) = &av.value
+                        && !id.is_empty()
+                        && !ids.contains(id)
+                    {
+                        ids.push(id.clone());
                     }
                 }
             }
@@ -423,9 +420,7 @@ mod tests {
                         attributes: vec![KeyValue {
                             key: DEVICE_ID_ATTRIBUTE.to_owned(),
                             value: Some(AnyValue {
-                                value: Some(any_value::Value::StringValue(
-                                    device_id.to_owned(),
-                                )),
+                                value: Some(any_value::Value::StringValue(device_id.to_owned())),
                             }),
                         }],
                         ..Default::default()
