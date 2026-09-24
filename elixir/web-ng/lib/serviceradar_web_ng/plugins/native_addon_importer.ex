@@ -537,7 +537,8 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
     NativeAddonArtifactMirror.mirror_fun(addon_id, version, opts)
   end
 
-  defp addon_id(manifest, entry), do: Client.normalize_string(Map.get(manifest, "id")) || entry_string(entry, "addon_id")
+  defp addon_id(manifest, entry),
+    do: Client.normalize_string(Map.get(manifest, "id")) || entry_string(entry, "addon_id")
 
   defp version(manifest, entry),
     do: Client.normalize_string(Map.get(manifest, "version")) || entry_string(entry, "version")

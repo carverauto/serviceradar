@@ -9,10 +9,9 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncDecisionTest do
     replace path (Import All behaves like the per-row Replace button) instead
     of failing the whole import with a source conflict, while rows owned by
     another source type must still conflict (#335).
-  * `auto_approve_eligible?/3` — a staged first-party build is auto-approved
-    only when an enabled tracking profile opted the add-on into automatic
-    updates AND the build asks for no capability outside the already-approved
-    ceiling; any expansion stays staged for human review (#337).
+  * `auto_approve_eligible?/2` — requested capabilities must fit within one
+    qualifying profile's reviewed ceiling; any expansion stays staged (#337).
+    Profile selection is covered through the DB-backed sync tests.
   * `summary/2` — imported, skipped, and failed results are counted so the
     Import All flash message stays honest (#335).
   """
@@ -143,6 +142,22 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncDecisionTest do
                {:conflict, :older_release}
     end
 
+    test "prerelease ordering follows strict SemVer identifiers" do
+      {existing, discovered} = reusable_pair()
+
+      assert NativeAddonSync.import_decision(
+               %{existing | source_release_tag: "v1.0.0-pre.2"},
+               %{discovered | release_tag: "v1.0.0-pre.10"},
+               []
+             ) == :reuse
+
+      assert NativeAddonSync.import_decision(
+               %{existing | source_release_tag: "v1.0.0-pre2"},
+               %{discovered | release_tag: "v1.0.0-pre10"},
+               []
+             ) == {:conflict, :older_release}
+    end
+
     test "unorderable release changes fail closed" do
       {existing, discovered} = reusable_pair()
 
@@ -205,39 +220,33 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncDecisionTest do
     end
   end
 
-  describe "auto_approve_eligible?/3" do
+  describe "auto_approve_eligible?/2" do
     test "tracking profile plus no capability expansion approves (#337)" do
       ceiling = MapSet.new(["submit_result"])
 
-      assert NativeAddonSync.auto_approve_eligible?(["submit_result"], true, ceiling)
+      assert NativeAddonSync.auto_approve_eligible?(["submit_result"], ceiling)
     end
 
     test "fewer capabilities than approved still approves" do
       ceiling = MapSet.new(["submit_result", "extra"])
 
-      assert NativeAddonSync.auto_approve_eligible?(["submit_result"], true, ceiling)
-      assert NativeAddonSync.auto_approve_eligible?([], true, ceiling)
+      assert NativeAddonSync.auto_approve_eligible?(["submit_result"], ceiling)
+      assert NativeAddonSync.auto_approve_eligible?([], ceiling)
     end
 
     test "capability expansion stays staged for human review" do
       ceiling = MapSet.new(["submit_result"])
 
-      refute NativeAddonSync.auto_approve_eligible?(["submit_result", "raw_exec"], true, ceiling)
-    end
-
-    test "no tracking profile means no auto-approval even when capabilities match" do
-      ceiling = MapSet.new(["submit_result"])
-
-      refute NativeAddonSync.auto_approve_eligible?(["submit_result"], false, ceiling)
+      refute NativeAddonSync.auto_approve_eligible?(["submit_result", "raw_exec"], ceiling)
     end
 
     test "an empty ceiling only admits a capability-free build" do
-      assert NativeAddonSync.auto_approve_eligible?([], true, MapSet.new())
-      refute NativeAddonSync.auto_approve_eligible?(["submit_result"], true, MapSet.new())
+      assert NativeAddonSync.auto_approve_eligible?([], MapSet.new())
+      refute NativeAddonSync.auto_approve_eligible?(["submit_result"], MapSet.new())
     end
 
     test "nil capabilities never approve" do
-      refute NativeAddonSync.auto_approve_eligible?(nil, true, MapSet.new(["submit_result"]))
+      refute NativeAddonSync.auto_approve_eligible?(nil, MapSet.new(["submit_result"]))
     end
   end
 
