@@ -113,16 +113,20 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncDecisionTest do
       assert NativeAddonSync.import_decision(existing, discovered, []) == :reuse
     end
 
-    test "older releases cannot replace or reuse a newer release, even with force" do
+    test "older identical content is skipped without allowing a different build to replace it" do
       {existing, discovered} = reusable_pair()
       existing = %{existing | source_release_tag: "v1.2.0"}
 
-      for opts <- [[], [replace: true]], artifacts <- [discovered.artifacts, []] do
+      for opts <- [[], [replace: true]] do
+        assert NativeAddonSync.import_decision(existing, discovered, opts) == :skip
+
         assert NativeAddonSync.import_decision(
                  existing,
-                 %{discovered | artifacts: artifacts},
+                 %{discovered | oci_ref: "registry.example.test/sample-addon:older-envelope"},
                  opts
-               ) ==
+               ) == :skip
+
+        assert NativeAddonSync.import_decision(existing, %{discovered | artifacts: []}, opts) ==
                  {:conflict, :older_release}
       end
     end
@@ -136,7 +140,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncDecisionTest do
 
       assert NativeAddonSync.import_decision(
                existing,
-               %{discovered | release_tag: "v1.9.0-rc.1"},
+               %{discovered | release_tag: "v1.9.0-rc.1", artifacts: []},
                []
              ) ==
                {:conflict, :older_release}
@@ -153,7 +157,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncDecisionTest do
 
       assert NativeAddonSync.import_decision(
                %{existing | source_release_tag: "v1.0.0-pre2"},
-               %{discovered | release_tag: "v1.0.0-pre10"},
+               %{discovered | release_tag: "v1.0.0-pre10", artifacts: []},
                []
              ) == {:conflict, :older_release}
     end
