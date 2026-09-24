@@ -339,6 +339,8 @@ func TestMSIVersion(t *testing.T) {
 	for version, want := range map[string]string{
 		"1.4.58":        "1.4.58",
 		"1.4.58-pre1":   "1.4.58",
+		"1.4.58-pre.1":  "1.4.58",
+		"1.4.58-rc.10":  "1.4.58",
 		"255.255.65535": "255.255.65535",
 	} {
 		got, err := msiVersion(version)
@@ -347,7 +349,7 @@ func TestMSIVersion(t *testing.T) {
 		}
 	}
 
-	for _, version := range []string{"1.4", "256.0.0", "1.256.0", "1.0.65536", "v1.4.58"} {
+	for _, version := range []string{"1.4", "256.0.0", "1.256.0", "1.0.65536", "v1.4.58", "1.4.58-pre.", "1.4.58-pre.01", "1.4.58-pre.1.2"} {
 		if _, err := msiVersion(version); err == nil {
 			t.Errorf("msiVersion(%q) accepted a version outside the Windows Installer range", version)
 		}

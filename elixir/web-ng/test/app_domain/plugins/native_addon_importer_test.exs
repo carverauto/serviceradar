@@ -1255,6 +1255,67 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     end
   end
 
+  test "content reuse leaves a row that advanced to a newer release mid-import unchanged", %{
+    private_key: private_key
+  } do
+    install_fixtures(private_key)
+
+    assert {:ok, [addon]} =
+             NativeAddonImporter.list_recent_addons(%{"repo_url" => @repo_url}, 10)
+
+    assert {:ok, imported, :imported} = AddonPackages.import_first_party_addon(addon)
+
+    Process.put(
+      :native_addon_release,
+      Map.put(Process.get(:native_addon_release), "tag_name", "v1.1.0")
+    )
+
+    candidate = %{
+      addon
+      | release_tag: "v1.1.0",
+        oci_ref: "registry.carverauto.dev/#{@oci_repository}:v1.1.0",
+        oci_digest: "sha256:" <> String.duplicate("e", 64)
+    }
+
+    Process.put(:native_addon_oci_digest, candidate.oci_digest)
+
+    Process.put(
+      :native_addon_index_body,
+      Jason.encode!(index_map(oci_ref: candidate.oci_ref, oci_digest: candidate.oci_digest))
+    )
+
+    test_pid = self()
+
+    Application.put_env(:serviceradar_web_ng, :native_addon_artifact_upload, fn metadata, data, _opts ->
+      if is_nil(Process.get(:native_addon_advanced_package)) do
+        advanced =
+          update_sample_package!(imported, %{
+            source_release_tag: "v1.2.0",
+            source_oci_ref: "registry.carverauto.dev/#{@oci_repository}:v1.2.0",
+            source_oci_digest: "sha256:" <> String.duplicate("d", 64)
+          })
+
+        Process.put(:native_addon_advanced_package, advanced)
+      end
+
+      send(test_pid, {:uploaded, metadata.key, byte_size(data)})
+      {:ok, %{key: metadata.key}}
+    end)
+
+    assert {:skipped, unchanged} = NativeAddonSync.import_or_reuse(candidate)
+    advanced = Process.get(:native_addon_advanced_package)
+
+    assert unchanged.id == imported.id
+    assert unchanged.source_release_tag == "v1.2.0"
+
+    [persisted] = sample_packages()
+    assert persisted.source_release_tag == "v1.2.0"
+    assert persisted.source_oci_ref == advanced.source_oci_ref
+    assert persisted.source_oci_digest == advanced.source_oci_digest
+    assert persisted.status == advanced.status
+    assert persisted.updated_at == advanced.updated_at
+  end
+
   test "sync_first_party_addons repairs an exact-version package with a corrupt object key", %{
     private_key: private_key
   } do
