@@ -21,6 +21,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   alias ServiceRadarWebNGWeb.CompositeChecks.Catalog, as: CompositeCatalog
   alias ServiceRadarWebNGWeb.DeviceLive.IndexData
   alias ServiceRadarWebNGWeb.DeviceLive.IndexEvents
+  alias ServiceRadarWebNGWeb.DeviceLive.IndexEvents.DeviceManagement
   alias ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Helpers
   alias ServiceRadarWebNGWeb.DeviceLive.IndexView
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
@@ -103,7 +104,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:csv_preview, nil)
      |> assign(:csv_errors, [])
      |> assign(:csv_warnings, [])
-     |> assign(:import_status, nil)
+     |> assign(:importing, false)
+     |> assign(:import_result, nil)
+     |> assign(:import_skipped, [])
      |> assign(:import_partition, "default")
      |> assign(:import_partition_error, nil)
      |> assign(:import_partition_options, [{"Default", "default"}])
@@ -224,6 +227,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     else
       {:noreply, socket}
     end
+  end
+
+  def handle_async(:import_devices, {:ok, result}, socket) do
+    {:noreply, DeviceManagement.apply_import_result(socket, result)}
+  end
+
+  # No such path existed before this change: the import ran synchronously inside
+  # handle_event, so a crash took the whole LiveView with it rather than being
+  # reportable to the operator.
+  def handle_async(:import_devices, {:exit, reason}, socket) do
+    Logger.warning("Device CSV import failed: #{inspect(reason)}")
+    {:noreply, DeviceManagement.apply_import_failure(socket, reason)}
   end
 
   def handle_async(:northbound_device_actions, {:ok, actions}, socket) when is_list(actions) do
