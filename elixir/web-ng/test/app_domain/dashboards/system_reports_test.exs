@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsTest do
 
   alias Ash.Resource.Info
   alias ServiceRadar.Dashboards.DashboardPanel
+  alias ServiceRadarWebNG.Dashboards.Definition
   alias ServiceRadarWebNG.Dashboards.SystemReports
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.AccessControls
 
@@ -149,27 +150,11 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsTest do
     test "every data binding names a field the panel's own query selects" do
       # A binding naming a field the query does not produce renders an empty
       # panel with no error, which is the failure mode this guards.
+      # Uses Definition.selects_field?/2 so quoted multi-aggregation expressions
+      # (stats:"... by hop_number") are handled the same way the validator handles them.
       for spec <- SystemReports.dashboard_specs(), panel <- spec.panels do
         for {_key, field} <- panel.data_binding do
-          by_clause_tokens =
-            case :binary.split(panel.srql_query, " by ") do
-              [_, after_by] ->
-                after_by
-                |> String.split(~r/ sort:| limit:/, parts: 2)
-                |> hd()
-                |> String.split()
-
-              _ ->
-                []
-            end
-
-          selected? =
-            String.contains?(panel.srql_query, " as #{field}") or
-              field in by_clause_tokens or
-              (field == @implicit_bucket_field and
-                 String.contains?(panel.srql_query, "by time:"))
-
-          assert selected?,
+          assert Definition.selects_field?(panel.srql_query, field),
                  "#{spec.slug}/#{panel.title} binds #{inspect(field)}, " <>
                    "which its query does not select: #{panel.srql_query}"
         end
@@ -204,7 +189,11 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsTest do
       assert Enum.any?(queries, &String.contains?(&1, "wavg(avg_us, received)"))
     end
 
-    test "the AS panel excludes ASNs the GeoLite2 lookup could not resolve" do
+    test "the MTR dashboard has no GeoLite2-dependent panel" do
+      # The AS-grouped panel was intentionally dropped. `asn` is populated only by
+      # a GeoLite2 lookup that most deployments do not run. For internal hops every
+      # address lands in a NULL bucket that reads as a finding rather than missing
+      # data, so shipping the panel does more harm than good.
       mtr =
         Enum.find(
           SystemReports.dashboard_specs(),
@@ -213,17 +202,8 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsTest do
 
       asn_panel = Enum.find(mtr.panels, &String.contains?(&1.srql_query, "by asn"))
 
-      assert asn_panel, "the MTR dashboard must define an AS-grouped panel"
-
-      # asn is populated only by a GeoLite2 lookup, which carries no private ASNs
-      # and no RFC1918 addresses. Without this filter every internal hop lands in
-      # one NULL bucket that reads as a finding rather than missing data.
-      assert String.contains?(asn_panel.srql_query, "asn:>0"),
-             "the AS panel must restrict to resolved ASNs: #{asn_panel.srql_query}"
-
-      assert String.contains?(String.downcase(asn_panel.title), "transit") or
-               String.contains?(String.downcase(asn_panel.title), "external"),
-             "the AS panel title must not read as fleet-wide: #{asn_panel.title}"
+      refute asn_panel,
+             "the MTR dashboard must not ship a GeoLite2-dependent AS panel: #{inspect(asn_panel && asn_panel.title)}"
     end
   end
 

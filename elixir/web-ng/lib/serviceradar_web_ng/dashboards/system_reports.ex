@@ -52,7 +52,16 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReports do
   # Amending or adding a built-in dashboard is a data change, not a code change,
   # and the same format is what an operator exports from the builder.
 
-  @panel_attribute_keys [:title, :srql_query, :visual_type, :data_binding, :layout, :position]
+  @panel_attribute_keys [
+    :title,
+    :srql_query,
+    :visual_type,
+    :data_binding,
+    :layout,
+    :position,
+    :display_config,
+    :visual_config
+  ]
 
   @new_devices_slug "new-devices"
   @mtr_path_analytics_slug "mtr-path-analytics"
