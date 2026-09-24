@@ -560,7 +560,8 @@ type TCPHandshakeStats struct {
 	RSTReceived    int `json:"rst_received"`
 	// Unanswered counts attempts that got no answer after all retransmissions.
 	Unanswered int `json:"unanswered"`
-	// DropPct is Unanswered as a percentage of Attempts.
+	// DropPct is Unanswered as a percentage of the attempts that were sent
+	// (answered + unanswered), not of all configured attempts.
 	DropPct float64 `json:"syn_drop_pct"`
 	// Retransmits counts SYNs re-sent after the per-probe timeout, and
 	// AnsweredAfterRetx the attempts answered only after one.

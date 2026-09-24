@@ -15,18 +15,23 @@ func TestTCPHandshakeStats_CountsRetransmitsDuplicatesAndDrops(t *testing.T) {
 	hs := newTCPHandshake(9, 3)
 
 	// Attempt 0: answered first time with a SYN-ACK, then the target re-sends it.
-	hs.sent(MinPort, 0, start)
+	hs.reserve(MinPort, 0, start)
+	hs.confirm(MinPort)
 	hs.record(&TCPReply{Seq: MinPort, SYNACK: true, RecvTime: start.Add(10 * time.Millisecond)})
 	hs.record(&TCPReply{Seq: MinPort, SYNACK: true, RecvTime: start.Add(30 * time.Millisecond)})
 
 	// Attempt 1: lost, answered only after a retransmission, with an RST.
-	hs.sent(MinPort+1, 1, start)
-	hs.sent(MinPort+3, 1, start.Add(100*time.Millisecond))
+	hs.reserve(MinPort+1, 1, start)
+	hs.confirm(MinPort + 1)
+	hs.reserve(MinPort+3, 1, start.Add(100*time.Millisecond))
+	hs.confirm(MinPort + 3)
 	hs.record(&TCPReply{Seq: MinPort + 3, RST: true, RecvTime: start.Add(120 * time.Millisecond)})
 
 	// Attempt 2: never answered.
-	hs.sent(MinPort+2, 2, start)
-	hs.sent(MinPort+4, 2, start.Add(100*time.Millisecond))
+	hs.reserve(MinPort+2, 2, start)
+	hs.confirm(MinPort + 2)
+	hs.reserve(MinPort+4, 2, start.Add(100*time.Millisecond))
+	hs.confirm(MinPort + 4)
 
 	if hs.record(&TCPReply{Seq: MinPort + 99, SYNACK: true, RecvTime: start}) {
 		t.Fatal("expected a reply to an unknown sequence to be left to path probing")
@@ -63,12 +68,52 @@ func TestTCPHandshakeStats_UntriedAttemptsAreNotDrops(t *testing.T) {
 	t.Parallel()
 
 	hs := newTCPHandshake(4, 3)
-	hs.sent(MinPort, 0, time.Now())
+	hs.reserve(MinPort, 0, time.Now())
+	hs.confirm(MinPort)
 
 	stats := hs.stats(0)
 
 	if stats.Unanswered != 1 || stats.DropPct != 100 {
 		t.Fatalf("expected only the sent attempt to count, got unanswered=%d drop=%.1f", stats.Unanswered, stats.DropPct)
+	}
+}
+
+func TestTCPHandshakeStats_ReplyBeforeConfirmIsCredited(t *testing.T) {
+	t.Parallel()
+
+	start := time.Now()
+	hs := newTCPHandshake(9, 1)
+
+	// The target answers while the sender is still between writing the SYN and
+	// confirming it; the reserved sequence must still take the reply.
+	hs.reserve(MinPort, 0, start)
+
+	if !hs.record(&TCPReply{Seq: MinPort, SYNACK: true, RecvTime: start.Add(5 * time.Millisecond)}) {
+		t.Fatal("expected a reply to a reserved sequence to be credited")
+	}
+
+	hs.confirm(MinPort)
+
+	stats := hs.stats(0)
+	if stats.SYNSent != 1 || stats.SYNACKReceived != 1 || stats.Unanswered != 0 || stats.DropPct != 0 {
+		t.Fatalf("a reply to a reserved sequence must count as answered: %+v", stats)
+	}
+}
+
+func TestTCPHandshakeStats_ReleasedSendIsNotCounted(t *testing.T) {
+	t.Parallel()
+
+	hs := newTCPHandshake(4, 1)
+	hs.reserve(MinPort, 0, time.Now())
+	hs.release(MinPort)
+
+	stats := hs.stats(0)
+	if stats.SYNSent != 0 || stats.Unanswered != 0 || stats.DropPct != 0 {
+		t.Fatalf("a released send must not count as a try or a drop: %+v", stats)
+	}
+
+	if hs.record(&TCPReply{Seq: MinPort, SYNACK: true, RecvTime: time.Now()}) {
+		t.Fatal("a released sequence must not credit a reply")
 	}
 }
 

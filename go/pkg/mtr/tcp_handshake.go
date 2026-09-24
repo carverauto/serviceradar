@@ -62,22 +62,47 @@ func newTCPHandshake(ttl, attempts int) *tcpHandshake {
 	}
 }
 
-// sent records that seq was sent for attempt. A send is a retransmission only
-// when the attempt already had a successful transmission, so a first SYN that
-// leaves after earlier local send failures is not counted as a retransmission.
-func (h *tcpHandshake) sent(seq, attempt int, at time.Time) {
+// reserve registers seq as in flight for attempt before the SYN is written, so
+// a reply cannot arrive before the phase knows the sequence. It does not count
+// the send: confirm does that after the write, and release drops a reservation
+// whose SYN never left the host. A send is a retransmission only when the
+// attempt already had a successful transmission, so a first SYN that leaves
+// after earlier local send failures is not counted as a retransmission.
+func (h *tcpHandshake) reserve(seq, attempt int, at time.Time) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	retry := h.attempts[attempt].transmissions > 0
+	h.bySeq[seq] = handshakeSend{
+		attempt: attempt,
+		retry:   h.attempts[attempt].transmissions > 0,
+		sentAt:  at,
+	}
+}
 
-	h.bySeq[seq] = handshakeSend{attempt: attempt, retry: retry, sentAt: at}
-	h.attempts[attempt].transmissions++
+// confirm records a reserved SYN that left the host.
+func (h *tcpHandshake) confirm(seq int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	send, ok := h.bySeq[seq]
+	if !ok {
+		return
+	}
+
+	h.attempts[send.attempt].transmissions++
 	h.synSent++
 
-	if retry {
+	if send.retry {
 		h.retransmits++
 	}
+}
+
+// release drops a reserved sequence whose SYN was never sent.
+func (h *tcpHandshake) release(seq int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	delete(h.bySeq, seq)
 }
 
 // record credits a reply to the attempt its sequence belongs to. It returns
@@ -245,13 +270,16 @@ func (t *Tracer) runTCPHandshake(ctx context.Context) {
 
 			seq := t.allocateSeq()
 
+			hs.reserve(seq, attempt, time.Now())
+
 			if err := t.tcpFlow.SendSYN(ttl, seq); err != nil {
 				t.lastSendErr = err
+				hs.release(seq)
 				t.logger.Debug().Err(err).Int("ttl", ttl).Msg("send handshake SYN failed")
 				continue
 			}
 
-			hs.sent(seq, attempt, time.Now())
+			hs.confirm(seq)
 
 			if !waitForProbeInterval(ctx, t.opts.ProbeInterval) {
 				return
