@@ -45,7 +45,7 @@ func TestUnsignedInstallerRoundTrip(t *testing.T) {
 // Package receipts accept and retain the same prerelease version as the binary;
 // do not collapse distinct prereleases to a stable receipt version.
 func TestPrereleaseReceiptRoundTrip(t *testing.T) {
-	for _, version := range []string{"2.3.4-pre1", "2.3.4-rc2", "2.3.4-alpha0", "2.3.4-beta3"} {
+	for _, version := range []string{"2.3.4-pre1", "2.3.4-rc2", "2.3.4-alpha0", "2.3.4-beta3", "2.3.4-pre.1", "2.3.4-rc.10"} {
 		t.Run(version, func(t *testing.T) {
 			work := t.TempDir()
 			root, scripts := filepath.Join(work, "root"), filepath.Join(work, "scripts")

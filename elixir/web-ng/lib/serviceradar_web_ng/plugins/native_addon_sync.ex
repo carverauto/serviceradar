@@ -284,8 +284,12 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
         end
 
       {:ok, package, :reused} ->
-        with {:ok, package} <- refresh_release_provenance(package, addon) do
+        if release_order(package.source_release_tag, addon.release_tag) == :lt do
           {:skipped, package}
+        else
+          with {:ok, package} <- refresh_release_provenance(package, addon) do
+            {:skipped, package}
+          end
         end
 
       {:error, _reason} = error ->

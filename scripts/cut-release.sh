@@ -7,7 +7,7 @@ Usage: scripts/cut-release.sh --version <version> [options]
 
 Options:
   --version <version>   Release version to publish (required).
-                        Use X.Y.Z for releases, X.Y.Z-preN for pre-releases.
+                        Use X.Y.Z for releases, X.Y.Z-pre.N for pre-releases (legacy X.Y.Z-preN is still accepted).
   --tag-prefix <prefix> Prefix to prepend to the Git tag (must be v).
   --remote <name>       Git remote for tag occupancy checks and --push
                         (default: origin). Use github when cutting against
@@ -31,7 +31,7 @@ Examples:
   scripts/cut-release.sh --version 1.0.71 --push
 
   # Pre-release for testing (no CHANGELOG required; pushes the branch only)
-  scripts/cut-release.sh --version 1.0.71-pre1 --push
+  scripts/cut-release.sh --version 1.0.71-pre.1 --push
 
   # Hotfix release (skips staging e2e tests; pushes the branch only)
   scripts/cut-release.sh --version 1.0.71 --hotfix --push
@@ -137,10 +137,10 @@ tag="${tag_prefix}${version}"
 "${script_dir}/validate-release-tag.sh" "${tag}"
 
 # Auto-detect pre-release from version string
-if [[ "$version" =~ -pre[0-9]*$ ]] || \
-   [[ "$version" =~ -rc[0-9]*$ ]] || \
-   [[ "$version" =~ -alpha[0-9]*$ ]] || \
-   [[ "$version" =~ -beta[0-9]*$ ]]; then
+if [[ "$version" =~ -pre(\.[0-9]+|[0-9]*)$ ]] || \
+   [[ "$version" =~ -rc(\.[0-9]+|[0-9]*)$ ]] || \
+   [[ "$version" =~ -alpha(\.[0-9]+|[0-9]*)$ ]] || \
+   [[ "$version" =~ -beta(\.[0-9]+|[0-9]*)$ ]]; then
     prerelease=true
     echo "Detected pre-release version: $version"
 fi

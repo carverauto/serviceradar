@@ -149,7 +149,7 @@ func (o options) validate() error {
 	if o.Mode != modeUnsigned && o.Mode != modeRelease {
 		return fmt.Errorf("%w: mode must be unsigned or release", errInvalidPackage)
 	}
-	if !regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(pre|rc|alpha|beta)(0|[1-9][0-9]*))?$`).MatchString(o.Version) {
+	if !regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(pre|rc|alpha|beta)\.?(0|[1-9][0-9]*))?$`).MatchString(o.Version) {
 		return fmt.Errorf("%w: the committed version must be major.minor.patch with an optional pre, rc, alpha, or beta number", errInvalidPackage)
 	}
 	if !regexp.MustCompile(`^[0-9a-f]{40}$`).MatchString(o.SourceCommit) {
