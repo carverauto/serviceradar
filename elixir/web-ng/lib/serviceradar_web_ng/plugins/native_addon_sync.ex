@@ -17,8 +17,11 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
   core conflict guard still fires after verification. Either way the
   replacement bundle is fully verified (Cosign + sha256 + agent-release ed25519)
   before it can restage the row, review status is preserved the same way
-  (denied/revoked stay, approved returns to staged), and rows owned by another
-  source type (`:upload`/`:github`) are never touched.
+  (denied/revoked stay; approved returns to staged unless the add-on is in
+  `auto_approve_addon_ids` or a single enabled, unpinned `track_latest_approved`
+  profile's capability ceiling covers the rebuild's request, in which case it
+  is re-approved), and rows owned by another source type (`:upload`/`:github`)
+  are never touched.
   """
 
   alias ServiceRadar.Actors.SystemActor
