@@ -142,9 +142,11 @@ type simNetwork struct {
 	openErr error
 
 	// sendCalls counts SendSYN calls; failSendAfter makes every call after
-	// that many fail, so a test can fail only the handshake phase.
+	// that many fail, so a test can fail only the handshake phase, while
+	// failSendAt makes exactly one call fail so a later round can succeed.
 	sendCalls     int
 	failSendAfter int
+	failSendAt    int
 
 	// hopDelay is added per TTL to reply times and serverDelay on top for the
 	// target's own answers; connectMode makes the flow report Crafted() false.
@@ -216,6 +218,9 @@ func (f *simTCPFlow) SendSYN(ttl, seq int) error {
 
 	f.net.sendCalls++
 	if f.net.failSendAfter > 0 && f.net.sendCalls > f.net.failSendAfter {
+		return errSimSend
+	}
+	if f.net.failSendAt > 0 && f.net.sendCalls == f.net.failSendAt {
 		return errSimSend
 	}
 

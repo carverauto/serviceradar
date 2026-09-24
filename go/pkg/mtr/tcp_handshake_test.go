@@ -15,18 +15,18 @@ func TestTCPHandshakeStats_CountsRetransmitsDuplicatesAndDrops(t *testing.T) {
 	hs := newTCPHandshake(9, 3)
 
 	// Attempt 0: answered first time with a SYN-ACK, then the target re-sends it.
-	hs.sent(MinPort, 0, false, start)
+	hs.sent(MinPort, 0, start)
 	hs.record(&TCPReply{Seq: MinPort, SYNACK: true, RecvTime: start.Add(10 * time.Millisecond)})
 	hs.record(&TCPReply{Seq: MinPort, SYNACK: true, RecvTime: start.Add(30 * time.Millisecond)})
 
 	// Attempt 1: lost, answered only after a retransmission, with an RST.
-	hs.sent(MinPort+1, 1, false, start)
-	hs.sent(MinPort+3, 1, true, start.Add(100*time.Millisecond))
+	hs.sent(MinPort+1, 1, start)
+	hs.sent(MinPort+3, 1, start.Add(100*time.Millisecond))
 	hs.record(&TCPReply{Seq: MinPort + 3, RST: true, RecvTime: start.Add(120 * time.Millisecond)})
 
 	// Attempt 2: never answered.
-	hs.sent(MinPort+2, 2, false, start)
-	hs.sent(MinPort+4, 2, true, start.Add(100*time.Millisecond))
+	hs.sent(MinPort+2, 2, start)
+	hs.sent(MinPort+4, 2, start.Add(100*time.Millisecond))
 
 	if hs.record(&TCPReply{Seq: MinPort + 99, SYNACK: true, RecvTime: start}) {
 		t.Fatal("expected a reply to an unknown sequence to be left to path probing")
@@ -63,7 +63,7 @@ func TestTCPHandshakeStats_UntriedAttemptsAreNotDrops(t *testing.T) {
 	t.Parallel()
 
 	hs := newTCPHandshake(4, 3)
-	hs.sent(MinPort, 0, false, time.Now())
+	hs.sent(MinPort, 0, time.Now())
 
 	stats := hs.stats(0)
 
@@ -202,6 +202,55 @@ func TestTracerTCP_HandshakeSendFailureIsNotADrop(t *testing.T) {
 	}
 	if hs.SYNSent != 0 || hs.Unanswered != 0 || hs.Retransmits != 0 || hs.DropPct != 0 {
 		t.Fatalf("failed handshake sends must not count as tries or drops: %+v", hs)
+	}
+}
+
+func TestTracerTCP_HandshakeFirstSendAfterFailureIsNotARetransmit(t *testing.T) {
+	t.Parallel()
+
+	sim := newSimNetwork(4, "synack")
+
+	opts := DefaultOptions(simTarget)
+	opts.Protocol = ProtocolTCP
+	opts.MaxHops = 4
+	opts.ProbesPerHop = 1
+	opts.ProbeInterval = time.Millisecond
+	opts.Timeout = 100 * time.Millisecond
+	opts.TCPSynRetries = 1
+	opts.DNSResolve = false
+
+	// Path probing reaches the target in MaxHops sends; the first handshake
+	// send then fails locally, and the next round's send succeeds and answers.
+	sim.failSendAt = opts.MaxHops + 1
+
+	tracer, err := NewTracerWithResources(t.Context(), opts, logger.NewTestLogger(), TracerResources{
+		Target: &TargetInfo{IP: sim.target, IPVersion: 4},
+		Socket: sim,
+	})
+	if err != nil {
+		t.Fatalf("new tracer: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+
+	result, err := tracer.Run(ctx)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if !result.TargetReached {
+		t.Fatal("expected path probing to succeed before the handshake send failure")
+	}
+
+	hs := result.TCPHandshake
+	if hs == nil {
+		t.Fatal("expected handshake statistics for a crafted-SYN trace")
+	}
+	if hs.Attempts != 1 || hs.SYNSent != 1 || hs.Unanswered != 0 || hs.DropPct != 0 {
+		t.Fatalf("unexpected handshake counters: %+v", hs)
+	}
+	if hs.Retransmits != 0 || hs.AnsweredAfterRetx != 0 {
+		t.Fatalf("a first SYN after local send failures is not a retransmit: %+v", hs)
 	}
 }
 

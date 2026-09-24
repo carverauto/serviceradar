@@ -62,10 +62,14 @@ func newTCPHandshake(ttl, attempts int) *tcpHandshake {
 	}
 }
 
-// sent records that seq was sent for attempt; retry marks a retransmission.
-func (h *tcpHandshake) sent(seq, attempt int, retry bool, at time.Time) {
+// sent records that seq was sent for attempt. A send is a retransmission only
+// when the attempt already had a successful transmission, so a first SYN that
+// leaves after earlier local send failures is not counted as a retransmission.
+func (h *tcpHandshake) sent(seq, attempt int, at time.Time) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+
+	retry := h.attempts[attempt].transmissions > 0
 
 	h.bySeq[seq] = handshakeSend{attempt: attempt, retry: retry, sentAt: at}
 	h.attempts[attempt].transmissions++
@@ -247,7 +251,7 @@ func (t *Tracer) runTCPHandshake(ctx context.Context) {
 				continue
 			}
 
-			hs.sent(seq, attempt, round > 0, time.Now())
+			hs.sent(seq, attempt, time.Now())
 
 			if !waitForProbeInterval(ctx, t.opts.ProbeInterval) {
 				return
