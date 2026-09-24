@@ -74,7 +74,7 @@ fn translate_param_arity_matches_sql_placeholders() {
                 mode: None,
             },
             QueryRequest {
-                query: "in:devices switch_port_attachment.switch_hostname:niadcs-bldd03-asw001 vlan_uid:561".to_string(),
+                query: "in:devices switch_port_attachment.switch_hostname:switch01.example.com vlan_uid:200".to_string(),
                 limit: Some(10),
                 cursor: None,
                 direction: QueryDirection::Next,

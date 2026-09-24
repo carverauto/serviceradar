@@ -4,7 +4,7 @@
 An inventory plugin MAY emit platform fact keys such as `switch_port_attachment` and `vlan_uid` on discovered devices, and MAY persist source-prefixed metadata for the same evidence. A plugin package MUST NOT declare that it wins conflicts, ranks sources, or is authoritative. Optional `emitted_facts` in the package descriptor is an advertisement only; core SHALL also infer keys from observed facts.
 
 #### Scenario: OpenText NOM reports an NNMi attached switch port as a fact
-- **GIVEN** NNMi attached-switch-port lookup returns switch hostname `SITE01-IDFC08-ASW002` and port `3/1/28` for an endpoint already in ServiceRadar
+- **GIVEN** NNMi attached-switch-port lookup returns switch hostname `SWITCH03.EXAMPLE.COM` and port `1/1/7` for an endpoint already in ServiceRadar
 - **WHEN** the OpenText NOM plugin emits the device
 - **THEN** the discovery record SHALL include a `switch_port_attachment` fact with that hostname and port
 - **AND** source-prefixed metadata MAY include the raw NNMi values

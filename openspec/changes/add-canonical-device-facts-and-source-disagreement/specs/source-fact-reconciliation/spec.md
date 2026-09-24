@@ -4,8 +4,8 @@
 The system SHALL record normalized inventory facts per canonical device, discovery source, and source instance for a platform-owned fact vocabulary. The initial keys SHALL be `switch_port_attachment` and `vlan_uid`. Built-in integrations and inventory plugins SHALL write the same keys. A new source that emits those keys SHALL participate in comparison without a core provider module.
 
 #### Scenario: Two sources record the same fact key independently
-- **GIVEN** Armis reports switch-port `niadcs-bldd03-asw001:gi1/3` for device `sr:01b95a66-67dd-41db-9286-358d11e2a7b6`
-- **AND** OpenText NOM reports switch-port hostname `niadcs-bldd03-asw001` and port `gi1/3` for the same canonical device
+- **GIVEN** Armis reports switch-port `switch01.example.com:gi1/0/7` for device `sr:00000000-0000-4000-8000-000000000001`
+- **AND** OpenText NOM reports switch-port hostname `switch01.example.com` and port `gi1/0/7` for the same canonical device
 - **WHEN** both observations are present
 - **THEN** the system SHALL store one fact row per source for `switch_port_attachment`
 - **AND** both rows SHALL reference the same canonical device uid
@@ -19,8 +19,8 @@ The system SHALL record normalized inventory facts per canonical device, discove
 The system SHALL detect when two or more present sources report different normalized values for the same fact key on the same canonical device. It SHALL upsert a durable diagnostic row that remains until the disagreement clears or an operator dismisses it. The diagnostic SHALL NOT use `platform.source_identity_conflicts` and SHALL NOT withhold northbound identity updates.
 
 #### Scenario: Armis and NNMi disagree on access port
-- **GIVEN** Armis reports port `gi1/3` on `niadcs-bldd03-asw001`
-- **AND** OpenText NOM / NNMi reports port `3/1/28` on a different or same switch for the same device
+- **GIVEN** Armis reports port `gi1/0/7` on `switch01.example.com`
+- **AND** OpenText NOM / NNMi reports port `1/1/7` on a different or same switch for the same device
 - **WHEN** both facts are present and normalized values differ
 - **THEN** the system SHALL open a `switch_port_attachment` disagreement for that device
 - **AND** the row SHALL include each source, instance, and normalized value
@@ -65,11 +65,11 @@ The system SHALL let operators choose which integration source or plugin assignm
 - **AND** the disagreement SHALL remain visible
 
 #### Scenario: No winner configured does not clobber canonical
-- **GIVEN** canonical `vlan_uid` is `561` from Armis
+- **GIVEN** canonical `vlan_uid` is `200` from Armis
 - **AND** OpenText NOM later reports a different VLAN id
 - **AND** no authority is configured for `vlan_uid`
 - **WHEN** promotion runs
-- **THEN** `vlan_uid` SHALL remain `561`
+- **THEN** `vlan_uid` SHALL remain `200`
 - **AND** a disagreement SHALL be opened
 
 #### Scenario: Two winners is a configuration conflict

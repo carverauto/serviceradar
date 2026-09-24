@@ -146,11 +146,11 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestorTest do
               "metadata" => %{
                 "facts" => %{
                   "switch_port_attachment" => %{
-                    "switch_hostname" => "SITE01-IDFC08-ASW002",
-                    "port" => "3/1/28"
+                    "switch_hostname" => "SWITCH03.EXAMPLE.COM",
+                    "port" => "1/1/7"
                   }
                 },
-                "opentext_nom_access_switch" => "SITE01-IDFC08-ASW002:3/1/28"
+                "opentext_nom_access_switch" => "SWITCH03.EXAMPLE.COM:1/1/7"
               }
             }
           ]
@@ -168,9 +168,9 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestorTest do
              )
 
     assert_receive {:device_sync, [update], %{actor: :actor}}
-    assert update["facts"]["switch_port_attachment"]["port"] == "3/1/28"
+    assert update["facts"]["switch_port_attachment"]["port"] == "1/1/7"
     assert update["source_instance"] == "network-automation-prod"
-    assert update["metadata"]["opentext_nom_access_switch"] == "SITE01-IDFC08-ASW002:3/1/28"
+    assert update["metadata"]["opentext_nom_access_switch"] == "SWITCH03.EXAMPLE.COM:1/1/7"
   end
 
   test "preserves unmanaged HPNA devices as is_managed false" do
@@ -339,7 +339,7 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestorTest do
           "devices" => [
             %{
               "device_id" => "201",
-              "hostname" => "iad-asw-01",
+              "hostname" => "site02-sw-01",
               "ip" => "192.0.2.20",
               "serial" => "FOC1234ABC",
               "vendor_name" => "Cisco",
@@ -398,7 +398,7 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestorTest do
           "schema" => "serviceradar.device_discovery.v1",
           "source" => "example-inventory",
           "devices" => [
-            %{"device_id" => "example-inventory:v1:lab:device:1", "hostname" => "iad-asw-01"}
+            %{"device_id" => "example-inventory:v1:lab:device:1", "hostname" => "site02-sw-01"}
           ]
         }
       ]
@@ -433,7 +433,7 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestorTest do
           "schema" => "serviceradar.device_discovery.v1",
           "source" => "example-inventory",
           "devices" => [
-            %{"device_id" => "example-inventory:v1:lab:device:1", "hostname" => "iad-asw-01"}
+            %{"device_id" => "example-inventory:v1:lab:device:1", "hostname" => "site02-sw-01"}
           ]
         }
       ]

@@ -4,7 +4,7 @@
 SRQL `in:devices` SHALL expose canonical `vlan_uid` and `switch_port_attachment` (including nested `switch_hostname` and `port`) in addition to existing source-prefixed metadata queries.
 
 #### Scenario: Query canonical switch hostname
-- **WHEN** a client runs `in:devices switch_port_attachment.switch_hostname:niadcs-bldd03-asw001`
+- **WHEN** a client runs `in:devices switch_port_attachment.switch_hostname:switch01.example.com`
 - **THEN** SRQL SHALL return devices whose canonical attachment hostname matches
 - **AND** devices that only have unmatched `metadata.armis_access_switch` SHALL NOT be required to match this field until promotion has run
 
