@@ -37,7 +37,7 @@ The chart SHALL ship a single-node profile and an HA profile that match the scal
 #### Scenario: Single-node default for small installs
 - **WHEN** the chart uses the single-node profile
 - **THEN** it runs 1 Zero and 1 Alpha with `shardReplicaCount=1`
-- **AND** images are the Harbor-mirrored Dgraph tag the chart pins
+- **AND** images are the public upstream `docker.io/dgraph/dgraph` tag the chart pins
 
 #### Scenario: HA profile for production
 - **WHEN** the chart uses the HA profile
