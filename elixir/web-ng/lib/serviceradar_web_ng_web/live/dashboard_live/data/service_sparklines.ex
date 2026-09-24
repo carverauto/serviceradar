@@ -201,7 +201,9 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.ServiceSparklines do
                 ON h.trace_id = t.id
                 AND t.target_reached
                 AND h.hop_number = t.total_hops
+                AND h.time >= t.time
               WHERE t.time >= $1
+                AND h.time >= $1
             ) terminal_candidates
             WHERE terminal_rank = 1
           )

@@ -1639,7 +1639,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   def handle_event("view_mtr_trace", %{"id" => trace_id}, socket) do
-    case MtrRuntime.get_trace_detail(socket.assigns.current_scope, trace_id) do
+    opts = [time: listed_mtr_trace_time(socket.assigns, trace_id)]
+
+    case MtrRuntime.get_trace_detail(socket.assigns.current_scope, trace_id, opts) do
       {:ok, trace, hops} ->
         {:noreply,
          socket
@@ -2085,5 +2087,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       nil -> nil
       row -> Map.get(row, "ip")
     end
+  end
+
+  # The listed row's time lets the trace lookup skip every other chunk.
+  defp listed_mtr_trace_time(assigns, trace_id) do
+    [Map.get(assigns, :mtr_traces, []), Map.get(assigns, :mtr_recent_traces, [])]
+    |> Enum.concat()
+    |> Enum.find_value(fn
+      %{"id" => ^trace_id, "time" => %DateTime{} = time} -> time
+      _ -> nil
+    end)
   end
 end

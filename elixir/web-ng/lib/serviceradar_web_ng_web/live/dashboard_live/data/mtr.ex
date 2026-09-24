@@ -117,7 +117,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Mtr do
         if relation_exists?("platform.mtr_traces") and relation_exists?("platform.mtr_hops") do
           sql = """
           WITH selected_traces AS (
-            SELECT id, target_reached, total_hops
+            SELECT id, time, target_reached, total_hops
             FROM mtr_traces
             WHERE time >= $1
           ),
@@ -137,6 +137,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Mtr do
               INNER JOIN selected_traces st ON st.id = h.trace_id
                 AND st.target_reached
                 AND h.hop_number = st.total_hops
+                AND h.time >= st.time
+              WHERE h.time >= $1
             ) terminal_candidates
             WHERE terminal_rank = 1
           )
