@@ -105,12 +105,7 @@ for tag in \
   v1.4.11-pre1 \
   v1.4.11-rc2 \
   v1.4.11-alpha3 \
-  v1.4.11-beta4 \
-  v1.4.11-pre.1 \
-  v1.4.11-pre.10 \
-  v1.4.11-rc.0 \
-  v1.4.11-alpha.3 \
-  v1.4.11-beta.4; do
+  v1.4.11-beta4; do
   "${validate_release_tag}" "${tag}"
 done
 
@@ -125,12 +120,6 @@ invalid_tags=(
   "v1.04.10"
   "v1.4.010"
   "v1.4.10-pre01"
-  "v1.4.10-pre."
-  "v1.4.10-pre.01"
-  "v1.4.10-pre..1"
-  "v1.4.10-pre.1.2"
-  "v1.4.10-rc.-1"
-  "v1.4.10-preview.1"
   "v1.4.10/other"
   "v1.4.10 tag=latest"
   $'v1.4.10\ncommit=deadbeef'
@@ -297,8 +286,6 @@ for version in \
   1.4 \
   1.4.10-pre \
   1.4.10-preview1 \
-  1.4.10-pre. \
-  1.4.10-pre.01 \
   $'1.4.10\ntag=v9.9.9'; do
   if "${cut_release}" \
     --version "${version}" \
@@ -308,46 +295,6 @@ for version in \
     exit 1
   fi
 done
-
-dry_run_remote="${tmp_dir}/dry-run-remote.git"
-dry_run_repo="${tmp_dir}/dry-run-repo"
-git init -q --bare "${dry_run_remote}"
-mkdir -p "${dry_run_repo}/helm/serviceradar"
-git -C "${dry_run_repo}" init -q
-git -C "${dry_run_repo}" remote add origin "${dry_run_remote}"
-printf '1.4.9\n' > "${dry_run_repo}/VERSION"
-
-while IFS=, read -r version expected; do
-  dry_run_output="$(
-    cd "${dry_run_repo}"
-    FAKE_CHART_PROBE_MODE=available \
-      SERVICERADAR_HELM_RUNNER="${fake_helm}" \
-      "${cut_release}" --version "${version}" --dry-run --skip-changelog-check
-  )"
-  case "${expected}" in
-    prerelease)
-      if [[ "${dry_run_output}" != *"Detected pre-release version: ${version}"* ]] ||
-        [[ "${dry_run_output}" != *"Pre-release preparation complete for v${version}"* ]]; then
-        printf 'cut-release did not treat %s as a pre-release\n' "${version}" >&2
-        exit 1
-      fi
-      ;;
-    release)
-      if [[ "${dry_run_output}" == *"Detected pre-release version"* ]] ||
-        [[ "${dry_run_output}" != *"Release preparation complete for v${version}"* ]]; then
-        printf 'cut-release treated %s as a pre-release\n' "${version}" >&2
-        exit 1
-      fi
-      ;;
-  esac
-done <<'EOF_VERSIONS'
-1.4.11-pre1,prerelease
-1.4.11-pre.1,prerelease
-1.4.11-rc.2,prerelease
-1.4.11-alpha.3,prerelease
-1.4.11-beta.10,prerelease
-1.4.11,release
-EOF_VERSIONS
 
 if "${cut_release}" \
   --version 1.4.10 \

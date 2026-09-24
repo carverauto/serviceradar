@@ -166,3 +166,14 @@ py_test(
         "//helm/serviceradar:values-demo.yaml",
     ],
 )
+
+py_test(
+    name = "release_tag_test",
+    size = "small",
+    srcs = ["release_tag_test.py"],
+    data = [
+        "//scripts:check-oci-chart-version-available.sh",
+        "//scripts:cut-release.sh",
+        "//scripts:validate-release-tag.sh",
+    ],
+)
