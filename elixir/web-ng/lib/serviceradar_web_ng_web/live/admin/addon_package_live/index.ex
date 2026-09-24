@@ -1553,8 +1553,8 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     """
   end
 
-  attr(:prefix, :string, required: true)
-  attr(:form, :map, required: true)
+  attr :prefix, :string, required: true
+  attr :form, :map, required: true
 
   defp update_policy_fields(assigns) do
     ~H"""
@@ -1616,11 +1616,11 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     """
   end
 
-  attr(:prefix, :string, required: true)
-  attr(:form, :map, required: true)
-  attr(:field, :string, required: true)
-  attr(:label, :string, required: true)
-  attr(:min, :string, required: true)
+  attr :prefix, :string, required: true
+  attr :form, :map, required: true
+  attr :field, :string, required: true
+  attr :label, :string, required: true
+  attr :min, :string, required: true
 
   defp rollout_number(assigns) do
     ~H"""
@@ -1654,7 +1654,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
              :info,
              if(opts[:replace],
                do:
-                 "Replaced #{package.name} #{package.version} with this release. Approve it again before agents use the new build.",
+                 "Replaced #{package.name} #{package.version} with this release. Approval follows your automatic approval settings and may require review.",
                else: "Imported first-party add-on #{package.name} #{package.version}"
              )
            )
