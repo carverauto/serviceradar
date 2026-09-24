@@ -61,6 +61,9 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
 
       {:ok, %AddonPackage{} = package} ->
         case import_decision(package, addon, opts) do
+          :skip ->
+            {:skipped, package}
+
           :reuse ->
             with {:ok, package} <- refresh_release_provenance(package, addon),
                  {:ok, package} <- maybe_approve(package, opts) do
@@ -92,7 +95,8 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
   Pure import-or-reuse decision for one discovered add-on against its already
   imported package row.
 
-  Returns `:reuse` (the row already reflects this
+  Returns `:skip` (an older release has identical verified content; keep the
+  existing row without changing provenance or review state), `:reuse` (the row already reflects this
   exact build), `:replace` (same `addon_id` + `version` rebuilt under a new
   envelope with complete provenance on the existing row: restage the row onto
   the release's build), `:import` (a first-party row with partial provenance:
@@ -117,17 +121,22 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
   takes the replace path only when release ordering permits it.
   """
   @spec import_decision(AddonPackage.t(), map(), keyword()) ::
-          :reuse | :replace | :import | {:conflict, atom()}
+          :skip | :reuse | :replace | :import | {:conflict, atom()}
 
   def import_decision(%AddonPackage{} = package, addon, opts) do
+    order = release_order(package.source_release_tag, addon.release_tag)
+
     cond do
       source_type_owned?(package) ->
         {:conflict, :source_type_owned}
 
-      release_order(package.source_release_tag, addon.release_tag) == :lt ->
+      order == :lt and verified_content_matches?(package, addon) ->
+        :skip
+
+      order == :lt ->
         {:conflict, :older_release}
 
-      release_order(package.source_release_tag, addon.release_tag) == :unknown ->
+      order == :unknown ->
         {:conflict, :unknown_release_order}
 
       reusable_package?(package, addon) ->
@@ -408,7 +417,11 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
   end
 
   defp reusable_package?(%AddonPackage{} = package, addon) do
-    package.source_type == :first_party and source_matches?(package, addon) and
+    source_matches?(package, addon) and verified_content_matches?(package, addon)
+  end
+
+  defp verified_content_matches?(%AddonPackage{} = package, addon) do
+    package.source_type == :first_party and
       package.verification_status == "verified" and is_nil(package.verification_error) and
       source_bundle_digest_matches?(package, addon) and
       artifact_contract_matches?(

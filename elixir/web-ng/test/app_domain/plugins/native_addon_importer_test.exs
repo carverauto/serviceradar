@@ -1230,6 +1230,15 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
       assert reused.source_oci_ref == newer.oci_ref
       assert reused.source_oci_digest == newer.oci_digest
 
+      # The same bytes from an older envelope are a no-op, including review state.
+      historical = %{addon | release_tag: "v1.1.0"}
+      assert {:skipped, unchanged} = NativeAddonSync.import_or_reuse(historical, replace: true)
+      assert unchanged.source_release_tag == reused.source_release_tag
+      assert unchanged.source_oci_ref == reused.source_oci_ref
+      assert unchanged.source_oci_digest == reused.source_oci_digest
+      assert unchanged.status == reused.status
+      assert unchanged.updated_at == reused.updated_at
+
       older = %{
         addon
         | release_tag: "v1.1.0",
@@ -1242,6 +1251,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
       [persisted] = sample_packages()
       assert persisted.source_release_tag == "v1.2.0"
       assert persisted.source_oci_digest == newer.oci_digest
+      assert persisted.updated_at == reused.updated_at
     end
   end
 
