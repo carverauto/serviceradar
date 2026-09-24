@@ -80,6 +80,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
           ON st.id = h.trace_id
           AND st.target_reached
           AND h.hop_number = st.total_hops
+          AND h.time >= st.time
+        WHERE h.time >= (SELECT MIN(time) FROM selected_traces)
       ) ranked_terminal_hops
       WHERE terminal_rank = 1
     )
@@ -320,46 +322,68 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     end
   end
 
-  @sobelow_skip ["SQL.Query"]
-  def get_trace_detail(scope, trace_id) when is_binary(trace_id) and trace_id != "" do
-    if is_nil(scope) do
-      {:error, :missing_scope}
-    else
-      trace_query = """
-      SELECT id::text AS id, time, agent_id, gateway_id, check_id, check_name, device_id,
-             target, target_ip, target_reached, total_hops, probed_hops, last_responding_hop,
-             protocol, tcp_port, ip_version, packet_size, partition, error
-      FROM mtr_traces
-      WHERE id::text = $1
-      LIMIT 1
-      """
+  @doc """
+  Loads one trace and its hops. Pass `time:` when the caller already knows
+  the trace's time (from a listed row): it bounds the trace lookup to one
+  chunk, which an id alone cannot do once chunks are compressed.
+  """
+  def get_trace_detail(scope, trace_id, opts \\ [])
 
-      hops_query = """
-      SELECT id::text AS id, time, hop_number, addr, hostname, ecmp_addrs, asn, asn_org,
-             mpls_labels, sent, received, loss_pct,
-             last_us, avg_us, min_us, max_us, stddev_us,
-             jitter_us, jitter_worst_us, jitter_interarrival_us, unreachable_code
-      FROM mtr_hops
-      WHERE trace_id::text = $1
-      ORDER BY hop_number ASC, time DESC, id DESC
-      """
-
-      with {:ok, %{rows: [trace_row], columns: trace_cols}} <- Repo.query(trace_query, [trace_id]),
-           trace = trace_cols |> Enum.zip(trace_row) |> Map.new(),
-           {:ok, %{rows: hop_rows, columns: hop_cols}} <- Repo.query(hops_query, [trace_id]) do
-        hops = Enum.map(hop_rows, fn row -> hop_cols |> Enum.zip(row) |> Map.new() end)
-        {:ok, trace, hops}
-      else
-        {:ok, %{rows: []}} -> {:error, :not_found}
-        {:error, reason} -> {:error, reason}
-      end
+  def get_trace_detail(scope, trace_id, opts) when is_binary(trace_id) and trace_id != "" do
+    cond do
+      is_nil(scope) -> {:error, :missing_scope}
+      Ecto.UUID.cast(trace_id) == :error -> {:error, :not_found}
+      true -> query_trace_detail(Ecto.UUID.dump!(trace_id), Keyword.get(opts, :time))
     end
   end
 
-  def get_trace_detail(_scope, _trace_id), do: {:error, :invalid_trace_id}
+  def get_trace_detail(_scope, _trace_id, _opts), do: {:error, :invalid_trace_id}
+
+  # Both lookups compare the uuid column itself; casting the column to text
+  # would defeat its index. A hop is never older than its trace, so the trace's
+  # time bounds the hop lookup and lets Timescale skip older chunks, compressed
+  # ones included.
+  @sobelow_skip ["SQL.Query"]
+  defp query_trace_detail(trace_uuid, time) do
+    {time_clause, trace_params} =
+      case time do
+        %DateTime{} -> {"AND time = $2", [trace_uuid, time]}
+        _ -> {"", [trace_uuid]}
+      end
+
+    trace_query = """
+    SELECT id::text AS id, time, agent_id, gateway_id, check_id, check_name, device_id,
+           target, target_ip, target_reached, total_hops, probed_hops, last_responding_hop,
+           protocol, tcp_port, ip_version, packet_size, partition, error
+    FROM mtr_traces
+    WHERE id = $1 #{time_clause}
+    LIMIT 1
+    """
+
+    hops_query = """
+    SELECT id::text AS id, time, hop_number, addr, hostname, ecmp_addrs, asn, asn_org,
+           mpls_labels, sent, received, loss_pct,
+           last_us, avg_us, min_us, max_us, stddev_us,
+           jitter_us, jitter_worst_us, jitter_interarrival_us, unreachable_code
+    FROM mtr_hops
+    WHERE trace_id = $1 AND time >= $2
+    ORDER BY hop_number ASC, time DESC, id DESC
+    """
+
+    with {:ok, %{rows: [trace_row], columns: trace_cols}} <- Repo.query(trace_query, trace_params),
+         trace = trace_cols |> Enum.zip(trace_row) |> Map.new(),
+         {:ok, %{rows: hop_rows, columns: hop_cols}} <-
+           Repo.query(hops_query, [trace_uuid, trace["time"]]) do
+      hops = Enum.map(hop_rows, fn row -> hop_cols |> Enum.zip(row) |> Map.new() end)
+      {:ok, trace, hops}
+    else
+      {:ok, %{rows: []}} -> {:error, :not_found}
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
   def get_trace_detail(trace_id) when is_binary(trace_id) and trace_id != "" do
-    get_trace_detail(%{}, trace_id)
+    get_trace_detail(%{}, trace_id, [])
   end
 
   def get_trace_detail(_), do: {:error, :invalid_trace_id}
@@ -535,6 +559,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
           ON st.id = h.trace_id
           AND st.target_reached
           AND h.hop_number = st.total_hops
+          AND h.time >= st.time
+        WHERE h.time >= $1 AND h.time < $2
       ) terminal_candidates
       WHERE terminal_rank = 1
     )
@@ -550,7 +576,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
             (
               SELECT COALESCE(MAX(h.hop_number) FILTER (WHERE h.received > 0), 0)
               FROM mtr_hops h
-              WHERE h.trace_id = st.id
+              WHERE h.trace_id = st.id AND h.time >= st.time
               HAVING COUNT(*) > 0
             ),
             st.total_hops
@@ -684,7 +710,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
         st.target_reached,
         array_agg(COALESCE(NULLIF(h.addr, ''), '*') ORDER BY h.hop_number) AS hop_addrs
       FROM selected_traces st
-      LEFT JOIN mtr_hops h ON h.trace_id = st.id
+      LEFT JOIN mtr_hops h
+        ON h.trace_id = st.id
+        AND h.time >= st.time
+        AND h.time >= $1
+        AND h.time < $2
       GROUP BY st.id, st.time, st.agent_id, st.target, st.target_ip, st.target_reached
     ),
     signed_paths AS (

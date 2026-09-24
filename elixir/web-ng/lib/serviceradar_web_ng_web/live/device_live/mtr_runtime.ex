@@ -14,7 +14,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrRuntime do
   @default_page_size 50
   @max_page_size 200
 
-  def get_trace_detail(scope, trace_id), do: MtrData.get_trace_detail(scope, trace_id)
+  def get_trace_detail(scope, trace_id, opts \\ []), do: MtrData.get_trace_detail(scope, trace_id, opts)
 
   def queue_trace(socket, device_ip) do
     with :ok <- validate_device_ip(device_ip) do

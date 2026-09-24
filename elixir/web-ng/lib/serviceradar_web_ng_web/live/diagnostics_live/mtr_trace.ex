@@ -13,6 +13,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
   require Ash.Query
 
   @sparkline_points 20
+  # Recent points only, and inside the window MTR chunks stay uncompressed.
+  @sparkline_days 7
 
   @impl true
   def mount(_params, _session, socket) do
@@ -43,7 +45,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
 
     with {:ok, trace_uuid} <- Ecto.UUID.cast(trace_id),
          {:ok, trace} <- read_trace(trace_uuid, scope),
-         {:ok, hops} <- read_trace_hops(trace_uuid, scope) do
+         {:ok, hops} <- read_trace_hops(trace, scope) do
       trace_map = trace_to_map(trace)
       hop_maps = Enum.map(hops, &hop_to_map/1)
       sparklines = load_hop_sparklines(hop_maps, scope)
@@ -388,7 +390,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
       query =
         MtrHop
         |> Ash.Query.for_read(:read, %{})
-        |> Ash.Query.filter(expr(addr in ^addrs and not is_nil(avg_us) and avg_us > 0))
+        |> Ash.Query.filter(
+          expr(addr in ^addrs and not is_nil(avg_us) and avg_us > 0 and time >= ago(@sparkline_days, :day))
+        )
         |> Ash.Query.sort(time: :desc)
         |> Ash.Query.limit(limit)
 
@@ -421,10 +425,16 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
     end
   end
 
-  defp read_trace_hops(trace_uuid, scope) do
+  # A hop is never older than its trace, so the trace's time is a lower bound
+  # that lets Timescale skip older chunks instead of scanning each, compressed
+  # ones included.
+  defp read_trace_hops(trace, scope) do
+    trace_time = trace.time
+
     query =
       MtrHop
-      |> Ash.Query.for_read(:by_trace, %{trace_id: trace_uuid})
+      |> Ash.Query.for_read(:by_trace, %{trace_id: trace.id})
+      |> Ash.Query.filter(expr(time >= ^trace_time))
       |> Ash.Query.sort(hop_number: :asc)
       |> Ash.Query.limit(256)
 

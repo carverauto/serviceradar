@@ -180,7 +180,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
   defp load_trace_with_hops(trace_id, scope) do
     with {:ok, trace_uuid} <- Ecto.UUID.cast(trace_id),
          {:ok, trace} <- read_trace(trace_uuid, scope),
-         {:ok, hops} <- read_trace_hops(trace_uuid, scope) do
+         {:ok, hops} <- read_trace_hops(trace, scope) do
       {:ok, trace_to_compare_map(trace), Enum.map(hops, &hop_to_compare_map/1)}
     else
       :error -> {:error, "Invalid trace id"}
@@ -205,10 +205,16 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
     end
   end
 
-  defp read_trace_hops(trace_uuid, scope) do
+  # A hop is never older than its trace, so the trace's time is a lower bound
+  # that lets Timescale skip older chunks instead of scanning each, compressed
+  # ones included.
+  defp read_trace_hops(trace, scope) do
+    trace_time = trace.time
+
     query =
       MtrHop
-      |> Ash.Query.for_read(:by_trace, %{trace_id: trace_uuid})
+      |> Ash.Query.for_read(:by_trace, %{trace_id: trace.id})
+      |> Ash.Query.filter(expr(time >= ^trace_time))
       |> Ash.Query.sort(hop_number: :asc)
       |> Ash.Query.limit(256)
 
