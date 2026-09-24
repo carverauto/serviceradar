@@ -104,7 +104,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:csv_preview, nil)
      |> assign(:csv_errors, [])
      |> assign(:csv_warnings, [])
-     |> assign(:import_status, nil)
      |> assign(:importing, false)
      |> assign(:import_result, nil)
      |> assign(:import_skipped, [])

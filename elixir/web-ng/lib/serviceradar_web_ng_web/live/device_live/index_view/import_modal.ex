@@ -7,7 +7,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
   attr(:csv_preview, :any, default: nil)
   attr(:csv_errors, :list, default: [])
   attr(:csv_warnings, :list, default: [])
-  attr(:import_status, :any, default: nil)
   attr(:importing, :boolean, default: false)
   attr(:import_result, :any, default: nil)
   attr(:import_partition, :string, default: "default")
@@ -24,22 +23,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
         extra columns onto that device. The same IP can exist in more than one
         partition so isolation scans and monitoring scans can report independently.
       </p>
-
-      <%!--
-      Two distinct states, never conflated: a parse warning means the file was
-      partly usable and the rest still previews, while an error means nothing
-      was imported or the run failed part-way through.
-      --%>
-      <div
-        :if={is_binary(@import_status) and is_nil(@import_result)}
-        class={ui_alert_class(variant: "warning", class: "my-4")}
-      >
-        <.icon name="hero-exclamation-triangle" class="size-5" />
-        <div>
-          <div class="font-semibold">Partial Import</div>
-          <p class="text-sm">{@import_status}</p>
-        </div>
-      </div>
 
       <!-- Error Display -->
       <div :if={@csv_errors != [] and is_nil(@import_result)} class={ui_alert_class(variant: "error", class: "my-4")}>
