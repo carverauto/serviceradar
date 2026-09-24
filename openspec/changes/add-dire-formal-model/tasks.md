@@ -27,19 +27,19 @@
 - [ ] 2.6 After merge: file one GitHub issue per switch, citing its witness configuration and
       counterexample.
 
-## 3. Trace validation (PR 3)
+## 3. Trace validation (PR 3: resolution; PR 4: lifecycle)
 
-- [ ] 3.1 `test/support/dire_trace.ex` recorder: state projection, uid/identifier to model
-      constant mapping, generated trace module, TLC invocation from runfiles.
-- [ ] 3.2 `formal/dire/TraceCheck.tla`.
-- [ ] 3.3 Recorder self-test with a hand-corrupted trace that TLC must reject.
-- [ ] 3.4 One witness trace test per switch, plus one ordinary-lifecycle trace, all
-      `:integration` on srql-fixtures with synthetic identifiers.
-- [ ] 3.5 Add `:tlc` and the model files to the core integration runtime data; add
-      disposition rows to `test/INTEGRATION_SOURCE_DISPOSITIONS.tsv` and
-      `build/integration_test_dispositions.bzl`;
-      `python3 -m unittest build/contracts/ci_heavy_gate_contract_test.py` green.
-- [ ] 3.6 Run the srql-fixtures lifecycle for the affected shards; `make test` green.
+- [x] 3.1 `test/support/dire_trace.ex` recorder: drives the real entry points in a synthetic
+      world, records the full model state after every step, maps uids and identifiers to model
+      names in first-seen order, and raises on anything it cannot map.
+- [x] 3.2 `formal/dire/DireResolutionTrace.tla`: pins every variable to the logged state at
+      every step; a matched trace violates `TraceIncomplete`.
+- [x] 3.3 Self-test: one `__tamper_<var>` variant per model variable, each rejected by TLC.
+- [x] 3.4 Resolution scenario traces (six), committed under `formal/dire/traces` and compared
+      by the integration test; the model was corrected where the traces disagreed with it.
+- [ ] 3.5 Lifecycle scenario traces (merge, unmerge, soft delete, revival paths, purge).
+- [x] 3.6 Committed traces in the core integration runtime data; serial disposition rows;
+      the scratch-database run and `make test` are green.
 
 ## 4. Close-out
 

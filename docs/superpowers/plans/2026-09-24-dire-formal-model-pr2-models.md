@@ -17,8 +17,7 @@ views, vacuity predicates).
 
 **Tech Stack:** TLA+ / TLC 1.7.4 through `//build/tla:tlc.bzl` (PR 1, #4598).
 
-**Spec:** `openspec/changes/update-dire-strong-identity-goal/` (the requirements; committed on
-this branch as 9465607ae9) and `openspec/changes/add-dire-formal-model/` (the verification).
+**Spec:** `openspec/changes/update-dire-strong-identity-goal/` (the requirements; merged in #4607) and `openspec/changes/add-dire-formal-model/` (the verification).
 Covers `add-dire-formal-model` tasks section 2 and 4.1, and `update-dire-strong-identity-goal`
 tasks 2.1-2.2.
 
