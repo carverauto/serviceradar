@@ -23,6 +23,9 @@ const (
 	defaultBlockStartTemplate = "interface {interface}"
 	defaultBlockEnd           = "!"
 	defaultMaxCheckTargets    = 200
+	defaultRunBudgetSeconds   = 1440
+	minRunBudgetSeconds       = 60
+	maxRunBudgetSeconds       = 3600
 	maxChecks                 = 16
 	maxCheckPatterns          = 32
 	maxCheckPatternLength     = 512
@@ -31,6 +34,8 @@ const (
 	checkStatusCompliant    = "compliant"
 	checkStatusNonCompliant = "non_compliant"
 	checkStatusUnknown      = "unknown"
+
+	reasonTargetLimitExceeded = "target_limit_exceeded"
 )
 
 // checkNamePattern keeps a check's metadata key ("config_check_" + name) within
@@ -54,12 +59,13 @@ var defaultInterfaceExpansions = map[string]string{
 }
 
 type interfaceCheckConfig struct {
-	AttachmentField string            `json:"attachment_field"`
-	BlockStart      string            `json:"block_start"`
-	BlockEnd        string            `json:"block_end"`
-	Expansions      map[string]string `json:"interface_expansions"`
-	MaxTargets      int               `json:"max_targets"`
-	Checks          []interfaceCheck  `json:"checks"`
+	AttachmentField  string            `json:"attachment_field"`
+	BlockStart       string            `json:"block_start"`
+	BlockEnd         string            `json:"block_end"`
+	Expansions       map[string]string `json:"interface_expansions"`
+	MaxTargets       int               `json:"max_targets"`
+	RunBudgetSeconds int               `json:"run_budget_seconds"`
+	Checks           []interfaceCheck  `json:"checks"`
 }
 
 type interfaceCheck struct {
@@ -109,6 +115,13 @@ func parseInterfaceCheckConfig(raw json.RawMessage) (interfaceCheckConfig, error
 	}
 	if cfg.MaxTargets < 1 || cfg.MaxTargets > 1000 {
 		return interfaceCheckConfig{}, fmt.Errorf("%w: max_targets must be between 1 and 1000", errCheckConfigInvalid)
+	}
+	if cfg.RunBudgetSeconds == 0 {
+		cfg.RunBudgetSeconds = defaultRunBudgetSeconds
+	}
+	if cfg.RunBudgetSeconds < minRunBudgetSeconds || cfg.RunBudgetSeconds > maxRunBudgetSeconds {
+		return interfaceCheckConfig{}, fmt.Errorf("%w: run_budget_seconds must be between %d and %d",
+			errCheckConfigInvalid, minRunBudgetSeconds, maxRunBudgetSeconds)
 	}
 	if len(cfg.Checks) == 0 || len(cfg.Checks) > maxChecks {
 		return interfaceCheckConfig{}, fmt.Errorf("%w: between 1 and %d checks are required", errCheckConfigInvalid, maxChecks)
@@ -337,23 +350,31 @@ type configletOutcome struct {
 
 // runInterfaceChecks evaluates every check for every target item. Auth and
 // permission failures abort the run: every device would fail the same way,
-// and "unknown" for all of them would hide a broken credential.
+// and "unknown" for all of them would hide a broken credential. Items beyond
+// max_targets, or left when the run budget is spent, are recorded as unknown
+// (target_limit_exceeded) rather than dropped, so partial coverage stays visible.
 func (c *Collector) runInterfaceChecks(
 	ctx context.Context,
 	cfg Config,
 	checkCfg interfaceCheckConfig,
 	items []map[string]any,
 ) ([]checkVerdict, error) {
-	if len(items) > checkCfg.MaxTargets {
-		items = items[:checkCfg.MaxTargets]
-	}
-	now := c.now().UTC().Format(time.RFC3339)
+	started := c.now()
+	budget := time.Duration(checkCfg.RunBudgetSeconds) * time.Second
+	now := started.UTC().Format(time.RFC3339)
 	cache := map[configletKey]configletOutcome{}
 	var verdicts []checkVerdict
+	processed := 0
+	overBudget := false
 
 	for _, item := range items {
 		uid := strings.TrimSpace(checkItemString(item["uid"]))
 		if uid == "" {
+			continue
+		}
+		processed++
+		if overBudget || processed > checkCfg.MaxTargets {
+			verdicts = append(verdicts, unknownVerdicts(checkCfg, uid, "", "", reasonTargetLimitExceeded, now)...)
 			continue
 		}
 		host, port, ok := resolveAttachment(item, checkCfg.AttachmentField)
@@ -365,6 +386,11 @@ func (c *Collector) runInterfaceChecks(
 		key := configletKey{host: strings.ToLower(host), iface: iface}
 		outcome, cached := cache[key]
 		if !cached {
+			if c.now().Sub(started) > budget {
+				overBudget = true
+				verdicts = append(verdicts, unknownVerdicts(checkCfg, uid, "", "", reasonTargetLimitExceeded, now)...)
+				continue
+			}
 			block, err := c.retrieveConfiglet(ctx, cfg, host, renderBlockStart(checkCfg.BlockStart, iface), checkCfg.BlockEnd)
 			switch code := safeErrorCode(err); {
 			case err == nil:

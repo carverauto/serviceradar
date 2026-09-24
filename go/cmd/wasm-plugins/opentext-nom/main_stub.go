@@ -90,9 +90,6 @@ func parseLocalRuntimeConfig(runtimeConfig []byte) (Config, error) {
 	if err := json.Unmarshal(runtimeConfig, &raw); err != nil {
 		return Config{}, err
 	}
-	if err := json.Unmarshal(runtimeConfig, &raw); err != nil {
-		return Config{}, err
-	}
 	payload, err := runtimeConfigPayload(raw)
 	if err != nil {
 		return Config{}, err

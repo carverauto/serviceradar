@@ -185,7 +185,7 @@ producer_schedules:
       entity: devices
       query_param: target_query
       fields_param: target_fields
-      max_items: 500
+      max_items: 200
     settings_schema:
       type: object
       additionalProperties: false

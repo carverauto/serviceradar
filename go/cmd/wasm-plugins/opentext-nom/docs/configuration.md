@@ -284,7 +284,8 @@ are checked (default hourly). Then set these advanced fields:
 | `block_start` | Start of the interface block; `{interface}` is replaced by the interface name. Default `interface {interface}`. |
 | `block_end` | End of the block. Cisco IOS uses `!` (default); ArubaOS-Switch uses `exit`. |
 | `interface_expansions` | Extra or overriding shorthand prefixes, for example `{"mgmt": "Management"}`. |
-| `max_targets` | Endpoints checked per run (default 200, maximum 1000). |
+| `max_targets` | Endpoints checked per run (default 200, maximum 1000). Endpoints past the limit are recorded as `unknown` / `target_limit_exceeded`. The schedule delivers at most 200 endpoints per run. |
+| `run_budget_seconds` | Time allowed for NA requests in one run (default 1440, range 60 to 3600; keep it under the 1800 second schedule timeout). Once spent, remaining endpoints are recorded as `unknown` / `target_limit_exceeded`. |
 | `checks` | One or more checks. `name`: lowercase letters, digits and `_`, at most 44 characters. `patterns`: required text. `match`: `all` (default) or `any`. `regex`: treat patterns as regular expressions. `case_sensitive`: default false. |
 
 Shorthand ports are expanded before asking NA: `gi` GigabitEthernet, `te`
@@ -313,6 +314,11 @@ Each check is recorded on the endpoint's device metadata:
 | `unknown` | `attachment_missing` | The endpoint has no usable switch/port. |
 | `unknown` | `configlet_not_found` | NA does not know the switch. |
 | `unknown` | `configlet_request_failed` | NA timed out or failed. |
+| `unknown` | `target_limit_exceeded` | The endpoint was beyond `max_targets` or the run budget was spent, so it was not checked. |
+
+The run summary and result details report coverage: how many endpoints were
+skipped (`target_limit_exceeded`) and how many the query matched beyond the
+200 the schedule delivers (`not_delivered`).
 
 Find non-compliant endpoints with
 `in:devices metadata.config_check_nac:non_compliant`. The configuration text

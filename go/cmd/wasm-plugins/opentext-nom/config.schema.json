@@ -39,7 +39,7 @@
     "config_check": {
       "type": "string",
       "title": "Interface check: definition (JSON)",
-      "description": "Interface config check only. A JSON object with attachment_field, block_start (default: interface {interface}), block_end (default: !, ArubaOS-Switch uses exit), interface_expansions, max_targets, and checks (each with name, patterns, match all or any, regex, case_sensitive). See docs/configuration.md.",
+      "description": "Interface config check only. A JSON object with attachment_field, block_start (default: interface {interface}), block_end (default: !, ArubaOS-Switch uses exit), interface_expansions, max_targets (default 200), run_budget_seconds (default 1440, 60 to 3600; endpoints not reached in time are recorded as unknown with reason target_limit_exceeded), and checks (each with name, patterns, match all or any, regex, case_sensitive). See docs/configuration.md.",
       "x-serviceradar-ui-control": "textarea",
       "x-serviceradar-ui-advanced": true
     },

@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -207,7 +208,7 @@ func TestConfigCheckResultCarriesVerdictsNotConfig(t *testing.T) {
 	result, err := buildConfigCheckResult([]checkVerdict{{
 		DeviceUID: "sr:00000000-0000-4000-8000-000000000001", Check: "nac", Status: checkStatusNonCompliant,
 		Switch: "switch01.example.com", Interface: "1", Missing: []string{"aaa port-access authenticator 1"},
-	}}, 1<<20)
+	}}, checkCoverage{}, 1<<20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -220,6 +221,114 @@ func TestConfigCheckResultCarriesVerdictsNotConfig(t *testing.T) {
 	}
 	if !strings.Contains(result.Summary, "1 non-compliant") {
 		t.Fatalf("summary = %q", result.Summary)
+	}
+}
+
+func TestRunInterfaceChecksMarksTargetsBeyondMaxUnknown(t *testing.T) {
+	httpClient := &fakeHTTPDoer{responses: []HTTPResponse{
+		{Status: 200, Body: []byte(`{"result":` + jsonString(syntheticNACBlock) + `}`)},
+	}}
+	collector := &Collector{HTTP: httpClient, Now: func() time.Time { return time.Unix(1_790_000_000, 0) }, Sleep: sleepWithContext}
+	checkCfg := mustCheckConfig(t, `{"max_targets":1,"checks":[{"name":"nac","patterns":["authentication port-control auto"]}]}`)
+	items := []map[string]any{
+		{"uid": "sr:00000000-0000-4000-8000-000000000001", "switch_port_attachment": "switch01.example.com:gi1/0/7"},
+		{"uid": "sr:00000000-0000-4000-8000-000000000002", "switch_port_attachment": "switch01.example.com:gi1/0/8"},
+	}
+	verdicts, err := collector.runInterfaceChecks(context.Background(), mustValidConfig(t), checkCfg, items)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(httpClient.requests) != 1 || len(verdicts) != 2 {
+		t.Fatalf("requests = %d, verdicts = %d, want 1 and 2", len(httpClient.requests), len(verdicts))
+	}
+	if verdicts[0].Status != checkStatusCompliant {
+		t.Errorf("first verdict = %#v", verdicts[0])
+	}
+	if verdicts[1].DeviceUID != "sr:00000000-0000-4000-8000-000000000002" ||
+		verdicts[1].Status != checkStatusUnknown || verdicts[1].Reason != reasonTargetLimitExceeded {
+		t.Errorf("target beyond max_targets = %#v", verdicts[1])
+	}
+}
+
+type advancingDoer struct {
+	inner HTTPDoer
+	clock *time.Time
+	step  time.Duration
+}
+
+func (a *advancingDoer) Do(ctx context.Context, request HTTPRequest) (HTTPResponse, error) {
+	*a.clock = a.clock.Add(a.step)
+	return a.inner.Do(ctx, request)
+}
+
+func TestRunInterfaceChecksStopsCallingNAWhenBudgetSpent(t *testing.T) {
+	httpClient := &fakeHTTPDoer{responses: []HTTPResponse{
+		{Status: 200, Body: []byte(`{"result":` + jsonString(syntheticNACBlock) + `}`)},
+		{Status: 200, Body: []byte(`{"result":` + jsonString(syntheticNACBlock) + `}`)},
+		{Status: 200, Body: []byte(`{"result":` + jsonString(syntheticNACBlock) + `}`)},
+	}}
+	clock := time.Unix(1_790_000_000, 0)
+	collector := &Collector{
+		HTTP:  &advancingDoer{inner: httpClient, clock: &clock, step: 45 * time.Second},
+		Now:   func() time.Time { return clock },
+		Sleep: sleepWithContext,
+	}
+	checkCfg := mustCheckConfig(t, `{"run_budget_seconds":60,"checks":[{"name":"nac","patterns":["authentication port-control auto"]}]}`)
+	var items []map[string]any
+	for i := 1; i <= 4; i++ {
+		items = append(items, map[string]any{
+			"uid":                    fmt.Sprintf("sr:00000000-0000-4000-8000-00000000000%d", i),
+			"switch_port_attachment": fmt.Sprintf("switch01.example.com:gi1/0/%d", i),
+		})
+	}
+	verdicts, err := collector.runInterfaceChecks(context.Background(), mustValidConfig(t), checkCfg, items)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(httpClient.requests) != 2 {
+		t.Fatalf("NA requests = %d, want 2 before the budget is spent", len(httpClient.requests))
+	}
+	if len(verdicts) != 4 {
+		t.Fatalf("verdicts = %d, want one per target", len(verdicts))
+	}
+	for i, verdict := range verdicts {
+		wantSkipped := i >= 2
+		if (verdict.Reason == reasonTargetLimitExceeded) != wantSkipped {
+			t.Errorf("verdict %d = %#v, skipped want %v", i, verdict, wantSkipped)
+		}
+		if wantSkipped && verdict.Status != checkStatusUnknown {
+			t.Errorf("verdict %d status = %s, want unknown", i, verdict.Status)
+		}
+	}
+}
+
+func TestConfigCheckResultSurfacesPartialCoverage(t *testing.T) {
+	const doc = `{"config_check":{"checks":[{"name":"desc","patterns":["x"]}]},
+		"action_invocation":{"target_items":{"entity":"devices","total":5,"truncated":true,"items":[{"uid":"sr:00000000-0000-4000-8000-000000000001"},{"uid":"sr:00000000-0000-4000-8000-000000000002"}]}}}`
+	run, err := parseConfigCheckRun(rawConfig(t, doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	verdicts := []checkVerdict{
+		{DeviceUID: "sr:00000000-0000-4000-8000-000000000001", Check: "desc", Status: checkStatusCompliant},
+		{DeviceUID: "sr:00000000-0000-4000-8000-000000000002", Check: "desc", Status: checkStatusUnknown, Reason: reasonTargetLimitExceeded},
+	}
+	result, err := buildConfigCheckResult(verdicts, run.coverage(), 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(result.Summary, "1 endpoints not checked") || !strings.Contains(result.Summary, "3 endpoints not delivered") {
+		t.Fatalf("summary = %q", result.Summary)
+	}
+	var details struct {
+		Coverage checkCoverage `json:"coverage"`
+	}
+	if err := json.Unmarshal([]byte(result.Details), &details); err != nil {
+		t.Fatal(err)
+	}
+	want := checkCoverage{Delivered: 2, Total: 5, CoreCapped: true, NotDelivered: 3, Skipped: 1}
+	if details.Coverage != want {
+		t.Fatalf("coverage = %#v, want %#v", details.Coverage, want)
 	}
 }
 
