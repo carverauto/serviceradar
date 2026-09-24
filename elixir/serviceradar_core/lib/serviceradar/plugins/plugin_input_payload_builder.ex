@@ -38,21 +38,23 @@ defmodule ServiceRadar.Plugins.PluginInputPayloadBuilder do
     {:error, ["base payload must be an object and resolved inputs must be a list"]}
   end
 
-  @spec normalize_rows(String.t() | atom(), [map()]) :: [map()]
-  def normalize_rows(entity, rows) when is_list(rows) do
+  @spec normalize_rows(String.t() | atom(), [map()], [String.t()]) :: [map()]
+  def normalize_rows(entity, rows, fields \\ [])
+
+  def normalize_rows(entity, rows, fields) when is_list(rows) do
     entity = ValueUtils.normalize_entity(entity)
 
     rows
-    |> Enum.map(&normalize_row(entity, &1))
+    |> Enum.map(&normalize_row(entity, &1, fields))
     |> Enum.reject(&is_nil/1)
     |> Enum.uniq_by(&IdentityUtils.item_identity/1)
   end
 
-  def normalize_rows(_entity, _rows), do: []
+  def normalize_rows(_entity, _rows, _fields), do: []
 
   defp build_input_payloads(base_payload, resolved_input, opts) do
     with {:ok, descriptor, rows} <- extract_input_descriptor(resolved_input) do
-      items = normalize_rows(descriptor.entity, rows)
+      items = normalize_rows(descriptor.entity, rows, Map.get(descriptor, :fields, []))
 
       case items do
         [] ->
@@ -99,21 +101,55 @@ defmodule ServiceRadar.Plugins.PluginInputPayloadBuilder do
         {:error, ["resolved input is missing rows"]}
 
       true ->
-        {:ok, %{name: name, entity: ValueUtils.normalize_entity(entity), query: query}, rows}
+        descriptor = %{name: name, entity: ValueUtils.normalize_entity(entity), query: query}
+
+        case ValueUtils.list_value(input, [:fields, "fields"]) do
+          fields when is_list(fields) and fields != [] ->
+            {:ok, Map.put(descriptor, :fields, fields), rows}
+
+          _ ->
+            {:ok, descriptor, rows}
+        end
     end
   end
 
   defp extract_input_descriptor(_), do: {:error, ["resolved input must be an object"]}
 
-  defp normalize_row(entity, row) when is_map(row) do
+  defp normalize_row(entity, row, fields) when is_map(row) do
     case entity do
-      "devices" -> normalize_device_row(row)
+      "devices" -> row |> normalize_device_row() |> project_fields(row, fields)
       "interfaces" -> normalize_interface_row(row)
       _ -> normalize_generic_row(row)
     end
   end
 
-  defp normalize_row(_entity, _row), do: nil
+  defp normalize_row(_entity, _row, _fields), do: nil
+
+  # Operator-selected fields (validated by SRQLInputResolver.input_fields/2),
+  # copied under "fields" so they never shadow the fixed item keys above.
+  defp project_fields(nil, _row, _fields), do: nil
+  defp project_fields(item, _row, []), do: item
+
+  defp project_fields(item, row, fields) do
+    metadata = ValueUtils.map_value(row, [:metadata, "metadata"], stringify_keys: true) || %{}
+
+    projected =
+      fields
+      |> Enum.map(fn field -> {field, projected_value(row, metadata, field)} end)
+      |> Enum.reject(fn {_field, value} -> is_nil(value) end)
+      |> Map.new()
+
+    if projected == %{}, do: item, else: Map.put(item, "fields", projected)
+  end
+
+  defp projected_value(_row, metadata, "metadata." <> key), do: Map.get(metadata, key)
+
+  defp projected_value(row, _metadata, field) do
+    case Map.fetch(row, field) do
+      {:ok, value} -> value
+      :error -> row |> Map.new(fn {key, value} -> {to_string(key), value} end) |> Map.get(field)
+    end
+  end
 
   defp normalize_device_row(row) do
     uid = ValueUtils.string_value(row, [:uid, "uid", :device_uid, "device_uid", :id, "id"])
