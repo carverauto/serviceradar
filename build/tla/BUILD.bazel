@@ -1,0 +1,17 @@
+load("@rules_java//java:java_binary.bzl", "java_binary")
+load("@rules_java//java:java_import.bzl", "java_import")
+
+package(default_visibility = ["//visibility:public"])
+
+# TLA+ tools, pinned in //MODULE.bazel. See openspec/changes/add-dire-formal-model.
+java_import(
+    name = "tla2tools",
+    jars = ["@tla2tools//file"],
+)
+
+java_binary(
+    name = "tlc",
+    jvm_flags = ["-XX:+UseParallelGC"],
+    main_class = "tlc2.TLC",
+    runtime_deps = [":tla2tools"],
+)
