@@ -169,25 +169,32 @@ no-mistakes gate, in order. All fixtures are synthetic
     latest-by-protocol, compare warning (db_free).
 
 ## 5. MTR jobs in Active Scans (#4577)
-- [ ] 5.1 `NetworksLive.Index.MtrJobs` loader: running and recent
+- [x] 5.1 `NetworksLive.Index.MtrJobs` loader: running and recent
   `mtr.bulk_run` commands, normalized to a shared scan-row shape with sweep
   executions.
-- [ ] 5.2 Components:
-  - an MTR running card (profile, agent, protocols, targets x protocols
-    progress, rate, elapsed)
+- [x] 5.2 Components:
+  - an MTR running card (profile, agent, protocols, started, status,
+    trace progress counted in targets x protocols)
   - an MTR recent row (status, profile, started, duration, completed / failed
-    / timed-out, reached count, link to `/diagnostics/mtr` for the job)
+    / timed-out, reached count reported by the agent, link to
+    `/diagnostics/mtr` filtered by the job's agent)
   - a Sweeps / MTR / All filter
-  - MTR included in the Running badge and statistics cards
-- [ ] 5.3 `Infos`: route `{:command_progress | :command_result, ...}` for
-  `mtr.bulk_run` into MTR rows; the 15 s poll stays as the backstop.
-- [ ] 5.4 Gate MTR rows and the filter on the `networks.sweeps.view`
+  - MTR included in the Running badge; the sweep statistics cards stay
+    sweep-only and hide under the MTR filter
+- [x] 5.3 `Infos`: `{:command_progress | :command_result, ...}` for
+  `mtr.bulk_run` schedule a debounced (1 s) reload of the MTR rows; the 15 s
+  poll stays as the backstop.
+- [x] 5.4 Gate MTR rows and the filter on the `networks.sweeps.view`
   permission.
-- [ ] 5.5 Tests:
-  - loader normalisation
-  - running -> completed transition via PubSub
-  - permission gating
-  - an existing sweep-only render is unchanged
+- [x] 5.5 Tests (db_free):
+  - loader normalisation (running, finished with reached count, manual,
+    legacy single protocol) and status mapping
+  - the Sweeps / MTR / All filter
+  - permission gating, including a forbidden `AgentCommand` read
+  - a zero `reached_targets` renders `0`, distinct from a missing one
+  - sweep sections render unchanged without MTR permission
+  - Go: the reached-target predicate, and a zero `reached_targets` being
+    serialized
 
 ## 6. Verification
 - [ ] 6.1 `make test` (all unit shards) and `make lint` green before each PR.

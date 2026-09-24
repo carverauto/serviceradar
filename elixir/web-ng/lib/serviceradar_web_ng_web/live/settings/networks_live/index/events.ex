@@ -31,6 +31,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Events do
   def handle_event(event, params, socket)
       when event in [
              "switch_tab",
+             "active_scans_filter",
              "toggle_group",
              "delete_group",
              "run_sweep_group",
