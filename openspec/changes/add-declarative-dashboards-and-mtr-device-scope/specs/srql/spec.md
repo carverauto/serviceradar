@@ -1,3 +1,46 @@
+## MODIFIED Requirements
+
+### Requirement: MTR Hops SRQL Entity
+
+The SRQL service SHALL expose `platform.mtr_hops` as the `in:mtr_hops` query entity, supporting time-range filtering, field equality and pattern filters, and `stats:` aggregations grouped by hop address, ASN, ASN organization, hop number, target address, or device identifier.
+
+Supported filter fields: `trace_id` (UUID equality), `addr` (text, supports `%` wildcards), `hostname` (text, supports `%` wildcards), `asn` (integer equality), `asn_org` (text, supports `%` wildcards), `hop_number` (integer equality and range), `target_ip` (text, supports `%` wildcards), `device_id` (text equality).
+
+Supported `stats:` aggregation functions on numeric columns: `avg`, `min`, `max`, `sum`, `count`, and the two-argument aggregates `loss_ratio(<sent>, <received>)` and `wavg(<value>, <weight>)`. Aggregatable columns: `loss_pct`, `avg_us`, `min_us`, `max_us`, `jitter_us`, `sent`, `received`. Supported `by` grouping fields: `addr`, `asn`, `asn_org`, `hop_number`, `target_ip`, `device_id`, and `time:<duration>` (time-bucket grouping; not emitted by the query builder).
+
+Default ordering: `time DESC, id DESC`. Stats queries order by the first aggregated alias descending by default.
+
+#### Scenario: Hop-level loss aggregation by address
+- **WHEN** a client sends `in:mtr_hops time:last_24h stats:loss_ratio(sent, received) as loss by addr sort:loss:desc limit:50`
+- **THEN** SRQL returns rows of `{"addr": "...", "loss": F}` sorted highest loss first
+- **AND** only hops within the last 24 hours are included
+
+#### Scenario: Latency aggregation by ASN
+- **WHEN** a client sends `in:mtr_hops time:last_6h asn:>0 stats:wavg(avg_us, received) as latency by asn sort:latency:desc`
+- **THEN** SRQL returns rows of `{"asn": N, "latency": F}` grouped by ASN number, excluding hops with unresolved ASNs
+
+#### Scenario: Trace-scoped hop listing
+- **WHEN** a client sends `in:mtr_hops trace_id:some-uuid sort:hop_number:asc`
+- **THEN** SRQL returns all hop rows for that trace in hop-number order with full per-hop fields
+
+#### Scenario: Device-scoped hop aggregation
+- **WHEN** a client sends `in:mtr_hops time:last_24h target_ip:192.0.2.10 stats:loss_ratio(sent, received) as loss by addr`
+- **THEN** SRQL returns per-address loss aggregated only over hops from traces targeting that address
+
+#### Scenario: Unsupported filter field is rejected
+- **WHEN** a client sends `in:mtr_hops gateway_id:some-id`
+- **THEN** SRQL returns an `InvalidRequest` error naming the unsupported field
+
+#### Scenario: Time range limits hop rows
+- **WHEN** a client sends `in:mtr_hops time:[2026-01-01T00:00:00Z,2026-01-02T00:00:00Z]`
+- **THEN** only hop rows with `time >= 2026-01-01T00:00:00Z AND time < 2026-01-02T00:00:00Z` are returned
+
+## REMOVED Requirements
+
+### Requirement: MTR Traces Rejects stats Clauses
+
+Removed. `in:mtr_traces` now supports `stats:` aggregation (see "Trace-level aggregation yields reach rate per target" in the ADDED section). The blanket rejection was replaced because hop-level entity (`in:mtr_hops`) could not name a device until this change, making the advice in the old error text ("use `in:mtr_hops`") a dead end.
+
 ## ADDED Requirements
 
 ### Requirement: Hop metrics can be scoped to the devices they were measured against
