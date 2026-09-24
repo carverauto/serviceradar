@@ -234,10 +234,7 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReports do
       visibility: :public,
       status: :active,
       default_time_range: spec.default_time_range,
-      metadata: %{
-        "system_report" => true,
-        "report_kind" => spec.report_kind
-      }
+      metadata: spec.metadata
     }
 
     case AuthoredDashboard

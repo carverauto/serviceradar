@@ -226,7 +226,7 @@ defmodule ServiceRadarWebNG.Dashboards.Definition do
   """
   @spec selects_field?(String.t(), String.t()) :: boolean()
   def selects_field?(query, field) when is_binary(query) and is_binary(field) do
-    String.contains?(query, " as #{field}") or
+    Regex.match?(~r/ as #{Regex.escape(field)}(?!\w)/, query) or
       field in group_dimensions(query) or
       (field == @implicit_bucket_field and String.contains?(query, "by time:"))
   end
