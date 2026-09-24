@@ -17,7 +17,7 @@ Implementation was authorized after this proposal was approved and lands with it
 - Preserve query correctness, process attribution updates, counter semantics, exact window boundaries and visible errors. Build time-bucket aggregates and verify their use and freshness.
 - Provide configurable dataset retention, a hosted default of one year for logs/events/alert history and 90 days for raw flows/metrics, and longer operator-selected retention. Treat the previous 30-day hot-window preference as a cache-sizing hypothesis, not a storage boundary.
 - Require staged backfill, reader parity validation, coverage of every consumer and recovery drills before removing any existing historical storage.
-- **BREAKING, opt-in storage contract:** migrated telemetry is persisted in StarRocks rather than CNPG. Direct PostgreSQL consumers must migrate before their dataset switches. The JetStream-first/single-owner invariant is unchanged; update repository guidance to permit the approved destination change before implementing it.
+- **BREAKING, opt-in storage contract:** migrated telemetry is persisted in StarRocks rather than CNPG. Direct PostgreSQL consumers must migrate before StarRocks is enabled. The JetStream-first/single-owner invariant is unchanged; update repository guidance to permit the approved destination change before implementing it.
 
 ## Impact
 
