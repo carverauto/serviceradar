@@ -17,8 +17,7 @@ defmodule ServiceRadarWebNG.Dashboards.DefinitionTest do
     Map.merge(
       %{
         "title" => "A panel",
-        "srql_query" =>
-          "in:mtr_hops time:last_24h stats:loss_ratio(sent, received) as loss by addr limit:20",
+        "srql_query" => "in:mtr_hops time:last_24h stats:loss_ratio(sent, received) as loss by addr limit:20",
         "visual_type" => "bar",
         "data_binding" => %{"label_field" => "addr", "value_field" => "loss"},
         "layout" => %{"x" => 0, "y" => 0, "w" => 6, "h" => 5},
