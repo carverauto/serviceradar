@@ -1,6 +1,7 @@
 package mtr
 
 import (
+	"bytes"
 	"encoding/binary"
 	"net"
 	"syscall"
@@ -118,5 +119,57 @@ func TestRawTCPFlow_IPv6ReadUsesSockaddrSource(t *testing.T) {
 	got, src, ok := splitRawTCP(seg, from, true)
 	if !ok || len(got) != tcpHeaderMinLen || !src.Equal(net.ParseIP("2001:db8::10")) {
 		t.Fatalf("unexpected IPv6 split: len=%d src=%v ok=%v", len(got), src, ok)
+	}
+}
+
+// Every probe of a raw TCP flow, whichever TTL it is sent at, carries the same
+// addresses and ports; only the sequence number (and the checksum covering it)
+// changes. That is what keeps ECMP from hashing successive TTLs onto different
+// paths.
+func TestRawTCPFlow_EveryProbeSharesTheFlowFiveTuple(t *testing.T) {
+	t.Parallel()
+
+	ipv6Flow := testRawFlow()
+	ipv6Flow.ipv6 = true
+	ipv6Flow.src = net.ParseIP("2001:db8::1")
+	ipv6Flow.dst = net.ParseIP("2001:db8::10")
+
+	for name, flow := range map[string]*rawTCPFlow{"ipv4": testRawFlow(), "ipv6": ipv6Flow} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			var first []byte
+
+			// One probe per TTL, as sendProbes allocates them: TTL n gets the next seq.
+			for ttl := 1; ttl <= 6; ttl++ {
+				seq := MinPort + ttl - 1
+				seg := append([]byte(nil), flow.synSegment(seq)...)
+
+				if got := int(binary.BigEndian.Uint16(seg[0:2])); got != flow.srcPort {
+					t.Fatalf("TTL %d: source port %d, want the reserved %d", ttl, got, flow.srcPort)
+				}
+				if got := int(binary.BigEndian.Uint16(seg[2:4])); got != flow.dstPort {
+					t.Fatalf("TTL %d: destination port %d, want %d", ttl, got, flow.dstPort)
+				}
+				if got := binary.BigEndian.Uint32(seg[4:8]); got != flow.isnBase+uint32(seq) { //nolint:gosec
+					t.Fatalf("TTL %d: sequence %#x, want isn base + %d", ttl, got, seq)
+				}
+				// The checksum only verifies over the flow's own pseudo-header
+				// addresses, so this also pins the source and destination.
+				if got := tcpChecksum(flow.src, flow.dst, seg); got != 0 {
+					t.Fatalf("TTL %d: checksum does not verify for the flow's addresses: %#x", ttl, got)
+				}
+
+				masked := append([]byte(nil), seg...)
+				clear(masked[4:8])
+				clear(masked[16:18])
+
+				if first == nil {
+					first = masked
+				} else if !bytes.Equal(masked, first) {
+					t.Fatalf("TTL %d: SYN differs outside the sequence number:\n got % x\nwant % x", ttl, masked, first)
+				}
+			}
+		})
 	}
 }

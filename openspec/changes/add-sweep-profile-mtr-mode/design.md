@@ -71,7 +71,7 @@ sensibly (`icmp` protocol, 30 hops) when omitted.
 
 ### D5: Settings UI
 The sweep-profile editor LiveView gains an MTR mode toggle beside ICMP/TCP and
-MTR protocol / max-hops inputs, gated by the existing sweep-profile
+MTR protocols / max-hops inputs, gated by the existing sweep-profile
 permissions. No new RBAC.
 
 ## Risks / Trade-offs

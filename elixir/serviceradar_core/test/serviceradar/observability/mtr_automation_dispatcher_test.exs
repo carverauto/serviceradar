@@ -374,6 +374,89 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcherTest do
 
       assert :counters.get(counter, 1) == 1
     end
+
+    # A non-empty listing reaches preferred-agent selection. That step runs before
+    # the cooldown read, so a preference no candidate satisfies is decided without
+    # a database; the successful path continues into the cooldown read and the
+    # dispatch-window write, and is covered through select_agents/4 below.
+    test "checks the policy's preferred agent against a non-empty injected listing" do
+      sessions = [
+        session("agent-a", "default", %{"capabilities" => ["mtr"]}),
+        session("agent-b", "default", %{"capabilities" => ["mtr"]})
+      ]
+
+      policy = %{target_selector: %{"agent_id" => "agent-z"}, baseline_canary_vantages: 0}
+
+      assert {:error, :preferred_agent_unavailable} =
+               MtrAutomationDispatcher.dispatch_for_mode(
+                 dispatch_target_ctx(),
+                 policy,
+                 :baseline,
+                 nil,
+                 session_lister: fn -> sessions end
+               )
+    end
+  end
+
+  describe "select_agents/4" do
+    test "selects the preferred agent from a non-empty listing even when it ranks lower" do
+      sessions = [
+        session("agent-a", "default", %{"capabilities" => ["mtr"], "in_flight" => 0}),
+        session("agent-b", "default", %{"capabilities" => ["mtr"], "in_flight" => 8})
+      ]
+
+      policy = %{target_selector: %{"agent_id" => "agent-b"}, baseline_canary_vantages: 0}
+
+      assert {:ok, ["agent-b"]} =
+               MtrAutomationDispatcher.select_agents(dispatch_target_ctx(), policy, :baseline,
+                 session_lister: fn -> sessions end
+               )
+    end
+
+    test "keeps only the preferred agents that are online" do
+      sessions = [
+        session("agent-a", "default", %{"capabilities" => ["mtr"]}),
+        session("agent-c", "default", %{"capabilities" => ["mtr"]})
+      ]
+
+      policy = %{
+        target_selector: %{"agent_ids" => ["agent-c", "agent-offline"]},
+        baseline_canary_vantages: 0
+      }
+
+      assert {:ok, ["agent-c"]} =
+               MtrAutomationDispatcher.select_agents(dispatch_target_ctx(), policy, :baseline,
+                 session_lister: fn -> sessions end
+               )
+    end
+
+    test "without a preference, ranks only MTR-capable candidates" do
+      sessions = [
+        session("agent-a", "default", %{"capabilities" => ["sweep"]}),
+        session("agent-b", "default", %{"capabilities" => ["mtr"]})
+      ]
+
+      policy = %{target_selector: %{}, baseline_canary_vantages: 0}
+
+      assert {:ok, ["agent-b"]} =
+               MtrAutomationDispatcher.select_agents(dispatch_target_ctx(), policy, :baseline,
+                 session_lister: fn -> sessions end
+               )
+
+      assert {:error, :no_candidates} =
+               MtrAutomationDispatcher.select_agents(dispatch_target_ctx(), policy, :incident,
+                 session_lister: fn -> [hd(sessions)] end
+               )
+    end
+  end
+
+  defp dispatch_target_ctx do
+    %{
+      target: "192.0.2.10",
+      target_ip: "192.0.2.10",
+      partition_id: "default",
+      target_key: "device:sr:00000000-0000-0000-0000-000000000001"
+    }
   end
 
   defp session(agent_id, partition_id, metadata) do

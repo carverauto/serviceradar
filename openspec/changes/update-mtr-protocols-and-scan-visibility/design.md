@@ -235,10 +235,15 @@ for example, "hop 7: 3 sent / 0 replies" versus
 - The reader is injectable (the `:session_lister` opt), matching the
   `AgentCommandBus` test seams.
 - Two changes to the web-ng Queue MTR path:
-  - `MtrRuntime.queue_trace/2` maps dispatcher atoms (`:no_candidate_agents`,
+  - `MtrRuntime.queue_trace/2` maps dispatcher atoms (`:no_candidates`,
     `:cooldown_active`, `:out_of_scope`, ...) to operator-readable strings.
   - It rescues and logs unexpected exceptions and returns `{:error, message}`,
     so a dispatch fault never crashes the device page.
+  - A policy that cannot dispatch still falls back to the first connected agent,
+    because Queue MTR is an operator request. The fallback is logged, and its
+    error carries the policy reason when it fails too. A
+    `{:window_persist_failed, _}` result does not fall back: the policy's
+    commands already went out.
 - An audit task lists every `ProcessRegistry` read reachable from web-ng
   modules and routes any others found through the same RPC-safe helpers.
 

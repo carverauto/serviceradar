@@ -228,19 +228,28 @@ func (f *rawTCPFlow) SendSYN(ttl, seq int) error {
 		return fmt.Errorf("set TCP TTL: %w", err)
 	}
 
-	f.sendBuf = buildTCPSyn(f.sendBuf, f.src, f.dst, f.srcPort, f.dstPort, f.isnBase+uint32(seq)) //nolint:gosec
+	seg := f.synSegment(seq)
 
 	if f.ipv6 {
 		sa := &syscall.SockaddrInet6{}
 		copy(sa.Addr[:], f.dst.To16())
 
-		return syscall.Sendto(f.fd, f.sendBuf, 0, sa)
+		return syscall.Sendto(f.fd, seg, 0, sa)
 	}
 
 	sa := &syscall.SockaddrInet4{}
 	copy(sa.Addr[:], f.dst.To4())
 
-	return syscall.Sendto(f.fd, f.sendBuf, 0, sa)
+	return syscall.Sendto(f.fd, seg, 0, sa)
+}
+
+// synSegment builds the SYN for probe seq into the flow's send buffer. It takes
+// no TTL: the ports and the pseudo-header addresses are the flow's own, so only
+// the sequence number differs between probes, whatever hop they target.
+func (f *rawTCPFlow) synSegment(seq int) []byte {
+	f.sendBuf = buildTCPSyn(f.sendBuf, f.src, f.dst, f.srcPort, f.dstPort, f.isnBase+uint32(seq)) //nolint:gosec
+
+	return f.sendBuf
 }
 
 func (f *rawTCPFlow) Receive(deadline time.Time) (*TCPReply, error) {

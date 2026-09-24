@@ -5,39 +5,81 @@ no-mistakes gate, in order. All fixtures are synthetic
 (`192.0.2.0/24`, `198.51.100.0/24`, `2001:db8::/32`, `host01.example.com`).
 
 ## 1. Web-tier MTR dispatch (#4578)
-- [ ] 1.1 `MtrAutomationDispatcher.candidate_agents/1`: build candidates from
+- [x] 1.1 `MtrAutomationDispatcher.candidate_agents/1`: build candidates from
   `AgentCommandBus.list_online_agents/0` (injectable `:session_lister` opt);
   adapt `session_to_candidate/1` to the session map shape.
-- [ ] 1.2 `MtrRuntime.queue_trace/2`: map dispatcher error atoms to readable
+- [x] 1.2 `MtrRuntime.queue_trace/2`: map dispatcher error atoms to readable
   messages; rescue + log unexpected exceptions and return `{:error, msg}`.
-- [ ] 1.3 Audit `ProcessRegistry` reads reachable from web-ng
+  - Shipped as `queue_trace/3` (collaborators injectable for tests) plus
+    `dispatch_error_message/1`; exits are caught as well as exceptions. A
+    policy that cannot dispatch still falls back to the first connected agent
+    (Queue MTR is an operator request), and its reason is appended to the error
+    when that fallback fails too. `{:window_persist_failed, _}` ends the attempt
+    as queued, so the trace is not dispatched twice. The dispatcher now returns
+    `{:error, :out_of_scope}` for a scope mismatch instead of `{:error, false}`.
+- [x] 1.3 Audit `ProcessRegistry` reads reachable from web-ng
   (`rg -n 'ProcessRegistry\.(select|lookup|find|list|count)'` over core modules
   web-ng calls) and route any found through RPC-safe helpers; record the audit
   result in the PR body.
-- [ ] 1.4 Tests:
+  - Audit (recorded here as well as in the PR body):
+    - Guarded: `GatewayRegistry` and `AgentRegistry` `lookup`/`find_*`/`count`
+      go through `via_registry/3` (local read on members, RPC to a core node
+      otherwise, rescue to a default). `AgentCommandBus` control-session reads
+      check `registry_present?/0` and fall back to `registry_rpc/2`.
+      `RateLimiter.peer_pids/0` and its self-registration cleanup check
+      `Process.whereis/1` first, and `peer_pids/0` rescues `ArgumentError`.
+      `RemoteAccessBrokerRegistry` checks `Process.whereis/1` too.
+    - Fixed: `GatewayRegistry.find_available_gateways/0` read the registry
+      directly. web-ng runs the `:service_checks` Oban queue, where the
+      `PollingSchedule` `:execute` trigger calls `PollOrchestrator`, which
+      reads it. It now uses `via_registry/3`
+      (`test/serviceradar/registry/gateway_registry_registry_absent_test.exs`).
+    - Unguarded, not reachable from web-ng: `DeviceRegistry` `lookup`,
+      `list_devices` and `count`, and `StatefulAlertEngine.lookup_engine/1`.
+      web-ng does not call either module. Their callers are core actors,
+      EventWriter processors and Oban workers on `:maintenance` and
+      `:monitoring`. web-ng runs `:maintenance` only when its limit is raised
+      from the default 0, and never runs `:monitoring`.
+- [x] 1.4 Tests:
   - core: `dispatch_for_mode/5` with the registry absent and an injected
     session list (selects the preferred agent; returns
-    `{:error, :no_candidate_agents}` on an empty list).
+    `{:error, :no_candidates}` on an empty list).
+    - The error atom is `:no_candidates`, not `:no_candidate_agents`. A
+      non-empty listing is covered through `dispatch_for_mode/5` up to
+      preferred-agent selection (`:preferred_agent_unavailable`). The successful
+      selection is covered through `select_agents/4` (public, `@doc false`),
+      because the cooldown read and dispatch-window write after it need the
+      database.
   - web-ng: `run_mtr` with an enabled policy and no registry shows a flash
     message and the LiveView survives.
+    - Covered at `MtrRuntime.queue_trace/3`
+      (`test/phoenix/live/device_live/mtr_runtime_test.exs`, db_free), not by
+      mounting the LiveView, which needs the database. The test uses the real
+      dispatcher and command bus with no registry and asserts the readable
+      message. `run_mtr` puts any `{:error, message}` in the flash.
   - Add rows to `INTEGRATION_SOURCE_DISPOSITIONS.tsv` for new core test files.
 - [ ] 1.5 Verify on the lab deployment (where the crash reproduces): Queue MTR on a device
   page queues a trace; the web-ng logs have no `keys_Elixir.ServiceRadar.ProcessRegistry`
   error after the rollout finished.
 
 ## 2. TCP probing correctness (#4580)
-- [ ] 2.1 `go/pkg/mtr/options.go`: add `TCPPort` (default 443) and
+- [x] 2.1 `go/pkg/mtr/options.go`: add `TCPPort` (default 443) and
   `TCPSynRetries` (default 1, range 0..3); parse `tcp_port` and
   `tcp_syn_retries` in the checker, `mtr.run` and bulk payloads.
-- [ ] 2.2 `socket.go`: build the TCP SYN (options: MSS) and compute the
+- [x] 2.2 `socket.go`: build the TCP SYN (options: MSS) and compute the
   IPv4/IPv6 pseudo-header checksum; add a TCP segment parser that returns
   flags, ports, seq and ack.
-- [ ] 2.3 `socket_linux.go`:
+  - The parser returns ports, ack and flags. A reply is matched by
+    `ack - 1`, so the received seq is not needed.
+- [x] 2.3 `socket_linux.go`:
   - Send the crafted SYN on the raw socket with a controlled TTL/hop limit.
   - Reserve the source port by binding a TCP socket that is never listened on.
   - Add a raw `IPPROTO_TCP` receive socket, filtered to the target and flow.
   - Parse the quoted TCP seq from ICMP/ICMPv6 errors.
-- [ ] 2.4 `tracer.go`:
+  - Shipped in `tcp_flow_raw_linux.go`. One BPF-filtered raw `IPPROTO_TCP`
+    socket both sends and receives. `socket_linux.go` only opens that flow.
+    The quoted seq is parsed in `socket.go` (`parseQuotedTransport`).
+- [x] 2.4 `tracer.go`:
   - Use a stable flow for TCP.
   - Probe key = TCP seq.
   - Match SYN-ACK/RST by `ack - 1`.
@@ -45,13 +87,15 @@ no-mistakes gate, in order. All fixtures are synthetic
     RST.
   - Record the ICMP unreachable code per hop.
   - Return an error when zero probes were sent.
-- [ ] 2.5 `socket_darwin.go`: connect-observe fallback (hold the socket for the
+- [x] 2.5 `socket_darwin.go`: connect-observe fallback (hold the socket for the
   probe timeout, `SO_LINGER 0` close, SYN-ACK = connected, RST = refused).
   Do not advertise `mtr_tcp_syn`.
-- [ ] 2.6 `hop.go` / `TraceResult`: add `probed_hops`, `last_responding_hop`,
+  - Shipped in `tcp_flow_connect.go`, which every platform uses when no raw
+    TCP socket is available. It is not specific to darwin.
+- [x] 2.6 `hop.go` / `TraceResult`: add `probed_hops`, `last_responding_hop`,
   `tcp_port` and `unreachable_code` (omitempty); keep the `total_hops`
   semantics.
-- [ ] 2.7 Go tests (synthetic addresses only):
+- [x] 2.7 Go tests (synthetic addresses only):
   - SYN build + checksum against known vectors.
   - TCP parser: SYN-ACK, RST and RST+ACK.
   - ICMP quote parsing of the TCP seq.
@@ -64,9 +108,17 @@ no-mistakes gate, in order. All fixtures are synthetic
     4. Every send fails: error set.
   - Assert the stable 5-tuple across TTLs.
   - Update `go/pkg/mtr/BUILD.bazel`; `bazel test //go/pkg/mtr:mtr_test //go/pkg/agent:agent_test --config=remote`.
-- [ ] 2.8 Integration test (`//go:build integration`, root): a TCP trace to a
+  - Checksums are pinned to hand-worked RFC 1071 values (IPv4 `0x755c`, IPv6
+    `0x062d`, plus the RFC 1071 section 3 example). `matchProbeResponse` has
+    ICMP, ICMPv6 and UDP cases in `match_probe_test.go`. The 5-tuple is pinned
+    twice: the tracer opens one flow and sends every TTL on it, and the raw
+    flow's SYNs differ only in seq and checksum.
+- [x] 2.8 Integration test (`//go:build integration`, root): a TCP trace to a
   loopback listener reaches in 1 hop via SYN-ACK; a closed port reaches via
   RST.
+  - In `tracer_integration_test.go`. It skips unless run as root and fails on
+    any error after that. `go vet -tags integration` passes, but no CI lane
+    runs it and it has not run as root yet.
 - [x] 2.9 Core ingest: derive `last_responding_hop` and `probed_hops` when the
   agent omits them; migration adds `mtr_traces.last_responding_hop`,
   `probed_hops`, `tcp_port` and `mtr_hops.unreachable_code` (nullable,
@@ -114,6 +166,8 @@ no-mistakes gate, in order. All fixtures are synthetic
   (SYN / SYN-ACK / RST / drop % / retx / ack anomalies / handshake RTT /
   server response), with D5 definitions as tooltips; add per-hop reply-type
   columns to the hop table.
+  - Shipped as a single "Replies" column rendered by
+    `MtrHandshake.reply_summary/1`, not one column per reply type.
 - [x] 3.7 Tests:
   - Go: counters for each outcome.
   - Elixir: ingestor maps every field; null when absent (old agent).
@@ -161,6 +215,9 @@ no-mistakes gate, in order. All fixtures are synthetic
   (`protocol:tcp`), so no separate control was added.
 - [x] 4.10 Update `openspec/changes/add-sweep-profile-mtr-mode/design.md` D4 to
   adopt the protocol set (`mtr_protocols`) instead of a single `mtr_protocol`.
+  - D5 there still said "MTR protocol" (singular) for the UI inputs. That is
+    now "MTR protocols". Its `tasks.md`, `proposal.md` and spec scenario still
+    use the singular.
 - [x] 4.11 Tests:
   - core: payload shape and per-protocol bulk target rows and updates
     (integration), first-protocol fallback for a legacy agent, protocol helpers.
@@ -198,7 +255,7 @@ no-mistakes gate, in order. All fixtures are synthetic
 
 ## 6. Verification
 - [ ] 6.1 `make test` (all unit shards) and `make lint` green before each PR.
-- [ ] 6.2 `openspec validate update-mtr-protocols-and-scan-visibility --strict`.
+- [x] 6.2 `openspec validate update-mtr-protocols-and-scan-visibility --strict`.
 - [ ] 6.3 Build and push images for the branch; roll the demo deployment (and
   the lab deployment for section 1).
 - [ ] 6.4 Demo artefact checks. Only rows written after the rollout finished

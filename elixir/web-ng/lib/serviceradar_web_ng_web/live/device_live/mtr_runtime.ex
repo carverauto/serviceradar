@@ -13,24 +13,117 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrRuntime do
 
   @default_page_size 50
   @max_page_size 200
+  @unexpected_error_message "MTR could not be queued because of an unexpected error"
 
   def get_trace_detail(scope, trace_id, opts \\ []), do: MtrData.get_trace_detail(scope, trace_id, opts)
 
-  def queue_trace(socket, device_ip) do
+  @doc """
+  Queues an ad-hoc MTR trace for the device page's Queue MTR button.
+
+  Returns `{:ok, agent_id}` or `{:error, message}` with an operator-readable
+  message, and never raises: a fault anywhere in policy lookup or dispatch is
+  logged and reported as an error, so it cannot take the device LiveView down.
+
+  The collaborators are injectable for tests (`:list_policies`,
+  `:dispatch_policy`, `:list_agents`, `:dispatch_command`); each defaults to
+  the real function.
+  """
+  @spec queue_trace(Phoenix.LiveView.Socket.t(), String.t() | nil, keyword()) ::
+          {:ok, String.t()} | {:error, String.t()}
+  def queue_trace(socket, device_ip, opts \\ []) do
     with :ok <- validate_device_ip(device_ip) do
+      deps = dispatch_deps(opts)
       target_ctx = build_mtr_target_ctx(socket, device_ip)
 
-      case dispatch_with_automation_policy(target_ctx) do
+      case dispatch_with_automation_policy(target_ctx, deps) do
         {:ok, [agent_id | _]} ->
           {:ok, agent_id}
 
-        {:error, _} ->
-          with {:ok, agent_id} <- first_connected_agent_id() do
-            dispatch_direct_mtr_trace(socket, agent_id, device_ip)
-          end
+        {:error, {:window_persist_failed, _} = reason} ->
+          # The policy's mtr.run commands were accepted; only the cooldown row
+          # failed to save. Dispatching directly now would queue a second trace.
+          Logger.warning("[MtrRuntime] MTR policy dispatched but #{inspect(reason)}")
+          {:ok, "the policy-selected agents"}
+
+        {:error, policy_reason} ->
+          # Queue MTR is an operator request, and an automation policy only picks
+          # the vantage when one applies. A policy that cannot dispatch (none
+          # enabled, out of scope, in cooldown, no candidate online) therefore
+          # still falls back to the first connected agent, as it did before
+          # policies were consulted here.
+          dispatch_directly(socket, device_ip, policy_reason, deps)
       end
     end
+  rescue
+    error ->
+      Logger.error(
+        "[MtrRuntime] Queue MTR raised for #{inspect(device_ip)}: " <>
+          Exception.format(:error, error, __STACKTRACE__)
+      )
+
+      {:error, @unexpected_error_message}
+  catch
+    :exit, reason ->
+      Logger.error("[MtrRuntime] Queue MTR exited for #{inspect(device_ip)}: #{inspect(reason)}")
+      {:error, @unexpected_error_message}
   end
+
+  @doc """
+  Maps an MTR dispatcher or command-bus error reason to an operator-readable
+  message.
+  """
+  @spec dispatch_error_message(term()) :: String.t()
+  def dispatch_error_message(reason)
+
+  def dispatch_error_message(reason) when reason in [:no_enabled_policy, :no_matching_policy],
+    do: "No MTR policy applies to this device"
+
+  def dispatch_error_message(:policy_lookup_failed), do: "MTR policies could not be loaded"
+
+  def dispatch_error_message(:policy_dispatch_failed), do: "The MTR policy dispatch failed unexpectedly"
+
+  def dispatch_error_message(:out_of_scope), do: "The device is outside the MTR policy's scope"
+
+  def dispatch_error_message(:no_candidates), do: "No MTR-capable agent is online in the device's partition"
+
+  def dispatch_error_message(:preferred_agent_unavailable), do: "The MTR policy's preferred agent is not online"
+
+  def dispatch_error_message(:cooldown_active),
+    do: "An automated MTR trace for this device ran recently and is in cooldown"
+
+  def dispatch_error_message(:no_selected_agents), do: "The MTR policy selected no agent"
+
+  def dispatch_error_message(:dispatch_failed), do: "Every agent the MTR policy selected rejected the trace"
+
+  def dispatch_error_message({:window_persist_failed, _reason}),
+    do: "The MTR trace was dispatched, but its cooldown window could not be saved"
+
+  def dispatch_error_message(reason) when reason in [:missing_target, :invalid_target_context],
+    do: "No device IP available for MTR"
+
+  def dispatch_error_message({:agent_busy, :too_many_concurrent_mtr_traces}),
+    do: "Agent is already running the maximum number of concurrent MTR traces"
+
+  def dispatch_error_message(:agent_offline), do: "The agent is offline"
+
+  def dispatch_error_message({:agent_offline, agent_id}), do: "Agent #{agent_id} is offline"
+
+  def dispatch_error_message({:agent_capability_missing, agent_id, capability}),
+    do: "Agent #{agent_id} does not support #{capability}"
+
+  def dispatch_error_message({:agent_partition_mismatch, agent_id, _partition}),
+    do: "Agent #{agent_id} is not in the device's partition"
+
+  def dispatch_error_message({:agent_partition_ambiguous, agent_id}),
+    do: "Agent #{agent_id} is connected in more than one partition"
+
+  def dispatch_error_message(:registry_unavailable), do: "The agent registry is unavailable; try again shortly"
+
+  def dispatch_error_message(:control_session_unavailable), do: "The agent's control session is unavailable"
+
+  def dispatch_error_message({:control_session_exit, _reason}), do: "The agent's control session is unavailable"
+
+  def dispatch_error_message(reason), do: "Failed to run MTR: #{inspect(reason)}"
 
   def refresh_if_relevant(socket, msg, device_ip) when is_map(msg) do
     device_uid = socket.assigns.device_uid
@@ -153,8 +246,43 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrRuntime do
   defp validate_device_ip(device_ip) when is_binary(device_ip) and device_ip != "", do: :ok
   defp validate_device_ip(_), do: {:error, "No device IP available for MTR"}
 
-  defp first_connected_agent_id do
-    case list_connected_agents() do
+  defp dispatch_deps(opts) do
+    %{
+      list_policies: Keyword.get(opts, :list_policies, &MtrPolicy.list_enabled/0),
+      dispatch_policy: Keyword.get(opts, :dispatch_policy, &MtrAutomationDispatcher.dispatch_for_mode/3),
+      list_agents: Keyword.get(opts, :list_agents, &AgentCommandBus.list_online_agents/0),
+      dispatch_command: Keyword.get(opts, :dispatch_command, &AgentCommandBus.dispatch/4)
+    }
+  end
+
+  defp dispatch_directly(socket, device_ip, policy_reason, deps) do
+    maybe_log_policy_fallback(policy_reason)
+
+    result =
+      with {:ok, agent_id} <- first_connected_agent_id(deps) do
+        dispatch_direct_mtr_trace(socket, agent_id, device_ip, deps)
+      end
+
+    case result do
+      {:ok, _agent_id} = ok -> ok
+      {:error, message} -> {:error, with_policy_context(message, policy_reason)}
+    end
+  end
+
+  defp maybe_log_policy_fallback(reason) when reason in [:no_enabled_policy, :no_matching_policy], do: :ok
+
+  defp maybe_log_policy_fallback(reason) do
+    Logger.info("[MtrRuntime] MTR policy did not dispatch (#{inspect(reason)}); dispatching directly")
+  end
+
+  # When the direct fallback fails too, say why the policy did not dispatch as
+  # well, unless no policy applied at all.
+  defp with_policy_context(message, reason) when reason in [:no_enabled_policy, :no_matching_policy], do: message
+
+  defp with_policy_context(message, reason), do: "#{message} (MTR policy: #{dispatch_error_message(reason)})"
+
+  defp first_connected_agent_id(deps) do
+    case list_connected_agents(deps) do
       [first | _] ->
         agent_id = Map.get(first, :agent_id) || Map.get(first, "agent_id")
 
@@ -169,60 +297,73 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrRuntime do
     end
   end
 
-  defp list_connected_agents do
-    AgentCommandBus.list_online_agents()
+  defp list_connected_agents(deps) do
+    deps.list_agents.()
   rescue
     _ -> []
   end
 
-  defp dispatch_direct_mtr_trace(socket, agent_id, device_ip) do
+  defp dispatch_direct_mtr_trace(socket, agent_id, device_ip, deps) do
     payload = %{"target" => device_ip, "protocol" => "icmp"}
     context = %{"device_uid" => socket.assigns.device_uid, "target_ip" => device_ip}
 
-    case AgentCommandBus.dispatch(agent_id, "mtr.run", payload, context: context) do
-      {:ok, _command_id} ->
-        {:ok, agent_id}
-
-      {:error, {:agent_busy, :too_many_concurrent_mtr_traces}} ->
-        {:error, "Agent is already running the maximum number of concurrent MTR traces"}
-
-      {:error, reason} ->
-        {:error, "Failed to run MTR: #{inspect(reason)}"}
+    case deps.dispatch_command.(agent_id, "mtr.run", payload, context: context) do
+      {:ok, _command_id} -> {:ok, agent_id}
+      {:error, reason} -> {:error, dispatch_error_message(reason)}
     end
   end
 
-  defp dispatch_with_automation_policy(target_ctx) do
-    case MtrPolicy.list_enabled() do
+  defp dispatch_with_automation_policy(target_ctx, deps) do
+    case deps.list_policies.() do
       {:ok, policies} when is_list(policies) ->
-        dispatch_with_first_matching_policy(policies, target_ctx)
+        dispatch_with_first_matching_policy(policies, target_ctx, deps, [])
+
+      {:error, reason} ->
+        Logger.warning("[MtrRuntime] Listing enabled MTR policies failed: #{inspect(reason)}")
+        {:error, :policy_lookup_failed}
 
       _ ->
         {:error, :no_enabled_policy}
     end
   end
 
-  defp dispatch_with_first_matching_policy([], _target_ctx), do: {:error, :no_matching_policy}
+  defp dispatch_with_first_matching_policy([], _target_ctx, _deps, reasons), do: {:error, policy_failure_reason(reasons)}
 
-  defp dispatch_with_first_matching_policy([policy | rest], target_ctx) do
+  defp dispatch_with_first_matching_policy([policy | rest], target_ctx, deps, reasons) do
     policy =
       policy
       |> Map.put_new(:baseline_canary_vantages, 0)
       |> Map.put_new("baseline_canary_vantages", 0)
 
-    case dispatch_policy(target_ctx, policy) do
-      {:ok, selected_agents} when is_list(selected_agents) and selected_agents != [] ->
+    case dispatch_policy(target_ctx, policy, deps) do
+      {:ok, [_ | _] = selected_agents} ->
         {:ok, selected_agents}
 
-      _ ->
-        dispatch_with_first_matching_policy(rest, target_ctx)
+      # Commands already went out; trying the next policy would trace again.
+      {:error, {:window_persist_failed, _}} = error ->
+        error
+
+      {:error, reason} ->
+        dispatch_with_first_matching_policy(rest, target_ctx, deps, [reason | reasons])
+
+      _no_agents ->
+        dispatch_with_first_matching_policy(rest, target_ctx, deps, [:no_selected_agents | reasons])
     end
+  end
+
+  # The first policy (in list order) that applied to the device but could not
+  # dispatch explains the outcome better than one whose scope excluded it.
+  defp policy_failure_reason(reasons) do
+    reasons
+    |> Enum.reverse()
+    |> Enum.find(:no_matching_policy, &(&1 != :out_of_scope))
   end
 
   # A policy dispatch that raises must not take the device LiveView down with
   # it; log it and let the caller fall through to the next policy and finally
   # the direct-dispatch path.
-  defp dispatch_policy(target_ctx, policy) do
-    MtrAutomationDispatcher.dispatch_for_mode(target_ctx, policy, :baseline)
+  defp dispatch_policy(target_ctx, policy, deps) do
+    deps.dispatch_policy.(target_ctx, policy, :baseline)
   rescue
     error ->
       Logger.warning(
