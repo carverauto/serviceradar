@@ -196,9 +196,7 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
       true ->
         with {:ok, updated} <-
                package
-               |> Ash.Changeset.for_update(:reimport, Map.drop(attrs, [:addon_id, :version]),
-                 actor: actor
-               )
+               |> Ash.Changeset.for_update(:reimport, Map.drop(attrs, [:addon_id, :version]), actor: actor)
                |> Ash.update(),
              :ok <- ProducerScheduleCatalog.sync_package(updated, actor: actor) do
           {:ok, updated, :repaired}
@@ -534,8 +532,7 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
          source_type: :first_party,
          source_oci_ref: string_value(entry, "oci_ref"),
          source_oci_digest: string_value(entry, "oci_digest"),
-         source_metadata:
-           source_metadata(entry, Keyword.get(opts, :display_contract_errors) || []),
+         source_metadata: source_metadata(entry, Keyword.get(opts, :display_contract_errors) || []),
          source_release_tag: Keyword.get(opts, :release_tag),
          imported_at: DateTime.truncate(now, :second),
          verification_status: "verified",

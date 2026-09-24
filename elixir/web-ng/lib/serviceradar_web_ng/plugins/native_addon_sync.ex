@@ -29,6 +29,8 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
   alias ServiceRadarWebNG.Plugins.AddonFleet
   alias ServiceRadarWebNG.Plugins.NativeAddonImporter
 
+  import Ash.Expr, only: [expr: 1]
+
   require Ash.Query
   require Logger
 
@@ -53,7 +55,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
   def import_or_reuse(addon, opts \\ []) when is_map(addon) do
     case existing_package(addon.addon_id, addon.version, opts) do
       {:ok, nil} ->
-        sync_import(addon, opts)
+        sync_import(addon, opts, nil)
 
       {:ok, %AddonPackage{} = package} ->
         case import_decision(package, addon, opts) do
@@ -68,11 +70,12 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
               addon,
               opts
               |> Keyword.put(:existing_review_status, package.status)
-              |> Keyword.put(:replace_existing, true)
+              |> Keyword.put(:replace_existing, true),
+              package.source_release_tag
             )
 
           :import ->
-            sync_import(addon, opts)
+            sync_import(addon, opts, package.source_release_tag)
 
           {:conflict, reason} ->
             {:error, source_conflict(package, addon, reason)}
@@ -93,8 +96,11 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
   the release's build), `:import` (a first-party row with partial provenance:
   run a plain import and let the core verifier decide — an unclaimed seeder
   placeholder heals, a genuinely mismatched claim still conflicts), or
-  `{:conflict, :source_type_owned}` (the row belongs to another source and must
-  never be overwritten).
+  `{:conflict, reason}`: `:source_type_owned` (the row belongs to another
+  source and must never be overwritten), `:older_release` (the row already
+  comes from a newer release; importing would roll it back), or
+  `:unknown_release_order` (the two release tags cannot be ordered, so the
+  existing release is kept).
 
   Only first-party rows are replaceable. That subsumes the old
   unclaimed-placeholder carve-out (GitHub #4039): a seeder-created row carries
@@ -146,19 +152,26 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
   defp present?(value) when is_binary(value), do: String.trim(value) != ""
   defp present?(_value), do: false
 
-  # Release order is independent of blob identity. Unorderable tags cannot
-  # displace an existing release; a legacy row without a tag can be repaired.
-  defp release_order(nil, incoming) when is_binary(incoming), do: :gt
-  defp release_order(tag, tag) when is_binary(tag), do: :eq
+  @doc """
+  Orders an incoming release tag against the tag an imported row came from.
 
-  defp release_order(existing, incoming) when is_binary(existing) and is_binary(incoming) do
+  Returns `:gt` when the incoming release is newer (or the row is a legacy row
+  without a tag), `:eq` for the same tag, `:lt` when the row already comes from
+  a newer release, and `:unknown` when the tags cannot be ordered. Release order
+  is independent of blob identity: only `:gt` and `:eq` may touch the row.
+  """
+  @spec release_order(String.t() | nil, String.t() | nil) :: :gt | :eq | :lt | :unknown
+  def release_order(nil, incoming) when is_binary(incoming), do: :gt
+  def release_order(tag, tag) when is_binary(tag), do: :eq
+
+  def release_order(existing, incoming) when is_binary(existing) and is_binary(incoming) do
     case AddonFleet.compare_versions(String.trim_leading(incoming, "v"), String.trim_leading(existing, "v")) do
       :incomparable -> :unknown
       order -> order
     end
   end
 
-  defp release_order(_existing, _incoming), do: :unknown
+  def release_order(_existing, _incoming), do: :unknown
 
   defp refresh_release_provenance(package, addon) do
     case release_order(package.source_release_tag, addon.release_tag) do
@@ -173,6 +186,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
           },
           actor: SystemActor.system(:native_addon_sync)
         )
+        |> pin_release_tag(package.source_release_tag)
         |> Ash.update()
 
       :eq ->
@@ -183,6 +197,10 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
         {:error, source_conflict(package, addon, reason)}
     end
   end
+
+  defp pin_release_tag(changeset, nil), do: Ash.Changeset.filter(changeset, expr(is_nil(source_release_tag)))
+
+  defp pin_release_tag(changeset, tag), do: Ash.Changeset.filter(changeset, expr(source_release_tag == ^tag))
 
   @spec summary([map()], [{map(), sync_result()}]) :: map()
   def summary(discovered, results) do
@@ -230,12 +248,17 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
     end
   end
 
-  defp sync_import(addon, opts) do
+  defp sync_import(addon, opts, expected_release_tag) do
+    attrs =
+      addon
+      |> import_attrs()
+      |> Map.put(:expected_source_release_tag, expected_release_tag)
+
     attrs =
       if Keyword.get(opts, :replace_existing, false) do
-        Map.put(import_attrs(addon), :replace_existing, true)
+        Map.put(attrs, :replace_existing, true)
       else
-        import_attrs(addon)
+        attrs
       end
 
     case NativeAddonImporter.import_with_disposition(attrs) do
@@ -314,12 +337,12 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
   capability ceiling. Historical package approvals and other profiles do not
   widen it; any expansion beyond that ceiling stays staged for human review.
   """
-  @spec auto_approve_eligible?([String.t()] | nil, boolean(), MapSet.t()) :: boolean()
-  def auto_approve_eligible?(requested, true, %MapSet{} = ceiling) when is_list(requested) do
+  @spec auto_approve_eligible?([String.t()] | nil, MapSet.t()) :: boolean()
+  def auto_approve_eligible?(requested, %MapSet{} = ceiling) when is_list(requested) do
     MapSet.subset?(MapSet.new(requested), ceiling)
   end
 
-  def auto_approve_eligible?(_requested, _tracking, _ceiling), do: false
+  def auto_approve_eligible?(_requested, _ceiling), do: false
 
   # Fails closed: any lookup error means "do not auto-approve". Each profile
   # must independently cover the entire request; never union reviewed scopes.
@@ -336,7 +359,6 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSync do
         Enum.any?(profiles, fn profile ->
           auto_approve_eligible?(
             package.capabilities,
-            true,
             MapSet.new(profile.capability_ceiling || [])
           )
         end)
