@@ -1,3 +1,67 @@
+# ServiceRadar v1.4.73
+
+OpenText NOM checks whether an endpoint's switch interface
+carries the configuration an operator expects, reads configs
+from Network Automation's stored copy, and caches OAuth tokens.
+MTR profiles can trace several protocols at once, MTR scans
+show on the Active Scans tab, and trace depth explains why a
+TCP trace reports more hops than ICMP.
+
+## Whats New
+
+**1.4.73**
+- OpenText NOM interface config checks: a second producer
+  schedule reads the interface configlet from Network
+  Automation for each endpoint selected by an SRQL query. The
+  switch and port come from a configurable device field, and
+  shorthand interface names are expanded. Operator-defined
+  checks (patterns, all or any, regex) are written to device
+  metadata as config_check_<name> and
+  config_check_<name>_detail, which SRQL can query. Endpoints
+  over the target limit or run budget are recorded as unknown
+  with reason target_limit_exceeded. Plugin 0.1.10 (PR #4608).
+- Producer schedules can declare target_input. Core resolves
+  the configured SRQL query at dispatch and sends the
+  projected device fields as target_items. Assignments owned
+  by different credential rules now coexist on one agent
+  (PR #4608).
+- OpenText NOM config retrieve reads the stored, masked config
+  (list config, then show config -mask) instead of running a
+  command on the device. The agent caches plugin OAuth tokens
+  and gives the token exchange its own timeout budget
+  (PR #4602).
+- MTR: a profile takes an ordered protocol set such as
+  ICMP+TCP, and baseline traces run once per protocol.
+  Incident and recovery dispatch use the first protocol, as
+  do agents that do not advertise mtr_protocol_set
+  (PR #4592, issue #4579).
+- MTR scans appear on the settings Active Scans tab with an
+  All/Sweeps/MTR filter. The agent reports reached_targets on
+  bulk jobs (PR #4601, issue #4577).
+- MTR traces record probed depth, last responding hop, TCP
+  port and per-hop unreachable codes. The trace, device and
+  compare views label depth as reached or last reply of
+  probed (PR #4606, issue #4580).
+- DIRE: TLA+ models of identity resolution and lifecycle run
+  as tests. No production behavior changes (PR #4607).
+- Test fixtures and specs that held values captured from a
+  live system were regenerated with synthetic ones (PR #4605).
+
+## Upgrade Notes
+
+- Two migrations: 20260924100000 (MTR policy protocol sets)
+  and 20260924120000 (MTR trace depth columns). Helm
+  core.migrations.expectedVersion is 20260924120000.
+- The MTR protocol-set migration drops the legacy unique
+  index on the policy protocol; rolling it back does not
+  restore that index.
+- OpenText NOM plugin 0.1.10: import and approve it to get the
+  interface check. The check runs only after a credential rule
+  is created with the opentext-nom-config-check profile. The
+  default request timeout is 120 seconds.
+- Agents running an older release do not cache plugin OAuth
+  tokens and trace only the first protocol of a set.
+
 # ServiceRadar v1.4.72
 
 OpenText NOM can retrieve a device running-config. Crafted-SYN
