@@ -1,3 +1,47 @@
+# ServiceRadar v1.4.72
+
+OpenText NOM can retrieve a device running-config. Crafted-SYN
+MTR traces measure the TCP handshake at the destination. Native
+add-on auto-approval stays inside the profile's capability
+ceiling, and an older import leaves a newer release's provenance
+in place.
+
+## Whats New
+
+**1.4.72**
+- OpenText NOM: the plugin retrieves a device's running
+  configuration and delivers it as a staged artifact. The
+  action requires a device identity. Core loads a plugin
+  result handler before accepting its payload, so a handler
+  that is configured but not loaded returns an error
+  (PR #4530).
+- MTR: a crafted-SYN TCP trace measures the handshake at the
+  destination after the path probe. The trace records
+  attempts, SYNs sent, SYN-ACKs, RSTs, and retransmits.
+  Each unanswered attempt is retried, default once and at
+  most three times. Traces that fall back to connect() do
+  not run this phase (PR #4595, issue #4581).
+- Add-ons: an enabled track_latest_approved profile approves
+  an import when that profile's capability ceiling covers
+  the request. A past approval with a wider capability set
+  does not widen the profile, and a capability expansion
+  stays staged. Importing the same content from an older
+  release leaves the newer provenance unchanged (PR #4593).
+
+## Upgrade Notes
+
+- Crafted-SYN TCP traces send a destination handshake after
+  the path probe: one burst per hop budget, with a single
+  retry of each unanswered SYN by default. Connect-fallback
+  traces are unchanged.
+- An add-on import that used to auto-approve from a historical
+  approval wider than the profile ceiling now stays staged
+  until the profile's ceiling covers it. An older release of
+  identical content does not overwrite a newer row.
+- OpenText NOM config.retrieve calls need a device identity.
+  A plugin result handler that fails to load is reported as
+  an error instead of accepting the payload.
+
 # ServiceRadar v1.4.71
 
 MTR profiles trace every device in scope unless a limit is set,
