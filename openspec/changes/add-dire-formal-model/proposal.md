@@ -37,7 +37,7 @@ without proof effort.
 - Encode each known defect as a switch in a `Bugs` constant, and check three kinds of TLC
   configuration: `current` (every known defect on; must-pass invariants hold), one
   `witness_<bug>` per defect (only that defect on; TLC MUST find the named violation), and
-  `fixed` (no defects; every invariant holds, which checks the intended design before anyone
+  `goal` (no defects; every invariant holds, which checks the intended design before anyone
   writes a fix).
 - Add hermetic TLC to the Bazel build: a pinned `tla2tools.jar`, the `rules_java` remote JDK,
   a `:tlc` binary, and a `tlc_test` macro whose `expect` is `pass` or `violation:<Property>`.

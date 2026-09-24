@@ -86,22 +86,39 @@ without doing both is a defect.
 
 ## Formal model mapping
 
-Each requirement is enforced by properties in `add-dire-formal-model`:
+`add-dire-formal-model` enforces each requirement with properties in two specs:
+`DireResolution.tla` (identity resolution against physical ground truth, with DHCP churn) and
+`DireLifecycle.tla` (merge, tombstone, revival, purge, the fence).
 
-| Requirement | Model property |
+| Requirement | Property (spec) |
 |---|---|
-| Address Is Evidence, Not Identity | `ChurnNeverMerges`, `ChurnNeverCreates`, `SightingAttaches` |
-| Source-Authoritative Identifiers Govern Identity | `DistinctSourceIdsNeverMerge` |
-| One Live Owner Per Strong Identifier | `OneLiveOwner` |
-| Interface Identifiers Belong To Their Device | `InterfacesResolveToDevice` |
-| Randomized MACs Are Evidence Only | `EvidenceNeverMerges` |
-| Duplicates Converge And Stay Converged | `NoZombieRevival`, `NoPurgedResurrection`, `MergedRedirectsSomewhere`, `MergeGraphAcyclic`, `NoStaleRedirect`, `UnmergeRestoresExactly` |
-| Identity Decisions Are Never Silent | `OverridesAreRecorded` |
-| Restore Soft-Deleted Devices (MODIFIED) | `RevivalBumpsRevision` |
+| Address Is Evidence, Not Identity | `NoFalseMerge` (resolution) |
+| Source-Authoritative Identifiers Govern Identity | `DistinctSourceIdsNeverMerge` (resolution) |
+| One Live Owner Per Strong Identifier | `TypeOK`: `owner` is a function (both) |
+| Interface Identifiers Belong To Their Device | `EvidenceConverges` (resolution, router environment) |
+| Randomized MACs Are Evidence Only | `NoFalseMerge` (resolution, phones environment) |
+| Duplicates Converge And Stay Converged | `EvidenceConverges` (resolution); `NoZombieRevival`, `NoPurgedResurrection`, `MergedRedirectsSomewhere`, `MergeGraphAcyclic`, `NoStaleRedirect`, `UnmergeRestoresExactly` (lifecycle) |
+| Identity Decisions Are Never Silent | `NoSilentDecision` (resolution) |
+| Restore Soft-Deleted Devices (MODIFIED) | `RevivalBumpsRevision`, `NoZombieRevival` (lifecycle) |
+
+## Findings the model established
+
+- A globally-unique MAC must be able to merge. `MergePolicy` rejects every MAC-only match set,
+  so a router's per-interface records never converge (`mac_only_conflicts_blocked`). The
+  earlier open question is answered: this is a real gap.
+- When Armis reports no MACs, an Armis record and a discovered record of the same device share
+  no identifier. Only their address links them, and under these requirements an address cannot
+  merge two identified records. That pair belongs in a de-duplication task (#4604).
 
 ## Open questions
 
-- Convergence requires two records sharing a globally-unique MAC to merge. Today
-  `MergePolicy` rejects every MAC-only match set, global MACs included. In a MAC-only
-  environment, that may leave such duplicates unmerged until the scheduled backfill's
-  hardware-sibling path reaches them. The formal model decides whether this is a real gap.
+- A MAC reported by two devices with different source-authoritative identifiers (cloned VMs, a
+  swapped NIC) is ambiguous. Prior art (blocked values, IRE de-duplication) suggests
+  quarantining it as evidence and opening a task. The model's shared-MAC environment
+  restricts observers to Armis until that is decided.
+- A sweep that finds no live holder for an address creates a provisional record seeded from the
+  address (`SweepResultsIngestor.create_available_unknown_devices/5`). When an identified device
+  later resolves at that address, the provisional record is not absorbed into it: it loses the
+  address and stays live and orphaned until expiry (#4603). Whether an identified device
+  should absorb a provisional address-only record at its address (recorded, since DHCP makes
+  the pairing uncertain) is undecided.

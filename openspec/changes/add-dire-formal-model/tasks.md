@@ -15,14 +15,15 @@
 
 ## 2. DIRE model (PR 2)
 
-- [ ] 2.1 `formal/dire/DireLifecycle.tla`: state, actions citing their Elixir functions,
+- [x] 2.1 `formal/dire/DireLifecycle.tla`: state, actions citing their Elixir functions,
       invariants and action properties per design D4.
-- [ ] 2.2 `current.cfg`, `fixed.cfg`, one `witness_<switch>.cfg` per D2 switch.
-- [ ] 2.3 For each must-pass invariant, show once that a deliberately broken model variant
+- [x] 2.2 `goal`, `current`, `vacuity` and one `witness_<switch>` configuration per switch
+      (resolution and lifecycle models).
+- [x] 2.3 For each must-pass invariant, show once that a deliberately broken model variant
       violates it; record the result in the PR description, not the tree.
-- [ ] 2.4 Check each unconfirmed candidate from the design's risks section; add a switch and
+- [x] 2.4 Check each unconfirmed candidate from the design's risks section; add a switch and
       witness only for a counterexample confirmed in code.
-- [ ] 2.5 Every configuration finishes within the runtime budget; `make test` green.
+- [x] 2.5 Every configuration finishes within the runtime budget; `make test` green.
 - [ ] 2.6 After merge: file one GitHub issue per switch, citing its witness configuration and
       counterexample.
 
@@ -42,5 +43,5 @@
 
 ## 4. Close-out
 
-- [ ] 4.1 `formal/dire/README.md`: the switch, witness, promote loop.
+- [x] 4.1 `formal/dire/README.md`: the switch, witness, promote loop.
 - [ ] 4.2 Archive this change once all three PRs are merged.
