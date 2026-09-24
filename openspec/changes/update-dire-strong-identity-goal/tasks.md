@@ -28,11 +28,13 @@ configuration. Confirmed defects (`formal/dire/README.md` has code paths and wit
 - [x] 3.1 `sync_alias_merge_unguarded`: the sync alias merge folds the previous holder of a
       DHCP address into the device that leased it; give it the distinct-identity veto.
 - [ ] 3.2 `alias_merge_on_unknown_mac`: `AliasGuard` treats an unknown MAC set as not
-      distinct; an address must never merge two identified records.
+      distinct; an address must never merge two identified records. The real route is agent
+      check-in (`AgentGatewaySync`), confirmed by trace; the mapper never reaches `AliasGuard`.
 - [ ] 3.3 `src_attach_via_mac`: a source-authoritative id attaches through a MAC to a record
       holding a different source-authoritative id.
 - [ ] 3.4 `mac_only_conflicts_blocked`: allow globally-unique MAC evidence to merge; keep
-      randomized MACs excluded.
+      randomized MACs excluded. The conflict arises on agent check-in; a router's per-interface
+      records also stay split because of 3.13.
 - [ ] 3.5 `silent_blocks`: record blocked merges and alias invalidations (#4604).
 - [ ] 3.6 `upsert_revives_merged`: the upsert `on_conflict` must not revive a merged tombstone and
       must bump on any revival.
@@ -43,6 +45,14 @@ configuration. Confirmed defects (`formal/dire/README.md` has code paths and wit
 - [ ] 3.11 `unmerge_restores_matches`: record the source's identifiers at merge time and restore
       exactly those.
 - [ ] 3.12 `purge_forgets_redirect`: resolve purged merged-away uids through `merge_audit`.
+- [ ] 3.13 `mapper_resolves_by_address` (found by trace validation): the mapper attaches a polled
+      device's interface table to whichever record holds the address, or a stale alias of it;
+      after DHCP churn the new device's MACs land on the old device's record and the new device
+      gets no record. Resolve by the reported MACs; the address is evidence only.
+- [ ] 3.14 `stale_holder_keeps_address` (found by trace validation): a fresh source-authoritative
+      write drops its address when a stale record still holds it; the stale record keeps it and
+      address-only sightings attach to the wrong device. The observed device must hold its
+      observed address.
 
 ## 4. Related work
 

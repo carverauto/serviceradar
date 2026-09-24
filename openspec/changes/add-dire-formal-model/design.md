@@ -151,29 +151,47 @@ covered by property tests against the Elixir functions, not by this change.
 
 A model the code can drift away from verifies nothing. Trace validation is the coupling.
 
-- `test/support/dire_trace.ex` records, after each step a test drives, a projection of the
-  identity state: tombstone columns, `identity_revision`, identifier owners, `merge_audit`
-  rows, alias states. Real uids and identifiers are mapped to model constants (`d1`, `i1`,
-  ...) in first-seen order. Each step also records which action was performed.
-- The recorder writes the trace as a generated TLA+ module (a sequence of state records).
-  `TraceCheck.tla` requires each consecutive pair to be one step of `DireLifecycle`'s next
-  state relation, taken by the named action. The test runs `:tlc` from runfiles and fails
-  when the trace is not a behavior of the model. No JSON module or community-modules jar is
-  needed.
-- One witness trace test per switch drives that defect's scenario on the real database and
-  validates against the model with every known switch on, plus one ordinary-lifecycle trace. While the defect exists
-  the trace matches. When someone fixes the code, the trace no longer matches the buggy
-  model, the trace test fails, and the author turns the switch off, which fails the witness
-  config until the invariant is promoted into the must-pass set.
-- A recorder self-test feeds a hand-corrupted trace (a revival without a revision bump under
-  goal rules) and asserts TLC rejects it.
-- These are `:integration` tests on the shared srql-fixtures CNPG, run through the existing
-  sweep, provision_base, migrate_run, provision lanes, test, teardown lifecycle with
-  `TestRunner=local` (RBE executors cannot resolve the fixture host). `:tlc` and the model
-  files join the core integration runtime data. Each new test file gets a DB-backed row in
-  `test/INTEGRATION_SOURCE_DISPOSITIONS.tsv` and in `build/integration_test_dispositions.bzl`.
-- Every trace is synthetic: invented uids, `192.0.2.0/24` addresses, `00:00:5e:00:53:xx`
-  MACs. Nothing is captured from a running deployment.
+- `test/support/dire_trace.ex` (`ServiceRadar.DireTrace`) drives the real ingestion entry
+  points step by step inside a synthetic physical world: `SyncIngestor` for Armis and census,
+  `MapperResultsIngestor` for SNMP discovery, and `AgentGatewaySync` for agent check-ins.
+  After every step it records the full model state:
+  - **Database state:** records, merge redirects, identifier owners, addresses, confirmed
+    aliases, interface-MAC claims.
+  - **Ground truth only the harness knows:** DHCP leases, and which physical device each
+    observation came from. The database cannot record this, because in production nothing
+    knows it.
+  - **Decisions:** the ones the code made (telemetry) and the ones it recorded (persisted
+    rows).
+- Real uids and identifiers map to model names by seed, in first-seen order. Output is
+  deterministic: a second run reproduces every trace byte for byte. Anything the recorder
+  cannot map raises instead of being dropped.
+- **Traces are committed artifacts** (`formal/dire/traces`), following the AGENTS.md pattern
+  for generated files: a committed copy, a check that fails when it is stale, and a rewrite mode.
+  - The integration test compares each freshly recorded trace with its committed copy.
+    `DIRE_TRACE_WRITE=1` rewrites the copy instead.
+  - `//formal/dire` model-checks each committed trace with `DireResolutionTrace.tla`, which
+    pins every variable at every step. A matched trace reaches its last state and violates
+    `TraceIncomplete`.
+  - TLC therefore stays in `make test`; the Elixir integration lanes never run Java.
+  - This replaces the first design, which ran TLC inside the integration test and would have
+    copied a JDK into every lane.
+- **Self-test.** One trace also emits one `__tamper_<var>` variant per model variable, each
+  altering that variable in the final state. TLC must reject every variant.
+- **What the traces corrected.** The first traces showed the resolution model was wrong about
+  three paths:
+  - ARP observations go through the census/sync path and never run the alias merge.
+  - The mapper resolves by address, then by alias, and only then through DIRE.
+  - The real route into `AliasGuard` is agent check-in.
+
+  The model was corrected from the traces and the code, and two new defect switches came out
+  of it.
+- The trace test is an `:integration` test on the shared srql-fixtures CNPG. It is serial,
+  because it uses a global telemetry handler, and has DB-backed rows in
+  `test/INTEGRATION_SOURCE_DISPOSITIONS.tsv` and `build/integration_test_dispositions.bzl`.
+- Lifecycle traces are the next step. A black-box test cannot interleave a merge inside one
+  ingest call, so the fence switch stays model-only until the fence is enforced (#4618).
+- Every trace is synthetic: documentation-range MACs, test-range addresses, generated ids.
+  Nothing is captured from a running deployment.
 
 ### D8. Delivery
 

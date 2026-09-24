@@ -3,6 +3,19 @@ load("//build/tla:tlc.bzl", "tlc_test")
 # DIRE formal models. See README.md, openspec/changes/add-dire-formal-model and
 # openspec/changes/update-dire-strong-identity-goal.
 
+# The committed traces, read by the core integration lanes (INTEGRATION_RUNTIME_DATA) so
+# dire_resolution_trace_test.exs can compare each recorded trace with its golden copy.
+filegroup(
+    name = "traces",
+    srcs = glob([
+        "traces/*.tla",
+        "traces/*.cfg",
+    ]),
+    visibility = ["//elixir/serviceradar_core:__pkg__"],
+)
+
+# ---- Lifecycle model ----
+
 tlc_test(
     name = "lifecycle_current_test",
     size = "medium",
@@ -93,6 +106,8 @@ tlc_test(
     deps = ["DireLifecycle.tla"],
 )
 
+# ---- Resolution model ----
+
 tlc_test(
     name = "resolution_goal_armis_macs_test",
     size = "medium",
@@ -148,6 +163,32 @@ tlc_test(
 )
 
 tlc_test(
+    name = "resolution_goal_agents_test",
+    size = "medium",
+    cfg = "resolution_goal_agents.cfg",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_goal_router_agent_test",
+    size = "medium",
+    cfg = "resolution_goal_router_agent.cfg",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_witness_alias_merge_on_unknown_mac_test",
+    cfg = "resolution_witness_alias_merge_on_unknown_mac.cfg",
+    expect = "violation:NoFalseMerge",
+    spec = "MCDireResolution.tla",
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
     name = "resolution_witness_alias_address_merge_test",
     cfg = "resolution_witness_alias_address_merge.cfg",
     expect = "violation:AddressNeverMerges",
@@ -156,9 +197,9 @@ tlc_test(
 )
 
 tlc_test(
-    name = "resolution_witness_alias_merge_on_unknown_mac_test",
-    cfg = "resolution_witness_alias_merge_on_unknown_mac.cfg",
-    expect = "violation:NoFalseMerge",
+    name = "resolution_witness_src_attach_via_mac_test",
+    cfg = "resolution_witness_src_attach_via_mac.cfg",
+    expect = "violation:DistinctSourceIdsNeverMerge",
     spec = "MCDireResolution.tla",
     deps = ["DireResolution.tla"],
 )
@@ -180,9 +221,17 @@ tlc_test(
 )
 
 tlc_test(
-    name = "resolution_witness_src_attach_via_mac_test",
-    cfg = "resolution_witness_src_attach_via_mac.cfg",
-    expect = "violation:DistinctSourceIdsNeverMerge",
+    name = "resolution_witness_mapper_resolves_by_address_test",
+    cfg = "resolution_witness_mapper_resolves_by_address.cfg",
+    expect = "violation:NoFalseInterfaceClaim",
+    spec = "MCDireResolution.tla",
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_witness_stale_holder_keeps_address_test",
+    cfg = "resolution_witness_stale_holder_keeps_address.cfg",
+    expect = "violation:ObservedAddressHeld",
     spec = "MCDireResolution.tla",
     deps = ["DireResolution.tla"],
 )
@@ -209,4 +258,163 @@ tlc_test(
     expect = "violation:NeverDecides",
     spec = "MCDireResolution.tla",
     deps = ["DireResolution.tla"],
+)
+
+# ---- Traces recorded from the real code (a matched trace reaches its last state) ----
+# A __tamper_<var> variant alters one variable in the final state and must NOT be matched.
+
+tlc_test(
+    name = "trace_agent_alias_unknown_mac_test",
+    cfg = "traces/Trace_agent_alias_unknown_mac.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_agent_alias_unknown_mac.tla",
+    deps = [
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_alias_unknown_mac_test",
+    cfg = "traces/Trace_alias_unknown_mac.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_alias_unknown_mac.tla",
+    deps = [
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_armis_dhcp_test",
+    cfg = "traces/Trace_armis_dhcp.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_armis_dhcp.tla",
+    deps = [
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_armis_dhcp__tamper_act_test",
+    cfg = "traces/Trace_armis_dhcp__tamper_act.cfg",
+    spec = "traces/Trace_armis_dhcp__tamper_act.tla",
+    deps = [
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_armis_dhcp__tamper_alias_test",
+    cfg = "traces/Trace_armis_dhcp__tamper_alias.cfg",
+    spec = "traces/Trace_armis_dhcp__tamper_alias.tla",
+    deps = [
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_armis_dhcp__tamper_created_test",
+    cfg = "traces/Trace_armis_dhcp__tamper_created.cfg",
+    spec = "traces/Trace_armis_dhcp__tamper_created.tla",
+    deps = [
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_armis_dhcp__tamper_ifClaims_test",
+    cfg = "traces/Trace_armis_dhcp__tamper_ifClaims.cfg",
+    spec = "traces/Trace_armis_dhcp__tamper_ifClaims.tla",
+    deps = [
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_armis_dhcp__tamper_into_test",
+    cfg = "traces/Trace_armis_dhcp__tamper_into.cfg",
+    spec = "traces/Trace_armis_dhcp__tamper_into.tla",
+    deps = [
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_armis_dhcp__tamper_ipAt_test",
+    cfg = "traces/Trace_armis_dhcp__tamper_ipAt.cfg",
+    spec = "traces/Trace_armis_dhcp__tamper_ipAt.tla",
+    deps = [
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_armis_dhcp__tamper_owner_test",
+    cfg = "traces/Trace_armis_dhcp__tamper_owner.cfg",
+    spec = "traces/Trace_armis_dhcp__tamper_owner.tla",
+    deps = [
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_armis_dhcp__tamper_phys_test",
+    cfg = "traces/Trace_armis_dhcp__tamper_phys.cfg",
+    spec = "traces/Trace_armis_dhcp__tamper_phys.tla",
+    deps = [
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_armis_dhcp__tamper_recIp_test",
+    cfg = "traces/Trace_armis_dhcp__tamper_recIp.cfg",
+    spec = "traces/Trace_armis_dhcp__tamper_recIp.tla",
+    deps = [
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_mapper_stale_address_test",
+    cfg = "traces/Trace_mapper_stale_address.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_mapper_stale_address.tla",
+    deps = [
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_router_mac_only_test",
+    cfg = "traces/Trace_router_mac_only.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_router_mac_only.tla",
+    deps = [
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_src_attach_shared_mac_test",
+    cfg = "traces/Trace_src_attach_shared_mac.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_src_attach_shared_mac.tla",
+    deps = [
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
 )

@@ -92,10 +92,10 @@ without doing both is a defect.
 
 | Requirement | Property (spec) |
 |---|---|
-| Address Is Evidence, Not Identity | `NoFalseMerge`, `AddressNeverMerges` (resolution) |
+| Address Is Evidence, Not Identity | `NoFalseMerge`, `AddressNeverMerges`, `ObservedAddressHeld` (resolution) |
 | Source-Authoritative Identifiers Govern Identity | `DistinctSourceIdsNeverMerge` (resolution) |
 | One Live Owner Per Strong Identifier | `TypeOK`: `owner` is a function (both) |
-| Interface Identifiers Belong To Their Device | `EvidenceConverges` (resolution, router environment) |
+| Interface Identifiers Belong To Their Device | `EvidenceConverges`, `NoFalseInterfaceClaim` (resolution) |
 | Randomized MACs Are Evidence Only | `NoFalseMerge` (resolution, phones environment) |
 | Duplicates Converge And Stay Converged | `EvidenceConverges` (resolution); `NoZombieRevival`, `NoPurgedResurrection`, `MergedRedirectsSomewhere`, `MergeGraphAcyclic`, `NoStaleRedirect`, `UnmergeRestoresExactly` (lifecycle) |
 | Identity Decisions Are Never Silent | `NoSilentDecision` (resolution) |
