@@ -18,6 +18,8 @@ NoArmis1 == [h \in {"h1"} |-> NoId]
 SharedMac == [x \in {"x1", "x2"} |-> "m1"]
 \* vacuity: nothing is ever merged
 NeverMerged == \A r \in Recs : into[r] = NoRec
+\* vacuity: no identity decision is ever made
+NeverDecides == [][act'.decisions = {}]_vars
 \* vacuity: Armis and discovery never converge on one record
 NeverConverged == ~\E r \in Recs : owner["a1"] = r /\ owner["m1"] = r
 =============================================================================

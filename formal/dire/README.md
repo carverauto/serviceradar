@@ -35,7 +35,11 @@ when its switch is on.
 | `*_goal*` | none | pass | The goal requirements hold for the intended design. |
 | `*_witness_<switch>` | one (or a named pair) | `violation:<Property>` | The defect is still present in the model. |
 | `lifecycle_current` | all lifecycle switches | pass | The lifecycle invariants that hold even for today's code. |
-| `resolution_vacuity_*` | none | `violation:<Never...>` | The goal still merges and converges. A goal model that never merges would pass vacuously. |
+| `resolution_vacuity_*` | none | `violation:<Never...>` | The goal still merges, converges and records decisions. A goal model that never merges, or never decides, would pass vacuously. |
+
+`resolution_vacuity_shared_mac_override` checks `NeverDecides` in the `armis_shared_mac`
+environment: the goal overrides the source-authoritative id's rival record and records that
+decision, so the property must fail.
 
 `MC*.tla` modules hold TLC-only definitions: environments, symmetry, views, vacuity predicates.
 
@@ -96,6 +100,10 @@ Each environment stands for a real situation:
 - Provisional topology sightings. `MergeEngine`'s distinct-MAC veto applies only to them, and
   the resolution model does not create them, so it checks the unguarded path.
 - Alias confirmation thresholds. An alias sighting is either confirmed or not.
+- Absorbing a provisional address-only record into an identified device. The goal never merges
+  on address evidence, so such a record stays separate; whether it should be absorbed, and how
+  that would be recorded, is an open question in
+  `openspec/changes/update-dire-strong-identity-goal/design.md`.
 - Merge policy details beyond identifier classes. Agent-identity guards and the cooldown are
   in the lifecycle model or left nondeterministic.
 

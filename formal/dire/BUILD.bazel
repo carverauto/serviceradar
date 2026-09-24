@@ -202,3 +202,11 @@ tlc_test(
     spec = "MCDireResolution.tla",
     deps = ["DireResolution.tla"],
 )
+
+tlc_test(
+    name = "resolution_vacuity_shared_mac_override_test",
+    cfg = "resolution_vacuity_shared_mac_override.cfg",
+    expect = "violation:NeverDecides",
+    spec = "MCDireResolution.tla",
+    deps = ["DireResolution.tla"],
+)

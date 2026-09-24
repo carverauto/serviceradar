@@ -5,14 +5,14 @@
 **Goal:** Land two TLA+ models that check DIRE against the goal requirements in
 `update-dire-strong-identity-goal`: identity resolution under DHCP churn against physical ground
 truth (`DireResolution.tla`), and the merge/tombstone/revival lifecycle (`DireLifecycle.tla`).
-Every known defect is a switch with a witness configuration, and all 24 configurations run in
+Every known defect is a switch with a witness configuration, and all 25 configurations run in
 `make test`.
 
 **Architecture:** Each model describes the code as it is, action by action, citing the function
 it models; defects are switches in a `Bugs` constant. `goal` configurations (no switches) must
 pass; `witness` configurations (one defect) must report one named violation; `current`
 (lifecycle, every defect) checks what still holds today; `vacuity` configurations prove the goal
-still merges and converges. `MC*.tla` modules hold TLC-only definitions (environments, symmetry,
+still merges, converges and records decisions. `MC*.tla` modules hold TLC-only definitions (environments, symmetry,
 views, vacuity predicates).
 
 **Tech Stack:** TLA+ / TLC 1.7.4 through `//build/tla:tlc.bzl` (PR 1, #4598).
@@ -35,7 +35,7 @@ tasks 2.1-2.2.
 ## What the draft already established
 
 Every file below was run with TLC 1.7.4 on a workstation and judged by the PR 1 driver's
-`judge()` before this plan was written. All 24 configurations produced their expected outcome:
+`judge()` before this plan was written. All 25 configurations produced their expected outcome:
 
 | Configuration | Expected |
 |---|---|
@@ -63,6 +63,7 @@ Every file below was run with TLC 1.7.4 on a workstation and judged by the PR 1 
 | `resolution_witness_src_attach_via_mac` | `violation:DistinctSourceIdsNeverMerge` |
 | `resolution_vacuity_router_merges` | `violation:NeverMerged` |
 | `resolution_vacuity_armis_converges` | `violation:NeverConverged` |
+| `resolution_vacuity_shared_mac_override` | `violation:NeverDecides` |
 
 Slowest runs (single worker): `lifecycle_current` 59 s, `resolution_goal_armis_nomacs` 61 s,
 `lifecycle_goal` 17 s. Those and the other `resolution_goal_*` runs use 8 workers.
@@ -87,7 +88,7 @@ Defects the models establish (each has a witness above):
 ## Review Focus
 
 1. **A model action that does not match its cited function.** Task 1 step 2 compares each action to the source, including the ordering the models depend on (SyncIngestor upserts devices, then identifiers, then runs `Sync.Aliases`).
-2. **A goal configuration passing vacuously.** Pinned by the two `resolution_vacuity_*` tests (committed) and Task 2 (lifecycle invariants broken once each).
+2. **A goal configuration passing vacuously.** Pinned by the three `resolution_vacuity_*` tests (committed) and Task 2 (lifecycle invariants broken once each).
 3. **A `medium` target exceeding its timeout on RBE.** Task 1 step 4 records RBE durations; the fallback lowers a bound in that one `.cfg` and says so in `README.md`, never excludes the target.
 4. **A witness passing on the wrong property.** The PR 1 driver rejects a different property; every witness lists only its named property.
 5. **An environment that does not reflect reality.** Each `MCDireResolution.tla` environment is described in `README.md` with the real situation it stands for; the shared-MAC environment deliberately limits observers to Armis until the quarantine question in the goal design is decided.
@@ -98,7 +99,7 @@ Defects the models establish (each has a witness above):
 
 **Files:**
 - Create: `formal/dire/DireLifecycle.tla`, `MCDireLifecycle.tla`, `DireResolution.tla`, `MCDireResolution.tla`
-- Create: the 24 `.cfg` files below
+- Create: the 25 `.cfg` files below
 - Create: `formal/dire/BUILD.bazel`
 
 **Interfaces:**
@@ -518,11 +519,13 @@ VARIABLES
     recIp,    \* ocsf_devices.ip
     alias,    \* confirmed IP aliases: address -> records
     phys,     \* ghost: physical devices whose identity-bearing observations built the record
-    act       \* the last step's identity decisions, for NoSilentDecision
+    act       \* the last step's identity decisions and the records written for them
 
 vars == <<ipAt, created, into, owner, recIp, alias, phys, act>>
 
-Decisions == {"none", "blocked", "invalidated", "absorbed", "overridden"}
+\* An identity decision is a kind and the records it concerns.
+DecisionKinds == {"policy_block", "source_block", "alias_invalidated", "source_override"}
+Decision == [kind: DecisionKinds, recs: SUBSET Recs]
 
 TypeOK ==
     /\ ipAt \in [Ifaces -> Ips \cup {NoIp}]
@@ -532,7 +535,8 @@ TypeOK ==
     /\ recIp \in [Recs -> Ips \cup {NoIp}]
     /\ alias \in [Ips -> SUBSET Recs]
     /\ phys \in [Recs -> SUBSET Phys]
-    /\ act \in [name: STRING, silent: BOOLEAN, ids: SUBSET Ids]
+    /\ act \in [name: STRING, decisions: SUBSET Decision, recorded: SUBSET Decision,
+                ids: SUBSET Ids]
 
 Live(r) == created[r] /\ into[r] = NoRec
 
@@ -573,14 +577,14 @@ Init ==
     /\ recIp = [r \in Recs |-> NoIp]
     /\ alias = [p \in Ips |-> {}]
     /\ phys = [r \in Recs |-> {}]
-    /\ act = [name |-> "Init", silent |-> FALSE, ids |-> {}]
+    /\ act = [name |-> "Init", decisions |-> {}, recorded |-> {}, ids |-> {}]
 
 \* DHCP: an interface leases a free address or releases its lease.
 Lease(x, p) ==
     /\ p # ipAt[x]
     /\ p = NoIp \/ ~\E y \in Ifaces : ipAt[y] = p
     /\ ipAt' = [ipAt EXCEPT ![x] = p]
-    /\ act' = [name |-> "Lease", silent |-> FALSE, ids |-> {}]
+    /\ act' = [name |-> "Lease", decisions |-> {}, recorded |-> {}, ids |-> {}]
     /\ UNCHANGED <<created, into, owner, recIp, alias, phys>>
 
 \* One observation of physical device h, seen at interface x's address, carrying the
@@ -604,9 +608,6 @@ Resolve(h, x, S, recordAlias, syncAlias, kind) ==
     LET \* --- Step 1: strong-identifier conflict (merge_conflicting_devices/4) ---
         others     == M \ {X}
         conflictOk == others # {} /\ ~SrcConflict(M) /\ PolicyAllows(matched)
-        \* A MergePolicy refusal reaches telemetry only; a source-authority refusal is recorded.
-        conflictSilent == others # {} /\ ~SrcConflict(M) /\ ~PolicyAllows(matched)
-                          /\ Bug("silent_blocks")
         step1Merged == IF conflictOk THEN others ELSE {}
         \* --- Fallback when nothing matched (resolve_fallback_device_id/3) ---
         target ==
@@ -625,7 +626,10 @@ Resolve(h, x, S, recordAlias, syncAlias, kind) ==
                      IF owner[i] \in step1Merged THEN target
                      ELSE IF i \in S /\ owner[i] = NoRec THEN target
                      ELSE owner[i]]
-        \* Goal: alias evidence absorbs only a record holding no identifier at all.
+        \* Goal: address or alias evidence never merges two records; an identified holder of
+        \* the alias has the alias invalidated and an address-only holder is left alone.
+        \* Whether an identified device absorbs a provisional address-only record is an open
+        \* question in openspec/changes/update-dire-strong-identity-goal/design.md.
         \* AliasGuard (Resolver path): merge unless both hold MACs and they are disjoint;
         \* MergeEngine's source-authority guard still blocks disjoint Armis ids.
         \* Sync.Aliases (sync path): merge unless the source-authority guard blocks it; no
@@ -634,7 +638,7 @@ Resolve(h, x, S, recordAlias, syncAlias, kind) ==
             IF syncAlias /\ Bug("sync_alias_merge_unguarded") THEN ~SrcConflictIn(owner1, {y, target})
             ELSE IF ~syncAlias /\ Bug("alias_merge_on_unknown_mac")
             THEN ~DistinctMacs(y, target) /\ ~SrcConflict({y, target})
-            ELSE IdsHeld(y) = {}      \* goal: alias evidence absorbs only an address-only record
+            ELSE FALSE                \* goal: address evidence never merges
         aliasInvalidate(y) ==
             IF syncAlias /\ Bug("sync_alias_merge_unguarded") THEN FALSE
             ELSE IF ~syncAlias /\ Bug("alias_merge_on_unknown_mac") THEN DistinctMacs(y, target)
@@ -644,8 +648,24 @@ Resolve(h, x, S, recordAlias, syncAlias, kind) ==
         aliasRuns   == M # {} \/ syncAlias
         step2Merged == IF aliasRuns THEN {y \in aliasY : aliasMerge(y)} ELSE {}
         step2Inval  == IF aliasRuns THEN {y \in aliasY : aliasInvalidate(y)} ELSE {}
-        step2Silent == step2Inval # {} /\ Bug("silent_blocks")
         merged == step1Merged \cup step2Merged
+        \* Every decision this step makes. A MergePolicy or AliasGuard refusal reaches telemetry
+        \* only under silent_blocks; a source-authority refusal (SourceAuthorityGuard.record_blocked/3)
+        \* and the goal's source-authoritative override are always recorded.
+        ownerGuard == IF syncAlias THEN owner1 ELSE owner
+        srcRefused == {y \in aliasY \ (step2Merged \cup step2Inval) :
+                         aliasRuns /\ SrcConflictIn(ownerGuard, {y, target})}
+        decisions ==
+            (IF others # {} /\ ~conflictOk
+             THEN {[kind |-> IF SrcConflict(M) THEN "source_block" ELSE "policy_block", recs |-> M]}
+             ELSE {})
+            \cup {[kind |-> "alias_invalidated", recs |-> {y, target}] : y \in step2Inval}
+            \cup {[kind |-> "source_block", recs |-> {y, target}] : y \in srcRefused}
+            \cup (IF allM \ M # {}
+                  THEN {[kind |-> "source_override", recs |-> (allM \ M) \cup {target}]}
+                  ELSE {})
+        recorded == {d \in decisions :
+                       d.kind \in {"source_block", "source_override"} \/ ~Bug("silent_blocks")}
     IN
     /\ created' = [r \in Recs |-> created[r] \/ r = target]
     /\ into' = [r \in Recs |-> IF r \in merged THEN target ELSE into[r]]
@@ -662,7 +682,7 @@ Resolve(h, x, S, recordAlias, syncAlias, kind) ==
                    LET kept == (alias[q] \ merged) \ (IF q = p THEN step2Inval ELSE {}) IN
                    (IF alias[q] \cap merged # {} THEN kept \cup {target} ELSE kept)
                    \cup (IF recordAlias /\ q = p THEN {target} ELSE {})]
-    /\ act' = [name |-> kind, silent |-> conflictSilent \/ step2Silent, ids |-> S]
+    /\ act' = [name |-> kind, decisions |-> decisions, recorded |-> recorded, ids |-> S]
     /\ UNCHANGED ipAt
 
 \* Armis sync: the Armis device id, plus the device's MACs when Armis reports them.
@@ -726,7 +746,7 @@ EvidenceConverges ==
        \/ SrcConflictIn(owner', OwnersAfter(act'.ids))]_vars
 
 \* Identity Decisions Are Never Silent.
-NoSilentDecision == [][~act'.silent]_vars
+NoSilentDecision == [][act'.decisions \subseteq act'.recorded]_vars
 
 =============================================================================
 ```
@@ -754,6 +774,8 @@ NoArmis1 == [h \in {"h1"} |-> NoId]
 SharedMac == [x \in {"x1", "x2"} |-> "m1"]
 \* vacuity: nothing is ever merged
 NeverMerged == \A r \in Recs : into[r] = NoRec
+\* vacuity: no identity decision is ever made
+NeverDecides == [][act'.decisions = {}]_vars
 \* vacuity: Armis and discovery never converge on one record
 NeverConverged == ~\E r \in Recs : owner["a1"] = r /\ owner["m1"] = r
 =============================================================================
@@ -1327,6 +1349,30 @@ INVARIANT TypeOK
 INVARIANT NeverConverged
 ```
 
+`formal/dire/resolution_vacuity_shared_mac_override.cfg`:
+
+```
+CONSTANTS
+  NoId = NoId
+  NoIp = NoIp
+  NoRec = NoRec
+  Phys = {"h1", "h2"}
+  Ifaces = {"x1", "x2"}
+  IfPhys <- TwoIfPhys
+  IfMac <- SharedMac
+  SrcOf <- BothArmis
+  ArmisMacs = TRUE
+  SrcIds = {"a1", "a2"}
+  HwIds = {"m1"}
+  LaaIds = {}
+  Ips = {"p1", "p2"}
+  Observers = {"Armis"}
+  Bugs = {}
+SPECIFICATION Spec
+INVARIANT TypeOK
+PROPERTY NeverDecides
+```
+
 - [ ] **Step 4: Write the targets and run on RBE**
 
 `formal/dire/BUILD.bazel`:
@@ -1536,10 +1582,18 @@ tlc_test(
     spec = "MCDireResolution.tla",
     deps = ["DireResolution.tla"],
 )
+
+tlc_test(
+    name = "resolution_vacuity_shared_mac_override_test",
+    cfg = "resolution_vacuity_shared_mac_override.cfg",
+    expect = "violation:NeverDecides",
+    spec = "MCDireResolution.tla",
+    deps = ["DireResolution.tla"],
+)
 ```
 
 Run: `bazel test --config=remote //formal/dire/... --test_output=errors`
-Expected: 24 tests PASS. Record durations of the `medium` targets from
+Expected: 25 tests PASS. Record durations of the `medium` targets from
 `bazel test --config=remote //formal/dire/... --nocache_test_results 2>&1 | grep -E "PASSED|FAILED"`.
 
 - [ ] **Step 5: Commit**
@@ -1600,7 +1654,7 @@ Copy each FAIL line into the PR description under "Invariants can fail".
 ### Task 4: Gates and the no-mistakes pipeline
 
 - [ ] **Step 1:** `bazel test --config=remote //formal/... //build/tla/... //build/contracts/...` -> all PASS.
-- [ ] **Step 2:** `make test` -> exit 0; the 24 `//formal/dire` targets appear as PASSED.
+- [ ] **Step 2:** `make test` -> exit 0; the 25 `//formal/dire` targets appear as PASSED.
 - [ ] **Step 3:** `buildifier -mode=check -lint=warn formal/dire/BUILD.bazel` -> exit 0.
 - [ ] **Step 4:** Hand-check both OpenSpec changes against the strict rules (SHALL/MUST on each
   requirement's first line, a scenario per requirement), since `sfw` and `openspec` are not
