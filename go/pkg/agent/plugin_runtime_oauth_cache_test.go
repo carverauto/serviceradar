@@ -207,3 +207,96 @@ func TestOAuth2TokenExchangeTimeoutFollowsRequestDeadline(t *testing.T) {
 		t.Fatalf("long deadline: timeout = %v, want the remaining request budget", got)
 	}
 }
+
+func TestCredentialBrokerOAuth2ToleratesMalformedExpiresIn(t *testing.T) {
+	for name, expiresIn := range map[string]string{
+		"non-numeric string": `"n/a"`,
+		"empty string":       `""`,
+		"null":               `null`,
+		"object":             `{"seconds":60}`,
+		"negative":           `-5`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newOAuth2CacheHarness(t, expiresIn)
+
+			_, first := h.authorize("long-lived-password")
+			_, second := h.authorize("long-lived-password")
+
+			if first != "Bearer token-1" || second != "Bearer token-2" {
+				t.Fatalf("Authorization first=%q second=%q, want a login per request and no cache", first, second)
+			}
+		})
+	}
+}
+
+func TestCredentialBrokerOAuth2AcceptsNumericStringExpiresIn(t *testing.T) {
+	h := newOAuth2CacheHarness(t, `"1200"`)
+
+	_, first := h.authorize("long-lived-password")
+	_, second := h.authorize("long-lived-password")
+
+	if second != first || h.server.count() != 1 {
+		t.Fatalf("Authorization first=%q second=%q exchanges=%d, want one cached login", first, second, h.server.count())
+	}
+}
+
+type deadlineRecordingResolver struct {
+	remaining time.Duration
+	hasLimit  bool
+}
+
+func (r *deadlineRecordingResolver) ResolveCredentialGrant(
+	ctx context.Context,
+	_ credentialBrokerGrant,
+) (CredentialBrokerMaterial, error) {
+	if deadline, ok := ctx.Deadline(); ok {
+		r.hasLimit = true
+		r.remaining = time.Until(deadline)
+	}
+	return CredentialBrokerMaterial{}, errCredentialBrokerResolverUnavailable
+}
+
+func TestCredentialBrokerInjectionBudgetFloorsAtDefaultTimeout(t *testing.T) {
+	tests := map[string]struct {
+		requestTimeout time.Duration
+		wantAtLeast    time.Duration
+		wantAtMost     time.Duration
+	}{
+		"short plugin timeout gets the floor": {
+			requestTimeout: 5 * time.Second,
+			wantAtLeast:    pluginDefaultHTTPTimeout - time.Second,
+			wantAtMost:     pluginDefaultHTTPTimeout,
+		},
+		"long plugin timeout keeps its budget": {
+			requestTimeout: 2 * time.Minute,
+			wantAtLeast:    2*time.Minute - time.Second,
+			wantAtMost:     2 * time.Minute,
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			resolver := &deadlineRecordingResolver{}
+			manager := NewPluginManager(t.Context(), PluginManagerConfig{CredentialBroker: resolver})
+			t.Cleanup(manager.Stop)
+			exec := newPluginExecution(manager, &pluginAssignment{})
+			grant := &credentialBrokerGrant{
+				GrantID: "grant-1",
+				Inject:  oauth2PasswordBearerTestInject(mustParseURL(t, "https://token.example.test/oauth/token")),
+			}
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "https://inventory.example.test/api/devices", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			_ = exec.applyCredentialBrokerInjectionWithinBudget(t.Context(), req, grant, false, tc.requestTimeout)
+
+			if !resolver.hasLimit || resolver.remaining < tc.wantAtLeast || resolver.remaining > tc.wantAtMost {
+				t.Fatalf("exchange budget = %v (limited=%v), want between %v and %v",
+					resolver.remaining, resolver.hasLimit, tc.wantAtLeast, tc.wantAtMost)
+			}
+			if _, ok := req.Context().Deadline(); ok {
+				t.Fatal("request context carries the exchange deadline; the upstream request would lose budget")
+			}
+		})
+	}
+}

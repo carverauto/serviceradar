@@ -188,10 +188,7 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 		timeout = time.Duration(payload.TimeoutMS) * time.Millisecond
 	}
 
-	reqCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	httpReq, err := http.NewRequestWithContext(reqCtx, method, reqURL.String(), bytes.NewReader(authorizedBody))
+	httpReq, err := http.NewRequestWithContext(ctx, method, reqURL.String(), bytes.NewReader(authorizedBody))
 	if err != nil {
 		return pluginErrInvalid
 	}
@@ -217,12 +214,20 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 	}
 	hostCredentialBound = hostCredentialBound || proxmoxBinding != nil
 
-	// reqCtx carries the plugin's own request timeout, so a slow token endpoint
-	// gets the budget the plugin asked for instead of the 15s default.
-	if err := e.applyCredentialBrokerInjection(reqCtx, httpReq, grant, payload.InsecureSkipVerify); err != nil {
+	if err := e.applyCredentialBrokerInjectionWithinBudget(
+		ctx,
+		httpReq,
+		grant,
+		payload.InsecureSkipVerify,
+		timeout,
+	); err != nil {
 		e.logPluginHostHTTPDenied(err, reqURL, method, pluginHTTPDeniedReasonCredentialPolicy)
 		return pluginErrDenied
 	}
+
+	reqCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	httpReq = httpReq.WithContext(reqCtx)
 
 	httpClient := pluginHTTPClientForBinding(
 		e.manager.httpClient,
@@ -259,6 +264,22 @@ func (e *pluginExecution) hostHTTPRequest(ctx context.Context, mod api.Module, r
 	e.invalidateRejectedOAuth2Token(httpReq, grant, resp.StatusCode)
 
 	return e.writePluginHTTPResponse(mod, resp, payload, method, respPtr, respLen, proxmoxBinding, reqURL)
+}
+
+// applyCredentialBrokerInjectionWithinBudget runs credential injection (which
+// may be a slow OAuth token exchange) on its own deadline, never shorter than
+// the default HTTP timeout, so the upstream request that follows starts with
+// its full timeout instead of what the exchange left over.
+func (e *pluginExecution) applyCredentialBrokerInjectionWithinBudget(
+	ctx context.Context,
+	req *http.Request,
+	grant *credentialBrokerGrant,
+	insecureSkipVerify bool,
+	requestTimeout time.Duration,
+) error {
+	exchangeCtx, cancel := context.WithTimeout(ctx, max(pluginDefaultHTTPTimeout, requestTimeout))
+	defer cancel()
+	return e.applyCredentialBrokerInjection(exchangeCtx, req, grant, insecureSkipVerify)
 }
 
 func (e *pluginExecution) writePluginHTTPResponse(

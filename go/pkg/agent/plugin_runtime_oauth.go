@@ -80,8 +80,20 @@ func oauth2GrantShapeFor(injectType string) (oauth2GrantShape, bool) {
 }
 
 type credentialBrokerOAuth2TokenResponse struct {
-	AccessToken string      `json:"access_token"`
-	ExpiresIn   json.Number `json:"expires_in"`
+	AccessToken string          `json:"access_token"`
+	ExpiresIn   json.RawMessage `json:"expires_in"`
+}
+
+// lifetimeSeconds reads expires_in as a JSON number or numeric string. Anything
+// else is 0, which the token cache treats as "do not cache" rather than a
+// failed login.
+func (r credentialBrokerOAuth2TokenResponse) lifetimeSeconds() int64 {
+	raw := strings.Trim(strings.TrimSpace(string(r.ExpiresIn)), `"`)
+	seconds, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || seconds < 0 {
+		return 0
+	}
+	return seconds
 }
 
 func (e *pluginExecution) applyCredentialBrokerOAuth2Bearer(
@@ -160,8 +172,7 @@ func (e *pluginExecution) applyCredentialBrokerOAuth2Bearer(
 	if token == "" || len(token) > credentialBrokerTokenLimit || strings.ContainsAny(token, "\r\n") {
 		return errCredentialBrokerTokenExchangeFailed
 	}
-	expiresIn, _ := tokenResponse.ExpiresIn.Int64()
-	e.manager.oauth2Tokens.put(cacheKey, token, expiresIn, now)
+	e.manager.oauth2Tokens.put(cacheKey, token, tokenResponse.lifetimeSeconds(), now)
 	req.Header.Set("Authorization", "Bearer "+token)
 	return nil
 }
@@ -245,7 +256,7 @@ func (e *pluginExecution) invalidateRejectedOAuth2Token(
 }
 
 // oauth2TokenExchangeTimeout lets the token exchange use the time left on the
-// plugin request's deadline, never less than the default. Some token endpoints
+// exchange's deadline, never less than the default. Some token endpoints
 // (OpenText NA's IdP) take well over the default to answer.
 func oauth2TokenExchangeTimeout(ctx context.Context) time.Duration {
 	timeout := pluginDefaultHTTPTimeout

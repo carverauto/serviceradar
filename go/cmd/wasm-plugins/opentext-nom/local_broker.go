@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -42,8 +43,20 @@ type localOAuthBroker struct {
 }
 
 type localOAuthTokenResponse struct {
-	AccessToken string      `json:"access_token"`
-	ExpiresIn   json.Number `json:"expires_in"`
+	AccessToken string          `json:"access_token"`
+	ExpiresIn   json.RawMessage `json:"expires_in"`
+}
+
+// lifetimeSeconds reads expires_in as a JSON number or numeric string. Anything
+// else is 0, which cacheToken treats as "do not cache" rather than a failed
+// login.
+func (r localOAuthTokenResponse) lifetimeSeconds() int64 {
+	raw := strings.Trim(strings.TrimSpace(string(r.ExpiresIn)), `"`)
+	seconds, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || seconds < 0 {
+		return 0
+	}
+	return seconds
 }
 
 func newLocalOAuthBroker(
@@ -127,7 +140,7 @@ func (b *localOAuthBroker) Handle(
 	}
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode == http.StatusUnauthorized {
-		b.dropCachedToken()
+		b.dropCachedToken(token)
 	}
 	body, err := io.ReadAll(io.LimitReader(response.Body, int64(sdk.MaxHTTPResponseBytes)+1))
 	if err != nil {
@@ -196,8 +209,7 @@ func (b *localOAuthBroker) exchangeToken(ctx context.Context) ([]byte, error) {
 		clear(token)
 		return nil, b.fail("opentext_nom_local_token_exchange_failed")
 	}
-	expiresIn, _ := tokenResponse.ExpiresIn.Int64()
-	b.cacheToken(token, expiresIn)
+	b.cacheToken(token, tokenResponse.lifetimeSeconds())
 	return token, nil
 }
 
@@ -233,9 +245,15 @@ func (b *localOAuthBroker) cacheToken(token []byte, expiresIn int64) {
 	b.tokenUntil = b.clock().Add(ttl)
 }
 
-func (b *localOAuthBroker) dropCachedToken() {
+// dropCachedToken evicts the cache only if it still holds the token the
+// upstream rejected, so a late 401 cannot discard a token a concurrent request
+// has already refreshed.
+func (b *localOAuthBroker) dropCachedToken(rejected []byte) {
 	b.tokenMu.Lock()
 	defer b.tokenMu.Unlock()
+	if !bytes.Equal(b.token, rejected) {
+		return
+	}
 	clear(b.token)
 	b.token = nil
 	b.tokenUntil = time.Time{}
