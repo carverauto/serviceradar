@@ -807,9 +807,13 @@ fn validate_agg_column(col: &str) -> Result<String> {
         .find(|(name, _)| *name == lower.as_str())
         .map(|(_, sql_name)| sql_name.to_string())
         .ok_or_else(|| {
+            let supported = AGGREGATABLE_COLUMNS
+                .iter()
+                .map(|(n, _)| *n)
+                .collect::<Vec<_>>()
+                .join(", ");
             ServiceError::InvalidRequest(format!(
-                "unsupported column '{col}' for mtr_hops stats; \
-                 supported: loss_pct, avg_us, min_us, max_us, jitter_us, sent, received"
+                "unsupported column '{col}' for mtr_hops stats; supported: {supported}"
             ))
         })
 }
@@ -821,9 +825,9 @@ fn validate_group_field(field: &str) -> Result<&'static str> {
         .find(|&&f| f == lower.as_str())
         .copied()
         .ok_or_else(|| {
+            let supported = GROUP_BY_FIELDS.join(", ");
             ServiceError::InvalidRequest(format!(
-                "unsupported group-by field '{field}' for mtr_hops stats; \
-                 supported: addr, asn, asn_org, hop_number"
+                "unsupported group-by field '{field}' for mtr_hops stats; supported: {supported}"
             ))
         })
 }

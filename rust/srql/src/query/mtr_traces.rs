@@ -521,6 +521,19 @@ mod tests {
     }
 
     #[test]
+    fn trace_stats_text_filter_uses_case_insensitive_matching() {
+        let plan = plan_for(
+            "in:mtr_traces target:%.Example% stats:count() as n by agent_id limit:10",
+        );
+        let (sql, _) =
+            to_sql_and_params(&plan).expect("text-filtered trace stats should translate");
+        assert!(
+            sql.to_lowercase().contains("ilike"),
+            "stats text filter must use ILIKE: {sql}"
+        );
+    }
+
+    #[test]
     fn invalid_boolean_and_unknown_filter_are_rejected() {
         for query in [
             "in:mtr_traces target_reached:maybe",
@@ -865,8 +878,8 @@ fn build_trace_stats_filter(filter: &Filter) -> Result<Option<(String, Vec<Trace
             let op = match filter.op {
                 FilterOp::Eq => "=",
                 FilterOp::NotEq => "<>",
-                FilterOp::Like => "LIKE",
-                FilterOp::NotLike => "NOT LIKE",
+                FilterOp::Like => "ILIKE",
+                FilterOp::NotLike => "NOT ILIKE",
                 _ => {
                     return Err(ServiceError::InvalidRequest(format!(
                         "unsupported operator for '{field}' in mtr_traces stats"
