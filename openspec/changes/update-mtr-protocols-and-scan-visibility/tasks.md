@@ -142,8 +142,10 @@ no-mistakes gate, in order. All fixtures are synthetic
 - [x] 4.4 Agent bulk worker: when `protocols` is present, trace each target
   once per protocol on one worker slot; progress counts (target, protocol)
   units; per-target results carry `protocol`; advertise `mtr_protocol_set`.
-- [x] 4.5 `MtrAutomationDispatcher` and `MtrRuntime`: fan out one `mtr.run`
-  per protocol; one cooldown window per target for the set.
+- [x] 4.5 `MtrAutomationDispatcher` and `MtrRuntime`: baseline fans out one
+  `mtr.run` per protocol; incident and recovery use the first protocol only
+  (consensus keeps one outcome per agent); one cooldown window per target for
+  the set.
 - [x] 4.6 `status_handler` / bulk result ingest: update bulk target rows by
   `(command_id, target, protocol)`.
 - [x] 4.7 Profile form (`settings/mtr_profiles_live`):

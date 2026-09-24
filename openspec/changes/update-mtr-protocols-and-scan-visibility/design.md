@@ -154,9 +154,9 @@ probing described here; the non-Linux connect-observe fallback is D2.
   `min_length: 1`. It is stored in canonical order (icmp, udp, tcp) with
   duplicates removed.
 - **Migration.** Add `baseline_protocols text[] NOT NULL DEFAULT '{icmp}'`, and
-  backfill `ARRAY[baseline_protocol]`. The Ash resource stops writing
-  `baseline_protocol` in this change. The column is dropped in a follow-up
-  after one release.
+  backfill `ARRAY[baseline_protocol]`. The Ash resource keeps
+  `baseline_protocol` mirrored to the first protocol for rollback and legacy
+  callers. The column is dropped in a follow-up after one release.
 - **Port.** `MtrPolicy.tcp_port`: integer 1..65535, default 443.
 - **Bulk path** (`MtrBaselineScheduler` -> `dispatch_bulk_mtr`).
   - The payload gains `"protocols"` and `"tcp_port"`. `"protocol"` stays in the
@@ -183,8 +183,8 @@ probing described here; the non-Linux connect-observe fallback is D2.
 - **Single-target path** (dispatcher baseline, device Queue MTR). Core fans
   out one `mtr.run` per protocol. Incident and recovery captures trace only the
   set's first protocol: they feed the cohort consensus, which keeps one outcome
-  per agent, so several protocols per agent would overwrite each other. The existing single-trace result
-  handling stays unchanged. The agent's concurrent on-demand trace limit rises
+  per agent, so several protocols per agent would overwrite each other. The
+  existing single-trace result handling stays unchanged. The agent's concurrent on-demand trace limit rises
   from 2 to 3 so a full icmp/udp/tcp set for one target is admitted at once.
 - **Cooldown.** One `mtr_dispatch_windows` row still covers the whole set.
   Cooldown is about how often a target is disturbed, not about which
