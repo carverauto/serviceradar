@@ -31,7 +31,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
       was imported or the run failed part-way through.
       --%>
       <div
-        :if={is_binary(@import_status)}
+        :if={is_binary(@import_status) and is_nil(@import_result)}
         class={ui_alert_class(variant: "warning", class: "my-4")}
       >
         <.icon name="hero-exclamation-triangle" class="size-5" />
@@ -42,7 +42,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
       </div>
 
       <!-- Error Display -->
-      <div :if={@csv_errors != []} class={ui_alert_class(variant: "error", class: "my-4")}>
+      <div :if={@csv_errors != [] and is_nil(@import_result)} class={ui_alert_class(variant: "error", class: "my-4")}>
         <.icon name="hero-exclamation-circle" class="size-5" />
         <div>
           <div class="font-semibold">Import Error</div>
@@ -55,7 +55,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
       </div>
 
       <!-- Skipped-row Display -->
-      <div :if={@csv_warnings != []} class={ui_alert_class(variant: "warning", class: "my-4")}>
+      <div :if={@csv_warnings != [] and is_nil(@import_result)} class={ui_alert_class(variant: "warning", class: "my-4")}>
         <.icon name="hero-exclamation-triangle" class="size-5" />
         <div>
           <div class="font-semibold">Skipped Rows</div>
