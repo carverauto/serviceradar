@@ -986,7 +986,12 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
            progress_percent: 25,
            payload: %{
              "target_updates" => [
-               %{"target" => "192.0.2.1", "protocol" => "tcp", "status" => "completed", "attempt_count" => 1}
+               %{
+                 "target" => "192.0.2.1",
+                 "protocol" => "tcp",
+                 "status" => "completed",
+                 "attempt_count" => 1
+               }
              ]
            }
          }}
@@ -1009,14 +1014,17 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       assert statuses == [["icmp", "queued"], ["tcp", "completed"]]
     end
 
-    test "multi-protocol bulk mtr to an agent without protocol-set support runs the first protocol", %{
-      agent_id: agent_id
-    } do
+    test "multi-protocol bulk mtr to an agent without protocol-set support runs the first protocol",
+         %{
+           agent_id: agent_id
+         } do
       {_pid, _metadata} =
         start_control_session(agent_id, self(), %{partition_id: "default", capabilities: ["mtr"]})
 
       assert {:ok, _command_id} =
-               AgentCommandBus.dispatch_bulk_mtr(agent_id, ["192.0.2.1"], protocols: ["udp", "tcp"])
+               AgentCommandBus.dispatch_bulk_mtr(agent_id, ["192.0.2.1"],
+                 protocols: ["udp", "tcp"]
+               )
 
       assert_receive {:send_command, %Monitoring.CommandRequest{} = command, _context}, 1_000
 

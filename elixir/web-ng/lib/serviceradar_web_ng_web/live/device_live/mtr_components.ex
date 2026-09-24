@@ -55,7 +55,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
           phx-value-id={trace["id"]}
           class="flex items-center gap-2 text-sm"
         >
-          <.ui_badge size="sm" variant="ghost">{String.upcase(trace["protocol"] || "icmp")}</.ui_badge>
+          <.ui_badge size="sm" variant="ghost">
+            {String.upcase(trace["protocol"] || "icmp")}
+          </.ui_badge>
           <.ui_badge :if={trace["target_reached"]} size="sm" variant="success">Reached</.ui_badge>
           <.ui_badge :if={!trace["target_reached"]} size="sm" variant="error">Not reached</.ui_badge>
           <span class="font-mono">{trace["total_hops"]} hops</span>

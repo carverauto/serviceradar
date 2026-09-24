@@ -8,11 +8,17 @@ defmodule ServiceRadar.Observability.MtrProtocolSetsTest do
 
   describe "MtrPolicy.protocol_names/1" do
     test "orders a policy's protocol set and drops duplicates" do
-      assert MtrPolicy.protocol_names(%{baseline_protocols: [:tcp, :icmp, :tcp]}) == ["icmp", "tcp"]
+      assert MtrPolicy.protocol_names(%{baseline_protocols: [:tcp, :icmp, :tcp]}) == [
+               "icmp",
+               "tcp"
+             ]
     end
 
     test "falls back to the legacy single protocol, then to icmp" do
-      assert MtrPolicy.protocol_names(%{baseline_protocols: [], baseline_protocol: "UDP"}) == ["udp"]
+      assert MtrPolicy.protocol_names(%{baseline_protocols: [], baseline_protocol: "UDP"}) == [
+               "udp"
+             ]
+
       assert MtrPolicy.protocol_names(%{"baseline_protocol" => "tcp"}) == ["tcp"]
       assert MtrPolicy.protocol_names(%{baseline_protocol: "bogus"}) == ["icmp"]
     end
@@ -51,7 +57,8 @@ defmodule ServiceRadar.Observability.MtrProtocolSetsTest do
                ]
       end
 
-      assert length(MtrAutomationDispatcher.protocol_payloads("192.0.2.10", policy, :baseline)) == 2
+      assert length(MtrAutomationDispatcher.protocol_payloads("192.0.2.10", policy, :baseline)) ==
+               2
     end
   end
 
@@ -71,7 +78,10 @@ defmodule ServiceRadar.Observability.MtrProtocolSetsTest do
     end
 
     test "a single legacy protocol needs no capability" do
-      assert AgentCommandBus.bulk_mtr_protocols("agent-a", protocol: "UDP", protocol_set_supported?: false) ==
+      assert AgentCommandBus.bulk_mtr_protocols("agent-a",
+               protocol: "UDP",
+               protocol_set_supported?: false
+             ) ==
                ["udp"]
     end
   end

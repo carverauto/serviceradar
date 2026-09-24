@@ -11,6 +11,8 @@ defmodule ServiceRadar.Observability.MtrPolicy do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Observability.Changes.SyncBaselineProtocols
+
   postgres do
     table "mtr_policies"
     repo ServiceRadar.Repo
@@ -51,7 +53,7 @@ defmodule ServiceRadar.Observability.MtrPolicy do
         :consensus_min_agents
       ]
 
-      change ServiceRadar.Observability.Changes.SyncBaselineProtocols
+      change SyncBaselineProtocols
     end
 
     update :update do
@@ -74,7 +76,7 @@ defmodule ServiceRadar.Observability.MtrPolicy do
         :consensus_min_agents
       ]
 
-      change ServiceRadar.Observability.Changes.SyncBaselineProtocols
+      change SyncBaselineProtocols
     end
   end
 

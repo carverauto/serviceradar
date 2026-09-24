@@ -27,8 +27,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Protocols do
 
   @doc "Scales a target count by the protocol set size; an unknown count stays unknown."
   @spec scaled_target_count(integer() | nil, integer() | nil) :: integer() | nil
-  def scaled_target_count(count, protocol_count)
-      when is_integer(count) and is_integer(protocol_count) do
+  def scaled_target_count(count, protocol_count) when is_integer(count) and is_integer(protocol_count) do
     count * max(protocol_count, 1)
   end
 

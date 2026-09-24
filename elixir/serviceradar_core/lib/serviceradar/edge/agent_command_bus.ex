@@ -2733,7 +2733,8 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   other session lookups here, so it is safe to call from web nodes.
   """
   @spec agent_capability?(String.t(), String.t()) :: boolean()
-  def agent_capability?(agent_id, capability) when is_binary(agent_id) and is_binary(capability) do
+  def agent_capability?(agent_id, capability)
+      when is_binary(agent_id) and is_binary(capability) do
     agent_id
     |> list_control_session_entries()
     |> Enum.any?(fn

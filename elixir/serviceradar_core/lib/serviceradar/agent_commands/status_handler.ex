@@ -878,7 +878,8 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
           map_get_any(data, [:timestamp, "timestamp"], nil)
 
       %{
-        "check_id" => bulk_check_id(command_id, target, map_get_any(update, ["protocol", :protocol], nil)),
+        "check_id" =>
+          bulk_check_id(command_id, target, map_get_any(update, ["protocol", :protocol], nil)),
         "check_name" => "bulk-mtr",
         "target" => target,
         "available" => map_get_any(trace, ["target_reached", :target_reached], false) == true,

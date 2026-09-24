@@ -923,7 +923,10 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             </label>
             <input type="hidden" name={@form[:baseline_protocols].name <> "[]"} value="" />
             <div class="flex flex-wrap gap-3 pt-2">
-              <label :for={{label, value} <- protocol_options()} class="flex items-center gap-1.5 text-sm">
+              <label
+                :for={{label, value} <- protocol_options()}
+                class="flex items-center gap-1.5 text-sm"
+              >
                 <input
                   type="checkbox"
                   name={@form[:baseline_protocols].name <> "[]"}
@@ -951,7 +954,12 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
             />
             <p class="mt-1 text-xs text-sr-muted">
               An RST from a closed port still counts as reached; a filtered port never does.
-              <a href="https://docs.serviceradar.cloud/docs/mtr-protocols" class="link" target="_blank" rel="noopener">
+              <a
+                href="https://docs.serviceradar.cloud/docs/mtr-protocols"
+                class="link"
+                target="_blank"
+                rel="noopener"
+              >
                 Why protocols differ
               </a>
             </p>
@@ -1880,8 +1888,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
 
   defp parse_float(_value, default, _min, _max), do: default
 
-  defp save_profile_with_protocols(_mode, _profile, %{baseline_protocols: []}, _scope),
-    do: {:error, :no_protocols}
+  defp save_profile_with_protocols(_mode, _profile, %{baseline_protocols: []}, _scope), do: {:error, :no_protocols}
 
   defp save_profile_with_protocols(mode, profile, attrs, scope), do: save_profile(mode, profile, attrs, scope)
 

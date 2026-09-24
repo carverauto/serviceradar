@@ -878,8 +878,11 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     |> MtrPolicy.protocol_names()
     |> protocols_for_mode(mode)
     |> Enum.map(fn
-      "tcp" -> %{"target" => target, "protocol" => "tcp", "tcp_port" => MtrPolicy.tcp_port(policy)}
-      protocol -> %{"target" => target, "protocol" => protocol}
+      "tcp" ->
+        %{"target" => target, "protocol" => "tcp", "tcp_port" => MtrPolicy.tcp_port(policy)}
+
+      protocol ->
+        %{"target" => target, "protocol" => protocol}
     end)
   end
 
