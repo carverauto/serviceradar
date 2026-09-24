@@ -2,10 +2,19 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorker do
   @moduledoc """
   Reaps stale periodic Oban jobs that remain stuck in `executing`.
 
-  Periodic jobs are identified by the cron metadata Oban stores on rows enqueued by
-  `Oban.Plugins.Cron`. Jobs older than the configured stale threshold are transitioned
-  back to `available` or `discarded`, and the cleanup is emitted via telemetry/logs so
-  operators can see which workers and job ids were affected.
+  Periodic jobs are identified by two complementary mechanisms:
+
+  - `Oban.Plugins.Cron` stamps `meta.cron = "true"` on the rows it enqueues, and
+    the query matches that fragment directly.
+  - AshOban triggers enqueue through their own generated scheduler/worker modules
+    with **empty meta**, so their worker names are derived at query time from the
+    AshOban trigger declarations across all configured domains (see
+    `periodic_worker_names/0`). An explicit `@self_scheduled_workers` allowlist
+    covers workers that self-schedule by other means.
+
+  Jobs older than the configured stale threshold are transitioned back to `available`
+  or `discarded`, and the cleanup is emitted via telemetry/logs so operators can see
+  which workers and job ids were affected.
   """
 
   use Oban.Worker,
