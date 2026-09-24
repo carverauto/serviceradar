@@ -25,7 +25,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
       </p>
 
       <!-- Error Display -->
-      <div :if={@csv_errors != [] and is_nil(@import_result)} class={ui_alert_class(variant: "error", class: "my-4")}>
+      <div
+        :if={@csv_errors != [] and is_nil(@import_result)}
+        class={ui_alert_class(variant: "error", class: "my-4")}
+      >
         <.icon name="hero-exclamation-circle" class="size-5" />
         <div>
           <div class="font-semibold">Import Error</div>
@@ -38,7 +41,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
       </div>
 
       <!-- Skipped-row Display -->
-      <div :if={@csv_warnings != [] and is_nil(@import_result)} class={ui_alert_class(variant: "warning", class: "my-4")}>
+      <div
+        :if={@csv_warnings != [] and is_nil(@import_result)}
+        class={ui_alert_class(variant: "warning", class: "my-4")}
+      >
         <.icon name="hero-exclamation-triangle" class="size-5" />
         <div>
           <div class="font-semibold">Skipped Rows</div>
@@ -51,7 +57,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
       </div>
 
       <!-- CSV Format Guide (collapsed when preview is shown or result is present) -->
-      <div :if={is_nil(@csv_preview) and is_nil(@import_result)} class="my-4 p-4 bg-sr-subtle/60 rounded-lg">
+      <div
+        :if={is_nil(@csv_preview) and is_nil(@import_result)}
+        class="my-4 p-4 bg-sr-subtle/60 rounded-lg"
+      >
         <h4 class="font-medium text-sm mb-2">CSV Format</h4>
         <p class="text-xs text-sr-muted mb-3">
           Your CSV file should include the following columns:
@@ -315,7 +324,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
             <.icon name="hero-arrow-up-tray" class="size-4" /> Import {length(@csv_preview)} Device(s)
           <% end %>
         </.ui_button>
-        <.ui_button :if={is_nil(@csv_preview) and is_nil(@import_result)} navigate={~p"/settings/networks"} variant="outline">
+        <.ui_button
+          :if={is_nil(@csv_preview) and is_nil(@import_result)}
+          navigate={~p"/settings/networks"}
+          variant="outline"
+        >
           <.icon name="hero-signal" class="size-4" /> Use Network Discovery
         </.ui_button>
       </div>

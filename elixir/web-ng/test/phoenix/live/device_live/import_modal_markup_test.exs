@@ -59,7 +59,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ImportModalMarkupTest do
   describe "import in progress" do
     test "Import button shows Importing label and is disabled while the task runs" do
       html =
-        render_component(&ImportModal.import_csv_modal/1,
+        render_component(
+          &ImportModal.import_csv_modal/1,
           base_assigns(
             csv_preview: [a_preview_row()],
             importing: true
@@ -76,7 +77,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ImportModalMarkupTest do
       result = finished_result(%{created: 12, updated: 3, failed: 2, skipped: ["Row 5 skipped: missing ip"]})
 
       html =
-        render_component(&ImportModal.import_csv_modal/1,
+        render_component(
+          &ImportModal.import_csv_modal/1,
           base_assigns(import_result: result)
         )
 
@@ -91,7 +93,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ImportModalMarkupTest do
       result = finished_result()
 
       html =
-        render_component(&ImportModal.import_csv_modal/1,
+        render_component(
+          &ImportModal.import_csv_modal/1,
           base_assigns(
             import_result: result,
             csv_errors: ["Some earlier error that must not re-appear"],
@@ -108,7 +111,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ImportModalMarkupTest do
       result = finished_result()
 
       html =
-        render_component(&ImportModal.import_csv_modal/1,
+        render_component(
+          &ImportModal.import_csv_modal/1,
           base_assigns(import_result: result)
         )
 
@@ -120,7 +124,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ImportModalMarkupTest do
   describe "pre-import error alert" do
     test "csv_errors alert renders when import_result is nil and csv_errors is non-empty" do
       html =
-        render_component(&ImportModal.import_csv_modal/1,
+        render_component(
+          &ImportModal.import_csv_modal/1,
           base_assigns(csv_errors: ["No CSV data to import. Preview first."])
         )
 
