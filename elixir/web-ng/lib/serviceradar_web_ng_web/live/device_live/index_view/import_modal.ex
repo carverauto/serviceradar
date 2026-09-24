@@ -8,6 +8,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
   attr(:csv_errors, :list, default: [])
   attr(:csv_warnings, :list, default: [])
   attr(:import_status, :any, default: nil)
+  attr(:importing, :boolean, default: false)
+  attr(:import_result, :any, default: nil)
   attr(:import_partition, :string, default: "default")
   attr(:import_partition_error, :string, default: nil)
   attr(:partition_options, :list, default: [{"Default", "default"}])
@@ -248,8 +250,73 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
         </a>
       </div>
 
+      <!-- Result summary. Shown once the import has finished, and dismissed only
+           explicitly: this is the sole account of what the import did, and the
+           old success path flashed a count and navigated away. -->
+      <div :if={is_map(@import_result)} class="mt-4 space-y-3" role="status" aria-live="polite">
+        <div class="flex flex-wrap items-center gap-2">
+          <h4 class="font-medium text-sm">Import finished</h4>
+          <.ui_badge size="sm" variant={if @import_result.failed > 0, do: "warning", else: "success"}>
+            {import_outcome_label(@import_result)}
+          </.ui_badge>
+        </div>
+
+        <p :if={is_binary(@import_result[:summary])} class="text-sm">
+          {@import_result.summary}
+        </p>
+
+        <div class="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div class="rounded border border-sr-hairline p-2">
+            <div class="text-xs text-sr-muted">Created</div>
+            <div class="text-lg font-semibold">{@import_result.created}</div>
+          </div>
+          <div class="rounded border border-sr-hairline p-2">
+            <div class="text-xs text-sr-muted">Updated</div>
+            <div class="text-lg font-semibold">{@import_result.updated}</div>
+          </div>
+          <div class="rounded border border-sr-hairline p-2">
+            <div class="text-xs text-sr-muted">Failed</div>
+            <div class="text-lg font-semibold">{@import_result.failed}</div>
+          </div>
+          <div class="rounded border border-sr-hairline p-2">
+            <div class="text-xs text-sr-muted">Skipped while reading</div>
+            <div class="text-lg font-semibold">{length(@import_result.skipped)}</div>
+          </div>
+        </div>
+
+        <div :if={@import_result.errors != []}>
+          <h5 class="text-xs font-medium text-sr-muted mb-1">Failures</h5>
+          <ul class="list-disc pl-5 text-sm space-y-0.5">
+            <li :for={error <- @import_result.errors}>{error}</li>
+          </ul>
+        </div>
+
+        <div :if={@import_result.skipped != []}>
+          <h5 class="text-xs font-medium text-sr-muted mb-1">
+            Rows skipped while reading the file
+          </h5>
+          <ul class="list-disc pl-5 text-sm space-y-0.5">
+            <li :for={warning <- @import_result.skipped}>{warning}</li>
+          </ul>
+        </div>
+      </div>
+
       <div class="flex flex-wrap items-center justify-end gap-2 pt-1">
-        <.ui_button type="button" variant="ghost" phx-click="close_import_modal">
+        <.ui_button
+          :if={is_map(@import_result)}
+          type="button"
+          variant="primary"
+          phx-click="dismiss_import_result"
+        >
+          Done
+        </.ui_button>
+        <.ui_button
+          :if={is_nil(@import_result)}
+          type="button"
+          variant="ghost"
+          phx-click="close_import_modal"
+          disabled={@importing}
+        >
           Cancel
         </.ui_button>
         <.ui_button
@@ -257,8 +324,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
           type="button"
           variant="primary"
           phx-click="import_csv"
+          disabled={@importing}
         >
-          <.icon name="hero-arrow-up-tray" class="size-4" /> Import {length(@csv_preview)} Device(s)
+          <%= if @importing do %>
+            <.icon name="hero-arrow-path" class="size-4 animate-spin" /> Importing…
+          <% else %>
+            <.icon name="hero-arrow-up-tray" class="size-4" /> Import {length(@csv_preview)} Device(s)
+          <% end %>
         </.ui_button>
         <.ui_button :if={is_nil(@csv_preview)} navigate={~p"/settings/networks"} variant="outline">
           <.icon name="hero-signal" class="size-4" /> Use Network Discovery
@@ -267,6 +339,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
     </.ui_modal>
     """
   end
+
+  # The badge must not read "success" when rows failed. Counts stay in the tiles;
+  # this is only the one-word verdict beside the heading.
+  defp import_outcome_label(%{failed: failed}) when failed > 0, do: "Completed with errors"
+  defp import_outcome_label(_result), do: "Success"
 
   defp preview_partition(value, _default) when is_binary(value) and value != "", do: value
   defp preview_partition(_value, default), do: default || "default"

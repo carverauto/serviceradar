@@ -81,12 +81,35 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.DeviceManagement do
     end
   end
 
+  # An import takes tens of seconds when rows need DNS resolution. The button is
+  # disabled while it runs, but a guard here is the real protection: without it a
+  # double click (or a client that replays the event) starts a second concurrent
+  # import of the same file.
+  def handle_event("import_csv", _params, %{assigns: %{importing: true}} = socket) do
+    {:noreply, socket}
+  end
+
   def handle_event("import_csv", _params, socket) do
     if RBAC.can?(socket.assigns.current_scope, "devices.import") do
       import_csv_preview(socket)
     else
       {:noreply, put_flash(socket, :error, "You are not authorized to import devices")}
     end
+  end
+
+  def handle_event("dismiss_import_result", _params, socket) do
+    # The summary is the only account of what the import did, so it is dismissed
+    # explicitly rather than on a timer or a navigation. Clearing it is also when
+    # the device list is refreshed, so the operator sees what they just imported.
+    {:noreply,
+     socket
+     |> assign(:import_result, nil)
+     |> assign(:show_import_modal, false)
+     |> assign(:csv_preview, nil)
+     |> assign(:csv_warnings, [])
+     |> assign(:csv_errors, [])
+     |> assign(:import_status, nil)
+     |> push_patch(to: ~p"/devices")}
   end
 
   def handle_event("validate_device", %{"device" => params}, socket) do
@@ -188,6 +211,51 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.DeviceManagement do
     end
   end
 
+  # Called from Index.handle_async/3: start_async dispatches to the LiveView
+  # module, so the callbacks live there and the state transition lives here.
+  #
+  # Turns import_devices/2's existing return shape into a summary the operator can
+  # read, without changing what the importer returns.
+  def apply_import_result(socket, {:ok, {created, updated}}), do: finish_import(socket, created, updated, [])
+
+  def apply_import_result(socket, {:error, %{created: created, updated: updated, errors: errors}}),
+    do: finish_import(socket, created, updated, errors)
+
+  # An unrecognised shape is still a finished import: report it rather than
+  # leaving the modal spinning forever.
+  def apply_import_result(socket, other),
+    do: finish_import(socket, 0, 0, ["Import returned an unexpected result: #{inspect(other)}"])
+
+  def apply_import_failure(socket, reason), do: finish_import(socket, 0, 0, ["Import failed: #{inspect(reason)}"])
+
+  defp finish_import(socket, created, updated, errors) do
+    socket
+    |> assign(:importing, false)
+    |> assign(:csv_preview, nil)
+    |> assign(:csv_errors, errors)
+    |> assign(:import_result, %{
+      created: created,
+      updated: updated,
+      failed: length(errors),
+      errors: errors,
+      # Reuses the existing, directly-tested sentence rather than inventing a
+      # second phrasing of the same fact — but only when something actually
+      # succeeded. import_success_message(0, 0) reads "Created 0 device(s)
+      # successfully", which on a wholly failed import is worse than saying
+      # nothing: the tiles and the failure list already tell that story.
+      summary: success_summary(created, updated),
+      # Verbatim from parse time: each already names its row and reason, and the
+      # list already summarises any overflow beyond the reported cap.
+      skipped: socket.assigns[:import_skipped] || []
+    })
+  end
+
+  defp success_summary(0, 0), do: nil
+
+  defp success_summary(created, updated) do
+    IndexCsvImport.import_success_message(created, updated)
+  end
+
   defp import_csv_preview(socket) do
     case socket.assigns.csv_preview do
       nil ->
@@ -199,28 +267,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.DeviceManagement do
         devices =
           IndexCsvImport.apply_import_partition(devices, socket.assigns.import_partition)
 
-        case IndexCsvImport.import_devices(scope, devices) do
-          {:ok, {created, updated}} ->
-            {:noreply,
-             socket
-             |> assign(:show_import_modal, false)
-             |> assign(:csv_preview, nil)
-             |> assign(:csv_warnings, [])
-             |> assign(:csv_errors, [])
-             |> assign(:import_status, nil)
-             |> put_flash(:info, IndexCsvImport.import_success_message(created, updated))
-             |> push_patch(to: ~p"/devices")}
-
-          {:error, %{created: created, updated: updated, errors: errors}} ->
-            {:noreply,
-             socket
-             |> assign(:csv_preview, nil)
-             |> assign(:csv_errors, errors)
-             |> assign(
-               :import_status,
-               IndexCsvImport.import_partial_message(created, updated, length(errors))
-             )}
-        end
+        # Run it off the callback. Previously this called import_devices/2 inline,
+        # which blocks the LiveView process for the whole import — so it could not
+        # render a pending state even though one was wanted, and the screen was
+        # indistinguishable from a hang.
+        {:noreply,
+         socket
+         |> assign(:importing, true)
+         |> assign(:import_result, nil)
+         |> assign(:csv_errors, [])
+         # The rows dropped while READING the file are reported in the summary, so
+         # hold on to them: the old success path cleared them before anyone could
+         # read them.
+         |> assign(:import_skipped, socket.assigns[:csv_warnings] || [])
+         |> assign(:import_status, nil)
+         |> start_async(:import_devices, fn -> IndexCsvImport.import_devices(scope, devices) end)}
 
       _ ->
         {:noreply, assign(socket, :csv_errors, ["No valid devices in CSV"])}
