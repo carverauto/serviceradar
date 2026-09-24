@@ -71,6 +71,72 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
     refute audit.to_device_id == alias_device.uid
   end
 
+  describe "an address that moved to another device (DHCP churn, #4609)" do
+    # The alias holder owns an identifier of its own, so the shared address is the only thing
+    # linking it to the updated device. DHCP hands addresses to other devices, so that link is
+    # never evidence of sameness: the alias is invalidated and the two records stay separate.
+    # Model: formal/dire DireResolution, switch sync_alias_merge_unguarded.
+    test "an agent update does not merge an alias holder that owns a MAC", %{actor: actor} do
+      ip = unique_test_ip(11)
+      agent_id = "alias-dhcp-agent-#{System.unique_integer([:positive])}"
+
+      {:ok, canonical} = create_device(actor, "leased-now")
+      {:ok, previous_holder} = create_device(actor, "leased-before")
+
+      assert {:ok, _} = register_identifier(actor, canonical.uid, :agent_id, agent_id)
+      assert {:ok, _} = register_identifier(actor, previous_holder.uid, :mac, "00005E005311")
+
+      {:ok, alias_state} = create_alias_state(actor, previous_holder.uid, ip)
+      assert {:ok, _} = DeviceAliasState.confirm(alias_state, actor: actor)
+
+      update = %{
+        "ip" => ip,
+        "hostname" => "leased-now",
+        "source" => "agent",
+        "metadata" => %{"agent_id" => agent_id}
+      }
+
+      assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+
+      assert {:ok, %Device{deleted_at: nil}} =
+               Device.get_by_uid(previous_holder.uid, false, actor: actor)
+
+      assert {:ok, []} = MergeAudit.get_merged_to(previous_holder.uid, actor: actor)
+      assert {:ok, %DeviceAliasState{state: :stale}} = Ash.get(DeviceAliasState, alias_state.id)
+    end
+
+    test "an Armis update does not merge an alias holder that owns a MAC", %{actor: actor} do
+      ip = unique_test_ip(12)
+      armis_id = "#{System.unique_integer([:positive])}"
+
+      {:ok, previous_holder} = create_device(actor, "discovered-before")
+      assert {:ok, _} = register_identifier(actor, previous_holder.uid, :mac, "00005E005312")
+
+      {:ok, alias_state} = create_alias_state(actor, previous_holder.uid, ip)
+      assert {:ok, _} = DeviceAliasState.confirm(alias_state, actor: actor)
+
+      update = %{
+        "ip" => ip,
+        "hostname" => "armis-leased-now",
+        "source" => "armis",
+        # Armis identity travels in the update's metadata (Inventory.Identity.Ids).
+        "metadata" => %{
+          "integration_type" => "armis",
+          "integration_id" => "armis:source-test:device:#{armis_id}",
+          "armis_device_id" => armis_id
+        }
+      }
+
+      assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+
+      assert {:ok, %Device{deleted_at: nil}} =
+               Device.get_by_uid(previous_holder.uid, false, actor: actor)
+
+      assert {:ok, []} = MergeAudit.get_merged_to(previous_holder.uid, actor: actor)
+      assert {:ok, %DeviceAliasState{state: :stale}} = Ash.get(DeviceAliasState, alias_state.id)
+    end
+  end
+
   test "mapper source does not merge alias device by mac-only identifier", %{actor: actor} do
     ip = unique_test_ip(2)
     mac = unique_mac(2)

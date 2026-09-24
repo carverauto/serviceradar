@@ -50,8 +50,8 @@ is evidence only. Each model property maps to one of those requirements.
 
 `CONSTANT Bugs` in each model names the defective branches. An action takes its defective
 branch only when its switch is on. A switch is added only after a TLC counterexample for it has
-been read against the Elixir code. There are 12 switches: 5 in the resolution model and 7 in
-the lifecycle model. `formal/dire/README.md` lists each one with its code path and witness
+been read against the Elixir code. There were 12 switches at first: 5 in the resolution model and 7 in
+the lifecycle model. Fixed defects lose their switch (`formal/dire/README.md` lists them). `formal/dire/README.md` lists each one with its code path and witness
 property.
 
 Four kinds of configuration:

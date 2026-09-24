@@ -52,8 +52,7 @@ either way; the property guards against any change that lets address evidence me
 
 | Switch | Model | Code path | Witness property |
 |---|---|---|---|
-| `sync_alias_merge_unguarded` | resolution | `inventory/sync/aliases.ex` `attempt_alias_merge/5` | `NoFalseMerge`; also `AddressNeverMerges` (`resolution_witness_sync_alias_address_merge`) |
-| `alias_merge_on_unknown_mac` | resolution | `inventory/identity/alias_guard.ex` `maybe_merge_ip_alias_device/3` | `NoFalseMerge` |
+| `alias_merge_on_unknown_mac` | resolution | `inventory/identity/alias_guard.ex` `maybe_merge_ip_alias_device/3` | `NoFalseMerge`; also `AddressNeverMerges` (`resolution_witness_alias_address_merge`) |
 | `src_attach_via_mac` | resolution | `inventory/identity/resolver.ex` `lookup_by_strong_identifiers/3` | `DistinctSourceIdsNeverMerge` |
 | `mac_only_conflicts_blocked` | resolution | `inventory/identity/merge_policy.ex` `mac_only_matches?/1` | `EvidenceConverges` |
 | `silent_blocks` | resolution | MergePolicy and AliasGuard telemetry-only decisions | `NoSilentDecision` |
@@ -66,6 +65,12 @@ either way; the property guards against any change that lets address evidence me
 | `purge_forgets_redirect` | lifecycle | `inventory/identity/resolver.ex` `do_follow_canonical/3` | `NoPurgedResurrection` |
 
 Code paths are relative to `elixir/serviceradar_core/lib/serviceradar/`.
+
+## Fixed defects
+
+| Switch | Fixed in | Now enforced by |
+|---|---|---|
+| `sync_alias_merge_unguarded` | #4609 (`AliasGuard.distinct_identified_devices?/3` in `Sync.Aliases`) | `NoFalseMerge`, `AddressNeverMerges` in every `resolution_goal_*` |
 
 Two lifecycle witnesses cover defects that only appear together:
 

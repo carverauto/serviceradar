@@ -84,6 +84,48 @@ defmodule ServiceRadar.Inventory.Identity.AliasGuard do
       not same_chassis?(device_a, device_b, macs_a, macs_b, actor)
   end
 
+  @doc """
+  Whether two devices each own at least one identifier and nothing corroborates that they are
+  one chassis. When they do, a shared IP address is the only thing linking them, and DHCP hands
+  addresses to other devices, so the address is never evidence that they are one device: an
+  address-driven merge must not proceed.
+
+  Wider than `distinct_mac_conflict?/3`, which vetoes only when BOTH sides hold MACs. A device
+  identified by an agent or source-authoritative id and a device identified only by its MAC are
+  just as distinct, and "unknown is not distinct" is exactly how a recycled address merged them.
+  The own-interface claim (`same_chassis?/5`) still lifts the veto, as it does there.
+  """
+  @spec distinct_identified_devices?(String.t(), String.t(), term()) :: boolean()
+  def distinct_identified_devices?(device_a, device_b, actor) do
+    identified?(device_a, actor) and identified?(device_b, actor) and
+      not same_chassis?(
+        device_a,
+        device_b,
+        device_macs(device_a, actor),
+        device_macs(device_b, actor),
+        actor
+      )
+  end
+
+  defp identified?(device_id, actor) do
+    query_opts = if actor, do: [actor: actor], else: []
+
+    DeviceIdentifier
+    |> Ash.Query.filter(device_id == ^device_id)
+    |> Ash.Query.limit(1)
+    |> Ash.read(query_opts)
+    |> case do
+      {:ok, [_ | _]} -> true
+      _ -> false
+    end
+  rescue
+    e ->
+      Logger.warning("Failed to load identifiers for #{device_id}: #{inspect(e)}")
+      # Fail closed: an unreadable device is treated as identified, so the veto holds and no
+      # address-driven merge happens on missing evidence.
+      true
+  end
+
   # Whether one device's OWN interface table claims a MAC the other device is
   # anchored by -- the tell that these are two addresses of one chassis rather
   # than two pieces of hardware.
