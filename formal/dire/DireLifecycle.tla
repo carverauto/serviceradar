@@ -31,7 +31,7 @@ KnownBugs == {
     "upsert_revives_merged",     \* inventory/sync/device_writes.ex on_conflict
     "gateway_sync_no_bump",      \* inventory/device.ex update :gateway_sync
     "follow_stale_audit",        \* inventory/identity/resolver.ex do_follow_canonical/3
-    "sweep_restores_merged",     \* event_writer/processors/sweep.ex restore_eligible?/1
+    "sweep_restores_merged",     \* sweep_jobs/sweep_results_ingestor.ex restore_eligible?/1
     "fence_observe_only",        \* inventory/identity/fence.ex pin/2 has no production caller
     "unmerge_restores_matches",  \* inventory/identity/merge_engine.ex reassign_original_identifiers/4
     "purge_forgets_redirect"     \* inventory/identity/resolver.ex do_follow_canonical/3, purged uid
@@ -224,11 +224,12 @@ SoftDelete(u) ==
     /\ act' = MkAct("SoftDelete", u, NoDev, 0, FALSE, {u})
     /\ UNCHANGED <<owner, ipOf, audit>>
 
-\* SweepProcessor: DeviceLookup.batch_lookup_by_ip(include_deleted: true) prefers a live
-\* holder of the address and otherwise falls back to a tombstone
-\* (select_canonical_device/2); the processor restores it through :restore (which bumps)
-\* when restore_eligible?/1 -- reading only discovery_sources -- allows it. Which
-\* tombstone wins is left nondeterministic.
+\* SweepResultsIngestor.ingest_results/3: DeviceLookup (include_deleted: true) prefers a live
+\* holder of the address and otherwise falls back to a tombstone; restore_deleted_devices/2
+\* restores it through :restore (which bumps) when restore_eligible?/1 -- reading only
+\* discovery_sources -- allows it. Which tombstone wins is left nondeterministic.
+\* (event_writer/processors/sweep.ex carries a copy of this path but is not registered as an
+\* EventWriter processor, so it never runs.)
 SweepRestore(p) ==
     /\ ~\E d \in Devices : Live(d) /\ ipOf[d] = p
     /\ \E d \in Devices :

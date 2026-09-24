@@ -20,8 +20,10 @@ defmodule ServiceRadar.DireTrace do
   """
 
   import ExUnit.Assertions
+  import ServiceRadar.DireTrace.Golden, only: [fun: 2, fun_map: 2, set: 1, str: 1, tla_bool: 1]
 
   alias ServiceRadar.Ash.Page
+  alias ServiceRadar.DireTrace.Golden
   alias ServiceRadar.Edge.AgentGatewaySync
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
@@ -40,8 +42,6 @@ defmodule ServiceRadar.DireTrace do
     [:serviceradar, :identity_reconciler, :alias, :invalidated],
     [:serviceradar, :identity_reconciler, :source_identity, :active_ip_conflict]
   ]
-
-  @traces_dir Path.expand("../../../../formal/dire/traces", __DIR__)
 
   defstruct [
     :name,
@@ -737,12 +737,12 @@ defmodule ServiceRadar.DireTrace do
   """
   def assert_golden!(trace, opts \\ []) do
     stop(trace)
-    golden!(trace.name, to_tla(trace), to_cfg(trace))
+    Golden.golden!(trace.name, to_tla(trace), to_cfg(trace))
 
     if Keyword.get(opts, :tamper, false) do
       Enum.each(tampered(trace), fn {var, tampered_trace} ->
         name = "#{trace.name}__tamper_#{var}"
-        golden!(name, to_tla(%{tampered_trace | name: name}), to_cfg(tampered_trace))
+        Golden.golden!(name, to_tla(%{tampered_trace | name: name}), to_cfg(tampered_trace))
       end)
     end
 
@@ -780,36 +780,6 @@ defmodule ServiceRadar.DireTrace do
     do: hd(all_recs(trace.world))
 
   defp tamper_entry(var, _rec, _trace) when var in ["owner", "into"], do: "NoRec"
-
-  # Resolved at RUNTIME. The compile-time `@traces_dir` is right under plain `mix`, which
-  # compiles in place. Under Bazel mix_app compiles in its own build tree and the test runs
-  # from `elixir/serviceradar_core` in a sandbox holding only declared runfiles, so the baked
-  # path does not exist there; the traces are declared data and sit two levels above the cwd.
-  defp traces_dir do
-    Enum.find(
-      [@traces_dir, Path.expand("../../formal/dire/traces", File.cwd!())],
-      @traces_dir,
-      &File.dir?/1
-    )
-  end
-
-  defp golden!(name, tla, cfg) do
-    traces_dir = traces_dir()
-    tla_path = Path.join(traces_dir, "Trace_#{name}.tla")
-    cfg_path = Path.join(traces_dir, "Trace_#{name}.cfg")
-
-    if System.get_env("DIRE_TRACE_WRITE") == "1" do
-      File.mkdir_p!(traces_dir)
-      File.write!(tla_path, tla)
-      File.write!(cfg_path, cfg)
-    else
-      assert File.read!(tla_path) == tla,
-             "DIRE trace #{name} differs from #{tla_path}; the code's behavior changed. " <>
-               "Regenerate with DIRE_TRACE_WRITE=1 and model-check it (formal/dire/README.md)."
-
-      assert File.read!(cfg_path) == cfg
-    end
-  end
 
   def to_tla(trace) do
     states = Enum.map_join(trace.states, ",\n", &("  " <> tla_state(&1)))
@@ -890,19 +860,7 @@ defmodule ServiceRadar.DireTrace do
       "{" <>
         Enum.map_join(ds, ", ", &"[kind |-> #{str(&1.kind)}, recs |-> #{set(&1.recs)}]") <> "}"
 
-  defp fun(keys, value_fun) do
-    "(" <> Enum.map_join(keys, " @@ ", &"#{str(&1)} :> #{value_fun.(&1)}") <> ")"
-  end
-
-  defp fun_map(map, value_fun), do: map |> Map.keys() |> Enum.sort() |> fun(&value_fun.(map[&1]))
-
-  defp set(values), do: "{" <> (values |> Enum.sort() |> Enum.map_join(", ", &str/1)) <> "}"
-
   # Model "none" markers are model values, not strings.
   defp atom_or_str(v) when v in ["NoIp", "NoRec", "NoId"], do: v
   defp atom_or_str(v), do: str(v)
-
-  defp str(v), do: ~s("#{v}")
-  defp tla_bool(true), do: "TRUE"
-  defp tla_bool(false), do: "FALSE"
 end

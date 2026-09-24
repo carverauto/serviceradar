@@ -188,8 +188,23 @@ A model the code can drift away from verifies nothing. Trace validation is the c
 - The trace test is an `:integration` test on the shared srql-fixtures CNPG. It is serial,
   because it uses a global telemetry handler, and has DB-backed rows in
   `test/INTEGRATION_SOURCE_DISPOSITIONS.tsv` and `build/integration_test_dispositions.bzl`.
-- Lifecycle traces are the next step. A black-box test cannot interleave a merge inside one
-  ingest call, so the fence switch stays model-only until the fence is enforced (#4618).
+- **Lifecycle traces** (`test/support/dire_lifecycle_trace.ex`,
+  `DireLifecycleTrace.tla`) drive ingest, merge, the resolver's conflict merge, unmerge, soft
+  delete, sweep restore, agent check-in and purge, and record status, delete reason,
+  identifier owners, addresses, `merge_audit` rows and the devices whose `identity_revision`
+  each step moved.
+  - An ingest is logged as `StartWork` then `Commit`. A black-box test cannot interleave a
+    merge inside one ingest call, so `work` is never stale in a recorded trace and the fence
+    switch stays model-only until the fence is enforced (#4618).
+  - Two ghosts come from the harness: the identifiers a merged-away device owned when the
+    merge ran, and the insertion order of `merge_audit` rows (`created_at` has one-second
+    precision, so a merge and its unmerge can share a timestamp).
+  - Each of the six traces is rejected by the model with the switch it demonstrates turned
+    off, so it proves that defect on the real code, not only that the model allows it.
+  - Building them corrected the model's citation for sweep restores: the model cited
+    `event_writer/processors/sweep.ex`, which is not registered as an EventWriter processor and
+    never runs (its insert also names a `raw_data` column no migration creates). The live path
+    is `SweepResultsIngestor`, which has the same eligibility rule.
 - Every trace is synthetic: documentation-range MACs, test-range addresses, generated ids.
   Nothing is captured from a running deployment.
 

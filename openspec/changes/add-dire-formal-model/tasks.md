@@ -24,8 +24,8 @@
 - [x] 2.4 Check each unconfirmed candidate from the design's risks section; add a switch and
       witness only for a counterexample confirmed in code.
 - [x] 2.5 Every configuration finishes within the runtime budget; `make test` green.
-- [ ] 2.6 After merge: file one GitHub issue per switch, citing its witness configuration and
-      counterexample.
+- [x] 2.6 After merge: file one GitHub issue per switch, citing its witness configuration and
+      counterexample (#4609-#4620, tracker #4621).
 
 ## 3. Trace validation (PR 3: resolution; PR 4: lifecycle)
 
@@ -37,7 +37,9 @@
 - [x] 3.3 Self-test: one `__tamper_<var>` variant per model variable, each rejected by TLC.
 - [x] 3.4 Resolution scenario traces (six), committed under `formal/dire/traces` and compared
       by the integration test; the model was corrected where the traces disagreed with it.
-- [ ] 3.5 Lifecycle scenario traces (merge, unmerge, soft delete, revival paths, purge).
+- [x] 3.5 Lifecycle scenario traces (merge, unmerge, soft delete, revival paths, purge):
+      `DireLifecycleTrace.tla`, six traces, one tamper set; each trace is rejected with its
+      defect switch turned off.
 - [x] 3.6 Committed traces in the core integration runtime data; serial disposition rows;
       the scratch-database run and `make test` are green.
 

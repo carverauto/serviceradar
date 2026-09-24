@@ -4,7 +4,8 @@ load("//build/tla:tlc.bzl", "tlc_test")
 # openspec/changes/update-dire-strong-identity-goal.
 
 # The committed traces, read by the core integration lanes (INTEGRATION_RUNTIME_DATA) so
-# dire_resolution_trace_test.exs can compare each recorded trace with its golden copy.
+# dire_resolution_trace_test.exs and dire_lifecycle_trace_test.exs can compare each recorded
+# trace with its golden copy.
 filegroup(
     name = "traces",
     srcs = glob([
@@ -387,6 +388,98 @@ tlc_test(
 )
 
 tlc_test(
+    name = "trace_conflict_unmerge_test",
+    cfg = "traces/Trace_conflict_unmerge.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_conflict_unmerge.tla",
+    deps = [
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_conflict_unmerge__tamper_act_test",
+    cfg = "traces/Trace_conflict_unmerge__tamper_act.cfg",
+    spec = "traces/Trace_conflict_unmerge__tamper_act.tla",
+    deps = [
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_conflict_unmerge__tamper_audit_test",
+    cfg = "traces/Trace_conflict_unmerge__tamper_audit.cfg",
+    spec = "traces/Trace_conflict_unmerge__tamper_audit.tla",
+    deps = [
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_conflict_unmerge__tamper_ipOf_test",
+    cfg = "traces/Trace_conflict_unmerge__tamper_ipOf.cfg",
+    spec = "traces/Trace_conflict_unmerge__tamper_ipOf.tla",
+    deps = [
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_conflict_unmerge__tamper_owner_test",
+    cfg = "traces/Trace_conflict_unmerge__tamper_owner.cfg",
+    spec = "traces/Trace_conflict_unmerge__tamper_owner.tla",
+    deps = [
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_conflict_unmerge__tamper_reason_test",
+    cfg = "traces/Trace_conflict_unmerge__tamper_reason.cfg",
+    spec = "traces/Trace_conflict_unmerge__tamper_reason.tla",
+    deps = [
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_conflict_unmerge__tamper_status_test",
+    cfg = "traces/Trace_conflict_unmerge__tamper_status.cfg",
+    spec = "traces/Trace_conflict_unmerge__tamper_status.tla",
+    deps = [
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_conflict_unmerge__tamper_work_test",
+    cfg = "traces/Trace_conflict_unmerge__tamper_work.cfg",
+    spec = "traces/Trace_conflict_unmerge__tamper_work.tla",
+    deps = [
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_gateway_sync_revival_test",
+    cfg = "traces/Trace_gateway_sync_revival.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_gateway_sync_revival.tla",
+    deps = [
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
     name = "trace_mapper_stale_address_test",
     cfg = "traces/Trace_mapper_stale_address.cfg",
     expect = "violation:TraceIncomplete",
@@ -394,6 +487,17 @@ tlc_test(
     deps = [
         "DireResolution.tla",
         "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_purge_recreate_test",
+    cfg = "traces/Trace_purge_recreate.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_purge_recreate.tla",
+    deps = [
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
     ],
 )
 
@@ -409,6 +513,17 @@ tlc_test(
 )
 
 tlc_test(
+    name = "trace_soft_delete_upsert_revival_test",
+    cfg = "traces/Trace_soft_delete_upsert_revival.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_soft_delete_upsert_revival.tla",
+    deps = [
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
     name = "trace_src_attach_shared_mac_test",
     cfg = "traces/Trace_src_attach_shared_mac.cfg",
     expect = "violation:TraceIncomplete",
@@ -416,5 +531,90 @@ tlc_test(
     deps = [
         "DireResolution.tla",
         "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_stale_redirect_test",
+    cfg = "traces/Trace_stale_redirect.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_stale_redirect.tla",
+    deps = [
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_sweep_restores_merged_test",
+    cfg = "traces/Trace_sweep_restores_merged.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_sweep_restores_merged.tla",
+    deps = [
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+# ---- Knockouts: each lifecycle trace with the defect switch it demonstrates turned off ----
+# TLC must NOT match the trace, which proves the real code exhibits that defect.
+
+tlc_test(
+    name = "trace_conflict_unmerge__knockout_test",
+    cfg = "traces/Trace_conflict_unmerge__knockout.cfg",
+    spec = "traces/Trace_conflict_unmerge.tla",
+    deps = [
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_gateway_sync_revival__knockout_test",
+    cfg = "traces/Trace_gateway_sync_revival__knockout.cfg",
+    spec = "traces/Trace_gateway_sync_revival.tla",
+    deps = [
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_purge_recreate__knockout_test",
+    cfg = "traces/Trace_purge_recreate__knockout.cfg",
+    spec = "traces/Trace_purge_recreate.tla",
+    deps = [
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_soft_delete_upsert_revival__knockout_test",
+    cfg = "traces/Trace_soft_delete_upsert_revival__knockout.cfg",
+    spec = "traces/Trace_soft_delete_upsert_revival.tla",
+    deps = [
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_stale_redirect__knockout_test",
+    cfg = "traces/Trace_stale_redirect__knockout.cfg",
+    spec = "traces/Trace_stale_redirect.tla",
+    deps = [
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_sweep_restores_merged__knockout_test",
+    cfg = "traces/Trace_sweep_restores_merged__knockout.cfg",
+    spec = "traces/Trace_sweep_restores_merged.tla",
+    deps = [
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
     ],
 )
