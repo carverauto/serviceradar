@@ -1,6 +1,6 @@
 id: opentext-nom-inventory
 name: OpenText Network Operations Management Inventory
-version: 0.1.6
+version: 0.1.7
 description: Collects bounded OpenText NOM device inventory for DIRE reconciliation
 entrypoint: run_check
 runtime: wasi-preview1
@@ -13,6 +13,7 @@ capabilities:
   - producer-schedule:v1
   - action-result-ingest:v1
   - action-only:v1
+  - artifact-staging:v1
 permissions:
   allowed_domains:
     - "*"
@@ -105,6 +106,64 @@ producer_schedules:
               allow_insecure_tls: "true"
     payload_template:
       mode: complete_snapshot
+    redaction:
+      fields:
+        - credential_brokers
+        - authorization
+        - access_token
+  - schedule_id: opentext-nom.config.retrieve
+    label: Retrieve OpenText NOM running-config
+    description: Retrieves one device running-config as an artifact. Core downparses it; the plugin does not emit interface facts.
+    action_id: opentext-nom.config.retrieve
+    command_type: plugin.run_action
+    schedule_type: interval
+    default_cadence_seconds: 86400
+    min_cadence_seconds: 3600
+    max_cadence_seconds: 2592000
+    jitter_seconds: 900
+    timeout_seconds: 300
+    dispatch_scope: assignment
+    settings_schema:
+      type: object
+      additionalProperties: false
+      required:
+        - instance_id
+        - api_url
+        - device_id
+        - device_uid
+      properties:
+        instance_id:
+          type: string
+        api_url:
+          type: string
+          format: uri
+        device_id:
+          type: string
+        device_uid:
+          type: string
+    credential_requirements:
+      nom_service_account:
+        required: true
+        resolution_location: agent
+        grants:
+          - name: inventory
+            grant_type: oauth2_password_bearer
+            purpose: device_inventory
+            allow:
+              methods:
+                - POST
+              url_param: api_url
+            inject:
+              type: oauth2_password_bearer
+              url_param: api_url
+              token_url_param: token_url
+              token_method: POST
+              field_username: username
+              field_password: password
+              fixed_grant_type: password
+              allow_insecure_tls: "true"
+    payload_template:
+      mode: running_config
     redaction:
       fields:
         - credential_brokers

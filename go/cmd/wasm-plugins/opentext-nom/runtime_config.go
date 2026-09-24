@@ -83,3 +83,82 @@ func runtimeConfigPayload(raw map[string]json.RawMessage) ([]byte, error) {
 
 	return json.Marshal(raw)
 }
+
+func loadRuntimeActionID() string {
+	raw := loadRawConfigMap()
+	if raw == nil {
+		return ""
+	}
+	invocationJSON, ok := raw["action_invocation"]
+	if !ok || len(bytes.TrimSpace(invocationJSON)) == 0 {
+		return ""
+	}
+	var invocation struct {
+		ActionID string `json:"action_id"`
+	}
+	if err := json.Unmarshal(invocationJSON, &invocation); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(invocation.ActionID)
+}
+
+func loadRuntimeDeviceIdentity() (deviceID, deviceUID string) {
+	return deviceIdentityFromRaw(loadRawConfigMap())
+}
+
+func deviceIdentityFromRaw(raw map[string]json.RawMessage) (deviceID, deviceUID string) {
+	if raw == nil {
+		return "", ""
+	}
+	var targetUID string
+	if invocationJSON, ok := raw["action_invocation"]; ok && len(bytes.TrimSpace(invocationJSON)) > 0 {
+		var invocation struct {
+			ActionID    string           `json:"action_id"`
+			InputValues map[string]any   `json:"input_values"`
+			Targets     []map[string]any `json:"targets"`
+		}
+		if err := json.Unmarshal(invocationJSON, &invocation); err == nil {
+			deviceID = stringFromAny(invocation.InputValues["device_id"])
+			deviceUID = stringFromAny(invocation.InputValues["device_uid"])
+			if len(invocation.Targets) > 0 {
+				targetUID = stringFromAny(invocation.Targets[0]["device_uid"])
+			}
+		}
+	}
+	// Per-invocation input wins over the configured default.
+	if deviceID == "" {
+		deviceID = stringFromRaw(raw, "device_id")
+	}
+	if deviceUID == "" {
+		deviceUID = stringFromRaw(raw, "device_uid")
+	}
+	if deviceUID == "" {
+		deviceUID = targetUID
+	}
+	return deviceID, deviceUID
+}
+
+func loadRawConfigMap() map[string]json.RawMessage {
+	var raw map[string]json.RawMessage
+	if err := sdk.LoadConfig(&raw); err != nil {
+		return nil
+	}
+	return raw
+}
+
+func stringFromRaw(raw map[string]json.RawMessage, key string) string {
+	value, ok := raw[key]
+	if !ok {
+		return ""
+	}
+	var text string
+	if err := json.Unmarshal(value, &text); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(text)
+}
+
+func stringFromAny(value any) string {
+	text, _ := value.(string)
+	return strings.TrimSpace(text)
+}

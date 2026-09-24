@@ -51,8 +51,10 @@ This is the Network Automation REST **automation wrapper**, not the NA web UI
 and not an NNMi URL. In a default NOM install the path is
 `/nom/api/automation/v1/wrapper` on the NA host.
 
-The plugin POSTs JSON. Operators never choose the command; it is always
-`list device`. Pagination (`startid`, `limitcount`) is also plugin-owned.
+The plugin POSTs JSON. Operators never choose the command: inventory always
+sends `list device`, and the `opentext-nom.config.retrieve` action always sends
+`show running-config`. Pagination (`startid`, `limitcount`) is also
+plugin-owned.
 
 ```json
 {
@@ -159,9 +161,36 @@ it with up to eight named query sets using the allowlisted `list device`
 filters in `config.schema.json`. The plugin always controls the command,
 pagination cursor, and page size.
 
-ServiceRadar provisions a daily producer schedule (`86400` seconds, 15-minute
-timeout). Operators change cadence on the credential rule, within the package
-bounds, or trigger **Run Now** from that rule.
+ServiceRadar provisions a daily inventory producer schedule (`86400` seconds,
+15-minute timeout). Operators change cadence on the credential rule, within the
+package bounds, or trigger **Run Now** from that rule.
+
+## Running-config retrieval
+
+The `opentext-nom.config.retrieve` producer schedule (default daily, minimum
+`3600` seconds, 5-minute timeout) retrieves one device's running-config. It
+uses the same service-account credential and `api_url` as inventory, and needs
+these settings:
+
+- `device_id`: the Network Automation device ID sent as `parameters.id`.
+- `device_uid`: the ServiceRadar device UID the revision is recorded against.
+
+Both may also be set as optional advanced fields in the plugin config;
+per-invocation `input_values` override the configured value, and the target's
+`device_uid` is the last fallback for `device_uid`. A missing ID fails the run
+with `opentext_nom_config_device_id_invalid` or
+`opentext_nom_config_device_uid_invalid`.
+
+The body is limited to 2 MiB. It is staged as a plugin artifact and is never
+placed in the result details, because status details are viewer-readable and
+running-configs routinely hold device secrets. If staging fails the run fails
+with `opentext_nom_config_artifact_failed`. Core fetches the artifact from the
+reporting agent's `agent-artifacts/<agent_id>/` prefix, verifies its SHA-256,
+and records a network config revision; see `NetworkConfig.PluginIngestor`.
+
+The request and response shape has not been verified against a live Network
+Automation wrapper; see the open questions in
+`openspec/changes/replace-age-topology-with-dgraph/design.md`.
 
 The signed package declares the `opentext-nom` inventory source and these
 provider-owned observation fields:
