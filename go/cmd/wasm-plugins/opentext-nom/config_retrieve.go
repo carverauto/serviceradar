@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
@@ -88,7 +87,7 @@ func (c *Collector) RetrieveRunningConfig(
 	if err != nil {
 		return RunningConfig{}, err
 	}
-	sum := sha256.Sum256([]byte(body))
+	sum := sumSHA256([]byte(body))
 	return RunningConfig{
 		DeviceID:  deviceID,
 		DeviceUID: strings.TrimSpace(deviceUID),
