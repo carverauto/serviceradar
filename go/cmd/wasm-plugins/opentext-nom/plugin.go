@@ -12,6 +12,14 @@ func runPlugin() error {
 		return submitPluginError(err)
 	}
 
+	if loadRuntimeActionID() == interfaceCheckActionID {
+		run, err := parseConfigCheckRun(loadRawConfigMap())
+		if err != nil {
+			return submitPluginError(err)
+		}
+		return runConfigCheck(cfg, run)
+	}
+
 	if loadRuntimeActionID() == configRetrieveActionID {
 		return runConfigRetrieve(cfg)
 	}

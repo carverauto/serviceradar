@@ -1,11 +1,14 @@
 defmodule ServiceRadar.Plugins.Validations.NoDuplicateEnabledAssignment do
   @moduledoc """
-  Prevents an agent from receiving two enabled assignments for the same plugin.
+  Prevents an agent from receiving two enabled assignments for the same plugin
+  from the same owner. Assignments owned by different credential rules may
+  coexist; see `ServiceRadar.Plugins.AssignmentOwner`.
   """
 
   use Ash.Resource.Validation
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Plugins.AssignmentOwner
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
 
@@ -33,6 +36,7 @@ defmodule ServiceRadar.Plugins.Validations.NoDuplicateEnabledAssignment do
     package_id = changed_or_current(changeset, :plugin_package_id)
 
     current_id = Map.get(changeset.data, :id)
+    policy_id = changed_or_current(changeset, :policy_id)
 
     with false <- blank?(agent_uid),
          {:ok, plugin_id} <- load_plugin_id(package_id),
@@ -40,6 +44,7 @@ defmodule ServiceRadar.Plugins.Validations.NoDuplicateEnabledAssignment do
          {:ok, assignments} <- enabled_assignments(partition_id, agent_uid, plugin_id) do
       assignments
       |> Enum.reject(&(current_id && &1.id == current_id))
+      |> Enum.filter(&AssignmentOwner.conflict?(policy_id, &1.policy_id))
       |> case do
         [] ->
           :ok

@@ -119,6 +119,10 @@ func (c *Collector) postCommand(
 		return nil, runError("opentext_nom_auth_failed")
 	case http.StatusForbidden:
 		return nil, runError("opentext_nom_forbidden")
+	case http.StatusBadRequest:
+		// NA rejects the command itself, e.g. an unknown device or a bad
+		// parameter, as distinct from the wrapper being unavailable.
+		return nil, runError("opentext_nom_command_rejected")
 	default:
 		return nil, runError("opentext_nom_api_unavailable")
 	}

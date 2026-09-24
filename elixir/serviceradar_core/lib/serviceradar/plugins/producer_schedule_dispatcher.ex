@@ -12,6 +12,7 @@ defmodule ServiceRadar.Plugins.ProducerScheduleDispatcher do
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.PluginAssignment
+  alias ServiceRadar.Plugins.PluginInputPayloadBuilder
   alias ServiceRadar.Plugins.SRQLInputResolver
   alias ServiceRadar.Plugins.ValueUtils
 
@@ -154,15 +155,91 @@ defmodule ServiceRadar.Plugins.ProducerScheduleDispatcher do
     do: {:error, :no_matching_plugin_assignments}
 
   defp dispatch_plugin_assignments(schedule, assignments, command_type, opts) do
-    assignments
-    |> Enum.map(&dispatch_plugin_assignment(schedule, &1, command_type, opts))
-    |> summarize_dispatch_results()
+    case resolve_target_items(schedule, opts) do
+      {:ok, target_items} ->
+        assignments
+        |> Enum.map(&dispatch_plugin_assignment(schedule, &1, command_type, target_items, opts))
+        |> summarize_dispatch_results()
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
-  defp dispatch_plugin_assignment(schedule, assignment, command_type, opts) do
+  @doc """
+  Resolves a schedule's `target_input` (see `ServiceRadar.Plugins.Manifest`):
+  runs the SRQL device query held in the schedule params and returns the
+  normalized device items, with the requested fields projected, for delivery
+  as the run's `target_items`. Schedules without `target_input` get `nil`.
+  """
+  @spec resolve_target_items(map(), keyword()) :: {:ok, map() | nil} | {:error, term()}
+  def resolve_target_items(schedule, opts \\ []) do
+    contract = schedule.contract || %{}
+
+    case map_get(contract, "target_input") do
+      %{} = target_input -> resolve_target_input(schedule, target_input, opts)
+      _ -> {:ok, nil}
+    end
+  end
+
+  defp resolve_target_input(schedule, target_input, opts) do
+    params = schedule.params || %{}
+    query = normalize_optional_string(map_get(params, map_get(target_input, "query_param")))
+    fields = target_input_fields(params, map_get(target_input, "fields_param"))
+    max_items = map_get(target_input, "max_items") || 500
+
+    input_def = %{
+      "name" => "targets",
+      "entity" => "devices",
+      "query" => query,
+      "fields" => fields
+    }
+
+    resolver_opts =
+      opts
+      |> Keyword.take([:runner, :query_opts])
+      |> maybe_put_query_scope(opts)
+
+    with query when is_binary(query) <- query || {:error, :missing_target_query},
+         {:ok, [resolved | _]} <- SRQLInputResolver.resolve([input_def], resolver_opts) do
+      items =
+        PluginInputPayloadBuilder.normalize_rows(
+          "devices",
+          Map.get(resolved, :rows, []),
+          Map.get(resolved, :fields, [])
+        )
+
+      {:ok,
+       %{
+         "entity" => "devices",
+         "query" => query,
+         "total" => length(items),
+         "truncated" => length(items) > max_items,
+         "items" => Enum.take(items, max_items)
+       }}
+    else
+      {:ok, []} -> {:ok, %{"entity" => "devices", "query" => query, "total" => 0, "items" => []}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp target_input_fields(_params, nil), do: []
+
+  defp target_input_fields(params, fields_param) do
+    case map_get(params, fields_param) do
+      fields when is_list(fields) -> fields
+      _ -> []
+    end
+  end
+
+  defp dispatch_plugin_assignment(schedule, assignment, command_type, target_items, opts) do
     case issue_credential_grants(schedule, assignment, opts) do
       {:ok, credential_grants} ->
-        payload = build_plugin_payload(schedule, assignment)
+        payload =
+          schedule
+          |> build_plugin_payload(assignment)
+          |> then(&if(target_items, do: Map.put(&1, "target_items", target_items), else: &1))
+
         transmit_payload = build_plugin_transmit_payload(payload, credential_grants)
         timeout_seconds = timeout_seconds(schedule.contract)
         command_bus = Keyword.get(opts, :command_bus, AgentCommandBus)

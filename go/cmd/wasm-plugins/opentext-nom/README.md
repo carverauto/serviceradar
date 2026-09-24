@@ -13,10 +13,14 @@ The implementation follows the approved ServiceRadar OpenSpec change
 ## Security Boundary
 
 - The plugin can execute only fixed, read-only OpenText Network Automation
-  commands: `list device` for inventory, and `list config` then
-  `show config -mask` for the `opentext-nom.config.retrieve` action. Operators
+  commands: `list device` for inventory, `list config` then
+  `show config -mask` for the `opentext-nom.config.retrieve` action, and
+  `show configlet` for the `opentext-nom.interface.check` schedule. Operators
   cannot choose the command. The plugin reads configs NA already stored and
   never opens a device session.
+- Interface config checks return verdicts only (compliant, non-compliant or
+  unknown, plus the missing patterns); the interface configuration text is not
+  placed in results. See [docs/configuration.md](docs/configuration.md).
 - A retrieved config is masked by NA (passwords and SNMP communities become
   `xxx`) and staged only as a plugin artifact. It is never written into the
   result details, because status details are readable by viewers.

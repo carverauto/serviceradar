@@ -238,6 +238,7 @@ defmodule ServiceRadar.Plugins.Manifest do
     redaction
     dispatch_scope
     timeout_seconds
+    target_input
   )
   @allowed_signal_types ["event", "log"]
   @allowed_signal_payload_kinds ["ocsf_event", "otel_log"]
@@ -1552,6 +1553,7 @@ defmodule ServiceRadar.Plugins.Manifest do
       optional_producer_schedule_map(schedule, :payload_template, index, errors)
 
     {redaction, errors} = optional_producer_schedule_map(schedule, :redaction, index, errors)
+    {target_input, errors} = producer_schedule_target_input(schedule, index, errors)
 
     if errors == [] do
       {:ok,
@@ -1574,7 +1576,10 @@ defmodule ServiceRadar.Plugins.Manifest do
          "dispatch_scope" => dispatch_scope
        }
        |> maybe_put_string("description", description)
-       |> maybe_put_string("cron_expression", cron_expression)}
+       |> maybe_put_string("cron_expression", cron_expression)
+       |> then(fn contract ->
+         if target_input, do: Map.put(contract, "target_input", target_input), else: contract
+       end)}
     else
       {:error, errors}
     end
@@ -1582,6 +1587,67 @@ defmodule ServiceRadar.Plugins.Manifest do
 
   defp validate_producer_schedule(_schedule, index),
     do: {:error, ["producer_schedules[#{index}] must be a map"]}
+
+  @target_input_keys ~w(entity query_param fields_param max_items)
+  @target_input_param ~r/^[a-z][a-z0-9_]{0,63}$/
+  @target_input_max_items 1000
+
+  # `target_input` asks the dispatcher to resolve an SRQL device query from the
+  # schedule's params and deliver the rows to the run as `target_items`. The
+  # query and field list are operator plugin configuration; the contract only
+  # names which params hold them.
+  defp producer_schedule_target_input(schedule, index, errors) do
+    path = "producer_schedules[#{index}].target_input"
+
+    case fetch(schedule, :target_input) do
+      nil ->
+        {nil, errors}
+
+      input when is_map(input) ->
+        input = Map.new(input, fn {key, value} -> {to_string(key), value} end)
+        unknown = Map.keys(input) -- @target_input_keys
+        entity = Map.get(input, "entity", "devices")
+        query_param = Map.get(input, "query_param")
+        fields_param = Map.get(input, "fields_param")
+        max_items = Map.get(input, "max_items", 500)
+
+        new_errors =
+          []
+          |> add_error_if(unknown != [], "#{path} has unknown keys: #{Enum.join(unknown, ", ")}")
+          |> add_error_if(entity != "devices", "#{path}.entity must be devices")
+          |> add_error_if(
+            not (is_binary(query_param) and Regex.match?(@target_input_param, query_param)),
+            "#{path}.query_param must be a parameter name"
+          )
+          |> add_error_if(
+            not (is_nil(fields_param) or
+                   (is_binary(fields_param) and Regex.match?(@target_input_param, fields_param))),
+            "#{path}.fields_param must be a parameter name"
+          )
+          |> add_error_if(
+            not (is_integer(max_items) and max_items in 1..@target_input_max_items),
+            "#{path}.max_items must be between 1 and #{@target_input_max_items}"
+          )
+
+        if new_errors == [] do
+          normalized =
+            then(
+              %{"entity" => "devices", "query_param" => query_param, "max_items" => max_items},
+              &if(fields_param, do: Map.put(&1, "fields_param", fields_param), else: &1)
+            )
+
+          {normalized, errors}
+        else
+          {nil, Enum.reverse(new_errors, errors)}
+        end
+
+      _ ->
+        {nil, ["#{path} must be a map" | errors]}
+    end
+  end
+
+  defp add_error_if(errors, true, message), do: [message | errors]
+  defp add_error_if(errors, false, _message), do: errors
 
   defp unknown_producer_schedule_key_errors(schedule, index) do
     schedule

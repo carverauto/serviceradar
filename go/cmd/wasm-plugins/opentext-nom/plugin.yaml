@@ -1,6 +1,6 @@
 id: opentext-nom-inventory
 name: OpenText Network Operations Management Inventory
-version: 0.1.9
+version: 0.1.10
 description: Collects bounded OpenText NOM device inventory for DIRE reconciliation
 entrypoint: run_check
 runtime: wasi-preview1
@@ -169,6 +169,89 @@ producer_schedules:
         - credential_brokers
         - authorization
         - access_token
+  - schedule_id: opentext-nom.interface.check
+    label: Check OpenText NOM interface configuration
+    description: For endpoints matched by an SRQL query, reads each endpoint's switch interface block from NA's stored configuration (show configlet) and records whether it satisfies the configured checks. Never opens a device session.
+    action_id: opentext-nom.interface.check
+    command_type: plugin.run_action
+    schedule_type: interval
+    default_cadence_seconds: 3600
+    min_cadence_seconds: 300
+    max_cadence_seconds: 604800
+    jitter_seconds: 300
+    timeout_seconds: 1800
+    dispatch_scope: assignment
+    target_input:
+      entity: devices
+      query_param: target_query
+      fields_param: target_fields
+      max_items: 200
+    settings_schema:
+      type: object
+      additionalProperties: false
+      required:
+        - instance_id
+        - api_url
+        - target_query
+        - config_check
+      properties:
+        instance_id:
+          type: string
+        nnm_url:
+          type: string
+          format: uri
+        token_url:
+          type: string
+          format: uri
+        api_url:
+          type: string
+          format: uri
+        request_timeout_seconds:
+          type: integer
+          default: 120
+        max_retries:
+          type: integer
+          default: 2
+        max_result_bytes:
+          type: integer
+          default: 10485760
+        insecure_skip_verify:
+          type: boolean
+          default: false
+        target_query:
+          type: string
+        target_fields:
+          type: array
+        config_check:
+          type: string
+    credential_requirements:
+      nom_service_account:
+        required: true
+        resolution_location: agent
+        grants:
+          - name: interface_check
+            grant_type: oauth2_password_bearer
+            purpose: device_inventory
+            allow:
+              methods:
+                - POST
+              url_param: api_url
+            inject:
+              type: oauth2_password_bearer
+              url_param: api_url
+              token_url_param: token_url
+              token_method: POST
+              field_username: username
+              field_password: password
+              fixed_grant_type: password
+              allow_insecure_tls: "true"
+    payload_template:
+      mode: interface_config_check
+    redaction:
+      fields:
+        - credential_brokers
+        - authorization
+        - access_token
 integrations:
   documentation:
     title: OpenText NOM inventory configuration
@@ -201,6 +284,33 @@ integrations:
       provisioning:
         mode: producer_schedule
         schedule_id: opentext-nom.inventory.refresh
+        credential_requirement: nom_service_account
+    - provider: opentext-nom-config-check
+      label: OpenText NOM interface config check
+      description: Check whether the switch interface each endpoint is attached to carries required configuration, using configuration OpenText Network Automation already stores.
+      auth_methods:
+        - id: username_password
+          label: Username and password
+          credential_kind: username_password
+          fields:
+            - id: username
+              label: Username
+              control: text
+              required: true
+              secret: false
+              public: true
+            - id: password
+              label: Password
+              control: password
+              required: true
+              secret: true
+      purposes:
+        - config_compliance
+      scope_types:
+        - agent
+      provisioning:
+        mode: producer_schedule
+        schedule_id: opentext-nom.interface.check
         credential_requirement: nom_service_account
   inventory_sources:
     - source: opentext-nom
