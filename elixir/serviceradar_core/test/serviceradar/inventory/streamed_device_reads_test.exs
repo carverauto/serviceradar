@@ -4,7 +4,7 @@ defmodule ServiceRadar.Inventory.StreamedDeviceReadsTest do
   the whole set drops the rest, so this fixture is 260 devices.
   """
 
-  use ServiceRadar.DataCase, async: true
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.Compilers.SNMPCompiler
