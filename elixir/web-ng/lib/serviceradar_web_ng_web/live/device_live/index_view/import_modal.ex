@@ -67,8 +67,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
         </div>
       </div>
 
-      <!-- CSV Format Guide (collapsed when preview is shown) -->
-      <div :if={is_nil(@csv_preview)} class="my-4 p-4 bg-sr-subtle/60 rounded-lg">
+      <!-- CSV Format Guide (collapsed when preview is shown or result is present) -->
+      <div :if={is_nil(@csv_preview) and is_nil(@import_result)} class="my-4 p-4 bg-sr-subtle/60 rounded-lg">
         <h4 class="font-medium text-sm mb-2">CSV Format</h4>
         <p class="text-xs text-sr-muted mb-3">
           Your CSV file should include the following columns:
@@ -184,7 +184,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
           <% end %>
         </div>
 
-        <div :if={is_nil(@csv_preview)} class="flex justify-end">
+        <div :if={is_nil(@csv_preview) and is_nil(@import_result)} class="flex justify-end">
           <.ui_button
             type="submit"
             variant="outline"
@@ -332,7 +332,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.ImportModal do
             <.icon name="hero-arrow-up-tray" class="size-4" /> Import {length(@csv_preview)} Device(s)
           <% end %>
         </.ui_button>
-        <.ui_button :if={is_nil(@csv_preview)} navigate={~p"/settings/networks"} variant="outline">
+        <.ui_button :if={is_nil(@csv_preview) and is_nil(@import_result)} navigate={~p"/settings/networks"} variant="outline">
           <.icon name="hero-signal" class="size-4" /> Use Network Discovery
         </.ui_button>
       </div>
