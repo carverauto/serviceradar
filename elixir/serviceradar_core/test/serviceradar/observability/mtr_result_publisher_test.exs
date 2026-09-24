@@ -43,6 +43,7 @@ defmodule ServiceRadar.Observability.MtrResultPublisherTest do
              "gateway_id" => "gw-01",
              "partition" => "default"
            }
+
     refute Map.has_key?(first, "broadcast")
   end
 
@@ -116,6 +117,7 @@ defmodule ServiceRadar.Observability.MtrResultPublisherTest do
     assert first_result["trace"]["timestamp"] == 1_700_000_000
     refute Map.has_key?(first_result, "timestamp")
     assert second_result["timestamp"] == 1_700_000_100
+
     assert DateTime.compare(
              MtrMetricsIngestor.trace_time(first_result),
              ~U[2023-11-14 22:13:20Z]
