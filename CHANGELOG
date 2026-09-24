@@ -52,9 +52,13 @@ TCP trace reports more hops than ICMP.
 - Two migrations: 20260924100000 (MTR policy protocol sets)
   and 20260924120000 (MTR trace depth columns). Helm
   core.migrations.expectedVersion is 20260924120000.
-- The MTR protocol-set migration drops the legacy unique
-  index on the policy protocol; rolling it back does not
-  restore that index.
+- Migration 20260924100000 replaces the mtr_bulk_job_targets
+  (command_id, target) unique index with (command_id, target,
+  protocol). Pods still on v1.4.72 upsert with ON CONFLICT
+  (command_id, target) and fail bulk MTR dispatches until they
+  roll, so expect that during the rollout window. A code-only
+  rollback must first run the migration's down, which collapses
+  multi-protocol rows and restores the old index.
 - OpenText NOM plugin 0.1.10: import and approve it to get the
   interface check. The check runs only after a credential rule
   is created with the opentext-nom-config-check profile. The
