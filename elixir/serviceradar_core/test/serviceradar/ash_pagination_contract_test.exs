@@ -45,11 +45,18 @@ defmodule ServiceRadar.AshPaginationContractTest do
            complete, so every caller that trusts the result -- or discards the page
            struct and keeps only `results` -- reads truncated data with no error.
 
-           Fix by lowering default_limit to a page the action can actually return,
-           and by streaming (Ash.stream!) wherever a caller needs the whole set.
-           Raising max_page_size instead just moves the silent cliff to a larger
-           number, which is worse: it fails later, more rarely, and at a scale where
-           the missing rows matter more.
+           Two remedies, one of which must apply:
+
+           1. If callers must be able to request large pages, declare
+              `max_page_size: @unbounded_page_size` (see `Device.read` for the
+              module-level constant pattern). An effectively-infinite value removes
+              the ceiling entirely rather than moving it. A finite raise only shifts
+              the silent cliff to a larger number -- it still fires, more rarely and
+              on the biggest installations.
+
+           2. If the action genuinely needs a modest cap, lower `default_limit` to
+              something at or below `max_page_size`. Internal callers that need every
+              row should use `Ash.stream!/2` instead of reading one page.
 
            #{Enum.map_join(violations, "\n", &("  - " <> &1))}
            """
