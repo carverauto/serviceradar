@@ -152,6 +152,9 @@ Keep this managed block so 'openspec update' can refresh the instructions.
   telemetry readers read the warehouse, never a CNPG telemetry table (which stops
   receiving rows); when StarRocks is disabled, EventWriter writes telemetry to CNPG
   (see `openspec/changes/extend-starrocks-to-all-telemetry`, design Decision 1).
+  Never both at once, and never neither: CNPG stays a complete telemetry backend
+  for installations without StarRocks, so do not remove a CNPG telemetry writer,
+  reader or table when adding its warehouse counterpart.
   Collectors and agents MUST NOT write metrics straight to CNPG or StarRocks, and
   core MUST NOT ingest a metric path that bypassed JetStream. The legacy
   agent→gateway→core gRPC `StreamStatus` path that writes sysmon metrics directly

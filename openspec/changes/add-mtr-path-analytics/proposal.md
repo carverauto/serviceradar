@@ -76,7 +76,7 @@ return numerically different answers for the same query.
 into StarRocks is already owned by `extend-starrocks-to-all-telemetry` — its task
 3.4 names "MTR traces and hops", and its requirement "All append-only telemetry
 is warehouse-eligible" covers the table, the EventWriter destination, SRQL dataset
-routing and warehouse rollups. Cutover parity, retention and CNPG retirement are
+routing and warehouse rollups. Cutover parity and retention (CNPG stays a supported backend and is not retired) are
 owned there too. This change adds no competing requirement and no duplicate
 dataset work. What it does instead is make the StarRocks dialect ready: the two
 aggregates and the time-bucket dimension are implemented in `starrocks.rs`, so
