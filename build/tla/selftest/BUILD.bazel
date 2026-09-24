@@ -1,0 +1,25 @@
+load("//build/tla:tlc.bzl", "tlc_test")
+
+# Proves the tlc_test macro in both directions before any model depends on it.
+tlc_test(
+    name = "counter_pass_test",
+    cfg = "pass.cfg",
+    spec = "Counter.tla",
+    deps = ["CounterBase.tla"],
+)
+
+tlc_test(
+    name = "counter_invariant_violation_test",
+    cfg = "invariant_violation.cfg",
+    expect = "violation:Bounded",
+    spec = "Counter.tla",
+    deps = ["CounterBase.tla"],
+)
+
+tlc_test(
+    name = "counter_action_violation_test",
+    cfg = "action_violation.cfg",
+    expect = "violation:NeverSkips",
+    spec = "Counter.tla",
+    deps = ["CounterBase.tla"],
+)
