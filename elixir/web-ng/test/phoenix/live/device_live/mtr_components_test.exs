@@ -157,7 +157,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponentsTest do
     assert strip =~ "6 hops"
     assert strip =~ "4/30 hops"
     assert strip =~ "No reply past hop 4 (30 probed)"
-    refute strip =~ "30 hops"
+    # The recorded 30 hops must not appear on its own; only as the probed
+    # depth in "4/30".
+    refute strip =~ ~r/(?<![\/\d])30 hops/
   end
 
   test "tab summary derives the responding depth from hops for an older unreached trace" do
