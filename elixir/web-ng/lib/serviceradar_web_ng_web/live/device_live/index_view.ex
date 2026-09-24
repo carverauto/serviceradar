@@ -102,7 +102,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView do
         csv_preview={@csv_preview}
         csv_errors={@csv_errors}
         csv_warnings={@csv_warnings}
-        import_status={@import_status}
+        importing={@importing}
+        import_result={@import_result}
         import_partition={@import_partition}
         import_partition_error={@import_partition_error}
         partition_options={@import_partition_options}
