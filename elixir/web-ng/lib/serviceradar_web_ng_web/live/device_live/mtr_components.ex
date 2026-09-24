@@ -91,11 +91,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
             </div>
           </div>
         </div>
-        <div class="sr-mtr-card p-4">
+        <div id="device-mtr-avg-responding-depth" class="sr-mtr-card p-4">
           <div class="sr-mtr-label">
-            Avg Hop Depth
+            Avg Responding Depth
           </div>
-          <div class="sr-mtr-value mt-2 text-3xl">{@mtr_dashboard.avg_hops}</div>
+          <div class="sr-mtr-value mt-2 text-3xl">{@mtr_dashboard.avg_responding_depth}</div>
+          <div class="sr-mtr-muted text-sm">deepest hop that answered</div>
         </div>
         <div id="device-mtr-destination-latency" class="sr-mtr-card p-4">
           <div class="sr-mtr-label">
@@ -606,9 +607,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
     trace_count = length(traces)
     failed_count = max(trace_count - reached_count, 0)
 
-    avg_hops =
+    avg_responding_depth =
       traces
-      |> Enum.map(&mtr_trace_total_hops/1)
+      |> Enum.map(&MtrDepth.last_responding_hop/1)
       |> Enum.reject(&(&1 <= 0))
       |> average_mtr_number()
 
@@ -658,7 +659,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
       reached_count: reached_count,
       failed_count: failed_count,
       success_rate: success_rate,
-      avg_hops: Float.round(avg_hops, 1),
+      avg_responding_depth: Float.round(avg_responding_depth, 1),
       avg_latency_label: format_us_mtr(avg_latency_us),
       destination_loss_pct: destination_loss_pct,
       endpoint_sample_count: endpoint_sample_count

@@ -85,6 +85,68 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponentsTest do
     assert html =~ "destination observations"
   end
 
+  test "tab summary exposes the average responding depth, not the recorded hop count" do
+    html =
+      render_component(&MtrComponents.mtr_tab_content/1,
+        device_uid: "sr:router-1",
+        recent_traces: [
+          %{
+            "id" => "reached",
+            "time" => ~U[2026-08-30 12:00:00Z],
+            "target" => "198.51.100.10",
+            "target_reached" => true,
+            "total_hops" => 3,
+            "probed_hops" => 3,
+            "last_responding_hop" => 3,
+            "protocol" => "icmp"
+          },
+          %{
+            "id" => "unreached-tcp",
+            "time" => ~U[2026-08-30 11:59:00Z],
+            "target" => "198.51.100.11",
+            "target_reached" => false,
+            "total_hops" => 30,
+            "probed_hops" => 30,
+            "last_responding_hop" => 6,
+            "protocol" => "tcp",
+            "tcp_port" => 443
+          }
+        ],
+        pending_jobs: [],
+        trends: %{hops: [], latency: []}
+      )
+
+    assert html =~ "Avg Responding Depth"
+    assert html =~ "deepest hop that answered"
+    assert html =~ ~r/id="device-mtr-avg-responding-depth"[^>]*>.*?<div[^>]*>\s*4\.5\s*<\/div>/s
+  end
+
+  test "tab summary derives the responding depth from hops for an older unreached trace" do
+    html =
+      render_component(&MtrComponents.mtr_tab_content/1,
+        device_uid: "sr:router-1",
+        recent_traces: [
+          %{
+            "id" => "legacy-unreached",
+            "time" => ~U[2026-08-30 12:00:00Z],
+            "target" => "198.51.100.10",
+            "target_reached" => false,
+            "total_hops" => 20,
+            "protocol" => "icmp",
+            "hops" => [
+              %{"hop_number" => 1, "sent" => 3, "received" => 3, "addr" => "192.0.2.1"},
+              %{"hop_number" => 8, "sent" => 3, "received" => 3, "addr" => "192.0.2.8"},
+              %{"hop_number" => 9, "sent" => 3, "received" => 0}
+            ]
+          }
+        ],
+        pending_jobs: [],
+        trends: %{hops: [], latency: []}
+      )
+
+    assert html =~ ~r/id="device-mtr-avg-responding-depth"[^>]*>.*?<div[^>]*>\s*8\.0\s*<\/div>/s
+  end
+
   test "tab summary renders destination latency unavailable when no observation has RTT" do
     html =
       render_component(&MtrComponents.mtr_tab_content/1,

@@ -100,12 +100,16 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDepth do
 
   # Traces written before these columns existed carry neither figure; derive
   # them from the hops the same way the ingestor does for older agents.
-  defp last_responding_hop(trace) do
+  @doc "Deepest hop that answered a probe: the stored figure, else derived from the hops."
+  @spec last_responding_hop(map()) :: non_neg_integer()
+  def last_responding_hop(trace) when is_map(trace) do
     case trace["last_responding_hop"] do
       value when is_integer(value) -> value
       _ -> deepest(trace, &(int(&1["received"]) > 0))
     end
   end
+
+  def last_responding_hop(_trace), do: 0
 
   defp probed_hops(trace) do
     case trace["probed_hops"] do
