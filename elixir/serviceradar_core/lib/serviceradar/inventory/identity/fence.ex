@@ -42,6 +42,11 @@ defmodule ServiceRadar.Inventory.Identity.Fence do
 
   @telemetry_prefix [:serviceradar, :identity_fence]
 
+  # Page size for the streamed batch pin read. Bounded on purpose: the stream
+  # opts out of Ash's max_page_size clamp, so this is the only thing keeping a
+  # large ingestion batch from being requested as one page.
+  @pin_read_batch_size 250
+
   @typedoc "A device id paired with the identity revision observed when it was resolved."
   @type pinned :: {String.t(), integer()}
 
@@ -154,31 +159,26 @@ defmodule ServiceRadar.Inventory.Identity.Fence do
     # without it the argument is nil, the OR evaluates to NULL, and the query
     # matches nothing.
     #
-    # The explicit page limit is sized to the batch. Device's read declares
-    # `pagination keyset?: true, default_limit: 5000` and does not allow
-    # `page: false` ("Pagination is required"), so the default would cap a sweep
-    # batch at 5000 uids and silently report the rest as unpinned.
+    # This streams, and sizing a page to the batch does NOT work as a substitute.
+    # Ash clamps any requested page down to the action's `max_page_size` with a
+    # silent `Enum.min/1`, so `page: [limit: length(ids)]` was capped no matter how
+    # large the batch was -- and Ash computes `more?` against the *requested* limit
+    # rather than the clamped one, so the short page reported itself complete.
+    # Every uid past the cap was absent from this map and therefore read as
+    # unpinned: precisely the "clean batch" this function must never fabricate.
+    # Callers pass whole ingestion batches, so the cap was reached routinely.
     actor = actor()
 
     Device
     |> Ash.Query.for_read(:read, %{include_deleted: false}, actor: actor)
     |> Ash.Query.filter(uid in ^ids)
     |> Ash.Query.select([:uid, :identity_revision])
-    |> Ash.read(actor: actor, page: [limit: max(length(ids), 1)])
-    |> case do
-      {:ok, %{results: devices}} ->
-        Map.new(devices, &{&1.uid, &1.identity_revision})
-
-      {:ok, devices} when is_list(devices) ->
-        Map.new(devices, &{&1.uid, &1.identity_revision})
-
-      {:error, reason} ->
-        # Observe-only must never break the caller, but it also must not report a
-        # failed read as "nothing drifted" -- that reads as a clean batch.
-        Logger.warning("identity fence: batch pin read failed: #{inspect(reason)}")
-        %{}
-    end
+    |> Ash.stream!(actor: actor, batch_size: @pin_read_batch_size)
+    |> Map.new(&{&1.uid, &1.identity_revision})
   rescue
+    # Observe-only must never break the caller. A failed read still must not be
+    # reported as "nothing drifted", which is why this returns an empty map and
+    # inert/2 logs rather than yielding a map the caller would trust.
     exception -> inert(exception, %{})
   end
 

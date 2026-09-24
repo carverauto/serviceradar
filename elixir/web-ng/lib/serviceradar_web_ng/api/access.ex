@@ -12,6 +12,13 @@ defmodule ServiceRadarWebNG.Api.Access do
   require Ash.Query
 
   @default_limit 100
+
+  # An HTTP-surface policy bound, not a storage limit: `Device.read` imposes no
+  # ceiling, so a client wanting the whole inventory pages or streams. Keep this
+  # explicit rather than relying on any resource-level cap -- Ash silently clamps a
+  # page above the action's `max_page_size` and then reports the short page as
+  # complete, so a bound that is enforced here stays visible instead of becoming a
+  # truncation nobody can see.
   @max_limit 500
   @max_offset 100_000
 

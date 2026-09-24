@@ -41,6 +41,15 @@ defmodule ServiceRadar.Inventory.Device do
 
   require Ash.Query
 
+  # Ash requires `max_page_size` to be a positive integer, so "no ceiling" has to
+  # be spelled as a number larger than any real result set. Declaring it is the
+  # only way to escape Ash's own default of 250, which silently clamps any larger
+  # requested page and then reports the short page as complete.
+  #
+  # This is NOT a capacity limit and must not be treated as one. If a request ever
+  # legitimately approaches it, raise it -- do not add truncation.
+  @unbounded_page_size 1_000_000_000
+
   @devices_view_check {ActorHasPermission, permission: "devices.view"}
   @devices_create_check {ActorHasPermission, permission: "devices.create"}
   @devices_update_check {ActorHasPermission, permission: "devices.update"}
@@ -201,7 +210,27 @@ defmodule ServiceRadar.Inventory.Device do
       end
 
       filter expr(is_nil(deleted_at) or ^arg(:include_deleted))
-      pagination keyset?: true, default_limit: 5000
+
+      # `max_page_size` is declared ONLY to defeat Ash's own default of 250. It is
+      # not a policy ceiling, and it must not become one: nothing in this system
+      # caps how much of the inventory a caller may read.
+      #
+      # Ash's `max_page_size` defaults to 250 when an action omits it
+      # (`Ash.Resource.Actions.Read`), and any larger requested page is clamped
+      # down by a bare `Enum.min/1` -- no error, no log. Ash then computes `more?`
+      # by splitting on the *requested* limit rather than the clamped one, so the
+      # short page reports itself COMPLETE. That is the whole defect, and it makes
+      # every finite ceiling a trap: a caller asking above it is silently told it
+      # received everything. Raising the ceiling only moves that trap to a larger
+      # number, where it fires more rarely and on the biggest installations.
+      #
+      # So the ceiling is removed rather than retuned. A caller asking for a page of
+      # any size now gets it, with a truthful `more?`, and reads the rest by
+      # following the cursor. `default_limit` below is the page size used when a
+      # caller expresses no preference -- a DEFAULT, not a limit on what may be
+      # requested. `Ash.stream!/2` remains the right tool for internal callers that
+      # need every row, since it pages for them.
+      pagination keyset?: true, default_limit: 250, max_page_size: @unbounded_page_size
       prepare build(sort: [uid: :asc])
     end
 

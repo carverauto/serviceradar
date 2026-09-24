@@ -75,7 +75,7 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceController do
   def ocsf_export(conn, params) do
     case parse_export_params(params) do
       {:ok, opts} ->
-        devices = list_devices_for_export(conn, opts)
+        {devices, more?} = list_devices_for_export(conn, opts)
 
         json(conn, %{
           "ocsf_version" => "1.7.0",
@@ -83,7 +83,7 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceController do
           "class_name" => "Device Inventory Info",
           "devices" => Enum.map(devices, &device_to_ocsf_export/1),
           "count" => length(devices),
-          "pagination" => build_export_pagination(devices, opts)
+          "pagination" => build_export_pagination(devices, opts, more?)
         })
 
       {:error, reason} ->
@@ -94,6 +94,10 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceController do
   end
 
   defp parse_export_params(params) when is_map(params) do
+    # The 1000 here is this endpoint's documented per-request bound, enforced at the
+    # HTTP surface. `Device.read` imposes no ceiling of its own, so exporting the
+    # whole inventory means following `next_offset` -- which is now derived from the
+    # page's real `more?` rather than inferred from the row count.
     with {:ok, limit} <- parse_export_limit(Map.get(params, "limit"), 100, 1000),
          {:ok, offset} <- parse_offset_value(Map.get(params, "offset", 0)),
          {:ok, type_id} <- parse_optional_int(Map.get(params, "type_id")),
@@ -167,7 +171,7 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceController do
     # page option for exact offset paging and unwrap .results — the list the
     # callers (Enum.map/length) expect.
     |> Ash.read!(scope: scope, page: [limit: opts.limit, offset: opts.offset])
-    |> Map.fetch!(:results)
+    |> then(&{Map.fetch!(&1, :results), Map.get(&1, :more?) == true})
   end
 
   defp maybe_filter_type_id(query, nil), do: query
@@ -180,8 +184,14 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceController do
   defp maybe_filter_last_seen_after(query, nil), do: query
   defp maybe_filter_last_seen_after(query, dt), do: Ash.Query.filter(query, last_seen_time >= ^dt)
 
-  defp build_export_pagination(devices, %{limit: limit, offset: offset}) do
-    next_offset = if length(devices) >= limit, do: offset + limit
+  # `next_offset` comes from the page's own `more?`, not from comparing the row
+  # count to the requested limit. That comparison was an unsafe inference: when a
+  # page comes back shorter than requested for any reason other than exhaustion,
+  # `length(devices) >= limit` is false and the response declared the export
+  # COMPLETE while rows remained. Advancing by the rows actually returned, rather
+  # than by the requested limit, keeps the next offset correct in that case too.
+  defp build_export_pagination(devices, %{limit: limit, offset: offset}, more?) do
+    next_offset = if more?, do: offset + length(devices)
 
     %{
       "limit" => limit,

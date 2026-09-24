@@ -169,11 +169,12 @@ defmodule ServiceRadar.Inventory.Identity.FenceTest do
     # `include_deleted` and the action's `is_nil(deleted_at) or ^arg(...)` filter
     # goes NULL, the query matches nothing, and these assertions go nil.
     #
-    # It does NOT guard the batch cap. Device's read declares
-    # `default_limit: 5000` and rejects `page: false`, so the limit has to be
-    # sized to the batch; with two devices here, a regression to the default
-    # would still pass. Verifying that needs 5000+ rows, which is not worth a
-    # fixture -- the constraint is recorded at the call site instead.
+    # The batch cap is guarded by its own test below rather than here. Note the
+    # reason this comment previously gave for skipping it was wrong: it assumed the
+    # cap was Device's declared `default_limit`, so it concluded a fixture would
+    # need 5000+ rows. The real ceiling was the action's `max_page_size`, which
+    # Ash defaults to 250 -- affordable as a fixture, and the read is streamed now
+    # so no single page bounds it at all.
     test "observe_pins/1 reads a batch and skips what it cannot see", %{actor: actor} do
       {:ok, a} = create_device(actor)
       {:ok, b} = create_device(actor)
@@ -185,6 +186,66 @@ defmodule ServiceRadar.Inventory.Identity.FenceTest do
       assert pins[b.uid] == b.identity_revision
       refute Map.has_key?(pins, absent)
       assert Fence.observe_pins([]) == %{}
+    end
+
+    # Regression, and the reason this read streams rather than paging once: Ash
+    # clamps a requested page down to the action's `max_page_size` with a silent
+    # `Enum.min/1`, then computes `more?` against the *requested* limit, so the
+    # short page reports itself complete. Every uid past the cap was absent from
+    # the map and therefore read as UNPINNED -- a fabricated clean batch, the one
+    # result this function must never produce.
+    #
+    # 260 rows is deliberately just over the historical 250 ceiling. An earlier
+    # comment here declined this test believing the cap was Device's declared
+    # `default_limit` of 5000; at the real ceiling the fixture is cheap.
+    test "observe_pins/1 returns every uid when the batch exceeds one page", %{actor: actor} do
+      batch_size = 260
+
+      uids =
+        Enum.map(1..batch_size, fn _ ->
+          {:ok, device} = create_device(actor)
+          device.uid
+        end)
+
+      pins = Fence.observe_pins(uids)
+
+      assert map_size(pins) == batch_size
+      assert Enum.all?(uids, &Map.has_key?(pins, &1))
+    end
+
+    # Guards the resource declaration itself, not a caller. Ash's `max_page_size`
+    # defaults to 250 and clamps any larger requested page with a silent
+    # `Enum.min/1`, computing `more?` against the unclamped request -- so a clamped
+    # page claims to be complete. `Device.read` therefore declares a max large
+    # enough that the clamp never fires.
+    #
+    # Any finite ceiling reintroduces the trap for callers asking above it, which a
+    # `default_limit <= max_page_size` check cannot detect: that invariant held
+    # while a 1000 ceiling still silently truncated a request for 5000. Only asking
+    # for more than the old default and checking what comes back catches it.
+    test "a requested page larger than Ash's default ceiling is honoured", %{actor: actor} do
+      requested = 260
+
+      Enum.each(1..requested, fn _ -> {:ok, _} = create_device(actor) end)
+
+      page =
+        Device
+        |> Ash.Query.for_read(:read, %{include_deleted: true})
+        |> Ash.read!(actor: actor, page: [limit: requested])
+
+      assert length(page.results) == requested,
+             "asked for #{requested} rows and got #{length(page.results)}; the action's " <>
+               "max_page_size is clamping the request"
+
+      # The clamped-page failure mode is a short page reporting completeness, so the
+      # row count alone is not enough -- assert the flag is truthful too.
+      smaller =
+        Device
+        |> Ash.Query.for_read(:read, %{include_deleted: true})
+        |> Ash.read!(actor: actor, page: [limit: 100])
+
+      assert length(smaller.results) == 100
+      assert smaller.more? == true
     end
   end
 

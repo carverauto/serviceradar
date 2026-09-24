@@ -72,8 +72,15 @@ defmodule ServiceRadar.PrefixTags.ManualTest do
     rebuild_action = Info.action(PrefixTag, :list_active_for_rebuild)
 
     assert ui_action.pagination.required?
-    assert ui_action.pagination.max_page_size == 250
     refute rebuild_action.pagination
+
+    # This previously asserted max_page_size == 250 on an action that declared no
+    # max_page_size at all, so it pinned Ash's default rather than an intended page
+    # size -- and in doing so it locked in a defect, because the action's declared
+    # default_limit was ABOVE that default. Ash clamps such a request silently and
+    # then reports the short page as complete. Assert the invariant that actually
+    # matters, so the declared page stays deliverable whatever the numbers become.
+    assert ui_action.pagination.default_limit <= ui_action.pagination.max_page_size
   end
 
   test "invalidation derives a destroy source from changeset data without a result record" do
