@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
   alias ServiceRadar.Observability.MtrSettings
   alias ServiceRadar.Observability.MtrSettingsRuntime
   alias ServiceRadar.Repo
+  alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrDepth
 
   require Ash.Query
 
@@ -59,7 +60,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     query = """
     WITH selected_traces AS (
       SELECT id, time, agent_id, check_id, check_name, device_id, target, target_ip,
-             target_reached, total_hops, protocol, ip_version, error
+             target_reached, total_hops, probed_hops, last_responding_hop, protocol, tcp_port,
+             ip_version, error
       FROM mtr_traces
       #{where_clause}
       ORDER BY time DESC, id DESC
@@ -82,7 +84,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
       WHERE terminal_rank = 1
     )
     SELECT st.id::text AS id, st.time, st.agent_id, st.check_id, st.check_name, st.device_id,
-           st.target, st.target_ip, st.target_reached, st.total_hops, st.protocol, st.ip_version,
+           st.target, st.target_ip, st.target_reached, st.total_hops, st.probed_hops,
+           st.last_responding_hop, st.protocol, st.tcp_port, st.ip_version,
            st.error, destination.sent AS destination_sent,
            destination.received AS destination_received,
            destination.avg_us AS destination_avg_us,
@@ -123,7 +126,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
 
     query = """
     SELECT id::text AS id, time, agent_id, check_id, check_name, device_id, target, target_ip,
-           target_reached, total_hops, protocol, ip_version, error
+           target_reached, total_hops, probed_hops, last_responding_hop, protocol, tcp_port,
+           ip_version, error
     FROM mtr_traces
     #{where_clause}
     ORDER BY #{order_clause}
@@ -272,7 +276,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
 
     hops =
       Enum.map(sorted, fn trace ->
-        {trace["time"], trace["total_hops"] || 0}
+        {trace["time"], MtrDepth.bar_depth(trace)}
       end)
 
     latency =
@@ -323,8 +327,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     else
       trace_query = """
       SELECT id::text AS id, time, agent_id, gateway_id, check_id, check_name, device_id,
-             target, target_ip, target_reached, total_hops, protocol,
-             ip_version, packet_size, partition, error
+             target, target_ip, target_reached, total_hops, probed_hops, last_responding_hop,
+             protocol, tcp_port, ip_version, packet_size, partition, error
       FROM mtr_traces
       WHERE id::text = $1
       LIMIT 1
@@ -334,7 +338,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
       SELECT id::text AS id, time, hop_number, addr, hostname, ecmp_addrs, asn, asn_org,
              mpls_labels, sent, received, loss_pct,
              last_us, avg_us, min_us, max_us, stddev_us,
-             jitter_us, jitter_worst_us, jitter_interarrival_us
+             jitter_us, jitter_worst_us, jitter_interarrival_us, unreachable_code
       FROM mtr_hops
       WHERE trace_id::text = $1
       ORDER BY hop_number ASC, time DESC, id DESC
@@ -508,7 +512,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
 
     query = """
     WITH selected_traces AS (
-      SELECT id, time, agent_id, target, target_ip, target_reached, total_hops, protocol
+      SELECT id, time, agent_id, target, target_ip, target_reached, total_hops,
+             last_responding_hop, protocol
       FROM mtr_traces t
       WHERE t.time >= $1 AND t.time < $2
       #{filter_clause}
@@ -537,7 +542,22 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
       COUNT(st.id)::bigint AS trace_count,
       COUNT(st.id) FILTER (WHERE st.target_reached)::bigint AS reached_count,
       COUNT(st.id) FILTER (WHERE NOT st.target_reached)::bigint AS failed_count,
-      COALESCE(AVG(NULLIF(st.total_hops, 0)), 0)::float AS avg_hops,
+      COALESCE(AVG(NULLIF(
+        CASE
+          WHEN st.target_reached THEN st.total_hops
+          ELSE COALESCE(
+            st.last_responding_hop,
+            (
+              SELECT COALESCE(MAX(h.hop_number) FILTER (WHERE h.received > 0), 0)
+              FROM mtr_hops h
+              WHERE h.trace_id = st.id
+              HAVING COUNT(*) > 0
+            ),
+            st.total_hops
+          )
+        END,
+        0
+      )), 0)::float AS avg_hops,
       CASE
         WHEN COALESCE(SUM(th.received) FILTER (WHERE th.received > 0 AND th.avg_us IS NOT NULL), 0) > 0
         THEN (

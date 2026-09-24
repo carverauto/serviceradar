@@ -65,7 +65,8 @@ defmodule ServiceRadar.Observability.MtrHop do
         :stddev_us,
         :jitter_us,
         :jitter_worst_us,
-        :jitter_interarrival_us
+        :jitter_interarrival_us,
+        :unreachable_code
       ]
     end
   end
@@ -192,6 +193,12 @@ defmodule ServiceRadar.Observability.MtrHop do
 
     attribute :jitter_interarrival_us, :integer do
       public? true
+    end
+
+    attribute :unreachable_code, :integer do
+      public? true
+
+      description "ICMP Destination Unreachable code this hop returned (ICMPv4 or ICMPv6 numbering)"
     end
 
     attribute :created_at, :utc_datetime_usec do

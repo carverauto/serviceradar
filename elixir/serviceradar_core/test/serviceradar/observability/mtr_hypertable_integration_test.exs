@@ -105,6 +105,11 @@ defmodule ServiceRadar.Observability.MtrHypertableIntegrationTest do
     assert trace.agent_id == agent_id
     assert trace.check_id == "chk-mtr-001"
 
+    # The payload predates the depth fields, so they are derived from the hops.
+    assert trace.probed_hops == 3
+    assert trace.last_responding_hop == 3
+    assert trace.tcp_port == nil
+
     # Read back hops
     {:ok, hops} =
       MtrHop
@@ -125,6 +130,68 @@ defmodule ServiceRadar.Observability.MtrHypertableIntegrationTest do
     hop2 = Enum.at(sorted_hops, 1)
     assert hop2.addr == "203.0.113.1"
     assert hop2.loss_pct == 10.0
+  end
+
+  test "ingest/2 stores TCP depth fields and hop unreachable codes" do
+    actor = SystemActor.system(:test)
+    agent_id = "test-mtr-agent-#{System.unique_integer([:positive])}"
+
+    payload = %{
+      "results" => [
+        %{
+          "check_id" => "chk-mtr-tcp",
+          "target" => "198.51.100.10",
+          "available" => false,
+          "trace" => %{
+            "target" => "198.51.100.10",
+            "target_ip" => "198.51.100.10",
+            "target_reached" => false,
+            "total_hops" => 4,
+            "probed_hops" => 4,
+            "last_responding_hop" => 2,
+            "protocol" => "tcp",
+            "tcp_port" => 443,
+            "ip_version" => 4,
+            "timestamp" => System.os_time(:second),
+            "hops" => [
+              %{"hop_number" => 1, "addr" => "192.0.2.1", "sent" => 3, "received" => 3},
+              %{
+                "hop_number" => 2,
+                "addr" => "192.0.2.2",
+                "sent" => 3,
+                "received" => 3,
+                "unreachable_code" => 13
+              },
+              %{"hop_number" => 3, "sent" => 3, "received" => 0, "loss_pct" => 100.0},
+              %{"hop_number" => 4, "sent" => 3, "received" => 0, "loss_pct" => 100.0}
+            ]
+          }
+        }
+      ]
+    }
+
+    status = %{agent_id: agent_id, gateway_id: "gw-test", partition: "default"}
+
+    assert :ok = MtrMetricsIngestor.ingest(payload, status)
+
+    {:ok, [trace]} =
+      MtrTrace
+      |> Ash.Query.for_read(:by_agent, %{agent_id: agent_id})
+      |> Ash.read(actor: actor)
+
+    assert trace.protocol == "tcp"
+    assert trace.tcp_port == 443
+    assert trace.probed_hops == 4
+    assert trace.last_responding_hop == 2
+    refute trace.target_reached
+
+    {:ok, hops} =
+      MtrHop
+      |> Ash.Query.for_read(:by_trace, %{trace_id: trace.id})
+      |> Ash.read(actor: actor)
+
+    codes = hops |> Enum.sort_by(& &1.hop_number) |> Enum.map(& &1.unreachable_code)
+    assert codes == [nil, 13, nil, nil]
   end
 
   test "ingest/2 handles multiple results in one payload" do

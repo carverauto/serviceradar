@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.TraceTable do
   import ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.Helpers
 
   alias ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.Config
+  alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrDepth
 
   attr(:traces, :list, required: true)
   attr(:pending_jobs, :list, required: true)
@@ -136,7 +137,9 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.TraceTable do
           {trace_status_label(trace)}
         </.ui_badge>
       </td>
-      <td class="text-center">{trace["total_hops"]}</td>
+      <td class="text-center font-mono" title={MtrDepth.depth_summary(trace)}>
+        {MtrDepth.hop_count_label(trace)}
+      </td>
       <td>
         <.ui_badge size="sm" variant="ghost">
           {String.upcase(trace[Config.payload_protocol_key()] || Config.protocol_icmp())}

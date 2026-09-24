@@ -85,6 +85,109 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponentsTest do
     assert html =~ "destination observations"
   end
 
+  test "tab summary exposes the average responding depth, not the recorded hop count" do
+    html =
+      render_component(&MtrComponents.mtr_tab_content/1,
+        device_uid: "sr:router-1",
+        recent_traces: [
+          %{
+            "id" => "reached",
+            "time" => ~U[2026-08-30 12:00:00Z],
+            "target" => "198.51.100.10",
+            "target_reached" => true,
+            "total_hops" => 3,
+            "probed_hops" => 3,
+            "last_responding_hop" => 3,
+            "protocol" => "icmp"
+          },
+          %{
+            "id" => "unreached-tcp",
+            "time" => ~U[2026-08-30 11:59:00Z],
+            "target" => "198.51.100.11",
+            "target_reached" => false,
+            "total_hops" => 30,
+            "probed_hops" => 30,
+            "last_responding_hop" => 6,
+            "protocol" => "tcp",
+            "tcp_port" => 443
+          }
+        ],
+        pending_jobs: [],
+        trends: %{hops: [], latency: []}
+      )
+
+    assert html =~ "Avg Responding Depth"
+    assert html =~ "deepest hop that answered"
+    assert html =~ ~r/id="device-mtr-avg-responding-depth"[^>]*>.*?<div[^>]*>\s*4\.5\s*<\/div>/s
+  end
+
+  test "latest-by-protocol strip shows responding depth for an unreached TCP trace, not its recorded hops" do
+    html =
+      render_component(&MtrComponents.mtr_tab_content/1,
+        device_uid: "sr:router-1",
+        recent_traces: [
+          %{
+            "id" => "icmp-reached",
+            "time" => ~U[2026-08-30 12:00:00Z],
+            "target" => "198.51.100.10",
+            "target_reached" => true,
+            "total_hops" => 6,
+            "probed_hops" => 6,
+            "last_responding_hop" => 6,
+            "protocol" => "icmp"
+          },
+          %{
+            "id" => "tcp-unreached",
+            "time" => ~U[2026-08-30 11:59:00Z],
+            "target" => "198.51.100.10",
+            "target_reached" => false,
+            "total_hops" => 30,
+            "probed_hops" => 30,
+            "last_responding_hop" => 4,
+            "protocol" => "tcp",
+            "tcp_port" => 443
+          }
+        ],
+        pending_jobs: [],
+        trends: %{hops: [], latency: []}
+      )
+
+    [strip] = Regex.run(~r/id="device-mtr-latest-by-protocol".*?<\/button>.*?<\/button>/s, html)
+
+    assert strip =~ "6 hops"
+    assert strip =~ "4/30 hops"
+    assert strip =~ "No reply past hop 4 (30 probed)"
+    # The recorded 30 hops must not appear on its own; only as the probed
+    # depth in "4/30".
+    refute strip =~ ~r/(?<![\/\d])30 hops/
+  end
+
+  test "tab summary derives the responding depth from hops for an older unreached trace" do
+    html =
+      render_component(&MtrComponents.mtr_tab_content/1,
+        device_uid: "sr:router-1",
+        recent_traces: [
+          %{
+            "id" => "legacy-unreached",
+            "time" => ~U[2026-08-30 12:00:00Z],
+            "target" => "198.51.100.10",
+            "target_reached" => false,
+            "total_hops" => 20,
+            "protocol" => "icmp",
+            "hops" => [
+              %{"hop_number" => 1, "sent" => 3, "received" => 3, "addr" => "192.0.2.1"},
+              %{"hop_number" => 8, "sent" => 3, "received" => 3, "addr" => "192.0.2.8"},
+              %{"hop_number" => 9, "sent" => 3, "received" => 0}
+            ]
+          }
+        ],
+        pending_jobs: [],
+        trends: %{hops: [], latency: []}
+      )
+
+    assert html =~ ~r/id="device-mtr-avg-responding-depth"[^>]*>.*?<div[^>]*>\s*8\.0\s*<\/div>/s
+  end
+
   test "tab summary renders destination latency unavailable when no observation has RTT" do
     html =
       render_component(&MtrComponents.mtr_tab_content/1,
@@ -289,5 +392,47 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponentsTest do
 
     assert html =~ "Destination Loss"
     assert html =~ ~r/Destination Loss<\/div>\s*<div[^>]*>\s*-/s
+  end
+
+  test "trace modal describes an unreached TCP trace by its last reply and folds the silent tail" do
+    silent = fn number -> %{"hop_number" => number, "sent" => 3, "received" => 0, "loss_pct" => 100.0} end
+
+    html =
+      render_component(&MtrComponents.mtr_trace_modal/1,
+        show: true,
+        trace: %{
+          "target" => "198.51.100.10",
+          "agent_id" => "agent-1",
+          "protocol" => "tcp",
+          "tcp_port" => 443,
+          "ip_version" => 4,
+          "time" => ~U[2026-08-30 12:00:00Z],
+          "target_reached" => false,
+          "total_hops" => 5,
+          "probed_hops" => 5,
+          "last_responding_hop" => 2
+        },
+        hops: [
+          %{"hop_number" => 1, "addr" => "192.0.2.1", "sent" => 3, "received" => 3, "loss_pct" => 0.0},
+          %{
+            "hop_number" => 2,
+            "addr" => "192.0.2.2",
+            "sent" => 3,
+            "received" => 3,
+            "loss_pct" => 0.0,
+            "unreachable_code" => 13
+          },
+          silent.(3),
+          silent.(4),
+          silent.(5)
+        ]
+      )
+
+    assert html =~ "No reply past hop 2 (5 probed)"
+    assert html =~ "2/5"
+    assert html =~ "port 443"
+    assert html =~ "administratively prohibited"
+    assert html =~ "3 hops with no reply"
+    refute html =~ ~r/<td class="text-center font-mono tabular-nums">4<\/td>/
   end
 end

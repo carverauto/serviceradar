@@ -59,7 +59,10 @@ defmodule ServiceRadar.Observability.MtrTrace do
         :target_ip,
         :target_reached,
         :total_hops,
+        :probed_hops,
+        :last_responding_hop,
         :protocol,
+        :tcp_port,
         :ip_version,
         :packet_size,
         :partition,
@@ -135,10 +138,25 @@ defmodule ServiceRadar.Observability.MtrTrace do
       public? true
     end
 
+    attribute :probed_hops, :integer do
+      public? true
+      description "Deepest TTL probed; for an unreached trace this reflects the run's budget"
+    end
+
+    attribute :last_responding_hop, :integer do
+      public? true
+      description "Deepest hop that returned any reply (0 when none did)"
+    end
+
     attribute :protocol, :string do
       allow_nil? false
       default "icmp"
       public? true
+    end
+
+    attribute :tcp_port, :integer do
+      public? true
+      description "Destination port of a TCP trace"
     end
 
     attribute :ip_version, :integer do

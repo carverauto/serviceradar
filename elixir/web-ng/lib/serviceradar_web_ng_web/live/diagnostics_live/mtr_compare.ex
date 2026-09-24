@@ -657,7 +657,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
           b_path={diagnostics_window_path(@state, :b)}
         />
         <.compare_metric_card
-          label="Hop Depth"
+          label="Responding Depth"
           a_value={@comparison.a.avg_hops}
           b_value={@comparison.b.avg_hops}
           delta={@comparison.deltas.avg_hops}
