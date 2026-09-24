@@ -16,22 +16,6 @@ func hostEmitTelemetry(_ uint32, _ uint32) int32 {
 	return hostErrNotFound
 }
 
-func hostArtifactOpen(_ uint32, _ uint32) int32 {
-	return hostErrNotFound
-}
-
-func hostArtifactWrite(_ uint32, _ uint32, _ uint32, _ uint32, _ uint32) int32 {
-	return hostErrNotFound
-}
-
-func hostArtifactCommit(_ uint32, _ uint32, _ uint32, _ uint32, _ uint32) int32 {
-	return hostErrNotFound
-}
-
-func hostArtifactAbort(_ uint32) int32 {
-	return hostErrNotFound
-}
-
 func hostHTTPRequest(_ uint32, _ uint32, _ uint32, _ uint32) int32 {
 	return hostErrNotFound
 }

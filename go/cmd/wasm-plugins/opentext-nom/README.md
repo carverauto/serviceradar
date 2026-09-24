@@ -64,6 +64,23 @@ injection, rejects redirects and mismatched endpoints, and prints only the
 submitted plugin result. It does not grant package approval or production
 authorization.
 
+The `opentext-nom.config.retrieve` action stages the running-config as an
+artifact, so it also needs a directory for the local host to write it to. Keep
+it outside the repository: the file holds the device's full configuration,
+secrets included.
+
+```dotenv
+SERVICERADAR_PLUGIN_ACTION_FILE=/path/outside/repo/retrieve.json
+SERVICERADAR_LOCAL_ARTIFACT_DIR=/path/outside/repo/artifacts
+```
+
+```json
+{"action_id":"opentext-nom.config.retrieve","input_values":{"device_id":"<NA device ID>","device_uid":"sr:<device uid>"}}
+```
+
+The run prints the result JSON (which carries only the artifact reference) and
+reports each staged artifact's path on stderr.
+
 ## Configuration
 
 Operators configure this plugin from **Settings -> Networks -> Credential
