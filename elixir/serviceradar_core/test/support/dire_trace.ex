@@ -786,8 +786,11 @@ defmodule ServiceRadar.DireTrace do
   # from `elixir/serviceradar_core` in a sandbox holding only declared runfiles, so the baked
   # path does not exist there; the traces are declared data and sit two levels above the cwd.
   defp traces_dir do
-    [@traces_dir, Path.expand("../../formal/dire/traces", File.cwd!())]
-    |> Enum.find(@traces_dir, &File.dir?/1)
+    Enum.find(
+      [@traces_dir, Path.expand("../../formal/dire/traces", File.cwd!())],
+      @traces_dir,
+      &File.dir?/1
+    )
   end
 
   defp golden!(name, tla, cfg) do
