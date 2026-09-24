@@ -151,7 +151,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     query = normalize_target_query(Map.get(params, @selector_query_key))
     params = Map.put(params, @selector_query_key, query || "")
     {parsed_builder, builder_sync} = parse_target_query_to_builder(query)
-    selector_limit = parse_int(Map.get(params, @selector_limit_key), 100, 1)
+    selector_limit = parse_optional_limit(Map.get(params, @selector_limit_key))
 
     socket =
       socket
@@ -179,22 +179,19 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
   def handle_event("save_profile", %{"form" => params}, socket) do
     scope = socket.assigns.current_scope
     query = normalize_target_query(Map.get(params, @selector_query_key))
-    selector_limit = parse_int(Map.get(params, @selector_limit_key), 100, 1)
+    selector_limit = parse_optional_limit(Map.get(params, @selector_limit_key))
     preferred_agent_id = blank_to_nil(Map.get(params, "preferred_agent_id"))
 
     bulk_execution_profile =
       normalize_bulk_execution_profile(Map.get(params, @selector_execution_profile_key))
 
     target_selector =
-      maybe_put(
-        %{
-          @selector_query_key => query || "in:devices",
-          @selector_limit_key => selector_limit,
-          @selector_execution_profile_key => bulk_execution_profile
-        },
-        @selector_agent_id_key,
-        preferred_agent_id
-      )
+      %{
+        @selector_query_key => query || "in:devices",
+        @selector_execution_profile_key => bulk_execution_profile
+      }
+      |> maybe_put(@selector_agent_id_key, preferred_agent_id)
+      |> maybe_put(@selector_limit_key, selector_limit)
 
     attrs = %{
       name: String.trim(Map.get(params, "name", "")),
@@ -856,9 +853,9 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
                   under "limit", and save_profile/validate_profile read it back
                   with Map.get(params, @selector_limit_key). A mismatched atom
                   renders blank and silently discards the operator's input,
-                  because parse_int/3 then falls through to its 100 default --
-                  so the selector limit can never be changed from the UI. Same
-                  rule as :srql_query above. --%>
+                  causing parse_optional_limit/1 to return nil -- which is the
+                  "no limit" sentinel, so the selector limit can never be set
+                  from the UI. Same rule as :srql_query above. --%>
             <.input
               type="number"
               id="mtr-profile-selector-limit"
@@ -1180,7 +1177,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
       "name" => "",
       "enabled" => true,
       @selector_query_key => "in:devices",
-      @selector_limit_key => 100,
+      @selector_limit_key => "",
       "preferred_agent_id" => "",
       "partition_id" => "",
       "baseline_protocol" => @protocol_icmp,
@@ -1570,13 +1567,13 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
          {:ok, %{"results" => [%{"total" => count} | _]}} <-
            srql_module().query(full_query, %{scope: scope}),
          eligible_count when is_integer(eligible_count) <- extract_total_count(count) do
-      selector_limit = parse_int(selector_limit, 100, 1)
+      selector_limit = parse_optional_limit(selector_limit)
 
       %{
         eligible_managed_count: eligible_count,
         selector_limit: selector_limit,
-        effective_target_count: min(eligible_count, selector_limit),
-        limited?: eligible_count > selector_limit
+        effective_target_count: capped_count(eligible_count, selector_limit),
+        limited?: is_integer(selector_limit) and eligible_count > selector_limit
       }
     else
       _ -> nil
@@ -1584,6 +1581,12 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
   rescue
     _ -> nil
   end
+
+  # No selector limit means every eligible device is a target, so the count the
+  # operator sees must be the full eligible count rather than a capped one.
+  defp capped_count(eligible_count, nil), do: eligible_count
+
+  defp capped_count(eligible_count, limit) when is_integer(limit), do: min(eligible_count, limit)
 
   defp effective_target_count(%{effective_target_count: count}) when is_integer(count), do: count
   defp effective_target_count(_), do: nil
@@ -1772,6 +1775,25 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
       socket
     end
   end
+
+  # The Selector Limit field is optional, and blank means "every device the scope
+  # query matches" -- not a built-in cap. Do NOT give this a numeric default: a
+  # default here is written into the stored selector on every Save, so it silently
+  # truncates a profile's coverage to the first N matches with nothing in the UI
+  # saying the scope was cut. A non-positive entry is treated as blank for the
+  # same reason.
+  # Deliberately not routed through parse_int/3: that clamps to its `min`, so a
+  # 0 would come back as 1 and cap the profile at a single target.
+  defp parse_optional_limit(value) when is_integer(value) and value > 0, do: value
+
+  defp parse_optional_limit(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {parsed, ""} when parsed > 0 -> parsed
+      _ -> nil
+    end
+  end
+
+  defp parse_optional_limit(_value), do: nil
 
   defp parse_int(nil, default, _min), do: default
   defp parse_int("", default, _min), do: default
