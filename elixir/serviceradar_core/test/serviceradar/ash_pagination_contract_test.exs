@@ -54,9 +54,17 @@ defmodule ServiceRadar.AshPaginationContractTest do
               the silent cliff to a larger number -- it still fires, more rarely and
               on the biggest installations.
 
-           2. If the action genuinely needs a modest cap, lower `default_limit` to
-              something at or below `max_page_size`. Internal callers that need every
-              row should use `Ash.stream!/2` instead of reading one page.
+           2. If the action genuinely intends a modest default page, lower
+              `default_limit` to something at or below `max_page_size`.
+              `default_limit` is the page used when a caller expresses no
+              preference -- a default, not a bound. Callers that need more
+              rows simply ask for more.
+
+           Note: this declaration-level check cannot detect the caller-side clamp
+           directly -- `default_limit <= max_page_size` held perfectly while a
+           finite `max_page_size` still truncated larger requests and reported
+           them complete. The behavioural test in `fence_test.exs` covers that
+           case alongside this one.
 
            #{Enum.map_join(violations, "\n", &("  - " <> &1))}
            """
