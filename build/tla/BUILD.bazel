@@ -1,5 +1,7 @@
 load("@rules_java//java:java_binary.bzl", "java_binary")
 load("@rules_java//java:java_import.bzl", "java_import")
+load("@rules_python//python:py_library.bzl", "py_library")
+load("@rules_python//python:py_test.bzl", "py_test")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -14,4 +16,20 @@ java_binary(
     jvm_flags = ["-XX:+UseParallelGC"],
     main_class = "tlc2.TLC",
     runtime_deps = [":tla2tools"],
+)
+
+exports_files(["tlc_driver.py"])
+
+py_library(
+    name = "tlc_driver_lib",
+    srcs = ["tlc_driver.py"],
+    imports = ["."],
+    deps = ["@rules_python//python/runfiles"],
+)
+
+py_test(
+    name = "tlc_driver_test",
+    size = "small",
+    srcs = ["tlc_driver_test.py"],
+    deps = [":tlc_driver_lib"],
 )
