@@ -6,6 +6,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Executions do
   alias ServiceRadar.Inventory.DeviceCleanupSettings
   alias ServiceRadar.Inventory.DeviceCleanupWorker
   alias ServiceRadar.SweepJobs.SweepGroupExecution
+  alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Data
+  alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.MtrJobs
 
   def load_or_create_cleanup_settings(scope) do
     case DeviceCleanupSettings.get_settings(scope: scope) do
@@ -30,6 +32,24 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Executions do
     settings
     |> Form.for_update(:update, domain: ServiceRadar.Inventory, scope: scope, as: "cleanup")
     |> to_form()
+  end
+
+  @doc """
+  Loads MTR bulk jobs for Active Scans, or none when the viewer lacks the
+  sweep view permission. Pass `load?: false` for the disconnected mount.
+  """
+  def assign_mtr_jobs(socket, scope, opts \\ []) do
+    if Data.can_view_mtr_jobs?(scope) and Keyword.get(opts, :load?, true) do
+      socket
+      |> Phoenix.Component.assign(:can_view_mtr_jobs, true)
+      |> Phoenix.Component.assign(:mtr_running, MtrJobs.load_running(scope))
+      |> Phoenix.Component.assign(:mtr_recent, MtrJobs.load_recent(scope))
+    else
+      socket
+      |> Phoenix.Component.assign(:can_view_mtr_jobs, Data.can_view_mtr_jobs?(scope))
+      |> Phoenix.Component.assign(:mtr_running, [])
+      |> Phoenix.Component.assign(:mtr_recent, [])
+    end
   end
 
   def load_running_executions(scope) do

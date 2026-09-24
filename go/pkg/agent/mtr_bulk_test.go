@@ -390,6 +390,27 @@ func TestBulkMtrProtocols_CanonicalOrderAndFallback(t *testing.T) {
 	}
 }
 
+func TestBulkMtrUpdateReached(t *testing.T) {
+	reached := &mtr.TraceResult{TargetReached: true}
+
+	cases := []struct {
+		name   string
+		update mtrBulkTargetUpdate
+		want   bool
+	}{
+		{name: "completed and reached", update: mtrBulkTargetUpdate{Status: bulkMtrStatusCompleted, Trace: reached}, want: true},
+		{name: "completed but not reached", update: mtrBulkTargetUpdate{Status: bulkMtrStatusCompleted, Trace: &mtr.TraceResult{}}, want: false},
+		{name: "completed without a trace", update: mtrBulkTargetUpdate{Status: bulkMtrStatusCompleted}, want: false},
+		{name: "failed", update: mtrBulkTargetUpdate{Status: bulkMtrStatusFailed, Trace: reached}, want: false},
+	}
+
+	for _, tc := range cases {
+		if got := bulkMtrUpdateReached(tc.update); got != tc.want {
+			t.Fatalf("%s: got %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
 func TestExpandBulkMtrUnits_OneTracePerTargetAndProtocol(t *testing.T) {
 	units := expandBulkMtrUnits(
 		[]string{"192.0.2.1", "192.0.2.2"},

@@ -21,7 +21,16 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Infos do
      |> refresh_sweep_groups()
      |> assign(:running_executions, running)
      |> assign(:execution_progress, progress)
-     |> assign(:recent_executions, load_recent_executions(scope))}
+     |> assign(:recent_executions, load_recent_executions(scope))
+     |> assign(:mtr_refresh_pending, false)
+     |> assign_mtr_jobs(scope)}
+  end
+
+  def handle_info(:refresh_mtr_jobs, socket) do
+    {:noreply,
+     socket
+     |> assign(:mtr_refresh_pending, false)
+     |> assign_mtr_jobs(socket.assigns.current_scope)}
   end
 
   # Handle sweep execution started event
@@ -130,14 +139,30 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Infos do
   end
 
   def handle_info({:command_progress, data}, socket) do
-    {:noreply, update_command_statuses(socket, :progress, data)}
+    {:noreply, socket |> update_command_statuses(:progress, data) |> maybe_refresh_mtr_jobs(data)}
   end
 
   def handle_info({:command_result, data}, socket) do
-    {:noreply, update_command_statuses(socket, :result, data)}
+    {:noreply, socket |> update_command_statuses(:result, data) |> maybe_refresh_mtr_jobs(data)}
   end
 
   def handle_info(_msg, socket), do: {:noreply, socket}
+
+  # MTR bulk jobs report progress every few seconds; coalesce the reloads so a
+  # burst of reports costs one query.
+  @mtr_refresh_debounce_ms 1_000
+
+  defp maybe_refresh_mtr_jobs(socket, data) do
+    command_type = Map.get(data, :command_type) || Map.get(data, "command_type")
+
+    if command_type == "mtr.bulk_run" and socket.assigns[:can_view_mtr_jobs] and
+         not socket.assigns[:mtr_refresh_pending] do
+      Process.send_after(self(), :refresh_mtr_jobs, @mtr_refresh_debounce_ms)
+      assign(socket, :mtr_refresh_pending, true)
+    else
+      socket
+    end
+  end
 
   defp sweep_dispatch_flash(data) do
     successes = data |> Map.get(:commands, []) |> List.wrap() |> length()

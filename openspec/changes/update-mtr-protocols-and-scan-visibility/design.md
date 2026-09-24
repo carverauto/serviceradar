@@ -251,9 +251,13 @@ for example, "hop 7: 3 sent / 0 replies" versus
   sweep execution rows.
 - **Name.** The profile name resolves from `context["mtr_policy_id"]`. Jobs
   without a policy show "Manual".
-- **Reached count.** The count of targets reached comes from
-  `mtr_bulk_job_targets` joined to `mtr_traces.target_reached` for that
-  command. It is computed for terminal jobs only, and cached on the row.
+- **Reached count.** The agent counts completed traces that reached their
+  target and reports `reached_targets` on the bulk job result. This avoids
+  scanning `mtr_traces` for every recent job on each refresh. Jobs from agents
+  that predate the field show "-".
+- **Link.** A row links to `/diagnostics/mtr` filtered by the job's agent,
+  where the bulk jobs panel lists that agent's jobs; the diagnostics page has
+  no per-job URL.
 - **Refresh.** `Infos` routes `{:command_progress | :command_result, ...}` for
   `mtr.bulk_run` into the MTR rows. The 15 s poll remains the backstop.
 - **Permissions.** MTR rows and the filter are rendered only when the user
