@@ -25,7 +25,7 @@ Each confirmed defect is fixed in its own pull request. The pull request removes
 model switch, deletes its witness, and adds its property to the model's must-pass
 configuration. Confirmed defects (`formal/dire/README.md` has code paths and witnesses):
 
-- [ ] 3.1 `sync_alias_merge_unguarded`: the sync alias merge folds the previous holder of a
+- [x] 3.1 `sync_alias_merge_unguarded`: the sync alias merge folds the previous holder of a
       DHCP address into the device that leased it; give it the distinct-identity veto.
 - [ ] 3.2 `alias_merge_on_unknown_mac`: `AliasGuard` treats an unknown MAC set as not
       distinct; an address must never merge two identified records.

@@ -35,7 +35,6 @@ CONSTANTS
 
 KnownBugs == {
     "alias_merge_on_unknown_mac",  \* inventory/identity/alias_guard.ex maybe_merge_ip_alias_device/3
-    "sync_alias_merge_unguarded",  \* inventory/sync/aliases.ex attempt_alias_merge/5 (no MAC veto)
     "mac_only_conflicts_blocked",  \* inventory/identity/merge_policy.ex mac_only_matches?/1
     "silent_blocks",               \* MergePolicy / AliasGuard decisions reach only telemetry
     "src_attach_via_mac"           \* inventory/identity/resolver.ex lookup_by_strong_identifiers/3
@@ -181,16 +180,16 @@ Resolve(h, x, S, recordAlias, syncAlias, kind) ==
         \* question in openspec/changes/update-dire-strong-identity-goal/design.md.
         \* AliasGuard (Resolver path): merge unless both hold MACs and they are disjoint;
         \* MergeEngine's source-authority guard still blocks disjoint Armis ids.
-        \* Sync.Aliases (sync path): merge unless the source-authority guard blocks it; no
-        \* MAC veto at all, and no invalidation unless the agent guard fires.
+        \* Sync.Aliases (sync path, fixed in #4609): an alias holder that owns an identifier is
+        \* never merged on the address (AliasGuard.distinct_identified_devices?/3); its alias
+        \* is invalidated. The code still absorbs an alias holder with no identifier at all,
+        \* which this model never reaches (no address-only record ever holds an alias).
         aliasMerge(y) ==
-            IF syncAlias /\ Bug("sync_alias_merge_unguarded") THEN ~SrcConflictIn(owner1, {y, target})
-            ELSE IF ~syncAlias /\ Bug("alias_merge_on_unknown_mac")
+            IF ~syncAlias /\ Bug("alias_merge_on_unknown_mac")
             THEN ~DistinctMacs(y, target) /\ ~SrcConflict({y, target})
             ELSE FALSE                \* goal: address evidence never merges
         aliasInvalidate(y) ==
-            IF syncAlias /\ Bug("sync_alias_merge_unguarded") THEN FALSE
-            ELSE IF ~syncAlias /\ Bug("alias_merge_on_unknown_mac") THEN DistinctMacs(y, target)
+            IF ~syncAlias /\ Bug("alias_merge_on_unknown_mac") THEN DistinctMacs(y, target)
             ELSE IdsHeld(y) # {}
         \* AliasGuard runs only on the strong-match branch; Sync.Aliases runs for every
         \* resolved sync update, including one that created its device.
