@@ -78,6 +78,43 @@ a divergence that only appeared after a restart. Import creates when absent and
 leaves what it finds; a shipped definition changing in a later release MUST NOT
 stomp a customised copy.
 
+### Reports are importable from a source, over shared machinery
+
+A definition is only useful if it can travel. System reports therefore get the
+same source model add-on and plugin packages already have: `source_type` of
+`:first_party` (shipped by the OSS repository, some enabled by default),
+`:github` (a repository the operator nominates), or `:upload`, carried with the
+same provenance fields — release tag, commit, content hash, signature state.
+
+**That machinery is extracted rather than copied.** `Plugins.RepoUrl`,
+`Plugins.GithubImporter`, `Plugins.FirstPartyImporter` and
+`Plugins.FirstPartyReleaseClient` are generic work — parsing a repository URL,
+resolving a ref, verifying a signature, listing releases, reading an index asset —
+sitting under a `Plugins` namespace. Reports become a third consumer, so the
+logic moves to a shared, project-owned module that add-ons, plugins and reports
+all call. Adding a fourth consumer should not mean a fourth copy.
+
+**The extraction fixes a live bug rather than propagating it.**
+`GithubImporter` fetches `api.github.com` and `raw.githubusercontent.com` with
+raw `Req`, including a streaming artifact download
+(`Req.get(url, into: File.stream!(tmp_path))`). No importer under `plugins/`
+references `ServiceRadar.HTTP.EgressClient`. That client's own documentation
+states why this matters: the shared Finch pool connects directly and never uses
+the proxy, so an external request on it bypasses the egress allowlist and is
+**refused** wherever a default-deny NetworkPolicy admits only the proxy — and
+Mint, Finch's transport, cannot tunnel through the CONNECT proxy this deployment
+runs behind at all.
+
+So GitHub import is not merely unconventional in a proxied deployment, it cannot
+work there, and the failure would appear only in the environments that have the
+proxy. Routing the extracted client through `EgressClient.fetch_body/2` and
+`download_to_file/3` repairs plugins and add-ons in the same change that gives
+reports the capability.
+
+Unlike the dashboard-SDK path, a system report needs **no renderer artifact** —
+only the JSON definition — so `GithubImporter.fetch_dashboard/1`, which requires
+one, is not the path reports use.
+
 ### MTR analytics that can name a device
 
 `mtr_hops` gains `target_ip` and `device_id`, populated at ingest from the trace

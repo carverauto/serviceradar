@@ -676,6 +676,21 @@ fn parse_single_agg(expr: &str) -> Result<HopAgg> {
                 alias,
             })
         }
+        // A bare `count()` counts rows, which is how a panel reports how many
+        // traces traversed a hop address -- the signal that separates a genuinely
+        // shared hop from one seen twice. `mtr_traces` already accepts this form.
+        "count" if arg_list.len() == 1 && arg_list[0].is_empty() => {
+            let alias = if alias.is_empty() {
+                "count".to_string()
+            } else {
+                sanitize_identifier(alias)?
+            };
+
+            Ok(HopAgg {
+                expr: "COUNT(*)".to_string(),
+                alias,
+            })
+        }
         _ => {
             if arg_list.len() != 1 {
                 return Err(ServiceError::InvalidRequest(format!(
@@ -1113,6 +1128,29 @@ mod tests {
             lower.contains("order by \"mtr_hops\".\"hop_number\" asc"),
             "{sql}"
         );
+    }
+
+    #[test]
+    fn count_star_reports_how_many_traces_traversed_a_hop() {
+        // The trace count is what separates a genuinely shared hop from one seen
+        // twice. Without it, ranking hop addresses by loss surfaces low-sample
+        // noise and mid-path ICMP rate limiting above real faults.
+        let plan = plan_for(
+            "in:mtr_hops time:last_24h stats:\"loss_ratio(sent, received) as loss, count() as traces by addr\" sort:loss:desc limit:20",
+        );
+        let (sql, _) = to_sql_and_params(&plan).expect("count() must be supported on mtr_hops");
+        let lower = sql.to_lowercase();
+
+        assert!(lower.contains("count(*)"), "{sql}");
+        assert!(lower.contains("'traces'"), "{sql}");
+        assert!(lower.contains("sum(sent)"), "{sql}");
+    }
+
+    #[test]
+    fn count_of_a_column_still_works_on_hops() {
+        let plan = plan_for("in:mtr_hops stats:count(sent) as n by addr limit:10");
+        let (sql, _) = to_sql_and_params(&plan).expect("count(col) should still translate");
+        assert!(sql.to_lowercase().contains("count(sent)"), "{sql}");
     }
 
     #[test]
