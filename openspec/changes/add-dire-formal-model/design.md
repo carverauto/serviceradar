@@ -185,9 +185,11 @@ A model the code can drift away from verifies nothing. Trace validation is the c
 
   The model was corrected from the traces and the code, and two new defect switches came out
   of it.
-- The trace test is an `:integration` test on the shared srql-fixtures CNPG. It is serial,
-  because it uses a global telemetry handler, and has DB-backed rows in
-  `test/INTEGRATION_SOURCE_DISPOSITIONS.tsv` and `build/integration_test_dispositions.bzl`.
+- The trace tests are `:integration` tests on the shared srql-fixtures CNPG. Both are serial
+  and have DB-backed rows in `test/INTEGRATION_SOURCE_DISPOSITIONS.tsv` and
+  `build/integration_test_dispositions.bzl`: the resolution test because it uses a global
+  telemetry handler, the lifecycle test because its sweep step creates a `SweepGroup` whose
+  monitor schedules global Oban workers.
 - **Lifecycle traces** (`test/support/dire_lifecycle_trace.ex`,
   `DireLifecycleTrace.tla`) drive ingest, merge, the resolver's conflict merge, unmerge, soft
   delete, sweep restore, agent check-in and purge, and record status, delete reason,

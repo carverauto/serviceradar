@@ -156,7 +156,8 @@ test's `@current_bugs`).
    trace with `DIRE_TRACE_WRITE=1`; its model check now fails too, because the switched-on model
    does not allow the fixed behavior.
 3. Remove the switch from the model (keep only the intended branch).
-4. Delete its witness configuration and target.
+4. Delete its witness configuration and target and, for a lifecycle switch, the trace's
+   `__knockout` configuration and target, which TLC can no longer reject.
 5. Add its property to `lifecycle_current.cfg` (lifecycle) or confirm it in every
    `resolution_goal_*` configuration (resolution).
 
