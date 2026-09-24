@@ -148,6 +148,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansMtrTest do
       assert html =~ "Recent Completions"
     end
   end
+
   describe "loading MTR jobs" do
     defp socket, do: %Phoenix.LiveView.Socket{assigns: %{__changed__: %{}}}
 

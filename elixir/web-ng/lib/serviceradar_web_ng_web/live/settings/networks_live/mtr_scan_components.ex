@@ -13,7 +13,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.MtrScanComponents do
 
   def mtr_running_card(assigns) do
     ~H"""
-    <div id={"mtr-running-job-#{@job.id}"} class="bg-sr-subtle/30 rounded-lg p-4 border border-sr-line">
+    <div
+      id={"mtr-running-job-#{@job.id}"}
+      class="bg-sr-subtle/30 rounded-lg p-4 border border-sr-line"
+    >
       <div class="flex items-start justify-between">
         <div class="flex items-center gap-3">
           <.ui_spinner size="sm" />
@@ -49,7 +52,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.MtrScanComponents do
         </div>
       </div>
       <div class="mt-3 h-1.5 bg-sr-control rounded-full overflow-hidden">
-        <div class="h-full bg-info transition-all duration-300" style={"width: #{@job.progress_percent}%"}>
+        <div
+          class="h-full bg-info transition-all duration-300"
+          style={"width: #{@job.progress_percent}%"}
+        >
         </div>
       </div>
     </div>
@@ -63,7 +69,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.MtrScanComponents do
     ~H"""
     <tr id={"mtr-recent-job-#{@job.id}"} class="hover:bg-sr-subtle/40">
       <td>
-        <.ui_badge size="sm" variant={MtrJobs.status_variant(@job)}>{MtrJobs.status_label(@job)}</.ui_badge>
+        <.ui_badge size="sm" variant={MtrJobs.status_variant(@job)}>
+          {MtrJobs.status_label(@job)}
+        </.ui_badge>
       </td>
       <td>
         <div class="font-medium">{@job.name}</div>
@@ -80,11 +88,17 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.MtrScanComponents do
       <td class="font-mono text-xs">{format_duration(@job.duration_ms)}</td>
       <td class="text-xs">
         {@job.completed} / {@job.total}
-        <span :if={@job.failed > 0} class="text-error">({@job.failed} failed<span :if={@job.timed_out > 0}>, {@job.timed_out} timed out</span>)</span>
+        <span :if={@job.failed > 0} class="text-error">({@job.failed} failed<span :if={
+          @job.timed_out > 0
+        }>, {@job.timed_out} timed out</span>)</span>
       </td>
       <td class="text-xs">
         <span :if={not is_nil(@job.reached)}>{@job.reached}</span>
-        <span :if={is_nil(@job.reached)} class="text-sr-muted" title="Reported by agents from this release on">-</span>
+        <span
+          :if={is_nil(@job.reached)}
+          class="text-sr-muted"
+          title="Reported by agents from this release on"
+        >-</span>
       </td>
       <td>
         <.link

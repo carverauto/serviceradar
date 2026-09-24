@@ -50,8 +50,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Executions do
   end
 
   @doc false
-  def assign_loaded_mtr_jobs(socket, {:ok, running}, {:ok, recent}),
-    do: assign_mtr_rows(socket, true, running, recent)
+  def assign_loaded_mtr_jobs(socket, {:ok, running}, {:ok, recent}), do: assign_mtr_rows(socket, true, running, recent)
 
   def assign_loaded_mtr_jobs(socket, _running, _recent), do: assign_mtr_rows(socket, false, [], [])
 
