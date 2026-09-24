@@ -40,6 +40,22 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDepth do
   def hop_count_label(_trace), do: "0/0"
 
   @doc """
+  Depth to draw a trace's bar at: the path length when the target was reached,
+  else the last hop that answered. Probed depth is left out on purpose, since
+  it measures the run's budget rather than the path.
+  """
+  @spec bar_depth(map()) :: non_neg_integer()
+  def bar_depth(trace) when is_map(trace) do
+    if trace["target_reached"] == true or legacy?(trace) do
+      int(trace["total_hops"])
+    else
+      last_responding_hop(trace)
+    end
+  end
+
+  def bar_depth(_trace), do: 0
+
+  @doc """
   Splits hops into the rows to show and a summary of the trailing run of hops
   that never answered. Hops before the last responding hop are always shown,
   since a silent hop mid-path is information; only the tail is folded.

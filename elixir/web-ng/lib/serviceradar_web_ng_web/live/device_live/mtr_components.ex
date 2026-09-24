@@ -778,12 +778,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
   defp mtr_hop_dashboard(trace, hops) do
     hops = List.wrap(hops)
 
-    avg_loss_pct =
-      hops
-      |> Enum.map(&hop_loss_pct/1)
-      |> Enum.reject(&is_nil/1)
-      |> average_mtr_number()
-
     max_avg_us =
       hops
       |> Enum.map(&hop_avg_us/1)
@@ -797,8 +791,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
       |> Enum.max(fn -> 0.0 end)
 
     %{
-      hop_count: length(hops),
-      avg_loss_pct: Float.round(avg_loss_pct, 1),
       max_avg_us: max_avg_us,
       max_loss_pct: max_loss_pct,
       destination_loss_pct: destination_loss_pct(trace, hops)

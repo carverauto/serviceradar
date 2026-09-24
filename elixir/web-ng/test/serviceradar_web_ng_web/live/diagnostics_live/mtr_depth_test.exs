@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDepthTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.Helpers
   alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrDepth
 
   @moduletag :db_free
@@ -78,6 +79,31 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDepthTest do
 
     test "is nil when the hop recorded no code" do
       assert MtrDepth.unreachable_kind(nil, 4) == nil
+    end
+  end
+
+  describe "bar_depth/1 and the summary panel bar" do
+    test "a reached trace draws its path length, an unreached one its last reply" do
+      reached = %{"target_reached" => true, "total_hops" => 6, "last_responding_hop" => 6, "probed_hops" => 7}
+      unreached = %{"target_reached" => false, "total_hops" => 30, "last_responding_hop" => 6, "probed_hops" => 30}
+
+      assert MtrDepth.bar_depth(reached) == 6
+      assert MtrDepth.bar_depth(unreached) == 6
+    end
+
+    test "a legacy row without depth columns or hops keeps its recorded length" do
+      assert MtrDepth.bar_depth(%{"target_reached" => false, "total_hops" => 9}) == 9
+    end
+
+    test "an unreached TCP trace no longer stretches the bars of reached traces" do
+      icmp = %{"target_reached" => true, "total_hops" => 8, "last_responding_hop" => 8, "probed_hops" => 8}
+      tcp = %{"target_reached" => false, "total_hops" => 30, "last_responding_hop" => 4, "probed_hops" => 30}
+
+      dashboard = Helpers.trace_history_dashboard([icmp, tcp], nil)
+
+      assert dashboard.max_hops == 8
+      assert Helpers.trace_hop_width(icmp, dashboard.max_hops) == "100.0%"
+      assert Helpers.trace_hop_width(tcp, dashboard.max_hops) == "50.0%"
     end
   end
 end

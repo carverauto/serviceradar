@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.Helpers do
 
   alias ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.Config
   alias ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.Params
+  alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrDepth
 
   def agent_id(agent), do: Map.get(agent, :agent_id) || Map.get(agent, "agent_id") || ""
 
@@ -51,7 +52,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.Helpers do
     traces = List.wrap(traces)
     trace_count = length(traces)
     reached_count = Enum.count(traces, &(&1["target_reached"] == true))
-    max_hops = traces |> Enum.map(&(&1["total_hops"] || 0)) |> Enum.max(fn -> 0 end)
+    max_hops = traces |> Enum.map(&MtrDepth.bar_depth/1) |> Enum.max(fn -> 0 end)
     reachability_trace_count = coverage_count(coverage, :trace_count, trace_count)
     reachability_reached_count = coverage_count(coverage, :reached_count, reached_count)
     agent_counts = agent_counts(traces)
@@ -80,7 +81,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.Helpers do
   end
 
   def coverage_count(_coverage, _key, default), do: default
-  def trace_hop_width(trace, max_hops), do: pct_width(trace["total_hops"] || 0, max_hops)
+  def trace_hop_width(trace, max_hops), do: pct_width(MtrDepth.bar_depth(trace), max_hops)
   def pct_width(_value, max_value) when max_value in [0, 0.0], do: "0%"
   def pct_width(value, max_value), do: "#{Float.round(min(1.0, max(value / max_value, 0.0)) * 100, 1)}%"
   def percent(_value, total) when total in [0, 0.0], do: 0.0
