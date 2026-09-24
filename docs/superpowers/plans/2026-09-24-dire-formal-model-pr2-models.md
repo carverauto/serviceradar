@@ -5,7 +5,7 @@
 **Goal:** Land two TLA+ models that check DIRE against the goal requirements in
 `update-dire-strong-identity-goal`: identity resolution under DHCP churn against physical ground
 truth (`DireResolution.tla`), and the merge/tombstone/revival lifecycle (`DireLifecycle.tla`).
-Every known defect is a switch with a witness configuration, and all 25 configurations run in
+Every known defect is a switch with a witness configuration, and all 26 configurations run in
 `make test`.
 
 **Architecture:** Each model describes the code as it is, action by action, citing the function
@@ -35,7 +35,7 @@ tasks 2.1-2.2.
 ## What the draft already established
 
 Every file below was run with TLC 1.7.4 on a workstation and judged by the PR 1 driver's
-`judge()` before this plan was written. All 25 configurations produced their expected outcome:
+`judge()` before this plan was written. All 26 configurations produced their expected outcome:
 
 | Configuration | Expected |
 |---|---|
@@ -100,7 +100,7 @@ Defects the models establish (each has a witness above):
 
 **Files:**
 - Create: `formal/dire/DireLifecycle.tla`, `MCDireLifecycle.tla`, `DireResolution.tla`, `MCDireResolution.tla`
-- Create: the 25 `.cfg` files below
+- Create: the 26 `.cfg` files below
 - Create: `formal/dire/BUILD.bazel`
 
 **Interfaces:**
@@ -1639,7 +1639,7 @@ tlc_test(
 ```
 
 Run: `bazel test --config=remote //formal/dire/... --test_output=errors`
-Expected: 25 tests PASS. Record durations of the `medium` targets from
+Expected: 26 tests PASS. Record durations of the `medium` targets from
 `bazel test --config=remote //formal/dire/... --nocache_test_results 2>&1 | grep -E "PASSED|FAILED"`.
 
 - [ ] **Step 5: Commit**
@@ -1700,7 +1700,7 @@ Copy each FAIL line into the PR description under "Invariants can fail".
 ### Task 4: Gates and the no-mistakes pipeline
 
 - [ ] **Step 1:** `bazel test --config=remote //formal/... //build/tla/... //build/contracts/...` -> all PASS.
-- [ ] **Step 2:** `make test` -> exit 0; the 25 `//formal/dire` targets appear as PASSED.
+- [ ] **Step 2:** `make test` -> exit 0; the 26 `//formal/dire` targets appear as PASSED.
 - [ ] **Step 3:** `buildifier -mode=check -lint=warn formal/dire/BUILD.bazel` -> exit 0.
 - [ ] **Step 4:** Hand-check both OpenSpec changes against the strict rules (SHALL/MUST on each
   requirement's first line, a scenario per requirement), since `sfw` and `openspec` are not
