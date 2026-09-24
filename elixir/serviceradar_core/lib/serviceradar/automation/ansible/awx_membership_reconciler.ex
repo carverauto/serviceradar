@@ -22,6 +22,11 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconciler do
   @source "awx"
   @max_aggregates 64
   @max_hosts_per_aggregate 50_000
+
+  # Page size for the streamed device-evidence read. Bounded deliberately: the
+  # stream opts out of Ash's max_page_size clamp, so nothing else limits how much
+  # a single query would pull for a large controller.
+  @awx_evidence_batch_size 250
   @max_existing_memberships 100_000
   @max_generation 9_223_372_036_854_775_807
   @max_host_name_bytes 255
@@ -531,16 +536,28 @@ defmodule ServiceRadar.Automation.Ansible.AwxMembershipReconciler do
       |> Ash.Query.for_read(:read, %{include_deleted: false}, actor: actor)
       |> Ash.Query.filter(metadata["awx"]["controller_id"] == ^aggregate.controller_id)
 
-    case Ash.read(query, actor: actor, page: [limit: @max_hosts_per_aggregate]) do
-      {:ok, %Keyset{more?: true}} ->
-        {:error, {:too_many_awx_device_evidence_rows, @max_hosts_per_aggregate}}
+    # Streams, and detects overflow by taking one row past the ceiling.
+    #
+    # This previously requested @max_hosts_per_aggregate as a single page and used
+    # `more?: true` as the overflow signal. Both halves were broken. Ash clamps a
+    # requested page down to the action's `max_page_size`, so the read returned at
+    # most that many rows rather than the ceiling; and Ash computes `more?` against
+    # the *requested* limit, which a clamped page can never exceed. The guard
+    # clause was therefore unreachable, and any controller with more hosts than one
+    # page had its evidence silently truncated with the remainder treated as
+    # absent -- which for a membership reconciler means removing real members.
+    evidence =
+      query
+      |> Ash.stream!(actor: actor, batch_size: @awx_evidence_batch_size)
+      |> Enum.take(@max_hosts_per_aggregate + 1)
 
-      {:ok, page} ->
-        {:ok, page |> page_results() |> device_evidence_index()}
-
-      {:error, reason} ->
-        {:error, reason}
+    if length(evidence) > @max_hosts_per_aggregate do
+      {:error, {:too_many_awx_device_evidence_rows, @max_hosts_per_aggregate}}
+    else
+      {:ok, device_evidence_index(evidence)}
     end
+  rescue
+    exception -> {:error, exception}
   end
 
   defp upsert_membership(attrs, actor) do

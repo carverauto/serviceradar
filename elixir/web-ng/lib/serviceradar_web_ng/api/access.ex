@@ -12,6 +12,11 @@ defmodule ServiceRadarWebNG.Api.Access do
   require Ash.Query
 
   @default_limit 100
+
+  # Must stay at or below `Device.read`'s `max_page_size`. Ash clamps a larger
+  # requested page down silently and then reports the short page as complete, so a
+  # ceiling above that does not return fewer rows with a warning -- it returns
+  # fewer rows while claiming they are all of them.
   @max_limit 500
   @max_offset 100_000
 

@@ -49,7 +49,6 @@ defmodule ServiceRadar.Identity.DeviceLookup do
   """
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Ash.Page
   alias ServiceRadar.Identity.AliasPolicy
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Identity.IdentityCache
@@ -111,6 +110,11 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     :netbox_id => :netbox_device_id,
     :integration_id => :integration_id
   }
+
+  # Page size for the streamed batch device reads. Bounded deliberately: streaming
+  # opts out of Ash's max_page_size clamp, so this is the only thing keeping a
+  # large address batch from being requested as a single page.
+  @device_read_batch_size 250
 
   @doc """
   Resolve identity keys to a canonical device record.
@@ -455,7 +459,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     Device
     |> Ash.Query.for_read(:read, %{include_deleted: include_deleted})
     |> Ash.Query.filter(ip in ^ips and partition == ^partition)
-    |> read_page_with_actor(actor)
+    |> read_stream_with_actor(actor)
     |> case do
       {:ok, devices} ->
         ash_results =
@@ -649,7 +653,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
         Device
         |> Ash.Query.for_read(:read, %{include_deleted: include_deleted})
         |> Ash.Query.filter(uid in ^device_ids)
-        |> read_page_with_actor(actor)
+        |> read_stream_with_actor(actor)
         |> case do
           {:ok, records} -> Map.new(records, &{&1.uid, &1})
           _ -> %{}
@@ -704,10 +708,25 @@ defmodule ServiceRadar.Identity.DeviceLookup do
   defp read_with_actor(query, actor), do: Ash.read(query, query_opts(actor))
   defp read_one_with_actor(query, actor), do: Ash.read_one(query, query_opts(actor))
 
-  defp read_page_with_actor(query, actor) do
-    query
-    |> read_with_actor(actor)
-    |> Page.unwrap()
+  # Streams rather than taking one page, and that distinction is load-bearing.
+  #
+  # Ash clamps a requested page down to the action's `max_page_size` with a silent
+  # `Enum.min/1`, then computes `more?` against the *requested* limit rather than
+  # the clamped one -- so a single page comes back short AND reports itself
+  # complete. `Page.unwrap/1` discarded `more?` regardless, leaving no signal.
+  #
+  # Both callers resolve a BATCH and treat an absent row as "no such device", so a
+  # clamped page does not degrade gracefully, it produces wrong answers: unknown
+  # devices for addresses that exist, and -- where a live record shares an address
+  # with its merged-away tombstone -- a candidate list holding only the tombstone.
+  # That is how a soft-deleted device came to win canonical selection and absorb
+  # live observations while the surviving record went stale.
+  defp read_stream_with_actor(query, actor) do
+    opts = Keyword.put(query_opts(actor), :batch_size, @device_read_batch_size)
+
+    {:ok, query |> Ash.stream!(opts) |> Enum.to_list()}
+  rescue
+    exception -> {:error, exception}
   end
 
   defp read_canonical_device(query, actor, include_deleted) do

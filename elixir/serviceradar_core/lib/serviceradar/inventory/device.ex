@@ -201,7 +201,28 @@ defmodule ServiceRadar.Inventory.Device do
       end
 
       filter expr(is_nil(deleted_at) or ^arg(:include_deleted))
-      pagination keyset?: true, default_limit: 5000
+
+      # Both numbers are deliberate, and `default_limit` must stay <= `max_page_size`.
+      #
+      # This previously read `default_limit: 5000` with no `max_page_size`, which
+      # Ash defaults to 250. The declared page was therefore unreachable: Ash
+      # clamped every request down with a bare `Enum.min/1`, then computed `more?`
+      # against the *requested* limit rather than the clamped one -- so a read
+      # asking for 5000 returned a short page and reported itself COMPLETE. No
+      # error, no log, and no in-band way for a caller to tell truncation from the
+      # end of the data.
+      #
+      # The fix is not a bigger ceiling. Raising the maximum only moves the silent
+      # cliff to a larger number, which fails later, more rarely, and on the
+      # largest installations -- where the missing devices matter most. A single
+      # page of this resource is expensive regardless: `metadata`, `tags` and
+      # `network_interfaces` are all jsonb.
+      #
+      # So: bound one page, and get completeness from iteration instead. Anything
+      # that needs every device must use `Ash.stream!/2`, which opts out of the
+      # clamp (`bypass_max_page_size?`) and pages internally. Taking one page and
+      # treating it as the whole inventory is never correct here.
+      pagination keyset?: true, default_limit: 250, max_page_size: 1000
       prepare build(sort: [uid: :asc])
     end
 

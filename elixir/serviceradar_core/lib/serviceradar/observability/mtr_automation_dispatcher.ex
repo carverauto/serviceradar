@@ -5,7 +5,6 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
 
   import Ash.Expr
 
-  alias Ash.Page.Keyset
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Inventory.Device
@@ -29,9 +28,10 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
   # healthy while most of its scope is never traced.
   @target_page_size 500
 
-  # Keyset page size for the managed-device enforcement stream. Deliberately far
-  # below `Device.read`'s `default_limit: 5000`: a single page that large returns
-  # short without saying so. See enforce_managed_baseline_targets/1.
+  # Keyset page size for the managed-device enforcement stream. Any single page is
+  # the wrong tool here regardless of size: Ash clamps a requested page to the
+  # action's `max_page_size` silently and then reports the short page as complete.
+  # See enforce_managed_baseline_targets/1, which streams for that reason.
   @managed_enforcement_batch_size 250
 
   @type target_ctx :: %{
@@ -64,10 +64,11 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     end
   end
 
-  # Uncapped: stream rather than read one page. `Device.read` declares
-  # `default_limit: 5000`, so a bare `Ash.read/2` would silently reimpose 5000 as
-  # the cap this clause exists to remove. `Ash.stream!/2` pages internally and has
-  # no ceiling.
+  # Uncapped: stream rather than read one page. A bare `Ash.read/2` would reimpose
+  # the action's page size as the very cap this clause exists to remove, and Ash
+  # clamps it silently while reporting the short page as complete.
+  # `Ash.stream!/2` opts out of that clamp and pages internally, so there is no
+  # ceiling other than the scope itself.
   defp read_baseline_devices(query, nil, actor) do
     query
     |> Ash.stream!(actor: actor, batch_size: @target_page_size)
@@ -78,18 +79,21 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
       []
   end
 
+  # Streams and then takes the ceiling, instead of pushing the ceiling into the
+  # query. `Ash.Query.limit/2` is clamped to the action's `max_page_size` exactly
+  # as a requested page is, so an operator ceiling above that produced a short
+  # target set which reported itself complete: the profile traced the cap while the
+  # UI showed the larger number. Taking from the stream honours whatever ceiling
+  # the operator sets, and the stream stays paged underneath.
   defp read_baseline_devices(query, limit, actor) when is_integer(limit) and limit > 0 do
-    case Ash.read(Ash.Query.limit(query, limit), actor: actor) do
-      {:ok, %Keyset{results: results}} ->
-        Enum.map(results, &device_to_target_ctx/1)
-
-      {:ok, results} when is_list(results) ->
-        Enum.map(results, &device_to_target_ctx/1)
-
-      {:error, reason} ->
-        Logger.warning("MTR baseline target query failed", reason: inspect(reason))
-        []
-    end
+    query
+    |> Ash.stream!(actor: actor, batch_size: page_size_for(limit, []))
+    |> Stream.map(&device_to_target_ctx/1)
+    |> Enum.take(limit)
+  rescue
+    error ->
+      Logger.warning("MTR baseline target query failed", reason: Exception.message(error))
+      []
   end
 
   @spec target_contexts_from_srql(String.t(), pos_integer() | nil, keyword()) ::

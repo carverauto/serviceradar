@@ -90,14 +90,23 @@ defmodule ServiceRadar.PrefixTags.PrefixTag do
     read :by_snapshot do
       argument :snapshot_id, :uuid, allow_nil?: false
       filter expr(snapshot_id == ^arg(:snapshot_id))
-      pagination keyset?: true, default_limit: 500
+      # default_limit must stay <= max_page_size (Ash defaults the latter to 250).
+      # A larger default is unreachable: Ash clamps it silently, then reports the
+      # short page as complete.
+      pagination keyset?: true, default_limit: 250, max_page_size: 500
     end
 
     read :list_active do
       description "All prefix tags belonging to currently active snapshots"
       prepare build(load: [:snapshot])
       filter expr(snapshot.is_active == true)
-      pagination keyset?: true, default_limit: 1000
+
+      # "All" is the intent, but no paginated action can deliver all of anything
+      # in one page, and declaring a default_limit above max_page_size made that
+      # failure silent instead of visible. Callers needing every active tag either
+      # stream this action or use :list_active_for_rebuild, which is deliberately
+      # unpaginated.
+      pagination keyset?: true, default_limit: 250, max_page_size: 1000
     end
 
     read :list_active_for_rebuild do
