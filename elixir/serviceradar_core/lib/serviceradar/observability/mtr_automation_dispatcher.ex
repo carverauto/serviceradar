@@ -10,6 +10,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Observability.MtrDispatchWindow
+  alias ServiceRadar.Observability.MtrPolicy
   alias ServiceRadar.Observability.MtrVantageSelector
   alias ServiceRadar.Observability.SRQLRunner
   alias ServiceRadar.Repo
@@ -346,25 +347,18 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
       trigger_mode = trigger_mode(mode)
       partition_id = blank_to_nil(Map.get(target_ctx, :partition_id))
 
-      payload = %{
-        "target" => target,
-        "protocol" => normalize_protocol(Map.get(policy, :baseline_protocol))
-      }
-
+      payloads = protocol_payloads(target, policy, mode)
       context = dispatch_context(target_ctx, trigger_mode, incident_correlation_id)
       actor = SystemActor.system(:mtr_automation)
       now = DateTime.utc_now()
 
+      # An agent counts as dispatched when at least one protocol's trace was
+      # accepted; each protocol is its own mtr.run command.
       dispatched =
         Enum.filter(agent_ids, fn agent_id ->
-          dispatch_agent(
-            agent_id,
-            payload,
-            context,
-            partition_id,
-            actor,
-            trigger_mode
-          )
+          payloads
+          |> Enum.map(&dispatch_agent(agent_id, &1, context, partition_id, actor, trigger_mode))
+          |> Enum.any?()
         end)
 
       finalize_dispatch(
@@ -875,16 +869,25 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     int_value(Map.get(policy, :incident_cooldown_sec), 600)
   end
 
-  defp normalize_protocol(nil), do: "icmp"
+  # Incident and recovery captures feed the cohort consensus, which keeps one
+  # outcome per agent; they trace only the set's first protocol so each agent
+  # contributes one comparable result. Baseline traces the whole set.
+  @doc false
+  def protocol_payloads(target, policy, mode \\ :baseline) do
+    policy
+    |> MtrPolicy.protocol_names()
+    |> protocols_for_mode(mode)
+    |> Enum.map(fn
+      "tcp" ->
+        %{"target" => target, "protocol" => "tcp", "tcp_port" => MtrPolicy.tcp_port(policy)}
 
-  defp normalize_protocol(protocol) do
-    value =
-      protocol
-      |> to_string()
-      |> String.downcase()
-
-    if value in ["icmp", "udp", "tcp"], do: value, else: "icmp"
+      protocol ->
+        %{"target" => target, "protocol" => protocol}
+    end)
   end
+
+  defp protocols_for_mode([first | _], mode) when mode in [:incident, :recovery], do: [first]
+  defp protocols_for_mode(protocols, _mode), do: protocols
 
   defp selector_int(selector, key, default) do
     selector

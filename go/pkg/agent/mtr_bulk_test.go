@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -150,7 +151,7 @@ func TestBulkMtrOptions_TCPPort(t *testing.T) {
 }
 
 func TestBuildBulkMtrTargetUpdate_MapsCanceledContext(t *testing.T) {
-	update := buildBulkMtrTargetUpdate("example.com", nil, context.Canceled)
+	update := buildBulkMtrTargetUpdate(bulkMtrUnit{target: "example.com"}, nil, context.Canceled)
 
 	if update.Status != bulkMtrStatusCanceled {
 		t.Fatalf("expected canceled status, got %q", update.Status)
@@ -178,9 +179,9 @@ func TestResolveBulkTargets_ProducesResolvedTasks(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	targetCh := make(chan string, 1)
+	targetCh := make(chan bulkMtrUnit, 1)
 	taskCh := make(chan bulkMtrTask, 1)
-	targetCh <- "127.0.0.1"
+	targetCh <- bulkMtrUnit{target: "127.0.0.1", protocol: mtr.ProtocolTCP}
 	close(targetCh)
 
 	go resolveBulkTargets(ctx, targetCh, taskCh)
@@ -189,8 +190,8 @@ func TestResolveBulkTargets_ProducesResolvedTasks(t *testing.T) {
 	if !ok {
 		t.Fatal("expected resolved bulk task")
 	}
-	if task.target != "127.0.0.1" {
-		t.Fatalf("expected target 127.0.0.1, got %q", task.target)
+	if task.unit.target != "127.0.0.1" || task.unit.protocol != mtr.ProtocolTCP {
+		t.Fatalf("expected unit 127.0.0.1/tcp, got %+v", task.unit)
 	}
 	if task.err != nil {
 		t.Fatalf("expected target resolution to succeed, got %v", task.err)
@@ -296,12 +297,12 @@ func TestNextBulkMtrTarget_StopsWhenContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	target, ok := nextBulkMtrTarget(ctx, make(chan string))
+	unit, ok := nextBulkMtrTarget(ctx, make(chan bulkMtrUnit))
 	if ok {
 		t.Fatal("expected canceled context to stop target intake")
 	}
-	if target != "" {
-		t.Fatalf("expected empty target on cancellation, got %q", target)
+	if unit.target != "" {
+		t.Fatalf("expected empty target on cancellation, got %q", unit.target)
 	}
 }
 
@@ -366,5 +367,56 @@ func TestAgentCapabilities_MtrTCPSyn(t *testing.T) {
 	}
 	if containsCapability(without, "mtr_tcp_syn") {
 		t.Fatalf("expected no mtr_tcp_syn without a raw TCP socket, got %v", without)
+	}
+}
+
+func TestBulkMtrProtocols_CanonicalOrderAndFallback(t *testing.T) {
+	cases := []struct {
+		name    string
+		payload mtrBulkRunPayload
+		want    []string
+	}{
+		{name: "set in canonical order", payload: mtrBulkRunPayload{Protocols: []string{"tcp", "ICMP", "udp", "tcp"}}, want: []string{"icmp", "udp", "tcp"}},
+		{name: "unknown names dropped", payload: mtrBulkRunPayload{Protocols: []string{"sctp", "tcp"}}, want: []string{"tcp"}},
+		{name: "legacy single protocol", payload: mtrBulkRunPayload{Protocol: "udp"}, want: []string{"udp"}},
+		{name: "nothing usable", payload: mtrBulkRunPayload{Protocols: []string{"sctp"}, Protocol: "bogus"}, want: []string{"icmp"}},
+	}
+
+	for _, tc := range cases {
+		got := bulkMtrProtocolNames(bulkMtrProtocols(tc.payload))
+		if strings.Join(got, ",") != strings.Join(tc.want, ",") {
+			t.Fatalf("%s: got %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestExpandBulkMtrUnits_OneTracePerTargetAndProtocol(t *testing.T) {
+	units := expandBulkMtrUnits(
+		[]string{"192.0.2.1", "192.0.2.2"},
+		[]mtr.Protocol{mtr.ProtocolICMP, mtr.ProtocolTCP},
+	)
+
+	want := []bulkMtrUnit{
+		{target: "192.0.2.1", protocol: mtr.ProtocolICMP},
+		{target: "192.0.2.1", protocol: mtr.ProtocolTCP},
+		{target: "192.0.2.2", protocol: mtr.ProtocolICMP},
+		{target: "192.0.2.2", protocol: mtr.ProtocolTCP},
+	}
+
+	if len(units) != len(want) {
+		t.Fatalf("expected %d units, got %d", len(want), len(units))
+	}
+	for i := range want {
+		if units[i] != want[i] {
+			t.Fatalf("unit %d: got %+v, want %+v", i, units[i], want[i])
+		}
+	}
+}
+
+func TestBuildBulkMtrTargetUpdate_CarriesProtocol(t *testing.T) {
+	update := buildBulkMtrTargetUpdate(bulkMtrUnit{target: "192.0.2.1", protocol: mtr.ProtocolUDP}, &mtr.TraceResult{}, nil)
+
+	if update.Protocol != "udp" || update.Status != bulkMtrStatusCompleted {
+		t.Fatalf("expected a completed udp update, got %+v", update)
 	}
 }

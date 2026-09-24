@@ -351,7 +351,9 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 		capabilities = append(capabilities, "mtr_tcp_syn")
 	}
 	if options.mtrAvailable {
-		capabilities = append(capabilities, "mtr")
+		// mtr_protocol_set: this agent runs a bulk job's `protocols` list, one
+		// trace per target and protocol, inside a single job.
+		capabilities = append(capabilities, "mtr", "mtr_protocol_set")
 	}
 	capabilities = append(capabilities,
 		sweepType,

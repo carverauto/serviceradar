@@ -53,7 +53,8 @@ shape covers all three modes.
 ### Sweep profile schema + config compiler (Elixir)
 - **ALLOW** `mtr` in `ServiceRadar.SweepJobs.SweepProfile` `sweep_modes`
   (currently `icmp`/`tcp`), plus optional MTR options on the profile
-  (`mtr_protocol`, `mtr_max_hops`).
+  (`mtr_protocols`, a protocol set as in `update-mtr-protocols-and-scan-visibility`,
+  and `mtr_max_hops`).
 - **EMIT** `mtr` (and its options) into the compiled agent sweep config so a
   scheduled profile with MTR enabled runs MTR on its interval through the
   sweep engine.

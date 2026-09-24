@@ -96,7 +96,10 @@ const (
 )
 
 const defaultOnDemandMtrDeadline = 45 * time.Second
-const defaultMaxConcurrentOnDemandMtr = 2
+
+// defaultMaxConcurrentOnDemandMtr admits one mtr.run per protocol of a
+// multi-protocol MTR profile (icmp, udp, tcp) for a single target at once.
+const defaultMaxConcurrentOnDemandMtr = 3
 const defaultAddonCommandTimeout = 300 * time.Second
 const defaultAWXCommandTimeout = 60 * time.Second
 

@@ -90,16 +90,18 @@ poorly for everything around it.
   the MTR trace and device views are updated to read them.
 
 ### Multi-protocol MTR profiles (#4579)
-- **Replace `MtrPolicy.baseline_protocol` with `baseline_protocols`,** a
-  non-empty set drawn from `icmp`/`udp`/`tcp`. A migration backfills it from
-  the existing column, and the old column is dropped in a later change.
+- **Add `MtrPolicy.baseline_protocols`,** a non-empty set drawn from
+  `icmp`/`udp`/`tcp`. A migration backfills it from `baseline_protocol`. The
+  old column stays, mirrored to the set's first protocol, and is dropped in a
+  later change.
 - **Profiles also carry `tcp_port`.** It applies whenever `tcp` is in the set.
 - **One bulk job carries the whole set.** The bulk payload includes
   `protocols`, and agents advertising `mtr_protocol_set` run each target once
   per protocol inside one job. Each trace is tagged with its protocol. For
-  older agents, core fans out one job per protocol.
-- **Single-target dispatch fans out per protocol:** one `mtr.run` for each
-  protocol in the set.
+  older agents, core dispatches only the set's first protocol.
+- **Single-target baseline dispatch fans out per protocol:** one `mtr.run` for
+  each protocol in the set. Incident and recovery captures use only the first
+  protocol, because consensus keeps one outcome per agent.
 - **Protocol joins the bulk-target key.** `mtr_bulk_job_targets` gains
   `protocol`, and its unique key becomes `(command_id, target, protocol)`.
 - **The profile form offers a protocol multi-select.** Trace views filter by

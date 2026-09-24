@@ -377,7 +377,7 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/credentials/network_credential_rule_lifecycle_db_test.exs": 3,
     "test/serviceradar/credentials/network_credential_secret_destroy_db_test.exs": 4,
     "test/serviceradar/data_service/client_test.exs": 2,
-    "test/serviceradar/edge/agent_command_bus_test.exs": 32,
+    "test/serviceradar/edge/agent_command_bus_test.exs": 34,
     "test/serviceradar/edge/agent_config_generator_test.exs": 50,
     "test/serviceradar/edge/agent_gateway_sync_test.exs": 25,
     "test/serviceradar/edge/agent_release_manager_test.exs": 22,

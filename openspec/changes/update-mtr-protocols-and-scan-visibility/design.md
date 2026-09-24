@@ -154,34 +154,44 @@ probing described here; the non-Linux connect-observe fallback is D2.
   `min_length: 1`. It is stored in canonical order (icmp, udp, tcp) with
   duplicates removed.
 - **Migration.** Add `baseline_protocols text[] NOT NULL DEFAULT '{icmp}'`, and
-  backfill `ARRAY[baseline_protocol]`. The Ash resource stops writing
-  `baseline_protocol` in this change. The column is dropped in a follow-up
-  after one release.
+  backfill `ARRAY[baseline_protocol]`. The Ash resource keeps
+  `baseline_protocol` mirrored to the first protocol for rollback and legacy
+  callers. The column is dropped in a follow-up after one release.
 - **Port.** `MtrPolicy.tcp_port`: integer 1..65535, default 443.
 - **Bulk path** (`MtrBaselineScheduler` -> `dispatch_bulk_mtr`).
   - The payload gains `"protocols"` and `"tcp_port"`. `"protocol"` stays in the
     payload, set to the first protocol, so older agents still get a valid
     single-protocol job.
   - An agent advertising `mtr_protocol_set` runs every protocol for a target
-    inside one job. Each target is traced once per protocol, sequentially, on
-    one worker slot. The traces are serialised so they don't compete for the
-    same path at the same moment.
-  - For an agent without `mtr_protocol_set`, core dispatches one bulk job per
-    protocol.
+    inside one job, one trace per (target, protocol).
+  - For an agent without `mtr_protocol_set`, core dispatches a single-protocol
+    job with the first protocol of the set and logs the skip. Splitting the set
+    into one job per protocol does not work: an agent runs one bulk job at a
+    time and rejects a concurrent one as busy. Capability is checked before the
+    command is created (`AgentCommandBus.agent_capability?/2`), so no failed
+    command row is left behind.
+  - As implemented, the agent expands the job into (target, protocol) units
+    that flow through the existing slot, progress and adaptive-concurrency
+    accounting, so a target's protocols can run on concurrent workers rather
+    than strictly one after another. Progress `total_targets` counts units,
+    and progress payloads carry `protocols`.
 - **Target rows.** `mtr_bulk_job_targets` gains `protocol text NOT NULL
   DEFAULT 'icmp'`, and the unique index becomes `(command_id, target,
   protocol)`.
 - **Progress units.** Progress counters count (target, protocol) units. The
   Active Scans row shows targets x protocols.
-- **Single-target path** (dispatcher incident/recovery, device Queue MTR).
-  Core fans out one `mtr.run` per protocol. The existing single-trace result
-  handling stays unchanged.
+- **Single-target path** (dispatcher baseline, device Queue MTR). Core fans
+  out one `mtr.run` per protocol. Incident and recovery captures trace only the
+  set's first protocol: they feed the cohort consensus, which keeps one outcome
+  per agent, so several protocols per agent would overwrite each other. The
+  existing single-trace result handling stays unchanged. The agent's concurrent on-demand trace limit rises
+  from 2 to 3 so a full icmp/udp/tcp set for one target is admitted at once.
 - **Cooldown.** One `mtr_dispatch_windows` row still covers the whole set.
   Cooldown is about how often a target is disturbed, not about which
   protocols are used.
-- **Interval guidance.** The recommended minimum interval from first-run
-  calibration is multiplied by the protocol count until a multi-protocol run
-  has been measured.
+- **Interval guidance.** Measured throughput is in (target, protocol) units,
+  so the runtime estimate multiplies the scoped target count by the protocol
+  count.
 - **Spec correction.** The old spec scenario "UDP/TCP are not auto-executed in
   baseline mode" no longer matches the product: baseline TCP is already
   selectable. The modified requirement replaces it with "the policy's protocol
@@ -282,10 +292,21 @@ for example, "hop 7: 3 sent / 0 replies" versus
 6. Verify on demo: the live baseline TCP profile must show targets reached at
    the ICMP-equivalent depth. See tasks for the artefact queries.
 
+**Rolling upgrade (multi-protocol migration).** Replacing the
+`(command_id, target)` unique index on `mtr_bulk_job_targets` with
+`(command_id, target, protocol)` means pods still on the previous release fail
+bulk MTR dispatches (their `ON CONFLICT (command_id, target)` has no matching
+index) until they roll. Rollouts are short in a single deployment, so this is
+accepted and documented rather than split into an expand/contract release.
+
 **Rollback.**
 - Each step is independently revertible.
 - The policy backfill keeps `baseline_protocol` populated until the follow-up
   drop, so rolling back step 4 loses nothing.
+- Rolling back step 4 in code alone is not enough: run the multi-protocol
+  migration's `down` first. It collapses multi-protocol bulk target rows to one
+  per target and restores the `(command_id, target)` unique index the previous
+  release upserts against.
 
 ## Open Questions
 

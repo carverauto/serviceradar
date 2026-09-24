@@ -26,6 +26,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
       assigns
       |> assign(:mtr_dashboard, dashboard)
       |> assign(:recent_trace_bars, recent_trace_bars)
+      |> assign(:latest_by_protocol, latest_trace_by_protocol(assigns.recent_traces))
 
     ~H"""
     <div class="space-y-4">
@@ -39,6 +40,28 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
             View All
           </.ui_button>
         </div>
+      </div>
+
+      <div
+        :if={length(@latest_by_protocol) > 1}
+        id="device-mtr-latest-by-protocol"
+        class="sr-mtr-card flex flex-wrap items-center gap-x-6 gap-y-2 p-3"
+      >
+        <span class="sr-mtr-label">Latest by protocol</span>
+        <button
+          :for={trace <- @latest_by_protocol}
+          type="button"
+          phx-click="view_mtr_trace"
+          phx-value-id={trace["id"]}
+          class="flex items-center gap-2 text-sm"
+        >
+          <.ui_badge size="sm" variant="ghost">
+            {String.upcase(trace["protocol"] || "icmp")}
+          </.ui_badge>
+          <.ui_badge :if={trace["target_reached"]} size="sm" variant="success">Reached</.ui_badge>
+          <.ui_badge :if={!trace["target_reached"]} size="sm" variant="error">Not reached</.ui_badge>
+          <span class="font-mono">{trace["total_hops"]} hops</span>
+        </button>
       </div>
 
       <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4 min-[1800px]:grid-cols-8">
@@ -704,6 +727,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
   defp loss_class_for_modal(pct) when is_number(pct) and pct >= 50, do: "text-error"
   defp loss_class_for_modal(pct) when is_number(pct) and pct >= 10, do: "text-warning"
   defp loss_class_for_modal(_), do: ""
+
+  @doc false
+  # Newest trace of each protocol, in icmp/udp/tcp order. `traces` arrive
+  # newest first, so the first trace seen per protocol is the latest.
+  def latest_trace_by_protocol(traces) when is_list(traces) do
+    latest =
+      traces
+      |> Enum.filter(&is_map/1)
+      |> Enum.reduce(%{}, fn trace, acc ->
+        protocol = trace |> Map.get("protocol", "icmp") |> to_string() |> String.downcase()
+        Map.put_new(acc, protocol, trace)
+      end)
+
+    ["icmp", "udp", "tcp"]
+    |> Enum.map(&Map.get(latest, &1))
+    |> Enum.reject(&is_nil/1)
+  end
+
+  def latest_trace_by_protocol(_traces), do: []
 
   defp mtr_hop_dashboard(trace, hops) do
     hops = List.wrap(hops)
