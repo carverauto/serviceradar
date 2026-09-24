@@ -386,12 +386,13 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposure do
   end
 
   defp fetch_flow_pages(opts, page_size, offset, acc) do
-    case query_flow_page(opts, page_size, offset) do
-      rows when length(rows) < page_size ->
-        acc ++ rows
+    rows = query_flow_page(opts, page_size, offset)
+    acc = [rows | acc]
 
-      rows ->
-        fetch_flow_pages(opts, page_size, offset + length(rows), acc ++ rows)
+    if length(rows) < page_size do
+      acc |> Enum.reverse() |> Enum.concat()
+    else
+      fetch_flow_pages(opts, page_size, offset + length(rows), acc)
     end
   end
 
@@ -445,7 +446,7 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposure do
     WHERE f.time > now() - make_interval(secs => $1)
       AND f.ocsf_payload->>'event_type' = 'attributed_flow'
       AND COALESCE(a.device_uid, di.device_id) IS NOT NULL
-    ORDER BY f.time DESC
+    ORDER BY observed_at DESC, device_uid, agent_id, hostile_ip, dst_ip, dst_port, comm, cmdline
     LIMIT $2 OFFSET $3
     """
 

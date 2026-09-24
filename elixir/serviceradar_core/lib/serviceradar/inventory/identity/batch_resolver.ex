@@ -425,18 +425,9 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
         DeviceIdentifier
         |> Ash.Query.filter(device_id in ^candidate_ids and identifier_type == :mac)
         |> Ash.Query.select([:device_id, :identifier_value])
-        |> Ash.read(query_opts)
-        |> Page.unwrap()
-        |> case do
-          {:ok, identifiers} ->
-            identifiers
-            |> Enum.group_by(& &1.device_id, & &1.identifier_value)
-            |> Map.new(fn {device_id, macs} -> {device_id, universal_macs(macs)} end)
-
-          {:error, error} ->
-            Logger.warning("BatchResolver: canonical MAC preload failed: #{inspect(error)}")
-            %{}
-        end
+        |> Page.stream!(query_opts)
+        |> Enum.group_by(& &1.device_id, & &1.identifier_value)
+        |> Map.new(fn {device_id, macs} -> {device_id, universal_macs(macs)} end)
 
       primary_macs =
         Device

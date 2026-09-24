@@ -13,7 +13,6 @@ pub(crate) fn build_query_plan(
     request: &QueryRequest,
     ast: QueryAst,
 ) -> Result<QueryPlan> {
-    let exhaustive_profile_query = is_exhaustive_profile_stats(ast.stats.as_ref());
     let requested_limit = request.limit.or(ast.limit);
     if ast.other {
         validate_other_rollup_request(&ast, requested_limit, request.cursor.as_deref())?;
@@ -24,23 +23,6 @@ pub(crate) fn build_query_plan(
     } else {
         determine_limit(config, requested_limit)
     };
-    let offset = request
-        .cursor
-        .as_deref()
-        .map(|cursor| {
-            decode_cursor(
-                cursor,
-                &config.cursor_secret,
-                if exhaustive_profile_query {
-                    i64::MAX
-                } else {
-                    config.max_cursor_offset
-                },
-            )
-        })
-        .transpose()?
-        .unwrap_or(0)
-        .max(0);
     let max_time_range_days = max_time_range_days_for_ast(&ast);
     let now = Utc::now();
     let time_range = ast
@@ -54,6 +36,18 @@ pub(crate) fn build_query_plan(
     let (filters, include_deleted) = extract_include_deleted(filters)?;
     let (filters, exhaustive_window) = extract_window_scan(filters)?;
     let filters = normalize_telemetry_id_filters(&ast.entity, filters)?;
+    let max_offset = if exhaustive_window || is_exhaustive_profile_stats(ast.stats.as_ref()) {
+        i64::MAX
+    } else {
+        config.max_cursor_offset
+    };
+    let offset = request
+        .cursor
+        .as_deref()
+        .map(|cursor| decode_cursor(cursor, &config.cursor_secret, max_offset))
+        .transpose()?
+        .unwrap_or(0)
+        .max(0);
 
     Ok(QueryPlan {
         entity: ast.entity,
@@ -413,5 +407,43 @@ fn normalize_device_field(entity: &Entity, field: &str) -> Option<String> {
         Some("uid".to_string())
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{pagination::encode_cursor, parser};
+
+    fn plan_with_cursor(query: &str, offset: i64) -> Result<QueryPlan> {
+        let config = AppConfig::embedded("postgres://srql-test".to_string());
+        let request = QueryRequest {
+            query: query.to_string(),
+            limit: Some(50),
+            cursor: Some(encode_cursor(offset, &config.cursor_secret).expect("encode cursor")),
+            direction: Default::default(),
+            mode: None,
+        };
+        let ast = parser::parse(query).expect("parse query");
+        build_query_plan(&config, &request, ast)
+    }
+
+    fn beyond_ceiling() -> i64 {
+        AppConfig::embedded("postgres://srql-test".to_string()).max_cursor_offset + 50_000
+    }
+
+    #[test]
+    fn window_scan_cursor_pages_past_max_cursor_offset() {
+        let offset = beyond_ceiling();
+        let plan = plan_with_cursor("in:devices window_scan:true", offset).expect("plan");
+        assert_eq!(plan.offset, offset);
+        assert!(plan.exhaustive_window);
+        assert!(is_exhaustive_profile_query(&plan));
+    }
+
+    #[test]
+    fn ordinary_cursor_still_errors_past_max_cursor_offset() {
+        let err = plan_with_cursor("in:devices", beyond_ceiling()).expect_err("must reject");
+        assert!(err.to_string().contains("cursor offset exceeds maximum"));
     }
 }

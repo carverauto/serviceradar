@@ -41,7 +41,7 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
   require Logger
 
   @default_scan_window "last_1h"
-  @default_limit 200
+  @default_scan_page_size 10_000
   @default_rdns_ttl_seconds 86_400
   @default_geo_ttl_seconds 604_800
   @default_ipinfo_ttl_seconds 604_800
@@ -153,7 +153,7 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
   defp refresh(_job) do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
     scan_window = Keyword.get(config, :scan_window, @default_scan_window)
-    limit = Keyword.get(config, :limit, @default_limit)
+    scan_page_size = Keyword.get(config, :scan_page_size, @default_scan_page_size)
     rdns_ttl_seconds = Keyword.get(config, :rdns_ttl_seconds, @default_rdns_ttl_seconds)
     geo_ttl_seconds = Keyword.get(config, :geo_ttl_seconds, @default_geo_ttl_seconds)
     ipinfo_ttl_seconds = Keyword.get(config, :ipinfo_ttl_seconds, @default_ipinfo_ttl_seconds)
@@ -173,7 +173,7 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
     record_ip_enrichment_attempt(settings, actor, now)
 
     try do
-      ips = discover_candidate_ips(scan_window, limit)
+      ips = discover_candidate_ips(scan_window, scan_page_size)
 
       Enum.each(ips, fn ip ->
         refresh_rdns(ip, actor, now, rdns_expires_at, rdns_timeout_ms)
