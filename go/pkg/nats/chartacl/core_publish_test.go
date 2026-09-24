@@ -193,7 +193,7 @@ func renderServerConf(t *testing.T, pki *testPKI) string {
 	suitePath := filepath.Join(chartDir, "tests", "render_test.yaml")
 	writeFile(t, suitePath, []byte(renderSuite), 0o644)
 
-	cmd := exec.Command(untt, "--update-snapshot", chartDir)
+	cmd := exec.CommandContext(t.Context(), untt, "--update-snapshot", chartDir)
 	cmd.Env = append(os.Environ(), "HOME="+work)
 
 	if out, err := cmd.CombinedOutput(); err != nil {
