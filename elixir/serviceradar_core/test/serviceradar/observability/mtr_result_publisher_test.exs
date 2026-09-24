@@ -1,6 +1,7 @@
 defmodule ServiceRadar.Observability.MtrResultPublisherTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Observability.MtrMetricsIngestor
   alias ServiceRadar.Observability.MtrResultPublisher
 
   defp capture do
@@ -68,6 +69,50 @@ defmodule ServiceRadar.Observability.MtrResultPublisherTest do
     assert {:error, :timeout} = MtrResultPublisher.publish(payload, %{}, publish: publish)
     assert_received :attempt
     refute_received :attempt
+  end
+
+  test "stamps a parseable timestamp on a result that has none" do
+    payload = %{"results" => [result("192.0.2.1")]}
+
+    assert :ok = MtrResultPublisher.publish(payload, %{}, publish: capture())
+
+    assert_received {:published, _subject, message, _opts}
+    [stamped] = message["payload"]["results"]
+    assert %DateTime{} = MtrMetricsIngestor.trace_time(stamped)
+  end
+
+  test "stamps a result whose timestamps are unparseable" do
+    unparseable = %{
+      "target" => "192.0.2.1",
+      "timestamp" => "yesterday",
+      "trace" => %{"target_ip" => "192.0.2.1", "timestamp" => 0, "hops" => []}
+    }
+
+    payload = %{"results" => [unparseable]}
+
+    assert :ok = MtrResultPublisher.publish(payload, %{}, publish: capture())
+
+    assert_received {:published, _subject, message, _opts}
+    [stamped] = message["payload"]["results"]
+    assert %DateTime{} = MtrMetricsIngestor.trace_time(stamped)
+  end
+
+  test "keeps the timestamp a result already carries" do
+    in_trace = put_in(result("192.0.2.1"), ["trace", "timestamp"], 1_700_000_000)
+    top_level = Map.put(result("192.0.2.2"), "timestamp", 1_700_000_100)
+    payload = %{"results" => [in_trace, top_level]}
+
+    assert :ok = MtrResultPublisher.publish(payload, %{}, publish: capture())
+
+    assert_received {:published, _subject, first, _opts}
+    assert_received {:published, _subject, second, _opts}
+    [first_result] = first["payload"]["results"]
+    [second_result] = second["payload"]["results"]
+
+    assert first_result["trace"]["timestamp"] == 1_700_000_000
+    refute Map.has_key?(first_result, "timestamp")
+    assert second_result["timestamp"] == 1_700_000_100
+    assert MtrMetricsIngestor.trace_time(first_result) == ~U[2023-11-14 22:13:20.000000Z]
   end
 
   test "accepts the single-result shapes the ingestor accepts" do

@@ -236,7 +236,7 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
 
     if is_binary(target_value) and String.trim(target_value) != "" do
       trace_id = stable_trace_id(result) || Ecto.UUID.generate()
-      trace_time = trace_time(result, trace, now)
+      trace_time = trace_time(result, now)
 
       trace_row =
         build_trace_row(result, trace, trace_id, trace_time, agent_id, gateway_id, partition)
@@ -361,11 +361,18 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
 
   defp normalize_chunk_size(_value), do: @default_bulk_create_chunk_size
 
-  defp trace_time(result, trace, now) do
-    parse_trace_time(
-      map_get_any(trace, ["timestamp", :timestamp], nil) ||
-        map_get_any(result, ["timestamp", :timestamp], nil)
-    ) || now
+  defp trace_time(result, now), do: trace_time(result) || now
+
+  @doc """
+  The time a result's trace is stored under, or `nil` when the result carries
+  no timestamp the ingestor can parse (the ingest wall clock is used then).
+  """
+  @spec trace_time(map()) :: DateTime.t() | nil
+  def trace_time(result) when is_map(result) do
+    trace = map_get_any(result, ["trace", :trace], %{})
+
+    parse_trace_time(map_get_any(trace, ["timestamp", :timestamp], nil)) ||
+      parse_trace_time(map_get_any(result, ["timestamp", :timestamp], nil))
   end
 
   defp build_trace_row(result, trace, trace_id, trace_time, agent_id, gateway_id, partition) do

@@ -10,7 +10,9 @@ defmodule ServiceRadar.Observability.MtrResultPublisher do
 
   Each message carries a `trace_uuid` generated here. The processor stores the
   trace under that id and skips ids it has already stored, so a redelivered
-  message does not create a second copy.
+  message does not create a second copy. A result with no usable timestamp is
+  stamped at publish time, so every delivery stores the trace at the same time
+  and the processor's id-plus-time lookup finds the copy it stored earlier.
 
   ## Message format (JSON)
 
@@ -25,6 +27,7 @@ defmodule ServiceRadar.Observability.MtrResultPublisher do
   """
 
   alias ServiceRadar.NATS.JetStreamPublish
+  alias ServiceRadar.Observability.MtrMetricsIngestor
 
   require Logger
 
@@ -54,7 +57,8 @@ defmodule ServiceRadar.Observability.MtrResultPublisher do
     |> results()
     |> Enum.reduce_while(:ok, fn result, :ok ->
       trace_uuid = Ecto.UUID.generate()
-      envelope = envelope(Map.put(result, "trace_uuid", trace_uuid), status, opts)
+      result = result |> Map.put("trace_uuid", trace_uuid) |> stamp_time()
+      envelope = envelope(result, status, opts)
 
       with {:ok, body} <- Jason.encode(envelope),
            :ok <- publish_fun.(@subject, body, msg_id: trace_uuid) do
@@ -72,6 +76,13 @@ defmodule ServiceRadar.Observability.MtrResultPublisher do
   def results(%{results: results}) when is_list(results), do: Enum.filter(results, &is_map/1)
   def results(%{"result" => result}) when is_map(result), do: [result]
   def results(result) when is_map(result), do: [result]
+
+  defp stamp_time(result) do
+    case MtrMetricsIngestor.trace_time(result) do
+      nil -> Map.put(result, "timestamp", System.os_time(:microsecond))
+      _time -> result
+    end
+  end
 
   defp envelope(result, status, opts) do
     base = %{
