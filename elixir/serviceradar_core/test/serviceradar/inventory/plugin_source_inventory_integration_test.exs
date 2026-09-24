@@ -30,7 +30,7 @@ defmodule ServiceRadar.Inventory.PluginSourceInventoryIntegrationTest do
     suffix = unique_suffix()
     armis_id = "armis-#{suffix}"
     plugin_integration_id = "example-inventory:v1:lab-#{suffix}:device:201"
-    serial = "FOC#{suffix}ABC"
+    serial = "SNX#{suffix}ABC"
 
     assert :ok =
              SyncIngestor.ingest_updates(
@@ -97,8 +97,8 @@ defmodule ServiceRadar.Inventory.PluginSourceInventoryIntegrationTest do
     assert :ok =
              DeviceDiscoveryIngestor.ingest(
                inventory_payload(instance, first_collection, ~U[2026-07-13 18:00:00Z], [
-                 inventory_device("301", "ord-asw-301", "FOC#{suffix}301"),
-                 inventory_device("302", "ord-asw-302", "FOC#{suffix}302")
+                 inventory_device("301", "site01-sw-301", "SNX#{suffix}301"),
+                 inventory_device("302", "site01-sw-302", "SNX#{suffix}302")
                ]),
                %{partition: "default"},
                actor: actor
@@ -107,7 +107,7 @@ defmodule ServiceRadar.Inventory.PluginSourceInventoryIntegrationTest do
     assert :ok =
              DeviceDiscoveryIngestor.ingest(
                inventory_payload(instance, second_collection, ~U[2026-07-14 18:00:00Z], [
-                 inventory_device("301", "ord-asw-301", "FOC#{suffix}301")
+                 inventory_device("301", "site01-sw-301", "SNX#{suffix}301")
                ]),
                %{partition: "default"},
                actor: actor
@@ -129,7 +129,7 @@ defmodule ServiceRadar.Inventory.PluginSourceInventoryIntegrationTest do
     assert :ok =
              DeviceDiscoveryIngestor.ingest(
                inventory_payload(instance, second_collection, ~U[2026-07-14 18:00:00Z], [
-                 inventory_device("301", "ord-asw-301", "FOC#{suffix}301")
+                 inventory_device("301", "site01-sw-301", "SNX#{suffix}301")
                ]),
                %{partition: "default"},
                actor: actor
@@ -194,8 +194,8 @@ defmodule ServiceRadar.Inventory.PluginSourceInventoryIntegrationTest do
     assert :ok =
              DeviceDiscoveryIngestor.ingest(
                inventory_payload(instance, first_collection, ~U[2026-07-13 18:00:00Z], [
-                 inventory_device("501", "iad-asw-501", "FOC#{suffix}501"),
-                 inventory_device("502", "iad-asw-502", "FOC#{suffix}502")
+                 inventory_device("501", "iad-asw-501", "SNX#{suffix}501"),
+                 inventory_device("502", "iad-asw-502", "SNX#{suffix}502")
                ]),
                %{partition: "default"},
                actor: actor
@@ -234,7 +234,7 @@ defmodule ServiceRadar.Inventory.PluginSourceInventoryIntegrationTest do
                  instance,
                  "reader-collection-#{suffix}-2",
                  ~U[2026-07-13 19:00:00Z],
-                 [inventory_device("501", "iad-asw-501", "FOC#{suffix}501")]
+                 [inventory_device("501", "iad-asw-501", "SNX#{suffix}501")]
                ),
                %{partition: "default"},
                actor: actor

@@ -15,7 +15,7 @@ When Armis and NNMi disagree about the access switch, port, or VLAN of the same 
 - Record per-source normalized facts for a small platform-owned fact vocabulary (`switch_port_attachment`, `vlan_uid`, and later additions) so new integrations participate without core provider modules.
 - Detect disagreement generically across any sources that report the same fact on the same canonical device. Persist open disagreements, emit an OCSF event on open/change/clear, and expose a SRQL-backed report.
 - Let operators set which integration source wins for which fact on the integration-source / plugin-assignment catalog, plus an optional source-type ranking. Plugin packages MAY advertise which facts they emit. Plugin packages MUST NOT declare that they win.
-- Promote existing Armis attachment metadata into canonical facts and backfill current rows such as the Daktronics kiosks already carrying `niadcs-bldd03-asw001:gi1/3` and VLAN `561`.
+- Promote existing Armis attachment metadata into canonical facts and backfill current rows such as the Daktronics kiosks already carrying `switch01.example.com:gi1/0/7` and VLAN `200`.
 - After the canonical fact pipeline exists, add the optional OpenText NOM NNMi attached-switch-port pass: query NNMi for ServiceRadar endpoint MAC/IP (not HPNA switch inventory), skip the pass when `nnm_url` is omitted, and emit the same generic facts.
 
 ## Impact
