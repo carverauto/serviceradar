@@ -87,6 +87,8 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
             Process.get(:native_addon_manifest_requests, 0) + 1
           )
 
+          if on_fetch = Process.get(:native_addon_on_manifest_fetch), do: on_fetch.()
+
           Process.get(:native_addon_manifest_result) ||
             {:ok,
              %Req.Response{
@@ -1393,6 +1395,68 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert persisted.status == :staged
   end
 
+  test "a replace decided against a stale row cannot overwrite a release that landed during the fetch",
+       %{private_key: private_key} do
+    install_fixtures(private_key)
+
+    assert {:ok, %{imported: 1}} =
+             AddonPackages.sync_first_party_addons(
+               repo_url: @repo_url,
+               release_tag: "v1.0.0",
+               limit: 10
+             )
+
+    changed_bundle =
+      bundle_with_manifest(String.replace(@manifest_yaml, "name: Sample Addon", "name: Changed Addon"))
+
+    later_ref = "registry.carverauto.dev/#{@oci_repository}:v1.0.1"
+    later_digest = "sha256:" <> String.duplicate("e", 64)
+    newer_ref = "registry.carverauto.dev/#{@oci_repository}:v1.0.2"
+    newer_digest = "sha256:" <> String.duplicate("f", 64)
+
+    Process.put(:native_addon_manifest, oci_manifest())
+    Process.put(:native_addon_oci_digest, later_digest)
+    Process.put(:native_addon_bundle, changed_bundle)
+
+    Process.put(
+      :native_addon_blobs,
+      Map.put(Process.get(:native_addon_blobs), digest(changed_bundle), changed_bundle)
+    )
+
+    Process.put(
+      :native_addon_index_body,
+      Jason.encode!(index_map(oci_ref: later_ref, oci_digest: later_digest))
+    )
+
+    Process.put(:native_addon_on_manifest_fetch, fn ->
+      Process.delete(:native_addon_on_manifest_fetch)
+      [package] = sample_packages()
+
+      update_sample_package!(package, %{
+        source_release_tag: "v1.0.2",
+        source_oci_ref: newer_ref,
+        source_oci_digest: newer_digest
+      })
+    end)
+
+    assert {:ok, %{imported: 0, failed: [failure]}} =
+             AddonPackages.sync_first_party_addons(
+               repo_url: @repo_url,
+               release_tag: "v1.0.0",
+               limit: 10
+             )
+
+    assert {:native_addon_version_source_conflict,
+            %{reason: :release_changed, existing_release_tag: "v1.0.2", discovered_release_tag: "v1.0.0"}} =
+             failure.error
+
+    [persisted] = sample_packages()
+    assert persisted.name == "Sample Addon"
+    assert persisted.source_release_tag == "v1.0.2"
+    assert persisted.source_oci_ref == newer_ref
+    assert persisted.source_oci_digest == newer_digest
+  end
+
   test "a rebuild of an approved tracked add-on stays approved without re-review", %{
     private_key: private_key
   } do
@@ -1448,6 +1512,59 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert persisted.status == :approved
     assert persisted.approved_by == "system:native_addon_sync"
     assert persisted.approved_capabilities == ["submit_result"]
+  end
+
+  test "a rebuild without a tracking profile stays staged despite prior approval", %{
+    private_key: private_key
+  } do
+    install_fixtures(private_key)
+
+    assert {:ok, %{imported: 1}} =
+             AddonPackages.sync_first_party_addons(
+               repo_url: @repo_url,
+               release_tag: "v1.0.0",
+               limit: 10
+             )
+
+    [package] = sample_packages()
+    approved = move_package_to_status!(package, :approved)
+
+    changed_bundle =
+      bundle_with_manifest(String.replace(@manifest_yaml, "name: Sample Addon", "name: Changed Addon"))
+
+    later_ref = "registry.carverauto.dev/#{@oci_repository}:v1.0.1"
+    later_digest = "sha256:" <> String.duplicate("e", 64)
+
+    Process.put(:native_addon_bundle, changed_bundle)
+    Process.put(:native_addon_manifest, oci_manifest())
+    Process.put(:native_addon_oci_digest, later_digest)
+
+    Process.put(
+      :native_addon_blobs,
+      Map.put(Process.get(:native_addon_blobs), digest(changed_bundle), changed_bundle)
+    )
+
+    Process.put(
+      :native_addon_index_body,
+      Jason.encode!(index_map(oci_ref: later_ref, oci_digest: later_digest))
+    )
+
+    assert {:ok, summary} =
+             AddonPackages.sync_first_party_addons(
+               repo_url: @repo_url,
+               release_tag: "v1.0.0",
+               limit: 10
+             )
+
+    assert summary.imported == 1
+    assert summary.failed == []
+
+    [persisted] = sample_packages()
+    assert persisted.id == approved.id
+    assert persisted.name == "Changed Addon"
+    assert persisted.status == :staged
+    assert persisted.approved_by == nil
+    assert persisted.approved_capabilities == []
   end
 
   test "a rebuild that expands capabilities stays staged despite a tracking profile", %{
