@@ -406,9 +406,10 @@ notifications/spec.md
 
 ### Pre-release Suffixes (auto-detected)
 - `-pre.N` - Pre-release (e.g., `1.0.71-pre.1`, `1.0.71-pre.2`)
-- `-rcN` - Release candidate (e.g., `1.0.71-rc1`)
-- `-alphaN` - Alpha release
-- `-betaN` - Beta release
+- `-rc.N` - Release candidate (e.g., `1.0.71-rc.1`)
+- `-alpha.N` - Alpha release
+- `-beta.N` - Beta release
+- Legacy undotted forms (`-pre1`, `-rc1`, ...) are still accepted
 
 ### Rules
 1. **Never bump to a release version** unless cutting an actual release
