@@ -1,4 +1,4 @@
-# Change: Make StarRocks the system of record for all telemetry, and retire it from CNPG
+# Change: Make StarRocks the system of record for all telemetry when enabled, with CNPG kept as the alternative backend
 
 ## Why
 
@@ -52,8 +52,9 @@ wait is cancelled by Postgres `statement_timeout`.
   stops writing it to CNPG and every reader reads the warehouse. The per-dataset
   `shadowDatasets`/`cutoverDatasets` lists, the dual-write and the soak before retiring writes
   are removed. A reader that has not been moved yet reports its data as unavailable instead of
-  reading a CNPG table that stopped receiving rows. CNPG hypertables are dropped later by a
-  separate reviewed migration, never by enabling the warehouse.
+  reading a CNPG table that stopped receiving rows. CNPG stays a complete, supported backend for
+  installations without StarRocks: every writer and reader keeps its CNPG implementation, and no
+  CNPG telemetry table is dropped.
 - **MTR moves onto JetStream.** Core publishes every MTR trace result to a JetStream subject and
   EventWriter persists traces and hops (warehouse when enabled, CNPG otherwise), removing the
   last direct-to-database MTR write path.
@@ -84,7 +85,7 @@ wait is cancelled by Postgres `statement_timeout`.
   the critical path: with writes off everywhere, any consumer still reading a CNPG telemetry
   table reads frozen data until it is moved.
 - Supersedes nothing. `add-tiered-telemetry-offload` addresses cold storage for CNPG-resident
-  telemetry; once a dataset is retired from CNPG it no longer applies to that dataset.
+  telemetry, which is where it lives on installations without StarRocks.
 - Risk: there is no per-dataset rollback, and disabling StarRocks leaves CNPG without the
   telemetry written while it was enabled. Readers not yet moved are dark until moved. Both are
   accepted product decisions (design Decision 1).

@@ -77,7 +77,7 @@
   logs page OTel sparklines, `Stats` events and trace summaries, the analytics page, God View
   BMP and OCSF event fetches, device risk IOC exposure, `DeviceCorrelation`, the log severity and
   trace summary refresh workers, and the service state registry queries.
-- [ ] 5.2 Remove the dual-write: with StarRocks enabled, `Destination` writes each dataset to the
+- [ ] 5.2 Remove the dual-write (after 3.4 and the readers in 5.4 it would otherwise darken): with StarRocks enabled, `Destination` writes each dataset to the
   warehouse only and a warehouse failure fails the acknowledgement; every EventWriter processor
   and non-broker producer that inserts CNPG telemetry (flows, metrics, logs, events, Falco,
   Trivy, analytics signals, composite-check verdicts, credential events, endpoint inventory,
@@ -87,13 +87,16 @@
 - [ ] 5.3 A shared "unavailable with StarRocks enabled" result for readers with no warehouse
   implementation, rendered explicitly by each page and card, so no reader queries a frozen CNPG
   table; a test per reader until it is moved.
-- [ ] 5.4 Move the readers from 5.1 to the warehouse, highest-traffic first (dashboard cards and
-  sparklines, MTR, logs and events pages, OTel, sysmon, BMP, service status), each behind its
-  parity comparison.
-- [ ] 5.5 Backfill flows and metrics history from CNPG into the warehouse, newest first, in
-  bounded units; verify counts and totals per day.
-- [ ] 5.6 Separate reviewed migration(s) dropping each CNPG telemetry hypertable, its continuous
-  aggregates and its retention and compression policies once no reader references it.
+- [ ] 5.4 Give each reader from 5.1 a warehouse implementation next to its CNPG one, selected by
+  `analytics.starrocks.enabled`, highest-traffic first (dashboard cards and sparklines, MTR, logs
+  and events pages, OTel, sysmon, BMP, service status), each behind its parity comparison. The
+  CNPG implementation stays: it serves every installation without StarRocks.
+- [ ] 5.5 Optional backfill of flows and metrics history from CNPG into the warehouse for an
+  installation that turns StarRocks on, newest first, in bounded units; verify counts and totals
+  per day.
+- [ ] 5.6 Keep the CNPG telemetry schema: no migration drops a telemetry hypertable, continuous
+  aggregate, retention or compression policy, because installations without StarRocks use them.
+  On a StarRocks installation they receive no rows and retention ages them out.
 - [ ] 5.7 Tests: with StarRocks enabled a batch of each dataset leaves no CNPG rows; a warehouse
   load failure is redelivered, not written to CNPG; with StarRocks disabled every dataset still
   writes and reads CNPG.

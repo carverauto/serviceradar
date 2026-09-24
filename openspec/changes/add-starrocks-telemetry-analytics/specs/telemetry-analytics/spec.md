@@ -102,7 +102,7 @@ The system SHALL expose configurable raw and aggregate retention by dataset, def
 - **THEN** deletion is deferred with an observable reason
 - **AND** late replay cannot silently resurrect history already expired by policy
 
-### Requirement: Guarded warehouse readers and retirement
+### Requirement: Guarded warehouse readers
 The system SHALL ship each dataset's warehouse readers only with a complete reader/writer inventory, verified semantics, scoped query compatibility and measured acceptance, and SHALL NOT offer a per-dataset switch that returns reads to CNPG while StarRocks is enabled, because CNPG receives no telemetry while the warehouse is enabled.
 
 #### Scenario: Reads cannot fall back to CNPG
