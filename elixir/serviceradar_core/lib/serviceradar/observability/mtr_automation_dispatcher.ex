@@ -205,7 +205,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     transition_class = Keyword.get(opts, :transition_class, transition_class(mode))
 
     with {:ok, target_ctx} <- normalize_target_ctx(target_ctx),
-         true <- target_matches_policy_scope?(target_ctx, policy),
+         :ok <- ensure_in_policy_scope(target_ctx, policy),
          {:ok, selected_agents} <- select_agents(target_ctx, policy, mode, opts),
          false <- cooldown_active?(target_ctx, mode, transition_class),
          {:ok, _} <-
@@ -270,7 +270,14 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     })
   end
 
-  defp select_agents(target_ctx, policy, :baseline, opts) do
+  # Public (but undocumented) so agent selection over an injected
+  # `:session_lister` can be tested without the cooldown read and the dispatch
+  # window write that follow it in dispatch_for_mode/5, both of which need the
+  # database.
+  @doc false
+  @spec select_agents(target_ctx(), map(), :baseline | :incident | :recovery, keyword()) ::
+          {:ok, [String.t()]} | {:error, term()}
+  def select_agents(target_ctx, policy, :baseline, opts) do
     candidates = candidate_agents(target_ctx, opts)
 
     with {:ok, preferred} <- select_preferred_agents(policy, candidates) do
@@ -282,7 +289,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     end
   end
 
-  defp select_agents(target_ctx, policy, mode, opts) when mode in [:incident, :recovery] do
+  def select_agents(target_ctx, policy, mode, opts) when mode in [:incident, :recovery] do
     candidates = candidate_agents(target_ctx, opts)
 
     with {:ok, preferred} <- select_preferred_agents(policy, candidates) do
@@ -451,6 +458,10 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
   end
 
   defp normalize_target_ctx(_), do: {:error, :invalid_target_context}
+
+  defp ensure_in_policy_scope(target_ctx, policy) do
+    if target_matches_policy_scope?(target_ctx, policy), do: :ok, else: {:error, :out_of_scope}
+  end
 
   defp target_matches_policy_scope?(target_ctx, policy) do
     selector = Map.get(policy, :target_selector, %{}) || %{}

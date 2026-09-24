@@ -235,7 +235,7 @@ for example, "hop 7: 3 sent / 0 replies" versus
 - The reader is injectable (the `:session_lister` opt), matching the
   `AgentCommandBus` test seams.
 - Two changes to the web-ng Queue MTR path:
-  - `MtrRuntime.queue_trace/2` maps dispatcher atoms (`:no_candidate_agents`,
+  - `MtrRuntime.queue_trace/2` maps dispatcher atoms (`:no_candidates`,
     `:cooldown_active`, `:out_of_scope`, ...) to operator-readable strings.
   - It rescues and logs unexpected exceptions and returns `{:error, message}`,
     so a dispatch fault never crashes the device page.

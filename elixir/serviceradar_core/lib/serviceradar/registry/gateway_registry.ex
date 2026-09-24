@@ -212,10 +212,13 @@ defmodule ServiceRadar.GatewayRegistry do
 
   @doc """
   Find all available gateways.
+
+  RPC'd to a core node when this node is not a registry member (web-ng runs the
+  `:service_checks` queue, whose polling-schedule jobs reach this).
   """
   @spec find_available_gateways() :: [map()]
   def find_available_gateways do
-    ProcessRegistry.find_available_gateways()
+    via_registry([], :find_available_gateways, [])
   end
 
   @doc """

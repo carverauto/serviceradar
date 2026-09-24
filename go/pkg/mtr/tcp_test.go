@@ -61,6 +61,69 @@ func TestBuildTCPSyn_HeaderAndChecksum(t *testing.T) {
 	}
 }
 
+// TestChecksum_RFC1071Example checks the Internet checksum against the worked
+// example in RFC 1071 section 3: the words 0001 f203 f4f5 f6f7 sum to 2ddf0,
+// which folds to ddf2, and the checksum is its complement, 220d. An odd
+// trailing byte is padded on the right: 01 sums as 0100, giving feff.
+func TestChecksum_RFC1071Example(t *testing.T) {
+	t.Parallel()
+
+	if got := checksum([]byte{0x00, 0x01, 0xf2, 0x03, 0xf4, 0xf5, 0xf6, 0xf7}); got != 0x220d {
+		t.Fatalf("RFC 1071 example checksum = %#04x, want 0x220d", got)
+	}
+	if got := checksum([]byte{0x01}); got != 0xfeff {
+		t.Fatalf("odd-length checksum = %#04x, want 0xfeff", got)
+	}
+}
+
+// TestTCPChecksum_KnownVectors pins the exact checksum of the SYN the engine
+// builds (ports 40001 -> 443, seq 0xDEADBEEF, window 64240, MSS option),
+// worked by hand as 16-bit one's-complement sums (RFC 1071):
+//
+// IPv4, 192.0.2.1 -> 198.51.100.10:
+//
+//	pseudo-header  c000 0201 c633 640a 0006 0018           = 1ec5c
+//	segment        9c41 01bb dead beef 0000 0000 6002 faf0
+//	               0000 0000 0204 05b4                     = 39e42
+//	total 58a9e, folded 5 + 8a9e = 8aa3, complement 755c
+//
+// IPv6, 2001:db8::1 -> 2001:db8::10 (upper-layer length 24, next header 6):
+//
+//	pseudo-header  2001 0db8 0001 2001 0db8 0010 0018 0006 = 5ba1
+//	segment        as above with MSS 05a0                  = 39e2e
+//	total 3f9cf, folded 3 + f9cf = f9d2, complement 062d
+func TestTCPChecksum_KnownVectors(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		src  net.IP
+		dst  net.IP
+		want uint16
+	}{
+		{name: "ipv4", src: net.ParseIP("192.0.2.1").To4(), dst: net.ParseIP("198.51.100.10").To4(), want: 0x755c},
+		{name: "ipv6", src: net.ParseIP("2001:db8::1"), dst: net.ParseIP("2001:db8::10"), want: 0x062d},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			seg := buildTCPSyn(nil, tc.src, tc.dst, 40001, 443, 0xDEADBEEF)
+			if got := binary.BigEndian.Uint16(seg[16:18]); got != tc.want {
+				t.Fatalf("SYN checksum field = %#04x, want %#04x", got, tc.want)
+			}
+
+			zeroed := append([]byte(nil), seg...)
+			zeroed[16], zeroed[17] = 0, 0
+
+			if got := tcpChecksum(tc.src, tc.dst, zeroed); got != tc.want {
+				t.Fatalf("tcpChecksum = %#04x, want %#04x", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestParseTCPSegment_ProbeAnswers(t *testing.T) {
 	t.Parallel()
 
@@ -141,6 +204,11 @@ type simNetwork struct {
 	sendErr error
 	openErr error
 
+	// opens counts OpenTCPFlow calls and sends records every SendSYN, so a
+	// test can check which flow each TTL was sent on.
+	opens int
+	sends []simSend
+
 	// sendCalls counts SendSYN calls; failSendAfter makes every call after
 	// that many fail, so a test can fail only the handshake phase, while
 	// failSendAt makes exactly one call fail so a later round can succeed.
@@ -156,6 +224,14 @@ type simNetwork struct {
 
 	icmp chan *ICMPResponse
 	flow *simTCPFlow
+}
+
+// simSend is one SendSYN call: the flow it was sent on, its TTL and its probe
+// sequence.
+type simSend struct {
+	flow *simTCPFlow
+	ttl  int
+	seq  int
 }
 
 var (
@@ -184,6 +260,7 @@ func (s *simNetwork) OpenTCPFlow(_ net.IP, _ int, _ time.Duration) (TCPFlow, err
 		return nil, s.openErr
 	}
 
+	s.opens++
 	s.flow = &simTCPFlow{net: s, replies: make(chan *TCPReply, 256)}
 
 	return s.flow, nil
@@ -217,6 +294,7 @@ func (f *simTCPFlow) SendSYN(ttl, seq int) error {
 	}
 
 	f.net.sendCalls++
+	f.net.sends = append(f.net.sends, simSend{flow: f, ttl: ttl, seq: seq})
 	if f.net.failSendAfter > 0 && f.net.sendCalls > f.net.failSendAfter {
 		return errSimSend
 	}
@@ -369,6 +447,53 @@ func TestTracer_StopsProbingPastTheTargetOnceItAnswers(t *testing.T) {
 	// at most one probe past the target (TTL 4) may already have been sent.
 	if result.ProbedHops > 4 {
 		t.Fatalf("expected probing to stop just past the target, probed to hop %d", result.ProbedHops)
+	}
+}
+
+// A TCP trace keeps one 5-tuple for its whole life: the tracer opens a single
+// flow and sends every TTL on it, and routers' Time Exceeded quotes of that
+// flow's ports are what identify each hop. The flow's own side of the contract
+// (only the sequence number changes between probes) is pinned by
+// TestRawTCPFlow_EveryProbeSharesTheFlowFiveTuple.
+func TestTracerTCP_EveryTTLIsSentOnOneStableFlow(t *testing.T) {
+	t.Parallel()
+
+	sim := newSimNetwork(4, "synack")
+
+	result, err := runSimTCPTrace(t, sim, 8)
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if sim.opens != 1 {
+		t.Fatalf("expected one TCP flow per trace, opened %d", sim.opens)
+	}
+
+	ttls := map[int]bool{}
+	seqs := map[int]bool{}
+
+	for _, send := range sim.sends {
+		if send.flow != sim.flow {
+			t.Fatalf("TTL %d was sent on a different flow", send.ttl)
+		}
+		if seqs[send.seq] {
+			t.Fatalf("probe sequence %d was reused", send.seq)
+		}
+
+		ttls[send.ttl] = true
+		seqs[send.seq] = true
+	}
+
+	for ttl := 1; ttl <= 4; ttl++ {
+		if !ttls[ttl] {
+			t.Fatalf("expected a probe at TTL %d on the trace's flow, sent %v", ttl, sim.sends)
+		}
+	}
+
+	for i, want := range []string{"192.0.2.1", "192.0.2.2", "192.0.2.3", simTarget} {
+		if got := result.Hops[i].Addr; got != want {
+			t.Fatalf("hop %d = %q, want %q", i+1, got, want)
+		}
 	}
 }
 

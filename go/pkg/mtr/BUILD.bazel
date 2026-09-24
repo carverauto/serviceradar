@@ -47,6 +47,7 @@ go_test(
     name = "mtr_test",
     srcs = [
         "hop_test.go",
+        "match_probe_test.go",
         "mpls_test.go",
         "options_test.go",
         "socket_test.go",
