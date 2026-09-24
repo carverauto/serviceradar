@@ -86,6 +86,9 @@
       `in:mtr_traces`/`in:mtr_hops` (the system report panels) still route to CNPG, because
       `Readers.dataset_for_entity/1` has no MTR entry and the StarRocks dialect refuses MTR; and
       `MtrData.retention_status/1` reports the CNPG retention policy.
+    - SRQL `in:mtr_traces`/`in:mtr_hops` have no warehouse dialect yet: with StarRocks enabled
+      `Readers.mode_for/1` refuses them (`:warehouse_reader_missing`) instead of reading the
+      frozen CNPG tables (task 5.3 behaviour); adding them to the StarRocks dialect remains.
   - [x] 3.4.7 Delete the MTR exception from the AGENTS.md JetStream rule when 3.4.1 and 3.4.3 land.
     - Done with 3.4.1: after it, no MTR path bypasses JetStream (ad-hoc traces already arrive on
       `scans.results.>` and are written inside EventWriter). 3.4.3 is about warehouse-awareness,

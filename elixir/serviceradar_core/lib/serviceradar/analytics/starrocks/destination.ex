@@ -40,12 +40,12 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
 
   @doc """
   Whether StarRocks is the active telemetry backend (`analytics.starrocks.enabled`).
+
+  Delegates to `Readers.enabled?/0` so the write side and the read side can
+  never disagree about which backend is active.
   """
   @spec enabled?() :: boolean()
-  def enabled? do
-    env = Application.get_env(:serviceradar_core, StarRocks, [])
-    Keyword.get(env, :enabled, false) == true
-  end
+  defdelegate enabled?, to: Readers
 
   @doc """
   Loads rows into the warehouse only, for a dataset whose rows are written to

@@ -247,15 +247,24 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse do
   defp limit_clause(limit) when is_integer(limit) and limit > 0, do: "\nLIMIT #{limit}"
   defp limit_clause(_limit), do: ""
 
+  @recent_trace_days 7
+
   @doc """
   The newest `limit` traces for the Compare page's picker, with the columns
-  its Ash read maps. Like the Ash read, it has no time bound.
+  its Ash read maps, from the last #{@recent_trace_days} days. Unlike the CNPG
+  read it is time-bounded, because a newest-N read without a partition bound
+  can scan every partition of the table.
   """
   @spec recent_traces(pos_integer(), keyword()) :: {:ok, [map()]} | {:error, term()}
   def recent_traces(limit, opts \\ []) when is_integer(limit) and limit > 0 do
+    # Bounded so the newest-N read prunes to recent day partitions instead of
+    # scanning every partition the table holds.
+    since = DateTime.add(Keyword.get_lazy(opts, :now, &DateTime.utc_now/0), -@recent_trace_days, :day)
+
     sql = """
     SELECT #{columns(@compare_trace_columns)}
     FROM #{table("mtr_traces")}
+    WHERE `time` >= #{datetime(since)}
     ORDER BY `time` DESC
     LIMIT #{limit}
     """

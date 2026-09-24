@@ -54,6 +54,25 @@ defmodule ServiceRadar.Analytics.StarRocks.ReadersTest do
     end
   end
 
+  test "MTR SRQL is refused with the warehouse enabled and served from CNPG without it" do
+    prev = Application.get_env(:serviceradar_core, StarRocks, [])
+
+    try do
+      Application.put_env(:serviceradar_core, StarRocks, Keyword.put(prev, :enabled, true))
+
+      for entity <- ["mtr_traces", "mtr_hops", "MTR_HOPS", "mtr_hop_stats"] do
+        assert Readers.mode_for(entity) == {:error, :warehouse_reader_missing}
+      end
+
+      Application.put_env(:serviceradar_core, StarRocks, Keyword.put(prev, :enabled, false))
+
+      assert Readers.mode_for("mtr_traces") == nil
+      assert Readers.backend("mtr_hops") == :cnpg
+    after
+      Application.put_env(:serviceradar_core, StarRocks, prev)
+    end
+  end
+
   test "enabled? is the global backend switch, independent of the cutover list" do
     prev = Application.get_env(:serviceradar_core, StarRocks, [])
 

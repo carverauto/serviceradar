@@ -53,6 +53,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
       "logs" ->
         :logs
 
+      e when e in ~w(mtr_traces mtr_hops mtr_hop_stats) ->
+        :mtr
+
       e
       when e in ~w(
              events activity
@@ -73,10 +76,16 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
   @starrocks_only [:flows]
 
   @spec mode_for(atom() | String.t() | nil) ::
-          String.t() | {:error, :starrocks_required} | nil
+          String.t() | {:error, :starrocks_required | :warehouse_reader_missing} | nil
   def mode_for(nil), do: nil
 
   def mode_for(entity) when is_binary(entity), do: mode_for(dataset_for_entity(entity))
+
+  # MTR SRQL has no warehouse dialect yet. With the warehouse enabled the CNPG
+  # MTR tables stop receiving rows, so answering from them would serve history
+  # frozen at the switch; the query is refused instead, and answered from CNPG
+  # only when StarRocks is off.
+  def mode_for(:mtr), do: if(enabled?(), do: {:error, :warehouse_reader_missing})
 
   def mode_for(dataset) when is_atom(dataset) do
     cond do

@@ -208,6 +208,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrPagesBackendTest do
 
       assert_received {:warehouse, sql}
       assert sql =~ "FROM serviceradar.mtr_traces"
+      assert sql =~ ~r/WHERE `time` >= '\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{6}'/
       assert sql =~ "ORDER BY `time` DESC\nLIMIT 75"
 
       failing = fn _sql -> {:error, :connect_failed} end
