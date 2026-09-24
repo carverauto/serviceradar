@@ -52,6 +52,7 @@ pub(crate) fn build_query_plan(
     let (filters, order, downsample) =
         normalize_device_aliases(&ast.entity, ast.filters, ast.order, ast.downsample);
     let (filters, include_deleted) = extract_include_deleted(filters)?;
+    let (filters, exhaustive_window) = extract_window_scan(filters)?;
     let filters = normalize_telemetry_id_filters(&ast.entity, filters)?;
 
     Ok(QueryPlan {
@@ -66,6 +67,7 @@ pub(crate) fn build_query_plan(
         rollup_stats: ast.rollup_stats,
         other: ast.other,
         include_deleted,
+        exhaustive_window,
     })
 }
 
@@ -74,7 +76,7 @@ pub(crate) fn build_query_plan(
 /// The caller-visible contract lives in docs/docs/srql-language-reference.md
 /// under Sorting and pagination.
 pub(crate) fn is_exhaustive_profile_query(plan: &QueryPlan) -> bool {
-    is_exhaustive_profile_stats(plan.stats.as_ref())
+    plan.exhaustive_window || is_exhaustive_profile_stats(plan.stats.as_ref())
 }
 
 fn is_exhaustive_profile_stats(stats: Option<&crate::parser::StatsSpec>) -> bool {
@@ -184,19 +186,14 @@ fn is_grouped_device_stats(ast: &QueryAst) -> bool {
 
 fn determine_grouped_device_limit(config: &AppConfig, candidate: Option<i64>) -> i64 {
     const DEFAULT_GROUP_LIMIT: i64 = 20;
-    const MAX_GROUP_LIMIT: i64 = 100;
 
-    let configured_max = if config.max_limit > 0 {
-        config.max_limit.min(MAX_GROUP_LIMIT)
-    } else {
-        MAX_GROUP_LIMIT
-    }
-    .max(1);
+    // An omitted limit stays a small default page. An explicit limit is the
+    // limit that runs. A configured srql_max_limit still applies; the old hard
+    // cap of 100 did not, and it dropped groups without saying so.
+    let limit = candidate.unwrap_or(DEFAULT_GROUP_LIMIT).max(1);
+    let max = config.max_limit;
 
-    candidate
-        .unwrap_or(DEFAULT_GROUP_LIMIT)
-        .max(1)
-        .min(configured_max)
+    if max <= 0 { limit } else { limit.min(max) }
 }
 
 fn normalize_device_aliases(
@@ -261,6 +258,28 @@ fn extract_include_deleted(filters: Vec<Filter>) -> Result<(Vec<Filter>, bool)> 
     }
 
     Ok((remaining, include_deleted))
+}
+
+fn extract_window_scan(filters: Vec<Filter>) -> Result<(Vec<Filter>, bool)> {
+    let mut exhaustive_window = false;
+    let mut remaining = Vec::with_capacity(filters.len());
+
+    for filter in filters {
+        if filter.field.eq_ignore_ascii_case("window_scan") {
+            if !matches!(filter.op, crate::parser::FilterOp::Eq) {
+                return Err(ServiceError::InvalidRequest(
+                    "window_scan only supports equality".into(),
+                ));
+            }
+
+            let raw = filter.value.as_scalar()?;
+            exhaustive_window = parse_bool_str(raw)?;
+        } else {
+            remaining.push(filter);
+        }
+    }
+
+    Ok((remaining, exhaustive_window))
 }
 
 fn parse_bool_str(value: &str) -> Result<bool> {

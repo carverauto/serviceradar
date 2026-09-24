@@ -158,8 +158,12 @@ are served from pre-computed hourly rollups.
 - `sort:<field>[:asc|:desc]` — orders results. Direction defaults to `desc`.
   Multiple sort keys are comma-separated: `sort:time:desc,bytes_total`.
   `order:` is an accepted alias for `sort:`.
-- `limit:<n>` — caps the number of rows. Must be a positive integer; the engine
-  enforces a configured maximum.
+- `limit:<n>` — caps the number of rows returned in one page. Must be a
+  positive integer. An explicit limit is the limit that runs. When
+  `srql_max_limit` is set above zero, that configured maximum still applies.
+  Grouped device stats default to 20 groups when `limit:` is omitted. A page
+  that comes back full includes `next_cursor`, which means further rows or
+  groups may exist.
 - On `bucket:` queries `sort:` selects which end of the time window survives
   `limit:`, not the order rows come back in. See
   [Downsampling with `bucket`](#downsampling-with-bucket).
@@ -168,9 +172,12 @@ are served from pre-computed hourly rollups.
 - The configured cursor-offset cap applies to ordinary queries. Seasonal
   `stats:profile_hour_of_week(value)` and `stats:profile_hour_of_week_full(value)`
   queries are exempt so cohort discovery and baseline delivery can page to
-  completion. This exception applies to both query execution and SQL translation,
-  including caller-supplied queries; it is not restricted to internal workers.
-  Per-page row limits still apply.
+  completion. A query may also set `window_scan:true` to take the same
+  exemption. Maintenance jobs that have to cover a time window use it.
+  Interactive queries omit it and still receive the cursor-limit error past
+  the ceiling. This exception applies to both query execution and SQL
+  translation, including caller-supplied queries; it is not restricted to
+  internal workers. Per-page row limits still apply.
 
 ## Aggregation with `stats`
 
@@ -204,7 +211,8 @@ Only `count()` is supported. Group fields: `check` (aliases
 `check_slug`, `slug`), `check_name`, `verdict`, `status`, `input_key`,
 `input_value`, `input_stale`. `input_*` fields unnest the `inputs`
 JSONB map with `jsonb_each` so a vantage rollup is a GROUP BY, not a
-client fold. Default limit 100, hard cap 500. Unquoted stats tokens
+client fold. Default limit 100 when `limit:` is omitted. An explicit
+`limit:` is honored. A full page sets `next_cursor`. Unquoted stats tokens
 cannot contain spaces; write `by check,verdict` or quote the
 expression.
 

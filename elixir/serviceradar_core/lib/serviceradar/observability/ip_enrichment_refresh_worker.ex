@@ -31,6 +31,7 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
   alias ServiceRadar.Observability.IpIpinfoCache
   alias ServiceRadar.Observability.IpRdnsCache
   alias ServiceRadar.Observability.NetflowSettings
+  alias ServiceRadar.Observability.PagedQuery
   alias ServiceRadar.Observability.ReverseDns
   alias ServiceRadar.Observability.SRQLRunner
   alias ServiceRadar.Repo
@@ -194,22 +195,28 @@ defmodule ServiceRadar.Observability.IpEnrichmentRefreshWorker do
     end
   end
 
-  defp discover_candidate_ips(scan_window, limit) do
-    base = "in:flows time:#{scan_window}"
-
-    src_query =
-      ~s|#{base} stats:"sum(bytes_total) as total_bytes by src_endpoint_ip" sort:total_bytes:desc limit:#{limit}|
-
-    dst_query =
-      ~s|#{base} stats:"sum(bytes_total) as total_bytes by dst_endpoint_ip" sort:total_bytes:desc limit:#{limit}|
-
-    src_ips = extract_ips(SRQLRunner.query(src_query), "src_endpoint_ip")
-    dst_ips = extract_ips(SRQLRunner.query(dst_query), "dst_endpoint_ip")
+  @doc false
+  def discover_candidate_ips(scan_window, page_size, runner \\ SRQLRunner) do
+    src_ips = page_endpoint_ips("src_endpoint_ip", scan_window, page_size, runner)
+    dst_ips = page_endpoint_ips("dst_endpoint_ip", scan_window, page_size, runner)
 
     (src_ips ++ dst_ips)
     |> Enum.map(&String.trim/1)
     |> Enum.reject(&(&1 in ["", "—", "-", "Unknown"]))
     |> Enum.uniq()
+  end
+
+  defp page_endpoint_ips(field, scan_window, page_size, runner) do
+    query =
+      ~s|in:flows time:#{scan_window} window_scan:true stats:"sum(bytes_total) as total_bytes by #{field}" sort:#{field}:asc limit:#{page_size}|
+
+    case PagedQuery.collect(runner, query) do
+      {:ok, rows} ->
+        extract_ips({:ok, rows}, field)
+
+      {:error, reason} ->
+        raise "ip enrichment candidate scan failed: #{inspect(reason)}"
+    end
   end
 
   defp extract_ips({:ok, rows}, key) when is_list(rows) and is_binary(key) do

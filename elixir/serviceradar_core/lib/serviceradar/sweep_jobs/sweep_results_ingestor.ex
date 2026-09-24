@@ -1521,12 +1521,18 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     end
   end
 
-  defp load_deleted_devices(device_uids, actor) do
-    Device
-    |> Ash.Query.for_read(:read, %{include_deleted: true})
-    |> Ash.Query.filter(uid in ^device_uids and not is_nil(deleted_at))
-    |> Ash.read(actor: actor)
-    |> Page.unwrap()
+  @doc false
+  def load_deleted_devices(device_uids, actor) do
+    devices =
+      Device
+      |> Ash.Query.for_read(:read, %{include_deleted: true})
+      |> Ash.Query.filter(uid in ^device_uids and not is_nil(deleted_at))
+      |> Page.stream!(actor: actor)
+      |> Enum.reduce([], fn device, acc -> [device | acc] end)
+
+    {:ok, devices}
+  rescue
+    exception -> {:error, exception}
   end
 
   defp eligible_restore_uids(devices) do

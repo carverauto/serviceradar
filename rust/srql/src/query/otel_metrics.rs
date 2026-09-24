@@ -624,6 +624,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            exhaustive_window: false,
         }
     }
 

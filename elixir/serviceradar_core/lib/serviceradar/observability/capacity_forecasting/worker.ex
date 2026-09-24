@@ -165,6 +165,8 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
   end
 
   defp fetch_row_groups(runner, source, runner_opts, opts) do
+    opts = Keyword.put_new(opts, :max_history_pages, 100_000)
+
     if function_exported?(runner, :query_page, 2) do
       PagedQuery.fetch(
         runner,

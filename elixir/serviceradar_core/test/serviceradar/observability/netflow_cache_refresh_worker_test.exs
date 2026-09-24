@@ -181,4 +181,46 @@ defmodule ServiceRadar.Observability.NetflowCacheRefreshWorkerTest do
       assert Worker.unambiguous_alias_owners([]) == %{}
     end
   end
+
+  describe "collect_sampler_addresses/3" do
+    alias NetflowExporterCacheRefreshWorker, as: Worker
+
+    test "keeps reading after a full page" do
+      since = DateTime.utc_now()
+
+      query = fn sql ->
+        cond do
+          sql =~ "192.0.2.2" -> {:ok, %{rows: []}}
+          sql =~ "sampler_address >" -> {:ok, %{rows: [["192.0.2.2"]]}}
+          true -> {:ok, %{rows: [["192.0.2.1"]]}}
+        end
+      end
+
+      assert {:ok, ["192.0.2.1", "192.0.2.2"]} =
+               Worker.collect_sampler_addresses(since, 1, query: query)
+    end
+  end
+
+  describe "PagedQuery.collect/3" do
+    alias ServiceRadar.Observability.PagedQuery
+
+    test "follows next_cursor instead of stopping on a full page" do
+      assert {:ok, [%{"ip" => "192.0.2.1"}, %{"ip" => "192.0.2.2"}]} =
+               PagedQuery.collect(
+                 ServiceRadar.Observability.NetflowCachePageFixture,
+                 "in:flows window_scan:true limit:1",
+                 []
+               )
+    end
+  end
+end
+
+defmodule ServiceRadar.Observability.NetflowCachePageFixture do
+  @moduledoc false
+  def query_page(_query, opts) do
+    case Keyword.get(opts, :cursor) do
+      nil -> {:ok, %{rows: [%{"ip" => "192.0.2.1"}], next_cursor: "page-2"}}
+      "page-2" -> {:ok, %{rows: [%{"ip" => "192.0.2.2"}], next_cursor: nil}}
+    end
+  end
 end

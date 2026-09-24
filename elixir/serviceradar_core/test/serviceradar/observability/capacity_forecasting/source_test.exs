@@ -18,6 +18,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.SourceTest do
            )
 
     assert Enum.all?(queries, &String.contains?(&1, "limit:123"))
+    assert Enum.all?(queries, &String.contains?(&1, "window_scan:true"))
     refute Enum.any?(queries, &String.contains?(&1, "sort:bucket:asc"))
   end
 

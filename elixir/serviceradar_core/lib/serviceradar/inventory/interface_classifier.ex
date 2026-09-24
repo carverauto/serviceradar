@@ -52,9 +52,10 @@ defmodule ServiceRadar.Inventory.InterfaceClassifier do
     end
   end
 
-  defp load_device_contexts([], _actor), do: %{}
+  @doc false
+  def load_device_contexts([], _actor), do: %{}
 
-  defp load_device_contexts(records, actor) do
+  def load_device_contexts(records, actor) do
     device_ids =
       records
       |> Enum.map(& &1.device_id)
@@ -67,22 +68,21 @@ defmodule ServiceRadar.Inventory.InterfaceClassifier do
       |> Ash.Query.filter(uid in ^device_ids)
       |> Ash.Query.select([:uid, :vendor_name, :model, :metadata, :hostname])
 
-    case Page.unwrap(Ash.read(query, actor: actor)) do
-      {:ok, devices} ->
-        Map.new(devices, fn device ->
-          {device.uid,
-           %{
-             vendor_name: device.vendor_name,
-             model: device.model,
-             hostname: device.hostname,
-             sys_descr: sys_descr_from_metadata(device.metadata || %{})
-           }}
-        end)
-
-      {:error, reason} ->
-        Logger.warning("Interface classifier device context lookup failed: #{inspect(reason)}")
-        %{}
-    end
+    query
+    |> Page.stream!(actor: actor)
+    |> Map.new(fn device ->
+      {device.uid,
+       %{
+         vendor_name: device.vendor_name,
+         model: device.model,
+         hostname: device.hostname,
+         sys_descr: sys_descr_from_metadata(device.metadata || %{})
+       }}
+    end)
+  rescue
+    exception ->
+      Logger.warning("Interface classifier device context lookup failed: #{inspect(exception)}")
+      reraise exception, __STACKTRACE__
   end
 
   defp apply_rules(record, rules, device_ctx) do

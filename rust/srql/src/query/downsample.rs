@@ -77,6 +77,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            exhaustive_window: false,
         }
     }
 
@@ -178,6 +179,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            exhaustive_window: false,
         }
     }
 
@@ -256,6 +258,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            exhaustive_window: false,
         };
 
         let (sql, _params) = to_sql_and_params(&plan).unwrap();
@@ -290,6 +293,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            exhaustive_window: false,
         }
     }
 
@@ -374,6 +378,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            exhaustive_window: false,
         };
 
         let (sql, params) = to_sql_and_params(&plan).unwrap();

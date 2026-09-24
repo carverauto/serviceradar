@@ -18,6 +18,7 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Analytics.StarRocks.Env
+  alias ServiceRadar.Ash.Page
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Observability
@@ -187,41 +188,73 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
 
   def discover_sampler_addresses(_scan_window_seconds, _limit, _opts), do: {:ok, []}
 
+  @doc false
+  def collect_sampler_addresses(since, limit, opts) do
+    collect_sampler_pages(since, limit, nil, [], opts)
+  end
+
   defp starrocks_sampler_addresses(since, limit, opts) do
+    collect_sampler_addresses(since, limit, opts)
+  end
+
+  # `limit` is the page size. A full page is not the end of the window: the
+  # next page starts after the last address. One extra empty page is how a
+  # window whose size is an exact multiple of the page is known to be done.
+  defp collect_sampler_pages(since, limit, after_address, acc, opts) do
+    case sampler_page(since, limit, after_address, opts) do
+      {:ok, addresses} ->
+        acc = acc ++ addresses
+
+        if length(addresses) < limit do
+          {:ok, acc}
+        else
+          collect_sampler_pages(since, limit, List.last(addresses), acc, opts)
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp sampler_page(since, limit, after_address, opts) do
     iso = DateTime.to_iso8601(since)
+    after_clause = sampler_after_clause(after_address)
 
     sql =
       "SELECT DISTINCT sampler_address FROM #{Env.table("ocsf_network_activity")} " <>
         "WHERE sampler_address IS NOT NULL AND sampler_address != '' " <>
-        "AND `time` >= '#{iso}' LIMIT #{limit}"
+        "AND `time` >= '#{iso}'#{after_clause} " <>
+        "ORDER BY sampler_address LIMIT #{limit}"
 
     query = Keyword.get(opts, :query, &ServiceRadar.Analytics.StarRocks.Query.execute/1)
 
     case query.(sql) do
-      {:ok, %{rows: rows}} ->
-        addresses =
-          rows
-          |> Enum.map(fn
-            [address | _] -> address
-            address when is_binary(address) -> address
-            _ -> nil
-          end)
-          |> Enum.map(&to_string/1)
-          |> Enum.map(&String.trim/1)
-          |> Enum.reject(&(&1 == ""))
-          |> Enum.uniq()
-
-        {:ok, addresses}
-
-      {:error, reason} ->
-        {:error, reason}
-
-      other ->
-        {:error, {:unexpected_result, other}}
+      {:ok, %{rows: rows}} -> {:ok, normalize_sampler_rows(rows)}
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:unexpected_result, other}}
     end
   end
 
-  defp load_devices_by_ip([], _actor), do: %{}
+  defp sampler_after_clause(nil), do: ""
+
+  defp sampler_after_clause(address) when is_binary(address) do
+    " AND sampler_address > '#{String.replace(address, "'", "''")}'"
+  end
+
+  defp normalize_sampler_rows(rows) do
+    rows
+    |> Enum.map(fn
+      [address | _] -> address
+      address when is_binary(address) -> address
+      _ -> nil
+    end)
+    |> Enum.map(&to_string/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  @doc false
+  def load_devices_by_ip([], _actor), do: %{}
 
   # Two tiers. A sampler address is matched against `ocsf_devices.ip` first, and
   # only the addresses that tier leaves unresolved are looked up against IP
@@ -241,7 +274,7 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
   # primary tier is also unique by construction -- `ocsf_devices_unique_active_ip_idx`
   # is a partial unique index on `ip` for non-deleted rows -- so ambiguity is
   # confined to the alias tier.
-  defp load_devices_by_ip(ips, actor) when is_list(ips) do
+  def load_devices_by_ip(ips, actor) when is_list(ips) do
     by_primary =
       ips
       |> Enum.chunk_every(2_000)
@@ -283,6 +316,7 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
       )
       |> Ash.Query.select([:device_id, :alias_value])
       |> read_results(actor)
+      |> Enum.to_list()
       |> unambiguous_alias_owners()
       |> resolve_alias_devices(query_opts, actor)
       |> Map.merge(acc)
@@ -344,7 +378,7 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
     end)
   end
 
-  defp merge_devices_by_ip(devices, acc) when is_list(devices) and is_map(acc) do
+  defp merge_devices_by_ip(devices, acc) when is_map(acc) do
     Enum.reduce(devices, acc, fn d, map ->
       with ip when is_binary(ip) <- Map.get(d, :ip),
            true <- ip != "" do
@@ -356,11 +390,7 @@ defmodule ServiceRadar.Observability.NetflowExporterCacheRefreshWorker do
   end
 
   defp read_results(query, actor) do
-    case Ash.read(query, actor: actor) do
-      {:ok, devices} when is_list(devices) -> devices
-      {:ok, %{results: results}} when is_list(results) -> results
-      _ -> []
-    end
+    Page.stream!(query, actor: actor)
   end
 
   defp exporter_name(ip, nil) when is_binary(ip), do: ip

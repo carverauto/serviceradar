@@ -47,6 +47,9 @@ pub struct QueryPlan {
     pub rollup_stats: Option<String>,
     pub other: bool,
     pub include_deleted: bool,
+    /// Maintenance window scans may page past the interactive cursor ceiling.
+    /// Set from the `window_scan:true` query token, which is not a column filter.
+    pub exhaustive_window: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]

@@ -1199,9 +1199,12 @@ fn devices_grouped_stats_apply_the_documented_limits() {
     assert!(sql.contains("LIMIT 20"), "unexpected default limit: {sql}");
 
     let plan = plan_for("in:devices stats:count() as total by type limit:101");
-    assert_eq!(plan.limit, 100, "grouped stats cap explicit limits at 100");
+    assert_eq!(plan.limit, 101, "grouped stats honor an explicit limit");
     let (sql, _params) = devices::to_sql_and_params(&plan).expect("should build grouped stats SQL");
-    assert!(sql.contains("LIMIT 100"), "unexpected capped limit: {sql}");
+    assert!(
+        sql.contains("LIMIT 101"),
+        "explicit limit was reduced: {sql}"
+    );
 
     let plan = plan_for("in:devices stats:count() as by");
     assert_eq!(
