@@ -1,13 +1,13 @@
 ## ADDED Requirements
 
 ### Requirement: Interface Config Check Configuration
-The `opentext-nom` plugin SHALL accept an interface config check configuration, supplied as plugin configuration on a credential rule, that defines the SRQL device target query, the device field holding the switch attachment, the interface block delimiters, optional interface shorthand expansions, and one or more named checks.
-The configuration SHALL be validated when the run starts, and an invalid configuration SHALL fail the run with a safe error code rather than produce verdicts.
+The `opentext-nom` plugin SHALL run interface config checks as its `opentext-nom.interface.check` producer schedule, configured on a credential rule whose plugin configuration defines the SRQL device target query, the device fields to deliver, and a check definition giving the attachment field, the interface block delimiters, optional shorthand expansions, and one or more named checks; the rule's cadence SHALL be the poll interval.
+The configuration SHALL be validated when the run starts, and an invalid configuration SHALL fail the run with a safe error code rather than produce verdicts. Check names SHALL be lowercase identifiers of at most 44 characters.
 
 #### Scenario: Operator defines a NAC check
-- **GIVEN** a credential rule whose plugin configuration sets `target_query` to `in:devices switch_port_attachment.switch_hostname:%`, `attachment_field` to `switch_port_attachment`, and a check named `nac` requiring the line `authentication port-control auto`
-- **WHEN** the rule is saved
-- **THEN** the plugin receives the target devices and the check definition on its next scheduled run
+- **GIVEN** a credential rule whose plugin configuration sets `target_query` to `in:devices switch_port_attachment.switch_hostname:%`, `target_fields` to `switch_port_attachment`, and a check definition with a check named `nac` requiring the line `authentication port-control auto`
+- **WHEN** the schedule runs
+- **THEN** the plugin receives the matched devices with their attachment and evaluates `nac` for each
 
 #### Scenario: Invalid check is rejected
 - **GIVEN** a check with an empty pattern list or an invalid regular expression
@@ -41,8 +41,13 @@ The plugin SHALL retrieve the interface block from Network Automation's stored c
 - **WHEN** the plugin retrieves the block
 - **THEN** it sends `{"command":"show configlet","parameters":{"host":"switch01.example.com","start":"interface GigabitEthernet1/0/7","end":"!"}}`
 
+#### Scenario: Interface has no configuration
+- **GIVEN** NA knows the switch but the interface has no stanza, so it returns an empty block
+- **WHEN** the plugin evaluates the device
+- **THEN** the verdict is `non_compliant` with reason `interface_not_configured` and every required pattern listed as missing
+
 #### Scenario: Switch unknown to NA
-- **GIVEN** NA returns an error or an empty block for the switch or interface
+- **GIVEN** NA rejects the configlet request because it does not know the switch
 - **WHEN** the plugin evaluates the device
 - **THEN** the verdict is `unknown` with reason `configlet_not_found`
 

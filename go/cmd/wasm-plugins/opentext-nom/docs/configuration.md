@@ -237,6 +237,87 @@ On the credential rule, **When sources disagree, this source wins** sets
 operator authority for `switch_port_attachment` and `vlan_uid` for this
 instance.
 
+## Interface config checks
+
+The interface config check answers, for each endpoint: does the switch
+interface it is plugged into carry the configuration we require? A common use
+is network access control: an endpoint is compliant only if its access port has
+the expected 802.1X stanza.
+
+It reads the configuration NA has already stored. For each endpoint it takes
+the switch and port from the endpoint's device record, asks NA for that one
+interface block with `show configlet -host <switch> -start <start> -end <end>`,
+and evaluates your checks against it. It never opens a session to a switch.
+
+### Set it up
+
+Create a credential rule with the **OpenText NOM interface config check**
+provider (Settings -> Networks -> Credential Rules), using the same NA service
+account and `api_url` as inventory. The rule's cadence is how often endpoints
+are checked (default hourly). Then set these advanced fields:
+
+- `target_query`: SRQL selecting the endpoints to check, for example
+  `in:devices switch_port_attachment.switch_hostname:%`.
+- `target_fields`: device fields sent with each endpoint, one per line. It must
+  include the field your check definition reads. Default:
+  `switch_port_attachment`.
+- `config_check`: the check definition, as JSON.
+
+```json
+{
+  "attachment_field": "switch_port_attachment",
+  "block_start": "interface {interface}",
+  "block_end": "!",
+  "checks": [
+    {
+      "name": "nac",
+      "match": "all",
+      "patterns": ["authentication port-control auto", "dot1x pae authenticator"]
+    }
+  ]
+}
+```
+
+| Key | Meaning |
+| --- | --- |
+| `attachment_field` | Device field holding the switch and port: `switch_port_attachment` (default) or `metadata.<key>` such as `metadata.armis_access_switch`. A map with `switch_hostname`/`port`, or a `switch:port` string. |
+| `block_start` | Start of the interface block; `{interface}` is replaced by the interface name. Default `interface {interface}`. |
+| `block_end` | End of the block. Cisco IOS uses `!` (default); ArubaOS-Switch uses `exit`. |
+| `interface_expansions` | Extra or overriding shorthand prefixes, for example `{"mgmt": "Management"}`. |
+| `max_targets` | Endpoints checked per run (default 200, maximum 1000). |
+| `checks` | One or more checks. `name`: lowercase letters, digits and `_`, at most 44 characters. `patterns`: required text. `match`: `all` (default) or `any`. `regex`: treat patterns as regular expressions. `case_sensitive`: default false. |
+
+Shorthand ports are expanded before asking NA: `gi` GigabitEthernet, `te`
+TenGigabitEthernet, `fa` FastEthernet, `tw` TwoGigabitEthernet, `fi`
+FiveGigabitEthernet, `twe` TwentyFiveGigE, `fo` FortyGigabitEthernet, `hu`
+HundredGigE, `eth` Ethernet, `po` Port-channel. A port with no letter prefix
+(ArubaOS-Switch `1/1/20` or `1`) is used as-is.
+
+The switch name must be the host name NA knows the switch by. If a source
+reports a different form (short name versus FQDN), point `attachment_field` at
+a source whose names match NA.
+
+### Results
+
+Each check is recorded on the endpoint's device metadata:
+
+- `config_check_<name>`: `compliant`, `non_compliant` or `unknown`.
+- `config_check_<name>_detail`: `checked_at`, `switch`, `interface`, `reason`,
+  and `missing` (the required patterns that were not found).
+
+| Status | Reason | Meaning |
+| --- | --- | --- |
+| `compliant` | | The block satisfies the check. |
+| `non_compliant` | | Required patterns are missing; see `missing`. |
+| `non_compliant` | `interface_not_configured` | NA has no stanza for the interface. |
+| `unknown` | `attachment_missing` | The endpoint has no usable switch/port. |
+| `unknown` | `configlet_not_found` | NA does not know the switch. |
+| `unknown` | `configlet_request_failed` | NA timed out or failed. |
+
+Find non-compliant endpoints with
+`in:devices metadata.config_check_nac:non_compliant`. The configuration text
+itself is never stored in results.
+
 ## Pre-production validation
 
 Before enabling the daily schedule:

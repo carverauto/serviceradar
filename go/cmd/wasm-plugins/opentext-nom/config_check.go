@@ -33,7 +33,9 @@ const (
 	checkStatusUnknown      = "unknown"
 )
 
-var checkNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,62}$`)
+// checkNamePattern keeps a check's metadata key ("config_check_" + name) within
+// SRQL's 64-character metadata key limit, so its status stays queryable.
+var checkNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_]{0,43}$`)
 
 // defaultInterfaceExpansions maps shorthand interface prefixes to the full
 // names NA stores configs under. The whole alphabetic prefix of a port is

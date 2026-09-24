@@ -9,101 +9,111 @@ import (
 	"github.com/carverauto/serviceradar-sdk-go/v2/sdk"
 )
 
-// configCheckKey is the template section holding the interface check
-// definition. The rest of the template is the normal NA connection config.
-const configCheckKey = "config_check"
+// The interface config check runs as its own producer schedule. Its operator
+// configuration (NA connection settings plus the keys below) arrives as the
+// schedule params, merged into the plugin config like any action's
+// input_values; the target devices arrive as action_invocation.target_items,
+// resolved by core from the configured SRQL query.
+const (
+	interfaceCheckActionID = "opentext-nom.interface.check"
+	configCheckKey         = "config_check"
+	targetQueryKey         = "target_query"
+	targetFieldsKey        = "target_fields"
+)
+
+// checkOnlyConfigKeys are plugin-config keys that belong to the interface
+// check. Both profiles share one config schema, so the inventory and retrieve
+// paths drop them before their strict parse.
+var checkOnlyConfigKeys = []string{configCheckKey, targetQueryKey, targetFieldsKey}
 
 type configCheckRun struct {
-	config   Config
-	checks   interfaceCheckConfig
-	policyID string
-	items    []map[string]any
+	checks interfaceCheckConfig
+	items  []map[string]any
 }
 
-func isPluginInputsPayload(raw map[string]json.RawMessage) bool {
-	var schema string
-	if value, ok := raw["schema"]; ok && json.Unmarshal(value, &schema) == nil {
-		return strings.TrimSpace(schema) == sdk.PluginInputsSchemaV1
-	}
-	return false
-}
-
-// parseConfigCheckRun reads a plugin_inputs.v1 payload: connection settings
-// and the check definition from its template, targets from its inputs.
+// parseConfigCheckRun reads the check definition from the merged plugin config
+// and the target devices from the action invocation.
 func parseConfigCheckRun(raw map[string]json.RawMessage) (configCheckRun, error) {
-	encoded, err := json.Marshal(raw)
-	if err != nil {
-		return configCheckRun{}, runError("opentext_nom_check_inputs_invalid")
-	}
-	payload, err := sdk.ParsePluginInputsJSON(encoded)
-	if err != nil {
-		return configCheckRun{}, runError("opentext_nom_check_inputs_invalid")
-	}
-	cfg, checks, err := splitCheckTemplate(payload.Template)
+	checks, err := parseCheckDefinition(raw)
 	if err != nil {
 		return configCheckRun{}, err
 	}
-	run := configCheckRun{config: cfg, checks: checks, policyID: payload.PolicyID}
-	for _, item := range payload.FlattenItems() {
-		if strings.EqualFold(item.Entity, "devices") {
-			run.items = append(run.items, item.Item)
-		}
+	items, err := targetItems(raw)
+	if err != nil {
+		return configCheckRun{}, err
 	}
-	return run, nil
+	return configCheckRun{checks: checks, items: items}, nil
 }
 
-func splitCheckTemplate(template map[string]any) (Config, interfaceCheckConfig, error) {
-	if len(template) == 0 {
-		return Config{}, interfaceCheckConfig{}, runError("opentext_nom_check_config_invalid")
+// parseCheckDefinition accepts the definition as a JSON object or as a JSON
+// string holding one (the config form stores it as text).
+func parseCheckDefinition(raw map[string]json.RawMessage) (interfaceCheckConfig, error) {
+	value, ok := raw[configCheckKey]
+	if !ok {
+		value = invocationInputValue(raw, configCheckKey)
 	}
-	connection := make(map[string]any, len(template))
-	for key, value := range template {
-		if key != configCheckKey {
-			connection[key] = value
-		}
+	if len(strings.TrimSpace(string(value))) == 0 || string(value) == "null" {
+		return interfaceCheckConfig{}, runError("opentext_nom_check_config_invalid")
 	}
-	checkJSON, err := json.Marshal(template[configCheckKey])
-	if err != nil || template[configCheckKey] == nil {
-		return Config{}, interfaceCheckConfig{}, runError("opentext_nom_check_config_invalid")
+	var text string
+	if json.Unmarshal(value, &text) == nil {
+		value = json.RawMessage(text)
 	}
-	checks, err := parseInterfaceCheckConfig(checkJSON)
+	checks, err := parseInterfaceCheckConfig(value)
 	if err != nil {
-		return Config{}, interfaceCheckConfig{}, runError("opentext_nom_check_config_invalid")
+		return interfaceCheckConfig{}, runError("opentext_nom_check_config_invalid")
 	}
-	connectionJSON, err := json.Marshal(connection)
-	if err != nil {
-		return Config{}, interfaceCheckConfig{}, runError("opentext_nom_check_config_invalid")
-	}
-	cfg, err := ParseConfig(connectionJSON)
-	if err != nil {
-		return Config{}, interfaceCheckConfig{}, runError(configErrorCode(err))
-	}
-	return cfg, checks, nil
+	return checks, nil
 }
 
-func runConfigCheck(run configCheckRun) error {
-	verdicts, err := NewCollector(SDKHTTPDoer{}).runInterfaceChecks(context.Background(), run.config, run.checks, run.items)
+func invocationInputValue(raw map[string]json.RawMessage, key string) json.RawMessage {
+	var invocation struct {
+		InputValues map[string]json.RawMessage `json:"input_values"`
+	}
+	if json.Unmarshal(raw["action_invocation"], &invocation) != nil {
+		return nil
+	}
+	return invocation.InputValues[key]
+}
+
+func targetItems(raw map[string]json.RawMessage) ([]map[string]any, error) {
+	var invocation struct {
+		TargetItems *struct {
+			Entity string           `json:"entity"`
+			Items  []map[string]any `json:"items"`
+		} `json:"target_items"`
+	}
+	if json.Unmarshal(raw["action_invocation"], &invocation) != nil || invocation.TargetItems == nil {
+		return nil, runError("opentext_nom_check_targets_missing")
+	}
+	if entity := strings.TrimSpace(invocation.TargetItems.Entity); entity != "" && entity != "devices" {
+		return nil, runError("opentext_nom_check_targets_invalid")
+	}
+	return invocation.TargetItems.Items, nil
+}
+
+func runConfigCheck(cfg Config, run configCheckRun) error {
+	verdicts, err := NewCollector(SDKHTTPDoer{}).runInterfaceChecks(context.Background(), cfg, run.checks, run.items)
 	if err != nil {
 		return submitPluginError(err)
 	}
-	result, err := buildConfigCheckResult(run.policyID, verdicts, run.config.MaxResultBytes)
+	result, err := buildConfigCheckResult(verdicts, cfg.MaxResultBytes)
 	if err != nil {
 		return submitPluginError(err)
 	}
 	return sdk.Execute(func() (*sdk.Result, error) { return result, nil })
 }
 
-func buildConfigCheckResult(policyID string, verdicts []checkVerdict, maxResultBytes int) (*sdk.Result, error) {
+func buildConfigCheckResult(verdicts []checkVerdict, maxResultBytes int) (*sdk.Result, error) {
 	counts := map[string]int{}
 	for _, verdict := range verdicts {
 		counts[verdict.Status]++
 	}
 	details, err := json.Marshal(map[string]any{
-		"schema":    configCheckResultSchema,
-		"source":    "opentext-nom",
-		"policy_id": policyID,
-		"counts":    counts,
-		"verdicts":  verdicts,
+		"schema":   configCheckResultSchema,
+		"source":   "opentext-nom",
+		"counts":   counts,
+		"verdicts": verdicts,
 	})
 	if err != nil {
 		return nil, runError("opentext_nom_result_invalid")

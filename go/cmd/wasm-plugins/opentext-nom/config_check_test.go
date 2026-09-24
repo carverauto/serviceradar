@@ -114,6 +114,7 @@ func TestParseInterfaceCheckConfigRejectsInvalid(t *testing.T) {
 	for name, raw := range map[string]string{
 		"no checks":         `{"checks":[]}`,
 		"bad name":          `{"checks":[{"name":"NAC Check","patterns":["x"]}]}`,
+		"name too long":     `{"checks":[{"name":"` + strings.Repeat("a", 45) + `","patterns":["x"]}]}`,
 		"empty pattern":     `{"checks":[{"name":"nac","patterns":[" "]}]}`,
 		"bad regex":         `{"checks":[{"name":"nac","regex":true,"patterns":["("]}]}`,
 		"bad match":         `{"checks":[{"name":"nac","match":"most","patterns":["x"]}]}`,
@@ -203,7 +204,7 @@ func TestRunInterfaceChecksAbortsOnAuthFailure(t *testing.T) {
 }
 
 func TestConfigCheckResultCarriesVerdictsNotConfig(t *testing.T) {
-	result, err := buildConfigCheckResult("policy-1", []checkVerdict{{
+	result, err := buildConfigCheckResult([]checkVerdict{{
 		DeviceUID: "sr:00000000-0000-4000-8000-000000000001", Check: "nac", Status: checkStatusNonCompliant,
 		Switch: "switch01.example.com", Interface: "1", Missing: []string{"aaa port-access authenticator 1"},
 	}}, 1<<20)
@@ -214,11 +215,69 @@ func TestConfigCheckResultCarriesVerdictsNotConfig(t *testing.T) {
 	if err := json.Unmarshal([]byte(result.Details), &details); err != nil {
 		t.Fatal(err)
 	}
-	if details["schema"] != configCheckResultSchema || details["policy_id"] != "policy-1" {
+	if details["schema"] != configCheckResultSchema {
 		t.Fatalf("details = %#v", details)
 	}
 	if !strings.Contains(result.Summary, "1 non-compliant") {
 		t.Fatalf("summary = %q", result.Summary)
+	}
+}
+
+func rawConfig(t *testing.T, doc string) map[string]json.RawMessage {
+	t.Helper()
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(doc), &raw); err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+func TestParseConfigCheckRunFromScheduleRun(t *testing.T) {
+	const items = `"target_items":{"entity":"devices","items":[{"uid":"sr:00000000-0000-4000-8000-000000000001","fields":{"switch_port_attachment":{"switch_hostname":"switch01.example.com","port":"1"}}}]}`
+	for name, doc := range map[string]string{
+		// The config form stores the definition as JSON text.
+		"string definition": `{"config_check":"{\"block_end\":\"exit\",\"checks\":[{\"name\":\"desc\",\"patterns\":[\"name \\\"x\\\"\"]}]}",
+			"action_invocation":{"action_id":"opentext-nom.interface.check",` + items + `}}`,
+		"object in input_values": `{"action_invocation":{"action_id":"opentext-nom.interface.check",
+			"input_values":{"config_check":{"block_end":"exit","checks":[{"name":"desc","patterns":["name"]}]}},` + items + `}}`,
+	} {
+		run, err := parseConfigCheckRun(rawConfig(t, doc))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if run.checks.BlockEnd != "exit" || len(run.checks.Checks) != 1 || len(run.items) != 1 {
+			t.Fatalf("%s: run = %#v", name, run)
+		}
+	}
+}
+
+func TestParseConfigCheckRunRejectsMissingParts(t *testing.T) {
+	for name, doc := range map[string]string{
+		"no definition":  `{"action_invocation":{"target_items":{"items":[]}}}`,
+		"bad definition": `{"config_check":"{not json","action_invocation":{"target_items":{"items":[]}}}`,
+		"no targets":     `{"config_check":{"checks":[{"name":"desc","patterns":["x"]}]},"action_invocation":{}}`,
+		"wrong entity":   `{"config_check":{"checks":[{"name":"desc","patterns":["x"]}]},"action_invocation":{"target_items":{"entity":"interfaces","items":[]}}}`,
+	} {
+		if _, err := parseConfigCheckRun(rawConfig(t, doc)); err == nil {
+			t.Errorf("%s: expected an error", name)
+		}
+	}
+}
+
+func TestInventoryConfigIgnoresCheckOnlyKeys(t *testing.T) {
+	raw := rawConfig(t, `{
+		"instance_id":"na-lab",
+		"api_url":"https://na.example.com/nom/api/automation/v1/wrapper",
+		"config_check":"{}",
+		"target_query":"in:devices",
+		"target_fields":["switch_port_attachment"]
+	}`)
+	payload, err := runtimeConfigPayload(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ParseConfig(payload); err != nil {
+		t.Fatalf("inventory config with check-only keys: %v", err)
 	}
 }
 

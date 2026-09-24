@@ -18,27 +18,28 @@ the endpoint.
   with `show configlet -host <switch> -start <block start> -end <block end>`,
   and evaluates operator-defined checks (required patterns, all/any) against
   the returned block. It never opens a device session.
-- Checks, the SRQL target query, the attachment field, the interface block
-  delimiters, shorthand expansions and the poll interval are all plugin
-  configuration (JSON on the credential rule), so no bespoke UI is needed.
-- Record each result on the endpoint as device metadata
-  `config_check.<check>` = `{status, checked_at, switch, interface, missing}`
-  through the atomic, merge-only `merge_metadata` path. Results never create
-  devices. The value is queryable with SRQL.
-- Target-policy input definitions gain an optional `fields` list so a plugin
-  can receive operator-selected device fields (for example
-  `switch_port_attachment` or `metadata.armis_access_switch`) that the fixed
-  item allow-list drops today.
-- Target-policy rules expose the poll interval as an operator control.
-- **BREAKING (internal invariant):** an agent MAY hold more than one enabled
-  assignment for the same plugin when they come from different provisioning
-  sources (an inventory producer schedule and a target policy, or several
-  target-policy chunks). Uniqueness moves from (partition, agent, plugin) to
-  (partition, agent, plugin, provisioning source key). The agent already keys
-  plugins by assignment ID.
-- `opentext-nom` gains a second credential profile (a distinct provider) whose
-  provisioning mode is `target_policy`, alongside the existing inventory
-  profile.
+- The check runs as a second `opentext-nom` producer schedule
+  (`opentext-nom.interface.check`) provisioned by its own credential profile.
+  It reuses the NA OAuth grant, the cadence control and the plugin
+  configuration form that inventory already uses.
+- Checks, the SRQL target query, the delivered device fields, the attachment
+  field, the interface block delimiters and shorthand expansions are plugin
+  configuration on the credential rule; the poll interval is the rule's
+  cadence. No bespoke UI is needed.
+- Producer schedules gain an optional `target_input` contract: the dispatcher
+  resolves the SRQL device query held in the schedule params and delivers the
+  rows, with operator-selected fields projected (for example
+  `switch_port_attachment` or `metadata.armis_access_switch`), as
+  `target_items` on the run.
+- Record each result on the endpoint as device metadata through the atomic,
+  merge-only `merge_metadata` path: a scalar `config_check_<check>` status
+  (queryable with SRQL) and a `config_check_<check>_detail` map. Results never
+  create devices.
+- **Internal invariant change:** enabled assignments owned by different
+  credential rules MAY coexist for the same plugin on one agent (the inventory
+  rule and the check rule). Manual assignments and other policies keep the
+  one-enabled-assignment rule, and reconciliation never adopts another rule's
+  assignment.
 
 ## Impact
 
@@ -46,14 +47,15 @@ the endpoint.
   `device-inventory`.
 - Affected code:
   - `go/cmd/wasm-plugins/opentext-nom` (config check mode, shorthand
-    expansion, plugin_inputs parsing, result contract, manifest profile)
-  - `elixir/serviceradar_core/lib/serviceradar/plugins/`
-    (`validations/no_duplicate_enabled_assignment.ex`,
-    `policy_assignment_reconciler.ex`, `plugin_input_payload_builder.ex`,
-    `srql_input_resolver.ex`, `integration_descriptor.ex`)
-  - `elixir/serviceradar_core/lib/serviceradar/credentials/`
-    (`plugin_assignment_materializer.ex` interval and input fields)
+    expansion, schedule target items, result contract, second producer
+    schedule and credential profile, config schema)
+  - `elixir/serviceradar_core/lib/serviceradar/plugins/` (`assignment_owner.ex`,
+    `validations/no_duplicate_enabled_assignment.ex`,
+    `policy_assignment_reconciler.ex`, `manifest.ex`,
+    `producer_schedule_dispatcher.ex`, `plugin_input_payload_builder.ex`,
+    `srql_input_resolver.ex`)
   - a new result handler under `elixir/serviceradar_core/lib/serviceradar/network_config/`
     registered in `observability/plugin_result_ingestor.ex`
+  - `elixir/web-ng` plugin config form: a textarea control for string fields
 - Operators must enable the NA HTTP-JSON wrapper (already required by
   `opentext-nom`).

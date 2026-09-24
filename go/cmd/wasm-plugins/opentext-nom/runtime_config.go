@@ -80,6 +80,9 @@ func runtimeConfigPayload(raw map[string]json.RawMessage) ([]byte, error) {
 	delete(raw, "action_invocation")
 	delete(raw, "plugin_config")
 	delete(raw, "plugin_config_base64")
+	for _, key := range checkOnlyConfigKeys {
+		delete(raw, key)
+	}
 
 	return json.Marshal(raw)
 }

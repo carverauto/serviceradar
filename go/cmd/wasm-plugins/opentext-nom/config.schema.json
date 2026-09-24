@@ -22,6 +22,27 @@
       "description": "ServiceRadar device UID the retrieved config is recorded against. Only used by the config retrieve action.",
       "x-serviceradar-ui-advanced": true
     },
+    "target_query": {
+      "type": "string",
+      "title": "Interface check: target devices (SRQL)",
+      "description": "Interface config check only. SRQL device query selecting the endpoints to check, for example in:devices switch_port_attachment.switch_hostname:%. Ignored by inventory.",
+      "x-serviceradar-ui-advanced": true
+    },
+    "target_fields": {
+      "type": "array",
+      "items": {"type": "string"},
+      "default": ["switch_port_attachment"],
+      "title": "Interface check: device fields to deliver",
+      "description": "Interface config check only. Device fields sent with each target, one per line: a top-level device column or metadata.<key>. Must include the attachment_field of the check definition.",
+      "x-serviceradar-ui-advanced": true
+    },
+    "config_check": {
+      "type": "string",
+      "title": "Interface check: definition (JSON)",
+      "description": "Interface config check only. A JSON object with attachment_field, block_start (default: interface {interface}), block_end (default: !, ArubaOS-Switch uses exit), interface_expansions, max_targets, and checks (each with name, patterns, match all or any, regex, case_sensitive). See docs/configuration.md.",
+      "x-serviceradar-ui-control": "textarea",
+      "x-serviceradar-ui-advanced": true
+    },
     "instance_id": {
       "type": "string",
       "title": "OpenText NOM instance ID",

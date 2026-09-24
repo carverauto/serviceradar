@@ -1,47 +1,49 @@
-## 1. Core: assignments and target policies
+## 1. Core: assignment ownership
 
-- [ ] 1.1 Key `NoDuplicateEnabledAssignment` by (partition, agent, plugin,
-      provisioning source key); fixed key for manual/producer-schedule rows,
-      policy assignment key for target-policy rows. Tests for coexistence and
-      same-source rejection.
-- [ ] 1.2 Restrict the policy reconciler's adopt path to rows with the same
-      source key. Tests for adopt vs create.
-- [ ] 1.3 Add `fields` to target-policy input definitions: validate path forms
-      in `SRQLInputResolver` and the materializer's input definitions, carry
-      them through `chunk_input_descriptor`, copy them in
-      `normalize_device_row`. Tests for projection, rejection, size limits.
-- [ ] 1.4 Expose `interval_seconds` as a target-policy rule control (60..86400)
-      and use it when planning. Test.
+- [x] 1.1 `AssignmentOwner`: derive the owner from `policy_id`; different
+      credential rules may coexist, manual rows and other policies keep the
+      single-assignment rule. Used by `NoDuplicateEnabledAssignment`.
+- [x] 1.2 Policy reconciler adopts only an assignment of the same owner.
+- [x] 1.3 Tests: ownership rules, drift adoption preserved, no cross-rule
+      adoption.
 
-## 2. Core: result handler
+## 2. Core: schedule target items
 
-- [ ] 2.1 Add `NetworkConfig.InterfaceCheckIngestor` for
-      `serviceradar.interface_config_check.v1`: per device UID, atomic
-      `merge_metadata` of `config_check.<check>`; skip and count unknown UIDs;
-      never create devices. Register it in `platform_contract_handlers`.
-- [ ] 2.2 Tests (database-free where possible; DB-backed merge test with the
-      right INTEGRATION_SOURCE_DISPOSITIONS row).
+- [x] 2.1 Manifest: producer schedule `target_input` (entity, query_param,
+      fields_param, max_items), validated and carried into the contract.
+- [x] 2.2 `SRQLInputResolver`: validated projected `fields` (device column or
+      `metadata.<key>`, never whole `metadata`); `PluginInputPayloadBuilder`
+      copies them under `fields`.
+- [x] 2.3 `ProducerScheduleDispatcher.resolve_target_items/2`: resolve the
+      configured query once per dispatch and add `target_items` to each run.
+- [x] 2.4 Tests for manifest validation, field projection and target items.
 
-## 3. Plugin: opentext-nom config check mode
+## 3. Core: result handler
 
-- [ ] 3.1 Parse check configuration from the `plugin_inputs.v1` template;
-      branch on the payload schema before `ParseConfig`.
-- [ ] 3.2 Attachment resolution (map or `switch:port`) and shorthand expansion
-      table with operator overrides.
-- [ ] 3.3 `show configlet -host -start -end` via the wrapper; reuse the
-      command client and result-envelope decoding.
-- [ ] 3.4 Declarative check evaluation (literal/regex, all/any, case) and the
-      `serviceradar.interface_config_check.v1` result; no config text in the
-      result.
-- [ ] 3.5 Manifest: second credential profile (`opentext-nom-config-check`,
-      `target_policy`), config schema for checks, version bump.
-- [ ] 3.6 Unit tests plus a native local-host test; live test against NA with a
-      test interface description.
+- [x] 3.1 `NetworkConfig.InterfaceCheckIngestor` for
+      `serviceradar.interface_config_check.v1`: `config_check_<check>` status
+      and `_detail` via atomic `merge_metadata`; unknown UIDs skipped; only
+      `config_check_*` keys written. Registered in `platform_contract_handlers`.
+- [x] 3.2 Database-free tests with an injected device store.
 
-## 4. Docs and validation
+## 4. Plugin: opentext-nom interface check
 
-- [ ] 4.1 Plugin README and `docs/configuration.md`: check configuration,
-      examples for NAC and a description-presence test, shorthand table,
-      delimiters per vendor.
-- [ ] 4.2 `openspec validate add-interface-config-compliance-checks --strict`.
-- [ ] 4.3 `make test` scope for touched packages; gate through no-mistakes.
+- [x] 4.1 Check definition, attachment resolution, shorthand expansion,
+      `show configlet -host -start -end`, declarative evaluation, verdict
+      reasons, per-run memoization, auth failures abort the run.
+- [x] 4.2 Producer schedule run path (`opentext-nom.interface.check`,
+      `target_items`); inventory and retrieve ignore check-only config keys.
+- [x] 4.3 Manifest: second producer schedule with `target_input` and a second
+      credential profile (`opentext-nom-config-check`); config schema entries;
+      version bump.
+- [x] 4.4 Unit tests; live verification against NA with an ArubaOS-Switch and a
+      Cisco IOS switch.
+
+## 5. UI, docs and validation
+
+- [x] 5.1 Plugin config form: `x-serviceradar-ui-control: textarea` for string
+      fields, with a test.
+- [x] 5.2 Plugin README and `docs/configuration.md`: configuration, examples,
+      delimiters per vendor, shorthand table, querying results.
+- [x] 5.3 `openspec validate add-interface-config-compliance-checks --strict`.
+- [ ] 5.4 Gate through no-mistakes (review, test, CI).
