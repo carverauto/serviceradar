@@ -98,7 +98,7 @@ no-mistakes gate, in order. All fixtures are synthetic
 - [x] 3.2 Per-hop reply counters (`reply_time_exceeded`, `reply_unreachable`,
   `reply_synack`, `reply_rst`) for all protocols; add them to `HopSnapshot`.
 - [x] 3.3 Agent: advertise the `mtr_tcp_syn` capability on Linux builds with a
-  raw socket (probed at startup by opening one); parse `tcp_syn_retries`
+  raw socket (probed each time capabilities are computed, by opening one); parse `tcp_syn_retries`
   (0..3) in check settings, `mtr.run` and bulk payloads.
 - [ ] 3.4 Migration: nullable columns.
   - `mtr_traces`: the D5 trace-level fields.
