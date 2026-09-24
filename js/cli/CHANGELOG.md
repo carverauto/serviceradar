@@ -1,5 +1,19 @@
 # `@carverauto/serviceradar-cli` Changelog
 
+## 0.1.9
+
+- `dashboard list --instance <url>`: new subcommand. Lists all dashboard packages
+  installed on an instance — manifest id, version, enabled state, and route slug.
+  Requires `dashboards.packages.view_all` on the instance; does NOT require a
+  publish-scoped token.
+- `dashboard status --instance <url>`: new subcommand. Reads the current project's
+  `dashboard.config.mjs` for its manifest id and declared version, queries the
+  instance for that package, and reports whether the versions match. A not-installed
+  result is reported as information, not an error.
+- `doctor --instance <url>`: when `--instance` is provided and the project has a
+  declared manifest id, `doctor` now shows the version installed on that instance
+  alongside the local declared version.
+
 ## 0.1.8
 
 - `dashboard publish` reports the manifest id the author wrote. The instance

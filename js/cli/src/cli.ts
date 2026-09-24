@@ -92,6 +92,8 @@ Common dashboard subcommands:
   serviceradar-cli dashboard dev [--config dashboard.config.mjs] [--port 4177] [--no-hmr] [--no-build] [--open] [--mapbox-token pk.…]
   serviceradar-cli dashboard publish --instance <url> [--route <slug>] [--token <bearer>] [--enable] [--yes]
   serviceradar-cli dashboard import [--config dashboard.config.mjs] [--exec "command"]
+  serviceradar-cli dashboard list   --instance <url> [--token <bearer>]
+  serviceradar-cli dashboard status --instance <url> [--config dashboard.config.mjs] [--token <bearer>]
 
 Notification subcommands:
   serviceradar-cli notifications ensure-k8s-alerts --instance <url> [--channel demo-discord] [--token <bearer>] [--fire-test | --clear-test]
@@ -128,6 +130,12 @@ Commands:
             harness, --open to open the browser, --mapbox-token to override the
             sample-settings token.
   import    Verify manifest/artifact and optionally run a local import command.
+  list      List dashboard packages installed on an instance. Prints manifest id,
+            version, enabled state, and route per package. Requires
+            dashboards.packages.view_all permission (not the publish scope).
+  status    Compare the local project's declared version against what is installed
+            on a given instance. Reports match/mismatch; a not-installed result
+            is information, not an error.
 
 Plugin commands:
   init      Scaffold a Wasm plugin project. Templates: go (default, builds with
