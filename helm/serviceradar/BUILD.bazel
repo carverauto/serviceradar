@@ -11,6 +11,7 @@ package(default_visibility = ["//visibility:public"])
 # that has nothing to do with it. values-demo.yaml appears in no rule and does not resolve at all
 # without this.
 exports_files([
+    "Chart.yaml",
     "values.yaml",
     "values-demo.yaml",
 ])
@@ -151,26 +152,34 @@ alias(
     }),
 )
 
-py_test(
-    name = "helm_unittest_suite_test",
-    srcs = ["helm_unittest_suite_test.py"],
-    # EVERY chart file the renderer can reach, not a named subset. The suite renders
-    # whole templates, and a file missing from runfiles surfaces as a template error
-    # rather than as the missing input it is.
-    data = [
+# EVERY chart file the renderer can reach, not a named subset. Rendering a template needs
+# whole templates, and a file missing from runfiles surfaces as a template error rather
+# than as the missing input it is. Consumers that render the chart in a test take this
+# plus `helm_unittest_binary`.
+filegroup(
+    name = "chart_files",
+    srcs = [
         "Chart.yaml",
         "values.yaml",
         "values-demo.yaml",
         "values-ha.yaml",
-        ":helm_unittest_binary",
     ] + glob([
         "charts/**",
         "crds/**",
         "dashboards/**",
         "files/**",
         "templates/**",
-        "tests/**",
     ]),
+)
+
+py_test(
+    name = "helm_unittest_suite_test",
+    srcs = ["helm_unittest_suite_test.py"],
+    data = [
+        "Chart.yaml",
+        ":chart_files",
+        ":helm_unittest_binary",
+    ] + glob(["tests/**"]),
     env = {
         "SERVICERADAR_CHART_YAML": "$(rootpath Chart.yaml)",
         "SERVICERADAR_HELM_UNITTEST_BINARY": "$(rootpath :helm_unittest_binary)",
