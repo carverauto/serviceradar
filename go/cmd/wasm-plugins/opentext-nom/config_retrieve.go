@@ -125,6 +125,19 @@ func decodeRunningConfigBody(raw []byte) (string, error) {
 		}
 		return "", runError("opentext_nom_config_invalid")
 	}
+	if strings.HasPrefix(trimmed, "\"") {
+		var text string
+		if err := json.Unmarshal([]byte(trimmed), &text); err != nil {
+			return "", runError("opentext_nom_config_invalid")
+		}
+		if strings.TrimSpace(text) == "" || !utf8.ValidString(text) {
+			return "", runError("opentext_nom_config_invalid")
+		}
+		return text, nil
+	}
+	if strings.HasPrefix(trimmed, "<") || json.Valid([]byte(trimmed)) {
+		return "", runError("opentext_nom_config_invalid")
+	}
 	if !utf8.ValidString(trimmed) {
 		return "", runError("opentext_nom_config_invalid")
 	}
