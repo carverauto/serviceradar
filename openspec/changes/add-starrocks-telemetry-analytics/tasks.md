@@ -65,5 +65,5 @@
   - Unverifiable here: no dataset cutover, no authorized post-rollout browser session. Helm `cutoverDatasets` empty; demo/serviceradar untouched.
 - [ ] 6.6 Cut over one dataset at a time only with approved consumer/coverage gates and verified rollback history; stop on mismatch.
   - Unverifiable here: live cutover not performed. Rollback is Helm `cutoverDatasets: []` (already empty) so `Readers.mode_for/1` stays CNPG.
-- [ ] 6.7 Retire old writers/storage/jobs only under a separate reviewed cleanup with rechecked coverage and restore proof; update operator/user docs and retention guidance.
+- [ ] 6.7 Keep CNPG telemetry writers, storage and jobs as the non-StarRocks backend (exactly one backend active); retire only legacy archive resources (pg_duckdb #488 heads, buckets, checkpoints) under a separate reviewed cleanup with rechecked coverage and restore proof; update operator/user docs and retention guidance.
   - Unverifiable here: EventWriter still inserts CNPG first; no Timescale CAGG/hypertable/writer path was retired.

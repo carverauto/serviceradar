@@ -1,9 +1,9 @@
-# Design: StarRocks as the telemetry system of record
+# Design: StarRocks as the telemetry backend when enabled, CNPG otherwise
 
 ## Context
 
 Where things stand, in a deployment that has moved flows over: flows are read only from the
-warehouse; metrics readers are being moved; logs and events are dual-written and read from CNPG;
+warehouse; metrics readers are gaining warehouse implementations; logs and events are dual-written and read from CNPG;
 nothing else is in the warehouse. All four warehouse tables are partitioned by day with
 per-dataset retention, and the three hourly rollups are day-partitioned async materialized
 views. CNPG still receives every telemetry write: that dual-write is what this revision removes

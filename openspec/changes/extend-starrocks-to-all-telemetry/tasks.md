@@ -86,7 +86,7 @@
   when enabled.
 - [ ] 5.3 A shared "unavailable with StarRocks enabled" result for readers with no warehouse
   implementation, rendered explicitly by each page and card, so no reader queries a frozen CNPG
-  table; a test per reader until it is moved.
+  table; a test per reader until it has a warehouse implementation.
 - [ ] 5.4 Give each reader from 5.1 a warehouse implementation next to its CNPG one, selected by
   `analytics.starrocks.enabled`, highest-traffic first (dashboard cards and sparklines, MTR, logs
   and events pages, OTel, sysmon, BMP, service status), each behind its parity comparison. The
@@ -101,7 +101,7 @@
   load failure is redelivered, not written to CNPG; with StarRocks disabled every dataset still
   writes and reads CNPG.
 - [ ] 5.8 Operator docs and CHANGELOG (BREAKING): enabling StarRocks makes every dataset
-  warehouse-only at once; readers not yet moved show "unavailable"; disabling StarRocks resumes
+  warehouse-only at once; readers without a warehouse implementation show "unavailable"; disabling StarRocks resumes
   CNPG writes without the history written meanwhile; JetStream retention bounds a warehouse
   outage. Update `docs/docs/helm-configuration.md`, `docs/docs/netflow.md` and
   `README-Docker.md`, which describe CNPG as the flow write target.

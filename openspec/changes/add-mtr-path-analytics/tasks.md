@@ -133,7 +133,8 @@ here stores panel content.
 Moving MTR telemetry into StarRocks is **owned by
 `extend-starrocks-to-all-telemetry`** (its task 3.4 "MTR traces and hops", and
 its requirement "All append-only telemetry is warehouse-eligible"). That change
-also owns cutover parity, retention and CNPG retirement. This change does not
+also owns cutover parity and retention; CNPG stays a supported backend and is not
+retired. This change does not
 duplicate any of it and adds no competing requirement. The tasks here make the
 dialect ready so that when MTR lands in the warehouse, the correct aggregates
 already exist there rather than being added under cutover pressure.

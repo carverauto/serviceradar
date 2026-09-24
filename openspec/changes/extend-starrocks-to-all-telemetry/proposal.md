@@ -51,7 +51,7 @@ wait is cancelled by Postgres `statement_timeout`.
   Enabling StarRocks makes every append-only telemetry dataset warehouse-only at once: EventWriter
   stops writing it to CNPG and every reader reads the warehouse. The per-dataset
   `shadowDatasets`/`cutoverDatasets` lists, the dual-write and the soak before retiring writes
-  are removed. A reader that has not been moved yet reports its data as unavailable instead of
+  are removed. A reader that has no warehouse implementation yet reports its data as unavailable instead of
   reading a CNPG table that stopped receiving rows. CNPG stays a complete, supported backend for
   installations without StarRocks: every writer and reader keeps its CNPG implementation, and no
   CNPG telemetry table is dropped.
@@ -81,11 +81,11 @@ wait is cancelled by Postgres `statement_timeout`.
   `log_live`, `device_live/flow_data.ex`; non-UI consumers of telemetry (stateful alert engine,
   log promotion, capacity forecasts, anomaly backfill, topology sparklines); Helm/Compose values
   for dataset lists and retention; operator docs.
-- Moving non-UI consumers (`add-starrocks-telemetry-analytics` task 5.4 and task 5.1 here) is on
+- Giving non-UI consumers a warehouse implementation (`add-starrocks-telemetry-analytics` task 5.4 and task 5.1 here) is on
   the critical path: with writes off everywhere, any consumer still reading a CNPG telemetry
-  table reads frozen data until it is moved.
+  table reads frozen data until it has a warehouse implementation.
 - Supersedes nothing. `add-tiered-telemetry-offload` addresses cold storage for CNPG-resident
   telemetry, which is where it lives on installations without StarRocks.
 - Risk: there is no per-dataset rollback, and disabling StarRocks leaves CNPG without the
-  telemetry written while it was enabled. Readers not yet moved are dark until moved. Both are
+  telemetry written while it was enabled. Readers without a warehouse implementation are dark until they have one. Both are
   accepted product decisions (design Decision 1).
