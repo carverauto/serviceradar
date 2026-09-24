@@ -38,78 +38,86 @@ code path it names, including its defects, and cites the function (for example
 `CommitWork` -> `DeviceWrites` `on_conflict`). Reviewers check the model against the source
 action by action.
 
-### D2. Known defects are switches
+### D2. Intended behavior comes from the goal requirements
 
-`CONSTANT Bugs` is a subset of:
+The first draft judged "intended" behavior from the code and from the legacy DIRE specs. Those
+specs contradict each other, so a model grounded on them would check that DIRE stays broken.
+Intended behavior now comes from `update-dire-strong-identity-goal`: one canonical device
+record per physical device, whatever its address; identity from strong identifiers; an address
+is evidence only. Each model property maps to one of those requirements.
 
-| Switch | Code path | Invariant it violates |
-|---|---|---|
-| `upsert_revives_merged` | `DeviceWrites` `on_conflict` clears the tombstone, no bump | `NoZombieRevival`, `RevivalBumpsRevision` |
-| `gateway_sync_no_bump` | `Device` `:gateway_sync` clears the tombstone, no bump | `RevivalBumpsRevision` |
-| `follow_stale_audit` | `Resolver.do_follow_canonical/3` ignores `deleted_reason` | `NoStaleRedirect` |
-| `sweep_restores_merged` | sweep `restore_eligible?/1` ignores `deleted_reason` | `NoZombieRevival` |
-| `fence_observe_only` | `Fence.pin/2` has no production callers | `NoStaleCommit` |
+### D3. Known defects are switches, confirmed in code
 
-Each action takes its defective branch only when its switch is in `Bugs`. The set grows
-only when TLC produces a counterexample that is then confirmed in the code (see D7).
+`CONSTANT Bugs` in each model names the defective branches. An action takes its defective
+branch only when its switch is on. A switch is added only after a TLC counterexample for it has
+been read against the Elixir code. There are 12 switches: 5 in the resolution model and 7 in
+the lifecycle model. `formal/dire/README.md` lists each one with its code path and witness
+property.
 
-### D3. Three kinds of configuration
+Four kinds of configuration:
 
-- `current.cfg`: `Bugs` = every known switch. Checks the invariants that hold for today's
-  code. `expect = pass`.
-- `witness_<switch>.cfg`: `Bugs = {<switch>}`. `expect = violation:<Invariant>`, naming one
-  invariant. Isolating each switch means fixing one defect flips exactly one witness.
-- `fixed.cfg`: `Bugs = {}`. Every invariant. `expect = pass`. If the intended design itself
-  violates an invariant, a model says so before a fix built on it ships.
+- `goal`: no switches. Every property holds.
+- `witness_<switch>`: one switch, or a named pair when two defects only appear together.
+  TLC must report exactly the named property.
+- `lifecycle_current`: every lifecycle switch on. The invariants that hold even for today's
+  code.
+- `vacuity`: the goal must still merge (a router's interfaces) and converge (Armis with
+  network discovery), and it must still record a decision (a shared-MAC override). A goal
+  model that never merges, or never decides, would pass every safety property.
 
-### D4. The model
+### D4. Two models
 
-Bounds: three device uids, three identifiers, two IPs, a clock of a few ticks (the merge
-cooldown window is one tick), at most four `merge_audit` rows, at most two in-flight work
-items. These are model constants in the `.cfg` files. Merge wars and zombie revivals need
-two or three devices, so small bounds lose nothing that matters here.
+**`DireResolution.tla`: resolution against physical ground truth.**
 
-State:
+- The world: physical devices own interfaces, and each interface has a true MAC (hardware or
+  randomized) and leases an address. DHCP moves addresses between interfaces.
+- Observers report what they would really see: Armis (its id, and MACs when Armis reports
+  them), network discovery (every interface MAC), ARP-style observation (one MAC and its
+  address), and sweep (the address).
+- Resolution follows `Resolver.do_resolve_device_id/2`, the sync ingestor's order (devices,
+  then identifiers, then `Sync.Aliases`), `AliasGuard` and `SourceAuthorityGuard`.
+- A ghost variable, `phys`, records which physical devices built each record. A false merge is
+  therefore the invariant "one record describes two devices".
+- Environments stand for real situations: Armis with and without MACs, Armis mixed with network
+  discovery, a multi-interface router, randomized-MAC phones, and two Armis devices sharing a
+  MAC.
+- Properties:
+  - `NoFalseMerge`
+  - `DistinctSourceIdsNeverMerge`
+  - `EvidenceConverges`: once identifiers are reported together, their owners are one record,
+    unless two hold different source-authoritative ids.
+  - `NoSilentDecision`
+  - `AddressNeverMerges`: no merge is caused by address or IP-alias evidence.
 
-- `status[u]` in {absent, live, tomb, purged}; `tombReason[u]` in {merged, other}
-- `rev[u]`: `identity_revision`
-- `owner[i]`: owning uid or none; a function because of the unique index
-- `audit`: sequence of `[from, to, kind, ids]`, where `ids` is what the code actually stores
-  in `details.identifiers` (both sides' matches for conflict merges; nothing usable for
-  Registrar merges, which store a map)
-- `ipOf[u]`, `alias[ip, u]` in {none, detected, confirmed, stale}
-- `work`: in-flight items `[uid, pinnedRev, target]`
-- `clock`
+**`DireLifecycle.tla`: merge, unmerge, soft delete, revival (upsert, sweep, gateway sync),
+purge, and the fence.**
 
-Actions, each citing its source:
+Two abstractions keep it checkable without losing a property:
 
-- `StartWork(u)` / `CommitWork(w)`: resolve through `follow_canonical`, then later upsert
-  through the `DeviceWrites` `on_conflict`. Splitting resolve from write is what lets TLC
-  interleave a merge between them; it covers BatchResolver's phase ordering and the
-  observe-only fence.
-- `Merge(from, to, reason)`: `MergeEngine.merge_devices/3` with guards in the code's order
-  (manual/unmerge bypass, distinct agent identity, source authority, provisional topology,
-  pair cooldown), then MergePolicy where the calling path applies it. Moves identifiers,
-  appends the audit row, tombstones the source (bump), bumps the survivor.
-- `Unmerge(from)`: `MergeEngine.unmerge_device/2`. Latest non-unmerge audit row; restores the
-  source (bump); moves back identifiers whose `{type, value}` appears in the stored `ids`.
-- `SoftDelete(u)`, `SweepRestore(ip)`, `GatewaySync(u)`, `Purge(u)`: the remaining tombstone
-  writers and revival paths with their real bump behavior. `Purge` models
-  `DeviceCleanupWorker`: the row and its identifiers go; `merge_audit` rows stay.
-- `AliasSighting`, `AliasConfirm`, `AliasInvalidate`, `AliasReactivate`, `AliasMerge`: the
-  `DeviceAliasState` machine and `AliasGuard.maybe_merge_ip_alias_device/3`. Reactivating a
-  stale alias is intended behavior, not a defect.
-- `Tick`: advances the clock so the cooldown can expire.
+- `identity_revision` is not stored. The fence only asks whether a revision moved after a pin,
+  and the bump property only asks whether a revival moved it. So each step records the uids it
+  bumped, and each in-flight item carries a `stale` flag.
+- Time is a `recent` flag on `merge_audit` rows. The cooldown only asks whether a pair merged
+  within the window.
 
-Invariants:
+Properties:
 
-- State: `TypeOK`, `MergedNeverOwnsIdentifiers`, `MergeGraphAcyclic`,
-  `MergedRedirectsSomewhere` (a merged-away uid resolves to a different uid),
-  `NoStaleRedirect` (a device tombstoned for a non-merge reason resolves to itself).
-- Action properties, checked as `[][A => B]_vars`: `NoZombieRevival` (a merged-away device
-  becomes live only through `Unmerge`), `RevivalBumpsRevision`, `NoPurgedResurrection`,
-  `UnmergeRestoresExactly`, `NoStaleCommit` (no commit lands when the pinned revision has
-  changed).
+- `UniqueLiveIp`
+- `MergedNeverOwnsIdentifiers`
+- `MergeGraphAcyclic`
+- `MergedRedirectsSomewhere`
+- `NoStaleRedirect`
+- `NoZombieRevival`
+- `NoPurgedResurrection`
+- `RevivalBumpsRevision`
+- `UnmergeRestoresExactly`
+- `NoStaleCommit`
+
+The alias state machine is not modeled in the lifecycle model. Alias-driven merges are the
+resolution model's subject.
+
+Bounds are per configuration and live in the `.cfg` files. Every configuration finishes within
+a `medium` test on the RBE executors, and the slowest takes about 40 seconds.
 
 ### D5. Assumptions (Lean candidates)
 
@@ -153,12 +161,12 @@ A model the code can drift away from verifies nothing. Trace validation is the c
   when the trace is not a behavior of the model. No JSON module or community-modules jar is
   needed.
 - One witness trace test per switch drives that defect's scenario on the real database and
-  validates against `current.cfg`, plus one ordinary-lifecycle trace. While the defect exists
+  validates against the model with every known switch on, plus one ordinary-lifecycle trace. While the defect exists
   the trace matches. When someone fixes the code, the trace no longer matches the buggy
   model, the trace test fails, and the author turns the switch off, which fails the witness
   config until the invariant is promoted into the must-pass set.
 - A recorder self-test feeds a hand-corrupted trace (a revival without a revision bump under
-  `fixed` rules) and asserts TLC rejects it.
+  goal rules) and asserts TLC rejects it.
 - These are `:integration` tests on the shared srql-fixtures CNPG, run through the existing
   sweep, provision_base, migrate_run, provision lanes, test, teardown lifecycle with
   `TestRunner=local` (RBE executors cannot resolve the fixture host). `:tlc` and the model
@@ -173,7 +181,8 @@ Three pull requests, each on a fresh branch from `origin/staging` after the prev
 merges, each through the `no-mistakes` pipeline:
 
 1. This change, the TLC toolchain, `tlc_test` and its self-test.
-2. `formal/dire/`: the model and its `current`, `witness_*` and `fixed` configurations.
+2. `formal/dire/`: the resolution and lifecycle models with their `goal`, `witness_*`,
+   `current` and `vacuity` configurations.
 3. The trace recorder and witness integration tests.
 
 GitHub issues for confirmed defects are filed after PR 2 lands, each citing its witness
@@ -190,8 +199,7 @@ configuration and counterexample.
   left slow in `make test`.
 - **A JVM enters the build.** TLC runs only on the JVM. The JDK is Bazel-hermetic and
   used only by these test targets.
-- **Unconfirmed candidates.** A code read also suggests: BatchResolver phase 3 merging after
-  the phase 2 canonical map, so a same-batch upsert revives the merged uid; unmerge matching
-  identifiers on `{type, value}` alone, so it can move the survivor's own identifiers; and a
-  purged merged tombstone being re-created as a new device. These are modeled faithfully
-  but become switches only once TLC produces a counterexample that is confirmed in the code.
+- **Model and code can disagree about ordering.** Several witnesses depend on when a guard
+  runs relative to a write, for example `Sync.Aliases` running after identifier registration.
+  Each such dependency is cited in the model and was read from the code; trace validation (PR 3)
+  checks it against real runs.

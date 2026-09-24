@@ -10,7 +10,7 @@ runtime budget is split or reduced, never excluded from `make test`.
 - **THEN** the corresponding `tlc_test` fails and `make test` fails
 
 #### Scenario: The intended design is checked
-- **WHEN** the `fixed` configuration, with no known defect enabled, is model checked
+- **WHEN** a `goal` configuration, with no known defect enabled, is model checked
 - **THEN** every invariant and action property in the model holds
 
 ### Requirement: Known DIRE Defects Have Witness Configurations
