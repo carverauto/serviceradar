@@ -667,7 +667,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
             {import_state.replaceable}
             {if import_state.replaceable == 1, do: "add-on is", else: "add-ons are"} already imported at this version from an earlier release, with a
             different build. Import All replaces them with this release's build
-            (a replaced package goes back to staged and must be approved again);
+            (replacement builds follow your automatic approval settings and may require review);
             use Replace on a row to do it individually.
           </div>
 

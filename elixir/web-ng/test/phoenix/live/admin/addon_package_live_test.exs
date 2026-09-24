@@ -45,7 +45,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
     older_release = "v#{release_major}.0.0"
     newer_release = "v#{release_major}.1.0"
 
-    _older =
+    older =
       create_addon_package!(actor, %{
         addon_id: "latest-only-addon-#{unique}",
         name: "Latest Only Add-on #{unique}",
@@ -89,20 +89,18 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
 
     assert html =~ "Add-on catalog"
     refute html =~ "Available add-ons"
-    assert html =~ newer.id
-    assert html =~ "0.2.0"
-    refute html =~ "0.1.0"
+    assert has_element?(lv, ~s(button[phx-click="view_package"][phx-value-id="#{newer.id}"]))
+    refute has_element?(lv, ~s(button[phx-click="view_package"][phx-value-id="#{older.id}"]))
     refute html =~ "netprobe-0.2.20-demo-#{unique}"
     refute html =~ "Non Release Add-on #{unique}"
     refute html =~ "Rust Sample Add-on #{unique}"
 
-    html =
-      lv
-      |> element("#select-addon-release-form")
-      |> render_change(%{"release_tag" => older_release})
+    lv
+    |> element("#select-addon-release-form")
+    |> render_change(%{"release_tag" => older_release})
 
-    assert html =~ "0.1.0"
-    refute html =~ "0.2.0"
+    assert has_element?(lv, ~s(button[phx-click="view_package"][phx-value-id="#{older.id}"]))
+    refute has_element?(lv, ~s(button[phx-click="view_package"][phx-value-id="#{newer.id}"]))
   end
 
   test "catalog matches an imported bundle reused through a newer release envelope", %{
