@@ -90,6 +90,15 @@ func parseLocalRuntimeConfig(runtimeConfig []byte) (Config, error) {
 	if err := json.Unmarshal(runtimeConfig, &raw); err != nil {
 		return Config{}, err
 	}
+	// A plugin_inputs.v1 payload (interface config checks) carries the
+	// connection config inside its template.
+	if isPluginInputsPayload(raw) {
+		run, err := parseConfigCheckRun(raw)
+		return run.config, err
+	}
+	if err := json.Unmarshal(runtimeConfig, &raw); err != nil {
+		return Config{}, err
+	}
 	payload, err := runtimeConfigPayload(raw)
 	if err != nil {
 		return Config{}, err

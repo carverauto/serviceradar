@@ -7,6 +7,14 @@ import (
 )
 
 func runPlugin() error {
+	if raw := loadRawConfigMap(); isPluginInputsPayload(raw) {
+		run, err := parseConfigCheckRun(raw)
+		if err != nil {
+			return submitPluginError(err)
+		}
+		return runConfigCheck(run)
+	}
+
 	cfg, err := loadRuntimeConfig()
 	if err != nil {
 		return submitPluginError(err)
