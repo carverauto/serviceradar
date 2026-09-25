@@ -41,7 +41,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.BulkStateApplyDbTest do
                socket
              )
 
-    assert socket.assigns.flash["error"] =~ "Failed to update devices"
+    # The rolled-back service leg must not be reported as an updated device.
+    assert socket.assigns.flash["error"] =~ "Updated 0 of 1 device(s)"
     assert socket.assigns.flash["error"] =~ "Unknown managed state"
 
     assert %Device{is_active: true} =
