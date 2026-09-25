@@ -61,6 +61,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   @batch_size 500
   @active_ip_unique_constraint "ocsf_devices_unique_active_ip_idx"
   @banner_grab_audit_failed_event [:serviceradar, :sweep, :banner_grab, :audit_failed]
+  @merged_restore_skipped_event [:serviceradar, :sweep, :restore, :merged_skipped]
   @banner_grab_counter_dropped_event [
     :serviceradar,
     :sweep,
@@ -1536,9 +1537,36 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   end
 
   defp eligible_restore_uids(devices) do
-    devices
+    {merged, others} = Enum.split_with(devices, &merged_away?/1)
+    record_merged_restore_skips(merged)
+
+    others
     |> Enum.filter(&restore_eligible?/1)
     |> Enum.map(& &1.uid)
+  end
+
+  # A device merged into another is never restored by a sweep (#4617). The address lookup
+  # falls back to a tombstone when no live device holds the address, so a sweep that
+  # finds a merged-away device's old address reaches its tombstone; restoring it would
+  # bring back a duplicate of the survivor. The sweep saw an address, which is evidence,
+  # not identity, so it is not credited to the survivor either. Each skip is logged and
+  # counted rather than dropped silently.
+  defp merged_away?(%{deleted_reason: "merged"}), do: true
+  defp merged_away?(_device), do: false
+
+  defp record_merged_restore_skips([]), do: :ok
+
+  defp record_merged_restore_skips(devices) do
+    uids = Enum.map(devices, & &1.uid)
+
+    Logger.info(
+      "SweepResultsIngestor: not restoring #{length(uids)} merged-away device(s) seen by a " <>
+        "sweep: #{Enum.join(uids, ", ")}"
+    )
+
+    :telemetry.execute(@merged_restore_skipped_event, %{count: length(uids)}, %{
+      device_uids: uids
+    })
   end
 
   defp restore_eligible_devices([], _actor), do: :ok

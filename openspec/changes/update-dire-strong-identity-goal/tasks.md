@@ -42,7 +42,7 @@ configuration. Confirmed defects (`formal/dire/README.md` has code paths and wit
       must bump on any revival.
 - [x] 3.7 `gateway_sync_no_bump`: gateway sync must restore through `:restore` or not at all.
 - [x] 3.8 `follow_stale_audit`: follow a merge row only for `deleted_reason = "merged"`.
-- [ ] 3.9 `sweep_restores_merged`: sweep restore must skip merged tombstones.
+- [x] 3.9 `sweep_restores_merged`: sweep restore must skip merged tombstones.
 - [ ] 3.10 `fence_observe_only`: enforce the fence (`add-device-identity-fence` task 4.5).
 - [x] 3.11 `unmerge_restores_matches`: record the source's identifiers at merge time and restore
       exactly those.

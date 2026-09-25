@@ -72,7 +72,9 @@ defmodule ServiceRadar.Inventory.DireLifecycleTraceTest do
     |> Trace.assert_golden!()
   end
 
-  # #4617: a sweep that finds a merged-away device's old address restores it.
+  # #4617 (fixed): a sweep that finds a merged-away device's old address leaves it deleted.
+  # The sweep changes no modeled state, so the trace ends at the merge; a regression that
+  # restores the device again would log a SweepRestore step and fail the golden comparison.
   test "sweep_restores_merged", %{actor: actor} do
     "sweep_restores_merged"
     |> Trace.start(world(["d1", "d2"], %{"i1" => :src, "i2" => :mac}, ["p1", "p2"]), actor)
@@ -80,7 +82,7 @@ defmodule ServiceRadar.Inventory.DireLifecycleTraceTest do
     |> Trace.census("i2", "p2")
     |> Trace.merge("d1", "d2", :auto)
     |> Trace.sweep("p1")
-    |> Trace.assert_golden!(demonstrates: "sweep_restores_merged")
+    |> Trace.assert_golden!()
   end
 
   # #4615 (fixed): an agent check-in restores its soft-deleted device, and the restore bumps
