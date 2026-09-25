@@ -29,7 +29,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkTags do
        |> put_flash(:error, "Enter at least one tag to apply")}
     else
       case apply_tags_to_devices(scope, socket, tags) do
-        {:ok, count} ->
+        {:ok, %{failed: 0, applied: count}} ->
           {:noreply,
            socket
            |> assign(:show_bulk_edit_modal, false)
@@ -38,16 +38,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkTags do
            |> assign(:bulk_state_form, Helpers.bulk_state_form())
            |> assign(:bulk_target_scope, "selected")
            |> assign(:bulk_target_matching_count, nil)
+           |> assign(:bulk_stop_on_error, false)
            |> assign(:selected_devices, MapSet.new())
            |> assign(:select_all_matching, false)
            |> assign(:total_matching_count, nil)
            |> put_flash(:info, "Applied tags to #{count} device(s)")}
 
-        {:error, reason} ->
+        other ->
           {:noreply,
            socket
            |> assign(:bulk_edit_form, to_form(params, as: :bulk))
-           |> put_flash(:error, "Failed to apply tags: #{Helpers.format_transaction_error(reason)}")}
+           |> put_flash(:error, Helpers.batch_failure_message(other))}
       end
     end
   end
@@ -61,13 +62,27 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkTags do
 
       :ok ->
         case Selection.selected_uids_for_scope(socket, target_scope) do
-          [] -> {:error, "No devices selected"}
-          uids -> update_tags_for_uids(scope, uids, tags)
+          {:ok, []} ->
+            {:error, "No devices selected"}
+
+          {:ok, uids} ->
+            update_tags_for_uids(scope, uids, tags, Helpers.assigns_on_error_mode(socket.assigns))
+
+          {:error, reason} ->
+            {:error, reason}
         end
     end
   end
 
-  defp update_tags_for_uids(scope, uids, new_tags) do
+  defp update_tags_for_uids(scope, uids, new_tags, on_error) do
+    Helpers.each_uid_batch(
+      uids,
+      fn batch -> update_tag_batch(scope, batch, new_tags) end,
+      on_error: on_error
+    )
+  end
+
+  defp update_tag_batch(scope, uids, new_tags) do
     resources = [Device]
 
     resources
@@ -100,7 +115,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkTags do
       |> Ash.Query.filter(uid in ^uids)
       |> Ash.Query.lock(:for_update)
 
-    case Ash.read(query, scope: scope) do
+    case Ash.read(query, scope: scope, page: [limit: max(length(uids), 1)]) do
       {:ok, devices} -> {:ok, ash_page_results(devices)}
       {:error, error} -> {:error, error}
     end

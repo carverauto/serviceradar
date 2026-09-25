@@ -81,7 +81,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:bulk_scope_form, Helpers.bulk_scope_form())
      |> assign(:bulk_target_scope, "selected")
      |> assign(:bulk_target_matching_count, nil)
-     |> assign(:availability_source_form, to_form(%{"agent_id" => ""}, as: :availability_source))
+     |> assign(:bulk_stop_on_error, false)
+     |> assign(:bulk_delete_stop_on_error, false)
+     |> assign(:bulk_delete_error_form, Helpers.bulk_error_form())
+     |> assign(:availability_source_form, Helpers.availability_source_form())
      |> assign(
        :availability_source_agent_options,
        IndexData.load_availability_source_agent_options(socket.assigns.current_scope)

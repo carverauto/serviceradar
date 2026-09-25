@@ -32,7 +32,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkState do
     {:noreply,
      socket
      |> assign(:bulk_scope_form, to_form(params, as: :bulk_scope))
-     |> assign(:bulk_target_scope, Map.get(params, "scope", "selected"))}
+     |> assign(:bulk_target_scope, Map.get(params, "scope", "selected"))
+     |> assign(:bulk_stop_on_error, Helpers.stop_on_error?(params["stop_on_error"]))}
   end
 
   def handle_event("bulk_state_scope_change", _params, socket), do: {:noreply, socket}
@@ -59,29 +60,42 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkState do
         {:noreply,
          socket
          |> assign(:bulk_state_form, to_form(params, as: :bulk_state))
-         |> put_flash(:error, reason)}
+         |> put_flash(:error, Helpers.batch_failure_message({:error, reason}))}
 
       :ok ->
         case Selection.selected_uids_for_scope(socket, target_scope) do
-          [] ->
+          {:ok, []} ->
             {:noreply,
              socket
              |> assign(:bulk_state_form, to_form(params, as: :bulk_state))
              |> put_flash(:error, "No devices selected")}
 
-          uids ->
-            apply_changes(socket, params, uids, service_state, managed_state)
+          {:ok, uids} ->
+            apply_changes(
+              socket,
+              params,
+              uids,
+              service_state,
+              managed_state,
+              Helpers.assigns_on_error_mode(socket.assigns)
+            )
+
+          {:error, reason} ->
+            {:noreply,
+             socket
+             |> assign(:bulk_state_form, to_form(params, as: :bulk_state))
+             |> put_flash(:error, Helpers.batch_failure_message({:error, reason}))}
         end
     end
   end
 
-  defp apply_changes(socket, params, uids, service_state, managed_state) do
+  defp apply_changes(socket, params, uids, service_state, managed_state, on_error) do
     scope = socket.assigns.current_scope
 
-    case apply_state_changes(scope, uids, service_state, managed_state) do
-      {:ok, service_result, managed_result} ->
-        count = max(service_result.count, managed_result.count)
-        labels = service_result.labels ++ managed_result.labels
+    case apply_state_changes(scope, uids, service_state, managed_state, on_error) do
+      {:ok, %{failed: 0} = summary} ->
+        skipped = Enum.sum(summary.extras)
+        labels = requested_labels(service_state, managed_state)
         query = Map.get(socket.assigns.srql || %{}, :query, "")
 
         {:noreply,
@@ -92,21 +106,47 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkState do
          |> assign(:bulk_edit_form, to_form(%{"tags" => ""}, as: :bulk))
          |> assign(:bulk_target_scope, "selected")
          |> assign(:bulk_target_matching_count, nil)
+         |> assign(:bulk_stop_on_error, false)
          |> assign(:selected_devices, MapSet.new())
          |> assign(:select_all_matching, false)
          |> assign(:total_matching_count, nil)
-         |> put_flash(:info, success_message(count, labels, managed_result.skipped))
+         |> put_flash(:info, success_message(summary.applied, labels, skipped))
          |> push_patch(to: Helpers.device_list_path(query, socket.assigns.limit))}
 
-      {:error, reason} ->
+      other ->
         {:noreply,
          socket
          |> assign(:bulk_state_form, to_form(params, as: :bulk_state))
-         |> put_flash(:error, "Failed to update devices: #{reason}")}
+         |> put_flash(:error, Helpers.batch_failure_message(other))}
     end
   end
 
-  defp apply_state_changes(scope, uids, service_state, managed_state) do
+  defp apply_state_changes(scope, uids, service_state, managed_state, on_error) do
+    Helpers.each_uid_batch(
+      uids,
+      fn batch ->
+        case apply_state_batch(scope, batch, service_state, managed_state) do
+          {:ok, service_result, managed_result} ->
+            {:ok, max(service_result.count, managed_result.count), managed_result.skipped}
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+      end,
+      on_error: on_error
+    )
+  end
+
+  defp requested_labels(service_state, managed_state) do
+    Enum.reject([label_for(:service, service_state), label_for(:managed, managed_state)], &is_nil/1)
+  end
+
+  defp label_for(:service, "no_change"), do: nil
+  defp label_for(:service, state), do: service_label(state)
+  defp label_for(:managed, "no_change"), do: nil
+  defp label_for(:managed, state), do: managed_label(state)
+
+  defp apply_state_batch(scope, uids, service_state, managed_state) do
     resources = [Device]
 
     resources

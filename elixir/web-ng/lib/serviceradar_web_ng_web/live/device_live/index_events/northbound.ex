@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Northbound do
   alias ServiceRadar.Automation.Northbound.InvocationService, as: NorthboundInvocationService
   alias ServiceRadarWebNG.Northbound.ActionForm, as: NorthboundActionForm
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Helpers
   alias ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Selection
 
   def handle_event("run_action_for_selection", _params, socket) do
@@ -50,33 +51,44 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Northbound do
   end
 
   def handle_event("launch_northbound_action", %{"action" => params}, socket) do
-    with_current_launch_permission(socket, fn socket ->
-      with {:ok, action} <-
-             selected_northbound_action(params, socket.assigns.northbound_device_actions),
-           {:ok, input_values} <- build_input_values(socket, action, params),
-           {:ok, targets} <- selected_device_action_targets(socket),
-           {:ok, invocation} <- create_northbound_invocation(socket, action, targets, input_values) do
-        {:noreply,
-         socket
-         |> close_northbound_action_modal()
-         |> assign(:selected_devices, MapSet.new())
-         |> assign(:select_all_matching, false)
-         |> assign(:total_matching_count, nil)
-         |> put_flash(
-           :info,
-           "Created action invocation #{NorthboundActionForm.short_id(invocation.id)} for #{length(targets)} device(s). Open device details Action History to follow results."
-         )}
-      else
-        {:error, reason} ->
+    with_current_launch_permission(socket, &launch_for_selection(&1, params))
+  end
+
+  @doc false
+  def launch_for_selection(socket, params) do
+    with {:ok, action} <-
+           selected_northbound_action(params, socket.assigns.northbound_device_actions),
+         {:ok, input_values} <- build_input_values(socket, action, params),
+         {:ok, uids} <- selected_device_action_uids(socket) do
+      on_error = Helpers.on_error_mode(Helpers.stop_on_error?(params["stop_on_error"]))
+
+      case dispatch_northbound_batches(socket, action, uids, input_values, on_error) do
+        {:ok, %{failed: 0} = summary} ->
           {:noreply,
            socket
+           |> close_northbound_action_modal()
+           |> assign(:selected_devices, MapSet.new())
+           |> assign(:select_all_matching, false)
+           |> assign(:total_matching_count, nil)
+           |> put_flash(:info, northbound_success_message(summary))}
+
+        {_status, summary} = other ->
+          {:noreply,
+           socket
+           |> drop_launched_from_selection(uids, summary)
            |> assign(:northbound_action_form, to_form(params, as: :action))
-           |> assign(
-             :northbound_action_error,
-             NorthboundActionForm.format_launch_error(reason, "device")
-           )}
+           |> assign(:northbound_action_error, Helpers.batch_failure_message(other))}
       end
-    end)
+    else
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:northbound_action_form, to_form(params, as: :action))
+         |> assign(
+           :northbound_action_error,
+           NorthboundActionForm.format_launch_error(reason, "device")
+         )}
+    end
   end
 
   def maybe_load_northbound_device_actions(socket) do
@@ -167,13 +179,47 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Northbound do
     actions |> launchable_northbound_actions() |> List.first()
   end
 
-  defp selected_device_action_targets(socket) do
-    targets =
-      socket
-      |> Selection.selected_uids()
-      |> Enum.map(&%{kind: "device", device_uid: &1})
+  defp selected_device_action_uids(socket) do
+    case Selection.selected_uids(socket) do
+      {:ok, []} -> {:error, :targets_required}
+      {:ok, uids} -> {:ok, uids}
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
-    if targets == [], do: {:error, :targets_required}, else: {:ok, targets}
+  defp dispatch_northbound_batches(socket, action, uids, input_values, on_error) do
+    Helpers.each_uid_batch(
+      uids,
+      fn batch ->
+        targets = Enum.map(batch, &%{kind: "device", device_uid: &1})
+
+        case create_northbound_invocation(socket, action, targets, input_values) do
+          {:ok, invocation} -> {:ok, length(batch), {invocation.id, batch}}
+          {:error, reason} -> {:error, reason}
+        end
+      end,
+      on_error: on_error
+    )
+  end
+
+  defp drop_launched_from_selection(socket, _uids, %{extras: []}), do: socket
+
+  defp drop_launched_from_selection(socket, uids, %{extras: extras}) do
+    launched = MapSet.new(Enum.flat_map(extras, fn {_id, batch} -> batch end))
+    remaining = uids |> MapSet.new() |> MapSet.difference(launched)
+
+    socket
+    |> assign(:selected_devices, remaining)
+    |> assign(:select_all_matching, false)
+    |> assign(:total_matching_count, nil)
+  end
+
+  defp northbound_success_message(%{applied: count, extras: [{id, _batch}]}) do
+    "Created action invocation #{NorthboundActionForm.short_id(id)} for #{count} device(s). Open device details Action History to follow results."
+  end
+
+  defp northbound_success_message(%{applied: count, extras: invocations}) do
+    "Created #{length(invocations)} action invocations for #{count} device(s). Open device details Action History to follow results."
   end
 
   defp create_northbound_invocation(socket, action, targets, input_values) do

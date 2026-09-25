@@ -78,13 +78,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Selection do
             {:noreply, put_flash(socket, :error, message)}
 
           :ok ->
-            device_uids = socket |> selected_uids() |> Enum.sort() |> Enum.join(",")
+            case selected_uids(socket) do
+              {:ok, uids} ->
+                device_uids = uids |> Enum.sort() |> Enum.join(",")
 
-            {:noreply,
-             push_navigate(
-               socket,
-               to: ~p"/ansible/launch?#{%{devices: device_uids}}"
-             )}
+                {:noreply,
+                 push_navigate(
+                   socket,
+                   to: ~p"/ansible/launch?#{%{devices: device_uids}}"
+                 )}
+
+              {:error, reason} ->
+                {:noreply, put_flash(socket, :error, Helpers.format_transaction_error(reason))}
+            end
         end
     end
   end
@@ -127,18 +133,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Selection do
      |> assign(:bulk_scope_form, Helpers.bulk_scope_form())
      |> assign(:bulk_state_form, Helpers.bulk_state_form())
      |> assign(:bulk_target_scope, "selected")
-     |> assign(:bulk_target_matching_count, nil)}
+     |> assign(:bulk_target_matching_count, nil)
+     |> assign(:bulk_stop_on_error, false)}
   end
 
   def handle_event("close_bulk_delete_modal", _params, socket) do
-    {:noreply, assign(socket, :show_bulk_delete_modal, false)}
+    {:noreply, reset_bulk_delete_modal(socket)}
   end
 
   def handle_event("close_bulk_availability_source_modal", _params, socket) do
     {:noreply,
      socket
      |> assign(:show_bulk_availability_source_modal, false)
-     |> assign(:availability_source_form, to_form(%{"agent_id" => ""}, as: :availability_source))}
+     |> assign(:availability_source_form, Helpers.availability_source_form())}
   end
 
   def handle_event("toggle_select_all_matching", _params, socket) do
@@ -190,12 +197,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Selection do
     if socket.assigns.select_all_matching do
       all_matching_uids(socket)
     else
-      explicit_selected_uids(socket)
+      {:ok, explicit_selected_uids(socket)}
     end
   end
 
   def selected_uids_for_scope(socket, "all_matching"), do: all_matching_uids(socket)
-  def selected_uids_for_scope(socket, _scope), do: explicit_selected_uids(socket)
+  def selected_uids_for_scope(socket, _scope), do: {:ok, explicit_selected_uids(socket)}
 
   def validate_device_selection(socket) do
     cond do
@@ -207,26 +214,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Selection do
           not is_integer(socket.assigns.total_matching_count) ->
         {:error, "Unable to determine selection size. Please try again."}
 
-      socket.assigns.select_all_matching and socket.assigns.total_matching_count > 10_000 ->
-        {:error, "Too many devices selected. Narrow your filters and try again."}
-
       true ->
         :ok
     end
   end
 
   def validate_device_selection_for_scope(socket, "all_matching") do
-    count = socket.assigns.bulk_target_matching_count
-
-    cond do
-      not is_integer(count) ->
-        {:error, "Unable to determine selection size. Please try again."}
-
-      count > 10_000 ->
-        {:error, "Too many devices selected. Narrow your filters and try again."}
-
-      true ->
-        :ok
+    if is_integer(socket.assigns.bulk_target_matching_count) do
+      :ok
+    else
+      {:error, "Unable to determine selection size. Please try again."}
     end
   end
 
@@ -236,6 +233,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Selection do
     else
       :ok
     end
+  end
+
+  def reset_bulk_delete_modal(socket) do
+    socket
+    |> assign(:show_bulk_delete_modal, false)
+    |> assign(:bulk_delete_stop_on_error, false)
+    |> assign(:bulk_delete_error_form, Helpers.bulk_error_form())
   end
 
   defp all_matching_uids(socket) do
