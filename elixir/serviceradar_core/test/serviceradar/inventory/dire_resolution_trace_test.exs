@@ -19,15 +19,6 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
 
   @moduletag :integration
 
-  # The defect switches today's code still has (formal/dire/README.md).
-  @current_bugs [
-    "mac_only_conflicts_blocked",
-    "mapper_resolves_by_address",
-    "silent_blocks",
-    "src_attach_via_mac",
-    "stale_holder_keeps_address"
-  ]
-
   @observers ["Armis", "Discovery", "Arp", "Sweep"]
 
   setup_all do
@@ -50,8 +41,7 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
         hw_ids: ["m1", "m2"],
         laa_ids: [],
         ips: ["p1", "p2"],
-        observers: @observers,
-        bugs: @current_bugs
+        observers: @observers
       },
       overrides
     )
@@ -164,8 +154,7 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
       hw_ids: ["m1", "m2"],
       laa_ids: [],
       ips: ["p1", "p2"],
-      observers: @observers,
-      bugs: @current_bugs
+      observers: @observers
     }
 
     "router_mac_only"

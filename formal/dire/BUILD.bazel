@@ -23,7 +23,10 @@ tlc_test(
     cfg = "lifecycle_current.cfg",
     spec = "MCDireLifecycle.tla",
     workers = 8,
-    deps = ["DireLifecycle.tla"],
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+    ],
 )
 
 tlc_test(
@@ -32,7 +35,10 @@ tlc_test(
     cfg = "lifecycle_goal.cfg",
     spec = "MCDireLifecycle.tla",
     workers = 8,
-    deps = ["DireLifecycle.tla"],
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+    ],
 )
 
 tlc_test(
@@ -40,7 +46,10 @@ tlc_test(
     cfg = "lifecycle_witness_gateway_sync_no_bump.cfg",
     expect = "violation:RevivalBumpsRevision",
     spec = "MCDireLifecycle.tla",
-    deps = ["DireLifecycle.tla"],
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+    ],
 )
 
 tlc_test(
@@ -48,7 +57,10 @@ tlc_test(
     cfg = "lifecycle_witness_sweep_restores_merged.cfg",
     expect = "violation:NoZombieRevival",
     spec = "MCDireLifecycle.tla",
-    deps = ["DireLifecycle.tla"],
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+    ],
 )
 
 tlc_test(
@@ -56,7 +68,10 @@ tlc_test(
     cfg = "lifecycle_witness_fence_observe_only.cfg",
     expect = "violation:NoStaleCommit",
     spec = "MCDireLifecycle.tla",
-    deps = ["DireLifecycle.tla"],
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+    ],
 )
 
 tlc_test(
@@ -64,7 +79,10 @@ tlc_test(
     cfg = "lifecycle_witness_unmerge_restores_matches.cfg",
     expect = "violation:UnmergeRestoresExactly",
     spec = "MCDireLifecycle.tla",
-    deps = ["DireLifecycle.tla"],
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+    ],
 )
 
 tlc_test(
@@ -72,7 +90,10 @@ tlc_test(
     cfg = "lifecycle_witness_purge_forgets_redirect.cfg",
     expect = "violation:NoPurgedResurrection",
     spec = "MCDireLifecycle.tla",
-    deps = ["DireLifecycle.tla"],
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+    ],
 )
 
 # ---- Resolution model ----
@@ -222,6 +243,7 @@ tlc_test(
     expect = "violation:TraceIncomplete",
     spec = "traces/Trace_agent_alias_unknown_mac.tla",
     deps = [
+        "CurrentBugs.tla",
         "DireResolution.tla",
         "DireResolutionTrace.tla",
     ],
@@ -233,6 +255,7 @@ tlc_test(
     expect = "violation:TraceIncomplete",
     spec = "traces/Trace_alias_unknown_mac.tla",
     deps = [
+        "CurrentBugs.tla",
         "DireResolution.tla",
         "DireResolutionTrace.tla",
     ],
@@ -244,6 +267,7 @@ tlc_test(
     expect = "violation:TraceIncomplete",
     spec = "traces/Trace_armis_dhcp.tla",
     deps = [
+        "CurrentBugs.tla",
         "DireResolution.tla",
         "DireResolutionTrace.tla",
     ],
@@ -254,6 +278,7 @@ tlc_test(
     cfg = "traces/Trace_armis_dhcp__tamper_act.cfg",
     spec = "traces/Trace_armis_dhcp__tamper_act.tla",
     deps = [
+        "CurrentBugs.tla",
         "DireResolution.tla",
         "DireResolutionTrace.tla",
     ],
@@ -264,6 +289,7 @@ tlc_test(
     cfg = "traces/Trace_armis_dhcp__tamper_alias.cfg",
     spec = "traces/Trace_armis_dhcp__tamper_alias.tla",
     deps = [
+        "CurrentBugs.tla",
         "DireResolution.tla",
         "DireResolutionTrace.tla",
     ],
@@ -274,6 +300,7 @@ tlc_test(
     cfg = "traces/Trace_armis_dhcp__tamper_created.cfg",
     spec = "traces/Trace_armis_dhcp__tamper_created.tla",
     deps = [
+        "CurrentBugs.tla",
         "DireResolution.tla",
         "DireResolutionTrace.tla",
     ],
@@ -284,6 +311,7 @@ tlc_test(
     cfg = "traces/Trace_armis_dhcp__tamper_ifClaims.cfg",
     spec = "traces/Trace_armis_dhcp__tamper_ifClaims.tla",
     deps = [
+        "CurrentBugs.tla",
         "DireResolution.tla",
         "DireResolutionTrace.tla",
     ],
@@ -294,6 +322,7 @@ tlc_test(
     cfg = "traces/Trace_armis_dhcp__tamper_into.cfg",
     spec = "traces/Trace_armis_dhcp__tamper_into.tla",
     deps = [
+        "CurrentBugs.tla",
         "DireResolution.tla",
         "DireResolutionTrace.tla",
     ],
@@ -304,6 +333,7 @@ tlc_test(
     cfg = "traces/Trace_armis_dhcp__tamper_ipAt.cfg",
     spec = "traces/Trace_armis_dhcp__tamper_ipAt.tla",
     deps = [
+        "CurrentBugs.tla",
         "DireResolution.tla",
         "DireResolutionTrace.tla",
     ],
@@ -314,6 +344,7 @@ tlc_test(
     cfg = "traces/Trace_armis_dhcp__tamper_owner.cfg",
     spec = "traces/Trace_armis_dhcp__tamper_owner.tla",
     deps = [
+        "CurrentBugs.tla",
         "DireResolution.tla",
         "DireResolutionTrace.tla",
     ],
@@ -324,6 +355,7 @@ tlc_test(
     cfg = "traces/Trace_armis_dhcp__tamper_phys.cfg",
     spec = "traces/Trace_armis_dhcp__tamper_phys.tla",
     deps = [
+        "CurrentBugs.tla",
         "DireResolution.tla",
         "DireResolutionTrace.tla",
     ],
@@ -334,6 +366,7 @@ tlc_test(
     cfg = "traces/Trace_armis_dhcp__tamper_recIp.cfg",
     spec = "traces/Trace_armis_dhcp__tamper_recIp.tla",
     deps = [
+        "CurrentBugs.tla",
         "DireResolution.tla",
         "DireResolutionTrace.tla",
     ],
@@ -345,6 +378,7 @@ tlc_test(
     expect = "violation:TraceIncomplete",
     spec = "traces/Trace_conflict_unmerge.tla",
     deps = [
+        "CurrentBugs.tla",
         "DireLifecycle.tla",
         "DireLifecycleTrace.tla",
     ],
@@ -355,6 +389,7 @@ tlc_test(
     cfg = "traces/Trace_conflict_unmerge__tamper_act.cfg",
     spec = "traces/Trace_conflict_unmerge__tamper_act.tla",
     deps = [
+        "CurrentBugs.tla",
         "DireLifecycle.tla",
         "DireLifecycleTrace.tla",
     ],
@@ -365,6 +400,7 @@ tlc_test(
     cfg = "traces/Trace_conflict_unmerge__tamper_audit.cfg",
     spec = "traces/Trace_conflict_unmerge__tamper_audit.tla",
     deps = [
+        "CurrentBugs.tla",
         "DireLifecycle.tla",
         "DireLifecycleTrace.tla",
     ],
@@ -375,6 +411,7 @@ tlc_test(
     cfg = "traces/Trace_conflict_unmerge__tamper_ipOf.cfg",
     spec = "traces/Trace_conflict_unmerge__tamper_ipOf.tla",
     deps = [
+        "CurrentBugs.tla",
         "DireLifecycle.tla",
         "DireLifecycleTrace.tla",
     ],
@@ -385,6 +422,7 @@ tlc_test(
     cfg = "traces/Trace_conflict_unmerge__tamper_owner.cfg",
     spec = "traces/Trace_conflict_unmerge__tamper_owner.tla",
     deps = [
+        "CurrentBugs.tla",
         "DireLifecycle.tla",
         "DireLifecycleTrace.tla",
     ],
@@ -395,6 +433,7 @@ tlc_test(
     cfg = "traces/Trace_conflict_unmerge__tamper_reason.cfg",
     spec = "traces/Trace_conflict_unmerge__tamper_reason.tla",
     deps = [
+        "CurrentBugs.tla",
         "DireLifecycle.tla",
         "DireLifecycleTrace.tla",
     ],
@@ -405,6 +444,7 @@ tlc_test(
     cfg = "traces/Trace_conflict_unmerge__tamper_status.cfg",
     spec = "traces/Trace_conflict_unmerge__tamper_status.tla",
     deps = [
+        "CurrentBugs.tla",
         "DireLifecycle.tla",
         "DireLifecycleTrace.tla",
     ],
@@ -415,6 +455,7 @@ tlc_test(
     cfg = "traces/Trace_conflict_unmerge__tamper_work.cfg",
     spec = "traces/Trace_conflict_unmerge__tamper_work.tla",
     deps = [
+        "CurrentBugs.tla",
         "DireLifecycle.tla",
         "DireLifecycleTrace.tla",
     ],
@@ -426,6 +467,7 @@ tlc_test(
     expect = "violation:TraceIncomplete",
     spec = "traces/Trace_gateway_sync_revival.tla",
     deps = [
+        "CurrentBugs.tla",
         "DireLifecycle.tla",
         "DireLifecycleTrace.tla",
     ],
@@ -437,6 +479,7 @@ tlc_test(
     expect = "violation:TraceIncomplete",
     spec = "traces/Trace_mapper_stale_address.tla",
     deps = [
+        "CurrentBugs.tla",
         "DireResolution.tla",
         "DireResolutionTrace.tla",
     ],
@@ -448,6 +491,7 @@ tlc_test(
     expect = "violation:TraceIncomplete",
     spec = "traces/Trace_purge_recreate.tla",
     deps = [
+        "CurrentBugs.tla",
         "DireLifecycle.tla",
         "DireLifecycleTrace.tla",
     ],
@@ -459,6 +503,7 @@ tlc_test(
     expect = "violation:TraceIncomplete",
     spec = "traces/Trace_router_mac_only.tla",
     deps = [
+        "CurrentBugs.tla",
         "DireResolution.tla",
         "DireResolutionTrace.tla",
     ],
@@ -470,6 +515,7 @@ tlc_test(
     expect = "violation:TraceIncomplete",
     spec = "traces/Trace_soft_delete_upsert_revival.tla",
     deps = [
+        "CurrentBugs.tla",
         "DireLifecycle.tla",
         "DireLifecycleTrace.tla",
     ],
@@ -481,6 +527,7 @@ tlc_test(
     expect = "violation:TraceIncomplete",
     spec = "traces/Trace_src_attach_shared_mac.tla",
     deps = [
+        "CurrentBugs.tla",
         "DireResolution.tla",
         "DireResolutionTrace.tla",
     ],
@@ -492,6 +539,7 @@ tlc_test(
     expect = "violation:TraceIncomplete",
     spec = "traces/Trace_stale_redirect.tla",
     deps = [
+        "CurrentBugs.tla",
         "DireLifecycle.tla",
         "DireLifecycleTrace.tla",
     ],
@@ -503,6 +551,7 @@ tlc_test(
     expect = "violation:TraceIncomplete",
     spec = "traces/Trace_sweep_restores_merged.tla",
     deps = [
+        "CurrentBugs.tla",
         "DireLifecycle.tla",
         "DireLifecycleTrace.tla",
     ],
@@ -516,6 +565,7 @@ tlc_test(
     cfg = "traces/Trace_conflict_unmerge__knockout.cfg",
     spec = "traces/Trace_conflict_unmerge.tla",
     deps = [
+        "CurrentBugs.tla",
         "DireLifecycle.tla",
         "DireLifecycleTrace.tla",
     ],
@@ -526,6 +576,7 @@ tlc_test(
     cfg = "traces/Trace_gateway_sync_revival__knockout.cfg",
     spec = "traces/Trace_gateway_sync_revival.tla",
     deps = [
+        "CurrentBugs.tla",
         "DireLifecycle.tla",
         "DireLifecycleTrace.tla",
     ],
@@ -536,6 +587,7 @@ tlc_test(
     cfg = "traces/Trace_purge_recreate__knockout.cfg",
     spec = "traces/Trace_purge_recreate.tla",
     deps = [
+        "CurrentBugs.tla",
         "DireLifecycle.tla",
         "DireLifecycleTrace.tla",
     ],
@@ -546,6 +598,7 @@ tlc_test(
     cfg = "traces/Trace_sweep_restores_merged__knockout.cfg",
     spec = "traces/Trace_sweep_restores_merged.tla",
     deps = [
+        "CurrentBugs.tla",
         "DireLifecycle.tla",
         "DireLifecycleTrace.tla",
     ],
