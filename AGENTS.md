@@ -318,7 +318,7 @@ ServiceRadar is a multi-component system made up of Go services (core, sync, reg
 - `go/cmd/` – Go binaries (agent, cli, data-services, faker, tools).
 - `go/pkg/` – Shared Go packages: identity map, registry, sync integrations, database clients.
 - `rust/srql/` – SRQL translator/service backed by Diesel + CNPG.
-- `docs/docs/` – User and architecture documentation (notably `architecture.md`, `agents.md`).
+- `docs/docs/` – User and architecture documentation (notably `architecture.md`, `data-pipeline.md`, `edge-model.md`).
 - `helm/serviceradar/` – Supported Kubernetes installation chart for demo and production deployments.
 - `docker/`, `docker/images/` – Container builds and push targets.
 - `elixir/web-ng/` – Phoenix (next-gen) UI/API monolith.
@@ -386,7 +386,7 @@ Prefer Socket Firewall for supported dependency-fetching commands. Prefix JavaSc
 - **Go**: run `gofmt` on modified files; keep imports organized; favor existing helper utilities in `pkg/`. Avoid introducing new dependencies without updating `go.mod` and Bazel `MODULE.bazel`/`MODULE.bazel.lock` if required.
 - **Rust**: run `cargo fmt` + `cargo clippy` on touched crates (notably `rust/srql`); leverage existing Diesel helpers + CNPG pooling utilities before adding new abstractions.
 - **Elixir / Dialyzer**: prefer idiomatic Elixir (`MapSet.new/1`, direct `GRPC.Stub.connect/2`, normal Ash reads). Treat Dialyzer as advisory for false positives (opaque types, incomplete PLT success typing). See **Hard Rules** — never degrade APIs to silence the type checker. Use `mix dialyzer --format dialyzer` when Dialyxir short format crashes on unknown warning kinds.
-- **Docs**: place new operational runbooks under `docs/docs/`; keep Markdown ASCII only.
+- **Docs**: place new operational runbooks under `docs/` root (alongside `agent-runbooks.md` and `cold-tier-runbook.md`), not under `docs/docs/` (that subtree is the published Docusaurus site); keep Markdown ASCII only.
 - **OpenSpec**: See [Requirement Wording](openspec/AGENTS.md#requirement-wording)
   for the SHALL/MUST positional validation rule and examples.
 
