@@ -120,7 +120,8 @@ The lifecycle traces come from
 `ServiceRadar.DireLifecycleTrace` (`test/support/dire_lifecycle_trace.ex`), which drives the
 lifecycle entry points: ingest (`SyncIngestor`, `AgentGatewaySync`), `MergeEngine` merge and
 unmerge (including the resolver's conflict merge), `Device :soft_delete`,
-`SweepResultsIngestor` restores, and `DeviceCleanupWorker` purges. It records device status and
+`SweepResultsIngestor` restores, `EphemeralDeviceExpiry` expiry, and `DeviceCleanupWorker`
+purges. It records device status and
 delete reason, identifier owners, addresses, the `merge_audit` rows and the devices each step's
 `identity_revision` moved. An ingest is logged as the model's `StartWork` and `Commit`; the code
 runs them in one call, so `work` is never stale in a recorded trace and the
@@ -141,8 +142,10 @@ A trace whose defect is fixed stays as a regression trace, with no knockout: `st
 (#4616) records the fixed resolver keeping a device deleted after an unmerge on its own uid, and
 `soft_delete_upsert_revival` (#4614) records the upsert reviving a soft-deleted device with an
 `identity_revision` bump, `gateway_sync_revival` (#4615) records an agent check-in restoring
-its soft-deleted device with a bump, and `conflict_unmerge` (#4619) records the fixed unmerge
-giving back only the merged-away device's own identifiers.
+its soft-deleted device with a bump, `conflict_unmerge` (#4619) records the fixed unmerge
+giving back only the merged-away device's own identifiers, and `expire_ephemeral` (#4603)
+records an address-only device expiring while a hardware-MAC device stays, then a sweep
+restoring it with a bump.
 
 The integration test compares every freshly recorded trace with the committed file. When the
 code's behavior changes, that comparison fails. Regenerate on a scratch database with
