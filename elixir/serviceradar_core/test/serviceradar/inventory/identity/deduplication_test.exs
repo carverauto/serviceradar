@@ -111,10 +111,23 @@ defmodule ServiceRadar.Inventory.Identity.DeduplicationTest do
     test "an ambiguous duplicate component from the scheduled sweep", %{actor: actor} do
       [a, b, c] = devices(actor, 3)
 
-      DuplicateSweep.record_blocked_components([%{device_ids: [a.uid, b.uid, c.uid]}], 10)
+      DuplicateSweep.record_blocked_components([%{device_ids: [a.uid, b.uid, c.uid]}])
 
       assert [%DeduplicationTask{category: "component_block"} = task] = tasks_for(b.uid)
       assert task.device_uids == Enum.sort([a.uid, b.uid, c.uid])
+    end
+
+    test "every blocked component of a sweep, past the capture limit, gets a task" do
+      components =
+        for _ <- 1..105 do
+          %{device_ids: ["sr:" <> Ecto.UUID.generate(), "sr:" <> Ecto.UUID.generate()]}
+        end
+
+      DuplicateSweep.record_blocked_components(components)
+
+      for %{device_ids: [first, _]} <- components do
+        assert [%DeduplicationTask{category: "component_block"}] = tasks_for(first)
+      end
     end
 
     test "a source-authoritative override", %{actor: actor} do
@@ -195,11 +208,27 @@ defmodule ServiceRadar.Inventory.Identity.DeduplicationTest do
   describe "merge" do
     test "merges every other device into the survivor and records it", %{actor: actor} do
       [a, b, c] = devices(actor, 3)
-      DuplicateSweep.record_blocked_components([%{device_ids: [a.uid, b.uid, c.uid]}], 10)
+      DuplicateSweep.record_blocked_components([%{device_ids: [a.uid, b.uid, c.uid]}])
       [task] = tasks_for(a.uid)
 
       assert {:ok, %DeduplicationTask{status: :merged, merged_into: survivor}} =
                Deduplication.merge(task, b.uid, @operator, note: "one device")
+
+      assert survivor == b.uid
+      assert live?(actor, b.uid)
+      assert %Device{deleted_reason: "merged"} = device(actor, a.uid)
+      assert %Device{deleted_reason: "merged"} = device(actor, c.uid)
+    end
+
+    test "a retry after a partial merge finishes the rest", %{actor: actor} do
+      [a, b, c] = devices(actor, 3)
+      DuplicateSweep.record_blocked_components([%{device_ids: [a.uid, b.uid, c.uid]}])
+      [task] = tasks_for(a.uid)
+
+      assert :ok = MergeEngine.merge_devices(a.uid, b.uid, actor: actor, reason: "manual_merge")
+
+      assert {:ok, %DeduplicationTask{status: :merged, merged_into: survivor}} =
+               Deduplication.merge(task, b.uid, @operator)
 
       assert survivor == b.uid
       assert live?(actor, b.uid)

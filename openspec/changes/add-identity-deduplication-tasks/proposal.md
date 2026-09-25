@@ -22,7 +22,7 @@ it finds duplicates it cannot reconcile safely it opens a task instead of mergin
   one. `Identity.DecisionLog` calls `Identity.Deduplication.open_for_decisions/1` after writing
   each batch of decisions.
 - The scheduled duplicate sweep records each ambiguous component it declines as a
-  `component_block` decision (bounded by the run record's capture limit), so it opens a task too.
+  `component_block` decision (every blocked component, whatever the run record's capture limit), so it opens a task too.
 - Operator actions (operator role; tasks are readable by any viewer):
   - **merge** into a chosen survivor, through the administrative merge path
     (`MergeEngine.merge_devices/3`, reason `manual_dedup_task`, the requesting actor recorded in

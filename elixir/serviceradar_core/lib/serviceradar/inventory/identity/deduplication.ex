@@ -17,8 +17,10 @@ defmodule ServiceRadar.Inventory.Identity.Deduplication do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.DeduplicationTask
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DistinctDeviceAssertion
   alias ServiceRadar.Inventory.Identity.MergeEngine
+  alias ServiceRadar.Inventory.MergeAudit
   alias ServiceRadar.Repo
 
   require Ash.Query
@@ -192,7 +194,7 @@ defmodule ServiceRadar.Inventory.Identity.Deduplication do
 
   defp merge_all(task, survivor, actor) do
     task.device_uids
-    |> Enum.reject(&(&1 == survivor))
+    |> Enum.reject(&(&1 == survivor or merged_into?(&1, survivor)))
     |> Enum.reduce_while(:ok, fn uid, :ok ->
       case MergeEngine.merge_devices(uid, survivor,
              actor: SystemActor.system(:identity_deduplication),
@@ -207,6 +209,21 @@ defmodule ServiceRadar.Inventory.Identity.Deduplication do
         {:error, reason} -> {:halt, {:error, {:merge_failed, uid, reason}}}
       end
     end)
+  end
+
+  # Each merge is its own transaction, so a retry after a partial failure meets members that
+  # are already tombstoned into the survivor; those are done, not errors.
+  defp merged_into?(uid, survivor) do
+    actor = SystemActor.system(:identity_deduplication)
+
+    case Device.get_by_uid(uid, false, actor: actor) do
+      {:ok, %Device{}} ->
+        false
+
+      _ ->
+        {:ok, merges} = MergeAudit.get_merged_to(uid, actor: actor)
+        Enum.any?(merges, &(&1.to_device_id == survivor))
+    end
   end
 
   defp requested_by(actor), do: ServiceRadar.Inventory.Changes.SetResolvedBy.actor_name(actor)
