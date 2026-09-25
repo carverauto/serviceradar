@@ -975,6 +975,17 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/dashboard-packages/:id/disable", DashboardPackagePublishController, :disable)
   end
 
+  ## Dashboard package read API (version visibility).
+  # Gated on `dashboards.packages.view_all`; does NOT require the
+  # `dashboard.publish` bearer scope so operators and UI users can read
+  # installed package state without a publish-scoped token.
+  scope "/api/v1", ServiceRadarWebNGWeb do
+    pipe_through(:api_key_auth)
+
+    get("/dashboard-packages", DashboardPackageReadController, :index)
+    get("/dashboard-packages/:id", DashboardPackageReadController, :show)
+  end
+
   scope "/api/v1", ServiceRadarWebNGWeb.Api do
     pipe_through(:api_key_auth)
 

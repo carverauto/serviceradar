@@ -387,6 +387,70 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
 
   def revoke_instance_access_grant(_scope, _grant), do: {:error, :invalid_attributes}
 
+  @spec list_with_instances(keyword()) :: {:ok, [DashboardPackage.t()]} | {:error, term()}
+  def list_with_instances(opts \\ []) do
+    scope = Keyword.get(opts, :scope)
+
+    query =
+      DashboardPackage
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.load(:instances)
+      |> Ash.Query.sort(inserted_at: :desc)
+      |> Ash.Query.limit(500)
+
+    if scope do
+      Ash.read(query, scope: scope)
+    else
+      Ash.read(query, actor: package_system_actor())
+    end
+  end
+
+  @spec get_by_manifest_id_or_id(String.t(), keyword()) ::
+          {:ok, DashboardPackage.t()} | {:error, :not_found} | {:error, term()}
+  def get_by_manifest_id_or_id(id, opts \\ [])
+
+  def get_by_manifest_id_or_id(id, opts) when is_binary(id) do
+    scope = Keyword.get(opts, :scope)
+
+    case read_one_package_by_dashboard_id(id, scope) do
+      {:ok, %DashboardPackage{} = pkg} ->
+        {:ok, pkg}
+
+      {:ok, nil} ->
+        case read_one_package_with_instances(id, scope) do
+          {:ok, nil} -> {:error, :not_found}
+          {:ok, pkg} -> {:ok, pkg}
+          {:error, error} -> {:error, error}
+        end
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  def get_by_manifest_id_or_id(_id, _opts), do: {:error, :not_found}
+
+  defp read_one_package_by_dashboard_id(dashboard_id, scope) do
+    query =
+      DashboardPackage
+      |> Ash.Query.for_read(:by_dashboard_id, %{dashboard_id: dashboard_id})
+      |> Ash.Query.load(:instances)
+      |> Ash.Query.sort(inserted_at: :desc)
+      |> Ash.Query.limit(1)
+
+    read_one(query, scope)
+  end
+
+  defp read_one_package_with_instances(id, scope) do
+    query =
+      DashboardPackage
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(id == ^id)
+      |> Ash.Query.load(:instances)
+
+    read_one(query, scope)
+  end
+
   defp upsert_package(attrs, ash_opts) do
     DashboardPackage
     |> Ash.Changeset.for_create(:upsert, attrs)

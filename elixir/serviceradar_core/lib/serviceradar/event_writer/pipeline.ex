@@ -212,6 +212,10 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   end
 
   @doc false
+  # The processor `handle_batch/4` runs for a batcher.
+  def processor_for_batcher(batcher), do: get_processor(batcher)
+
+  @doc false
   # Builds span links from the W3C trace-context headers of up to
   # @max_batch_links distinct messages (deduplicated by trace/span id).
   def batch_links(messages) when is_list(messages) do
@@ -499,6 +503,8 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       {:trivy, &trivy_subject?/1},
       {:k8s_nodes, &k8s_nodes_subject?/1},
       {:k8s_inventory, &k8s_inventory_subject?/1},
+      {:scan_results, &scan_results_subject?/1},
+      {:mtr_results, &mtr_results_subject?/1},
       {:otel_metrics, &String.starts_with?(&1, "otel.metrics")},
       {:otel_traces, &String.starts_with?(&1, "otel.traces")},
       {:metrics, &String.starts_with?(&1, "metrics.")},
@@ -563,6 +569,15 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       subject == "inventory.k8s.public_endpoints" or
         String.starts_with?(subject, "inventory.k8s.public_endpoints.")
 
+  # Ad-hoc scan and MTR results have dedicated streams and processors. Without a
+  # rule here they fall through to `:default`, whose processor acks and drops
+  # them, so the traces never reach storage.
+  defp scan_results_subject?(subject),
+    do: subject == "scans.results" or String.starts_with?(subject, "scans.results.")
+
+  defp mtr_results_subject?(subject),
+    do: subject == "mtr.results" or String.starts_with?(subject, "mtr.results.")
+
   defp get_processor(:otel_metrics), do: ServiceRadar.EventWriter.Processors.OtelMetrics
   defp get_processor(:otel_traces), do: ServiceRadar.EventWriter.Processors.OtelTraces
 
@@ -575,6 +590,8 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   defp get_processor(:trivy), do: ServiceRadar.EventWriter.Processors.TrivyReports
   defp get_processor(:k8s_inventory), do: ServiceRadar.EventWriter.Processors.K8sPublicEndpoints
   defp get_processor(:k8s_nodes), do: ServiceRadar.EventWriter.Processors.K8sNodes
+  defp get_processor(:scan_results), do: ServiceRadar.EventWriter.Processors.AdhocScan
+  defp get_processor(:mtr_results), do: ServiceRadar.EventWriter.Processors.Mtr
   defp get_processor(:bmp_causal), do: AnalyticsSignals
   defp get_processor(:arancini_causal), do: AnalyticsSignals
   defp get_processor(:siem_causal), do: AnalyticsSignals

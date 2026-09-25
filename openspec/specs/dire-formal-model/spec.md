@@ -31,7 +31,7 @@ A switch is added only after a TLC counterexample for it is confirmed against th
 - **THEN** the witness test fails
 
 ### Requirement: Fixing a Modeled Defect Promotes Its Invariant
-A change that fixes a modeled DIRE defect MUST remove the defect's switch from the model and from the trace tests' current switches, and MUST make the property its witness named must-pass: in the lifecycle `current` configuration, or in every resolution `goal` configuration.
+A change that fixes a modeled DIRE defect MUST remove the defect's switch from the model and from `formal/dire/CurrentBugs.tla` (the one list of today's switches every recorded trace reads), and MUST make the property its witness named must-pass: in the lifecycle `current` configuration, or in every resolution `goal` configuration.
 The traces that exercise the fixed path are regenerated, and the witness configuration and any
 trace knockout configuration for the switch are deleted with it.
 

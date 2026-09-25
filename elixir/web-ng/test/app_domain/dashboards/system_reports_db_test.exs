@@ -123,7 +123,7 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsDbTest do
     {:ok, empty_dashboard} =
       AuthoredDashboard
       |> Ash.Changeset.for_create(:create, %{
-        dashboard_ref: 1_000_000 + rem(System.unique_integer([:positive, :monotonic]), 9_000_000),
+        dashboard_ref: synthetic_dashboard_ref(),
         title: "New devices",
         slug: new_devices_slug,
         visibility: :public,
@@ -160,7 +160,7 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsDbTest do
     {:ok, unrelated} =
       AuthoredDashboard
       |> Ash.Changeset.for_create(:create, %{
-        dashboard_ref: 1_000_000 + rem(System.unique_integer([:positive, :monotonic]), 9_000_000),
+        dashboard_ref: synthetic_dashboard_ref(),
         title: "#{marker}-unrelated",
         slug: "#{marker}-unrelated-slug",
         visibility: :private,
@@ -180,6 +180,10 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsDbTest do
     assert after_seed.id == unrelated.id
     assert after_seed.title == "#{marker}-unrelated"
     assert after_seed.panels == [], "unrelated dashboard must have no panels added to it"
+  end
+
+  defp synthetic_dashboard_ref do
+    1_000_000 + :erlang.phash2(Ecto.UUID.generate(), 9_000_000)
   end
 
   defp cleanup!(marker) do

@@ -45,9 +45,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexPaginationTest do
   defmodule GatedEnrichmentSRQL do
     @moduledoc false
 
-    def query("in:timeseries_metrics " <> _query, %{scope: owner}) do
-      send(owner, :icmp_query_completed)
-
+    def query("in:timeseries_metrics " <> _query, _opts) do
       {:ok,
        %{
          "results" => [
@@ -206,11 +204,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexPaginationTest do
       cancel_async(socket, socket.assigns.device_stats_task)
     end)
 
-    assert_receive :icmp_query_completed
     assert_receive {:enrichment_query_waiting, :presence, presence_pid}
     assert_receive {:enrichment_query_waiting, :stats, stats_pid}
     assert_receive {:device_icmp_loaded, token, icmp}
-    refute_receive :icmp_query_completed
+    refute_receive {:device_icmp_loaded, ^token, _}
 
     {:noreply, updated} = Index.handle_info({:device_icmp_loaded, token, icmp}, socket)
 

@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexData.Telemetry do
 
   @sparkline_device_cap 200
   @sparkline_points_per_device 20
+  @sparkline_min_points 2
   @sparkline_bucket "5m"
   @sparkline_window "last_1h"
   @sparkline_threshold_ms 100.0
@@ -172,8 +173,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexData.Telemetry do
     latest_ms = List.last(values) || 0.0
     tone = icmp_tone(latest_ms)
     title = icmp_title(points, latest_ms)
+    sparse = length(values) < @sparkline_min_points
 
-    %{points: values, latest_ms: latest_ms, tone: tone, title: title}
+    title =
+      if sparse,
+        do: title <> " · Insufficient history for a trend in the last hour",
+        else: title
+
+    %{points: values, latest_ms: latest_ms, tone: tone, title: title, sparse: sparse}
   end
 
   defp icmp_tone(latest_ms) do

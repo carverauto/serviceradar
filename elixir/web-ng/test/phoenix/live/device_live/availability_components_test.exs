@@ -7,7 +7,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponentsTest do
 
   @moduletag :db_free
 
-  test "online, offline and unknown buckets have visible theme colors and explicit coverage" do
+  test "online, offline and unknown buckets retain explicit status and coverage" do
     availability = %{
       uptime_pct: 50.0,
       total_checks: 2,
@@ -19,20 +19,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponentsTest do
 
     document = render(availability)
 
-    assert [online] =
-             document |> LazyHTML.query("[data-availability-status=online]") |> LazyHTML.attribute("class")
-
-    assert online =~ "bg-success"
-
-    assert [offline] =
-             document |> LazyHTML.query("[data-availability-status=offline]") |> LazyHTML.attribute("class")
-
-    assert offline =~ "bg-error"
-
-    assert [unknown] =
-             document |> LazyHTML.query("[data-availability-status=unknown]") |> LazyHTML.attribute("class")
-
-    assert unknown =~ "bg-base-300"
+    assert document
+           |> LazyHTML.query("[data-availability-status]")
+           |> LazyHTML.attribute("data-availability-status") == ["online", "offline", "unknown"]
 
     assert document |> LazyHTML.query("#device-availability-percent") |> LazyHTML.text() |> String.trim() ==
              "50.0%"

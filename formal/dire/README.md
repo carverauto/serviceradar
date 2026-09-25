@@ -143,8 +143,9 @@ A trace whose defect is fixed stays as a regression trace, with no knockout: `st
 The integration test compares every freshly recorded trace with the committed file. When the
 code's behavior changes, that comparison fails. Regenerate on a scratch database with
 `DIRE_TRACE_WRITE=1` and commit the new trace; the model check then decides whether the model
-still describes the code. The traces' `.cfg` files carry the switches today's code has (each
-test's `@current_bugs`).
+still describes the code. The switches today's code has are listed once, in `CurrentBugs.tla`
+(`ResolutionBugs`, `LifecycleBugs`); every trace `.cfg` and `lifecycle_current.cfg` reads its
+`Bugs` constant from there, so a fix edits that one file rather than every trace.
 
 ## Fixing a defect
 
@@ -152,9 +153,13 @@ test's `@current_bugs`).
 2. The trace test for that path fails, because the real code's trace changed. Regenerate the
    trace with `DIRE_TRACE_WRITE=1`; its model check now fails too, because the switched-on model
    does not allow the fixed behavior.
-3. Remove the switch from the model (keep only the intended branch).
+3. Remove the switch from the model (keep only the intended branch and its `KnownBugs` entry)
+   and from `CurrentBugs.tla`. A switch left in `CurrentBugs.tla` after it leaves `KnownBugs`
+   fails the models' `ASSUME Bugs \subseteq KnownBugs`.
 4. Delete its witness configuration and target and, for a lifecycle switch, the trace's
-   `__knockout` configuration and target, which TLC can no longer reject.
+   `__knockout` configuration and target (and the test's `demonstrates:` option): with the
+   switch gone the knockout checks the trace with today's switches, TLC matches it, and the
+   target fails until it is deleted.
 5. Add its property to `lifecycle_current.cfg` (lifecycle) or confirm it in every
    `resolution_goal_*` configuration (resolution).
 
