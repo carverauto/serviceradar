@@ -15,6 +15,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Identity.DecisionLog
   alias ServiceRadar.Inventory.Identity.InterfaceMacs
   alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.Inventory.IdentityReconciler
@@ -1965,6 +1966,16 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
           %{uid: device.uid, mac: device.mac, metadata: %{"integration_type" => "mapper"}},
           holder_uid,
           ip
+        )
+
+        DecisionLog.record(:ip_conflict, "active_ip_conflict", [device.uid, holder_uid],
+          subject: ip,
+          source: "mapper",
+          evidence: %{
+            "incoming_device_uid" => device.uid,
+            "existing_device_uid" => holder_uid,
+            "ip" => ip
+          }
         )
     end
   end
