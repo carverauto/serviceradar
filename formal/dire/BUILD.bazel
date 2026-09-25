@@ -167,14 +167,6 @@ tlc_test(
 )
 
 tlc_test(
-    name = "resolution_witness_silent_blocks_test",
-    cfg = "resolution_witness_silent_blocks.cfg",
-    expect = "violation:NoSilentDecision",
-    spec = "MCDireResolution.tla",
-    deps = ["DireResolution.tla"],
-)
-
-tlc_test(
     name = "resolution_witness_mapper_resolves_by_address_test",
     cfg = "resolution_witness_mapper_resolves_by_address.cfg",
     expect = "violation:NoFalseInterfaceClaim",

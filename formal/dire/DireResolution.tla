@@ -43,7 +43,6 @@ CONSTANTS
 
 KnownBugs == {
     "mac_only_conflicts_blocked",  \* inventory/identity/merge_policy.ex mac_only_matches?/1
-    "silent_blocks",               \* MergePolicy / AliasGuard decisions reach only telemetry
     "src_attach_via_mac",          \* inventory/identity/resolver.ex lookup_by_strong_identifiers/3
     "mapper_resolves_by_address",  \* network_discovery/mapper_results_ingestor.ex resolve_device_ids/2
     "stale_holder_keeps_address"   \* inventory/sync/device_writes.ex resolve_record_active_ip/7
@@ -243,9 +242,8 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims) ==
                   THEN {[kind |-> "source_override", recs |-> (allM \ M) \cup {target}]}
                   ELSE {})
             \cup (IF keepsIp THEN {[kind |-> "ip_conflict", recs |-> {target} \cup holders]} ELSE {})
-        recorded == {d \in decisions :
-                       d.kind \in {"source_block", "source_override", "ip_conflict"}
-                       \/ ~Bug("silent_blocks")}
+        \* Every decision leaves a persisted identity decision (DecisionLog.record/4, #4613).
+        recorded == decisions
         into2   == [r \in Recs |-> IF r \in merged THEN target ELSE into[r]]
         owner2  == [i \in Ids |-> IF owner1[i] \in step2Merged THEN target ELSE owner1[i]]
         recIp2  == [r \in Recs |->

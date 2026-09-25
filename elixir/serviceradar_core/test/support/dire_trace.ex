@@ -29,8 +29,8 @@ defmodule ServiceRadar.DireTrace do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.InterfaceMacs
+  alias ServiceRadar.Inventory.IdentityDecision
   alias ServiceRadar.Inventory.MergeAudit
-  alias ServiceRadar.Inventory.SourceIdentityConflict
   alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
 
@@ -260,7 +260,7 @@ defmodule ServiceRadar.DireTrace do
 
   defp step(trace, name, h, x, ids, fun) do
     observed_ip = trace.ip_at[x]
-    conflicts_before = source_conflict_ids(trace)
+    decisions_before = decision_counts(trace)
     audits_before = merge_rows(trace)
     fun.()
     trace = settle(trace)
@@ -290,7 +290,7 @@ defmodule ServiceRadar.DireTrace do
         else: phys
 
     decisions = decisions_from(trace, events, ids)
-    recorded = recorded_from(decisions, new_conflict_categories(trace, conflicts_before))
+    recorded = recorded_since(trace, decisions_before)
 
     address_merged =
       for {from, _to, reason} <- new_merges, reason == "ip_alias_conflict", do: from
@@ -534,16 +534,39 @@ defmodule ServiceRadar.DireTrace do
     |> Enum.sort()
   end
 
-  # A decision is recorded when it left a persisted row. Today only source-authority blocks and
-  # active-IP conflicts do (SourceIdentityConflict rows); #4604 adds the rest.
-  @recorded_by_category %{
-    "automatic_merge_source_authority_conflict" => "source_block",
-    "active_ip_conflict" => "ip_conflict"
+  # A decision is recorded when it left a persisted identity decision this step: a new
+  # `platform.identity_decisions` row, or one whose occurrence count moved. The recorded set is
+  # read from those rows alone (kind and device set), independently of the telemetry above, so
+  # the model's requirement that the two agree is checked against what was actually written.
+  @recorded_kind %{
+    policy_block: "policy_block",
+    source_block: "source_block",
+    alias_invalidated: "alias_invalidated",
+    ip_conflict: "ip_conflict",
+    source_override: "source_override"
   }
 
-  defp recorded_from(decisions, categories) do
-    kinds = MapSet.new(categories, &Map.get(@recorded_by_category, &1))
-    Enum.filter(decisions, &MapSet.member?(kinds, &1.kind))
+  defp recorded_since(trace, before) do
+    named = trace.names |> Map.keys() |> MapSet.new()
+
+    IdentityDecision
+    |> Ash.read!(actor: trace.actor)
+    |> Enum.filter(&(Map.get(before, &1.id) != &1.occurrence_count))
+    |> Enum.filter(fn d -> Enum.any?(d.device_uids, &MapSet.member?(named, &1)) end)
+    |> Enum.map(fn d ->
+      kind =
+        Map.get(@recorded_kind, d.decision_kind) ||
+          flunk("DIRE trace #{trace.name}: unmodeled recorded decision #{inspect(d)}")
+
+      recs = d.device_uids |> Enum.map(&name_of!(trace, &1)) |> Enum.uniq() |> Enum.sort()
+      %{kind: kind, recs: recs}
+    end)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp decision_counts(trace) do
+    IdentityDecision |> Ash.read!(actor: trace.actor) |> Map.new(&{&1.id, &1.occurrence_count})
   end
 
   defp owners_of_ids(trace, ids) do
@@ -561,17 +584,6 @@ defmodule ServiceRadar.DireTrace do
     |> Enum.reject(&is_nil/1)
     |> Enum.map(&name_of!(trace, &1))
     |> Enum.sort()
-  end
-
-  defp source_conflict_ids(trace) do
-    SourceIdentityConflict |> Ash.read!(actor: trace.actor) |> MapSet.new(& &1.id)
-  end
-
-  defp new_conflict_categories(trace, before_ids) do
-    SourceIdentityConflict
-    |> Ash.read!(actor: trace.actor)
-    |> Enum.reject(&MapSet.member?(before_ids, &1.id))
-    |> Enum.map(& &1.conflict_category)
   end
 
   # ---------------------------------------------------------------------------------------
