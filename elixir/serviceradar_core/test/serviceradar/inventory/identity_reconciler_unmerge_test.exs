@@ -76,6 +76,124 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerUnmergeTest do
     assert Enum.any?(audits, &(&1.reason == "unmerge"))
   end
 
+  describe "identifiers restored by an unmerge" do
+    test "a conflict merge's unmerge restores the source's identifiers and never the survivor's",
+         %{actor: actor} do
+      {:ok, survivor} = create_device(actor, unique("survivor"), nil)
+      {:ok, source} = create_device(actor, unique("source"), nil)
+
+      survivor_mac = doc_mac()
+      source_mac = doc_mac()
+      source_agent = unique("agent")
+
+      assert {:ok, _} = register_identifier(actor, survivor.uid, :mac, survivor_mac)
+      assert {:ok, _} = register_identifier(actor, source.uid, :mac, source_mac)
+      assert {:ok, _} = register_identifier(actor, source.uid, :agent_id, source_agent)
+
+      # What merge_conflicting_devices/4 records: every match, both sides.
+      assert :ok =
+               IdentityReconciler.merge_devices(source.uid, survivor.uid,
+                 actor: actor,
+                 reason: "identifier_conflict",
+                 details: %{
+                   identifiers: [
+                     %{type: :mac, value: survivor_mac, device_id: survivor.uid},
+                     %{type: :mac, value: source_mac, device_id: source.uid}
+                   ]
+                 }
+               )
+
+      assert owners(actor, [survivor_mac, source_mac, source_agent]) ==
+               %{
+                 survivor_mac => survivor.uid,
+                 source_mac => survivor.uid,
+                 source_agent => survivor.uid
+               }
+
+      assert :ok = IdentityReconciler.unmerge_device(source.uid, actor: actor)
+
+      # Exactly what the source owned when it was merged, including the identifier
+      # the conflict never named; the survivor keeps its own MAC.
+      assert owners(actor, [survivor_mac, source_mac, source_agent]) ==
+               %{
+                 survivor_mac => survivor.uid,
+                 source_mac => source.uid,
+                 source_agent => source.uid
+               }
+
+      assert %{"restored_identifiers_source" => "recorded"} = unmerge_details(actor, source.uid)
+    end
+
+    test "an unmerge restores the source's identifiers when the merge caller recorded none",
+         %{actor: actor} do
+      {:ok, survivor} = create_device(actor, unique("survivor"), nil)
+      {:ok, source} = create_device(actor, unique("source"), nil)
+
+      survivor_mac = doc_mac()
+      source_mac = doc_mac()
+
+      assert {:ok, _} = register_identifier(actor, survivor.uid, :mac, survivor_mac)
+      assert {:ok, _} = register_identifier(actor, source.uid, :mac, source_mac)
+
+      assert :ok =
+               IdentityReconciler.merge_devices(source.uid, survivor.uid,
+                 actor: actor,
+                 reason: "identity_resolution"
+               )
+
+      assert :ok = IdentityReconciler.unmerge_device(source.uid, actor: actor)
+
+      assert owners(actor, [survivor_mac, source_mac]) ==
+               %{survivor_mac => survivor.uid, source_mac => source.uid}
+    end
+
+    test "a legacy conflict row restores only the matches that named the source",
+         %{actor: actor} do
+      {:ok, survivor} = create_device(actor, unique("survivor"), nil)
+      {:ok, source} = create_device(actor, unique("source"), nil)
+
+      survivor_mac = doc_mac()
+      source_mac = doc_mac()
+
+      assert {:ok, _} = register_identifier(actor, survivor.uid, :mac, survivor_mac)
+      assert {:ok, _} = register_identifier(actor, survivor.uid, :mac, source_mac)
+
+      legacy_merge!(actor, source, survivor, %{
+        "identifiers" => [
+          %{"type" => "mac", "value" => survivor_mac, "device_id" => survivor.uid},
+          %{"type" => "mac", "value" => source_mac, "device_id" => source.uid}
+        ]
+      })
+
+      assert :ok = IdentityReconciler.unmerge_device(source.uid, actor: actor)
+
+      assert owners(actor, [survivor_mac, source_mac]) ==
+               %{survivor_mac => survivor.uid, source_mac => source.uid}
+
+      assert %{"restored_identifiers_source" => "legacy_conflict_matches"} =
+               unmerge_details(actor, source.uid)
+    end
+
+    test "a legacy row that recorded no ownership moves nothing back", %{actor: actor} do
+      {:ok, survivor} = create_device(actor, unique("survivor"), nil)
+      {:ok, source} = create_device(actor, unique("source"), nil)
+
+      survivor_mac = doc_mac()
+      assert {:ok, _} = register_identifier(actor, survivor.uid, :mac, survivor_mac)
+
+      # The registrar's shape: a map, which names no owner.
+      legacy_merge!(actor, source, survivor, %{
+        "identifiers" => %{"mac" => survivor_mac}
+      })
+
+      assert :ok = IdentityReconciler.unmerge_device(source.uid, actor: actor)
+      assert owners(actor, [survivor_mac]) == %{survivor_mac => survivor.uid}
+
+      assert %{"restored_identifiers_source" => "unrecorded", "restored_identifiers" => []} =
+               unmerge_details(actor, source.uid)
+    end
+  end
+
   test "unmerge returns error when no merge audit exists", %{actor: actor} do
     fake_device_id = "sr:" <> Ecto.UUID.generate()
 
@@ -107,6 +225,57 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerUnmergeTest do
     DeviceIdentifier
     |> Ash.Changeset.for_create(:register, attrs)
     |> Ash.create(actor: actor)
+  end
+
+  # A merge_audit row written before merges recorded `source_identifiers`: the
+  # source is tombstoned as a merge, and its identifiers already sit on the survivor.
+  defp legacy_merge!(actor, source, survivor, details) do
+    assert {:ok, _} =
+             MergeAudit.record(
+               %{
+                 from_device_id: source.uid,
+                 to_device_id: survivor.uid,
+                 reason: "identifier_conflict",
+                 source: "legacy",
+                 details: details
+               },
+               actor: actor
+             )
+
+    assert {:ok, _} = Device.soft_delete(source, "merged", "identity_reconciler", actor: actor)
+  end
+
+  defp owners(actor, values) do
+    DeviceIdentifier
+    |> Ash.Query.filter(identifier_value in ^values)
+    |> Ash.read!(actor: actor)
+    |> Map.new(&{&1.identifier_value, &1.device_id})
+  end
+
+  defp unmerge_details(actor, device_uid) do
+    MergeAudit
+    |> Ash.Query.filter(to_device_id == ^device_uid and reason == "unmerge")
+    |> Ash.read!(actor: actor)
+    |> case do
+      [%MergeAudit{details: details}] -> details
+      other -> flunk("expected one unmerge row for #{device_uid}, got #{inspect(other)}")
+    end
+  end
+
+  defp unique(prefix), do: "#{prefix}-#{System.unique_integer([:positive])}"
+
+  # Invented MAC in the IANA 00:00:5E block, normalized as stored. Every value is
+  # unique for the VM and stays clear of the 00:00:5E:00:53:xx addresses other
+  # suites hard-code, so it cannot collide with a row committed by a concurrent test.
+  defp doc_mac do
+    suffix =
+      [:positive]
+      |> System.unique_integer()
+      |> rem(0x100000)
+      |> Kernel.+(0xF00000)
+      |> Integer.to_string(16)
+
+    "00005E" <> suffix
   end
 
   defp mac_suffix do

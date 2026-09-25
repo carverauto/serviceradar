@@ -3,8 +3,6 @@
 \* scenario. Regenerate with DIRE_TRACE_WRITE=1; do not edit by hand.
 EXTENDS DireLifecycleTrace, CurrentBugs
 
-KnockoutBugs == LifecycleBugs \ {"unmerge_restores_matches"}
-
 TheLog == <<
   [status |-> ("d1" :> "absent" @@ "d2" :> "absent"), reason |-> ("d1" :> "none" @@ "d2" :> "none"), owner |-> ("i1" :> NoDev @@ "i2" :> NoDev), ipOf |-> ("d1" :> NoIp @@ "d2" :> NoIp), audit |-> <<>>, work |-> {}, act |-> [name |-> "Init", u |-> NoDev, v |-> NoDev, row |-> 0, stale |-> FALSE, bumped |-> {}]],
   [status |-> ("d1" :> "absent" @@ "d2" :> "absent"), reason |-> ("d1" :> "none" @@ "d2" :> "none"), owner |-> ("i1" :> NoDev @@ "i2" :> NoDev), ipOf |-> ("d1" :> NoIp @@ "d2" :> NoIp), audit |-> <<>>, work |-> {[target |-> "d1", stale |-> FALSE]}, act |-> [name |-> "StartWork", u |-> "d1", v |-> "d1", row |-> 0, stale |-> FALSE, bumped |-> {}]],
@@ -12,6 +10,6 @@ TheLog == <<
   [status |-> ("d1" :> "live" @@ "d2" :> "absent"), reason |-> ("d1" :> "none" @@ "d2" :> "none"), owner |-> ("i1" :> "d1" @@ "i2" :> NoDev), ipOf |-> ("d1" :> "p1" @@ "d2" :> NoIp), audit |-> <<>>, work |-> {[target |-> "d2", stale |-> FALSE]}, act |-> [name |-> "StartWork", u |-> "d2", v |-> "d2", row |-> 0, stale |-> FALSE, bumped |-> {}]],
   [status |-> ("d1" :> "live" @@ "d2" :> "live"), reason |-> ("d1" :> "none" @@ "d2" :> "none"), owner |-> ("i1" :> "d1" @@ "i2" :> "d2"), ipOf |-> ("d1" :> "p1" @@ "d2" :> "p2"), audit |-> <<>>, work |-> {}, act |-> [name |-> "Commit", u |-> NoDev, v |-> "d2", row |-> 0, stale |-> FALSE, bumped |-> {"d2"}]],
   [status |-> ("d1" :> "live" @@ "d2" :> "tomb"), reason |-> ("d1" :> "none" @@ "d2" :> "merged"), owner |-> ("i1" :> "d1" @@ "i2" :> "d1"), ipOf |-> ("d1" :> "p1" @@ "d2" :> "p2"), audit |-> <<[from |-> "d2", to |-> "d1", kind |-> "merge", ids |-> {"i1", "i2"}, srcIds |-> {"i2"}, recent |-> TRUE]>>, work |-> {}, act |-> [name |-> "Merge", u |-> "d2", v |-> "d1", row |-> 1, stale |-> FALSE, bumped |-> {"d1", "d2"}]],
-  [status |-> ("d1" :> "live" @@ "d2" :> "live"), reason |-> ("d1" :> "none" @@ "d2" :> "none"), owner |-> ("i1" :> "d2" @@ "i2" :> "d2"), ipOf |-> ("d1" :> "p1" @@ "d2" :> "p2"), audit |-> <<[from |-> "d2", to |-> "d1", kind |-> "merge", ids |-> {"i1", "i2"}, srcIds |-> {"i2"}, recent |-> FALSE], [from |-> "d1", to |-> "d2", kind |-> "unmerge", ids |-> {}, srcIds |-> {}, recent |-> TRUE]>>, work |-> {}, act |-> [name |-> "Unmerge", u |-> "d2", v |-> "d1", row |-> 1, stale |-> FALSE, bumped |-> {"d1", "d2"}]]
+  [status |-> ("d1" :> "live" @@ "d2" :> "live"), reason |-> ("d1" :> "none" @@ "d2" :> "none"), owner |-> ("i1" :> "d1" @@ "i2" :> "d2"), ipOf |-> ("d1" :> "p1" @@ "d2" :> "p2"), audit |-> <<[from |-> "d2", to |-> "d1", kind |-> "merge", ids |-> {"i1", "i2"}, srcIds |-> {"i2"}, recent |-> FALSE], [from |-> "d1", to |-> "d2", kind |-> "unmerge", ids |-> {}, srcIds |-> {}, recent |-> TRUE]>>, work |-> {}, act |-> [name |-> "Unmerge", u |-> "d2", v |-> "d1", row |-> 1, stale |-> FALSE, bumped |-> {"d1", "d2"}]]
 >>
 ====

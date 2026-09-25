@@ -81,7 +81,12 @@ Merged-away device IDs are never resurrected: resolution follows the
   linked record (identifiers, service checks, alerts, agents, per-agent
   availability, alias states, interfaces, endpoint inventory).
   `unmerge_device` restores a tombstoned device in place from the audit
-  trail (the original IP is reclaimed only if unheld).
+  trail (the original IP is reclaimed only if unheld). Every merge records
+  the merged-away device's own identifiers in
+  `merge_audit.details.source_identifiers`; an unmerge moves back exactly
+  those the survivor still holds, never the survivor's own. Merge rows
+  written before that field existed restore only the merged-away device's
+  conflict matches, or nothing.
 - Identifier ownership never changes silently: upserts do not re-point
   `device_id` on conflict; moves happen via merges or the explicit
   `:reassign_device` action.

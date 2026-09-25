@@ -64,17 +64,6 @@ tlc_test(
 )
 
 tlc_test(
-    name = "lifecycle_witness_unmerge_restores_matches_test",
-    cfg = "lifecycle_witness_unmerge_restores_matches.cfg",
-    expect = "violation:UnmergeRestoresExactly",
-    spec = "MCDireLifecycle.tla",
-    deps = [
-        "CurrentBugs.tla",
-        "DireLifecycle.tla",
-    ],
-)
-
-tlc_test(
     name = "lifecycle_witness_purge_forgets_redirect_test",
     cfg = "lifecycle_witness_purge_forgets_redirect.cfg",
     expect = "violation:NoPurgedResurrection",
@@ -548,17 +537,6 @@ tlc_test(
 
 # ---- Knockouts: each lifecycle trace with the defect switch it demonstrates turned off ----
 # TLC must NOT match the trace, which proves the real code exhibits that defect.
-
-tlc_test(
-    name = "trace_conflict_unmerge__knockout_test",
-    cfg = "traces/Trace_conflict_unmerge__knockout.cfg",
-    spec = "traces/Trace_conflict_unmerge.tla",
-    deps = [
-        "CurrentBugs.tla",
-        "DireLifecycle.tla",
-        "DireLifecycleTrace.tla",
-    ],
-)
 
 tlc_test(
     name = "trace_purge_recreate__knockout_test",
