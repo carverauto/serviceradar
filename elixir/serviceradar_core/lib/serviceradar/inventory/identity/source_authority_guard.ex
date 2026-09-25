@@ -4,17 +4,147 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
 
   A MAC, IP, hostname, or transitive duplicate edge cannot authorize combining
   two non-empty, disjoint Armis identity sets from the same source scope.
+
+  The same rule governs resolution: an update carrying a source-authoritative
+  identifier never resolves onto a record, through a shared MAC or any other
+  identifier, when that record holds a different source-authoritative
+  identifier in the same scope. The source-authoritative identifier decides,
+  the shared identifier is evidence only, and the override is recorded
+  (`source_mismatch?/3`, `record_overrides/1`).
   """
 
   import Ecto.Query
 
   alias Ecto.Adapters.SQL
+  alias ServiceRadar.Ash.Page
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.DecisionLog
+  alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.SourceIdentityDrift
   alias ServiceRadar.Repo
 
+  require Ash.Query
+
   @typed_identifier :armis_device_id
+
+  @typedoc "Source-authoritative identifiers per device, as `{partition, value}` pairs."
+  @type held :: %{String.t() => MapSet.t({String.t(), String.t()})}
+
+  @typedoc """
+  A resolution that refused identifier matches on records holding a different
+  source-authoritative identifier (`SourceIdentityDrift.build_source_override_conflict/1`).
+  """
+  @type override :: %{
+          update: map(),
+          ids: Ids.strong_identifiers(),
+          device_uid: String.t(),
+          overridden: [
+            %{
+              device_uid: String.t(),
+              identifier_type: atom(),
+              identifier_value: String.t(),
+              source_ids: [String.t()]
+            }
+          ]
+        }
+
+  @doc """
+  The source-authoritative identifiers each of `device_ids` holds.
+  """
+  @spec held_source_ids([String.t()], term()) :: held()
+  def held_source_ids(device_ids, actor) do
+    case device_ids |> Enum.filter(&is_binary/1) |> Enum.uniq() do
+      [] ->
+        %{}
+
+      device_ids ->
+        query_opts = if actor, do: [actor: actor], else: []
+
+        DeviceIdentifier
+        |> Ash.Query.filter(device_id in ^device_ids and identifier_type == ^@typed_identifier)
+        |> Ash.Query.select([:device_id, :identifier_value, :partition])
+        |> Page.stream!(query_opts)
+        |> Enum.group_by(& &1.device_id, &{&1.partition, &1.identifier_value})
+        |> Map.new(fn {device_id, pairs} -> {device_id, MapSet.new(pairs)} end)
+    end
+  end
+
+  @doc """
+  True when an update carrying `ids` must not resolve onto `device_id`: the
+  update carries a source-authoritative identifier, the device holds at least
+  one in the update's scope (its identifier partition, which carries the sync
+  source), and none of them is the update's.
+
+  A device holding no source-authoritative identifier is not a mismatch: a
+  discovered record of the same device, found through its MAC, is what the
+  source-authoritative identifier should attach to.
+  """
+  @spec source_mismatch?(Ids.strong_identifiers(), String.t(), held()) :: boolean()
+  def source_mismatch?(ids, device_id, held) do
+    case Ids.ids_get(ids, :armis_id) do
+      value when is_binary(value) and value != "" ->
+        scoped = scoped_source_ids(held, device_id, Ids.ids_get_partition(ids))
+        scoped != [] and value not in scoped
+
+      _ ->
+        false
+    end
+  end
+
+  @doc "The source-authoritative identifiers `device_id` holds in `partition`, sorted."
+  @spec scoped_source_ids(held(), String.t(), String.t()) :: [String.t()]
+  def scoped_source_ids(held, device_id, partition) do
+    held
+    |> Map.get(device_id, MapSet.new())
+    |> Enum.flat_map(fn
+      {^partition, value} -> [value]
+      _other -> []
+    end)
+    |> Enum.sort()
+  end
+
+  @doc """
+  Record source-authoritative overrides: one telemetry event, one identity decision and one
+  open `SourceIdentityConflict` row (category `source_authoritative_override`) per update, so
+  an operator can review every identity the rule decided.
+  """
+  @spec record_overrides([override()]) :: :ok | {:error, term()}
+  def record_overrides([]), do: :ok
+
+  def record_overrides(overrides) when is_list(overrides) do
+    # One row per open conflict key: a batch repeating an update records it once.
+    overrides = Enum.uniq_by(overrides, &{&1.device_uid, Ids.ids_get(&1.ids, :armis_id)})
+
+    _ = DecisionLog.record_many(Enum.map(overrides, &override_decision/1))
+
+    overrides
+    |> Enum.map(&SourceIdentityDrift.build_source_override_conflict/1)
+    |> SourceIdentityDrift.record_conflicts()
+  end
+
+  defp override_decision(%{device_uid: device_uid, overridden: overridden} = override) do
+    overridden_uids = overridden |> Enum.map(& &1.device_uid) |> Enum.uniq() |> Enum.sort()
+
+    %{
+      kind: :source_override,
+      reason: "source_authoritative_identifier",
+      device_uids: [device_uid | overridden_uids],
+      source: "source_authority_guard",
+      evidence: %{
+        "armis_device_id" => Ids.ids_get(override.ids, :armis_id),
+        "partition" => Ids.ids_get_partition(override.ids),
+        "matched_identifiers" =>
+          Enum.map(overridden, fn match ->
+            %{
+              "device_uid" => match.device_uid,
+              "identifier_type" => match.identifier_type,
+              "identifier_value" => match.identifier_value,
+              "device_source_ids" => match.source_ids
+            }
+          end)
+      }
+    }
+  end
 
   @spec conflict_details([String.t()], keyword()) :: map() | nil
   def conflict_details(device_ids, opts \\ []) when is_list(device_ids) do

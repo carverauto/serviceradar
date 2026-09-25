@@ -1037,6 +1037,136 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
     assert deleted_at
   end
 
+  # #4611: an Armis id decides identity. A second Armis device reporting a MAC that a record
+  # holding a different Armis id owns (cloned VMs, a swapped NIC) gets its own record, the MAC
+  # stays with its owner, and the override is recorded for review.
+  describe "source-authoritative override of a shared MAC" do
+    test "the batch path gives the second Armis id its own record and records it", %{
+      actor: actor
+    } do
+      n = System.unique_integer([:positive])
+      mac = "00:00:5E:00:53:#{hex2(rem(n, 200) + 16)}"
+      armis_a = "#{n}01"
+      armis_b = "#{n}02"
+
+      assert :ok =
+               SyncIngestor.ingest_updates([armis_update(armis_a, doc_ip(n, 1), mac)],
+                 actor: actor
+               )
+
+      device_a = device_for_armis_id(armis_a, actor)
+      assert is_binary(device_a)
+
+      for _sync <- 1..2 do
+        assert :ok =
+                 SyncIngestor.ingest_updates([armis_update(armis_b, doc_ip(n, 2), mac)],
+                   actor: actor
+                 )
+      end
+
+      device_b = device_for_armis_id(armis_b, actor)
+      assert is_binary(device_b)
+      assert device_b != device_a
+      assert device_for_armis_id(armis_a, actor) == device_a
+      assert device_for_mac(mac_value(mac), actor) == device_a
+
+      assert [conflict] = override_conflicts(device_b, actor)
+      assert conflict.source_identifier_value == armis_b
+      assert conflict.conflicting_identifiers["overridden_device_uids"] == [device_a]
+      assert conflict.status == "open"
+    end
+
+    test "the resolver path refuses the shared MAC and records it", %{actor: actor} do
+      n = System.unique_integer([:positive])
+      mac = "00:00:5E:00:53:#{hex2(rem(n, 200) + 16)}"
+      armis_a = "#{n}01"
+      armis_b = "#{n}02"
+
+      assert :ok =
+               SyncIngestor.ingest_updates([armis_update(armis_a, doc_ip(n, 1), mac)],
+                 actor: actor
+               )
+
+      device_a = device_for_armis_id(armis_a, actor)
+
+      update = %{
+        device_id: nil,
+        ip: doc_ip(n, 2),
+        mac: mac,
+        partition: "default",
+        metadata: %{"integration_type" => "armis", "armis_device_id" => armis_b}
+      }
+
+      assert {:ok, resolved} = IdentityReconciler.resolve_device_id(update, actor: actor)
+      assert resolved != device_a
+      assert [conflict] = override_conflicts(resolved, actor)
+      assert conflict.conflicting_identifiers["overridden_device_uids"] == [device_a]
+    end
+
+    test "an Armis id still attaches to a record holding no Armis id through its MAC", %{
+      actor: actor
+    } do
+      n = System.unique_integer([:positive])
+      mac = "00:00:5E:00:53:#{hex2(rem(n, 200) + 16)}"
+      armis_id = "#{n}03"
+
+      census = %{
+        "ip" => doc_ip(n, 3),
+        "mac" => mac,
+        "source" => "netprobe-census",
+        "partition" => "default",
+        "agent_id" => "batch-resolution-observer",
+        "metadata" => %{
+          "mac" => mac,
+          "source" => "netprobe-census",
+          "discovery_source" => "netprobe-census",
+          "identity_source" => "netprobe_census",
+          "agent_id" => "batch-resolution-observer"
+        }
+      }
+
+      assert :ok = SyncIngestor.ingest_updates([census], actor: actor)
+      discovered = device_for_mac(mac_value(mac), actor)
+      assert is_binary(discovered)
+
+      assert :ok =
+               SyncIngestor.ingest_updates([armis_update(armis_id, doc_ip(n, 3), mac)],
+                 actor: actor
+               )
+
+      assert device_for_armis_id(armis_id, actor) == discovered
+      assert override_conflicts(discovered, actor) == []
+    end
+  end
+
+  defp armis_update(armis_id, ip, mac) do
+    %{
+      "ip" => ip,
+      "mac" => mac,
+      "hostname" => "armis-#{armis_id}",
+      "source" => "armis",
+      "metadata" => %{
+        "integration_type" => "armis",
+        "armis_device_id" => armis_id,
+        "integration_id" => "armis:batch-resolution:device:#{armis_id}"
+      }
+    }
+  end
+
+  defp override_conflicts(device_uid, actor) do
+    SourceIdentityConflict
+    |> Ash.Query.filter(
+      conflict_category == "source_authoritative_override" and device_uid == ^device_uid
+    )
+    |> Ash.read!(actor: actor)
+  end
+
+  defp doc_ip(n, i), do: "198.51.100.#{rem(n * 3 + i, 250) + 1}"
+
+  defp mac_value(mac), do: mac |> String.replace(":", "") |> String.upcase()
+
+  defp hex2(n), do: n |> Integer.to_string(16) |> String.pad_leading(2, "0")
+
   defp device_for_mac(mac, actor) do
     query =
       Ash.Query.for_read(DeviceIdentifier, :lookup, %{

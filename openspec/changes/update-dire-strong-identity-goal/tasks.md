@@ -32,7 +32,7 @@ configuration. Confirmed defects (`formal/dire/README.md` has code paths and wit
       check-in (`AgentGatewaySync`), confirmed by trace; the mapper never reaches `AliasGuard`.
       `maybe_merge_ip_alias_device/3` no longer merges: an identified alias holder has the alias
       invalidated, an address-only holder is left alone.
-- [ ] 3.3 `src_attach_via_mac`: a source-authoritative id attaches through a MAC to a record
+- [x] 3.3 `src_attach_via_mac`: a source-authoritative id attaches through a MAC to a record
       holding a different source-authoritative id.
 - [ ] 3.4 `mac_only_conflicts_blocked`: allow globally-unique MAC evidence to merge; keep
       randomized MACs excluded. The conflict arises on agent check-in; a router's per-interface

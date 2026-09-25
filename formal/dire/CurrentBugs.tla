@@ -16,7 +16,6 @@
 ResolutionBugs == {
     "mac_only_conflicts_blocked",
     "mapper_resolves_by_address",
-    "src_attach_via_mac",
     "stale_holder_keeps_address"
 }
 

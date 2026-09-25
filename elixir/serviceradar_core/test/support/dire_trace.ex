@@ -40,7 +40,8 @@ defmodule ServiceRadar.DireTrace do
     [:serviceradar, :identity_reconciler, :merge, :blocked],
     [:serviceradar, :identity_reconciler, :merge, :guard_blocked],
     [:serviceradar, :identity_reconciler, :alias, :invalidated],
-    [:serviceradar, :identity_reconciler, :source_identity, :active_ip_conflict]
+    [:serviceradar, :identity_reconciler, :source_identity, :active_ip_conflict],
+    [:serviceradar, :identity_reconciler, :source_identity, :source_override]
   ]
 
   defstruct [
@@ -518,6 +519,16 @@ defmodule ServiceRadar.DireTrace do
               name_of!(trace, meta.incoming_device_uid),
               name_of!(trace, meta.existing_device_uid)
             ])
+        }
+
+      {[_, _, :source_identity, :source_override], _m, meta} ->
+        %{
+          kind: "source_override",
+          recs:
+            [meta.device_uid | meta.overridden_device_uids]
+            |> Enum.map(&name_of!(trace, &1))
+            |> Enum.uniq()
+            |> Enum.sort()
         }
 
       {[_, _, :alias, :invalidated], _m, meta} ->

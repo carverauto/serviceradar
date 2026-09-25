@@ -43,7 +43,6 @@ CONSTANTS
 
 KnownBugs == {
     "mac_only_conflicts_blocked",  \* inventory/identity/merge_policy.ex mac_only_matches?/1
-    "src_attach_via_mac",          \* inventory/identity/resolver.ex lookup_by_strong_identifiers/3
     "mapper_resolves_by_address",  \* network_discovery/mapper_results_ingestor.ex resolve_device_ids/2
     "stale_holder_keeps_address"   \* inventory/sync/device_writes.ex resolve_record_active_ip/7
 }
@@ -178,12 +177,12 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims) ==
     LET p       == ipAt[x]
         srcS    == S \cap SrcIds
         \* A matched record holding a different source-authoritative identifier than the one
-        \* this update carries. Today the update attaches to it anyway: conflict detection only
-        \* compares identifiers that are already owned, and this update's own id is new.
-        \* Goal: the source-authoritative identifier decides; such a record is not a match.
+        \* this update carries is not a match: the source-authoritative identifier decides, and
+        \* the override is recorded (SourceAuthorityGuard.source_mismatch?/3, applied by
+        \* BatchResolver.strong_match/2 and Resolver.lookup_governed_matches/3; #4611).
         srcMismatch(r) == srcS # {} /\ SrcHeld(r) # {} /\ SrcHeld(r) \cap srcS = {}
         allM    == {Canon(owner[i]) : i \in {j \in S : owner[j] # NoRec}}
-        M       == IF Bug("src_attach_via_mac") THEN allM ELSE {r \in allM : ~srcMismatch(r)}
+        M       == {r \in allM : ~srcMismatch(r)}
         matched == {i \in S : owner[i] # NoRec /\ Canon(owner[i]) \in M}
     IN
     \E X \in (IF M # {} THEN M ELSE {NoRec}) :

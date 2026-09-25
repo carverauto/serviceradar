@@ -40,6 +40,36 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuardTest do
     assert SourceAuthorityGuard.conflict_from_rows(rows, ["device-a", "device-b"]) == nil
   end
 
+  describe "source_mismatch?/3" do
+    setup do
+      held = %{
+        "device-a" => MapSet.new([{"default", "100"}]),
+        "device-b" => MapSet.new([{"default:armis:source-2", "200"}])
+      }
+
+      {:ok, held: held}
+    end
+
+    test "refuses a record holding a different id in the update's scope", %{held: held} do
+      assert SourceAuthorityGuard.source_mismatch?(ids("200", "default"), "device-a", held)
+    end
+
+    test "accepts a record holding the update's own id", %{held: held} do
+      refute SourceAuthorityGuard.source_mismatch?(ids("100", "default"), "device-a", held)
+    end
+
+    test "accepts a record holding no id, or ids only in another scope", %{held: held} do
+      refute SourceAuthorityGuard.source_mismatch?(ids("100", "default"), "device-c", held)
+      refute SourceAuthorityGuard.source_mismatch?(ids("100", "default"), "device-b", held)
+    end
+
+    test "never refuses for an update without a source-authoritative id", %{held: held} do
+      refute SourceAuthorityGuard.source_mismatch?(%{partition: "default"}, "device-a", held)
+    end
+  end
+
+  defp ids(armis_id, partition), do: %{armis_id: armis_id, partition: partition}
+
   defp row(device_id, identifier_value, partition, source_id) do
     %{
       device_id: device_id,
