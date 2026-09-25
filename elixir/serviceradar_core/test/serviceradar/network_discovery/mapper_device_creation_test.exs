@@ -1035,7 +1035,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     assert Enum.all?(interfaces, &(&1.device_id == uid))
   end
 
-  test "an existing device polled at an address another device holds keeps its own and records the conflict",
+  test "an existing device polled at an address a newer-observed device holds keeps its own and records the conflict",
        %{actor: actor} do
     uniq = System.unique_integer([:positive, :monotonic])
     own_ip = unique_test_ip(198, 51, 110, uniq)
@@ -1049,13 +1049,54 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
 
     {:ok, _holder} =
       Device
-      |> Ash.Changeset.for_create(:create, %{uid: holder_uid, ip: held_ip})
+      |> Ash.Changeset.for_create(:create, %{
+        uid: holder_uid,
+        ip: held_ip,
+        last_seen_time: DateTime.add(DateTime.utc_now(), 3600, :second)
+      })
       |> Ash.create(actor: actor)
 
     assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(held_ip, [mac]), %{})
 
     assert [%Device{uid: ^uid}] = wait_for_devices_by_ip(actor, own_ip)
     assert [%Device{uid: ^holder_uid}] = wait_for_devices_by_ip(actor, held_ip)
+
+    assert {:ok, decisions} = IdentityDecision.for_device(uid, actor: actor)
+
+    assert Enum.any?(decisions, fn decision ->
+             decision.decision_kind == :ip_conflict and decision.subject == held_ip and
+               decision.device_uids == Enum.sort([uid, holder_uid])
+           end)
+  end
+
+  test "an existing device polled at an address a stale device holds takes it and the holder releases it",
+       %{actor: actor} do
+    uniq = System.unique_integer([:positive, :monotonic])
+    own_ip = unique_test_ip(198, 51, 110, uniq)
+    held_ip = unique_test_ip(198, 51, 120, uniq + 1)
+    mac = unique_global_test_mac(uniq)
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(own_ip, [mac]), %{})
+    assert [%Device{uid: uid}] = wait_for_devices_by_ip(actor, own_ip)
+
+    holder_uid = "sr:" <> Ecto.UUID.generate()
+
+    {:ok, _holder} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{
+        uid: holder_uid,
+        ip: held_ip,
+        last_seen_time: DateTime.add(DateTime.utc_now(), -3600, :second)
+      })
+      |> Ash.create(actor: actor)
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(held_ip, [mac]), %{})
+
+    assert [%Device{uid: ^uid}] = wait_for_devices_by_ip(actor, held_ip)
+    assert wait_for_devices_by_ip(actor, own_ip, 1) == []
+
+    assert {:ok, %Device{ip: nil, deleted_at: nil}} =
+             Device.get_by_uid(holder_uid, false, actor: actor)
 
     assert {:ok, decisions} = IdentityDecision.for_device(uid, actor: actor)
 

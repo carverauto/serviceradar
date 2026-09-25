@@ -1935,49 +1935,92 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   defp bare_address(_value), do: nil
 
-  # Moves an existing device to the address it was polled at. A different live device still
-  # holding that address keeps it, and the refusal is recorded as an active-IP conflict: the
-  # same outcome as the strong-identifier branch of
-  # `DeviceWrites.resolve_record_active_ip/7` (model switch `stale_holder_keeps_address`), and
-  # the two must change together.
+  # Moves an existing device to the address it was polled at, under the rule of
+  # `DeviceWrites.claim_address_from_holder/4`: the address follows the newer observation. A
+  # live holder last seen before this poll is stale (DHCP churn), so it releases the address in
+  # the same transaction the device takes it in. A holder not older keeps it, the device keeps
+  # its own address, and the refusal is recorded as an active-IP conflict.
   defp move_device_address(%Device{} = device, ip, partition, actor) do
     case live_address_holder(ip, partition, device.uid) do
       nil ->
-        device
-        |> Ash.Changeset.for_update(:update, %{ip: ip})
-        |> Ash.update(actor: actor)
-        |> case do
+        case set_device_address(device, ip, actor) do
           {:ok, _device} ->
             Logger.info("Mapper moved device #{device.uid} to polled address #{ip}")
 
           {:error, reason} ->
-            Logger.warning(
-              "Mapper could not move device #{device.uid} to #{ip}: #{inspect(reason)}"
-            )
+            log_move_failure(device, ip, reason)
         end
 
-      holder_uid ->
-        Logger.info(
-          "Mapper left polled address #{ip} with #{holder_uid}; device #{device.uid} keeps " <>
-            "#{inspect(device.ip)}"
-        )
+      %{uid: holder_uid} = holder ->
+        if DeviceWrites.observed_after?(%{last_seen_time: DateTime.utc_now()}, holder) do
+          take_address_from_stale_holder(device, holder_uid, ip, actor)
+        else
+          Logger.info(
+            "Mapper left polled address #{ip} with #{holder_uid}; device #{device.uid} keeps " <>
+              "#{inspect(device.ip)}"
+          )
 
-        SourceIdentityDrift.record_active_ip_conflict(
-          %{uid: device.uid, mac: device.mac, metadata: %{"integration_type" => "mapper"}},
-          holder_uid,
-          ip
-        )
-
-        DecisionLog.record(:ip_conflict, "active_ip_conflict", [device.uid, holder_uid],
-          subject: ip,
-          source: "mapper",
-          evidence: %{
-            "incoming_device_uid" => device.uid,
-            "existing_device_uid" => holder_uid,
-            "ip" => ip
-          }
-        )
+          record_address_conflict(device, holder_uid, ip, :drop_ip)
+        end
     end
+  end
+
+  defp take_address_from_stale_holder(%Device{} = device, holder_uid, ip, actor) do
+    result =
+      Repo.transaction(fn ->
+        DeviceWrites.lock_and_clear_for_upsert([%{uid: device.uid}], [{holder_uid, ip}])
+
+        case set_device_address(device, ip, actor) do
+          {:ok, _device} -> :ok
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end)
+
+    case result do
+      {:ok, :ok} ->
+        Logger.info(
+          "Mapper moved device #{device.uid} to polled address #{ip}, released from stale " <>
+            "holder #{holder_uid}"
+        )
+
+        record_address_conflict(device, holder_uid, ip, :release_holder)
+
+      {:error, reason} ->
+        log_move_failure(device, ip, reason)
+    end
+  end
+
+  defp set_device_address(%Device{} = device, ip, actor) do
+    device
+    |> Ash.Changeset.for_update(:update, %{ip: ip})
+    |> Ash.update(actor: actor)
+  end
+
+  defp log_move_failure(%Device{} = device, ip, reason) do
+    Logger.warning("Mapper could not move device #{device.uid} to #{ip}: #{inspect(reason)}")
+  end
+
+  defp record_address_conflict(%Device{} = device, holder_uid, ip, action) do
+    conflict =
+      SourceIdentityDrift.build_active_ip_conflict(
+        %{uid: device.uid, mac: device.mac, metadata: %{"integration_type" => "mapper"}},
+        holder_uid,
+        ip,
+        action: action
+      )
+
+    SourceIdentityDrift.record_conflicts([conflict])
+
+    DecisionLog.record(:ip_conflict, "active_ip_conflict", [device.uid, holder_uid],
+      subject: ip,
+      source: "mapper",
+      evidence: %{
+        "incoming_device_uid" => device.uid,
+        "existing_device_uid" => holder_uid,
+        "ip" => ip,
+        "proposed_action" => conflict.proposed_action
+      }
+    )
   end
 
   defp live_address_holder(ip, partition, device_uid) do
@@ -1985,7 +2028,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       from(d in Device,
         where: d.ip == ^ip and d.partition == ^normalize_partition(partition),
         where: is_nil(d.deleted_at) and d.uid != ^device_uid,
-        select: d.uid,
+        select: %{uid: d.uid, last_seen_time: d.last_seen_time},
         limit: 1
       )
     )

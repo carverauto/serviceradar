@@ -128,7 +128,10 @@ the MACs identify.
   rules as any strong write.
 - An existing device moves to the polled address only when its recorded
   address is not one its interfaces still report, so a router polled at its
-  WAN and LAN addresses keeps one address.
+  WAN and LAN addresses keeps one address. The address follows the newer
+  observation: a live holder last seen before the poll releases it in the same
+  transaction, and a holder that is not older keeps it, with an
+  `active_ip_conflict` recorded.
 - Only globally-unique MACs identify a device. A poll that reports no
   globally-unique interface MAC, whether it has none or only randomized ones,
   falls back to the address: the live holder, then a confirmed alias, then an
