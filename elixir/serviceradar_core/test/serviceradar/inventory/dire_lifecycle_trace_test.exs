@@ -82,14 +82,15 @@ defmodule ServiceRadar.Inventory.DireLifecycleTraceTest do
     |> Trace.assert_golden!(demonstrates: "sweep_restores_merged")
   end
 
-  # #4615: an agent check-in clears its device's tombstone.
+  # #4615 (fixed): an agent check-in restores its soft-deleted device, and the restore bumps
+  # its identity_revision. Kept as a regression trace.
   test "gateway_sync_revival", %{actor: actor} do
     "gateway_sync_revival"
     |> Trace.start(world(["d1"], %{"i1" => :agent}, ["p1"]), actor)
     |> Trace.agent("i1", "p1")
     |> Trace.soft_delete("d1")
     |> Trace.agent("i1", "p1")
-    |> Trace.assert_golden!(demonstrates: "gateway_sync_no_bump")
+    |> Trace.assert_golden!()
   end
 
   # #4620: once a merged-away device is purged, a source still carrying its uid re-creates it.

@@ -58,7 +58,6 @@ either way; the property guards against any change that lets address evidence me
 | `mapper_resolves_by_address` | resolution | `network_discovery/mapper_results_ingestor.ex` `resolve_device_ids/2` (address first, then alias, then DIRE) | `NoFalseInterfaceClaim` |
 | `stale_holder_keeps_address` | resolution | `inventory/sync/device_writes.ex` `resolve_record_active_ip/7` (a fresh strong claim drops the address) | `ObservedAddressHeld` |
 | `silent_blocks` | resolution | MergePolicy and AliasGuard telemetry-only decisions | `NoSilentDecision` |
-| `gateway_sync_no_bump` | lifecycle | `inventory/device.ex` `:gateway_sync` | `RevivalBumpsRevision` |
 | `sweep_restores_merged` | lifecycle | `sweep_jobs/sweep_results_ingestor.ex` `restore_eligible?/1` | `NoZombieRevival` |
 | `fence_observe_only` | lifecycle | `inventory/identity/fence.ex` (no enforcing caller) | `NoStaleCommit` |
 | `unmerge_restores_matches` | lifecycle | `inventory/identity/merge_engine.ex` `reassign_original_identifiers/4` | `UnmergeRestoresExactly` |
@@ -72,7 +71,8 @@ Code paths are relative to `elixir/serviceradar_core/lib/serviceradar/`.
 |---|---|---|
 | `sync_alias_merge_unguarded` | #4609 (`AliasGuard.distinct_identified_devices?/3` in `Sync.Aliases`) | `NoFalseMerge`, `AddressNeverMerges` in every `resolution_goal_*` |
 | `alias_merge_on_unknown_mac` | #4610 (`AliasGuard.maybe_merge_ip_alias_device/3` never merges: an identified alias holder has the alias invalidated, an address-only holder is left alone) | `NoFalseMerge`, `AddressNeverMerges` in every `resolution_goal_*` |
-| `upsert_revives_merged` | #4614 (the `DeviceWrites` upsert's `on_conflict` WHERE skips a merged-away row and `follow_merged_away_uids/2` redirects that write's identifiers to the survivor; any other revival bumps `identity_revision`) | `lifecycle_goal`; `RevivalBumpsRevision` joins `lifecycle_current` once `gateway_sync_no_bump` is fixed, `NoZombieRevival` once `gateway_sync_no_bump` and `sweep_restores_merged` are; the `upsert_zombie` witness needed this switch and went with it |
+| `upsert_revives_merged` | #4614 (the `DeviceWrites` upsert's `on_conflict` WHERE skips a merged-away row and `follow_merged_away_uids/2` redirects that write's identifiers to the survivor; any other revival bumps `identity_revision`) | `RevivalBumpsRevision` in `lifecycle_current` (with #4615); `NoZombieRevival` joins it once `sweep_restores_merged` is fixed; the `upsert_zombie` witness needed this switch and went with it |
+| `gateway_sync_no_bump` | #4615 (an agent check-in restores a soft-deleted device through `Device :gateway_restore`, which bumps `identity_revision`, and follows the merge of a merged-away one; `:gateway_sync` no longer clears a tombstone) | `RevivalBumpsRevision` in `lifecycle_current`; `NoZombieRevival` joins it once `sweep_restores_merged` is fixed |
 | `follow_stale_audit` | #4616 (`Resolver.do_follow_canonical/3` follows only a `deleted_reason = "merged"` tombstone) | `NoStaleRedirect`, `MergeGraphAcyclic` in `lifecycle_current`; the `merge_cycle` witness needed this switch and went with it |
 
 ## Resolution environments
@@ -132,13 +132,13 @@ turned off, so each one proves its defect on the real code:
 | --- | --- | --- |
 | `conflict_unmerge` | `unmerge_restores_matches` | #4619 |
 | `sweep_restores_merged` | `sweep_restores_merged` | #4617 |
-| `gateway_sync_revival` | `gateway_sync_no_bump` | #4615 |
 | `purge_recreate` | `purge_forgets_redirect` | #4620 |
 
 A trace whose defect is fixed stays as a regression trace, with no knockout: `stale_redirect`
 (#4616) records the fixed resolver keeping a device deleted after an unmerge on its own uid, and
 `soft_delete_upsert_revival` (#4614) records the upsert reviving a soft-deleted device with an
-`identity_revision` bump.
+`identity_revision` bump, and `gateway_sync_revival` (#4615) records an agent check-in restoring
+its soft-deleted device with a bump.
 
 The integration test compares every freshly recorded trace with the committed file. When the
 code's behavior changes, that comparison fails. Regenerate on a scratch database with

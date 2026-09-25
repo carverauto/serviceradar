@@ -322,12 +322,33 @@ defmodule ServiceRadar.Inventory.Device do
     end
 
     update :gateway_sync do
+      description """
+      Agent check-in on a live device. It never clears a tombstone: a check-in that
+      reaches a soft-deleted device restores it through :gateway_restore, and one that
+      reaches a merged-away device follows the merge instead (AgentGatewaySync).
+      """
+
+      accept @gateway_sync_fields
+
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
+    update :gateway_restore do
+      description """
+      Agent check-in on a soft-deleted device: writes the check-in fields and restores
+      the device in one statement, so the new address and the revival land together.
+      A restore, with :restore's identity_revision bump; the trg_ocsf_devices_revival_audit
+      trigger records the tombstone it clears. Never used on a merged-away device
+      (deleted_reason "merged"): AgentGatewaySync follows the merge instead.
+      """
+
       accept @gateway_sync_fields
 
       change set_attribute(:deleted_at, nil)
       change set_attribute(:deleted_by, nil)
       change set_attribute(:deleted_reason, nil)
       change set_attribute(:modified_time, &DateTime.utc_now/0)
+      change BumpIdentityRevision
     end
 
     update :assign_to_group do

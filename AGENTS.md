@@ -238,7 +238,7 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 
   Practical consequences, all of them earned:
   - **Find every writer, not the obvious one.** Three code paths clear a device
-    tombstone: `Device` actions `:gateway_sync` and `:restore`, and a raw Ecto
+    tombstone: `Device` actions `:gateway_restore` and `:restore`, and a raw Ecto
     `on_conflict` in `inventory/sync/device_writes.ex` that never builds an Ash
     changeset. A guard placed in an Ash change module is blind to the third by
     construction. `grep` for the attribute, not for the action.

@@ -4,6 +4,7 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
   import Ecto.Query
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Edge.AgentGatewaySync
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceCleanupSettings
   alias ServiceRadar.Inventory.DeviceCleanupWorker
@@ -80,6 +81,48 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
     assert is_nil(restored.deleted_at)
     assert is_nil(restored.deleted_by)
     assert is_nil(restored.deleted_reason)
+  end
+
+  # #4615: an agent check-in restores its soft-deleted device, and a restore is an identity
+  # transition however it happens.
+  test "agent check-in restores a soft-deleted device with an identity_revision bump", %{
+    actor: actor
+  } do
+    agent_id = "soft-delete-agent-#{System.unique_integer([:positive])}"
+    attrs = agent_attrs(agent_id)
+
+    assert {:ok, uid} = AgentGatewaySync.ensure_device_for_agent(agent_id, attrs)
+    {:ok, [device]} = read_including_deleted(uid, actor)
+    {:ok, deleted} = soft_delete_device(actor, device, "operator_cleanup")
+
+    assert {:ok, ^uid} = AgentGatewaySync.ensure_device_for_agent(agent_id, attrs)
+
+    {:ok, [restored]} = read_including_deleted(uid, actor)
+    assert is_nil(restored.deleted_at)
+    assert is_nil(restored.deleted_reason)
+    assert restored.identity_revision == deleted.identity_revision + 1
+    assert [["operator_cleanup"]] = revival_audit_reasons(uid)
+  end
+
+  # #4615: a check-in never writes a merged-away device back to life. Resolution follows a
+  # merge redirect, so a check-in reaches the tombstone only when it has none to follow
+  # (here: a merge tombstone with no merge_audit row); the device then stays deleted.
+  test "agent check-in never revives a merged-away device", %{actor: actor} do
+    agent_id = "merged-agent-#{System.unique_integer([:positive])}"
+    attrs = agent_attrs(agent_id)
+
+    assert {:ok, uid} = AgentGatewaySync.ensure_device_for_agent(agent_id, attrs)
+    {:ok, [device]} = read_including_deleted(uid, actor)
+    {:ok, tombstone} = soft_delete_device(actor, device, "merged")
+
+    assert {:error, {:merged_away_device, ^uid}} =
+             AgentGatewaySync.ensure_device_for_agent(agent_id, attrs)
+
+    {:ok, [after_check_in]} = read_including_deleted(uid, actor)
+    assert after_check_in.deleted_at
+    assert after_check_in.deleted_reason == "merged"
+    assert after_check_in.identity_revision == tombstone.identity_revision
+    assert revival_audit_reasons(uid) == []
   end
 
   describe "managed-state actions" do
@@ -353,6 +396,17 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
       {:error, reason} ->
         flunk("failed to load cleanup settings: #{inspect(reason)}")
     end
+  end
+
+  defp agent_attrs(agent_id) do
+    %{
+      hostname: "host-#{agent_id}",
+      os: "linux",
+      arch: "amd64",
+      partition: "default",
+      source_ip: unique_ip(),
+      capabilities: []
+    }
   end
 
   defp read_including_deleted(uid, actor) do
