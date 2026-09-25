@@ -182,22 +182,6 @@ tlc_test(
 )
 
 tlc_test(
-    name = "resolution_witness_alias_merge_on_unknown_mac_test",
-    cfg = "resolution_witness_alias_merge_on_unknown_mac.cfg",
-    expect = "violation:NoFalseMerge",
-    spec = "MCDireResolution.tla",
-    deps = ["DireResolution.tla"],
-)
-
-tlc_test(
-    name = "resolution_witness_alias_address_merge_test",
-    cfg = "resolution_witness_alias_address_merge.cfg",
-    expect = "violation:AddressNeverMerges",
-    spec = "MCDireResolution.tla",
-    deps = ["DireResolution.tla"],
-)
-
-tlc_test(
     name = "resolution_witness_src_attach_via_mac_test",
     cfg = "resolution_witness_src_attach_via_mac.cfg",
     expect = "violation:DistinctSourceIdsNeverMerge",

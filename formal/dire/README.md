@@ -53,7 +53,6 @@ either way; the property guards against any change that lets address evidence me
 
 | Switch | Model | Code path | Witness property |
 |---|---|---|---|
-| `alias_merge_on_unknown_mac` | resolution | `inventory/identity/alias_guard.ex` `maybe_merge_ip_alias_device/3`, reached through agent check-in (`edge/agent_gateway_sync.ex` `ensure_device_for_agent/2`) | `NoFalseMerge`; also `AddressNeverMerges` (`resolution_witness_alias_address_merge`) |
 | `src_attach_via_mac` | resolution | `inventory/identity/resolver.ex` `lookup_by_strong_identifiers/3` | `DistinctSourceIdsNeverMerge` |
 | `mac_only_conflicts_blocked` | resolution | `inventory/identity/merge_policy.ex` `mac_only_matches?/1` (an agent check-in reporting MACs owned by two records) | `EvidenceConverges` |
 | `mapper_resolves_by_address` | resolution | `network_discovery/mapper_results_ingestor.ex` `resolve_device_ids/2` (address first, then alias, then DIRE) | `NoFalseInterfaceClaim` |
@@ -81,6 +80,7 @@ Two lifecycle witnesses cover defects that only appear together:
 | Switch | Fixed in | Now enforced by |
 |---|---|---|
 | `sync_alias_merge_unguarded` | #4609 (`AliasGuard.distinct_identified_devices?/3` in `Sync.Aliases`) | `NoFalseMerge`, `AddressNeverMerges` in every `resolution_goal_*` |
+| `alias_merge_on_unknown_mac` | #4610 (`AliasGuard.maybe_merge_ip_alias_device/3` never merges: an identified alias holder has the alias invalidated, an address-only holder is left alone) | `NoFalseMerge`, `AddressNeverMerges` in every `resolution_goal_*` |
 
 ## Resolution environments
 

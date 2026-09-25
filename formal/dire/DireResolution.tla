@@ -42,7 +42,6 @@ CONSTANTS
     Bugs
 
 KnownBugs == {
-    "alias_merge_on_unknown_mac",  \* inventory/identity/alias_guard.ex maybe_merge_ip_alias_device/3
     "mac_only_conflicts_blocked",  \* inventory/identity/merge_policy.ex mac_only_matches?/1
     "silent_blocks",               \* MergePolicy / AliasGuard decisions reach only telemetry
     "src_attach_via_mac",          \* inventory/identity/resolver.ex lookup_by_strong_identifiers/3
@@ -122,11 +121,6 @@ DistinctAgents(a, b) == AgentHeld(a) # {} /\ AgentHeld(b) # {} /\ AgentHeld(a) \
 
 \* AliasGuard.same_chassis?/5: one record's own interface table claims a MAC the other holds.
 SameChassis(a, b) == ifClaims[a] \cap MacsHeld(b) # {} \/ ifClaims[b] \cap MacsHeld(a) # {}
-
-\* AliasGuard.distinct_mac_conflict?/3: both hold MACs, the sets are disjoint, and no chassis
-\* claim links them. "Unknown is not distinct".
-DistinctMacs(a, b) == MacsHeld(a) # {} /\ MacsHeld(b) # {} /\ MacsHeld(a) \cap MacsHeld(b) = {}
-                      /\ ~SameChassis(a, b)
 
 \* AliasGuard.distinct_identified_devices?/3 (#4609), on post-registration ownership o.
 DistinctIdentifiedIn(o, a, b) == IdsHeldIn(o, a) # {} /\ IdsHeldIn(o, b) # {} /\ ~SameChassis(a, b)
@@ -225,18 +219,15 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims) ==
         aliasY == {y \in alias[p] : Live(y) /\ y # target /\ y \notin step1Merged}
         guardRuns == aliasPath = "guard" /\ M # {}
         syncRuns  == aliasPath = "sync"
-        \* AliasGuard (today): invalidate on distinct agents or distinct MACs, else merge
-        \* through MergeEngine (whose source-authority guard may still refuse it).
+        \* AliasGuard (#4610): never merges; an identified holder has the alias invalidated and an
+        \* address-only holder is left alone.
         \* Sync.Aliases (#4609): invalidate when both are identified, else merge.
         invalidate(y) ==
-            \/ guardRuns /\ Bug("alias_merge_on_unknown_mac")
-                         /\ (DistinctAgents(y, target) \/ DistinctMacs(y, target))
-            \/ guardRuns /\ ~Bug("alias_merge_on_unknown_mac") /\ IdsHeld(y) # {}
+            \/ guardRuns /\ IdsHeld(y) # {}
             \/ syncRuns /\ DistinctIdentifiedIn(owner1, y, target)
         mergeTry(y) ==
             /\ ~invalidate(y)
-            /\ \/ guardRuns /\ Bug("alias_merge_on_unknown_mac")
-               \/ syncRuns /\ IdsHeldIn(owner1, y) = {}
+            /\ syncRuns /\ IdsHeldIn(owner1, y) = {}
         mergeOk(y) == mergeTry(y) /\ ~SrcConflictIn(owner1, {y, target}) /\ ~DistinctAgents(y, target)
         step2Inval  == {y \in aliasY : invalidate(y)}
         step2Merged == {y \in aliasY : mergeOk(y)}
