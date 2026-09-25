@@ -19,11 +19,12 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
 
   @all_datasets [:flows, :flow_attribution, :metrics, :logs, :events]
 
-  # Daily partitions, so retention is a partition count. Per dataset: flows and
-  # metrics mirror the 90-day CNPG raw policy, logs and event history carry the
-  # hosted one-year retention, and MTR (traces and hops together) the default
-  # MTR history of `MtrSettings`. These are the values baked into the shipped DDL.
-  @default_retention_days [flows: 90, metrics: 90, logs: 365, events: 365, mtr: 30]
+  # Daily partitions, so retention is a partition count. Every dataset the
+  # warehouse holds defaults to one year: the warehouse is what makes long
+  # history affordable, so it does not inherit CNPG's shorter raw windows.
+  # Tables created from DDL with a smaller `partition_live_number` are raised to
+  # these values by `Retention` at core start.
+  @default_retention_days [flows: 365, metrics: 365, logs: 365, events: 365, mtr: 365]
 
   # How far an hourly materialized view may lag its source table before a
   # reader stops trusting it. The views refresh asynchronously with no

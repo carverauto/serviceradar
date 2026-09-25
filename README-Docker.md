@@ -168,9 +168,10 @@ in `.env`; do not delete the data volume.
 StarRocks telemetry retention is set per dataset. The warehouse tables are
 partitioned by day, so each `STARROCKS_RETENTION_DAYS_*` value is the number of
 daily partitions kept; anything older is dropped.
-`STARROCKS_RETENTION_DAYS_FLOWS` and `STARROCKS_RETENTION_DAYS_METRICS` default
-to 90, `STARROCKS_RETENTION_DAYS_LOGS` and `STARROCKS_RETENTION_DAYS_EVENTS` to
-365, and `STARROCKS_RETENTION_DAYS_MTR` (MTR traces and hops together) to 30.
+Every dataset defaults to 365 days: `STARROCKS_RETENTION_DAYS_FLOWS`,
+`STARROCKS_RETENTION_DAYS_METRICS`, `STARROCKS_RETENTION_DAYS_LOGS`,
+`STARROCKS_RETENTION_DAYS_EVENTS` and `STARROCKS_RETENTION_DAYS_MTR` (MTR traces
+and hops together).
 Core applies them at start and retries with backoff until the warehouse
 accepts them, so a slow Frontend does not leave the tables on their DDL
 default. With the warehouse enabled, MTR traces and hops are stored only there,

@@ -575,7 +575,7 @@ tables of the same name, partitioned by day from the start, so the rebuild
 never touches them. MTR is not shadowed: while `analytics.starrocks.enabled`
 is true, EventWriter writes MTR traces and hops to these two tables only, and
 a failed load is redelivered from JetStream rather than written to CNPG. Their
-retention is `analytics.starrocks.retentionDays.mtr` (default 30), applied to
+retention is `analytics.starrocks.retentionDays.mtr` (default 365), applied to
 both tables.
 
 `cutoverDatasets` defaults to empty, so metric, log and event panels stay on

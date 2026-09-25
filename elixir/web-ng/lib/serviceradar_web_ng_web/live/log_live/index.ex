@@ -27,6 +27,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.Components.PrefixTagChips
+  alias ServiceRadarWebNGWeb.LogLive.EventSummary
   alias ServiceRadarWebNGWeb.LogLive.NetflowRuntime
   alias ServiceRadarWebNGWeb.LogLive.NetflowSankey
   alias ServiceRadarWebNGWeb.LogLive.NetflowSummary
@@ -1898,9 +1899,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     high = Map.get(assigns.summary, :high, 0)
     medium = Map.get(assigns.summary, :medium, 0)
     low = Map.get(assigns.summary, :low, 0)
+    time = Map.get(assigns.summary, :time, EventSummary.default_time())
 
     assigns =
       assigns
+      |> assign(:time, time)
       |> assign(:total, total)
       |> assign(:critical, critical)
       |> assign(:high, high)
@@ -1919,7 +1922,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           </.ui_button>
           <.ui_button
             patch={
-              ~p"/observability/events?#{%{q: "in:events severity:(Critical,High) time:last_24h sort:time:desc"}}"
+              ~p"/observability/events?#{%{q: EventSummary.severity_query("(Critical,High)", @time)}}"
             }
             size="xs"
             variant="danger"
@@ -1935,6 +1938,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           total={@total}
           color="error"
           severity="Critical"
+          time={@time}
         />
         <.event_severity_stat
           label="High"
@@ -1942,6 +1946,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           total={@total}
           color="warning"
           severity="High"
+          time={@time}
         />
         <.event_severity_stat
           label="Medium"
@@ -1949,6 +1954,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           total={@total}
           color="info"
           severity="Medium"
+          time={@time}
         />
         <.event_severity_stat
           label="Low"
@@ -1956,6 +1962,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           total={@total}
           color="success"
           severity="Low"
+          time={@time}
         />
       </div>
     </div>
@@ -1967,10 +1974,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:total, :integer, required: true)
   attr(:color, :string, required: true)
   attr(:severity, :string, required: true)
+  attr(:time, :string, required: true)
 
   defp event_severity_stat(assigns) do
     pct = if assigns.total > 0, do: round(assigns.count / assigns.total * 100), else: 0
-    query = "in:events severity:#{assigns.severity} time:last_24h sort:time:desc"
+    query = EventSummary.severity_query(assigns.severity, assigns.time)
 
     assigns =
       assigns
@@ -8209,12 +8217,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp apply_tab_assigns(socket, "events", _srql_module) do
     query = socket.assigns |> Map.get(:srql, %{}) |> Map.get(:query, "")
 
-    base_summary = Stats.events_summary(time: event_summary_time_window(query))
-
-    summary = Map.put(base_summary, :critical, Map.get(base_summary, :critical, 0) + Map.get(base_summary, :fatal, 0))
-
     socket
-    |> assign(:event_summary, summary)
+    |> assign(:event_summary, EventSummary.load(query))
     |> assign(:alert_summary, empty_alert_summary())
     |> assign(:netflow_summary, empty_netflow_summary())
     |> assign(:trace_stats, empty_trace_stats())
@@ -8825,18 +8829,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     Stats.empty_metrics_summary()
   end
 
-  defp empty_event_summary do
-    %{total: 0, critical: 0, high: 0, medium: 0, low: 0}
-  end
-
-  defp event_summary_time_window(query) when is_binary(query) do
-    case Regex.run(~r/\btime:(last_\d+[hd])\b/i, query) do
-      [_, value] -> String.downcase(value)
-      _ -> "last_7d"
-    end
-  end
-
-  defp event_summary_time_window(_), do: "last_7d"
+  defp empty_event_summary, do: EventSummary.empty()
 
   defp empty_alert_summary do
     %{total: 0, pending: 0, acknowledged: 0, resolved: 0, escalated: 0, suppressed: 0}

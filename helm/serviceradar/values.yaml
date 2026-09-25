@@ -2679,20 +2679,19 @@ analytics:
     database: serviceradar
     # Telemetry retention in days, per dataset. The warehouse tables are
     # partitioned by day, so each value is the number of daily partitions
-    # StarRocks keeps; anything older is dropped. Flows and metrics mirror the
-    # 90-day CNPG raw policy; logs and event history carry the hosted one-year
-    # retention; mtr (traces and hops together) the default MTR history.
+    # StarRocks keeps; anything older is dropped. Every dataset, mtr (traces
+    # and hops together) included, defaults to one year.
     # Re-applied on every core rollout, so changing it here is
     # enough. A warehouse created before partitioning is rebuilt onto daily
     # partitions by core at startup, online; retention applies once that is done.
     # The MTR retention set in Settings -> Networks -> MTR governs the CNPG
     # tables only; with the warehouse enabled, mtr here is the one that applies.
     retentionDays:
-      flows: 90
-      metrics: 90
+      flows: 365
+      metrics: 365
       logs: 365
       events: 365
-      mtr: 30
+      mtr: 365
     # How far an hourly materialized view may lag its own source table before
     # readers stop trusting it and compile from the raw warehouse tables
     # instead. The views are REFRESH ASYNC with no schedule, so this is the

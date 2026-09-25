@@ -30,11 +30,11 @@ defmodule ServiceRadar.Analytics.StarRocks.RetentionTest do
 
   test "each dataset keeps its own retention, defaulting to the shipped policy" do
     assert Env.config()[:retention_days] == [
-             flows: 90,
-             metrics: 90,
+             flows: 365,
+             metrics: 365,
              logs: 365,
              events: 365,
-             mtr: 30
+             mtr: 365
            ]
 
     System.put_env("SERVICERADAR_STARROCKS_RETENTION_DAYS_FLOWS", "30")
@@ -44,15 +44,15 @@ defmodule ServiceRadar.Analytics.StarRocks.RetentionTest do
     # shared value could not express.
     assert Env.config()[:retention_days] == [
              flows: 30,
-             metrics: 90,
+             metrics: 365,
              logs: 730,
              events: 365,
-             mtr: 30
+             mtr: 365
            ]
 
     for invalid <- ["", "0", "-5", "forever"] do
       System.put_env("SERVICERADAR_STARROCKS_RETENTION_DAYS_FLOWS", invalid)
-      assert Env.config()[:retention_days][:flows] == 90
+      assert Env.config()[:retention_days][:flows] == 365
     end
   end
 
@@ -64,10 +64,10 @@ defmodule ServiceRadar.Analytics.StarRocks.RetentionTest do
     expected = %{
       "ocsf_network_activity" => "30",
       "logs" => "730",
-      "timeseries_metrics" => "90",
+      "timeseries_metrics" => "365",
       "events" => "365",
-      "mtr_traces" => "30",
-      "mtr_hops" => "30"
+      "mtr_traces" => "365",
+      "mtr_hops" => "365"
     }
 
     for {table, days} <- expected do
