@@ -917,9 +917,8 @@ mod tests {
         // A field added to the constant but absent from the actual mtr_traces table, or
         // one that causes a SQL build failure, surfaces here rather than silently in production.
         for field in TRACE_GROUP_BY_FIELDS {
-            let query = format!(
-                "in:mtr_traces time:last_24h stats:count() as n by {field} limit:10"
-            );
+            let query =
+                format!("in:mtr_traces time:last_24h stats:count() as n by {field} limit:10");
             to_sql_and_params(&plan_for(&query)).unwrap_or_else(|err| {
                 panic!("group-by '{field}' must compile for mtr_traces: {err}")
             });
