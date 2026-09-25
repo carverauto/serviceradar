@@ -17,17 +17,15 @@
       seen-cache keyed by `(service_name, signal)` with `refresh_interval`
       (default 60s), supervised under the EventWriter supervisor.
 - [ ] 2.2 Add a batched upsert: advance the signal's last-seen with
-      `GREATEST`, skip non-advancing updates with a `WHERE`, drop empty and
-      overlong names, and honor the `max_entries` cap (insert-new blocked,
-      refresh allowed).
+      `GREATEST`, skip non-advancing updates with a `WHERE`, and drop empty and
+      overlong names.
 - [ ] 2.3 Call it after a successful persist in the `logs`, `otel_traces` and
       `otel_metrics` processors (including metric points), on both the CNPG
       and StarRocks destinations. Make sure a failure only logs and emits
       `[:serviceradar, :event_writer, :service_catalog, :upsert_error]`.
 - [ ] 2.4 Tests: a new service is recorded; a repeated batch inside the
-      interval issues no write; an upsert failure leaves the batch acked; the
-      cap blocks new names but refreshes existing ones; empty and overlong
-      names are ignored.
+      interval issues no write; an upsert failure leaves the batch acked; empty
+      and overlong names are ignored.
 
 ## 3. Backfill and prune jobs
 
@@ -36,8 +34,7 @@
       `otel_metrics_hourly_stats` over the retention window. Enqueue it once
       after migration.
 - [ ] 3.2 `OtelServiceCatalogPruneWorker`: a daily job that deletes entries
-      past `retention_days` (default 30), nulls stale per-signal columns, and
-      emits catalog size.
+      past `retention_days` (default 30), and nulls stale per-signal columns.
 - [ ] 3.3 Tests for both workers, and `INTEGRATION_SOURCE_DISPOSITIONS.tsv`
       rows for every new test file.
 
@@ -46,7 +43,9 @@
 - [ ] 4.1 Add the `otel_services` entity (parser alias, schema, model, query
       module): filters `service_name` / `signal` / `time`, sort
       `service_name` / `last_seen`, limit default 50 and maximum 500, and
-      `stats:"count() as total"`.
+      `stats:"count() as total"`. `signals`, `last_seen`, `time:` and the
+      default ordering derive only from the requested signals; other signals'
+      per-signal fields are null.
 - [ ] 4.2 Add a `service_name` filter on `otel_trace_summaries`: `@>` for a
       single value, `&&` for a list, `NOT` for negation, and an
       invalid-request error for wildcards.
@@ -58,12 +57,18 @@
 
 ## 5. Access control and catalog metadata (web-ng)
 
-- [ ] 5.1 `entity_access.ex`: per-signal permission for `signal:`; for a query
-      without a signal, require any one permission and rewrite the query to
-      the permitted signals.
+- [ ] 5.1 `entity_access.ex`: add an any-of permission mapping for
+      `otel_services` (logs, traces or metrics view) and a query-rewrite step
+      in the shared gate that narrows a signal-less query to the caller's
+      permitted signals, or rejects when none. `authorize/3` returns the
+      rewritten query, and the LiveView, HTTP and MCP callers execute it. A
+      named `signal:` still requires that signal's permission. Land this with
+      or before the SRQL entity (task 4.1).
 - [ ] 5.2 `srql/catalog.ex`: add the `otel_services` entity, and add
       `service_name` to the `otel_trace_summaries` fields.
-- [ ] 5.3 Tests for authorized, unauthorized and narrowed queries.
+- [ ] 5.3 Tests for authorized, unauthorized and narrowed queries through all
+      three caller paths, including a logs-only caller that must not see trace
+      or metric activity in `signals`, `last_seen` or ordering.
 
 ## 6. Service picker UI (web-ng)
 
@@ -79,10 +84,11 @@
       other tokens are kept, reset `cursor` / `page`, and `push_patch`.
 - [ ] 6.4 Carry the service filter through `ObservabilityPaths` tab links.
       Make row service names patch links.
-- [ ] 6.5 Stat cards: pass the selection to `Stats` (`logs_severity_result`,
-      `traces_summary`, `metrics_summary`). Show the "all services" badge
-      where a rollup cannot be scoped. Replace the hardcoded traces
-      `service_count: 0` with the catalog count.
+- [ ] 6.5 Stat cards: change `Stats` and `Stats.Query` to accept a list of
+      service names and map it to each rollup's list filter
+      (`logs_severity_result`, `traces_summary`, `metrics_summary`). Show the
+      "all services" badge where a rollup cannot take a list. Replace the
+      hardcoded traces `service_count: 0` with the catalog count.
 - [ ] 6.6 Re-check the pane permission in every picker `handle_event`.
 - [ ] 6.7 LiveView tests: server-side search returns at most 50 of many; the
       picker is signal-scoped; filters are kept on apply; a selection change

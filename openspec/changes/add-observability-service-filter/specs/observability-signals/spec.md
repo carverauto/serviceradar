@@ -32,16 +32,6 @@ A catalog update failure MUST NOT fail, nack or retry the telemetry batch that t
 - **WHEN** the daily prune job runs
 - **THEN** the entry SHALL be removed
 
-### Requirement: Service catalog cardinality guard
-The system SHALL stop adding new services to the catalog once it holds the configured maximum number of entries (default 50,000), while continuing to refresh existing entries and continuing to persist all telemetry. It SHALL emit the catalog size as a metric and log a warning when the cap is reached.
-
-#### Scenario: Cap reached
-- **GIVEN** the catalog holds the maximum number of entries
-- **WHEN** a batch reports a service name not in the catalog
-- **THEN** the telemetry SHALL be persisted
-- **AND** the new name SHALL NOT be inserted into the catalog
-- **AND** existing catalog entries in the batch SHALL still have their last-seen refreshed
-
 ### Requirement: Service filter on observability panes
 The logs, traces and metrics panes SHALL each provide a service filter control that opens a searchable service picker backed by the service catalog. The picker SHALL search on the server, SHALL return at most a bounded number of results per query (default 50) together with the total match count, and SHALL NOT load the full catalog into the page.
 
@@ -89,12 +79,17 @@ Clearing the selection SHALL remove the service filter. The active service filte
 - **THEN** the traces pane SHALL re-query filtered to `checkout`
 
 ### Requirement: Stat cards honor the service filter
-When a service filter is active on the logs, traces or metrics pane, the pane's stat cards SHALL be scoped to the selected services. A card whose backing rollup cannot be narrowed by service SHALL be visibly labelled as covering all services rather than presenting unscoped numbers as if they matched the filtered list.
+When a service filter is active on the logs, traces or metrics pane, the pane's stat cards SHALL be scoped to the selected services, including a multi-service selection. The stats layer SHALL accept a list of service names and map it to each rollup's list filter. A card whose backing rollup cannot be narrowed by a service list SHALL be visibly labelled as covering all services rather than presenting unscoped numbers as if they matched the filtered list. A selection SHALL NOT be silently dropped or truncated.
 
 #### Scenario: Log severity cards scoped to a service
 - **GIVEN** the logs pane is filtered to `service_name:"checkout"`
 - **WHEN** the severity cards render
 - **THEN** their counts SHALL cover only `checkout` logs
+
+#### Scenario: Multiple services scope the cards
+- **GIVEN** the logs pane is filtered to `service_name:("checkout","billing")`
+- **WHEN** the severity cards render
+- **THEN** their counts SHALL cover logs from `checkout` and `billing` only
 
 #### Scenario: A card that cannot be scoped says so
 - **GIVEN** a service filter is active

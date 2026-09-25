@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: OTel service catalog table
-CNPG SHALL provide `platform.otel_service_catalog` with one row per OTel `service_name`, holding `logs_last_seen_at`, `traces_last_seen_at`, `metrics_last_seen_at`, `first_seen_at` and `last_seen_at`. The table SHALL be created only by an Elixir migration in the `platform` schema.
+CNPG SHALL provide `platform.otel_service_catalog` with one row per OTel `service_name`, holding `logs_last_seen_at`, `traces_last_seen_at`, `metrics_last_seen_at` and `last_seen_at` (the greatest of the three, used for pruning). The table SHALL be created only by an Elixir migration in the `platform` schema.
 
 The table SHALL have a trigram GIN index on `service_name` and a btree index on `last_seen_at DESC`. It is control-plane inventory, holds no telemetry counts or samples, and SHALL remain in CNPG when StarRocks is enabled.
 

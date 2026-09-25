@@ -53,8 +53,7 @@ The catalog is `platform.otel_service_catalog`:
 | `logs_last_seen_at` | `timestamptz` null | |
 | `traces_last_seen_at` | `timestamptz` null | |
 | `metrics_last_seen_at` | `timestamptz` null | covers `otel_metrics` and `otel_metric_points` |
-| `first_seen_at` | `timestamptz` not null | |
-| `last_seen_at` | `timestamptz` not null | greatest of the three signals |
+| `last_seen_at` | `timestamptz` not null | greatest of the three signals; used for pruning and the unscoped index only |
 
 Indexes: a GIN trigram index on `service_name` (`platform.gin_trgm_ops`, since
 pg_trgm is already installed in `platform`) and a btree on `last_seen_at DESC`.
@@ -112,26 +111,47 @@ up to one job interval of lag. Rejected, except for the one-shot backfill (D6).
 ### D4. `in:otel_services` SRQL entity
 
 - **Fields:** `service_name`, `signals` (a derived array of the signals with a
-  non-null last-seen), `first_seen`, `last_seen`, `logs_last_seen`,
+  non-null last-seen), `last_seen`, `logs_last_seen`,
   `traces_last_seen`, `metrics_last_seen`.
 - **Filters:**
   - `service_name:`, with the usual SRQL `%` wildcards, compiled to `ILIKE`
     and served by the trigram index. Exact match and list forms work too.
   - `signal:logs|traces|metrics`, which accepts a list and means "has a
     last-seen for any of these".
-  - `time:`, applied to the requested signals' last-seen (or to
-    `last_seen_at` when there is no `signal:`).
+  - `time:`, applied to the last-seen of the requested signals (or of the
+    permitted signals when there is no `signal:`, see Access).
+- **Derived fields.** `signals`, `last_seen` and the default `last_seen:desc`
+  ordering derive only from the requested signals, or from the caller's
+  permitted signals when there is no `signal:`. `last_seen` is the greatest of
+  those signals' last-seen values, not of all three. The stored `last_seen_at`
+  column serves pruning only and never reaches a response. There is no
+  service-wide `first_seen`, because it could not be narrowed per signal. A
+  narrowed query therefore cannot disclose activity in a signal the caller may
+  not view. Per-signal fields (`logs_last_seen`, `traces_last_seen`,
+  `metrics_last_seen`) for a signal outside the permitted set are null.
 - **Sort:** `service_name` or `last_seen`. The default is `last_seen:desc`.
 - **Limit:** default 50, maximum 500.
 - **Stats:** `stats:"count() as total"`, for the modal's "showing 50 of N".
-- **Access:** gated in `entity_access.ex`.
-  - A query with `signal:` requires the matching view permission
-    (`observability.logs.view`, `.traces.view` or `.metrics.view`) for every
-    signal named.
-  - A query without `signal:` requires at least one of them, and the planner
-    rewrites it to the signals the caller holds.
-  - This way the catalog never shows that a service emits a signal the caller
-    cannot open.
+- **Access:** gated in `entity_access.ex`, the shared gate used by the
+  LiveView, HTTP and MCP paths. Today `authorize/3` is a pure
+  `:ok | {:error, :forbidden}` check that maps an entity to exactly one
+  permission through `permission_for_query/1`. This change extends it with an
+  any-of contract:
+  - `permission_for_entity/1` for `otel_services` maps to the set
+    `observability.logs.view`, `observability.traces.view` and
+    `observability.metrics.view` instead of a single permission.
+  - A query with `signal:` requires the matching permission for every signal
+    named. A named signal the caller cannot view is `{:error, :forbidden}`.
+  - A query without `signal:` requires at least one of the three. The gate then
+    rewrites the query, adding `signal:<held signals>`, so the query the
+    planner sees is already narrowed. When the caller holds none, the query is
+    rejected.
+  - The rewrite runs in the shared gate, not in each caller, so every path
+    that authorizes through `EntityAccess` gets it. `authorize/3` therefore
+    returns the (possibly rewritten) query alongside `:ok`, and callers that
+    execute the query use the returned one.
+  - Any-of semantics apply only to this entity. Every other entity keeps the
+    single-permission behavior.
 
 ### D5. `service_name:` on trace summaries matches the whole trace
 
@@ -158,12 +178,6 @@ service, not only traces rooted in it.
 - **`OtelServiceCatalogPruneWorker`** runs daily. It deletes rows whose
   `last_seen_at` is older than `observability.service_catalog.retention_days`
   (default 30) and nulls out per-signal columns older than that.
-- **Cardinality guard.** An exporter that sends a unique `service.name` per
-  process can grow the catalog without bound. The prune worker emits
-  `service_catalog.size`. EventWriter stops inserting new names, while still
-  refreshing existing ones, once the table passes `max_entries` (default
-  50,000), and logs that at warn level. This caps the damage without dropping
-  telemetry.
 
 ### D7. Service picker UI
 
@@ -189,7 +203,6 @@ service, not only traces rooted in it.
   pruned.
 - **Apply.**
   - The page strips any existing `service_name:` token from the pane's query.
-    On traces it also strips a `root_service_name:` the picker previously set.
   - It inserts `service_name:"a"` or `service_name:("a","b")`, then resets
     `cursor` and `page` and pushes a patch.
   - Clear removes the token.
@@ -198,20 +211,23 @@ service, not only traces rooted in it.
   current service filter into the target tab's default query.
 - **Row links.** The service shown on a log, trace or metric row becomes a
   patch link that applies that single-service filter.
-- **Stat cards.** With a service filter active, each card passes the
-  selection to `ServiceRadarWebNGWeb.Stats` (which already accepts
-  `service_name:`). If a card's backing rollup cannot be narrowed that way,
-  the card shows an explicit "all services" badge. It does not silently show
-  global numbers under a filtered list. The traces "services" card shows the
-  catalog count for the window, replacing the hardcoded `service_count: 0`.
+- **Stat cards.** `ServiceRadarWebNGWeb.Stats` and `Stats.Query` today take a
+  single binary `service_name`, and the picker allows up to 20. This change
+  makes them accept a list of service names and map it to each rollup's list
+  filter (`service_name:("a","b")`). Where a rollup cannot take a list, the
+  card shows an explicit "all services" badge. It does not silently show
+  global numbers under a filtered list, and it never drops or truncates the
+  selection. The traces "services" card shows the catalog count for the window,
+  replacing the hardcoded `service_count: 0`.
 - **Authorization.** Every `handle_event` for the picker re-checks the pane's
   view permission.
 
 ## Risks / Trade-offs
 
-- **High-cardinality `service.name`.** Handled by the D6 cap and metric. The
-  catalog can then be incomplete for new names, which the free-text fallback
-  covers.
+- **High-cardinality `service.name`.** An exporter that sends a unique
+  `service.name` per process grows the catalog. Retention pruning and the
+  255-character limit bound the table. Add a cardinality cap only if unbounded
+  growth is observed.
 - **Catalog lag of up to `refresh_interval` per node.** This is acceptable for
   a picker, and the fallback covers it.
 - **GIN index build on a large `otel_trace_summaries`.** It is built
@@ -226,12 +242,19 @@ service, not only traces rooted in it.
 
 1. Deploy the migrations (catalog table and indexes, `service_set` GIN index).
 2. Deploy core with the EventWriter upserts. The backfill job enqueues once.
-3. Deploy SRQL with `otel_services` and the trace-summary filter.
-4. Deploy web-ng with the picker.
+3. Deploy web-ng with the `EntityAccess` any-of mapping and rewrite for
+   `otel_services` (D4), together with the picker, or before the SRQL entity
+   ships. `EntityAccess.permission_for_entity/1` treats an unmapped entity as
+   authorized, so the SRQL entity MUST NOT be live while web-ng lacks the
+   mapping.
+4. Deploy SRQL with `otel_services` and the trace-summary filter. Ship steps 3
+   and 4 in one release where possible.
 
-Rollback: web-ng and SRQL roll back independently. The table and indexes are
-additive, and the EventWriter upsert is best-effort, so an older core ignores
-the table.
+Rollback: the access mapping and the SRQL entity roll back together. Rolling
+back web-ng alone would leave `otel_services` reachable without a permission
+check, so a web-ng rollback requires rolling back the SRQL entity too. The table
+and indexes are additive, and the EventWriter upsert is best-effort, so an older
+core ignores the table.
 
 ## Open Questions
 
