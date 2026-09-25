@@ -123,7 +123,9 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
     |> DireTrace.assert_golden!()
   end
 
-  # #4611: two Armis devices report the same MAC (cloned VMs, a swapped NIC).
+  # #4611 (fixed): two Armis devices report the same MAC (cloned VMs, a swapped NIC).
+  # Steps: A (a1, m1) is synced at p1; B (a2, m1) is synced at p2, twice. Expected: B gets its
+  # own record, since its Armis id decides; m1 stays with A; each sync of B records the override.
   test "src_attach_shared_mac", %{actor: actor} do
     world =
       two_devices(%{
@@ -139,6 +141,7 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
     |> DireTrace.lease("x1", "p1")
     |> DireTrace.lease("x2", "p2")
     |> DireTrace.armis("h1", "x1")
+    |> DireTrace.armis("h2", "x2")
     |> DireTrace.armis("h2", "x2")
     |> DireTrace.assert_golden!()
   end

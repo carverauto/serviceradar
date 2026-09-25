@@ -57,7 +57,6 @@ either way; the property guards against any change that lets address evidence me
 
 | Switch | Model | Code path | Witness property |
 |---|---|---|---|
-| `src_attach_via_mac` | resolution | `inventory/identity/resolver.ex` `lookup_by_strong_identifiers/3` | `DistinctSourceIdsNeverMerge` |
 | `mac_only_conflicts_blocked` | resolution | `inventory/identity/merge_policy.ex` `mac_only_matches?/1` (an agent check-in reporting MACs owned by two records) | `EvidenceConverges` |
 | `mapper_resolves_by_address` | resolution | `network_discovery/mapper_results_ingestor.ex` `resolve_device_ids/2` (address first, then alias, then DIRE) | `NoFalseInterfaceClaim` |
 | `stale_holder_keeps_address` | resolution | `inventory/sync/device_writes.ex` `resolve_record_active_ip/7` (a fresh strong claim drops the address) | `ObservedAddressHeld` |
@@ -85,6 +84,7 @@ One lifecycle witness covers a property a fixed switch left to another:
 | `unmerge_restores_matches` | #4619 (every merge records the source's own identifiers in `merge_audit.details.source_identifiers`; `MergeEngine.reassign_original_identifiers/4` restores exactly those the survivor still holds) | `UnmergeRestoresExactly` in `lifecycle_current` |
 | `purge_forgets_redirect` | #4620 (`Resolver.do_follow_canonical/3` and `BatchResolver` follow a purged merged-away uid through its newest merge row unless an unmerge reversed it) | `lifecycle_goal`; `NoPurgedResurrection` joins `lifecycle_current` with #4618, the `purge_zombie` witness shows why |
 | `silent_blocks` | #4613 (`Identity.DecisionLog` writes `platform.identity_decisions` for every blocked, declined or overridden merge) | `NoSilentDecision` in every `resolution_goal_*`; each trace's `recorded` set is read from those rows |
+| `src_attach_via_mac` | #4611 (`SourceAuthorityGuard.source_mismatch?/3` in `BatchResolver` and `Resolver`; the override is a `source_override` identity decision plus a `source_authoritative_override` conflict row) | `DistinctSourceIdsNeverMerge`, `NoSilentDecision` in every `resolution_goal_*`; trace `src_attach_shared_mac` |
 
 ## Resolution environments
 

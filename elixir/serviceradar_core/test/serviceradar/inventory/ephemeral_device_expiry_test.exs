@@ -346,9 +346,17 @@ defmodule ServiceRadar.Inventory.EphemeralDeviceExpiryTest do
 
   defp unique, do: System.unique_integer([:positive])
 
-  # Documentation-range addresses (RFC 5737) and MACs under the documentation OUI (RFC 7042):
-  # 00-00-5E-00-53 globally unique, 02-00-5E-00-53 with the locally-administered bit set.
-  defp unique_ip, do: "192.0.2.#{rem(unique(), 254) + 1}"
+  # The live-IP unique index spans every async test in the run, and a /24 pool is small enough for
+  # two tests to draw the same host, so addresses come from the IPv6 documentation range (RFC 3849).
+  defp unique_ip do
+    n = unique()
+    hi = Integer.to_string(div(n, 65_536), 16)
+    lo = Integer.to_string(rem(n, 65_536), 16)
+    "2001:db8:4603::#{hi}:#{lo}"
+  end
+
+  # MACs under the documentation OUI (RFC 7042): 00-00-5E-00-53 globally unique,
+  # 02-00-5E-00-53 with the locally-administered bit set.
   defp global_mac, do: "00005E0053" <> Base.encode16(<<rem(unique(), 256)>>)
   defp laa_mac, do: "02005E0053" <> Base.encode16(<<rem(unique(), 256)>>)
 end

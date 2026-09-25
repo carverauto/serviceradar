@@ -151,14 +151,6 @@ tlc_test(
 )
 
 tlc_test(
-    name = "resolution_witness_src_attach_via_mac_test",
-    cfg = "resolution_witness_src_attach_via_mac.cfg",
-    expect = "violation:DistinctSourceIdsNeverMerge",
-    spec = "MCDireResolution.tla",
-    deps = ["DireResolution.tla"],
-)
-
-tlc_test(
     name = "resolution_witness_mac_only_conflicts_blocked_test",
     cfg = "resolution_witness_mac_only_conflicts_blocked.cfg",
     expect = "violation:EvidenceConverges",

@@ -64,6 +64,19 @@ in `SourcePolicy.sufficient_to_create?/1`.
 4. IP/alias fallback — only for weak updates
 5. Deterministic (IP-seeded) or random UID
 
+A source-authoritative identifier (`armis_device_id`) decides identity. An
+update carrying one never resolves, through a shared MAC or any other
+identifier, onto a record that holds a different one in the same scope (the
+identifier partition, which carries the sync source), whether that id is
+stored or was claimed earlier in the same batch: that record is not a
+match, the update resolves by its own identifier, and the shared identifier
+stays with its owner as evidence. Each override is recorded as an open
+`source_authoritative_override` source-identity conflict on the incoming
+record, naming the overridden records and the identifiers they share, so it
+can be reviewed. A record holding no source-authoritative identifier is still
+a match: that is how an Armis id attaches to the discovered record of the same
+device.
+
 Merged-away device IDs are never resurrected: resolution follows the
 `merge_audit` canonical mapping to the survivor (`Identity.Resolver` /
 `Identity.BatchResolver`), including after the tombstone row has been purged,
@@ -131,6 +144,7 @@ for dry-run review, execution gates, and device/source allowlists.
 | `[:serviceradar, :identity_reconciler, :merge, :guard_blocked]` | distinct-agent veto or cooldown blocked a merge (oscillation signal) |
 | `[:serviceradar, :identity_reconciler, :merge, :blocked]` | evidence policy blocked a merge |
 | `[:serviceradar, :identity_reconciler, :alias, :invalidated]` | IP alias conflicted with agent identity |
+| `[:serviceradar, :identity_reconciler, :source_identity, :source_override]` | a source-authoritative identifier overrode identifier matches on records holding a different one (also persisted as a `source_authoritative_override` conflict) |
 | `[:serviceradar, :identity_reconciler, :agent_colocation, :refused]` | second agent refused onto an agent-bound device |
 | `[:serviceradar, :identity_reconciler, :decision, :record_failed]` | an identity decision could not be written to `platform.identity_decisions` |
 | `[:serviceradar, :identity_reconciler, :deduplication_task, :open_failed]` | a de-duplication task could not be opened or updated for a recorded decision |

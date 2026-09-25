@@ -8,7 +8,11 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
     1. service-component IDs pass through
     2. strong-identifier match from the preloaded identifier map
        (agent_id matches are trusted-checked; merged-away devices are
-       followed to their canonical survivor)
+       followed to their canonical survivor). An update carrying a
+       source-authoritative identifier never matches a record holding a
+       different one: the source-authoritative identifier decides, the shared
+       identifier is evidence only, and the override is recorded
+       (`SourceAuthorityGuard.record_overrides/1`).
     3. pre-set `sr:` device_id — a hint only, canonical-followed
     4. deterministic UID when strong identifiers exist (canonical-followed)
     5. IP/alias map fallback ONLY when no strong identifier is present
@@ -26,6 +30,7 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
   alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.Inventory.Identity.MergeEngine
   alias ServiceRadar.Inventory.Identity.Resolver
+  alias ServiceRadar.Inventory.Identity.SourceAuthorityGuard
   alias ServiceRadar.Inventory.MergeAudit
 
   require Ash.Query
@@ -57,24 +62,34 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
   @spec resolve_batch([{map(), Ids.strong_identifiers()}], lookups(), term()) ::
           {[{map(), String.t()}], MapSet.t()}
   def resolve_batch(updates_with_ids, lookups, actor) do
-    trusted = preload_agent_trust(updates_with_ids, lookups, actor)
-    canonical_macs = preload_canonical_macs(updates_with_ids, lookups, actor)
+    preloads = %{
+      identifiers: lookups.identifiers,
+      trusted: preload_agent_trust(updates_with_ids, lookups, actor),
+      canonical_macs: preload_canonical_macs(updates_with_ids, lookups, actor),
+      source_ids: preload_source_ids(updates_with_ids, lookups, actor)
+    }
 
-    # Phase 1: candidate decision per update (no per-update queries).
-    {candidates_rev, _ip_map} =
-      Enum.reduce(updates_with_ids, {[], lookups.ip}, fn {update, ids}, {acc, ip_map} ->
-        device_id = resolve_one(update, ids, lookups.identifiers, ip_map, trusted, canonical_macs)
+    # Phase 1: candidate decision per update (no per-update queries). Each
+    # resolved update claims its source-authoritative identifier on the device
+    # it resolved to, so a later update in the batch carrying a different one
+    # is refused that device exactly as if the database already held the claim.
+    {candidates_rev, _ip_map, source_ids} =
+      Enum.reduce(updates_with_ids, {[], lookups.ip, preloads.source_ids}, fn
+        {update, ids}, {acc, ip_map, claimed} ->
+          device_id = resolve_one(update, ids, ip_map, %{preloads | source_ids: claimed})
 
-        # Later weak updates in the same batch may adopt this device by IP;
-        # strong-identified updates never consult the IP map.
-        ip_map =
-          case ids.ip do
-            ip when is_binary(ip) and ip != "" -> Map.put(ip_map, ip, device_id)
-            _ -> ip_map
-          end
+          # Later weak updates in the same batch may adopt this device by IP;
+          # strong-identified updates never consult the IP map.
+          ip_map =
+            case ids.ip do
+              ip when is_binary(ip) and ip != "" -> Map.put(ip_map, ip, device_id)
+              _ -> ip_map
+            end
 
-        {[{update, ids, device_id} | acc], ip_map}
+          {[{update, ids, device_id} | acc], ip_map, claim_source_id(claimed, ids, device_id)}
       end)
+
+    preloads = %{preloads | source_ids: source_ids}
 
     candidates = Enum.reverse(candidates_rev)
 
@@ -87,26 +102,57 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
     # on different devices, merge the LAA sibling into the UAA survivor
     # before upsert. Identifier ownership is never stolen by upsert.
     candidates =
-      heal_hardware_mac_siblings(candidates, lookups.identifiers, actor)
+      heal_hardware_mac_siblings(candidates, preloads, actor)
 
-    candidates
-    |> Enum.reduce({[], MapSet.new()}, fn {update, ids, device_id}, {acc, strong} ->
-      final_id = Map.get(canonical, device_id, device_id)
+    {resolved_rev, strong, overrides_rev} =
+      Enum.reduce(candidates, {[], MapSet.new(), []}, fn {update, ids, device_id},
+                                                         {acc, strong, overrides} ->
+        final_id = Map.get(canonical, device_id, device_id)
 
-      strong =
-        if Ids.has_strong_identifier?(ids), do: MapSet.put(strong, final_id), else: strong
+        strong =
+          if Ids.has_strong_identifier?(ids), do: MapSet.put(strong, final_id), else: strong
 
-      {[{update, final_id} | acc], strong}
-    end)
-    |> then(fn {resolved_rev, strong} -> {Enum.reverse(resolved_rev), strong} end)
+        overrides =
+          case source_overrides(ids, final_id, preloads) do
+            [] ->
+              overrides
+
+            overridden ->
+              [
+                %{update: update, ids: ids, device_uid: final_id, overridden: overridden}
+                | overrides
+              ]
+          end
+
+        {[{update, final_id} | acc], strong, overrides}
+      end)
+
+    _ = SourceAuthorityGuard.record_overrides(Enum.reverse(overrides_rev))
+
+    {Enum.reverse(resolved_rev), strong}
   end
 
-  defp resolve_one(update, ids, identifier_map, ip_map, trusted, canonical_macs) do
+  defp claim_source_id(source_ids, ids, device_id) do
+    case Ids.ids_get(ids, :armis_id) do
+      value when is_binary(value) and value != "" ->
+        Map.update(
+          source_ids,
+          device_id,
+          MapSet.new([{Ids.ids_get_partition(ids), value}]),
+          &MapSet.put(&1, {Ids.ids_get_partition(ids), value})
+        )
+
+      _ ->
+        source_ids
+    end
+  end
+
+  defp resolve_one(update, ids, ip_map, preloads) do
     cond do
       Ids.service_device_id?(update.device_id) ->
         update.device_id
 
-      device_id = strong_match(ids, identifier_map, trusted, canonical_macs) ->
+      device_id = strong_match(ids, preloads) ->
         device_id
 
       Ids.serviceradar_uuid?(update.device_id) ->
@@ -195,7 +241,8 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
       reraise e, __STACKTRACE__
   end
 
-  defp strong_match(ids, identifier_map, trusted, canonical_macs) do
+  defp strong_match(ids, preloads) do
+    %{identifiers: identifier_map, trusted: trusted, canonical_macs: canonical_macs} = preloads
     incoming_macs = incoming_universal_macs(ids)
 
     Enum.find_value(Ids.identifier_priority(), fn id_type ->
@@ -203,13 +250,20 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
       |> Ids.get_identifier_values(ids)
       |> Enum.find_value(fn value ->
         case Map.get(identifier_map, {id_type, value, ids.partition}) do
+          nil when id_type == :mac ->
+            sibling = hardware_mac_sibling_match(value, ids, identifier_map)
+            if is_binary(sibling) and not source_mismatch?(ids, sibling, preloads), do: sibling
+
           nil ->
-            if id_type == :mac do
-              hardware_mac_sibling_match(value, ids, identifier_map)
-            end
+            nil
 
           device_id ->
             cond do
+              # The update's source-authoritative identifier decides: a record
+              # holding a different one is not a match, whatever it shares.
+              source_mismatch?(ids, device_id, preloads) ->
+                nil
+
               # agent_id keeps its existing trusted-match gate.
               id_type == :agent_id ->
                 if trusted_agent_match?(trusted, value, device_id), do: device_id
@@ -242,6 +296,50 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
         end
       end)
     end)
+  end
+
+  defp source_mismatch?(ids, device_id, preloads),
+    do: SourceAuthorityGuard.source_mismatch?(ids, device_id, preloads.source_ids)
+
+  # The records this update's identifiers resolve to that hold a different
+  # source-authoritative identifier: the matches the source-authoritative
+  # identifier overrode. Checked over every identifier, not only the one that
+  # decided, so a record keeps being reported while it shares identifiers with
+  # the update.
+  defp source_overrides(_ids, _final_id, preloads) when map_size(preloads.source_ids) == 0, do: []
+
+  defp source_overrides(ids, final_id, preloads) do
+    for id_type <- Ids.identifier_priority(),
+        id_type != :armis_device_id,
+        value <- Ids.get_identifier_values(id_type, ids),
+        device_id <- identifier_owners(id_type, value, ids, preloads.identifiers),
+        device_id != final_id,
+        source_mismatch?(ids, device_id, preloads) do
+      %{
+        device_uid: device_id,
+        identifier_type: id_type,
+        identifier_value: value,
+        source_ids:
+          SourceAuthorityGuard.scoped_source_ids(
+            preloads.source_ids,
+            device_id,
+            Ids.ids_get_partition(ids)
+          )
+      }
+    end
+  end
+
+  # The devices an identifier value names, including a MAC's hardware sibling
+  # owner, which the sibling merge can combine with the resolved device.
+  defp identifier_owners(id_type, value, ids, identifier_map) do
+    owners = [Map.get(identifier_map, {id_type, value, ids.partition})]
+
+    owners =
+      if id_type == :mac,
+        do: [hardware_mac_sibling_match(value, ids, identifier_map) | owners],
+        else: owners
+
+    owners |> Enum.filter(&is_binary/1) |> Enum.uniq()
   end
 
   # The set of UNIVERSALLY-administered (globally-unique, hardware-anchor) MACs
@@ -337,25 +435,26 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
     end
   end
 
-  defp heal_hardware_mac_siblings(candidates, identifier_map, actor) do
+  defp heal_hardware_mac_siblings(candidates, preloads, actor) do
     Enum.map(candidates, fn {update, ids, device_id} ->
-      {update, ids, maybe_merge_hardware_mac_sibling(device_id, ids, identifier_map, actor)}
+      {update, ids, maybe_merge_hardware_mac_sibling(device_id, ids, preloads, actor)}
     end)
   end
 
-  defp maybe_merge_hardware_mac_sibling(device_id, ids, identifier_map, actor) do
+  defp maybe_merge_hardware_mac_sibling(device_id, ids, preloads, actor) do
     :mac
     |> Ids.get_identifier_values(ids)
     |> Enum.reduce(device_id, fn mac, acc ->
-      merge_loaded_hardware_mac_sibling(acc, mac, ids, identifier_map, actor)
+      merge_loaded_hardware_mac_sibling(acc, mac, ids, preloads, actor)
     end)
   end
 
-  defp merge_loaded_hardware_mac_sibling(device_id, mac, ids, identifier_map, actor) do
+  defp merge_loaded_hardware_mac_sibling(device_id, mac, ids, preloads, actor) do
     sibling = Mac.hardware_mac_sibling(mac)
-    other_id = sibling && Map.get(identifier_map, {:mac, sibling, ids.partition})
+    other_id = sibling && Map.get(preloads.identifiers, {:mac, sibling, ids.partition})
 
-    if is_binary(other_id) and other_id != device_id do
+    if is_binary(other_id) and other_id != device_id and
+         not source_mismatch?(ids, other_id, preloads) do
       {from_id, to_id} =
         if Mac.locally_administered_mac?(mac) do
           {device_id, other_id}
@@ -493,6 +592,29 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
   rescue
     e ->
       Logger.warning("BatchResolver: canonical MAC preload failed: #{inspect(e)}")
+      reraise e, __STACKTRACE__
+  end
+
+  # Bulk-load the source-authoritative identifiers held by every device an
+  # update carrying one could match, so `strong_match/2` can refuse a record
+  # holding a different one without a per-update query.
+  @doc false
+  def preload_source_ids(updates_with_ids, lookups, actor) do
+    updates_with_ids
+    |> Enum.flat_map(fn {_update, ids} ->
+      if Ids.ids_get(ids, :armis_id) in [nil, ""] do
+        []
+      else
+        for id_type <- Ids.identifier_priority(),
+            value <- Ids.get_identifier_values(id_type, ids),
+            device_id <- identifier_owners(id_type, value, ids, lookups.identifiers),
+            do: device_id
+      end
+    end)
+    |> SourceAuthorityGuard.held_source_ids(actor)
+  rescue
+    e ->
+      Logger.warning("BatchResolver: source identifier preload failed: #{inspect(e)}")
       reraise e, __STACKTRACE__
   end
 
