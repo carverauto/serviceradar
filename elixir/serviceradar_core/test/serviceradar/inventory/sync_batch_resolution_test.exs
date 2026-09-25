@@ -1172,6 +1172,31 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
     end
   end
 
+  describe "source-authoritative override of a sibling-only MAC" do
+    test "the resolver path records the refused sibling holder", %{actor: actor} do
+      n = System.unique_integer([:positive])
+      suffix = hex2(rem(n, 200) + 16)
+      sibling = "02:00:5E:00:53:#{suffix}"
+      holder = create_device(actor, doc_ip(n, 5), sibling)
+
+      register_identifier(actor, holder.uid, :mac, mac_value(sibling))
+      register_identifier(actor, holder.uid, :armis_device_id, "#{n}02")
+
+      update = %{
+        device_id: nil,
+        ip: doc_ip(n, 4),
+        mac: "00:00:5E:00:53:#{suffix}",
+        partition: "default",
+        metadata: %{"integration_type" => "armis", "armis_device_id" => "#{n}01"}
+      }
+
+      assert {:ok, resolved} = IdentityReconciler.resolve_device_id(update, actor: actor)
+      assert resolved != holder.uid
+      assert [conflict] = override_conflicts(resolved, actor)
+      assert conflict.conflicting_identifiers["overridden_device_uids"] == [holder.uid]
+    end
+  end
+
   # A discovered record (no Armis id) owns a MAC; a record holding a different Armis id owns
   # that MAC's LAA/UAA hardware sibling.
   defp sibling_split(actor) do

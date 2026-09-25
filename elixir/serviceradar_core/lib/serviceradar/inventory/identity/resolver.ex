@@ -96,12 +96,12 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
 
         _ ->
           case lookup_hardware_mac_sibling_device(ids, update, actor, refuse?) do
-            {:ok, device_id} when is_binary(device_id) and device_id != "" ->
+            {device_id, refused} when is_binary(device_id) ->
               _ = AliasGuard.maybe_merge_ip_alias_device(device_id, ids, actor)
-              {{:ok, device_id}, []}
+              {{:ok, device_id}, refused}
 
-            _ ->
-              {resolve_fallback_device_id(update, ids, actor), []}
+            {nil, refused} ->
+              {resolve_fallback_device_id(update, ids, actor), refused}
           end
       end
 
@@ -587,23 +587,33 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
     partition = Ids.ids_get_partition(ids)
     refuse? = refuse? || fn _id_type, _device_id -> :accept end
 
-    ids
-    |> sibling_mac_candidates(update)
-    |> Enum.map(&Mac.hardware_mac_sibling/1)
-    |> Enum.reject(&is_nil/1)
-    |> Enum.find_value(fn sibling ->
-      with {:ok, device_id} when is_binary(device_id) and device_id != "" <-
-             lookup_device_identifier(:mac, sibling, partition, actor),
-           :accept <- refuse?.(:mac, device_id) do
-        device_id
-      else
-        _ -> nil
-      end
-    end)
-    |> case do
-      device_id when is_binary(device_id) -> {:ok, device_id}
-      _ -> {:ok, nil}
-    end
+    {device_id, refused} =
+      ids
+      |> sibling_mac_candidates(update)
+      |> Enum.reduce({nil, []}, fn mac, {found, refused} ->
+        with sibling when is_binary(sibling) <- Mac.hardware_mac_sibling(mac),
+             {:ok, device_id} when is_binary(device_id) and device_id != "" <-
+               lookup_device_identifier(:mac, sibling, partition, actor) do
+          case refuse?.(:mac, device_id) do
+            :accept ->
+              {found || device_id, refused}
+
+            {:refuse, source_ids} ->
+              refusal = %{
+                device_uid: device_id,
+                identifier_type: :mac,
+                identifier_value: mac,
+                source_ids: source_ids
+              }
+
+              {found, [refusal | refused]}
+          end
+        else
+          _ -> {found, refused}
+        end
+      end)
+
+    {device_id, Enum.reverse(refused)}
   end
 
   # Prefer the universally-administered MAC as the survivor so a UniFi WAN
