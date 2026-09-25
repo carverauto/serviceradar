@@ -327,7 +327,9 @@ defmodule ServiceRadar.Inventory.EphemeralDeviceExpiry do
 
   defp excluded_uids(query, opts) when is_binary(query) do
     case String.trim(query) do
-      "" -> {:ok, MapSet.new()}
+      "" ->
+        {:ok, MapSet.new()}
+
       query ->
         query
         |> SRQLQuery.ensure_target(:devices)
