@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEventsTest do
 
   alias Phoenix.LiveView.Socket
   alias ServiceRadarWebNGWeb.DeviceLive.IndexEvents
+  alias ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Helpers
   alias ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Selection
   alias ServiceRadarWebNGWeb.SRQL.Builder
   alias ServiceRadarWebNGWeb.SRQL.Page
@@ -108,6 +109,42 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEventsTest do
 
       assert {:error, :db_down} = Selection.selected_uids_for_scope(socket, "all_matching")
     end)
+  end
+
+  test "a failed batch does not stop the remaining batches" do
+    uids = Enum.map(1..401, &"uid-#{&1}")
+
+    assert {:ok, summary} =
+             Helpers.each_uid_batch(uids, fn
+               ["uid-201" | _] -> {:error, "middle"}
+               batch -> {:ok, length(batch)}
+             end)
+
+    assert summary.applied == 201
+    assert summary.failed == 200
+    assert summary.total == 401
+    assert summary.errors == ["middle"]
+  end
+
+  test "stop on first error halts and reports how many were already applied" do
+    uids = Enum.map(1..401, &"uid-#{&1}")
+
+    assert {:error, summary} =
+             Helpers.each_uid_batch(
+               uids,
+               fn
+                 ["uid-201" | _] -> {:error, "middle"}
+                 _batch -> :ok
+               end,
+               on_error: :halt
+             )
+
+    assert summary.applied == 200
+    assert summary.failed == 200
+    assert summary.total == 401
+
+    assert Helpers.batch_failure_message({:error, summary}) ==
+             "Stopped after updating 200 of 401 device(s): middle"
   end
 
   test "scope-aware validation accepts any known selection size" do

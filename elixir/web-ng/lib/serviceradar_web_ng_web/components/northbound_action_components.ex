@@ -17,6 +17,7 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
   attr(:close_event, :string, required: true)
   attr(:change_event, :string, required: true)
   attr(:submit_event, :string, required: true)
+  attr(:show_stop_on_error, :boolean, default: false)
 
   def northbound_action_modal(assigns) do
     action = assigns.action || List.first(assigns.actions)
@@ -106,6 +107,16 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
           class="rounded-lg border border-sr-line p-4 text-sm text-sr-muted"
         >
           This action does not require additional input.
+        </div>
+
+        <div :if={@show_stop_on_error}>
+          <input type="hidden" name="action[stop_on_error]" value="false" />
+          <label class="flex items-center gap-2 text-sm text-sr-ink">
+            <input type="checkbox" name="action[stop_on_error]" value="true" /> Stop on first error
+          </label>
+          <p class="mt-1 text-xs text-sr-muted">
+            Leave this off to keep launching the rest after a batch fails.
+          </p>
         </div>
 
         <div class="flex justify-end gap-2 pt-2">

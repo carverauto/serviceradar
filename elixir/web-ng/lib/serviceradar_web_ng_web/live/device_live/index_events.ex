@@ -90,7 +90,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents do
     BulkState.handle_event(event, params, socket)
   end
 
-  def handle_event(event, params, socket) when event in ~w(bulk_delete_devices confirm_bulk_delete) do
+  def handle_event(event, params, socket)
+      when event in ~w(bulk_delete_devices confirm_bulk_delete bulk_delete_error_mode) do
     BulkDelete.handle_event(event, params, socket)
   end
 

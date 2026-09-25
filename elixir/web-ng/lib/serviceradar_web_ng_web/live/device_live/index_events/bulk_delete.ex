@@ -4,7 +4,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkDelete do
 
   alias ServiceRadar.Inventory.Device
   alias ServiceRadarWebNG.RBAC
-  alias ServiceRadarWebNGWeb.DeviceLive.IndexCsvImport
   alias ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Helpers
   alias ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Selection
 
@@ -16,6 +15,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkDelete do
 
   def handle_event("confirm_bulk_delete", _params, socket) do
     handle_confirm_bulk_delete(socket)
+  end
+
+  def handle_event("bulk_delete_error_mode", %{"bulk_error" => params}, socket) do
+    {:noreply,
+     socket
+     |> assign(:bulk_delete_error_form, to_form(params, as: :bulk_error))
+     |> assign(:bulk_delete_stop_on_error, Helpers.stop_on_error?(params["stop_on_error"]))}
   end
 
   defp handle_confirm_bulk_delete(socket) do
@@ -44,20 +50,33 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkDelete do
   end
 
   defp delete_selected_devices(socket, scope, uids) do
-    case Device.bulk_soft_delete(uids, "bulk_delete", scope: scope) do
-      :ok ->
-        finish_bulk_delete(socket, length(uids))
+    on_error = Helpers.assigns_on_error_mode(socket.assigns, :bulk_delete_stop_on_error)
 
-      {:ok, %{deleted_count: count}} ->
+    result =
+      Helpers.each_uid_batch(
+        uids,
+        fn batch ->
+          case Device.bulk_soft_delete(batch, "bulk_delete", scope: scope) do
+            :ok -> :ok
+            {:ok, :ok} -> :ok
+            {:ok, _} -> :ok
+            {:error, reason} -> {:error, reason}
+          end
+        end,
+        on_error: on_error
+      )
+
+    case result do
+      {:ok, %{failed: 0, applied: count}} ->
         finish_bulk_delete(socket, count)
 
-      {:error, reason} ->
-        Logger.error("Bulk device delete failed for #{length(uids)} device(s): #{inspect(reason)}")
+      other ->
+        Logger.error("Bulk device delete incomplete: #{inspect(other)}")
 
         {:noreply,
          socket
          |> assign(:show_bulk_delete_modal, false)
-         |> put_flash(:error, "Bulk delete failed: #{IndexCsvImport.format_device_error(reason)}")}
+         |> put_flash(:error, Helpers.batch_failure_message(other))}
     end
   end
 

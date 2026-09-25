@@ -29,7 +29,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkTags do
        |> put_flash(:error, "Enter at least one tag to apply")}
     else
       case apply_tags_to_devices(scope, socket, tags) do
-        {:ok, count} ->
+        {:ok, %{failed: 0, applied: count}} ->
           {:noreply,
            socket
            |> assign(:show_bulk_edit_modal, false)
@@ -43,11 +43,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkTags do
            |> assign(:total_matching_count, nil)
            |> put_flash(:info, "Applied tags to #{count} device(s)")}
 
-        {:error, reason} ->
+        other ->
           {:noreply,
            socket
            |> assign(:bulk_edit_form, to_form(params, as: :bulk))
-           |> put_flash(:error, "Failed to apply tags: #{Helpers.format_transaction_error(reason)}")}
+           |> put_flash(:error, Helpers.batch_failure_message(other))}
       end
     end
   end
@@ -61,15 +61,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkTags do
 
       :ok ->
         case Selection.selected_uids_for_scope(socket, target_scope) do
-          {:ok, []} -> {:error, "No devices selected"}
-          {:ok, uids} -> update_tags_for_uids(scope, uids, tags)
-          {:error, reason} -> {:error, reason}
+          {:ok, []} ->
+            {:error, "No devices selected"}
+
+          {:ok, uids} ->
+            update_tags_for_uids(scope, uids, tags, Helpers.assigns_on_error_mode(socket.assigns))
+
+          {:error, reason} ->
+            {:error, reason}
         end
     end
   end
 
-  defp update_tags_for_uids(scope, uids, new_tags) do
-    Helpers.each_uid_batch(uids, fn batch -> update_tag_batch(scope, batch, new_tags) end)
+  defp update_tags_for_uids(scope, uids, new_tags, on_error) do
+    Helpers.each_uid_batch(
+      uids,
+      fn batch -> update_tag_batch(scope, batch, new_tags) end,
+      on_error: on_error
+    )
   end
 
   defp update_tag_batch(scope, uids, new_tags) do

@@ -125,6 +125,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView do
       <.bulk_delete_modal
         :if={@show_bulk_delete_modal}
         selected_count={@effective_count}
+        error_form={@bulk_delete_error_form}
       />
 
       <.bulk_availability_source_modal
@@ -146,6 +147,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView do
         close_event="close_northbound_action_modal"
         change_event="northbound_action_change"
         submit_event="launch_northbound_action"
+        show_stop_on_error={true}
       />
 
       <.breakdown_modal

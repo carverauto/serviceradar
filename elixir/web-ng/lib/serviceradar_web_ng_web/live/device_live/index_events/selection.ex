@@ -133,7 +133,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Selection do
      |> assign(:bulk_scope_form, Helpers.bulk_scope_form())
      |> assign(:bulk_state_form, Helpers.bulk_state_form())
      |> assign(:bulk_target_scope, "selected")
-     |> assign(:bulk_target_matching_count, nil)}
+     |> assign(:bulk_target_matching_count, nil)
+     |> assign(:bulk_stop_on_error, false)}
   end
 
   def handle_event("close_bulk_delete_modal", _params, socket) do
@@ -144,7 +145,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Selection do
     {:noreply,
      socket
      |> assign(:show_bulk_availability_source_modal, false)
-     |> assign(:availability_source_form, to_form(%{"agent_id" => ""}, as: :availability_source))}
+     |> assign(:availability_source_form, Helpers.availability_source_form())}
   end
 
   def handle_event("toggle_select_all_matching", _params, socket) do
