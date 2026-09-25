@@ -983,7 +983,7 @@ tinygo_platform_repository = use_repo_rule(
     "tinygo_platform_repository",
 )
 
-# TLC model checker for //formal/... (openspec/changes/add-dire-formal-model).
+# TLC model checker for //formal/... (openspec/specs/dire-formal-model).
 # Pinned to the v1.7.4 stable release; v1.8.0 is a prerelease republished in place.
 http_file(
     name = "tla2tools",

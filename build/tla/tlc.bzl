@@ -2,7 +2,7 @@
 
 expect = "pass" requires TLC to finish with no error. expect = "violation:<Property>"
 requires TLC to report exactly that invariant or action property violated; a different
-property, a pass, or a config error all fail. See openspec/changes/add-dire-formal-model.
+property, a pass, or a config error all fail. See openspec/specs/dire-formal-model.
 """
 
 load("@rules_python//python:py_test.bzl", "py_test")
