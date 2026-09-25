@@ -54,28 +54,6 @@ tlc_test(
     ],
 )
 
-tlc_test(
-    name = "lifecycle_witness_fence_observe_only_test",
-    cfg = "lifecycle_witness_fence_observe_only.cfg",
-    expect = "violation:NoStaleCommit",
-    spec = "MCDireLifecycle.tla",
-    deps = [
-        "CurrentBugs.tla",
-        "DireLifecycle.tla",
-    ],
-)
-
-tlc_test(
-    name = "lifecycle_witness_purge_zombie_test",
-    cfg = "lifecycle_witness_purge_zombie.cfg",
-    expect = "violation:NoPurgedResurrection",
-    spec = "MCDireLifecycle.tla",
-    deps = [
-        "CurrentBugs.tla",
-        "DireLifecycle.tla",
-    ],
-)
-
 # ---- Resolution model ----
 
 tlc_test(

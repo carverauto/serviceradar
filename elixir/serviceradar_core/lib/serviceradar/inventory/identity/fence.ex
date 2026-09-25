@@ -30,6 +30,19 @@ defmodule ServiceRadar.Inventory.Identity.Fence do
   Nothing pins implicitly. A fence that silently wrapped every write would read as
   a guarantee everywhere while only actually holding where someone had threaded a
   revision through, which is worse than no fence. Call sites opt in.
+
+  ## Batch enforcement
+
+  `pin_batch/1` and `fenced_write/3` are the enforcing form for batch writers
+  (`SyncIngestor`). A batch pins every device it resolved -- its revision, or that
+  no row exists yet -- and then writes inside one transaction that first locks
+  those device rows (`FOR UPDATE`, in uid order) and re-reads them. An identity
+  transition bumps the revision of the rows it touches, so any merge, unmerge,
+  delete, restore or reassignment that committed since the pin shows up as a
+  moved revision, and one that has not committed yet waits for the batch to
+  commit. A pin whose device moved, vanished (a purge) or appeared already
+  transitioned is stale: its write is withheld, and the caller re-resolves it and
+  retries once, then abandons it (`abandon/2`) with telemetry.
   """
 
   alias ServiceRadar.Actors.SystemActor
@@ -49,6 +62,13 @@ defmodule ServiceRadar.Inventory.Identity.Fence do
 
   @typedoc "A device id paired with the identity revision observed when it was resolved."
   @type pinned :: {String.t(), integer()}
+
+  @typedoc """
+  What a batch pinned for one device: the revision it saw, `:absent` when no row
+  existed yet (the write will create it), or `:merged` when resolution already
+  raced a merge (the row is a merged-away tombstone, so the decision is stale).
+  """
+  @type batch_pin :: integer() | :absent | :merged
 
   @doc """
   Add the compare-and-set predicate to a **pending** changeset.
@@ -118,6 +138,161 @@ defmodule ServiceRadar.Inventory.Identity.Fence do
       other ->
         other
     end
+  end
+
+  @doc """
+  Pin a batch: read the identity state of every resolved device id at once.
+
+  Tombstones are read too. A non-merged tombstone is pinned by revision like a
+  live row (a write may legitimately revive it); a merged-away one is `:merged`,
+  because the resolver never lands on it except when a merge raced the
+  resolution. Unlike the observe-only reads this raises on failure: an
+  enforcing fence that cannot read must not let the batch through unchecked.
+  """
+  @spec pin_batch([String.t()]) :: %{String.t() => batch_pin()}
+  def pin_batch(device_ids) when is_list(device_ids) do
+    ids = device_ids |> Enum.filter(&(is_binary(&1) and &1 != "")) |> Enum.uniq()
+    rows = read_identity_rows(ids, lock?: false)
+
+    Map.new(ids, fn id ->
+      case Map.get(rows, id) do
+        nil -> {id, :absent}
+        %{deleted_at: %_{}, deleted_reason: "merged"} -> {id, :merged}
+        %{identity_revision: revision} -> {id, revision}
+      end
+    end)
+  end
+
+  @doc """
+  Run a batch write under the fence.
+
+  Inside one transaction: lock the pinned device rows, compute which pins went
+  stale, emit `[:serviceradar, :identity_fence, :stale]` for each, and call
+  `fun` with the set of stale device ids. `fun` must write only the devices NOT
+  in that set, and return `{:ok, value}` or `{:error, reason}` (which rolls the
+  whole write back). Returns `{:ok, {value, stale_ids}}`.
+
+  The locks are what make this enforcement rather than detection: a transition
+  that has not committed when the rows are locked cannot commit until the write
+  has, and one that has committed is seen as a moved revision.
+  """
+  @spec fenced_write(
+          %{String.t() => batch_pin()},
+          atom(),
+          (MapSet.t() -> {:ok, term()} | {:error, term()})
+        ) :: {:ok, {term(), MapSet.t()}} | {:error, term()}
+  def fenced_write(pins, pipeline, fun) when is_map(pins) and is_function(fun, 1) do
+    Ash.transact([Device], fn ->
+      current = read_identity_rows(Map.keys(pins), lock?: true)
+      stale = stale_ids(pins, current)
+
+      Enum.each(stale, fn device_id ->
+        emit_batch(:stale, pipeline, device_id, Map.fetch!(pins, device_id), current)
+      end)
+
+      case fun.(stale) do
+        {:ok, value} -> {value, stale}
+        {:error, _} = error -> error
+      end
+    end)
+  end
+
+  @doc """
+  Give up on writes whose pins went stale twice, and say so: one
+  `[:serviceradar, :identity_fence, :abandoned]` event per device and one log
+  line. Never silent, never raised.
+  """
+  @spec abandon(%{String.t() => batch_pin()}, atom()) :: :ok
+  def abandon(pins, _pipeline) when map_size(pins) == 0, do: :ok
+
+  def abandon(pins, pipeline) when is_map(pins) do
+    Enum.each(pins, fn {device_id, pin} ->
+      emit_batch(:abandoned, pipeline, device_id, pin, %{})
+    end)
+
+    Logger.warning(
+      "identity fence: abandoned #{map_size(pins)} write(s) after two identity " <>
+        "transitions during the write (pipeline=#{pipeline}): " <>
+        Enum.join(Enum.sort(Map.keys(pins)), ", ")
+    )
+
+    :ok
+  end
+
+  @doc """
+  Report one stale pin found outside `fenced_write/3` (a single-device consumer
+  that re-resolves on its own): one `[:serviceradar, :identity_fence, :stale]`
+  event, with the pin it held and what it found (a revision, `:absent` or `:merged`).
+  """
+  @spec report_stale(atom(), String.t(), batch_pin(), batch_pin()) :: :ok
+  def report_stale(pipeline, device_id, pin, current) do
+    current_row =
+      if is_integer(current), do: %{device_id => %{identity_revision: current}}, else: %{}
+
+    emit_batch(:stale, pipeline, device_id, pin, current_row)
+  end
+
+  @doc false
+  # The stale set for a batch's pins against the rows now locked. Public for the
+  # unit tests of the decision table.
+  @spec stale_ids(%{String.t() => batch_pin()}, %{String.t() => map()}) :: MapSet.t()
+  def stale_ids(pins, current) do
+    pins
+    |> Enum.filter(fn {device_id, pin} -> stale_pin?(pin, Map.get(current, device_id)) end)
+    |> MapSet.new(&elem(&1, 0))
+  end
+
+  # A resolution that already landed on a merged-away tombstone.
+  defp stale_pin?(:merged, _row), do: true
+  # Still no row: the write creates it.
+  defp stale_pin?(:absent, nil), do: false
+  # Another writer created the row since the pin, and nothing has happened to it.
+  defp stale_pin?(:absent, %{deleted_at: nil, identity_revision: 1}), do: false
+  # Created and already transitioned (merged, deleted, reassigned) since the pin.
+  defp stale_pin?(:absent, _row), do: true
+  # Purged since the pin: writing would re-create it.
+  defp stale_pin?(revision, nil) when is_integer(revision), do: true
+  defp stale_pin?(revision, %{identity_revision: revision}), do: false
+  defp stale_pin?(revision, _row) when is_integer(revision), do: true
+
+  defp read_identity_rows([], _opts), do: %{}
+
+  defp read_identity_rows(ids, opts) do
+    actor = actor()
+
+    query =
+      Device
+      |> Ash.Query.for_read(:read, %{include_deleted: true}, actor: actor)
+      |> Ash.Query.filter(uid in ^ids)
+      |> Ash.Query.select([:uid, :identity_revision, :deleted_at, :deleted_reason])
+      |> Ash.Query.sort(uid: :asc)
+
+    query =
+      if Keyword.get(opts, :lock?, false), do: Ash.Query.lock(query, :for_update), else: query
+
+    query
+    |> Ash.stream!(actor: actor, batch_size: @pin_read_batch_size)
+    |> Map.new(&{&1.uid, &1})
+  end
+
+  defp emit_batch(event, pipeline, device_id, pin, current) do
+    current_revision =
+      case Map.get(current, device_id) do
+        %{identity_revision: revision} -> revision
+        _ -> nil
+      end
+
+    :telemetry.execute(
+      @telemetry_prefix ++ [event],
+      %{count: 1},
+      %{
+        pipeline: pipeline,
+        device_id: device_id,
+        pinned_revision: if(is_integer(pin), do: pin),
+        pin: pin,
+        current_revision: current_revision
+      }
+    )
   end
 
   @doc """

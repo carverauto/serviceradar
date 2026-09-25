@@ -69,9 +69,31 @@
       device uid. The pinned revision goes in job args under a string key (Oban args are
       string-keyed).
 - [x] 4.3 Ship both comparing and reporting only. Enforce nothing.
-- [ ] 4.4 Run for a measured period and read the telemetry. Treat demo identity signals with
-      care — `armis_unmerge.ex:42-49` records that faker data makes some unreliable.
-- [ ] 4.5 Decide enforcement per pipeline from what the telemetry actually shows.
+- [x] 4.4 ~~Run for a measured period and read the telemetry.~~ **Superseded:** the formal model
+      (`formal/dire`, `NoStaleCommit`, `NoPurgedResurrection`) showed the observe-only gap is a
+      correctness defect, not a tuning question -- it is what lets a write pinned before a merge
+      and a purge re-create the merged-away device -- so enforcement landed without a soak
+      (#4618, `update-dire-strong-identity-goal` task 3.10).
+- [x] 4.5 Decide enforcement per pipeline (#4618):
+  - `inventory/sync_ingestor.ex` -- **enforced.** The batch pins every resolved device
+    (`Fence.pin_batch/1`, tombstones included, `:absent` for a row not yet written) and writes the
+    device rows and identifiers inside `Fence.fenced_write/3`, which locks the pinned rows
+    `FOR UPDATE` in uid order and withholds every write whose pin went stale (moved revision,
+    purged row, row created and already transitioned, or a merged-away tombstone). Withheld
+    updates are resolved again and written once more; a second stale pin abandons them
+    (`Fence.abandon/2`, telemetry `[:serviceradar, :identity_fence, :abandoned]`). A transient
+    conflict (deadlock, active-IP unique violation) aborts the fenced transaction and the whole
+    fenced write is retried, up to three attempts.
+  - `edge/agent_gateway_sync.ex` -- **enforced** for the identity writes (identifier
+    registration, agent-identifier repair, agent link), fenced on the device the upsert settled
+    on; a stale pin re-runs the check-in from resolution once, then abandons. The device-row
+    upsert itself stays outside the transaction because its active-IP adoption recovers from a
+    failed insert, which an open transaction cannot.
+  - `composite_checks/refresh_worker.ex` -- **enforced**: a job whose pinned revision moved
+    re-resolves the device (a merge moves its results to the survivor) and refreshes that; one
+    that resolves to nothing live is abandoned with telemetry.
+  - `event_writer/processors/sweep.ex` -- **left observe-only**: it is not registered as an
+    EventWriter processor and never runs (see `formal/dire/DireLifecycle.tla` `SweepRestore`).
 
 ## 5. Extend pinning
 
@@ -208,10 +230,13 @@ automatic, and the real defect is elsewhere.
 
 ## 10. Deferred, with reasons
 
-- [ ] 10.1 `SELECT ... FOR UPDATE` on both device rows inside the merge, which is what turns
-      child-table detection into real mutual exclusion. Needs deadlock analysis against
-      `ArmisUnmerge`'s existing barrier (`armis_unmerge.ex:719-737`). Gated on step 4
-      telemetry showing real collisions.
+- [x] 10.1 `SELECT ... FOR UPDATE` on both device rows inside the merge, which is what turns
+      child-table detection into real mutual exclusion. Done with enforcement (#4618):
+      `MergeEngine.do_merge_devices/5` and `do_unmerge/4` lock both device rows first, in uid
+      order, the same order `Fence.fenced_write/3` locks a batch's rows before touching their
+      identifiers, so a merge and a fenced ingest write serialize on the device rows instead of
+      deadlocking on child rows. `ArmisUnmerge` does not call `MergeEngine`; its own barrier is
+      unchanged.
 - [ ] 10.2 Reassigning the full set of device-keyed tables. Larger project, orthogonal to
       fencing, and impossible for hashed identities.
 - [ ] 10.3 A merge-stable device lineage id hashed into `finding_uid`. Conclusion unchanged,
