@@ -133,6 +133,7 @@ for dry-run review, execution gates, and device/source allowlists.
 | `[:serviceradar, :identity_reconciler, :alias, :invalidated]` | IP alias conflicted with agent identity |
 | `[:serviceradar, :identity_reconciler, :agent_colocation, :refused]` | second agent refused onto an agent-bound device |
 | `[:serviceradar, :identity_reconciler, :decision, :record_failed]` | an identity decision could not be written to `platform.identity_decisions` |
+| `[:serviceradar, :identity_reconciler, :deduplication_task, :open_failed]` | a de-duplication task could not be opened or updated for a recorded decision |
 
 ## Identity decisions
 
@@ -140,7 +141,7 @@ Every decision that blocks, declines or overrides a merge is also written to
 `platform.identity_decisions` (`ServiceRadar.Inventory.IdentityDecision`), so it can be
 reviewed later instead of living only in telemetry. One row per distinct decision: the
 kind (`policy_block`, `guard_block`, `source_block`, `alias_invalidated`, `ip_conflict`,
-`source_override`), the reason, the sorted device set, the address it concerns, the latest
+`source_override`, `component_block`), the reason, the sorted device set, the address it concerns, the latest
 evidence, and how often and when it was made. A repeat updates the row rather than adding
 one. Administrative merges are not decisions and are not recorded.
 
@@ -155,7 +156,8 @@ device set for its whole life; later decisions update its count, last reason and
 An operator resolves an open task through `ServiceRadar.Inventory.Identity.Deduplication`:
 
 - `merge/4` merges every other device into a chosen survivor through the administrative merge
-  path (reason `manual_dedup_task`).
+  path (reason `manual_dedup_task`). If a merge fails the task stays open; a retry treats
+  devices already merged into the survivor as done.
 - `mark_distinct/3` records a `DistinctDeviceAssertion` for every pair
   (`platform.identity_distinct_assertions`). `MergeEngine` then refuses every automatic merge of
   those pairs (guard `asserted_distinct`), the scheduled backfill included, and later decisions
