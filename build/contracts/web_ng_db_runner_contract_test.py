@@ -10,6 +10,7 @@ TARGET = "//elixir/web-ng:networks_live_db_test"
 SHARED_FIXTURE_SOURCES = {
     "test/app_domain/dashboards/group_access_db_test.exs",
     "test/app_domain/dashboards/report_jobs_test.exs",
+    "test/app_domain/dashboards/system_reports_db_test.exs",
     "test/phoenix/auth/sso_provisioning_test.exs",
     "test/phoenix/controllers/api/admin_authorization_test.exs",
     "test/phoenix/controllers/api/api_endpoint_integration_test.exs",

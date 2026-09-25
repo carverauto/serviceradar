@@ -29,7 +29,6 @@ CONSTANTS
     FollowDepth   \* Resolver @max_canonical_follow_depth
 
 KnownBugs == {
-    "upsert_revives_merged",     \* inventory/sync/device_writes.ex on_conflict
     "gateway_sync_no_bump",      \* inventory/device.ex update :gateway_sync
     "sweep_restores_merged",     \* sweep_jobs/sweep_results_ingestor.ex restore_eligible?/1
     "fence_observe_only",        \* inventory/identity/fence.ex pin/2 has no production caller
@@ -134,14 +133,14 @@ StartWork(u) ==
     /\ UNCHANGED <<status, reason, owner, ipOf, audit>>
 
 \* DeviceWrites insert_all(on_conflict: device_upsert_update_query(), conflict_target: [:uid])
-\* -- an update with no WHERE that sets deleted_at/deleted_by/deleted_reason to NULL --
-\* plus identifier registration for the written uid. S: unowned identifiers the source
-\* reports; p: the address it reports (NoIp = keep the current one).
+\* plus identifier registration for the written uid. Any tombstone other than a merged-away
+\* one is revived with an identity_revision bump. S: unowned identifiers the source reports;
+\* p: the address it reports (NoIp = keep the current one).
 CommitWork(w, S, p) ==
     LET t     == w.target
         newIp == IF p = NoIp THEN ipOf[t] ELSE p
         bump  == CASE status[t] \in {"absent", "purged"} -> {t}  \* a new row
-                   [] status[t] = "tomb" -> IF Bug("upsert_revives_merged") THEN {} ELSE {t}
+                   [] status[t] = "tomb" -> {t}                  \* a revival
                    [] OTHER -> {}
     IN
     /\ w \in work
@@ -152,8 +151,10 @@ CommitWork(w, S, p) ==
             /\ work' = work \ {w}
             /\ act' = MkAct("CommitDropped", NoDev, t, 0, w.stale, {})
             /\ UNCHANGED <<status, reason, owner, ipOf>>
-       ELSE IF MergedTomb(t) /\ ~Bug("upsert_revives_merged")
-       THEN \* Intended: a merged-away uid is never written back to life.
+       ELSE IF MergedTomb(t)
+       THEN \* A merged-away uid is never written back to life: the update's WHERE skips its
+            \* row, and follow_merged_away_uids/2 hands the batch's identifiers to the
+            \* survivor, which the model abstracts as a drop the next StartWork re-resolves.
             /\ work' = work \ {w}
             /\ act' = MkAct("CommitDropped", NoDev, t, 0, w.stale, {})
             /\ UNCHANGED <<status, reason, owner, ipOf>>

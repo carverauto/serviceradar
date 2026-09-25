@@ -1,0 +1,15 @@
+suite: runtime certificate SANs
+templates:
+  - templates/cert-scripts-configmap.yaml
+# A client in another namespace must dial the namespace-qualified Service name,
+# and TLS verifies the name it dials. The namespace is deliberately distinctive:
+# asserting a plausible default cannot tell `.Release.Namespace` from a
+# hardcoded string. See README.md in this directory.
+release:
+  namespace: sr-san-test
+tests:
+  - it: issues the log-collector cert with its namespace-qualified Service name
+    asserts:
+      - matchRegex:
+          path: data["generate-certs.sh"]
+          pattern: 'generate_cert "log-collector" "serviceradar-log-collector" "[^"]*DNS:serviceradar-log-collector\.sr-san-test\.svc\.cluster\.local[,"]'

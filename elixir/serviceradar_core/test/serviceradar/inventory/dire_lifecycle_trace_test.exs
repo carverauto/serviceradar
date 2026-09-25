@@ -25,8 +25,7 @@ defmodule ServiceRadar.Inventory.DireLifecycleTraceTest do
     "gateway_sync_no_bump",
     "purge_forgets_redirect",
     "sweep_restores_merged",
-    "unmerge_restores_matches",
-    "upsert_revives_merged"
+    "unmerge_restores_matches"
   ]
 
   setup_all do
@@ -55,14 +54,15 @@ defmodule ServiceRadar.Inventory.DireLifecycleTraceTest do
     |> Trace.assert_golden!(demonstrates: "unmerge_restores_matches", tamper: true)
   end
 
-  # #4614: a soft-deleted device is written back to life by the next ingest that reaches it.
+  # #4614 (fixed): the next ingest that reaches a soft-deleted device writes it back to life,
+  # and that revival bumps its identity_revision. Kept as a regression trace.
   test "soft_delete_upsert_revival", %{actor: actor} do
     "soft_delete_upsert_revival"
     |> Trace.start(world(["d1"], %{"i1" => :mac}, ["p1"]), actor)
     |> Trace.census("i1", "p1")
     |> Trace.soft_delete("d1")
     |> Trace.census("i1", "p1")
-    |> Trace.assert_golden!(demonstrates: "upsert_revives_merged")
+    |> Trace.assert_golden!()
   end
 
   # #4616 (fixed): after an automatic merge is undone and the device is deleted for another
