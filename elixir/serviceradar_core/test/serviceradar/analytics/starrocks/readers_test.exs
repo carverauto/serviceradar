@@ -54,20 +54,42 @@ defmodule ServiceRadar.Analytics.StarRocks.ReadersTest do
     end
   end
 
-  test "MTR SRQL is refused with the warehouse enabled and served from CNPG without it" do
+  # With the warehouse enabled the CNPG MTR tables stop receiving rows, so MTR
+  # SRQL must read StarRocks then, and only CNPG when it is off -- never both.
+  test "MTR SRQL reads StarRocks with the warehouse enabled and CNPG without it" do
     prev = Application.get_env(:serviceradar_core, StarRocks, [])
 
     try do
-      Application.put_env(:serviceradar_core, StarRocks, Keyword.put(prev, :enabled, true))
+      Application.put_env(
+        :serviceradar_core,
+        StarRocks,
+        prev |> Keyword.put(:enabled, true) |> Keyword.put(:cutover_datasets, [])
+      )
 
       for entity <- ["mtr_traces", "mtr_hops", "MTR_HOPS", "mtr_hop_stats"] do
-        assert Readers.mode_for(entity) == {:error, :warehouse_reader_missing}
+        assert Readers.mode_for(entity) == "starrocks"
+        assert Readers.backend(entity) == :starrocks
       end
+
+      query = "in:mtr_hops time:last_24h stats:count() as n by addr"
+      assert query |> Readers.entity_for_query() |> Readers.mode_for() == "starrocks"
+
+      assert Readers.fetch(:mtr, %{
+               cnpg: fn -> flunk("MTR must not read CNPG with the warehouse enabled") end,
+               starrocks: fn -> :starrocks_branch end
+             }) == :starrocks_branch
 
       Application.put_env(:serviceradar_core, StarRocks, Keyword.put(prev, :enabled, false))
 
-      assert Readers.mode_for("mtr_traces") == nil
-      assert Readers.backend("mtr_hops") == :cnpg
+      for entity <- ["mtr_traces", "mtr_hops", "mtr_hop_stats"] do
+        assert Readers.mode_for(entity) == nil
+        assert Readers.backend(entity) == :cnpg
+      end
+
+      assert Readers.fetch(:mtr, %{
+               cnpg: fn -> :cnpg_branch end,
+               starrocks: fn -> flunk("MTR must not read StarRocks when disabled") end
+             }) == :cnpg_branch
     after
       Application.put_env(:serviceradar_core, StarRocks, prev)
     end

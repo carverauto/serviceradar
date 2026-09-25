@@ -78,16 +78,16 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
   @starrocks_only [:flows]
 
   @spec mode_for(atom() | String.t() | nil) ::
-          String.t() | {:error, :starrocks_required | :warehouse_reader_missing} | nil
+          String.t() | {:error, :starrocks_required} | nil
   def mode_for(nil), do: nil
 
   def mode_for(entity) when is_binary(entity), do: mode_for(dataset_for_entity(entity))
 
-  # MTR SRQL has no warehouse dialect yet. With the warehouse enabled the CNPG
-  # MTR tables stop receiving rows, so answering from them would serve history
-  # frozen at the switch; the query is refused instead, and answered from CNPG
-  # only when StarRocks is off.
-  def mode_for(:mtr), do: if(enabled?(), do: {:error, :warehouse_reader_missing})
+  # With the warehouse enabled EventWriter writes MTR to StarRocks only, so the
+  # CNPG MTR tables hold history frozen at the switch. MTR SRQL therefore reads
+  # the warehouse whenever it is enabled, and CNPG only when it is not; it keys
+  # on `enabled?/0`, not on `cutover_datasets`, which has no MTR entry.
+  def mode_for(:mtr), do: if(enabled?(), do: "starrocks")
 
   def mode_for(dataset) when is_atom(dataset) do
     cond do

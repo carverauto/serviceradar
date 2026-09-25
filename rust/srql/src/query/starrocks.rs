@@ -6,6 +6,8 @@ use crate::{
 };
 use chrono::{SecondsFormat, Timelike, Utc};
 
+mod mtr;
+
 /// Compile an authorized SRQL plan to StarRocks SQL.
 ///
 /// Unsupported shapes return a capability error instead of silently falling
@@ -28,6 +30,12 @@ fn translate_inner(
     database: &str,
     allow_rollup: bool,
 ) -> Result<TranslateResponse> {
+    // MTR has no rollup, so both entry points compile it the same way. It is
+    // not a `Dataset`: its stats grammar is the CNPG MTR builders' own, parsed
+    // by them and rendered by `mtr`, not the generic stats compiler below.
+    if matches!(plan.entity, Entity::MtrHops | Entity::MtrTraces) {
+        return mtr::translate(plan, database);
+    }
     match dataset_for(&plan.entity) {
         Some(dataset) => {
             refuse_unimplemented_features(plan)?;
@@ -2162,16 +2170,8 @@ fn starrocks_agg(plan: &QueryPlan, agg: &ParsedAgg<'_>) -> Result<String> {
         let lhs = aggregate_field_sql(plan, field)?;
         let rhs = aggregate_field_sql(plan, second)?;
         let expr = match function.to_ascii_lowercase().as_str() {
-            "loss_ratio" => format!(
-                "CASE WHEN COALESCE(SUM({lhs}), 0) > 0 THEN \
-                 100.0 * (CAST(SUM({lhs}) AS DOUBLE) - CAST(COALESCE(SUM({rhs}), 0) AS DOUBLE)) \
-                 / CAST(SUM({lhs}) AS DOUBLE) ELSE NULL END"
-            ),
-            "wavg" => format!(
-                "CASE WHEN SUM(COALESCE({rhs}, 0)) > 0 THEN \
-                 SUM(CAST({lhs} AS DOUBLE) * CAST(COALESCE({rhs}, 0) AS DOUBLE)) \
-                 / CAST(SUM(COALESCE({rhs}, 0)) AS DOUBLE) ELSE NULL END"
-            ),
+            "loss_ratio" => loss_ratio_sql(&lhs, &rhs),
+            "wavg" => wavg_sql(&lhs, &rhs),
             other => {
                 return Err(ServiceError::InvalidRequest(format!(
                     "unsupported two-argument aggregation '{other}'"
@@ -2192,6 +2192,28 @@ fn starrocks_agg(plan: &QueryPlan, agg: &ParsedAgg<'_>) -> Result<String> {
     } else {
         Ok(format!("{function}({value}) AS {alias}"))
     }
+}
+
+/// `loss_ratio(sent, received)`: `100 * (SUM(sent) - SUM(received)) / SUM(sent)`,
+/// the CNPG formula (`mtr_hops::pg_loss_ratio_expr`). A group whose sent total
+/// is zero or NULL is NULL, not 0.
+fn loss_ratio_sql(sent: &str, received: &str) -> String {
+    format!(
+        "CASE WHEN COALESCE(SUM({sent}), 0) > 0 THEN \
+         100.0 * (CAST(SUM({sent}) AS DOUBLE) - CAST(COALESCE(SUM({received}), 0) AS DOUBLE)) \
+         / CAST(SUM({sent}) AS DOUBLE) ELSE NULL END"
+    )
+}
+
+/// `wavg(value, weight)`: `SUM(value * weight) / SUM(weight)` with a NULL weight
+/// counted as 0, the CNPG formula (`mtr_hops::pg_wavg_expr`). A zero total
+/// weight is NULL.
+fn wavg_sql(value: &str, weight: &str) -> String {
+    format!(
+        "CASE WHEN SUM(COALESCE({weight}, 0)) > 0 THEN \
+         SUM(CAST({value} AS DOUBLE) * CAST(COALESCE({weight}, 0) AS DOUBLE)) \
+         / CAST(SUM(COALESCE({weight}, 0)) AS DOUBLE) ELSE NULL END"
+    )
 }
 
 fn aggregate_field_sql(plan: &QueryPlan, field: &str) -> Result<String> {
@@ -4084,27 +4106,6 @@ mod tests {
             compiled.sql
         );
         refute_postgres(&compiled.sql);
-    }
-
-    #[test]
-    fn mtr_entities_are_refused_by_the_warehouse_dialect() {
-        // MTR is not a warehouse dataset: extend-starrocks-to-all-telemetry task 3.4
-        // owns moving it there. Until it does, the dialect must REFUSE these
-        // entities rather than serve a partial answer. This guard is what would
-        // catch a future half-implementation -- a dataset mapping added without the
-        // target_ip/device_id field mappings the device-scoped panels rely on,
-        // which would silently return fleet-wide rows under a per-device title.
-        for query in [
-            "in:mtr_hops time:last_24h target_ip:192.0.2.50 limit:10",
-            "in:mtr_hops time:last_24h stats:loss_ratio(sent, received) as loss by addr limit:10",
-            "in:mtr_traces time:last_24h stats:count() as traces by target_ip limit:10",
-        ] {
-            let result = translate(&plan(query), "serviceradar");
-            assert!(
-                result.is_err(),
-                "{query} must be refused by the warehouse dialect, not partially served"
-            );
-        }
     }
 
     #[test]
