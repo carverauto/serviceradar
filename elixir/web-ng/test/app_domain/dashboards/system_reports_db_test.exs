@@ -58,11 +58,11 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsDbTest do
       |> Ash.Query.load([:panels])
       |> Ash.read_one(actor: actor)
 
-    panel = hd(mtr.panels)
+    assert [panel | _] = mtr.panels, "precondition: mtr dashboard must have at least one panel"
     edited_query = "in:mtr_hops addr:#{marker} limit:5"
 
     Repo.update_all(
-      from(p in "dashboard_panels", prefix: "platform", where: p.id == ^Ecto.UUID.dump!(panel.id)),
+      from(p in "authored_dashboard_panels", prefix: "platform", where: p.id == ^Ecto.UUID.dump!(panel.id)),
       set: [srql_query: edited_query]
     )
 
@@ -122,7 +122,7 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsDbTest do
     {:ok, empty_dashboard} =
       AuthoredDashboard
       |> Ash.Changeset.for_create(:create, %{
-        dashboard_ref: Enum.random(1_000_000..9_999_999),
+        dashboard_ref: System.unique_integer([:positive, :monotonic]),
         title: "New devices",
         slug: new_devices_slug,
         visibility: :public,
@@ -158,7 +158,7 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsDbTest do
     {:ok, unrelated} =
       AuthoredDashboard
       |> Ash.Changeset.for_create(:create, %{
-        dashboard_ref: Enum.random(1_000_000..9_999_999),
+        dashboard_ref: System.unique_integer([:positive, :monotonic]),
         title: "#{marker}-unrelated",
         slug: "#{marker}-unrelated-slug",
         visibility: :private,
