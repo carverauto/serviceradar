@@ -3,8 +3,6 @@
 \* scenario. Regenerate with DIRE_TRACE_WRITE=1; do not edit by hand.
 EXTENDS DireLifecycleTrace, CurrentBugs
 
-KnockoutBugs == LifecycleBugs \ {"unmerge_restores_matches"}
-
 TheLog == <<
   [status |-> ("d1" :> "absent" @@ "d2" :> "absent"), reason |-> ("d1" :> "none" @@ "d2" :> "none"), owner |-> ("i1" :> NoDev @@ "i2" :> NoDev), ipOf |-> ("d1" :> NoIp @@ "d2" :> NoIp), audit |-> <<>>, work |-> {}, act |-> [name |-> "Init", u |-> NoDev, v |-> NoDev, row |-> 0, stale |-> FALSE, bumped |-> {}]],
   [status |-> ("d1" :> "absent" @@ "d2" :> "absent"), reason |-> ("d1" :> "none" @@ "d2" :> "none"), owner |-> ("i1" :> NoDev @@ "i2" :> NoDev), ipOf |-> ("d1" :> NoIp @@ "d2" :> NoIp), audit |-> <<>>, work |-> {[target |-> "d1", stale |-> FALSE]}, act |-> [name |-> "StartWork", u |-> "d1", v |-> "d1", row |-> 0, stale |-> FALSE, bumped |-> {}]],
