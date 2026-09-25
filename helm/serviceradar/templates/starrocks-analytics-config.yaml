@@ -1,5 +1,9 @@
 {{- if and .Values.analytics .Values.analytics.starrocks .Values.analytics.starrocks.enabled }}
 {{- $sr := .Values.analytics.starrocks -}}
+{{- /* Rendered whenever StarRocks analytics is on, so this is where a missing
+       Frontend password Secret stops the render even for a release whose
+       workloads are all disabled. */ -}}
+{{- $_ := include "serviceradar.starrocksFePasswordSecretName" . -}}
 # Connection settings for EventWriter's StarRocks destination. This chart does
 # not install a StarRocksCluster into demo/serviceradar; lab clusters use
 # k8s/starrocks/. Hosted shared-data still requires object storage.

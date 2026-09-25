@@ -236,6 +236,12 @@ analytics:
     enabled: true
     shadowDatasets: []
     cutoverDatasets: []
+    catalog:
+      # Required while StarRocks is enabled: the chart refuses to render a
+      # passwordless Frontend. The control plane creates this Secret (key
+      # `password`, same value as the StarRocks operator's initPassword
+      # Secret) before Helm bootstrap, like certs.runtimeSecretName.
+      fePasswordSecretName: serviceradar-starrocks-fe
 
 flowCollector:
   enabled: true

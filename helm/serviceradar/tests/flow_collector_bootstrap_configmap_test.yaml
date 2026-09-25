@@ -13,6 +13,7 @@ tests:
     set:
       flowCollector.enabled: true
       analytics.starrocks.enabled: true
+      analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
     template: templates/flow-collector-bootstrap-configmap.yaml
     asserts:
       - equal:
@@ -33,6 +34,7 @@ tests:
     set:
       flowCollector.enabled: true
       analytics.starrocks.enabled: true
+      analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
     template: templates/flow-collector-bootstrap-job.yaml
     asserts:
       - equal:

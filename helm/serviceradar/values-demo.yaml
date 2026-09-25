@@ -95,6 +95,10 @@ analytics:
       # DDL is built by the catalog Job; nothing here is provisioned by hand.
       jdbcUri: "jdbc:postgresql://cnpg-rw.demo.svc:5432/serviceradar?ssl=true&sslmode=require"
       sourceNamespace: starrocks
+      # Frontend root password. Created by hand in this namespace AND, with the
+      # same value, as the operator's initPassword Secret in namespace
+      # starrocks; see "Frontend root password" in k8s/starrocks/README.md.
+      fePasswordSecretName: serviceradar-starrocks-fe
 
 trivySidecar:
   enabled: true

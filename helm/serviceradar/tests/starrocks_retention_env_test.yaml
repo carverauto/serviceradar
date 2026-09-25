@@ -9,6 +9,7 @@ tests:
   - it: publishes the shipped per-dataset retention policy when starrocks is enabled
     set:
       analytics.starrocks.enabled: true
+      analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
     documentSelector:
       path: kind
       value: Deployment
@@ -49,6 +50,7 @@ tests:
   - it: publishes the rollup staleness threshold when starrocks is enabled
     set:
       analytics.starrocks.enabled: true
+      analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
     documentSelector:
       path: kind
       value: Deployment
@@ -65,6 +67,7 @@ tests:
   - it: lets the rollup staleness threshold be retuned
     set:
       analytics.starrocks.enabled: true
+      analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
       analytics.starrocks.rollupStaleAfterSeconds: 3600
     documentSelector:
       path: kind
@@ -83,6 +86,7 @@ tests:
   - it: honours a zero rollup staleness threshold literally
     set:
       analytics.starrocks.enabled: true
+      analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
       analytics.starrocks.rollupStaleAfterSeconds: 0
     documentSelector:
       path: kind
@@ -100,6 +104,7 @@ tests:
   - it: publishes the rollup freshness cache ttl when starrocks is enabled
     set:
       analytics.starrocks.enabled: true
+      analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
     documentSelector:
       path: kind
       value: Deployment
@@ -116,6 +121,7 @@ tests:
   - it: honours a zero rollup freshness cache ttl literally
     set:
       analytics.starrocks.enabled: true
+      analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
       analytics.starrocks.rollupCacheTtlSeconds: 0
     documentSelector:
       path: kind
@@ -132,6 +138,7 @@ tests:
   - it: lets one dataset be retuned without moving the others
     set:
       analytics.starrocks.enabled: true
+      analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
       analytics.starrocks.retentionDays.flows: 30
     documentSelector:
       path: kind

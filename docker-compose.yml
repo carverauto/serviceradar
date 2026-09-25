@@ -559,6 +559,8 @@ services:
       - SERVICERADAR_STARROCKS_SHADOW_DATASETS=${STARROCKS_SHADOW_DATASETS:-}
       - SERVICERADAR_STARROCKS_CUTOVER_DATASETS=${STARROCKS_CUTOVER_DATASETS:-}
       - SERVICERADAR_STARROCKS_CATALOG_ENABLED=${STARROCKS_CATALOG_ENABLED:-false}
+      # Frontend root password (the same value the starrocks service sets).
+      - SERVICERADAR_STARROCKS_PASSWORD=${STARROCKS_ROOT_PASSWORD:-}
       # OpenTelemetry
       - OTEL_EXPORTER_OTLP_ENDPOINT=https://log-collector:4317
       - OTEL_EXPORTER_OTLP_TIMEOUT_MS=${OTEL_EXPORTER_OTLP_TIMEOUT_MS:-30000}
@@ -844,6 +846,23 @@ services:
   # served from CNPG. `--profile starrocks` starts the warehouse; it is
   # independent of the collector profiles. Set STARROCKS_ENABLED=true in the
   # environment when using it.
+  #
+  # The Frontend `root` account never runs passwordless here. The container
+  # refuses to start unless STARROCKS_ROOT_PASSWORD is set (README-Docker.md
+  # has the command that generates one), and it sets that password on first
+  # start. That check lives in the container and not in a `${VAR:?}`
+  # interpolation because Compose resolves required variables in EVERY
+  # service, profile or not, so it would stop the default stack too.
+  #
+  # The image's own start-up script registers the backend by logging in as
+  # root with MYSQL_PWD, on every start, so MYSQL_PWD is exported from the same
+  # variable: it must always equal the live password, or a restarted container
+  # shuts itself down with "Password error, stop retrying!". The very first
+  # start (or the first after upgrading a passwordless warehouse) can restart
+  # once while the password is being set.
+  #
+  # Ports are published on loopback only. Set STARROCKS_PUBLIC_BIND to expose
+  # them on another interface; nothing in this stack needs that.
   starrocks:
     image: starrocks/allin1-ubuntu:3.5.21
     container_name: serviceradar-starrocks
@@ -851,9 +870,53 @@ services:
     profiles:
       - starrocks
     ports:
-      - "8030:8030"
-      - "9030:9030"
-      - "8040:8040"
+      - "${STARROCKS_PUBLIC_BIND:-127.0.0.1}:8030:8030"
+      - "${STARROCKS_PUBLIC_BIND:-127.0.0.1}:9030:9030"
+      - "${STARROCKS_PUBLIC_BIND:-127.0.0.1}:8040:8040"
+    environment:
+      - STARROCKS_ROOT_PASSWORD=${STARROCKS_ROOT_PASSWORD:-}
+    command:
+      - /bin/bash
+      - -c
+      - |
+        set -eu
+        pw="$${STARROCKS_ROOT_PASSWORD:-}"
+        unset STARROCKS_ROOT_PASSWORD
+        if [ -z "$$pw" ]; then
+          echo "STARROCKS_ROOT_PASSWORD is not set; refusing to start StarRocks with a passwordless root account. See README-Docker.md." >&2
+          exit 1
+        fi
+        case "$$pw" in
+          *[!A-Za-z0-9._~+=/-]*)
+            echo "STARROCKS_ROOT_PASSWORD may contain only letters, digits and . _ ~ + = / -" >&2
+            exit 1
+            ;;
+        esac
+        export MYSQL_PWD="$$pw"
+        (
+          q="mysql --connect-timeout=5 -h 127.0.0.1 -P 9030 -u root --batch --skip-column-names"
+          while :; do
+            if with_pw=$$($$q -e "SELECT 1" 2>&1); then
+              echo "StarRocks root password is set" >&2
+              exit 0
+            fi
+            if without_pw=$$(env -u MYSQL_PWD $$q --skip-password -e "SELECT 1" 2>&1); then
+              if printf "SET PASSWORD = PASSWORD('%s');\n" "$$pw" \
+                | env -u MYSQL_PWD $$q --skip-password; then
+                echo "StarRocks root password was empty; set it from STARROCKS_ROOT_PASSWORD" >&2
+              fi
+            else
+              case "$$with_pw$$without_pw" in
+                *1045*1045*)
+                  echo "StarRocks root password differs from STARROCKS_ROOT_PASSWORD; set the variable to the live password" >&2
+                  exit 1
+                  ;;
+              esac
+            fi
+            sleep 1
+          done
+        ) &
+        exec ./entrypoint.sh
     volumes:
       - starrocks-data:/data
       - ./logs:/opt/starrocks/logs
@@ -1157,6 +1220,8 @@ services:
       - SERVICERADAR_STARROCKS_SHADOW_DATASETS=${STARROCKS_SHADOW_DATASETS:-}
       - SERVICERADAR_STARROCKS_CUTOVER_DATASETS=${STARROCKS_CUTOVER_DATASETS:-}
       - SERVICERADAR_STARROCKS_CATALOG_ENABLED=${STARROCKS_CATALOG_ENABLED:-false}
+      # Frontend root password (the same value the starrocks service sets).
+      - SERVICERADAR_STARROCKS_PASSWORD=${STARROCKS_ROOT_PASSWORD:-}
       - CLUSTER_ENABLED=true
       - CLUSTER_STRATEGY=epmd
       - CLUSTER_HOSTS=serviceradar_agent_gateway@agent-gateway,serviceradar_core@core-elx,serviceradar_agent_gateway_t2@agent-gateway-t2

@@ -1,0 +1,53 @@
+# Ingress fence for the StarRocks namespace: operator, FE, BE/CN and the
+# chart's init Job. Applied like namespace.yaml (kubectl apply -f), once per
+# cluster, after the namespace exists. See "Network policy" in README.md.
+#
+# Selecting every pod here makes ingress default-deny for the whole namespace;
+# only the two rules below admit traffic:
+#
+# 1. Anything from a pod in this namespace, on any port. FE followers join the
+#    leader (edit_log 9010, rpc 9020, query 9030), BE/CN heartbeat and data
+#    ports (9050, 9060, 8060, 8040), CN meta (6090), the init-password Job and
+#    the operator all stay inside the namespace.
+# 2. From a namespace labelled serviceradar.carverauto.dev/starrocks-client:
+#    "true", only the client ports:
+#      9030  FE MySQL protocol (core/web-ng reader, schema migrator, the
+#            catalog and storage-volume Jobs)
+#      8030  FE HTTP (Stream Load entry point)
+#      8040  BE/CN HTTP. Stream Load answers the FE request with a redirect to
+#            a BE or CN pod's own address on this port, so blocking it breaks
+#            every EventWriter write while reads keep working.
+#
+# Label the ServiceRadar namespace BEFORE applying this: without the label the
+# application is cut off from the warehouse, and the symptom is connection
+# timeouts, not an authentication error.
+#
+# The ports are the values set in values-cluster.yaml and
+# values-cluster-shared-data.yaml (http_port, query_port, webserver_port).
+# Change them there and here together.
+#
+# Egress is not restricted: the FE/BE reach CNPG for the JDBC catalog and CN
+# reaches object storage in the shared-data profile.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: starrocks-ingress
+  namespace: starrocks
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              serviceradar.carverauto.dev/starrocks-client: "true"
+      ports:
+        - protocol: TCP
+          port: 9030
+        - protocol: TCP
+          port: 8030
+        - protocol: TCP
+          port: 8040

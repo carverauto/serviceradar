@@ -4,16 +4,41 @@
 # Pin: StarRocks 3.5.21 (not 4.1-latest / not :latest).
 # Namespace: starrocks (baseline). Operator is a separate Helm release.
 #
-# Deploy:
+# Deploy (fresh cluster; an existing one follows README.md instead):
 #   kubectl apply -f k8s/starrocks/namespace.yaml
+#   kubectl apply -f k8s/starrocks/network-policy.yaml
+#   kubectl -n starrocks create secret generic starrocks-root-password \
+#     --from-file=password=<password-file>
 #   helm upgrade --install starrocks-lab starrocks/starrocks \
 #     --namespace starrocks --version 1.11.7 -f k8s/starrocks/values-cluster.yaml
 
 nameOverride: lab
 timeZone: UTC
 
+# Frontend `root` password. Never run this cluster passwordless: without this
+# block the chart creates `root` with an empty password, and anything that can
+# reach port 9030 administers the warehouse. See "Frontend root password" in
+# README.md before changing anything here.
+#
+# passwordSecret names a Secret in this namespace with key `password`, created
+# by hand BEFORE the release is installed or upgraded. The chart does not create
+# it (a plaintext `password:` value here would put the credential in Git).
+#
+# The operator injects that Secret as MYSQL_PWD into every FE, BE and CN pod,
+# and their startup scripts use it to register with the leader FE as root. So
+# the Secret MUST equal the live root password at all times: if they differ, a
+# restarted FE, BE or CN cannot rejoin the cluster.
+#
+# isInstall: true lets the chart's one-shot init Job set the password on a
+# brand-new cluster (it is rendered only by a first `helm install`). For an
+# installation that is already running passwordless, the password is set by
+# SQL first and this release is then upgraded with
+# `--set initPassword.isInstall=false`; a renderer that always reports a fresh
+# install (`helm template`, Argo CD) must also pass isInstall=false.
 initPassword:
-  enabled: false
+  enabled: true
+  isInstall: true
+  passwordSecret: starrocks-root-password
 
 starrocksCluster:
   name: lab

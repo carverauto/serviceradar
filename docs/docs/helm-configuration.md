@@ -522,6 +522,36 @@ cut-over or shadow datasets rolls them without a manual restart. Removing
 `metrics`, `logs` or `events` from the list falls back to CNPG; removing `flows`
 does not, it refuses flow reads again.
 
+The StarRocks Frontend is never reached passwordless. With
+`analytics.starrocks.enabled=true` the chart **fails to render** unless
+`analytics.starrocks.catalog.fePasswordSecretName` names a Secret in the release
+namespace whose key `analytics.starrocks.catalog.fePasswordSecretKey` (default
+`password`) holds the Frontend `root` password:
+
+```text
+analytics.starrocks.catalog.fePasswordSecretName is required when
+analytics.starrocks.enabled=true: ...
+```
+
+There is no value that turns this off. core, web-ng (EventWriter Stream Load and
+the warehouse reader) and the catalog and storage-volume Jobs all read that one
+Secret as `SERVICERADAR_STARROCKS_PASSWORD` / `FE_PASSWORD`. Its value must be
+byte-identical to the StarRocks operator's `initPassword` Secret and to the live
+`root` password, because the StarRocks pods use the operator's copy to rejoin the
+cluster whenever they restart. Creating both Secrets for a new cluster, and the
+ordered procedure that converts an installation already running passwordless
+(generate, create both Secrets, verify the rendered Deployment, set the password
+by SQL, upgrade the cluster release, roll ServiceRadar, verify), are in
+`k8s/starrocks/README.md` under "Frontend root password". Check the rendered
+Deployment rather than the values: GitOps parameter overrides, such as an Argo CD
+`.argocd-source-<app>.yaml` in the chart directory, are applied after values
+files and win silently.
+
+`k8s/starrocks/network-policy.yaml` restricts ingress to the StarRocks namespace
+to its own pods plus namespaces labelled
+`serviceradar.carverauto.dev/starrocks-client: "true"` on ports 9030, 8030 and
+8040. Label the ServiceRadar namespace before applying it.
+
 The chart does not create the warehouse schema. Cluster install, the DDL under
 `elixir/serviceradar_core/priv/starrocks/`, the CNPG JDBC catalog and its reader
 role are documented in `k8s/starrocks/README.md`. Per-key defaults, including

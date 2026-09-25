@@ -2,6 +2,7 @@ filegroup(
     name = "cluster_files",
     srcs = [
         "README.md",
+        "network-policy.yaml",
         "values.yaml",
         "values-cluster.yaml",
         "values-cluster-shared-data.yaml",

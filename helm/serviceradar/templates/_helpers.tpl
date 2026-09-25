@@ -354,17 +354,40 @@ The shadow list is included explicitly because it is derived, not set.
   value: {{ $sr.fe.service | quote }}
 - name: SERVICERADAR_STARROCKS_FE_QUERY_PORT
   value: {{ $sr.fe.queryPort | quote }}
-{{- $feSecret := default (dict) $sr.catalog }}
-{{- if $feSecret.fePasswordSecretName }}
 {{- /* Same Frontend account the provisioning Jobs authenticate as (both run
        `mysql -u root` with this secret), so it has one source of truth. */}}
 - name: SERVICERADAR_STARROCKS_PASSWORD
   valueFrom:
     secretKeyRef:
-      name: {{ $feSecret.fePasswordSecretName | quote }}
-      key: {{ $feSecret.fePasswordSecretKey | default "password" | quote }}
+      name: {{ include "serviceradar.starrocksFePasswordSecretName" . | quote }}
+      key: {{ include "serviceradar.starrocksFePasswordSecretKey" . | quote }}
 {{- end }}
-{{- end }}
+{{- end -}}
+
+{{/*
+The Secret holding the StarRocks Frontend `root` password, in the release
+namespace. core, web-ng (EventWriter Stream Load and the MyXQL reader) and both
+provisioning Jobs authenticate as that one account.
+
+There is deliberately no way to render StarRocks analytics without it, and no
+flag to allow one: the operator chart creates `root` with no password unless
+its initPassword is enabled, so an empty value here meant every install path
+connected to a Frontend anyone who could reach port 9030 could administer.
+The render fails instead of silently falling back to a passwordless login.
+*/}}
+{{- define "serviceradar.starrocksFePasswordSecretName" -}}
+{{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
+{{- $cat := default (dict) $sr.catalog -}}
+{{- if and $sr.enabled (not $cat.fePasswordSecretName) -}}
+{{- fail "analytics.starrocks.catalog.fePasswordSecretName is required when analytics.starrocks.enabled=true: set it to a Secret in the release namespace whose key analytics.starrocks.catalog.fePasswordSecretKey (default \"password\") holds the StarRocks Frontend root password, the same value as the StarRocks operator's initPassword Secret. A passwordless Frontend is not supported; see \"Frontend root password\" in k8s/starrocks/README.md." -}}
+{{- end -}}
+{{- $cat.fePasswordSecretName -}}
+{{- end -}}
+
+{{- define "serviceradar.starrocksFePasswordSecretKey" -}}
+{{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
+{{- $cat := default (dict) $sr.catalog -}}
+{{- $cat.fePasswordSecretKey | default "password" -}}
 {{- end -}}
 
 {{/*
