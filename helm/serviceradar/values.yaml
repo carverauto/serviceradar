@@ -233,7 +233,7 @@ certs:
   # runtime Secret.
   issuerSecretName: ""
   cnpgIssuerSecretName: ""
-  runtimeLayoutVersion: "4"
+  runtimeLayoutVersion: "5"
   # Non-secret rollout token. Hosted rotation supplies a SHA-256 revision so
   # all certificate consumers restart onto the reconciled Secret generation.
   runtimeRevision: initial
