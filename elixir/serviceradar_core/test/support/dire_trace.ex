@@ -190,6 +190,10 @@ defmodule ServiceRadar.DireTrace do
   """
   def discovery(trace, h, x) do
     ip = real_ip!(trace, x)
+    # The mapper stamps its writes with second resolution, and an address only follows an
+    # observation strictly newer than the holder's last one, so this poll must land in a later
+    # second than any earlier step.
+    Process.sleep(1_100)
     ts = DateTime.to_iso8601(DateTime.utc_now())
     hw_macs = trace.world.hw_ids
 
