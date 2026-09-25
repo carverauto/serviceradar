@@ -30,8 +30,9 @@ defmodule ServiceRadar.Inventory.DireLifecycleTraceTest do
 
   defp world(devices, ids, ips), do: %{devices: devices, ids: ids, ips: ips}
 
-  # #4619: a conflict merge records both sides' matches, and unmerge moves back every
-  # identifier those matches name -- including the survivor's own.
+  # #4619 (fixed): a conflict merge records both sides' matches; the unmerge gives back only
+  # the identifiers the merged-away device owned, never the survivor's own. Kept as a
+  # regression trace.
   # Steps: Armis device d1 (i1) and census device d2 (i2); the resolver then sees both
   # identifiers on one observation and merges the two (the code picks the survivor); then the
   # merged-away device is unmerged.
@@ -42,7 +43,7 @@ defmodule ServiceRadar.Inventory.DireLifecycleTraceTest do
     |> Trace.census("i2", "p2")
     |> Trace.conflict(["i1", "i2"])
     |> Trace.unmerge(:latest)
-    |> Trace.assert_golden!(demonstrates: "unmerge_restores_matches", tamper: true)
+    |> Trace.assert_golden!(tamper: true)
   end
 
   # #4614 (fixed): the next ingest that reaches a soft-deleted device writes it back to life,

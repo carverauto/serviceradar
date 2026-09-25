@@ -24,8 +24,7 @@ ResolutionBugs == {
 LifecycleBugs == {
     "fence_observe_only",
     "purge_forgets_redirect",
-    "sweep_restores_merged",
-    "unmerge_restores_matches"
+    "sweep_restores_merged"
 }
 
 =============================================================================

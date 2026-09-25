@@ -31,7 +31,6 @@ CONSTANTS
 KnownBugs == {
     "sweep_restores_merged",     \* sweep_jobs/sweep_results_ingestor.ex restore_eligible?/1
     "fence_observe_only",        \* inventory/identity/fence.ex pin/2 has no production caller
-    "unmerge_restores_matches",  \* inventory/identity/merge_engine.ex reassign_original_identifiers/4
     "purge_forgets_redirect"     \* inventory/identity/resolver.ex do_follow_canonical/3, purged uid
 }
 
@@ -43,11 +42,13 @@ Bug(b) == b \in Bugs
 
 Statuses == {"absent", "live", "tomb", "purged"}
 Reasons  == {"none", "merged", "other"}
-\* Merge callers, by how they fill merge_audit.details:
+\* Merge callers, by how they fill merge_audit.details.identifiers (ids):
 \*   "conflict" -> MergeEngine.merge_conflicting_devices/4: a list of BOTH sides' matches
 \*   "auto"     -> Registrar (a map), AliasGuard, Resolver/BatchResolver MAC sibling,
-\*                 DuplicateSweep: nothing reassign_original_identifiers/4 can read back
+\*                 DuplicateSweep: no list
 \*   "manual"   -> an administrative merge: bypasses merge_guard_violation/4
+\* Every kind also records the source's own identifiers (details.source_identifiers,
+\* srcIds), written by do_merge_devices/5 itself.
 MergeKinds == {"conflict", "auto", "manual"}
 ActNames == {"Init", "StartWork", "Commit", "CommitDropped", "Merge", "Unmerge",
              "SoftDelete", "SweepRestore", "GatewaySync", "Purge", "Tick"}
@@ -192,14 +193,14 @@ Merge(f, t, kind, S) ==
 
 \* MergeEngine.unmerge_device/2 -> do_unmerge/4. recreate_device/3 restores a tombstone of
 \* any reason (:restore bumps), leaves a live row alone, or inserts a missing one;
-\* reassign_original_identifiers/4 moves back identifiers the survivor holds whose
-\* {type, value} appears in details.identifiers; the survivor must be live.
+\* reassign_original_identifiers/4 moves back the identifiers the survivor still holds
+\* that the source owned when it was merged (details.source_identifiers); the survivor
+\* must be live.
 Unmerge(u) ==
     LET k    == LatestMergeRow(u)
         row  == audit[k]
         s    == row.to
-        back == {i \in Ids : owner[i] = s /\
-                   i \in (IF Bug("unmerge_restores_matches") THEN row.ids ELSE row.srcIds)}
+        back == {i \in Ids : owner[i] = s /\ i \in row.srcIds}
         bump == {s} \cup (IF status[u] = "live" THEN {} ELSE {u})
     IN
     /\ k # 0

@@ -264,7 +264,10 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
            {:ok, %Device{} = to_device} <- Device.get_by_uid(to_device_id, false, actor: actor),
            :ok <-
              source_authority_transaction_guard(from_device_id, to_device_id, reason),
-           audit_details = merge_audit_details(details, from_device),
+           # Read before the reassignment moves them: these are the identifiers
+           # an unmerge must give back, and nothing else records them.
+           {:ok, source_identifiers} <- source_identifiers(from_device_id, actor),
+           audit_details = merge_audit_details(details, from_device, source_identifiers),
            :ok <- preserve_survivor_attributes(from_device_id, to_device_id),
            :ok <- Reassignments.reassign_device_identifiers(from_device_id, to_device_id, actor),
            :ok <-
@@ -432,11 +435,40 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
 
   # Unmerge already knows how to restore these fields when present. Record them
   # for every path instead of relying on individual callers to remember.
-  defp merge_audit_details(details, from_device) do
+  #
+  # `source_identifiers` is what the merged-away device itself owned when the
+  # merge ran. It is written by the engine for every merge path and overwrites
+  # anything a caller passed: it is the only record an unmerge may restore from
+  # (see reassign_original_identifiers/4). A caller's own `identifiers` detail
+  # is evidence for the merge decision and is left as the caller wrote it.
+  defp merge_audit_details(details, from_device, source_identifiers) do
     details
     |> Map.new()
     |> Map.put_new(:from_device_ip, from_device.ip)
     |> Map.put_new(:from_device_hostname, from_device.hostname)
+    |> Map.put(:source_identifiers, source_identifiers)
+  end
+
+  defp source_identifiers(device_id, actor) do
+    DeviceIdentifier
+    |> Ash.Query.for_read(:by_device, %{device_id: device_id})
+    |> Ash.read(actor: actor)
+    |> case do
+      {:ok, identifiers} ->
+        {:ok,
+         identifiers
+         |> Enum.map(fn identifier ->
+           %{
+             type: to_string(identifier.identifier_type),
+             value: identifier.identifier_value,
+             partition: identifier.partition
+           }
+         end)
+         |> Enum.sort_by(&{&1.type, &1.value, &1.partition})}
+
+      {:error, _} = error ->
+        error
+    end
   end
 
   defp emit_merge_executed_telemetry(reason, from_device_id, to_device_id) do
@@ -514,7 +546,8 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
     |> Ash.transact(fn ->
       # Recreate the from-device
       with {:ok, _device} <- recreate_device(from_device_id, audit, actor),
-           :ok <- reassign_original_identifiers(from_device_id, to_device_id, audit, actor),
+           {:ok, restored} <-
+             reassign_original_identifiers(from_device_id, to_device_id, audit, actor),
            {:ok, _} <-
              MergeAudit.record(
                %{
@@ -525,7 +558,9 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
                  details: %{
                    original_merge_event_id: audit.event_id,
                    original_merge_reason: audit.reason,
-                   unmerged_by: "admin"
+                   unmerged_by: "admin",
+                   restored_identifiers: Enum.sort_by(restored.restored, &{&1.type, &1.value}),
+                   restored_identifiers_source: restored.provenance
                  }
                },
                actor: actor
@@ -629,66 +664,126 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
     _ -> true
   end
 
-  # Reassign identifiers that were originally on the from-device back to it.
-  # Uses the merge audit details to identify which identifiers to reassign.
+  # Give back exactly the identifiers the from-device owned when it was merged,
+  # of those the survivor still holds. Never anything the survivor owned itself:
+  # a merge moves only the source's identifiers, so only those may move back.
+  #
+  # Returns the provenance of the restored set so the unmerge audit row can say
+  # how it was decided.
   defp reassign_original_identifiers(from_device_id, to_device_id, audit, actor) do
-    details = audit.details || %{}
-    original_identifiers = details["identifiers"] || details[:identifiers] || []
-    original_identifier_keys = original_identifier_keys(original_identifiers)
+    {provenance, restore_keys} = identifiers_to_restore(from_device_id, audit)
 
-    # Find identifiers on the to-device that match the original merge's identifiers
     case DeviceIdentifier
          |> Ash.Query.for_read(:by_device, %{device_id: to_device_id})
          |> Ash.read(actor: actor) do
       {:ok, current_identifiers} ->
-        identifiers_to_reassign =
-          Enum.filter(
-            current_identifiers,
-            &identifier_in_original_set?(&1, original_identifier_keys)
-          )
-
-        Enum.each(identifiers_to_reassign, fn identifier ->
-          identifier
-          |> Ash.Changeset.for_update(:reassign_device, %{device_id: from_device_id})
-          |> Ash.update(actor: actor)
-        end)
-
-        :ok
+        current_identifiers
+        |> Enum.filter(&restore_identifier?(&1, restore_keys))
+        |> reassign_identifiers_to(from_device_id, actor)
+        |> case do
+          {:ok, restored} -> {:ok, %{provenance: provenance, restored: restored}}
+          {:error, _} = error -> error
+        end
 
       {:error, _} = error ->
         error
     end
   end
 
-  defp original_identifier_keys(original_identifiers) do
-    original_identifiers
-    |> Enum.map(&extract_original_identifier_key/1)
+  defp reassign_identifiers_to(identifiers, device_id, actor) do
+    Enum.reduce_while(identifiers, {:ok, []}, fn identifier, {:ok, acc} ->
+      identifier
+      |> Ash.Changeset.for_update(:reassign_device, %{device_id: device_id})
+      |> Ash.update(actor: actor)
+      |> case do
+        {:ok, _} ->
+          {:cont,
+           {:ok,
+            [
+              %{
+                type: to_string(identifier.identifier_type),
+                value: identifier.identifier_value,
+                partition: identifier.partition
+              }
+              | acc
+            ]}}
+
+        {:error, _} = error ->
+          {:halt, error}
+      end
+    end)
+  end
+
+  # Which identifiers an unmerge restores, and how that was decided.
+  #
+  # "recorded": the merge recorded the source's own identifiers
+  # (`source_identifiers`, written by every merge since this was introduced).
+  #
+  # Rows written before that carry no such record. The only older detail that
+  # says who owned what is merge_conflicting_devices/4's `identifiers` list, whose
+  # entries each name the device that held the match; the entries naming the
+  # from-device are its own ("legacy_conflict_matches"). The same list's other
+  # entries are the survivor's own identifiers and must never move. Every other
+  # legacy shape (the registrar's map, and paths that recorded nothing) restores
+  # nothing ("unrecorded"): an unmerge that leaves the source without its
+  # identifiers is recoverable, one that strips the survivor is not.
+  defp identifiers_to_restore(from_device_id, audit) do
+    details = audit.details || %{}
+
+    case detail(details, :source_identifiers) do
+      recorded when is_list(recorded) ->
+        {"recorded", identifier_keys(recorded)}
+
+      _ ->
+        legacy_source_identifiers(detail(details, :identifiers), from_device_id)
+    end
+  end
+
+  defp legacy_source_identifiers(matches, from_device_id) when is_list(matches) do
+    own =
+      Enum.filter(matches, fn
+        match when is_map(match) -> detail(match, :device_id) == from_device_id
+        _ -> false
+      end)
+
+    {"legacy_conflict_matches", identifier_keys(own)}
+  end
+
+  defp legacy_source_identifiers(_matches, _from_device_id), do: {"unrecorded", MapSet.new()}
+
+  defp identifier_keys(entries) do
+    entries
+    |> Enum.map(&identifier_key/1)
     |> Enum.reject(&is_nil/1)
     |> MapSet.new()
   end
 
-  defp extract_original_identifier_key(original) when is_map(original) do
-    orig_type =
-      original["type"] || original[:type] || original["identifier_type"] ||
-        original[:identifier_type]
+  # {type, value, partition}; partition is nil for legacy entries, which never
+  # recorded one, and then matches any partition.
+  defp identifier_key(entry) when is_map(entry) do
+    type = detail(entry, :type) || detail(entry, :identifier_type)
+    value = detail(entry, :value) || detail(entry, :identifier_value)
 
-    orig_value =
-      original["value"] || original[:value] || original["identifier_value"] ||
-        original[:identifier_value]
-
-    if is_nil(orig_type) or is_nil(orig_value) do
+    if is_nil(type) or is_nil(value) do
       nil
     else
-      {to_string(orig_type), orig_value}
+      {to_string(type), value, detail(entry, :partition)}
     end
   end
 
-  defp extract_original_identifier_key(_original), do: nil
+  defp identifier_key(_entry), do: nil
 
-  defp identifier_in_original_set?(identifier, original_identifier_keys) do
-    key = {to_string(identifier.identifier_type), identifier.identifier_value}
-    MapSet.member?(original_identifier_keys, key)
+  defp restore_identifier?(identifier, restore_keys) do
+    type = to_string(identifier.identifier_type)
+    value = identifier.identifier_value
+
+    MapSet.member?(restore_keys, {type, value, identifier.partition}) or
+      MapSet.member?(restore_keys, {type, value, nil})
   end
+
+  # merge_audit.details is jsonb: string keys once read back, atom keys on a
+  # struct built in this process.
+  defp detail(map, key) when is_map(map), do: Map.get(map, to_string(key), Map.get(map, key))
 
   @doc """
   Record a device merge in the audit trail.
