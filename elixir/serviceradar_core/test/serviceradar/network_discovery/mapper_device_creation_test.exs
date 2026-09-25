@@ -739,6 +739,59 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     assert Enum.all?(lan_polled, &(&1.device_id == router_uid))
   end
 
+  test "a restored device polled at two addresses in one batch keeps both addresses' interfaces",
+       %{actor: actor} do
+    uniq = System.unique_integer([:positive, :monotonic])
+    wan_ip = unique_test_ip(203, 0, 113, uniq)
+    lan_ip = unique_test_ip(198, 51, 20, uniq + 1)
+    wan_mac = unique_global_test_mac(uniq)
+    lan_mac = unique_global_test_mac(uniq + 1)
+    ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+
+    payload = fn device_ips ->
+      device_ips
+      |> Enum.flat_map(fn device_ip ->
+        [{1, "wan0", wan_mac, wan_ip}, {2, "lan0", lan_mac, lan_ip}]
+        |> Enum.map(fn {if_index, if_name, mac, address} ->
+          %{
+            "device_id" => "default:#{device_ip}",
+            "partition" => "default",
+            "device_ip" => device_ip,
+            "if_index" => if_index,
+            "if_name" => if_name,
+            "if_phys_address" => mac,
+            "ip_addresses" => [address <> "/24"],
+            "timestamp" => ts
+          }
+        end)
+      end)
+      |> Jason.encode!()
+    end
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(payload.([wan_ip]), %{})
+    assert [%Device{uid: uid} = device] = wait_for_devices_by_ip(actor, wan_ip)
+
+    assert {:ok, deleted} =
+             Device.soft_delete(device, "stale", "system:mapper_test_reaper", actor: actor)
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(payload.([wan_ip, lan_ip]), %{})
+
+    assert {:ok, restored} = Device.get_by_uid(uid, false, actor: actor)
+    assert restored.deleted_at == nil
+    assert restored.identity_revision > deleted.identity_revision
+    assert [{"system:mapper_test_reaper", "stale"}] = revival_audit_rows(uid)
+
+    for polled_ip <- [wan_ip, lan_ip] do
+      {:ok, interfaces} =
+        Interface
+        |> Ash.Query.filter(device_ip == ^polled_ip)
+        |> Ash.read(actor: actor)
+
+      assert interfaces != []
+      assert Enum.all?(interfaces, &(&1.device_id == uid))
+    end
+  end
+
   test "mapper alias updates do not promote mismatched device_ip records onto the management alias",
        %{
          actor: actor

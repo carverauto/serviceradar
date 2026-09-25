@@ -1736,9 +1736,23 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp write_polled_devices(polled, records, holders, actor) do
     devices = devices_by_uid(Enum.map(polled, & &1.uid), actor)
 
+    # One state per resolved uid: a router polled at several addresses resolves to one device,
+    # so a tombstone is restored once and every address of that device gets the restored row.
+    states =
+      polled
+      |> Enum.map(& &1.uid)
+      |> Enum.uniq()
+      |> Map.new(&{&1, polled_device_state(Map.get(devices, &1), actor)})
+
     {existing, new} =
       polled
-      |> Enum.flat_map(&polled_device_state(&1, Map.get(devices, &1.uid), actor))
+      |> Enum.flat_map(fn entry ->
+        case Map.fetch!(states, entry.uid) do
+          :new -> [{:new, entry}]
+          {:existing, device} -> [{:existing, entry, device}]
+          :skip -> []
+        end
+      end)
       |> Enum.split_with(&match?({:existing, _polled, _device}, &1))
 
     Enum.each(existing, fn {:existing, entry, device} ->
@@ -1765,20 +1779,19 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   # process deleted (a reaper or an expiry, identified by a `system:` actor) came back online, so
   # it is restored through the audited `:restore` action rather than the raw upsert, which would
   # clear the tombstone without a trace.
-  defp polled_device_state(polled, nil, _actor), do: [{:new, polled}]
+  defp polled_device_state(nil, _actor), do: :new
 
-  defp polled_device_state(polled, %Device{deleted_at: nil} = device, _actor),
-    do: [{:existing, polled, device}]
+  defp polled_device_state(%Device{deleted_at: nil} = device, _actor), do: {:existing, device}
 
-  defp polled_device_state(polled, %Device{deleted_by: "system:" <> _} = device, actor) do
+  defp polled_device_state(%Device{deleted_by: "system:" <> _} = device, actor) do
     if restorable_system_delete?(device.deleted_reason) do
-      restore_polled_device(polled, device, actor)
+      restore_polled_device(device, actor)
     else
-      leave_deleted(polled, device)
+      leave_deleted(device)
     end
   end
 
-  defp polled_device_state(polled, %Device{} = device, _actor), do: leave_deleted(polled, device)
+  defp polled_device_state(%Device{} = device, _actor), do: leave_deleted(device)
 
   defp restorable_system_delete?("merged"), do: false
   defp restorable_system_delete?("dire_remediation" <> _), do: false
@@ -1787,7 +1800,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   # The restored device keeps its recorded address unless another live device holds it now (the
   # address was leased again while the device was gone); then the restore clears it in the same
   # audited transition, and the ordinary address move takes the device to the polled address.
-  defp restore_polled_device(polled, %Device{} = device, actor) do
+  defp restore_polled_device(%Device{} = device, actor) do
     attrs = if stale_address_taken?(device), do: %{ip: nil}, else: %{}
 
     # An update built from the primary read cannot see a tombstoned row (StaleRecord); a bulk
@@ -1804,11 +1817,11 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     |> case do
       %Ash.BulkResult{status: :success, records: [restored | _]} ->
         Logger.info("Mapper restored device #{device.uid} deleted by #{device.deleted_by}")
-        [{:existing, polled, restored}]
+        {:existing, restored}
 
       result ->
         Logger.warning("Mapper could not restore device #{device.uid}: #{inspect(result)}")
-        []
+        :skip
     end
   end
 
@@ -1817,13 +1830,13 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   defp stale_address_taken?(_device), do: false
 
-  defp leave_deleted(polled, %Device{} = device) do
+  defp leave_deleted(%Device{} = device) do
     Logger.info(
       "Mapper left device #{device.uid} deleted (reason #{inspect(device.deleted_reason)}, " <>
-        "by #{inspect(device.deleted_by)}); its poll at #{polled.device_ip} is not attached"
+        "by #{inspect(device.deleted_by)}); its polls are not attached"
     )
 
-    []
+    :skip
   end
 
   # A new device is written through the same strong-identifier device write the sync path uses
