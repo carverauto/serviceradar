@@ -36,6 +36,7 @@ import (
 	coreaddon "github.com/carverauto/serviceradar/go/pkg/addon"
 	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
 	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
+	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/mtr"
 	"github.com/carverauto/serviceradar/proto"
 	"google.golang.org/grpc"
@@ -96,6 +97,14 @@ const (
 )
 
 const defaultOnDemandMtrDeadline = 45 * time.Second
+
+// maxOnDemandMtrResultGrace bounds how long an mtr.run waits past its deadline
+// for the trace engine to return before reporting failure without it. The
+// engine's own teardown after its context ends is short (every blocking step
+// is bounded by that context), so a run still going past this grace is stuck.
+const maxOnDemandMtrResultGrace = 5 * time.Second
+
+var errOnDemandMtrStuck = errors.New("mtr trace did not finish before its deadline")
 
 // defaultMaxConcurrentOnDemandMtr admits one mtr.run per protocol of a
 // multi-protocol MTR profile (icmp, udp, tcp) for a single target at once.
@@ -1374,7 +1383,14 @@ func (p *PushLoop) handleMtrRun(ctx context.Context, cmd *proto.CommandRequest, 
 		_ = sender.Send(commandResult(cmd, false, "agent busy: too many concurrent mtr traces", nil))
 		return
 	}
-	defer p.releaseOnDemandMtrSlot()
+	// The slot is released here on the early exits below; once the trace
+	// starts, the trace's goroutine owns it (see runOnDemandMtrWithDeadline).
+	slotHandedOff := false
+	defer func() {
+		if !slotHandedOff {
+			p.releaseOnDemandMtrSlot()
+		}
+	}()
 
 	payload := mtrRunPayload{}
 	if len(cmd.PayloadJson) > 0 {
@@ -1395,13 +1411,19 @@ func (p *PushLoop) handleMtrRun(ctx context.Context, cmd *proto.CommandRequest, 
 		return
 	}
 
-	runCtx, cancel := context.WithTimeout(ctx, runTimeout)
-	defer cancel()
-
 	opts := onDemandMtrOptions(payload)
-	trace, err := runOnDemandMtr(runCtx, opts, p.logger)
+	slotHandedOff = true
+	trace, err := p.runOnDemandMtrWithDeadline(ctx, opts, runTimeout, p.releaseOnDemandMtrSlot)
 	if err != nil {
-		_ = sender.Send(commandResult(cmd, false, err.Error(), nil))
+		if errors.Is(err, errOnDemandMtrStuck) {
+			p.logger.Warn().
+				Str("command_id", cmd.CommandId).
+				Str("target", payload.Target).
+				Str("protocol", opts.Protocol.String()).
+				Dur("run_timeout", runTimeout).
+				Msg("On-demand MTR trace did not return by its deadline; reporting failure")
+		}
+		p.sendMtrRunResult(cmd, sender, commandResult(cmd, false, err.Error(), nil))
 		return
 	}
 
@@ -1423,7 +1445,75 @@ func (p *PushLoop) handleMtrRun(ctx context.Context, cmd *proto.CommandRequest, 
 		Int("total_hops", trace.TotalHops).
 		Msg("On-demand MTR trace completed")
 
-	_ = sender.Send(commandResult(cmd, true, "mtr trace completed", resultPayload))
+	p.sendMtrRunResult(cmd, sender, commandResult(cmd, true, "mtr trace completed", resultPayload))
+}
+
+// onDemandMtrRunner runs a single on-demand MTR trace.
+type onDemandMtrRunner func(ctx context.Context, opts mtr.Options, log logger.Logger) (*mtr.TraceResult, error)
+
+// runOnDemandMtrWithDeadline runs one trace and returns by runTimeout plus a
+// short grace even if the trace engine does not. A run that overshoots returns
+// errOnDemandMtrStuck so the caller still reports a result: core otherwise
+// learns nothing until the command expires.
+//
+// releaseSlot is called when the engine actually returns, not when this
+// function does, so a stuck trace keeps counting against the concurrency
+// limit and later requests are told the agent is busy instead of piling up
+// more stuck traces.
+func (p *PushLoop) runOnDemandMtrWithDeadline(
+	ctx context.Context,
+	opts mtr.Options,
+	runTimeout time.Duration,
+	releaseSlot func(),
+) (*mtr.TraceResult, error) {
+	run := p.mtrOnDemandRun
+	if run == nil {
+		run = runOnDemandMtr
+	}
+
+	type outcome struct {
+		trace *mtr.TraceResult
+		err   error
+	}
+
+	runCtx, cancel := context.WithTimeout(ctx, runTimeout)
+	done := make(chan outcome, 1)
+
+	go func() {
+		defer releaseSlot()
+		defer cancel()
+
+		trace, err := run(runCtx, opts, p.logger)
+		done <- outcome{trace: trace, err: err}
+	}()
+
+	grace := min(maxOnDemandMtrResultGrace, runTimeout/4)
+	watchdog := time.NewTimer(runTimeout + grace)
+	defer watchdog.Stop()
+
+	select {
+	case result := <-done:
+		return result.trace, result.err
+	case <-watchdog.C:
+		return nil, errOnDemandMtrStuck
+	}
+}
+
+// sendMtrRunResult sends an mtr.run result and logs when it could not be
+// delivered, which is otherwise indistinguishable from a trace that never
+// finished.
+func (p *PushLoop) sendMtrRunResult(
+	cmd *proto.CommandRequest,
+	sender *controlStreamSender,
+	result *proto.ControlStreamRequest,
+) {
+	if err := sender.Send(result); err != nil {
+		p.logger.Warn().
+			Err(err).
+			Str("command_id", cmd.CommandId).
+			Str("command_type", cmd.CommandType).
+			Msg("Failed to send on-demand MTR result")
+	}
 }
 
 func (p *PushLoop) handleProxmoxCredentialTest(

@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"sync"
 	"syscall"
 	"time"
 
@@ -56,6 +57,11 @@ type linuxRawSocket struct {
 	ipv6     bool
 	sendBuf  []byte
 	recvPool recvBufferPool
+
+	// closeOnce makes Close idempotent. sendFD is a bare descriptor number, so
+	// closing it twice closes whichever descriptor reused the number.
+	closeOnce sync.Once
+	closeErr  error
 }
 
 // NewRawSocket creates a new raw socket for ICMP probing.
@@ -380,6 +386,14 @@ func (s *linuxRawSocket) parseInnerPacketV6(resp *ICMPResponse) {
 }
 
 func (s *linuxRawSocket) Close() error {
+	s.closeOnce.Do(func() {
+		s.closeErr = s.closeDescriptors()
+	})
+
+	return s.closeErr
+}
+
+func (s *linuxRawSocket) closeDescriptors() error {
 	var firstErr error
 
 	if s.sendFD >= 0 {

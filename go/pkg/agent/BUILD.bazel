@@ -221,6 +221,7 @@ go_test(
         "metric_envelope_test.go",
         "mtr_bulk_test.go",
         "mtr_config_test.go",
+        "mtr_run_test.go",
         "multi_sweep_service_test.go",
         "netprobe_systemd_unit_test.go",
         "platform_paths_test.go",
