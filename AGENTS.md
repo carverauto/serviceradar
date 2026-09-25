@@ -26,36 +26,20 @@ Keep this managed block so 'openspec update' can refresh the instructions.
   applies to production, staging, lab, demo and any customer or partner
   environment, and it applies to a value you pasted "just to reproduce a bug".
 
-  The classes below are forbidden in the repository when they are **real**. Use
-  the reserved/documentation alternative in parentheses:
-  - Hostnames, FQDNs, and any internal naming scheme — device, controller,
-    switch, AP, closet, site or rack names (`host01.example.com`, `SITE01-...`)
-  - Site, region, facility, airport or datacenter codes; the *scheme* counts,
-    not just the label
-  - IP addresses and CIDR blocks, including RFC1918 ranges belonging to someone
-    else's network plan (`192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`)
-  - MAC addresses with a real vendor OUI (`00:00:5e:00:53:xx`)
-  - Hardware serial numbers, asset tags, chassis IDs, manufacturing dates
-  - Exact firmware/software build numbers tied to a deployment
-  - GPS coordinates that resolve to a real facility (`0.0, 0.0`)
-  - Telephone numbers, including NOC and on-call lines (`555-0100`–`555-0199`)
-  - Person names, email addresses, usernames, employee or badge IDs
-  - Kubernetes namespaces, cluster names, tenant IDs, workspace names,
-    integration instance names, and account identifiers
-  - Policy, AAA/802.1X, RADIUS, VLAN, SSID and firewall-rule names
-  - Session IDs, syslog captures, packet captures, trace IDs, and any verbatim
-    slice of a real event stream
-  - Fleet scale figures (device counts, site counts, port counts) that describe
-    a real estate
+  This repository's `CLAUDE.md` tabulates the forbidden classes and their
+  reserved replacements, and is the authority; it is not repeated here. The
+  classes cover hostnames and internal naming schemes, site/facility codes, IPs
+  and CIDRs, MACs with a real vendor OUI, serials and asset tags, deployment
+  build numbers, GPS coordinates, phone numbers, people, namespaces and
+  cluster/tenant/account names, policy/RADIUS/VLAN/SSID names, session and trace
+  IDs, verbatim capture slices, and fleet-scale figures.
 
   **Removing the organization's name is not sufficient, and treating it as
-  sufficient is the specific failure this rule exists to prevent.** A scrub that
-  strips the label and keeps the fingerprint leaves the data fully attributable:
-  a naming convention, a coordinate pair, a firmware build number, a serial, or
-  a distinctive fleet shape identifies an organization on its own. When data
-  turns out to be real, **regenerate the fixture from scratch** — do not
-  search-and-replace it. Replacement preserves the shape, and the shape is the
-  tell.
+  sufficient is the specific failure this rule exists to prevent.** A naming
+  convention, a coordinate pair, a build number, a serial or a distinctive fleet
+  shape identifies an organization on its own. When data turns out to be real,
+  **regenerate the fixture from scratch** — do not search-and-replace it.
+  Replacement preserves the shape, and the shape is the tell.
 
   Corollaries, each earned:
   - **A real value spreads.** One captured MAC became the canonical
@@ -66,30 +50,34 @@ Keep this managed block so 'openspec update' can refresh the instructions.
     product source, not a test artifact.
   - **Comments count.** Do not narrate a customer's outage, environment name, or
     ticket in a code comment. Describe the failure mode, not the site.
-  - **Downstream registries are immutable.** Content that reaches crates.io,
-    `proxy.golang.org`/`sum.golang.org`, npm, hex.pm, an OCI registry, or a
-    published docs site **cannot be recalled by rewriting git history**. A
-    version is permanent; yank and retract only discourage selection. Treat any
-    publish as irreversible, and check the fixture before the release, not after.
-  - **Scrubbing quietly.** A commit message, branch name, or PR title that names
-    the affected party re-publishes exactly what the commit removes. Describe the
-    change by class.
-  - **Commit identity is content.** Author and committer email are baked into
-    every commit and cannot be corrected without rewriting history. Verify
-    `git config user.email` in every clone and worktree; a global identity is
-    inherited by a fresh clone, so re-cloning does not fix it.
+  - **A deleted branch does not unpublish a commit, and merging the scrubbed
+    rewrite does not either.** GitHub keeps `refs/pull/<n>/head` after the branch
+    is deleted and after the PR merges, so a commit pushed once stays fetchable
+    by SHA — `gh api repos/<owner>/<repo>/commits/<sha>` resolves it and the web
+    UI serves it. No history rewrite on your side can reach that ref. A clean
+    `git grep` on `staging` therefore proves nothing about what is published;
+    check `git branch -r --contains <sha>` and the PR head refs. Only the host
+    can purge it.
+  - **Downstream registries are immutable.** crates.io, `proxy.golang.org`, npm,
+    hex.pm, an OCI registry or the published docs site **cannot be fixed by
+    rewriting git history**. Check the fixture before the release, not after.
+  - **Scrubbing quietly.** A commit message, branch name or PR title that names
+    the affected party re-publishes exactly what the commit removes. Describe
+    the change by class.
+  - **Commit identity is content.** Author and committer email cannot be
+    corrected without rewriting history. Verify `git config user.email` in every
+    clone and worktree; a global identity survives a re-clone.
 
   **When searching for such data, anchor every pattern.** An organization
-  abbreviation is usually a substring of ordinary English — in this repository a
-  bare three-letter match returned ~20,000 lines against ~480 real ones, because
-  it matched `equal`, `manual`, `actual`, `virtual`, `toEqual` and `quality`. An
-  unanchored expression fed to a history-rewriting tool corrupts every commit at
-  once, unreviewably. Use word boundaries or a qualifying delimiter, and prove
-  the pattern does not over-match before running it.
+  abbreviation is usually a substring of ordinary English — here a bare
+  three-letter match returned ~20,000 lines against ~480 real ones, matching
+  `equal`, `manual`, `actual`, `virtual`, `toEqual` and `quality`. Prove a
+  pattern does not over-match before feeding it to a bulk or history-rewriting
+  tool.
 
   If you discover captured data already committed, do not quietly delete it:
-  determine how far it spread first — other fixtures, published packages, the
-  docs site, release tags — because the deletion is the easy half.
+  determine how far it spread first — other fixtures, published packages, PR
+  head refs, the docs site, release tags — because the deletion is the easy half.
 
 - **GitHub is the collaboration host for this repository.** Issues, pull requests,
   reviews and comments for `carverauto/serviceradar` go through `gh` against
@@ -360,26 +348,14 @@ This file applies repo-wide, but subdirectories may include their own `AGENTS.md
 - Focused Go packages: `go test ./go/pkg/...`.
 - SRQL (Rust) integration tests: `cd rust/srql && cargo test`.
 - **Bringing a database up to date: `mix serviceradar.db.migrate`, NOT `mix ecto.migrate`.**
-  An empty database is built from the committed baseline
-  (`elixir/serviceradar_core/priv/repo/baseline/`) and the migrations it contains are recorded
-  as applied; only newer ones run. `mix ecto.migrate` replays every migration in the tree
-  instead, which is slow and against a remote instance has failed outright. Pass
-  `--no-baseline` only when you deliberately want the full replay. Service startup has always
-  baselined; this task is the same code path (`ServiceRadar.Repo.SchemaBootstrap`).
-
-  **The baseline does NOT work for a database that already carries TimescaleDB hypertables or
-  AGE graphs, which is every real one.** It is a `pg_dump --schema-only`, and this schema does
-  not round-trip: the dump contains 177 references into `_timescaledb_internal`
-  (`_compressed_hypertable_45`, `_direct_view_23` -- names carrying the SOURCE database's OIDs)
-  and 42 statements reproducing AGE's per-graph storage. Replaying those is not just privileged,
-  it is wrong: `create_hypertable()` and `create_graph()` register objects in catalogs that plain
-  DDL never touches, so the result holds graph tables `ag_catalog.ag_graph` has no row for. See
-  `rust/integration-db/src/template.rs`, which states the non-round-trip property directly.
-  The fixture lifecycle therefore REPLAYS on an empty database
-  (`elixir/serviceradar_core/test/db/migrate_db_test.exs`) -- one slow run per template rebuild,
-  paid by trunk, after which every run applies only what is pending. Do not reintroduce
-  baselining there. `ServiceRadar.Cluster.StartupMigrations` still baselines a fresh deployment
-  and has the same latent problem; that path is not yet fixed.
+  An empty database is built from the committed baseline and only newer migrations run;
+  `mix ecto.migrate` replays every migration in the tree instead, which is slow and has
+  failed outright against a remote instance. Pass `--no-baseline` only when you deliberately
+  want the full replay. **The baseline does not work on a database that already carries
+  TimescaleDB hypertables or AGE graphs, which is every real one** — the schema does not
+  round-trip, so the fixture lifecycle replays on an empty database instead. Do not
+  reintroduce baselining there; why it cannot work is in
+  [docs/agent-runbooks.md](docs/agent-runbooks.md).
 - Bazel images: `bazel run //docker/images:<target>_push`. A worktree without
   `.bazelrc.remote` is not on RBE — copy the gitignored rc files first (Hard Rules).
 - First-party Wasm plugins: `make build_wasm_plugins`, `make push_wasm_plugins`, `make verify_wasm_plugins`. Bazel fetches the pinned TinyGo toolchain automatically; local `oras` is still required for publish/inspect workflows. `make push_all` is the container-image path; `make push_all_release` adds the Wasm publish/sign/verify path for release-style runs.
@@ -388,63 +364,18 @@ This file applies repo-wide, but subdirectories may include their own `AGENTS.md
 
 Prefer Bazel targets when modifying code that already has BUILD files. Always run gofmt/cargo fmt where applicable (Go formatting handled by `gofmt`, Rust by `cargo fmt`).
 
-### Adding or changing a native add-on
+Two registration gates fail **only** under `make test`/BazelCI — never under `mix test`,
+`go test`, `cargo test` or a PR check — so a missing entry looks green all the way to
+trunk:
 
-A first-party native add-on (`addons/<name>/addon.yaml` + a Go/Rust binary) must be registered in **every** place CI enforces, or a gate fails late. When adding `<name>`:
+- **Adding or changing a native add-on** (`addons/<name>/` + a Go/Rust binary) must be
+  registered in four places, and any change to its source, config or `BUILD.bazel`
+  requires bumping `addons/<name>/addon.yaml` `version`.
+- **Adding an `elixir/serviceradar_core` test file** requires a row in
+  `elixir/serviceradar_core/test/INTEGRATION_SOURCE_DISPOSITIONS.tsv`.
 
-1. **Bundle inventory** — add an entry to `build/native_addons/addon_inventory.bzl` (binary target, `manifest_entries`, `platforms`).
-2. **Bazel build graph** — the binary's `BUILD.bazel` must declare every dep/src. Rust: use `all_crate_deps(...)` if it has crate-universe deps (a missing `deps` shows up as `unresolved import` only under Bazel). Go: list new `srcs` (incl. `*_linux.go`/`*_other.go` build-tag files) + `deps`. A green `go test ./...` / `cargo test` does NOT prove the Bazel build — run `bazel build //build/native_addons:<name>_bundle`.
-3. **Version-bump gate** — register `<name>` in `scripts/check-native-addon-version-bumps.sh` (`addon_ids`, `manifest_path`, `path_belongs_to_addon`). Any change to the add-on's source/config/unit/bundle inventory requires bumping `addons/<name>/addon.yaml` `version`.
-   - **The gate decides "changed" by matching changed PATHS**, and the add-on's `BUILD.bazel` is one of them — so a build-only edit that cannot alter the binary still demands a bump. Keep tunables out of an add-on's `BUILD.bazel` for that reason. There are no RBE task-size hints on any add-on today: `NATIVE_ADDON_EXEC_PROPERTIES` and `//build/rbe:exec_properties.bzl` existed to survive Firecracker's ~2.5Gi default microVM, and were removed with it — `//build/rbe:BUILD` explains why a platform-wide default is worse than BuildBuddy's own per-action measurement. If a link step ever OOMs again, size that one target and keep the value outside the add-on's `BUILD.bazel`. Do not "fix" a false positive by teaching the gate to skip `BUILD.bazel` — that trades it for a false negative, a changed artifact shipping under an unchanged version, which is the whole point of the gate.
-   - A few add-ons cross-check a version constant in Bazel (currently only `NETPROBE_VERSION` in `rust/netprobe/BUILD.bazel`, via `bazel_version_constant`); bump those in the same commit.
-   - An add-on that consumes a separate crate-universe extension (currently the RDP connector) additionally requires `MODULE.bazel.lock` to record that extension's `Cargo.lock` and `Cargo.toml` hashes — run `bazel --batch mod deps --lockfile_mode=update` twice if the first pass rewrites the lockfile.
-   - **A Rust add-on's `Cargo.toml` `[package] version` does NOT have to match, and no vendor snapshot needs refreshing for a bump.** That coupling was deliberately removed; see the note at `check-native-addon-version-bumps.sh:117-131`. It was decoration — these crates are binaries nothing depends on as a library — but mirroring the version edited a manifest, which changed `Cargo.lock`, which invalidated the vendored tree's input index, whose documented fix rewrote 625 crate directories and discarded the Bazel cache for every Rust target, all to restate a version that changed no third-party crate.
-4. **Manifest-validation gate** — add `//addons/<name>:addon.yaml` to BOTH the `args` and `data` lists of `validate_addon_manifests_test` in `build/native_addons/BUILD.bazel`. The `inventory_consistency_test` enforces that every add-on in `addon_inventory.bzl` is also in that test; it runs ONLY in the native-addons publish gate (not in a plain `bazel build`), so a missing entry fails the **release publish** late, not your local build.
-
-Verify locally before pushing: `bash scripts/check-native-addon-version-bumps.sh origin/staging <commit-sha>` (with jj, git `HEAD` is the parent — pass the real commit, e.g. `jj log -r @ --no-graph -T commit_id`) AND `bazel test //build/native_addons:build_gates_test` (this is the gate the release publish runs; a plain bundle build does not).
-
-### Adding a new `elixir/serviceradar_core` test file
-
-Every test source selected by
-[`ordinary_core_test_sources()`](build/contracts/ci_heavy_gate_contract_test.py) must have a row in
-`elixir/serviceradar_core/test/INTEGRATION_SOURCE_DISPOSITIONS.tsv`, or
-`ci_heavy_gate_contract_test.py`'s
-`test_integration_disposition_inventory_is_exhaustive_and_concrete` fails.
-This check runs in **`make test` / BazelCI**, but not in `mix test` or the
-Elixir Quality GitHub Action. A new test file can therefore look completely green
-through normal local iteration and PR checks, then fail BazelCI alone.
-`build/integration_selection_equivalence_test.exs` fails downstream of the
-same gap, since the pruned/all-source test selection it compares is derived
-from this same inventory.
-
-Add a tab-separated row: `source\tmodule\tcase_kind\tmode\treason\tevidence`.
-Two dispositions cover almost everything:
-
-- **Database-free** (plain `ExUnit.Case`, no `:integration`/`:requires_app`
-  tag, no `Repo`/data-layer call): set `source` to the new test's path relative
-  to `elixir/serviceradar_core/`, `module` = `-`, `case_kind` = `not_selected`,
-  `mode` = `load_only`, and `reason` = `not_selected`. For `evidence`, copy the
-  standard audit sentence from a neighboring `not_selected` row, as shown
-  below. This is the default for most simple unit tests and needs
-  **no** change to `build/integration_test_dispositions.bzl`, which only
-  tracks `selected` (async/serial) tests.
-
-  Example with all six fields in order, separated by literal tabs (replace
-  the example source path with your new test's path):
-
-  ```tsv
-  test/example_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
-  ```
-
-- **DB-backed** (`ServiceRadar.DataCase` or a real data-layer call): needs a
-  real `case_kind`/`mode`/`reason` reflecting actual transaction/sandbox
-  ownership (`data_case`/`async`/`transaction_owner`, or `serial` with a
-  specific reason from `SERIAL_REASONS`) — read a few neighboring rows for an
-  analogous test and match their reasoning style; the `evidence` column must
-  describe the actual file, not just repeat the reason.
-
-Verify locally before pushing (no Bazel/Docker required):
-`python3 -m unittest build/contracts/ci_heavy_gate_contract_test.py` from the repo root.
+Both procedures, with their local verification commands, are in
+[docs/agent-runbooks.md](docs/agent-runbooks.md).
 
 ## Socket Firewall
 
@@ -471,18 +402,39 @@ Prefer Socket Firewall for supported dependency-fetching commands. Prefix JavaSc
 
 ## Rust Dependency Management
 
-Full detail: **`rust/README_RUST.md`**. The rules below are the ones an agent violates by accident.
+Full detail, with the reasoning behind each rule: **`rust/README_RUST.md`**. The traps
+below are the ones an agent hits by accident.
 
-- **Every dependency version lives in `[workspace.dependencies]` in the root `Cargo.toml`, alphabetically sorted.** A crate under `/rust/` NEVER names a version — it uses `{ workspace = true, features = [...] }`. Cargo and Bazel both read this one list, which is what keeps the two builds from drifting. The only local version is `sha2` in `rust/srql` (documented as BLOCKED at the declaration); `rust/rdp-connector-probe` is deliberately detached.
-- **A green `cargo check` does NOT prove the Bazel build.** Cargo.lock is feature-independent and keeps optional deps that are never activated; `cargo vendor` vendors the whole lock, so Bazel compiles crates Cargo prunes. Finish every dependency change with `bazel build //rust/...` — and use `cargo check --workspace --lib --bins --tests`, because plain `cargo check` skips test code while Bazel compiles tests.
-- **`cargo check -p <crate>` must pass standalone.** Workspace builds unify features, so a crate missing `features = ["transport"]` still compiles because another crate enabled it. That is an accident, not a dependency.
-- **`default-features = false` is only safe when the compiler catches the loss.** A dropped default that is a *runtime* backend compiles clean and fails in production — this exact mistake removed `ureq`'s TLS transport. Before disabling defaults, ask what the defaults *do*. Crates whose defaults every consumer needs (`async-nats`, `toml`, `axum`, `prometheus`, `env_logger`, `ureq`) deliberately keep them.
-- **`bazel run //third_party/crate_mirror:sync` is the only supported way to refresh `//third_party/crate_mirror`.** It reads `Cargo.lock`, downloads each registry crate's `.crate` archive, verifies it against the checksum Cargo already recorded, and prunes archives no longer in the lock. `.bazelrc` points `--distdir` at that directory and rules_rs asks for `{crate}-{version}.crate`, which is the only basename Bazel's distdir matches on — so the archives resolve offline. It is a fallback rather than an enforcement: anything missing is downloaded, so a stale mirror degrades instead of breaking. Source patches are `crate.annotation` `patches` entries, applied by rules_rs at fetch time, so they are declared build inputs rather than edits to a tree on disk.
-- **OpenSSL for Rust comes from the `@openssl` BCR module, never from a vendored `openssl-src` build and never from the machine.** It is a `cc_library` compiled by the same cc toolchain as everything else, so it cross-compiles by selecting on the target platform. `openssl-sys` is pointed at it in `//MODULE.bazel`, and `pq-src` links what `openssl-sys` resolves — keep that pairing. Two traps, both measured: the RBE executor image exports `OPENSSL_LIB_DIR`/`OPENSSL_INCLUDE_DIR`, which `openssl-sys` reads **before** `OPENSSL_DIR`, so those two must be set explicitly or the build silently links the executor's OpenSSL; and `pq-src` needs `@openssl//:gen_dir` in its own `build_script_data`, because `DEP_OPENSSL_INCLUDE` gives it a path, not an input. Do **not** re-enable `openssl-sys`' `vendored` feature in a Bazel build — `rust/srql`'s `vendored-openssl` feature is off by default and exists only for `cargo test` without a system OpenSSL.
-- **One system crate is patched and pinned: `pq-src`** (patch in `//third_party/rust_patches/`, pin `pq-sys = "=0.7.5"` in the root `Cargo.toml`). It builds libpq from source, which is what keeps the build off system libpq paths. The patch is declared as an annotation `patches` entry, so a version bump that invalidates it fails the fetch loudly — **do not paper over that**: the patch is macOS-only, so skipping it leaves Linux CI green and breaks a developer's machine later. Bumping is a deliberate act: re-pin, regenerate the patch, verify on macOS **and** Linux.
-- **Adding a dep to a crate whose `BUILD.bazel` names deps explicitly as `@crates//:<name>` labels means adding the label there too** — Bazel will not infer it (`all_crate_deps(...)` does). Always pass `cargo_only = True` to `all_crate_deps`: without it the result also carries first-party workspace members as `//rust/...` labels, which every BUILD file here already lists by hand, and Bazel rejects the duplicate. Per-crate build tweaks are `crate.annotation` tags in `MODULE.bazel`; a crate that no workspace member depends on cannot be added at all (there is no `crate.spec`) — see `//rust/protoc-plugins`.
-- **`rust_test(crate = ":x")` does NOT inherit `crate_features`** — repeat them, or the test compiles a different crate than the one that ships. Test fixtures need `data` **and** a runfiles-aware path (`CARGO_MANIFEST_DIR` → `TEST_SRCDIR` → relative); see `flowgger`'s `fixture_path`.
-- **Every crate with `#[cfg(test)]` code needs a `rust_test` target.** This is not bookkeeping: flowgger silently carried a 2016 `serde_json`, notify 4.x APIs, and fully broken config parsing because nothing ran its tests.
+- **Every dependency version lives in `[workspace.dependencies]` in the root `Cargo.toml`**,
+  alphabetically sorted. A crate under `/rust/` NEVER names a version — it uses
+  `{ workspace = true, features = [...] }`. Cargo and Bazel both read this one list, which
+  is what keeps the two builds from drifting. (`sha2` in `rust/srql` is a documented
+  exception; `rust/rdp-connector-probe` is deliberately detached.)
+- **A green `cargo check` does NOT prove the Bazel build.** Finish every dependency change
+  with `bazel build //rust/...`, and use `cargo check --workspace --lib --bins --tests` —
+  plain `cargo check` skips test code that Bazel compiles.
+- **`cargo check -p <crate>` must pass standalone.** Workspace feature unification hides a
+  missing `features = [...]` behind another crate that enabled it.
+- **`default-features = false` is only safe when the compiler catches the loss.** A dropped
+  default that is a *runtime* backend compiles clean and fails in production — this exact
+  mistake removed `ureq`'s TLS transport.
+- **Refresh the vendored archives only with `bazel run //third_party/crate_mirror:sync`.**
+  Source patches are `crate.annotation` `patches` entries applied at fetch time, so they
+  are declared build inputs, not edits to a tree on disk.
+- **OpenSSL comes from the `@openssl` BCR module** — never a vendored `openssl-src` build
+  and never the machine's. Keep the `openssl-sys`/`pq-src` pairing in `//MODULE.bazel`, and
+  set `OPENSSL_LIB_DIR`/`OPENSSL_INCLUDE_DIR` explicitly: `openssl-sys` reads them before
+  `OPENSSL_DIR`, so the RBE executor's own OpenSSL gets linked silently otherwise.
+- **`pq-src` is patched and pinned** (`pq-sys = "=0.7.5"`, patch in
+  `//third_party/rust_patches/`). A bump that invalidates the patch fails the fetch loudly —
+  do not paper over it; the patch is macOS-only, so skipping it leaves Linux CI green and
+  breaks a developer's machine later.
+- **Pass `cargo_only = True` to `all_crate_deps`**, and add the `@crates//:<name>` label by
+  hand in any `BUILD.bazel` that lists deps explicitly — Bazel will not infer that one.
+- **`rust_test(crate = ":x")` does NOT inherit `crate_features`** — repeat them, or the test
+  compiles a different crate than the one that ships.
+- **Every crate with `#[cfg(test)]` code needs a `rust_test` target.** flowgger silently
+  carried a 2016 `serde_json` and fully broken config parsing because nothing ran its tests.
 
 ## Iron Laws
 
@@ -495,7 +447,15 @@ Full detail: **`rust/README_RUST.md`**. The rules below are the ones an agent vi
 
 ## Operational Runbooks
 
-Reference `docs/docs/agents.md` for: faker deployment details, CNPG truncate/reseed steps, materialized view recreation, and stream replay commands. Use those instructions whenever resetting the demo environment or investigating canonical device counts.
+Step-by-step procedures live in [docs/agent-runbooks.md](docs/agent-runbooks.md), so that
+this file stays inside its context budget: demo namespace Helm refresh (including the
+web-ng-only fast path), Docker Compose refresh, local development against Docker CNPG,
+web-ng visual testing and remote dev, the local mTLS ERTS cluster, edge onboarding
+testing, the release playbook, CNPG database access, and the SRQL fixture lifecycle.
+
+Architecture and data-pipeline background is in `docs/docs/` — `architecture.md`,
+`data-pipeline.md`, `edge-model.md`. (Earlier revisions of this file pointed at
+`docs/docs/agents.md`, which does not exist; `openspec/project.md` still cites it.)
 
 ## Common Commands & Tips
 
@@ -508,474 +468,6 @@ Reference `docs/docs/agents.md` for: faker deployment details, CNPG truncate/res
   checkouts must symlink `.bazelrc.remote` from the primary clone or they
   never hit RBE (Hard Rules).
 - Sysmon-vm hostfreq sampler buffers ~5 minutes of 250 ms samples; keep gateways querying at least once per retention window so cached CPU data stays fresh.
-
-## Demo Namespace Helm Refresh
-
-- Build and push release artifacts: `make build` then `make push_all`.
-- Deploy to demo: `helm upgrade --install serviceradar ./helm/serviceradar -n demo -f helm/serviceradar/values-demo.yaml --set global.imageTag="sha-<git-sha>" --rollback-on-failure`.
-  - `values-demo.yaml` carries the `external-dns` annotation for `demo-gw.serviceradar.cloud`; using only `values.yaml` will drop the DNS record.
-- `values-demo.yaml` is an overlay on top of `values.yaml`, not a full copy of every chart value. Missing keys usually mean "inherit the default chart value."
-- Demo pins ServiceRadar workloads to immutable `sha-...` tags via `global.imageTag`; use `image.digests` only when you need per-service overrides.
-- Demo admission is Kyverno-enforced. Images admitted to `demo` must be signed with the release key that matches `docs/cosign.pub`; local `~/.cosign/cosign.key` signatures will not pass cluster policy.
-- Local convenience helper: `sr_demo_deploy <sha-...|git-sha>`
-  - Defined in `~/.zshrc`
-  - Example: `sr_demo_deploy ad617c5f8a067f1e3e93872704754b9f7d006697`
-  - If the function is not loaded in the current shell yet, run `source ~/.zshrc`
-- Sanity check: `kubectl get pods -n demo` and `helm status serviceradar -n demo`.
-
-### Fast Path: web-ng-only demo refresh
-
-Use this when the diff only touches `elixir/web-ng/**` and you want a faster `demo` rollout without rerunning the full container publish graph.
-
-1. Confirm the scope is narrow:
-   - `git diff --name-only <currently-deployed-sha>..HEAD`
-   - If only `elixir/web-ng/**` changed, rebuild just `serviceradar-web-ng` and copy the other images forward to the new immutable tag.
-2. Copy unchanged images from the current demo tag to the new tag:
-   - `/tmp/gobin/crane cp registry.carverauto.dev/serviceradar/<image>:sha-<old> registry.carverauto.dev/serviceradar/<image>:sha-<new>`
-   - Repeat for `serviceradar-agent`, `serviceradar-agent-gateway`, `serviceradar-core-elx`, `serviceradar-datasvc`, `serviceradar-faker`, `serviceradar-flow-collector`, `serviceradar-log-collector`, `serviceradar-rperf-client`, `serviceradar-tools`, `serviceradar-trapd`, and `arancini`.
-3. Rebuild the production `web-ng` release locally:
-   - `cd elixir/web-ng`
-   - `MIX_ENV=prod HEX_HTTP_CONCURRENCY=1 HEX_HTTP_TIMEOUT=120 mix deps.compile`
-   - `MIX_ENV=prod HEX_HTTP_CONCURRENCY=1 HEX_HTTP_TIMEOUT=120 mix compile`
-   - `MIX_ENV=prod HEX_HTTP_CONCURRENCY=1 HEX_HTTP_TIMEOUT=120 mix assets.deploy`
-   - `MIX_ENV=prod HEX_HTTP_CONCURRENCY=1 HEX_HTTP_TIMEOUT=120 mix release --path /tmp/serviceradar_web_ng_release_<shortsha>`
-4. Package and push the new `web-ng` image directly with `crane`:
-   - `tar --owner=10001 --group=10001 --transform='s,^,app/,' -cf /tmp/serviceradar_web_ng_layer_<shortsha>.tar -C /tmp/serviceradar_web_ng_release_<shortsha> .`
-   - `/tmp/gobin/crane append --platform linux/amd64 -b index.docker.io/hexpm/elixir:1.19.4-erlang-28.3-debian-bookworm-20251208-slim -f /tmp/serviceradar_web_ng_layer_<shortsha>.tar -t registry.carverauto.dev/serviceradar/serviceradar-web-ng:sha-<new>`
-   - `/tmp/gobin/crane mutate --platform linux/amd64 --tag registry.carverauto.dev/serviceradar/serviceradar-web-ng:sha-<new> --entrypoint /app/bin/serviceradar_web_ng --cmd start --env HOME=/app --env PATH=/app/bin:/usr/local/bin:/usr/bin:/bin --env PHX_SERVER=true --env MIX_ENV=prod --exposed-ports 4000/tcp --user 10001:10001 --workdir /app registry.carverauto.dev/serviceradar/serviceradar-web-ng:sha-<new>`
-5. Sign the new `web-ng` tag with the release signer, not a local key:
-   - Port-forward OpenBao if needed: `kubectl port-forward -n vault svc/openbao 18200:8200`
-   - Exchange the Forgejo runner service account token for a Vault token and set `VAULT_ADDR=http://127.0.0.1:18200`
-   - `export COSIGN_KEY_REF=hashivault://cosign-release`
-   - `export COSIGN_YES=true COSIGN_DOCKER_MEDIA_TYPES=1 COSIGN_REFERRERS_MODE=legacy COSIGN_TLOG_UPLOAD=true`
-   - `cosign sign --key "$COSIGN_KEY_REF" registry.carverauto.dev/serviceradar/serviceradar-web-ng:sha-<new>`
-6. Patch the Argo app override instead of editing chart values for one-off demo tests:
-   - `kubectl patch application -n argocd serviceradar-demo-prod --type merge -p '{"spec":{"source":{"helm":{"parameters":[{"name":"global.imageTag","value":"sha-<new>"}]}}}}'`
-7. Watch the rollout to completion:
-   - `kubectl get application -n argocd serviceradar-demo-prod -o jsonpath='{.status.sync.status}{"|"}{.status.health.status}{"|"}{.status.operationState.phase}{"\n"}'`
-   - `kubectl get deploy -n demo serviceradar-web-ng serviceradar-core serviceradar-agent serviceradar-tools -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{range .spec.template.spec.containers[*]}{.image}{" "}{end}{"\n"}{end}'`
-   - Expect temporary `OutOfSync|Healthy|Running` or `Synced|Progressing|Running` while hook jobs such as runtime cert generation or NATS credential generation complete.
-   - Finish only when Argo reports `Synced|Healthy|Succeeded` and the key `demo` pods are `Running` on `sha-<new>`.
-
-## Docker Compose Refresh
-
-- Build and publish release artifacts from the current commit: `make build` then `make push_all`.
-- Capture the tag for compose: `git rev-parse HEAD` and use `APP_TAG=sha-<sha>`.
-- Pull fresh images: `APP_TAG=sha-<sha> docker compose pull`.
-- Restart the stack: `APP_TAG=sha-<sha> docker compose up -d --force-recreate`.
-- Verify: `docker compose ps` (one-shot jobs like cert-generator/config-updater exit once finished).
-
-## Local Development with Docker CNPG
-
-Use this quick playbook when running `mix phx.server` locally and connecting to the CNPG instance in Docker on the same machine. This is the fastest iteration loop for testing changes.
-
-### 1. Ensure Docker Compose is Running
-
-Make sure CNPG is accessible on port 5455:
-
-```bash
-cd docker/compose
-APP_TAG=sha-<commit> docker compose up -d cnpg
-```
-
-### 2. Copy Client Certs to a Local Directory (one-time setup)
-
-```bash
-mkdir -p .local-dev-certs
-sudo cp /var/lib/docker/volumes/serviceradar_cert-data/_data/{root.pem,workstation.pem,workstation-key.pem} .local-dev-certs/
-sudo chown -R $USER:$USER .local-dev-certs
-```
-
-Note: `.local-dev-certs/` is already in `.gitignore`.
-
-### 3. Run Phoenix Locally
-
-```bash
-cd elixir/web-ng
-CNPG_HOST=localhost CNPG_PORT=5455 CNPG_SSL_MODE=verify-full \
-  CNPG_CERT_DIR=/home/<user>/serviceradar/.local-dev-certs \
-  CNPG_TLS_SERVER_NAME=cnpg \
-  mix phx.server
-```
-
-Or for local testing without network:
-
-```bash
-CNPG_HOST=localhost CNPG_PORT=5455 CNPG_SSL_MODE=verify-full \
-  CNPG_CERT_DIR=$PWD/../.local-dev-certs CNPG_TLS_SERVER_NAME=cnpg \
-  mix phx.server
-```
-
-### 4. Access the App
-
-- Web UI: http://localhost:4000
-- Dev Mailbox: http://localhost:4000/dev/mailbox (for testing auth emails)
-- Live Dashboard: http://localhost:4000/dev/dashboard
-
-### Troubleshooting
-
-- **Port 4000 already in use**: Kill any stale beam processes with `pkill -f beam.smp`
-- **binary_to_existing_atom error**: Ensure you've run `mix compile --force` after updates
-
-## Web-NG Dashboard Visual Testing Loop
-
-Use this when iterating on screenshot-driven dashboard or shell design work in `elixir/web-ng/`.
-
-1. Keep the reference image in a local ignored path such as `tmp/dashboard-reference.png`. Do not commit screenshot references unless explicitly requested.
-2. Build static assets after JS/CSS changes:
-
-```bash
-cd elixir/web-ng/assets
-sfw npm run build:js
-sfw npm run build:css
-```
-
-3. Start Phoenix locally with noisy background services disabled for visual testing when you need to exercise the real LiveView route:
-
-```bash
-cd elixir/web-ng
-DATASVC_ENABLED=false SERVICE_HEARTBEAT_ENABLED=false SERVICERADAR_WEB_NG_OBAN_ENABLED=false \
-  SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_AUTO_REFRESH=false \
-  CNPG_HOST=localhost CNPG_PORT=5455 CNPG_USERNAME=serviceradar CNPG_PASSWORD=serviceradar \
-  CNPG_DATABASE=serviceradar_web_ng_dev CNPG_SSL_MODE=disable \
-  PHX_HOST=localhost SERVICERADAR_DEV_ROUTES=true mix phx.server
-```
-
-When pointing this loop at the Kubernetes `demo` CNPG instance, use the `$demo-cnpg-local-web-ng` skill instead of hand-rolled port-forwards:
-
-```bash
-.agents/skills/demo-cnpg-local-web-ng/scripts/start-local-web-ng.sh
-```
-
-The skill/script reads `demo/serviceradar-db-credentials`, tries the GitOps-managed `demo/cnpg-rw-internal-lb` VIP (`192.168.6.82:5432`), then falls back to the current CNPG primary node's NodePort paths such as `10.0.2.11:32040` and `10.0.2.11:30455`. If the `192.168.6.82` VIP fails but NodePort works, treat it as a routing/L2 issue outside web-ng/CNPG. Keep the permanent Kubernetes objects in GitOps (`gitops/k8s/demo-cnpg-internal-access/`), not as one-off live changes.
-
-If the local CNPG requires TLS, use the standard cert-backed command from the Local Development with Docker CNPG section instead. A repeated `Unknown CA` error means the cert bundle does not match the CNPG server; refresh the local certs before relying on the LiveView route. If Phoenix or CNPG is not needed for the current visual pass, create a temporary ignored harness under `tmp/` that loads `elixir/web-ng/priv/static/assets/css/app.css` and mirrors the rendered dashboard HTML.
-
-4. Capture browser screenshots with Playwright or Chromium against `http://localhost:4000/dashboard` after logging in. Use desktop and mobile viewports and compare against the reference:
-
-```bash
-npx playwright install chromium
-npx playwright screenshot --viewport-size=1680,945 http://localhost:4000/dashboard tmp/dashboard-desktop.png
-npx playwright screenshot --viewport-size=390,844 http://localhost:4000/dashboard tmp/dashboard-mobile.png
-```
-
-If using the ignored Playwright harness under `tmp/playwright-harness/`, run the repo-root spec with `NODE_PATH` so `@playwright/test` resolves from that harness:
-
-```bash
-NODE_PATH=$PWD/tmp/playwright-harness/node_modules \
-  DASHBOARD_PREVIEW_EMAIL=root@localhost \
-  DASHBOARD_PREVIEW_PASSWORD_FILE=tmp/demo-cnpg/dashboard-password \
-  tmp/playwright-harness/node_modules/.bin/playwright test tmp/live-dashboard.spec.js --reporter=line --timeout=120000
-```
-
-For a temporary local harness, capture the file URL instead:
-
-```bash
-npx playwright screenshot --viewport-size=1680,945 file://$PWD/tmp/dashboard-visual-harness.html tmp/dashboard-desktop.png
-```
-
-5. For canvas-heavy dashboard work, verify the screenshot is not blank and that the deck.gl canvas is present. A quick smoke check is to inspect `#ops-traffic-map` in the browser and confirm the canvas dimensions are non-zero.
-
-## Web-NG Remote Dev (CNPG)
-
-Use this playbook to run `elixir/web-ng/` on a workstation while connecting to the existing CNPG instance running on the docker host (example: `192.168.2.134`).
-
-### 1. Publish CNPG on the docker host
-
-- By default, CNPG is bound to loopback only. To allow LAN access, set these in the docker host `.env` (or export them before running compose):
-  - `CNPG_PUBLIC_BIND=0.0.0.0` (or a specific LAN interface IP)
-  - `CNPG_PUBLIC_PORT=5455`
-
-### 2. Ensure CNPG TLS cert supports IP-based clients (verify-full)
-
-- If clients will connect by IP with `CNPG_SSL_MODE=verify-full`, add the host IP to the CNPG server cert SAN:
-  - `CNPG_CERT_EXTRA_IPS=192.168.2.134`
-  - Regenerate certs: `CNPG_CERT_EXTRA_IPS=192.168.2.134 docker compose up cert-generator`
-  - Restart CNPG (and ensure bind env vars are applied): `CNPG_PUBLIC_BIND=0.0.0.0 CNPG_PUBLIC_PORT=5455 docker compose up -d --force-recreate cnpg`
-
-### 3. Copy workstation client certs (keep out of git)
-
-- Determine the cert volume name: `docker volume ls | rg 'cert-data'`
-- Copy out these files from the volume to a private directory on your workstation:
-  - `root.pem`
-  - `workstation.pem`
-  - `workstation-key.pem`
-
-### 4. Run Phoenix from your workstation
-
-```bash
-cd elixir/web-ng
-export CNPG_HOST=192.168.2.134
-export CNPG_PORT=5455
-export CNPG_DATABASE=serviceradar
-export CNPG_USERNAME=serviceradar
-export CNPG_PASSWORD=serviceradar
-export CNPG_SSL_MODE=verify-full
-export CNPG_CERT_DIR=/path/to/private/serviceradar-certs
-mix phx.server
-```
-
-## Local mTLS ERTS Cluster (web-ng + agent-gateway)
-
-Use this when validating TLS distribution locally without Docker. This keeps `web-ng` and `serviceradar_agent_gateway` joined over mTLS ERTS.
-
-### 1. Generate local mTLS certs for distribution
-
-```bash
-mkdir -p tmp/serviceradar-certs tmp/ssl_dist tmp/logs
-sudo CERT_DIR="$PWD/tmp/serviceradar-certs" bash docker/compose/generate-certs.sh
-sudo chown -R "$USER:$USER" tmp/serviceradar-certs
-```
-
-### 2. Create ssl_dist config files that point at local cert paths
-
-```bash
-cp docker/compose/ssl_dist.web.conf tmp/ssl_dist/web.conf
-cp docker/compose/ssl_dist.gateway.conf tmp/ssl_dist/gateway.conf
-sed -i "s#/etc/serviceradar/certs#$PWD/tmp/serviceradar-certs#g" tmp/ssl_dist/*.conf
-```
-
-### 3. Copy Docker CNPG TLS certs for web-ng (if using local docker CNPG)
-
-```bash
-mkdir -p tmp/serviceradar-docker-certs
-sudo cp /var/lib/docker/volumes/serviceradar_cert-data/_data/{root.pem,workstation.pem,workstation-key.pem} tmp/serviceradar-docker-certs/
-sudo chown -R "$USER:$USER" tmp/serviceradar-docker-certs
-```
-
-### 4. Start agent gateway with TLS distribution (use 127.0.0.1 names)
-
-```bash
-ERL_FLAGS="-name serviceradar_agent_gateway@127.0.0.1 -setcookie serviceradar_dev_cookie -proto_dist inet_tls -ssl_dist_optfile $PWD/tmp/ssl_dist/gateway.conf" \
-CLUSTER_ENABLED=true CLUSTER_STRATEGY=epmd \
-CLUSTER_HOSTS=serviceradar_web_ng@127.0.0.1 \
-ENABLE_TLS_DIST=true SSL_DIST_OPTFILE=$PWD/tmp/ssl_dist/gateway.conf \
-SPIFFE_CERT_DIR=$PWD/tmp/serviceradar-certs \
-GATEWAY_PARTITION_ID=local GATEWAY_ID=gateway-local-1 GATEWAY_DOMAIN=local GATEWAY_CAPABILITIES=icmp,tcp \
-nohup mix run --no-halt > $PWD/tmp/logs/gateway-local.log 2>&1 &
-```
-
-### 5. Start web-ng with TLS distribution + CNPG
-
-```bash
-ERL_FLAGS="-name serviceradar_web_ng@127.0.0.1 -setcookie serviceradar_dev_cookie -proto_dist inet_tls -ssl_dist_optfile $PWD/tmp/ssl_dist/web.conf" \
-CLUSTER_ENABLED=true CLUSTER_STRATEGY=epmd \
-CLUSTER_HOSTS=serviceradar_agent_gateway@127.0.0.1 \
-CLUSTER_TLS_ENABLED=true SSL_DIST_OPTFILE=$PWD/tmp/ssl_dist/web.conf \
-CNPG_HOST=localhost CNPG_PORT=5455 CNPG_USERNAME=serviceradar CNPG_PASSWORD=serviceradar \
-CNPG_DATABASE=serviceradar_web_ng_dev CNPG_SSL_MODE=verify-ca \
-CNPG_CA_FILE=$PWD/tmp/serviceradar-docker-certs/root.pem \
-CNPG_CERT_FILE=$PWD/tmp/serviceradar-docker-certs/workstation.pem \
-CNPG_KEY_FILE=$PWD/tmp/serviceradar-docker-certs/workstation-key.pem \
-PHX_HOST=localhost SERVICERADAR_DEV_ROUTES=true SERVICERADAR_LOCAL_MAILER=true \
-nohup mix phx.server > $PWD/tmp/logs/web-ng.log 2>&1 &
-```
-
-### 6. Verify cluster membership via observer node
-
-```bash
-cat > tmp/ssl_dist/observer.conf <<EOF
-[{server, [
-  {certfile, "$PWD/tmp/serviceradar-certs/workstation.pem"},
-  {keyfile, "$PWD/tmp/serviceradar-certs/workstation-key.pem"},
-  {cacertfile, "$PWD/tmp/serviceradar-certs/root.pem"},
-  {verify, verify_peer},
-  {fail_if_no_peer_cert, true},
-  {secure_renegotiate, true},
-  {depth, 2}
-]},
-{client, [
-  {certfile, "$PWD/tmp/serviceradar-certs/workstation.pem"},
-  {keyfile, "$PWD/tmp/serviceradar-certs/workstation-key.pem"},
-  {cacertfile, "$PWD/tmp/serviceradar-certs/root.pem"},
-  {verify, verify_peer},
-  {secure_renegotiate, true},
-  {depth, 2}
-]}].
-EOF
-
-ERL_FLAGS="-name observer@127.0.0.1 -setcookie serviceradar_dev_cookie -proto_dist inet_tls -ssl_dist_optfile $PWD/tmp/ssl_dist/observer.conf" \
-elixir -e 'IO.inspect(:rpc.call(:\"serviceradar_agent_gateway@127.0.0.1\", Node, :list, []))'
-```
-
-Note: using `@127.0.0.1` avoids the ERTS error `System running to use fully qualified hostnames` that you get with `@localhost`.
-
-## Docker Compose mTLS ERTS (IEx/remote)
-
-When using the Docker Compose stack, TLS distribution is enabled via `/etc/serviceradar/ssl_dist.conf` and certs live under `/etc/serviceradar/certs`.
-Use the release `remote` command from inside the containers so node names resolve on the Docker network:
-
-```bash
-docker exec -it serviceradar-web-ng-mtls /app/bin/serviceradar_web_ng remote
-docker exec -it serviceradar-core-elx-mtls /app/bin/serviceradar_core_elx remote
-docker exec -it serviceradar-agent-gateway-mtls /app/bin/serviceradar_agent_gateway remote
-```
-
-If you need a host-side IEx shell, run a one-off container on the same Docker network with the cert volume mounted so the TLS cert paths resolve:
-
-```bash
-CERT_VOLUME=$(docker volume ls --format '{{.Name}}' | rg 'cert-data' | head -n1)
-docker run --rm -it --network serviceradar-net \
-  -v "${CERT_VOLUME}:/etc/serviceradar/certs" \
-  registry.carverauto.dev/serviceradar/serviceradar-web-ng:sha-<sha> \
-  /app/bin/serviceradar_web_ng remote
-```
-
-If distribution fails with `bad_cert` or `hostname_check_failed` for `agent-gateway`, rerun `docker compose run --rm cert-generator` to refresh certs after updating `docker/compose/generate-certs.sh`.
-If you see `hostname_check_failed` for `core-elx`, ensure the core certificate SAN list includes `DNS:core-elx` (and `core`, `serviceradar-core`) in `docker/compose/generate-certs.sh`, then rerun the cert generator.
-
-## Edge Onboarding Testing with Docker mTLS Stack
-
-Use this playbook to test edge onboarding functionality (e.g., sysmon checker mTLS bootstrap) against the Docker Compose mTLS stack.
-
-### 1. Get Admin Credentials
-
-The config-updater container generates admin credentials at startup:
-
-```bash
-cd docker/compose
-docker compose logs config-updater 2>&1 | grep -E "(Username|Password)"
-```
-
-Look for output like:
-```
-Username: admin
-Password: HaM5aHNMqLFA9gtq
-```
-
-### 2. Obtain a JWT Token
-
-Authenticate against the Core API (port 8090) using the credentials:
-
-```bash
-curl -s -X POST http://localhost:8090/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"<PASSWORD>"}' | jq -r '.access_token' > /tmp/jwt_token.txt
-```
-
-### 3. Find Available Gateways and Agents
-
-```bash
-# List gateways
-curl -s "http://localhost:8090/api/gateways" \
-  -H "Authorization: Bearer $(cat /tmp/jwt_token.txt)" | jq '.[].gateway_id'
-
-# List agents
-curl -s "http://localhost:8090/api/admin/agents" \
-  -H "Authorization: Bearer $(cat /tmp/jwt_token.txt)" | jq '.[].agent_id'
-```
-
-Typical output: `docker-gateway` and `docker-agent`.
-
-### 4. Create an Edge Onboarding Package
-
-Create a checker package for the sysmon checker:
-
-```bash
-curl -s -X POST "http://localhost:8090/api/admin/edge-packages" \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $(cat /tmp/jwt_token.txt)" \
-  -d '{
-    "label": "Sysmon Test",
-    "component_type": "checker",
-    "component_id": "sysmon-test-01",
-    "parent_id": "docker-agent",
-    "parent_type": "agent",
-    "gateway_id": "docker-gateway",
-    "checker_kind": "sysmon",
-    "security_mode": "mtls",
-    "checker_config_json": "{\"listen_addr\":\"0.0.0.0:50083\",\"poll_interval\":30,\"filesystems\":[{\"name\":\"/\",\"type\":\"ext4\",\"monitor\":true}]}"
-  }' | tee /tmp/package_response.json
-```
-
-Extract the package ID and download token:
-```bash
-jq -r '.package.package_id' /tmp/package_response.json
-jq -r '.download_token' /tmp/package_response.json
-```
-
-### 5. Generate an Onboarding Token
-
-Create the `edgepkg-v1:` token format (fields: `pkg`, `dl`, `api`):
-
-```bash
-PACKAGE_ID=$(jq -r '.package.package_id' /tmp/package_response.json)
-DOWNLOAD_TOKEN=$(jq -r '.download_token' /tmp/package_response.json)
-CORE_URL="http://localhost:8090"
-TOKEN_PAYLOAD="{\"pkg\":\"$PACKAGE_ID\",\"dl\":\"$DOWNLOAD_TOKEN\",\"api\":\"$CORE_URL\"}"
-echo -n "$TOKEN_PAYLOAD" | base64 -w0 | tr '+/' '-_' | tr -d '='
-```
-
-Prepend `edgepkg-v1:` to the base64 output for the final token.
-
-### 6. Test the Sysmon Checker with mTLS Bootstrap
-
-Ensure the certificate directory exists with proper permissions:
-```bash
-sudo mkdir -p /var/lib/serviceradar/checker/{certs,config}
-sudo chown -R $USER:$USER /var/lib/serviceradar
-```
-
-Run the checker with the token:
-```bash
-export ONBOARDING_TOKEN="edgepkg-v1:<base64-token>"
-./target/release/serviceradar-sysmon-checker \
-    --mtls \
-    --cert-dir /var/lib/serviceradar/checker/certs \
-    --host http://localhost:8090
-```
-
-Successful output shows:
-- "mTLS bootstrap successful"
-- "Generated config at: /var/lib/serviceradar/checker/config/checker.json"
-- "Certificates installed to: ..."
-- "Server will listen on 0.0.0.0:50083"
-
-### 7. Verify Generated Files
-
-```bash
-# Check certificates (key should be 0600)
-ls -la /var/lib/serviceradar/checker/certs/
-
-# View generated config
-cat /var/lib/serviceradar/checker/config/checker.json | jq '.'
-```
-
-### 8. Test Restart Resilience
-
-Restart the checker using the persisted config:
-```bash
-./target/release/serviceradar-sysmon-checker \
-    --config /var/lib/serviceradar/checker/config/checker.json
-```
-
-### Notes
-
-- Each package can only be downloaded once (status changes to "delivered").
-- Create a new package for each test run.
-- The Core API is on port 8090 (direct); browser access goes through the edge proxy on 80/443.
-- Edge packages expire based on `download_token_ttl_seconds` (default: 10 minutes).
-
-## Release Playbook
-
-1. Prep metadata:
-   - Update `VERSION` with the new semver (example: `1.0.54-pre.1`).
-   - Add a matching entry at the top of `CHANGELOG` that summarizes the release highlights.
-   - Run `scripts/cut-release.sh --version <version> --dry-run` to confirm the changelog entry is detected before committing.
-2. Tag the release:
-   - Execute `scripts/cut-release.sh --version <version>` to stage `VERSION`/`CHANGELOG`, create the release commit, and author the annotated tag (append `--push` when you are ready to publish the refs).
-3. Build and push Bazel release artifacts:
-   - Authenticate to Harbor if needed: `./scripts/docker-login.sh`.
-   - Run `bazel build -c opt --config=ci $(bazel query 'kind(oci_image, //docker/images:*)')` to ensure every container bakes successfully before publishing.
-   - Run `make push_all_release`. This publishes container images plus first-party Wasm plugin OCI artifacts, signs both with cosign, and verifies the published metadata/signatures locally.
-   - If a single image needs republishing on Linux/CI, use `bazel run -c opt --config=ci --stamp //docker/images:<target>_push` (for example `//docker/images:web_ng_image_amd64_push`). On macOS use `make push_all`; direct `cache_only` image targets preserve the Darwin platform and cannot produce a valid Linux image.
-   - If only Wasm plugins need republishing, run `make push_wasm_plugins`.
-   - Capture the new image identifiers you care about (for example `git rev-parse HEAD` for the commit tag or the full digest printed during the push). You'll use these when refreshing Kubernetes.
-4. Roll the demo namespace:
-   - Run `helm upgrade --install serviceradar ./helm/serviceradar -n demo -f helm/serviceradar/values-demo.yaml --set global.imageTag="sha-<git-sha>" --rollback-on-failure` to roll demo to the newly published immutable tag.
-   - Local shortcut: `sr_demo_deploy <sha-...|git-sha>` if the helper is installed in `~/.zshrc`.
-   - Watch for readiness: `kubectl get pods -n demo` until all pods are `1/1` and `Running`.
-5. Close out: verify the demo web UI reports the new version, file follow-up docs, and proceed with Forgejo release packaging if required.
 
 ## When Updating This File
 
@@ -1030,157 +522,24 @@ When you're done executing code, try to compile the code, and check the logs or 
 
 Tidewave MCP tools are optional and may not always be available. Use them when present for deeper inspection, but proceed without them when unavailable.
 
-## CNPG Database Access (Kubernetes demo-staging)
-
-Use this section when you need to directly access the CNPG PostgreSQL database in the demo-staging Kubernetes namespace for debugging or data inspection.
-
-### 1. Expose CNPG Service Externally
-
-Patch the CNPG service to use NodePort for external access:
-
-```bash
-kubectl patch svc cnpg-staging-rw -n demo-staging -p '{"spec":{"type":"NodePort","ports":[{"port":5432,"nodePort":30432}]}}'
-```
-
-Or create a dedicated NodePort service:
-
-```bash
-kubectl apply -f - <<EOF
-apiVersion: v1
-kind: Service
-metadata:
-  name: cnpg-staging-external
-  namespace: demo-staging
-spec:
-  type: NodePort
-  selector:
-    cnpg.io/cluster: cnpg-staging
-    cnpg.io/instanceRole: primary
-  ports:
-    - port: 5432
-      targetPort: 5432
-      nodePort: 30432
-EOF
-```
-
-### 2. Get Database Credentials
-
-```bash
-# Get the serviceradar user password
-kubectl get secret serviceradar-db-credentials -n demo-staging -o jsonpath='{.data.password}' | base64 -d
-
-# Or get the postgres superuser password
-kubectl get secret cnpg-staging-superuser -n demo-staging -o jsonpath='{.data.password}' | base64 -d
-```
-
-### 3. Connect via psql
-
-```bash
-# Using serviceradar user (has search_path=platform, ag_catalog)
-PGPASSWORD=$(kubectl get secret serviceradar-db-credentials -n demo-staging -o jsonpath='{.data.password}' | base64 -d) \
-  psql -h <node-ip> -p 30432 -U serviceradar -d serviceradar
-
-# Using postgres superuser
-PGPASSWORD=$(kubectl get secret cnpg-staging-superuser -n demo-staging -o jsonpath='{.data.password}' | base64 -d) \
-  psql -h <node-ip> -p 30432 -U postgres -d serviceradar
-```
-
-Replace `<node-ip>` with your Kubernetes node IP (e.g., `localhost` if running locally).
-
-### 4. Alternative: kubectl exec into CNPG Pod
-
-For quick one-off queries without exposing the service:
-
-```bash
-kubectl exec -it cnpg-staging-1 -n demo-staging -- psql -U serviceradar -d serviceradar
-```
-
-### 5. Common Queries
-
-```sql
--- Check service_status table (uses platform schema via search_path)
-SELECT COUNT(*) FROM service_status;
-
--- Query specific service history
-SELECT timestamp, service_name, available, message
-FROM service_status
-WHERE service_name = 'Hello Wasm'
-ORDER BY timestamp DESC
-LIMIT 20;
-
--- Check schema search_path
-SHOW search_path;
-```
-
-### Notes
-
-- The `serviceradar` user has `search_path=platform, ag_catalog` set, so tables in the `platform` schema are accessed without prefix.
-- For production debugging, prefer `kubectl exec` over exposing the service externally.
-- Remember to clean up NodePort services when done: `kubectl delete svc cnpg-staging-external -n demo-staging`
-
 ## SRQL Fixture Integration Tests
 
-Use the `srql-fixtures-db-tests` skill when `elixir/serviceradar_core` integration tests need
-the shared CNPG/AGE fixture. There is deliberately no orchestration script: invoke the guarded
-Bazel lifecycle in order as the caller:
+Use the `srql-fixtures-db-tests` skill when `elixir/serviceradar_core` integration tests
+need the shared CNPG/AGE fixture. There is deliberately no orchestration script — you
+invoke the guarded Bazel lifecycle in order, as the caller:
+`sweep -> provision base -> migrate run if pending -> provision lanes -> test -> teardown`.
 
-```text
-sweep -> provision base -> migrate run if pending -> provision lanes -> test -> teardown
-```
+**Never migrate the shared template from a branch.** `sr_core_template` is shared by every
+run on the fixture and only ratchets forward, so migrating it from a branch checkout writes
+that branch's unmerged migrations into the schema every other branch clones — and then
+refuses every checkout that lacks them. That is not hypothetical: one branch left seven
+behind and turned every other pull request red on a step unrelated to its own diff. The
+three targets that write it (`//elixir/serviceradar_core:migrate_template`,
+`//rust/integration-db:prepare_template`, `//rust/integration-db:reset_template`) refuse
+without `--//build:template_authority=true`, which only the trunk `LargeIngestionGate`
+passes. Do not add that flag to get past a refusal — it is the caller declaring "this
+checkout is trunk", not a way to unblock a step. A branch's own migrations belong in its
+run base instead.
 
-**You cannot run `//elixir/serviceradar_core:migrate_template` from a branch, and should not
-try.** `sr_core_template` is shared by every run on the fixture and only ratchets forward, so
-migrating it from a branch checkout writes that branch's unmerged migrations into the schema
-every other branch clones -- and every branch whose checkout lacks them is then refused. That is
-not hypothetical: one branch left seven behind and every other pull request went red on a step
-unrelated to its own diff. The template is advanced by the trunk lifecycle alone
-(`LargeIngestionGate`, push to `staging`).
-
-The three targets that write it -- `//elixir/serviceradar_core:migrate_template`,
-`//rust/integration-db:prepare_template` and `//rust/integration-db:reset_template` -- now
-**refuse** without `--//build:template_authority=true`, which is the caller declaring "this
-checkout is trunk". Only `LargeIngestionGate` passes it, and
-`//build/contracts:ci_heavy_gate_contract_test` pins that. Do not pass it to get past a refusal: the flag is a
-statement about the checkout, not a way to unblock a step, and a branch that sets it reproduces
-the original outage exactly. It fails closed -- an absent or empty marker is a refusal -- so
-adding the flag to a target that does not declare `//build:template_authority_file` changes
-nothing.
-
-A branch's own migrations go to its **run base**: `//rust/integration-db:provision_base` seeds
-`sr_core_test_<run>` from the template, `//elixir/serviceradar_core:migrate_run` brings that one
-database up to the checkout, and the lane databases are cloned from it. If `provision_base`
-reports the template AHEAD of the checkout it does not fail -- it builds the base from nothing,
-says so, and leaves the shared template alone. `bazel run //rust/integration-db:reset_template`
-is the deliberate recovery when the template has diverged from trunk; the trunk lifecycle runs it
-automatically in that case.
-
-For one shard, pair `//rust/integration-db:provision_db_sN` with
-`//elixir/serviceradar_core:integration_tests_sN`. CI uses the unsuffixed provision target and
-the eight-shard suite. Every test/lifecycle invocation needs
-`--//build:enable_integration_tests --strategy=TestRunner=local --test_tag_filters=`; prepare is
-`bazel run` and needs `--build_tag_filters=`. Always pass `--nocache_test_results` to the mutable
-database tests, and always invoke `teardown_db` after a red shard. Bazel has no cross-invocation
-finalizer; the stale sweep is the backstop for a killed host.
-
-Keep fixture base URLs in `SRQL_TEST_DATABASE_URL` and `SRQL_TEST_ADMIN_URL`, mint ONE run id
-for the whole sequence and pass it to every invocation as `--//build:run_id=<id>` (8-32 chars of
-`[a-z0-9]`; it has no default, because a constant fallback let two runs share one database), and
-leave
-`SERVICERADAR_TEST_DATABASE_URL` unset so each shard derives its disposable database. When using
-a NodePort, export both `PGSSLSERVERNAME` and `SRQL_TEST_DATABASE_SERVER_NAME` with the CNPG
-certificate's DNS name so the Rust and Elixir clients verify the same certificate.
-
-**BazelCI runs the PR head's `buildbuddy.yaml` against the MERGED tree.** It merges
-`origin/staging` into the branch before building, but the workflow steps come from the
-branch's own `buildbuddy.yaml`. So a branch that predates a lifecycle change runs the OLD
-step sequence against NEW `//rust/integration-db` code, and the symptom names neither: a
-`provision_db` failing with `sr_core_test_<run> does not exist; run
-//rust/integration-db:provision_base first` means the branch's `buildbuddy.yaml` has no
-`provision_base` step, not that the fixture is broken. Diff `buildbuddy.yaml` against
-`origin/staging` before reading further; the fix is a rebase, not a code change.
-
-With a mode-0600 ignored `.bazelrc.remote` containing the BuildBuddy credential, add
-`--config=cache_only`: compilation artifacts use the public authenticated cache while
-`TestRunner` remains native. Do not use `--config=ci` for a local database test; it selects the
-Linux RBE platform. Never copy or print fixture or BuildBuddy credentials while diagnosing this
-flow. The skill contains the exact command sequence and cleanup check.
+Full command sequence, sharding, run-id and credential rules, BazelCI merge-tree caveat and
+cleanup checks: [docs/agent-runbooks.md](docs/agent-runbooks.md).
