@@ -44,7 +44,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkDelete do
 
         {:noreply,
          socket
-         |> assign(:show_bulk_delete_modal, false)
+         |> Selection.reset_bulk_delete_modal()
          |> put_flash(:error, reason)}
     end
   end
@@ -75,7 +75,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkDelete do
 
         {:noreply,
          socket
-         |> assign(:show_bulk_delete_modal, false)
+         |> Selection.reset_bulk_delete_modal()
          |> put_flash(:error, Helpers.batch_failure_message(other))}
     end
   end
