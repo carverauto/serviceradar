@@ -7,8 +7,11 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageControllerTest do
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadarWebNG.Plugins.Storage
+  alias ServiceRadarWebNG.PluginStorageTestClient
 
   require Ash.Query
+
+  @moduletag :web_ng_shared_fixture_db
 
   @manifest %{
     "id" => "unifi-protect-camera",
@@ -26,17 +29,19 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageControllerTest do
 
   setup do
     original = Application.get_env(:serviceradar_web_ng, :plugin_storage)
-    tmp = Path.join(System.tmp_dir!(), "sr-plugin-storage-#{System.unique_integer([:positive])}")
+    # Package blobs always go to the JetStream object store, and the DB lane has
+    # no NATS, so blob writes go to the in-memory test client instead.
+    store_name = :"sr_plugin_package_api_test_#{System.unique_integer([:positive])}"
+    {:ok, _store} = PluginStorageTestClient.start_link(store_name)
 
     Application.put_env(:serviceradar_web_ng, :plugin_storage,
-      backend: :filesystem,
-      base_path: tmp,
+      backend: :jetstream,
+      jetstream_client: PluginStorageTestClient,
+      test_store: store_name,
       signing_secret: "test-secret"
     )
 
     on_exit(fn ->
-      File.rm_rf(tmp)
-
       if is_nil(original) do
         Application.delete_env(:serviceradar_web_ng, :plugin_storage)
       else
