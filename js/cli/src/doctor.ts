@@ -7,12 +7,12 @@ import {existsSync, readdirSync, readFileSync} from "node:fs"
 import {join, resolve} from "node:path"
 import {spawn} from "node:child_process"
 
-import {credentialsDir, credentialsPath, readCredentials} from "./auth/credentials.js"
+import {credentialsDir, credentialsPath, normalizeInstanceUrl, readCredentials, resolveCredentialToken} from "./auth/credentials.js"
 import {loadConfig, resolveConfigPath} from "./config.js"
 import {DEFAULT_RENDERER_ENTRY} from "./manifest.js"
 import {resolveProjectPackageManifest} from "./dashboard/resolve.js"
 import {CLI_ROOT, HARNESS_DIR, TEMPLATES_DIR} from "./paths.js"
-import {defaultCaBundlePath, resolveExtraCaFile} from "./tls_ca.js"
+import {defaultCaBundlePath, formatFetchFailure, resolveExtraCaFile} from "./tls_ca.js"
 import {relativePath} from "./utils.js"
 
 export function readPackageVersion(directory: string): string | null {
@@ -64,10 +64,18 @@ export async function doctorCommand(options: Record<string, any>): Promise<void>
     console.log(`  dashboard config:     ${relativePath(projectDir, configPath)}`)
     try {
       const config = (await loadConfig(projectDir, options.config)) as any
-      console.log(`  manifest id:          ${config?.manifest?.id || "(not declared)"}`)
-      console.log(`  manifest version:     ${config?.manifest?.version || "(not declared)"}`)
+      const manifestId: string | undefined = config?.manifest?.id
+      const localVersion: string | undefined = config?.manifest?.version
+      console.log(`  manifest id:          ${manifestId || "(not declared)"}`)
+      console.log(`  manifest version:     ${localVersion || "(not declared)"}`)
       const entry = config?.renderer?.entry || config?.entry || DEFAULT_RENDERER_ENTRY
       console.log(`  renderer entry:       ${entry}${existsSync(resolve(projectDir, entry)) ? "" : "  (missing!)"}`)
+
+      const instanceUrl = normalizeInstanceUrl(options.instance)
+      if (instanceUrl && manifestId) {
+        const installedVersion = await fetchInstalledVersion(instanceUrl, manifestId, options.token)
+        console.log(`  installed version:    ${installedVersion}`)
+      }
     } catch (error: any) {
       console.log(`  config error:         ${error?.message || error}`)
     }
@@ -100,6 +108,24 @@ export async function doctorCommand(options: Record<string, any>): Promise<void>
   // `fetch failed`. Name the files we can see but will not load.
   for (const ignored of unusedPemFiles(extraCa)) {
     console.log(`  unused PEM:           ${ignored} — not loaded; rename it to ${defaultCa} or pass --ca-file ${ignored}`)
+  }
+}
+
+async function fetchInstalledVersion(instance: string, manifestId: string, tokenOverride?: string): Promise<string> {
+  const credential = resolveCredentialToken(instance, {token: tokenOverride})
+  if (!credential) return "(no credentials — run auth login first)"
+
+  const url = `${instance}/api/v1/dashboard-packages/${encodeURIComponent(manifestId)}`
+  try {
+    const response = await fetch(url, {
+      headers: {authorization: `Bearer ${credential.token}`, accept: "application/json"},
+    })
+    if (response.status === 404) return "(not installed)"
+    if (!response.ok) return `(fetch failed: HTTP ${response.status})`
+    const payload = await response.json().catch(() => null)
+    return payload?.package?.version || "(unknown)"
+  } catch (error) {
+    return `(fetch failed: ${formatFetchFailure(error)})`
   }
 }
 
