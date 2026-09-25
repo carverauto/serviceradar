@@ -17,6 +17,7 @@ defmodule ServiceRadar.Inventory.Identity.FenceEnforcementTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.AgentGatewaySync
+  alias ServiceRadar.Infrastructure.Agent, as: AgentRecord
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceCleanupWorker
   alias ServiceRadar.Inventory.DeviceIdentifier
@@ -45,7 +46,8 @@ defmodule ServiceRadar.Inventory.Identity.FenceEnforcementTest do
         handler_id,
         [
           [:serviceradar, :identity_fence, :stale],
-          [:serviceradar, :identity_fence, :abandoned]
+          [:serviceradar, :identity_fence, :abandoned],
+          [:serviceradar, :identity_fence, :fallback]
         ],
         fn event, _measurements, metadata, _config ->
           send(test_pid, {:fence, List.last(event), metadata})
@@ -176,6 +178,54 @@ defmodule ServiceRadar.Inventory.Identity.FenceEnforcementTest do
     assert_receive {:fence, :stale, %{pipeline: :agent_gateway_sync, device_id: ^agent_uid}}
     assert %Device{deleted_reason: "merged"} = device!(agent_uid, actor)
     assert owner(agent_id, actor) == survivor.uid
+  end
+
+  test "an agent check-in whose fenced identity write fails still completes unfenced", ctx do
+    %{actor: actor} = ctx
+    agent_id = "fence-agent-fallback-#{System.unique_integer([:positive])}"
+    attrs = agent_attrs(agent_id, unique_ip())
+
+    assert {:ok, device_uid} = AgentGatewaySync.ensure_device_for_agent(agent_id, attrs)
+    on_exit(fn -> cleanup!(device_uid) end)
+
+    # The agent row exists but is not linked yet.
+    assert {:ok, _agent} =
+             AgentRecord
+             |> Ash.Changeset.for_create(
+               :register_connected,
+               %{uid: agent_id, name: agent_id, host: "192.0.2.1", port: 50_051},
+               actor: actor
+             )
+             |> Ash.create()
+
+    on_exit(fn -> Repo.query!("DELETE FROM platform.ocsf_agents WHERE uid = $1", [agent_id]) end)
+
+    # An identifier write fails inside the fenced transaction: a duplicate of the
+    # agent's own identifier row violates the unique index and aborts it.
+    Application.put_env(:serviceradar_core, :identity_fence_test_hooks, %{
+      agent_gateway_sync_in_fenced_write:
+        once_fun(fn ->
+          _ =
+            DeviceIdentifier
+            |> Ash.Changeset.for_create(:register, %{
+              device_id: device_uid,
+              identifier_type: :agent_id,
+              identifier_value: agent_id,
+              partition: "default",
+              source: "test"
+            })
+            |> Ash.create(actor: actor)
+        end)
+    })
+
+    # Before the fence these writes were best effort; the check-in still completes.
+    assert {:ok, ^device_uid} = AgentGatewaySync.ensure_device_for_agent(agent_id, attrs)
+    assert_receive {:fence, :fallback, %{pipeline: :agent_gateway_sync, device_id: ^device_uid}}
+
+    assert {:ok, %AgentRecord{device_uid: ^device_uid}} =
+             AgentRecord.get_by_uid(agent_id, actor: actor)
+
+    assert owner(agent_id, actor) == device_uid
   end
 
   # ---------------------------------------------------------------------------------------

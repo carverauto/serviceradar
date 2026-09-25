@@ -220,6 +220,26 @@ defmodule ServiceRadar.Inventory.Identity.Fence do
   end
 
   @doc """
+  Report a fenced write that failed and was repeated unfenced by a best-effort
+  caller: one `[:serviceradar, :identity_fence, :fallback]` event and one log line.
+  """
+  @spec report_fallback(atom(), String.t(), term()) :: :ok
+  def report_fallback(pipeline, device_id, reason) do
+    Logger.warning(
+      "identity fence: fenced write for #{device_id} failed (pipeline=#{pipeline}); " <>
+        "repeating it unfenced: #{inspect(reason)}"
+    )
+
+    :telemetry.execute(
+      @telemetry_prefix ++ [:fallback],
+      %{count: 1},
+      %{pipeline: pipeline, device_id: device_id, reason: reason}
+    )
+
+    :ok
+  end
+
+  @doc """
   Report one stale pin found outside `fenced_write/3` (a single-device consumer
   that re-resolves on its own): one `[:serviceradar, :identity_fence, :stale]`
   event, with the pin it held and what it found (a revision, `:absent` or `:merged`).

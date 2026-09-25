@@ -25,6 +25,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias ServiceRadar.Infrastructure.Gateway
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.Identity.Fence
+  alias ServiceRadar.Inventory.Identity.Registrar
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.SweepJobs.AgentAssignment
@@ -340,29 +341,52 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       if MapSet.member?(stale, device_uid) do
         {:ok, :stale}
       else
-        # Register agent_id as a strong identifier so DIRE can resolve
-        # subsequent enrollments (even from different IPs) to this device
-        ids = IdentityReconciler.extract_strong_identifiers(device_update)
-        IdentityReconciler.register_identifiers(device_uid, ids, actor: actor)
-        IdentityReconciler.repair_agent_identifier(agent_id, device_uid, actor)
-
-        # Link the agent to the device
-        link_agent_to_device(agent_id, device_uid, actor)
-        {:ok, :written}
+        run_test_hook(:agent_gateway_sync_in_fenced_write)
+        {:ok, {:written, write_agent_identity(device_uid, agent_id, device_update, actor)}}
       end
     end)
     |> case do
-      {:ok, {:written, _stale}} ->
-        backfill_endpoint_inventory_device_uid(agent_id, device_uid)
-        retire_superseded_agents(agent_id, device_uid, attrs, actor)
-        {:ok, device_uid}
+      {:ok, {{:written, deferred_merge}, _stale}} ->
+        # After the commit: a merge takes its own device-row locks.
+        :ok = Registrar.run_deferred_merge(deferred_merge, actor)
+        finish_agent_device_sync(device_uid, agent_id, attrs, actor)
 
       {:ok, {:stale, _stale}} ->
         {:stale, {device_uid, Map.fetch!(pins, device_uid)}}
 
-      {:error, _} = error ->
-        error
+      {:error, reason} ->
+        # These writes are best effort, as they were before the fence: a failing
+        # identifier upsert or agent link was logged and ignored. Inside the fenced
+        # transaction any failed Ash action rolls the whole write back, so repeat it
+        # unfenced rather than fail the check-in, and say so.
+        Fence.report_fallback(:agent_gateway_sync, device_uid, reason)
+
+        device_uid
+        |> write_agent_identity(agent_id, device_update, actor)
+        |> Registrar.run_deferred_merge(actor)
+
+        finish_agent_device_sync(device_uid, agent_id, attrs, actor)
     end
+  end
+
+  # Register agent_id as a strong identifier so DIRE can resolve subsequent
+  # enrollments (even from different IPs) to this device, repair a stale agent_id
+  # row, and link the agent. Returns the register-time merge, deferred.
+  defp write_agent_identity(device_uid, agent_id, device_update, actor) do
+    ids = IdentityReconciler.extract_strong_identifiers(device_update)
+
+    {_result, deferred_merge} =
+      Registrar.register_identifiers_deferring_merge(device_uid, ids, actor: actor)
+
+    IdentityReconciler.repair_agent_identifier(agent_id, device_uid, actor)
+    link_agent_to_device(agent_id, device_uid, actor)
+    deferred_merge
+  end
+
+  defp finish_agent_device_sync(device_uid, agent_id, attrs, actor) do
+    backfill_endpoint_inventory_device_uid(agent_id, device_uid)
+    retire_superseded_agents(agent_id, device_uid, attrs, actor)
+    {:ok, device_uid}
   end
 
   # Test-only barrier between pinning and the fenced write

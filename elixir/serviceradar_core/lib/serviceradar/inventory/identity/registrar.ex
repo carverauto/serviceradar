@@ -34,11 +34,49 @@ defmodule ServiceRadar.Inventory.Identity.Registrar do
           :ok | {:error, term()}
   def register_identifiers(device_id, ids, opts \\ []) do
     actor = Keyword.get(opts, :actor)
-    partition = Ids.ids_get_partition(ids)
-    query_opts = if actor, do: [actor: actor], else: []
     canonical_id = resolve_identifier_conflicts(device_id, ids, actor)
 
-    maybe_merge_on_register(device_id, canonical_id, ids, actor)
+    device_id
+    |> register_time_merge(canonical_id, ids, actor)
+    |> run_deferred_merge(actor)
+
+    do_register_identifiers(canonical_id, ids, actor)
+  end
+
+  @typedoc "A register-time merge decided but not yet run: `{from_device_id, to_device_id, merge_opts}`."
+  @type deferred_merge :: {String.t(), String.t(), keyword()} | nil
+
+  @doc """
+  `register_identifiers/3` for a caller that registers inside its own transaction
+  (the fenced agent check-in): the register-time merge is decided but returned
+  instead of run, and the caller runs it with `run_deferred_merge/2` after its
+  transaction commits. A merge takes its own device-row locks and runs in its own
+  transaction; running it while the caller already holds a device row lock would
+  take the two rows out of uid order, and a refused merge would roll back the
+  caller's whole transaction.
+  """
+  @spec register_identifiers_deferring_merge(String.t(), Ids.strong_identifiers(), keyword()) ::
+          {:ok | {:error, term()}, deferred_merge()}
+  def register_identifiers_deferring_merge(device_id, ids, opts \\ []) do
+    actor = Keyword.get(opts, :actor)
+    canonical_id = resolve_identifier_conflicts(device_id, ids, actor)
+    deferred = register_time_merge(device_id, canonical_id, ids, actor)
+    {do_register_identifiers(canonical_id, ids, actor), deferred}
+  end
+
+  @doc "Run a merge deferred by `register_identifiers_deferring_merge/3`. Best effort, as before."
+  @spec run_deferred_merge(deferred_merge(), term()) :: :ok
+  def run_deferred_merge(nil, _actor), do: :ok
+
+  def run_deferred_merge({from_device_id, to_device_id, merge_opts}, actor) do
+    _ = MergeEngine.merge_devices(from_device_id, to_device_id, [actor: actor] ++ merge_opts)
+    :ok
+  end
+
+  defp do_register_identifiers(canonical_id, ids, actor) do
+    partition = Ids.ids_get_partition(ids)
+    query_opts = if actor, do: [actor: actor], else: []
+
     maybe_promote_provisional_identity(canonical_id, ids, actor, partition)
 
     agent_id_value = colocation_safe_agent_id(canonical_id, Ids.ids_get(ids, :agent_id), actor)
@@ -435,26 +473,26 @@ defmodule ServiceRadar.Inventory.Identity.Registrar do
   defp handle_identifier_errors([]), do: :ok
   defp handle_identifier_errors(errors), do: {:error, {:identifier_registration_failed, errors}}
 
-  defp maybe_merge_on_register(device_id, canonical_id, ids, actor) do
+  # The register-time merge to run, or nil. A blocked merge is recorded here.
+  defp register_time_merge(device_id, canonical_id, ids, actor) do
     if should_merge_on_register?(device_id, canonical_id) do
       matches = Resolver.lookup_identifier_matches(ids, actor)
 
       if MergePolicy.merge_allowed_for_matches?(matches) do
-        _ =
-          MergeEngine.merge_devices(device_id, canonical_id,
-            actor: actor,
-            reason: "identifier_conflict",
-            details: %{
-              source: "identifier_registration",
-              identifiers: %{
-                agent_id: Ids.ids_get(ids, :agent_id),
-                armis_id: Ids.ids_get(ids, :armis_id),
-                integration_id: Ids.ids_get(ids, :integration_id),
-                netbox_id: Ids.ids_get(ids, :netbox_id),
-                mac: Ids.ids_get(ids, :mac)
-              }
-            }
-          )
+        {device_id, canonical_id,
+         [
+           reason: "identifier_conflict",
+           details: %{
+             source: "identifier_registration",
+             identifiers: %{
+               agent_id: Ids.ids_get(ids, :agent_id),
+               armis_id: Ids.ids_get(ids, :armis_id),
+               integration_id: Ids.ids_get(ids, :integration_id),
+               netbox_id: Ids.ids_get(ids, :netbox_id),
+               mac: Ids.ids_get(ids, :mac)
+             }
+           }
+         ]}
       else
         blocked_reason = MergePolicy.blocked_merge_reason(matches)
         device_ids = Enum.uniq([device_id, canonical_id])
@@ -470,11 +508,9 @@ defmodule ServiceRadar.Inventory.Identity.Registrar do
           matches,
           "identifier_registration"
         )
-      end
 
-      :ok
-    else
-      :ok
+        nil
+      end
     end
   end
 
