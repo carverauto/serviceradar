@@ -746,7 +746,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   defp observed_after?(%{last_seen_time: %DateTime{} = incoming}, %{
          last_seen_time: %DateTime{} = held
        }),
-       do: DateTime.compare(incoming, held) == :gt
+       do: DateTime.after?(incoming, held)
 
   defp observed_after?(_record, _holder), do: false
 
