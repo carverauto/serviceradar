@@ -12,6 +12,7 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.DeviceInterfaceMac
+  alias ServiceRadar.Inventory.Identity.DecisionLog
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.Inventory.Identity.MergeEngine
@@ -130,6 +131,7 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
       classify_duplicate_components(acc.identifier_duplicates)
 
     largest_blocked = report_blocked_components(blocked_components)
+    record_blocked_components(blocked_components, blocked_component_capture_limit())
 
     %{
       acc
@@ -789,6 +791,28 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
 
     largest_component
   end
+
+  @doc false
+  # Each blocked component is an identity decision the sweep declined (#4613) and a candidate
+  # set for a de-duplication task (#4604). Bounded by the same capture limit as the run record,
+  # so one run cannot write an unbounded number of rows.
+  def record_blocked_components(components, capture_limit)
+      when is_list(components) and is_integer(capture_limit) and capture_limit > 0 do
+    components
+    |> Enum.take(capture_limit)
+    |> Enum.map(fn component ->
+      %{
+        kind: :component_block,
+        reason: "ambiguous_transitive_component",
+        device_uids: component.device_ids,
+        source: "duplicate_sweep",
+        evidence: %{"component_size" => length(component.device_ids)}
+      }
+    end)
+    |> DecisionLog.record_many()
+  end
+
+  def record_blocked_components(_components, _capture_limit), do: :ok
 
   @doc false
   # Membership only. The evidence that joins these devices is derived at query

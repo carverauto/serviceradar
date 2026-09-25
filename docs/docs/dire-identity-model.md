@@ -144,6 +144,24 @@ kind (`policy_block`, `guard_block`, `source_block`, `alias_invalidated`, `ip_co
 evidence, and how often and when it was made. A repeat updates the row rather than adding
 one. Administrative merges are not decisions and are not recorded.
 
+## De-duplication tasks
+
+Every identity decision that names two or more devices also opens or updates the
+de-duplication task for that device set (`platform.identity_deduplication_tasks`,
+`ServiceRadar.Inventory.DeduplicationTask`); the scheduled duplicate sweep records each
+ambiguous component it declines the same way (`component_block`). There is exactly one task per
+device set for its whole life; later decisions update its count, last reason and evidence.
+
+An operator resolves an open task through `ServiceRadar.Inventory.Identity.Deduplication`:
+
+- `merge/4` merges every other device into a chosen survivor through the administrative merge
+  path (reason `manual_dedup_task`).
+- `mark_distinct/3` records a `DistinctDeviceAssertion` for every pair
+  (`platform.identity_distinct_assertions`). `MergeEngine` then refuses every automatic merge of
+  those pairs (guard `asserted_distinct`), the scheduled backfill included, and later decisions
+  about the set open no task.
+- `dismiss/3` closes it without a decision; a dismissed task can be reopened.
+
 ## Release gate
 
 `test/serviceradar/inventory/identifier_cardinality_gate_test.exs`

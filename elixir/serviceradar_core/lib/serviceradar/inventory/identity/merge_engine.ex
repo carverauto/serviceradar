@@ -18,6 +18,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
   alias ServiceRadar.Inventory.DeviceSourceObservation
   alias ServiceRadar.Inventory.Identity.AliasGuard
   alias ServiceRadar.Inventory.Identity.DecisionLog
+  alias ServiceRadar.Inventory.Identity.Deduplication
   alias ServiceRadar.Inventory.Identity.EndpointInventoryMoves
   alias ServiceRadar.Inventory.Identity.MergePolicy
   alias ServiceRadar.Inventory.Identity.Reassignments
@@ -120,6 +121,10 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
     cond do
       manual_override_merge_reason?(reason) or reason == "unmerge" ->
         nil
+
+      # An operator resolved a de-duplication task for this pair as "different devices" (#4604).
+      Deduplication.asserted_distinct?(from_device_id, to_device_id) ->
+        :asserted_distinct
 
       AliasGuard.distinct_agent_identity_conflict?(from_device_id, to_device_id, actor) ->
         :distinct_agent_identity

@@ -60,6 +60,8 @@ defmodule ServiceRadar.Inventory do
     resource ServiceRadar.Inventory.SourceFactDisagreement
     resource ServiceRadar.Inventory.SourceIdentityConflict
     resource ServiceRadar.Inventory.IdentityDecision
+    resource ServiceRadar.Inventory.DeduplicationTask
+    resource ServiceRadar.Inventory.DistinctDeviceAssertion
     resource ServiceRadar.Inventory.MergeAudit
     resource ServiceRadar.Inventory.Identity.ReconciliationRun
     resource ServiceRadar.Inventory.DeviceCleanupSettings
