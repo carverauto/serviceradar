@@ -57,6 +57,11 @@
 - [ ] 4.4 Rust tests for the generated SQL of each filter, sort, limit clamp
       and stats path, plus a guard that `in:services` is unchanged. Run
       `cargo fmt` and `cargo clippy`.
+- [ ] 4.5 Keep the permitted-signal set out of the wire-deserialized
+      `QueryRequest` (`#[serde(skip)]` or a separate argument to translate and
+      the NIF). The standalone server rejects `otel_services` queries. Rust
+      tests: a JSON body carrying a permitted-signals field is ignored and
+      rejected; a missing set fails closed.
 
 ## 5. Access control and catalog metadata (web-ng)
 
@@ -65,7 +70,9 @@
       caller holding none and returns the permitted signal set with `:ok`. It
       does not edit the query string. Update every caller (`srql.ex` `query`
       and `query_arrow`, `api/access.ex`) to pass that set to SRQL as a
-      trusted request parameter. Land this with or before the SRQL entity
+      trusted parameter, and pass it at every translate call site
+      (`Native.translate/5`, the NIF, and both `translate(...)` calls in
+      `RollupFreshness.settle`). Land this with or before the SRQL entity
       (task 4.1).
 - [ ] 5.2 `srql/catalog.ex`: add the `otel_services` entity, and add
       `service_name` to the `otel_trace_summaries` fields.
@@ -74,7 +81,8 @@
       or metric activity in `signals`, `last_seen` or ordering. One scenario
       per form: `signal:(logs,traces)`, a repeated `signal:`, `!signal:logs`,
       `SIGNAL:traces`, a nil scope with `optional_scope: true`, and a missing
-      permitted set.
+      permitted set. Also cover re-translation in `RollupFreshness.settle`
+      keeping the set.
 
 ## 6. Service picker UI (web-ng)
 
@@ -88,8 +96,10 @@
       during disconnected mount.
 - [ ] 6.3 Apply and clear: strip and insert the `service_name:` token so
       other tokens are kept, reset `cursor` / `page`, and `push_patch`.
-- [ ] 6.4 Carry the service filter through `ObservabilityPaths` tab links.
-      Make row service names patch links.
+- [ ] 6.4 Carry the service filter through `ObservabilityPaths` tab links,
+      passing only exact names: drop a wildcard value when the target pane
+      rejects wildcards (traces summaries) and show an inline notice. Make row
+      service names patch links.
 - [ ] 6.5 Stat cards: change `Stats` and `Stats.Query` to accept a list of
       service names and map it to each rollup's list filter
       (`logs_severity_result`, `traces_summary`, `metrics_summary`). Show the
@@ -99,7 +109,9 @@
 - [ ] 6.7 LiveView tests: server-side search returns at most 50 of many; the
       picker is signal-scoped; filters are kept on apply; a selection change
       replaces the previous one; the filter carries across tabs; row click;
-      unauthorized event rejected; no query on disconnected mount.
+      unauthorized event rejected; no query on disconnected mount; a wildcard
+      filter is dropped with a notice when carried to traces; a `%` in the
+      free-text fallback is sent as a literal exact name.
 
 ## 7. Verification
 

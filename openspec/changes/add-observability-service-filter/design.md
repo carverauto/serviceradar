@@ -148,8 +148,20 @@ up to one job interval of lag. Rejected, except for the one-shot backfill (D6).
     single-permission behavior and return no set.
   - **Trusted parameter.** The `authorize/3` callers (`srql.ex` `query` and
     `query_arrow`, and `api/access.ex`) pass that set to SRQL as a trusted
-    request parameter, separate from the query string, so a caller cannot set
-    it. This covers the LiveView, HTTP and MCP paths.
+    parameter, separate from the query string. This covers the LiveView, HTTP
+    and MCP paths.
+    - The set is not part of the wire-deserialized request. `QueryRequest`
+      (`rust/srql/src/query/types.rs`) is `Deserialize` and the standalone
+      server takes it straight from client JSON, so a field there would be
+      client-settable. The set is a `#[serde(skip)]` field or a separate
+      argument to `Native.translate/5` and the NIF, and never comes from JSON.
+    - The standalone SRQL server has no trusted-caller path, so it rejects
+      every `otel_services` query. A trusted-API-key path may be added later
+      with its own proposal.
+    - Every translate call site passes the set: `Native.translate/5`, the NIF,
+      and both `translate(...)` calls in `RollupFreshness.settle` (`srql.ex`).
+      A re-translate that omits the set fails closed in the planner, and one
+      that reuses the original query does not skip the check.
   - **Planner (Rust, `otel_services`).** The planner parses `signal:` itself
     and intersects the parsed values with the permitted set. A `signal:` naming
     a signal outside the set, an empty intersection, a repeated `signal:`
@@ -207,7 +219,8 @@ service, not only traces rooted in it.
   - Keyboard: arrow keys move, Space toggles, Enter applies, Escape cancels.
 - **Free-text fallback.** When the search matches nothing, the modal offers
   "Filter by '<typed>' anyway". This covers a catalog that is lagging or
-  pruned.
+  pruned. The typed value is always sent as an exact, escaped name, so a `%`
+  in it is literal and never a wildcard.
 - **Apply.**
   - The page strips any existing `service_name:` token from the pane's query.
   - It inserts `service_name:"a"` or `service_name:("a","b")`, then resets
@@ -215,7 +228,11 @@ service, not only traces rooted in it.
   - Clear removes the token.
   - Every other token (time, severity, source, sort) is kept.
 - **Cross-tab carry.** Tab links built by `ObservabilityPaths` carry the
-  current service filter into the target tab's default query.
+  current service filter into the target tab's default query. Only exact
+  service names are carried. A wildcard `service_name` value (for example one
+  typed by hand on logs) is dropped when the target pane rejects wildcards,
+  which is the traces summaries pane (D5), and an inline notice tells the user
+  the service filter was not carried.
 - **Row links.** The service shown on a log, trace or metric row becomes a
   patch link that applies that single-service filter.
 - **Stat cards.** `ServiceRadarWebNGWeb.Stats` and `Stats.Query` today take a

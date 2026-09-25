@@ -30,7 +30,7 @@ This entity is distinct from `in:services`, which reads monitored service checks
 - **THEN** SRQL SHALL continue to return monitored service check status, not catalog entries
 
 ### Requirement: OTel services entity access control
-Access to `in:otel_services` SHALL be enforced in two places. The shared `EntityAccess` gate used by the LiveView, HTTP and MCP query paths SHALL map this entity to an any-of permission set (`observability.logs.view`, `observability.traces.view`, `observability.metrics.view`), SHALL reject a caller holding none, and SHALL pass the caller's permitted signal set to SRQL as a trusted request parameter that is separate from the query string. Every caller of the gate SHALL pass that set. Other entities SHALL keep single-permission gating.
+Access to `in:otel_services` SHALL be enforced in two places. The shared `EntityAccess` gate used by the LiveView, HTTP and MCP query paths SHALL map this entity to an any-of permission set (`observability.logs.view`, `observability.traces.view`, `observability.metrics.view`), SHALL reject a caller holding none, and SHALL pass the caller's permitted signal set to SRQL as a trusted parameter that is separate from the query string and is not part of the wire-deserialized request. Every caller of the gate, and every translate call site including re-translation, SHALL pass that set. The standalone SRQL server has no trusted-caller path and SHALL reject `otel_services` queries. Other entities SHALL keep single-permission gating.
 
 The SRQL planner for `otel_services` SHALL be the single parser of `signal:`. It SHALL intersect the parsed `signal:` values with the permitted set, and with no `signal:` it SHALL use the permitted set. It SHALL reject a `signal:` naming a signal outside the set, an empty intersection, a repeated `signal:` token, a negated `signal:`, and a missing permitted set, so it fails closed.
 
@@ -65,6 +65,15 @@ The `otel_services` mapping MUST be enforced before the SRQL entity is reachable
 #### Scenario: Missing permitted set fails closed
 - **WHEN** SRQL receives `in:otel_services` with no permitted signal set
 - **THEN** the query SHALL be rejected and no catalog rows SHALL be returned
+
+#### Scenario: Client cannot supply the permitted set
+- **WHEN** a client sends a request body to the standalone SRQL server containing `in:otel_services` and a permitted-signals field
+- **THEN** the field SHALL be ignored and the query SHALL be rejected
+
+#### Scenario: Re-translation keeps the permitted set
+- **GIVEN** a caller with only `observability.logs.view`
+- **WHEN** a query is re-translated after a rollup freshness settle
+- **THEN** the re-translated query SHALL still be restricted to the permitted signals
 
 #### Scenario: Caller with no observability permission
 - **GIVEN** a caller with none of the three observability view permissions

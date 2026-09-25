@@ -53,6 +53,10 @@ The picker SHALL list only services that have reported the current pane's signal
 - **WHEN** the user types a service name that matches no catalog entry
 - **THEN** the picker SHALL offer to filter by the typed value anyway
 
+#### Scenario: Percent sign in free text is literal
+- **WHEN** the user applies the free-text fallback with the value `pay%`
+- **THEN** the filter SHALL be an exact, escaped name and SHALL NOT match as a wildcard
+
 ### Requirement: Service filter merges into the pane query
 Applying a service selection SHALL replace only the pane's service filter in its SRQL query, keeping every other filter, the time range and the sort. It SHALL also reset pagination and be reflected in the URL.
 
@@ -73,6 +77,12 @@ Clearing the selection SHALL remove the service filter. The active service filte
 - **GIVEN** the logs pane is filtered to `service_name:"checkout"`
 - **WHEN** the user opens the traces pane
 - **THEN** the traces query SHALL include the `checkout` service filter
+
+#### Scenario: Wildcard filter is not carried to traces
+- **GIVEN** the logs pane is filtered to `service_name:%pay%`
+- **WHEN** the user opens the traces pane
+- **THEN** the traces query SHALL NOT include the wildcard service filter
+- **AND** an inline notice SHALL tell the user the service filter was not carried
 
 #### Scenario: Clicking a row's service
 - **WHEN** the user clicks the service name `checkout` on a trace row
