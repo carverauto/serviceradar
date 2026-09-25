@@ -107,7 +107,7 @@ HEX_PACKAGES = [
     ("heap", "heap", "2.0.2", "ba9ea2fe99eb4bcbd9a8a28eaf71cbcac449ca1d8e71731596aace9028c9d429"),
     ("horde", "horde", "0.10.0", "0b51c435cb698cac9bf9c17391dce3ebb1376ae6154c81f077fc61db771b9432"),
     ("hpack", "hpack_erl", "0.3.0", "d6137d7079169d8c485c6962dfe261af5b9ef60fbc557344511c1e65e3d95fb0"),
-    ("hpax", "hpax", "1.0.4", "afc7cb142ebcc2d01ce7816190b98ce5dd49e799111b24249f3443d730f377ca"),
+    ("hpax", "hpax", "1.1.0", "0b8d0f05832f55571d65ac720f79bf8994138ffbb133209dc4685eae0ad456a8"),
     ("idna", "idna", "7.1.0", "6ae959a025bf36df61a8cab8508d9654891b5426a84c44d82deaffd6ddf8c71f"),
     ("igniter", "igniter", "0.8.3", "afc5e3848d885e680da5c3b65e5e7717555a08cd12305190ff2be76427af39ff"),
     ("image", "image", "0.54.4", "4d66ee976c30ec181a54b99791354a4ae990521d64811cb2daed39c4cd95860b"),

@@ -461,6 +461,63 @@ defmodule ServiceRadar.EventWriter.Config do
   end
 
   @doc """
+  Ad-hoc scan results (`scans.results.>`), persisted by the AdhocScan processor.
+
+  Interactive and low-volume, so a small, short-lived stream: 256 MiB / 1h,
+  discard old.
+
+  Shared by `default_streams/0` and both runtime.exs stream lists. A stream the
+  release list leaves out has no consumer and, because nothing else creates
+  it, no stream either: every publish to its subject is refused.
+  """
+  @spec scan_results_stream() :: stream_config()
+  def scan_results_stream do
+    %{
+      name: "SCAN_RESULTS",
+      stream_name: "scan_results",
+      subject: "scans.results.>",
+      processor: ServiceRadar.EventWriter.Processors.AdhocScan,
+      batch_size: 200,
+      batch_timeout: 500,
+      stream_retention: "limits",
+      stream_storage: "file",
+      stream_discard: "old",
+      stream_max_bytes: 268_435_456,
+      stream_max_age: 3_600_000_000_000
+    }
+  end
+
+  @doc """
+  MTR trace results (`mtr.results.>`), persisted by the Mtr processor.
+
+  The only path MTR traces take to storage, so the stream is the buffer while
+  EventWriter or the database is unavailable: 1 GiB / 24h, discard old. Each
+  message carries a Nats-Msg-Id (its trace id); the duplicate window stores a
+  retried publish once.
+
+  Shared by `default_streams/0` and both runtime.exs stream lists, for the same
+  reason as `scan_results_stream/0`.
+  """
+  @spec mtr_results_stream() :: stream_config()
+  def mtr_results_stream do
+    %{
+      name: "MTR_RESULTS",
+      stream_name: "mtr_results",
+      subject: "mtr.results.>",
+      processor: ServiceRadar.EventWriter.Processors.Mtr,
+      batch_size: 100,
+      batch_timeout: 500,
+      stream_retention: "limits",
+      stream_storage: "file",
+      stream_discard: "old",
+      stream_max_bytes: 1_073_741_824,
+      stream_max_age: 86_400_000_000_000,
+      stream_duplicate_window: 120_000_000_000,
+      consumer_max_deliver: 5
+    }
+  end
+
+  @doc """
   Returns the default stream configurations.
 
   Subjects are unprefixed in single-deployment deployments.
@@ -573,40 +630,8 @@ defmodule ServiceRadar.EventWriter.Config do
         consumer_pull_batch_size: 64,
         consumer_max_deliver: 5
       },
-      %{
-        name: "SCAN_RESULTS",
-        stream_name: "scan_results",
-        subject: "scans.results.>",
-        processor: ServiceRadar.EventWriter.Processors.AdhocScan,
-        batch_size: 200,
-        batch_timeout: 500,
-        # Ad-hoc scan results are interactive and low-volume; keep a small,
-        # short-lived stream (results are also persisted durably in CNPG).
-        stream_retention: "limits",
-        stream_storage: "file",
-        stream_discard: "old",
-        stream_max_bytes: 268_435_456,
-        stream_max_age: 3_600_000_000_000
-      },
-      %{
-        name: "MTR_RESULTS",
-        stream_name: "mtr_results",
-        subject: "mtr.results.>",
-        processor: ServiceRadar.EventWriter.Processors.Mtr,
-        batch_size: 100,
-        batch_timeout: 500,
-        # The only path MTR traces take to storage, so the stream is the buffer
-        # while EventWriter or the database is unavailable. Each message carries
-        # a Nats-Msg-Id (its trace id); the duplicate window stores a retried
-        # publish once.
-        stream_retention: "limits",
-        stream_storage: "file",
-        stream_discard: "old",
-        stream_max_bytes: 1_073_741_824,
-        stream_max_age: 86_400_000_000_000,
-        stream_duplicate_window: 120_000_000_000,
-        consumer_max_deliver: 5
-      },
+      scan_results_stream(),
+      mtr_results_stream(),
       %{
         name: "BMP_CAUSAL",
         stream_name: "events",
