@@ -40,7 +40,7 @@ when its switch is on.
 | `*_goal*` | none | pass | The goal requirements hold for the intended design. |
 | `*_witness_<switch>` | one (or a named pair) | `violation:<Property>` | The defect is still present in the model. |
 | `lifecycle_current` | all lifecycle switches | pass | The lifecycle invariants that hold even for today's code. |
-| `resolution_vacuity_*` | none | `violation:<Never...>` | The goal still merges, converges and records decisions. A goal model that never merges, or never decides, would pass vacuously. |
+| `resolution_vacuity_*`, `lifecycle_vacuity_*` | none | `violation:<Never...>` | The goal still merges, converges, records decisions and expires. A goal model that never merges, never decides, or never expires, would pass vacuously. |
 
 `resolution_vacuity_shared_mac_override` checks `NeverDecides` in the `armis_shared_mac`
 environment: the goal overrides the source-authoritative id's rival record and records that
