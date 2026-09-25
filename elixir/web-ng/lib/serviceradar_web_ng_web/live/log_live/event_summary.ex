@@ -14,8 +14,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.EventSummary do
   alias ServiceRadarWebNGWeb.NetflowLive.Visualize.TimeWindow
 
   @default_time "last_7d"
-  @open_start_days 90
-  @max_span_seconds 5 * 365 * 86_400
+  # A plain events list query is capped at 90 days by SRQL
+  # (rust/srql/src/query/cagg.rs `max_time_range_days_for_ast`, enforced by
+  # rust/srql/src/time.rs `resolve_with_max_days`). Keep in step.
+  @max_span_days 90
+  @max_span_seconds @max_span_days * 86_400
 
   @spec default_time() :: String.t()
   def default_time, do: @default_time
@@ -107,7 +110,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.EventSummary do
 
       {"", end_raw} ->
         with {:ok, end_at} <- parse_datetime(end_raw) do
-          {:ok, DateTime.add(end_at, -@open_start_days * 86_400, :second), end_at}
+          {:ok, DateTime.add(end_at, -@max_span_seconds, :second), end_at}
         end
 
       {start_raw, ""} ->

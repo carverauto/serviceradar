@@ -43,10 +43,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.EventSummaryTest do
             {"last_15m", 900},
             {"last_2hours", 7200},
             {"last-3-days", 3 * 86_400},
-            {"last_2y", 2 * 365 * 86_400},
+            {"last_90d", 90 * 86_400},
             {"30min", 1800},
             {"last_0d", 0},
-            {"Last_2Y", 2 * 365 * 86_400}
+            {"Last_1Min", 60}
           ] do
         assert {^token, start_at, end_at} = bounds("in:events time:#{token}")
         assert end_at == @now
@@ -86,7 +86,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.EventSummaryTest do
     end
 
     test "tokens SRQL rejects count the last seven days" do
-      rejected = ["last_5x", "soon", "[,]", "[garbage,2032-03-05T00:00:00Z]", "last_99999999d", "[2032-03-11T00:00:00Z,]"]
+      rejected = [
+        "last_5x",
+        "soon",
+        "[,]",
+        "[garbage,2032-03-05T00:00:00Z]",
+        "last_99999999d",
+        "[2032-03-11T00:00:00Z,]",
+        "last_1y",
+        "last_365d",
+        "last_91d",
+        "[2031-12-01T00:00:00Z,2032-03-10T00:00:00Z]"
+      ]
 
       for token <- rejected do
         assert {"last_7d", start_at, end_at} = bounds("in:events time:#{token}")
