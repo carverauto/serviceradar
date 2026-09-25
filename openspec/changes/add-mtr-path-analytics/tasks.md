@@ -213,6 +213,22 @@ already exist there rather than being added under cutover pressure.
   constrains only the dangerous direction: the interactive path must never permit
   what the data layer would refuse.
 
-- [ ] 10.1 Decide whether a DB-backed web-ng test target is worth adding, which
-      would let the end-to-end authorization and definition-idempotency tests run.
-      Out of scope here; it affects every web-ng DB test, not just this change.
+- [x] 10.1 ~~Decide whether a DB-backed web-ng test target is worth adding.~~
+      Resolved by `add-declarative-dashboards-and-mtr-device-scope`: that change
+      added `//elixir/web-ng:networks_live_db_test`, which runs against the shared
+      SRQL fixture in CI and already carries `group_access_db_test.exs`,
+      `authored_dashboard_live_test.exs`, and the five `SystemReports.seed_all/1`
+      idempotency tests from PR #4652. The end-to-end authorization and
+      definition-idempotency tests described above now have a home that executes.
+
+- **The panel set shipped by this change is superseded.** The dashboard defined
+  here (`mtr-path-analytics`) aggregated `loss_ratio` across all hop positions
+  without a per-hop qualification. That makes ICMP-rate-limiting at a transit
+  router read as packet loss, which is the specific failure the
+  `add-declarative-dashboards-and-mtr-device-scope` change was opened to correct.
+  Additionally, none of the panels here could be scoped to a specific target device.
+  The replacement dashboard definition in `priv/dashboards/mtr-path-analytics.json`
+  (merged in PR #4640) corrects both issues. The slug is the same; once the new
+  definition is seeded, an existing `mtr-path-analytics` dashboard is not overwritten
+  unless its panels are absent (the create-when-absent rule), so operators who have
+  already customised it are unaffected.

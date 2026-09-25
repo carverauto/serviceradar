@@ -170,7 +170,7 @@ the third consumer, so it moves once rather than being copied a third time.
 - [x] 8.1 Definition validation: version, missing layout, overlapping panels,
       unaccepted visual type, binding naming an unselected field. Each with a
       negative case confirmed red before green.
-- [ ] 8.2 Import creates when absent; does not revert an edited query, title or
+- [x] 8.2 Import creates when absent; does not revert an edited query, title or
       description; does not remove an operator-added panel; completes a dashboard
       with no panels; leaves other dashboards untouched. In
       `//elixir/web-ng:networks_live_db_test` against the shared SRQL fixture, as
@@ -201,14 +201,14 @@ the third consumer, so it moves once rather than being copied a third time.
 
 ## 10. Corrections carried by this change
 
-- [ ] 10.1 Withdraw task 10.1 of `add-mtr-path-analytics`. It records that web-ng
+- [x] 10.1 Withdraw task 10.1 of `add-mtr-path-analytics`. It records that web-ng
       has no DB-backed Bazel target and defers work on that basis. The claim is
       **false**: `//elixir/web-ng:networks_live_db_test` runs against the shared
       SRQL fixture in CI (`buildbuddy.yaml`) and already contains
       `group_access_db_test.exs` and `authored_dashboard_live_test.exs`. The
       BUILD.bazel comment cited said only that `test/integration/**` and
       `test/property/**` have no home, which was over-generalized.
-- [ ] 10.2 Update `add-mtr-path-analytics` to record that its panel set is
+- [x] 10.2 Update `add-mtr-path-analytics` to record that its panel set is
       superseded here, and why: aggregating loss across all hop positions presents
       ICMP deprioritization as fault, and none of its panels could be scoped to a
       device.
