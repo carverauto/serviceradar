@@ -2,15 +2,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ICMPData do
   @moduledoc """
   ICMP latency buckets from dedicated checks, sweeps, and legacy metric rows.
 
-  One source is selected per device and requested window: dedicated latency first,
-  then sweep latency, then legacy ICMP metrics. Missing devices alone fall back,
-  so overlapping producers never duplicate or average each other's observations.
+  One source is selected per device and time bucket: dedicated latency first,
+  then sweep latency, then legacy ICMP metrics. A sparse preferred source must
+  not hide the rest of a device's history. Overlapping producers never duplicate
+  or average each other's observations.
   """
 
   @sources [
     {"metric_type:icmp metric_name:icmp_response_time_ns", :nanoseconds},
     {"metric_type:sweep metric_name:sweep.host.icmp_response_time_ns", :nanoseconds},
-    {~s(metric_type:icmp !metric_name:["icmp_response_time_ns","icmp_packet_loss","icmp_available"]), :legacy}
+    {~s(metric_type:icmp !metric_name:["icmp_response_time_ns","icmp_packet_loss","icmp_available"]),
+     :legacy}
   ]
 
   @availability_sources [
@@ -19,7 +21,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ICMPData do
   ]
 
   def load(srql_module, device_uids, scope, opts) when is_list(device_uids) do
-    load_sources(@sources, srql_module, device_uids, scope, opts)
+    load_sources(@sources, srql_module, device_uids, scope, opts, :latency)
   end
 
   def load_availability(srql_module, device_uids, scope, opts) when is_list(device_uids) do
@@ -27,33 +29,38 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ICMPData do
     # across observers, matching the device's fallback availability policy.
     aggregate = if is_binary(Keyword.get(opts, :agent_id)), do: :min, else: :max
     opts = Keyword.put(opts, :aggregate, aggregate)
-    load_sources(@availability_sources, srql_module, device_uids, scope, opts, {:bucket, aggregate})
+
+    load_sources(
+      @availability_sources,
+      srql_module,
+      device_uids,
+      scope,
+      opts,
+      {:bucket, aggregate}
+    )
   end
 
-  defp load_sources(sources, srql_module, device_uids, scope, opts, selection \\ :device) do
+  defp load_sources(_sources, _srql_module, [], _scope, _opts, _selection), do: {:ok, []}
+
+  defp load_sources(sources, srql_module, device_uids, scope, opts, selection) do
     sources
-    |> Enum.reduce_while({:ok, [], device_uids}, fn
-      _source, {:ok, batches, []} ->
-        {:halt, {:ok, batches, []}}
+    |> Enum.reduce_while({:ok, []}, fn {filter, unit}, {:ok, batches} ->
+      query = query(device_uids, filter, opts)
 
-      {filter, unit}, {:ok, batches, missing} ->
-        query = query(missing, filter, opts)
+      case srql_module.query(query, %{scope: scope}) do
+        {:ok, %{"results" => rows}} when is_list(rows) ->
+          rows = normalize_rows(rows, device_uids, unit, Keyword.fetch!(opts, :aggregate))
+          {:cont, {:ok, [rows | batches]}}
 
-        case srql_module.query(query, %{scope: scope}) do
-          {:ok, %{"results" => rows}} when is_list(rows) ->
-            rows = normalize_rows(rows, missing, unit, Keyword.fetch!(opts, :aggregate))
-            missing = remaining_devices(rows, missing, selection)
-            {:cont, {:ok, [rows | batches], missing}}
+        {:error, _} = error ->
+          {:halt, error}
 
-          {:error, _} = error ->
-            {:halt, error}
-
-          _ ->
-            {:halt, {:error, :invalid_icmp_metrics_response}}
-        end
+        _ ->
+          {:halt, {:error, :invalid_icmp_metrics_response}}
+      end
     end)
     |> case do
-      {:ok, batches, _missing} ->
+      {:ok, batches} ->
         {:ok, select_rows(Enum.reverse(batches), selection)}
 
       error ->
@@ -61,14 +68,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ICMPData do
     end
   end
 
-  defp remaining_devices(_rows, device_uids, {:bucket, _aggregate}), do: device_uids
-
-  defp remaining_devices(rows, device_uids, :device) do
-    found = MapSet.new(rows, & &1["series"])
-    Enum.reject(device_uids, &MapSet.member?(found, &1))
+  defp select_rows(batches, :latency) do
+    batches
+    |> List.flatten()
+    |> Enum.uniq_by(&bucket_key/1)
   end
-
-  defp select_rows(batches, :device), do: List.flatten(batches)
 
   defp select_rows(batches, {:bucket, aggregate}) do
     # Preferred observations, including failures, win only their own bucket.

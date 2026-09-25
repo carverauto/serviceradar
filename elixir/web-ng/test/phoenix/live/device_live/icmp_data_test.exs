@@ -10,20 +10,45 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ICMPDataTest do
   @host_alpha "sr:host-alpha"
   @host_bravo "sr:host-bravo"
 
+  test "a sparse dedicated source does not hide sweep and legacy latency history" do
+    respond_with([
+      rows([point(@host_alpha, 250_000)]),
+      rows([
+        point(@host_alpha, 900_000),
+        Map.put(point(@host_alpha, 500_000), "timestamp", "1999-06-15T00:05:00Z")
+      ]),
+      rows([
+        Map.put(point(@host_alpha, 9.0), "timestamp", "1999-06-15T00:05:00Z"),
+        Map.put(point(@host_alpha, 0.75), "timestamp", "1999-06-15T00:10:00Z")
+      ])
+    ])
+
+    assert {:ok, result} = load([@host_alpha])
+
+    assert Enum.map(result, &{&1["timestamp"], &1["value"]}) == [
+             {"1999-06-15T00:00:00Z", 0.25},
+             {"1999-06-15T00:05:00Z", 0.5},
+             {"1999-06-15T00:10:00Z", 0.75}
+           ]
+  end
+
   test "dedicated latency is preferred and canonical sub-millisecond values become milliseconds" do
-    respond_with([rows([point(@host_alpha, 250_000)])])
+    respond_with([rows([point(@host_alpha, 250_000)]), rows([]), rows([])])
 
     assert {:ok, [%{"value" => 0.25}]} = load([@host_alpha])
     assert_receive {:icmp_query, query, %{scope: @scope}}
     assert query =~ "metric_type:icmp metric_name:icmp_response_time_ns"
     assert query =~ "time:last_1h bucket:5m agg:avg series:uid"
+    assert_receive {:icmp_query, _sweep, %{scope: @scope}}
+    assert_receive {:icmp_query, _legacy, %{scope: @scope}}
     refute_receive {:icmp_query, _, _}
   end
 
-  test "sweep latency fills only devices with no dedicated latency samples" do
+  test "sweep latency includes devices with no dedicated latency samples" do
     respond_with([
       rows([point(@host_alpha, 500_000)]),
-      rows([point(@host_bravo, 750_000)])
+      rows([point(@host_bravo, 750_000)]),
+      rows([])
     ])
 
     assert {:ok, result} = load([@host_alpha, @host_bravo])
@@ -36,8 +61,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ICMPDataTest do
     assert_receive {:icmp_query, _dedicated, _}
     assert_receive {:icmp_query, sweep, _}
     assert sweep =~ "metric_type:sweep metric_name:sweep.host.icmp_response_time_ns"
-    assert sweep =~ ~s[uid:("#{@host_bravo}")]
-    refute sweep =~ @host_alpha
+    assert sweep =~ ~s[uid:("#{@host_alpha}","#{@host_bravo}")]
+    assert_receive {:icmp_query, _legacy, _}
     refute_receive {:icmp_query, _, _}
   end
 
@@ -45,7 +70,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ICMPDataTest do
     respond_with([
       rows([]),
       rows([]),
-      rows([point(@host_alpha, 1.25), point(@host_alpha, 2_000_000)])
+      rows([
+        point(@host_alpha, 1.25),
+        Map.put(point(@host_alpha, 2_000_000), "timestamp", "1999-06-15T00:05:00Z")
+      ])
     ])
 
     assert {:ok, result} = load([@host_alpha])
@@ -58,10 +86,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ICMPDataTest do
              ~s(!metric_name:["icmp_response_time_ns","icmp_packet_loss","icmp_available"])
   end
 
-  test "one source per device prevents duplicates when later responses contain earlier devices" do
+  test "one source per device bucket prevents duplicates from overlapping producers" do
     respond_with([
       rows([point(@host_alpha, 500_000)]),
-      rows([point(@host_alpha, 900_000), point(@host_bravo, 750_000)])
+      rows([point(@host_alpha, 900_000), point(@host_bravo, 750_000)]),
+      rows([])
     ])
 
     assert {:ok, result} = load([@host_alpha, @host_bravo])
@@ -76,7 +105,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ICMPDataTest do
     respond_with([rows([]), rows([point(@host_alpha, 1)])])
 
     assert %{total_checks: 1, online_checks: 1, uptime_pct: 100.0} =
-             AvailabilityData.load_availability(__MODULE__, @host_alpha, @scope, now: ~U[1999-06-16 00:00:00Z])
+             AvailabilityData.load_availability(__MODULE__, @host_alpha, @scope,
+               now: ~U[1999-06-16 00:00:00Z]
+             )
 
     assert_receive {:icmp_query, dedicated, _}
     assert_receive {:icmp_query, sweep, _}
