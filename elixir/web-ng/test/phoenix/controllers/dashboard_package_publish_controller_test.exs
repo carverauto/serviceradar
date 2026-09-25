@@ -26,8 +26,9 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishControllerTest do
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.Dashboards.Packages
   alias ServiceRadarWebNG.Plugins.Storage
+  alias ServiceRadarWebNG.PluginStorageTestClient
 
-  @moduletag :integration
+  @moduletag :web_ng_shared_fixture_db
 
   @renderer "export default {mount(){},destroy(){}}"
   @route "test-dashboard-#{System.unique_integer([:positive])}"
@@ -38,21 +39,22 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishControllerTest do
     # picks these up via the RoleProfileSeeder; tests bypass that for speed.
     ensure_admin_has_dashboard_publish_permissions!()
 
-    # Override blob storage to a tmp dir so the renderer write doesn't fail
-    # against the production default `/var/lib/serviceradar/plugin-packages`.
     original_storage = Application.get_env(:serviceradar_web_ng, :plugin_storage)
-    tmp = Path.join(System.tmp_dir!(), "sr-pub-test-#{System.unique_integer([:positive])}")
+    # Package blobs always go to the JetStream object store, and the DB lane has
+    # no NATS, so blob writes go to the in-memory test client instead.
+    store_name = :"sr_dashboard_publish_test_#{System.unique_integer([:positive])}"
+    {:ok, _store} = PluginStorageTestClient.start_link(store_name)
 
     Application.put_env(:serviceradar_web_ng, :plugin_storage,
-      backend: :filesystem,
-      base_path: tmp,
+      backend: :jetstream,
+      jetstream_client: PluginStorageTestClient,
+      test_store: store_name,
       signing_secret: "test-secret"
     )
 
     on_exit(fn ->
       RateLimiter.clear(:dashboard_publish, "*")
       RateLimiter.clear(:dashboard_publish_admin, "*")
-      File.rm_rf(tmp)
 
       if original_storage do
         Application.put_env(:serviceradar_web_ng, :plugin_storage, original_storage)
@@ -248,7 +250,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackagePublishControllerTest do
       Application.put_env(
         :serviceradar_web_ng,
         :plugin_storage,
-        Keyword.merge(previous || [], backend: :filesystem, max_upload_bytes: cap_bytes)
+        Keyword.put(previous || [], :max_upload_bytes, cap_bytes)
       )
 
       try do

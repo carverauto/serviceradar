@@ -7,6 +7,9 @@ defmodule ServiceRadarWebNG.Dashboards.PackagesTest do
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNG.Dashboards.PackagesTest
   alias ServiceRadarWebNG.Plugins.Storage
+  alias ServiceRadarWebNG.PluginStorageTestClient
+
+  @moduletag :web_ng_shared_fixture_db
 
   @repo_url "https://github.com/acme/dashboard-demo"
   @renderer "export function mountDashboard(element, host) { element.dataset.dashboard = host.package.name; }"
@@ -83,11 +86,15 @@ defmodule ServiceRadarWebNG.Dashboards.PackagesTest do
     original_client = Application.get_env(:serviceradar_web_ng, :github_http_client)
     original_policy = Application.get_env(:serviceradar_web_ng, :plugin_verification)
     original_token = Application.get_env(:serviceradar_web_ng, :github_token)
-    tmp = Path.join(System.tmp_dir!(), "sr-dashboard-storage-#{System.unique_integer([:positive])}")
+    # Package blobs always go to the JetStream object store, and the DB lane has
+    # no NATS, so blob writes go to the in-memory test client instead.
+    store_name = :"sr_dashboard_packages_test_#{System.unique_integer([:positive])}"
+    {:ok, _store} = PluginStorageTestClient.start_link(store_name)
 
     Application.put_env(:serviceradar_web_ng, :plugin_storage,
-      backend: :filesystem,
-      base_path: tmp,
+      backend: :jetstream,
+      jetstream_client: PluginStorageTestClient,
+      test_store: store_name,
       signing_secret: "test-secret"
     )
 
@@ -99,7 +106,6 @@ defmodule ServiceRadarWebNG.Dashboards.PackagesTest do
     )
 
     on_exit(fn ->
-      File.rm_rf(tmp)
       restore_env(:plugin_storage, original_storage)
       restore_env(:github_http_client, original_client)
       restore_env(:plugin_verification, original_policy)
@@ -130,8 +136,7 @@ defmodule ServiceRadarWebNG.Dashboards.PackagesTest do
     assert package.content_hash == Storage.sha256(@renderer)
     assert package.wasm_object_key == Storage.object_key_for(package)
     assert Storage.blob_exists?(package.wasm_object_key)
-    assert {:ok, {:file, path}} = Storage.fetch_blob(package.wasm_object_key)
-    assert File.read!(path) == @renderer
+    assert {:ok, {:binary, @renderer}} = Storage.fetch_blob(package.wasm_object_key)
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)

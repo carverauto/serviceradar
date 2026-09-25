@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 TARGET = "//elixir/web-ng:networks_live_db_test"
 SHARED_FIXTURE_SOURCES = {
     "test/app_domain/dashboards/group_access_db_test.exs",
+    "test/app_domain/dashboards/packages_test.exs",
     "test/app_domain/dashboards/report_jobs_test.exs",
     "test/app_domain/dashboards/system_reports_db_test.exs",
     "test/phoenix/auth/sso_provisioning_test.exs",
@@ -17,7 +18,11 @@ SHARED_FIXTURE_SOURCES = {
     "test/phoenix/controllers/api/api_rate_limit_test.exs",
     "test/phoenix/controllers/api/configuration_authentication_db_test.exs",
     "test/phoenix/controllers/api/configuration_lifecycle_db_test.exs",
+    "test/phoenix/controllers/api/plugin_package_controller_test.exs",
+    "test/phoenix/controllers/dashboard_package_asset_controller_test.exs",
+    "test/phoenix/controllers/dashboard_package_publish_controller_test.exs",
     "test/phoenix/controllers/dashboard_package_read_controller_test.exs",
+    "test/phoenix/live/admin/dashboard_package_live_test.exs",
     "test/phoenix/live/alert_live/show_test.exs",
     "test/phoenix/live/authored_dashboard_live_test.exs",
     "test/phoenix/live/camera_analysis_worker_live_test.exs",
