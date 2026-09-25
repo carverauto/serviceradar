@@ -21,6 +21,7 @@ defmodule ServiceRadar.Inventory.Identity.FenceEnforcementTest do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceCleanupWorker
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Identity.Registrar
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.Repo
@@ -226,6 +227,65 @@ defmodule ServiceRadar.Inventory.Identity.FenceEnforcementTest do
              AgentRecord.get_by_uid(agent_id, actor: actor)
 
     assert owner(agent_id, actor) == device_uid
+  end
+
+  test "an agent check-in whose identifiers match two devices commits its writes, then merges",
+       ctx do
+    %{actor: actor} = ctx
+    agent_id = "fence-agent-conflict-#{System.unique_integer([:positive])}"
+    mac = doc_mac()
+    attrs = agent_attrs(agent_id, unique_ip())
+
+    assert {:ok, agent_uid} = AgentGatewaySync.ensure_device_for_agent(agent_id, attrs)
+    on_exit(fn -> cleanup!(agent_uid) end)
+
+    # A second device already owns the MAC the agent host will report.
+    mac_owner = "fence-mac-owner-#{System.unique_integer([:positive])}"
+    assert :ok = ingest(actor, [update(mac_owner, unique_ip(), "mac-owner", mac)])
+    other_uid = owner(mac, actor)
+    Agent.update(ctx.uids, &[other_uid | &1])
+    on_exit(fn -> cleanup!(other_uid) end)
+    assert other_uid != agent_uid
+
+    assert {:ok, landed} =
+             AgentGatewaySync.ensure_device_for_agent(agent_id, %{attrs | host_macs: [mac]})
+
+    assert landed in [agent_uid, other_uid]
+    loser = if landed == agent_uid, do: other_uid, else: agent_uid
+
+    assert %Device{deleted_reason: "merged"} = device!(loser, actor)
+    assert %Device{deleted_at: nil} = device!(landed, actor)
+    assert owner(agent_id, actor) == landed
+    assert owner(mac, actor) == landed
+  end
+
+  test "identifier-conflict merges are returned deferred and run only on request", ctx do
+    %{actor: actor} = ctx
+    first = seed!(ctx, "fence-conflict-first")
+    second = seed!(ctx, "fence-conflict-second")
+    n = System.unique_integer([:positive])
+    armis_id = "fence-armis-#{n}"
+    netbox_id = "fence-netbox-#{n}"
+
+    assert :ok = Registrar.register_identifiers(first.uid, %{armis_id: armis_id}, actor: actor)
+    assert :ok = Registrar.register_identifiers(second.uid, %{netbox_id: netbox_id}, actor: actor)
+
+    assert {:ok, [{:conflicts, canonical, device_ids, _matches}] = deferred} =
+             Registrar.register_identifiers_deferring_merge(
+               first.uid,
+               %{armis_id: armis_id, netbox_id: netbox_id},
+               actor: actor
+             )
+
+    assert Enum.sort(device_ids) == Enum.sort([first.uid, second.uid])
+    loser = Enum.find(device_ids, &(&1 != canonical))
+    assert %Device{deleted_at: nil} = device!(loser, actor)
+
+    assert :ok = Registrar.run_deferred_merge(deferred, actor)
+
+    assert %Device{deleted_reason: "merged"} = device!(loser, actor)
+    assert owner(armis_id, actor) == canonical
+    assert owner(netbox_id, actor) == canonical
   end
 
   # ---------------------------------------------------------------------------------------
