@@ -3,7 +3,9 @@ defmodule ServiceRadar.Inventory.DeviceCleanupSettings do
   Instance-level settings for device cleanup retention.
 
   This resource stores the retention window and schedule used by the
-  device cleanup worker to purge tombstoned devices.
+  device cleanup worker to purge tombstoned devices, and the window after
+  which ephemeral devices (no strong identifier) are expired
+  (`ServiceRadar.Inventory.EphemeralDeviceExpiry`).
   """
 
   use Ash.Resource,
@@ -12,7 +14,19 @@ defmodule ServiceRadar.Inventory.DeviceCleanupSettings do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshJsonApi.Resource]
 
-  @settings_fields [:retention_days, :cleanup_interval_minutes, :batch_size, :enabled]
+  alias ServiceRadar.Inventory.Validations.EphemeralExpiryExclusionQuery
+
+  @settings_fields [
+    :retention_days,
+    :cleanup_interval_minutes,
+    :batch_size,
+    :enabled,
+    :ephemeral_expiry_enabled,
+    :ephemeral_expiry_days,
+    :ephemeral_expiry_exclusion_query,
+    :ephemeral_expiry_max_fraction,
+    :ephemeral_expiry_guard_override
+  ]
 
   postgres do
     table "device_cleanup_settings"
@@ -52,11 +66,13 @@ defmodule ServiceRadar.Inventory.DeviceCleanupSettings do
       description "Create device cleanup settings"
       accept @settings_fields
       change set_attribute(:key, "default")
+      validate EphemeralExpiryExclusionQuery
     end
 
     update :update do
       description "Update device cleanup settings"
       accept @settings_fields
+      validate EphemeralExpiryExclusionQuery
     end
 
     action :run_cleanup do
@@ -118,6 +134,48 @@ defmodule ServiceRadar.Inventory.DeviceCleanupSettings do
       default true
       public? true
       description "Whether device cleanup scheduling is enabled"
+    end
+
+    attribute :ephemeral_expiry_enabled, :boolean do
+      allow_nil? false
+      default false
+      public? true
+
+      description "Whether devices with no strong identifier are soft-deleted once unseen " <>
+                    "for ephemeral_expiry_days (off by default)"
+    end
+
+    attribute :ephemeral_expiry_days, :integer do
+      allow_nil? false
+      default 30
+      public? true
+      constraints min: 1, max: 3650
+      description "Days a device with no strong identifier may go unseen before it expires"
+    end
+
+    attribute :ephemeral_expiry_exclusion_query, :string do
+      allow_nil? true
+      public? true
+      description "SRQL device query whose matching devices are never expired"
+    end
+
+    attribute :ephemeral_expiry_max_fraction, :float do
+      allow_nil? false
+      default 0.5
+      public? true
+      constraints min: 0.01, max: 1.0
+
+      description "Largest fraction of live devices one expiry pass may expire; a larger " <>
+                    "pass is refused"
+    end
+
+    attribute :ephemeral_expiry_guard_override, :boolean do
+      allow_nil? false
+      default false
+      public? true
+
+      description "Let one expiry pass exceed ephemeral_expiry_max_fraction (a deliberate " <>
+                    "first cleanup); leave off in steady state"
     end
 
     timestamps()

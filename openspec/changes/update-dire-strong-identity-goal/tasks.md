@@ -58,6 +58,6 @@ configuration. Confirmed defects (`formal/dire/README.md` has code paths and wit
 
 ## 4. Related work
 
-- [ ] 4.1 #4603: expire ephemeral devices on last-seen; never expire a device holding a hardware
+- [x] 4.1 #4603: expire ephemeral devices on last-seen; never expire a device holding a hardware
       or source-authoritative identifier.
 - [ ] 4.2 #4604: de-duplication tasks for every blocked, declined or overridden identity decision.

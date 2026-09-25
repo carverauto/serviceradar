@@ -12,8 +12,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.InventoryCleanup
         <div>
           <h3 class="text-lg font-semibold text-sr-ink">Inventory Cleanup</h3>
           <p class="text-sm text-sr-muted">
-            Purge soft-deleted devices after a retention window. Deleted devices can be restored
-            if they are discovered again.
+            Expire ephemeral devices, then purge soft-deleted devices after a retention window.
+            Expired and deleted devices are restored if they are discovered again.
           </p>
         </div>
         <div class="flex items-center gap-2">
@@ -64,12 +64,50 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.InventoryCleanup
             label="Batch size"
             min="100"
           />
+          <.input
+            field={@form[:ephemeral_expiry_enabled]}
+            type="checkbox"
+            label="Expire ephemeral devices"
+          />
+          <.input
+            field={@form[:ephemeral_expiry_days]}
+            type="number"
+            label="Expire after unseen (days)"
+            min="1"
+          />
+          <.input
+            field={@form[:ephemeral_expiry_exclusion_query]}
+            type="text"
+            label="Never expire devices matching (SRQL)"
+            placeholder="in:devices hostname:%lab%"
+          />
+          <.input
+            field={@form[:ephemeral_expiry_max_fraction]}
+            type="number"
+            label="Largest share of live devices one pass may expire"
+            min="0.01"
+            max="1"
+            step="0.01"
+          />
+          <.input
+            field={@form[:ephemeral_expiry_guard_override]}
+            type="checkbox"
+            label="Allow the next passes to exceed that share"
+          />
         </div>
         <div class="flex items-end">
           <div class="space-y-3">
             <p class="text-sm text-sr-muted">
               Cleanup runs on the configured interval and deletes devices that have been
               soft-deleted longer than the retention period.
+            </p>
+            <p class="text-sm text-sr-muted">
+              An ephemeral device holds nothing stronger than a randomized MAC or an address.
+              When one has not been seen for the expiry window it is soft-deleted with the
+              reason "stale_ephemeral". Devices with an agent, a source-authoritative id, a
+              hardware serial or a globally-unique MAC, and devices created by hand, never expire.
+              Expiry is off until enabled, and a pass that would expire more than the allowed
+              share of live devices is refused unless the override is on.
             </p>
             <div class="flex gap-2">
               <.ui_button type="submit" variant="primary" size="sm">

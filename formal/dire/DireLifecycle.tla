@@ -51,7 +51,7 @@ Reasons  == {"none", "merged", "other"}
 \* srcIds), written by do_merge_devices/5 itself.
 MergeKinds == {"conflict", "auto", "manual"}
 ActNames == {"Init", "StartWork", "Commit", "CommitDropped", "Merge", "Unmerge",
-             "SoftDelete", "SweepRestore", "GatewaySync", "Purge", "Tick"}
+             "SoftDelete", "Expire", "SweepRestore", "GatewaySync", "Purge", "Tick"}
 
 VARIABLES
     status,  \* ocsf_devices row: absent (never written), live, tomb (deleted_at set), purged
@@ -225,6 +225,22 @@ SoftDelete(u) ==
     /\ act' = MkAct("SoftDelete", u, NoDev, 0, FALSE, {u})
     /\ UNCHANGED <<owner, ipOf, audit>>
 
+\* EphemeralDeviceExpiry.run/3 (DeviceCleanupWorker, #4603): a live device unseen past the
+\* expiry window that holds no strong identifier is soft-deleted (deleted_reason
+\* "stale_ephemeral", a non-merge reason). Every identifier in this model is strong (randomized
+\* MACs and addresses are evidence and are not in Ids), so only a device owning none is
+\* eligible. The check is platform.device_holds_strong_identifier/1 inside the soft delete's
+\* UPDATE ... WHERE, so selection and delete are one step. Last-seen time is not modeled: any
+\* eligible live device may expire.
+Expire(u) ==
+    /\ Live(u)
+    /\ Owned(u) = {}
+    /\ status' = [status EXCEPT ![u] = "tomb"]
+    /\ reason' = [reason EXCEPT ![u] = "other"]
+    /\ work' = MarkStale(work, {u})
+    /\ act' = MkAct("Expire", u, NoDev, 0, FALSE, {u})
+    /\ UNCHANGED <<owner, ipOf, audit>>
+
 \* SweepResultsIngestor.ingest_results/3: DeviceLookup (include_deleted: true) prefers a live
 \* holder of the address and otherwise falls back to a tombstone; restore_deleted_devices/2
 \* restores it through :restore (which bumps) when restore_eligible?/1 -- reading only
@@ -275,7 +291,7 @@ Tick ==
 
 Next ==
     \/ \E u \in Devices :
-         StartWork(u) \/ Unmerge(u) \/ SoftDelete(u) \/ GatewaySync(u) \/ Purge(u)
+         StartWork(u) \/ Unmerge(u) \/ SoftDelete(u) \/ Expire(u) \/ GatewaySync(u) \/ Purge(u)
     \/ \E w \in work, S \in SUBSET Ids, p \in Ips \cup {NoIp} : CommitWork(w, S, p)
     \/ \E f, t \in Devices, kind \in MergeKinds, S \in SUBSET Ids : Merge(f, t, kind, S)
     \/ \E p \in Ips : SweepRestore(p)
@@ -322,5 +338,10 @@ UnmergeRestoresExactly ==
              owner'[i] = IF i \in row.srcIds THEN act'.u ELSE row.to]_vars
 
 NoStaleCommit == [][act'.name = "Commit" => ~act'.stale]_vars
+
+\* Randomized MACs Are Evidence Only (update-dire-strong-identity-goal D4): expiry never removes
+\* a device holding a strong identifier (#4603).
+ExpiryKeepsStrongIdentity ==
+    [][act'.name = "Expire" => \A i \in Ids : owner[i] # act'.u]_vars
 
 =============================================================================

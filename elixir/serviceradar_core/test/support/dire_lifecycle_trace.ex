@@ -38,6 +38,7 @@ defmodule ServiceRadar.DireLifecycleTrace do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceCleanupWorker
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.EphemeralDeviceExpiry
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.Identity.MergeEngine
   alias ServiceRadar.Inventory.Identity.Resolver
@@ -176,6 +177,23 @@ defmodule ServiceRadar.DireLifecycleTrace do
     }
 
     ingest(trace, [], p, d, fn ->
+      assert :ok = SyncIngestor.ingest_updates([update], actor: trace.actor)
+    end)
+  end
+
+  @doc """
+  A sync update that reports only address `p` -- no identifier and no uid -- as a source that
+  knows nothing stronger about the device does. The resolver seeds the record from the address.
+  """
+  def address_only(trace, p) do
+    update = %{
+      "ip" => trace.real.ip[p],
+      "hostname" => "trace-address-#{p}",
+      "source" => "netbox",
+      "metadata" => %{}
+    }
+
+    ingest(trace, [], p, nil, fn ->
       assert :ok = SyncIngestor.ingest_updates([update], actor: trace.actor)
     end)
   end
@@ -474,6 +492,34 @@ defmodule ServiceRadar.DireLifecycleTrace do
       other ->
         flunk("DIRE lifecycle trace #{trace.name}: sweep at #{p} restored #{inspect(other)}")
     end
+  end
+
+  @doc """
+  `DeviceCleanupWorker`'s ephemeral-expiry pass (`EphemeralDeviceExpiry.run/3`), scoped to `d`
+  and run with a reference time past the window, so `d` counts as unseen. The model's `Expire`;
+  the pass must expire `d`.
+  """
+  def expire(trace, d) do
+    uid = uid_of!(trace, d)
+    before = raw(trace)
+    later = DateTime.add(DateTime.utc_now(), 2 * 86_400, :second)
+    # The pass is scoped to one device, so the mass-expiry guard's fraction is 1 of 1.
+    settings = %{
+      ephemeral_expiry_enabled: true,
+      ephemeral_expiry_days: 1,
+      ephemeral_expiry_max_fraction: 1.0,
+      batch_size: 10
+    }
+
+    {trace, before, after_} =
+      run(trace, before, fn ->
+        assert {:ok, %{expired: 1}} =
+                 EphemeralDeviceExpiry.run(settings, trace.actor, uids: [uid], now: later)
+      end)
+
+    if live?(after_, uid), do: flunk("DIRE lifecycle trace #{trace.name}: #{d} did not expire")
+
+    log(trace, after_, [], act("Expire", d, "NoDev", 0, bumped(trace, before, after_)))
   end
 
   @doc "`DeviceCleanupWorker` hard-deletes the tombstoned `d` (its retention cutoff passed)."

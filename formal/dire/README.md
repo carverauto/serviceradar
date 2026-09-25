@@ -22,8 +22,12 @@ Run them all with `bazel test --config=remote //formal/dire/...`; `make test` ru
   Each observation is resolved following `Resolver.do_resolve_device_id/2`, the sync ingestor
   and `Sync.Aliases`. A ghost variable, `phys`, tracks which physical devices built each
   record, so "one record describes two devices" is a checkable invariant.
-- `DireLifecycle.tla` models the merge lifecycle: merge, unmerge, soft delete, the revival
-  paths, purge, and the identity fence.
+- `DireLifecycle.tla` models the merge lifecycle: merge, unmerge, soft delete, ephemeral
+  expiry, the revival paths, purge, and the identity fence. Its identifiers are the strong
+  ones; randomized MACs and addresses are evidence and are not in `Ids`, so `Expire` applies
+  only to a live device owning none (`ExpiryKeepsStrongIdentity`, #4603).
+  `lifecycle_vacuity_expire` expects `NeverExpires` to fail, so that property cannot pass
+  vacuously.
 
 Every action names the Elixir function it models. Each model describes the code as it is.
 Known defects are switches in a `Bugs` constant, and an action takes its defective branch only
@@ -36,7 +40,7 @@ when its switch is on.
 | `*_goal*` | none | pass | The goal requirements hold for the intended design. |
 | `*_witness_<switch>` | one (or a named pair) | `violation:<Property>` | The defect is still present in the model. |
 | `lifecycle_current` | all lifecycle switches | pass | The lifecycle invariants that hold even for today's code. |
-| `resolution_vacuity_*` | none | `violation:<Never...>` | The goal still merges, converges and records decisions. A goal model that never merges, or never decides, would pass vacuously. |
+| `resolution_vacuity_*`, `lifecycle_vacuity_*` | none | `violation:<Never...>` | The goal still merges, converges, records decisions and expires. A goal model that never merges, never decides, or never expires, would pass vacuously. |
 
 `resolution_vacuity_shared_mac_override` checks `NeverDecides` in the `armis_shared_mac`
 environment: the goal overrides the source-authoritative id's rival record and records that
@@ -116,7 +120,8 @@ The lifecycle traces come from
 `ServiceRadar.DireLifecycleTrace` (`test/support/dire_lifecycle_trace.ex`), which drives the
 lifecycle entry points: ingest (`SyncIngestor`, `AgentGatewaySync`), `MergeEngine` merge and
 unmerge (including the resolver's conflict merge), `Device :soft_delete`,
-`SweepResultsIngestor` restores, and `DeviceCleanupWorker` purges. It records device status and
+`SweepResultsIngestor` restores, `EphemeralDeviceExpiry` expiry, and `DeviceCleanupWorker`
+purges. It records device status and
 delete reason, identifier owners, addresses, the `merge_audit` rows and the devices each step's
 `identity_revision` moved. An ingest is logged as the model's `StartWork` and `Commit`; the code
 runs them in one call, so `work` is never stale in a recorded trace and the
@@ -137,8 +142,10 @@ A trace whose defect is fixed stays as a regression trace, with no knockout: `st
 (#4616) records the fixed resolver keeping a device deleted after an unmerge on its own uid, and
 `soft_delete_upsert_revival` (#4614) records the upsert reviving a soft-deleted device with an
 `identity_revision` bump, `gateway_sync_revival` (#4615) records an agent check-in restoring
-its soft-deleted device with a bump, and `conflict_unmerge` (#4619) records the fixed unmerge
-giving back only the merged-away device's own identifiers.
+its soft-deleted device with a bump, `conflict_unmerge` (#4619) records the fixed unmerge
+giving back only the merged-away device's own identifiers, and `expire_ephemeral` (#4603)
+records an address-only device expiring while a hardware-MAC device stays, then a sweep
+restoring it with a bump.
 
 The integration test compares every freshly recorded trace with the committed file. When the
 code's behavior changes, that comparison fails. Regenerate on a scratch database with
