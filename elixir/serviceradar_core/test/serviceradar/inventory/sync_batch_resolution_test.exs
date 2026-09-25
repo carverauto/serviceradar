@@ -1137,6 +1137,93 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
       assert device_for_armis_id(armis_id, actor) == discovered
       assert override_conflicts(discovered, actor) == []
     end
+
+    test "the batch path does not merge a discovered record with an Armis record on a sibling MAC",
+         %{actor: actor} do
+      %{discovered: discovered, armis_holder: holder, mac: mac, incoming: incoming} =
+        sibling_split(actor)
+
+      assert :ok =
+               SyncIngestor.ingest_updates([armis_update(incoming, doc_ip(1, 4), mac)],
+                 actor: actor
+               )
+
+      assert_sibling_split_kept(actor, discovered, holder, incoming)
+    end
+
+    test "the resolver path does not merge a discovered record with an Armis record on a sibling MAC",
+         %{actor: actor} do
+      %{discovered: discovered, armis_holder: holder, mac: mac, incoming: incoming} =
+        sibling_split(actor)
+
+      update = %{
+        device_id: nil,
+        ip: doc_ip(1, 4),
+        mac: mac,
+        partition: "default",
+        metadata: %{"integration_type" => "armis", "armis_device_id" => incoming}
+      }
+
+      assert {:ok, resolved} = IdentityReconciler.resolve_device_id(update, actor: actor)
+      assert resolved == discovered.uid
+      assert {:ok, %Device{deleted_at: nil}} = Device.get_by_uid(holder.uid, true, actor: actor)
+      assert [conflict] = override_conflicts(discovered.uid, actor)
+      assert conflict.conflicting_identifiers["overridden_device_uids"] == [holder.uid]
+    end
+  end
+
+  # A discovered record (no Armis id) owns a MAC; a record holding a different Armis id owns
+  # that MAC's LAA/UAA hardware sibling.
+  defp sibling_split(actor) do
+    n = System.unique_integer([:positive])
+    suffix = hex2(rem(n, 200) + 16)
+    mac = "00:00:5E:00:53:#{suffix}"
+    sibling = "02:00:5E:00:53:#{suffix}"
+    holder_armis = "#{n}02"
+
+    discovered = create_device(actor, doc_ip(n, 3), mac)
+    holder = create_device(actor, doc_ip(n, 5), sibling)
+
+    register_identifier(actor, discovered.uid, :mac, mac_value(mac))
+    register_identifier(actor, holder.uid, :mac, mac_value(sibling))
+    register_identifier(actor, holder.uid, :armis_device_id, holder_armis)
+
+    %{discovered: discovered, armis_holder: holder, mac: mac, incoming: "#{n}01"}
+  end
+
+  defp create_device(actor, ip, mac) do
+    {:ok, device} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{
+        uid: "sr:" <> Ecto.UUID.generate(),
+        ip: ip,
+        mac: mac
+      })
+      |> Ash.create(actor: actor)
+
+    device
+  end
+
+  defp register_identifier(actor, device_id, type, value) do
+    assert {:ok, _} =
+             DeviceIdentifier
+             |> Ash.Changeset.for_create(:register, %{
+               device_id: device_id,
+               identifier_type: type,
+               identifier_value: value,
+               partition: "default",
+               confidence: :strong,
+               source: "test"
+             })
+             |> Ash.create(actor: actor)
+  end
+
+  defp assert_sibling_split_kept(actor, discovered, holder, incoming) do
+    assert {:ok, %Device{deleted_at: nil}} = Device.get_by_uid(holder.uid, true, actor: actor)
+    assert {:ok, %Device{deleted_at: nil}} = Device.get_by_uid(discovered.uid, true, actor: actor)
+    assert device_for_armis_id(incoming, actor) == discovered.uid
+    assert [conflict] = override_conflicts(discovered.uid, actor)
+    assert conflict.conflicting_identifiers["overridden_device_uids"] == [holder.uid]
   end
 
   defp armis_update(armis_id, ip, mac) do

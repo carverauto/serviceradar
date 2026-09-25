@@ -84,25 +84,29 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
     # Step 1: Lookup by strong identifiers (merge conflicts if multiple IDs found)
     {strong, overridden} = lookup_strong_identifiers(ids, actor, update.device_id, refuse?)
 
-    result =
+    {result, refused} =
       case strong do
         {:ok, device_id} when is_binary(device_id) and device_id != "" ->
           _ = AliasGuard.maybe_merge_ip_alias_device(device_id, ids, actor)
-          {:ok, maybe_merge_hardware_mac_siblings(device_id, ids, update, actor)}
+
+          {device_id, refused} =
+            maybe_merge_hardware_mac_siblings(device_id, ids, update, actor, refuse?)
+
+          {{:ok, device_id}, refused}
 
         _ ->
           case lookup_hardware_mac_sibling_device(ids, update, actor, refuse?) do
             {:ok, device_id} when is_binary(device_id) and device_id != "" ->
               _ = AliasGuard.maybe_merge_ip_alias_device(device_id, ids, actor)
-              {:ok, device_id}
+              {{:ok, device_id}, []}
 
             _ ->
-              resolve_fallback_device_id(update, ids, actor)
+              {resolve_fallback_device_id(update, ids, actor), []}
           end
       end
 
     with {:ok, device_id} <- result do
-      record_source_overrides(update, ids, device_id, overridden)
+      record_source_overrides(update, ids, device_id, overridden ++ refused)
     end
 
     result
@@ -604,37 +608,60 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
 
   # Prefer the universally-administered MAC as the survivor so a UniFi WAN
   # identity absorbs the SNMP LAN sibling, not the other way around.
-  defp maybe_merge_hardware_mac_siblings(device_id, ids, update, actor) do
+  defp maybe_merge_hardware_mac_siblings(device_id, ids, update, actor, refuse?) do
     partition = Ids.ids_get_partition(ids)
+    refuse? = refuse? || fn _id_type, _device_id -> :accept end
 
-    ids
-    |> sibling_mac_candidates(update)
-    |> Enum.reduce(device_id, fn mac, acc ->
-      merge_hardware_mac_sibling(acc, mac, partition, actor)
-    end)
+    {device_id, refused} =
+      ids
+      |> sibling_mac_candidates(update)
+      |> Enum.reduce({device_id, []}, fn mac, {acc, refused} ->
+        case merge_hardware_mac_sibling(acc, mac, partition, actor, refuse?) do
+          {:refused, refusal} -> {acc, [refusal | refused]}
+          merged -> {merged, refused}
+        end
+      end)
+
+    {device_id, Enum.reverse(refused)}
   end
 
-  defp merge_hardware_mac_sibling(device_id, mac, partition, actor) do
+  defp merge_hardware_mac_sibling(device_id, mac, partition, actor, refuse?) do
     sibling = Mac.hardware_mac_sibling(mac)
 
     with true <- is_binary(sibling),
          {:ok, other_id} when is_binary(other_id) and other_id != device_id <-
            lookup_device_identifier(:mac, sibling, partition, actor) do
-      {from_id, to_id} = hardware_mac_merge_direction(device_id, other_id, mac)
+      case refuse?.(:mac, other_id) do
+        :accept ->
+          merge_hardware_mac_pair(device_id, other_id, mac, sibling, actor)
 
-      case MergeEngine.merge_devices(from_id, to_id,
-             actor: actor,
-             reason: "hardware_mac_sibling",
-             details: %{
-               source: "identity_reconciler",
-               mac: mac,
-               sibling_mac: sibling
-             }
-           ) do
-        :ok -> to_id
-        _ -> device_id
+        {:refuse, source_ids} ->
+          {:refused,
+           %{
+             device_uid: other_id,
+             identifier_type: :mac,
+             identifier_value: mac,
+             source_ids: source_ids
+           }}
       end
     else
+      _ -> device_id
+    end
+  end
+
+  defp merge_hardware_mac_pair(device_id, other_id, mac, sibling, actor) do
+    {from_id, to_id} = hardware_mac_merge_direction(device_id, other_id, mac)
+
+    case MergeEngine.merge_devices(from_id, to_id,
+           actor: actor,
+           reason: "hardware_mac_sibling",
+           details: %{
+             source: "identity_reconciler",
+             mac: mac,
+             sibling_mac: sibling
+           }
+         ) do
+      :ok -> to_id
       _ -> device_id
     end
   end
