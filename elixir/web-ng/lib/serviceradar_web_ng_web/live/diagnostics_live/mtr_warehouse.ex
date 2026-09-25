@@ -671,8 +671,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse do
   @spec destination_sparkline(DateTime.t(), pos_integer(), :latency_ms | :loss_pct, pos_integer(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def destination_sparkline(%DateTime{} = cutoff, bucket_seconds, metric, limit, opts \\ [])
-      when is_integer(bucket_seconds) and bucket_seconds > 0 and metric in [:latency_ms, :loss_pct] and
-             is_integer(limit) and limit > 0 do
+      when is_integer(bucket_seconds) and bucket_seconds > 0 and is_integer(limit) and limit > 0 and
+             metric in [:latency_ms, :loss_pct] do
     {value_expr, denominator_expr} = sparkline_value(metric)
 
     sql = """

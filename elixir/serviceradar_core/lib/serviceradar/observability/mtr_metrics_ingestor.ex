@@ -131,7 +131,8 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
   @spec stable_uuid(binary()) :: String.t()
   def stable_uuid(name) when is_binary(name) do
     <<head::binary-size(6), _version::4, mid::bits-size(12), _variant::2, tail::bits-size(62),
-      _rest::binary>> = :crypto.hash(:sha256, name)
+      _rest::binary>> =
+      :crypto.hash(:sha256, name)
 
     Ecto.UUID.load!(<<head::binary, 8::4, mid::bits, 2::2, tail::bits>>)
   end

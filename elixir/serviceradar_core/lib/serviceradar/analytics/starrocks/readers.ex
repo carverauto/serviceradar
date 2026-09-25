@@ -17,6 +17,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
   # stripped (rust/srql `parser/entity.rs`). Anything that decides where a query
   # runs -- or whether the caller may run it -- has to resolve the same token,
   # or it routes and authorizes an entity different from the one that executes.
+  alias ServiceRadar.Analytics.StarRocks
+
   @spec entity_for_query(String.t()) :: String.t() | nil
   def entity_for_query(query) when is_binary(query) do
     query
@@ -131,13 +133,13 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
   @spec enabled?() :: boolean()
   def enabled? do
     :serviceradar_core
-    |> Application.get_env(ServiceRadar.Analytics.StarRocks, [])
+    |> Application.get_env(StarRocks, [])
     |> Keyword.get(:enabled, false) == true
   end
 
   defp cutover_datasets do
     :serviceradar_core
-    |> Application.get_env(ServiceRadar.Analytics.StarRocks, [])
+    |> Application.get_env(StarRocks, [])
     |> Keyword.get(:cutover_datasets, [])
   end
 end

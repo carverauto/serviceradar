@@ -194,14 +194,16 @@ defmodule ServiceRadar.EventWriter.Processors.MtrTest do
         %{"command_id" => "cmd-#{target}", "target" => target, "agent_id" => "agent-01"}
       end
 
-      [
-        {"3f1c0b0a-1111-4111-8111-000000000001", "192.0.2.21"},
-        {"3f1c0b0a-1111-4111-8111-000000000002", "192.0.2.22"},
-        {"3f1c0b0a-1111-4111-8111-000000000003", "192.0.2.23"}
-      ]
-      |> Enum.map(fn {uuid, target} ->
-        trace_message_for(uuid, target, %{"broadcast" => announce.(target)})
-      end)
+      Enum.map(
+        [
+          {"3f1c0b0a-1111-4111-8111-000000000001", "192.0.2.21"},
+          {"3f1c0b0a-1111-4111-8111-000000000002", "192.0.2.22"},
+          {"3f1c0b0a-1111-4111-8111-000000000003", "192.0.2.23"}
+        ],
+        fn {uuid, target} ->
+          trace_message_for(uuid, target, %{"broadcast" => announce.(target)})
+        end
+      )
     end
 
     defp loads(acc \\ []) do
