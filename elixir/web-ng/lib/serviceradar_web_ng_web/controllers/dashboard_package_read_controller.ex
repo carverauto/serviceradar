@@ -19,6 +19,8 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageReadController do
 
   use ServiceRadarWebNGWeb, :controller
 
+  require Logger
+
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNG.RBAC
 
@@ -57,8 +59,9 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageReadController do
         {:error, :not_found} ->
           not_found(conn, id)
 
-        {:error, _reason} ->
-          not_found(conn, id)
+        {:error, reason} ->
+          Logger.warning("dashboard_package_read show failed", id: id, reason: inspect(reason))
+          internal_error(conn)
       end
     else
       {:error, :forbidden} ->
@@ -115,5 +118,12 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageReadController do
     |> put_resp_header("cache-control", "no-store")
     |> put_status(:not_found)
     |> json(%{error: "not_installed", id: id})
+  end
+
+  defp internal_error(conn) do
+    conn
+    |> put_resp_header("cache-control", "no-store")
+    |> put_status(:internal_server_error)
+    |> json(%{error: "internal_error"})
   end
 end
