@@ -1759,35 +1759,65 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     |> Map.new(&{&1.uid, &1})
   end
 
-  # What a resolved uid is: a device to write, an existing one to keep, or a tombstone. A
-  # poll never revives a device an operator deleted, and never one a merge tombstoned (the
-  # Resolver has already followed the merge). A device an automatic process deleted (a reaper
-  # or a remediation, identified by a `system:` actor) came back online, so it is restored
-  # through the audited `:restore` action rather than the raw upsert, which would clear the
-  # tombstone without a trace.
+  # What a resolved uid is: a device to write, an existing one to keep, or a tombstone. A poll
+  # never revives a device an operator deleted, one a merge tombstoned (the Resolver has already
+  # followed the merge), or one a DIRE remediation removed on purpose. A device an automatic
+  # process deleted (a reaper or an expiry, identified by a `system:` actor) came back online, so
+  # it is restored through the audited `:restore` action rather than the raw upsert, which would
+  # clear the tombstone without a trace.
   defp polled_device_state(polled, nil, _actor), do: [{:new, polled}]
 
   defp polled_device_state(polled, %Device{deleted_at: nil} = device, _actor),
     do: [{:existing, polled, device}]
 
-  defp polled_device_state(
-         polled,
-         %Device{deleted_reason: reason, deleted_by: "system:" <> _} = device,
-         actor
-       )
-       when reason != "merged" do
-    case Device.restore(device, actor: actor) do
-      {:ok, restored} ->
+  defp polled_device_state(polled, %Device{deleted_by: "system:" <> _} = device, actor) do
+    if restorable_system_delete?(device.deleted_reason) do
+      restore_polled_device(polled, device, actor)
+    else
+      leave_deleted(polled, device)
+    end
+  end
+
+  defp polled_device_state(polled, %Device{} = device, _actor), do: leave_deleted(polled, device)
+
+  defp restorable_system_delete?("merged"), do: false
+  defp restorable_system_delete?("dire_remediation" <> _), do: false
+  defp restorable_system_delete?(_reason), do: true
+
+  # The restored device keeps its recorded address unless another live device holds it now (the
+  # address was leased again while the device was gone); then the restore clears it in the same
+  # audited transition, and the ordinary address move takes the device to the polled address.
+  defp restore_polled_device(polled, %Device{} = device, actor) do
+    attrs = if stale_address_taken?(device), do: %{ip: nil}, else: %{}
+
+    # An update built from the primary read cannot see a tombstoned row (StaleRecord); a bulk
+    # update over an include_deleted query restores it in place, as MergeEngine's unmerge does.
+    Device
+    |> Ash.Query.for_read(:read, %{include_deleted: true})
+    |> Ash.Query.filter(uid == ^device.uid and not is_nil(deleted_at))
+    |> Ash.bulk_update(:restore, attrs,
+      actor: actor,
+      return_records?: true,
+      return_errors?: true,
+      strategy: [:atomic, :stream]
+    )
+    |> case do
+      %Ash.BulkResult{status: :success, records: [restored | _]} ->
         Logger.info("Mapper restored device #{device.uid} deleted by #{device.deleted_by}")
         [{:existing, polled, restored}]
 
-      {:error, error} ->
-        Logger.warning("Mapper could not restore device #{device.uid}: #{inspect(error)}")
+      result ->
+        Logger.warning("Mapper could not restore device #{device.uid}: #{inspect(result)}")
         []
     end
   end
 
-  defp polled_device_state(polled, %Device{} = device, _actor) do
+  defp stale_address_taken?(%Device{ip: ip} = device) when is_binary(ip) and ip != "",
+    do: live_address_holder(ip, device.partition, device.uid) != nil
+
+  defp stale_address_taken?(_device), do: false
+
+  defp leave_deleted(polled, %Device{} = device) do
     Logger.info(
       "Mapper left device #{device.uid} deleted (reason #{inspect(device.deleted_reason)}, " <>
         "by #{inspect(device.deleted_by)}); its poll at #{polled.device_ip} is not attached"

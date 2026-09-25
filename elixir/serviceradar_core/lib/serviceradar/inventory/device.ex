@@ -432,6 +432,11 @@ defmodule ServiceRadar.Inventory.Device do
     end
 
     update :restore do
+      # A caller may clear a stale address in the same audited transition: a device deleted
+      # while it held an address can find that address leased to another live device, and the
+      # unique active-IP index would otherwise refuse the restore.
+      accept [:ip]
+
       change set_attribute(:deleted_at, nil)
       change set_attribute(:deleted_by, nil)
       change set_attribute(:deleted_reason, nil)

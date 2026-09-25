@@ -133,10 +133,14 @@ the MACs identify.
   globally-unique interface MAC, whether it has none or only randomized ones,
   falls back to the address: the live holder, then a confirmed alias, then an
   address-seeded device.
-- A poll never revives a device an operator deleted, or one a merge
-  tombstoned. A device an automatic process deleted (a `system:` actor) is
+- A poll never revives a device an operator deleted, one a merge
+  tombstoned, or one a DIRE remediation removed (`deleted_reason` starting
+  with `dire_remediation`). A device another automatic process deleted (a
+  `system:` actor, such as a reaper or an expiry) came back online and is
   restored through the audited `:restore` action, which bumps the identity
-  revision and records the revival.
+  revision and records the revival. When its old address has since been
+  leased to another live device, the restore clears it and the device moves
+  to the polled address; the other device keeps its address.
 
 ## Merge policy and stability
 
