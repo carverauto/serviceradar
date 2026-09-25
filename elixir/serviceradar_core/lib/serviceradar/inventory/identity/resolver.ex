@@ -296,7 +296,7 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
       lookup_strong_identifiers(ids, actor, preferred_device_id, source_refusal(ids, actor))
 
     # Without a match the caller creates the update's deterministic record.
-    with {:ok, device_id} <- result do
+    with {:ok, device_id} <- result, [_ | _] <- overridden do
       target =
         device_id || follow_canonical_device_id(Ids.generate_deterministic_device_id(ids), actor)
 
