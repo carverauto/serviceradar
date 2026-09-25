@@ -73,7 +73,7 @@ defmodule ServiceRadar.DireTrace do
         bugs: [...]
       }
 
-  Real values are synthetic: documentation-range MACs, the test helpers' address range and
+  Real values are synthetic: documentation-range MACs, documentation-range addresses and
   unique Armis ids.
   """
   def start(name, world, actor) do
@@ -87,7 +87,7 @@ defmodule ServiceRadar.DireTrace do
         end),
       ip:
         Map.new(Enum.with_index(world.ips, 1), fn {p, i} ->
-          {p, "100.124.#{rem(seed, 250) + 1}.#{i + 10}"}
+          {p, "198.51.100.#{rem(seed, 200) + i + 10}"}
         end),
       src: Map.new(Enum.with_index(world.src_ids, 1), fn {a, i} -> {a, "#{seed}#{i}"} end),
       agent: Map.new(Map.get(world, :agent_ids, []), fn g -> {g, "trace-agent-#{seed}-#{g}"} end)

@@ -3,7 +3,7 @@
 Used by the tlc_test macro in //build/tla:tlc.bzl. The judgement uses TLC's exit status AND
 the line naming the violated property, because either alone is ambiguous: exit 12 is any
 invariant, and a config error also prints lines starting with "Error:". The exact lines
-below were captured from TLC 1.7.4 (TLC2 2.19); see openspec/changes/add-dire-formal-model.
+below were captured from TLC 1.7.4 (TLC2 2.19); see openspec/changes/archive/2026-09-24-add-dire-formal-model/design.md.
 """
 
 import argparse

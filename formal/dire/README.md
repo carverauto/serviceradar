@@ -2,8 +2,9 @@
 
 Two TLA+ models check DIRE (the Device Identity and Reconciliation Engine) against the
 requirements in `openspec/changes/update-dire-strong-identity-goal`: one canonical device
-record per physical device, whatever its address. The verification design is
-`openspec/changes/add-dire-formal-model`.
+record per physical device, whatever its address. The verification requirements are
+`openspec/specs/dire-formal-model`; the design is
+`openspec/changes/archive/2026-09-24-add-dire-formal-model/design.md`.
 
 Run them all with `bazel test --config=remote //formal/dire/...`; `make test` runs them too.
 

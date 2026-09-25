@@ -5,7 +5,7 @@ load("@rules_python//python:py_test.bzl", "py_test")
 
 package(default_visibility = ["//visibility:public"])
 
-# TLA+ tools, pinned in //MODULE.bazel. See openspec/changes/add-dire-formal-model.
+# TLA+ tools, pinned in //MODULE.bazel. See openspec/specs/dire-formal-model.
 java_import(
     name = "tla2tools",
     jars = ["@tla2tools//file"],

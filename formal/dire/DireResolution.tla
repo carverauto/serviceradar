@@ -2,7 +2,7 @@
 (***************************************************************************)
 (* DIRE identity resolution against physical ground truth.                  *)
 (* See openspec/changes/update-dire-strong-identity-goal (the requirements) *)
-(* and openspec/changes/add-dire-formal-model (the verification).           *)
+(* and openspec/specs/dire-formal-model (the verification).                 *)
 (*                                                                          *)
 (* The world: physical devices own interfaces; an interface has a true MAC  *)
 (* (hardware or randomized) and leases an address, and DHCP moves addresses *)
