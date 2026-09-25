@@ -84,7 +84,9 @@ defmodule ServiceRadarCore.MixProject do
 
       # Ash Framework
       # CVE-2026-67579: keyset cursor injection is fixed in 3.31.3.
-      {:ash, "~> 3.31.3"},
+      # EEF-CVE-2026-93477: private action arguments settable through bulk
+      # update/destroy input is fixed in 3.33.11.
+      {:ash, "~> 3.33.11"},
       {:ash_postgres, "~> 2.4"},
       {:ash_oban, "~> 0.4"},
       {:ash_state_machine, "~> 0.2"},
