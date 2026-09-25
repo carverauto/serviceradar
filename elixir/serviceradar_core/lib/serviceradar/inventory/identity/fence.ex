@@ -360,10 +360,10 @@ defmodule ServiceRadar.Inventory.Identity.Fence do
   @doc """
   Report whether a pin is still current. **Never blocks and never fails.**
 
-  This is the observe-only half of the rollout: it measures how often each
-  pipeline would have lost a race, so enforcement can be turned on per pipeline
-  against evidence rather than a guess. Callers must not branch on the result --
-  it is always `:ok`.
+  This is the observe-only form: it measures how often a pipeline would have lost
+  a race. The batch writers (`SyncIngestor`, `AgentGatewaySync`) enforce through
+  `pin_batch/1` and `fenced_write/3` instead. Callers must not branch on the
+  result -- it is always `:ok`.
 
   A device that has been merged away reads as missing here, because the merge
   soft-deletes the source and the default read filters it. That is reported as

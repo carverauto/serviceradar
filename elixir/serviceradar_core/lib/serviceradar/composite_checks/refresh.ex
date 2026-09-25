@@ -60,8 +60,9 @@ defmodule ServiceRadar.CompositeChecks.Refresh do
   def enqueue_many(_device_uids), do: :ok
 
   # The pinned revision rides along in the job args so the worker can tell whether
-  # identity moved during the debounce window. Observe-only: a uid whose revision
-  # could not be read is enqueued exactly as before, without the key.
+  # identity moved during the debounce window. The pin read is best-effort: a uid
+  # whose revision could not be read is enqueued without the key, and the worker
+  # then runs unfenced.
   defp insert(device_uid, revisions) do
     %{device_uid: device_uid}
     |> put_pin(Map.get(revisions, device_uid))
