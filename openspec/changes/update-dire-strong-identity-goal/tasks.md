@@ -47,10 +47,11 @@ configuration. Confirmed defects (`formal/dire/README.md` has code paths and wit
 - [x] 3.11 `unmerge_restores_matches`: record the source's identifiers at merge time and restore
       exactly those.
 - [x] 3.12 `purge_forgets_redirect`: resolve purged merged-away uids through `merge_audit`.
-- [ ] 3.13 `mapper_resolves_by_address` (found by trace validation): the mapper attaches a polled
+- [x] 3.13 `mapper_resolves_by_address` (found by trace validation): the mapper attaches a polled
       device's interface table to whichever record holds the address, or a stale alias of it;
       after DHCP churn the new device's MACs land on the old device's record and the new device
-      gets no record. Resolve by the reported MACs; the address is evidence only.
+      gets no record. Resolve by the reported MACs; the address is evidence only. Fixed in
+      #4638: the mapper resolves through the Resolver, so its polls now reach `AliasGuard` too.
 - [x] 3.14 `stale_holder_keeps_address` (found by trace validation): a fresh source-authoritative
       write drops its address when a stale record still holds it; the stale record keeps it and
       address-only sightings attach to the wrong device. The observed device must hold its

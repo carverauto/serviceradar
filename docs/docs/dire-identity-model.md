@@ -109,6 +109,29 @@ Merged-away device IDs are never resurrected: resolution follows the
 `Identity.BatchResolver`), including after the tombstone row has been purged,
 unless an unmerge reversed that merge.
 
+A strong match in `Identity.Resolver` considers every record that owns one of
+the update's globally-unique MACs, not only the owner of the first MAC found.
+When those are two or more records, the split is a conflict for the merge
+policy below. A locally-administered MAC never adds a record to the conflict.
+
+### SNMP mapper polls
+
+A device the mapper polls is identified by the MACs its own physical
+interfaces report, never by the address it was polled at. DHCP hands that
+address to other devices, so the record holding it, or a confirmed alias of
+it, may describe a different device. The MACs resolve through the steps
+above, and they are registered as the device's interface claims only after
+that. The polled address is evidence only: it breaks a tie between records
+the MACs identify.
+
+- A new device is written at the polled address under the same active-address
+  rules as any strong write.
+- An existing device moves to the polled address only when its recorded
+  address is not one its interfaces still report, so a router polled at its
+  WAN and LAN addresses keeps one address.
+- Only a poll that reports no interface MAC falls back to the address: the
+  live holder, then a confirmed alias, then an address-seeded device.
+
 ## Merge policy and stability
 
 - Evidence gates (`Identity.MergePolicy`): never merge on agent_id-only,

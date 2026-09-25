@@ -9,6 +9,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   alias Ash.Error.Invalid
   alias Ash.Error.Unknown
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.Page
   alias ServiceRadar.Identity.AliasEvents
   alias ServiceRadar.Identity.AliasPolicy
   alias ServiceRadar.Identity.DeviceAliasState
@@ -19,6 +20,11 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.Inventory.InterfaceClassifier
   alias ServiceRadar.Inventory.InterfaceSettings
+  alias ServiceRadar.Inventory.SourceIdentityDrift
+  alias ServiceRadar.Inventory.Sync.DeviceRecords
+  alias ServiceRadar.Inventory.Sync.DeviceWrites
+  alias ServiceRadar.Inventory.Sync.Normalize
+  alias ServiceRadar.Inventory.Sync.StateEvents
   alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.NetworkDiscovery.TopologyGraph
   alias ServiceRadar.NetworkDiscovery.TopologyLink
@@ -1511,25 +1517,37 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   """
   defdelegate valid_alias_ip?(value), to: AliasPolicy
 
-  # Resolve device_ids from device_ip addresses by looking up existing devices.
-  # The agent sends device_id as "partition:ip" but Device.uid is "sr:<uuid>".
-  # We need to look up the actual device UID from the IP address.
-  # For IPs with no existing device, creates one via DIRE.
+  # Resolve each polled device to its record.
+  #
+  # The agent sends device_id as "partition:ip", but Device.uid is "sr:<uuid>", so every poll
+  # has to be resolved. A polled device is identified by the MACs its own interfaces report
+  # (Interface Identifiers Belong To Their Device), never by the address it was polled at: DHCP
+  # moves addresses between devices, so the live record holding the polled address, or a
+  # confirmed alias of it, may describe a different device (Address Is Evidence, Not Identity).
+  # Attaching by address put one device's interface table, and its `:interface_mac` claims, on
+  # another device's record, and those claims unlock merges in `AliasGuard.same_chassis?/5`.
+  #
+  # The address is evidence only: it breaks a tie between records the MACs identify, and it is
+  # all there is for a device that reports no identity MAC.
   defp resolve_device_ids([], _actor), do: []
 
   defp resolve_device_ids(records, actor) do
-    # Extract unique device IPs from records
     device_ips =
       records
       |> Enum.map(& &1.device_ip)
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
 
-    # Look up device UIDs by IP address
-    ip_to_uid = lookup_device_uids_by_ip(device_ips)
+    # Live holders of the polled addresses: address evidence, never identity.
+    holders = lookup_device_uids_by_ip(device_ips)
 
-    # For IPs with no existing device, create devices via DIRE
-    ip_to_uid = create_missing_devices(records, ip_to_uid, actor)
+    {mac_ips, address_ips} =
+      Enum.split_with(device_ips, &(derive_identity_macs(&1, records) != []))
+
+    ip_to_uid =
+      mac_ips
+      |> resolve_devices_by_macs(records, holders, actor)
+      |> resolve_devices_by_address(address_ips, records, holders, actor)
 
     # Update records with resolved device_ids, filtering out those we can't resolve
     records
@@ -1546,17 +1564,22 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     |> Enum.reject(&is_nil/1)
   end
 
-  # Creates devices via DIRE for IPs that have no existing device record.
-  # This closes the device creation gap for SNMP-polled devices that don't run agents.
-  defp create_missing_devices(records, ip_to_uid, actor) do
-    records
-    |> Enum.map(& &1.device_ip)
-    |> Enum.reject(&is_nil/1)
-    |> Enum.uniq()
-    |> Enum.reject(&Map.has_key?(ip_to_uid, &1))
-    |> Enum.reduce(ip_to_uid, fn device_ip, acc ->
-      partition = partition_for_device_ip(device_ip, records)
-      put_alias_or_created_uid(acc, device_ip, partition, records, actor)
+  # A device that reported no identity MAC: the address is the only evidence. It attaches to
+  # the live holder of the address, then to a confirmed alias holder, and otherwise DIRE creates
+  # an address-seeded device. No interface MAC is claimed on this path (the claims come from the
+  # same interfaces as the identity MACs, and there are none).
+  defp resolve_devices_by_address(ip_to_uid, [], _records, _holders, _actor), do: ip_to_uid
+
+  defp resolve_devices_by_address(ip_to_uid, device_ips, records, holders, actor) do
+    Enum.reduce(device_ips, ip_to_uid, fn device_ip, acc ->
+      case Map.get(holders, device_ip) do
+        uid when is_binary(uid) ->
+          Map.put(acc, device_ip, uid)
+
+        _ ->
+          partition = partition_for_device_ip(device_ip, records)
+          put_alias_or_created_uid(acc, device_ip, partition, records, actor)
+      end
     end)
   end
 
@@ -1581,68 +1604,34 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     end
   end
 
+  # An address-seeded device for a poll that reported no identity MAC. The UID decision
+  # belongs to DIRE: resolution consults alias states and the merge-audit canonical mapping
+  # before falling back to the deterministic address seed.
   defp create_device_for_ip(device_ip, records, ip_to_uid, actor) do
-    # Get partition from the first record matching this IP
     partition = partition_for_device_ip(device_ip, records)
 
-    # MAC evidence comes from physical/aggregate interfaces only (deterministic
-    # order). The polling agent's `agent_id` on these records names the agent
-    # that performed the poll, never the polled device, and is deliberately
-    # excluded from identity resolution and registration (Polling Agent
-    # Exclusion).
-    identity_macs = derive_identity_macs(device_ip, records)
-    primary_mac = List.first(identity_macs)
-
-    # The UID decision belongs to DIRE: resolution consults identifier rows,
-    # alias states, and the merge-audit canonical mapping before falling back
-    # to the deterministic seed (primary MAC when present, otherwise IP-only).
-    with {:ok, device_uid} <-
-           resolve_device_uid_via_dire(device_ip, partition, identity_macs, actor) do
+    with {:ok, device_uid} <- resolve_device_uid_via_dire(device_ip, partition, [], actor) do
       if device_exists?(device_uid, actor) do
-        # DIRE resolved onto an existing device (e.g. a MAC already registered
-        # for another IP) — reuse it instead of creating a duplicate.
-        register_mapper_mac_identifiers(device_uid, identity_macs, device_ip, partition, actor)
         {:ok, device_uid}
       else
-        create_resolved_device_for_ip(
-          device_uid,
-          device_ip,
-          identity_macs,
-          primary_mac,
-          partition,
-          records,
-          ip_to_uid,
-          actor
-        )
+        create_address_seeded_device(device_uid, device_ip, records, ip_to_uid, actor)
       end
     end
   end
 
-  defp create_resolved_device_for_ip(
-         device_uid,
-         device_ip,
-         identity_macs,
-         primary_mac,
-         partition,
-         records,
-         ip_to_uid,
-         actor
-       ) do
+  defp create_address_seeded_device(device_uid, device_ip, records, ip_to_uid, actor) do
     # If this IP appears as an interface address on another device, set management_device_id
     management_device_id = find_management_device_uid(device_ip, records, ip_to_uid)
 
-    # Create the device record
     attrs =
       maybe_put(
         %{
           uid: device_uid,
           ip: device_ip,
-          mac: primary_mac,
           discovery_sources: ["mapper"],
           metadata: %{
             "identity_state" => "provisional",
-            "identity_source" =>
-              if(primary_mac, do: "mapper_primary_mac_seed", else: "mapper_ip_seed")
+            "identity_source" => "mapper_ip_seed"
           }
         },
         :management_device_id,
@@ -1654,7 +1643,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
          |> Ash.create(actor: actor) do
       {:ok, _device} ->
         Logger.info("Mapper created device #{device_uid} for IP #{device_ip}")
-        register_mapper_mac_identifiers(device_uid, identity_macs, device_ip, partition, actor)
 
         if management_device_id,
           do: TopologyGraph.upsert_managed_by(device_uid, management_device_id)
@@ -1662,32 +1650,266 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         {:ok, device_uid}
 
       {:error, %Invalid{errors: errors}} ->
-        with {:ok, recovered_uid} <-
-               recover_existing_device_uid(device_uid, device_ip, errors, actor) do
-          register_mapper_mac_identifiers(
-            recovered_uid,
-            identity_macs,
-            device_ip,
-            partition,
-            actor
-          )
-
-          {:ok, recovered_uid}
-        end
+        recover_existing_device_uid(device_uid, device_ip, errors, actor)
 
       {:error, reason} ->
         {:error, reason}
     end
   end
 
+  # Devices that reported identity MACs are resolved by those MACs through DIRE (the Resolver:
+  # every record owning one of the MACs, the merge policy for a split between them, and
+  # AliasGuard at the polled address). The device row is then written: a new device through
+  # the shared strong-identifier device write, an existing one moved to the polled address when
+  # its recorded address is stale. MACs no record holds yet are registered to the device.
+  defp resolve_devices_by_macs([], _records, _holders, _actor), do: %{}
+
+  defp resolve_devices_by_macs(device_ips, records, holders, actor) do
+    device_ips
+    |> Enum.flat_map(&resolve_polled_device(&1, records, holders, actor))
+    |> write_polled_devices(records, holders, actor)
+    |> Map.new(fn polled ->
+      register_unowned_macs(polled, actor)
+      {polled.device_ip, polled.uid}
+    end)
+  end
+
+  defp resolve_polled_device(device_ip, records, holders, actor) do
+    partition = partition_for_device_ip(device_ip, records)
+
+    # MAC evidence comes from physical/aggregate interfaces only (deterministic order). The
+    # polling agent's `agent_id` on these records names the agent that performed the poll,
+    # never the polled device, and is deliberately excluded from identity resolution and
+    # registration (Polling Agent Exclusion).
+    macs = derive_identity_macs(device_ip, records)
+
+    # Address evidence breaks a tie: when the MACs name several records, the one holding the
+    # polled address survives -- but only a holder the MACs themselves identify.
+    preferred = holder_identified_by(Map.get(holders, device_ip), macs, partition)
+
+    case resolve_device_uid_via_dire(device_ip, partition, macs, actor, preferred) do
+      {:ok, uid} ->
+        [%{device_ip: device_ip, partition: partition, macs: macs, uid: uid}]
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to resolve mapper-polled device at #{device_ip} by its interface MACs: " <>
+            inspect(reason)
+        )
+
+        []
+    end
+  end
+
+  defp holder_identified_by(nil, _macs, _partition), do: nil
+
+  defp holder_identified_by(holder_uid, macs, partition) do
+    if MapSet.member?(mac_owners(macs, partition), holder_uid), do: holder_uid
+  end
+
+  defp mac_owners(macs, partition) do
+    macs
+    |> mac_owner_rows(partition)
+    |> MapSet.new(fn {_mac, device_uid} -> device_uid end)
+  end
+
+  defp mac_owner_rows([], _partition), do: []
+
+  defp mac_owner_rows(macs, partition) do
+    Repo.all(
+      from(di in DeviceIdentifier,
+        where: di.identifier_type == ^"mac",
+        where: di.identifier_value in ^macs,
+        where: di.partition == ^normalize_partition(partition),
+        select: {di.identifier_value, di.device_id}
+      )
+    )
+  rescue
+    e ->
+      Logger.warning("Mapper MAC owner lookup failed: #{inspect(e)}")
+      []
+  end
+
+  defp write_polled_devices([], _records, _holders, _actor), do: []
+
+  defp write_polled_devices(polled, records, holders, actor) do
+    live = live_devices_by_uid(Enum.map(polled, & &1.uid), actor)
+    {existing, new} = Enum.split_with(polled, &Map.has_key?(live, &1.uid))
+
+    Enum.each(existing, fn device ->
+      maybe_move_device_address(device, Map.fetch!(live, device.uid), records, actor)
+    end)
+
+    context = Map.merge(holders, Map.new(polled, &{&1.device_ip, &1.uid}))
+    existing ++ create_polled_devices(new, records, context, actor)
+  end
+
+  defp live_devices_by_uid(uids, actor) do
+    Device
+    |> Ash.Query.filter(uid in ^Enum.uniq(uids))
+    |> Page.stream!(actor: actor)
+    |> Map.new(&{&1.uid, &1})
+  end
+
+  # A new device is written through the same strong-identifier device write the sync path uses
+  # (`DeviceWrites.bulk_upsert_devices/3`), so the address it was polled at is claimed with the
+  # same rules as any other strong write: an anchorless provisional seed holding the address is
+  # adopted, and any other live holder is left in place with the conflict recorded.
+  defp create_polled_devices([], _records, _context, _actor), do: []
+
+  defp create_polled_devices(new, records, context, _actor) do
+    timestamp = DateTime.truncate(DateTime.utc_now(), :second)
+    resolved_updates = Enum.map(new, &{new_device_update(&1), &1.uid})
+
+    device_records =
+      resolved_updates
+      |> DeviceRecords.build_device_upsert_records(timestamp)
+      |> Enum.map(fn record ->
+        maybe_put(
+          record,
+          :management_device_id,
+          find_management_device_uid(record.ip, records, context)
+        )
+      end)
+
+    previous_states = StateEvents.previous_device_states(device_records)
+    strong_uids = MapSet.new(new, & &1.uid)
+
+    case DeviceWrites.bulk_upsert_devices(device_records, strong_uids, resolved_updates) do
+      {:ok, remap} ->
+        StateEvents.publish_device_state_transitions(device_records, previous_states, remap)
+        StateEvents.invalidate_identity_cache_for_device_records(device_records)
+        _ = DeviceWrites.maybe_refresh_inventory_rollups(:ok, length(device_records))
+        Enum.map(new, &created_device(&1, remap, device_records))
+
+      {:error, reason} ->
+        Logger.warning("Failed to write mapper-discovered devices: #{inspect(reason)}")
+        []
+    end
+  end
+
+  defp new_device_update(%{device_ip: device_ip, partition: partition, macs: macs}) do
+    Normalize.normalize_update(%{
+      "ip" => device_ip,
+      "mac" => List.first(macs),
+      "partition" => partition,
+      "source" => "mapper",
+      "metadata" => %{
+        "identity_state" => "provisional",
+        "identity_source" => "mapper_primary_mac_seed"
+      }
+    })
+  end
+
+  defp created_device(polled, remap, device_records) do
+    uid = Map.get(remap, polled.uid, polled.uid)
+    Logger.info("Mapper wrote device #{uid} for IP #{polled.device_ip}")
+
+    case Enum.find(device_records, &(&1.uid == polled.uid)) do
+      %{management_device_id: management_device_id} when is_binary(management_device_id) ->
+        TopologyGraph.upsert_managed_by(uid, management_device_id)
+
+      _ ->
+        :ok
+    end
+
+    %{polled | uid: uid}
+  end
+
+  # An existing device keeps its address while that address is still one of its own: the
+  # address it was polled at, or one its interfaces report (a router polled at its WAN and
+  # LAN addresses is one device, and must not flip between them). A recorded address the
+  # device no longer reports is stale, and the device moves to the address it was polled at.
+  defp maybe_move_device_address(polled, %Device{} = device, records, actor) do
+    current = normalize_alias_ip(device.ip)
+
+    if current in own_addresses(polled.device_ip, records) or
+         not valid_alias_ip?(polled.device_ip) do
+      :ok
+    else
+      move_device_address(device, polled.device_ip, polled.partition, actor)
+    end
+  end
+
+  defp own_addresses(device_ip, records) do
+    records
+    |> Enum.filter(&(&1.device_ip == device_ip))
+    |> Enum.flat_map(&List.wrap(&1.ip_addresses))
+    |> Enum.map(&bare_address/1)
+    |> Enum.concat([device_ip])
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp bare_address(value) when is_binary(value) do
+    value |> String.split("/", parts: 2) |> hd() |> String.trim()
+  end
+
+  defp bare_address(_value), do: nil
+
+  # Moves an existing device to the address it was polled at. A different live device still
+  # holding that address keeps it, and the refusal is recorded as an active-IP conflict: the
+  # same outcome as the strong-identifier branch of
+  # `DeviceWrites.resolve_record_active_ip/7` (model switch `stale_holder_keeps_address`), and
+  # the two must change together.
+  defp move_device_address(%Device{} = device, ip, partition, actor) do
+    case live_address_holder(ip, partition, device.uid) do
+      nil ->
+        device
+        |> Ash.Changeset.for_update(:update, %{ip: ip})
+        |> Ash.update(actor: actor)
+        |> case do
+          {:ok, _device} ->
+            Logger.info("Mapper moved device #{device.uid} to polled address #{ip}")
+
+          {:error, reason} ->
+            Logger.warning(
+              "Mapper could not move device #{device.uid} to #{ip}: #{inspect(reason)}"
+            )
+        end
+
+      holder_uid ->
+        Logger.info(
+          "Mapper left polled address #{ip} with #{holder_uid}; device #{device.uid} keeps " <>
+            "#{inspect(device.ip)}"
+        )
+
+        SourceIdentityDrift.record_active_ip_conflict(
+          %{uid: device.uid, mac: device.mac, metadata: %{"integration_type" => "mapper"}},
+          holder_uid,
+          ip
+        )
+    end
+  end
+
+  defp live_address_holder(ip, partition, device_uid) do
+    Repo.one(
+      from(d in Device,
+        where: d.ip == ^ip and d.partition == ^normalize_partition(partition),
+        where: is_nil(d.deleted_at) and d.uid != ^device_uid,
+        select: d.uid,
+        limit: 1
+      )
+    )
+  end
+
+  # Registers the polled MACs no record holds yet. A MAC already held stays with its holder:
+  # ownership moves only through an audited merge, and the Resolver has already put every
+  # holder of these MACs through the merge policy.
+  defp register_unowned_macs(%{macs: macs, partition: partition} = polled, actor) do
+    owned = macs |> mac_owner_rows(partition) |> MapSet.new(fn {mac, _uid} -> mac end)
+    unowned = Enum.reject(macs, &MapSet.member?(owned, &1))
+    register_mapper_mac_identifiers(polled.uid, unowned, polled.device_ip, partition, actor)
+  end
+
   # All mapper device creation routes through DIRE: the reconciler decides the
   # UID by consulting strong identifiers, confirmed IP aliases, and the
   # merge-audit canonical mapping (so merged-away devices are never
   # resurrected) before falling back to the deterministic `sr:` uid. The
-  # update never carries the polling agent's identity.
-  defp resolve_device_uid_via_dire(ip, partition, mac_evidence, actor) do
+  # update never carries the polling agent's identity. `preferred_device_id`
+  # is a tie-break among records the MACs identify, never an identity.
+  defp resolve_device_uid_via_dire(ip, partition, mac_evidence, actor, preferred_device_id \\ nil) do
     update = %{
-      device_id: nil,
+      device_id: preferred_device_id,
       ip: ip,
       mac: List.first(mac_evidence),
       mac_addresses: mac_evidence,
