@@ -61,13 +61,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkTags do
 
       :ok ->
         case Selection.selected_uids_for_scope(socket, target_scope) do
-          [] -> {:error, "No devices selected"}
-          uids -> update_tags_for_uids(scope, uids, tags)
+          {:ok, []} -> {:error, "No devices selected"}
+          {:ok, uids} -> update_tags_for_uids(scope, uids, tags)
+          {:error, reason} -> {:error, reason}
         end
     end
   end
 
   defp update_tags_for_uids(scope, uids, new_tags) do
+    Helpers.each_uid_batch(uids, fn batch -> update_tag_batch(scope, batch, new_tags) end)
+  end
+
+  defp update_tag_batch(scope, uids, new_tags) do
     resources = [Device]
 
     resources
@@ -100,7 +105,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkTags do
       |> Ash.Query.filter(uid in ^uids)
       |> Ash.Query.lock(:for_update)
 
-    case Ash.read(query, scope: scope) do
+    case Ash.read(query, scope: scope, page: [limit: max(length(uids), 1)]) do
       {:ok, devices} -> {:ok, ash_page_results(devices)}
       {:error, error} -> {:error, error}
     end

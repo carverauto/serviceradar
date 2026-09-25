@@ -63,14 +63,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkState do
 
       :ok ->
         case Selection.selected_uids_for_scope(socket, target_scope) do
-          [] ->
+          {:ok, []} ->
             {:noreply,
              socket
              |> assign(:bulk_state_form, to_form(params, as: :bulk_state))
              |> put_flash(:error, "No devices selected")}
 
-          uids ->
+          {:ok, uids} ->
             apply_changes(socket, params, uids, service_state, managed_state)
+
+          {:error, reason} ->
+            {:noreply,
+             socket
+             |> assign(:bulk_state_form, to_form(params, as: :bulk_state))
+             |> put_flash(:error, reason)}
         end
     end
   end
@@ -107,6 +113,30 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkState do
   end
 
   defp apply_state_changes(scope, uids, service_state, managed_state) do
+    empty = change_result(0, [], 0)
+
+    uids
+    |> Enum.chunk_every(Helpers.uid_write_batch())
+    |> Enum.reduce_while({:ok, empty, empty}, fn batch, {:ok, service_acc, managed_acc} ->
+      case apply_state_batch(scope, batch, service_state, managed_state) do
+        {:ok, service_result, managed_result} ->
+          {:cont, {:ok, add_change(service_acc, service_result), add_change(managed_acc, managed_result)}}
+
+        {:error, reason} ->
+          {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp add_change(acc, next) do
+    %{
+      count: acc.count + next.count,
+      labels: Enum.uniq(acc.labels ++ next.labels),
+      skipped: acc.skipped + next.skipped
+    }
+  end
+
+  defp apply_state_batch(scope, uids, service_state, managed_state) do
     resources = [Device]
 
     resources

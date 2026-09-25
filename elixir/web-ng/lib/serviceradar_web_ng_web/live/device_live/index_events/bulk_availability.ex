@@ -51,13 +51,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkAvailability do
 
       :ok ->
         case Selection.selected_uids(socket) do
-          [] -> {:error, "No devices selected"}
-          uids -> update_availability_source_for_uids(scope, uids, agent_id)
+          {:ok, []} -> {:error, "No devices selected"}
+          {:ok, uids} -> update_availability_source_for_uids(scope, uids, agent_id)
+          {:error, reason} -> {:error, reason}
         end
     end
   end
 
   defp update_availability_source_for_uids(scope, uids, agent_id) do
+    Helpers.each_uid_batch(uids, fn batch ->
+      update_availability_source_batch(scope, batch, agent_id)
+    end)
+  end
+
+  defp update_availability_source_batch(scope, uids, agent_id) do
     query =
       Device
       |> Ash.Query.for_read(:read, %{}, scope: scope)

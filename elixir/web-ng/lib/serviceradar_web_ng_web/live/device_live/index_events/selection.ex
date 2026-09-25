@@ -78,13 +78,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Selection do
             {:noreply, put_flash(socket, :error, message)}
 
           :ok ->
-            device_uids = socket |> selected_uids() |> Enum.sort() |> Enum.join(",")
+            case selected_uids(socket) do
+              {:ok, uids} ->
+                device_uids = uids |> Enum.sort() |> Enum.join(",")
 
-            {:noreply,
-             push_navigate(
-               socket,
-               to: ~p"/ansible/launch?#{%{devices: device_uids}}"
-             )}
+                {:noreply,
+                 push_navigate(
+                   socket,
+                   to: ~p"/ansible/launch?#{%{devices: device_uids}}"
+                 )}
+
+              {:error, reason} ->
+                {:noreply, put_flash(socket, :error, Helpers.format_transaction_error(reason))}
+            end
         end
     end
   end
@@ -190,12 +196,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Selection do
     if socket.assigns.select_all_matching do
       all_matching_uids(socket)
     else
-      explicit_selected_uids(socket)
+      {:ok, explicit_selected_uids(socket)}
     end
   end
 
   def selected_uids_for_scope(socket, "all_matching"), do: all_matching_uids(socket)
-  def selected_uids_for_scope(socket, _scope), do: explicit_selected_uids(socket)
+  def selected_uids_for_scope(socket, _scope), do: {:ok, explicit_selected_uids(socket)}
 
   def validate_device_selection(socket) do
     cond do
@@ -207,26 +213,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Selection do
           not is_integer(socket.assigns.total_matching_count) ->
         {:error, "Unable to determine selection size. Please try again."}
 
-      socket.assigns.select_all_matching and socket.assigns.total_matching_count > 10_000 ->
-        {:error, "Too many devices selected. Narrow your filters and try again."}
-
       true ->
         :ok
     end
   end
 
   def validate_device_selection_for_scope(socket, "all_matching") do
-    count = socket.assigns.bulk_target_matching_count
-
-    cond do
-      not is_integer(count) ->
-        {:error, "Unable to determine selection size. Please try again."}
-
-      count > 10_000 ->
-        {:error, "Too many devices selected. Narrow your filters and try again."}
-
-      true ->
-        :ok
+    if is_integer(socket.assigns.bulk_target_matching_count) do
+      :ok
+    else
+      {:error, "Unable to determine selection size. Please try again."}
     end
   end
 

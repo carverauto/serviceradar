@@ -461,37 +461,7 @@ defmodule ServiceRadar.Inventory.Device do
         deleted_reason = input.arguments.deleted_reason
         deleted_by = actor_identifier(actor)
 
-        query =
-          __MODULE__
-          |> Ash.Query.for_read(:read, %{include_deleted: true})
-          |> Ash.Query.filter(uid in ^device_uids)
-
-        result =
-          Ash.bulk_update(
-            query,
-            :soft_delete,
-            %{
-              deleted_reason: deleted_reason,
-              deleted_by: deleted_by
-            },
-            actor: actor,
-            return_errors?: true,
-            return_records?: false
-          )
-
-        case result do
-          %Ash.BulkResult{status: :success} ->
-            :ok
-
-          %Ash.BulkResult{status: :partial_success, errors: errors} ->
-            {:error, List.first(errors) || :partial_failure}
-
-          %Ash.BulkResult{status: :error, errors: errors} ->
-            {:error, List.first(errors) || :bulk_delete_failed}
-
-          other ->
-            {:error, other}
-        end
+        bulk_soft_delete_batches(device_uids, deleted_reason, deleted_by, actor)
       end
     end
 
@@ -970,6 +940,58 @@ defmodule ServiceRadar.Inventory.Device do
                   true -> "red"
                 end
               )
+  end
+
+  # One statement's worth of uids. The action loops until every uid is deleted.
+  @bulk_soft_delete_batch 200
+
+  defp bulk_soft_delete_batches(device_uids, deleted_reason, deleted_by, actor) do
+    device_uids
+    |> Enum.chunk_every(@bulk_soft_delete_batch)
+    |> Enum.reduce_while({:ok, 0}, fn batch, {:ok, count} ->
+      case bulk_soft_delete_batch(batch, deleted_reason, deleted_by, actor) do
+        :ok -> {:cont, {:ok, count + length(batch)}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, _count} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp bulk_soft_delete_batch(device_uids, deleted_reason, deleted_by, actor) do
+    query =
+      __MODULE__
+      |> Ash.Query.for_read(:read, %{include_deleted: true})
+      |> Ash.Query.filter(uid in ^device_uids)
+
+    result =
+      Ash.bulk_update(
+        query,
+        :soft_delete,
+        %{
+          deleted_reason: deleted_reason,
+          deleted_by: deleted_by
+        },
+        actor: actor,
+        return_errors?: true,
+        return_records?: false
+      )
+
+    case result do
+      %Ash.BulkResult{status: :success} ->
+        :ok
+
+      %Ash.BulkResult{status: :partial_success, errors: errors} ->
+        {:error, List.first(errors) || :partial_failure}
+
+      %Ash.BulkResult{status: :error, errors: errors} ->
+        {:error, List.first(errors) || :bulk_delete_failed}
+
+      other ->
+        {:error, other}
+    end
   end
 
   defp actor_identifier(nil), do: nil

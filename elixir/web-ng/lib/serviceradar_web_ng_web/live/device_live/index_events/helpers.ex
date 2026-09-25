@@ -71,6 +71,34 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Helpers do
   def format_transaction_error(reason) when is_exception(reason), do: Exception.message(reason)
   def format_transaction_error(reason), do: inspect(reason)
 
+  @uid_write_batch 200
+
+  @doc """
+  How many device uids one write statement receives.
+
+  The batch is the size of one database call. Callers loop until every uid
+  in the selection has been applied.
+  """
+  def uid_write_batch, do: @uid_write_batch
+
+  @doc """
+  Apply `fun` to every uid, `uid_write_batch/0` at a time.
+
+  `fun` returns `{:ok, count}` or `:ok` for a batch. The returned count is the
+  sum across every batch.
+  """
+  def each_uid_batch(uids, fun) when is_list(uids) and is_function(fun, 1) do
+    uids
+    |> Enum.chunk_every(@uid_write_batch)
+    |> Enum.reduce_while({:ok, 0}, fn batch, {:ok, done} ->
+      case fun.(batch) do
+        {:ok, count} when is_integer(count) -> {:cont, {:ok, done + count}}
+        :ok -> {:cont, {:ok, done + length(batch)}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
   def handle_bulk_update_result(result, existing_count, requested_count) do
     case result do
       %Ash.BulkResult{status: :success} ->

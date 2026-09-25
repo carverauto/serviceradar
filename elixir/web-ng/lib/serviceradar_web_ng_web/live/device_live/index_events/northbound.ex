@@ -168,12 +168,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Northbound do
   end
 
   defp selected_device_action_targets(socket) do
-    targets =
-      socket
-      |> Selection.selected_uids()
-      |> Enum.map(&%{kind: "device", device_uid: &1})
+    case Selection.selected_uids(socket) do
+      {:ok, []} ->
+        {:error, :targets_required}
 
-    if targets == [], do: {:error, :targets_required}, else: {:ok, targets}
+      {:ok, uids} ->
+        {:ok, Enum.map(uids, &%{kind: "device", device_uid: &1})}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   defp create_northbound_invocation(socket, action, targets, input_values) do

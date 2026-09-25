@@ -52,7 +52,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkDelete do
         finish_bulk_delete(socket, count)
 
       {:error, reason} ->
-        Logger.error("Bulk device delete failed for #{inspect(uids)}: #{inspect(reason)}")
+        Logger.error("Bulk device delete failed for #{length(uids)} device(s): #{inspect(reason)}")
 
         {:noreply,
          socket
@@ -75,17 +75,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkDelete do
   end
 
   defp bulk_delete_uids(socket) do
-    case Selection.validate_device_selection(socket) do
-      {:error, _} = error ->
-        error
-
-      :ok ->
-        socket
-        |> Selection.selected_uids()
-        |> case do
-          [] -> {:error, "No devices selected"}
-          uids -> {:ok, uids}
-        end
+    with :ok <- Selection.validate_device_selection(socket),
+         {:ok, uids} <- Selection.selected_uids(socket) do
+      if uids == [], do: {:error, "No devices selected"}, else: {:ok, uids}
     end
   end
 end
