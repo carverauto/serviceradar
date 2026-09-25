@@ -392,8 +392,14 @@ defmodule ServiceRadar.Inventory.Identity.DeduplicationTest do
 
   defp unique, do: System.unique_integer([:positive])
 
-  # Documentation-range addresses (RFC 5737) and locally-administered MACs under the
-  # documentation OUI (RFC 7042). Consecutive unique integers keep one test's values distinct.
-  defp unique_ip, do: "198.51.100.#{rem(unique(), 254) + 1}"
+  # Benchmarking-range addresses (RFC 2544, 198.18.0.0/15) and locally-administered MACs
+  # under the documentation OUI (RFC 7042). A monotonic counter over a /15 keeps two devices
+  # in one test from wrapping onto the same address, and keeps this module out of the
+  # 198.51.100.0/24 block that other async tests share.
+  defp unique_ip do
+    n = System.unique_integer([:positive, :monotonic])
+    "198.#{18 + rem(div(n, 65_024), 2)}.#{rem(div(n, 254), 256)}.#{rem(n, 254) + 1}"
+  end
+
   defp laa_mac, do: "02:00:5E:00:53:" <> Base.encode16(<<rem(unique(), 256)>>)
 end
