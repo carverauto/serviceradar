@@ -1368,6 +1368,11 @@ if config_env() == :prod do
           consumer_pull_batch_size: 4,
           consumer_max_deliver: -1
         },
+        # Ad-hoc scan and MTR results; definitions shared with
+        # Config.default_streams/0. Nothing else creates these streams, so an
+        # entry missing here refuses every publish to its subject.
+        Config.scan_results_stream(),
+        Config.mtr_results_stream(),
         %{
           name: "BMP_CAUSAL",
           stream_name: "events",

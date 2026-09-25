@@ -190,6 +190,31 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     assert predictions.stream_max_age == 86_400_000_000_000
   end
 
+  # The release list replaces Config.default_streams/0 outright, and nothing
+  # but the EventWriter consumer creates these streams: a default stream left
+  # out here has no stream in a deployment, so every publish to its subject is
+  # refused. MTR_RESULTS and SCAN_RESULTS shipped that way.
+  test "prod EventWriter consumes every default EventWriter stream" do
+    prod_names = MapSet.new(read_prod_event_writer_streams(), & &1.name)
+
+    missing =
+      EventWriterConfig.default_streams()
+      |> Enum.map(& &1.name)
+      |> Enum.reject(&MapSet.member?(prod_names, &1))
+
+    assert missing == [], "release EventWriter stream list is missing #{inspect(missing)}"
+  end
+
+  test "prod EventWriter persists ad-hoc scan and MTR results from their own streams" do
+    streams = read_prod_event_writer_streams()
+
+    assert Enum.find(streams, &(&1.name == "SCAN_RESULTS")) ==
+             EventWriterConfig.scan_results_stream()
+
+    assert Enum.find(streams, &(&1.name == "MTR_RESULTS")) ==
+             EventWriterConfig.mtr_results_stream()
+  end
+
   test "prod EventWriter Falco consumer targets the provisioned events stream" do
     falco = Enum.find(read_prod_event_writer_streams(), &(&1.name == "FALCO"))
 
