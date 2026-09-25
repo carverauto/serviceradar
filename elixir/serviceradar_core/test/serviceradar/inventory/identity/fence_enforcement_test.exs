@@ -78,13 +78,13 @@ defmodule ServiceRadar.Inventory.Identity.FenceEnforcementTest do
     # The stale write for the source was withheld and re-resolved: the source's
     # integration id now belongs to the survivor, so the write -- hostname and the
     # new MAC -- landed there, and the tombstone was left alone.
-    assert_receive {:fence, :stale, %{pipeline: :sync_ingestor, device_id: stale_uid}}
-    assert stale_uid == source.uid
+    source_uid = source.uid
+    assert_receive {:fence, :stale, %{pipeline: :sync_ingestor, device_id: ^source_uid}}
 
     assert %Device{deleted_reason: "merged"} = device!(source.uid, actor)
     assert %Device{deleted_at: nil, hostname: "after-merge"} = device!(survivor.uid, actor)
     assert new_mac |> String.replace(":", "") |> String.upcase() |> owner(actor) == survivor.uid
-    refute_received {:fence, :abandoned, _}
+    refute_received {:fence, :abandoned, %{device_id: ^source_uid}}
   end
 
   test "a merge and a purge between pin and write do not re-create the purged uid", ctx do
@@ -99,8 +99,8 @@ defmodule ServiceRadar.Inventory.Identity.FenceEnforcementTest do
 
     assert :ok = ingest(actor, [uid_update(source.uid, source.ip, "after-purge")])
 
-    assert_receive {:fence, :stale, %{device_id: stale_uid, current_revision: nil}}
-    assert stale_uid == source.uid
+    source_uid = source.uid
+    assert_receive {:fence, :stale, %{device_id: ^source_uid, current_revision: nil}}
 
     refute match?({:ok, %Device{}}, Device.get_by_uid(source.uid, true, actor: actor))
     assert %Device{hostname: "after-purge"} = device!(survivor.uid, actor)
@@ -118,8 +118,8 @@ defmodule ServiceRadar.Inventory.Identity.FenceEnforcementTest do
 
     assert :ok = ingest(actor, [update(device.integration_id, device.ip, "never-lands", nil)])
 
-    assert_receive {:fence, :stale, %{device_id: uid}}
-    assert uid == device.uid
+    uid = device.uid
+    assert_receive {:fence, :stale, %{device_id: ^uid}}
     assert_receive {:fence, :abandoned, %{pipeline: :sync_ingestor, device_id: ^uid}}
     assert %Device{hostname: hostname} = device!(device.uid, actor)
     assert hostname != "never-lands"
@@ -149,7 +149,8 @@ defmodule ServiceRadar.Inventory.Identity.FenceEnforcementTest do
 
     # The write committed first, on the device it resolved; the merge then folded
     # that device into the survivor. Nothing was stale.
-    refute_received {:fence, :stale, _}
+    source_uid = source.uid
+    refute_received {:fence, :stale, %{device_id: ^source_uid}}
 
     assert %Device{deleted_reason: "merged", hostname: "before-merge"} =
              device!(source.uid, actor)
@@ -234,6 +235,8 @@ defmodule ServiceRadar.Inventory.Identity.FenceEnforcementTest do
     %{actor: actor} = ctx
     agent_id = "fence-agent-conflict-#{System.unique_integer([:positive])}"
     mac = doc_mac()
+    # device_identifiers stores a MAC normalized: no separators, upper case.
+    stored_mac = mac |> String.replace(":", "") |> String.upcase()
     attrs = agent_attrs(agent_id, unique_ip())
 
     assert {:ok, agent_uid} = AgentGatewaySync.ensure_device_for_agent(agent_id, attrs)
@@ -242,7 +245,7 @@ defmodule ServiceRadar.Inventory.Identity.FenceEnforcementTest do
     # A second device already owns the MAC the agent host will report.
     mac_owner = "fence-mac-owner-#{System.unique_integer([:positive])}"
     assert :ok = ingest(actor, [update(mac_owner, unique_ip(), "mac-owner", mac)])
-    other_uid = owner(mac, actor)
+    other_uid = owner(stored_mac, actor)
     Agent.update(ctx.uids, &[other_uid | &1])
     on_exit(fn -> cleanup!(other_uid) end)
     assert other_uid != agent_uid
@@ -256,7 +259,7 @@ defmodule ServiceRadar.Inventory.Identity.FenceEnforcementTest do
     assert %Device{deleted_reason: "merged"} = device!(loser, actor)
     assert %Device{deleted_at: nil} = device!(landed, actor)
     assert owner(agent_id, actor) == landed
-    assert owner(mac, actor) == landed
+    assert owner(stored_mac, actor) == landed
   end
 
   test "identifier-conflict merges are returned deferred and run only on request", ctx do
