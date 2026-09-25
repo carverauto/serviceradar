@@ -264,8 +264,19 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerUnmergeTest do
 
   defp unique(prefix), do: "#{prefix}-#{System.unique_integer([:positive])}"
 
-  # Documentation-range MAC (00:00:5E:00:53:xx), normalized as stored.
-  defp doc_mac, do: "00005E0053" <> mac_suffix()
+  # Invented MAC in the IANA 00:00:5E block, normalized as stored. Every value is
+  # unique for the VM and stays clear of the 00:00:5E:00:53:xx addresses other
+  # suites hard-code, so it cannot collide with a row committed by a concurrent test.
+  defp doc_mac do
+    suffix =
+      [:positive]
+      |> System.unique_integer()
+      |> rem(0x100000)
+      |> Kernel.+(0xF00000)
+      |> Integer.to_string(16)
+
+    "00005E" <> suffix
+  end
 
   defp mac_suffix do
     [:positive]
