@@ -22,6 +22,7 @@ tests:
   - it: does not deploy the collector when flowCollector.enabled is false
     set:
       analytics.starrocks.enabled: true
+      analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
       flowCollector.enabled: false
     asserts:
       - hasDocuments:
@@ -30,6 +31,7 @@ tests:
     set:
       flowCollector.enabled: true
       analytics.starrocks.enabled: true
+      analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
     documentSelector:
       path: kind
       value: Deployment

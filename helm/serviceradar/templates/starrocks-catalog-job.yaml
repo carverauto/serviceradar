@@ -43,6 +43,10 @@ spec:
           args:
             - |
               set -eu
+              # Never fall back to a passwordless root login.
+              : "${FE_PASSWORD:?FE_PASSWORD is empty; the StarRocks Frontend password Secret has no value}"
+              # The mysql client reads MYSQL_PWD, so the password never appears in argv.
+              export MYSQL_PWD="$FE_PASSWORD"
               if [ -z "${CATALOG_SQL:-}" ]; then
                 case "$READER_PASSWORD$READER_USER" in
                   *'"'*|*'\'*)
@@ -53,7 +57,6 @@ spec:
                 CATALOG_SQL="DROP CATALOG IF EXISTS ${CATALOG_NAME}; CREATE EXTERNAL CATALOG ${CATALOG_NAME} PROPERTIES (\"type\" = \"jdbc\", \"user\" = \"${READER_USER}\", \"password\" = \"${READER_PASSWORD}\", \"jdbc_uri\" = \"${JDBC_URI}\", \"driver_class\" = \"${DRIVER_CLASS}\", \"driver_url\" = \"${DRIVER_URL}\");"
               fi
               mysql -h "$FE_HOST" -P "$FE_PORT" -u root \
-                ${FE_PASSWORD:+-p"$FE_PASSWORD"} \
                 --protocol=TCP \
                 -e "$CATALOG_SQL"
           env:
@@ -87,11 +90,9 @@ spec:
                   name: {{ include "serviceradar.starrocks.readerSecretName" . | quote }}
                   key: password
             {{- end }}
-            {{- if $cat.fePasswordSecretName }}
             - name: FE_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ $cat.fePasswordSecretName | quote }}
-                  key: {{ $cat.fePasswordSecretKey | default "password" | quote }}
-            {{- end }}
+                  name: {{ include "serviceradar.starrocksFePasswordSecretName" . | quote }}
+                  key: {{ include "serviceradar.starrocksFePasswordSecretKey" . | quote }}
 {{- end }}

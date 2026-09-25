@@ -9,6 +9,10 @@
 # (keys access_key_id / secret_access_key). The FE config does not embed
 # them; helm/serviceradar CREATE STORAGE VOLUME job reads the secret.
 #
+# initPassword is inherited from values-cluster.yaml (always layer both files):
+# the CN pods receive the same MYSQL_PWD as FE/BE, so the root-password Secret
+# must exist before the install and equal the live root password.
+#
 # run_mode cannot change on an existing cluster. Recreate starrocks-lab:
 #   helm uninstall starrocks-lab -n starrocks
 #   kubectl -n starrocks delete pvc -l app.starrocks.io/role=fe

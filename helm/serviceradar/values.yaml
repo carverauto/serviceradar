@@ -2773,10 +2773,19 @@ analytics:
       jdbcUri: "jdbc:postgresql://cnpg-rw:5432/serviceradar?ssl=true&sslmode=require"
       # Namespace that hosts the StarRocksCluster FE/BE (lab: starrocks).
       sourceNamespace: starrocks
-      # Secret holding the StarRocks Frontend password. Both provisioning Jobs
-      # and the application (Stream Load + the MyXQL reader) authenticate as
-      # that same `root` account, so this is the single source of truth for it.
-      # Leave empty for a passwordless Frontend.
+      # Secret, in the release namespace, holding the StarRocks Frontend `root`
+      # password under fePasswordSecretKey. Both provisioning Jobs and the
+      # application (Stream Load + the MyXQL reader) authenticate as that same
+      # account, so this is the single source of truth for it on this side.
+      #
+      # REQUIRED whenever analytics.starrocks.enabled is true: the chart fails
+      # to render without it, and there is no setting that allows a
+      # passwordless Frontend. The value must be identical to the StarRocks
+      # operator's initPassword Secret in the StarRocks namespace -- the FE,
+      # BE and CN pods re-register with the Frontend using that one, so the
+      # two Secrets and the live root password have to stay equal. Creating
+      # both, and converting an installation that already runs passwordless,
+      # is "Frontend root password" in k8s/starrocks/README.md.
       fePasswordSecretName: ""
       fePasswordSecretKey: password
 

@@ -87,6 +87,9 @@ The default stack does **not** start StarRocks or the NetFlow collector, and
 all telemetry stays on CNPG hypertables. Optional profiles:
 
 ```bash
+# Every StarRocks command below needs STARROCKS_ROOT_PASSWORD in .env first;
+# see "StarRocks root password".
+
 # Warehouse only (metrics/logs/events shadow). No flow collector.
 STARROCKS_ENABLED=true docker compose --profile starrocks up -d
 
@@ -105,13 +108,62 @@ Reading those flows back is warehouse-only -- until `flows` is listed in
 with a warehouse-required error instead of being answered from CNPG. See
 [NetFlow](docs/docs/netflow.md) for the full flow path.
 
-`--profile starrocks` also runs a one-shot `starrocks-init` container that
-creates the warehouse database and tables once the frontend and backend are up.
-Compose runs a single backend, so it rewrites the replica count the clustered
-DDL pins. Re-running the profile is safe: every statement is
-`CREATE ... IF NOT EXISTS` except the flow rollup view, which is dropped and
-recreated each time so a warehouse built before sampling-weighted totals is
-corrected.
+There is no separate schema container: core creates and upgrades the
+warehouse schema itself at startup, sizing replication to the single backend
+Compose runs, and retries with backoff until the warehouse accepts it.
+
+### StarRocks root password
+
+The warehouse's Frontend `root` account is never left passwordless.
+`--profile starrocks` needs `STARROCKS_ROOT_PASSWORD` in `.env`; without it the
+`serviceradar-starrocks` container logs
+`STARROCKS_ROOT_PASSWORD is not set; refusing to start StarRocks with a
+passwordless root account` and exits. Generate the value once:
+
+```bash
+openssl rand -hex 32
+```
+
+and paste it after `STARROCKS_ROOT_PASSWORD=` in `.env` (letters, digits and
+`. _ ~ + = / -` only). Keep `.env` private (`chmod 600 .env`).
+
+On start the container sets that password if `root` still has none, and
+otherwise checks that it already matches. core and web-ng receive the same
+variable as `SERVICERADAR_STARROCKS_PASSWORD`. The image's own start-up script
+logs in as `root` with `MYSQL_PWD` to register its backend on every start, so
+the container exports the variable as `MYSQL_PWD` too. The very first start --
+or the first after adding a password to a warehouse that ran without one --
+can restart the container once while the password is being set; that is
+expected. Adding a password to an existing passwordless warehouse is only
+setting the variable and running the `up` command above again: the data volume
+is kept.
+
+The ports 8030, 9030 and 8040 are published on `127.0.0.1` only. Set
+`STARROCKS_PUBLIC_BIND` to publish them on another interface; the stack does
+not need that, since every client reaches the warehouse over the Compose
+network.
+
+To change the password later, change the live password FIRST, then the
+variable, then recreate every container that uses it together. The running
+container still holds the old password, so it can log in:
+
+```bash
+# 1. New value into a private file, never onto a command line.
+( umask 077; openssl rand -hex 32 > starrocks-root-password.new )
+# 2. Set it on the Frontend (SQL on stdin; printf is a shell builtin).
+#    The container's STARROCKS_ROOT_PASSWORD still holds the old value.
+printf "SET PASSWORD = PASSWORD('%s');\n" "$(cat starrocks-root-password.new)" \
+  | docker exec -i serviceradar-starrocks sh -c \
+      'MYSQL_PWD="$STARROCKS_ROOT_PASSWORD" exec mysql -h 127.0.0.1 -P 9030 -u root'
+# 3. Put the same value in .env as STARROCKS_ROOT_PASSWORD, then:
+docker compose --profile starrocks up -d --force-recreate starrocks core-elx web-ng
+rm starrocks-root-password.new
+```
+
+If `.env` and the live password ever disagree, the starrocks container logs
+`StarRocks root password differs from STARROCKS_ROOT_PASSWORD` and the image
+then shuts down with `Password error, stop retrying!`. Put the live value back
+in `.env`; do not delete the data volume.
 
 StarRocks telemetry retention is set per dataset. The warehouse tables are
 partitioned by day, so each `STARROCKS_RETENTION_DAYS_*` value is the number of

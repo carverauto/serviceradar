@@ -37,10 +37,13 @@ spec:
           args:
             - |
               set -eu
+              # Never fall back to a passwordless root login.
+              : "${FE_PASSWORD:?FE_PASSWORD is empty; the StarRocks Frontend password Secret has no value}"
+              # The mysql client reads MYSQL_PWD, so the password never appears in argv.
+              export MYSQL_PWD="$FE_PASSWORD"
               i=0
               while [ "$i" -lt 36 ]; do
                 if mysql -h "$FE_HOST" -P "$FE_PORT" -u root \
-                  ${FE_PASSWORD:+-p"$FE_PASSWORD"} \
                   --protocol=TCP -e "SELECT 1" >/dev/null 2>&1; then
                   break
                 fi
@@ -80,7 +83,6 @@ spec:
                 echo "SET linode_analytics AS DEFAULT STORAGE VOLUME;"
               } > /tmp/sv.sql
               mysql -h "$FE_HOST" -P "$FE_PORT" -u root \
-                ${FE_PASSWORD:+-p"$FE_PASSWORD"} \
                 --protocol=TCP \
                 < /tmp/sv.sql
           env:
@@ -108,12 +110,9 @@ spec:
                 secretKeyRef:
                   name: {{ $sd.secretName | quote }}
                   key: {{ default "secret_access_key" $sd.secretKeyKey | quote }}
-            {{- $cat := default (dict) $sr.catalog -}}
-            {{- if $cat.fePasswordSecretName }}
             - name: FE_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ $cat.fePasswordSecretName | quote }}
-                  key: {{ $cat.fePasswordSecretKey | default "password" | quote }}
-            {{- end }}
+                  name: {{ include "serviceradar.starrocksFePasswordSecretName" . | quote }}
+                  key: {{ include "serviceradar.starrocksFePasswordSecretKey" . | quote }}
 {{- end }}

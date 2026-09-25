@@ -9,6 +9,7 @@ tests:
   - it: fails closed when sharedData is selected without a bucket
     set:
       analytics.starrocks.enabled: true
+      analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
       analytics.starrocks.profile: sharedData
     asserts:
       - failedTemplate:
@@ -16,6 +17,7 @@ tests:
   - it: renders a hook job that reads the analytics object-store secret
     set:
       analytics.starrocks.enabled: true
+      analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
       analytics.starrocks.profile: sharedData
       analytics.starrocks.sharedData.secretName: serviceradar-analytics-object-store
       analytics.starrocks.sharedData.objectStorageBucket: serviceradar-demo-analytics
