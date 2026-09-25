@@ -549,11 +549,11 @@ defmodule ServiceRadar.Inventory.Identity.Registrar do
 
       _ ->
         canonical_id = Resolver.select_canonical_device_id(device_id, matches, actor)
-        resolve_conflicts_for_canonical(device_id, canonical_id, device_ids, matches, actor)
+        resolve_conflicts_for_canonical(device_id, canonical_id, device_ids, matches)
     end
   end
 
-  defp resolve_conflicts_for_canonical(device_id, canonical_id, device_ids, matches, actor) do
+  defp resolve_conflicts_for_canonical(device_id, canonical_id, device_ids, matches) do
     if MergePolicy.merge_allowed_for_matches?(matches) do
       {canonical_id, [{:conflicts, canonical_id, device_ids, matches}]}
     else
