@@ -148,6 +148,7 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsDbTest do
       |> Ash.read_one(actor: actor)
 
     expected_spec = Enum.find(SystemReports.dashboard_specs(), &(&1.slug == new_devices_slug))
+
     assert length(after_seed.panels) == length(expected_spec.panels),
            "seed_all must complete a dashboard that exists with no panels"
 
