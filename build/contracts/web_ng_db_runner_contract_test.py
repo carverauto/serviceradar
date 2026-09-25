@@ -16,6 +16,7 @@ SHARED_FIXTURE_SOURCES = {
     "test/phoenix/controllers/api/api_rate_limit_test.exs",
     "test/phoenix/controllers/api/configuration_authentication_db_test.exs",
     "test/phoenix/controllers/api/configuration_lifecycle_db_test.exs",
+    "test/phoenix/controllers/dashboard_package_read_controller_test.exs",
     "test/phoenix/live/alert_live/show_test.exs",
     "test/phoenix/live/authored_dashboard_live_test.exs",
     "test/phoenix/live/camera_analysis_worker_live_test.exs",
