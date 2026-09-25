@@ -78,14 +78,27 @@ a match: that is how an Armis id attaches to the discovered record of the same
 device.
 
 An address follows the device observed at it. When a strong-identified write
-lands on an address that a different live device still holds (DHCP moved the
-address), the incoming device takes it and the stale holder releases it: its
-IP is cleared in the same transaction and it stays live. The decision is
-recorded as an open `active_ip_conflict` source-identity conflict. Two exceptions
-keep the holder's uid instead: an anchorless provisional seed at the address is
-adopted, and a holder whose hostname agrees is adopted. When the holder's own
-record in the same batch also claims the address, neither observation is
-fresher, so the holder keeps it and the incoming record drops it.
+that observed the device at its address (Armis, the passive census,
+mapper/SNMP discovery, an agent's self-report; see
+`SourcePolicy.observed_address_source?/1`) lands on an address that a different
+live device still holds (DHCP moved the address), the incoming device takes it
+and the stale holder releases it: its IP is cleared in the same transaction and
+it stays live. The decision is recorded as an open `active_ip_conflict`
+source-identity conflict (proposed action
+`preserve_source_identity_release_stale_ip`).
+
+The holder keeps the address, and the incoming record drops it, in these cases
+(the conflict is still recorded, with proposed action
+`preserve_source_identity_drop_conflicting_ip`):
+
+- the write comes from a declarative inventory (AWX, NetBox, Proxmox,
+  hypervisor enrichment, generic integrations), whose address is configuration
+  that can lag the network rather than a sighting;
+- another record in the same batch, the holder's own or a second incoming one,
+  also claims the address: neither observation is fresher.
+
+Two further cases adopt the holder's uid instead of moving the address: an
+anchorless provisional seed at the address, and a holder whose hostname agrees.
 
 Merged-away device IDs are never resurrected: resolution follows the
 `merge_audit` canonical mapping to the survivor (`Identity.Resolver` /
