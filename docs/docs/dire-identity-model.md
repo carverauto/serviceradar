@@ -129,8 +129,14 @@ the MACs identify.
 - An existing device moves to the polled address only when its recorded
   address is not one its interfaces still report, so a router polled at its
   WAN and LAN addresses keeps one address.
-- Only a poll that reports no interface MAC falls back to the address: the
-  live holder, then a confirmed alias, then an address-seeded device.
+- Only globally-unique MACs identify a device. A poll that reports no
+  globally-unique interface MAC, whether it has none or only randomized ones,
+  falls back to the address: the live holder, then a confirmed alias, then an
+  address-seeded device.
+- A poll never revives a device an operator deleted, or one a merge
+  tombstoned. A device an automatic process deleted (a `system:` actor) is
+  restored through the audited `:restore` action, which bumps the identity
+  revision and records the revival.
 
 ## Merge policy and stability
 

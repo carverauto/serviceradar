@@ -295,16 +295,20 @@ AgentObserve(h, x) ==
     /\ \E ra \in BOOLEAN : Resolve(h, x, {AgentOf[h]} \cup MacsOf(h), ra, "guard", "Agent", {}, {})
 
 \* Mapper/SNMP discovery polled at interface x's address, reporting every interface MAC and
-\* address (MapperResultsIngestor.resolve_device_ids/2). The reported MACs resolve the device
-\* through the Resolver, which runs AliasGuard at the polled address, and they become the
-\* result's interface claims; the address is evidence only. A new device is written at the
-\* polled address; an existing one keeps an address it still reports.
+\* address (MapperResultsIngestor.resolve_device_ids/2). The reported globally-unique MACs
+\* resolve the device through the Resolver, which runs AliasGuard at the polled address, and
+\* they become the result's interface claims; the address is evidence only. A new device is
+\* written at the polled address; an existing one keeps an address it still reports. A
+\* randomized MAC never identifies a device: a poll reporting no globally-unique MAC has only
+\* the address to go on, like a sweep, and claims no interface.
 OwnIps(h) == {ipAt[y] : y \in {z \in Ifaces : IfPhys[z] = h}} \ {NoIp}
 
 MapperObserve(h, x) ==
+    LET ids == MacsOf(h) \cap HwIds IN
     /\ IfPhys[x] = h /\ ipAt[x] # NoIp /\ MacsOf(h) # {}
-    /\ \E ra \in BOOLEAN :
-         Resolve(h, x, MacsOf(h), ra, "guard", "Discovery", MacsOf(h), OwnIps(h))
+    /\ IF ids # {}
+       THEN \E ra \in BOOLEAN : Resolve(h, x, ids, ra, "guard", "Discovery", ids, OwnIps(h))
+       ELSE Resolve(h, x, {}, FALSE, "none", "Discovery", {}, {})
 
 \* Sweep: an address answered. SweepResultsIngestor attaches it to the live holder or alias
 \* holder of the address, and otherwise creates a provisional record seeded from the address

@@ -183,10 +183,15 @@ defmodule ServiceRadar.DireTrace do
     end)
   end
 
-  @doc "Mapper/SNMP discovery of `h` polled at interface `x`'s address: every interface MAC."
+  @doc """
+  Mapper/SNMP discovery of `h` polled at interface `x`'s address: every interface's address,
+  and the globally-unique MACs. A randomized MAC never identifies a device, so it is not
+  reported.
+  """
   def discovery(trace, h, x) do
     ip = real_ip!(trace, x)
     ts = DateTime.to_iso8601(DateTime.utc_now())
+    hw_macs = trace.world.hw_ids
 
     records =
       trace.world.ifaces
@@ -202,13 +207,13 @@ defmodule ServiceRadar.DireTrace do
           "device_ip" => ip,
           "if_index" => index,
           "if_name" => "eth#{index}",
-          "if_phys_address" => trace.real.mac[iface.mac],
+          "if_phys_address" => if(iface.mac in hw_macs, do: trace.real.mac[iface.mac]),
           "ip_addresses" => own_ip,
           "timestamp" => ts
         }
       end)
 
-    step(trace, "Discovery", h, x, macs_of(trace, h), fn ->
+    step(trace, "Discovery", h, x, Enum.filter(macs_of(trace, h), &(&1 in hw_macs)), fn ->
       assert :ok = MapperResultsIngestor.ingest_interfaces(Jason.encode!(records), %{})
     end)
   end

@@ -16,6 +16,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.InterfaceMacs
+  alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.Inventory.InterfaceClassifier
@@ -1733,22 +1734,66 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp write_polled_devices([], _records, _holders, _actor), do: []
 
   defp write_polled_devices(polled, records, holders, actor) do
-    live = live_devices_by_uid(Enum.map(polled, & &1.uid), actor)
-    {existing, new} = Enum.split_with(polled, &Map.has_key?(live, &1.uid))
+    devices = devices_by_uid(Enum.map(polled, & &1.uid), actor)
 
-    Enum.each(existing, fn device ->
-      maybe_move_device_address(device, Map.fetch!(live, device.uid), records, actor)
+    {existing, new} =
+      polled
+      |> Enum.flat_map(&polled_device_state(&1, Map.get(devices, &1.uid), actor))
+      |> Enum.split_with(&match?({:existing, _polled, _device}, &1))
+
+    Enum.each(existing, fn {:existing, entry, device} ->
+      maybe_move_device_address(entry, device, records, actor)
     end)
 
     context = Map.merge(holders, Map.new(polled, &{&1.device_ip, &1.uid}))
-    existing ++ create_polled_devices(new, records, context, actor)
+    kept = Enum.map(existing, fn {:existing, entry, _device} -> entry end)
+    created = create_polled_devices(Enum.map(new, &elem(&1, 1)), records, context, actor)
+    kept ++ created
   end
 
-  defp live_devices_by_uid(uids, actor) do
+  defp devices_by_uid(uids, actor) do
     Device
+    |> Ash.Query.for_read(:read, %{include_deleted: true})
     |> Ash.Query.filter(uid in ^Enum.uniq(uids))
     |> Page.stream!(actor: actor)
     |> Map.new(&{&1.uid, &1})
+  end
+
+  # What a resolved uid is: a device to write, an existing one to keep, or a tombstone. A
+  # poll never revives a device an operator deleted, and never one a merge tombstoned (the
+  # Resolver has already followed the merge). A device an automatic process deleted (a reaper
+  # or a remediation, identified by a `system:` actor) came back online, so it is restored
+  # through the audited `:restore` action rather than the raw upsert, which would clear the
+  # tombstone without a trace.
+  defp polled_device_state(polled, nil, _actor), do: [{:new, polled}]
+
+  defp polled_device_state(polled, %Device{deleted_at: nil} = device, _actor),
+    do: [{:existing, polled, device}]
+
+  defp polled_device_state(
+         polled,
+         %Device{deleted_reason: reason, deleted_by: "system:" <> _} = device,
+         actor
+       )
+       when reason != "merged" do
+    case Device.restore(device, actor: actor) do
+      {:ok, restored} ->
+        Logger.info("Mapper restored device #{device.uid} deleted by #{device.deleted_by}")
+        [{:existing, polled, restored}]
+
+      {:error, error} ->
+        Logger.warning("Mapper could not restore device #{device.uid}: #{inspect(error)}")
+        []
+    end
+  end
+
+  defp polled_device_state(polled, %Device{} = device, _actor) do
+    Logger.info(
+      "Mapper left device #{device.uid} deleted (reason #{inspect(device.deleted_reason)}, " <>
+        "by #{inspect(device.deleted_by)}); its poll at #{polled.device_ip} is not attached"
+    )
+
+    []
   end
 
   # A new device is written through the same strong-identifier device write the sync path uses
@@ -2132,15 +2177,16 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
 
   # Deterministically ordered MAC evidence for a polled device: physical and
   # aggregate interfaces only (loopback/virtual/bridge/tunnel and VRRP
-  # interfaces are not identity evidence). The sorted-first entry is the primary
-  # identity seed, matching the historical deterministic-uid derivation.
+  # interfaces are not identity evidence), and only globally-unique MACs: a
+  # locally administered (randomized or virtual) MAC never identifies a device.
+  # The sorted-first entry is the primary identity seed, matching the historical
+  # deterministic-uid derivation.
   defp derive_identity_macs(device_ip, records) do
     records
     |> Enum.filter(&(&1.device_ip == device_ip))
     |> Enum.filter(&primary_identity_interface?/1)
-    |> Enum.map(&normalize_mac(&1.if_phys_address))
-    |> Enum.reject(&is_nil/1)
-    |> Enum.uniq()
+    |> Enum.map(& &1.if_phys_address)
+    |> Mac.universal_macs()
     |> Enum.sort()
   end
 
