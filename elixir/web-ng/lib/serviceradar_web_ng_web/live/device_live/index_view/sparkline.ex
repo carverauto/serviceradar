@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Sparkline do
     assigns =
       assigns
       |> assign(:points, points)
+      |> assign(:sparse, Map.get(assigns.spark, :sparse, false) or stroke_path == "")
       |> assign(:latest_ms, Map.get(assigns.spark, :latest_ms, 0.0))
       |> assign(:tone, Map.get(assigns.spark, :tone, "success"))
       |> assign(:title, Map.get(assigns.spark, :title))
@@ -20,8 +21,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Sparkline do
       |> assign(:spark_id, "spark-#{:erlang.phash2(Map.get(assigns.spark, :title, ""))}")
 
     ~H"""
-    <div class="flex items-center gap-2">
-      <div class="h-8 w-20 rounded-md bg-sr-subtle/30 px-1 py-0.5 overflow-hidden">
+    <div class="flex items-center gap-2" title={@title || "ICMP latency"}>
+      <div :if={!@sparse} class="h-8 w-20 rounded-md bg-sr-subtle/30 px-1 py-0.5 overflow-hidden">
         <svg viewBox="0 0 400 120" class="w-full h-full" preserveAspectRatio="none">
           <title>{@title || "ICMP latency"}</title>
           <defs>
@@ -65,14 +66,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Sparkline do
     values = Enum.filter(values, &is_number/1)
 
     case {values, Enum.min(values, fn -> 0 end), Enum.max(values, fn -> 0 end)} do
-      {[], _, _} ->
-        {"", ""}
-
-      {[_single], _, _} ->
-        # Single point - just draw a small line
-        {"M 200,60 L 200,60", ""}
-
-      {_values, min_v, max_v} ->
+      {[_first, _second | _], min_v, max_v} ->
         # Normalize values to coordinates
         range = if max_v == min_v, do: 1.0, else: max_v - min_v
         len = length(values)
@@ -89,6 +83,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Sparkline do
         stroke_path = monotone_curve_path(coords)
         area_path = monotone_area_path(coords)
         {stroke_path, area_path}
+
+      _ ->
+        {"", ""}
     end
   end
 
