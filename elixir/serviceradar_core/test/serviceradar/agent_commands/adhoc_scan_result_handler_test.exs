@@ -32,13 +32,13 @@ defmodule ServiceRadar.AgentCommands.AdhocScanResultHandlerTest do
 
     subject = "scans.results.#{@scan_run_id}"
 
-    assert_received {:published, ^subject, first, []}
+    assert_received {:published, ^subject, first, [timeout: 1_500]}
     assert first["scan_run_id"] == @scan_run_id
     assert first["target_ip"] == "192.0.2.10"
     assert first["agent_id"] == "agent-01"
     assert first["gateway_id"] == "gateway-01"
 
-    assert_received {:published, ^subject, second, []}
+    assert_received {:published, ^subject, second, [timeout: 1_500]}
     assert second["agent_id"] == "agent-02"
     assert second["target_ip"] == "192.0.2.11"
   end

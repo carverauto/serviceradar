@@ -6,11 +6,12 @@ defmodule ServiceRadar.EventWriter.Processors.Mtr do
   trace for scheduled checks, on-demand runs and bulk jobs, and
   `ServiceRadar.EventWriter.Processors.AdhocScan` hands over the traces of
   ad-hoc scans. This module is the only writer of MTR traces and hops, and
-  stores them in exactly one backend (`store/3`):
+  stores them in exactly one backend (`persist_all/2`):
 
     * StarRocks enabled (`analytics.starrocks.enabled`): the warehouse tables
-      `mtr_traces` and `mtr_hops`, and nothing in CNPG. A failed load is an
-      error, so JetStream redelivers; it never falls back to CNPG.
+      `mtr_traces` and `mtr_hops`, and nothing in CNPG. A batch is one Stream
+      Load per table, traces first. A failed load is an error for the whole
+      batch, so JetStream redelivers; it never falls back to CNPG.
     * StarRocks disabled: CNPG, through
       `ServiceRadar.Observability.MtrMetricsIngestor`.
 
@@ -18,7 +19,7 @@ defmodule ServiceRadar.EventWriter.Processors.Mtr do
   then project the traces into the graph (`MtrGraph.project_traces/2`). A
   stored trace is announced on `ServiceRadar.Observability.MtrPubSub` when the
   message asks for that, so a page waiting on the trace refreshes after it is
-  stored rather than before.
+  stored rather than before. In the warehouse that means after both loads.
 
   Every message carries a `trace_uuid`, and a hop's id is derived from it and
   the hop's position. CNPG skips traces already stored under their id; the
@@ -26,10 +27,9 @@ defmodule ServiceRadar.EventWriter.Processors.Mtr do
   way a batch that failed part way and is redelivered does not duplicate the
   traces that did land.
 
-  Every message in a batch is attempted. A result that can never be stored
-  (`:missing_target_ip`, `:invalid_payload`) is logged and dropped, since
-  redelivery cannot fix it. Any other failure is returned after the whole batch
-  ran, so JetStream redelivers.
+  A result that can never be stored (`:missing_target_ip`, `:invalid_payload`)
+  is logged and dropped, since redelivery cannot fix it; the rest of the batch
+  is still stored. Any other failure is returned, so JetStream redelivers.
   """
 
   @behaviour ServiceRadar.EventWriter.Processor
@@ -63,16 +63,34 @@ defmodule ServiceRadar.EventWriter.Processors.Mtr do
   end
 
   @doc """
-  Persists parsed results one at a time (see `persist/2`).
+  Persists parsed results (`%{payload:, status:, broadcast:}`) in the active
+  telemetry backend and projects them into the graph.
 
-  Returns `:ok` when each was stored or can never be, otherwise the first
-  other failure, after every result was attempted.
+  With StarRocks enabled the batch is loaded with one Stream Load for its
+  traces and one for its hops; with it disabled each result is written to CNPG
+  on its own. Returns `:ok` when each result was stored or can never be,
+  otherwise the first other failure. A warehouse load failure fails the whole
+  batch, and nothing is projected or announced.
+
+  Options (tests):
+
+    * `:starrocks_enabled` - the backend switch; defaults to
+      `Destination.enabled?/0`
+    * `:ingest` - the CNPG writer, `(payload, status, opts -> :ok | {:error, term})`
+    * `:rows` - the row builder, `(payload, status -> {:ok, built} | {:error, term})`
+    * `:load` - the warehouse loader, `(dataset, rows -> {:ok, map} | {:error, term})`
+    * `:project` - the graph projection, `(results, status -> term)`
+    * `:broadcast` - the announcement, `(map -> term)`
   """
   @spec persist_all([map()], keyword()) :: :ok | {:error, term()}
   def persist_all(parsed, opts \\ []) when is_list(parsed) do
-    parsed
-    |> Enum.map(&(&1 |> persist(opts) |> classify()))
-    |> Enum.find(:ok, &match?({:error, _}, &1))
+    if Keyword.get_lazy(opts, :starrocks_enabled, &Destination.enabled?/0) do
+      persist_warehouse(parsed, opts)
+    else
+      parsed
+      |> Enum.map(&(&1 |> persist_cnpg(opts) |> classify()))
+      |> Enum.find(:ok, &match?({:error, _}, &1))
+    end
   end
 
   defp classify(:ok), do: :ok
@@ -106,9 +124,10 @@ defmodule ServiceRadar.EventWriter.Processors.Mtr do
 
   def parse_message(_message), do: nil
 
-  @doc false
-  def persist(%{payload: payload, status: status} = parsed, opts \\ []) do
-    case store(payload, status, opts) do
+  defp persist_cnpg(%{payload: payload, status: status} = parsed, opts) do
+    ingest = Keyword.get(opts, :ingest, &MtrMetricsIngestor.ingest/3)
+
+    case ingest.(payload, status, skip_existing: true) do
       :ok ->
         announce(Map.get(parsed, :broadcast), opts)
         :ok
@@ -119,47 +138,42 @@ defmodule ServiceRadar.EventWriter.Processors.Mtr do
     end
   end
 
-  @doc """
-  Stores one ingest payload (`%{"results" => [...]}` or a single result) in
-  the active telemetry backend and projects it into the graph.
-
-  Options (tests):
-
-    * `:starrocks_enabled` - the backend switch; defaults to
-      `Destination.enabled?/0`
-    * `:ingest` - the CNPG writer, `(payload, status, opts -> :ok | {:error, term})`
-    * `:rows` - the row builder, `(payload, status -> {:ok, built} | {:error, term})`
-    * `:load` - the warehouse loader, `(dataset, rows -> {:ok, map} | {:error, term})`
-    * `:project` - the graph projection, `(results, status -> term)`
-  """
-  @spec store(map() | list(), map(), keyword()) :: :ok | {:error, term()}
-  def store(payload, status, opts \\ []) do
-    if Keyword.get_lazy(opts, :starrocks_enabled, &Destination.enabled?/0) do
-      store_warehouse(payload, status, opts)
-    else
-      ingest = Keyword.get(opts, :ingest, &MtrMetricsIngestor.ingest/3)
-      ingest.(payload, status, skip_existing: true)
-    end
-  end
-
-  # Traces load before their hops. A hop load that fails leaves the traces in
-  # place; the redelivery upserts them again with the same keys and then loads
-  # the hops.
-  defp store_warehouse(payload, status, opts) do
+  # Results that can never be stored are dropped one by one. The rest are
+  # loaded together, traces before hops. A hop load that fails leaves the
+  # traces in place; the redelivery upserts them again with the same keys and
+  # then loads the hops.
+  defp persist_warehouse(parsed, opts) do
     build = Keyword.get(opts, :rows, &MtrMetricsIngestor.rows/2)
     load = Keyword.get(opts, :load, &Destination.persist_warehouse/2)
-    project = Keyword.get(opts, :project, &MtrGraph.project_traces/2)
 
-    with {:ok, %{results: results, traces: traces, hops: hops}} <- build.(payload, status),
-         {:ok, _loaded} <- load.(:mtr_traces, traces),
-         {:ok, _loaded} <- load.(:mtr_hops, hops) do
-      if results != [], do: project.(results, status)
-      :ok
+    built = Enum.map(parsed, &{&1, build.(&1.payload, &1.status)})
+    ready = for {result, {:ok, rows}} <- built, do: {result, rows}
+    failures = for {_result, {:error, _} = error} <- built, do: classify(error)
+    traces = Enum.flat_map(ready, fn {_result, rows} -> rows.traces end)
+    hops = Enum.flat_map(ready, fn {_result, rows} -> rows.hops end)
+
+    with :ok <- Enum.find(failures, :ok, &match?({:error, _}, &1)),
+         {:ok, _loaded} <- load_rows(load, :mtr_traces, traces),
+         {:ok, _loaded} <- load_rows(load, :mtr_hops, hops) do
+      Enum.each(ready, &project_and_announce(&1, opts))
+    else
+      {:error, reason} = error ->
+        Logger.warning("MTR warehouse persist failed", reason: inspect(reason))
+        error
     end
   rescue
     e ->
-      Logger.error("MTR warehouse store failed: #{inspect(e)}")
+      Logger.error("MTR warehouse persist failed: #{inspect(e)}")
       {:error, e}
+  end
+
+  defp load_rows(_load, _dataset, []), do: {:ok, %{loaded: 0}}
+  defp load_rows(load, dataset, rows), do: load.(dataset, rows)
+
+  defp project_and_announce({parsed, %{results: results}}, opts) do
+    project = Keyword.get(opts, :project, &MtrGraph.project_traces/2)
+    if results != [], do: project.(results, parsed.status)
+    announce(Map.get(parsed, :broadcast), opts)
   end
 
   defp announce(%{} = broadcast, opts) do

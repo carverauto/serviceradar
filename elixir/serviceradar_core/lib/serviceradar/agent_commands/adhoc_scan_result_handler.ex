@@ -8,7 +8,8 @@ defmodule ServiceRadar.AgentCommands.AdhocScanResultHandler do
       the command channel is used only for interactive delivery, never as the
       system of record. Each publish waits for the stream's PubAck, so a row
       no stream stored (a missing stream, a denied subject) is logged rather
-      than dropped silently; and
+      than dropped silently. The PubAck wait is short, so a slow or denied
+      stream cannot hold the status handler for long; and
     * advances the owning `ScanRun` lifecycle (running -> completed/partial/
       failed) with a system actor.
 
@@ -24,6 +25,7 @@ defmodule ServiceRadar.AgentCommands.AdhocScanResultHandler do
 
   @command_type "scan.run_adhoc"
   @subject_prefix "scans.results"
+  @publish_timeout_ms 1_500
 
   def handle_command_progress(data) when is_map(data), do: safe(fn -> do_progress(data) end)
   def handle_command_progress(_), do: :ok
@@ -97,7 +99,7 @@ defmodule ServiceRadar.AgentCommands.AdhocScanResultHandler do
 
   defp publish_row(row, subject, publish) do
     with {:ok, json} <- Jason.encode(row),
-         :ok <- publish.(subject, json, []) do
+         :ok <- publish.(subject, json, timeout: @publish_timeout_ms) do
       :ok
     else
       {:error, reason} ->

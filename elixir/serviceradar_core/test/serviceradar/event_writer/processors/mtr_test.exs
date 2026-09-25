@@ -43,7 +43,7 @@ defmodule ServiceRadar.EventWriter.Processors.MtrTest do
     end
 
     assert :ok =
-             Mtr.persist(parsed,
+             Mtr.persist_all([parsed],
                starrocks_enabled: false,
                ingest: ingest,
                broadcast: fn _ -> flunk("no broadcast") end
@@ -60,10 +60,12 @@ defmodule ServiceRadar.EventWriter.Processors.MtrTest do
     failed = fn _payload, _status, _opts -> {:error, :db_down} end
     broadcast = fn announced -> send(self(), {:broadcast, announced}) end
 
-    assert :ok = Mtr.persist(parsed, cnpg(ingest: stored, broadcast: broadcast))
+    assert :ok = Mtr.persist_all([parsed], cnpg(ingest: stored, broadcast: broadcast))
     assert_received {:broadcast, %{command_id: "cmd-1", target: "192.0.2.1"}}
 
-    assert {:error, :db_down} = Mtr.persist(parsed, cnpg(ingest: failed, broadcast: broadcast))
+    assert {:error, :db_down} =
+             Mtr.persist_all([parsed], cnpg(ingest: failed, broadcast: broadcast))
+
     refute_received {:broadcast, _}
   end
 
@@ -170,17 +172,98 @@ defmodule ServiceRadar.EventWriter.Processors.MtrTest do
       assert_received {:broadcast, %{command_id: "cmd-2"}}
     end
 
-    test "a failed warehouse load fails the batch, and is not written to CNPG instead" do
+    defp trace_message_for(trace_uuid, target, extra \\ %{}) do
+      result = %{
+        "target" => target,
+        "trace_uuid" => trace_uuid,
+        "timestamp" => 1_780_000_000,
+        "trace" => %{
+          "target_ip" => target,
+          "hops" => [
+            %{"hop_number" => 1, "addr" => "198.51.100.1"},
+            %{"hop_number" => 2, "addr" => target}
+          ]
+        }
+      }
+
+      message(envelope(Map.merge(%{"payload" => %{"results" => [result]}}, extra)))
+    end
+
+    defp batch_of_three do
+      announce = fn target ->
+        %{"command_id" => "cmd-#{target}", "target" => target, "agent_id" => "agent-01"}
+      end
+
+      [
+        {"3f1c0b0a-1111-4111-8111-000000000001", "192.0.2.21"},
+        {"3f1c0b0a-1111-4111-8111-000000000002", "192.0.2.22"},
+        {"3f1c0b0a-1111-4111-8111-000000000003", "192.0.2.23"}
+      ]
+      |> Enum.map(fn {uuid, target} ->
+        trace_message_for(uuid, target, %{"broadcast" => announce.(target)})
+      end)
+    end
+
+    defp loads(acc \\ []) do
+      receive do
+        {:load, dataset, rows} -> loads([{dataset, rows} | acc])
+      after
+        0 -> Enum.reverse(acc)
+      end
+    end
+
+    test "a batch loads once per table, traces before hops, then projects and announces each" do
+      assert {:ok, 3} = Mtr.process_batch(batch_of_three(), warehouse([]))
+
+      assert [{:mtr_traces, traces}, {:mtr_hops, hops}] = loads()
+      assert Enum.map(traces, & &1.target_ip) == ["192.0.2.21", "192.0.2.22", "192.0.2.23"]
+      assert length(hops) == 6
+
+      for target <- ["192.0.2.21", "192.0.2.22", "192.0.2.23"] do
+        assert_received {:project, [%{"target" => ^target}], %{agent_id: "agent-01"}}
+        assert_received {:broadcast, %{target: ^target}}
+      end
+    end
+
+    test "a message that can never be stored is dropped while the rest load together" do
+      [first, second, third] = batch_of_three()
+      poison = message(envelope(%{"payload" => %{"results" => [%{"target" => ""}]}}))
+
+      assert {:ok, 4} = Mtr.process_batch([first, poison, second, third], warehouse([]))
+
+      assert [{:mtr_traces, traces}, {:mtr_hops, hops}] = loads()
+      assert Enum.map(traces, & &1.target_ip) == ["192.0.2.21", "192.0.2.22", "192.0.2.23"]
+      assert length(hops) == 6
+      assert_received {:broadcast, %{target: "192.0.2.23"}}
+    end
+
+    test "a failed hop load fails the batch, with no projection and no announcement" do
       load = fn
-        :mtr_traces, _rows -> {:ok, %{loaded: 1}}
+        :mtr_traces, rows -> {:ok, %{loaded: length(rows)}}
         :mtr_hops, _rows -> {:error, {:warehouse_load, :mtr_hops, :connect_failed}}
       end
 
       assert {:error, {:warehouse_load, :mtr_hops, :connect_failed}} =
-               Mtr.process_batch([trace_message()], warehouse(load: load))
+               Mtr.process_batch(batch_of_three(), warehouse(load: load))
 
       refute_received {:project, _, _}
       refute_received {:broadcast, _}
+    end
+
+    test "a failed trace load skips the hop load" do
+      test_pid = self()
+
+      load = fn dataset, _rows ->
+        send(test_pid, {:attempted, dataset})
+        {:error, {:warehouse_load, dataset, :connect_failed}}
+      end
+
+      assert {:error, {:warehouse_load, :mtr_traces, :connect_failed}} =
+               Mtr.process_batch(batch_of_three(), warehouse(load: load))
+
+      assert_received {:attempted, :mtr_traces}
+      refute_received {:attempted, :mtr_hops}
+      refute_received {:project, _, _}
     end
 
     test "a redelivered trace loads the same keys again" do

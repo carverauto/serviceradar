@@ -83,9 +83,9 @@
       the diagnostics page's SRQL-style string (parsed in Elixir, not by the SRQL service), are one
       term list with a CNPG and a warehouse renderer. Only SQL-shape tests exist: result parity is
       NOT proven until task 1.4's harness runs these shapes. Still open: SRQL
-      `in:mtr_traces`/`in:mtr_hops` (the system report panels) still route to CNPG, because
-      `Readers.dataset_for_entity/1` has no MTR entry and the StarRocks dialect refuses MTR; and
-      `MtrData.retention_status/1` reports the CNPG retention policy.
+      `in:mtr_traces`/`in:mtr_hops` (the system report panels) are refused with
+      `:warehouse_reader_missing` while StarRocks is enabled, because the StarRocks dialect has no
+      MTR yet; and `MtrData.retention_status/1` reports the CNPG retention policy.
     - SRQL `in:mtr_traces`/`in:mtr_hops` have no warehouse dialect yet: with StarRocks enabled
       `Readers.mode_for/1` refuses them (`:warehouse_reader_missing`) instead of reading the
       frozen CNPG tables (task 5.3 behaviour); adding them to the StarRocks dialect remains.
