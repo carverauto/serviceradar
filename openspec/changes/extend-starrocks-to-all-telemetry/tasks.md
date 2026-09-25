@@ -47,11 +47,13 @@
     - CNPG half: `Processors.Mtr` stores through `MtrMetricsIngestor` with a per-trace
       `trace_uuid` and `skip_existing`, so redelivery is a no-op, then announces on `MtrPubSub`.
     - Warehouse half: `Processors.Mtr.store/3` branches on `analytics.starrocks.enabled` alone
-      (`Destination.enabled?/0`; no shadow or cutover list). Enabled, it loads the rows
-      `MtrMetricsIngestor.rows/2` builds -- the same rows the CNPG insert writes -- into
-      `mtr_traces` then `mtr_hops` via `Destination.persist_warehouse/3`, writes nothing to
-      CNPG, and projects the graph only after both loads succeed; a failed load is a transient
-      error, so JetStream redelivers. Hop ids are `MtrMetricsIngestor.hop_id(trace_id, index)`,
+      (`Destination.enabled?/0`; no shadow or cutover list). Enabled, it builds the rows
+      `MtrMetricsIngestor.rows/2` produces -- the same rows the CNPG insert writes -- per
+      message, drops a permanently bad message on its own, then issues one Stream Load for the
+      batch's traces and one for its hops (`Destination.persist_warehouse`, traces first). It
+      writes nothing to CNPG and projects the graph and announces only after both loads succeed;
+      a failed load fails the batch as a transient error, so JetStream redelivers and the
+      primary-key tables upsert identical keys. Hop ids are `MtrMetricsIngestor.hop_id(trace_id, index)`,
       so a redelivered trace upserts the same keys.
   - [x] 3.4.3 `AdhocScan` hands MTR traces to the same warehouse-aware MTR persistence the `Mtr`
     processor uses instead of calling `MtrMetricsIngestor`, so scheduled, on-demand, bulk and
@@ -59,7 +61,8 @@
     - `AdhocScan` calls `Processors.Mtr.persist_all/2`, with the same permanent-vs-transient
       handling; a transient MTR failure now fails the batch. Row ids and trace ids are derived
       from the message bytes, so the redelivery rewrites the same keys. `AdhocScanResultHandler`
-      publishes each row with `JetStreamPublish` and logs a row no stream acknowledged.
+      publishes each row with `JetStreamPublish` under a short PubAck timeout and logs a row no
+      stream acknowledged.
   - [x] 3.4.4 Warehouse DDL `priv/starrocks/0019_mtr.sql`: `mtr_traces` and `mtr_hops` with every
     CNPG column, including probed/last-responding depth, TCP port, handshake fields and hop reply
     counters; day partitions and retention. Register the dataset in `Env`, `Destination @tables`,
@@ -82,13 +85,12 @@
       dashboard card and sparklines, and the trace and Compare pages' Ash reads. Filters, including
       the diagnostics page's SRQL-style string (parsed in Elixir, not by the SRQL service), are one
       term list with a CNPG and a warehouse renderer. Only SQL-shape tests exist: result parity is
-      NOT proven until task 1.4's harness runs these shapes. Still open: SRQL
-      `in:mtr_traces`/`in:mtr_hops` (the system report panels) are refused with
-      `:warehouse_reader_missing` while StarRocks is enabled, because the StarRocks dialect has no
-      MTR yet; and `MtrData.retention_status/1` reports the CNPG retention policy.
-    - SRQL `in:mtr_traces`/`in:mtr_hops` have no warehouse dialect yet: with StarRocks enabled
-      `Readers.mode_for/1` refuses them (`:warehouse_reader_missing`) instead of reading the
-      frozen CNPG tables (task 5.3 behaviour); adding them to the StarRocks dialect remains.
+      NOT proven until task 1.4's harness runs these shapes. Still open:
+      `MtrData.retention_status/1` reports the CNPG retention policy.
+    - SRQL `in:mtr_traces`/`in:mtr_hops` (the system report panels) have no StarRocks dialect
+      yet: with StarRocks enabled `Readers.mode_for/1` refuses them
+      (`:warehouse_reader_missing`) instead of reading the frozen CNPG tables (task 5.3
+      behaviour); adding them to the StarRocks dialect remains.
   - [x] 3.4.7 Delete the MTR exception from the AGENTS.md JetStream rule when 3.4.1 and 3.4.3 land.
     - Done with 3.4.1: after it, no MTR path bypasses JetStream (ad-hoc traces already arrive on
       `scans.results.>` and are written inside EventWriter). 3.4.3 is about warehouse-awareness,
