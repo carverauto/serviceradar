@@ -8,7 +8,9 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
   alias ServiceRadar.Inventory.DeviceCleanupSettings
   alias ServiceRadar.Inventory.DeviceCleanupWorker
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Identity.MergeEngine
   alias ServiceRadar.Inventory.IdentityReconciler
+  alias ServiceRadar.Inventory.Sync.DeviceWrites
   alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
@@ -154,7 +156,7 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
     {:ok, device} = create_device(actor, uid, ip, mac)
     {:ok, _} = register_identifier(actor, device.uid, :mac, IdentityReconciler.normalize_mac(mac))
     {:ok, _} = register_identifier(actor, device.uid, :netbox_device_id, netbox_device_id)
-    {:ok, _} = soft_delete_device(actor, device, "integration_refresh")
+    {:ok, deleted} = soft_delete_device(actor, device, "integration_refresh")
 
     update = %{
       "ip" => ip,
@@ -174,6 +176,53 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
 
     assert is_nil(restored.deleted_at)
     assert is_nil(restored.deleted_by)
+
+    # A revival is an identity transition, whichever writer performs it (#4614).
+    assert restored.identity_revision == deleted.identity_revision + 1
+
+    assert [["integration_refresh"]] = revival_audit_reasons(uid),
+           "the revival must leave a device_revival_audit row naming the tombstone it cleared"
+  end
+
+  # #4614: a device merged into another is never written back to life by the upsert.
+  # BatchResolver follows merge redirects, so the upsert reaches a merged-away uid only when
+  # a merge lands between resolution and the write; this drives the write directly, as that
+  # race would.
+  test "the device upsert never revives a merged-away device", %{actor: actor} do
+    # Resolver follows merge redirects only for ServiceRadar uids (`sr:<uuid>`).
+    {:ok, merged_away} = create_device(actor, sr_uid(), unique_ip(), unique_mac())
+    {:ok, survivor} = create_device(actor, sr_uid(), unique_ip(), unique_mac())
+
+    assert :ok =
+             MergeEngine.merge_devices(merged_away.uid, survivor.uid,
+               actor: actor,
+               reason: "device_soft_delete_test"
+             )
+
+    {:ok, [tombstone]} = read_including_deleted(merged_away.uid, actor)
+    assert tombstone.deleted_reason == "merged"
+
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    record = %{
+      uid: merged_away.uid,
+      hostname: "stale-write-#{merged_away.uid}",
+      discovery_sources: ["device_soft_delete_test"],
+      last_seen_time: now,
+      modified_time: now
+    }
+
+    assert {:ok, remap} = DeviceWrites.bulk_upsert_devices([record])
+
+    assert remap == %{merged_away.uid => survivor.uid},
+           "the batch's dependent writes must follow the merge to the survivor"
+
+    {:ok, [after_write]} = read_including_deleted(merged_away.uid, actor)
+    assert after_write.deleted_at == tombstone.deleted_at
+    assert after_write.deleted_reason == "merged"
+    assert after_write.hostname == tombstone.hostname
+    assert after_write.identity_revision == tombstone.identity_revision
+    assert revival_audit_reasons(merged_away.uid) == []
   end
 
   test "cleanup worker purges devices past retention window", %{actor: actor} do
@@ -306,12 +355,36 @@ defmodule ServiceRadar.Inventory.DeviceSoftDeleteTest do
     end
   end
 
+  defp read_including_deleted(uid, actor) do
+    Device
+    |> Ash.Query.for_read(:read, %{include_deleted: true})
+    |> Ash.Query.filter(uid == ^uid)
+    |> read_results(actor)
+  end
+
+  defp revival_audit_reasons(uid) do
+    %{rows: rows} =
+      Repo.query!(
+        """
+        SELECT previous_deleted_reason
+        FROM platform.device_revival_audit
+        WHERE device_uid = $1
+        ORDER BY event_id
+        """,
+        [uid]
+      )
+
+    rows
+  end
+
   defp read_results(query, actor) do
     case Ash.read(query, actor: actor) do
       {:ok, %Ash.Page.Keyset{results: results}} -> {:ok, results}
       other -> other
     end
   end
+
+  defp sr_uid, do: "sr:" <> Ecto.UUID.generate()
 
   defp unique_uid do
     "device-#{System.unique_integer([:positive])}"

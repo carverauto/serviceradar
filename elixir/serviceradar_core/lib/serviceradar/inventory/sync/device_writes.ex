@@ -12,10 +12,12 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
 
   import Ecto.Query
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.Identity.MergeEngine
+  alias ServiceRadar.Inventory.Identity.Resolver
   alias ServiceRadar.Inventory.SourceIdentityDrift
   alias ServiceRadar.Inventory.Sync.DeviceRecords
   alias ServiceRadar.Inventory.Sync.SourcePolicy
@@ -42,7 +44,10 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     records = attach_identity_claims(records, resolved_updates)
     update_query = device_upsert_update_query()
     refresh_rollups? = inventory_rollup_bulk_refresh_required?(length(records))
-    do_bulk_upsert_devices(records, update_query, strong_uids, refresh_rollups?)
+
+    records
+    |> do_bulk_upsert_devices(update_query, strong_uids, refresh_rollups?)
+    |> follow_merged_away_uids(records)
   rescue
     e ->
       Logger.warning("Bulk device upsert failed: #{inspect(e)}")
@@ -118,6 +123,66 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     error ->
       Logger.warning("Bulk device upsert retry failed: #{inspect(error)}")
       {:error, error}
+  end
+
+  # A uid merged into another device is never written back to life: the upsert's
+  # on_conflict WHERE leaves its tombstone alone (device_upsert_update_query/0). What
+  # the batch resolved for that uid -- identifiers, interfaces, aliases -- follows the
+  # merge instead, through the same remap an active-IP recovery uses, so none of it
+  # lands on the tombstone.
+  #
+  # BatchResolver already follows merge redirects, so a batch reaches a merged-away
+  # uid only when a merge lands between resolution and this write. The check runs
+  # after the upsert, so a merge that commits between the upsert and this read is
+  # caught as well; the window left is the one between here and the dependent
+  # writes, which the identity fence covers (#4618).
+  defp follow_merged_away_uids({:ok, remap}, records) do
+    landed = Map.new(records, fn %{uid: uid} -> {uid, Map.get(remap, uid, uid)} end)
+
+    case landed |> Map.values() |> Enum.uniq() |> merged_away_uids() do
+      [] ->
+        {:ok, remap}
+
+      merged ->
+        actor = SystemActor.system(:device_writes)
+        survivors = Map.new(merged, &{&1, Resolver.follow_canonical_device_id(&1, actor)})
+
+        Enum.each(survivors, fn
+          {uid, uid} ->
+            Logger.warning(
+              "SyncIngestor: skipped a write to merged-away device #{uid}; " <>
+                "no merge redirect found, so its resolved identifiers stay unmoved"
+            )
+
+          {uid, survivor} ->
+            Logger.warning(
+              "SyncIngestor: skipped a write to merged-away device #{uid}; " <>
+                "following its merge into #{survivor}"
+            )
+        end)
+
+        {:ok, Enum.reduce(landed, remap, &redirect_to_survivor(&1, &2, survivors))}
+    end
+  end
+
+  defp follow_merged_away_uids(result, _records), do: result
+
+  defp redirect_to_survivor({uid, landed_uid}, remap, survivors) do
+    case Map.get(survivors, landed_uid, landed_uid) do
+      ^landed_uid -> remap
+      survivor -> Map.put(remap, uid, survivor)
+    end
+  end
+
+  defp merged_away_uids([]), do: []
+
+  defp merged_away_uids(uids) do
+    Repo.all(
+      from(d in Device,
+        where: d.uid in ^uids and not is_nil(d.deleted_at) and d.deleted_reason == "merged",
+        select: d.uid
+      )
+    )
   end
 
   # When a batch moves device A off IP X while device B claims X, multi-row
@@ -970,8 +1035,15 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
 
   defp ip_unique_conflict?(_), do: false
 
+  # The WHERE keeps a merged-away device's tombstone: a conflicting insert for it
+  # updates nothing (follow_merged_away_uids/2 then redirects the batch's dependent
+  # writes to the survivor). Any other tombstone the upsert reaches is revived, and a
+  # revival is an identity transition -- the uid names a live thing again -- so it
+  # bumps identity_revision exactly as Device :restore does. The
+  # trg_ocsf_devices_revival_audit trigger records the tombstone the revival clears.
   defp device_upsert_update_query do
     from(d in Device,
+      where: is_nil(d.deleted_at) or is_nil(d.deleted_reason) or d.deleted_reason != "merged",
       update: [
         set: [
           # nil EXCLUDED.ip = omit (keep current). Blank EXCLUDED.ip = explicit
@@ -1104,6 +1176,13 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
               d.metadata,
               d.discovery_sources,
               d.type
+            ),
+          identity_revision:
+            fragment(
+              "CASE WHEN ? IS NOT NULL THEN ? + 1 ELSE ? END",
+              d.deleted_at,
+              d.identity_revision,
+              d.identity_revision
             ),
           deleted_at: nil,
           deleted_by: nil,
