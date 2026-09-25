@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
   alias ServiceRadar.Observability.MtrTrace
   alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrDepth
   alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrHandshake
+  alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse
 
   require Ash.Query
 
@@ -19,6 +20,21 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
   @sparkline_days 7
 
   @handshake_fields MtrTcpHandshake.trace_columns()
+
+  # The Ash hop read is capped at this many rows; the warehouse read keeps the cap.
+  @hop_limit 256
+
+  @trace_keys ~w(
+    id time agent_id gateway_id check_id check_name device_id target target_ip target_reached
+    total_hops probed_hops last_responding_hop protocol tcp_port ip_version packet_size partition
+    error
+  ) ++ Enum.map(@handshake_fields, &Atom.to_string/1)
+
+  @hop_keys ~w(
+    hop_number addr hostname ecmp_addrs asn asn_org mpls_labels sent received loss_pct last_us
+    avg_us min_us max_us stddev_us jitter_us jitter_worst_us jitter_interarrival_us
+    unreachable_code reply_time_exceeded reply_unreachable reply_synack reply_rst
+  )
 
   @impl true
   def mount(_params, _session, socket) do
@@ -48,11 +64,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
     scope = socket.assigns.current_scope
 
     with {:ok, trace_uuid} <- Ecto.UUID.cast(trace_id),
-         {:ok, trace} <- read_trace(trace_uuid, scope),
-         {:ok, hops} <- read_trace_hops(trace, scope) do
-      trace_map = trace_to_map(trace)
-      hop_maps = Enum.map(hops, &hop_to_map/1)
-      sparklines = load_hop_sparklines(hop_maps, scope)
+         {:ok, trace_map, hop_maps} <- fetch_trace(trace_uuid, scope) do
+      sparklines = hop_sparklines(hop_maps, scope)
       {hop_rows, silent_tail} = MtrDepth.collapse_trailing_loss(hop_maps)
 
       socket
@@ -384,7 +397,28 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
   # Sparklines
   # ---------------------------------------------------------------------------
 
-  defp load_hop_sparklines(hops, scope) do
+  @doc false
+  # The trace and its hops as the maps the page renders. With StarRocks enabled
+  # the warehouse answers and the Ash resources, whose CNPG tables receive no
+  # rows then, are not read. Public for the backend-routing tests.
+  def fetch_trace(trace_uuid, scope, opts \\ []) do
+    if MtrWarehouse.enabled?() do
+      opts = Keyword.put(opts, :hop_limit, @hop_limit)
+
+      with {:ok, trace, hops} <- MtrWarehouse.trace_detail(trace_uuid, nil, opts) do
+        {:ok, Map.take(trace, @trace_keys), Enum.map(hops, &Map.take(&1, @hop_keys))}
+      end
+    else
+      with {:ok, trace} <- read_trace(trace_uuid, scope),
+           {:ok, hops} <- read_trace_hops(trace, scope) do
+        {:ok, trace_to_map(trace), Enum.map(hops, &hop_to_map/1)}
+      end
+    end
+  end
+
+  @doc false
+  # Per-address latency sparklines for the hops. Public for the backend-routing tests.
+  def hop_sparklines(hops, scope, opts \\ []) do
     addrs =
       hops
       |> Enum.map(& &1["addr"])
@@ -397,25 +431,38 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
       # Read recent valid latency points and cap per-address in Elixir.
       limit = max(length(addrs) * @sparkline_points * 4, 200)
 
-      query =
-        MtrHop
-        |> Ash.Query.for_read(:read, %{})
-        |> Ash.Query.filter(
-          expr(addr in ^addrs and not is_nil(avg_us) and avg_us > 0 and time >= ago(@sparkline_days, :day))
-        )
-        |> Ash.Query.sort(time: :desc)
-        |> Ash.Query.limit(limit)
+      if MtrWarehouse.enabled?() do
+        since = DateTime.add(DateTime.utc_now(), -@sparkline_days, :day)
 
-      case Ash.read(query, scope: scope) do
-        {:ok, %Keyset{results: results}} ->
-          build_sparklines_from_hops(results)
-
-        {:ok, results} when is_list(results) ->
-          build_sparklines_from_hops(results)
-
-        {:error, _reason} ->
-          %{}
+        case MtrWarehouse.hop_latency_points(addrs, since, limit, opts) do
+          {:ok, points} -> build_sparklines_from_hops(points)
+          {:error, _reason} -> %{}
+        end
+      else
+        cnpg_hop_sparklines(addrs, limit, scope)
       end
+    end
+  end
+
+  defp cnpg_hop_sparklines(addrs, limit, scope) do
+    query =
+      MtrHop
+      |> Ash.Query.for_read(:read, %{})
+      |> Ash.Query.filter(
+        expr(addr in ^addrs and not is_nil(avg_us) and avg_us > 0 and time >= ago(@sparkline_days, :day))
+      )
+      |> Ash.Query.sort(time: :desc)
+      |> Ash.Query.limit(limit)
+
+    case Ash.read(query, scope: scope) do
+      {:ok, %Keyset{results: results}} ->
+        build_sparklines_from_hops(results)
+
+      {:ok, results} when is_list(results) ->
+        build_sparklines_from_hops(results)
+
+      {:error, _reason} ->
+        %{}
     end
   end
 
@@ -446,7 +493,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
       |> Ash.Query.for_read(:by_trace, %{trace_id: trace.id})
       |> Ash.Query.filter(expr(time >= ^trace_time))
       |> Ash.Query.sort(hop_number: :asc)
-      |> Ash.Query.limit(256)
+      |> Ash.Query.limit(@hop_limit)
 
     case Ash.read(query, scope: scope) do
       {:ok, %Keyset{results: results}} -> {:ok, results}

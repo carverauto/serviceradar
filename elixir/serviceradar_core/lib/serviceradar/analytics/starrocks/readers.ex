@@ -17,6 +17,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
   # stripped (rust/srql `parser/entity.rs`). Anything that decides where a query
   # runs -- or whether the caller may run it -- has to resolve the same token,
   # or it routes and authorizes an entity different from the one that executes.
+  alias ServiceRadar.Analytics.StarRocks
+
   @spec entity_for_query(String.t()) :: String.t() | nil
   def entity_for_query(query) when is_binary(query) do
     query
@@ -53,6 +55,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
       "logs" ->
         :logs
 
+      e when e in ~w(mtr_traces mtr_hops mtr_hop_stats) ->
+        :mtr
+
       e
       when e in ~w(
              events activity
@@ -73,10 +78,16 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
   @starrocks_only [:flows]
 
   @spec mode_for(atom() | String.t() | nil) ::
-          String.t() | {:error, :starrocks_required} | nil
+          String.t() | {:error, :starrocks_required | :warehouse_reader_missing} | nil
   def mode_for(nil), do: nil
 
   def mode_for(entity) when is_binary(entity), do: mode_for(dataset_for_entity(entity))
+
+  # MTR SRQL has no warehouse dialect yet. With the warehouse enabled the CNPG
+  # MTR tables stop receiving rows, so answering from them would serve history
+  # frozen at the switch; the query is refused instead, and answered from CNPG
+  # only when StarRocks is off.
+  def mode_for(:mtr), do: if(enabled?(), do: {:error, :warehouse_reader_missing})
 
   def mode_for(dataset) when is_atom(dataset) do
     cond do
@@ -108,9 +119,27 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
     end
   end
 
+  @doc """
+  Whether the warehouse is this installation's telemetry backend
+  (`analytics.starrocks.enabled`).
+
+  Exactly one backend is active. A reader with a warehouse implementation
+  that keys on this flag reads the warehouse when it is true and CNPG when it
+  is false, never both: with the warehouse enabled the CNPG telemetry tables
+  stop receiving rows, so a CNPG read would serve history that ends at the
+  moment the warehouse was turned on. MTR readers key on this flag rather than
+  on `cutover_datasets`, which has no MTR entry.
+  """
+  @spec enabled?() :: boolean()
+  def enabled? do
+    :serviceradar_core
+    |> Application.get_env(StarRocks, [])
+    |> Keyword.get(:enabled, false) == true
+  end
+
   defp cutover_datasets do
     :serviceradar_core
-    |> Application.get_env(ServiceRadar.Analytics.StarRocks, [])
+    |> Application.get_env(StarRocks, [])
     |> Keyword.get(:cutover_datasets, [])
   end
 end

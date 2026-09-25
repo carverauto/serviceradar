@@ -37,6 +37,12 @@ tests:
             name: SERVICERADAR_STARROCKS_RETENTION_DAYS_EVENTS
             value: "365"
           count: 1
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_STARROCKS_RETENTION_DAYS_MTR
+            value: "30"
+          count: 1
 
   # The hourly views refresh asynchronously with no schedule, so readers need
   # the operator's lag tolerance in the env to know when to stop trusting them.

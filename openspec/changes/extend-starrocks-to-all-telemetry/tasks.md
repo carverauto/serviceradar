@@ -40,20 +40,38 @@
     EventWriter default streams.
     - `mtr.results.ingest`, stream `mtr_results` (`MTR_RESULTS`), one message per trace published
       with a JetStream PubAck by `MtrResultPublisher`; core's NATS publish allow-list includes it.
-  - [ ] 3.4.2 EventWriter `Mtr` processor: normalizes and enriches as `MtrMetricsIngestor` does
+  - [x] 3.4.2 EventWriter `Mtr` processor: normalizes and enriches as `MtrMetricsIngestor` does
     today, persists traces and hops (warehouse when StarRocks is enabled, CNPG otherwise), then
     runs `MtrGraph.project_traces` and `MtrPubSub.broadcast_ingest` so live pages keep updating.
     The processor is the single owner; core keeps no direct MTR write.
-    - CNPG half done: `Processors.Mtr` stores through `MtrMetricsIngestor` with a per-trace
+    - CNPG half: `Processors.Mtr` stores through `MtrMetricsIngestor` with a per-trace
       `trace_uuid` and `skip_existing`, so redelivery is a no-op, then announces on `MtrPubSub`.
-      The warehouse half lands with 3.4.4.
-  - [ ] 3.4.3 `AdhocScan` hands MTR traces to the same warehouse-aware MTR persistence the `Mtr`
+    - Warehouse half: `Processors.Mtr.store/3` branches on `analytics.starrocks.enabled` alone
+      (`Destination.enabled?/0`; no shadow or cutover list). Enabled, it builds the rows
+      `MtrMetricsIngestor.rows/2` produces -- the same rows the CNPG insert writes -- per
+      message, drops a permanently bad message on its own, then issues one Stream Load for the
+      batch's traces and one for its hops (`Destination.persist_warehouse`, traces first). It
+      writes nothing to CNPG and projects the graph and announces only after both loads succeed;
+      a failed load fails the batch as a transient error, so JetStream redelivers and the
+      primary-key tables upsert identical keys. Hop ids are `MtrMetricsIngestor.hop_id(trace_id, index)`,
+      so a redelivered trace upserts the same keys.
+  - [x] 3.4.3 `AdhocScan` hands MTR traces to the same warehouse-aware MTR persistence the `Mtr`
     processor uses instead of calling `MtrMetricsIngestor`, so scheduled, on-demand, bulk and
     ad-hoc traces share one owner and none writes CNPG when StarRocks is enabled.
-  - [ ] 3.4.4 Warehouse DDL `priv/starrocks/0019_mtr.sql`: `mtr_traces` and `mtr_hops` with every
+    - `AdhocScan` calls `Processors.Mtr.persist_all/2`, with the same permanent-vs-transient
+      handling; a transient MTR failure now fails the batch. Row ids and trace ids are derived
+      from the message bytes, so the redelivery rewrites the same keys. `AdhocScanResultHandler`
+      publishes each row with `JetStreamPublish` under a short PubAck timeout and logs a row no
+      stream acknowledged.
+  - [x] 3.4.4 Warehouse DDL `priv/starrocks/0019_mtr.sql`: `mtr_traces` and `mtr_hops` with every
     CNPG column, including probed/last-responding depth, TCP port, handshake fields and hop reply
     counters; day partitions and retention. Register the dataset in `Env`, `Destination @tables`,
     `Rows.encode_row/2`, `Retention @tables`, Helm `retentionDays` and the Compose env.
+    - Two load datasets, `:mtr_traces` and `:mtr_hops` (one per table, as `Destination` and
+      `Rows` are per table), and one retention dataset, `mtr` (default 30 days, the MtrSettings
+      history default), applied to both tables. MTR is not added to the shadow/cutover dataset
+      lists in `Env`, since it does not use them. The Settings -> MTR retention still governs
+      only the CNPG tables.
   - [ ] 3.4.5 Hop rollups as async MVs aggregating loss with `loss_ratio(sent, received)` and
     latency with `wavg(avg_us, received)`. `mtr_hops.asn` is GeoLite2-only and NULL for every
     internal hop and private AS, so an AS-level rollup is not presented as fleet-wide.
@@ -61,6 +79,18 @@
     detail, Compare windows and paths), the dashboard MTR summary and sparklines, the Ash-backed
     trace and Compare pages, the device MTR tab and SRQL `in:mtr_traces`/`in:mtr_hops`; each
     behind its parity comparison.
+    - Warehouse implementations written, selected by `Readers.enabled?/0` (the global
+      `analytics.starrocks.enabled`, not the cutover list), CNPG kept for disabled installations:
+      `DiagnosticsLive.MtrWarehouse` serves every `MtrData` reader (so the device MTR tab too), the
+      dashboard card and sparklines, and the trace and Compare pages' Ash reads. Filters, including
+      the diagnostics page's SRQL-style string (parsed in Elixir, not by the SRQL service), are one
+      term list with a CNPG and a warehouse renderer. Only SQL-shape tests exist: result parity is
+      NOT proven until task 1.4's harness runs these shapes. Still open:
+      `MtrData.retention_status/1` reports the CNPG retention policy.
+    - SRQL `in:mtr_traces`/`in:mtr_hops` (the system report panels) have no StarRocks dialect
+      yet: with StarRocks enabled `Readers.mode_for/1` refuses them
+      (`:warehouse_reader_missing`) instead of reading the frozen CNPG tables (task 5.3
+      behaviour); adding them to the StarRocks dialect remains.
   - [x] 3.4.7 Delete the MTR exception from the AGENTS.md JetStream rule when 3.4.1 and 3.4.3 land.
     - Done with 3.4.1: after it, no MTR path bypasses JetStream (ad-hoc traces already arrive on
       `scans.results.>` and are written inside EventWriter). 3.4.3 is about warehouse-awareness,

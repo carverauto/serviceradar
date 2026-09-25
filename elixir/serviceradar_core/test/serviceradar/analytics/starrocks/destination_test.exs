@@ -218,6 +218,60 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
     assert Destination.table_for(:metrics) == "timeseries_metrics"
     assert Destination.table_for(:logs) == "logs"
     assert Destination.table_for(:events) == "events"
+    assert Destination.table_for(:mtr_traces) == "mtr_traces"
+    assert Destination.table_for(:mtr_hops) == "mtr_hops"
+  end
+
+  @mtr_trace %{
+    id: "00000000-0000-4000-8000-000000000001",
+    time: ~U[2026-01-15 10:00:00.000000Z],
+    agent_id: "agent-01",
+    target: "host01.example.com",
+    target_ip: "192.0.2.10",
+    target_reached: true,
+    total_hops: 3,
+    protocol: "icmp",
+    ip_version: 4
+  }
+
+  test "a warehouse-only load encodes the dataset and reports what it loaded" do
+    persist = fn table, rows, _opts ->
+      send(self(), {:loaded, table, rows})
+      {:ok, %{loaded: length(rows), label: "sr-mtr"}}
+    end
+
+    assert {:ok, %{dataset: :mtr_traces, loaded: 1}} =
+             Destination.persist_warehouse(:mtr_traces, [@mtr_trace], persist: persist)
+
+    assert_received {:loaded, "mtr_traces", [%{"id" => id, "target_reached" => true}]}
+    assert id == @mtr_trace.id
+  end
+
+  test "a failed warehouse-only load is an error, so the caller fails its ACK" do
+    persist = fn _table, _rows, _opts -> {:error, :connect_failed} end
+
+    assert {:error, {:warehouse_load, :mtr_hops, :connect_failed}} =
+             Destination.persist_warehouse(:mtr_hops, [%{id: "hop"}], persist: persist)
+  end
+
+  test "a warehouse-only load of nothing sends nothing" do
+    persist = fn _table, _rows, _opts -> flunk("nothing to load") end
+
+    assert {:ok, %{loaded: 0}} = Destination.persist_warehouse(:mtr_hops, [], persist: persist)
+  end
+
+  test "the backend switch reads analytics.starrocks.enabled" do
+    prev = Application.get_env(:serviceradar_core, StarRocks, [])
+
+    try do
+      Application.put_env(:serviceradar_core, StarRocks, Keyword.put(prev, :enabled, true))
+      assert Destination.enabled?()
+
+      Application.put_env(:serviceradar_core, StarRocks, Keyword.put(prev, :enabled, false))
+      refute Destination.enabled?()
+    after
+      Application.put_env(:serviceradar_core, StarRocks, prev)
+    end
   end
 
   test "disabled shadow writes are a no-op" do

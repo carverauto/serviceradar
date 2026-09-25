@@ -1,6 +1,25 @@
 defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Mtr do
   @moduledoc false
 
+  alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse
+
+  @doc """
+  The MTR card's summary row from the warehouse, or `:cnpg` when StarRocks is
+  not enabled and the caller should run its CNPG query instead.
+
+  Exactly one backend is active: with the warehouse enabled the CNPG MTR
+  hypertables receive no rows, so the card never falls back to them. It lives
+  outside the `__using__` block so that block stays a list of loaders.
+  """
+  @spec warehouse_summary_rows(DateTime.t(), keyword()) :: {:ok, map()} | {:error, term()} | :cnpg
+  def warehouse_summary_rows(cutoff, opts \\ []) do
+    if MtrWarehouse.enabled?() do
+      MtrWarehouse.dashboard_summary(cutoff, opts)
+    else
+      :cnpg
+    end
+  end
+
   defmacro __using__(_opts) do
     quote do
       unquote(overlay_definitions())
@@ -112,8 +131,49 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Mtr do
 
   defp timeseries_definitions do
     quote do
-      @sobelow_skip ["SQL.Query"]
       defp mtr_timeseries_summary(time_window) do
+        cutoff = cutoff_for_time_window(time_window)
+
+        result =
+          case unquote(__MODULE__).warehouse_summary_rows(cutoff) do
+            :cnpg -> cnpg_mtr_summary_rows(cutoff)
+            warehouse -> warehouse
+          end
+
+        case result do
+          {:ok,
+           %{
+             rows: [
+               [
+                 path_count,
+                 endpoint_sample_count,
+                 loss_sample_count,
+                 latency_sample_count,
+                 avg_loss_pct,
+                 avg_latency_ms,
+                 degraded_count
+               ]
+             ]
+           }} ->
+            %{
+              path_count: to_int(path_count),
+              endpoint_sample_count: to_int(endpoint_sample_count),
+              loss_sample_count: to_int(loss_sample_count),
+              latency_sample_count: to_int(latency_sample_count),
+              avg_latency_ms: round_nullable(avg_latency_ms, 1),
+              avg_loss_pct: round_nullable(avg_loss_pct, 2),
+              degraded_count: to_int(degraded_count)
+            }
+
+          _ ->
+            empty_mtr_summary()
+        end
+      rescue
+        _ -> empty_mtr_summary()
+      end
+
+      @sobelow_skip ["SQL.Query"]
+      defp cnpg_mtr_summary_rows(cutoff) do
         if relation_exists?("platform.mtr_traces") and relation_exists?("platform.mtr_hops") do
           sql = """
           WITH selected_traces AS (
@@ -173,39 +233,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Mtr do
           LEFT JOIN destination_hops dh ON dh.trace_id = st.id
           """
 
-          case ServiceRadarWebNG.Repo.query(sql, [cutoff_for_time_window(time_window)]) do
-            {:ok,
-             %{
-               rows: [
-                 [
-                   path_count,
-                   endpoint_sample_count,
-                   loss_sample_count,
-                   latency_sample_count,
-                   avg_loss_pct,
-                   avg_latency_ms,
-                   degraded_count
-                 ]
-               ]
-             }} ->
-              %{
-                path_count: to_int(path_count),
-                endpoint_sample_count: to_int(endpoint_sample_count),
-                loss_sample_count: to_int(loss_sample_count),
-                latency_sample_count: to_int(latency_sample_count),
-                avg_latency_ms: round_nullable(avg_latency_ms, 1),
-                avg_loss_pct: round_nullable(avg_loss_pct, 2),
-                degraded_count: to_int(degraded_count)
-              }
-
-            _ ->
-              empty_mtr_summary()
-          end
+          ServiceRadarWebNG.Repo.query(sql, [cutoff])
         else
-          empty_mtr_summary()
+          :unavailable
         end
-      rescue
-        _ -> empty_mtr_summary()
       end
 
       defp round_nullable(nil, _precision), do: nil

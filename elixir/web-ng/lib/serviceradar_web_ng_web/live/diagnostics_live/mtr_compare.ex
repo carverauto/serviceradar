@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
   alias ServiceRadar.Observability.MtrHop
   alias ServiceRadar.Observability.MtrTrace
   alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrData
+  alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse
 
   require Ash.Query
 
@@ -20,6 +21,13 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
   @preset_custom "custom"
   @protocols ["", "icmp", "udp", "tcp"]
   @reached_filters ["", "reached", "unreachable"]
+
+  # The Ash reads are capped at these; the warehouse reads keep the caps.
+  @recent_trace_limit 75
+  @hop_limit 256
+
+  @compare_trace_keys ~w(id time agent_id target target_ip target_reached total_hops protocol ip_version)
+  @compare_hop_keys ~w(hop_number addr hostname asn asn_org loss_pct avg_us min_us max_us)
 
   @impl true
   def mount(_params, _session, socket) do
@@ -139,21 +147,35 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
   end
 
   defp load_recent_traces(socket) do
+    assign(socket, :recent_traces, recent_traces(socket.assigns.current_scope))
+  end
+
+  @doc false
+  # The trace picker's newest traces. With StarRocks enabled the warehouse
+  # answers and the Ash resource, whose CNPG table receives no rows then, is
+  # not read. Public for the backend-routing tests.
+  def recent_traces(scope, opts \\ []) do
+    if MtrWarehouse.enabled?() do
+      case MtrWarehouse.recent_traces(@recent_trace_limit, opts) do
+        {:ok, traces} -> Enum.map(traces, &Map.take(&1, @compare_trace_keys))
+        {:error, _reason} -> []
+      end
+    else
+      cnpg_recent_traces(scope)
+    end
+  end
+
+  defp cnpg_recent_traces(scope) do
     query =
       MtrTrace
       |> Ash.Query.for_read(:read, %{})
       |> Ash.Query.sort(time: :desc)
-      |> Ash.Query.limit(75)
+      |> Ash.Query.limit(@recent_trace_limit)
 
-    case Ash.read(query, scope: socket.assigns.current_scope) do
-      {:ok, %Keyset{results: results}} ->
-        assign(socket, :recent_traces, Enum.map(results, &trace_to_compare_map/1))
-
-      {:ok, results} when is_list(results) ->
-        assign(socket, :recent_traces, Enum.map(results, &trace_to_compare_map/1))
-
-      {:error, _reason} ->
-        assign(socket, :recent_traces, [])
+    case Ash.read(query, scope: scope) do
+      {:ok, %Keyset{results: results}} -> Enum.map(results, &trace_to_compare_map/1)
+      {:ok, results} when is_list(results) -> Enum.map(results, &trace_to_compare_map/1)
+      {:error, _reason} -> []
     end
   end
 
@@ -177,15 +199,35 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
     end
   end
 
-  defp load_trace_with_hops(trace_id, scope) do
-    with {:ok, trace_uuid} <- Ecto.UUID.cast(trace_id),
-         {:ok, trace} <- read_trace(trace_uuid, scope),
-         {:ok, hops} <- read_trace_hops(trace, scope) do
-      {:ok, trace_to_compare_map(trace), Enum.map(hops, &hop_to_compare_map/1)}
+  @doc false
+  # One side of a trace comparison as the maps the page renders. With StarRocks
+  # enabled the warehouse answers and the Ash resources are not read. Public
+  # for the backend-routing tests.
+  def load_trace_with_hops(trace_id, scope, opts \\ []) do
+    case Ecto.UUID.cast(trace_id) do
+      {:ok, trace_uuid} ->
+        case fetch_trace_with_hops(trace_uuid, scope, opts) do
+          {:error, :not_found} -> {:error, "Trace not found"}
+          result -> result
+        end
+
+      :error ->
+        {:error, "Invalid trace id"}
+    end
+  end
+
+  defp fetch_trace_with_hops(trace_uuid, scope, opts) do
+    if MtrWarehouse.enabled?() do
+      opts = Keyword.put(opts, :hop_limit, @hop_limit)
+
+      with {:ok, trace, hops} <- MtrWarehouse.trace_detail(trace_uuid, nil, opts) do
+        {:ok, Map.take(trace, @compare_trace_keys), Enum.map(hops, &Map.take(&1, @compare_hop_keys))}
+      end
     else
-      :error -> {:error, "Invalid trace id"}
-      {:error, :not_found} -> {:error, "Trace not found"}
-      {:error, reason} -> {:error, reason}
+      with {:ok, trace} <- read_trace(trace_uuid, scope),
+           {:ok, hops} <- read_trace_hops(trace, scope) do
+        {:ok, trace_to_compare_map(trace), Enum.map(hops, &hop_to_compare_map/1)}
+      end
     end
   end
 
@@ -216,7 +258,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrCompare do
       |> Ash.Query.for_read(:by_trace, %{trace_id: trace.id})
       |> Ash.Query.filter(expr(time >= ^trace_time))
       |> Ash.Query.sort(hop_number: :asc)
-      |> Ash.Query.limit(256)
+      |> Ash.Query.limit(@hop_limit)
 
     case Ash.read(query, scope: scope) do
       {:ok, %Keyset{results: results}} -> {:ok, results}
