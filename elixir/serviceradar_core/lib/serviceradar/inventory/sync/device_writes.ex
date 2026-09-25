@@ -15,6 +15,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Identity.DecisionLog
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.Identity.MergeEngine
   alias ServiceRadar.Inventory.Identity.Resolver
@@ -505,8 +506,11 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
         )
       end)
 
-    # One batched diagnostic write instead of an insert per IP collision.
-    _ = SourceIdentityDrift.record_conflicts(Enum.reverse(conflicts))
+    # One batched diagnostic write instead of an insert per IP collision, and one batched write
+    # of the matching identity decisions.
+    conflicts = Enum.reverse(conflicts)
+    _ = SourceIdentityDrift.record_conflicts(conflicts)
+    _ = DecisionLog.record_many(Enum.map(conflicts, &active_ip_decision/1))
 
     {remapped_records, remap, Enum.uniq(releases)}
   end
@@ -942,6 +946,28 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     else
       {record, {remap, conflicts}}
     end
+  end
+
+  # A strong-identified record that did not take an address another device holds.
+  defp active_ip_decision(conflict) do
+    ids = conflict.conflicting_identifiers
+
+    %{
+      kind: :ip_conflict,
+      reason: "active_ip_conflict",
+      device_uids: [ids["incoming_device_uid"], ids["existing_device_uid"]],
+      subject: conflict.current_ip,
+      source: "sync_ingestor",
+      evidence: %{
+        "incoming_device_uid" => ids["incoming_device_uid"],
+        "existing_device_uid" => ids["existing_device_uid"],
+        "ip" => conflict.current_ip,
+        "source_type" => conflict.source_type,
+        "source_identifier_type" => ids["source_identifier_type"],
+        "source_identifier_value" => ids["source_identifier_value"],
+        "proposed_action" => conflict.proposed_action
+      }
+    }
   end
 
   defp prepend_conflict(conflicts, nil), do: conflicts

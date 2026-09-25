@@ -37,7 +37,7 @@ configuration. Confirmed defects (`formal/dire/README.md` has code paths and wit
 - [ ] 3.4 `mac_only_conflicts_blocked`: allow globally-unique MAC evidence to merge; keep
       randomized MACs excluded. The conflict arises on agent check-in; a router's per-interface
       records also stay split because of 3.13.
-- [ ] 3.5 `silent_blocks`: record blocked merges and alias invalidations (#4604).
+- [x] 3.5 `silent_blocks`: record blocked merges and alias invalidations (#4613, `add-identity-decision-log`).
 - [x] 3.6 `upsert_revives_merged`: the upsert `on_conflict` must not revive a merged tombstone and
       must bump on any revival.
 - [x] 3.7 `gateway_sync_no_bump`: gateway sync must restore through `:restore` or not at all.

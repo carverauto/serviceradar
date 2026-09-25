@@ -17,6 +17,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.DeviceSourceObservation
   alias ServiceRadar.Inventory.Identity.AliasGuard
+  alias ServiceRadar.Inventory.Identity.DecisionLog
   alias ServiceRadar.Inventory.Identity.EndpointInventoryMoves
   alias ServiceRadar.Inventory.Identity.MergePolicy
   alias ServiceRadar.Inventory.Identity.Reassignments
@@ -75,7 +76,12 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
             "identifiers: #{inspect(details.identifiers)}"
         )
 
-        MergePolicy.emit_blocked_merge_telemetry(blocked_reason, device_ids, details.identifiers)
+        MergePolicy.record_blocked_merge(
+          blocked_reason,
+          device_ids,
+          details.identifiers,
+          "identifier_conflict"
+        )
     end
   end
 
@@ -94,6 +100,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
 
       merge_guard_blocked = merge_guard_violation(from_device_id, to_device_id, reason, actor) ->
         emit_merge_guard_telemetry(merge_guard_blocked, reason, from_device_id, to_device_id)
+        record_guard_block(merge_guard_blocked, reason, from_device_id, to_device_id, details)
 
         Logger.warning(
           "Blocked merge #{from_device_id} -> #{to_device_id} " <>
@@ -216,6 +223,22 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
     :serviceradar
     |> Application.get_env(__MODULE__, [])
     |> Keyword.get(:merge_cooldown_seconds, 86_400)
+  end
+
+  # The source-authority guard records its own decision (SourceAuthorityGuard.record_blocked/3,
+  # a `:source_block` carrying both source id sets), so it is not recorded twice here.
+  defp record_guard_block(:source_authority_conflict, _reason, _from, _to, _details), do: :ok
+
+  defp record_guard_block(guard, reason, from_device_id, to_device_id, details) do
+    DecisionLog.record(:guard_block, to_string(guard), [from_device_id, to_device_id],
+      source: reason,
+      evidence: %{
+        "merge_reason" => reason,
+        "from_device_id" => from_device_id,
+        "to_device_id" => to_device_id,
+        "details" => details
+      }
+    )
   end
 
   defp emit_merge_guard_telemetry(guard, reason, from_device_id, to_device_id) do

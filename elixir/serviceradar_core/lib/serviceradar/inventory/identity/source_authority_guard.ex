@@ -10,6 +10,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Identity.DecisionLog
   alias ServiceRadar.Inventory.SourceIdentityDrift
   alias ServiceRadar.Repo
 
@@ -83,6 +84,19 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
     source_values =
       details.source_ids |> Map.values() |> List.flatten() |> Enum.uniq() |> Enum.sort()
 
+    DecisionLog.record(:source_block, "source_authority_conflict", details.device_ids,
+      source: reason,
+      evidence: %{
+        "merge_reason" => reason,
+        "source_id" => details.source_id,
+        "partition" => details.partition,
+        "source_ids" => details.source_ids,
+        "evidence" => evidence
+      }
+    )
+
+    # The Armis source-identity diagnostics (northbound withholding, drift reports) read this
+    # table; the identity decision above is the reconciliation record.
     SourceIdentityDrift.record_conflicts([
       %{
         source_type: "armis",

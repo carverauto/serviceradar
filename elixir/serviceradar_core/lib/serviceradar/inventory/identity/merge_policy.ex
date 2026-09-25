@@ -2,9 +2,10 @@ defmodule ServiceRadar.Inventory.Identity.MergePolicy do
   @moduledoc """
   Evidence policy for automatic merges: which identifier-match sets are
   eligible (never agent_id-only, MAC-only, or medium-confidence-only)
-  and blocked-merge telemetry.
+  and the record of each blocked merge.
   """
 
+  alias ServiceRadar.Inventory.Identity.DecisionLog
   alias ServiceRadar.Inventory.Identity.Mac
 
   # Merge only when there is at least one non-MAC strong identifier involved,
@@ -51,7 +52,12 @@ defmodule ServiceRadar.Inventory.Identity.MergePolicy do
     end
   end
 
-  def emit_blocked_merge_telemetry(blocked_reason, device_ids, identifiers) do
+  @doc """
+  Records a merge `MergePolicy` refused: telemetry, plus a persisted identity decision
+  (`:policy_block`) naming every device the match set joined, so the refusal can be reviewed.
+  `source` names the calling path.
+  """
+  def record_blocked_merge(blocked_reason, device_ids, identifiers, source) do
     identifier_count =
       cond do
         is_list(identifiers) -> length(identifiers)
@@ -68,5 +74,31 @@ defmodule ServiceRadar.Inventory.Identity.MergePolicy do
         identifier_count: identifier_count
       }
     )
+
+    DecisionLog.record(:policy_block, blocked_reason, device_ids,
+      source: source,
+      evidence: %{"identifiers" => identifier_evidence(identifiers)}
+    )
   end
+
+  # Match sets arrive as `{type, %{value:, device_id:}}` pairs (a map or a list of them), or as
+  # already-flattened `%{type:, value:, device_id:}` maps.
+  defp identifier_evidence(identifiers) when is_map(identifiers) or is_list(identifiers) do
+    Enum.map(identifiers, fn
+      {type, %{} = match} ->
+        %{"type" => to_string(type), "value" => match[:value], "device_id" => match[:device_id]}
+
+      %{} = match ->
+        %{
+          "type" => to_string(match[:type]),
+          "value" => match[:value],
+          "device_id" => match[:device_id]
+        }
+
+      other ->
+        %{"value" => inspect(other)}
+    end)
+  end
+
+  defp identifier_evidence(_identifiers), do: []
 end

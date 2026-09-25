@@ -69,6 +69,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/serviceradar/inventory/endpoint_vulnerability_assessment_identity_migration_db_test.exs",
     "test/serviceradar/inventory/ephemeral_device_expiry_test.exs",
     "test/serviceradar/inventory/hypervisor_enrichment_ingestor_db_test.exs",
+    "test/serviceradar/inventory/identity/decision_log_test.exs",
     "test/serviceradar/inventory/identity/identity_revision_sites_test.exs",
     "test/serviceradar/inventory/identity/merge_first_seen_test.exs",
     "test/serviceradar/inventory/identity/merge_identity_revision_test.exs",

@@ -12,6 +12,7 @@ defmodule ServiceRadar.Inventory.Identity.AliasGuard do
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Identity.DecisionLog
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.Identity.InterfaceMacs
   alias ServiceRadar.Inventory.Identity.Mac
@@ -283,6 +284,21 @@ defmodule ServiceRadar.Inventory.Identity.AliasGuard do
           [:serviceradar, :identity_reconciler, :alias, :invalidated],
           %{count: length(alias_states)},
           %{alias_ip: ip, alias_device_id: alias_device_id, device_id: device_id}
+        )
+
+        DecisionLog.record(
+          :alias_invalidated,
+          "ip_alias_conflicts_with_identity",
+          [alias_device_id, device_id],
+          subject: ip,
+          source: "alias_guard",
+          evidence: %{
+            "alias_ip" => ip,
+            "partition" => partition,
+            "alias_device_id" => alias_device_id,
+            "device_id" => device_id,
+            "staled_alias_count" => length(alias_states)
+          }
         )
 
       _ ->

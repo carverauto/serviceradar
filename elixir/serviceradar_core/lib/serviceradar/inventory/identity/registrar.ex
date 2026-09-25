@@ -464,7 +464,12 @@ defmodule ServiceRadar.Inventory.Identity.Registrar do
             "Devices: #{inspect(device_ids)}, reason: #{blocked_reason}"
         )
 
-        MergePolicy.emit_blocked_merge_telemetry(blocked_reason, device_ids, matches)
+        MergePolicy.record_blocked_merge(
+          blocked_reason,
+          device_ids,
+          matches,
+          "identifier_registration"
+        )
       end
 
       :ok
@@ -507,7 +512,12 @@ defmodule ServiceRadar.Inventory.Identity.Registrar do
           "Devices: #{inspect(device_ids)}, reason: #{blocked_reason}"
       )
 
-      MergePolicy.emit_blocked_merge_telemetry(blocked_reason, device_ids, matches)
+      MergePolicy.record_blocked_merge(
+        blocked_reason,
+        device_ids,
+        matches,
+        "identifier_conflict_resolution"
+      )
 
       # Preserve current device_id on blocked merge paths to avoid
       # destructive rebinds from ambiguous MAC-only conflicts.
