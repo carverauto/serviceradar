@@ -42,7 +42,7 @@ type MtrTracesQuery<'a> =
 /// trace that did not run the raw SYN handshake (a non-TCP protocol, or the
 /// connect() fallback). NULL fails every comparison, so `tcp_syn_drop_pct:>=0`
 /// is how a caller restricts a query to traces that measured a handshake.
-const TRACE_HANDSHAKE_FIELDS: &[(&str, NumericKind)] = &[
+pub(crate) const TRACE_HANDSHAKE_FIELDS: &[(&str, NumericKind)] = &[
     ("tcp_handshake_ttl", NumericKind::Int4),
     ("tcp_handshake_attempts", NumericKind::Int4),
     ("tcp_syn_sent", NumericKind::Int4),
@@ -62,7 +62,9 @@ const TRACE_HANDSHAKE_FIELDS: &[(&str, NumericKind)] = &[
 
 /// Resolves a handshake filter to its column name and a parsed comparison, or
 /// `None` when the field is not a handshake column.
-fn handshake_comparison(filter: &Filter) -> Result<Option<(&'static str, NumericComparison)>> {
+pub(crate) fn handshake_comparison(
+    filter: &Filter,
+) -> Result<Option<(&'static str, NumericComparison)>> {
     TRACE_HANDSHAKE_FIELDS
         .iter()
         .find(|(name, _)| *name == filter.field)
@@ -291,7 +293,7 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
     }
 }
 
-fn parse_bool(raw: &str) -> Result<bool> {
+pub(crate) fn parse_bool(raw: &str) -> Result<bool> {
     match raw.to_ascii_lowercase().as_str() {
         "true" | "t" | "yes" | "y" | "1" => Ok(true),
         "false" | "f" | "no" | "n" | "0" => Ok(false),
@@ -832,6 +834,10 @@ mod tests {
         for query in [
             "in:mtr_traces target_reached:maybe",
             "in:mtr_traces unsupported:value",
+            // Stats used to drop a filter they could not express and answer
+            // for every trace.
+            "in:mtr_traces total_hops:5 stats:count() as n by target_ip limit:10",
+            "in:mtr_traces gateway_id:gw-a stats:count() as n by target_ip limit:10",
         ] {
             let result = to_sql_and_params(&plan_for(query));
             assert!(
@@ -839,6 +845,48 @@ mod tests {
                 "{query} should be rejected"
             );
         }
+    }
+
+    #[test]
+    fn trace_stats_honor_the_requested_sort() {
+        // The "lowest reach rate" panel. Ignoring the sort listed the busiest
+        // targets instead: the first aggregation, descending.
+        let plan = plan_for(
+            "in:mtr_traces time:last_24h stats:\"count() as traces, avg(target_reached) as reach_rate by target_ip\" sort:reach_rate:asc limit:25",
+        );
+        let (sql, _) = to_sql_and_params(&plan).expect("trace stats should translate");
+        assert!(
+            sql.to_lowercase()
+                .contains("order by avg(target_reached::int) asc"),
+            "{sql}"
+        );
+
+        let plan =
+            plan_for("in:mtr_traces stats:count() as n by agent_id sort:agent_id:asc limit:5");
+        let (sql, _) = to_sql_and_params(&plan).expect("trace stats should translate");
+        assert!(
+            sql.to_lowercase().contains("order by agent_id asc"),
+            "{sql}"
+        );
+
+        let plan = plan_for("in:mtr_traces stats:count() as n by agent_id limit:5");
+        let (sql, _) = to_sql_and_params(&plan).expect("trace stats should translate");
+        assert!(
+            sql.to_lowercase().contains("order by count(*) desc"),
+            "{sql}"
+        );
+    }
+
+    #[test]
+    fn trace_stats_target_reached_filter_honors_negation() {
+        let plan =
+            plan_for("in:mtr_traces !target_reached:true stats:count() as n by target_ip limit:5");
+        let (sql, params) = to_sql_and_params(&plan).expect("trace stats should translate");
+        assert!(sql.contains("target_reached <> $1"), "{sql}");
+        assert!(
+            matches!(params.as_slice().first(), Some(BindParam::Bool(true))),
+            "{params:?}"
+        );
     }
 }
 
@@ -862,7 +910,7 @@ mod tests {
 ///
 /// The TCP handshake columns aggregate as-is; SQL aggregates skip NULL, so a
 /// trace that reported no handshake does not pull an average toward zero.
-const TRACE_AGGREGATABLE_COLUMNS: &[(&str, &str)] = &[
+pub(crate) const TRACE_AGGREGATABLE_COLUMNS: &[(&str, &str)] = &[
     ("total_hops", "total_hops"),
     // Cast so AVG yields the reached proportion rather than erroring on a bool.
     ("target_reached", "target_reached::int"),
@@ -883,7 +931,7 @@ const TRACE_AGGREGATABLE_COLUMNS: &[(&str, &str)] = &[
     ("tcp_server_response_us", "tcp_server_response_us"),
 ];
 
-const TRACE_GROUP_BY_FIELDS: &[&str] = &[
+pub(crate) const TRACE_GROUP_BY_FIELDS: &[&str] = &[
     "target_ip",
     "target",
     "device_id",
@@ -914,8 +962,10 @@ struct TraceAgg {
     alias: String,
 }
 
+/// One trace grouping dimension. Dialect-neutral: the StarRocks dialect parses
+/// the `by` clause with [`parse_trace_stats`] and renders these itself.
 #[derive(Debug, Clone)]
-enum TraceGroupDim {
+pub(crate) enum TraceGroupDim {
     Column(&'static str),
     TimeBucket { seconds: i64 },
 }
@@ -930,7 +980,7 @@ impl TraceGroupDim {
         }
     }
 
-    fn alias(&self) -> &str {
+    pub(crate) fn alias(&self) -> &str {
         match self {
             TraceGroupDim::Column(col) => col,
             TraceGroupDim::TimeBucket { .. } => TRACE_BUCKET_ALIAS,
@@ -938,7 +988,10 @@ impl TraceGroupDim {
     }
 }
 
-fn build_stats_sql(plan: &QueryPlan, raw: &str) -> Result<TraceStatsSql> {
+/// Splits and validates a trace `stats:` expression. Dialect-neutral: the CNPG
+/// builder below and the StarRocks dialect (`starrocks/mtr.rs`) both start
+/// here, so the two backends accept exactly the same aggregations.
+pub(crate) fn parse_trace_stats(raw: &str) -> Result<(Vec<ParsedTraceAgg>, Vec<TraceGroupDim>)> {
     let (agg_part, group_part) = split_trace_group_clause(raw).ok_or_else(|| {
         ServiceError::InvalidRequest(
             "mtr_traces stats expression must include 'by <field>' — e.g. \
@@ -949,6 +1002,12 @@ fn build_stats_sql(plan: &QueryPlan, raw: &str) -> Result<TraceStatsSql> {
 
     let dims = parse_trace_group_dims(group_part.trim())?;
     let aggs = parse_trace_aggs(agg_part.trim())?;
+    Ok((aggs, dims))
+}
+
+fn build_stats_sql(plan: &QueryPlan, raw: &str) -> Result<TraceStatsSql> {
+    let (parsed, dims) = parse_trace_stats(raw)?;
+    let aggs: Vec<TraceAgg> = parsed.iter().map(TraceAgg::postgres).collect();
 
     let mut clauses: Vec<String> = Vec::new();
     let mut binds: Vec<TraceStatsBind> = Vec::new();
@@ -961,10 +1020,9 @@ fn build_stats_sql(plan: &QueryPlan, raw: &str) -> Result<TraceStatsSql> {
     }
 
     for filter in &plan.filters {
-        if let Some((clause, mut filter_binds)) = build_trace_stats_filter(filter)? {
-            clauses.push(clause);
-            binds.append(&mut filter_binds);
-        }
+        let (clause, mut filter_binds) = build_trace_stats_filter(filter)?;
+        clauses.push(clause);
+        binds.append(&mut filter_binds);
     }
 
     let json_kv: Vec<String> = aggs
@@ -1004,11 +1062,7 @@ fn build_stats_sql(plan: &QueryPlan, raw: &str) -> Result<TraceStatsSql> {
             format!("SELECT payload\nFROM (\n{body}\n) AS bucketed\nORDER BY __bucket ASC")
         }
         None => {
-            // Via `as_slice`: a bare `aggs.first()` on the Vec resolves to Diesel's
-            // FirstDsl through the prelude rather than to Vec::first.
-            if let Some(first) = aggs.as_slice().first() {
-                body.push_str(&format!("\nORDER BY {} DESC", first.expr));
-            }
+            body.push_str(&build_trace_stats_order_clause(plan, &aggs));
             body.push_str(&format!("\nLIMIT {} OFFSET {}", plan.limit, plan.offset));
             body
         }
@@ -1017,13 +1071,43 @@ fn build_stats_sql(plan: &QueryPlan, raw: &str) -> Result<TraceStatsSql> {
     Ok(TraceStatsSql { sql, binds })
 }
 
+/// `sort:` resolved the way the hop builder resolves it. Trace stats used to
+/// ignore it and always order by the first aggregation descending, so the
+/// "lowest reach rate" panel (`sort:reach_rate:asc`) listed the busiest
+/// targets instead.
+fn build_trace_stats_order_clause(plan: &QueryPlan, aggs: &[TraceAgg]) -> String {
+    use super::mtr_hops::{StatsOrderKey, resolve_stats_order};
+
+    let aliases: Vec<&str> = aggs.iter().map(|agg| agg.alias.as_str()).collect();
+    let parts: Vec<String> = resolve_stats_order(&plan.order, &aliases, TRACE_GROUP_BY_FIELDS)
+        .into_iter()
+        .map(|(key, direction)| {
+            let expr = match key {
+                StatsOrderKey::Agg(index) => aggs[index].expr.as_str(),
+                StatsOrderKey::Group(field) => field,
+            };
+            let dir = match direction {
+                OrderDirection::Asc => "ASC",
+                OrderDirection::Desc => "DESC",
+            };
+            format!("{expr} {dir}")
+        })
+        .collect();
+
+    if parts.is_empty() {
+        String::new()
+    } else {
+        format!("\nORDER BY {}", parts.join(", "))
+    }
+}
+
 fn split_trace_group_clause(raw: &str) -> Option<(&str, &str)> {
     let lower = raw.to_ascii_lowercase();
     let pos = lower.find(" by ")?;
     Some((&raw[..pos], &raw[pos + 4..]))
 }
 
-fn parse_trace_group_dims(part: &str) -> Result<Vec<TraceGroupDim>> {
+pub(crate) fn parse_trace_group_dims(part: &str) -> Result<Vec<TraceGroupDim>> {
     let mut dims: Vec<TraceGroupDim> = Vec::new();
 
     for raw in part.split(',') {
@@ -1073,7 +1157,7 @@ fn parse_trace_group_dims(part: &str) -> Result<Vec<TraceGroupDim>> {
     Ok(dims)
 }
 
-fn parse_trace_aggs(part: &str) -> Result<Vec<TraceAgg>> {
+fn parse_trace_aggs(part: &str) -> Result<Vec<ParsedTraceAgg>> {
     let mut result = Vec::new();
 
     for expr in crate::parser::split_top_level_commas(part) {
@@ -1093,7 +1177,51 @@ fn parse_trace_aggs(part: &str) -> Result<Vec<TraceAgg>> {
     Ok(result)
 }
 
-fn parse_trace_agg(expr: &str) -> Result<TraceAgg> {
+/// What a trace aggregation computes, with its column validated. Dialect-neutral
+/// for the same reason as the hop builder's `HopAggKind`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum TraceAggKind {
+    /// A bare `count()`: the number of traces in the group.
+    CountRows,
+    /// `count|sum|avg|min|max(<column>)`. `function` is the SQL spelling and
+    /// `column` a name from [`TRACE_AGGREGATABLE_COLUMNS`].
+    Column {
+        function: &'static str,
+        column: &'static str,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ParsedTraceAgg {
+    pub(crate) kind: TraceAggKind,
+    pub(crate) alias: String,
+}
+
+impl TraceAgg {
+    fn postgres(agg: &ParsedTraceAgg) -> Self {
+        let expr = match agg.kind {
+            TraceAggKind::CountRows => "COUNT(*)".to_string(),
+            TraceAggKind::Column { function, column } => {
+                format!("{function}({})", pg_trace_column(column))
+            }
+        };
+        TraceAgg {
+            expr,
+            alias: agg.alias.clone(),
+        }
+    }
+}
+
+/// The Postgres expression that makes an aggregatable trace column numeric.
+pub(crate) fn pg_trace_column(column: &str) -> &'static str {
+    TRACE_AGGREGATABLE_COLUMNS
+        .iter()
+        .find(|(name, _)| *name == column)
+        .map(|(_, sql)| *sql)
+        .expect("trace aggregation columns are validated against TRACE_AGGREGATABLE_COLUMNS")
+}
+
+fn parse_trace_agg(expr: &str) -> Result<ParsedTraceAgg> {
     let lower = expr.to_ascii_lowercase();
 
     let (call, alias) = match lower.find(" as ") {
@@ -1111,16 +1239,30 @@ fn parse_trace_agg(expr: &str) -> Result<TraceAgg> {
     let func = call[..open].trim().to_ascii_lowercase();
     let arg = call[open + 1..close].trim();
 
-    let (expr_sql, default_alias) = match (func.as_str(), arg.is_empty()) {
-        ("count", true) => ("COUNT(*)".to_string(), "count".to_string()),
+    let (kind, default_alias) = match (func.as_str(), arg.is_empty()) {
+        ("count", true) => (TraceAggKind::CountRows, "count".to_string()),
         ("count", false) => {
-            let col = validate_trace_agg_column(arg)?;
-            (format!("COUNT({col})"), format!("count_{arg}"))
+            let column = validate_trace_agg_column(arg)?;
+            (
+                TraceAggKind::Column {
+                    function: "COUNT",
+                    column,
+                },
+                format!("count_{arg}"),
+            )
         }
         ("sum" | "avg" | "min" | "max", false) => {
-            let col = validate_trace_agg_column(arg)?;
-            let sql_func = func.to_ascii_uppercase();
-            (format!("{sql_func}({col})"), format!("{func}_{arg}"))
+            let column = validate_trace_agg_column(arg)?;
+            let function = match func.as_str() {
+                "sum" => "SUM",
+                "avg" => "AVG",
+                "min" => "MIN",
+                _ => "MAX",
+            };
+            (
+                TraceAggKind::Column { function, column },
+                format!("{func}_{arg}"),
+            )
         }
         ("loss_ratio" | "wavg", _) => {
             return Err(ServiceError::InvalidRequest(format!(
@@ -1142,19 +1284,16 @@ fn parse_trace_agg(expr: &str) -> Result<TraceAgg> {
         sanitize_trace_alias(alias)?
     };
 
-    Ok(TraceAgg {
-        expr: expr_sql,
-        alias,
-    })
+    Ok(ParsedTraceAgg { kind, alias })
 }
 
-fn validate_trace_agg_column(col: &str) -> Result<String> {
+fn validate_trace_agg_column(col: &str) -> Result<&'static str> {
     let lower = col.to_ascii_lowercase();
 
     TRACE_AGGREGATABLE_COLUMNS
         .iter()
         .find(|(name, _)| *name == lower.as_str())
-        .map(|(_, sql)| (*sql).to_string())
+        .map(|(name, _)| *name)
         .ok_or_else(|| {
             ServiceError::InvalidRequest(format!(
                 "unsupported column '{col}' for mtr_traces stats; supported: {}",
@@ -1182,7 +1321,9 @@ fn sanitize_trace_alias(raw: &str) -> Result<String> {
     Ok(clean)
 }
 
-fn build_trace_stats_filter(filter: &Filter) -> Result<Option<(String, Vec<TraceStatsBind>)>> {
+/// Refuses a filter it cannot express rather than dropping it, as the hop
+/// builder does; the row path already refuses the same fields.
+fn build_trace_stats_filter(filter: &Filter) -> Result<(String, Vec<TraceStatsBind>)> {
     let field = filter.field.as_str();
 
     match field {
@@ -1199,24 +1340,35 @@ fn build_trace_stats_filter(filter: &Filter) -> Result<Option<(String, Vec<Trace
                     )));
                 }
             };
-            Ok(Some((
-                format!("{field} {op} ?"),
-                vec![TraceStatsBind::Text(value)],
-            )))
+            Ok((format!("{field} {op} ?"), vec![TraceStatsBind::Text(value)]))
         }
+        // `!target_reached:true` used to compile to `target_reached = true`: the
+        // operator was never read.
         "target_reached" => {
             let value = parse_bool(filter.value.as_scalar()?)?;
-            Ok(Some((
-                "target_reached = ?".to_string(),
+            let op = match filter.op {
+                FilterOp::Eq => "=",
+                FilterOp::NotEq => "<>",
+                _ => {
+                    return Err(ServiceError::InvalidRequest(
+                        "target_reached only supports equality comparisons".into(),
+                    ));
+                }
+            };
+            Ok((
+                format!("target_reached {op} ?"),
                 vec![TraceStatsBind::Bool(value)],
-            )))
+            ))
         }
-        _ => Ok(handshake_comparison(filter)?.map(|(column, comparison)| {
-            (
+        other => match handshake_comparison(filter)? {
+            Some((column, comparison)) => Ok((
                 format!("{column} {} ?", comparison.op_sql),
                 vec![TraceStatsBind::Numeric(comparison.value)],
-            )
-        })),
+            )),
+            None => Err(ServiceError::InvalidRequest(format!(
+                "unsupported filter field for mtr_traces: '{other}'"
+            ))),
+        },
     }
 }
 

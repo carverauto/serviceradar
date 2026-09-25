@@ -63,6 +63,33 @@ defmodule ServiceRadar.Analytics.StarRocks.EventDocumentsTest do
     assert EventDocuments.decode_rows(rows, "events") == rows
   end
 
+  test "an MTR row listing comes back with the list, document and boolean CNPG returns" do
+    hop = %{
+      "id" => "hop-alpha-0001",
+      "addr" => "192.0.2.1",
+      "ecmp_addrs" => ~s(["192.0.2.1","198.51.100.1"]),
+      "mpls_labels" => ~s([{"label":16001,"exp":0,"s":1,"ttl":64}])
+    }
+
+    for entity <- ~w(mtr_hops mtr_hop_stats) do
+      assert [decoded] = EventDocuments.decode_rows([hop], entity)
+      assert decoded["ecmp_addrs"] == ["192.0.2.1", "198.51.100.1"]
+      assert decoded["mpls_labels"] == [%{"label" => 16_001, "exp" => 0, "s" => 1, "ttl" => 64}]
+      assert decoded["addr"] == "192.0.2.1"
+    end
+
+    reached = %{"id" => "trace-alpha-0001", "target_reached" => 1, "total_hops" => 1}
+    missed = %{"id" => "trace-alpha-0002", "target_reached" => 0, "total_hops" => 0}
+
+    assert [%{"target_reached" => true, "total_hops" => 1}, %{"target_reached" => false}] =
+             EventDocuments.decode_rows([reached, missed], "mtr_traces")
+  end
+
+  test "an MTR stats row is returned unchanged, even under a row column's name" do
+    rows = [%{"target_ip" => "192.0.2.10", "target_reached" => 1, "ecmp_addrs" => "[]"}]
+    assert EventDocuments.decode_rows(rows, "mtr_traces") == rows
+  end
+
   test "another dataset's rows are untouched, even with a column of the same name" do
     text = ~s({"site":"SITE01"})
 

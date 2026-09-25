@@ -417,9 +417,14 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
         {:ok, pkg}
 
       {:ok, nil} ->
-        case read_one_package_with_instances(id, scope) do
+        # The internal id is a UUID; any other string is an unknown manifest id and
+        # must not reach the UUID filter, where Ash would reject it as an invalid cast.
+        with {:ok, uuid} <- Ecto.UUID.cast(id),
+             {:ok, %DashboardPackage{} = pkg} <- read_one_package_with_instances(uuid, scope) do
+          {:ok, pkg}
+        else
+          :error -> {:error, :not_found}
           {:ok, nil} -> {:error, :not_found}
-          {:ok, pkg} -> {:ok, pkg}
           {:error, error} -> {:error, error}
         end
 

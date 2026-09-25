@@ -87,10 +87,13 @@
       term list with a CNPG and a warehouse renderer. Only SQL-shape tests exist: result parity is
       NOT proven until task 1.4's harness runs these shapes. Still open:
       `MtrData.retention_status/1` reports the CNPG retention policy.
-    - SRQL `in:mtr_traces`/`in:mtr_hops` (the system report panels) have no StarRocks dialect
-      yet: with StarRocks enabled `Readers.mode_for/1` refuses them
-      (`:warehouse_reader_missing`) instead of reading the frozen CNPG tables (task 5.3
-      behaviour); adding them to the StarRocks dialect remains.
+    - SRQL `in:mtr_traces`/`in:mtr_hops`/`in:mtr_hop_stats` (the system report panels) have a
+      StarRocks dialect (`rust/srql/src/query/starrocks/mtr.rs`), and `Readers.mode_for/1` sends
+      MTR SRQL to it whenever StarRocks is enabled, to CNPG otherwise. It renders the CNPG MTR
+      builders' own parse of `stats:`, so both backends accept the same queries; bucket widths
+      that do not divide a day, `bucket:` and `rollup_stats:` are refused. Only SQL-shape tests
+      and an accept/refuse equivalence corpus exist: result parity is NOT proven until task
+      1.4's harness runs these shapes.
   - [x] 3.4.7 Delete the MTR exception from the AGENTS.md JetStream rule when 3.4.1 and 3.4.3 land.
     - Done with 3.4.1: after it, no MTR path bypasses JetStream (ad-hoc traces already arrive on
       `scans.results.>` and are written inside EventWriter). 3.4.3 is about warehouse-awareness,

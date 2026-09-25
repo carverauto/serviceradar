@@ -33,17 +33,19 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageReadControllerTest do
     ensure_admin_has_view_all!()
 
     original_storage = Application.get_env(:serviceradar_web_ng, :plugin_storage)
-    tmp = Path.join(System.tmp_dir!(), "sr-read-test-#{System.unique_integer([:positive])}")
+    store_name = :"sr_read_test_store_#{System.unique_integer([:positive])}"
+    {:ok, _store} = ServiceRadarWebNG.PluginStorageTestClient.start_link(store_name)
 
+    # This lane has no NATS, and the storage backend is JetStream-only, so blob writes go
+    # to the in-memory client instead of the object store.
     Application.put_env(:serviceradar_web_ng, :plugin_storage,
-      backend: :filesystem,
-      base_path: tmp,
+      backend: :jetstream,
+      jetstream_client: ServiceRadarWebNG.PluginStorageTestClient,
+      test_store: store_name,
       signing_secret: "test-secret"
     )
 
     on_exit(fn ->
-      File.rm_rf(tmp)
-
       if original_storage do
         Application.put_env(:serviceradar_web_ng, :plugin_storage, original_storage)
       else

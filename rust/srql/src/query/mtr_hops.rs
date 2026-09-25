@@ -28,7 +28,7 @@ type MtrHopsQuery<'a> =
 // ─── stats SQL helpers ────────────────────────────────────────────────────────
 
 /// Aggregatable numeric columns and their SQL names in platform.mtr_hops.
-const AGGREGATABLE_COLUMNS: &[(&str, &str)] = &[
+pub(crate) const AGGREGATABLE_COLUMNS: &[(&str, &str)] = &[
     ("loss_pct", "loss_pct"),
     ("avg_us", "avg_us"),
     ("min_us", "min_us"),
@@ -47,7 +47,7 @@ const AGGREGATABLE_COLUMNS: &[(&str, &str)] = &[
 /// NULL means the agent did not report reply types (an older agent), which is
 /// distinct from a reported zero; NULL fails every comparison, so `reply_rst:>0`
 /// selects only hops that reported at least one RST.
-const REPLY_TYPE_FIELDS: &[&str] = &[
+pub(crate) const REPLY_TYPE_FIELDS: &[&str] = &[
     "reply_time_exceeded",
     "reply_unreachable",
     "reply_synack",
@@ -55,7 +55,7 @@ const REPLY_TYPE_FIELDS: &[&str] = &[
 ];
 
 /// Valid grouping fields for stats queries.
-const GROUP_BY_FIELDS: &[&str] = &[
+pub(crate) const GROUP_BY_FIELDS: &[&str] = &[
     "addr",
     "asn",
     "asn_org",
@@ -67,11 +67,11 @@ const GROUP_BY_FIELDS: &[&str] = &[
 /// Columns `wavg` may average. `loss_pct` is excluded deliberately: a weighted
 /// mean of percentages is still a mean of ratios, and `loss_ratio` is the
 /// correct aggregate for loss.
-const WAVG_VALUE_COLUMNS: &[&str] = &["avg_us", "min_us", "max_us", "jitter_us"];
+pub(crate) const WAVG_VALUE_COLUMNS: &[&str] = &["avg_us", "min_us", "max_us", "jitter_us"];
 
 /// Columns that may weight a `wavg` or denominate a `loss_ratio`: the probe
 /// counters, which are the only columns carrying sample size.
-const PROBE_COUNT_COLUMNS: &[&str] = &["sent", "received"];
+pub(crate) const PROBE_COUNT_COLUMNS: &[&str] = &["sent", "received"];
 
 /// Projection alias for the time-bucket group dimension.
 const BUCKET_ALIAS: &str = "bucket";
@@ -85,8 +85,11 @@ struct HopAgg {
 }
 
 /// One grouping dimension: a validated column, or a time bucket.
+///
+/// Dialect-neutral: the StarRocks dialect (`starrocks/mtr.rs`) parses the `by`
+/// clause with [`parse_group_dims`] and renders these itself.
 #[derive(Debug, Clone)]
-enum GroupDim {
+pub(crate) enum GroupDim {
     Column(&'static str),
     TimeBucket { seconds: i64 },
 }
@@ -106,7 +109,7 @@ impl GroupDim {
     }
 
     /// Key this dimension appears under in the JSON payload.
-    fn alias(&self) -> &str {
+    pub(crate) fn alias(&self) -> &str {
         match self {
             GroupDim::Column(col) => col,
             GroupDim::TimeBucket { .. } => BUCKET_ALIAS,
@@ -268,7 +271,9 @@ fn apply_filter<'a>(mut query: MtrHopsQuery<'a>, filter: &Filter) -> Result<MtrH
 
 /// Resolves a reply-type filter to its column name and a parsed comparison, or
 /// `None` when the field is not a reply-type column.
-fn reply_type_comparison(filter: &Filter) -> Result<Option<(&'static str, NumericComparison)>> {
+pub(crate) fn reply_type_comparison(
+    filter: &Filter,
+) -> Result<Option<(&'static str, NumericComparison)>> {
     REPLY_TYPE_FIELDS
         .iter()
         .find(|name| **name == filter.field)
@@ -550,7 +555,11 @@ async fn execute_stats(
         .collect())
 }
 
-fn build_stats_sql(plan: &QueryPlan, raw: &str) -> Result<HopStatsSql> {
+/// Splits and validates a hop `stats:` expression into its aggregations and
+/// grouping dimensions. Dialect-neutral: the CNPG builder below and the
+/// StarRocks dialect (`starrocks/mtr.rs`) both start here, so the two backends
+/// accept exactly the same aggregations over exactly the same columns.
+pub(crate) fn parse_hop_stats(raw: &str) -> Result<(Vec<ParsedHopAgg>, Vec<GroupDim>)> {
     let (agg_part, group_part) = split_group_clause(raw).ok_or_else(|| {
         ServiceError::InvalidRequest(
             "mtr_hops stats expression must include 'by <field>' — e.g. \
@@ -561,6 +570,12 @@ fn build_stats_sql(plan: &QueryPlan, raw: &str) -> Result<HopStatsSql> {
 
     let dims = parse_group_dims(group_part.trim())?;
     let aggs = parse_agg_expressions(agg_part.trim())?;
+    Ok((aggs, dims))
+}
+
+fn build_stats_sql(plan: &QueryPlan, raw: &str) -> Result<HopStatsSql> {
+    let (parsed, dims) = parse_hop_stats(raw)?;
+    let aggs: Vec<HopAgg> = parsed.iter().map(HopAgg::postgres).collect();
 
     let mut clauses: Vec<String> = Vec::new();
     let mut binds: Vec<HopStatsBindValue> = Vec::new();
@@ -573,10 +588,9 @@ fn build_stats_sql(plan: &QueryPlan, raw: &str) -> Result<HopStatsSql> {
     }
 
     for filter in &plan.filters {
-        if let Some((clause, mut filt_binds)) = build_stats_filter_clause(filter)? {
-            clauses.push(clause);
-            binds.append(&mut filt_binds);
-        }
+        let (clause, mut filt_binds) = build_stats_filter_clause(filter)?;
+        clauses.push(clause);
+        binds.append(&mut filt_binds);
     }
 
     // Build jsonb payload with agg expressions embedded inline so the query is
@@ -633,7 +647,7 @@ fn build_stats_sql(plan: &QueryPlan, raw: &str) -> Result<HopStatsSql> {
 ///
 /// Accepts a comma-separated mix of validated columns and at most one
 /// `time:<duration>` bucket.
-fn parse_group_dims(part: &str) -> Result<Vec<GroupDim>> {
+pub(crate) fn parse_group_dims(part: &str) -> Result<Vec<GroupDim>> {
     let mut dims: Vec<GroupDim> = Vec::new();
 
     for raw in part.split(',') {
@@ -673,7 +687,7 @@ fn parse_group_dims(part: &str) -> Result<Vec<GroupDim>> {
     Ok(dims)
 }
 
-fn parse_agg_expressions(part: &str) -> Result<Vec<HopAgg>> {
+fn parse_agg_expressions(part: &str) -> Result<Vec<ParsedHopAgg>> {
     // Comma-separated expressions like:
     //   avg(loss_pct) as avg_loss, loss_ratio(sent, received) as loss
     //
@@ -696,7 +710,49 @@ fn parse_agg_expressions(part: &str) -> Result<Vec<HopAgg>> {
     Ok(result)
 }
 
-fn parse_single_agg(expr: &str) -> Result<HopAgg> {
+/// What a hop aggregation computes, with every column already validated.
+///
+/// Dialect-neutral on purpose: the CNPG builder and the StarRocks dialect
+/// render the same parse, so a column or function accepted by one backend is
+/// accepted by the other and means the same thing there.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum HopAggKind {
+    /// `loss_ratio(sent, received)`: lost probes over sent probes, as a
+    /// percentage of the group's totals.
+    LossRatio { sent: String, received: String },
+    /// `wavg(value, weight)`: the weight-weighted mean of `value`.
+    Wavg { value: String, weight: String },
+    /// A bare `count()`: the number of hop rows in the group.
+    CountRows,
+    /// `avg|min|max|sum|count(<column>)`. `function` is the SQL spelling.
+    Column {
+        function: &'static str,
+        column: String,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ParsedHopAgg {
+    pub(crate) kind: HopAggKind,
+    pub(crate) alias: String,
+}
+
+impl HopAgg {
+    fn postgres(agg: &ParsedHopAgg) -> Self {
+        let expr = match &agg.kind {
+            HopAggKind::LossRatio { sent, received } => pg_loss_ratio_expr(sent, received),
+            HopAggKind::Wavg { value, weight } => pg_wavg_expr(value, weight),
+            HopAggKind::CountRows => "COUNT(*)".to_string(),
+            HopAggKind::Column { function, column } => format!("{function}({column})"),
+        };
+        HopAgg {
+            expr,
+            alias: agg.alias.clone(),
+        }
+    }
+}
+
+fn parse_single_agg(expr: &str) -> Result<ParsedHopAgg> {
     let lower = expr.to_ascii_lowercase();
 
     // Try to match "func(args) as alias"
@@ -725,10 +781,10 @@ fn parse_single_agg(expr: &str) -> Result<HopAgg> {
                 )));
             };
 
-            let expr_sql = if func_lower == "loss_ratio" {
-                build_loss_ratio_expr(first, second)?
+            let kind = if func_lower == "loss_ratio" {
+                validate_loss_ratio_columns(first, second)?
             } else {
-                build_wavg_expr(first, second)?
+                validate_wavg_columns(first, second)?
             };
 
             let alias = if alias.is_empty() {
@@ -737,10 +793,7 @@ fn parse_single_agg(expr: &str) -> Result<HopAgg> {
                 sanitize_identifier(alias)?
             };
 
-            Ok(HopAgg {
-                expr: expr_sql,
-                alias,
-            })
+            Ok(ParsedHopAgg { kind, alias })
         }
         // A bare `count()` counts rows, which is how a panel reports how many
         // traces traversed a hop address -- the signal that separates a genuinely
@@ -752,8 +805,8 @@ fn parse_single_agg(expr: &str) -> Result<HopAgg> {
                 sanitize_identifier(alias)?
             };
 
-            Ok(HopAgg {
-                expr: "COUNT(*)".to_string(),
+            Ok(ParsedHopAgg {
+                kind: HopAggKind::CountRows,
                 alias,
             })
         }
@@ -765,16 +818,16 @@ fn parse_single_agg(expr: &str) -> Result<HopAgg> {
                 )));
             }
             let field_name = arg_list[0];
-            let func_sql = agg_func_sql(&func_name)?;
-            let col = validate_agg_column(field_name)?;
+            let function = agg_func_sql(&func_name)?;
+            let column = validate_agg_column(field_name)?;
             let alias = if alias.is_empty() {
-                format!("{}_{}", func_lower, col)
+                format!("{}_{}", func_lower, column)
             } else {
                 sanitize_identifier(alias)?
             };
 
-            Ok(HopAgg {
-                expr: format!("{func_sql}({col})"),
+            Ok(ParsedHopAgg {
+                kind: HopAggKind::Column { function, column },
                 alias,
             })
         }
@@ -788,7 +841,7 @@ fn parse_single_agg(expr: &str) -> Result<HopAgg> {
 /// a single lost probe would otherwise weigh as much as one that sent five
 /// hundred cleanly. The CASE guard yields NULL for a group that sent nothing, so
 /// "no measurement" stays distinguishable from "no loss".
-fn build_loss_ratio_expr(sent: &str, received: &str) -> Result<String> {
+fn validate_loss_ratio_columns(sent: &str, received: &str) -> Result<HopAggKind> {
     let sent_col = validate_named_column(sent, PROBE_COUNT_COLUMNS, "loss_ratio numerator")?;
     let recv_col = validate_named_column(received, PROBE_COUNT_COLUMNS, "loss_ratio denominator")?;
 
@@ -800,11 +853,18 @@ fn build_loss_ratio_expr(sent: &str, received: &str) -> Result<String> {
         ));
     }
 
-    Ok(format!(
+    Ok(HopAggKind::LossRatio {
+        sent: sent_col,
+        received: recv_col,
+    })
+}
+
+fn pg_loss_ratio_expr(sent_col: &str, recv_col: &str) -> String {
+    format!(
         "CASE WHEN COALESCE(SUM({sent_col}), 0) > 0 THEN \
          100.0 * (SUM({sent_col})::numeric - COALESCE(SUM({recv_col}), 0)::numeric) \
          / SUM({sent_col})::numeric ELSE NULL END"
-    ))
+    )
 }
 
 /// `wavg(value, weight)` as a weight-weighted mean.
@@ -813,15 +873,22 @@ fn build_loss_ratio_expr(sent: &str, received: &str) -> Result<String> {
 /// from a hundred, so weighting by the probe count is what makes hop latencies
 /// summable across a group. A NULL weight contributes nothing rather than
 /// voiding the group; a zero total weight yields NULL.
-fn build_wavg_expr(value: &str, weight: &str) -> Result<String> {
+fn validate_wavg_columns(value: &str, weight: &str) -> Result<HopAggKind> {
     let value_col = validate_named_column(value, WAVG_VALUE_COLUMNS, "wavg value")?;
     let weight_col = validate_named_column(weight, PROBE_COUNT_COLUMNS, "wavg weight")?;
 
-    Ok(format!(
+    Ok(HopAggKind::Wavg {
+        value: value_col,
+        weight: weight_col,
+    })
+}
+
+fn pg_wavg_expr(value_col: &str, weight_col: &str) -> String {
+    format!(
         "CASE WHEN SUM(COALESCE({weight_col}, 0)) > 0 THEN \
          SUM({value_col}::numeric * COALESCE({weight_col}, 0)::numeric) \
          / SUM(COALESCE({weight_col}, 0))::numeric ELSE NULL END"
-    ))
+    )
 }
 
 fn validate_named_column(col: &str, allowed: &[&str], role: &str) -> Result<String> {
@@ -852,13 +919,13 @@ fn parse_func_call(s: &str) -> Result<(String, String)> {
     Ok((func, field))
 }
 
-fn agg_func_sql(func: &str) -> Result<String> {
+fn agg_func_sql(func: &str) -> Result<&'static str> {
     match func.to_ascii_lowercase().as_str() {
-        "avg" => Ok("AVG".into()),
-        "min" => Ok("MIN".into()),
-        "max" => Ok("MAX".into()),
-        "sum" => Ok("SUM".into()),
-        "count" => Ok("COUNT".into()),
+        "avg" => Ok("AVG"),
+        "min" => Ok("MIN"),
+        "max" => Ok("MAX"),
+        "sum" => Ok("SUM"),
+        "count" => Ok("COUNT"),
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported aggregation function '{other}' for mtr_hops; \
              use avg, min, max, sum, count, loss_ratio, or wavg"
@@ -916,60 +983,96 @@ fn split_group_clause(raw: &str) -> Option<(&str, &str)> {
     Some((&raw[..pos], &raw[pos + 4..]))
 }
 
+/// What one resolved stats sort term orders by.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StatsOrderKey {
+    /// The aggregation at this index of the projection.
+    Agg(usize),
+    /// A groupable column, in its canonical spelling.
+    Group(&'static str),
+}
+
+/// Resolves a stats query's `sort:` against its own projection. Shared by the
+/// hop and trace builders of both dialects, so each backend sorts a stats
+/// result the same way.
+///
+/// A clause naming an aggregation alias (case-insensitively) sorts by that
+/// aggregation, one naming a groupable field sorts by the field, and any other
+/// clause is skipped. No usable clause sorts by the first aggregation,
+/// descending.
+pub(crate) fn resolve_stats_order(
+    order: &[OrderClause],
+    aliases: &[&str],
+    group_fields: &[&'static str],
+) -> Vec<(StatsOrderKey, OrderDirection)> {
+    let resolved: Vec<_> = order
+        .iter()
+        .filter_map(|clause| {
+            let key = if let Some(index) = aliases
+                .iter()
+                .position(|alias| alias.eq_ignore_ascii_case(&clause.field))
+            {
+                StatsOrderKey::Agg(index)
+            } else {
+                StatsOrderKey::Group(
+                    group_fields
+                        .iter()
+                        .find(|field| field.eq_ignore_ascii_case(&clause.field))
+                        .copied()?,
+                )
+            };
+            Some((key, clause.direction))
+        })
+        .collect();
+
+    if resolved.is_empty() && !aliases.is_empty() {
+        vec![(StatsOrderKey::Agg(0), OrderDirection::Desc)]
+    } else {
+        resolved
+    }
+}
+
 fn build_stats_order_clause(plan: &QueryPlan, aggs: &[HopAgg]) -> String {
-    // Default: sort by the first agg expression descending.
-    let default_expr = aggs.first().map(|agg| agg.expr.clone());
-
-    if plan.order.is_empty() {
-        return default_expr
-            .map(|e| format!("\nORDER BY {e} DESC"))
-            .unwrap_or_default();
-    }
-
-    let mut parts = Vec::new();
-    for clause in &plan.order {
-        let expr = if let Some(agg) = aggs
-            .iter()
-            .find(|agg| agg.alias.eq_ignore_ascii_case(&clause.field))
-        {
-            agg.expr.clone()
-        } else if GROUP_BY_FIELDS
-            .iter()
-            .any(|&f| f.eq_ignore_ascii_case(&clause.field))
-        {
-            clause.field.clone()
-        } else {
-            continue;
-        };
-        let dir = match clause.direction {
-            OrderDirection::Asc => "ASC",
-            OrderDirection::Desc => "DESC",
-        };
-        parts.push(format!("{expr} {dir}"));
-    }
+    let aliases: Vec<&str> = aggs.iter().map(|agg| agg.alias.as_str()).collect();
+    let parts: Vec<String> = resolve_stats_order(&plan.order, &aliases, GROUP_BY_FIELDS)
+        .into_iter()
+        .map(|(key, direction)| {
+            let expr = match key {
+                StatsOrderKey::Agg(index) => aggs[index].expr.as_str(),
+                StatsOrderKey::Group(field) => field,
+            };
+            let dir = match direction {
+                OrderDirection::Asc => "ASC",
+                OrderDirection::Desc => "DESC",
+            };
+            format!("{expr} {dir}")
+        })
+        .collect();
 
     if parts.is_empty() {
-        default_expr
-            .map(|e| format!("\nORDER BY {e} DESC"))
-            .unwrap_or_default()
+        String::new()
     } else {
         format!("\nORDER BY {}", parts.join(", "))
     }
 }
 
-fn build_stats_filter_clause(filter: &Filter) -> Result<Option<(String, Vec<HopStatsBindValue>)>> {
+/// A stats filter the builder cannot express is refused, never dropped: an
+/// ignored `gateway_id:` would return fleet-wide aggregates under a filtered
+/// query, a wrong answer inside an `{:ok, ...}` response. The row path already
+/// refuses the same fields.
+fn build_stats_filter_clause(filter: &Filter) -> Result<(String, Vec<HopStatsBindValue>)> {
     match filter.field.as_str() {
-        "addr" => Ok(Some(build_text_clause("addr", filter)?)),
-        "hostname" => Ok(Some(build_text_clause("hostname", filter)?)),
-        "asn_org" => Ok(Some(build_text_clause("asn_org", filter)?)),
-        "target_ip" => Ok(Some(build_text_clause("target_ip", filter)?)),
-        "device_id" => Ok(Some(build_text_clause("device_id", filter)?)),
+        "addr" => build_text_clause("addr", filter),
+        "hostname" => build_text_clause("hostname", filter),
+        "asn_org" => build_text_clause("asn_org", filter),
+        "target_ip" => build_text_clause("target_ip", filter),
+        "device_id" => build_text_clause("device_id", filter),
         "trace_id" => {
             let raw = filter.value.as_scalar()?;
             uuid::Uuid::parse_str(raw).map_err(|_| {
                 ServiceError::InvalidRequest(format!("trace_id must be a valid UUID, got '{raw}'"))
             })?;
-            Ok(Some(build_text_clause("trace_id::text", filter)?))
+            build_text_clause("trace_id::text", filter)
         }
         "asn" | "hop_number" => {
             let raw = filter.value.as_scalar()?;
@@ -999,14 +1102,17 @@ fn build_stats_filter_clause(filter: &Filter) -> Result<Option<(String, Vec<HopS
                     )));
                 }
             };
-            Ok(Some((clause, vec![HopStatsBindValue::Int(n)])))
+            Ok((clause, vec![HopStatsBindValue::Int(n)]))
         }
-        _ => Ok(reply_type_comparison(filter)?.map(|(column, comparison)| {
-            (
+        other => match reply_type_comparison(filter)? {
+            Some((column, comparison)) => Ok((
                 format!("{column} {} ?", comparison.op_sql),
                 vec![HopStatsBindValue::Numeric(comparison.value)],
-            )
-        })),
+            )),
+            None => Err(ServiceError::InvalidRequest(format!(
+                "unsupported filter field for mtr_hops: '{other}'"
+            ))),
+        },
     }
 }
 
@@ -1147,6 +1253,21 @@ mod tests {
         assert!(
             matches!(result, Err(ServiceError::InvalidRequest(_))),
             "an unknown filter field should be rejected"
+        );
+    }
+
+    #[test]
+    fn unsupported_stats_filter_field_is_refused_not_dropped() {
+        // Dropping it answered with fleet-wide aggregates under a filtered query.
+        let plan = plan_for(
+            "in:mtr_hops gateway_id:some-gateway stats:loss_ratio(sent, received) as loss by addr limit:10",
+        );
+        assert!(
+            matches!(
+                to_sql_and_params(&plan),
+                Err(ServiceError::InvalidRequest(_))
+            ),
+            "an unknown stats filter field should be rejected"
         );
     }
 
