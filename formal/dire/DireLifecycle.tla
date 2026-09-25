@@ -1,7 +1,8 @@
 --------------------------- MODULE DireLifecycle ---------------------------
 (***************************************************************************)
 (* The DIRE device lifecycle as the Elixir code implements it today.        *)
-(* See openspec/changes/add-dire-formal-model/design.md.                    *)
+(* See openspec/specs/dire-formal-model; the design is D1-D8 in             *)
+(* openspec/changes/archive/2026-09-24-add-dire-formal-model/design.md.     *)
 (*                                                                          *)
 (* Every action names the function it models. Known defects are switches in *)
 (* Bugs: an action takes its defective branch only when its switch is on.   *)

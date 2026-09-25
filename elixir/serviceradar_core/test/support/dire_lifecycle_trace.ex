@@ -79,8 +79,8 @@ defmodule ServiceRadar.DireLifecycleTrace do
       }
 
   A `:src` identifier is an Armis device id (with its integration id), `:mac` a hardware MAC,
-  `:agent` an agent id. Real values are synthetic: documentation-range MACs, the test helpers'
-  address range, generated ids.
+  `:agent` an agent id. Real values are synthetic: documentation-range MACs and addresses,
+  generated ids.
   """
   def start(name, world, actor) do
     seed = System.unique_integer([:positive, :monotonic])
@@ -95,7 +95,7 @@ defmodule ServiceRadar.DireLifecycleTrace do
       ids: real_ids,
       ip:
         Map.new(Enum.with_index(world.ips, 1), fn {p, n} ->
-          {p, "100.125.#{rem(seed, 250) + 1}.#{n + 10}"}
+          {p, "203.0.113.#{rem(seed, 200) + n + 10}"}
         end)
     }
 

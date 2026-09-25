@@ -46,4 +46,5 @@
 ## 4. Close-out
 
 - [x] 4.1 `formal/dire/README.md`: the switch, witness, promote loop.
-- [ ] 4.2 Archive this change once all three PRs are merged.
+- [x] 4.2 Archive this change once all three PRs are merged (PR 1 #4598, PR 2 #4607,
+      PR 3 #4636, PR 4 #4643).

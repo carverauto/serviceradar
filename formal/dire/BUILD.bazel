@@ -1,6 +1,6 @@
 load("//build/tla:tlc.bzl", "tlc_test")
 
-# DIRE formal models. See README.md, openspec/changes/add-dire-formal-model and
+# DIRE formal models. See README.md, openspec/specs/dire-formal-model and
 # openspec/changes/update-dire-strong-identity-goal.
 
 # The committed traces, read by the core integration lanes (INTEGRATION_RUNTIME_DATA) so
