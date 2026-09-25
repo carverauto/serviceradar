@@ -138,7 +138,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Selection do
   end
 
   def handle_event("close_bulk_delete_modal", _params, socket) do
-    {:noreply, assign(socket, :show_bulk_delete_modal, false)}
+    {:noreply, reset_bulk_delete_modal(socket)}
   end
 
   def handle_event("close_bulk_availability_source_modal", _params, socket) do
@@ -233,6 +233,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Selection do
     else
       :ok
     end
+  end
+
+  def reset_bulk_delete_modal(socket) do
+    socket
+    |> assign(:show_bulk_delete_modal, false)
+    |> assign(:bulk_delete_stop_on_error, false)
+    |> assign(:bulk_delete_error_form, Helpers.bulk_error_form())
   end
 
   defp all_matching_uids(socket) do

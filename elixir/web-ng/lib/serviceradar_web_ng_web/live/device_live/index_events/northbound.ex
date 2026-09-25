@@ -68,9 +68,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Northbound do
              |> assign(:total_matching_count, nil)
              |> put_flash(:info, northbound_success_message(summary))}
 
-          other ->
+          {_status, summary} = other ->
             {:noreply,
              socket
+             |> drop_launched_from_selection(uids, summary)
              |> assign(:northbound_action_form, to_form(params, as: :action))
              |> assign(:northbound_action_error, Helpers.batch_failure_message(other))}
         end
@@ -190,7 +191,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Northbound do
         targets = Enum.map(batch, &%{kind: "device", device_uid: &1})
 
         case create_northbound_invocation(socket, action, targets, input_values) do
-          {:ok, invocation} -> {:ok, length(batch), invocation.id}
+          {:ok, invocation} -> {:ok, length(batch), {invocation.id, batch}}
           {:error, reason} -> {:error, reason}
         end
       end,
@@ -198,12 +199,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Northbound do
     )
   end
 
-  defp northbound_success_message(%{applied: count, extras: [id]}) do
+  defp drop_launched_from_selection(socket, _uids, %{extras: []}), do: socket
+
+  defp drop_launched_from_selection(socket, uids, %{extras: extras}) do
+    launched = MapSet.new(Enum.flat_map(extras, fn {_id, batch} -> batch end))
+    remaining = uids |> MapSet.new() |> MapSet.difference(launched)
+
+    socket
+    |> assign(:selected_devices, remaining)
+    |> assign(:select_all_matching, false)
+    |> assign(:total_matching_count, nil)
+  end
+
+  defp northbound_success_message(%{applied: count, extras: [{id, _batch}]}) do
     "Created action invocation #{NorthboundActionForm.short_id(id)} for #{count} device(s). Open device details Action History to follow results."
   end
 
-  defp northbound_success_message(%{applied: count, extras: ids}) do
-    "Created #{length(ids)} action invocations for #{count} device(s). Open device details Action History to follow results."
+  defp northbound_success_message(%{applied: count, extras: invocations}) do
+    "Created #{length(invocations)} action invocations for #{count} device(s). Open device details Action History to follow results."
   end
 
   defp create_northbound_invocation(socket, action, targets, input_values) do

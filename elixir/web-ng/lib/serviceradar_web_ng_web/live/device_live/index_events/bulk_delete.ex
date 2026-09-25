@@ -85,7 +85,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkDelete do
 
     {:noreply,
      socket
-     |> assign(:show_bulk_delete_modal, false)
+     |> Selection.reset_bulk_delete_modal()
      |> assign(:selected_devices, MapSet.new())
      |> assign(:select_all_matching, false)
      |> assign(:total_matching_count, nil)

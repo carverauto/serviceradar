@@ -110,10 +110,12 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
         </div>
 
         <div :if={@show_stop_on_error}>
-          <input type="hidden" name="action[stop_on_error]" value="false" />
-          <label class="flex items-center gap-2 text-sm text-sr-ink">
-            <input type="checkbox" name="action[stop_on_error]" value="true" /> Stop on first error
-          </label>
+          <.input
+            field={@form[:stop_on_error]}
+            id={"#{@id}-stop-on-error"}
+            type="checkbox"
+            label="Stop on first error"
+          />
           <p class="mt-1 text-xs text-sr-muted">
             Leave this off to keep launching the rest after a batch fails.
           </p>

@@ -63,6 +63,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEventsTest do
     assert socket.assigns.selected_devices == MapSet.new(["manual-1"])
   end
 
+  test "closing the bulk delete modal returns Stop on first error to off" do
+    socket =
+      selection_socket(%{
+        show_bulk_delete_modal: true,
+        bulk_delete_stop_on_error: true,
+        bulk_delete_error_form: nil
+      })
+
+    assert {:noreply, socket} = IndexEvents.handle_event("close_bulk_delete_modal", %{}, socket)
+
+    refute socket.assigns.show_bulk_delete_modal
+    refute socket.assigns.bulk_delete_stop_on_error
+    assert socket.assigns.bulk_delete_error_form.params == %{"stop_on_error" => "false"}
+  end
+
   test "selected_uids_for_scope resolves all-matching through SRQL and selected through the MapSet" do
     with_matching_uids(:two, fn ->
       socket =

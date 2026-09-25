@@ -38,6 +38,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkTags do
            |> assign(:bulk_state_form, Helpers.bulk_state_form())
            |> assign(:bulk_target_scope, "selected")
            |> assign(:bulk_target_matching_count, nil)
+           |> assign(:bulk_stop_on_error, false)
            |> assign(:selected_devices, MapSet.new())
            |> assign(:select_all_matching, false)
            |> assign(:total_matching_count, nil)
