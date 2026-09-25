@@ -450,6 +450,30 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeGuardTest do
       refute Enum.any?(lineage, &(&1.from_device_id == current_split.uid))
     end
 
+    test "a device deleted for another reason after an unmerge resolves to itself",
+         %{actor: actor} do
+      {:ok, device_from} = create_device(actor, "stale-follow-from")
+      {:ok, device_to} = create_device(actor, "stale-follow-to")
+
+      assert :ok =
+               IdentityReconciler.merge_devices(device_from.uid, device_to.uid,
+                 actor: actor,
+                 reason: "manual_merge"
+               )
+
+      assert :ok = IdentityReconciler.unmerge_device(device_from.uid, actor: actor)
+
+      assert {:ok, restored} = Device.get_by_uid(device_from.uid, false, actor: actor)
+
+      assert {:ok, _deleted} =
+               Device.soft_delete(restored, "admin_delete", "test", actor: actor)
+
+      # The merge row outlives the unmerge; it is not a redirect for a tombstone
+      # whose deleted_reason is not "merged".
+      assert IdentityReconciler.follow_canonical_device_id(device_from.uid, actor) ==
+               device_from.uid
+    end
+
     test "legacy null-reason merge audits remain canonical redirects", %{actor: actor} do
       {:ok, merged} = create_device(actor, "legacy-null-merge")
       {:ok, survivor} = create_device(actor, "legacy-null-survivor")
@@ -468,7 +492,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeGuardTest do
       assert {:ok, _deleted} =
                merged
                |> Ash.Changeset.for_update(:soft_delete, %{
-                 deleted_reason: "legacy_merge",
+                 deleted_reason: "merged",
                  deleted_by: "test"
                })
                |> Ash.update(actor: actor)

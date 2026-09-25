@@ -31,7 +31,6 @@ CONSTANTS
 KnownBugs == {
     "upsert_revives_merged",     \* inventory/sync/device_writes.ex on_conflict
     "gateway_sync_no_bump",      \* inventory/device.ex update :gateway_sync
-    "follow_stale_audit",        \* inventory/identity/resolver.ex do_follow_canonical/3
     "sweep_restores_merged",     \* sweep_jobs/sweep_results_ingestor.ex restore_eligible?/1
     "fence_observe_only",        \* inventory/identity/fence.ex pin/2 has no production caller
     "unmerge_restores_matches",  \* inventory/identity/merge_engine.ex reassign_original_identifiers/4
@@ -104,12 +103,12 @@ LatestMergeRow(u) ==
 LatestMergeTarget(u) == IF LatestMergeRow(u) = 0 THEN NoDev ELSE audit[LatestMergeRow(u)].to
 
 \* Resolver.do_follow_canonical/3 follows u when Device.get_by_uid(u, true) returns a
-\* tombstone -- whatever its deleted_reason -- and a merge row names a target. A purged
+\* tombstone whose deleted_reason is "merged" and a merge row names a target. A purged
 \* uid has no row, so it is never followed.
 FollowsFrom(u) ==
     /\ LatestMergeTarget(u) # NoDev
     /\ LatestMergeTarget(u) # u
-    /\ \/ status[u] = "tomb" /\ (reason[u] = "merged" \/ Bug("follow_stale_audit"))
+    /\ \/ status[u] = "tomb" /\ reason[u] = "merged"
        \/ status[u] = "purged" /\ reason[u] = "merged" /\ ~Bug("purge_forgets_redirect")
 
 RECURSIVE FollowN(_, _)

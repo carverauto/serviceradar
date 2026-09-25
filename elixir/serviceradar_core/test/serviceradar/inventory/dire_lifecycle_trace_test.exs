@@ -22,7 +22,6 @@ defmodule ServiceRadar.Inventory.DireLifecycleTraceTest do
   # The lifecycle defect switches today's code still has (formal/dire/README.md).
   @current_bugs [
     "fence_observe_only",
-    "follow_stale_audit",
     "gateway_sync_no_bump",
     "purge_forgets_redirect",
     "sweep_restores_merged",
@@ -66,8 +65,9 @@ defmodule ServiceRadar.Inventory.DireLifecycleTraceTest do
     |> Trace.assert_golden!(demonstrates: "upsert_revives_merged")
   end
 
-  # #4616: after an automatic merge is undone, the merge row still redirects the device once it
-  # is deleted for another reason.
+  # #4616 (fixed): after an automatic merge is undone and the device is deleted for another
+  # reason, the old merge row no longer redirects it; a source carrying its uid reaches the
+  # device itself. Kept as a regression trace.
   test "stale_redirect", %{actor: actor} do
     "stale_redirect"
     |> Trace.start(world(["d1", "d2"], %{"i1" => :mac, "i2" => :mac}, ["p1", "p2", "p3"]), actor)
@@ -77,7 +77,7 @@ defmodule ServiceRadar.Inventory.DireLifecycleTraceTest do
     |> Trace.unmerge("d1")
     |> Trace.soft_delete("d1")
     |> Trace.by_uid("d1", "p3")
-    |> Trace.assert_golden!(demonstrates: "follow_stale_audit")
+    |> Trace.assert_golden!()
   end
 
   # #4617: a sweep that finds a merged-away device's old address restores it.
