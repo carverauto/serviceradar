@@ -24,9 +24,10 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
   @max_insert_bind_parameters @postgres_bind_parameter_limit - @insert_bind_parameter_headroom
 
   # Categories produced by the periodic drift audit (audit_and_persist/1).
-  # `active_ip_conflict` is intentionally excluded — those rows are written by
-  # the sync ingestion path (record_active_ip_conflict/3), not the audit, so the
-  # audit must never auto-clear them during reconciliation.
+  # `active_ip_conflict` and `source_authoritative_override` are intentionally
+  # excluded — those rows are written by the sync ingestion path
+  # (record_active_ip_conflict/3, the resolvers' override recording), not the
+  # audit, so the audit must never auto-clear them during reconciliation.
   @audit_conflict_categories [
     "multiple_typed_ids_per_device",
     "typed_id_on_multiple_devices",
@@ -40,8 +41,9 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
   # these. Only these count toward a run's skipped_count so it stays disjoint
   # from the devices actually sent: a device sharing its typed id with another
   # device (typed_id_on_multiple_devices) or with mixed source linkage
-  # (source_linkage_conflict) can still be sent, and active_ip_conflict is a
-  # sync-side signal, so none of those should inflate the skip count.
+  # (source_linkage_conflict) can still be sent, and active_ip_conflict and
+  # source_authoritative_override are sync-side signals, so none of those should
+  # inflate the skip count.
   @withholding_conflict_categories [
     "metadata_identifier_disagreement",
     "multiple_typed_ids_per_device",
