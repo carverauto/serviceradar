@@ -184,9 +184,9 @@ defmodule ServiceRadar.DireTrace do
   end
 
   @doc """
-  Mapper/SNMP discovery of `h` polled at interface `x`'s address: every interface's address,
-  and the globally-unique MACs. A randomized MAC never identifies a device, so it is not
-  reported.
+  Mapper/SNMP discovery of `h` polled at interface `x`'s address: every interface's MAC and
+  address. The step's identifiers are the globally-unique MACs only: the code must ignore a
+  randomized MAC, which never identifies a device.
   """
   def discovery(trace, h, x) do
     ip = real_ip!(trace, x)
@@ -207,7 +207,7 @@ defmodule ServiceRadar.DireTrace do
           "device_ip" => ip,
           "if_index" => index,
           "if_name" => "eth#{index}",
-          "if_phys_address" => if(iface.mac in hw_macs, do: trace.real.mac[iface.mac]),
+          "if_phys_address" => trace.real.mac[iface.mac],
           "ip_addresses" => own_ip,
           "timestamp" => ts
         }
