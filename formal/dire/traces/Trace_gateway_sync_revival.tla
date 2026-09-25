@@ -3,8 +3,6 @@
 \* scenario. Regenerate with DIRE_TRACE_WRITE=1; do not edit by hand.
 EXTENDS DireLifecycleTrace, CurrentBugs
 
-KnockoutBugs == LifecycleBugs \ {"gateway_sync_no_bump"}
-
 TheLog == <<
   [status |-> ("d1" :> "absent"), reason |-> ("d1" :> "none"), owner |-> ("i1" :> NoDev), ipOf |-> ("d1" :> NoIp), audit |-> <<>>, work |-> {}, act |-> [name |-> "Init", u |-> NoDev, v |-> NoDev, row |-> 0, stale |-> FALSE, bumped |-> {}]],
   [status |-> ("d1" :> "absent"), reason |-> ("d1" :> "none"), owner |-> ("i1" :> NoDev), ipOf |-> ("d1" :> NoIp), audit |-> <<>>, work |-> {[target |-> "d1", stale |-> FALSE]}, act |-> [name |-> "StartWork", u |-> "d1", v |-> "d1", row |-> 0, stale |-> FALSE, bumped |-> {}]],
