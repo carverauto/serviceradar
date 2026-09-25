@@ -151,14 +151,6 @@ tlc_test(
 )
 
 tlc_test(
-    name = "resolution_witness_mac_only_conflicts_blocked_test",
-    cfg = "resolution_witness_mac_only_conflicts_blocked.cfg",
-    expect = "violation:EvidenceConverges",
-    spec = "MCDireResolution.tla",
-    deps = ["DireResolution.tla"],
-)
-
-tlc_test(
     name = "resolution_vacuity_router_merges_test",
     cfg = "resolution_vacuity_router_merges.cfg",
     expect = "violation:NeverMerged",
@@ -454,6 +446,18 @@ tlc_test(
         "CurrentBugs.tla",
         "DireLifecycle.tla",
         "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_agent_mac_split_test",
+    cfg = "traces/Trace_agent_mac_split.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_agent_mac_split.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
     ],
 )
 

@@ -8,7 +8,7 @@
 - [ ] 1.2 Archive `refactor-device-identity-reconciliation` so its guarded `IP Alias Resolution`
       and `Merge Stability and Oscillation Protection` replace the unguarded wording in the
       living spec (design D1). Check first that no other pending change repeats those blocks.
-- [ ] 1.3 Correct `docs/docs/dire-identity-model.md`: a globally-unique MAC may merge where it
+- [x] 1.3 Correct `docs/docs/dire-identity-model.md`: a globally-unique MAC may merge where it
       is the only hardware identifier; randomized MACs never do (design D4, D5).
 
 ## 2. Formal model (owned by `add-dire-formal-model`)
@@ -35,7 +35,7 @@ configuration. Confirmed defects (`formal/dire/README.md` has code paths and wit
       invalidated, an address-only holder is left alone.
 - [x] 3.3 `src_attach_via_mac`: a source-authoritative id attaches through a MAC to a record
       holding a different source-authoritative id.
-- [ ] 3.4 `mac_only_conflicts_blocked`: allow globally-unique MAC evidence to merge; keep
+- [x] 3.4 `mac_only_conflicts_blocked`: allow globally-unique MAC evidence to merge; keep
       randomized MACs excluded. The conflict arises on agent check-in; a router's per-interface
       records stayed split until 3.13.
 - [x] 3.5 `silent_blocks`: record blocked merges and alias invalidations (#4613, `add-identity-decision-log`).

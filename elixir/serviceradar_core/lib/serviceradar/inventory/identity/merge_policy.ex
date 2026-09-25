@@ -1,15 +1,20 @@
 defmodule ServiceRadar.Inventory.Identity.MergePolicy do
   @moduledoc """
   Evidence policy for automatic merges: which identifier-match sets are
-  eligible (never agent_id-only, MAC-only, or medium-confidence-only)
+  eligible (never agent_id-only, randomized-MAC-only, or medium-confidence-only)
   and the record of each blocked merge.
+
+  A globally-unique (universally administered) MAC is hardware identity: a match set that
+  holds one may merge, so the per-interface records of one chassis converge. A randomized
+  (locally administered) MAC never identifies a device: a set of those alone never merges,
+  and a record linked to a conflict only through one drops out of the merge
+  (`split_randomized_mac_links/3`).
   """
 
   alias ServiceRadar.Inventory.Identity.DecisionLog
   alias ServiceRadar.Inventory.Identity.Mac
 
-  # Merge only when there is at least one non-MAC strong identifier involved,
-  # and the match set is not entirely medium-confidence MACs.
+  # Merge only when the match set holds a non-MAC strong identifier or a globally-unique MAC.
   def merge_allowed_for_matches?(matches) do
     not agent_id_only_matches?(matches) and not mac_only_matches?(matches) and
       not medium_confidence_only?(matches)
@@ -23,14 +28,36 @@ defmodule ServiceRadar.Inventory.Identity.MergePolicy do
       end)
   end
 
-  # MAC-only matches are too noisy (especially interface MACs observed by mapper)
-  # and can collapse unrelated devices.
+  # A MAC-only match set with no globally-unique MAC: randomized MACs identify nothing.
   defp mac_only_matches?(matches) do
     Enum.any?(matches) and
       Enum.all?(matches, fn
         {:mac, _} -> true
         _ -> false
-      end)
+      end) and not Enum.any?(matches, &hardware_mac_match?/1)
+  end
+
+  defp hardware_mac_match?({:mac, %{value: value}}), do: not Mac.locally_administered_mac?(value)
+  defp hardware_mac_match?(_match), do: false
+
+  defp randomized_mac_match?({:mac, %{value: value}}), do: Mac.locally_administered_mac?(value)
+  defp randomized_mac_match?(_match), do: false
+
+  @doc """
+  Splits the devices of an allowed conflict into those that merge into `canonical_id` and
+  those linked to it only through randomized MACs, which stay separate: a randomized MAC never
+  identifies a device, even beside stronger evidence for the others.
+  """
+  @spec split_randomized_mac_links([String.t()], Enumerable.t(), String.t()) ::
+          {[String.t()], [String.t()]}
+  def split_randomized_mac_links(device_ids, matches, canonical_id) do
+    device_ids
+    |> Enum.reject(&(&1 == canonical_id))
+    |> Enum.split_with(fn device_id ->
+      matches
+      |> Enum.filter(fn {_type, match} -> match.device_id == device_id end)
+      |> Enum.any?(&(not randomized_mac_match?(&1)))
+    end)
   end
 
   # Returns true if the only shared identifiers that caused the conflict are

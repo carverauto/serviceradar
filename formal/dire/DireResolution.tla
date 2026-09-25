@@ -41,9 +41,7 @@ CONSTANTS
     NoId, NoIp, NoRec,
     Bugs
 
-KnownBugs == {
-    "mac_only_conflicts_blocked"  \* inventory/identity/merge_policy.ex mac_only_matches?/1
-}
+KnownBugs == {}
 ASSUME Bugs \subseteq KnownBugs
 
 Bug(b) == b \in Bugs
@@ -121,13 +119,10 @@ SameChassis(a, b) == ifClaims[a] \cap MacsHeld(b) # {} \/ ifClaims[b] \cap MacsH
 \* AliasGuard.distinct_identified_devices?/3 (#4609), on post-registration ownership o.
 DistinctIdentifiedIn(o, a, b) == IdsHeldIn(o, a) # {} /\ IdsHeldIn(o, b) # {} /\ ~SameChassis(a, b)
 
-\* MergePolicy.merge_allowed_for_matches?/1 over the identifiers that matched.
-\*   today: never an all-MAC set (globally-unique MACs included), never an all-randomized set
-\*   goal:  any set containing an agent, source-authoritative or globally-unique identifier
-PolicyAllows(matched) ==
-    IF Bug("mac_only_conflicts_blocked")
-    THEN matched \cap (AgentIds \cup SrcIds) # {}
-    ELSE matched \cap (AgentIds \cup SrcIds \cup HwIds) # {}
+\* MergePolicy.merge_allowed_for_matches?/1 over the identifiers that matched: any set containing
+\* an agent, source-authoritative or globally-unique identifier (#4612); never an all-randomized
+\* set.
+PolicyAllows(matched) == matched \cap (AgentIds \cup SrcIds \cup HwIds) # {}
 
 ---------------------------------------------------------------------------
 Init ==

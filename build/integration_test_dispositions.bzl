@@ -416,7 +416,7 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/inventory/device_identifier_cache_invalidation_test.exs": 2,
     "test/serviceradar/inventory/device_identifier_gc_worker_test.exs": 4,
     "test/serviceradar/inventory/dire_lifecycle_trace_test.exs": 7,
-    "test/serviceradar/inventory/dire_resolution_trace_test.exs": 6,
+    "test/serviceradar/inventory/dire_resolution_trace_test.exs": 7,
     "test/serviceradar/inventory/endpoint_inventory_ingestor_queue_test.exs": 11,
     "test/serviceradar/inventory/endpoint_inventory_ingestor_test.exs": 27,
     "test/serviceradar/inventory/endpoint_vulnerability_assessment_matcher_test.exs": 30,

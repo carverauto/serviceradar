@@ -9,9 +9,8 @@ defmodule ServiceRadar.Inventory.Identity.ProvisionalMergeInertnessTest do
       never merged INTO a provisional one (no identifier absorption);
     * devices with distinct registered MACs are never merged when either side
       is a provisional topology-sighted device;
-    * topology evidence alone never drives a merge: provisional topology
-      devices only ever carry MAC identifiers, and MAC-only identifier
-      conflicts are categorically blocked by MergePolicy.
+    * randomized MAC evidence alone never drives a merge: a MAC-only
+      identifier conflict merges only when it holds a globally-unique MAC.
   """
 
   use ExUnit.Case, async: true
@@ -52,15 +51,44 @@ defmodule ServiceRadar.Inventory.Identity.ProvisionalMergeInertnessTest do
 
   describe "topology evidence alone never drives a merge" do
     # A provisional topology-sighted device carries exactly one class of
-    # strong identifier: its normalized MAC. Any identifier conflict it can
-    # participate in is therefore MAC-only, which MergePolicy categorically
-    # refuses to auto-merge — identity proof requires a non-MAC strong
-    # identifier (agent/armis/integration/netbox) corroboration.
-    test "MAC-only identifier conflicts are blocked by policy" do
-      matches = %{mac: %{value: "001122334455", device_id: "sr:provisional-a"}}
+    # strong identifier: its normalized MAC. A randomized (locally administered)
+    # MAC never identifies a device, so a conflict of those alone is refused.
+    test "randomized-MAC-only identifier conflicts are blocked by policy" do
+      matches = [
+        {:mac, %{value: "021122334455", device_id: "sr:provisional-a"}},
+        {:mac, %{value: "021122334466", device_id: "sr:provisional-b"}}
+      ]
 
       refute MergePolicy.merge_allowed_for_matches?(matches)
       assert MergePolicy.blocked_merge_reason(matches) == "mac_only_conflict"
+    end
+
+    # A globally-unique MAC is hardware identity: the per-interface records of
+    # one chassis converge on it (#4612).
+    test "a MAC-only conflict holding a globally-unique MAC is mergeable" do
+      matches = [
+        {:mac, %{value: "001122334455", device_id: "sr:record-a"}},
+        {:mac, %{value: "001122334466", device_id: "sr:record-b"}}
+      ]
+
+      assert MergePolicy.merge_allowed_for_matches?(matches)
+    end
+
+    test "a record linked only through a randomized MAC drops out of an allowed merge" do
+      matches = [
+        {:mac, %{value: "001122334455", device_id: "sr:canonical"}},
+        {:mac, %{value: "001122334466", device_id: "sr:hardware-linked"}},
+        {:mac, %{value: "021122334477", device_id: "sr:randomized-linked"}}
+      ]
+
+      assert MergePolicy.merge_allowed_for_matches?(matches)
+
+      assert {["sr:hardware-linked"], ["sr:randomized-linked"]} =
+               MergePolicy.split_randomized_mac_links(
+                 ["sr:canonical", "sr:hardware-linked", "sr:randomized-linked"],
+                 matches,
+                 "sr:canonical"
+               )
     end
 
     test "agent-corroborated conflicts remain mergeable (identity proof present)" do
