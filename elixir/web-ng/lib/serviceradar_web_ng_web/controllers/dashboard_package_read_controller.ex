@@ -19,10 +19,10 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageReadController do
 
   use ServiceRadarWebNGWeb, :controller
 
-  require Logger
-
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNG.RBAC
+
+  require Logger
 
   @view_all_permission "dashboards.packages.view_all"
 
@@ -30,14 +30,15 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageReadController do
   GET /api/v1/dashboard-packages — list all installed packages with their instances.
   """
   def index(conn, _params) do
-    with :ok <- enforce_permission(conn) do
-      scope = conn.assigns[:current_scope]
-      packages = Dashboards.list_packages_with_instances(scope: scope)
+    case enforce_permission(conn) do
+      :ok ->
+        scope = conn.assigns[:current_scope]
+        packages = Dashboards.list_packages_with_instances(scope: scope)
 
-      conn
-      |> put_resp_header("cache-control", "no-store")
-      |> json(%{packages: Enum.map(packages, &serialize_package/1)})
-    else
+        conn
+        |> put_resp_header("cache-control", "no-store")
+        |> json(%{packages: Enum.map(packages, &serialize_package/1)})
+
       {:error, :forbidden} ->
         forbidden(conn)
     end
@@ -47,23 +48,24 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageReadController do
   GET /api/v1/dashboard-packages/:id — one package by manifest id or internal UUID.
   """
   def show(conn, %{"id" => id}) do
-    with :ok <- enforce_permission(conn) do
-      scope = conn.assigns[:current_scope]
+    case enforce_permission(conn) do
+      :ok ->
+        scope = conn.assigns[:current_scope]
 
-      case Dashboards.get_package_by_manifest_id_or_id(id, scope: scope) do
-        {:ok, package} ->
-          conn
-          |> put_resp_header("cache-control", "no-store")
-          |> json(%{package: serialize_package(package)})
+        case Dashboards.get_package_by_manifest_id_or_id(id, scope: scope) do
+          {:ok, package} ->
+            conn
+            |> put_resp_header("cache-control", "no-store")
+            |> json(%{package: serialize_package(package)})
 
-        {:error, :not_found} ->
-          not_found(conn, id)
+          {:error, :not_found} ->
+            not_found(conn, id)
 
-        {:error, reason} ->
-          Logger.warning("dashboard_package_read show failed", id: id, reason: inspect(reason))
-          internal_error(conn)
-      end
-    else
+          {:error, reason} ->
+            Logger.warning("dashboard_package_read show failed", id: id, reason: inspect(reason))
+            internal_error(conn)
+        end
+
       {:error, :forbidden} ->
         forbidden(conn)
     end
