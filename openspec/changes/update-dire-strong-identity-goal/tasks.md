@@ -29,14 +29,15 @@ configuration. Confirmed defects (`formal/dire/README.md` has code paths and wit
       DHCP address into the device that leased it; give it the distinct-identity veto.
 - [x] 3.2 `alias_merge_on_unknown_mac`: `AliasGuard` treats an unknown MAC set as not
       distinct; an address must never merge two identified records. The real route is agent
-      check-in (`AgentGatewaySync`), confirmed by trace; the mapper never reaches `AliasGuard`.
+      check-in (`AgentGatewaySync`), confirmed by trace; the mapper did not reach `AliasGuard`
+      until 3.13.
       `maybe_merge_ip_alias_device/3` no longer merges: an identified alias holder has the alias
       invalidated, an address-only holder is left alone.
 - [x] 3.3 `src_attach_via_mac`: a source-authoritative id attaches through a MAC to a record
       holding a different source-authoritative id.
 - [ ] 3.4 `mac_only_conflicts_blocked`: allow globally-unique MAC evidence to merge; keep
       randomized MACs excluded. The conflict arises on agent check-in; a router's per-interface
-      records also stay split because of 3.13.
+      records stayed split until 3.13.
 - [x] 3.5 `silent_blocks`: record blocked merges and alias invalidations (#4613, `add-identity-decision-log`).
 - [x] 3.6 `upsert_revives_merged`: the upsert `on_conflict` must not revive a merged tombstone and
       must bump on any revival.
