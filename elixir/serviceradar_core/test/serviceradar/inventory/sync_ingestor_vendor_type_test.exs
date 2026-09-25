@@ -1482,7 +1482,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
         uid: existing_uid,
         ip: ip,
         hostname: "existing-host",
-        is_available: true
+        is_available: true,
+        last_seen_time: DateTime.add(DateTime.utc_now(), -3600, :second)
       })
       |> Ash.create(actor: actor)
 

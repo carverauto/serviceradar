@@ -81,8 +81,9 @@ An address follows the device observed at it. When a strong-identified write
 that observed the device at its address (Armis, the passive census,
 mapper/SNMP discovery, an agent's self-report; see
 `SourcePolicy.observed_address_source?/1`) lands on an address that a different
-live device still holds (DHCP moved the address), the incoming device takes it
-and the stale holder releases it: its IP is cleared in the same transaction and
+live device still holds (DHCP moved the address), and that observation is newer
+than the holder's `last_seen_time`, the incoming device takes it and the stale
+holder releases it: its IP is cleared in the same transaction and
 it stays live. The decision is recorded as an open `active_ip_conflict`
 source-identity conflict (proposed action
 `preserve_source_identity_release_stale_ip`).
@@ -94,6 +95,9 @@ The holder keeps the address, and the incoming record drops it, in these cases
 - the write comes from a declarative inventory (AWX, NetBox, Proxmox,
   hypervisor enrichment, generic integrations), whose address is configuration
   that can lag the network rather than a sighting;
+- the observation is not newer than the holder's (older or equal, or either
+  `last_seen_time` is missing), so an Armis last-known address of an offline
+  device does not displace a live holder;
 - another record in the same batch, the holder's own or a second incoming one,
   also claims the address: neither observation is fresher.
 

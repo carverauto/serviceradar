@@ -1326,7 +1326,13 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
         Device
         |> Ash.Changeset.for_create(
           :create,
-          %{uid: holder_uid, ip: ip, hostname: "stale-holder-#{n}", mac: "00:00:5E:00:53:01"},
+          %{
+            uid: holder_uid,
+            ip: ip,
+            hostname: "stale-holder-#{n}",
+            mac: "00:00:5E:00:53:01",
+            last_seen_time: DateTime.add(DateTime.utc_now(), -3600, :second)
+          },
           actor: actor
         )
         |> Ash.create(actor: actor)
@@ -1355,6 +1361,61 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
 
       assert conflict.current_ip == ip
       assert conflict.proposed_action == "preserve_source_identity_release_stale_ip"
+      assert conflict.conflicting_identifiers["existing_device_uid"] == holder_uid
+    end
+
+    test "an older Armis observation does not take the IP from a newer holder", %{actor: actor} do
+      n = System.unique_integer([:positive])
+      ip = observed_ip(n)
+      holder_uid = "sr:" <> Ecto.UUID.generate()
+
+      {:ok, _holder} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: holder_uid,
+            ip: ip,
+            hostname: "live-holder-#{n}",
+            mac: "00:00:5E:00:53:02",
+            last_seen_time: DateTime.utc_now()
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      armis_id = "#{n}13"
+
+      last_seen = DateTime.add(DateTime.utc_now(), -3600, :second)
+
+      offline_update =
+        armis_id
+        |> armis_ip_update(ip)
+        |> Map.put("last_seen_time", DateTime.to_iso8601(last_seen))
+
+      assert :ok = SyncIngestor.ingest_updates([offline_update], actor: actor)
+
+      armis_uid = device_for_armis_id(armis_id, actor)
+      assert is_binary(armis_uid)
+      assert armis_uid != holder_uid
+
+      {:ok, armis_row} = Device.get_by_uid(armis_uid, false, actor: actor)
+      refute armis_row.ip == ip
+
+      {:ok, %Device{deleted_at: nil} = holder_row} =
+        Device.get_by_uid(holder_uid, false, actor: actor)
+
+      assert holder_row.ip == ip
+
+      assert [conflict] =
+               SourceIdentityConflict
+               |> Ash.Query.filter(
+                 conflict_category == "active_ip_conflict" and device_uid == ^armis_uid
+               )
+               |> Ash.read!(actor: actor)
+
+      assert conflict.current_ip == ip
+      assert conflict.proposed_action == "preserve_source_identity_drop_conflicting_ip"
       assert conflict.conflicting_identifiers["existing_device_uid"] == holder_uid
     end
 

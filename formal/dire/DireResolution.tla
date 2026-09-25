@@ -207,6 +207,8 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims) ==
         \* An identity-bearing write at an address another live record holds: the address follows
         \* the device observed at it, so the holder releases it (its address is cleared, it stays
         \* live) and the decision is recorded (DeviceWrites.claim_address_from_holder/4; #4639).
+        \* The code releases only for an observation newer than the holder's last_seen_time; the
+        \* model has no clock, so every observation here is the newer one.
         ipConflict == S # {} /\ holders # {}
         owner1 == [i \in Ids |->
                      IF owner[i] \in step1Merged THEN target

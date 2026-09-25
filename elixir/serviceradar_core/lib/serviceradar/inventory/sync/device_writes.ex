@@ -531,7 +531,13 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
       where: d.ip in ^ips and is_nil(d.deleted_at) and not is_nil(d.ip) and d.ip != "",
       select:
         {{d.partition, d.ip},
-         %{uid: d.uid, metadata: d.metadata, hostname: d.hostname, mac: d.mac}}
+         %{
+           uid: d.uid,
+           metadata: d.metadata,
+           hostname: d.hostname,
+           mac: d.mac,
+           last_seen_time: d.last_seen_time
+         }}
     )
     |> Repo.all()
     |> Map.new()
@@ -664,7 +670,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
             else
               claim_address_from_holder(
                 record,
-                existing_uid,
+                existing,
                 incoming_ip_owners,
                 {remap, conflicts, anchors, stale_releases}
               )
@@ -683,10 +689,13 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   #
   # The address is evidence, not identity: it follows the device observed at
   # it. When the incoming record was observed at the address
-  # (`SourcePolicy.observed_address_source?/1`), the holder is the stale one
-  # after DHCP churn, so it releases the address (its ip is cleared, it stays
-  # live) and the incoming record takes it. A declarative inventory's address
-  # is configuration, not a sighting, so it drops the address instead.
+  # (`SourcePolicy.observed_address_source?/1`) more recently than the holder
+  # last was, the holder is the stale one after DHCP churn, so it releases the
+  # address (its ip is cleared, it stays live) and the incoming record takes
+  # it. An observation that is not newer than the holder's (older, equal, or
+  # without a timestamp on either side) does not displace it, and a
+  # declarative inventory's address is configuration, not a sighting, so both
+  # drop the address instead.
   #
   # The release is staged with the batch's own releases, so it is cleared in
   # the same transaction, before the insert that claims the address
@@ -699,14 +708,15 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   # carries two rows at one address.
   defp claim_address_from_holder(
          record,
-         holder_uid,
+         %{uid: holder_uid} = holder,
          incoming_ip_owners,
          {remap, conflicts, anchors, stale_releases}
        ) do
     ip = Map.get(record, :ip)
 
     if Map.get(record, :observed_address) != true or
-         length(Map.get(incoming_ip_owners, record_ip_key(record), [])) > 1 do
+         length(Map.get(incoming_ip_owners, record_ip_key(record), [])) > 1 or
+         not observed_after?(record, holder) do
       Logger.info(
         "SyncIngestor: dropping conflicting IP #{ip} from strong-identified " <>
           "device #{record.uid} (held by #{holder_uid})"
@@ -732,6 +742,13 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
         [{holder_uid, ip} | stale_releases]}}
     end
   end
+
+  defp observed_after?(%{last_seen_time: %DateTime{} = incoming}, %{
+         last_seen_time: %DateTime{} = held
+       }),
+       do: DateTime.compare(incoming, held) == :gt
+
+  defp observed_after?(_record, _holder), do: false
 
   defp merge_existing_duplicate(incoming_uid, holder_uid) do
     if Repo.exists?(from(d in Device, where: d.uid == ^incoming_uid)) do
