@@ -95,11 +95,14 @@ processor:
 3. Upserts the rest in one statement. On conflict it sets the signal's
    `last_seen_at` column to the greater of the old and new values. A `WHERE`
    clause skips updates that would not advance the timestamp.
+4. Records the pairs in the ETS cache only after the upsert succeeds, so a
+   failed upsert does not suppress retries.
 
 A failed catalog upsert is logged and counted (`:telemetry` event
 `[:serviceradar, :event_writer, :service_catalog, :upsert_error]`). It never
-fails, nacks or retries the telemetry batch: the telemetry is already durable,
-and the next batch refreshes the catalog.
+fails, nacks or retries the telemetry batch: the telemetry is already durable.
+Because the cache is written only after success, the next batch retries the
+same pairs.
 
 Cost: write volume is bounded by roughly services x signals x nodes per
 refresh interval, independent of telemetry volume.
@@ -163,10 +166,14 @@ up to one job interval of lag. Rejected, except for the one-shot backfill (D6).
       A re-translate that omits the set fails closed in the planner, and one
       that reuses the original query does not skip the check.
   - **Planner (Rust, `otel_services`).** The planner parses `signal:` itself
-    and intersects the parsed values with the permitted set. A `signal:` naming
-    a signal outside the set, an empty intersection, a repeated `signal:`
-    token, a negated `signal:`, and a missing or nil permitted set are all
-    errors. The planner fails closed. With no `signal:`, the planner uses the
+    and intersects the parsed values with the permitted set. It fails closed,
+    with one error contract:
+    - Permission failure: a named or list-form `signal:` value the caller does
+      not hold, an empty intersection, and a missing or nil permitted set. The
+      planner returns a distinct forbidden error kind, which web-ng maps to
+      `{:error, :forbidden}` and HTTP 403.
+    - Malformed form: a repeated `signal:` token and a negated `signal:`. These
+      are invalid-request errors (HTTP 400). With no `signal:`, the planner uses the
     permitted set as the requested signals. Case-insensitive keys and list
     forms resolve the same way because only the planner parses them.
   - A nil scope with `optional_scope: true` gets no permitted set, so an
@@ -179,7 +186,10 @@ service, not only traces rooted in it.
 
 - `in:otel_trace_summaries service_name:X` compiles to `service_set @>
   ARRAY[X]`. The list form `service_name:(a,b)` compiles to `service_set &&
-  ARRAY[...]`, and negation compiles to `NOT (...)`.
+  ARRAY[...]`. Negation is null-safe: `!service_name:X` compiles to
+  `NOT (COALESCE(service_set, '{}') @> ARRAY[X])` (and `&&` for the list
+  form), because `service_set` is nullable and `NOT (NULL)` would silently drop
+  traces that have no service names. Negation cannot use the GIN index.
 - A migration adds `CREATE INDEX CONCURRENTLY ... USING gin (service_set)`
   with `@disable_ddl_transaction`.
 - `root_service_name:` keeps its current meaning.

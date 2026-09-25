@@ -24,8 +24,9 @@
       and StarRocks destinations. Make sure a failure only logs and emits
       `[:serviceradar, :event_writer, :service_catalog, :upsert_error]`.
 - [ ] 2.4 Tests: a new service is recorded; a repeated batch inside the
-      interval issues no write; an upsert failure leaves the batch acked; empty
-      and overlong names are ignored.
+      interval issues no write; an upsert failure leaves the batch acked and is
+      retried on the next batch (the cache is written only after a successful
+      upsert); empty and overlong names are ignored.
 
 ## 3. Backfill and prune jobs
 
@@ -50,8 +51,10 @@
       default ordering derive only from the resulting signals; other signals'
       per-signal fields are null.
 - [ ] 4.2 Add a `service_name` filter on `otel_trace_summaries`: `@>` for a
-      single value, `&&` for a list, `NOT` for negation, and an
-      invalid-request error for wildcards.
+      single value, `&&` for a list, null-safe negation
+      (`NOT (COALESCE(service_set, '{}') @> ...)`), and an invalid-request
+      error for wildcards. Test that a trace with a NULL `service_set` is
+      returned by `!service_name:X`.
 - [ ] 4.3 Confirm `Readers.dataset_for_entity("otel_services")` returns nil
       (CNPG always).
 - [ ] 4.4 Rust tests for the generated SQL of each filter, sort, limit clamp
@@ -59,7 +62,10 @@
       `cargo fmt` and `cargo clippy`.
 - [ ] 4.5 Keep the permitted-signal set out of the wire-deserialized
       `QueryRequest` (`#[serde(skip)]` or a separate argument to translate and
-      the NIF). The standalone server rejects `otel_services` queries. Rust
+      the NIF). The standalone server rejects `otel_services` queries. The planner
+      returns a distinct forbidden error kind for permission failures and an
+      invalid-request error for malformed forms, and web-ng maps the first to
+      `{:error, :forbidden}` / HTTP 403. Rust
       tests: a JSON body carrying a permitted-signals field is ignored and
       rejected; a missing set fails closed.
 
@@ -79,9 +85,10 @@
 - [ ] 5.3 Tests for authorized, unauthorized and narrowed queries through all
       three caller paths, including a logs-only caller that must not see trace
       or metric activity in `signals`, `last_seen` or ordering. One scenario
-      per form: `signal:(logs,traces)`, a repeated `signal:`, `!signal:logs`,
-      `SIGNAL:traces`, a nil scope with `optional_scope: true`, and a missing
-      permitted set. Also cover re-translation in `RollupFreshness.settle`
+      per form: `signal:(logs,traces)`, `SIGNAL:traces`, a nil scope with
+      `optional_scope: true` and a missing permitted set (each forbidden,
+      HTTP 403 with `{:error, :forbidden}`), and a repeated `signal:` and
+      `!signal:logs` (each invalid request, HTTP 400). Also cover re-translation in `RollupFreshness.settle`
       keeping the set.
 
 ## 6. Service picker UI (web-ng)

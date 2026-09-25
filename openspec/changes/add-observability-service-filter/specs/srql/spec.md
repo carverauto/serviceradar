@@ -32,14 +32,14 @@ This entity is distinct from `in:services`, which reads monitored service checks
 ### Requirement: OTel services entity access control
 Access to `in:otel_services` SHALL be enforced in two places. The shared `EntityAccess` gate used by the LiveView, HTTP and MCP query paths SHALL map this entity to an any-of permission set (`observability.logs.view`, `observability.traces.view`, `observability.metrics.view`), SHALL reject a caller holding none, and SHALL pass the caller's permitted signal set to SRQL as a trusted parameter that is separate from the query string and is not part of the wire-deserialized request. Every caller of the gate, and every translate call site including re-translation, SHALL pass that set. The standalone SRQL server has no trusted-caller path and SHALL reject `otel_services` queries. Other entities SHALL keep single-permission gating.
 
-The SRQL planner for `otel_services` SHALL be the single parser of `signal:`. It SHALL intersect the parsed `signal:` values with the permitted set, and with no `signal:` it SHALL use the permitted set. It SHALL reject a `signal:` naming a signal outside the set, an empty intersection, a repeated `signal:` token, a negated `signal:`, and a missing permitted set, so it fails closed.
+The SRQL planner for `otel_services` SHALL be the single parser of `signal:`. It SHALL intersect the parsed `signal:` values with the permitted set, and with no `signal:` it SHALL use the permitted set. It SHALL fail closed with one error contract. A permission failure (a named or list-form `signal:` value outside the set, an empty intersection, or a missing permitted set) SHALL return a distinct forbidden error kind, which web-ng maps to `{:error, :forbidden}` and HTTP 403. A malformed form (a repeated `signal:` token or a negated `signal:`) SHALL return an invalid-request error (HTTP 400).
 
 The `otel_services` mapping MUST be enforced before the SRQL entity is reachable, because the gate treats unmapped entities as authorized.
 
 #### Scenario: Signal the caller cannot view
 - **GIVEN** a caller with `observability.logs.view` but not `observability.traces.view`
 - **WHEN** the caller sends `in:otel_services signal:traces`
-- **THEN** the query SHALL be rejected as unauthorized
+- **THEN** the query SHALL be rejected as forbidden
 
 #### Scenario: Unscoped query is narrowed to permitted signals
 - **GIVEN** a caller with only `observability.logs.view`
@@ -50,7 +50,7 @@ The `otel_services` mapping MUST be enforced before the SRQL entity is reachable
 #### Scenario: List form is intersected with the permitted set
 - **GIVEN** a caller with only `observability.logs.view`
 - **WHEN** the caller sends `in:otel_services signal:(logs,traces)`
-- **THEN** the query SHALL be rejected as unauthorized
+- **THEN** the query SHALL be rejected as forbidden
 
 #### Scenario: Repeated or negated signal token
 - **GIVEN** a caller with only `observability.logs.view`
@@ -60,15 +60,15 @@ The `otel_services` mapping MUST be enforced before the SRQL entity is reachable
 #### Scenario: Differently cased key
 - **GIVEN** a caller with only `observability.logs.view`
 - **WHEN** the caller sends `in:otel_services SIGNAL:traces`
-- **THEN** the query SHALL be rejected the same way as `signal:traces`
+- **THEN** the query SHALL be rejected as forbidden, the same as `signal:traces`
 
 #### Scenario: Missing permitted set fails closed
 - **WHEN** SRQL receives `in:otel_services` with no permitted signal set
-- **THEN** the query SHALL be rejected and no catalog rows SHALL be returned
+- **THEN** the query SHALL be rejected as forbidden and no catalog rows SHALL be returned
 
 #### Scenario: Client cannot supply the permitted set
 - **WHEN** a client sends a request body to the standalone SRQL server containing `in:otel_services` and a permitted-signals field
-- **THEN** the field SHALL be ignored and the query SHALL be rejected
+- **THEN** the field SHALL be ignored and the query SHALL be rejected as forbidden
 
 #### Scenario: Re-translation keeps the permitted set
 - **GIVEN** a caller with only `observability.logs.view`
@@ -78,7 +78,7 @@ The `otel_services` mapping MUST be enforced before the SRQL entity is reachable
 #### Scenario: Caller with no observability permission
 - **GIVEN** a caller with none of the three observability view permissions
 - **WHEN** the caller sends `in:otel_services`
-- **THEN** the query SHALL be rejected as unauthorized
+- **THEN** the query SHALL be rejected as forbidden
 
 #### Scenario: Narrowed query does not leak other-signal activity
 - **GIVEN** `checkout` reported logs an hour ago and traces one minute ago
@@ -106,6 +106,11 @@ The existing `root_service_name` filter SHALL keep its root-span-only meaning. W
 #### Scenario: Multiple services
 - **WHEN** a client sends `in:otel_trace_summaries service_name:(checkout,billing)`
 - **THEN** traces touching either service SHALL be returned
+
+#### Scenario: Negation includes traces with no services
+- **GIVEN** a trace whose `service_set` is NULL
+- **WHEN** a client sends `in:otel_trace_summaries !service_name:checkout`
+- **THEN** that trace SHALL be returned
 
 #### Scenario: Wildcard rejected
 - **WHEN** a client sends `in:otel_trace_summaries service_name:%check%`
