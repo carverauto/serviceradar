@@ -24,6 +24,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageReadControllerTest do
   alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNG.Dashboards.Packages
   alias ServiceRadarWebNG.Plugins.Storage
+  alias ServiceRadarWebNG.PluginStorageTestClient
 
   @moduletag :web_ng_shared_fixture_db
 
@@ -33,17 +34,19 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageReadControllerTest do
     ensure_admin_has_view_all!()
 
     original_storage = Application.get_env(:serviceradar_web_ng, :plugin_storage)
-    tmp = Path.join(System.tmp_dir!(), "sr-read-test-#{System.unique_integer([:positive])}")
+    # Package blobs always go to the JetStream object store, and this lane has
+    # no NATS, so publish writes to the in-memory test client instead.
+    store_name = :"sr_dashboard_read_test_#{System.unique_integer([:positive])}"
+    {:ok, _store} = PluginStorageTestClient.start_link(store_name)
 
     Application.put_env(:serviceradar_web_ng, :plugin_storage,
-      backend: :filesystem,
-      base_path: tmp,
+      backend: :jetstream,
+      jetstream_client: PluginStorageTestClient,
+      test_store: store_name,
       signing_secret: "test-secret"
     )
 
     on_exit(fn ->
-      File.rm_rf(tmp)
-
       if original_storage do
         Application.put_env(:serviceradar_web_ng, :plugin_storage, original_storage)
       else

@@ -417,10 +417,12 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
         {:ok, pkg}
 
       {:ok, nil} ->
-        case read_one_package_with_instances(id, scope) do
-          {:ok, nil} -> {:error, :not_found}
-          {:ok, pkg} -> {:ok, pkg}
-          {:error, error} -> {:error, error}
+        # A manifest id that matched nothing is not an internal id either unless
+        # it is a UUID; filtering the UUID primary key on it fails the cast and
+        # would surface as an error rather than "not installed".
+        case Ash.Type.cast_input(:uuid, id, []) do
+          {:ok, uuid} when is_binary(uuid) -> read_package_by_id(uuid, scope)
+          _ -> {:error, :not_found}
         end
 
       {:error, error} ->
@@ -439,6 +441,14 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
       |> Ash.Query.limit(1)
 
     read_one(query, scope)
+  end
+
+  defp read_package_by_id(id, scope) do
+    case read_one_package_with_instances(id, scope) do
+      {:ok, nil} -> {:error, :not_found}
+      {:ok, pkg} -> {:ok, pkg}
+      {:error, error} -> {:error, error}
+    end
   end
 
   defp read_one_package_with_instances(id, scope) do
