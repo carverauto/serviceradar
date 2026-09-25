@@ -13,7 +13,6 @@ pub(crate) fn build_query_plan(
     request: &QueryRequest,
     ast: QueryAst,
 ) -> Result<QueryPlan> {
-    let exhaustive_profile_query = is_exhaustive_profile_stats(ast.stats.as_ref());
     let requested_limit = request.limit.or(ast.limit);
     if ast.other {
         validate_other_rollup_request(&ast, requested_limit, request.cursor.as_deref())?;
@@ -24,23 +23,6 @@ pub(crate) fn build_query_plan(
     } else {
         determine_limit(config, requested_limit)
     };
-    let offset = request
-        .cursor
-        .as_deref()
-        .map(|cursor| {
-            decode_cursor(
-                cursor,
-                &config.cursor_secret,
-                if exhaustive_profile_query {
-                    i64::MAX
-                } else {
-                    config.max_cursor_offset
-                },
-            )
-        })
-        .transpose()?
-        .unwrap_or(0)
-        .max(0);
     let max_time_range_days = max_time_range_days_for_ast(&ast);
     let now = Utc::now();
     let time_range = ast
@@ -52,7 +34,20 @@ pub(crate) fn build_query_plan(
     let (filters, order, downsample) =
         normalize_device_aliases(&ast.entity, ast.filters, ast.order, ast.downsample);
     let (filters, include_deleted) = extract_include_deleted(filters)?;
+    let (filters, exhaustive_window) = extract_window_scan(filters)?;
     let filters = normalize_telemetry_id_filters(&ast.entity, filters)?;
+    let max_offset = if exhaustive_window || is_exhaustive_profile_stats(ast.stats.as_ref()) {
+        i64::MAX
+    } else {
+        config.max_cursor_offset
+    };
+    let offset = request
+        .cursor
+        .as_deref()
+        .map(|cursor| decode_cursor(cursor, &config.cursor_secret, max_offset))
+        .transpose()?
+        .unwrap_or(0)
+        .max(0);
 
     Ok(QueryPlan {
         entity: ast.entity,
@@ -66,6 +61,7 @@ pub(crate) fn build_query_plan(
         rollup_stats: ast.rollup_stats,
         other: ast.other,
         include_deleted,
+        exhaustive_window,
     })
 }
 
@@ -74,7 +70,7 @@ pub(crate) fn build_query_plan(
 /// The caller-visible contract lives in docs/docs/srql-language-reference.md
 /// under Sorting and pagination.
 pub(crate) fn is_exhaustive_profile_query(plan: &QueryPlan) -> bool {
-    is_exhaustive_profile_stats(plan.stats.as_ref())
+    plan.exhaustive_window || is_exhaustive_profile_stats(plan.stats.as_ref())
 }
 
 fn is_exhaustive_profile_stats(stats: Option<&crate::parser::StatsSpec>) -> bool {
@@ -184,19 +180,14 @@ fn is_grouped_device_stats(ast: &QueryAst) -> bool {
 
 fn determine_grouped_device_limit(config: &AppConfig, candidate: Option<i64>) -> i64 {
     const DEFAULT_GROUP_LIMIT: i64 = 20;
-    const MAX_GROUP_LIMIT: i64 = 100;
 
-    let configured_max = if config.max_limit > 0 {
-        config.max_limit.min(MAX_GROUP_LIMIT)
-    } else {
-        MAX_GROUP_LIMIT
-    }
-    .max(1);
+    // An omitted limit stays a small default page. An explicit limit is the
+    // limit that runs. A configured srql_max_limit still applies; the old hard
+    // cap of 100 did not, and it dropped groups without saying so.
+    let limit = candidate.unwrap_or(DEFAULT_GROUP_LIMIT).max(1);
+    let max = config.max_limit;
 
-    candidate
-        .unwrap_or(DEFAULT_GROUP_LIMIT)
-        .max(1)
-        .min(configured_max)
+    if max <= 0 { limit } else { limit.min(max) }
 }
 
 fn normalize_device_aliases(
@@ -261,6 +252,28 @@ fn extract_include_deleted(filters: Vec<Filter>) -> Result<(Vec<Filter>, bool)> 
     }
 
     Ok((remaining, include_deleted))
+}
+
+fn extract_window_scan(filters: Vec<Filter>) -> Result<(Vec<Filter>, bool)> {
+    let mut exhaustive_window = false;
+    let mut remaining = Vec::with_capacity(filters.len());
+
+    for filter in filters {
+        if filter.field.eq_ignore_ascii_case("window_scan") {
+            if !matches!(filter.op, crate::parser::FilterOp::Eq) {
+                return Err(ServiceError::InvalidRequest(
+                    "window_scan only supports equality".into(),
+                ));
+            }
+
+            let raw = filter.value.as_scalar()?;
+            exhaustive_window = parse_bool_str(raw)?;
+        } else {
+            remaining.push(filter);
+        }
+    }
+
+    Ok((remaining, exhaustive_window))
 }
 
 fn parse_bool_str(value: &str) -> Result<bool> {
@@ -394,5 +407,69 @@ fn normalize_device_field(entity: &Entity, field: &str) -> Option<String> {
         Some("uid".to_string())
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{pagination::encode_cursor, parser};
+
+    fn plan_with_cursor(query: &str, offset: i64) -> Result<QueryPlan> {
+        let config = AppConfig::embedded("postgres://srql-test".to_string());
+        let request = QueryRequest {
+            query: query.to_string(),
+            limit: Some(50),
+            cursor: Some(encode_cursor(offset, &config.cursor_secret).expect("encode cursor")),
+            direction: Default::default(),
+            mode: None,
+        };
+        let ast = parser::parse(query).expect("parse query");
+        build_query_plan(&config, &request, ast)
+    }
+
+    fn beyond_ceiling() -> i64 {
+        AppConfig::embedded("postgres://srql-test".to_string()).max_cursor_offset + 50_000
+    }
+
+    #[test]
+    fn window_scan_cursor_pages_past_max_cursor_offset() {
+        let offset = beyond_ceiling();
+        let plan = plan_with_cursor("in:devices window_scan:true", offset).expect("plan");
+        assert_eq!(plan.offset, offset);
+        assert!(plan.exhaustive_window);
+        assert!(is_exhaustive_profile_query(&plan));
+    }
+
+    #[test]
+    fn ordinary_cursor_still_errors_past_max_cursor_offset() {
+        let err = plan_with_cursor("in:devices", beyond_ceiling()).expect_err("must reject");
+        assert!(err.to_string().contains("cursor offset exceeds maximum"));
+    }
+
+    #[test]
+    fn endpoint_keyset_scan_query_plans_an_absolute_window_and_lower_bound() {
+        let query = r#"in:flows time:[2026-06-12T11:00:00Z,2026-06-12T12:00:00Z] window_scan:true stats:"sum(bytes_total) as total_bytes by src_endpoint_ip" src_endpoint_ip:">2001:db8::1" sort:src_endpoint_ip:asc limit:5000"#;
+        let config = AppConfig::embedded("postgres://srql-test".to_string());
+        let request = QueryRequest {
+            query: query.to_string(),
+            limit: None,
+            cursor: None,
+            direction: Default::default(),
+            mode: None,
+        };
+        let plan = build_query_plan(&config, &request, parser::parse(query).expect("parse"))
+            .expect("plan");
+
+        assert!(plan.exhaustive_window);
+        assert_eq!(plan.limit, 5_000);
+        let range = plan.time_range.expect("absolute window");
+        assert_eq!(range.end - range.start, ChronoDuration::hours(1));
+        assert_eq!(plan.filters.len(), 1);
+        assert!(matches!(plan.filters[0].op, crate::parser::FilterOp::Gt));
+        assert_eq!(
+            plan.filters[0].value.as_scalar().expect("scalar"),
+            "2001:db8::1"
+        );
     }
 }

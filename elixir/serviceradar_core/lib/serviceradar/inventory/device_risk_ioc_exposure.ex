@@ -375,62 +375,108 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposure do
     if is_function(query_fn, 1) do
       query_fn.(opts)
     else
-      window_seconds =
-        opts
-        |> Keyword.get(:window_seconds, @default_window_seconds)
-        |> max(60)
-
-      limit =
+      page_size =
         opts
         |> Keyword.get(:flow_limit, @default_flow_limit)
         |> min(20_000)
         |> max(1)
 
-      sql = """
+      fetch_flow_pages(Keyword.put(opts, :as_of, DateTime.utc_now()), page_size, nil, [])
+    end
+  end
+
+  defp fetch_flow_pages(opts, page_size, after_key, acc) do
+    rows = query_flow_page(opts, page_size, after_key)
+    acc = [rows | acc]
+
+    if length(rows) < page_size do
+      acc |> Enum.reverse() |> Enum.concat()
+    else
+      last = List.last(rows)
+      fetch_flow_pages(opts, page_size, {last.observed_at, last.row_key}, acc)
+    end
+  end
+
+  defp query_flow_page(opts, page_size, after_key) do
+    case Keyword.get(opts, :query_flow_page) do
+      page when is_function(page, 3) ->
+        page.(opts, page_size, after_key)
+
+      _ ->
+        query_flow_page_sql(opts, page_size, after_key)
+    end
+  end
+
+  defp query_flow_page_sql(opts, page_size, after_key) do
+    window_seconds =
+      opts
+      |> Keyword.get(:window_seconds, @default_window_seconds)
+      |> max(60)
+
+    {after_time, after_row_key} = after_key || {nil, nil}
+
+    sql = """
+    SELECT page.*
+    FROM (
       SELECT
-        COALESCE(a.device_uid, di.device_id) AS device_uid,
-        f.ocsf_payload->>'agent_id' AS agent_id,
-        lower(regexp_replace(coalesce(f.src_endpoint_ip, ''), '^::ffff:', '', 'i')) AS hostile_ip,
-        lower(regexp_replace(coalesce(f.dst_endpoint_ip, ''), '^::ffff:', '', 'i')) AS dst_ip,
-        f.dst_endpoint_port AS dst_port,
-        f.ocsf_payload->'attribution'->>'comm' AS comm,
-        COALESCE(
-          f.ocsf_payload->'attribution'->>'redacted_cmdline',
-          f.ocsf_payload->'attribution'->>'cmdline'
-        ) AS cmdline,
-        f.time AS observed_at,
-        t.sources AS ioc_sources,
-        t.max_severity AS ioc_severity
-      FROM platform.ocsf_network_activity AS f
-      JOIN platform.ip_threat_intel_cache AS t
-        ON t.matched = true
-       AND t.expires_at > now()
-       AND lower(regexp_replace(coalesce(t.ip, ''), '^::ffff:', '', 'i'))
-         = lower(regexp_replace(coalesce(f.src_endpoint_ip, ''), '^::ffff:', '', 'i'))
-      LEFT JOIN platform.ocsf_agents AS a
-        ON a.uid = f.ocsf_payload->>'agent_id'
-      LEFT JOIN LATERAL (
-        SELECT di.device_id
-        FROM platform.device_identifiers AS di
-        WHERE di.identifier_type = 'ip'
-          AND lower(di.identifier_value)
-            = lower(regexp_replace(coalesce(f.dst_endpoint_ip, ''), '^::ffff:', '', 'i'))
-        LIMIT 1
-      ) AS di ON a.device_uid IS NULL
-      WHERE f.time > now() - make_interval(secs => $1)
-        AND f.ocsf_payload->>'event_type' = 'attributed_flow'
-        AND COALESCE(a.device_uid, di.device_id) IS NOT NULL
-      ORDER BY f.time DESC
-      LIMIT $2
-      """
+        base.*,
+        format(
+          '%L,%L,%L,%L,%L,%L,%L',
+          base.device_uid, base.agent_id, base.hostile_ip, base.dst_ip,
+          base.dst_port, base.comm, base.cmdline
+        ) AS row_key
+      FROM (
+        SELECT
+          COALESCE(a.device_uid, di.device_id) AS device_uid,
+          f.ocsf_payload->>'agent_id' AS agent_id,
+          lower(regexp_replace(coalesce(f.src_endpoint_ip, ''), '^::ffff:', '', 'i')) AS hostile_ip,
+          lower(regexp_replace(coalesce(f.dst_endpoint_ip, ''), '^::ffff:', '', 'i')) AS dst_ip,
+          f.dst_endpoint_port AS dst_port,
+          f.ocsf_payload->'attribution'->>'comm' AS comm,
+          COALESCE(
+            f.ocsf_payload->'attribution'->>'redacted_cmdline',
+            f.ocsf_payload->'attribution'->>'cmdline'
+          ) AS cmdline,
+          f.time AS observed_at,
+          t.sources AS ioc_sources,
+          t.max_severity AS ioc_severity
+        FROM platform.ocsf_network_activity AS f
+        JOIN platform.ip_threat_intel_cache AS t
+          ON t.matched = true
+         AND t.expires_at > $1::timestamptz
+         AND lower(regexp_replace(coalesce(t.ip, ''), '^::ffff:', '', 'i'))
+           = lower(regexp_replace(coalesce(f.src_endpoint_ip, ''), '^::ffff:', '', 'i'))
+        LEFT JOIN platform.ocsf_agents AS a
+          ON a.uid = f.ocsf_payload->>'agent_id'
+        LEFT JOIN LATERAL (
+          SELECT di.device_id
+          FROM platform.device_identifiers AS di
+          WHERE di.identifier_type = 'ip'
+            AND lower(di.identifier_value)
+              = lower(regexp_replace(coalesce(f.dst_endpoint_ip, ''), '^::ffff:', '', 'i'))
+          LIMIT 1
+        ) AS di ON a.device_uid IS NULL
+        WHERE f.time > $1::timestamptz - make_interval(secs => $2)
+          AND f.time <= $1::timestamptz
+          AND ($4::timestamptz IS NULL OR f.time <= $4::timestamptz)
+          AND f.ocsf_payload->>'event_type' = 'attributed_flow'
+          AND COALESCE(a.device_uid, di.device_id) IS NOT NULL
+      ) AS base
+    ) AS page
+    WHERE $4::timestamptz IS NULL
+       OR (page.observed_at, page.row_key) < ($4::timestamptz, $5::text)
+    ORDER BY page.observed_at DESC, page.row_key DESC
+    LIMIT $3
+    """
 
-      case SQL.query(Repo, sql, [window_seconds, limit]) do
-        {:ok, %{columns: columns, rows: rows}} ->
-          Enum.map(rows, &flow_row(columns, &1))
+    params = [Keyword.fetch!(opts, :as_of), window_seconds, page_size, after_time, after_row_key]
 
-        {:error, reason} ->
-          raise "hostile IOC flow query failed: #{inspect(reason)}"
-      end
+    case SQL.query(Repo, sql, params) do
+      {:ok, %{columns: columns, rows: rows}} ->
+        Enum.map(rows, &flow_row(columns, &1))
+
+      {:error, reason} ->
+        raise "hostile IOC flow query failed: #{inspect(reason)}"
     end
   end
 
@@ -476,7 +522,8 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposure do
       cmdline: row["cmdline"],
       observed_at: row["observed_at"],
       ioc_sources: List.wrap(row["ioc_sources"]),
-      ioc_severity: row["ioc_severity"]
+      ioc_severity: row["ioc_severity"],
+      row_key: row["row_key"]
     }
   end
 

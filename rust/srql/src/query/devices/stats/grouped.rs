@@ -74,10 +74,9 @@ pub(in crate::query::devices) fn build_grouped_stats_query(
         &spec.group_fields,
     ));
 
-    // Planning applies the device-group default (20) and maximum (100). Keep
-    // this defensive clamp so a directly constructed QueryPlan cannot bypass
-    // the public contract.
-    let limit = plan.limit.clamp(1, 100);
+    // The planner owns the default of 20 and any configured srql_max_limit.
+    // Do not clamp an explicit limit again here.
+    let limit = plan.limit.max(1);
     sql.push_str(&format!("\nLIMIT {limit}"));
 
     if plan.offset > 0 {

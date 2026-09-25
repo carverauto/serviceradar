@@ -735,6 +735,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            exhaustive_window: false,
         };
 
         let result = build_query(&plan);
@@ -770,6 +771,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            exhaustive_window: false,
         };
 
         let result = build_query(&plan);

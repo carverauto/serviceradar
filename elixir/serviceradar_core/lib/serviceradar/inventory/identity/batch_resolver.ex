@@ -137,25 +137,22 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
     end)
   end
 
-  defp tombstoned_ids([], _actor), do: []
+  @doc false
+  def tombstoned_ids([], _actor), do: []
 
-  defp tombstoned_ids(candidate_ids, actor) do
+  def tombstoned_ids(candidate_ids, actor) do
     query_opts = if actor, do: [actor: actor], else: []
 
     Device
     |> Ash.Query.for_read(:read, %{include_deleted: true})
     |> Ash.Query.filter(uid in ^candidate_ids and not is_nil(deleted_at))
     |> Ash.Query.select([:uid])
-    |> Ash.read(query_opts)
-    |> Page.unwrap()
-    |> case do
-      {:ok, devices} -> Enum.map(devices, & &1.uid)
-      {:error, _} -> []
-    end
+    |> Page.stream!(query_opts)
+    |> Enum.map(& &1.uid)
   rescue
     e ->
       Logger.warning("BatchResolver: tombstone check failed: #{inspect(e)}")
-      []
+      reraise e, __STACKTRACE__
   end
 
   defp strong_match(ids, identifier_map, trusted, canonical_macs) do
@@ -346,7 +343,8 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
   # Bulk-load device rows referenced by agent_id identifier matches so the
   # trusted-match check (device must be live and not bound to a different
   # agent) does not issue one query per update.
-  defp preload_agent_trust(updates_with_ids, lookups, actor) do
+  @doc false
+  def preload_agent_trust(updates_with_ids, lookups, actor) do
     candidate_ids =
       updates_with_ids
       |> Enum.flat_map(fn {_update, ids} ->
@@ -374,23 +372,15 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
       |> Ash.Query.for_read(:read, %{include_deleted: true})
       |> Ash.Query.filter(uid in ^candidate_ids)
       |> Ash.Query.select([:uid, :agent_id, :deleted_at])
-      |> Ash.read(query_opts)
-      |> Page.unwrap()
-      |> case do
-        {:ok, devices} ->
-          Map.new(devices, fn d ->
-            {d.uid, %{agent_id: d.agent_id, deleted?: !is_nil(d.deleted_at)}}
-          end)
-
-        {:error, error} ->
-          Logger.warning("BatchResolver: agent trust preload failed: #{inspect(error)}")
-          %{}
-      end
+      |> Page.stream!(query_opts)
+      |> Map.new(fn d ->
+        {d.uid, %{agent_id: d.agent_id, deleted?: !is_nil(d.deleted_at)}}
+      end)
     end
   rescue
     e ->
       Logger.warning("BatchResolver: agent trust preload failed: #{inspect(e)}")
-      %{}
+      reraise e, __STACKTRACE__
   end
 
   # Bulk-load the universally-administered MAC set already held by each
@@ -400,7 +390,8 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
   # through a MAC lookup. Armis carries historical MACs, so a newly-seen typed
   # Armis ID must not attach to a different device merely because one of its
   # historical MACs is present on that device.
-  defp preload_canonical_macs(updates_with_ids, lookups, actor) do
+  @doc false
+  def preload_canonical_macs(updates_with_ids, lookups, actor) do
     candidate_ids =
       updates_with_ids
       |> Enum.flat_map(fn {_update, ids} ->
@@ -434,38 +425,22 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
         DeviceIdentifier
         |> Ash.Query.filter(device_id in ^candidate_ids and identifier_type == :mac)
         |> Ash.Query.select([:device_id, :identifier_value])
-        |> Ash.read(query_opts)
-        |> Page.unwrap()
-        |> case do
-          {:ok, identifiers} ->
-            identifiers
-            |> Enum.group_by(& &1.device_id, & &1.identifier_value)
-            |> Map.new(fn {device_id, macs} -> {device_id, universal_macs(macs)} end)
+        |> Page.stream!(query_opts)
+        |> Enum.group_by(& &1.device_id, & &1.identifier_value)
+        |> Map.new(fn {device_id, macs} -> {device_id, universal_macs(macs)} end)
 
-          {:error, error} ->
-            Logger.warning("BatchResolver: canonical MAC preload failed: #{inspect(error)}")
-            %{}
-        end
-
+      # A soft delete leaves the identifier rows in place, and an empty primary
+      # set disables `historical_mac_veto?/3`, so the read must include tombstones
+      # like the other two preloads in this function.
       primary_macs =
         Device
+        |> Ash.Query.for_read(:read, %{include_deleted: true})
         |> Ash.Query.filter(uid in ^candidate_ids)
         |> Ash.Query.select([:uid, :mac])
-        |> Ash.read(query_opts)
-        |> Page.unwrap()
-        |> case do
-          {:ok, devices} ->
-            Map.new(devices, fn device ->
-              {device.uid, universal_macs(List.wrap(device.mac))}
-            end)
-
-          {:error, error} ->
-            Logger.warning(
-              "BatchResolver: canonical primary MAC preload failed: #{inspect(error)}"
-            )
-
-            %{}
-        end
+        |> Page.stream!(query_opts)
+        |> Map.new(fn device ->
+          {device.uid, universal_macs(List.wrap(device.mac))}
+        end)
 
       Map.new(candidate_ids, fn device_id ->
         {device_id,
@@ -478,7 +453,7 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
   rescue
     e ->
       Logger.warning("BatchResolver: canonical MAC preload failed: #{inspect(e)}")
-      %{}
+      reraise e, __STACKTRACE__
   end
 
   defp trusted_agent_match?(trusted, agent_id, device_id) do

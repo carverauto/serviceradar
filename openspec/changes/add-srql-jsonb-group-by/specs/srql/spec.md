@@ -26,7 +26,7 @@ bind parameter, because PostgreSQL has no placeholder for a JSONB key. The
 service SHALL therefore validate the key against the same character whitelist
 used for JSONB sub-key filters and SHALL reject any key that fails it.
 
-The response SHALL return a JSONB array of objects, each containing the group field value and the aggregated count, ordered by count descending with a default limit of 20 results and a maximum of 100.
+The response SHALL return a JSONB array of objects, each containing the group field value and the aggregated count, ordered by count descending. When the caller omits `limit:`, the service SHALL return at most 20 groups. An explicit `limit:` SHALL be honored. The service MUST NOT silently reduce an explicit limit to a smaller compiled `LIMIT`.
 
 #### Scenario: Group devices by type
 
@@ -36,9 +36,9 @@ The response SHALL return a JSONB array of objects, each containing the group fi
 #### Scenario: Group devices by vendor
 
 - **GIVEN** devices exist with various vendor_name values
-- **WHEN** a client sends `in:devices stats:count() as count by vendor_name`
-- **THEN** SRQL returns `{"results": [{"vendor_name": "Cisco", "count": 200}, {"vendor_name": "Dell", "count": 150}, ...]}`
-- **AND** results are limited to top 20 vendors
+- **WHEN** a client sends `in:devices stats:count() as count by vendor_name` and omits `limit:`
+- **THEN** SRQL returns at most 20 groups, ordered by count descending
+- **AND** when further groups exist, the response SHALL indicate that the grouping is partial
 
 #### Scenario: Group devices by availability
 

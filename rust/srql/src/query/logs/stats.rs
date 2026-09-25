@@ -285,6 +285,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            exhaustive_window: false,
         }
     }
 
@@ -418,6 +419,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            exhaustive_window: false,
         };
 
         let stats_sql = build_stats_query(&plan).expect("stats query should parse");
@@ -450,6 +452,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            exhaustive_window: false,
         };
 
         let stats_sql = build_stats_query(&plan).expect("stats query should parse");
@@ -490,6 +493,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            exhaustive_window: false,
         };
 
         let result = build_stats_query(&plan);

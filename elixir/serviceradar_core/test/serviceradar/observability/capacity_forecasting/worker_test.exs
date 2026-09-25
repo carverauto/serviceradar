@@ -511,7 +511,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
       metric_class: "cpu",
       metric_name: "usage_percent",
       query:
-        ~s|in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" time:last_180d bucket:1h agg:avg series:uid sort:timestamp:desc limit:50000|,
+        ~s|in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" time:last_180d bucket:1h agg:avg series:uid sort:timestamp:desc window_scan:true limit:50000|,
       value_field: "value",
       bucket_field: "timestamp",
       key_fields: ["series"],

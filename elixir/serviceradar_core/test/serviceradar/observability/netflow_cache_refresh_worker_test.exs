@@ -181,4 +181,37 @@ defmodule ServiceRadar.Observability.NetflowCacheRefreshWorkerTest do
       assert Worker.unambiguous_alias_owners([]) == %{}
     end
   end
+
+  describe "collect_sampler_addresses/3" do
+    alias NetflowExporterCacheRefreshWorker, as: Worker
+
+    test "keeps reading after a full page" do
+      since = DateTime.utc_now()
+
+      query = fn sql ->
+        cond do
+          sql =~ "192.0.2.2" -> {:ok, %{rows: []}}
+          sql =~ "sampler_address >" -> {:ok, %{rows: [["192.0.2.2"]]}}
+          true -> {:ok, %{rows: [["192.0.2.1"]]}}
+        end
+      end
+
+      assert {:ok, ["192.0.2.1", "192.0.2.2"]} =
+               Worker.collect_sampler_addresses(since, 1, query: query)
+    end
+
+    test "keeps reading when a full page normalizes to nothing" do
+      since = DateTime.utc_now()
+
+      query = fn sql ->
+        cond do
+          sql =~ "sampler_address > '192.0.2.1'" -> {:ok, %{rows: []}}
+          sql =~ "sampler_address > '  '" -> {:ok, %{rows: [["192.0.2.1"]]}}
+          true -> {:ok, %{rows: [["  "]]}}
+        end
+      end
+
+      assert {:ok, ["192.0.2.1"]} = Worker.collect_sampler_addresses(since, 1, query: query)
+    end
+  end
 end

@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Analytics.StarRocks.MetricConsumers
+  alias ServiceRadar.Ash.Page
   alias ServiceRadar.Camera.Source, as: CameraSource
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Observability.BmpSettingsRuntime
@@ -1438,9 +1439,10 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     |> String.downcase()
   end
 
-  defp fetch_devices(_actor, []), do: {:ok, []}
+  @doc false
+  def fetch_devices(_actor, []), do: {:ok, []}
 
-  defp fetch_devices(actor, node_ids) when is_list(node_ids) do
+  def fetch_devices(actor, node_ids) when is_list(node_ids) do
     # Keep query parameter counts bounded for large topology graphs.
     node_ids
     |> Enum.chunk_every(2_000)
@@ -1450,15 +1452,15 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         |> Ash.Query.for_read(:read, %{include_deleted: false}, actor: actor)
         |> Ash.Query.filter(uid in ^node_id_chunk)
 
-      case Ash.read(query, actor: actor) do
-        {:ok, devices} when is_list(devices) ->
-          {:cont, {:ok, devices ++ acc}}
+      try do
+        devices =
+          query
+          |> Page.stream!(actor: actor)
+          |> Enum.reduce(acc, fn device, acc -> [device | acc] end)
 
-        {:ok, page} ->
-          {:cont, {:ok, page_results(page) ++ acc}}
-
-        {:error, reason} ->
-          {:halt, {:error, reason}}
+        {:cont, {:ok, devices}}
+      rescue
+        exception -> {:halt, {:error, exception}}
       end
     end)
     |> case do

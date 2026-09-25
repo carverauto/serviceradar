@@ -87,7 +87,8 @@ defmodule ServiceRadar.SweepJobs.MapperPromotion do
     |> Enum.uniq_by(fn candidate -> {candidate.device_uid, candidate.ip} end)
   end
 
-  defp load_devices(candidates, actor) do
+  @doc false
+  def load_devices(candidates, actor) do
     device_uids =
       candidates
       |> Enum.map(& &1.device_uid)
@@ -96,8 +97,7 @@ defmodule ServiceRadar.SweepJobs.MapperPromotion do
     Device
     |> Ash.Query.for_read(:read, %{include_deleted: true})
     |> Ash.Query.filter(uid in ^device_uids)
-    |> Ash.read(actor: actor)
-    |> Page.unwrap!()
+    |> Page.stream!(actor: actor)
     |> Map.new(&{&1.uid, &1})
   end
 

@@ -38,6 +38,7 @@ SHARED_FIXTURE_SOURCES = {
     "test/phoenix/live/user_live/settings_test.exs",
     "test/serviceradar/identity/timezone_migration_db_test.exs",
     "test/serviceradar/identity/timezone_preference_test.exs",
+    "test/serviceradar_web_ng/topology/god_view_device_page_test.exs",
 }
 
 class WebNgDbRunnerContractTest(unittest.TestCase):

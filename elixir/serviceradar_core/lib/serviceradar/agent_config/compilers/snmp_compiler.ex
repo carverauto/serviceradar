@@ -334,13 +334,15 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
         log_prefix: "SNMPCompiler"
       )
 
-    case Page.unwrap(Ash.read(query, actor: actor)) do
-      {:ok, devices} ->
-        devices
-
-      {:error, reason} ->
-        Logger.warning("SNMPCompiler: failed to query devices - #{inspect(reason)}")
-        []
+    try do
+      query
+      |> Page.stream!(actor: actor)
+      |> Enum.reduce([], fn device, acc -> [device | acc] end)
+      |> Enum.reverse()
+    rescue
+      exception ->
+        Logger.warning("SNMPCompiler: failed to query devices - #{inspect(exception)}")
+        reraise exception, __STACKTRACE__
     end
   end
 
