@@ -68,7 +68,8 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
 
   # #4610: an Armis device reported without MACs leaves an address; a discovered device leases
   # it. Steps: Armis A (a1) at p2 three times (alias confirmed); A moves to p1 and is synced
-  # there; B (m2) is discovered at p3, then DHCP moves B to p2 and the mapper polls it.
+  # there; B (m2) is discovered at p3, then DHCP moves B to p2 and the mapper polls it. The
+  # mapper resolves B by its MAC (#4638), so the alias of p2 reaches AliasGuard.
   test "alias_unknown_mac", %{actor: actor} do
     world =
       two_devices(%{
@@ -147,7 +148,8 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
     |> DireTrace.assert_golden!()
   end
 
-  # #4612: a router's interfaces are sighted one MAC at a time, then the mapper polls it.
+  # #4612: a router's interfaces are sighted one MAC at a time, then the mapper polls it. The
+  # poll's MACs name both per-MAC records (#4638), and the merge policy decides between them.
   test "router_mac_only", %{actor: actor} do
     world = %{
       phys: ["h1"],
@@ -171,8 +173,9 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
     |> DireTrace.assert_golden!()
   end
 
-  # Candidate defect: the mapper resolves by address first. After DHCP moves an address from
-  # A to B, polling B at that address lands on A's record.
+  # #4638 (fixed): the mapper resolves a polled device by its interface MACs, not by the address
+  # it was polled at. After DHCP moves an address from A to B, polling B there gives B its own
+  # record, and A's record claims none of B's MACs.
   test "mapper_stale_address", %{actor: actor} do
     world = two_devices(%{})
 

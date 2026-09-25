@@ -14,8 +14,7 @@
 (***************************************************************************)
 
 ResolutionBugs == {
-    "mac_only_conflicts_blocked",
-    "mapper_resolves_by_address"
+    "mac_only_conflicts_blocked"
 }
 
 LifecycleBugs == {

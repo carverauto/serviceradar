@@ -288,6 +288,12 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
 
   @doc """
   Lookup device by strong identifiers in priority order.
+
+  Every record owning one of the update's globally-unique MACs takes part, not only the owner
+  of the first MAC that matches: a device reporting several interfaces (a router, a switch)
+  names one chassis, so records split across its MACs are a conflict to resolve rather than a
+  choice to make silently. A locally-administered (randomized) MAC never adds a record to the
+  conflict; it identifies nothing beyond the first match it already had.
   """
   @spec lookup_by_strong_identifiers(Ids.strong_identifiers(), term(), String.t() | nil) ::
           {:ok, String.t() | nil} | {:error, term()}
@@ -308,18 +314,21 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
 
   defp lookup_strong_identifiers(ids, actor, preferred_device_id, refuse?) do
     if Ids.has_strong_identifier?(ids) do
-      {matches, overridden} = lookup_governed_matches(ids, actor, refuse?)
-      device_ids = matches |> Map.values() |> Enum.map(& &1.device_id) |> Enum.uniq()
+      {first_matches, overridden} = lookup_governed_matches(ids, actor, refuse?)
+
+      matches =
+        Enum.to_list(first_matches) ++
+          hardware_mac_owner_matches(ids, first_matches, actor, refuse?)
 
       result =
-        case device_ids do
+        case match_device_ids(matches) do
           [] ->
             {:ok, nil}
 
           [device_id] ->
             {:ok, device_id}
 
-          _ ->
+          device_ids ->
             canonical_id = select_canonical_device_id(preferred_device_id, matches, actor)
             _ = MergeEngine.merge_conflicting_devices(canonical_id, device_ids, matches, actor)
             {:ok, canonical_id}
@@ -329,6 +338,64 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
     else
       {{:ok, nil}, []}
     end
+  end
+
+  # Owners of the update's other globally-unique MACs, as `{:mac, match}` pairs in MAC order,
+  # beyond the first MAC match `lookup_identifier_matches/2` already found. One query. An owner
+  # the source-authoritative guard refuses stays out; `lookup_governed_matches/3` already
+  # reported it as overridden.
+  defp hardware_mac_owner_matches(ids, first_matches, actor, refuse?) do
+    first_mac =
+      case Map.get(first_matches, :mac) do
+        %{value: value} -> value
+        _ -> nil
+      end
+
+    values =
+      :mac
+      |> Ids.get_identifier_values(ids)
+      |> Mac.universal_macs()
+      |> MapSet.delete(first_mac)
+      |> Enum.sort()
+
+    values
+    |> lookup_mac_owners(Ids.ids_get_partition(ids), actor)
+    |> Enum.filter(fn {id_type, %{device_id: device_id}} ->
+      is_nil(refuse?) or refuse?.(id_type, device_id) == :accept
+    end)
+  end
+
+  defp lookup_mac_owners([], _partition, _actor), do: []
+
+  defp lookup_mac_owners(values, partition, actor) do
+    query_opts = if actor, do: [actor: actor], else: []
+
+    DeviceIdentifier
+    |> Ash.Query.filter(
+      identifier_type == :mac and identifier_value in ^values and partition == ^partition
+    )
+    |> Ash.read(query_opts)
+    |> Page.unwrap()
+    |> case do
+      {:ok, identifiers} ->
+        identifiers
+        |> Enum.map(&{:mac, %{value: &1.identifier_value, device_id: &1.device_id}})
+        |> Enum.sort_by(fn {:mac, %{value: value}} -> value end)
+
+      {:error, reason} ->
+        Logger.warning("Failed to look up MAC owners: #{inspect(reason)}")
+        []
+    end
+  rescue
+    e ->
+      Logger.warning("Failed to look up MAC owners: #{inspect(e)}")
+      []
+  end
+
+  defp match_device_ids(matches) do
+    matches
+    |> Enum.map(fn {_id_type, %{device_id: device_id}} -> device_id end)
+    |> Enum.uniq()
   end
 
   defp lookup_device_identifier(id_type, id_value, partition, actor) do
@@ -561,8 +628,13 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
 
   defp trusted_identifier_match?(_id_type, _id_value, _device_id, _actor), do: true
 
+  @doc """
+  The survivor among the devices `matches` name: the preferred device when it is one of them,
+  else the owner of the highest-priority identifier, else the most recently seen. `matches` is
+  a map or a list of `{identifier_type, %{value: _, device_id: _}}` pairs.
+  """
   def select_canonical_device_id(preferred_device_id, matches, actor) do
-    device_ids = matches |> Map.values() |> Enum.map(& &1.device_id) |> Enum.uniq()
+    device_ids = match_device_ids(matches)
 
     if Ids.serviceradar_uuid?(preferred_device_id) and preferred_device_id in device_ids do
       preferred_device_id
@@ -576,10 +648,10 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
 
   defp highest_priority_match(matches) do
     Enum.find_value(Ids.identifier_priority(), fn id_type ->
-      case Map.get(matches, id_type) do
-        %{device_id: device_id} -> device_id
+      Enum.find_value(matches, fn
+        {^id_type, %{device_id: device_id}} -> device_id
         _ -> nil
-      end
+      end)
     end)
   end
 

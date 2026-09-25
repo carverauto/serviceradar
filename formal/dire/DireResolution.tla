@@ -11,7 +11,7 @@
 (*   Armis   -> SyncIngestor (BatchResolver, DeviceWrites, Sync.Aliases)    *)
 (*   Arp     -> netprobe census -> SyncIngestor (no alias merge)            *)
 (*   Agent   -> AgentGatewaySync -> Resolver (AliasGuard)                   *)
-(*   Mapper  -> MapperResultsIngestor (address, then alias, then DIRE)      *)
+(*   Mapper  -> MapperResultsIngestor (its interface MACs, through DIRE)    *)
 (*   Sweep   -> SweepResultsIngestor (attach, or a provisional seed)        *)
 (* A ghost variable, phys, tracks which physical devices' identity-bearing  *)
 (* observations went into each record, so "one record describes two        *)
@@ -42,8 +42,7 @@ CONSTANTS
     Bugs
 
 KnownBugs == {
-    "mac_only_conflicts_blocked",  \* inventory/identity/merge_policy.ex mac_only_matches?/1
-    "mapper_resolves_by_address"   \* network_discovery/mapper_results_ingestor.ex resolve_device_ids/2
+    "mac_only_conflicts_blocked"  \* inventory/identity/merge_policy.ex mac_only_matches?/1
 }
 ASSUME Bugs \subseteq KnownBugs
 
@@ -172,7 +171,9 @@ PhysAfter(h, S, p, merged, target, owner2, into2, recIp2) ==
 \*   aliasPath: "none" (census), "sync" (Sync.Aliases), "guard" (AliasGuard, Resolver path)
 \*   recordAlias: this update's address is recorded as a (confirmed) alias of the result
 \*   claims: interface MACs the observation registers as the result's own interface table
-Resolve(h, x, S, recordAlias, aliasPath, kind, claims) ==
+\*   keepIps: addresses an existing result keeps instead of moving to this one (the mapper's
+\*            device reports all of its own addresses; other observers pass {})
+Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
     LET p       == ipAt[x]
         srcS    == S \cap SrcIds
         \* A matched record holding a different source-authoritative identifier than the one
@@ -197,18 +198,22 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims) ==
             ELSE LET weak == holderAt \cup {r \in alias[p] : Live(r)}
                  IN IF weak # {} THEN CHOOSE r \in weak : TRUE ELSE Canon(p)
         \* --- The device write and ocsf_devices_unique_active_ip_idx
-        \*     (DeviceWrites.resolve_record_active_ip/7) ---
+        \*     (DeviceWrites.resolve_record_active_ip/7; for an existing device the mapper
+        \*     polled, MapperResultsIngestor.move_device_address/4) ---
         others0   == holderAt \ {target0}
         seedHold  == {r \in others0 : IdsHeld(r) = {}}
         \* A strong write onto an address held by an anchorless provisional seed adopts the seed.
         adopt     == S # {} /\ ~created[target0] /\ seedHold # {}
         target    == IF adopt THEN CHOOSE r \in seedHold : TRUE ELSE target0
-        holders   == holderAt \ {target}
+        \* An existing result whose address is still one of its own keeps it, and this write
+        \* claims no address at all.
+        keepAddr  == created[target] /\ recIp[target] \in keepIps
         \* An identity-bearing write at an address another live record holds: the address follows
         \* the device observed at it, so the holder releases it (its address is cleared, it stays
         \* live) and the decision is recorded (DeviceWrites.claim_address_from_holder/4; #4639).
         \* The code releases only for an observation newer than the holder's last_seen_time; the
         \* model has no clock, so every observation here is the newer one.
+        holders   == IF keepAddr THEN {} ELSE holderAt \ {target}
         ipConflict == S # {} /\ holders # {}
         owner1 == [i \in Ids |->
                      IF owner[i] \in step1Merged THEN target
@@ -249,7 +254,7 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims) ==
         into2   == [r \in Recs |-> IF r \in merged THEN target ELSE into[r]]
         owner2  == [i \in Ids |-> IF owner1[i] \in step2Merged THEN target ELSE owner1[i]]
         recIp2  == [r \in Recs |->
-                      IF r = target THEN p
+                      IF r = target THEN (IF keepAddr THEN recIp[r] ELSE p)
                       ELSE IF r \in holders THEN NoIp
                       ELSE recIp[r]]
     IN
@@ -274,49 +279,43 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims) ==
 ArmisObserve(h, x) ==
     /\ SrcOf[h] # NoId /\ IfPhys[x] = h /\ ipAt[x] # NoIp
     /\ \E ra \in BOOLEAN :
-         Resolve(h, x, {SrcOf[h]} \cup (IF ArmisMacs THEN MacsOf(h) ELSE {}), ra, "sync", "Armis", {})
+         Resolve(h, x, {SrcOf[h]} \cup (IF ArmisMacs THEN MacsOf(h) ELSE {}), ra, "sync", "Armis",
+                 {}, {})
 
 \* netprobe census: one interface's MAC and address, through SyncIngestor. A census update is an
 \* observer source with no non-MAC identifier, so Sync.Aliases never merges on it.
 ArpObserve(h, x) ==
     /\ IfPhys[x] = h /\ ipAt[x] # NoIp /\ IfMac[x] # NoId
-    /\ \E ra \in BOOLEAN : Resolve(h, x, {IfMac[x]}, ra, "none", "Arp", {})
+    /\ \E ra \in BOOLEAN : Resolve(h, x, {IfMac[x]}, ra, "none", "Arp", {}, {})
 
 \* Agent check-in: AgentGatewaySync.ensure_device_for_agent/2 resolves through the Resolver,
 \* so AliasGuard runs on the strong-match branch.
 AgentObserve(h, x) ==
     /\ AgentOf[h] # NoId /\ IfPhys[x] = h /\ ipAt[x] # NoIp
-    /\ \E ra \in BOOLEAN : Resolve(h, x, {AgentOf[h]} \cup MacsOf(h), ra, "guard", "Agent", {})
+    /\ \E ra \in BOOLEAN : Resolve(h, x, {AgentOf[h]} \cup MacsOf(h), ra, "guard", "Agent", {}, {})
 
-\* Mapper/SNMP discovery polled at interface x's address, reporting every interface MAC.
-\* Today (MapperResultsIngestor.resolve_device_ids/2): the live device holding the address takes
-\* the interface table; else a confirmed alias holder of the address does; else DIRE creates or
-\* resolves the device. An attach registers the MACs only as interface claims.
-\* Goal: the reported MACs resolve the device; the address is evidence only.
-MapperAttach(h, x, r) ==
-    /\ ifClaims' = [ifClaims EXCEPT ![r] = @ \cup MacsOf(h)]
-    /\ act' = [name |-> "Discovery", ids |-> MacsOf(h), ip |-> ipAt[x], decisions |-> {},
-               recorded |-> {}, addressMerged |-> {}]
-    /\ UNCHANGED <<ipAt, created, into, owner, recIp, alias, phys>>
+\* Mapper/SNMP discovery polled at interface x's address, reporting every interface MAC and
+\* address (MapperResultsIngestor.resolve_device_ids/2). The reported globally-unique MACs
+\* resolve the device through the Resolver, which runs AliasGuard at the polled address, and
+\* they become the result's interface claims; the address is evidence only. A new device is
+\* written at the polled address; an existing one keeps an address it still reports. A
+\* randomized MAC never identifies a device: a poll reporting no globally-unique MAC has only
+\* the address to go on, like a sweep, and claims no interface.
+OwnIps(h) == {ipAt[y] : y \in {z \in Ifaces : IfPhys[z] = h}} \ {NoIp}
 
 MapperObserve(h, x) ==
-    LET p == ipAt[x]
-        holdersAt == {r \in Recs : Live(r) /\ recIp[r] = p}
-        aliasAt   == {r \in alias[p] : Live(r)}
-    IN
-    /\ IfPhys[x] = h /\ p # NoIp /\ MacsOf(h) # {}
-    /\ IF Bug("mapper_resolves_by_address") /\ holdersAt # {}
-       THEN \E r \in holdersAt : MapperAttach(h, x, r)
-       ELSE IF Bug("mapper_resolves_by_address") /\ aliasAt # {}
-       THEN \E r \in aliasAt : MapperAttach(h, x, r)
-       ELSE \E ra \in BOOLEAN : Resolve(h, x, MacsOf(h), ra, "guard", "Discovery", MacsOf(h))
+    LET ids == MacsOf(h) \cap HwIds IN
+    /\ IfPhys[x] = h /\ ipAt[x] # NoIp /\ MacsOf(h) # {}
+    /\ IF ids # {}
+       THEN \E ra \in BOOLEAN : Resolve(h, x, ids, ra, "guard", "Discovery", ids, OwnIps(h))
+       ELSE Resolve(h, x, {}, FALSE, "none", "Discovery", {}, {})
 
 \* Sweep: an address answered. SweepResultsIngestor attaches it to the live holder or alias
 \* holder of the address, and otherwise creates a provisional record seeded from the address
 \* (create_available_unknown_devices/5).
 SweepObserve(h, x) ==
     /\ IfPhys[x] = h /\ ipAt[x] # NoIp
-    /\ Resolve(h, x, {}, FALSE, "none", "Sweep", {})
+    /\ Resolve(h, x, {}, FALSE, "none", "Sweep", {}, {})
 
 Next ==
     \/ \E x \in Ifaces, p \in Ips \cup {NoIp} : Lease(x, p)

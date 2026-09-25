@@ -109,6 +109,42 @@ Merged-away device IDs are never resurrected: resolution follows the
 `Identity.BatchResolver`), including after the tombstone row has been purged,
 unless an unmerge reversed that merge.
 
+A strong match in `Identity.Resolver` considers every record that owns one of
+the update's globally-unique MACs, not only the owner of the first MAC found.
+When those are two or more records, the split is a conflict for the merge
+policy below. A locally-administered MAC never adds a record to the conflict.
+
+### SNMP mapper polls
+
+A device the mapper polls is identified by the MACs its own physical
+interfaces report, never by the address it was polled at. DHCP hands that
+address to other devices, so the record holding it, or a confirmed alias of
+it, may describe a different device. The MACs resolve through the steps
+above, and they are registered as the device's interface claims only after
+that. The polled address is evidence only: it breaks a tie between records
+the MACs identify.
+
+- A new device is written at the polled address under the same active-address
+  rules as any strong write.
+- An existing device moves to the polled address only when its recorded
+  address is not one its interfaces still report, so a router polled at its
+  WAN and LAN addresses keeps one address. The address follows the newer
+  observation: a live holder last seen before the poll releases it in the same
+  transaction, and a holder that is not older keeps it, with an
+  `active_ip_conflict` recorded.
+- Only globally-unique MACs identify a device. A poll that reports no
+  globally-unique interface MAC, whether it has none or only randomized ones,
+  falls back to the address: the live holder, then a confirmed alias, then an
+  address-seeded device.
+- A poll never revives a device an operator deleted, one a merge
+  tombstoned, or one a DIRE remediation removed (`deleted_reason` starting
+  with `dire_remediation`). A device another automatic process deleted (a
+  `system:` actor, such as a reaper or an expiry) came back online and is
+  restored through the audited `:restore` action, which bumps the identity
+  revision and records the revival. When its old address has since been
+  leased to another live device, the restore clears it and the device moves
+  to the polled address; the other device keeps its address.
+
 ## Merge policy and stability
 
 - Evidence gates (`Identity.MergePolicy`): never merge on agent_id-only,

@@ -309,9 +309,10 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   # already exist, then clear released (uid, ip) pairs set-wise. Locking only
   # release owners left a cross-lock cycle with insert_all's ON CONFLICT updates
   # of other prepared rows (PostgreSQL 40P01 under concurrent cross-handoffs).
-  defp lock_and_clear_for_upsert(_records, []), do: :ok
+  @doc false
+  def lock_and_clear_for_upsert(_records, []), do: :ok
 
-  defp lock_and_clear_for_upsert(records, releases) do
+  def lock_and_clear_for_upsert(records, releases) do
     releases =
       releases
       |> Enum.uniq()
@@ -743,12 +744,13 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     end
   end
 
-  defp observed_after?(%{last_seen_time: %DateTime{} = incoming}, %{
-         last_seen_time: %DateTime{} = held
-       }),
-       do: DateTime.after?(incoming, held)
+  @doc false
+  def observed_after?(%{last_seen_time: %DateTime{} = incoming}, %{
+        last_seen_time: %DateTime{} = held
+      }),
+      do: DateTime.after?(incoming, held)
 
-  defp observed_after?(_record, _holder), do: false
+  def observed_after?(_record, _holder), do: false
 
   defp merge_existing_duplicate(incoming_uid, holder_uid) do
     if Repo.exists?(from(d in Device, where: d.uid == ^incoming_uid)) do
