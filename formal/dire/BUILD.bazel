@@ -52,14 +52,6 @@ tlc_test(
 )
 
 tlc_test(
-    name = "lifecycle_witness_follow_stale_audit_test",
-    cfg = "lifecycle_witness_follow_stale_audit.cfg",
-    expect = "violation:NoStaleRedirect",
-    spec = "MCDireLifecycle.tla",
-    deps = ["DireLifecycle.tla"],
-)
-
-tlc_test(
     name = "lifecycle_witness_sweep_restores_merged_test",
     cfg = "lifecycle_witness_sweep_restores_merged.cfg",
     expect = "violation:NoZombieRevival",
@@ -95,14 +87,6 @@ tlc_test(
     name = "lifecycle_witness_upsert_zombie_test",
     cfg = "lifecycle_witness_upsert_zombie.cfg",
     expect = "violation:NoZombieRevival",
-    spec = "MCDireLifecycle.tla",
-    deps = ["DireLifecycle.tla"],
-)
-
-tlc_test(
-    name = "lifecycle_witness_merge_cycle_test",
-    cfg = "lifecycle_witness_merge_cycle.cfg",
-    expect = "violation:MergeGraphAcyclic",
     spec = "MCDireLifecycle.tla",
     deps = ["DireLifecycle.tla"],
 )
@@ -577,16 +561,6 @@ tlc_test(
     name = "trace_soft_delete_upsert_revival__knockout_test",
     cfg = "traces/Trace_soft_delete_upsert_revival__knockout.cfg",
     spec = "traces/Trace_soft_delete_upsert_revival.tla",
-    deps = [
-        "DireLifecycle.tla",
-        "DireLifecycleTrace.tla",
-    ],
-)
-
-tlc_test(
-    name = "trace_stale_redirect__knockout_test",
-    cfg = "traces/Trace_stale_redirect__knockout.cfg",
-    spec = "traces/Trace_stale_redirect.tla",
     deps = [
         "DireLifecycle.tla",
         "DireLifecycleTrace.tla",

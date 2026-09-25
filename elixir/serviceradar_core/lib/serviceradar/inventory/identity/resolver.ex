@@ -121,6 +121,12 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
   When the given device is tombstoned by a merge, resolution follows the
   audit trail to the live canonical device. Live (or never-seen) IDs are
   returned unchanged, so unmerged/recreated devices are respected.
+
+  Only a merge tombstone (`deleted_reason: "merged"`) is followed. A merge row
+  outlives an unmerge, so a device that was merged, unmerged and later deleted
+  for an unrelated reason still has one; following it would redirect the device
+  to its former survivor, and together with any revival path would close a
+  redirect cycle. Such a device resolves to itself.
   """
   @spec follow_canonical_device_id(String.t(), term()) :: String.t()
   def follow_canonical_device_id(device_id, actor),
@@ -130,7 +136,8 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
 
   defp do_follow_canonical(device_id, actor, depth) do
     with true <- Ids.serviceradar_uuid?(device_id),
-         {:ok, %Device{deleted_at: %_{}}} <- Device.get_by_uid(device_id, true, actor: actor),
+         {:ok, %Device{deleted_at: %_{}, deleted_reason: "merged"}} <-
+           Device.get_by_uid(device_id, true, actor: actor),
          canonical_id when is_binary(canonical_id) and canonical_id != device_id <-
            latest_merge_target(device_id, actor) do
       do_follow_canonical(canonical_id, actor, depth - 1)
