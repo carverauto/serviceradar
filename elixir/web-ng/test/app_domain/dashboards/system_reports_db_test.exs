@@ -62,7 +62,7 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsDbTest do
     edited_query = "in:mtr_hops addr:#{marker} limit:5"
 
     Repo.update_all(
-      from(p in "authored_dashboard_panels", prefix: "platform", where: p.id == ^Ecto.UUID.dump!(panel.id)),
+      from(p in "authored_dashboard_panels", prefix: "platform", where: p.id == type(^panel.id, Ecto.UUID)),
       set: [srql_query: edited_query]
     )
 
