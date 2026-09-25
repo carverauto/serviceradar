@@ -15,6 +15,7 @@ defmodule ServiceRadar.Inventory.Identity.DecisionLog do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Inventory.Identity.Deduplication
   alias ServiceRadar.Inventory.IdentityDecision
 
   require Logger
@@ -60,8 +61,13 @@ defmodule ServiceRadar.Inventory.Identity.DecisionLog do
       |> Enum.uniq_by(&input_key/1)
 
     case inputs do
-      [] -> :ok
-      inputs -> write(inputs)
+      [] ->
+        :ok
+
+      inputs ->
+        write(inputs)
+        # The operator's side of the same decisions: one de-duplication task per device set.
+        Deduplication.open_for_decisions(inputs)
     end
   end
 

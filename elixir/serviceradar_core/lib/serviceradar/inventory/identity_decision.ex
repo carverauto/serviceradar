@@ -18,6 +18,11 @@ defmodule ServiceRadar.Inventory.IdentityDecision do
       holds.
     * `:source_override` - a source-authoritative identifier decided a record's identity over
       conflicting MAC or address evidence.
+    * `:component_block` - the scheduled duplicate sweep found devices joined only
+      transitively (an ambiguous component) and did not merge them.
+
+  Every decision naming two or more devices also opens or updates the de-duplication task for
+  that device set (`ServiceRadar.Inventory.Identity.Deduplication`).
 
   One row per decision: kind, reason, the sorted device set and the subject (an address, when
   the decision is about one). A decision that repeats updates its row -- `occurrence_count`,
@@ -37,7 +42,8 @@ defmodule ServiceRadar.Inventory.IdentityDecision do
     :source_block,
     :alias_invalidated,
     :ip_conflict,
-    :source_override
+    :source_override,
+    :component_block
   ]
 
   postgres do
