@@ -387,16 +387,22 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
 
   def revoke_instance_access_grant(_scope, _grant), do: {:error, :invalid_attributes}
 
-  @spec list_with_instances(keyword()) :: [DashboardPackage.t()]
+  @spec list_with_instances(keyword()) :: {:ok, [DashboardPackage.t()]} | {:error, term()}
   def list_with_instances(opts \\ []) do
     scope = Keyword.get(opts, :scope)
 
-    DashboardPackage
-    |> Ash.Query.for_read(:read)
-    |> Ash.Query.load(:instances)
-    |> Ash.Query.sort(inserted_at: :desc)
-    |> Ash.Query.limit(500)
-    |> read(scope)
+    query =
+      DashboardPackage
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.load(:instances)
+      |> Ash.Query.sort(inserted_at: :desc)
+      |> Ash.Query.limit(500)
+
+    if scope do
+      Ash.read(query, scope: scope)
+    else
+      Ash.read(query, actor: package_system_actor())
+    end
   end
 
   @spec get_by_manifest_id_or_id(String.t(), keyword()) ::

@@ -33,11 +33,17 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageReadController do
     case enforce_permission(conn) do
       :ok ->
         scope = conn.assigns[:current_scope]
-        packages = Dashboards.list_packages_with_instances(scope: scope)
 
-        conn
-        |> put_resp_header("cache-control", "no-store")
-        |> json(%{packages: Enum.map(packages, &serialize_package/1)})
+        case Dashboards.list_packages_with_instances(scope: scope) do
+          {:ok, packages} ->
+            conn
+            |> put_resp_header("cache-control", "no-store")
+            |> json(%{packages: Enum.map(packages, &serialize_package/1)})
+
+          {:error, reason} ->
+            Logger.warning("dashboard_package_read index failed", reason: inspect(reason))
+            internal_error(conn)
+        end
 
       {:error, :forbidden} ->
         forbidden(conn)
