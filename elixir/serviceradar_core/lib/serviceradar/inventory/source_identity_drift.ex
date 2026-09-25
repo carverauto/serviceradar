@@ -221,10 +221,12 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
   The strong identity never rebinds to the unrelated holder; `:action` says
   how the address was settled:
 
-    * `:drop_ip` (default) -- the incoming record dropped the address (two
-      claims in one batch, where neither is fresher);
-    * `:release_holder` -- the incoming record took the address and the
-      stale holder released it.
+    * `:drop_ip` (default) -- the incoming record dropped the address and the
+      holder kept it (a declarative inventory's address, an observation not
+      newer than the holder's, or two claims in one batch);
+    * `:release_holder` -- the incoming record was observed at the address
+      more recently than the holder and took it, and the stale holder
+      released it.
 
   Returns the conflict map (or `nil` for a non-map record). Callers persist it —
   collect many and pass them to `record_conflicts/1` in one write instead of
