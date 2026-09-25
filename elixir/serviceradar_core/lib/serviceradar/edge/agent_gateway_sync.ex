@@ -440,8 +440,11 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
           now
         )
 
+      {:ok, %Device{deleted_reason: "merged", deleted_at: %DateTime{}} = device} ->
+        follow_merged_away_device(device, agent_id, attrs, capabilities, actor, now)
+
       {:ok, device} ->
-        # Update existing device
+        # Update existing device (a soft-deleted one is restored: see gateway_update_action/1)
         update_existing_device_for_agent(device, agent_id, attrs, capabilities, actor, now)
 
       {:error, reason} ->
@@ -461,6 +464,36 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         else
           {:error, reason}
         end
+    end
+  end
+
+  # A check-in never writes a merged-away device back to life (#4615). DIRE resolution
+  # already follows merge redirects, so this is reached only when the agent's uid is
+  # merged away between resolution and this write; the check-in follows the merge to the
+  # survivor, as resolution would have. With no live survivor it is refused, and the
+  # tombstone stays.
+  defp follow_merged_away_device(device, agent_id, attrs, capabilities, actor, now) do
+    survivor_uid = IdentityReconciler.follow_canonical_device_id(device.uid, actor)
+
+    case survivor_uid != device.uid && Device.get_by_uid(survivor_uid, false, actor: actor) do
+      {:ok, %Device{} = survivor} ->
+        Logger.info(
+          "Agent #{agent_id} check-in reached merged-away device #{device.uid}; " <>
+            "following its merge into #{survivor_uid}"
+        )
+
+        case update_existing_device_for_agent(survivor, agent_id, attrs, capabilities, actor, now) do
+          :ok -> {:ok, survivor_uid}
+          other -> other
+        end
+
+      _no_live_survivor ->
+        Logger.warning(
+          "Agent #{agent_id} check-in reached merged-away device #{device.uid} " <>
+            "with no live survivor; leaving it deleted"
+        )
+
+        {:error, {:merged_away_device, device.uid}}
     end
   end
 
@@ -695,19 +728,21 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       |> maybe_put(:ip, source_ip)
       |> compact_attrs()
 
+    action = gateway_update_action(device)
+
     # DB connection's search_path determines the schema
     device
-    |> Ash.Changeset.for_update(:gateway_sync, update_attrs)
+    |> Ash.Changeset.for_update(action, update_attrs)
     |> Ash.update(actor: actor)
     |> case do
       {:ok, _device} ->
-        Logger.debug("Updated device #{device.uid} for agent #{agent_id}")
+        Logger.debug("Updated device #{device.uid} for agent #{agent_id} (#{action})")
         :ok
 
       {:error, %Invalid{} = error} ->
         cond do
           stale_record_error?(error) ->
-            force_gateway_sync_update(device.uid, update_attrs, actor)
+            force_gateway_sync_update(device.uid, action, update_attrs, actor)
 
           active_ip_unique_conflict?(error) ->
             maybe_adopt_existing_active_ip_device(
@@ -742,6 +777,12 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         )
     end
   end
+
+  # A check-in on a soft-deleted device restores it (Device :gateway_restore bumps
+  # identity_revision, as :restore does); :gateway_sync never clears a tombstone. A
+  # merged-away device never gets here (follow_merged_away_device/6).
+  defp gateway_update_action(%Device{deleted_at: %DateTime{}}), do: :gateway_restore
+  defp gateway_update_action(%Device{}), do: :gateway_sync
 
   defp agent_host_device_type(%Device{} = device) do
     if hypervisor_device?(device) do
@@ -1395,19 +1436,19 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end)
   end
 
-  defp force_gateway_sync_update(device_uid, update_attrs, actor) do
+  defp force_gateway_sync_update(device_uid, action, update_attrs, actor) do
     query =
       Device
       |> Ash.Query.for_read(:read, %{include_deleted: true})
       |> Ash.Query.filter(uid == ^device_uid)
 
-    case Ash.bulk_update(query, :gateway_sync, update_attrs,
+    case Ash.bulk_update(query, action, update_attrs,
            actor: actor,
            return_errors?: true,
            return_records?: false
          ) do
       %Ash.BulkResult{status: :success} ->
-        Logger.debug("Force-updated device #{device_uid} via gateway_sync")
+        Logger.debug("Force-updated device #{device_uid} via #{action}")
         :ok
 
       %Ash.BulkResult{status: :partial_success, errors: errors} ->

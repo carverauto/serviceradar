@@ -42,17 +42,6 @@ tlc_test(
 )
 
 tlc_test(
-    name = "lifecycle_witness_gateway_sync_no_bump_test",
-    cfg = "lifecycle_witness_gateway_sync_no_bump.cfg",
-    expect = "violation:RevivalBumpsRevision",
-    spec = "MCDireLifecycle.tla",
-    deps = [
-        "CurrentBugs.tla",
-        "DireLifecycle.tla",
-    ],
-)
-
-tlc_test(
     name = "lifecycle_witness_sweep_restores_merged_test",
     cfg = "lifecycle_witness_sweep_restores_merged.cfg",
     expect = "violation:NoZombieRevival",
@@ -564,17 +553,6 @@ tlc_test(
     name = "trace_conflict_unmerge__knockout_test",
     cfg = "traces/Trace_conflict_unmerge__knockout.cfg",
     spec = "traces/Trace_conflict_unmerge.tla",
-    deps = [
-        "CurrentBugs.tla",
-        "DireLifecycle.tla",
-        "DireLifecycleTrace.tla",
-    ],
-)
-
-tlc_test(
-    name = "trace_gateway_sync_revival__knockout_test",
-    cfg = "traces/Trace_gateway_sync_revival__knockout.cfg",
-    spec = "traces/Trace_gateway_sync_revival.tla",
     deps = [
         "CurrentBugs.tla",
         "DireLifecycle.tla",

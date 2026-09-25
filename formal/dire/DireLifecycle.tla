@@ -29,7 +29,6 @@ CONSTANTS
     FollowDepth   \* Resolver @max_canonical_follow_depth
 
 KnownBugs == {
-    "gateway_sync_no_bump",      \* inventory/device.ex update :gateway_sync
     "sweep_restores_merged",     \* sweep_jobs/sweep_results_ingestor.ex restore_eligible?/1
     "fence_observe_only",        \* inventory/identity/fence.ex pin/2 has no production caller
     "unmerge_restores_matches",  \* inventory/identity/merge_engine.ex reassign_original_identifiers/4
@@ -242,16 +241,17 @@ SweepRestore(p) ==
          /\ act' = MkAct("SweepRestore", d, NoDev, 0, FALSE, {d})
     /\ UNCHANGED <<owner, ipOf, audit>>
 
-\* AgentGatewaySync -> Device :gateway_sync on the agent's device uid clears the tombstone
-\* without BumpIdentityRevision. Intended: follow a merge, and bump otherwise.
+\* AgentGatewaySync.upsert_device_for_agent/4 on the agent's device uid: a soft-deleted device
+\* is restored through Device :gateway_restore, which bumps identity_revision as :restore
+\* does. A merged-away device is never revived: follow_merged_away_device/6 writes the
+\* check-in to the survivor (an ordinary write to a live device, outside this action).
 GatewaySync(u) ==
-    LET bump == IF Bug("gateway_sync_no_bump") THEN {} ELSE {u} IN
     /\ status[u] = "tomb" /\ IpFreeFor(u, ipOf[u])
-    /\ reason[u] # "merged" \/ Bug("gateway_sync_no_bump")
+    /\ reason[u] # "merged"
     /\ status' = [status EXCEPT ![u] = "live"]
     /\ reason' = [reason EXCEPT ![u] = "none"]
-    /\ work' = MarkStale(work, bump)
-    /\ act' = MkAct("GatewaySync", u, NoDev, 0, FALSE, bump)
+    /\ work' = MarkStale(work, {u})
+    /\ act' = MkAct("GatewaySync", u, NoDev, 0, FALSE, {u})
     /\ UNCHANGED <<owner, ipOf, audit>>
 
 \* DeviceCleanupWorker.hard_delete_records/2: the row and its device_identifiers go;

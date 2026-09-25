@@ -40,7 +40,7 @@ configuration. Confirmed defects (`formal/dire/README.md` has code paths and wit
 - [ ] 3.5 `silent_blocks`: record blocked merges and alias invalidations (#4604).
 - [x] 3.6 `upsert_revives_merged`: the upsert `on_conflict` must not revive a merged tombstone and
       must bump on any revival.
-- [ ] 3.7 `gateway_sync_no_bump`: gateway sync must restore through `:restore` or not at all.
+- [x] 3.7 `gateway_sync_no_bump`: gateway sync must restore through `:restore` or not at all.
 - [x] 3.8 `follow_stale_audit`: follow a merge row only for `deleted_reason = "merged"`.
 - [ ] 3.9 `sweep_restores_merged`: sweep restore must skip merged tombstones.
 - [ ] 3.10 `fence_observe_only`: enforce the fence (`add-device-identity-fence` task 4.5).

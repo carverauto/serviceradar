@@ -23,7 +23,6 @@ ResolutionBugs == {
 
 LifecycleBugs == {
     "fence_observe_only",
-    "gateway_sync_no_bump",
     "purge_forgets_redirect",
     "sweep_restores_merged",
     "unmerge_restores_matches"
