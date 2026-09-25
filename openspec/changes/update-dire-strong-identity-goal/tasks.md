@@ -38,7 +38,7 @@ configuration. Confirmed defects (`formal/dire/README.md` has code paths and wit
       randomized MACs excluded. The conflict arises on agent check-in; a router's per-interface
       records also stay split because of 3.13.
 - [ ] 3.5 `silent_blocks`: record blocked merges and alias invalidations (#4604).
-- [ ] 3.6 `upsert_revives_merged`: the upsert `on_conflict` must not revive a merged tombstone and
+- [x] 3.6 `upsert_revives_merged`: the upsert `on_conflict` must not revive a merged tombstone and
       must bump on any revival.
 - [ ] 3.7 `gateway_sync_no_bump`: gateway sync must restore through `:restore` or not at all.
 - [x] 3.8 `follow_stale_audit`: follow a merge row only for `deleted_reason = "merged"`.
