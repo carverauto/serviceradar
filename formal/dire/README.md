@@ -84,7 +84,7 @@ One lifecycle witness covers a property a fixed switch left to another:
 | `silent_blocks` | #4613 (`Identity.DecisionLog` writes `platform.identity_decisions` for every blocked, declined or overridden merge) | `NoSilentDecision` in every `resolution_goal_*`; each trace's `recorded` set is read from those rows |
 | `src_attach_via_mac` | #4611 (`SourceAuthorityGuard.source_mismatch?/3` in `BatchResolver` and `Resolver`; the override is a `source_override` identity decision plus a `source_authoritative_override` conflict row) | `DistinctSourceIdsNeverMerge`, `NoSilentDecision` in every `resolution_goal_*`; trace `src_attach_shared_mac` |
 | `mapper_resolves_by_address` | #4638 (`MapperResultsIngestor.resolve_device_ids/2` resolves a polled device by its interface MACs through the Resolver) | `NoFalseInterfaceClaim` in every `resolution_goal_*` |
-| `mac_only_conflicts_blocked` | #4612 (`MergePolicy.merge_allowed_for_matches?/1` accepts a match set holding a globally-unique MAC; an all-randomized set stays blocked, and a record linked only through a randomized MAC drops out of the merge as a recorded `randomized_mac_link` policy block) | `EvidenceConverges` in every `resolution_goal_*`; trace `router_mac_only` |
+| `mac_only_conflicts_blocked` | #4612 (`MergePolicy.merge_allowed_for_matches?/1` accepts a match set holding a globally-unique MAC; an all-randomized set stays blocked, and a record linked only through a randomized MAC drops out of the merge as a recorded `randomized_mac_link` policy block) | `EvidenceConverges` in every `resolution_goal_*`; traces `router_mac_only`, `agent_mac_split` |
 
 ## Resolution environments
 

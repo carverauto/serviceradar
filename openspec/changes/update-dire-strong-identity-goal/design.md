@@ -103,9 +103,10 @@ without doing both is a defect.
 
 ## Findings the model established
 
-- A globally-unique MAC must be able to merge. `MergePolicy` rejects every MAC-only match set,
-  so a router's per-interface records never converge (`mac_only_conflicts_blocked`). The
-  earlier open question is answered: this is a real gap.
+- A globally-unique MAC must be able to merge. `MergePolicy` rejected every MAC-only match set,
+  so a router's per-interface records never converged (`mac_only_conflicts_blocked`, fixed by
+  #4612: only an all-randomized set stays blocked). The earlier open question is answered:
+  this was a real gap.
 - When Armis reports no MACs, an Armis record and a discovered record of the same device share
   no identifier. Only their address links them, and under these requirements an address cannot
   merge two identified records. That pair belongs in a de-duplication task (#4604).
