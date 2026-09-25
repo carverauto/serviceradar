@@ -447,7 +447,10 @@ defmodule ServiceRadar.DireLifecycleTrace do
 
   @doc """
   An available sweep result for address `p`, reported by an authenticated agent for a sweep
-  group (`SweepResultsIngestor.ingest_results/3`).
+  group (`SweepResultsIngestor.ingest_results/3`). A sweep that restores a tombstone is the
+  model's `SweepRestore`. One that restores nothing (a merged-away tombstone at `p`) changes
+  no modeled state, and the model has no step for it, so none is logged; the recorder checks
+  that nothing it reads changed.
   """
   def sweep(trace, p) do
     before = raw(trace)
@@ -487,6 +490,14 @@ defmodule ServiceRadar.DireLifecycleTrace do
           after_,
           [],
           act("SweepRestore", name_of!(trace, uid), "NoDev", 0, bumped(trace, before, after_))
+        )
+
+      [] when before == after_ ->
+        trace
+
+      [] ->
+        flunk(
+          "DIRE lifecycle trace #{trace.name}: sweep at #{p} restored nothing yet changed state"
         )
 
       other ->

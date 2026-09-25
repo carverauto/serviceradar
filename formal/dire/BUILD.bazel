@@ -55,17 +55,6 @@ tlc_test(
 )
 
 tlc_test(
-    name = "lifecycle_witness_sweep_restores_merged_test",
-    cfg = "lifecycle_witness_sweep_restores_merged.cfg",
-    expect = "violation:NoZombieRevival",
-    spec = "MCDireLifecycle.tla",
-    deps = [
-        "CurrentBugs.tla",
-        "DireLifecycle.tla",
-    ],
-)
-
-tlc_test(
     name = "lifecycle_witness_fence_observe_only_test",
     cfg = "lifecycle_witness_fence_observe_only.cfg",
     expect = "violation:NoStaleCommit",
@@ -567,17 +556,6 @@ tlc_test(
     name = "trace_purge_recreate__knockout_test",
     cfg = "traces/Trace_purge_recreate__knockout.cfg",
     spec = "traces/Trace_purge_recreate.tla",
-    deps = [
-        "CurrentBugs.tla",
-        "DireLifecycle.tla",
-        "DireLifecycleTrace.tla",
-    ],
-)
-
-tlc_test(
-    name = "trace_sweep_restores_merged__knockout_test",
-    cfg = "traces/Trace_sweep_restores_merged__knockout.cfg",
-    spec = "traces/Trace_sweep_restores_merged.tla",
     deps = [
         "CurrentBugs.tla",
         "DireLifecycle.tla",

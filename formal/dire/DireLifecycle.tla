@@ -29,7 +29,6 @@ CONSTANTS
     FollowDepth   \* Resolver @max_canonical_follow_depth
 
 KnownBugs == {
-    "sweep_restores_merged",     \* sweep_jobs/sweep_results_ingestor.ex restore_eligible?/1
     "fence_observe_only",        \* inventory/identity/fence.ex pin/2 has no production caller
     "purge_forgets_redirect"     \* inventory/identity/resolver.ex do_follow_canonical/3, purged uid
 }
@@ -243,15 +242,17 @@ Expire(u) ==
 
 \* SweepResultsIngestor.ingest_results/3: DeviceLookup (include_deleted: true) prefers a live
 \* holder of the address and otherwise falls back to a tombstone; restore_deleted_devices/2
-\* restores it through :restore (which bumps) when restore_eligible?/1 -- reading only
-\* discovery_sources -- allows it. Which tombstone wins is left nondeterministic.
+\* restores it through :restore (which bumps) when restore_eligible?/1 allows it. A merged-away
+\* tombstone is never restored: eligible_restore_uids/1 skips it and records the skip, and a
+\* sweep that restores nothing changes no modeled state. Which tombstone wins is left
+\* nondeterministic.
 \* (event_writer/processors/sweep.ex carries a copy of this path but is not registered as an
 \* EventWriter processor, so it never runs.)
 SweepRestore(p) ==
     /\ ~\E d \in Devices : Live(d) /\ ipOf[d] = p
     /\ \E d \in Devices :
          /\ status[d] = "tomb" /\ ipOf[d] = p
-         /\ reason[d] # "merged" \/ Bug("sweep_restores_merged")
+         /\ reason[d] # "merged"
          /\ status' = [status EXCEPT ![d] = "live"]
          /\ reason' = [reason EXCEPT ![d] = "none"]
          /\ work' = MarkStale(work, {d})
