@@ -417,10 +417,16 @@ defmodule ServiceRadarWebNG.Dashboards.Packages do
         {:ok, pkg}
 
       {:ok, nil} ->
-        case read_one_package_with_instances(id, scope) do
-          {:ok, nil} -> {:error, :not_found}
-          {:ok, pkg} -> {:ok, pkg}
-          {:error, error} -> {:error, error}
+        case Ecto.UUID.cast(id) do
+          {:ok, _} ->
+            case read_one_package_with_instances(id, scope) do
+              {:ok, nil} -> {:error, :not_found}
+              {:ok, pkg} -> {:ok, pkg}
+              {:error, error} -> {:error, error}
+            end
+
+          :error ->
+            {:error, :not_found}
         end
 
       {:error, error} ->
