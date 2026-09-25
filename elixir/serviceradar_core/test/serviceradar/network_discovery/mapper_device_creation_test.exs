@@ -748,11 +748,16 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     lan_mac = unique_global_test_mac(uniq + 1)
     ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
-    payload = fn device_ips ->
-      device_ips
-      |> Enum.flat_map(fn device_ip ->
-        [{1, "wan0", wan_mac, wan_ip}, {2, "lan0", lan_mac, lan_ip}]
-        |> Enum.map(fn {if_index, if_name, mac, address} ->
+    wan0 = {1, "wan0", wan_mac, wan_ip}
+    lan0 = {2, "lan0", lan_mac, lan_ip}
+
+    # Interfaces are current state, one row per (device, interface): a poll's rows carry the
+    # address it was polled at. Each address below reports a different interface, so a dropped
+    # poll leaves its interface row on the address of the earlier poll.
+    payload = fn polls ->
+      polls
+      |> Enum.flat_map(fn {device_ip, interfaces} ->
+        Enum.map(interfaces, fn {if_index, if_name, mac, address} ->
           %{
             "device_id" => "default:#{device_ip}",
             "partition" => "default",
@@ -768,13 +773,17 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
       |> Jason.encode!()
     end
 
-    assert :ok = MapperResultsIngestor.ingest_interfaces(payload.([wan_ip]), %{})
+    assert :ok = MapperResultsIngestor.ingest_interfaces(payload.([{wan_ip, [wan0, lan0]}]), %{})
     assert [%Device{uid: uid} = device] = wait_for_devices_by_ip(actor, wan_ip)
 
     assert {:ok, deleted} =
              Device.soft_delete(device, "stale", "system:mapper_test_reaper", actor: actor)
 
-    assert :ok = MapperResultsIngestor.ingest_interfaces(payload.([wan_ip, lan_ip]), %{})
+    assert :ok =
+             MapperResultsIngestor.ingest_interfaces(
+               payload.([{wan_ip, [wan0]}, {lan_ip, [lan0]}]),
+               %{}
+             )
 
     assert {:ok, restored} = Device.get_by_uid(uid, false, actor: actor)
     assert restored.deleted_at == nil
