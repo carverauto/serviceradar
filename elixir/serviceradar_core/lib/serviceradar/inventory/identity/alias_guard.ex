@@ -3,8 +3,8 @@ defmodule ServiceRadar.Inventory.Identity.AliasGuard do
   Strong-identity guards for IP-alias driven merges.
 
   A confirmed IP alias may corroborate identity but must never override
-  it: two devices bound to different agents are never merged on alias
-  evidence, and the conflicting alias is invalidated (marked stale).
+  it: the agent check-in path never merges on alias evidence, and an alias
+  held by an identified device is invalidated (marked stale).
   """
 
   alias ServiceRadar.Actors.SystemActor
