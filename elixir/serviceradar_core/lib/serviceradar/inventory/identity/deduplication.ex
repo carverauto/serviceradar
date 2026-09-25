@@ -52,7 +52,7 @@ defmodule ServiceRadar.Inventory.Identity.Deduplication do
       |> Enum.filter(&taskable?/1)
       |> Enum.map(&task_input/1)
       |> Enum.uniq_by(&DeduplicationTask.candidate_key(&1.device_uids))
-      |> Enum.reject(&all_pairs_asserted_distinct?(&1.device_uids))
+      |> reject_asserted_distinct()
 
     case inputs do
       [] -> :ok
@@ -138,10 +138,24 @@ defmodule ServiceRadar.Inventory.Identity.Deduplication do
     }
   end
 
-  defp all_pairs_asserted_distinct?(uids) do
-    pairs = for a <- uids, b <- uids, a < b, do: {a, b}
-    asserted = asserted_pairs(uids)
-    pairs != [] and Enum.all?(pairs, &MapSet.member?(asserted, &1))
+  # One query for the whole batch, then membership checks in memory that stop at the first
+  # pair nobody has asserted.
+  defp reject_asserted_distinct([]), do: []
+
+  defp reject_asserted_distinct(inputs) do
+    asserted = inputs |> Enum.flat_map(& &1.device_uids) |> Enum.uniq() |> asserted_pairs()
+
+    if MapSet.size(asserted) == 0 do
+      inputs
+    else
+      Enum.reject(inputs, &all_pairs_asserted?(&1.device_uids, asserted))
+    end
+  end
+
+  defp all_pairs_asserted?(uids, asserted) do
+    Enum.all?(uids, fn a ->
+      Enum.all?(uids, fn b -> a >= b or MapSet.member?(asserted, {a, b}) end)
+    end)
   end
 
   # The asserted pairs among `uids`, as sorted {device_a, device_b} tuples.
