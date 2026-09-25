@@ -216,14 +216,26 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
   end
 
   @doc """
-  Build the active-IP source-identity conflict for a record whose strong
-  identity refused to rebind to an unrelated IP owner, and emit telemetry.
+  Build the active-IP source-identity conflict for a strong-identified record
+  observed at an address a different live record holds, and emit telemetry.
+  The strong identity never rebinds to the unrelated holder; `:action` says
+  how the address was settled:
+
+    * `:drop_ip` (default) -- the incoming record dropped the address and the
+      holder kept it (a declarative inventory's address, an observation not
+      newer than the holder's, or two claims in one batch);
+    * `:release_holder` -- the incoming record was observed at the address
+      more recently than the holder and took it, and the stale holder
+      released it.
 
   Returns the conflict map (or `nil` for a non-map record). Callers persist it —
   collect many and pass them to `record_conflicts/1` in one write instead of
   issuing a separate insert per IP collision.
   """
-  def build_active_ip_conflict(record, existing_device_uid, ip) when is_map(record) do
+  def build_active_ip_conflict(record, existing_device_uid, ip, opts \\ [])
+
+  def build_active_ip_conflict(record, existing_device_uid, ip, opts) when is_map(record) do
+    action = Keyword.get(opts, :action, :drop_ip)
     metadata = Map.get(record, :metadata) || %{}
 
     ids =
@@ -254,7 +266,7 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
         "source_identifier_type" => stringify(identifier_type),
         "source_identifier_value" => identifier_value
       },
-      proposed_action: "preserve_source_identity_drop_conflicting_ip",
+      proposed_action: active_ip_conflict_action(action),
       confidence: "high",
       metadata: %{
         "reason" => "active_ip_owner_did_not_match_source_authoritative_identifier"
@@ -271,14 +283,18 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
         source_identifier_value: identifier_value,
         incoming_device_uid: Map.get(record, :uid),
         existing_device_uid: existing_device_uid,
-        ip: ip
+        ip: ip,
+        action: action
       }
     )
 
     conflict
   end
 
-  def build_active_ip_conflict(_record, _existing_device_uid, _ip), do: nil
+  def build_active_ip_conflict(_record, _existing_device_uid, _ip, _opts), do: nil
+
+  defp active_ip_conflict_action(:drop_ip), do: "preserve_source_identity_drop_conflicting_ip"
+  defp active_ip_conflict_action(:release_holder), do: "preserve_source_identity_release_stale_ip"
 
   @doc """
   Build the source-authoritative override conflict for an update whose

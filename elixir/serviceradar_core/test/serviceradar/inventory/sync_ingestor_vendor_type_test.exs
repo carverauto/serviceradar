@@ -1472,7 +1472,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     assert device.metadata["identity_state"] == "provisional"
   end
 
-  test "recovers from active-ip unique conflicts by remapping to existing uid", %{actor: actor} do
+  test "an Armis write at a held IP takes it without remapping to the holder", %{actor: actor} do
     ip = unique_ip()
     existing_uid = "sr:existing-ip-#{System.unique_integer([:positive])}"
 
@@ -1482,7 +1482,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
         uid: existing_uid,
         ip: ip,
         hostname: "existing-host",
-        is_available: true
+        is_available: true,
+        last_seen_time: DateTime.add(DateTime.utc_now(), -3600, :second)
       })
       |> Ash.create(actor: actor)
 
@@ -1504,10 +1505,12 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
 
     # The update carries a strong identifier, so it must NOT be remapped onto
     # whichever device happens to hold the IP (that adoption collapsed
-    # distinct devices); the conflicting IP is dropped from the new record.
-    existing_device = fetch_device_by_ip!(actor, ip)
-    assert existing_device.uid == existing_uid
+    # distinct devices). Armis observed the device at this address, so the
+    # address follows it (#4639): the holder releases it and stays live.
+    {:ok, existing_device} = Device.get_by_uid(existing_uid, false, actor: actor)
     assert existing_device.hostname == "existing-host"
+    assert existing_device.ip in [nil, ""]
+    assert is_nil(existing_device.deleted_at)
 
     # (conflict recovery may or may not be exercised depending on lookup
     # timing; the behavioral assertions below are what matter)
@@ -1520,7 +1523,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
       |> Page.unwrap()
 
     assert [new_device | _] = Enum.filter(devices, &(&1.uid != existing_uid))
-    refute new_device.ip == ip
+    assert new_device.ip == ip
+    assert fetch_device_by_ip!(actor, ip).uid == new_device.uid
     assert new_device.metadata["sys_descr"] == "Ubiquiti UniFi UDM-Pro 4.4.6 Linux 4.19.152 al324"
   end
 

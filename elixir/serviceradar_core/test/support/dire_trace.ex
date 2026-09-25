@@ -164,9 +164,17 @@ defmodule ServiceRadar.DireTrace do
       "_alias_last_seen_ip" => ip
     }
 
+    seen_at = DateTime.to_iso8601(DateTime.add(DateTime.utc_now(), 60, :second))
+
     update =
       maybe_put_macs(
-        %{"ip" => ip, "hostname" => "trace-#{h}", "source" => "armis", "metadata" => metadata},
+        %{
+          "ip" => ip,
+          "hostname" => "trace-#{h}",
+          "source" => "armis",
+          "last_seen_time" => seen_at,
+          "metadata" => metadata
+        },
         Enum.map(macs, &trace.real.mac[&1])
       )
 

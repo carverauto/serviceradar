@@ -412,7 +412,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
 
     prepared_records =
       remapped_records
-      |> Enum.map(&Map.delete(&1, :identity_claims))
+      |> Enum.map(&Map.drop(&1, [:identity_claims, :observed_address]))
       |> DeviceRecords.merge_records_by_uid()
 
     if map_size(remap) > 0 or active_ip_claims_changed?(records, prepared_records) or
@@ -493,8 +493,8 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
         %{}
       end
 
-    {remapped_records, {remap, conflicts, _anchors}} =
-      Enum.map_reduce(records, {%{}, [], :not_loaded}, fn record, acc ->
+    {remapped_records, {remap, conflicts, _anchors, stale_releases}} =
+      Enum.map_reduce(records, {%{}, [], :not_loaded, []}, fn record, acc ->
         resolve_record_active_ip(
           record,
           strong_uids,
@@ -512,7 +512,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     _ = SourceIdentityDrift.record_conflicts(conflicts)
     _ = DecisionLog.record_many(Enum.map(conflicts, &active_ip_decision/1))
 
-    {remapped_records, remap, Enum.uniq(releases)}
+    {remapped_records, remap, Enum.uniq(releases ++ Enum.reverse(stale_releases))}
   end
 
   # Match the partial unique index predicate exactly so Postgres can use
@@ -531,7 +531,13 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
       where: d.ip in ^ips and is_nil(d.deleted_at) and not is_nil(d.ip) and d.ip != "",
       select:
         {{d.partition, d.ip},
-         %{uid: d.uid, metadata: d.metadata, hostname: d.hostname, mac: d.mac}}
+         %{
+           uid: d.uid,
+           metadata: d.metadata,
+           hostname: d.hostname,
+           mac: d.mac,
+           last_seen_time: d.last_seen_time
+         }}
     )
     |> Repo.all()
     |> Map.new()
@@ -628,7 +634,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
          existing_by_ip,
          incoming_ip_owners,
          identity_regs,
-         {remap, conflicts, anchors}
+         {remap, conflicts, anchors, stale_releases}
        ) do
     ip = Map.get(record, :ip)
 
@@ -637,10 +643,10 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
         {resolved, {remap, conflicts}} =
           drop_batch_conflicting_ip(record, incoming_ip_owners, strong_uids, remap, conflicts)
 
-        {resolved, {remap, conflicts, anchors}}
+        {resolved, {remap, conflicts, anchors, stale_releases}}
 
       %{uid: existing_uid} when existing_uid == record.uid ->
-        {record, {remap, conflicts, anchors}}
+        {record, {remap, conflicts, anchors, stale_releases}}
 
       %{uid: existing_uid} = existing ->
         if MapSet.member?(strong_uids, record.uid) do
@@ -650,7 +656,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
 
           if provisional_ip_seed?(existing, anchored_uids) do
             {Map.put(record, :uid, existing_uid),
-             {Map.put(remap, record.uid, existing_uid), conflicts, anchors}}
+             {Map.put(remap, record.uid, existing_uid), conflicts, anchors, stale_releases}}
           else
             if adopt_on_hostname_agreement?(record, existing, existing_uid, identity_regs) and
                  merge_existing_duplicate(record.uid, existing_uid) do
@@ -660,27 +666,89 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
               )
 
               {Map.put(record, :uid, existing_uid),
-               {Map.put(remap, record.uid, existing_uid), conflicts, anchors}}
+               {Map.put(remap, record.uid, existing_uid), conflicts, anchors, stale_releases}}
             else
-              # Strong identities never adopt an arbitrary IP owner. A
-              # truly provisional seed is the sole exception and is safe
-              # only while it has no registered identity anchor.
-              Logger.info(
-                "SyncIngestor: dropping conflicting IP #{ip} from strong-identified " <>
-                  "device #{record.uid} (held by #{existing_uid})"
+              claim_address_from_holder(
+                record,
+                existing,
+                incoming_ip_owners,
+                {remap, conflicts, anchors, stale_releases}
               )
-
-              conflict = SourceIdentityDrift.build_active_ip_conflict(record, existing_uid, ip)
-
-              {Map.put(record, :ip, nil), {remap, prepend_conflict(conflicts, conflict), anchors}}
             end
           end
         else
           {Map.put(record, :uid, existing_uid),
-           {Map.put(remap, record.uid, existing_uid), conflicts, anchors}}
+           {Map.put(remap, record.uid, existing_uid), conflicts, anchors, stale_releases}}
         end
     end
   end
+
+  # A strong-identified write at an address another live record still holds.
+  # Strong identities never adopt an unrelated IP owner, and the decision is
+  # recorded as an `active_ip_conflict` row either way.
+  #
+  # The address is evidence, not identity: it follows the device observed at
+  # it. When the incoming record was observed at the address
+  # (`SourcePolicy.observed_address_source?/1`) more recently than the holder
+  # last was, the holder is the stale one after DHCP churn, so it releases the
+  # address (its ip is cleared, it stays live) and the incoming record takes
+  # it. An observation that is not newer than the holder's (older, equal, or
+  # without a timestamp on either side) does not displace it, and a
+  # declarative inventory's address is configuration, not a sighting, so both
+  # drop the address instead.
+  #
+  # The release is staged with the batch's own releases, so it is cleared in
+  # the same transaction, before the insert that claims the address
+  # (`lock_and_clear_for_upsert/2`), and ocsf_devices_unique_active_ip_idx
+  # never sees both claims.
+  #
+  # When another record in this batch also claims the address (the holder's
+  # own or a second incoming one), the observations contend for it and neither
+  # is fresher; the incoming record drops it, as before, so the insert never
+  # carries two rows at one address.
+  defp claim_address_from_holder(
+         record,
+         %{uid: holder_uid} = holder,
+         incoming_ip_owners,
+         {remap, conflicts, anchors, stale_releases}
+       ) do
+    ip = Map.get(record, :ip)
+
+    if Map.get(record, :observed_address) != true or
+         length(Map.get(incoming_ip_owners, record_ip_key(record), [])) > 1 or
+         not observed_after?(record, holder) do
+      Logger.info(
+        "SyncIngestor: dropping conflicting IP #{ip} from strong-identified " <>
+          "device #{record.uid} (held by #{holder_uid})"
+      )
+
+      conflict = SourceIdentityDrift.build_active_ip_conflict(record, holder_uid, ip)
+
+      {Map.put(record, :ip, nil),
+       {remap, prepend_conflict(conflicts, conflict), anchors, stale_releases}}
+    else
+      Logger.info(
+        "SyncIngestor: strong-identified device #{record.uid} takes active IP #{ip}; " <>
+          "releasing it from stale holder #{holder_uid}"
+      )
+
+      conflict =
+        SourceIdentityDrift.build_active_ip_conflict(record, holder_uid, ip,
+          action: :release_holder
+        )
+
+      {record,
+       {remap, prepend_conflict(conflicts, conflict), anchors,
+        [{holder_uid, ip} | stale_releases]}}
+    end
+  end
+
+  defp observed_after?(%{last_seen_time: %DateTime{} = incoming}, %{
+         last_seen_time: %DateTime{} = held
+       }),
+       do: DateTime.after?(incoming, held)
+
+  defp observed_after?(_record, _holder), do: false
 
   defp merge_existing_duplicate(incoming_uid, holder_uid) do
     if Repo.exists?(from(d in Device, where: d.uid == ^incoming_uid)) do
@@ -705,7 +773,19 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
         Map.update(acc, uid, pairs, &Enum.uniq(&1 ++ pairs))
       end)
 
-    Enum.map(records, &Map.put(&1, :identity_claims, Map.get(claims, &1.uid, [])))
+    # A record observed at its address (SourcePolicy.observed_address_source?/1)
+    # may take that address from a stale holder.
+    observed =
+      for {update, uid} <- resolved_updates,
+          SourcePolicy.observed_address_source?(update),
+          into: MapSet.new(),
+          do: uid
+
+    Enum.map(records, fn record ->
+      record
+      |> Map.put(:identity_claims, Map.get(claims, record.uid, []))
+      |> Map.put(:observed_address, MapSet.member?(observed, record.uid))
+    end)
   end
 
   # True when this record can take the strong-collision branch: it carries a

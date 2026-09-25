@@ -43,8 +43,7 @@ CONSTANTS
 
 KnownBugs == {
     "mac_only_conflicts_blocked",  \* inventory/identity/merge_policy.ex mac_only_matches?/1
-    "mapper_resolves_by_address",  \* network_discovery/mapper_results_ingestor.ex resolve_device_ids/2
-    "stale_holder_keeps_address"   \* inventory/sync/device_writes.ex resolve_record_active_ip/7
+    "mapper_resolves_by_address"   \* network_discovery/mapper_results_ingestor.ex resolve_device_ids/2
 }
 ASSUME Bugs \subseteq KnownBugs
 
@@ -205,8 +204,12 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims) ==
         adopt     == S # {} /\ ~created[target0] /\ seedHold # {}
         target    == IF adopt THEN CHOOSE r \in seedHold : TRUE ELSE target0
         holders   == holderAt \ {target}
+        \* An identity-bearing write at an address another live record holds: the address follows
+        \* the device observed at it, so the holder releases it (its address is cleared, it stays
+        \* live) and the decision is recorded (DeviceWrites.claim_address_from_holder/4; #4639).
+        \* The code releases only for an observation newer than the holder's last_seen_time; the
+        \* model has no clock, so every observation here is the newer one.
         ipConflict == S # {} /\ holders # {}
-        keepsIp   == ipConflict /\ Bug("stale_holder_keeps_address")
         owner1 == [i \in Ids |->
                      IF owner[i] \in step1Merged THEN target
                      ELSE IF i \in S /\ owner[i] = NoRec THEN target
@@ -240,14 +243,14 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims) ==
             \cup (IF allM \ M # {}
                   THEN {[kind |-> "source_override", recs |-> (allM \ M) \cup {target}]}
                   ELSE {})
-            \cup (IF keepsIp THEN {[kind |-> "ip_conflict", recs |-> {target} \cup holders]} ELSE {})
+            \cup (IF ipConflict THEN {[kind |-> "ip_conflict", recs |-> {target} \cup holders]} ELSE {})
         \* Every decision leaves a persisted identity decision (DecisionLog.record/4, #4613).
         recorded == decisions
         into2   == [r \in Recs |-> IF r \in merged THEN target ELSE into[r]]
         owner2  == [i \in Ids |-> IF owner1[i] \in step2Merged THEN target ELSE owner1[i]]
         recIp2  == [r \in Recs |->
-                      IF r = target THEN (IF keepsIp THEN recIp[r] ELSE p)
-                      ELSE IF r \in holders /\ ~keepsIp THEN NoIp
+                      IF r = target THEN p
+                      ELSE IF r \in holders THEN NoIp
                       ELSE recIp[r]]
     IN
     /\ created' = [r \in Recs |-> created[r] \/ r = target]
