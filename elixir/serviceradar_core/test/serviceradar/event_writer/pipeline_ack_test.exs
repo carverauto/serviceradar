@@ -4,6 +4,8 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
   alias Broadway.Message
   alias ServiceRadar.EventWriter.Config
   alias ServiceRadar.EventWriter.Pipeline
+  alias ServiceRadar.EventWriter.Processors.AdhocScan
+  alias ServiceRadar.EventWriter.Processors.Mtr
 
   setup do
     handler_id = "pipeline-ack-test-#{System.unique_integer([:positive])}"
@@ -182,6 +184,68 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
 
     assert_receive {:telemetry, [:serviceradar, :event_writer, :ack], %{count: 1},
                     %{action: :nack, result: :error, subject_class: "falco"}}
+  end
+
+  # A stream whose subject has no routing rule still gets a consumer, so its
+  # messages arrive, fall through to the Default processor, and are acked and
+  # dropped without an error anywhere. MTR and ad-hoc scan results shipped that
+  # way.
+  test "every default stream's subject reaches the processor its stream declares" do
+    config = %Config{
+      enabled: true,
+      nats: %{},
+      batch_size: 100,
+      batch_timeout: 1_000,
+      consumer_name: "test-consumer",
+      streams: Config.default_streams()
+    }
+
+    batchers = Pipeline.configured_batcher_names(config)
+
+    for stream <- Config.default_streams(), not Config.flow_stream?(stream) do
+      subject = String.replace(stream.subject, [">", "*"], "example")
+
+      message = %Message{
+        data: "",
+        metadata: %{subject: subject},
+        acknowledger: {Pipeline, :ack_ref, %{ack_fun: fn _ -> :ok end}}
+      }
+
+      %Message{batcher: batcher} = Pipeline.handle_message(:default, message, %{})
+
+      assert batcher in batchers, "#{stream.name}: #{subject} routes to undeclared #{batcher}"
+
+      assert Pipeline.processor_for_batcher(batcher) == stream.processor,
+             "#{stream.name}: #{subject} runs #{inspect(Pipeline.processor_for_batcher(batcher))}"
+    end
+  end
+
+  test "routes MTR and ad-hoc scan results to their own batchers" do
+    config = %Config{
+      enabled: true,
+      nats: %{},
+      batch_size: 100,
+      batch_timeout: 1_000,
+      consumer_name: "test-consumer",
+      streams: Config.default_streams()
+    }
+
+    routes = [
+      {"mtr.results.ingest", :mtr_results, Mtr},
+      {"scans.results.run01", :scan_results, AdhocScan}
+    ]
+
+    for {subject, batcher, processor} <- routes do
+      message = %Message{
+        data: "",
+        metadata: %{subject: subject},
+        acknowledger: {Pipeline, :ack_ref, %{ack_fun: fn _ -> :ok end}}
+      }
+
+      assert batcher in Pipeline.configured_batcher_names(config)
+      assert %Message{batcher: ^batcher} = Pipeline.handle_message(:default, message, %{})
+      assert Pipeline.processor_for_batcher(batcher) == processor
+    end
   end
 
   test "routes metrics subjects to the declared metrics batcher" do
