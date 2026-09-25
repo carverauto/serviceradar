@@ -30,8 +30,8 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
   alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.Inventory.Identity.MergeEngine
   alias ServiceRadar.Inventory.Identity.Resolver
-  alias ServiceRadar.Inventory.MergeAudit
   alias ServiceRadar.Inventory.Identity.SourceAuthorityGuard
+  alias ServiceRadar.Inventory.MergeAudit
 
   require Ash.Query
   require Logger
