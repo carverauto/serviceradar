@@ -168,6 +168,78 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeGuardTest do
 
       assert {:ok, %DeviceAliasState{state: :stale}} = Ash.get(DeviceAliasState, alias_state.id)
     end
+
+    # #4610: a device identified by something other than a MAC (here a source-authoritative id,
+    # as an Armis record that reports no MAC) used to count as "not distinct" and was merged into
+    # whichever device later checked in from its old address.
+    test "resolution never merges an identified alias owner that registered no MAC",
+         %{actor: actor} do
+      mac_b = unique_mac()
+      ip = unique_ip()
+
+      {:ok, alias_owner} = create_device(actor, "alias-owner-src")
+      {:ok, updating_device} = create_device(actor, "alias-updater-src")
+
+      {:ok, _} = register_identifier(actor, alias_owner.uid, :armis_device_id, unique("armis"))
+      {:ok, _} = register_identifier(actor, updating_device.uid, :mac, mac_b)
+
+      {:ok, alias_state} = create_confirmed_alias(actor, alias_owner.uid, ip)
+
+      assert {:ok, resolved} =
+               IdentityReconciler.resolve_device_id(
+                 %{device_id: nil, ip: ip, mac: mac_b, partition: "default", metadata: %{}},
+                 actor: actor
+               )
+
+      assert resolved == updating_device.uid
+
+      assert {:ok, %Device{deleted_at: nil}} =
+               Device.get_by_uid(alias_owner.uid, false, actor: actor)
+
+      assert {:ok, []} =
+               MergeAudit
+               |> Ash.Query.filter(from_device_id == ^alias_owner.uid)
+               |> Ash.read(actor: actor)
+
+      assert_received {:telemetry_event,
+                       [:serviceradar, :identity_reconciler, :alias, :invalidated], _,
+                       %{alias_ip: ^ip}}
+
+      assert {:ok, %DeviceAliasState{state: :stale}} = Ash.get(DeviceAliasState, alias_state.id)
+    end
+
+    # An address is evidence, not identity: a holder with no identifiers of its own is left
+    # alone rather than folded into the device that was just resolved.
+    test "resolution leaves an address-only alias owner alone", %{actor: actor} do
+      mac_b = unique_mac()
+      ip = unique_ip()
+
+      {:ok, alias_owner} = create_device(actor, "alias-owner-bare")
+      {:ok, updating_device} = create_device(actor, "alias-updater-bare")
+
+      {:ok, _} = register_identifier(actor, updating_device.uid, :mac, mac_b)
+
+      {:ok, alias_state} = create_confirmed_alias(actor, alias_owner.uid, ip)
+
+      assert {:ok, resolved} =
+               IdentityReconciler.resolve_device_id(
+                 %{device_id: nil, ip: ip, mac: mac_b, partition: "default", metadata: %{}},
+                 actor: actor
+               )
+
+      assert resolved == updating_device.uid
+
+      assert {:ok, %Device{deleted_at: nil}} =
+               Device.get_by_uid(alias_owner.uid, false, actor: actor)
+
+      assert {:ok, []} =
+               MergeAudit
+               |> Ash.Query.filter(from_device_id == ^alias_owner.uid)
+               |> Ash.read(actor: actor)
+
+      assert {:ok, %DeviceAliasState{state: :confirmed}} =
+               Ash.get(DeviceAliasState, alias_state.id)
+    end
   end
 
   describe "agent-link anchor guard (prevent-at-source)" do

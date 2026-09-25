@@ -21,7 +21,6 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
 
   # The defect switches today's code still has (formal/dire/README.md).
   @current_bugs [
-    "alias_merge_on_unknown_mac",
     "mac_only_conflicts_blocked",
     "mapper_resolves_by_address",
     "silent_blocks",
@@ -103,7 +102,8 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
     |> DireTrace.assert_golden!()
   end
 
-  # #4610 on its real path: agent check-in resolves through the Resolver, so AliasGuard runs.
+  # #4610 (fixed) on its real path: agent check-in resolves through the Resolver, so AliasGuard
+  # runs. Expected: no merge; A's alias on p2 is invalidated and A stays its own device.
   # Steps: Armis A (a1, no MAC reported) at p2 three times (alias confirmed); A moves to p1 and
   # is synced there; agent B (g2, m2) checks in at p3, DHCP moves B to p2, and B checks in again.
   test "agent_alias_unknown_mac", %{actor: actor} do

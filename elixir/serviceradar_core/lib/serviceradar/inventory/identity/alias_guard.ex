@@ -15,12 +15,20 @@ defmodule ServiceRadar.Inventory.Identity.AliasGuard do
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.Identity.InterfaceMacs
   alias ServiceRadar.Inventory.Identity.Mac
-  alias ServiceRadar.Inventory.Identity.MergeEngine
   alias ServiceRadar.Inventory.Identity.Resolver
 
   require Ash.Query
   require Logger
 
+  @doc """
+  Handles a confirmed IP alias of the address a resolved device was just seen at. The alias
+  never merges: an address is evidence, not identity, and DHCP hands the same address to other
+  devices.
+
+  When the alias holder owns identifiers of its own, it is a different identified device that
+  once held the address, so the alias is invalidated (marked stale) and the decision is
+  recorded. An address-only holder is left alone.
+  """
   def maybe_merge_ip_alias_device(device_id, ids, actor) do
     ip = Ids.ids_get_string(ids, :ip)
     partition = Ids.ids_get_partition(ids)
@@ -30,25 +38,12 @@ defmodule ServiceRadar.Inventory.Identity.AliasGuard do
          {:ok, alias_device_id} when is_binary(alias_device_id) and alias_device_id != "" <-
            Resolver.lookup_alias_device_id(ip, partition, actor),
          true <- alias_device_id != device_id,
-         false <- Ids.service_device_id?(alias_device_id) do
-      if distinct_strong_identity_conflict?(alias_device_id, device_id, actor) do
-        # A bare IP must never merge two devices that carry distinct strong
-        # identity. Different agents — or different MACs, the network-agnostic
-        # tell that a recycling IP (a churned pod address, a reused DHCP lease)
-        # has rebound to other hardware — mean these are different hosts.
-        # Invalidate the alias so the recycled IP stops feeding merge attempts.
-        invalidate_ip_alias(ip, partition, alias_device_id, device_id, actor)
-      else
-        _ =
-          MergeEngine.merge_devices(alias_device_id, device_id,
-            actor: actor,
-            reason: "ip_alias_conflict",
-            details: %{
-              source: "identity_reconciler",
-              alias_ip: ip
-            }
-          )
-      end
+         false <- Ids.service_device_id?(alias_device_id),
+         true <- identified?(alias_device_id, actor) do
+      # Merging here used to require distinct agents or disjoint MACs to veto it, so a holder
+      # identified by something else (a source-authoritative id with no MAC reported) counted
+      # as "not distinct" and was folded into whichever device leased its old address.
+      invalidate_ip_alias(ip, partition, alias_device_id, device_id, actor)
     end
 
     :ok
