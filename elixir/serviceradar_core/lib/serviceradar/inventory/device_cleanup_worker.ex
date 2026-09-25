@@ -113,6 +113,15 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
       {:error, reason} ->
         Logger.warning("DeviceCleanupWorker: ephemeral expiry skipped", reason: inspect(reason))
     end
+  rescue
+    error ->
+      :telemetry.execute([:serviceradar, :inventory, :ephemeral_expiry, :failed], %{count: 1}, %{
+        error: error.__struct__
+      })
+
+      Logger.error("DeviceCleanupWorker: ephemeral expiry raised",
+        error: Exception.message(error)
+      )
   end
 
   defp check_existing_job do

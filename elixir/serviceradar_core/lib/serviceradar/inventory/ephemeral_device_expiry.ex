@@ -43,6 +43,7 @@ defmodule ServiceRadar.Inventory.EphemeralDeviceExpiry do
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild
   alias ServiceRadar.Observability.SRQLRunner
   alias ServiceRadar.Repo
+  alias ServiceRadar.SRQLQuery
 
   require Ash.Query
   require Logger
@@ -327,7 +328,10 @@ defmodule ServiceRadar.Inventory.EphemeralDeviceExpiry do
   defp excluded_uids(query, opts) when is_binary(query) do
     case String.trim(query) do
       "" -> {:ok, MapSet.new()}
-      query -> collect_excluded(query, Keyword.get(opts, :query_page, &SRQLRunner.query_page/2))
+      query ->
+        query
+        |> SRQLQuery.ensure_target(:devices)
+        |> collect_excluded(Keyword.get(opts, :query_page, &SRQLRunner.query_page/2))
     end
   end
 
