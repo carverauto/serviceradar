@@ -693,9 +693,10 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   # (`lock_and_clear_for_upsert/2`), and ocsf_devices_unique_active_ip_idx
   # never sees both claims.
   #
-  # When the holder's own record in this batch also claims the address, two
-  # observations in one batch contend for it and neither is fresher; the
-  # holder keeps it and the incoming record drops it, as before.
+  # When another record in this batch also claims the address (the holder's
+  # own or a second incoming one), the observations contend for it and neither
+  # is fresher; the incoming record drops it, as before, so the insert never
+  # carries two rows at one address.
   defp claim_address_from_holder(
          record,
          holder_uid,
@@ -705,7 +706,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     ip = Map.get(record, :ip)
 
     if Map.get(record, :observed_address) != true or
-         holder_uid in Map.get(incoming_ip_owners, record_ip_key(record), []) do
+         length(Map.get(incoming_ip_owners, record_ip_key(record), [])) > 1 do
       Logger.info(
         "SyncIngestor: dropping conflicting IP #{ip} from strong-identified " <>
           "device #{record.uid} (held by #{holder_uid})"

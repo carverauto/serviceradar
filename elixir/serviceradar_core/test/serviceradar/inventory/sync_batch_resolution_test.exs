@@ -1381,6 +1381,35 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
       assert holder_row.ip == ip
       refute claimer_row.ip == ip
     end
+
+    test "two new records at a stale holder's IP in one batch both drop it", %{actor: actor} do
+      n = System.unique_integer([:positive])
+      ip = observed_ip(n)
+      holder_id = "#{n}10"
+      first_id = "#{n}11"
+      second_id = "#{n}12"
+
+      assert :ok = SyncIngestor.ingest_updates([armis_ip_update(holder_id, ip)], actor: actor)
+
+      assert :ok =
+               SyncIngestor.ingest_updates(
+                 [armis_ip_update(first_id, ip), armis_ip_update(second_id, ip)],
+                 actor: actor
+               )
+
+      {:ok, holder_row} =
+        Device.get_by_uid(device_for_armis_id(holder_id, actor), false, actor: actor)
+
+      {:ok, first_row} =
+        Device.get_by_uid(device_for_armis_id(first_id, actor), false, actor: actor)
+
+      {:ok, second_row} =
+        Device.get_by_uid(device_for_armis_id(second_id, actor), false, actor: actor)
+
+      assert holder_row.ip == ip
+      refute first_row.ip == ip
+      refute second_row.ip == ip
+    end
   end
 
   defp armis_ip_update(armis_id, ip) do
