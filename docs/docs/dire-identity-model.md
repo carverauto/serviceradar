@@ -66,7 +66,8 @@ in `SourcePolicy.sufficient_to_create?/1`.
 
 Merged-away device IDs are never resurrected: resolution follows the
 `merge_audit` canonical mapping to the survivor (`Identity.Resolver` /
-`Identity.BatchResolver`).
+`Identity.BatchResolver`), including after the tombstone row has been purged,
+unless an unmerge reversed that merge.
 
 ## Merge policy and stability
 
