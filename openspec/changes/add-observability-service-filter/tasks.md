@@ -43,8 +43,11 @@
 - [ ] 4.1 Add the `otel_services` entity (parser alias, schema, model, query
       module): filters `service_name` / `signal` / `time`, sort
       `service_name` / `last_seen`, limit default 50 and maximum 500, and
-      `stats:"count() as total"`. `signals`, `last_seen`, `time:` and the
-      default ordering derive only from the requested signals; other signals'
+      `stats:"count() as total"`. The planner is the single parser of
+      `signal:`: it intersects the values with the trusted permitted-signal
+      parameter, and rejects a repeated or negated `signal:`, an empty
+      intersection and a missing set. `signals`, `last_seen`, `time:` and the
+      default ordering derive only from the resulting signals; other signals'
       per-signal fields are null.
 - [ ] 4.2 Add a `service_name` filter on `otel_trace_summaries`: `@>` for a
       single value, `&&` for a list, `NOT` for negation, and an
@@ -58,17 +61,20 @@
 ## 5. Access control and catalog metadata (web-ng)
 
 - [ ] 5.1 `entity_access.ex`: add an any-of permission mapping for
-      `otel_services` (logs, traces or metrics view) and a query-rewrite step
-      in the shared gate that narrows a signal-less query to the caller's
-      permitted signals, or rejects when none. `authorize/3` returns the
-      rewritten query, and the LiveView, HTTP and MCP callers execute it. A
-      named `signal:` still requires that signal's permission. Land this with
-      or before the SRQL entity (task 4.1).
+      `otel_services` (logs, traces or metrics view). `authorize/3` rejects a
+      caller holding none and returns the permitted signal set with `:ok`. It
+      does not edit the query string. Update every caller (`srql.ex` `query`
+      and `query_arrow`, `api/access.ex`) to pass that set to SRQL as a
+      trusted request parameter. Land this with or before the SRQL entity
+      (task 4.1).
 - [ ] 5.2 `srql/catalog.ex`: add the `otel_services` entity, and add
       `service_name` to the `otel_trace_summaries` fields.
 - [ ] 5.3 Tests for authorized, unauthorized and narrowed queries through all
       three caller paths, including a logs-only caller that must not see trace
-      or metric activity in `signals`, `last_seen` or ordering.
+      or metric activity in `signals`, `last_seen` or ordering. One scenario
+      per form: `signal:(logs,traces)`, a repeated `signal:`, `!signal:logs`,
+      `SIGNAL:traces`, a nil scope with `optional_scope: true`, and a missing
+      permitted set.
 
 ## 6. Service picker UI (web-ng)
 

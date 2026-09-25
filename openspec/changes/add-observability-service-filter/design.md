@@ -132,26 +132,33 @@ up to one job interval of lag. Rejected, except for the one-shot backfill (D6).
 - **Sort:** `service_name` or `last_seen`. The default is `last_seen:desc`.
 - **Limit:** default 50, maximum 500.
 - **Stats:** `stats:"count() as total"`, for the modal's "showing 50 of N".
-- **Access:** gated in `entity_access.ex`, the shared gate used by the
-  LiveView, HTTP and MCP paths. Today `authorize/3` is a pure
+- **Access:** two parts, with the Rust planner as the single enforcement point
+  for `signal:`. Today `EntityAccess.authorize/3` is a pure
   `:ok | {:error, :forbidden}` check that maps an entity to exactly one
-  permission through `permission_for_query/1`. This change extends it with an
-  any-of contract:
-  - `permission_for_entity/1` for `otel_services` maps to the set
-    `observability.logs.view`, `observability.traces.view` and
-    `observability.metrics.view` instead of a single permission.
-  - A query with `signal:` requires the matching permission for every signal
-    named. A named signal the caller cannot view is `{:error, :forbidden}`.
-  - A query without `signal:` requires at least one of the three. The gate then
-    rewrites the query, adding `signal:<held signals>`, so the query the
-    planner sees is already narrowed. When the caller holds none, the query is
-    rejected.
-  - The rewrite runs in the shared gate, not in each caller, so every path
-    that authorizes through `EntityAccess` gets it. `authorize/3` therefore
-    returns the (possibly rewritten) query alongside `:ok`, and callers that
-    execute the query use the returned one.
-  - Any-of semantics apply only to this entity. Every other entity keeps the
-    single-permission behavior.
+  permission through `permission_for_query/1`. It cannot narrow a query, and
+  re-parsing `signal:` in Elixir would give two parsers that can disagree (the
+  SRQL parser lowercases keys, takes the last `in:` token and accepts list and
+  negated forms). So the gate never edits the query string.
+  - **Gate (web-ng, `entity_access.ex`).** `permission_for_entity/1` for
+    `otel_services` maps to the any-of set `observability.logs.view`,
+    `observability.traces.view` and `observability.metrics.view`. The caller
+    must hold at least one, otherwise `{:error, :forbidden}`. The gate computes
+    the caller's permitted signal set (a subset of `logs`, `traces`,
+    `metrics`) and returns it with `:ok`. Other entities keep the
+    single-permission behavior and return no set.
+  - **Trusted parameter.** The `authorize/3` callers (`srql.ex` `query` and
+    `query_arrow`, and `api/access.ex`) pass that set to SRQL as a trusted
+    request parameter, separate from the query string, so a caller cannot set
+    it. This covers the LiveView, HTTP and MCP paths.
+  - **Planner (Rust, `otel_services`).** The planner parses `signal:` itself
+    and intersects the parsed values with the permitted set. A `signal:` naming
+    a signal outside the set, an empty intersection, a repeated `signal:`
+    token, a negated `signal:`, and a missing or nil permitted set are all
+    errors. The planner fails closed. With no `signal:`, the planner uses the
+    permitted set as the requested signals. Case-insensitive keys and list
+    forms resolve the same way because only the planner parses them.
+  - A nil scope with `optional_scope: true` gets no permitted set, so an
+    `otel_services` query from it fails closed in the planner.
 
 ### D5. `service_name:` on trace summaries matches the whole trace
 
@@ -242,7 +249,7 @@ service, not only traces rooted in it.
 
 1. Deploy the migrations (catalog table and indexes, `service_set` GIN index).
 2. Deploy core with the EventWriter upserts. The backfill job enqueues once.
-3. Deploy web-ng with the `EntityAccess` any-of mapping and rewrite for
+3. Deploy web-ng with the `EntityAccess` any-of mapping and permitted-signal parameter for
    `otel_services` (D4), together with the picker, or before the SRQL entity
    ships. `EntityAccess.permission_for_entity/1` treats an unmapped entity as
    authorized, so the SRQL entity MUST NOT be live while web-ng lacks the
