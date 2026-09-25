@@ -106,6 +106,14 @@ for dry-run review, execution gates, and device/source allowlists.
   Retirements are logged with values and counted in telemetry.
 - TTL garbage collection for unseen identifiers (default 90 days;
   `DeviceIdentifierGcWorker`).
+- Ephemeral device expiry (`EphemeralDeviceExpiry`, run by `DeviceCleanupWorker`; off by
+  default, Settings -> Networks -> Inventory Cleanup): a live device holding no strong
+  identifier -- no agent, source-authoritative id, hardware serial or globally-unique MAC --
+  and unseen past the window (default 30 days) is soft-deleted as `stale_ephemeral`.
+  Operator-created devices and devices matching the exclusion SRQL query never expire; a pass
+  that would expire more than `ephemeral_expiry_max_fraction` of live devices is refused
+  unless the override is set. Telemetry: `[:serviceradar, :inventory, :ephemeral_expiry,
+  :run]` and `:refused`. A returning device is restored with a revival audit row.
 - Scheduled duplicate reconciliation (`Identity.DuplicateSweep`) is
   bounded (DB-side duplicate grouping, capped merges per run) and obeys
   the same merge policy as ingest; schedule health is monitored so a

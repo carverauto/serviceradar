@@ -1,6 +1,11 @@
 defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
   @moduledoc """
-  Oban worker that purges soft-deleted devices after a retention period.
+  Oban worker for device lifecycle cleanup. Each run:
+
+    1. expires ephemeral devices -- no strong identifier, unseen past the configured window --
+       by soft-deleting them with `deleted_reason: "stale_ephemeral"`
+       (`ServiceRadar.Inventory.EphemeralDeviceExpiry`);
+    2. purges soft-deleted devices after the retention period.
   """
 
   use Oban.Worker,
@@ -14,6 +19,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceCleanupSettings
+  alias ServiceRadar.Inventory.EphemeralDeviceExpiry
   alias ServiceRadar.Jobs.SelfScheduling
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
@@ -24,6 +30,7 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
   @default_retention_days 30
   @default_cleanup_interval_minutes 1_440
   @default_batch_size 1_000
+  @default_ephemeral_expiry_days 30
 
   @doc """
   Ensure the cleanup job is scheduled based on current settings.
@@ -71,6 +78,8 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
       batch_size = settings.batch_size
       cutoff = DateTime.add(DateTime.utc_now(), -retention_days * 86_400, :second)
 
+      expire_ephemeral_devices(settings, actor)
+
       Logger.info(
         "DeviceCleanupWorker: Starting cleanup - deleted devices older than #{retention_days} days"
       )
@@ -87,6 +96,22 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
       end
 
       :ok
+    end
+  end
+
+  # Runs before the purge; a device expired here is only purged after the retention window,
+  # so it stays restorable until then. A failed expiry pass does not stop the purge.
+  defp expire_ephemeral_devices(settings, actor) do
+    case EphemeralDeviceExpiry.run(Map.from_struct(settings), actor) do
+      {:ok, %{expired: expired, candidates: candidates, excluded: excluded}} ->
+        Logger.info("DeviceCleanupWorker: ephemeral expiry pass complete",
+          expired: expired,
+          candidates: candidates,
+          excluded: excluded
+        )
+
+      {:error, reason} ->
+        Logger.warning("DeviceCleanupWorker: ephemeral expiry skipped", reason: inspect(reason))
     end
   end
 
@@ -134,7 +159,12 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
           retention_days: @default_retention_days,
           cleanup_interval_minutes: @default_cleanup_interval_minutes,
           batch_size: @default_batch_size,
-          enabled: true
+          enabled: true,
+          ephemeral_expiry_enabled: false,
+          ephemeral_expiry_days: @default_ephemeral_expiry_days,
+          ephemeral_expiry_exclusion_query: nil,
+          ephemeral_expiry_max_fraction: 0.5,
+          ephemeral_expiry_guard_override: false
         }
     end
   end

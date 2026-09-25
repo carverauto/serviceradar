@@ -96,7 +96,7 @@ without doing both is a defect.
 | Source-Authoritative Identifiers Govern Identity | `DistinctSourceIdsNeverMerge` (resolution) |
 | One Live Owner Per Strong Identifier | `TypeOK`: `owner` is a function (both) |
 | Interface Identifiers Belong To Their Device | `EvidenceConverges`, `NoFalseInterfaceClaim` (resolution) |
-| Randomized MACs Are Evidence Only | `NoFalseMerge` (resolution, phones environment) |
+| Randomized MACs Are Evidence Only | `NoFalseMerge` (resolution, phones environment); `ExpiryKeepsStrongIdentity` (lifecycle, #4603) |
 | Duplicates Converge And Stay Converged | `EvidenceConverges` (resolution); `NoZombieRevival`, `NoPurgedResurrection`, `MergedRedirectsSomewhere`, `MergeGraphAcyclic`, `NoStaleRedirect`, `UnmergeRestoresExactly` (lifecycle) |
 | Identity Decisions Are Never Silent | `NoSilentDecision` (resolution) |
 | Restore Soft-Deleted Devices (MODIFIED) | `RevivalBumpsRevision`, `NoZombieRevival` (lifecycle) |

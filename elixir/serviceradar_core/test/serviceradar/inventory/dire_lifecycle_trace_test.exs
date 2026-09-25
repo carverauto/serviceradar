@@ -105,4 +105,18 @@ defmodule ServiceRadar.Inventory.DireLifecycleTraceTest do
     |> Trace.by_uid("d1", "p3")
     |> Trace.assert_golden!(demonstrates: "purge_forgets_redirect")
   end
+
+  # #4603: a device the resolver seeded from its address alone holds no strong identifier, so
+  # it expires once unseen past the window (the model's Expire, whose ExpiryKeepsStrongIdentity
+  # property forbids expiring a device that owns an identifier). A sweep that finds it again
+  # restores it through :restore, which bumps its revision. d1 holds a hardware MAC throughout.
+  test "expire_ephemeral", %{actor: actor} do
+    "expire_ephemeral"
+    |> Trace.start(world(["d1", "d2"], %{"i1" => :mac}, ["p1", "p2"]), actor)
+    |> Trace.census("i1", "p1")
+    |> Trace.address_only("p2")
+    |> Trace.expire("d2")
+    |> Trace.sweep("p2")
+    |> Trace.assert_golden!()
+  end
 end

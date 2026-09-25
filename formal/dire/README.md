@@ -22,8 +22,12 @@ Run them all with `bazel test --config=remote //formal/dire/...`; `make test` ru
   Each observation is resolved following `Resolver.do_resolve_device_id/2`, the sync ingestor
   and `Sync.Aliases`. A ghost variable, `phys`, tracks which physical devices built each
   record, so "one record describes two devices" is a checkable invariant.
-- `DireLifecycle.tla` models the merge lifecycle: merge, unmerge, soft delete, the revival
-  paths, purge, and the identity fence.
+- `DireLifecycle.tla` models the merge lifecycle: merge, unmerge, soft delete, ephemeral
+  expiry, the revival paths, purge, and the identity fence. Its identifiers are the strong
+  ones; randomized MACs and addresses are evidence and are not in `Ids`, so `Expire` applies
+  only to a live device owning none (`ExpiryKeepsStrongIdentity`, #4603).
+  `lifecycle_vacuity_expire` expects `NeverExpires` to fail, so that property cannot pass
+  vacuously.
 
 Every action names the Elixir function it models. Each model describes the code as it is.
 Known defects are switches in a `Bugs` constant, and an action takes its defective branch only

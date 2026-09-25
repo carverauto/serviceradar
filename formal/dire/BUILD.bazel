@@ -30,6 +30,19 @@ tlc_test(
 )
 
 tlc_test(
+    name = "lifecycle_vacuity_expire_test",
+    size = "medium",
+    cfg = "lifecycle_vacuity_expire.cfg",
+    expect = "violation:NeverExpires",
+    spec = "MCDireLifecycle.tla",
+    workers = 8,
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+    ],
+)
+
+tlc_test(
     name = "lifecycle_goal_test",
     size = "medium",
     cfg = "lifecycle_goal.cfg",
@@ -432,6 +445,18 @@ tlc_test(
     name = "trace_conflict_unmerge__tamper_work_test",
     cfg = "traces/Trace_conflict_unmerge__tamper_work.cfg",
     spec = "traces/Trace_conflict_unmerge__tamper_work.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_expire_ephemeral_test",
+    cfg = "traces/Trace_expire_ephemeral.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_expire_ephemeral.tla",
     deps = [
         "CurrentBugs.tla",
         "DireLifecycle.tla",
