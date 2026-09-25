@@ -123,7 +123,7 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsDbTest do
     {:ok, empty_dashboard} =
       AuthoredDashboard
       |> Ash.Changeset.for_create(:create, %{
-        dashboard_ref: System.unique_integer([:positive, :monotonic]),
+        dashboard_ref: 1_000_000 + rem(System.unique_integer([:positive, :monotonic]), 9_000_000),
         title: "New devices",
         slug: new_devices_slug,
         visibility: :public,
@@ -160,7 +160,7 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsDbTest do
     {:ok, unrelated} =
       AuthoredDashboard
       |> Ash.Changeset.for_create(:create, %{
-        dashboard_ref: System.unique_integer([:positive, :monotonic]),
+        dashboard_ref: 1_000_000 + rem(System.unique_integer([:positive, :monotonic]), 9_000_000),
         title: "#{marker}-unrelated",
         slug: "#{marker}-unrelated-slug",
         visibility: :private,
