@@ -26,6 +26,7 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
   alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.Inventory.Identity.MergeEngine
   alias ServiceRadar.Inventory.Identity.Resolver
+  alias ServiceRadar.Inventory.MergeAudit
 
   require Ash.Query
   require Logger
@@ -77,8 +78,9 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
 
     candidates = Enum.reverse(candidates_rev)
 
-    # Phase 2: one bulk query finds tombstoned candidates; only those are
-    # canonical-followed (merged-away IDs must not be resurrected).
+    # Phase 2: bulk queries find tombstoned candidates and candidates whose row
+    # is gone but that were merged away; only those are canonical-followed
+    # (merged-away IDs must not be resurrected, purged or not).
     canonical = canonical_mapping(candidates, actor)
 
     # Phase 3: if this batch already owns both sides of a UAA/LAA NIC pair
@@ -121,8 +123,9 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
     end
   end
 
-  # Maps tombstoned candidate IDs to their canonical survivors. Live and
-  # never-seen IDs are absent from the map (callers keep the candidate).
+  # Maps tombstoned or purged-after-merge candidate IDs to their canonical
+  # survivors. Live and never-seen IDs are absent from the map (callers keep
+  # the candidate).
   defp canonical_mapping(candidates, actor) do
     candidate_ids =
       candidates
@@ -130,11 +133,48 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
       |> Enum.filter(&Ids.serviceradar_uuid?/1)
       |> Enum.uniq()
 
-    tombstoned = tombstoned_ids(candidate_ids, actor)
+    followed = tombstoned_ids(candidate_ids, actor) ++ purged_merged_ids(candidate_ids, actor)
 
-    Map.new(tombstoned, fn device_id ->
+    Map.new(followed, fn device_id ->
       {device_id, Resolver.follow_canonical_device_id(device_id, actor)}
     end)
+  end
+
+  # Candidates with no device row at all that a merge_audit row names as merged
+  # away: the tombstone was purged after retention (or the merge predates
+  # tombstoning), and merge_audit outlived it. Resolver.follow_canonical_device_id/2
+  # decides whether the merge still redirects (an unmerge may have reversed it).
+  # Brand-new ids have no merge row, so they cost only the two bulk reads here.
+  @doc false
+  def purged_merged_ids([], _actor), do: []
+
+  def purged_merged_ids(candidate_ids, actor) do
+    query_opts = if actor, do: [actor: actor], else: []
+
+    existing =
+      Device
+      |> Ash.Query.for_read(:read, %{include_deleted: true})
+      |> Ash.Query.filter(uid in ^candidate_ids)
+      |> Ash.Query.select([:uid])
+      |> Page.stream!(query_opts)
+      |> MapSet.new(& &1.uid)
+
+    case Enum.reject(candidate_ids, &MapSet.member?(existing, &1)) do
+      [] ->
+        []
+
+      absent ->
+        MergeAudit
+        |> Ash.Query.filter(from_device_id in ^absent and (is_nil(reason) or reason != "unmerge"))
+        |> Ash.Query.select([:from_device_id])
+        |> Ash.read!(query_opts)
+        |> Enum.map(& &1.from_device_id)
+        |> Enum.uniq()
+    end
+  rescue
+    e ->
+      Logger.warning("BatchResolver: purged-merge check failed: #{inspect(e)}")
+      reraise e, __STACKTRACE__
   end
 
   @doc false

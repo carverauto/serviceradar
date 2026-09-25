@@ -127,6 +127,13 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
   for an unrelated reason still has one; following it would redirect the device
   to its former survivor, and together with any revival path would close a
   redirect cycle. Such a device resolves to itself.
+
+  A merged-away id whose tombstone row is gone -- purged by
+  `DeviceCleanupWorker` after retention, or merged before merges tombstoned
+  instead of deleting -- is still followed: `merge_audit` outlives the row. It is
+  followed through its newest merge row unless an unmerge reversed that merge
+  (an unmerge row naming it in `details.original_merge_event_id`). Otherwise a
+  source still carrying the old id would re-create the merged-away device.
   """
   @spec follow_canonical_device_id(String.t(), term()) :: String.t()
   def follow_canonical_device_id(device_id, actor),
@@ -136,10 +143,8 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
 
   defp do_follow_canonical(device_id, actor, depth) do
     with true <- Ids.serviceradar_uuid?(device_id),
-         {:ok, %Device{deleted_at: %_{}, deleted_reason: "merged"}} <-
-           Device.get_by_uid(device_id, true, actor: actor),
          canonical_id when is_binary(canonical_id) and canonical_id != device_id <-
-           latest_merge_target(device_id, actor) do
+           redirect_target(device_id, actor) do
       do_follow_canonical(canonical_id, actor, depth - 1)
     else
       _ -> device_id
@@ -149,6 +154,67 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
       Logger.warning("Canonical follow failed for #{device_id}: #{inspect(e)}")
       device_id
   end
+
+  # Where a merged-away id redirects, or nil when it does not.
+  defp redirect_target(device_id, actor) do
+    case Device.get_by_uid(device_id, true, actor: actor) do
+      {:ok, %Device{deleted_at: %_{}, deleted_reason: "merged"}} ->
+        latest_merge_target(device_id, actor)
+
+      {:ok, %Device{}} ->
+        nil
+
+      {:ok, nil} ->
+        purged_merge_target(device_id, actor)
+
+      {:error, error} ->
+        if not_found?(error), do: purged_merge_target(device_id, actor)
+    end
+  end
+
+  defp not_found?(%Ash.Error.Query.NotFound{}), do: true
+  defp not_found?(%Ash.Error.Invalid{errors: errors}), do: Enum.any?(errors, &not_found?/1)
+  defp not_found?(_error), do: false
+
+  # No row at all. The newest merge row from the id redirects it, unless an
+  # unmerge reversed that merge: the id was then live again, and whatever
+  # deleted it afterwards was not a merge. Rows with equal created_at (one-second
+  # precision) prefer a merge that was not reversed, since a reversed merge must
+  # precede the merge that followed it.
+  defp purged_merge_target(device_id, actor) do
+    query_opts = if actor, do: [actor: actor], else: []
+
+    with {:ok, [_ | _] = merges} <-
+           MergeAudit
+           |> Ash.Query.filter(
+             from_device_id == ^device_id and (is_nil(reason) or reason != "unmerge")
+           )
+           |> Ash.read(query_opts),
+         {:ok, unmerges} <-
+           MergeAudit
+           |> Ash.Query.filter(to_device_id == ^device_id and reason == "unmerge")
+           |> Ash.read(query_opts) do
+      reversed = MapSet.new(unmerges, &reversed_merge_event_id/1)
+
+      newest =
+        Enum.max_by(merges, fn merge ->
+          {created_unix(merge.created_at), not MapSet.member?(reversed, merge.event_id)}
+        end)
+
+      if MapSet.member?(reversed, newest.event_id), do: nil, else: newest.to_device_id
+    else
+      _ -> nil
+    end
+  end
+
+  # A row without created_at sorts oldest.
+  defp created_unix(%DateTime{} = created_at), do: DateTime.to_unix(created_at)
+  defp created_unix(_created_at), do: 0
+
+  defp reversed_merge_event_id(%MergeAudit{details: details}) when is_map(details),
+    do: details["original_merge_event_id"] || details[:original_merge_event_id]
+
+  defp reversed_merge_event_id(_unmerge), do: nil
 
   defp latest_merge_target(device_id, actor) do
     query_opts = if actor, do: [actor: actor], else: []

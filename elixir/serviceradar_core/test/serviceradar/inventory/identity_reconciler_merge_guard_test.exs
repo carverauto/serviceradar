@@ -16,9 +16,11 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeGuardTest do
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceCleanupWorker
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.MergeAudit
+  alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.TestSupport
 
   require Ash.Query
@@ -474,6 +476,82 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeGuardTest do
                device_from.uid
     end
 
+    test "a merged-away id whose tombstone was purged still resolves to its survivor",
+         %{actor: actor} do
+      {:ok, device_from} = create_device(actor, "purged-follow-from")
+      {:ok, device_to} = create_device(actor, "purged-follow-to")
+
+      assert :ok =
+               IdentityReconciler.merge_devices(device_from.uid, device_to.uid,
+                 actor: actor,
+                 reason: "manual_merge"
+               )
+
+      purge!(device_from.uid)
+
+      assert IdentityReconciler.follow_canonical_device_id(device_from.uid, actor) ==
+               device_to.uid
+
+      # A source still carrying the purged id lands on the survivor instead of
+      # re-creating the merged-away device.
+      assert {:ok, resolved} =
+               IdentityReconciler.resolve_device_id(
+                 %{
+                   device_id: device_from.uid,
+                   ip: nil,
+                   mac: nil,
+                   partition: "default",
+                   metadata: %{}
+                 },
+                 actor: actor
+               )
+
+      assert resolved == device_to.uid
+
+      # The batch ingest path (BatchResolver) follows it too: the write lands on
+      # the survivor and no row with the purged id is created.
+      assert :ok =
+               SyncIngestor.ingest_updates(
+                 [
+                   %{
+                     "device_id" => device_from.uid,
+                     "ip" => "198.51.100.#{rem(System.unique_integer([:positive]), 250) + 1}",
+                     "hostname" => device_to.hostname,
+                     "source" => "netbox",
+                     "metadata" => %{}
+                   }
+                 ],
+                 actor: actor
+               )
+
+      refute match?({:ok, %Device{}}, Device.get_by_uid(device_from.uid, true, actor: actor))
+
+      assert {:ok, %Device{deleted_at: nil}} =
+               Device.get_by_uid(device_to.uid, false, actor: actor)
+    end
+
+    test "a purged id whose merge was undone resolves to itself", %{actor: actor} do
+      {:ok, device_from} = create_device(actor, "purged-unmerged-from")
+      {:ok, device_to} = create_device(actor, "purged-unmerged-to")
+
+      assert :ok =
+               IdentityReconciler.merge_devices(device_from.uid, device_to.uid,
+                 actor: actor,
+                 reason: "manual_merge"
+               )
+
+      assert :ok = IdentityReconciler.unmerge_device(device_from.uid, actor: actor)
+      assert {:ok, restored} = Device.get_by_uid(device_from.uid, false, actor: actor)
+
+      assert {:ok, _deleted} =
+               Device.soft_delete(restored, "admin_delete", "test", actor: actor)
+
+      purge!(device_from.uid)
+
+      assert IdentityReconciler.follow_canonical_device_id(device_from.uid, actor) ==
+               device_from.uid
+    end
+
     test "legacy null-reason merge audits remain canonical redirects", %{actor: actor} do
       {:ok, merged} = create_device(actor, "legacy-null-merge")
       {:ok, survivor} = create_device(actor, "legacy-null-survivor")
@@ -552,6 +630,13 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeGuardTest do
       assert {:ok, resolved} = IdentityReconciler.lookup_by_strong_identifiers(ids, actor)
       assert resolved == device.uid
     end
+  end
+
+  # DeviceCleanupWorker's retention purge of one tombstone: the row and its
+  # identifiers go, merge_audit stays.
+  defp purge!(uid) do
+    assert {_stats, 1} =
+             DeviceCleanupWorker.hard_delete_records(%{deleted: 0, errors: 0}, [%{uid: uid}])
   end
 
   defp create_device(actor, hostname) do
