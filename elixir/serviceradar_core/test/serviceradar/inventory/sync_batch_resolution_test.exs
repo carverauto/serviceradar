@@ -1138,6 +1138,53 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
       assert override_conflicts(discovered, actor) == []
     end
 
+    test "two Armis ids sharing a MAC in one batch never land on one record", %{actor: actor} do
+      n = System.unique_integer([:positive])
+      mac = "00:00:5E:00:53:#{hex2(rem(n, 200) + 16)}"
+      armis_a = "#{n}04"
+      armis_b = "#{n}05"
+
+      census = %{
+        "ip" => doc_ip(n, 4),
+        "mac" => mac,
+        "source" => "netprobe-census",
+        "partition" => "default",
+        "agent_id" => "batch-resolution-observer",
+        "metadata" => %{
+          "mac" => mac,
+          "source" => "netprobe-census",
+          "discovery_source" => "netprobe-census",
+          "identity_source" => "netprobe_census",
+          "agent_id" => "batch-resolution-observer"
+        }
+      }
+
+      assert :ok = SyncIngestor.ingest_updates([census], actor: actor)
+      discovered = device_for_mac(mac_value(mac), actor)
+      assert is_binary(discovered)
+
+      assert :ok =
+               SyncIngestor.ingest_updates(
+                 [
+                   armis_update(armis_a, doc_ip(n, 4), mac),
+                   armis_update(armis_b, doc_ip(n, 5), mac)
+                 ],
+                 actor: actor
+               )
+
+      device_a = device_for_armis_id(armis_a, actor)
+      device_b = device_for_armis_id(armis_b, actor)
+
+      assert device_a == discovered
+      assert is_binary(device_b)
+      assert device_b != device_a
+      assert device_for_mac(mac_value(mac), actor) == discovered
+
+      assert [conflict] = override_conflicts(device_b, actor)
+      assert conflict.source_identifier_value == armis_b
+      assert conflict.conflicting_identifiers["overridden_device_uids"] == [discovered]
+    end
+
     test "the batch path does not merge a discovered record with an Armis record on a sibling MAC",
          %{actor: actor} do
       %{discovered: discovered, armis_holder: holder, mac: mac, incoming: incoming} =

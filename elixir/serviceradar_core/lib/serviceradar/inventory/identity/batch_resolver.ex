@@ -69,21 +69,27 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
       source_ids: preload_source_ids(updates_with_ids, lookups, actor)
     }
 
-    # Phase 1: candidate decision per update (no per-update queries).
-    {candidates_rev, _ip_map} =
-      Enum.reduce(updates_with_ids, {[], lookups.ip}, fn {update, ids}, {acc, ip_map} ->
-        device_id = resolve_one(update, ids, ip_map, preloads)
+    # Phase 1: candidate decision per update (no per-update queries). Each
+    # resolved update claims its source-authoritative identifier on the device
+    # it resolved to, so a later update in the batch carrying a different one
+    # is refused that device exactly as if the database already held the claim.
+    {candidates_rev, _ip_map, source_ids} =
+      Enum.reduce(updates_with_ids, {[], lookups.ip, preloads.source_ids}, fn
+        {update, ids}, {acc, ip_map, claimed} ->
+          device_id = resolve_one(update, ids, ip_map, %{preloads | source_ids: claimed})
 
-        # Later weak updates in the same batch may adopt this device by IP;
-        # strong-identified updates never consult the IP map.
-        ip_map =
-          case ids.ip do
-            ip when is_binary(ip) and ip != "" -> Map.put(ip_map, ip, device_id)
-            _ -> ip_map
-          end
+          # Later weak updates in the same batch may adopt this device by IP;
+          # strong-identified updates never consult the IP map.
+          ip_map =
+            case ids.ip do
+              ip when is_binary(ip) and ip != "" -> Map.put(ip_map, ip, device_id)
+              _ -> ip_map
+            end
 
-        {[{update, ids, device_id} | acc], ip_map}
+          {[{update, ids, device_id} | acc], ip_map, claim_source_id(claimed, ids, device_id)}
       end)
+
+    preloads = %{preloads | source_ids: source_ids}
 
     candidates = Enum.reverse(candidates_rev)
 
@@ -124,6 +130,21 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
     _ = SourceAuthorityGuard.record_overrides(Enum.reverse(overrides_rev))
 
     {Enum.reverse(resolved_rev), strong}
+  end
+
+  defp claim_source_id(source_ids, ids, device_id) do
+    case Ids.ids_get(ids, :armis_id) do
+      value when is_binary(value) and value != "" ->
+        Map.update(
+          source_ids,
+          device_id,
+          MapSet.new([{Ids.ids_get_partition(ids), value}]),
+          &MapSet.put(&1, {Ids.ids_get_partition(ids), value})
+        )
+
+      _ ->
+        source_ids
+    end
   end
 
   defp resolve_one(update, ids, ip_map, preloads) do
