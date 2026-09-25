@@ -7,6 +7,19 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.WindowTest do
 
   @moduletag :db_free
 
+  test "a deployment without the flows backend returns an unconfigured map instead of a failed window" do
+    window = Window.resolve("last_1h", "netflow", ~U[2032-04-02 12:00:00Z])
+
+    slice = Data.load_netflow_map(nil, window: window, srql_module: nil)
+
+    assert slice.netflow_state == :unconfigured
+    assert slice.netflow_window == "last_1h"
+    assert slice.traffic_links == []
+    assert slice.flow_summary.flow_count == 0
+    sources = Map.put(slice, :loaded, %{netflow: true})
+    assert Data.derive(sources).module_states.netflow == :unconfigured
+  end
+
   defmodule MapQueryStub do
     @moduledoc false
     def query(query, %{scope: scope}) do

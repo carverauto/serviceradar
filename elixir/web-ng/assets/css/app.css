@@ -2685,7 +2685,8 @@ table:has(.sr-ui-dropdown) td:has(.sr-ui-dropdown) {
   min-height: 14rem;
 }
 
-.sr-ops-grid-primary > .sr-ops-map-panel > .sr-ops-map-stats {
+.sr-ops-grid-primary > .sr-ops-map-panel > .sr-ops-map-stats,
+.sr-ops-grid-primary > .sr-ops-map-panel > .sr-ops-map-notice {
   flex: 0 0 auto;
 }
 

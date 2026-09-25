@@ -649,7 +649,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     end)
   end
 
-  defp entity_from_query(query) when is_binary(query) do
+  def entity_from_query(query) when is_binary(query) do
     Enum.find_value(tokenize_query(query), fn
       "in:" <> entity when entity != "" -> entity
       _ -> nil
