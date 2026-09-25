@@ -51,41 +51,44 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Northbound do
   end
 
   def handle_event("launch_northbound_action", %{"action" => params}, socket) do
-    with_current_launch_permission(socket, fn socket ->
-      with {:ok, action} <-
-             selected_northbound_action(params, socket.assigns.northbound_device_actions),
-           {:ok, input_values} <- build_input_values(socket, action, params),
-           {:ok, uids} <- selected_device_action_uids(socket) do
-        on_error = Helpers.on_error_mode(Helpers.stop_on_error?(params["stop_on_error"]))
+    with_current_launch_permission(socket, &launch_for_selection(&1, params))
+  end
 
-        case dispatch_northbound_batches(socket, action, uids, input_values, on_error) do
-          {:ok, %{failed: 0} = summary} ->
-            {:noreply,
-             socket
-             |> close_northbound_action_modal()
-             |> assign(:selected_devices, MapSet.new())
-             |> assign(:select_all_matching, false)
-             |> assign(:total_matching_count, nil)
-             |> put_flash(:info, northbound_success_message(summary))}
+  @doc false
+  def launch_for_selection(socket, params) do
+    with {:ok, action} <-
+           selected_northbound_action(params, socket.assigns.northbound_device_actions),
+         {:ok, input_values} <- build_input_values(socket, action, params),
+         {:ok, uids} <- selected_device_action_uids(socket) do
+      on_error = Helpers.on_error_mode(Helpers.stop_on_error?(params["stop_on_error"]))
 
-          {_status, summary} = other ->
-            {:noreply,
-             socket
-             |> drop_launched_from_selection(uids, summary)
-             |> assign(:northbound_action_form, to_form(params, as: :action))
-             |> assign(:northbound_action_error, Helpers.batch_failure_message(other))}
-        end
-      else
-        {:error, reason} ->
+      case dispatch_northbound_batches(socket, action, uids, input_values, on_error) do
+        {:ok, %{failed: 0} = summary} ->
           {:noreply,
            socket
+           |> close_northbound_action_modal()
+           |> assign(:selected_devices, MapSet.new())
+           |> assign(:select_all_matching, false)
+           |> assign(:total_matching_count, nil)
+           |> put_flash(:info, northbound_success_message(summary))}
+
+        {_status, summary} = other ->
+          {:noreply,
+           socket
+           |> drop_launched_from_selection(uids, summary)
            |> assign(:northbound_action_form, to_form(params, as: :action))
-           |> assign(
-             :northbound_action_error,
-             NorthboundActionForm.format_launch_error(reason, "device")
-           )}
+           |> assign(:northbound_action_error, Helpers.batch_failure_message(other))}
       end
-    end)
+    else
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> assign(:northbound_action_form, to_form(params, as: :action))
+         |> assign(
+           :northbound_action_error,
+           NorthboundActionForm.format_launch_error(reason, "device")
+         )}
+    end
   end
 
   def maybe_load_northbound_device_actions(socket) do

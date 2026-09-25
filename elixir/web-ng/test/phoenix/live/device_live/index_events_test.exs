@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEventsTest do
   alias Phoenix.LiveView.Socket
   alias ServiceRadarWebNGWeb.DeviceLive.IndexEvents
   alias ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Helpers
+  alias ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Northbound
   alias ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Selection
   alias ServiceRadarWebNGWeb.SRQL.Builder
   alias ServiceRadarWebNGWeb.SRQL.Page
@@ -175,6 +176,52 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEventsTest do
              ":selection_page_did_not_advance"
   end
 
+  test "a partial northbound launch leaves only the devices that did not launch selected" do
+    failed_uids = Enum.map(201..400, &"uid-#{&1}")
+
+    with_matching_uids(:many, fn ->
+      with_northbound_invocation_stub(fn ->
+        Application.put_env(:serviceradar_web_ng, :northbound_stub_fail_from, "uid-201")
+
+        socket =
+          selection_socket(%{
+            srql: %{query: "in:devices"},
+            select_all_matching: true,
+            total_matching_count: 401,
+            northbound_device_actions: [northbound_action()],
+            northbound_action_form: nil,
+            northbound_action_error: nil,
+            show_northbound_action_modal: true,
+            flash: %{}
+          })
+
+        params = %{"action_id" => "act-1", "stop_on_error" => "false"}
+
+        assert {:noreply, socket} = Northbound.launch_for_selection(socket, params)
+
+        assert dispatched_batches() == [
+                 Enum.map(1..200, &"uid-#{&1}"),
+                 failed_uids,
+                 ["uid-401"]
+               ]
+
+        assert socket.assigns.selected_devices == MapSet.new(failed_uids)
+        refute socket.assigns.select_all_matching
+        assert socket.assigns.northbound_action_error =~ "Updated 201 of 401 device(s). 200 failed"
+
+        Application.delete_env(:serviceradar_web_ng, :northbound_stub_fail_from)
+
+        assert {:noreply, socket} = Northbound.launch_for_selection(socket, params)
+
+        assert [relaunched] = dispatched_batches()
+        assert MapSet.new(relaunched) == MapSet.new(failed_uids)
+        assert length(relaunched) == 200
+        assert socket.assigns.selected_devices == MapSet.new()
+        refute socket.assigns.show_northbound_action_modal
+      end)
+    end)
+  end
+
   test "scope-aware validation accepts any known selection size" do
     assert :ok =
              Selection.validate_device_selection_for_scope(
@@ -239,6 +286,55 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEventsTest do
     end
   end
 
+  defp northbound_action do
+    %{id: "act-1", descriptor_id: "descriptor-1", input_schema: %{}}
+  end
+
+  defp with_northbound_invocation_stub(fun) do
+    keys = [:northbound_invocation_service_module, :northbound_stub_test_pid, :northbound_stub_fail_from]
+    previous = Map.new(keys, &{&1, Application.fetch_env(:serviceradar_web_ng, &1)})
+
+    Application.put_env(
+      :serviceradar_web_ng,
+      :northbound_invocation_service_module,
+      __MODULE__.NorthboundInvocationStub
+    )
+
+    Application.put_env(:serviceradar_web_ng, :northbound_stub_test_pid, self())
+
+    try do
+      fun.()
+    after
+      Enum.each(previous, fn
+        {key, {:ok, value}} -> Application.put_env(:serviceradar_web_ng, key, value)
+        {key, :error} -> Application.delete_env(:serviceradar_web_ng, key)
+      end)
+    end
+  end
+
+  defp dispatched_batches(acc \\ []) do
+    receive do
+      {:northbound_dispatch, uids} -> dispatched_batches([uids | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
+  defmodule NorthboundInvocationStub do
+    @moduledoc false
+
+    def create_and_dispatch(%{targets: targets}, _opts) do
+      uids = Enum.map(targets, & &1.device_uid)
+      send(Application.fetch_env!(:serviceradar_web_ng, :northbound_stub_test_pid), {:northbound_dispatch, uids})
+
+      if List.first(uids) == Application.get_env(:serviceradar_web_ng, :northbound_stub_fail_from) do
+        {:error, "dispatch unavailable"}
+      else
+        {:ok, %{id: "invocation-#{List.first(uids)}"}}
+      end
+    end
+  end
+
   defmodule MatchingUIDStub do
     @moduledoc false
 
@@ -262,6 +358,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEventsTest do
               rows = for n <- 1..10_000, do: %{"uid" => "uid-#{n}"}
               {:ok, %{"results" => rows, "pagination" => %{"next_cursor" => "p2"}}}
           end
+
+        :many ->
+          rows = for n <- 1..401, do: %{"uid" => "uid-#{n}"}
+          {:ok, %{"results" => rows, "pagination" => %{}}}
 
         :stuck_full_page ->
           rows = for n <- 1..1_000, do: %{"uid" => "uid-#{n}"}
