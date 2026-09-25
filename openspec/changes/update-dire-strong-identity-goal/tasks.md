@@ -46,7 +46,7 @@ configuration. Confirmed defects (`formal/dire/README.md` has code paths and wit
 - [ ] 3.10 `fence_observe_only`: enforce the fence (`add-device-identity-fence` task 4.5).
 - [x] 3.11 `unmerge_restores_matches`: record the source's identifiers at merge time and restore
       exactly those.
-- [ ] 3.12 `purge_forgets_redirect`: resolve purged merged-away uids through `merge_audit`.
+- [x] 3.12 `purge_forgets_redirect`: resolve purged merged-away uids through `merge_audit`.
 - [ ] 3.13 `mapper_resolves_by_address` (found by trace validation): the mapper attaches a polled
       device's interface table to whichever record holds the address, or a stale alias of it;
       after DHCP churn the new device's MACs land on the old device's record and the new device

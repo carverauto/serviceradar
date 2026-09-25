@@ -63,9 +63,15 @@ either way; the property guards against any change that lets address evidence me
 | `stale_holder_keeps_address` | resolution | `inventory/sync/device_writes.ex` `resolve_record_active_ip/7` (a fresh strong claim drops the address) | `ObservedAddressHeld` |
 | `silent_blocks` | resolution | MergePolicy and AliasGuard telemetry-only decisions | `NoSilentDecision` |
 | `fence_observe_only` | lifecycle | `inventory/identity/fence.ex` (no enforcing caller) | `NoStaleCommit` |
-| `purge_forgets_redirect` | lifecycle | `inventory/identity/resolver.ex` `do_follow_canonical/3` | `NoPurgedResurrection` |
 
 Code paths are relative to `elixir/serviceradar_core/lib/serviceradar/`.
+
+One lifecycle witness covers a property a fixed switch left to another:
+
+- `purge_zombie` (`fence_observe_only`, property `NoPurgedResurrection`): the resolver follows a
+  purged merged-away uid (#4620), so only a write pinned before the merge and the purge can
+  re-create it. `NoPurgedResurrection` holds under every other current switch and joins
+  `lifecycle_current` when the fence is enforced (#4618), which deletes this witness.
 
 ## Fixed defects
 
@@ -78,6 +84,7 @@ Code paths are relative to `elixir/serviceradar_core/lib/serviceradar/`.
 | `sweep_restores_merged` | #4617 (`SweepResultsIngestor.eligible_restore_uids/1` never restores a `deleted_reason = "merged"` tombstone, and logs and counts each skip) | `NoZombieRevival` in `lifecycle_current` (with #4614 and #4615) |
 | `follow_stale_audit` | #4616 (`Resolver.do_follow_canonical/3` follows only a `deleted_reason = "merged"` tombstone) | `NoStaleRedirect`, `MergeGraphAcyclic` in `lifecycle_current`; the `merge_cycle` witness needed this switch and went with it |
 | `unmerge_restores_matches` | #4619 (every merge records the source's own identifiers in `merge_audit.details.source_identifiers`; `MergeEngine.reassign_original_identifiers/4` restores exactly those the survivor still holds) | `UnmergeRestoresExactly` in `lifecycle_current` |
+| `purge_forgets_redirect` | #4620 (`Resolver.do_follow_canonical/3` and `BatchResolver` follow a purged merged-away uid through its newest merge row unless an unmerge reversed it) | `lifecycle_goal`; `NoPurgedResurrection` joins `lifecycle_current` with #4618, the `purge_zombie` witness shows why |
 
 ## Resolution environments
 
@@ -130,14 +137,9 @@ are ghosts the harness supplies: which identifiers a merged-away device owned wh
 ran (`srcIds`), and the insertion order of `merge_audit` rows, whose `created_at` has
 one-second precision. `DireLifecycleTrace.tla` checks them the same way.
 
-Each lifecycle trace is also rejected by the model with the defect switch it demonstrates
-turned off, so each one proves its defect on the real code:
-
-| Trace | Switch | Issue |
-| --- | --- | --- |
-| `purge_recreate` | `purge_forgets_redirect` | #4620 |
-
-A trace whose defect is fixed stays as a regression trace, with no knockout:
+A lifecycle trace whose defect is still present is also rejected by the model with that
+defect switch turned off (a knockout), which proves the defect on the real code. None is left:
+every recorded trace is a regression trace of a fixed defect.
 
 - `stale_redirect` (#4616) records the fixed resolver keeping a device deleted after an unmerge
   on its own uid.
@@ -153,6 +155,8 @@ A trace whose defect is fixed stays as a regression trace, with no knockout:
   it deleted. A sweep that restores nothing changes no modeled state and the model has no step
   for it, so the harness checks that nothing it reads changed and logs no step; the trace ends
   at the merge.
+- `purge_recreate` (#4620) records a source carrying a purged merged-away uid landing on the
+  survivor.
 
 The integration test compares every freshly recorded trace with the committed file. When the
 code's behavior changes, that comparison fails. Regenerate on a scratch database with

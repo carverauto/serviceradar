@@ -96,7 +96,8 @@ defmodule ServiceRadar.Inventory.DireLifecycleTraceTest do
     |> Trace.assert_golden!()
   end
 
-  # #4620: once a merged-away device is purged, a source still carrying its uid re-creates it.
+  # #4620 (fixed): once a merged-away device is purged, a source still carrying its uid lands on
+  # the survivor instead of re-creating it. Kept as a regression trace.
   test "purge_recreate", %{actor: actor} do
     "purge_recreate"
     |> Trace.start(world(["d1", "d2"], %{"i1" => :mac, "i2" => :mac}, ["p1", "p2", "p3"]), actor)
@@ -105,7 +106,7 @@ defmodule ServiceRadar.Inventory.DireLifecycleTraceTest do
     |> Trace.merge("d1", "d2", :auto)
     |> Trace.purge("d1")
     |> Trace.by_uid("d1", "p3")
-    |> Trace.assert_golden!(demonstrates: "purge_forgets_redirect")
+    |> Trace.assert_golden!()
   end
 
   # #4603: a device the resolver seeded from its address alone holds no strong identifier, so

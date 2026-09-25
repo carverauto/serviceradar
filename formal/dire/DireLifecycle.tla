@@ -29,8 +29,7 @@ CONSTANTS
     FollowDepth   \* Resolver @max_canonical_follow_depth
 
 KnownBugs == {
-    "fence_observe_only",        \* inventory/identity/fence.ex pin/2 has no production caller
-    "purge_forgets_redirect"     \* inventory/identity/resolver.ex do_follow_canonical/3, purged uid
+    "fence_observe_only"         \* inventory/identity/fence.ex pin/2 has no production caller
 }
 
 ASSUME Bugs \subseteq KnownBugs
@@ -102,12 +101,13 @@ LatestMergeTarget(u) == IF LatestMergeRow(u) = 0 THEN NoDev ELSE audit[LatestMer
 
 \* Resolver.do_follow_canonical/3 follows u when Device.get_by_uid(u, true) returns a
 \* tombstone whose deleted_reason is "merged" and a merge row names a target. A purged
-\* uid has no row, so it is never followed.
+\* uid has no row; it is followed when its newest merge row was not reversed by an unmerge
+\* (details.original_merge_event_id), which is what reason[u] = "merged" records here.
 FollowsFrom(u) ==
     /\ LatestMergeTarget(u) # NoDev
     /\ LatestMergeTarget(u) # u
     /\ \/ status[u] = "tomb" /\ reason[u] = "merged"
-       \/ status[u] = "purged" /\ reason[u] = "merged" /\ ~Bug("purge_forgets_redirect")
+       \/ status[u] = "purged" /\ reason[u] = "merged"
 
 RECURSIVE FollowN(_, _)
 FollowN(u, n) == IF n = 0 \/ ~FollowsFrom(u) THEN u ELSE FollowN(LatestMergeTarget(u), n - 1)
@@ -273,7 +273,8 @@ GatewaySync(u) ==
     /\ UNCHANGED <<owner, ipOf, audit>>
 
 \* DeviceCleanupWorker.hard_delete_records/2: the row and its device_identifiers go;
-\* merge_audit rows stay. reason is kept only so the intended redirect can be modeled.
+\* merge_audit rows stay. reason is kept: after a purge it stands for what merge_audit
+\* still says, whether the uid's newest merge row is an unreversed merge.
 Purge(u) ==
     /\ status[u] = "tomb"
     /\ status' = [status EXCEPT ![u] = "purged"]

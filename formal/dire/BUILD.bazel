@@ -66,8 +66,8 @@ tlc_test(
 )
 
 tlc_test(
-    name = "lifecycle_witness_purge_forgets_redirect_test",
-    cfg = "lifecycle_witness_purge_forgets_redirect.cfg",
+    name = "lifecycle_witness_purge_zombie_test",
+    cfg = "lifecycle_witness_purge_zombie.cfg",
     expect = "violation:NoPurgedResurrection",
     spec = "MCDireLifecycle.tla",
     deps = [
@@ -542,20 +542,6 @@ tlc_test(
     cfg = "traces/Trace_sweep_restores_merged.cfg",
     expect = "violation:TraceIncomplete",
     spec = "traces/Trace_sweep_restores_merged.tla",
-    deps = [
-        "CurrentBugs.tla",
-        "DireLifecycle.tla",
-        "DireLifecycleTrace.tla",
-    ],
-)
-
-# ---- Knockouts: each lifecycle trace with the defect switch it demonstrates turned off ----
-# TLC must NOT match the trace, which proves the real code exhibits that defect.
-
-tlc_test(
-    name = "trace_purge_recreate__knockout_test",
-    cfg = "traces/Trace_purge_recreate__knockout.cfg",
-    spec = "traces/Trace_purge_recreate.tla",
     deps = [
         "CurrentBugs.tla",
         "DireLifecycle.tla",

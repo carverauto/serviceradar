@@ -22,8 +22,7 @@ ResolutionBugs == {
 }
 
 LifecycleBugs == {
-    "fence_observe_only",
-    "purge_forgets_redirect"
+    "fence_observe_only"
 }
 
 =============================================================================
