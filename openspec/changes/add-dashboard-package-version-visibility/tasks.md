@@ -32,7 +32,7 @@
 - [ ] 5.1 `mix compile --warnings-as-errors` clean; `scripts/elixir_quality.sh --project elixir/web-ng --phoenix --lint-only` exits 0 (this is the real CI gate — format AND Credo).
 - [ ] 5.2 `js/cli` `npm run ci` exits 0.
 - [ ] 5.3 If any new `DateTime.to_iso8601` call site appears, register it in `test/fixtures/timestamp_formatter_inventory.json`; get fingerprints from the inventory test's own discovery, not by hand.
-- [ ] 5.4 Exercise against the live instance: confirm `GET /api/v1/dashboard-packages` reports `com.ual.rids` at the version actually deployed, which is the case that could not be answered at all before.
+- [ ] 5.4 Exercise against the live instance: confirm `GET /api/v1/dashboard-packages` reports the deployed dashboard package at the version actually installed, which is the case that could not be answered at all before.
 
 ## 6. Hand-off
 - [ ] 6.1 Record that no version history is available — the resource holds the current row per package, so the API reports now, not a timeline.

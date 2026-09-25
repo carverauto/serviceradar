@@ -21,13 +21,13 @@ instance is running the version they think it is; and an author cannot check
 whether their bump actually deployed without republishing and reading the
 publish response.
 
-This was hit directly. After publishing `com.ual.rids@0.1.3`, every attempt to
+This was hit directly. After publishing a dashboard package, every attempt to
 read back what was installed returned 404 — `/api/v1/dashboard-packages`,
-`/api/v1/dashboard-packages/com.ual.rids`, `/api/v1/dashboards`, and the same
-paths under `/api` — so the only way to learn the deployed version was to unpack
-the local build artifact and compare its digest to what the publish command had
-printed. Worse, the absence made a real publish risk unverifiable: the CLI docs
-warn that republishing an existing version with different bytes returns
+`/api/v1/dashboard-packages/com.example.status`, `/api/v1/dashboards`, and the
+same paths under `/api` — so the only way to learn the deployed version was to
+unpack the local build artifact and compare its digest to what the publish command
+had printed. Worse, the absence made a real publish risk unverifiable: the CLI
+docs warn that republishing an existing version with different bytes returns
 `version_already_published`, and there was no way to check which versions were
 already taken before spending one.
 
@@ -47,7 +47,7 @@ them is missing.
   manifest id, name, version, vendor, `content_hash`, published/updated
   timestamps, and the route and enabled state of its instance where one exists.
 - **`GET /api/v1/dashboard-packages/:id`** — one package, addressable by the
-  identifier an author actually knows: the **manifest id** (`com.ual.rids`) via
+  identifier an author actually knows: the **manifest id** (`com.example.status`) via
   the existing `:by_dashboard_id` read action, falling back to the instance's
   internal id so the identifier the publish response returns also resolves. The
   absence of manifest-id addressing is what made every probe fail.
