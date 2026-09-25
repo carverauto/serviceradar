@@ -5,9 +5,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Retention do
 
   The telemetry tables are partitioned by day, so retention is enforced by
   StarRocks itself: keeping the most recent N daily partitions drops anything
-  older without a delete job. Retention is per dataset -- flows and metrics
-  default to 90 days, logs and event history to the hosted one year, MTR to 30
-  days -- and each is configurable through
+  older without a delete job. Retention is per dataset, every one defaulting to
+  one year (`Env.default_retention_days/0`), and each is configurable through
   `SERVICERADAR_STARROCKS_RETENTION_DAYS_<DATASET>` (Helm
   `analytics.starrocks.retentionDays.<dataset>`, Compose
   `STARROCKS_RETENTION_DAYS_<DATASET>`). MTR is one dataset over two tables,
