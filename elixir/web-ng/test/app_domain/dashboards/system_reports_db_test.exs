@@ -75,6 +75,7 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsDbTest do
       |> Ash.read_one(actor: actor)
 
     saved = Enum.find(after_reseed.panels, &(&1.id == panel.id))
+    assert saved, "reseed deleted the panel entirely"
     assert saved.srql_query == edited_query, "reseed must not overwrite an operator-edited panel query"
   end
 
