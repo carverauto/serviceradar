@@ -19,15 +19,6 @@ defmodule ServiceRadar.Inventory.DireLifecycleTraceTest do
 
   @moduletag :integration
 
-  # The lifecycle defect switches today's code still has (formal/dire/README.md).
-  @current_bugs [
-    "fence_observe_only",
-    "gateway_sync_no_bump",
-    "purge_forgets_redirect",
-    "sweep_restores_merged",
-    "unmerge_restores_matches"
-  ]
-
   setup_all do
     TestSupport.start_core!()
     :ok
@@ -37,7 +28,7 @@ defmodule ServiceRadar.Inventory.DireLifecycleTraceTest do
     {:ok, actor: SystemActor.system(:dire_lifecycle_trace_test)}
   end
 
-  defp world(devices, ids, ips), do: %{devices: devices, ids: ids, ips: ips, bugs: @current_bugs}
+  defp world(devices, ids, ips), do: %{devices: devices, ids: ids, ips: ips}
 
   # #4619: a conflict merge records both sides' matches, and unmerge moves back every
   # identifier those matches name -- including the survivor's own.
