@@ -200,7 +200,11 @@ defmodule ServiceRadar.Inventory.DeviceCleanupWorker do
   # FOR UPDATE inside the transaction and ONLY those are purged — so a
   # concurrent restore/gateway_sync that clears deleted_at in the gap can never
   # have its now-LIVE device's child identity rows wiped.
-  defp hard_delete_records(stats, records) do
+  #
+  # Public (@doc false) so the DIRE lifecycle trace can purge exactly the devices it
+  # created; running the worker would purge every expired tombstone in the database.
+  @doc false
+  def hard_delete_records(stats, records) do
     uids = Enum.map(records, & &1.uid)
 
     fn ->

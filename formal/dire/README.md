@@ -61,7 +61,7 @@ either way; the property guards against any change that lets address evidence me
 | `upsert_revives_merged` | lifecycle | `inventory/sync/device_writes.ex` upsert `on_conflict` | `RevivalBumpsRevision` |
 | `gateway_sync_no_bump` | lifecycle | `inventory/device.ex` `:gateway_sync` | `RevivalBumpsRevision` |
 | `follow_stale_audit` | lifecycle | `inventory/identity/resolver.ex` `do_follow_canonical/3` | `NoStaleRedirect` |
-| `sweep_restores_merged` | lifecycle | `event_writer/processors/sweep.ex` `restore_eligible?/1` | `NoZombieRevival` |
+| `sweep_restores_merged` | lifecycle | `sweep_jobs/sweep_results_ingestor.ex` `restore_eligible?/1` | `NoZombieRevival` |
 | `fence_observe_only` | lifecycle | `inventory/identity/fence.ex` (no enforcing caller) | `NoStaleCommit` |
 | `unmerge_restores_matches` | lifecycle | `inventory/identity/merge_engine.ex` `reassign_original_identifiers/4` | `UnmergeRestoresExactly` |
 | `purge_forgets_redirect` | lifecycle | `inventory/identity/resolver.ex` `do_follow_canonical/3` | `NoPurgedResurrection` |
@@ -117,10 +117,36 @@ target expects `violation:TraceIncomplete`. The `__tamper_<var>` variants of one
 alter a single variable in the final state and must not be matched, which proves no variable
 goes unchecked.
 
+The lifecycle traces come from
+`elixir/serviceradar_core/test/serviceradar/inventory/dire_lifecycle_trace_test.exs` through
+`ServiceRadar.DireLifecycleTrace` (`test/support/dire_lifecycle_trace.ex`), which drives the
+lifecycle entry points: ingest (`SyncIngestor`, `AgentGatewaySync`), `MergeEngine` merge and
+unmerge (including the resolver's conflict merge), `Device :soft_delete`,
+`SweepResultsIngestor` restores, and `DeviceCleanupWorker` purges. It records device status and
+delete reason, identifier owners, addresses, the `merge_audit` rows and the devices each step's
+`identity_revision` moved. An ingest is logged as the model's `StartWork` and `Commit`; the code
+runs them in one call, so `work` is never stale in a recorded trace and the
+`fence_observe_only` switch stays model-only until the fence is enforced (#4618). Two values
+are ghosts the harness supplies: which identifiers a merged-away device owned when the merge
+ran (`srcIds`), and the insertion order of `merge_audit` rows, whose `created_at` has
+one-second precision. `DireLifecycleTrace.tla` checks them the same way.
+
+Each lifecycle trace is also rejected by the model with the defect switch it demonstrates
+turned off, so each one proves its defect on the real code:
+
+| Trace | Switch | Issue |
+| --- | --- | --- |
+| `conflict_unmerge` | `unmerge_restores_matches` | #4619 |
+| `soft_delete_upsert_revival` | `upsert_revives_merged` | #4614 |
+| `stale_redirect` | `follow_stale_audit` | #4616 |
+| `sweep_restores_merged` | `sweep_restores_merged` | #4617 |
+| `gateway_sync_revival` | `gateway_sync_no_bump` | #4615 |
+| `purge_recreate` | `purge_forgets_redirect` | #4620 |
+
 The integration test compares every freshly recorded trace with the committed file. When the
 code's behavior changes, that comparison fails. Regenerate on a scratch database with
 `DIRE_TRACE_WRITE=1` and commit the new trace; the model check then decides whether the model
-still describes the code. The traces' `.cfg` files carry the switches today's code has (the
+still describes the code. The traces' `.cfg` files carry the switches today's code has (each
 test's `@current_bugs`).
 
 ## Fixing a defect
@@ -130,7 +156,8 @@ test's `@current_bugs`).
    trace with `DIRE_TRACE_WRITE=1`; its model check now fails too, because the switched-on model
    does not allow the fixed behavior.
 3. Remove the switch from the model (keep only the intended branch).
-4. Delete its witness configuration and target.
+4. Delete its witness configuration and target and, for a lifecycle switch, the trace's
+   `__knockout` configuration and target, which TLC can no longer reject.
 5. Add its property to `lifecycle_current.cfg` (lifecycle) or confirm it in every
    `resolution_goal_*` configuration (resolution).
 
