@@ -28,5 +28,6 @@ mistake that was found in this directory, not a style preference.
   set: `:internal_error` is itself allowed, so membership passes when every
   reason collapses to it.
 
-Test routing for new or removed files is in the repository `AGENTS.md`
-(`INTEGRATION_SOURCE_DISPOSITIONS.tsv`, serial selected-test counts).
+Test routing for new or removed files (`INTEGRATION_SOURCE_DISPOSITIONS.tsv`)
+is in [docs/agent-runbooks.md](../../../../../docs/agent-runbooks.md). Serial
+selected-test counts live in `build/integration_test_dispositions.bzl`.
