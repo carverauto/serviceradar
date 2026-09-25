@@ -47,7 +47,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.QueryResultsTest do
     assert load_query() |> render_results() |> LazyHTML.text() =~ "No results for this query and time window."
 
     Process.put(:dashboard_query_response, {:error, "invented query failure"})
-    document = load_query() |> render_results()
+    document = render_results(load_query())
     assert LazyHTML.text(LazyHTML.query(document, "#dashboard-query-error")) =~ "invented query failure"
   end
 
@@ -74,7 +74,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.QueryResultsTest do
   end
 
   defp render_results(socket) do
-    render_component(&QueryResults.render/1,
+    (&QueryResults.render/1)
+    |> render_component(
       rows: socket.assigns.query_results,
       srql: socket.assigns.srql,
       limit: socket.assigns.limit,

@@ -63,7 +63,11 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.MapPanel do
         </.link>
       </:actions>
 
-      <p :if={@window_errors["netflow"]} role="alert" class="sr-ops-map-notice p-3 text-sm text-sr-muted">
+      <p
+        :if={@window_errors["netflow"]}
+        role="alert"
+        class="sr-ops-map-notice p-3 text-sm text-sr-muted"
+      >
         {@window_errors["netflow"]}
       </p>
 

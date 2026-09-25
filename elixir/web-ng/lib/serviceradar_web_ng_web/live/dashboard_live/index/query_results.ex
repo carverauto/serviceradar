@@ -17,7 +17,12 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.QueryResults do
         <h1 class="text-lg font-semibold">Query results</h1>
         <.link navigate={~p"/dashboard"} class="text-sm text-sr-brand">Operations dashboard</.link>
       </div>
-      <p :if={@srql.error} id="dashboard-query-error" role="alert" class="text-sm text-red-700 dark:text-red-300">
+      <p
+        :if={@srql.error}
+        id="dashboard-query-error"
+        role="alert"
+        class="text-sm text-red-700 dark:text-red-300"
+      >
         {@srql.error}
       </p>
       <.srql_results_table
