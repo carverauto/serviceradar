@@ -78,7 +78,7 @@
   - `inventory/sync_ingestor.ex` -- **enforced.** The batch pins every resolved device
     (`Fence.pin_batch/1`, tombstones included, `:absent` for a row not yet written) and writes the
     device rows and identifiers inside `Fence.fenced_write/3`, which locks the pinned rows
-    `FOR UPDATE` in uid order and withholds every write whose pin went stale (moved revision,
+    `FOR NO KEY UPDATE` in uid order and withholds every write whose pin went stale (moved revision,
     purged row, row created and already transitioned, or a merged-away tombstone). Withheld
     updates are resolved again and written once more; a second stale pin abandons them
     (`Fence.abandon/2`, telemetry `[:serviceradar, :identity_fence, :abandoned]`). A transient
@@ -230,7 +230,7 @@ automatic, and the real defect is elsewhere.
 
 ## 10. Deferred, with reasons
 
-- [x] 10.1 `SELECT ... FOR UPDATE` on both device rows inside the merge, which is what turns
+- [x] 10.1 `SELECT ... FOR NO KEY UPDATE` on both device rows inside the merge, which is what turns
       child-table detection into real mutual exclusion. Done with enforcement (#4618):
       `MergeEngine.do_merge_devices/5` and `do_unmerge/4` lock both device rows first, in uid
       order, the same order `Fence.fenced_write/3` locks a batch's rows before touching their

@@ -36,7 +36,7 @@ defmodule ServiceRadar.Inventory.Identity.Fence do
   `pin_batch/1` and `fenced_write/3` are the enforcing form for batch writers
   (`SyncIngestor`). A batch pins every device it resolved -- its revision, or that
   no row exists yet -- and then writes inside one transaction that first locks
-  those device rows (`FOR UPDATE`, in uid order) and re-reads them. An identity
+  those device rows (`FOR NO KEY UPDATE`, in uid order) and re-reads them. An identity
   transition bumps the revision of the rows it touches, so any merge, unmerge,
   delete, restore or reassignment that committed since the pin shows up as a
   moved revision, and one that has not committed yet waits for the batch to
@@ -232,11 +232,9 @@ defmodule ServiceRadar.Inventory.Identity.Fence do
     emit_batch(:stale, pipeline, device_id, pin, current_row)
   end
 
-  @doc false
-  # The stale set for a batch's pins against the rows now locked. Public for the
-  # unit tests of the decision table.
+  # The stale set for a batch's pins against the rows now locked.
   @spec stale_ids(%{String.t() => batch_pin()}, %{String.t() => map()}) :: MapSet.t()
-  def stale_ids(pins, current) do
+  defp stale_ids(pins, current) do
     pins
     |> Enum.filter(fn {device_id, pin} -> stale_pin?(pin, Map.get(current, device_id)) end)
     |> MapSet.new(&elem(&1, 0))
@@ -268,7 +266,9 @@ defmodule ServiceRadar.Inventory.Identity.Fence do
       |> Ash.Query.sort(uid: :asc)
 
     query =
-      if Keyword.get(opts, :lock?, false), do: Ash.Query.lock(query, :for_update), else: query
+      if Keyword.get(opts, :lock?, false),
+        do: Ash.Query.lock(query, "FOR NO KEY UPDATE"),
+        else: query
 
     query
     |> Ash.stream!(actor: actor, batch_size: @pin_read_batch_size)

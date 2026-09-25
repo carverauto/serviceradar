@@ -376,7 +376,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
     |> Ash.Query.filter(uid in ^device_ids)
     |> Ash.Query.select([:uid])
     |> Ash.Query.sort(uid: :asc)
-    |> Ash.Query.lock(:for_update)
+    |> Ash.Query.lock("FOR NO KEY UPDATE")
     |> Ash.read(actor: actor)
     |> case do
       {:ok, _rows} -> :ok

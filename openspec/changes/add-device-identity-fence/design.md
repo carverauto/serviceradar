@@ -230,11 +230,13 @@ correctness defect -- a write pinned before a merge and a purge re-creates the m
 (`NoPurgedResurrection`), and any transition between resolve and write lands the write on the
 wrong identity (`NoStaleCommit`). Enforcement is therefore lock-based rather than a changeset
 filter alone. A batch writer pins every device it resolved and writes the device rows and their
-identifiers inside `Fence.fenced_write/3`, which first takes `FOR UPDATE` on the pinned rows in
+identifiers inside `Fence.fenced_write/3`, which first takes `FOR NO KEY UPDATE` on the pinned rows in
 uid order and re-reads their revisions: a transition that committed since the pin is a moved
 revision (or a missing row), and one that has not committed waits for the write. `MergeEngine`
 merge and unmerge lock both device rows first, in the same order, so the two serialize on the
-device rows instead of deadlocking on child rows. The CAS helper `pin/2` remains for single-row
+device rows instead of deadlocking on child rows. `FOR NO KEY UPDATE` rather than `FOR UPDATE`: it still conflicts with the
+merge and soft-delete UPDATEs and with a purge DELETE, but not with the `FOR KEY SHARE` an
+unrelated child-row insert takes on the device, so those writers are not blocked. The CAS helper `pin/2` remains for single-row
 writers.
 
 ## Risks / Trade-offs
@@ -244,7 +246,7 @@ writers.
   A transition landing between that commit and those writes is not refused; the survivor
   reassignments in the merge and the repair job (D8) cover what they leave behind. (Previously:
   the fence was detection for all child-table writers until the merge took
-  `SELECT ... FOR UPDATE` on both device rows, which it now does -- D11.)
+  `SELECT ... FOR NO KEY UPDATE` on both device rows, which it now does -- D11.)
 - **Lock contention and deadlocks.** Batches that share devices now serialize on those rows,
   and a deadlock between a fenced write and a writer that locks in another order aborts one
   transaction; the fenced write retries up to three times, a merge that loses reports
