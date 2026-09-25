@@ -59,7 +59,6 @@ either way; the property guards against any change that lets address evidence me
 |---|---|---|---|
 | `mac_only_conflicts_blocked` | resolution | `inventory/identity/merge_policy.ex` `mac_only_matches?/1` (an agent check-in reporting MACs owned by two records) | `EvidenceConverges` |
 | `mapper_resolves_by_address` | resolution | `network_discovery/mapper_results_ingestor.ex` `resolve_device_ids/2` (address first, then alias, then DIRE) | `NoFalseInterfaceClaim` |
-| `stale_holder_keeps_address` | resolution | `inventory/sync/device_writes.ex` `resolve_record_active_ip/7` (a fresh strong claim drops the address) | `ObservedAddressHeld` |
 
 Code paths are relative to `elixir/serviceradar_core/lib/serviceradar/`.
 

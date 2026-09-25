@@ -24,7 +24,7 @@ questions that matter most:
   (`docs/docs/dire-identity-model.md`) and an archived change forbid MAC-only merges.
 - The same spec merges on a confirmed IP alias unconditionally, while the unarchived refactor
   guards that merge.
-- The identity fence says a stale write is abandoned, while its rollout observes only.
+- The identity fence says a stale write is abandoned, while its rollout observed only (enforced since #4618).
 
 A formal model built on these requirements would check that DIRE stays broken. This change
 states the goal as requirements, resolves the contradictions against it, and gives the formal

@@ -34,7 +34,7 @@ defmodule ServiceRadar.Inventory.Identity.Fence do
   ## Batch enforcement
 
   `pin_batch/1` and `fenced_write/3` are the enforcing form for batch writers
-  (`SyncIngestor`). A batch pins every device it resolved -- its revision, or that
+  (`SyncIngestor`, and `AgentGatewaySync` for a single device). A batch pins every device it resolved -- its revision, or that
   no row exists yet -- and then writes inside one transaction that first locks
   those device rows (`FOR NO KEY UPDATE`, in uid order) and re-reads them. An identity
   transition bumps the revision of the rows it touches, so any merge, unmerge,
