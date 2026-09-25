@@ -16,7 +16,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.WindowTest do
     assert slice.netflow_window == "last_1h"
     assert slice.traffic_links == []
     assert slice.flow_summary.flow_count == 0
-    assert Data.derive(slice).module_states.netflow == :unconfigured
+    sources = Map.put(slice, :loaded, %{netflow: true})
+    assert Data.derive(sources).module_states.netflow == :unconfigured
   end
 
   defmodule MapQueryStub do
