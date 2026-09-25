@@ -67,7 +67,8 @@ in `SourcePolicy.sufficient_to_create?/1`.
 A source-authoritative identifier (`armis_device_id`) decides identity. An
 update carrying one never resolves, through a shared MAC or any other
 identifier, onto a record that holds a different one in the same scope (the
-identifier partition, which carries the sync source): that record is not a
+identifier partition, which carries the sync source), whether that id is
+stored or was claimed earlier in the same batch: that record is not a
 match, the update resolves by its own identifier, and the shared identifier
 stays with its owner as evidence. Each override is recorded as an open
 `source_authoritative_override` source-identity conflict on the incoming
