@@ -46,10 +46,6 @@ defmodule ServiceRadar.Credentials.NativeDescriptors do
   def fetch(provider) when is_binary(provider), do: Map.fetch(all(), provider)
   def fetch(_provider), do: :error
 
-  @doc "True when a provider is served natively rather than by a package."
-  @spec native?(String.t() | nil) :: boolean()
-  def native?(provider), do: match?({:ok, _descriptor}, fetch(provider))
-
   @doc """
   The SNMP credential descriptor.
 

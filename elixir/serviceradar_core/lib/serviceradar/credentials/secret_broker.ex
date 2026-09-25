@@ -69,29 +69,6 @@ defmodule ServiceRadar.Credentials.SecretBroker do
   end
 
   @doc """
-  Resolves an already-loaded credential through an already-loaded broker grant.
-  """
-  @spec resolve_loaded_secret_with_grant(map() | struct(), map() | struct(), keyword()) ::
-          {:ok, resolved_secret()} | {:error, atom() | {atom(), term()}}
-  def resolve_loaded_secret_with_grant(secret, grant, opts \\ [])
-      when is_map(secret) and is_map(grant) do
-    secret_id = string_value(value(secret, :id))
-
-    with {:ok, grant_secret_id} <- secret_id_from_grant(grant),
-         true <- grant_secret_id == secret_id,
-         :ok <-
-           CredentialBrokerGrant.validate_loaded_grant(
-             grant_with_secret_id(grant, grant_secret_id),
-             Keyword.put(opts, :secret_id, secret_id)
-           ) do
-      resolve_loaded_secret(secret, grant_resolution_opts(grant, opts))
-    else
-      false -> {:error, {:grant_scope_mismatch, :secret_id}}
-      error -> error
-    end
-  end
-
-  @doc """
   Resolves an already-loaded credential secret.
   """
   @spec resolve_loaded_secret(map() | struct(), keyword()) ::
@@ -108,10 +85,6 @@ defmodule ServiceRadar.Credentials.SecretBroker do
         {:error, {:unsupported_credential_source_type, other}}
     end
   end
-
-  @spec external_reference?(map() | struct()) :: boolean()
-  def external_reference?(secret) when is_map(secret),
-    do: source_type(secret) == :external_reference
 
   @doc """
   Tests an external secret provider through the broker boundary.
@@ -270,7 +243,7 @@ defmodule ServiceRadar.Credentials.SecretBroker do
   end
 
   defp resolve_external_with_provider(secret, provider, requested_location, opts) do
-    with :ok <- provider_enabled?(provider, opts),
+    with :ok <- provider_enabled?(provider),
          :ok <- resolution_location_allowed?(provider, requested_location),
          {:ok, adapter} <- adapter_for_provider(provider, opts),
          {:ok, adapter_result} <-
@@ -340,16 +313,11 @@ defmodule ServiceRadar.Credentials.SecretBroker do
   defp loaded_relationship(%Ash.NotLoaded{}), do: nil
   defp loaded_relationship(value), do: value
 
-  defp provider_enabled?(provider, opts) do
-    cond do
-      Keyword.get(opts, :allow_disabled_provider?, false) ->
-        :ok
-
-      value(provider, :enabled) == true ->
-        :ok
-
-      true ->
-        {:error, :provider_disabled}
+  defp provider_enabled?(provider) do
+    if value(provider, :enabled) == true do
+      :ok
+    else
+      {:error, :provider_disabled}
     end
   end
 
@@ -371,9 +339,7 @@ defmodule ServiceRadar.Credentials.SecretBroker do
   defp adapter_for_provider(provider, opts) do
     provider_type = provider |> value(:provider_type) |> normalize_atom(nil)
 
-    adapters =
-      Keyword.get(opts, :adapters) ||
-        Application.get_env(:serviceradar_core, :secret_provider_adapters, %{})
+    adapters = Keyword.get(opts, :adapters, %{})
 
     adapter =
       Keyword.get(opts, :adapter) ||

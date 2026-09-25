@@ -26,6 +26,7 @@ defmodule ServiceRadar.Credentials.CredentialRotationDbTest do
     provider = "credential-rotation-db-#{suffix}"
     plugin_id = "credential-rotation-db-plugin-#{suffix}"
     password_marker = "rotation-db-secret-marker-#{suffix}"
+    legacy_password = "rotation-db-legacy-password-#{suffix}"
     due_at = DateTime.add(DateTime.utc_now(), 86_400, :second)
 
     package = approved_descriptor_fixture!(plugin_id, provider)
@@ -41,7 +42,7 @@ defmodule ServiceRadar.Credentials.CredentialRotationDbTest do
           provider: provider,
           credential_kind: :username_password,
           username: "legacy-user",
-          secret_payload: "legacy-password",
+          secret_payload: legacy_password,
           source_type: :internal_encrypted,
           next_rotation_due_at: due_at,
           metadata: %{}
@@ -56,6 +57,15 @@ defmodule ServiceRadar.Credentials.CredentialRotationDbTest do
     assert catalog_profile["plugin_id"] == plugin_id
     assert catalog_profile["plugin_package_id"] == package.id
     assert catalog_profile["plugin_version"] == package.version
+
+    # `:by_id_with_secret` is the one read that selects the ciphertext. Its
+    # policy is a filter, so a credential manager gets no row, not an error.
+    manager_secret_read =
+      NetworkCredentialSecret
+      |> Ash.Query.for_read(:by_id_with_secret, %{id: secret.id}, actor: human_actor)
+      |> Ash.read_one(actor: human_actor)
+
+    refute match?({:ok, %NetworkCredentialSecret{}}, manager_secret_read)
 
     assert {:error, %Forbidden{}} =
              secret
@@ -91,7 +101,7 @@ defmodule ServiceRadar.Credentials.CredentialRotationDbTest do
     assert {:ok, %{value: ^password_marker}} =
              SecretBroker.resolve_network_credential_secret(secret.id, actor: @system_actor)
 
-    assert_ciphertext_and_audits_are_redacted!(secret.id, password_marker)
+    assert_ciphertext_and_audits_are_redacted!(secret.id, password_marker, legacy_password)
   end
 
   defp credential_manager!(suffix) do
@@ -230,13 +240,13 @@ defmodule ServiceRadar.Credentials.CredentialRotationDbTest do
     }
   end
 
-  defp assert_ciphertext_and_audits_are_redacted!(secret_id, marker) do
+  defp assert_ciphertext_and_audits_are_redacted!(secret_id, marker, legacy_password) do
     dumped_id = Ecto.UUID.dump!(secret_id)
 
     %{rows: [[ciphertext]]} =
       SQL.query!(
         Repo,
-        "SELECT encode(encrypted_secret_payload, 'base64') FROM platform.network_credential_secrets WHERE id = $1",
+        "SELECT encrypted_secret_payload FROM platform.network_credential_secrets WHERE id = $1",
         [dumped_id]
       )
 
@@ -260,8 +270,12 @@ defmodule ServiceRadar.Credentials.CredentialRotationDbTest do
         [to_string(secret_id)]
       )
 
-    refute ciphertext =~ marker
+    # Raw bytes: a text search of an encoding of the column could never find
+    # the plaintext even if it were stored unencrypted.
+    assert is_binary(ciphertext) and byte_size(ciphertext) > 0
+    assert :binary.match(ciphertext, marker) == :nomatch
     refute versions =~ marker
+    refute versions =~ legacy_password
     refute lifecycle_events =~ marker
     assert "start_rotation" in actions
     assert "complete_rotation" in actions

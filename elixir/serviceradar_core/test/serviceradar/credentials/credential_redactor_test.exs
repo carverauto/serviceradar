@@ -51,10 +51,8 @@ defmodule ServiceRadar.Credentials.CredentialRedactorTest do
 
     redacted = CredentialRedactor.redact(payload)
 
-    assert redacted["inject"]["field_password"] == "password"
-    assert redacted["inject"]["field_username"] == "username"
+    assert redacted["inject"] == payload["inject"]
     assert redacted["password"] == "REDACTED"
-    assert CredentialRedactor.redact(payload)["inject"] == payload["inject"]
   end
 
   defp private_key_fixture do

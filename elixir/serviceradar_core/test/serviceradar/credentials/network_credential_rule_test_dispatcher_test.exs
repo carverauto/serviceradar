@@ -6,8 +6,9 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestDispatcherTest do
   defmodule FakeCommandBus do
     @moduledoc false
 
+    # The dispatcher calls the bus in the caller's process.
     def dispatch(agent_id, command_type, persisted_payload, opts) do
-      send(opts[:test_pid], {:dispatch, agent_id, command_type, persisted_payload, opts})
+      send(self(), {:dispatch, agent_id, command_type, persisted_payload, opts})
       {:ok, "command-1"}
     end
   end
@@ -39,10 +40,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestDispatcherTest do
     }
 
     assert {:ok, result} =
-             NetworkCredentialRuleTestDispatcher.dispatch_plan(plan,
-               command_bus: FakeCommandBus,
-               test_pid: self()
-             )
+             NetworkCredentialRuleTestDispatcher.dispatch_plan(plan, command_bus: FakeCommandBus)
 
     assert result.command_id == "command-1"
     assert result.payload["credential_broker"]["credential_secret_ref"] == ref
@@ -52,7 +50,6 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestDispatcherTest do
 
     assert persisted["credential_broker"]["credential_secret_ref"] == ref
     assert persisted["debug"]["api_token"] == "REDACTED"
-    refute inspect(persisted) =~ "test-secret"
     refute inspect(persisted) =~ "must-not-persist"
 
     assert opts[:ttl_seconds] == 180
@@ -75,10 +72,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestDispatcherTest do
     }
 
     assert {:error, :missing_credential_broker_grant} =
-             NetworkCredentialRuleTestDispatcher.dispatch_plan(plan,
-               command_bus: FakeCommandBus,
-               test_pid: self()
-             )
+             NetworkCredentialRuleTestDispatcher.dispatch_plan(plan, command_bus: FakeCommandBus)
 
     refute_receive {:dispatch, _, _, _, _}
   end

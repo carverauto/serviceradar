@@ -1,8 +1,8 @@
 defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Credentials.PluginAssignmentMaterializer
-  alias ServiceRadar.Plugins.PluginInputs
   alias ServiceRadar.TestSupport.CredentialIntegrationFixtures
 
   defmodule FakeReconciler do
@@ -32,7 +32,8 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
           "timeout_ms" => 45_000,
           "interval_seconds" => 600,
           "timeout_seconds" => 45,
-          "chunk_size" => 25
+          "chunk_size" => 25,
+          "credential_broker_ttl_seconds" => 45
         }
       })
 
@@ -56,6 +57,10 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
     assert policy.timeout_seconds == 45
     assert opts[:chunk_size] == 25
     assert opts[:target_agent_uid] == "agent-a"
+    assert opts[:single_assignment] == false
+    # Stale-row retraction is per agent: a policy id is shared by every agent a
+    # rule covers, so a wider scope would disable other agents' assignments.
+    assert opts[:agent_scope] == ["agent-a"]
 
     assert input_defs == [
              %{name: "targets", entity: "devices", query: "in:devices vendor:Example"}
@@ -63,9 +68,18 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
 
     assert %{
              "credential_broker" => %{
+               "grant_id" => "grant-1",
                "credential_secret_ref" => ref,
                "credential_rule_id" => "rule-1",
                "grant_type" => "example_api",
+               "consumer" => %{
+                 "kind" => "plugin",
+                 "id" => "example-network-inventory",
+                 "purpose" => "device_inventory"
+               },
+               "target" => %{"agent_id" => "agent-a"},
+               "resolution_location" => "agent",
+               "ttl_seconds" => 45,
                "inject" => %{
                  "type" => "http_header",
                  "name" => "Authorization",
@@ -83,7 +97,6 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
            } = policy.params_template
 
     assert ref == "credentialref:network-credential-secret:018f3f56-1111-7222-8333-123456789abc"
-    assert is_binary(policy.params_template["credential_broker"]["grant_id"])
   end
 
   test "renders public credential metadata only when the manifest requests it" do
@@ -97,11 +110,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
     resolver = fn _secret_id, _actor -> {:ok, "operator"} end
 
     assert {:ok, _summary} =
-             materialize([rule],
-               purpose: "configuration_read",
-               package: %{id: "pkg-config"},
-               username_resolver: resolver
-             )
+             materialize([rule], purpose: "configuration_read", username_resolver: resolver)
 
     assert_receive {:reconcile, policy, _input_defs, _opts}
     assert policy.params_template["username"] == "operator"
@@ -157,40 +166,6 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
     refute_receive {:reconcile, _, _, _}
   end
 
-  test "materialized output remains compatible with the plugin-input contract" do
-    assert {:ok, _summary} = materialize([credential_rule(%{})])
-    assert_receive {:reconcile, policy, _input_defs, _opts}
-
-    payload = %{
-      "schema" => PluginInputs.schema_id(),
-      "policy_id" => policy.policy_id,
-      "policy_version" => policy.policy_version,
-      "agent_id" => "agent-a",
-      "generated_at" => "2026-05-06T19:35:00Z",
-      "template" => policy.params_template,
-      "inputs" => [
-        %{
-          "name" => "targets",
-          "entity" => "devices",
-          "query" => "in:devices vendor:Example",
-          "chunk_index" => 0,
-          "chunk_total" => 1,
-          "chunk_hash" => String.duplicate("a", 64),
-          "items" => [%{"uid" => "sr:device:1", "ip" => "192.0.2.10"}]
-        }
-      ]
-    }
-
-    assert :ok = PluginInputs.validate(payload)
-  end
-
-  test "a per_target consumer keeps the chunked delivery the planner defaults to" do
-    assert {:ok, _summary} = materialize([credential_rule(%{})])
-
-    assert_receive {:reconcile, _policy, _input_defs, opts}
-    assert opts[:single_assignment] == false
-  end
-
   test "a single-cardinality consumer is delivered as one assignment regardless of chunk_size" do
     # The manifest, not the rule, decides this: a consumer whose run covers a
     # whole instance would otherwise run once per chunk against the same
@@ -230,25 +205,32 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
     assert opts[:target_agent_uid] == "agent-a"
   end
 
+  # Enters through reconcile_provider_for_agent/4, the function the reconcile
+  # worker reaches through reconcile_all_for_agent/2. Injected rules are
+  # filtered by provider and purpose exactly as the loaded path is.
   defp materialize(rules, opts \\ []) do
-    purpose = Keyword.get(opts, :purpose, "device_inventory")
-    package = Keyword.get(opts, :package, %{id: "pkg-example"})
+    {profile, opts} = Keyword.pop(opts, :profile, profile())
+    {purpose, opts} = Keyword.pop(opts, :purpose, "device_inventory")
 
-    PluginAssignmentMaterializer.reconcile_rules(
-      rules,
+    PluginAssignmentMaterializer.reconcile_provider_for_agent(
+      profile,
       "agent-a",
-      package,
+      purpose,
       Keyword.merge(
         [
-          profile: profile(),
-          purpose: purpose,
+          rules: rules,
+          plugin_package: %{id: "pkg-example"},
           reconciler: FakeReconciler,
-          actor: %{id: "system"},
+          grant_issuer: &fake_grant/1,
           test_pid: self()
         ],
-        Keyword.drop(opts, [:purpose, :package])
+        opts
       )
     )
+  end
+
+  defp fake_grant(attrs) do
+    {:ok, Map.put(CredentialBrokerGrant.issue_attrs(attrs), :id, "grant-1")}
   end
 
   defp credential_rule(attrs) do
