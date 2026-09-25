@@ -1970,14 +1970,16 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
       Repo.transaction(fn ->
         DeviceWrites.lock_and_clear_for_upsert([%{uid: device.uid}], [{holder_uid, ip}])
 
-        case set_device_address(device, ip, actor) do
-          {:ok, _device} -> :ok
+        case set_device_address(device, ip, actor, return_notifications?: true) do
+          {:ok, _device, notifications} -> notifications
           {:error, reason} -> Repo.rollback(reason)
         end
       end)
 
     case result do
-      {:ok, :ok} ->
+      {:ok, notifications} ->
+        Ash.Notifier.notify(notifications)
+
         Logger.info(
           "Mapper moved device #{device.uid} to polled address #{ip}, released from stale " <>
             "holder #{holder_uid}"
@@ -1990,10 +1992,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     end
   end
 
-  defp set_device_address(%Device{} = device, ip, actor) do
+  defp set_device_address(%Device{} = device, ip, actor, opts \\ []) do
     device
     |> Ash.Changeset.for_update(:update, %{ip: ip})
-    |> Ash.update(actor: actor)
+    |> Ash.update(Keyword.put(opts, :actor, actor))
   end
 
   defp log_move_failure(%Device{} = device, ip, reason) do
