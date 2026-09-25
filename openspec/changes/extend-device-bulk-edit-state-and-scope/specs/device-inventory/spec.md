@@ -2,7 +2,7 @@
 
 ### Requirement: Bulk Tag Application
 
-The system SHALL allow users to apply tags to multiple devices via bulk edit, and SHALL also apply a service state (in service or out of service) and a managed state (managed or unmanaged) from the same editor. "Out of service" SHALL mean `is_active = false`, the same flag `device_out_of_service?/1` reads; there is no separate out-of-service column and the agent-owned `is_available` bit MUST NOT be written. The operator SHALL choose an explicit target scope: only the current selection, or every device matching the SRQL query driving the page. A single scope control SHALL govern both the tag submit and the state submit, and cancelling the modal SHALL NOT change the selection or the scope. The existing 10,000-device cap and the unknown-selection-size guard SHALL be preserved. Agent-backed devices (`agent_id` present) MUST NOT be marked unmanaged, and the operator SHALL be told how many devices were skipped for that reason. The service and managed changes requested by one submit SHALL apply in a single transaction, so a failure of the second rolls back the first.
+The system SHALL allow users to apply tags to multiple devices via bulk edit, and SHALL also apply a service state (in service or out of service) and a managed state (managed or unmanaged) from the same editor. "Out of service" SHALL mean `is_active = false`, the same flag `device_out_of_service?/1` reads; there is no separate out-of-service column and the agent-owned `is_available` bit MUST NOT be written. The operator SHALL choose an explicit target scope: only the current selection, or every device matching the SRQL query driving the page. A single scope control SHALL govern both the tag submit and the state submit, and cancelling the modal SHALL NOT change the selection or the scope. There SHALL be no result ceiling: one bulk tag, state, availability, delete, or northbound launch covers every matching device, and it MUST NOT be rejected for the size of the selection. The unknown-selection-size guard SHALL be preserved. The LiveView SHALL process the targets in batches of 200 devices; a failed batch SHALL NOT stop later batches unless the operator checks "Stop on first error", which SHALL start unchecked each time the modal opens, and when any batch fails the operator SHALL be told how many devices were applied out of the total. A partial northbound launch SHALL leave only the devices that did not launch selected. Agent-backed devices (`agent_id` present) MUST NOT be marked unmanaged, and the operator SHALL be told how many devices were skipped for that reason. The service and managed changes requested for one batch SHALL apply in a single transaction, so a failure of the second rolls back the first for that batch.
 
 #### Scenario: Bulk apply tags to selected devices
 - **GIVEN** a user selects multiple devices in the inventory list
@@ -21,6 +21,17 @@ The system SHALL allow users to apply tags to multiple devices via bulk edit, an
 - **THEN** every device matching the SRQL query SHALL change
 - **AND** devices outside the query SHALL NOT change
 
+#### Scenario: A failed batch does not stop the rest
+- **GIVEN** a bulk submit spanning more than one 200-device batch
+- **WHEN** one batch fails and "Stop on first error" is unchecked
+- **THEN** the remaining batches SHALL still run
+- **AND** the operator SHALL see how many devices were applied out of the total, and how many failed
+
+#### Scenario: Stop on first error halts the submit
+- **GIVEN** a bulk submit spanning more than one 200-device batch
+- **WHEN** one batch fails and "Stop on first error" is checked
+- **THEN** no later batch SHALL run
+
 #### Scenario: Cancelling the modal leaves the toolbar selection alone
 - **GIVEN** a user with an existing toolbar selection
 - **WHEN** they open the bulk editor, choose a scope, and cancel
@@ -35,6 +46,6 @@ The system SHALL allow users to apply tags to multiple devices via bulk edit, an
 
 #### Scenario: A failed second change rolls back the first
 - **GIVEN** a submit that requests both a service change and a managed change
-- **WHEN** the managed change fails after the service change succeeds
-- **THEN** neither change SHALL persist
+- **WHEN** the managed change fails after the service change succeeds within a batch
+- **THEN** neither change SHALL persist for that batch
 - **AND** the operator SHALL see a failure message
