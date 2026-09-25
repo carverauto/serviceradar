@@ -79,8 +79,9 @@ Send NetFlow to `<FLOW_COLLECTOR_ADDRESS>:2055/UDP` and sFlow to `<FLOW_COLLECTO
 The shipped Compose stack leaves the flow collector off unless you pass
 `--profile flows` or `--profile network-ingest`. `--profile starrocks` starts
 the StarRocks warehouse (`starrocks/allin1-ubuntu:3.5.21`) independently; set
-`STARROCKS_ENABLED=true` alongside it so EventWriter shadows telemetry. The
-profiles are independent: NetFlow collection without StarRocks is supported and
+`STARROCKS_ENABLED=true` alongside it so EventWriter shadows telemetry, and set
+`STARROCKS_ROOT_PASSWORD` in `.env` (the container refuses to start without it;
+see `README-Docker.md`). The profiles are independent: NetFlow collection without StarRocks is supported and
 stores flows on CNPG hypertables. Reading those flows back -- the dashboard
 NetFlow panel, `in:flows` -- requires the warehouse and the `flows` cutover;
 without it the read is refused rather than served from CNPG.
