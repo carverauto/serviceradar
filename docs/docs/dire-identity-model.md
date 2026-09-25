@@ -77,6 +77,16 @@ can be reviewed. A record holding no source-authoritative identifier is still
 a match: that is how an Armis id attaches to the discovered record of the same
 device.
 
+An address follows the device observed at it. When a strong-identified write
+lands on an address that a different live device still holds (DHCP moved the
+address), the incoming device takes it and the stale holder releases it: its
+IP is cleared in the same transaction and it stays live. The decision is
+recorded as an open `active_ip_conflict` source-identity conflict. Two exceptions
+keep the holder's uid instead: an anchorless provisional seed at the address is
+adopted, and a holder whose hostname agrees is adopted. When the holder's own
+record in the same batch also claims the address, neither observation is
+fresher, so the holder keeps it and the incoming record drops it.
+
 Merged-away device IDs are never resurrected: resolution follows the
 `merge_audit` canonical mapping to the survivor (`Identity.Resolver` /
 `Identity.BatchResolver`), including after the tombstone row has been purged,

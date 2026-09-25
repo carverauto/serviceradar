@@ -248,6 +248,37 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicy do
 
   defp census_anchorable_mac?(_metadata), do: false
 
+  @doc """
+  True when the update's address is an observation: the source saw the device
+  at that address, so the address may move to it from a stale holder.
+
+  An address is evidence, not identity, and it follows the device observed at
+  it. That rule needs a fresh sighting: after DHCP churn the existing holder of
+  the address is the stale one. These sources report where a device was seen:
+
+    * Armis, which reports the address it observed the device at;
+    * the passive census (ARP/NDP), the device answering for its own address;
+    * mapper/SNMP discovery, which polled the device at the address;
+    * an agent reporting about itself.
+
+  Declarative inventories (AWX, NetBox, Proxmox, hypervisor enrichment,
+  generic integrations) are not on this list: their address is configuration,
+  which can lag the network, so it never takes a live address from its holder.
+  """
+  @spec observed_address_source?(map() | term()) :: boolean()
+  def observed_address_source?(update) when is_map(update) do
+    metadata = update.metadata || %{}
+    integration_type = String.downcase(to_string(metadata["integration_type"] || ""))
+
+    integration_type == "armis" or
+      String.downcase(to_string(update.source || "")) == "armis" or
+      passive_census_source?(update) or
+      mapper_like_source?(update) or
+      agent_self_report_source?(update)
+  end
+
+  def observed_address_source?(_update), do: false
+
   def mapper_like_source?(update) do
     source = String.downcase(update.source || "")
     metadata = update.metadata || %{}

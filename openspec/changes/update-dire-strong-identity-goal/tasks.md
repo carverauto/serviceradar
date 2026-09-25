@@ -51,7 +51,7 @@ configuration. Confirmed defects (`formal/dire/README.md` has code paths and wit
       device's interface table to whichever record holds the address, or a stale alias of it;
       after DHCP churn the new device's MACs land on the old device's record and the new device
       gets no record. Resolve by the reported MACs; the address is evidence only.
-- [ ] 3.14 `stale_holder_keeps_address` (found by trace validation): a fresh source-authoritative
+- [x] 3.14 `stale_holder_keeps_address` (found by trace validation): a fresh source-authoritative
       write drops its address when a stale record still holds it; the stale record keeps it and
       address-only sightings attach to the wrong device. The observed device must hold its
       observed address.

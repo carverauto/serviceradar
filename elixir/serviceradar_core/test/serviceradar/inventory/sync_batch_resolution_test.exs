@@ -1312,6 +1312,90 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
     }
   end
 
+  # #4639: the address follows the device observed at it. An Armis sync observed at an
+  # address a stale record still holds takes it; the holder releases it and stays live, and the
+  # decision is recorded. (A declarative inventory's address does not move: see "IP conflict
+  # drops IP from strong-identified record instead of remapping" above.)
+  describe "an observed address moves to the device seen at it" do
+    test "an Armis sync takes the IP from a stale holder, which stays live", %{actor: actor} do
+      n = System.unique_integer([:positive])
+      ip = observed_ip(n)
+      holder_uid = "sr:" <> Ecto.UUID.generate()
+
+      {:ok, _holder} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{uid: holder_uid, ip: ip, hostname: "stale-holder-#{n}", mac: "00:00:5E:00:53:01"},
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      armis_id = "#{n}07"
+      assert :ok = SyncIngestor.ingest_updates([armis_ip_update(armis_id, ip)], actor: actor)
+
+      claimer_uid = device_for_armis_id(armis_id, actor)
+      assert is_binary(claimer_uid)
+      assert claimer_uid != holder_uid
+
+      {:ok, claimer_row} = Device.get_by_uid(claimer_uid, false, actor: actor)
+      assert claimer_row.ip == ip
+
+      {:ok, %Device{deleted_at: nil} = holder_row} =
+        Device.get_by_uid(holder_uid, false, actor: actor)
+
+      assert holder_row.ip in [nil, ""]
+
+      assert [conflict] =
+               SourceIdentityConflict
+               |> Ash.Query.filter(
+                 conflict_category == "active_ip_conflict" and device_uid == ^claimer_uid
+               )
+               |> Ash.read!(actor: actor)
+
+      assert conflict.current_ip == ip
+      assert conflict.proposed_action == "preserve_source_identity_release_stale_ip"
+      assert conflict.conflicting_identifiers["existing_device_uid"] == holder_uid
+    end
+
+    test "a holder re-observed at its IP in the same batch keeps it", %{actor: actor} do
+      n = System.unique_integer([:positive])
+      ip = observed_ip(n)
+      holder_id = "#{n}08"
+      claimer_id = "#{n}09"
+
+      assert :ok = SyncIngestor.ingest_updates([armis_ip_update(holder_id, ip)], actor: actor)
+
+      assert :ok =
+               SyncIngestor.ingest_updates(
+                 [armis_ip_update(holder_id, ip), armis_ip_update(claimer_id, ip)],
+                 actor: actor
+               )
+
+      {:ok, holder_row} =
+        Device.get_by_uid(device_for_armis_id(holder_id, actor), false, actor: actor)
+
+      {:ok, claimer_row} =
+        Device.get_by_uid(device_for_armis_id(claimer_id, actor), false, actor: actor)
+
+      assert holder_row.ip == ip
+      refute claimer_row.ip == ip
+    end
+  end
+
+  defp armis_ip_update(armis_id, ip) do
+    %{
+      "ip" => ip,
+      "hostname" => "armis-#{armis_id}",
+      "source" => "armis",
+      "metadata" => %{
+        "integration_type" => "armis",
+        "armis_device_id" => armis_id,
+        "integration_id" => "armis:batch-resolution:device:#{armis_id}"
+      }
+    }
+  end
+
   defp override_conflicts(device_uid, actor) do
     SourceIdentityConflict
     |> Ash.Query.filter(
@@ -1325,6 +1409,8 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
   defp mac_value(mac), do: mac |> String.replace(":", "") |> String.upcase()
 
   defp hex2(n), do: n |> Integer.to_string(16) |> String.pad_leading(2, "0")
+
+  defp observed_ip(n), do: "203.0.113.#{rem(n, 250) + 1}"
 
   defp device_for_mac(mac, actor) do
     query =

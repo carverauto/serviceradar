@@ -47,9 +47,10 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
     )
   end
 
-  # #4609 (fixed): a discovered device leaves an address; an Armis device leases it.
+  # #4609 and #4639 (fixed): a discovered device leaves an address; an Armis device leases it.
   # Steps: A (m1) is seen at p1 three times (alias confirmed); A releases p1; Armis device B
-  # (a2, m2) leases p1 and is synced. Expected: no merge; A's alias on p1 goes stale.
+  # (a2, m2) leases p1 and is synced. Expected: no merge; A's alias on p1 goes stale; B takes
+  # p1 and A, still live, releases it, and the address conflict is recorded.
   test "armis_dhcp", %{actor: actor} do
     world = two_devices(%{src_of: %{"h2" => "a2"}, src_ids: ["a2"]})
 
