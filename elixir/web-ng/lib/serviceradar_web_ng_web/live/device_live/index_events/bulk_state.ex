@@ -60,7 +60,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkState do
         {:noreply,
          socket
          |> assign(:bulk_state_form, to_form(params, as: :bulk_state))
-         |> put_flash(:error, reason)}
+         |> put_flash(:error, Helpers.batch_failure_message({:error, reason}))}
 
       :ok ->
         case Selection.selected_uids_for_scope(socket, target_scope) do
@@ -84,7 +84,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkState do
             {:noreply,
              socket
              |> assign(:bulk_state_form, to_form(params, as: :bulk_state))
-             |> put_flash(:error, reason)}
+             |> put_flash(:error, Helpers.batch_failure_message({:error, reason}))}
         end
     end
   end

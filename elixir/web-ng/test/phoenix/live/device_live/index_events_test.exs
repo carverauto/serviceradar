@@ -147,6 +147,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEventsTest do
              "Stopped after updating 200 of 401 device(s): middle"
   end
 
+  test "a non-summary error reason becomes a flash string" do
+    assert Helpers.batch_failure_message({:error, %RuntimeError{message: "db timeout"}}) ==
+             "db timeout"
+
+    assert Helpers.batch_failure_message({:error, %{code: 1}}) == "%{code: 1}"
+
+    assert Helpers.batch_failure_message({:error, {:unexpected_page, 3}}) ==
+             "{:unexpected_page, 3}"
+
+    assert Helpers.batch_failure_message({:error, :selection_page_did_not_advance}) ==
+             ":selection_page_did_not_advance"
+  end
+
   test "scope-aware validation accepts any known selection size" do
     assert :ok =
              Selection.validate_device_selection_for_scope(

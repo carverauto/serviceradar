@@ -140,19 +140,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Helpers do
     |> normalize_batch_summary()
   end
 
-  def batch_failure_message({:error, reason}) when is_binary(reason), do: reason
-
-  def batch_failure_message({:error, reason}) when not is_map(reason) do
-    format_transaction_error(reason)
-  end
-
-  def batch_failure_message({:ok, summary}) do
+  def batch_failure_message({:ok, %{applied: _, failed: _, total: _, errors: _} = summary}) do
     "Updated #{summary.applied} of #{summary.total} device(s). #{summary.failed} failed: #{first_batch_error(summary.errors)}"
   end
 
-  def batch_failure_message({:error, summary}) when is_map(summary) do
+  def batch_failure_message({:error, %{applied: _, total: _, errors: _} = summary}) do
     "Stopped after updating #{summary.applied} of #{summary.total} device(s): #{first_batch_error(summary.errors)}"
   end
+
+  def batch_failure_message({:error, reason}), do: format_transaction_error(reason)
 
   defp add_batch(acc, count, nil), do: %{acc | applied: acc.applied + count}
 
