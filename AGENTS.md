@@ -532,6 +532,16 @@ Do not install, start, or connect to a workstation Postgres (Homebrew, `/tmp:543
 happens to be running: it lacks the TimescaleDB and AGE extensions and is not the fixture.
 This applies to every agent, including review and test agents in a validation pipeline.
 
+**Validation-pipeline test agents do not compile Elixir apps or build databases.** In a
+no-mistakes (or similar) Test step, do not cold-compile `serviceradar_core` or `web-ng`,
+and do not create, migrate, or run tests against a scratch database: on this workstation
+that takes most of an hour and duplicates two checks that already exist, the coordinating
+session's scratch-database run before it submits, and BazelCI's in-cluster integration
+lanes in the CI step. Limit the Test step to checks that finish in minutes (reading the
+diff, targeted Go/Rust/Python/JS tests, `python3 -m unittest
+build/contracts/ci_heavy_gate_contract_test.py`), and report database-backed scenarios as
+untested with that reason. The step has a short timeout by design and fails fast.
+
 Use the `srql-fixtures-db-tests` skill when `elixir/serviceradar_core` integration tests
 need the shared CNPG/AGE fixture. There is deliberately no orchestration script — you
 invoke the guarded Bazel lifecycle in order, as the caller:
