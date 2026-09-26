@@ -6,7 +6,7 @@ import {
   useFrameRows,
   useIndexedRows,
 } from "@carverauto/serviceradar-dashboard-sdk/react"
-import {scatter, useDeckLayers, useDeckMap} from "@carverauto/serviceradar-dashboard-sdk/map"
+import {scatter, useDeckLayers, useDeckMap, useScreenLod} from "@carverauto/serviceradar-dashboard-sdk/map"
 import {useMapPopup} from "@carverauto/serviceradar-dashboard-sdk/popup"
 
 const SITE_SHAPE = Object.freeze({
@@ -20,6 +20,13 @@ const SITE_SHAPE = Object.freeze({
 
 const INDEX_BY = {region: "region"}
 const INITIAL_FILTERS = {regions: [], search: ""}
+
+// Below exitZoom the map draws one marker per cell; at enterZoom it draws each
+// site. Between the two it keeps whichever it was already drawing.
+const LOD = Object.freeze({enterZoom: 5, exitZoom: 4, radiusPx: 48})
+const sitePosition = (site) => [site.longitude, site.latitude]
+const siteId = (site) => site.site_code
+const sumAps = (members) => ({ap_count: members.reduce((sum, site) => sum + (site.ap_count || 0), 0)})
 
 function MapDashboard() {
   const sites = useFrameRows("sites", {decode: "auto", shape: SITE_SHAPE})
@@ -43,17 +50,29 @@ function MapDashboard() {
     viewportThrottleMs: 120,
   })
 
+  const lod = useScreenLod(visible, {
+    ...LOD,
+    viewState: handle.viewState,
+    getPosition: sitePosition,
+    getId: siteId,
+    aggregate: sumAps,
+  })
+
   const accessors = useMemo(() => ({
-    getPosition: (site) => [site.longitude, site.latitude],
-    getRadius: (site) => Math.min(36, Math.max(10, 8 + Math.sqrt(site.ap_count || 1) * 0.3)),
-  }), [])
+    getPosition: lod.positionOf,
+    getRadius: (row) => (lod.isCluster(row)
+      ? Math.min(40, 12 + Math.log2(row.__lod_count) * 4)
+      : Math.min(36, Math.max(10, 8 + Math.sqrt(row.ap_count || 1) * 0.3))),
+  }), [lod.positionOf, lod.isCluster])
 
   const visualProps = useMemo(() => ({
     pickable: true,
     radiusUnits: "pixels",
     stroked: true,
     filled: true,
-    getFillColor: dark ? [17, 24, 39, 232] : [255, 255, 255, 240],
+    getFillColor: (row) => (row.__lod === "far"
+      ? [37, 99, 235, 200]
+      : dark ? [17, 24, 39, 232] : [255, 255, 255, 240]),
     getLineColor: [37, 99, 235, 255],
     lineWidthUnits: "pixels",
     getLineWidth: 2,
@@ -62,12 +81,22 @@ function MapDashboard() {
   const [focused, setFocused] = React.useState(null)
   const popup = useMapPopup(handle.map, {closeOnClick: false, offset: 12, onClose: () => setFocused(null)})
 
+  const onSiteClick = useCallback((info) => {
+    const row = info?.object
+    if (lod.isCluster(row)) {
+      setFocused(null)
+      handle.flyTo({center: lod.positionOf(row), zoom: lod.enterZoom})
+      return
+    }
+    setFocused(row || null)
+  }, [lod, handle])
+
   useDeckLayers(handle, {
     sites: scatter("sites", {
-      data: visible,
+      data: lod.data,
       accessors,
       visualProps,
-      events: {onClick: (info) => setFocused(info?.object || null)},
+      events: {onClick: onSiteClick},
     }),
   })
 
@@ -100,6 +129,11 @@ function MapDashboard() {
       <aside style={{borderLeft: "1px solid #e5e7eb", padding: 16, overflow: "auto", background: "#f9fafb"}}>
         <h1 style={{margin: 0, fontSize: 16}}>__DASHBOARD_TITLE__</h1>
         <p style={{color: "#6b7280", marginTop: 4}}>{visible.length.toLocaleString()} of {sites.length.toLocaleString()} sites</p>
+        {lod.band === "far" ? (
+          <p style={{color: "#6b7280", marginTop: 0, fontSize: 12}}>
+            {lod.hidden.toLocaleString()} sites in {lod.data.length.toLocaleString()} groups · zoom in or click a group
+          </p>
+        ) : null}
         <input
           type="search"
           placeholder="Filter sites…"
