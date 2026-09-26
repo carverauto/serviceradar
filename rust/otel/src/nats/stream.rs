@@ -1,5 +1,18 @@
-//! JetStream stream creation and config reconciliation: ensures the stream
-//! exists with the required subjects, retention, and replica settings.
+//! JetStream stream creation, ownership claim and config reconciliation:
+//! ensures the stream exists with the required subjects, claims it for the
+//! otel log-collector and reconciles its retention and replica settings.
+//!
+//! Ownership (openspec `update-jetstream-storage-budget`, D6): the stream's
+//! JetStream metadata key [`OWNER_METADATA_KEY`] names the one component that
+//! reconciles its shape. The otel log-collector is the dedicated owner of its
+//! stream (`events` by default), so on every start it sets the key to
+//! [`OWNER_OTEL_LOG_COLLECTOR`], overriding an EventWriter fallback claim and
+//! claiming a legacy stream with no metadata, in the same update that
+//! reconciles the shape. The stream is a discard-old buffer, so `max_bytes` is
+//! reconciled to the configured value even when that is below the bytes
+//! stored: NATS then evicts the oldest messages.
+
+use std::collections::HashMap;
 
 use anyhow::{Result, anyhow};
 use async_nats::jetstream;
@@ -71,127 +84,215 @@ fn reconcile_subjects(existing_subjects: &[String], required_subjects: &[String]
     reconciled
 }
 
+/// Stream metadata key recording which component owns the stream shape.
+pub(crate) const OWNER_METADATA_KEY: &str = "serviceradar.owner";
+/// Ownership claim value of the otel log-collector.
+pub(crate) const OWNER_OTEL_LOG_COLLECTOR: &str = "otel-log-collector";
+
+/// Subjects the collector publishes to and therefore requires on the stream.
+fn required_subjects(config: &NATSConfig) -> Vec<String> {
+    let logs_subject = config
+        .logs_subject
+        .clone()
+        .unwrap_or_else(|| format!("{}.logs", config.subject));
+    vec![
+        format!("{}.traces.>", config.subject),
+        format!("{}.metrics.>", config.subject),
+        logs_subject,
+    ]
+}
+
+/// Config used when the stream is absent: created already claimed and at the
+/// configured shape, so claim and shape land together.
+fn create_stream_config(config: &NATSConfig) -> jetstream::stream::Config {
+    jetstream::stream::Config {
+        name: config.stream.clone(),
+        subjects: required_subjects(config),
+        storage: StorageType::File,
+        max_bytes: config.max_bytes,
+        max_age: config.max_age,
+        num_replicas: config.stream_replicas,
+        metadata: HashMap::from([(
+            OWNER_METADATA_KEY.to_string(),
+            OWNER_OTEL_LOG_COLLECTOR.to_string(),
+        )]),
+        ..Default::default()
+    }
+}
+
+/// One field the reconcile changes, with its value before and after.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ShapeChange {
+    field: &'static str,
+    before: String,
+    after: String,
+}
+
+/// The update the collector applies to an existing stream.
+#[derive(Debug, Clone)]
+struct ReconcilePlan {
+    /// The full stream config to send; equals the existing config when
+    /// nothing changes.
+    config: jetstream::stream::Config,
+    /// Every changed field, in application order.
+    changes: Vec<ShapeChange>,
+    /// Subjects required by the collector that the stream did not cover.
+    missing_subjects: Vec<String>,
+    /// Legacy subjects replaced by a required wildcard that covers them.
+    removed_subjects: Vec<String>,
+    /// Bytes stored when the plan was made.
+    stored_bytes: u64,
+}
+
+impl ReconcilePlan {
+    fn needs_update(&self) -> bool {
+        !self.changes.is_empty()
+    }
+
+    fn change(&self, field: &str) -> Option<&ShapeChange> {
+        self.changes.iter().find(|change| change.field == field)
+    }
+
+    /// True when the new `max_bytes` is below what the stream holds, so
+    /// applying it makes NATS evict the oldest messages (discard-old).
+    fn evicts_oldest(&self) -> bool {
+        self.change("max_bytes").is_some()
+            && self.config.max_bytes > 0
+            && self.stored_bytes > self.config.max_bytes.unsigned_abs()
+    }
+}
+
+fn record_change<T: std::fmt::Debug + PartialEq>(
+    changes: &mut Vec<ShapeChange>,
+    field: &'static str,
+    current: &mut T,
+    desired: T,
+) {
+    if *current != desired {
+        changes.push(ShapeChange {
+            field,
+            before: format!("{current:?}"),
+            after: format!("{desired:?}"),
+        });
+        *current = desired;
+    }
+}
+
+/// Decides how the collector reconciles an existing stream.
+///
+/// - Claims the stream: sets [`OWNER_METADATA_KEY`] to
+///   [`OWNER_OTEL_LOG_COLLECTOR`] whatever it was before (an `event-writer`
+///   claim or no metadata at all), keeping every other metadata key.
+/// - Keeps every subject other writers added and adds the required ones
+///   (a required wildcard replaces the specific subjects it covers).
+/// - Reconciles `max_bytes`, `max_age` and `num_replicas` to the configured
+///   values under the discard-old rule: the configured `max_bytes` is applied
+///   even when it is below `stored_bytes`.
+fn plan_reconcile(
+    existing: &jetstream::stream::Config,
+    stored_bytes: u64,
+    config: &NATSConfig,
+) -> ReconcilePlan {
+    let required = required_subjects(config);
+    let mut desired = existing.clone();
+    let mut changes = Vec::new();
+
+    let previous_owner = existing.metadata.get(OWNER_METADATA_KEY).cloned();
+    if previous_owner.as_deref() != Some(OWNER_OTEL_LOG_COLLECTOR) {
+        changes.push(ShapeChange {
+            field: "metadata.serviceradar.owner",
+            before: previous_owner.unwrap_or_else(|| "<none>".to_string()),
+            after: OWNER_OTEL_LOG_COLLECTOR.to_string(),
+        });
+        desired.metadata.insert(
+            OWNER_METADATA_KEY.to_string(),
+            OWNER_OTEL_LOG_COLLECTOR.to_string(),
+        );
+    }
+
+    let missing = missing_subjects(&existing.subjects, &required);
+    let reconciled_subjects = reconcile_subjects(&existing.subjects, &required);
+    let removed_subjects: Vec<String> = existing
+        .subjects
+        .iter()
+        .filter(|subject| !reconciled_subjects.contains(*subject))
+        .cloned()
+        .collect();
+    record_change(
+        &mut changes,
+        "subjects",
+        &mut desired.subjects,
+        reconciled_subjects,
+    );
+
+    record_change(
+        &mut changes,
+        "max_bytes",
+        &mut desired.max_bytes,
+        config.max_bytes,
+    );
+    record_change(
+        &mut changes,
+        "max_age",
+        &mut desired.max_age,
+        config.max_age,
+    );
+    record_change(
+        &mut changes,
+        "num_replicas",
+        &mut desired.num_replicas,
+        config.stream_replicas,
+    );
+
+    ReconcilePlan {
+        config: desired,
+        changes,
+        missing_subjects: missing,
+        removed_subjects,
+        stored_bytes,
+    }
+}
+
+fn log_plan(stream: &str, plan: &ReconcilePlan) {
+    if !plan.missing_subjects.is_empty() {
+        warn!(
+            "Stream '{stream}' exists but is missing subjects: {:?}",
+            plan.missing_subjects
+        );
+    }
+    if !plan.removed_subjects.is_empty() {
+        warn!(
+            "Stream '{stream}' has legacy subjects covered by required wildcards; removing to avoid JetStream overlap: {:?}",
+            plan.removed_subjects
+        );
+    }
+    for change in &plan.changes {
+        info!(
+            "Reconciling stream '{stream}' {}: before={} after={}",
+            change.field, change.before, change.after
+        );
+    }
+    if plan.evicts_oldest() {
+        warn!(
+            "Stream '{stream}' holds {} bytes, above the configured max_bytes {}; \
+             discard-old: NATS will evict the oldest messages",
+            plan.stored_bytes, plan.config.max_bytes
+        );
+    }
+}
+
 pub(super) async fn ensure_stream(
     jetstream: &jetstream::Context,
     config: &NATSConfig,
 ) -> Result<()> {
     debug!("Creating/verifying JetStream stream: {}", config.stream);
-    let logs_subject = config
-        .logs_subject
-        .clone()
-        .unwrap_or_else(|| format!("{}.logs", config.subject));
-    let subjects = vec![
-        format!("{}.traces.>", config.subject),
-        format!("{}.metrics.>", config.subject),
-        logs_subject.clone(),
-    ];
-    debug!("Stream will handle subjects: {subjects:?}");
+    let create_config = create_stream_config(config);
+    debug!("Stream will handle subjects: {:?}", create_config.subjects);
 
-    let desired_config = jetstream::stream::Config {
-        name: config.stream.clone(),
-        subjects: subjects.clone(),
-        storage: StorageType::File,
-        max_bytes: config.max_bytes,
-        max_age: config.max_age,
-        num_replicas: config.stream_replicas,
-        ..Default::default()
-    };
-
-    match jetstream.get_or_create_stream(desired_config.clone()).await {
-        Ok(mut stream) => {
-            let stream_info = stream.info().await?;
-            let existing_subjects = &stream_info.config.subjects;
-            let mut needs_update = false;
-            let mut updated_config = stream_info.config.clone();
-
-            let missing_subjects = missing_subjects(existing_subjects, &subjects);
-
-            if !missing_subjects.is_empty() {
-                warn!(
-                    "Stream '{}' exists but is missing subjects: {:?}",
-                    config.stream, missing_subjects
-                );
-                warn!("Current subjects: {existing_subjects:?}");
-
-                for subject in missing_subjects {
-                    updated_config.subjects.push(subject);
-                    needs_update = true;
-                }
-            }
-
-            let reconciled_subjects = reconcile_subjects(existing_subjects, &subjects);
-            if reconciled_subjects != *existing_subjects {
-                let removed_subjects: Vec<String> = existing_subjects
-                    .iter()
-                    .filter(|subject| !reconciled_subjects.contains(*subject))
-                    .cloned()
-                    .collect();
-                if !removed_subjects.is_empty() {
-                    warn!(
-                        "Stream '{}' has legacy subjects covered by required wildcards; removing to avoid JetStream overlap: {:?}",
-                        config.stream, removed_subjects
-                    );
-                }
-                updated_config.subjects = reconciled_subjects;
-                needs_update = true;
-            }
-
-            if updated_config.max_bytes != config.max_bytes {
-                debug!(
-                    "Updating stream '{}' max_bytes from {} to {}",
-                    config.stream, updated_config.max_bytes, config.max_bytes
-                );
-                updated_config.max_bytes = config.max_bytes;
-                needs_update = true;
-            }
-
-            if updated_config.max_age != config.max_age {
-                debug!(
-                    "Updating stream '{}' max_age from {:?} to {:?}",
-                    config.stream, updated_config.max_age, config.max_age
-                );
-                updated_config.max_age = config.max_age;
-                needs_update = true;
-            }
-
-            if updated_config.num_replicas != config.stream_replicas {
-                debug!(
-                    "Updating stream '{}' replicas from {} to {}",
-                    config.stream, updated_config.num_replicas, config.stream_replicas
-                );
-                updated_config.num_replicas = config.stream_replicas;
-                needs_update = true;
-            }
-
-            if needs_update {
-                debug!("Applying stream config update: {:?}", updated_config);
-                match jetstream.update_stream(updated_config).await {
-                    Ok(updated_info) => {
-                        info!(
-                            "Successfully updated stream '{}' configuration",
-                            config.stream
-                        );
-                        debug!(
-                            "Updated config: subjects={:?}, max_bytes={}, max_age={:?}",
-                            updated_info.config.subjects,
-                            updated_info.config.max_bytes,
-                            updated_info.config.max_age
-                        );
-                    }
-                    Err(e) => {
-                        error!(
-                            "Failed to update stream '{}' configuration: {e}",
-                            config.stream
-                        );
-                    }
-                }
-            } else {
-                info!(
-                    "JetStream stream '{}' ready with subjects: {:?}",
-                    config.stream, existing_subjects
-                );
-            }
-        }
+    // `fallback` marks the path where get-or-create failed and the stream was
+    // fetched instead; there a failed update is fatal, as before.
+    let (stream_info, fallback) = match jetstream.get_or_create_stream(create_config).await {
+        Ok(mut stream) => (stream.info().await?.clone(), false),
         Err(e) => {
             // Stream may already exist with different subjects (e.g., created by another
             // pipeline like Flowgger). Fall back to fetching and updating it.
@@ -200,70 +301,7 @@ pub(super) async fn ensure_stream(
                 config.stream
             );
             match jetstream.get_stream(&config.stream).await {
-                Ok(mut stream) => {
-                    let stream_info = stream.info().await?;
-                    let existing_subjects = &stream_info.config.subjects;
-                    let mut updated_config = stream_info.config.clone();
-                    let mut needs_update = false;
-                    let missing_subjects = missing_subjects(&updated_config.subjects, &subjects);
-
-                    for subject in missing_subjects {
-                        updated_config.subjects.push(subject);
-                        needs_update = true;
-                    }
-
-                    let reconciled_subjects = reconcile_subjects(existing_subjects, &subjects);
-                    if reconciled_subjects != *existing_subjects {
-                        let removed_subjects: Vec<String> = existing_subjects
-                            .iter()
-                            .filter(|subject| !reconciled_subjects.contains(*subject))
-                            .cloned()
-                            .collect();
-                        if !removed_subjects.is_empty() {
-                            warn!(
-                                "Stream '{}' has legacy subjects covered by required wildcards; removing to avoid JetStream overlap: {:?}",
-                                config.stream, removed_subjects
-                            );
-                        }
-                        updated_config.subjects = reconciled_subjects;
-                        needs_update = true;
-                    }
-
-                    if updated_config.max_bytes != config.max_bytes {
-                        updated_config.max_bytes = config.max_bytes;
-                        needs_update = true;
-                    }
-                    if updated_config.max_age != config.max_age {
-                        updated_config.max_age = config.max_age;
-                        needs_update = true;
-                    }
-                    if updated_config.num_replicas != config.stream_replicas {
-                        updated_config.num_replicas = config.stream_replicas;
-                        needs_update = true;
-                    }
-
-                    if needs_update {
-                        info!(
-                            "Updating existing stream '{}' to add subjects: {:?}",
-                            config.stream, subjects
-                        );
-                        jetstream
-                            .update_stream(updated_config)
-                            .await
-                            .map_err(|ue| {
-                                anyhow!(
-                                    "Failed to update stream '{}' after config mismatch: {ue}",
-                                    config.stream
-                                )
-                            })?;
-                        info!("Successfully updated stream '{}'", config.stream);
-                    } else {
-                        info!(
-                            "Stream '{}' already has all required subjects",
-                            config.stream
-                        );
-                    }
-                }
+                Ok(mut stream) => (stream.info().await?.clone(), true),
                 Err(fetch_err) => {
                     error!(
                         "Failed to fetch existing stream '{}': {fetch_err}",
@@ -276,9 +314,55 @@ pub(super) async fn ensure_stream(
                 }
             }
         }
+    };
+
+    let plan = plan_reconcile(&stream_info.config, stream_info.state.bytes, config);
+    if !plan.needs_update() {
+        info!(
+            "JetStream stream '{}' ready, claimed by {OWNER_OTEL_LOG_COLLECTOR}, with subjects: {:?}",
+            config.stream, stream_info.config.subjects
+        );
+        return Ok(());
     }
 
-    Ok(())
+    log_plan(&config.stream, &plan);
+    info!(
+        "Stream '{}' before update: owner={:?} max_bytes={} max_age={:?} replicas={} stored_bytes={}",
+        config.stream,
+        stream_info.config.metadata.get(OWNER_METADATA_KEY),
+        stream_info.config.max_bytes,
+        stream_info.config.max_age,
+        stream_info.config.num_replicas,
+        stream_info.state.bytes
+    );
+    debug!("Applying stream config update: {:?}", plan.config);
+
+    match jetstream.update_stream(plan.config).await {
+        Ok(updated) => {
+            info!(
+                "Stream '{}' after update: owner={:?} max_bytes={} max_age={:?} replicas={} stored_bytes={} subjects={:?}",
+                config.stream,
+                updated.config.metadata.get(OWNER_METADATA_KEY),
+                updated.config.max_bytes,
+                updated.config.max_age,
+                updated.config.num_replicas,
+                updated.state.bytes,
+                updated.config.subjects
+            );
+            Ok(())
+        }
+        Err(e) if fallback => Err(anyhow!(
+            "Failed to update stream '{}' after config mismatch: {e}",
+            config.stream
+        )),
+        Err(e) => {
+            error!(
+                "Failed to update stream '{}' configuration: {e}",
+                config.stream
+            );
+            Ok(())
+        }
+    }
 }
 
 #[cfg(test)]

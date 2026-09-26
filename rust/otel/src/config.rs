@@ -261,10 +261,13 @@ pub struct NATSConfigTOML {
     pub creds_file: Option<String>,
     #[serde(default = "default_timeout_secs")]
     pub timeout_secs: u64,
+    /// Stream `max_bytes`. `SERVICERADAR_JS_<STREAM>_MAX_BYTES` (for the
+    /// default stream `SERVICERADAR_JS_EVENTS_MAX_BYTES`) overrides it.
     #[serde(default = "default_max_bytes")]
     pub max_bytes: i64,
     #[serde(default = "default_max_age_secs")]
     pub max_age_secs: u64,
+    /// Stream replica count. `SERVICERADAR_JS_<STREAM>_REPLICAS` overrides it.
     #[serde(default = "default_stream_replicas")]
     pub stream_replicas: usize,
     /// Maximum number of concurrently in-flight JetStream chunk publishes
@@ -358,8 +361,19 @@ impl Config {
             .map(|m| format!("{}:{}", m.bind_address, m.port))
     }
 
-    /// Convert to NatsConfig if NATS is configured
+    /// Convert to NatsConfig if NATS is configured, applying the
+    /// `SERVICERADAR_JS_<STREAM>_MAX_BYTES` / `_REPLICAS` environment
+    /// overrides from the process environment (environment, then TOML, then
+    /// the compiled default). An invalid override is an error.
     pub fn nats_config(&self) -> Result<Option<NATSConfig>> {
+        self.nats_config_with_env(crate::nats::process_env)
+    }
+
+    /// [`Self::nats_config`] with an injected environment lookup.
+    pub fn nats_config_with_env<F>(&self, env: F) -> Result<Option<NATSConfig>>
+    where
+        F: Fn(&str) -> Option<String>,
+    {
         self.nats
             .as_ref()
             .map(|nats| {
@@ -374,7 +388,7 @@ impl Config {
                     }
                 });
 
-                Ok(NATSConfig {
+                let mut config = NATSConfig {
                     url: nats.url.clone(),
                     subject: nats.subject.clone(),
                     stream: nats.stream.clone(),
@@ -389,7 +403,9 @@ impl Config {
                     tls_ca,
                     tls_material_dir,
                     max_inflight_publishes: nats.max_inflight_publishes,
-                })
+                };
+                config.apply_env_overrides(&env)?;
+                Ok(config)
             })
             .transpose()
     }
@@ -1143,5 +1159,121 @@ ca_file = "/path/to/ca.pem"
         assert_eq!(tls.cert_file, "/path/to/server.crt");
         assert_eq!(tls.key_file, "/path/to/server.key");
         assert_eq!(tls.ca_file.unwrap(), "/path/to/ca.pem");
+    }
+
+    /// Environment lookup backed by a fixed map, so tests never mutate the
+    /// process environment.
+    fn env_from(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> + use<> {
+        let map: std::collections::HashMap<String, String> = pairs
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), (*v).to_string()))
+            .collect();
+        move |key| map.get(key).cloned()
+    }
+
+    const GIB: i64 = 1024 * 1024 * 1024;
+
+    #[test]
+    fn test_events_stream_size_precedence_env_then_file_then_default() {
+        let with_file_values: Config = toml::from_str(
+            r#"
+[nats]
+url = "nats://nats.example.com:4222"
+stream = "events"
+max_bytes = 1073741824
+stream_replicas = 1
+"#,
+        )
+        .unwrap();
+        let without_file_values: Config = toml::from_str(
+            r#"
+[nats]
+url = "nats://nats.example.com:4222"
+stream = "events"
+"#,
+        )
+        .unwrap();
+
+        // Environment beats the file.
+        let env = env_from(&[
+            ("SERVICERADAR_JS_EVENTS_MAX_BYTES", "3221225472"),
+            ("SERVICERADAR_JS_EVENTS_REPLICAS", "3"),
+        ]);
+        let nats = with_file_values
+            .nats_config_with_env(&env)
+            .unwrap()
+            .unwrap();
+        assert_eq!(nats.max_bytes, 3 * GIB);
+        assert_eq!(nats.stream_replicas, 3);
+
+        // Environment beats the compiled default.
+        let nats = without_file_values
+            .nats_config_with_env(&env)
+            .unwrap()
+            .unwrap();
+        assert_eq!(nats.max_bytes, 3 * GIB);
+        assert_eq!(nats.stream_replicas, 3);
+
+        // One variable overrides only its own field.
+        let nats = with_file_values
+            .nats_config_with_env(env_from(&[("SERVICERADAR_JS_EVENTS_REPLICAS", "3")]))
+            .unwrap()
+            .unwrap();
+        assert_eq!(nats.max_bytes, GIB);
+        assert_eq!(nats.stream_replicas, 3);
+
+        // Without the environment the file wins, then the compiled default.
+        let nats = with_file_values
+            .nats_config_with_env(env_from(&[]))
+            .unwrap()
+            .unwrap();
+        assert_eq!(nats.max_bytes, GIB);
+        assert_eq!(nats.stream_replicas, 1);
+        let nats = without_file_values
+            .nats_config_with_env(env_from(&[]))
+            .unwrap()
+            .unwrap();
+        assert_eq!(nats.max_bytes, default_max_bytes());
+        assert_eq!(nats.stream_replicas, default_stream_replicas());
+
+        // The variable is named after the configured stream, so another
+        // stream's variables do not apply to `events`.
+        let nats = with_file_values
+            .nats_config_with_env(env_from(&[("SERVICERADAR_JS_FLOWS_MAX_BYTES", "5")]))
+            .unwrap()
+            .unwrap();
+        assert_eq!(nats.max_bytes, GIB);
+    }
+
+    #[test]
+    fn test_invalid_events_stream_size_env_fails_naming_the_variable() {
+        let config: Config = toml::from_str(
+            r#"
+[nats]
+url = "nats://nats.example.com:4222"
+stream = "events"
+"#,
+        )
+        .unwrap();
+
+        for (key, value) in [
+            ("SERVICERADAR_JS_EVENTS_MAX_BYTES", "two-gigabytes"),
+            ("SERVICERADAR_JS_EVENTS_MAX_BYTES", "0"),
+            ("SERVICERADAR_JS_EVENTS_MAX_BYTES", "-1"),
+            ("SERVICERADAR_JS_EVENTS_MAX_BYTES", "1.5"),
+            ("SERVICERADAR_JS_EVENTS_MAX_BYTES", ""),
+            ("SERVICERADAR_JS_EVENTS_REPLICAS", "0"),
+            ("SERVICERADAR_JS_EVENTS_REPLICAS", "-3"),
+            ("SERVICERADAR_JS_EVENTS_REPLICAS", "three"),
+        ] {
+            let err = config
+                .nats_config_with_env(env_from(&[(key, value)]))
+                .expect_err(&format!("{key}={value:?} must fail startup"));
+            let message = format!("{err:#}");
+            assert!(
+                message.contains(key),
+                "error for {key}={value:?} must name the variable, got: {message}"
+            );
+        }
     }
 }
