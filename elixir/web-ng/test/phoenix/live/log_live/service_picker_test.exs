@@ -198,6 +198,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.ServicePickerTest do
     assert ~s|in:otel_services signal:traces time:last_24h stats:"count() as total"| in catalog_queries()
   end
 
+  test "the OTLP points view scopes its metric-name rollup to a multi-service selection", %{conn: conn} do
+    q = ~s|in:otel_metrics time:last_6h service_name:("svc-0001","svc-0002")|
+    {:ok, _lv, _html} = live(conn, ~p"/observability/metrics?#{%{q: q, mview: "points"}}")
+
+    queries = srql_queries()
+
+    assert ~s|in:otel_metric_points time:last_6h service_name:("svc-0001","svc-0002") sort:timestamp:desc limit:250| in queries
+    refute Enum.any?(queries, &(&1 =~ "in:otel_metric_points" and &1 =~ ~s|service_name:"(|))
+  end
+
   describe "trace stat cards under a service filter" do
     # The trace list matches a service anywhere in the trace; the summary rollup
     # groups root spans by the ROOT service. A trace rooted in `checkout` that

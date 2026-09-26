@@ -8809,14 +8809,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp otlp_points_base_query(current_query) do
     query = to_string(current_query || "")
     window = extract_time_from_query(query) || "last_24h"
-    service = extract_filter_from_query(query, "service_name")
-
     base = "in:otel_metric_points time:#{window}"
 
-    if non_empty_string?(service) do
-      base <> ~s| service_name:"#{escape_srql_value(service)}"|
-    else
-      base
+    case ServiceFilter.stats_scope(query) do
+      names when is_list(names) -> ServiceFilter.put(base, names)
+      pattern when is_binary(pattern) -> base <> ~s| service_name:"#{escape_srql_value(pattern)}"|
+      _none_or_all_services -> base
     end
   end
 

@@ -122,7 +122,7 @@ defmodule ServiceRadar.EventWriter.ServiceCatalog do
     cond do
       String.trim(name) == "" -> :skip
       not String.valid?(name) or String.contains?(name, <<0>>) -> {:drop, :invalid, name}
-      String.length(name) > @max_name_length -> {:drop, :too_long, name}
+      length(String.codepoints(name)) > @max_name_length -> {:drop, :too_long, name}
       true -> {:ok, name}
     end
   end

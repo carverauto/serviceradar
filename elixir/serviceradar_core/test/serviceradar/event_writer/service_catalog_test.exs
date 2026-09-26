@@ -128,4 +128,16 @@ defmodule ServiceRadar.EventWriter.ServiceCatalogTest do
     assert_received {:telemetry, @names_dropped, %{count: 1}, %{reason: :too_long}}
     assert_received {:telemetry, @names_dropped, %{count: 2}, %{reason: :invalid}}
   end
+
+  test "counts codepoints like Postgres char_length, so combining marks cannot poison a batch",
+       %{opts: opts} do
+    combining = "e" <> String.duplicate("\u0301", 299)
+    assert String.length(combining) < 255
+    assert length(String.codepoints(combining)) > 255
+
+    assert {:ok, 1} = ServiceCatalog.record(:logs, rows([combining, "checkout"]), opts)
+    assert written_names() == ["checkout"]
+
+    assert_received {:telemetry, @names_dropped, %{count: 1}, %{reason: :too_long}}
+  end
 end
