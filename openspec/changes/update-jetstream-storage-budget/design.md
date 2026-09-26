@@ -193,13 +193,40 @@ as it should.
 ### D6. One owner reconciles a stream, by discard policy
 
 Exactly one component owns the shape (`max_bytes`, replicas, retention) of
-each stream and reconciles it; any secondary creator (EventWriter for `flows`
-and `ARANCINI_CAUSAL`, D3) creates the stream only when absent and merges
-subjects without touching the shape.
+each stream and reconciles it; any secondary creator (EventWriter for
+`events`, `flows` and `ARANCINI_CAUSAL`, D3) creates the stream only when
+absent and merges subjects without touching the shape.
+
+| Stream | Owner (reconciles the shape) | Other components |
+| --- | --- | --- |
+| `KV_serviceradar-datasvc`, `OBJ_serviceradar-objects` | datasvc | none |
+| `events` | otel log-collector | EventWriter consumers, subjects only |
+| `flows` | flow-collector when enabled, EventWriter otherwise | EventWriter `flows` consumers never reconcile |
+| `ARANCINI_CAUSAL` | bmp-collector when enabled, EventWriter otherwise | EventWriter consumer subjects only when bmp-collector is enabled |
+| `OBJ_serviceradar_plugins`, fieldsurvey | web-ng | none |
+| threat-intel object store | core | none |
+| `NOTIFICATIONS` | core notifications | none |
+| `metrics`, `k8s_inventory`, `analytics_predictions`, `mtr_results`, `scan_results`, `trivy_reports` | EventWriter | none |
+
+`events` is shared: the log-collector owns its shape at
+`logCollector.streamReplicas` and the profile's `events` size (2 GiB R3 in
+`small`), while EventWriter's default `EVENTS` consumer today carries
+`stream_max_bytes` of 8 GiB and reconciles it, so an EventWriter start would
+write 8 GiB over the budgeted 2 GiB on every server. Every EventWriter consumer
+on `events` (`EVENTS`, `PDNS_OCSF`, `FALCO`, the `OTEL_*` consumers, `LOGS`,
+`BMP_CAUSAL`, `SIEM_CAUSAL`, `ATTRIBUTED_FLOW`) SHALL be subjects only:
+`reconcile_stream_shape: false` and no `stream_max_bytes`, in every config path
+(`Config.default_streams/0` in `serviceradar_core`, `serviceradar_core/config/runtime.exs`
+and `serviceradar_core_elx/config/runtime.exs`), and the 8 GiB `EVENTS` size is
+removed. If the stream is absent when EventWriter starts, EventWriter creates
+it with the same profile size and replicas the log-collector uses
+(`SERVICERADAR_JS_EVENTS_MAX_BYTES` and `_REPLICAS`, D7), never unlimited, and
+otherwise leaves the shape alone.
 
 Owners that reconcile `max_bytes` on an existing stream: datasvc
 (`reconcileStreamConfigLocked`), the otel log-collector, flow-collector (for
-`flows`), bmp-collector (for `ARANCINI_CAUSAL`, D3) and EventWriter. Three
+`flows`), bmp-collector (for `ARANCINI_CAUSAL`, D3) and EventWriter (for the
+streams only it owns). Three
 owners create their bucket once and never update it, so on an existing install
 the bucket stays unlimited while the budget counts it at its profile size:
 web-ng's plugin bucket (`plugins/storage.ex`), web-ng's fieldsurvey bucket

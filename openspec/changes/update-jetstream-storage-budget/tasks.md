@@ -95,6 +95,23 @@
       full reconciled to 8 GiB.
 - [ ] 4.11 Classify `NOTIFICATIONS` (created by core notifications) by its
       discard policy and apply the matching D6 rule.
+- [ ] 4.12 EventWriter `events` consumers (`EVENTS`, `PDNS_OCSF`, `FALCO`,
+      `OTEL_*`, `LOGS`, `BMP_CAUSAL`, `SIEM_CAUSAL`, `ATTRIBUTED_FLOW`): subjects
+      only, with `reconcile_stream_shape: false` and no `stream_max_bytes`, in
+      `Config.default_streams/0` (`serviceradar_core` `config.ex`),
+      `serviceradar_core/config/runtime.exs` and
+      `serviceradar_core_elx/config/runtime.exs`; remove the 8 GiB `EVENTS`
+      `stream_max_bytes`. When `events` is absent EventWriter creates it with
+      the profile `events` size and replicas (`SERVICERADAR_JS_EVENTS_MAX_BYTES`
+      / `_REPLICAS`), never unlimited. Test that an EventWriter start leaves an
+      existing `events` stream's `max_bytes` unchanged.
+- [ ] 4.13 Ownership test (ExUnit, in `serviceradar_core`): call
+      `Config.default_streams/0` and the runtime configuration loaders, join
+      them with a typed inventory of streams and declared owners (D6 table), and
+      assert every stream has exactly one reconciling component and no
+      EventWriter consumer reconciles a stream it does not own. It derives the
+      answer from the loaded configuration, not from source text; it fails on
+      the current 8 GiB `EVENTS` default.
 
 ## 5. Compose and packaged installs (D7)
 

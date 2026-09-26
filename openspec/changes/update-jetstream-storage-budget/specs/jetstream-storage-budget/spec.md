@@ -192,6 +192,24 @@ For a discard-old buffer stream (`flows`, `events`, `ARANCINI_CAUSAL` and every 
 Exactly one component SHALL reconcile the shape (`max_bytes`, replicas, retention) of a given stream. A secondary creator SHALL create the stream only when it is absent and otherwise merge subjects without changing the shape.
 When `bmpCollector.enabled` is true the Helm chart SHALL configure the EventWriter `ARANCINI_CAUSAL` consumer not to reconcile the stream shape, so bmp-collector owns `max_bytes` and replicas. The EventWriter fallback size SHALL apply only when bmp-collector is disabled and EventWriter creates the stream.
 
+The otel log-collector SHALL own the shape of `events`. Every EventWriter consumer on `events` SHALL reconcile only subjects, with `reconcile_stream_shape` false and no `stream_max_bytes`, in every EventWriter configuration path. An ownership test SHALL fail when any stream in the inventory has zero or more than one component reconciling its shape, derived from the typed EventWriter configuration and the inventory's declared owners.
+
+#### Scenario: EventWriter start does not change the events stream
+- **GIVEN** the otel log-collector has set `events` to a `max_bytes` of 2 GiB
+- **WHEN** EventWriter starts with its default streams
+- **THEN** the `events` stream's `max_bytes`, replicas and retention SHALL be unchanged
+
+#### Scenario: EventWriter creates events when it is absent
+- **GIVEN** the `events` stream does not exist
+- **WHEN** EventWriter starts first
+- **THEN** it SHALL create the stream with the profile `events` size and replicas, not unlimited
+
+#### Scenario: Ownership is unambiguous
+- **GIVEN** the stream inventory and the EventWriter default streams
+- **WHEN** the ownership test runs
+- **THEN** every stream SHALL have exactly one reconciling owner
+- **AND** the test SHALL fail if an EventWriter consumer on `events` reconciles the stream shape
+
 #### Scenario: bmp-collector owns the stream
 - **GIVEN** `bmpCollector.enabled: true` with the `medium` profile, so bmp-collector, which reconciles `max_bytes` and replicas, sets `ARANCINI_CAUSAL` to 12 GiB
 - **WHEN** EventWriter starts and sets up its `ARANCINI_CAUSAL` consumer
