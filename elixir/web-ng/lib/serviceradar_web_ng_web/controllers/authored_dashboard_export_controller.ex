@@ -11,15 +11,16 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardExportController do
   def definition_json(conn, %{"dashboard_id" => dashboard_id}) do
     scope = conn.assigns.current_scope
 
-    with {:ok, dashboard} <- Dashboards.get_authored_dashboard(scope, dashboard_id, load: [:panels]) do
-      definition = DefinitionSerializer.serialize(dashboard)
-      filename = safe_filename(dashboard.slug || dashboard.title || "dashboard")
+    case Dashboards.get_authored_dashboard(scope, dashboard_id, load: [:panels]) do
+      {:ok, dashboard} ->
+        definition = DefinitionSerializer.serialize(dashboard)
+        filename = safe_filename(dashboard.slug || dashboard.title || "dashboard")
 
-      conn
-      |> put_resp_content_type("application/json")
-      |> put_resp_header("content-disposition", "attachment; filename=\"#{filename}.json\"")
-      |> send_resp(200, Jason.encode!(definition, pretty: true))
-    else
+        conn
+        |> put_resp_content_type("application/json")
+        |> put_resp_header("content-disposition", "attachment; filename=\"#{filename}.json\"")
+        |> send_resp(200, Jason.encode!(definition, pretty: true))
+
       {:error, :not_found} ->
         send_resp(conn, 404, "Dashboard not found")
 
