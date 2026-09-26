@@ -18,7 +18,7 @@ defmodule ServiceRadar.Observability.OtelServiceCatalogBackfillWorker do
   refresh interval of the next batch.
 
   Enqueued once by the migration that creates the catalog
-  (`20260925140000_create_otel_service_catalog`), only when a rollup holds rows.
+  (`20260926010000_create_otel_service_catalog`), only when a rollup holds rows.
   To re-seed by hand: `%{} |> OtelServiceCatalogBackfillWorker.new() |> Oban.insert()`.
   """
 
