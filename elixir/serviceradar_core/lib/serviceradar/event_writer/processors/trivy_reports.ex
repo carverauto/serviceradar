@@ -162,7 +162,7 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
       # JetStream redelivers it.
       stored =
         with {:ok, _} <- Destination.persist_after_cnpg(:logs, log_rows),
-             {:ok, _} <- Destination.persist_after_cnpg(:events, promoted_rows) do
+             {:ok, _} <- persist_warehouse_events(promoted_rows) do
           StatefulEvaluationLedger.evaluate_once(promoted_rows)
         end
 
@@ -942,6 +942,30 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
       )
 
     result
+  end
+
+  # A report's event keeps its id across rescans while its time moves forward,
+  # and `insert_event_rows/1` replaces it in CNPG by id. The warehouse keys
+  # events on (id, time), so the same replacement is made there -- delete the
+  # ids, then load -- or every rescan would add a row. It runs under the lock
+  # the CNPG replace takes, so two batches carrying the same report cannot
+  # interleave their deletes and loads and leave both rows behind.
+  defp persist_warehouse_events([]), do: {:ok, :disabled}
+
+  defp persist_warehouse_events(rows) do
+    replace = %{ids: Enum.map(rows, & &1.id), log_provider: "trivy"}
+
+    ServiceRadar.Repo.transaction(
+      fn ->
+        lock_trivy_event_rows()
+
+        case Destination.persist_after_cnpg(:events, rows, replace: replace) do
+          {:ok, result} -> result
+          {:error, reason} -> ServiceRadar.Repo.rollback(reason)
+        end
+      end,
+      timeout: :infinity
+    )
   end
 
   defp lock_trivy_event_rows do

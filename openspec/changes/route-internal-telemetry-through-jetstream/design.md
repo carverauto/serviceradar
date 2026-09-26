@@ -221,6 +221,25 @@ consumers are ready (`Config` `retired_consumers`), treating an absent one as do
 failed delete as a logged retry on the next connect. The `events` stream uses limits
 retention, so the leftover durable never held data back; it only lingered as dead state.
 
+### 9. Trivy replaces its event by id in the warehouse too
+
+A Trivy report's event keeps its id across rescans while its time moves to the latest
+observation, and the processor replaces it in CNPG by id (delete, then insert, under an
+advisory lock). The warehouse keys `events` on `(id, time)`, so every rescan added a row
+there: on the demo lab, 978 rows for 68 report ids over a week. Serving `events` from the
+warehouse would have shown each report many times over.
+
+The warehouse load now makes the same replacement: `Destination` takes
+`replace: %{ids, log_provider}` and deletes those ids for that provider over the Frontend
+query port before the Stream Load, only when the load runs, failing the call without
+loading if the delete fails. Trivy runs it under the advisory lock the CNPG replace takes.
+Ids are cast to UUIDs and the provider is checked against a closed pattern before either
+enters SQL text, since the Frontend client speaks the text protocol. StarRocks migration
+0020 removes the rows rescans already added, keeping each id's latest; it is repeat-safe.
+
+The alternatives change what the dashboards show: an id per observation counts every
+rescan, and a fixed time per report drops long-lived findings out of time windows.
+
 ## Risks / Trade-offs
 
 - **Visibility latency.** An internal event appears after the EventWriter batch interval.
