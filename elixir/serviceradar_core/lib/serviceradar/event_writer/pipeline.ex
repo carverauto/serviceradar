@@ -474,17 +474,17 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       if name in @warehouse_batchers do
         max_ack_pending = batcher_max_ack_pending(config, name) || sizing.max_ack_pending
         timeout = max(Keyword.fetch!(opts, :batch_timeout), sizing.max_age_ms)
-        {name, Keyword.merge(opts, batch_size_for(opts, max_ack_pending), batch_timeout: timeout)}
+        size = batch_size_for(Keyword.fetch!(opts, :batch_size), max_ack_pending)
+        rest = Keyword.drop(opts, [:batch_size, :batch_timeout])
+        {name, [batch_size: size, batch_timeout: timeout] ++ rest}
       else
         {name, opts}
       end
     end)
   end
 
-  defp batch_size_for(opts, nil), do: Keyword.take(opts, [:batch_size])
-
-  defp batch_size_for(_opts, max_ack_pending),
-    do: [batch_size: max(div(max_ack_pending, 2), 1)]
+  defp batch_size_for(configured, nil), do: configured
+  defp batch_size_for(_configured, max_ack_pending), do: max(div(max_ack_pending, 2), 1)
 
   defp batcher_max_ack_pending(%Config{streams: streams}, name) when is_list(streams) do
     Enum.find_value(streams, fn stream ->
