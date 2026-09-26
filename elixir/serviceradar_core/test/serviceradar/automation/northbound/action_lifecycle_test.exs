@@ -10,13 +10,24 @@ defmodule ServiceRadar.Automation.Northbound.ActionLifecycleTest do
   alias ServiceRadar.Automation.Northbound.ActionInvocationTarget
   alias ServiceRadar.Automation.Northbound.ActionProvider
   alias ServiceRadar.Automation.Northbound.CommandResultHandler
+  alias ServiceRadar.Automation.Northbound.Dispatcher
   alias ServiceRadar.Automation.Northbound.InvocationService
   alias ServiceRadar.Automation.Northbound.PollWorker
   alias ServiceRadar.Edge.Crypto
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Observability.PluginResultRepairAssignmentSupport
   alias ServiceRadar.TestSupport
 
   @moduletag :integration
+
+  defmodule CapturingCommandBus do
+    @moduledoc false
+
+    def dispatch(agent_uid, command_type, payload, opts) do
+      send(self(), {:dispatched, agent_uid, command_type, payload, opts[:transmit_payload]})
+      {:ok, %{id: Ecto.UUID.generate()}}
+    end
+  end
 
   setup_all do
     TestSupport.start_core!()
@@ -250,6 +261,51 @@ defmodule ServiceRadar.Automation.Northbound.ActionLifecycleTest do
              )
   end
 
+  test "a launch transmits each target's callback credentials but stores only placeholders", %{
+    actor: actor
+  } do
+    package = PluginResultRepairAssignmentSupport.create_repair_package!("Northbound dispatch")
+
+    PluginResultRepairAssignmentSupport.create_repair_assignment_for_package!(
+      %{agent_id: "agent-northbound-dispatch", service_name: "Northbound dispatch"},
+      package
+    )
+
+    {:ok, provider} =
+      create_provider(actor, provider_type: :wasm_plugin, plugin_package_id: package.id)
+
+    {:ok, descriptor} =
+      create_descriptor(provider, actor,
+        metadata: %{"callback" => %{"auth_mode" => "hmac_required"}}
+      )
+
+    {:ok, device} = create_device(actor)
+
+    {:ok, invocation} =
+      InvocationService.create_invocation(
+        %{descriptor_id: descriptor.id, targets: [%{kind: :device, device_uid: device.uid}]},
+        actor: actor
+      )
+
+    assert {:ok, _invocation} =
+             Dispatcher.dispatch_invocation(invocation, command_bus: CapturingCommandBus)
+
+    assert_received {:dispatched, "agent-northbound-dispatch", "plugin.run_action", stored,
+                     transmitted}
+
+    [%{"callback" => sent}] = transmitted["targets"]
+    [%{"callback" => kept}] = stored["targets"]
+
+    for key <- ["token", "signing_secret"] do
+      assert is_binary(sent[key]) and sent[key] != "REDACTED", key
+      assert kept[key] == "REDACTED", key
+      refute inspect(stored) =~ sent[key], key
+    end
+
+    assert Map.drop(kept, ["token", "signing_secret"]) ==
+             Map.drop(sent, ["token", "signing_secret"])
+  end
+
   defp create_target(actor) do
     with {:ok, provider} <- create_provider(actor),
          {:ok, descriptor} <- create_descriptor(provider, actor),
@@ -314,7 +370,7 @@ defmodule ServiceRadar.Automation.Northbound.ActionLifecycleTest do
     |> Base.encode16(case: :lower)
   end
 
-  defp create_provider(actor) do
+  defp create_provider(actor, opts \\ []) do
     source_ref = "test:#{System.unique_integer([:positive])}"
 
     with {:ok, provider} <-
@@ -323,7 +379,8 @@ defmodule ServiceRadar.Automation.Northbound.ActionLifecycleTest do
              :create,
              %{
                name: "Lifecycle Provider",
-               provider_type: :native,
+               provider_type: Keyword.get(opts, :provider_type, :native),
+               plugin_package_id: Keyword.get(opts, :plugin_package_id),
                source_ref: source_ref,
                approved_capabilities: [],
                credential_requirements: %{},
@@ -338,7 +395,7 @@ defmodule ServiceRadar.Automation.Northbound.ActionLifecycleTest do
     end
   end
 
-  defp create_descriptor(provider, actor) do
+  defp create_descriptor(provider, actor, opts \\ []) do
     ActionDescriptor
     |> Ash.Changeset.for_create(
       :upsert,
@@ -357,7 +414,7 @@ defmodule ServiceRadar.Automation.Northbound.ActionLifecycleTest do
         result_schema_version: "serviceradar.northbound_action_result.v1",
         descriptor_hash: "test-lifecycle",
         enabled: true,
-        metadata: %{}
+        metadata: Keyword.get(opts, :metadata, %{})
       },
       actor: actor
     )
