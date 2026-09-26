@@ -153,8 +153,8 @@ Demo plugins and dashboards SHALL use only product result contracts and product 
 The drone demo SHALL run a real object-detection worker on its relayed camera streams through the platform's camera analysis pipeline, draw the resulting detections on the matching camera tiles, and raise alerts for configured detections.
 Detections SHALL come from inference on the video, never from painted or scripted boxes.
 
-#### Scenario: Vehicle on the corridor
-- **WHEN** the detector reports a vehicle above the configured confidence inside a corridor geofence
+#### Scenario: Vehicle detected
+- **WHEN** the detector reports a vehicle above the configured confidence
 - **THEN** the drone's camera tile SHALL draw the detection box on the frame it came from
 - **AND** an alert SHALL open through the demo's event-signal rules
 
@@ -168,3 +168,8 @@ Each demo dashboard SHALL show the active incident and a countdown to the next s
 #### Scenario: Waiting for the next fault
 - **WHEN** no fault is active
 - **THEN** the strip SHALL show the time remaining until the next scheduled fault
+
+#### Scenario: No fault schedule published
+- **WHEN** the simulator's schedule metrics are absent, as with a real source
+- **THEN** the strip SHALL hide the countdown without error
+- **AND** the strip SHALL still show the active incident from the product's alerts

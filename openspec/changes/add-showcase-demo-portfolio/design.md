@@ -274,7 +274,9 @@ shows a read-only strip with the active incident (linking to the real alert)
 and a countdown to the next scheduled fault. The simulator publishes the
 schedule as metrics (`demo.fault.next_at`, `demo.fault.active`) so the strip
 reads SRQL like everything else; the dashboard never injects, clears or resets
-anything. Acknowledging an alert happens through the product's normal alert
+anything. Those metrics exist only with the simulator, so the countdown hides
+when they are absent and the strip keeps showing the active incident from real
+alerts; a real Source needs no dashboard change. Acknowledging an alert happens through the product's normal alert
 workflow; the fault's resolution comes from the simulator.
 
 ### D14. UI references (mockups)
@@ -394,9 +396,11 @@ Work this adds:
   frame they came from, within a stated latency budget; detections older than
   the budget are dropped rather than drawn late.
 - **Detections become incidents.** Detection events above a confidence
-  threshold for configured labels (e.g. a person inside a geofence, a vehicle
-  on the corridor) feed the stateful alert engine through the pack's
-  event-signal rules, so the drone incident flow includes a real detection.
+  threshold for configured labels (e.g. a person, a vehicle) feed the stateful
+  alert engine through the pack's event-signal rules, matching on label and
+  confidence only, so the drone incident flow includes a real detection. A
+  detection is an image-space box and is not geolocated, so no rule joins it
+  against drone position or geofence polygons.
 - **Bounded cost.** Analysis runs only while a relay session is active and at
   the bounded sample rate the camera-streaming spec already requires; the
   demo caps the number of concurrently analysed streams.
