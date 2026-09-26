@@ -116,6 +116,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/serviceradar/observability/capacity_forecasting/verdict_emitter_test.exs",
     "test/serviceradar/observability/data_retention_worker_test.exs",
     "test/serviceradar/observability/dataset_snapshot_prune_integration_test.exs",
+    "test/serviceradar/observability/mtr_hop_attribution_backfill_db_test.exs",
     "test/serviceradar/observability/mtr_hypertable_integration_test.exs",
     "test/serviceradar/observability/netflow_settings_geoip_status_test.exs",
     "test/serviceradar/observability/rule_seeder_test.exs",
