@@ -25,6 +25,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias ServiceRadar.Infrastructure.Gateway
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.Identity.Fence
+  alias ServiceRadar.Inventory.Identity.Registrar
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.SweepJobs.AgentAssignment
@@ -276,7 +277,25 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   """
   @spec ensure_device_for_agent(String.t(), map()) ::
           {:ok, String.t()} | {:error, term()}
-  def ensure_device_for_agent(agent_id, attrs) do
+  def ensure_device_for_agent(agent_id, attrs), do: ensure_fenced(agent_id, attrs, 1)
+
+  # A check-in whose identity writes found the device's identity moved under them
+  # (Identity.Fence) is resolved and written once more; a second move abandons it.
+  defp ensure_fenced(agent_id, attrs, attempt) do
+    case do_ensure_device_for_agent(agent_id, attrs) do
+      {:stale, _device_uid} when attempt == 1 ->
+        ensure_fenced(agent_id, attrs, 2)
+
+      {:stale, {device_uid, pin}} ->
+        :ok = Fence.abandon(%{device_uid => pin}, :agent_gateway_sync)
+        {:error, :identity_fence_stale}
+
+      result ->
+        result
+    end
+  end
+
+  defp do_ensure_device_for_agent(agent_id, attrs) do
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:gateway_sync)
 
@@ -307,26 +326,76 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end
   end
 
+  # The identity writes -- the agent's identifiers and the agent link -- are fenced
+  # (Identity.Fence): the device the upsert settled on is pinned, and the writes run
+  # in one transaction that locks its row first, so a merge or delete that has not
+  # committed waits for them, and one that has makes the pin stale. A stale pin
+  # writes nothing here and returns `{:stale, {uid, pin}}` for the caller to
+  # re-resolve.
   defp complete_agent_device_sync(device_uid, agent_id, attrs, device_update, actor) do
-    # Observe-only identity fence. Identity was resolved once above, and the six
-    # writes below are independent, so a merge landing partway through leaves some
-    # of them on the old device. This measures how often that actually happens
-    # before anything is enforced; nothing branches on the result.
-    pinned = Fence.observe_pin(device_uid)
+    pins = Fence.pin_batch([device_uid])
+    run_test_hook(:agent_gateway_sync_after_pin)
 
-    # Register agent_id as a strong identifier so DIRE can resolve
-    # subsequent enrollments (even from different IPs) to this device
+    pins
+    |> Fence.fenced_write(:agent_gateway_sync, fn stale ->
+      if MapSet.member?(stale, device_uid) do
+        {:ok, :stale}
+      else
+        run_test_hook(:agent_gateway_sync_in_fenced_write)
+        {:ok, {:written, write_agent_identity(device_uid, agent_id, device_update, actor)}}
+      end
+    end)
+    |> case do
+      {:ok, {{:written, deferred_merge}, _stale}} ->
+        # After the commit: a merge takes its own device-row locks.
+        :ok = Registrar.run_deferred_merge(deferred_merge, actor)
+        finish_agent_device_sync(device_uid, agent_id, attrs, actor)
+
+      {:ok, {:stale, _stale}} ->
+        {:stale, {device_uid, Map.fetch!(pins, device_uid)}}
+
+      {:error, reason} ->
+        # These writes are best effort, as they were before the fence: a failing
+        # identifier upsert or agent link was logged and ignored. Inside the fenced
+        # transaction any failed Ash action rolls the whole write back, so repeat it
+        # unfenced rather than fail the check-in, and say so.
+        Fence.report_fallback(:agent_gateway_sync, device_uid, reason)
+
+        device_uid
+        |> write_agent_identity(agent_id, device_update, actor)
+        |> Registrar.run_deferred_merge(actor)
+
+        finish_agent_device_sync(device_uid, agent_id, attrs, actor)
+    end
+  end
+
+  # Register agent_id as a strong identifier so DIRE can resolve subsequent
+  # enrollments (even from different IPs) to this device, repair a stale agent_id
+  # row, and link the agent. Returns the register-time merge, deferred.
+  defp write_agent_identity(device_uid, agent_id, device_update, actor) do
     ids = IdentityReconciler.extract_strong_identifiers(device_update)
-    IdentityReconciler.register_identifiers(device_uid, ids, actor: actor)
-    IdentityReconciler.repair_agent_identifier(agent_id, device_uid, actor)
 
-    # Link the agent to the device
+    {_result, deferred_merge} =
+      Registrar.register_identifiers_deferring_merge(device_uid, ids, actor: actor)
+
+    IdentityReconciler.repair_agent_identifier(agent_id, device_uid, actor)
     link_agent_to_device(agent_id, device_uid, actor)
+    deferred_merge
+  end
+
+  defp finish_agent_device_sync(device_uid, agent_id, attrs, actor) do
     backfill_endpoint_inventory_device_uid(agent_id, device_uid)
     retire_superseded_agents(agent_id, device_uid, attrs, actor)
-
-    Fence.observe(pinned, :agent_gateway_sync)
     {:ok, device_uid}
+  end
+
+  # Test-only barrier between pinning and the fenced write
+  # (Application env :identity_fence_test_hooks). Production leaves it unset.
+  defp run_test_hook(event) do
+    case Application.get_env(:serviceradar_core, :identity_fence_test_hooks) do
+      %{^event => fun} when is_function(fun, 0) -> fun.()
+      _ -> :ok
+    end
   end
 
   defp resolve_device_id_for_agent(device_update, actor) do

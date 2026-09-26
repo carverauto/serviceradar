@@ -151,15 +151,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
           {:ok, skip_summary(:owner_not_authoritative)}
 
         selected_rule ->
-          reconcile_selected_rules(
-            [selected_rule],
-            agent_id,
-            nil,
-            profile,
-            purpose,
-            actor,
-            opts
-          )
+          reconcile_selected_rules([selected_rule], agent_id, profile, purpose, actor, opts)
       end
     else
       false -> {:ok, skip_summary(:owner_not_authoritative)}
@@ -182,7 +174,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
           {:ok, skip_summary(:no_matching_rules)}
 
         _ ->
-          reconcile_selected_rules(rules, agent_id, nil, profile, purpose, actor, opts)
+          reconcile_selected_rules(rules, agent_id, profile, purpose, actor, opts)
       end
     end
   end
@@ -406,24 +398,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
 
   defp target_in_rule_scope?(_row, _rule), do: false
 
-  @doc """
-  Reconciles already-loaded credential rules.
-
-  This is public so workers/tests can inject a package and avoid a database round
-  trip when the surrounding orchestration already has the records loaded.
-  """
-  @spec reconcile_rules([map()], String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
-  def reconcile_rules(rules, agent_id, package, opts \\ [])
-      when is_list(rules) and is_binary(agent_id) and is_map(package) do
-    actor = Keyword.get(opts, :actor, SystemActor.system(:credential_rule_reconcile))
-
-    with {:ok, profile} <- required_profile(opts),
-         {:ok, purpose} <- required_purpose(opts) do
-      reconcile_selected_rules(rules, agent_id, package, profile, purpose, actor, opts)
-    end
-  end
-
-  defp reconcile_selected_rules(rules, agent_id, package, profile, purpose, actor, opts) do
+  defp reconcile_selected_rules(rules, agent_id, profile, purpose, actor, opts) do
     reconciler = Keyword.get(opts, :reconciler, PolicyAssignmentReconciler)
 
     with {:ok, selected_rules} <- selected_rules_for_agent(profile, rules, agent_id, purpose) do
@@ -434,7 +409,6 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
               consumer,
               rule,
               agent_id,
-              package,
               profile,
               purpose,
               actor,
@@ -454,7 +428,6 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
          consumer,
          rule,
          agent_id,
-         package,
          profile,
          purpose,
          actor,
@@ -463,7 +436,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
          opts
        ) do
     if single_instance_owner?(consumer, rule, agent_id) do
-      case resolve_consumer_package(package, consumer, actor, opts) do
+      case approved_plugin_package(CredentialIntegration.plugin_id(consumer), actor, opts) do
         {:ok, resolved_package} ->
           case reconcile_rule(
                  profile,
@@ -731,21 +704,6 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
     end
   end
 
-  defp required_profile(opts) do
-    case Keyword.get(opts, :profile) do
-      %{} = profile -> validate_target_policy_profile(profile)
-      _ -> {:error, :credential_profile_required}
-    end
-  end
-
-  defp required_purpose(opts) do
-    case Keyword.get(opts, :purpose) do
-      purpose when is_binary(purpose) and purpose != "" -> {:ok, purpose}
-      purpose when is_atom(purpose) -> {:ok, Atom.to_string(purpose)}
-      _ -> {:error, :credential_purpose_required}
-    end
-  end
-
   defp resolve_profile(%{} = profile, _actor, _opts), do: validate_target_policy_profile(profile)
 
   defp resolve_profile(provider, actor, opts) when is_binary(provider) do
@@ -781,33 +739,17 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
       %{credential_profiles: profiles} when is_list(profiles) -> {:ok, profiles}
       %{"credential_profiles" => profiles} when is_list(profiles) -> {:ok, profiles}
       profiles when is_list(profiles) -> {:ok, profiles}
-      nil -> load_integration_profiles(actor, opts)
+      nil -> load_integration_profiles(actor)
       _ -> {:error, :invalid_plugin_integration_catalog}
     end
   end
 
-  defp load_integration_profiles(actor, opts) do
-    catalog_loader = Keyword.get(opts, :catalog_loader, &IntegrationCatalog.load/1)
-
-    case catalog_loader.(actor: actor) do
+  defp load_integration_profiles(actor) do
+    case IntegrationCatalog.load(actor: actor) do
       {:ok, %{credential_profiles: profiles}} -> {:ok, profiles}
       {:error, _reason} = error -> error
       _ -> {:error, :invalid_plugin_integration_catalog}
     end
-  end
-
-  defp resolve_consumer_package(%{} = package, consumer, _actor, _opts) do
-    expected_plugin_id = CredentialIntegration.plugin_id(consumer)
-
-    case value_string(package, [:plugin_id, "plugin_id"]) do
-      nil -> {:ok, package}
-      ^expected_plugin_id -> {:ok, package}
-      _ -> {:error, {:plugin_package_mismatch, expected_plugin_id}}
-    end
-  end
-
-  defp resolve_consumer_package(nil, consumer, actor, opts) do
-    approved_plugin_package(CredentialIntegration.plugin_id(consumer), actor, opts)
   end
 
   defp approved_plugin_package(plugin_id, actor, opts) do

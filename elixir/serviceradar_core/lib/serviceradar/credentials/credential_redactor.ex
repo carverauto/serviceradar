@@ -37,9 +37,6 @@ defmodule ServiceRadar.Credentials.CredentialRedactor do
 
   def redact(value), do: value
 
-  @spec redacted?(term()) :: boolean()
-  def redacted?(value), do: redact(value) == @redacted
-
   defp sensitive_key?(key) do
     normalized =
       key

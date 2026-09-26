@@ -29,7 +29,6 @@ CONSTANTS
     FollowDepth   \* Resolver @max_canonical_follow_depth
 
 KnownBugs == {
-    "fence_observe_only"         \* inventory/identity/fence.ex pin/2 has no production caller
 }
 
 ASSUME Bugs \subseteq KnownBugs
@@ -145,8 +144,9 @@ CommitWork(w, S, p) ==
     /\ w \in work
     /\ S \subseteq {i \in Ids : owner[i] = NoDev}
     /\ UNCHANGED audit
-    /\ IF w.stale /\ ~Bug("fence_observe_only")
-       THEN \* Fence enforcement: the identity decision went stale; drop and re-resolve.
+    /\ IF w.stale
+       THEN \* Identity.Fence.fenced_write/3: the batch locks its pinned device rows and
+            \* finds the identity decision stale; the write is withheld and re-resolved.
             /\ work' = work \ {w}
             /\ act' = MkAct("CommitDropped", NoDev, t, 0, w.stale, {})
             /\ UNCHANGED <<status, reason, owner, ipOf>>

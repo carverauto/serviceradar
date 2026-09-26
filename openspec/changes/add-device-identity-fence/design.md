@@ -223,12 +223,34 @@ existence check: an existence check returns nil for a tombstoned device, and the
 then falls back through the correlation chain, which rescues candidates carrying an agent id
 or IP but not ones anchored only on the uid.
 
+### D11: Enforcement locks device rows first, in uid order (#4618)
+
+The observe-only stage was cut short: the DIRE formal model (`formal/dire`) showed the gap is a
+correctness defect -- a write pinned before a merge and a purge re-creates the merged-away device
+(`NoPurgedResurrection`), and any transition between resolve and write lands the write on the
+wrong identity (`NoStaleCommit`). Enforcement is therefore lock-based rather than a changeset
+filter alone. A batch writer pins every device it resolved and writes the device rows and their
+identifiers inside `Fence.fenced_write/3`, which first takes `FOR NO KEY UPDATE` on the pinned rows in
+uid order and re-reads their revisions: a transition that committed since the pin is a moved
+revision (or a missing row), and one that has not committed waits for the write. `MergeEngine`
+merge and unmerge lock both device rows first, in the same order, so the two serialize on the
+device rows instead of deadlocking on child rows. `FOR NO KEY UPDATE` rather than `FOR UPDATE`: it still conflicts with the
+merge and soft-delete UPDATEs and with a purge DELETE, but not with the `FOR KEY SHARE` an
+unrelated child-row insert takes on the device, so those writers are not blocked. The CAS helper `pin/2` remains for single-row
+writers.
+
 ## Risks / Trade-offs
 
-- **The fence is detection, not mutual exclusion, for child-table writers**, until the merge
-  takes `SELECT ... FOR UPDATE` on both device rows (the pattern `ArmisUnmerge` already uses
-  at `armis_unmerge.ex:719-737`). Adding it needs deadlock analysis against that module's
-  existing barrier, so it is gated on observe-only telemetry showing real collisions.
+- **Child tables outside the fenced write stay detection-only.** Interfaces, risk
+  contributions, aliases and source facts are written after the fenced transaction commits.
+  A transition landing between that commit and those writes is not refused; the survivor
+  reassignments in the merge and the repair job (D8) cover what they leave behind. (Previously:
+  the fence was detection for all child-table writers until the merge took
+  `SELECT ... FOR NO KEY UPDATE` on both device rows, which it now does -- D11.)
+- **Lock contention and deadlocks.** Batches that share devices now serialize on those rows,
+  and a deadlock between a fenced write and a writer that locks in another order aborts one
+  transaction; the fenced write retries up to three times, a merge that loses reports
+  `merge_failed` and is re-attempted by the next resolution.
 - **Enforcement converts silent misattribution into visible rejected writes** on the ~43
   stranded tables. That is probably an improvement, but it is a behaviour change with a
   per-pipeline policy decision attached, not a free win. Hence D6.

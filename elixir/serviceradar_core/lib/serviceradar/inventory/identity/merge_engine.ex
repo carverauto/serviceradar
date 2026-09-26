@@ -297,7 +297,8 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
     # tell that the identity decision had gone stale.
     resources
     |> Ash.transact(fn ->
-      with {:ok, %Device{} = from_device} <-
+      with :ok <- lock_device_rows([from_device_id, to_device_id], actor),
+           {:ok, %Device{} = from_device} <-
              Device.get_by_uid(from_device_id, false, actor: actor),
            {:ok, %Device{} = to_device} <- Device.get_by_uid(to_device_id, false, actor: actor),
            :ok <-
@@ -367,6 +368,29 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
         maybe_record_transaction_source_conflict(error, reason, details)
         emit_merge_failed_telemetry(reason, from_device_id, to_device_id, error)
         error
+    end
+  end
+
+  # Both device rows, locked before anything else in the transaction and in uid
+  # order. The fenced ingest write (Identity.Fence.fenced_write/3) locks its batch's
+  # device rows the same way before touching their identifiers, so a merge or
+  # unmerge and an ingest write on the same devices serialize on the device rows
+  # instead of taking child-table row locks in opposite orders and deadlocking.
+  # A tombstone is locked too (an unmerge restores one); a missing row locks
+  # nothing, and the reads that follow report it.
+  defp lock_device_rows(device_ids, actor) do
+    device_ids = device_ids |> Enum.uniq() |> Enum.sort()
+
+    Device
+    |> Ash.Query.for_read(:read, %{include_deleted: true}, actor: actor)
+    |> Ash.Query.filter(uid in ^device_ids)
+    |> Ash.Query.select([:uid])
+    |> Ash.Query.sort(uid: :asc)
+    |> Ash.Query.lock("FOR NO KEY UPDATE")
+    |> Ash.read(actor: actor)
+    |> case do
+      {:ok, _rows} -> :ok
+      {:error, _} = error -> error
     end
   end
 
@@ -583,7 +607,8 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
     resources
     |> Ash.transact(fn ->
       # Recreate the from-device
-      with {:ok, _device} <- recreate_device(from_device_id, audit, actor),
+      with :ok <- lock_device_rows([from_device_id, to_device_id], actor),
+           {:ok, _device} <- recreate_device(from_device_id, audit, actor),
            {:ok, restored} <-
              reassign_original_identifiers(from_device_id, to_device_id, audit, actor),
            {:ok, _} <-

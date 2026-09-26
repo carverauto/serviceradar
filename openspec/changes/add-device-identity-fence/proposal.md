@@ -82,6 +82,7 @@ already pinned.
   `event_writer/device_correlation.ex`, `observability/anomaly_*`, `edge/agent_gateway_sync.ex`,
   `composite_checks/refresh_worker.ex`, plus the pinned write paths listed in `tasks.md`
 - Migrations: one additive column with a default, two concurrent indexes, one lineage table
-- Rollout is staged: the fence lands **observe-only** (pin, compare, emit telemetry, enforce
-  nothing) and is enforced per pipeline only where telemetry shows real collisions
+- Rollout was staged: the fence landed **observe-only** (pin, compare, emit telemetry, enforce
+  nothing) and was then enforced per pipeline without a soak (#4618; see design D11 and tasks
+  4.4/4.5)
 - Prerequisite: #3831 (partial merges must roll back before any state-derived fence is sound)

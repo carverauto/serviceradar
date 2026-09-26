@@ -31,12 +31,10 @@ defmodule ServiceRadar.Credentials.Validations.TrustMaterialTest do
   """
 
   describe "no trust material" do
-    test "a rule without either field is valid" do
-      assert :ok = validate(%{})
-    end
-
-    test "blank strings are treated as absent" do
-      assert :ok = validate(%{ca_bundle_pem: "   ", server_cert_fingerprint: ""})
+    test "a rule without either field, or with only blank strings, is valid" do
+      for attrs <- [%{}, %{ca_bundle_pem: "   ", server_cert_fingerprint: ""}] do
+        assert validate(attrs) == :ok
+      end
     end
   end
 
@@ -45,25 +43,18 @@ defmodule ServiceRadar.Credentials.Validations.TrustMaterialTest do
       assert :ok = validate(%{server_cert_fingerprint: "sha256:" <> String.duplicate("a1", 32)})
     end
 
-    test "rejects a bare hex digest with no algorithm prefix" do
-      assert {:error, opts} = validate(%{server_cert_fingerprint: String.duplicate("a1", 32)})
-      assert opts[:field] == :server_cert_fingerprint
-    end
+    test "rejects bare, uppercase, wrong-length, and OpenSSL-style digests" do
+      openssl_style = Enum.map_join(1..32, ":", fn _ -> "a1" end)
 
-    test "rejects uppercase hex" do
-      assert {:error, _} =
-               validate(%{server_cert_fingerprint: "sha256:" <> String.duplicate("A1", 32)})
-    end
-
-    test "rejects a digest of the wrong length" do
-      assert {:error, _} = validate(%{server_cert_fingerprint: "sha256:abcdef"})
-    end
-
-    test "rejects a colon-separated OpenSSL-style digest" do
-      openssl_style =
-        Enum.map_join(1..32, ":", fn _ -> "a1" end)
-
-      assert {:error, _} = validate(%{server_cert_fingerprint: "sha256:" <> openssl_style})
+      for fingerprint <- [
+            String.duplicate("a1", 32),
+            "sha256:" <> String.duplicate("A1", 32),
+            "sha256:abcdef",
+            "sha256:" <> openssl_style
+          ] do
+        assert {:error, opts} = validate(%{server_cert_fingerprint: fingerprint})
+        assert opts[:field] == :server_cert_fingerprint
+      end
     end
   end
 

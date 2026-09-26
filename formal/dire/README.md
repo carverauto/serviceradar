@@ -57,16 +57,11 @@ either way; the property guards against any change that lets address evidence me
 
 | Switch | Model | Code path | Witness property |
 |---|---|---|---|
+| `mac_only_conflicts_blocked` | resolution | `inventory/identity/merge_policy.ex` `mac_only_matches?/1` (an agent check-in reporting MACs owned by two records) | `EvidenceConverges` |
+| `mapper_resolves_by_address` | resolution | `network_discovery/mapper_results_ingestor.ex` `resolve_device_ids/2` (address first, then alias, then DIRE) | `NoFalseInterfaceClaim` |
 | `fence_observe_only` | lifecycle | `inventory/identity/fence.ex` (no enforcing caller) | `NoStaleCommit` |
 
 Code paths are relative to `elixir/serviceradar_core/lib/serviceradar/`.
-
-One lifecycle witness covers a property a fixed switch left to another:
-
-- `purge_zombie` (`fence_observe_only`, property `NoPurgedResurrection`): the resolver follows a
-  purged merged-away uid (#4620), so only a write pinned before the merge and the purge can
-  re-create it. `NoPurgedResurrection` holds under every other current switch and joins
-  `lifecycle_current` when the fence is enforced (#4618), which deletes this witness.
 
 ## Fixed defects
 
@@ -80,9 +75,10 @@ One lifecycle witness covers a property a fixed switch left to another:
 | `stale_holder_keeps_address` | #4639 (`DeviceWrites.claim_address_from_holder/4`: a strong-identified write observed at the address (`SourcePolicy.observed_address_source?/1`) more recently than the holder's `last_seen_time` takes it, the stale holder releases it in the same transaction, and an `active_ip_conflict` row records it) | `ObservedAddressHeld`, `NoSilentDecision` in every `resolution_goal_*`; trace `armis_dhcp` step 8 |
 | `follow_stale_audit` | #4616 (`Resolver.do_follow_canonical/3` follows only a `deleted_reason = "merged"` tombstone) | `NoStaleRedirect`, `MergeGraphAcyclic` in `lifecycle_current`; the `merge_cycle` witness needed this switch and went with it |
 | `unmerge_restores_matches` | #4619 (every merge records the source's own identifiers in `merge_audit.details.source_identifiers`; `MergeEngine.reassign_original_identifiers/4` restores exactly those the survivor still holds) | `UnmergeRestoresExactly` in `lifecycle_current` |
-| `purge_forgets_redirect` | #4620 (`Resolver.do_follow_canonical/3` and `BatchResolver` follow a purged merged-away uid through its newest merge row unless an unmerge reversed it) | `lifecycle_goal`; `NoPurgedResurrection` joins `lifecycle_current` with #4618, the `purge_zombie` witness shows why |
+| `purge_forgets_redirect` | #4620 (`Resolver.do_follow_canonical/3` and `BatchResolver` follow a purged merged-away uid through its newest merge row unless an unmerge reversed it) | `NoPurgedResurrection` in `lifecycle_current` (with #4618, which removed the `purge_zombie` witness) |
 | `silent_blocks` | #4613 (`Identity.DecisionLog` writes `platform.identity_decisions` for every blocked, declined or overridden merge) | `NoSilentDecision` in every `resolution_goal_*`; each trace's `recorded` set is read from those rows |
 | `src_attach_via_mac` | #4611 (`SourceAuthorityGuard.source_mismatch?/3` in `BatchResolver` and `Resolver`; the override is a `source_override` identity decision plus a `source_authoritative_override` conflict row) | `DistinctSourceIdsNeverMerge`, `NoSilentDecision` in every `resolution_goal_*`; trace `src_attach_shared_mac` |
+| `fence_observe_only` | #4618 (`Identity.Fence.fenced_write/3`: `SyncIngestor` and `AgentGatewaySync` lock the pinned device rows, withhold a stale write, re-resolve and retry once, then abandon with telemetry; `CompositeChecks.RefreshWorker` re-resolves a stale pin; `MergeEngine` locks both device rows first) | `NoStaleCommit` in `lifecycle_current`; proven on the real code by `fence_enforcement_test.exs`, since a black-box trace cannot schedule a transition inside the write |
 | `mapper_resolves_by_address` | #4638 (`MapperResultsIngestor.resolve_device_ids/2` resolves a polled device by its interface MACs through the Resolver) | `NoFalseInterfaceClaim` in every `resolution_goal_*` |
 | `mac_only_conflicts_blocked` | #4612 (`MergePolicy.merge_allowed_for_matches?/1` accepts a match set holding a globally-unique MAC; an all-randomized set stays blocked, and a record linked only through a randomized MAC drops out of the merge as a recorded `randomized_mac_link` policy block) | `EvidenceConverges` in every `resolution_goal_*`; traces `router_mac_only`, `agent_mac_split` |
 
@@ -131,8 +127,10 @@ unmerge (including the resolver's conflict merge), `Device :soft_delete`,
 purges. It records device status and
 delete reason, identifier owners, addresses, the `merge_audit` rows and the devices each step's
 `identity_revision` moved. An ingest is logged as the model's `StartWork` and `Commit`; the code
-runs them in one call, so `work` is never stale in a recorded trace and the
-`fence_observe_only` switch stays model-only until the fence is enforced (#4618). Two values
+runs them in one call, so `work` is never stale in a recorded trace: a black-box trace cannot
+place a transition between the pin and the write. The enforced fence (#4618) is proven instead by
+`elixir/serviceradar_core/test/serviceradar/inventory/identity/fence_enforcement_test.exs`, which
+puts a merge, a purge or repeated transitions in exactly that window. Two values
 are ghosts the harness supplies: which identifiers a merged-away device owned when the merge
 ran (`srcIds`), and the insertion order of `merge_audit` rows, whose `created_at` has
 one-second precision. `DireLifecycleTrace.tla` checks them the same way.
