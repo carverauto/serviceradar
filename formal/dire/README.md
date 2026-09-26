@@ -82,6 +82,14 @@ Code paths are relative to `elixir/serviceradar_core/lib/serviceradar/`.
 | `mapper_resolves_by_address` | #4638 (`MapperResultsIngestor.resolve_device_ids/2` resolves a polled device by its interface MACs through the Resolver) | `NoFalseInterfaceClaim` in every `resolution_goal_*` |
 | `mac_only_conflicts_blocked` | #4612 (`MergePolicy.merge_allowed_for_matches?/1` accepts a match set holding a globally-unique MAC; an all-randomized set stays blocked, and a record linked only through a randomized MAC drops out of the merge as a recorded `randomized_mac_link` policy block) | `EvidenceConverges` in every `resolution_goal_*`; traces `router_mac_only`, `agent_mac_split` |
 
+#4664 had no switch. The model already let a write adopt the holder of its address only when that
+holder is an anchorless seed and the write creates a new record, and it never adopts for an
+existing one. `AgentGatewaySync` diverged from that: it adopted any holder with no agent of its
+own, or one sharing the agent's hostname. It now adopts only a holder claiming no identity the
+agent does not claim, and an existing agent device takes the address under the #4639 rule. Trace
+`agent_stale_armis_holder` records the fixed path; the same steps recorded from the old code are
+rejected by TLC.
+
 ## Resolution environments
 
 Each environment stands for a real situation:
