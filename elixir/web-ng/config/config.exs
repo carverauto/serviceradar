@@ -14,6 +14,9 @@ alias ServiceRadar.Automation.Northbound
 # Ash configuration
 config :ash,
   include_embedded_source_by_default?: false,
+  # Count string length in codepoints, as the SQL data layer does, so
+  # `max_length` bounds the stored size. Required since Ash 3.33.
+  default_string_length_count: :codepoints,
   default_page_type: :keyset,
   policies: [
     no_filter_static_forbidden_reads?: false,

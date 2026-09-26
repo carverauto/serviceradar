@@ -1930,7 +1930,8 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     tampered_manifest =
       update_in(completed.manifest, ["integrity", "event_chain_root"], fn _root -> "tampered" end)
 
-    tampered_encrypted_manifest = AshCloak.do_encrypt(RemoteAccessRecording, tampered_manifest)
+    tampered_encrypted_manifest =
+      AshCloak.do_encrypt(RemoteAccessRecording, :manifest, tampered_manifest)
 
     assert {:ok, _result} =
              Repo.query(

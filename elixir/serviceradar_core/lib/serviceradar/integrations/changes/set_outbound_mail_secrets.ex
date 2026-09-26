@@ -51,8 +51,11 @@ defmodule ServiceRadar.Integrations.Changes.SetOutboundMailSecrets do
 
   defp maybe_put_encrypted(payload, changeset, arg, encrypted_attr) do
     case normalized_secret(Ash.Changeset.get_argument(changeset, arg)) do
-      nil -> payload
-      value -> Map.put(payload, encrypted_attr, AshCloak.do_encrypt(changeset.resource, value))
+      nil ->
+        payload
+
+      value ->
+        Map.put(payload, encrypted_attr, AshCloak.do_encrypt(changeset.resource, arg, value))
     end
   end
 
