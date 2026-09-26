@@ -16,11 +16,7 @@ vi.mock("@deck.gl/core", async (importOriginal) => ({
 
 import {bindApi, createStateBackedContext} from "./api_helpers"
 import {godViewLayoutClusterMethods} from "./layout_cluster_methods"
-import {
-  GOD_VIEW_WEBGL_DEVICE_PROPS,
-  GOD_VIEW_WEBGPU_DEVICE_PROPS,
-  godViewLifecycleDomSetupMethods,
-} from "./lifecycle_dom_setup_methods"
+import {GOD_VIEW_DEVICE_PROPS, godViewLifecycleDomSetupMethods} from "./lifecycle_dom_setup_methods"
 import {godViewRenderingGraphCoreMethods} from "./rendering_graph_core_methods"
 import {godViewRenderingGraphLayerNodeMethods} from "./rendering_graph_layer_node_methods"
 import {godViewRenderingGraphViewMethods} from "./rendering_graph_view_methods"
@@ -1847,57 +1843,108 @@ describe("lifecycle_dom_setup_methods", () => {
 
   describe("renderer device", () => {
     function deckContext() {
+      const children = []
       const state = {
-        el: {clientWidth: 800, clientHeight: 600},
+        el: {clientWidth: 800, clientHeight: 600, appendChild: (child) => children.push(child)},
         canvas: {},
         summary: {textContent: ""},
         visual: {bg: [10, 10, 10, 255]},
         viewState: {zoom: 1},
         lastGraph: {nodes: [], edges: []},
         rendererMode: "initializing",
-        rendererFallbackReason: null,
+        rendererDeviceType: null,
+        pushEvent: vi.fn(),
       }
-      const deps = {renderGraph: vi.fn()}
-      const ctx = createStateBackedContext(state, deps)
+      const ctx = createStateBackedContext(state, {renderGraph: vi.fn()})
       Object.assign(ctx, bindApi(ctx, godViewLifecycleDomSetupMethods))
-      return {ctx, state, deps}
+      return {ctx, state, children}
     }
 
-    it("asks deck for a WebGPU device and reports webgpu only once one exists", () => {
-      vi.stubGlobal("navigator", {gpu: {requestAdapter: vi.fn()}})
+    async function withGlobals(globals, run) {
+      const error = vi.spyOn(console, "error").mockImplementation(() => {})
+      for (const [name, value] of Object.entries(globals)) vi.stubGlobal(name, value)
       try {
+        return await run(error)
+      } finally {
+        vi.unstubAllGlobals()
+        error.mockRestore()
+      }
+    }
+
+    function fakeDocument() {
+      const element = () => {
+        const node = {
+          className: "",
+          textContent: "",
+          attributes: {},
+          children: [],
+          setAttribute(name, value) {
+            node.attributes[name] = value
+          },
+          append(...nodes) {
+            node.children.push(...nodes)
+          },
+          querySelector(selector) {
+            const name = selector.replace(/^\[|\]$/g, "")
+            const stack = [...node.children]
+            while (stack.length > 0) {
+              const next = stack.shift()
+              if (name in next.attributes) return next
+              stack.push(...next.children)
+            }
+            return null
+          },
+        }
+        return node
+      }
+      return {createElement: element}
+    }
+
+    function overlayText(children) {
+      const overlay = children.find((child) => child.attributes?.["data-god-view-renderer-error"] === "webgpu")
+      const collect = (node) => [node.textContent, ...node.children.flatMap(collect)]
+      return overlay ? collect(overlay).join(" ") : null
+    }
+
+    it("asks deck for a WebGPU device only and reports webgpu once deck has created one", async () => {
+      await withGlobals({navigator: {gpu: {requestAdapter: vi.fn()}}}, () => {
         const {ctx, state} = deckContext()
         ctx.ensureDeck()
 
-        expect(state.deck.props.deviceProps).toBe(GOD_VIEW_WEBGPU_DEVICE_PROPS)
-        expect(state.deck.props.deviceProps.type).toBe("webgpu")
-        expect(state.rendererMode).toBe("webgpu-pending")
+        expect(state.deck.props.deviceProps).toBe(GOD_VIEW_DEVICE_PROPS)
+        expect(GOD_VIEW_DEVICE_PROPS.type).toBe("webgpu")
+        expect(GOD_VIEW_DEVICE_PROPS.adapters.map((adapter) => adapter.type)).toEqual(["webgpu"])
+        expect(state.rendererMode).toBe("initializing")
 
-        state.deck.props.onDeviceInitialized({type: "webgpu"})
+        state.deck.props.onDeviceInitialized({type: "webgpu", lost: new Promise(() => {})})
         expect(state.rendererMode).toBe("webgpu")
         expect(state.rendererDeviceType).toBe("webgpu")
-      } finally {
-        vi.unstubAllGlobals()
-      }
+      })
     })
 
-    it("does not report webgpu when deck hands back a WebGL device", () => {
-      vi.stubGlobal("navigator", {gpu: {requestAdapter: vi.fn()}})
-      try {
-        const {ctx, state} = deckContext()
+    it("shows WebGPU required and builds no deck when the browser has no WebGPU", async () => {
+      await withGlobals({navigator: {}, document: fakeDocument()}, (consoleError) => {
+        const {ctx, state, children} = deckContext()
         ctx.ensureDeck()
-        state.deck.props.onDeviceInitialized({type: "webgl"})
 
-        expect(state.rendererMode).toBe("webgl")
-      } finally {
-        vi.unstubAllGlobals()
-      }
+        expect(state.deck).toBeNull()
+        expect(state.rendererMode).toBe("unavailable")
+        expect(overlayText(children)).toContain("WebGPU required")
+        expect(consoleError).toHaveBeenCalled()
+        expect(state.pushEvent).toHaveBeenCalledWith("god_view_stream_error", {
+          reason: "webgpu_unavailable",
+          message: "navigator.gpu is not available",
+        })
+
+        // Later renders do not try again.
+        ctx.ensureDeck()
+        expect(state.deck).toBeNull()
+      })
     })
 
-    it("replaces a deck whose WebGPU device failed with one built for WebGL", () => {
-      vi.stubGlobal("navigator", {gpu: {requestAdapter: vi.fn()}})
-      try {
-        const {ctx, state, deps} = deckContext()
+    it("shows WebGPU required, and builds no other deck, when device creation fails", async () => {
+      await withGlobals({navigator: {gpu: {requestAdapter: vi.fn()}}, document: fakeDocument()}, () => {
+        const {ctx, state, children} = deckContext()
         ctx.ensureDeck()
         const webgpuDeck = state.deck
         webgpuDeck.finalize = vi.fn()
@@ -1905,31 +1952,30 @@ describe("lifecycle_dom_setup_methods", () => {
         webgpuDeck.props.onError(new Error("no compatible GPU adapter"))
 
         expect(webgpuDeck.finalize).toHaveBeenCalledTimes(1)
-        expect(state.deck).not.toBe(webgpuDeck)
-        expect(state.deck.props.deviceProps).toBe(GOD_VIEW_WEBGL_DEVICE_PROPS)
-        expect(state.rendererMode).toBe("webgl-fallback")
-        expect(state.rendererFallbackReason).toBe("no compatible GPU adapter")
-        expect(deps.renderGraph).toHaveBeenCalledWith(state.lastGraph)
-
-        state.deck.props.onDeviceInitialized({type: "webgl"})
-        expect(state.rendererMode).toBe("webgl-fallback")
-      } finally {
-        vi.unstubAllGlobals()
-      }
+        expect(state.deck).toBeNull()
+        expect(state.rendererMode).toBe("unavailable")
+        expect(state.rendererError).toBe("no compatible GPU adapter")
+        expect(overlayText(children)).toContain("no compatible GPU adapter")
+        ctx.ensureDeck()
+        expect(state.deck).toBeNull()
+      })
     })
 
-    it("uses the WebGL constructor when the browser has no WebGPU", () => {
-      vi.stubGlobal("navigator", {})
-      try {
-        const {ctx, state} = deckContext()
+    it("shows WebGPU required when the device is lost", async () => {
+      await withGlobals({navigator: {gpu: {requestAdapter: vi.fn()}}, document: fakeDocument()}, async () => {
+        const {ctx, state, children} = deckContext()
         ctx.ensureDeck()
+        let lose
+        state.deck.props.onDeviceInitialized({type: "webgpu", lost: new Promise((resolve) => { lose = resolve })})
+        expect(state.rendererMode).toBe("webgpu")
 
-        expect(state.deck.props.deviceProps).toBe(GOD_VIEW_WEBGL_DEVICE_PROPS)
-        state.deck.props.onDeviceInitialized({type: "webgl"})
-        expect(state.rendererMode).toBe("webgl")
-      } finally {
-        vi.unstubAllGlobals()
-      }
+        lose({reason: "unknown", message: "GPU process exited"})
+        await Promise.resolve()
+
+        expect(state.deck).toBeNull()
+        expect(state.rendererMode).toBe("unavailable")
+        expect(overlayText(children)).toContain("GPU process exited")
+      })
     })
   })
 })

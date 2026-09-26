@@ -1,5 +1,4 @@
 import {Deck, OrthographicView} from "@deck.gl/core"
-import {webgl2Adapter} from "@luma.gl/webgl"
 import {webgpuAdapter} from "@luma.gl/webgpu"
 import {viewportProfileForSize} from "./layout_elk_scene"
 import {detectThemeMode, visualForTheme, hudStyleForTheme} from "./lifecycle_bootstrap_state_defaults_methods"
@@ -14,11 +13,13 @@ import {
 } from "./lifecycle_managed_camera_recovery"
 import {hasManagedTopologyScene} from "./topology_layout_mode"
 import {pickedNodeObject} from "./rendering_node_frame"
+import {GOD_VIEW_ALPHA_BLEND} from "./gpu_parameters"
 
-// The device each Deck constructor asks luma for. They differ in the adapter and the type,
-// not just in the label we report: the WebGL path never touches WebGPU.
-export const GOD_VIEW_WEBGPU_DEVICE_PROPS = Object.freeze({type: "webgpu", adapters: [webgpuAdapter]})
-export const GOD_VIEW_WEBGL_DEVICE_PROPS = Object.freeze({type: "webgl", adapters: [webgl2Adapter]})
+// God View renders on WebGPU only. Asking luma for type "webgpu" selects the WebGPU adapter and
+// nothing else: if it cannot create a device, the surface reports that instead of drawing.
+export const GOD_VIEW_DEVICE_PROPS = Object.freeze({type: "webgpu", adapters: [webgpuAdapter]})
+
+export const WEBGPU_REQUIRED_TITLE = "WebGPU required"
 
 function webgpuRequestable() {
   const gpu = globalThis.navigator?.gpu
@@ -338,11 +339,6 @@ export const godViewLifecycleDomSetupMethods = {
     if (this.state.summary) this.state.summary.style.cssText = hudStyle
     if (this.state.details) this.state.details.style.cssText = hudStyle
 
-    // Update deck.gl clear color
-    if (this.state.deck) {
-      this.state.deck.setProps({parameters: {clearColor: this.state.visual.bg}})
-    }
-
     // Bust the particle cache so colors rebuild with new palette
     this.state.packetFlowCache = null
     this.state.packetFlowCacheStamp = null
@@ -587,13 +583,13 @@ export const godViewLifecycleDomSetupMethods = {
       })
     }
   },
-  createDeckInstance(width, height, deviceProps = GOD_VIEW_WEBGL_DEVICE_PROPS) {
-    return new Deck({
+  createDeckInstance(width, height) {
+    const deck = new Deck({
       canvas: this.state.canvas,
       width,
       height,
-      deviceProps,
-      onDeviceInitialized: (device) => this.recordDeckDevice(device),
+      deviceProps: GOD_VIEW_DEVICE_PROPS,
+      onDeviceInitialized: (device) => this.recordDeckDevice(deck, device),
       views: new OrthographicView({id: "god-view-ortho"}),
       // Managed scenes own geometry, not the camera. Gestures are allowed
       // and then clamped by onViewStateChange via managedViewStateForCamera,
@@ -612,13 +608,8 @@ export const godViewLifecycleDomSetupMethods = {
       pickingRadius: 8,
       useDevicePixels: true,
       initialViewState: this.state.viewState,
-      parameters: {
-        clearColor: this.state.visual.bg,
-        blend: true,
-        blendFunc: [770, 771],
-        depthTest: false,
-        depthWrite: false,
-      },
+      // The canvas is transparent over the container's themed background.
+      parameters: GOD_VIEW_ALPHA_BLEND,
       // Node glyph layers use binary data, so deck reports the picked index without an
       // object; resolve it before the handlers see the pick.
       getTooltip: (info, ...args) => this.deps.getNodeTooltip(pickedNodeObject(info), ...args),
@@ -684,8 +675,9 @@ export const godViewLifecycleDomSetupMethods = {
         return acceptedViewState
       },
       onError: (error, layer) => {
-        if (this.rendererFailedOnWebGPU()) {
-          this.fallBackToWebGL(error)
+        // Before the device exists, an error is WebGPU device creation failing.
+        if (this.state.deck === deck && this.state.rendererDeviceType == null) {
+          this.showWebGPURequired(error)
           return
         }
         const layerId = String(layer?.id || "")
@@ -704,13 +696,9 @@ export const godViewLifecycleDomSetupMethods = {
         }
       },
     })
+    return deck
   },
-  createWebGPUDeckInstance(width, height) {
-    return this.createDeckInstance(width, height, GOD_VIEW_WEBGPU_DEVICE_PROPS)
-  },
-  createWebGLDeckInstance(width, height) {
-    return this.createDeckInstance(width, height, GOD_VIEW_WEBGL_DEVICE_PROPS)
-  },
+
   deckSize() {
     return {
       width: Math.max(320, Math.floor(this.state.el?.clientWidth || 0)),
@@ -718,29 +706,31 @@ export const godViewLifecycleDomSetupMethods = {
     }
   },
   /**
-   * Records the renderer from the device deck actually created, not from what was asked for.
-   * Deck creates its device asynchronously, so until this runs the mode says which device is
-   * still pending.
+   * Records the renderer from the device deck actually created. Deck creates it
+   * asynchronously, so until this runs the mode stays "initializing".
    */
-  recordDeckDevice(device) {
+  recordDeckDevice(deck, device) {
+    if (this.state.deck !== deck) return
     const type = String(device?.type || "")
     this.state.rendererDeviceType = type
-    if (type === "webgpu") {
-      this.state.rendererMode = "webgpu"
-    } else {
-      this.state.rendererMode = this.state.rendererFallbackReason ? "webgl-fallback" : "webgl"
+    if (type !== "webgpu") {
+      this.showWebGPURequired(new Error(`deck.gl created a ${type || "unknown"} device instead of WebGPU`))
+      return
     }
-  },
-  rendererFailedOnWebGPU() {
-    return this.state.rendererFallbackReason == null &&
-      (this.state.rendererMode === "webgpu-pending" || this.state.rendererMode === "webgpu")
+    this.state.rendererMode = "webgpu"
+    // A lost device (driver reset, GPU removed) stops rendering for good; say so rather than
+    // leaving a frozen frame. Losing it because we destroyed the deck is not an error.
+    device?.lost?.then?.((info) => {
+      if (this.state.deck !== deck || info?.reason === "destroyed") return
+      this.showWebGPURequired(new Error(`WebGPU device lost: ${info?.message || info?.reason || "unknown"}`))
+    })
   },
   /**
-   * Replaces a Deck that failed on WebGPU -- device creation, or a layer the WebGPU backend
-   * cannot draw -- with one built by the WebGL constructor. The canvas is replaced too: once
-   * a canvas has handed out a WebGPU context it cannot give out a WebGL one.
+   * Replaces the surface with a "WebGPU required" notice. God View has no other renderer, so a
+   * browser without WebGPU, a refused adapter or device, or a lost device all end here.
    */
-  fallBackToWebGL(error, {rerender = true} = {}) {
+  showWebGPURequired(error) {
+    const reason = String(error?.message || error || "WebGPU is not available")
     const failed = this.state.deck
     this.state.deck = null
     try {
@@ -748,44 +738,57 @@ export const godViewLifecycleDomSetupMethods = {
     } catch (_finalizeError) {
       // The failed deck is discarded either way.
     }
-    this.state.rendererFallbackReason = String(error?.message || error || "webgpu unavailable")
-    this.state.rendererMode = "webgl-fallback"
-    this.replaceRendererCanvas()
-    const {width, height} = this.deckSize()
-    this.state.deck = this.createWebGLDeckInstance(width, height)
-    if (rerender && this.state.lastGraph) this.deps.renderGraph(this.state.lastGraph)
+    this.state.rendererMode = "unavailable"
+    this.state.rendererError = reason
+    globalThis.console?.error?.(`[god-view] ${WEBGPU_REQUIRED_TITLE}: ${reason}`, error)
+    if (this.state.summary) this.state.summary.textContent = WEBGPU_REQUIRED_TITLE.toLowerCase()
+    this.renderWebGPURequired(reason)
+    this.state.pushEvent?.("god_view_stream_error", {reason: "webgpu_unavailable", message: reason})
   },
-  replaceRendererCanvas() {
-    const previous = this.state.canvas
-    if (!previous || typeof document === "undefined" || typeof previous.replaceWith !== "function") return
-    const next = document.createElement("canvas")
-    next.className = previous.className
-    next.style.cssText = previous.style.cssText
-    previous.removeEventListener("wheel", this.handleWheelZoom)
-    previous.removeEventListener("pointerdown", this.handlePanStart)
-    previous.replaceWith(next)
-    next.addEventListener("wheel", this.handleWheelZoom, {passive: false})
-    next.addEventListener("pointerdown", this.handlePanStart)
-    this.state.canvas = next
+  renderWebGPURequired(reason) {
+    const el = this.state.el
+    if (!el || typeof document === "undefined") return
+    let overlay = this.state.rendererErrorOverlay
+    if (!overlay) {
+      // Same shape as the surface's server-rendered empty state, in the error palette.
+      overlay = document.createElement("div")
+      overlay.className = "pointer-events-none absolute inset-0 z-40 flex items-center justify-center"
+      overlay.setAttribute("role", "alert")
+      overlay.setAttribute("data-god-view-renderer-error", "webgpu")
+      const card = document.createElement("div")
+      card.className = "max-w-xl rounded-lg border border-error/30 bg-sr-surface/90 px-5 py-4 text-center shadow-lg backdrop-blur-sm"
+      const title = document.createElement("div")
+      title.className = "text-sm font-semibold text-error"
+      title.textContent = WEBGPU_REQUIRED_TITLE
+      const message = document.createElement("div")
+      message.className = "mt-1 text-xs text-sr-muted"
+      message.setAttribute("data-god-view-renderer-error-message", "")
+      card.append(title, message)
+      overlay.append(card)
+      el.appendChild(overlay)
+      this.state.rendererErrorOverlay = overlay
+    }
+    const message = overlay.querySelector?.("[data-god-view-renderer-error-message]")
+    if (message) {
+      message.textContent =
+        `The topology surface renders with WebGPU, which this browser could not provide (${reason}). ` +
+        "Use a current Chrome, Edge or Safari with hardware acceleration enabled."
+    }
   },
   ensureDeck() {
-    if (this.state.deck) return
+    if (this.state.deck || this.state.rendererMode === "unavailable") return
     this.ensureDOM()
-    const {width, height} = this.deckSize()
-
-    if (webgpuRequestable() && this.state.rendererFallbackReason == null) {
-      this.state.rendererMode = "webgpu-pending"
-      try {
-        this.state.deck = this.createWebGPUDeckInstance(width, height)
-        return
-      } catch (error) {
-        // ensureDeck runs inside a render, which goes on to draw into the new deck.
-        this.fallBackToWebGL(error, {rerender: false})
-        return
-      }
+    if (!webgpuRequestable()) {
+      this.showWebGPURequired(new Error("navigator.gpu is not available"))
+      return
     }
-
-    this.state.rendererMode = this.state.rendererFallbackReason ? "webgl-fallback" : "webgl-pending"
-    this.state.deck = this.createWebGLDeckInstance(width, height)
+    const {width, height} = this.deckSize()
+    this.state.rendererMode = "initializing"
+    this.state.rendererDeviceType = null
+    try {
+      this.state.deck = this.createDeckInstance(width, height)
+    } catch (error) {
+      this.showWebGPURequired(error)
+    }
   },
 }

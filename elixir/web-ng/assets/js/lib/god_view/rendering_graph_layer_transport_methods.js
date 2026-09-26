@@ -4,6 +4,7 @@ import PacketFlowLayer from "../deckgl/PacketFlowLayer"
 import {hasManagedTopologySceneRoutes} from "./rendering_graph_data_methods"
 import {managedVisualDensityContract, normalizeManagedVisualDensity} from "./rendering_managed_visual_density"
 import {edgeTopologyVisualStyleValue} from "./rendering_style_edge_topology_methods"
+import {GOD_VIEW_ALPHA_BLEND, GOD_VIEW_NO_DEPTH} from "./gpu_parameters"
 
 export const godViewRenderingGraphLayerTransportMethods = {
   buildTransportAndEffectLayers(effective, nodeData, edgeData, rootPulseNodesArg = null) {
@@ -81,11 +82,7 @@ export const godViewRenderingGraphLayerTransportMethods = {
             widthUnits: "pixels",
             widthMinPixels: 6,
             pickable: dataSet.pickable,
-            parameters: {
-              blend: true,
-              blendFunc: [770, 771],
-              depthTest: false,
-            },
+            parameters: GOD_VIEW_ALPHA_BLEND,
             updateTriggers: {
               getColor: [hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey, this.state.visual.mantleEdgeBase, this.state.visual.mantleEdgeAlphaBase],
               getWidth: [zoomScale, hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey, managedVisualDensity],
@@ -144,12 +141,7 @@ export const godViewRenderingGraphLayerTransportMethods = {
               widthUnits: "pixels",
               ...(routedTopologyScene ? {} : {greatCircle: false}),
               pickable: dataSet.pickable,
-              parameters: {
-                blend: true,
-                blendFunc: [770, 771],
-                depthTest: false,
-                depthWrite: false,
-              },
+              parameters: GOD_VIEW_ALPHA_BLEND,
               updateTriggers: {
                 ...(routedTopologyScene
                   ? {getColor: [hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey]}
@@ -187,12 +179,7 @@ export const godViewRenderingGraphLayerTransportMethods = {
                 getLaneOffset: (d) => d.laneOffset,
                 pickable: false,
                 time: this.state.animationPhase,
-                parameters: {
-                  blend: true,
-                  blendFunc: this.state.visual.particleBlend,
-                  depthTest: false,
-                  depthWrite: false,
-                },
+                parameters: this.state.visual.particleBlend,
               }),
             ]
           }
@@ -234,12 +221,7 @@ export const godViewRenderingGraphLayerTransportMethods = {
               stroked: false,
               pickable: false,
               getFillColor: (d) => d.color,
-              parameters: {
-                blend: true,
-                blendFunc: this.state.visual.particleBlend,
-                depthTest: false,
-                depthWrite: false,
-              },
+              parameters: this.state.visual.particleBlend,
               updateTriggers: {
                 getPosition: this.state.animationPhase,
                 getFillColor: this.state.animationPhase,
@@ -270,10 +252,7 @@ export const godViewRenderingGraphLayerTransportMethods = {
               pulseAlpha,
             ],
             pickable: false,
-            parameters: {
-              depthTest: false,
-              depthWrite: false,
-            },
+            parameters: GOD_VIEW_NO_DEPTH,
           }),
         ]
       : []
@@ -300,10 +279,7 @@ export const godViewRenderingGraphLayerTransportMethods = {
             getWidth: 1,
             widthUnits: "pixels",
             pickable: false,
-            parameters: {
-              depthTest: false,
-              depthWrite: false,
-            },
+            parameters: GOD_VIEW_NO_DEPTH,
             updateTriggers: {
               getColor: sweepTime,
             },
@@ -332,12 +308,7 @@ export const godViewRenderingGraphLayerTransportMethods = {
             widthUnits: "pixels",
             greatCircle: false,
             pickable: true,
-            parameters: {
-              blend: true,
-              blendFunc: [770, 771],
-              depthTest: false,
-              depthWrite: false,
-            },
+            parameters: GOD_VIEW_ALPHA_BLEND,
             updateTriggers: {
               getSourceColor: [this.state.animationPhase],
               getTargetColor: [this.state.animationPhase],

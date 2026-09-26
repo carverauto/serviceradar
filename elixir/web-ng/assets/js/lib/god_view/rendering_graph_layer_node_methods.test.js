@@ -3,6 +3,7 @@ import {describe, expect, it, vi} from "vitest"
 import {bindApi, createStateBackedContext} from "./api_helpers"
 import {godViewRenderingGraphLayerNodeMethods} from "./rendering_graph_layer_node_methods"
 import {pickedNodeObject} from "./rendering_node_frame"
+import {GOD_VIEW_ALPHA_BLEND} from "./gpu_parameters"
 
 function topologyScene(overrides = {}) {
   return {
@@ -521,7 +522,7 @@ describe("rendering_graph_layer_node_methods", () => {
         label: [255, 255, 255, 255],
         edgeLabel: [200, 200, 200, 255],
         nodeFill: [80, 120, 180, 255],
-        particleBlend: [770, 771],
+        particleBlend: GOD_VIEW_ALPHA_BLEND,
       },
       canvas: {getBoundingClientRect: () => ({width: 220, height: 220})},
       deck: {getViewports: () => [{width: 220, height: 220, project: ([x, y]) => [x, y]}]},

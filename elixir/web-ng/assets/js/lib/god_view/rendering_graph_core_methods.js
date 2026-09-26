@@ -36,6 +36,8 @@ export const godViewRenderingGraphCoreMethods = {
   },
   renderGraph(graph) {
     this.deps.ensureDeck()
+    // No deck means WebGPU is unavailable and the surface already says so.
+    if (!this.state.deck) return
     this.autoFitViewState(graph)
     const effective = this.deps.reshapeGraph(graph)
     if (this.state.packetFlowEnabled) this.state.layers.atmosphere = true

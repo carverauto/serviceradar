@@ -1,82 +1,108 @@
-import {Layer, picking, project32} from "@deck.gl/core"
+import {Layer, color, picking, project32} from "@deck.gl/core"
 import {Geometry, Model} from "@luma.gl/engine"
 
-const packetFlowUniformBlock = `\
-uniform packetFlowUniforms {
-  float time;
-} packetFlow;
-`
+// Animated packet particles along topology edges, drawn on WebGPU.
+//
+// Each particle is an instanced quad (a triangle strip of four corners in [-1, 1]) expanded in
+// the vertex shader to `instanceSizes` device pixels -- the diameter the former point sprite
+// had, since WebGPU has no point size. The fragment shader cuts the same soft round glow the
+// sprite used: a solid core inside 0.2 of the radius and a fading halo out to the edge.
 
-const packetFlowUniformsModule = {
+// Bound by name: the uniform variable below is `packetFlow`, matching the module name.
+const packetFlowUniforms = {
   name: "packetFlow",
-  vs: packetFlowUniformBlock,
-  fs: packetFlowUniformBlock,
-  getUniforms: props => props,
+  source: "",
   uniformTypes: {
     time: "f32",
   },
 }
 
-const packetFlowVS = `\
-#version 300 es
-#define SHADER_NAME sr-packet-flow-layer-vs
-in vec2 instanceFrom;
-in vec2 instanceTo;
-in float instanceSeeds;
-in float instanceSpeeds;
-in float instanceSizes;
-in float instanceJitters;
-in float instanceLaneOffsets;
-in vec4 instanceColors;
+export const PACKET_FLOW_WGSL = /* wgsl */ `\
+struct PacketFlowUniforms {
+  time: f32,
+};
 
-out vec4 vColor;
+@group(0) @binding(0) var<uniform> packetFlow: PacketFlowUniforms;
 
-float rand(vec2 co) {
-  return fract(sin(dot(co.xy, vec2(12.9898, 78.233))) * 43758.5453);
+struct Attributes {
+  @builtin(instance_index) instanceIndex: u32,
+  @location(0) positions: vec3<f32>,
+  @location(1) instanceFrom: vec2<f32>,
+  @location(2) instanceTo: vec2<f32>,
+  @location(3) instanceSeeds: f32,
+  @location(4) instanceSpeeds: f32,
+  @location(5) instanceSizes: f32,
+  @location(6) instanceJitters: f32,
+  @location(7) instanceLaneOffsets: f32,
+  @location(8) instanceColors: vec4<f32>,
+};
+
+struct Varyings {
+  @builtin(position) position: vec4<f32>,
+  @location(0) vColor: vec4<f32>,
+  @location(1) unitPosition: vec2<f32>,
+  @location(2) pickingColor: vec3<f32>,
+};
+
+fn packetFlowRand(co: vec2<f32>) -> f32 {
+  return fract(sin(dot(co, vec2<f32>(12.9898, 78.233))) * 43758.5453);
 }
 
-void main(void) {
-  float progress = fract(instanceSeeds + (packetFlow.time * instanceSpeeds));
-  vec2 pos = mix(instanceFrom, instanceTo, progress);
+@vertex
+fn vertexMain(attributes: Attributes) -> Varyings {
+  var varyings: Varyings;
 
-  vec2 dir = normalize(instanceTo - instanceFrom);
-  vec2 normal = vec2(-dir.y, dir.x);
-  pos += normal * instanceLaneOffsets;
+  let progress = fract(attributes.instanceSeeds + (packetFlow.time * attributes.instanceSpeeds));
+  var pos = mix(attributes.instanceFrom, attributes.instanceTo, progress);
 
-  float offset = (rand(vec2(instanceSeeds, instanceSeeds)) - 0.5) * 2.0;
-  pos += normal * offset * instanceJitters;
+  let dir = normalize(attributes.instanceTo - attributes.instanceFrom);
+  let normal = vec2<f32>(-dir.y, dir.x);
+  pos += normal * attributes.instanceLaneOffsets;
 
-  vColor = vec4(instanceColors.rgb / 255.0, instanceColors.a / 255.0);
+  let jitter = (packetFlowRand(vec2<f32>(attributes.instanceSeeds, attributes.instanceSeeds)) - 0.5) * 2.0;
+  pos += normal * jitter * attributes.instanceJitters;
+
+  var fragColor = attributes.instanceColors;
   // Fade particles out near both endpoints so node areas stay visually cleaner.
-  float fadeIn = smoothstep(0.0, 0.18, progress);
-  float fadeOut = smoothstep(1.0, 0.82, progress);
-  float fade = fadeIn * fadeOut;
-  vColor.a *= fade;
-  gl_Position = project_position_to_clipspace(vec3(pos, 0.0), vec3(0.0), vec3(0.0));
-  gl_PointSize = instanceSizes;
+  let fadeIn = smoothstep(0.0, 0.18, progress);
+  let fadeOut = 1.0 - smoothstep(0.82, 1.0, progress);
+  fragColor.a *= fadeIn * fadeOut;
+  varyings.vColor = fragColor;
+
+  // instanceSizes is a diameter in device pixels; the offset helper takes CSS pixels.
+  let radiusPixels = attributes.instanceSizes * 0.5 / project.devicePixelRatio;
+  let center = project_position_to_clipspace(vec3<f32>(pos, 0.0), vec3<f32>(0.0), vec3<f32>(0.0));
+  let corner = project_pixel_size_to_clipspace(attributes.positions.xy * radiusPixels);
+  varyings.position = vec4<f32>(center.xy + corner, center.z, center.w);
+  varyings.unitPosition = attributes.positions.xy;
+  varyings.pickingColor = picking_getPickingColorFromIndex(attributes.instanceIndex);
+  return varyings;
 }
-`
 
-const packetFlowFS = `\
-#version 300 es
-#define SHADER_NAME sr-packet-flow-layer-fs
-precision highp float;
-in vec4 vColor;
-out vec4 fragColor;
-
-void main(void) {
-  vec2 coord = gl_PointCoord - vec2(0.5);
-  float dist = length(coord);
+@fragment
+fn fragmentMain(varyings: Varyings) -> @location(0) vec4<f32> {
+  // Distance from the particle centre as a fraction of its diameter, as gl_PointCoord gave it.
+  let dist = length(varyings.unitPosition) * 0.5;
   if (dist > 0.5) {
     discard;
   }
 
-  float core = smoothstep(0.2, 0.0, dist);
-  float glow = smoothstep(0.5, 0.2, dist) * 0.6;
-  float finalAlpha = vColor.a * (core + glow);
-  fragColor = vec4(vColor.rgb, finalAlpha);
+  if (picking.isActive > 0.5) {
+    if (!picking_isColorValid(varyings.pickingColor)) {
+      discard;
+    }
+    return vec4<f32>(varyings.pickingColor, 1.0);
+  }
+
+  let core = 1.0 - smoothstep(0.0, 0.2, dist);
+  let glow = (1.0 - smoothstep(0.2, 0.5, dist)) * 0.6;
+  let fragColor = vec4<f32>(varyings.vColor.rgb, varyings.vColor.a * (core + glow));
+  return deckgl_premultiplied_alpha(fragColor);
 }
 `
+
+// A unit square covering the particle, drawn as a triangle strip.
+const QUAD_CORNERS = new Float32Array([-1, -1, 0, 1, -1, 0, -1, 1, 0, 1, 1, 0])
 
 export default class PacketFlowLayer extends Layer {
   static get layerName() {
@@ -88,7 +114,7 @@ export default class PacketFlowLayer extends Layer {
   }
 
   getShaders() {
-    return super.getShaders({vs: packetFlowVS, fs: packetFlowFS, modules: [project32, picking, packetFlowUniformsModule]})
+    return super.getShaders({source: PACKET_FLOW_WGSL, modules: [project32, color, picking, packetFlowUniforms]})
   }
 
   initializeState() {
@@ -101,7 +127,7 @@ export default class PacketFlowLayer extends Layer {
       instanceSizes: {size: 1, accessor: "getSize"},
       instanceJitters: {size: 1, accessor: "getJitter"},
       instanceLaneOffsets: {size: 1, accessor: "getLaneOffset"},
-      instanceColors: {size: 4, accessor: "getColor"},
+      instanceColors: {size: 4, type: "unorm8", accessor: "getColor", defaultValue: [62, 207, 135, 80]},
     })
     this.state.model = this._getModel()
     this.getAttributeManager()?.invalidateAll?.()
@@ -122,9 +148,9 @@ export default class PacketFlowLayer extends Layer {
       id: this.props.id,
       bufferLayout: this.getAttributeManager().getBufferLayouts(),
       geometry: new Geometry({
-        topology: "point-list",
+        topology: "triangle-strip",
         attributes: {
-          positions: {value: new Float32Array([0, 0, 0]), size: 3},
+          positions: {size: 3, value: QUAD_CORNERS},
         },
       }),
       isInstanced: true,

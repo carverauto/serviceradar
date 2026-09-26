@@ -8,6 +8,7 @@ import {
   normalizeManagedVisualDensity,
 } from "./rendering_managed_visual_density"
 import {hasExpandedCluster, hasManagedTopologyScene, topologySemanticLevel} from "./topology_layout_mode"
+import {GOD_VIEW_NO_DEPTH} from "./gpu_parameters"
 
 const labelSelections = new WeakMap()
 
@@ -528,10 +529,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
         getWidth: 1,
         widthUnits: "pixels",
         pickable: false,
-        parameters: {
-          depthTest: false,
-          depthWrite: false,
-        },
+        parameters: GOD_VIEW_NO_DEPTH,
       }),
       new ScatterplotLayer({
         id: "god-view-nodes-halo",
@@ -543,12 +541,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
         stroked: false,
         pickable: true,
         getFillColor: (_, {index, target}) => writeNodeColor(target, glyphNodes[index], 15),
-        parameters: {
-          blend: true,
-          blendFunc: this.state.visual.particleBlend,
-          depthTest: false,
-          depthWrite: false,
-        },
+        parameters: this.state.visual.particleBlend,
         updateTriggers: {
           getRadius: managedVisualDensity,
         },
@@ -566,10 +559,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
         pickable: false,
         getLineWidth: (_, {index}) => (glyphNodes[index]?.selected ? 2 : 1),
         getLineColor: (_, {index, target}) => writeNodeColor(target, glyphNodes[index]),
-        parameters: {
-          depthTest: false,
-          depthWrite: false,
-        },
+        parameters: GOD_VIEW_NO_DEPTH,
         updateTriggers: {
           getRadius: [this.state.animationPhase, managedVisualDensity],
         },
@@ -585,10 +575,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
         pickable: true,
         opacity: 0,
         getFillColor: [0, 0, 0, 1],
-        parameters: {
-          depthTest: false,
-          depthWrite: false,
-        },
+        parameters: GOD_VIEW_NO_DEPTH,
         updateTriggers: {
           getRadius: managedVisualDensity,
         },
@@ -604,10 +591,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
         filled: true,
         pickable: true,
         getFillColor: this.state.visual.nodeFill,
-        parameters: {
-          depthTest: false,
-          depthWrite: false,
-        },
+        parameters: GOD_VIEW_NO_DEPTH,
         updateTriggers: {
           getRadius: managedVisualDensity,
         },

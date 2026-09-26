@@ -1,3 +1,4 @@
+import {GOD_VIEW_ADDITIVE_BLEND, GOD_VIEW_ALPHA_BLEND} from "./gpu_parameters"
 /* Brand dark palette — green accents on teal-slate canvas (marketing parity) */
 const DARK_VISUAL = {
   bg: [10, 17, 20, 255],                   // #0a1114 --sr-color-canvas
@@ -25,7 +26,7 @@ const DARK_VISUAL = {
   crustHighVivid: [255, 110, 220, 142],    // vivid magenta
   particleCyan: [116, 223, 166, 255],      // bright brand particle (was cyan)
   particleMagenta: [244, 114, 255, 255],   // bright magenta particle
-  particleBlend: [770, 1, 1, 1],           // additive blending for glow on dark
+  particleBlend: GOD_VIEW_ADDITIVE_BLEND,  // additive blending for glow on dark
   label: [237, 245, 241, 240],             // #edf5f1 --sr-color-ink
   edgeLabel: [170, 184, 178, 220],         // #aab8b2 --sr-color-muted
   pulse: [255, 42, 122, 220],              // neon magenta
@@ -58,7 +59,7 @@ const LIGHT_VISUAL = {
   crustHighVivid: [147, 51, 234, 250],     // purple-600 near-opaque
   particleCyan: [7, 107, 62, 255],         // brand-strong particle on light edges
   particleMagenta: [88, 28, 135, 255],     // dark purple particle on light edges
-  particleBlend: [770, 771],               // standard alpha blending for light bg
+  particleBlend: GOD_VIEW_ALPHA_BLEND,     // standard alpha blending for light bg
   label: [11, 23, 32, 240],                // #0b1720 --sr-color-ink
   edgeLabel: [93, 105, 119, 220],          // #5d6977 --sr-color-muted
   pulse: [220, 38, 38, 220],               // red-600
@@ -119,7 +120,8 @@ export const godViewLifecycleBootstrapStateDefaultsMethods = {
     this.state.channel = null
     this.state.rendererMode = "initializing"
     this.state.rendererDeviceType = null
-    this.state.rendererFallbackReason = null
+    this.state.rendererError = null
+    this.state.rendererErrorOverlay = null
     this.state.filters = {root_cause: true, affected: true, healthy: true, unknown: true}
     this.state.lastGraph = null
     this.state.wasmEngine = null

@@ -3,6 +3,7 @@ import {ArcLayer, LineLayer, PathLayer} from "@deck.gl/layers"
 
 import {bindApi, createStateBackedContext} from "./api_helpers"
 import {godViewRenderingGraphLayerTransportMethods} from "./rendering_graph_layer_transport_methods"
+import {GOD_VIEW_ADDITIVE_BLEND} from "./gpu_parameters"
 
 function topologyScene(overrides = {}) {
   return {
@@ -247,7 +248,7 @@ describe("rendering_graph_layer_transport_methods", () => {
       layers: {mantle: true, crust: true, atmosphere: true, security: true},
       packetFlowEnabled: true,
       packetFlowShaderEnabled: true,
-      visual: {pulse: [255, 64, 64, 220], particleBlend: [770, 1, 1, 1]},
+      visual: {pulse: [255, 64, 64, 220], particleBlend: GOD_VIEW_ADDITIVE_BLEND},
     }
     const deps = {geoGridData: vi.fn(() => [])}
     const ctx = createStateBackedContext(state, deps)
@@ -278,8 +279,8 @@ describe("rendering_graph_layer_transport_methods", () => {
     expect(out.atmosphereLayers).toHaveLength(1)
     expect(out.securityLayers).toHaveLength(1)
     expect(out.atmosphereLayers[0].id).toEqual("god-view-atmosphere-particles")
-    expect(out.atmosphereLayers[0].props.parameters.blendFunc).toEqual([770, 1, 1, 1])
-    expect(out.atmosphereLayers[0].props.parameters.depthTest).toEqual(false)
+    expect(out.atmosphereLayers[0].props.parameters).toBe(GOD_VIEW_ADDITIVE_BLEND)
+    expect(GOD_VIEW_ADDITIVE_BLEND).toMatchObject({blendColorDstFactor: "one", depthWriteEnabled: false})
   })
 
   it("buildTransportAndEffectLayers omits atmosphere particles when layer toggle is disabled", () => {
@@ -316,7 +317,7 @@ describe("rendering_graph_layer_transport_methods", () => {
       packetFlowShaderEnabled: true,
       visual: {
         pulse: [255, 64, 64, 220],
-        particleBlend: [770, 1, 1, 1],
+        particleBlend: GOD_VIEW_ADDITIVE_BLEND,
         mantleEdgeBase: [30, 80, 140],
         mantleEdgeAlphaBase: 128,
         mantleEdgeAlphaBoost: 32,

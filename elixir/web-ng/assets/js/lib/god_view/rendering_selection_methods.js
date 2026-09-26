@@ -319,7 +319,7 @@ export const godViewRenderingSelectionMethods = {
       this.state.viewState = {...this.state.viewState, target: [x, y, 0]}
       if (this.state.deck) {
         this.state.isProgrammaticViewUpdate = true
-        this.state.deck.setProps({viewState: this.state.viewState})
+        this.state.deck?.setProps({viewState: this.state.viewState})
         this.state.isProgrammaticViewUpdate = false
       }
     }
