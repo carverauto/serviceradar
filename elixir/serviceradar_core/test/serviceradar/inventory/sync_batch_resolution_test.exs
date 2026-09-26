@@ -18,6 +18,7 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.IdentityDecision
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.SourceIdentityConflict
   alias ServiceRadar.Inventory.SyncIngestor
@@ -1269,6 +1270,13 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
       assert resolved != holder.uid
       assert [conflict] = override_conflicts(resolved, actor)
       assert conflict.conflicting_identifiers["overridden_device_uids"] == [holder.uid]
+
+      assert {:ok, decisions} = IdentityDecision.for_device(resolved, actor: actor)
+
+      assert Enum.any?(decisions, fn decision ->
+               decision.decision_kind == :source_override and resolved in decision.device_uids and
+                 holder.uid in decision.device_uids
+             end)
     end
   end
 
