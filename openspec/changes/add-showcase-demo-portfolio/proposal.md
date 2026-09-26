@@ -30,9 +30,15 @@ parity with Go.
   state (runs are stateless), seeded identity, a fault scheduler, motion and
   process models, emitters for inventory/metrics/events/camera descriptors, and
   a native fixture exporter so dashboards and plugins cannot disagree.
-- **Automatic faults only.** Every scenario pack schedules its own recurring
-  faults; nobody presses a button. At any moment a visitor sees an active
-  incident or one starting within ten minutes, and every fault resolves.
+- **Faults on a timer or on demand.** Every scenario pack schedules its own
+  recurring faults for unattended runs, and presenters can trigger any
+  declared fault from the dashboard. Both go through the plugin: a trigger is
+  a plugin action that emits the real OCSF event and applies the fault through
+  a time-bounded run override, so the incident is as real as a scheduled one.
+- **Event-driven dashboards:** dashboards can invoke plugin actions (RBAC,
+  audit, history through the northbound action model) and subscribe to live
+  OCSF events, refreshing their frames within seconds of an event instead of
+  waiting for the next poll.
 - **As real as possible.** Real public reference data (airports, flight
   numbers, vendor models) is welcome; customer data never is. Every plugin
   splits a device `Source` from the normalizer, and the simulator is just one
@@ -44,8 +50,10 @@ parity with Go.
   multiple detections per frame, deliver them to viewers, draw them on camera
   tiles, and raise alerts from them.
 - **Mockup-guided dashboards:** a common frame (incident banner, chip/KPI
-  header, visual/detail split) and a read-only presenter strip that counts
-  down to the next scheduled fault instead of offering fault buttons.
+  header, visual/detail split) and a presenter strip with the active
+  incident, a countdown to the next scheduled fault and a trigger button per
+  declared fault. The Wi-Fi and baggage demos share one public airport with a
+  fictional carrier.
 - **Dashboard video API** (product + dashboard SDK): a `camera.stream.view`
   manifest capability, a host `camera` session API wrapping the existing relay
   and WebRTC signaling, `useCameraStream` / `<CameraTile>` / `<CameraGrid>` in
@@ -102,7 +110,8 @@ parity with Go.
     worker, WebRTC/TURN
     settings, demo plugin signing key trust).
 - Depends on: `restore-unifi-protect-camera-streams` (a working relay in
-  `demo`), `fix-dashboard-frame-staleness`. Coordinates with
+  `demo`), `fix-dashboard-frame-staleness`, `add-northbound-action-integrations`
+  (plugin action descriptors and invocation, used for fault triggers). Coordinates with
   `add-dashboard-sidebar-shell` (web-ng multiview tiles; the SDK grid reuses its
   player library), `add-plugin-alert-rules` (metric rules shipped by plugins),
   and `replace-age-topology-with-dgraph` (topology-link storage stays

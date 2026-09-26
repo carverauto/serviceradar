@@ -43,9 +43,10 @@ A demo simulator SHALL compute every emitted value as a deterministic function o
 - **WHEN** the agent restarts the plugin between two runs
 - **THEN** counters emitted by the second run SHALL be greater than or equal to those emitted by the first
 
-### Requirement: Faults are injected automatically
-Every scenario pack SHALL schedule its own recurring faults so that no operator action is needed to produce an incident.
-At every instant at least one fault SHALL be active or SHALL begin within ten minutes, faults of the same kind on the same target SHALL NOT overlap, and every fault SHALL emit an opening event and a resolving event.
+### Requirement: Faults are injected on a schedule and on demand
+Every scenario pack SHALL schedule its own recurring faults so that an unattended demo produces incidents, and every demo plugin SHALL also expose fault injection as a plugin action so a presenter can trigger a declared fault from the dashboard.
+Scheduled and injected faults SHALL travel the same path: the plugin emits an opening OCSF event to the events store, applies the fault to its telemetry, and emits a resolving event when the fault ends.
+While a pack's schedule is enabled, at every instant at least one fault SHALL be active or SHALL begin within ten minutes, and faults of the same kind on the same target SHALL NOT overlap.
 
 #### Scenario: A week of schedule is checked
 - **WHEN** the fault-scheduler test evaluates a scenario pack over seven simulated days
@@ -57,6 +58,18 @@ At every instant at least one fault SHALL be active or SHALL begin within ten mi
 - **WHEN** a scheduled fault opens and later resolves
 - **THEN** the platform SHALL open an alert from the opening event
 - **AND** SHALL resolve that alert from the resolving event without operator action
+
+#### Scenario: Presenter triggers a fault
+- **GIVEN** a user permitted to invoke the plugin's fault-injection action
+- **WHEN** the user triggers a declared fault on a target from the dashboard
+- **THEN** the plugin SHALL emit the fault's opening OCSF event within seconds
+- **AND** subsequent plugin runs SHALL apply the fault to the target's telemetry until it expires
+- **AND** the plugin SHALL emit the resolving event when it expires or is ended early
+
+#### Scenario: Injected fault on a busy target
+- **WHEN** a fault of the same kind is already injected on the target
+- **THEN** the injection SHALL be rejected with a distinguishable error
+- **AND** no second opening event SHALL be emitted
 
 ### Requirement: Demo telemetry uses the standard pipeline
 Demo simulators SHALL deliver metrics through plugin telemetry emission to NATS JetStream, inventory through device discovery results, and faults through plugin result events, and SHALL NOT write to any database directly.
@@ -111,8 +124,8 @@ Selecting a drone on the map SHALL highlight its tile, and selecting a tile SHAL
 - **AND** an alert SHALL open for that drone
 
 ### Requirement: Wi-Fi campus twin demo
-The Wi-Fi demo SHALL present venue or campus sites with controllers, access points, an indoor floorplan, client load, RF health and roaming, using the platform's Wi-Fi map result contract and SRQL Wi-Fi entities.
-It SHALL NOT be derived from any customer's Wi-Fi dataset or dashboard.
+The Wi-Fi demo SHALL present an airport venue with controllers, access points, an indoor floorplan, client load driven by a fictional carrier's flight schedule, RF health and roaming, using the platform's Wi-Fi map result contract and SRQL Wi-Fi entities.
+It SHALL NOT be derived from any customer's Wi-Fi dataset or dashboard, and its flights SHALL use an airline designator no real airline holds.
 
 #### Scenario: Channel saturation fault
 - **WHEN** a scheduled channel-saturation fault affects a site
@@ -166,8 +179,8 @@ Detections SHALL come from inference on the video, never from painted or scripte
 - **WHEN** no relay session is active for a drone camera
 - **THEN** no analysis SHALL run for that camera
 
-### Requirement: Presenter strip shows schedule without controlling it
-Each demo dashboard SHALL show the active incident and a countdown to the next scheduled fault, read from simulator-published metrics, and SHALL NOT offer any control that injects, clears or resets a fault.
+### Requirement: Presenter strip shows and triggers faults
+Each demo dashboard SHALL show the active incident, a countdown to the next scheduled fault, and a trigger control for each fault the plugin's action descriptors declare, and every trigger SHALL invoke the plugin action rather than change dashboard state directly.
 
 #### Scenario: Waiting for the next fault
 - **WHEN** no fault is active
@@ -177,3 +190,11 @@ Each demo dashboard SHALL show the active incident and a countdown to the next s
 - **WHEN** the simulator's schedule metrics are absent, as with a real source
 - **THEN** the strip SHALL hide the countdown without error
 - **AND** the strip SHALL still show the active incident from the product's alerts
+
+#### Scenario: User without action permission
+- **WHEN** a user who may not invoke the plugin's actions opens the dashboard
+- **THEN** the strip SHALL show incident and countdown without trigger controls
+
+#### Scenario: Dashboard reacts to the injected fault
+- **WHEN** a presenter triggers a fault
+- **THEN** the incident banner, map highlight and detail panel SHALL reflect it within seconds of the opening event, without waiting for the next scheduled frame refresh
