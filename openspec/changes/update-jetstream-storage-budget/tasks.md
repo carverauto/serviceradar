@@ -152,26 +152,26 @@
       its public function, not source text, and fails on the current
       `reconcile_stream_shape` default. Go and Rust owner behaviour is covered by
       each owner's unit tests (4.1, 4.2, 4.9, 4.10).
-- [ ] 4.13 Verify the shipped Compose and packaged NATS servers are 2.10 or
+- [x] 4.13 Verify the shipped Compose and packaged NATS servers are 2.10 or
       later for stream metadata and raise them where they are not.
 
 ## 5. Compose and packaged installs (D7)
 
-- [ ] 5.1 Add `docker/compose/profiles/{small,medium,large}.env` with the D8
+- [x] 5.1 Add `docker/compose/profiles/{small,medium,large}.env` with the D8
       Compose table and every stream size explicit; select the file with
       `SERVICERADAR_NATS_PROFILE` (default `small`) through `env_file`.
-- [ ] 5.2 `docker/compose/nats.docker.conf` reads `max_file_store` from
+- [x] 5.2 `docker/compose/nats.docker.conf` reads `max_file_store` from
       `$SERVICERADAR_NATS_MAX_FILE_STORE`. The presets set every stream size
       through the `SERVICERADAR_JS_<STREAM>_MAX_BYTES` / `_REPLICAS` variables
       of D7 (core and web-ng through their own variables, tasks 2.3-2.5), plus
       the EventWriter `SERVICERADAR_JS_<STREAM>_FALLBACK_MAX_BYTES` / `_REPLICAS`
       keys for `events`, `flows` and `ARANCINI_CAUSAL` (task 2.6). No ownership
       variable is set: ownership is claimed on the stream (D6).
-- [ ] 5.3 Ship `build/packaging/nats/config/jetstream-sizes.env` with the
+- [x] 5.3 Ship `build/packaging/nats/config/jetstream-sizes.env` with the
       `small` content; load it with `EnvironmentFile=` in the NATS, datasvc,
       log-collector, flow-collector, bmp-collector, core and web-ng units, and
       read `max_file_store` from it in `nats-server.conf`.
-- [ ] 5.4 Add a `go_test` that sets each preset's variables, parses the NATS
+- [x] 5.4 Add a `go_test` that sets each preset's variables, parses the NATS
       configs with the nats-server config parser, parses the presets and sizes
       file into typed values, fails on a missing or unknown inventory key or a
       non-positive size, and evaluates the D5 formula with `nats.replicas = 1`;
@@ -180,7 +180,7 @@
       typed models and fails when a size-owning service does not load the
       selected preset (`env_file`) or the sizes file (`EnvironmentFile`).
       A vector with the v1.4.73 single-server shape must fail.
-- [ ] 5.5 Bump `addons/<name>/addon.yaml` `version` for any native add-on whose
+- [x] 5.5 Bump `addons/<name>/addon.yaml` `version` for any native add-on whose
       config changes.
 - [x] 5.6 Go datasvc: read `SERVICERADAR_JS_KV_SERVICERADAR_DATASVC_MAX_BYTES`,
       `SERVICERADAR_JS_OBJ_SERVICERADAR_OBJECTS_MAX_BYTES` and the matching

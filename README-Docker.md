@@ -81,6 +81,20 @@ To default to the dev compose overlay (no `-f`), set `COMPOSE_FILE=docker-compos
    - Email: `root@localhost`
    - Password: (from step 5)
 
+## JetStream sizing profile
+
+NATS JetStream storage is sized by a profile: `small` (the default, 30G),
+`medium` (100G) or `large` (500G). Set `SERVICERADAR_NATS_PROFILE` in `.env`
+to pick one. The profile file, `docker/compose/profiles/<profile>.env`, sets
+NATS `max_file_store` and the size of every stream, KV bucket and object store,
+and is loaded by NATS and every service that creates one. `max_file_store` is a
+reservation ceiling, so the Docker host needs at least that much free disk for
+the `nats-data` volume. To change one size, set its variable in that service's
+`environment` (for example in a `docker-compose.override.yml`); keep the total
+within 85% of `max_file_store`, the budget
+`//go/pkg/nats/jetstreambudget:jetstreambudget_test` enforces for the shipped
+profiles.
+
 ## Optional profiles: StarRocks warehouse and NetFlow collector
 
 The default stack does **not** start StarRocks or the NetFlow collector, and

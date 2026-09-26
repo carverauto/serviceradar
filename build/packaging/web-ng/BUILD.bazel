@@ -7,6 +7,10 @@ package(
     default_visibility = ["//visibility:public"],
 )
 
+exports_files([
+    "systemd/serviceradar-web-ng.service",
+])
+
 serviceradar_package_from_config(
     name = "web-ng",
     config = PACKAGES["web-ng"],

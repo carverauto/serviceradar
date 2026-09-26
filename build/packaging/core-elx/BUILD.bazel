@@ -7,6 +7,10 @@ package(
     default_visibility = ["//visibility:public"],
 )
 
+exports_files([
+    "systemd/serviceradar-core-elx.service",
+])
+
 serviceradar_package_from_config(
     name = "core-elx",
     config = PACKAGES["core-elx"],

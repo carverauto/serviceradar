@@ -419,6 +419,9 @@ services:
   core-elx:
     image: registry.carverauto.dev/serviceradar/serviceradar-core-elx:${APP_TAG:-latest}
     container_name: serviceradar-core-elx-mtls
+    env_file:
+      # JetStream sizing profile (small, medium or large); see docker/compose/profiles.
+      - ./docker/compose/profiles/${SERVICERADAR_NATS_PROFILE:-small}.env
     hostname: core-elx
     environment:
       - CLUSTER_ENABLED=true
@@ -662,6 +665,9 @@ services:
     image: nats:2.14.0-alpine
     platform: linux/amd64
     container_name: serviceradar-nats-mtls
+    env_file:
+      # JetStream sizing profile (small, medium or large); see docker/compose/profiles.
+      - ./docker/compose/profiles/${SERVICERADAR_NATS_PROFILE:-small}.env
     ports:
       - "4222:4222"
       - "${NATS_MONITORING_BIND:-127.0.0.1}:${NATS_MONITORING_PORT:-8222}:8222"
@@ -689,6 +695,9 @@ services:
   datasvc:
     image: registry.carverauto.dev/serviceradar/serviceradar-datasvc:${APP_TAG:-latest}
     container_name: serviceradar-datasvc-mtls
+    env_file:
+      # JetStream sizing profile (small, medium or large); see docker/compose/profiles.
+      - ./docker/compose/profiles/${SERVICERADAR_NATS_PROFILE:-small}.env
     cpus: "2.0"
     ports:
       - "50057:50057"
@@ -815,6 +824,9 @@ services:
   log-collector:
     image: registry.carverauto.dev/serviceradar/serviceradar-log-collector:${APP_TAG:-latest}
     container_name: serviceradar-log-collector-mtls
+    env_file:
+      # JetStream sizing profile (small, medium or large); see docker/compose/profiles.
+      - ./docker/compose/profiles/${SERVICERADAR_NATS_PROFILE:-small}.env
     build:
       context: .
       dockerfile: docker/compose/Dockerfile.log-collector
@@ -968,6 +980,9 @@ services:
   flow-collector:
     image: registry.carverauto.dev/serviceradar/serviceradar-flow-collector:${APP_TAG:-latest}
     container_name: serviceradar-flow-collector-mtls
+    env_file:
+      # JetStream sizing profile (small, medium or large); see docker/compose/profiles.
+      - ./docker/compose/profiles/${SERVICERADAR_NATS_PROFILE:-small}.env
     profiles:
       - network-ingest
       - flows
@@ -1002,6 +1017,9 @@ services:
   bmp-collector:
     image: registry.carverauto.dev/serviceradar/arancini:${ARANCINI_TAG:-latest}
     container_name: serviceradar-bmp-collector-mtls
+    env_file:
+      # JetStream sizing profile (small, medium or large); see docker/compose/profiles.
+      - ./docker/compose/profiles/${SERVICERADAR_NATS_PROFILE:-small}.env
     profiles:
       - network-ingest
       - bmp
@@ -1162,6 +1180,9 @@ services:
   web-ng:
     image: registry.carverauto.dev/serviceradar/serviceradar-web-ng:${APP_TAG:-latest}
     container_name: serviceradar-web-ng-mtls
+    env_file:
+      # JetStream sizing profile (small, medium or large); see docker/compose/profiles.
+      - ./docker/compose/profiles/${SERVICERADAR_NATS_PROFILE:-small}.env
     environment:
       - PORT=4000
       - PHX_SERVER=true

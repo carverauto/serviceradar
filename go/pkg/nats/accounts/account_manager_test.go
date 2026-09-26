@@ -30,7 +30,9 @@ import (
 	"github.com/nats-io/nkeys"
 )
 
-const dockerComposeMaxFileStoreBytes int64 = 10 * 1000 * 1000 * 1000
+// dockerComposeMaxFileStoreBytes is the NATS max_file_store of the smallest
+// Docker Compose sizing profile (docker/compose/profiles/small.env).
+const dockerComposeMaxFileStoreBytes int64 = 30 * 1000 * 1000 * 1000
 const dockerComposeDatasvcBucketMaxBytes int64 = 2 * 1024 * 1024 * 1024
 
 func TestNewAccountSigner(t *testing.T) {
@@ -243,7 +245,7 @@ func TestAccountSigner_DefaultJetStreamLimitsFitComposeNetworkIngest(t *testing.
 	var bmp collectorBudget
 	readComposeJSON(t, "docker/compose/bmp-collector.docker.json", &bmp)
 	events := readIntegerSetting(t, "docker/compose/otel.docker.toml", "max_bytes")
-	serverMax := readSizedSetting(t, "docker/compose/nats.docker.conf", "max_file_store")
+	serverMax := readSizedSetting(t, "docker/compose/profiles/small.env", "SERVICERADAR_NATS_MAX_FILE_STORE")
 
 	reserved := datasvc.BucketMaxBytes + datasvc.ObjectStoreBytes + events +
 		flows.StreamMaxBytes + bmp.StreamMaxBytes
@@ -259,7 +261,7 @@ func TestAccountSigner_DefaultJetStreamLimitsFitComposeNetworkIngest(t *testing.
 
 	// Keep a full decimal GB outside the generated account for NATS server and
 	// system-account overhead. This also guards the binary-GiB/decimal-G unit
-	// mismatch in nats.docker.conf.
+	// mismatch in the compose sizing profile that nats.docker.conf reads.
 	const minimumServerHeadroom int64 = 1_000_000_000
 	if defaultJetStreamDiskBytes+minimumServerHeadroom > serverMax {
 		t.Fatalf(
@@ -297,7 +299,7 @@ func readIntegerSetting(t *testing.T, name, setting string) int64 {
 func readSizedSetting(t *testing.T, name, setting string) int64 {
 	t.Helper()
 	data := readRepoFixture(t, name)
-	pattern := regexp.MustCompile(`(?m)^\s*` + regexp.QuoteMeta(setting) + `\s*:\s*([0-9]+)([KMG]?)\s*(?:#.*)?$`)
+	pattern := regexp.MustCompile(`(?m)^\s*` + regexp.QuoteMeta(setting) + `\s*[:=]\s*([0-9]+)([KMG]?)\s*(?:#.*)?$`)
 	match := pattern.FindSubmatch(data)
 	if len(match) != 3 {
 		t.Fatalf("%s does not contain sized setting %s", name, setting)

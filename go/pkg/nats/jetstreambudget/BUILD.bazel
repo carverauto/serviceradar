@@ -1,0 +1,32 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
+
+# Checks the JetStream sizing shipped for single-server installs (Docker
+# Compose presets and the deb/rpm sizes file) against the NATS configuration
+# that reads it, and that every size-owning Compose service and systemd unit
+# loads it. Only configuration files are inputs; no component source is read.
+go_test(
+    name = "jetstreambudget_test",
+    size = "small",
+    srcs = ["budget_test.go"],
+    data = [
+        "//:docker-compose.yml",
+        "//build/packaging/bmp-collector:systemd/serviceradar-bmp-collector.service",
+        "//build/packaging/core-elx:systemd/serviceradar-core-elx.service",
+        "//build/packaging/datasvc:systemd/serviceradar-datasvc.service",
+        "//build/packaging/flow-collector:systemd/serviceradar-flow-collector.service",
+        "//build/packaging/log-collector:systemd/serviceradar-log-collector.service",
+        "//build/packaging/nats:config/jetstream-sizes.env",
+        "//build/packaging/nats:config/nats-server.conf",
+        "//build/packaging/nats:systemd/serviceradar-nats.service",
+        "//build/packaging/web-ng:systemd/serviceradar-web-ng.service",
+        "//docker/compose:nats.docker.conf",
+        "//docker/compose:profiles/large.env",
+        "//docker/compose:profiles/medium.env",
+        "//docker/compose:profiles/small.env",
+    ],
+    deps = [
+        "@com_github_nats_io_nats_server_v2//conf",
+        "@in_gopkg_yaml_v3//:yaml_v3",
+        "@io_bazel_rules_go//go/runfiles",
+    ],
+)

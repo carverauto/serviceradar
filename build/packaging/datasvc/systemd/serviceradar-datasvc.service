@@ -4,6 +4,9 @@ After=network.target
 
 [Service]
 Type=simple
+# JetStream stream sizes (shipped by serviceradar-nats). Optional so the
+# service still starts on a host without the NATS package.
+EnvironmentFile=-/etc/serviceradar/jetstream-sizes.env
 User=serviceradar
 ExecStart=/usr/local/bin/serviceradar-datasvc -config /etc/serviceradar/datasvc.json
 Restart=always

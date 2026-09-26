@@ -28,8 +28,8 @@ go_test(
         "//docker/compose:bmp-collector.docker.json",
         "//docker/compose:datasvc.mtls.json",
         "//docker/compose:flow-collector.docker.json",
-        "//docker/compose:nats.docker.conf",
         "//docker/compose:otel.docker.toml",
+        "//docker/compose:profiles/small.env",
     ],
     embed = [":accounts"],
     deps = [
