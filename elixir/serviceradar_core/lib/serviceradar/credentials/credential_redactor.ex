@@ -9,6 +9,14 @@ defmodule ServiceRadar.Credentials.CredentialRedactor do
   """
 
   @redacted "REDACTED"
+
+  # Matched as whole key names (after downcasing and folding "-" to "_"), never
+  # as substrings: "secret" and "token" are fragments of keys that carry no
+  # material at all, such as `secret_id`, `secret_ref` and `token_path`.
+  @exact_sensitive_keys ~w(
+    token access_token refresh_token id_token auth_token bearer bearer_token
+    secret client_secret authorization api_key apikey x_api_key
+  )
   @version "serviceradar_credential_redactor_v1"
 
   @spec version() :: String.t()
@@ -16,13 +24,7 @@ defmodule ServiceRadar.Credentials.CredentialRedactor do
 
   @spec redact(term()) :: term()
   def redact(value) when is_map(value) do
-    Map.new(value, fn {key, nested} ->
-      if sensitive_key?(key) do
-        {key, @redacted}
-      else
-        {key, redact(nested)}
-      end
-    end)
+    Map.new(value, fn {key, nested} -> {key, redact_entry(normalize_key(key), nested)} end)
   end
 
   def redact(value) when is_list(value), do: Enum.map(value, &redact/1)
@@ -37,13 +39,33 @@ defmodule ServiceRadar.Credentials.CredentialRedactor do
 
   def redact(value), do: value
 
-  defp sensitive_key?(key) do
-    normalized =
-      key
-      |> to_string()
-      |> String.downcase()
-      |> String.trim()
+  defp redact_entry("external_secret_ref", _nested), do: @redacted
 
+  defp redact_entry(key, nested) do
+    cond do
+      # A reference is how material is meant to travel; it is not the material.
+      secret_ref_value?(nested) -> nested
+      sensitive_key?(key) -> @redacted
+      key in @exact_sensitive_keys and material_value?(nested) -> @redacted
+      true -> redact(nested)
+    end
+  end
+
+  defp normalize_key(key) do
+    key
+    |> to_string()
+    |> String.downcase()
+    |> String.trim()
+    |> String.replace("-", "_")
+  end
+
+  # A manifest's `secret: true` or a `token: nil` placeholder is not material.
+  defp material_value?(value), do: is_binary(value) or is_map(value) or is_list(value)
+
+  defp secret_ref_value?(value) when is_binary(value), do: secret_ref?(value)
+  defp secret_ref_value?(_value), do: false
+
+  defp sensitive_key?(normalized) do
     cond do
       normalized == "external_secret_ref" ->
         true
