@@ -42,7 +42,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
 
   # A shared hostname is not an identifier. These types decide identity, so
   # two different values of one type veto hostname-agreement adoption.
-  @source_authoritative_types ~w(agent_id armis_device_id integration_id netbox_device_id)
+  @source_authoritative_types ~w(armis_device_id netbox_device_id)
 
   # DB connection's search_path determines the schema
   def bulk_upsert_devices(records, strong_uids \\ MapSet.new(), resolved_updates \\ nil) do
