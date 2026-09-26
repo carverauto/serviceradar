@@ -128,7 +128,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardExportController do
     |> String.replace(~r/[^a-z0-9]+/, "-")
     |> String.trim("-")
     |> case do
-      "" -> "dashboard-panel"
+      "" -> "dashboard"
       filename -> filename
     end
   end
