@@ -114,7 +114,8 @@ one unplaceable stream stops unrelated ingestion.
   and merges subjects only when a collector holds the claim. A legacy stream
   with no metadata is claimed by a collector as soon as it starts; EventWriter
   claims it only after it has stayed unclaimed for a grace period (15 minutes
-  by default), so on an upgrade restart the collector wins and nothing is
+  by default), checked by a new periodic EventWriter ownership reconcile timer
+  that only updates streams and never restarts a consumer, so on an upgrade restart the collector wins and nothing is
   evicted, while an install with no collector converges its existing 10 GiB
   `flows` after the grace period, on Helm, Compose and packaged installs, with
   no per-install ownership setting. The hardcoded 8 GiB

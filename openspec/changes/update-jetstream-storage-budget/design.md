@@ -72,6 +72,11 @@ know about.
 
 The existing `best_effort` split stays for drain consumers.
 
+These retries handle a consumer that failed to set up. They are unrelated to
+the ownership reconcile timer of D6, a separate periodic tick in the `Producer`
+that revisits streams whose consumers set up successfully and never tears down
+or resubscribes a consumer.
+
 ### D2. `max_file_store` is rendered in bytes
 
 `templates/nats.yaml` renders `max_file_store: <integer>`. The value is
@@ -217,9 +222,25 @@ later; the chart runs 2.14) under the key `serviceradar.owner`:
    EventWriter merges subjects only and does not touch the shape. It claims a
    legacy stream (sets `event-writer`, then reconciles it to the fallback)
    only after the stream has stayed unclaimed for a grace period, 15 minutes by
-   default and configurable, measured from EventWriter's consumer setup and
-   checked on its existing retry and refresh cycle. A collector that starts
-   inside the window claims the stream first, so EventWriter never shrinks it.
+   default and configurable. A collector that starts inside the window claims
+   the stream first, so EventWriter never shrinks it.
+
+   Nothing in EventWriter revisits a consumer that set up successfully today:
+   stream reconcile runs once per consumer setup, and the `Producer` timers are
+   only the fetch tick and the reconnect retry, and D1 retries only failed
+   consumers. So the grace period needs its own mechanism, the **ownership
+   reconcile timer**: a new periodic tick in the `Producer`, every 5 minutes by
+   default and configurable, that re-reads `STREAM.INFO` for each multi-owner
+   stream (`events`, `flows`, `ARANCINI_CAUSAL`) the EventWriter consumes and
+   applies rules 2 and 3. It records, in process state, when it first observed
+   each stream unclaimed, and once a stream has been unclaimed for the grace
+   period it re-reads the stream, and if it is still unclaimed sets
+   `serviceradar.owner: event-writer` and reconciles the shape. It only issues
+   `STREAM.UPDATE`; it never tears down or resubscribes a consumer. The clock is
+   read through an injectable source. The first-seen time lives in process
+   state, so a restart resets it, which can only delay convergence by up to one
+   grace period and never evicts early. A tick that finds a collector claim
+   drops the stream from its watch list.
 
    The race this closes is the upgrade restart. On an install with
    flow-collector enabled and a legacy 10 GiB `flows` created by EventWriter,
@@ -517,7 +538,10 @@ they were fuller than the new cap. That includes `flows` and
 legacy stream once it has stayed unclaimed for the grace period (D6) and
 reconciles it to the fallback, so an existing 10 GiB `flows` converges on
 Helm, Compose and packaged installs alike; with a collector running, the
-collector claims it first and nothing is evicted.
+collector claims it first and nothing is evicted. The check is made by the
+EventWriter ownership reconcile timer (D6, every 5 minutes by default), so
+convergence takes the grace period plus at most one tick, and a core restart
+restarts the grace period, which only delays convergence.
 A collector disabled after it claimed a stream keeps its size until the
 runbook reclaim (D6). Discard-new state buckets reach it too when their data fits;
 one holding more than its cap keeps its current reservation, logged, until the

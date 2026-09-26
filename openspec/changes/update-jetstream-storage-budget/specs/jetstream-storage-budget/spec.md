@@ -192,9 +192,10 @@ For a discard-old buffer stream (`flows`, `events`, `ARANCINI_CAUSAL` and every 
 Exactly one component SHALL reconcile the shape (`max_bytes`, replicas, retention) of a given stream. For `events`, `flows` and `ARANCINI_CAUSAL`, which the otel log-collector, flow-collector or bmp-collector and EventWriter can each write, the owner SHALL be recorded in the stream's metadata under the key `serviceradar.owner`, with the values `otel-log-collector`, `flow-collector`, `bmp-collector` and `event-writer`.
 When its dedicated component runs it SHALL set `serviceradar.owner` to its own name on its stream, creating the stream when absent, and reconcile the shape; that claim SHALL override an `event-writer` claim.
 EventWriter SHALL claim only streams it creates. It SHALL create `events`, `flows` and `ARANCINI_CAUSAL` when absent with `serviceradar.owner` set to `event-writer` and the fallback size and replicas from `SERVICERADAR_JS_<STREAM>_FALLBACK_MAX_BYTES` and `_FALLBACK_REPLICAS`, never unlimited, and it SHALL reconcile a stream it claimed. It SHALL merge subjects only, never overriding the claim, when another component holds it.
-A stream created before this change has no metadata. EventWriter SHALL merge subjects only on such a stream and SHALL NOT change its shape until the stream has stayed unclaimed for a grace period of 15 minutes by default, measured from EventWriter's consumer setup and checked on its retry and refresh cycle; only then SHALL it set `serviceradar.owner` to `event-writer` and reconcile the shape. A dedicated component SHALL claim a legacy stream as soon as it starts, without waiting. EventWriter SHALL re-read the stream immediately before its claim update and skip the update if any claim has appeared.
+A stream created before this change has no metadata. EventWriter SHALL merge subjects only on such a stream and SHALL NOT change its shape until the stream has stayed unclaimed for a grace period of 15 minutes by default; only then SHALL it set `serviceradar.owner` to `event-writer` and reconcile the shape.
+EventWriter SHALL check this with an ownership reconcile timer, a periodic tick in its producer, every 5 minutes by default and configurable, that re-reads each multi-owner stream it consumes, records in process state when it first saw the stream unclaimed, and applies the claim rule. The timer SHALL only issue stream updates and SHALL NOT tear down or resubscribe a consumer, and it SHALL be distinct from the retry of consumers that failed to set up. A restart SHALL reset the recorded time, which can delay convergence but SHALL NOT cause an early claim. A dedicated component SHALL claim a legacy stream as soon as it starts, without waiting. EventWriter SHALL re-read the stream immediately before its claim update and skip the update if any claim has appeared.
 When a collector is disabled after claiming a stream, the claim and the stream size SHALL remain until an operator reclaims it, and the runbook SHALL document the reclaim. The render-time budget and the non-Helm preset budget SHALL count `flows` and `ARANCINI_CAUSAL` at the collector size whether or not the collector is enabled.
-An ownership test SHALL exercise the EventWriter claim decision, with an injected clock, for each of `events`, `flows` and `ARANCINI_CAUSAL` with no claim inside and after the grace period, an `event-writer` claim and a collector claim, and SHALL fail if EventWriter reconciles the shape of a stream claimed by another component or of a legacy stream inside the grace period. Behaviour of the Go and Rust owners is covered by each owner's own tests.
+An ownership test SHALL exercise the EventWriter claim decision, with an injected clock, for each of `events`, `flows` and `ARANCINI_CAUSAL` with no claim inside and after the grace period, an `event-writer` claim and a collector claim, including a restart that resets the clock, and SHALL fail if EventWriter reconciles the shape of a stream claimed by another component or of a legacy stream inside the grace period. Behaviour of the Go and Rust owners is covered by each owner's own tests.
 
 #### Scenario: Claim on first start
 - **GIVEN** `ARANCINI_CAUSAL` does not exist and bmp-collector is enabled
@@ -225,6 +226,17 @@ An ownership test SHALL exercise the EventWriter claim decision, with an injecte
 - **WHEN** EventWriter sets up its consumers
 - **THEN** it SHALL leave the shape unchanged during the 15 minute grace period
 - **AND** after the stream has stayed unclaimed for the grace period it SHALL set `serviceradar.owner` to `event-writer` and reconcile `max_bytes` to the 1 GiB fallback, evicting the oldest messages and logging the values before and after
+
+#### Scenario: The timer converges a stream that set up successfully
+- **GIVEN** a collector-less install whose `flows` consumers set up successfully on a legacy 10 GiB stream, merging subjects only
+- **WHEN** the ownership reconcile timer ticks after the stream has been observed unclaimed for the grace period
+- **THEN** it SHALL claim the stream for `event-writer` and reconcile it to the fallback
+- **AND** no consumer SHALL be torn down or resubscribed
+
+#### Scenario: Restart resets the grace clock
+- **GIVEN** EventWriter observed a legacy stream unclaimed for 10 minutes and then restarts
+- **WHEN** the timer ticks after the restart
+- **THEN** the grace period SHALL start again and the stream SHALL NOT be claimed until it has been unclaimed for the full grace period after the restart
 
 #### Scenario: A collector claims inside the grace period
 - **GIVEN** a legacy `flows` stream and EventWriter within its grace period

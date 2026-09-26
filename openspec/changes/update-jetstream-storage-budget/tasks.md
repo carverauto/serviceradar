@@ -97,10 +97,19 @@
       it claimed; merge subjects only when a collector holds the claim. On a
       legacy stream with no metadata merge subjects only, and claim and
       reconcile it only after it has stayed unclaimed for the grace period (15
-      minutes by default, configurable, measured from consumer setup and
-      checked on the retry and refresh cycle), re-reading the stream
-      immediately before the claim update and skipping it if a claim has
-      appeared. Replaces the `reconcile_stream_shape` default for these consumers
+      minutes by default, configurable), re-reading the stream immediately
+      before the claim update and skipping it if a claim has appeared.
+- [ ] 4.8a Ownership reconcile timer in `Producer` (D6): a new periodic tick
+      (5 minutes by default, configurable), separate from the fetch tick, the
+      reconnect retry and the D1 failed-consumer retries. Each tick re-reads
+      `STREAM.INFO` for `events`, `flows` and `ARANCINI_CAUSAL` and applies the
+      claim rule, recording in process state when it first saw each stream
+      unclaimed (a restart resets it, delaying convergence and never claiming
+      early). It only issues `STREAM.UPDATE` and never tears down or
+      resubscribes a consumer; the clock is injectable. Test with an injected
+      clock: claim and converge after the grace period; no claim when a
+      collector claims within the grace period; a restart resets the clock; no
+      consumer restart on any tick. Replaces the `reconcile_stream_shape` default for these consumers
       (`SFLOW_RAW`, `NETFLOW_RAW`, `ARANCINI_CAUSAL`, and the `events`
       consumers `EVENTS`, `PDNS_OCSF`, `FALCO`, `OTEL_*`, `LOGS`, `BMP_CAUSAL`,
       `SIEM_CAUSAL`, `ATTRIBUTED_FLOW`). Tests with an injected clock: a legacy
@@ -127,7 +136,7 @@
       period, an `event-writer` claim and a collector claim, and assert it
       reconciles only a stream EventWriter claimed or a legacy stream after the
       grace period, and never a collector-claimed stream or a legacy stream
-      inside the grace period. It exercises the decision through
+      inside the grace period, including a restart that resets the clock. It exercises the decision through
       its public function, not source text, and fails on the current
       `reconcile_stream_shape` default. Go and Rust owner behaviour is covered by
       each owner's unit tests (4.1, 4.2, 4.9, 4.10).
