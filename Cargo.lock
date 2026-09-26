@@ -1702,11 +1702,11 @@ version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5e5f3f3a109eb4f578b573a63d2f27f094e5888778e10db57ef9d41685010ca5"
 dependencies = [
- "deep_causality_algebra",
- "deep_causality_ast",
+ "deep_causality_algebra 0.2.0",
+ "deep_causality_ast 0.1.9",
  "deep_causality_core",
  "deep_causality_data_structures",
- "deep_causality_haft",
+ "deep_causality_haft 0.4.2",
  "deep_causality_uncertain",
  "ultragraph",
 ]
@@ -1717,7 +1717,16 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "de1f314e4c7f35b7b5f1efddad90514f46e0b28b4880740c86164d12e9211f8d"
 dependencies = [
- "deep_causality_num",
+ "deep_causality_num 0.4.1",
+]
+
+[[package]]
+name = "deep_causality_algebra"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "aa88c585f6fdbb3ddf71cceafc880f4449f009762e938d0f88c621d0846468a2"
+dependencies = [
+ "deep_causality_num 0.5.2",
 ]
 
 [[package]]
@@ -1727,12 +1736,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fb8d5fd5e1e75ef9b04dabe7becdf4cf1634db572396cc697016fa6ccc6ae678"
 
 [[package]]
+name = "deep_causality_ast"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1685f6cf8f11016df955cbd0cb2b37ff58489ea614528874557624194bf99c5c"
+
+[[package]]
 name = "deep_causality_core"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c27cac7fafa0e9c08edc70f76975d31241c5ed163a4d3107e3cfabf57bd9281c"
 dependencies = [
- "deep_causality_haft",
+ "deep_causality_haft 0.4.2",
 ]
 
 [[package]]
@@ -1747,8 +1762,8 @@ version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "67061ad73b84aa4ff64c0c83bbc8d9f703858e0061ae1f7a2fdd4d3619bd335e"
 dependencies = [
- "deep_causality_algebra",
- "deep_causality_num",
+ "deep_causality_algebra 0.2.0",
+ "deep_causality_num 0.4.1",
  "deep_causality_num_complex",
  "deep_causality_par",
 ]
@@ -1759,7 +1774,27 @@ version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "61c8dc9b96a2a6df63fc4125fda6d0fdd56b2ee3ccfeead81d6b0d85db3a1c61"
 dependencies = [
- "deep_causality_algebra",
+ "deep_causality_algebra 0.2.0",
+]
+
+[[package]]
+name = "deep_causality_haft"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2caf588f303d7cd3aded38f59dff7fe71f2dc81745341bdaced700dca69b3cb4"
+dependencies = [
+ "deep_causality_algebra 0.4.4",
+]
+
+[[package]]
+name = "deep_causality_linear"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "465917b4f93a8cc1f08b5279bff63f592edd6e5568b4bf31916dd3ccfff23d96"
+dependencies = [
+ "deep_causality_algebra 0.4.4",
+ "deep_causality_haft 0.6.0",
+ "deep_causality_num 0.5.2",
 ]
 
 [[package]]
@@ -1774,10 +1809,10 @@ version = "0.5.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d685d02738ca83bf343ee3fd538392b93b0597154de3c73a76f7c67c1ff9be0b"
 dependencies = [
- "deep_causality_algebra",
- "deep_causality_haft",
+ "deep_causality_algebra 0.2.0",
+ "deep_causality_haft 0.4.2",
  "deep_causality_metric",
- "deep_causality_num",
+ "deep_causality_num 0.4.1",
  "deep_causality_num_complex",
  "deep_causality_tensor",
 ]
@@ -1789,13 +1824,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3dda52acfad1544f374160f04ef0b589df7b3fb8720aab4a95105e3d747160a"
 
 [[package]]
+name = "deep_causality_num"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "951c984546e7d128b42a30b84a52b4209bfc80a9d6b32d442d5fdbb8438617a7"
+
+[[package]]
 name = "deep_causality_num_complex"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "00b668f7eb2cb597c61d161e89fd76b71da48c0e4af6967a7ef73fdf3f9dc241"
 dependencies = [
- "deep_causality_algebra",
- "deep_causality_num",
+ "deep_causality_algebra 0.2.0",
+ "deep_causality_num 0.4.1",
 ]
 
 [[package]]
@@ -1804,8 +1845,8 @@ version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "24418c1f66f91443475f472d582bcd375d48f8e3204e57003bfd878dce1da7af"
 dependencies = [
- "deep_causality_algebra",
- "deep_causality_num",
+ "deep_causality_algebra 0.2.0",
+ "deep_causality_num 0.4.1",
 ]
 
 [[package]]
@@ -1816,12 +1857,12 @@ checksum = "be9be8e149e71e9c1fd9db604a8461d4fe4181f9608aa5bf8c22d58d231fd1ba"
 
 [[package]]
 name = "deep_causality_rand"
-version = "0.2.1"
+version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26c484de12bd95669bd34d83841f79b93daf3afd6e18ee7df726d8a432522993"
+checksum = "d3dbe28e7b8f619a12143523081303b7224ec7eceefcdfed3f7eb1677839ac33"
 dependencies = [
- "deep_causality_algebra",
- "deep_causality_num",
+ "deep_causality_algebra 0.4.4",
+ "deep_causality_num 0.5.2",
 ]
 
 [[package]]
@@ -1830,9 +1871,21 @@ version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "99542b537701b6a834fc447e313f9e4318b4e296735140effc8e7ed91d11d656"
 dependencies = [
- "deep_causality_algebra",
- "deep_causality_haft",
- "deep_causality_num",
+ "deep_causality_algebra 0.2.0",
+ "deep_causality_haft 0.4.2",
+ "deep_causality_num 0.4.1",
+]
+
+[[package]]
+name = "deep_causality_stats"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "960867ae8f468e7b5f9767fbc6d9aa6e05e02a726d3283a1908d3de36247a83a"
+dependencies = [
+ "deep_causality_algebra 0.4.4",
+ "deep_causality_linear",
+ "deep_causality_num 0.5.2",
+ "deep_causality_rand",
 ]
 
 [[package]]
@@ -1841,10 +1894,10 @@ version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7902a1a95570eee2143559120168788b93156c2f966f500b485deed210197a2e"
 dependencies = [
- "deep_causality_algebra",
- "deep_causality_ast",
- "deep_causality_haft",
- "deep_causality_num",
+ "deep_causality_algebra 0.2.0",
+ "deep_causality_ast 0.1.9",
+ "deep_causality_haft 0.4.2",
+ "deep_causality_num 0.4.1",
  "deep_causality_num_complex",
  "deep_causality_num_dual",
 ]
@@ -1855,12 +1908,12 @@ version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ab97b273da00fe595c8ae9e210f38a82f504db61a2fee1aa4d7311f8163c0636"
 dependencies = [
- "deep_causality_algebra",
+ "deep_causality_algebra 0.2.0",
  "deep_causality_fft",
- "deep_causality_haft",
+ "deep_causality_haft 0.4.2",
  "deep_causality_metric",
  "deep_causality_multivector",
- "deep_causality_num",
+ "deep_causality_num 0.4.1",
  "deep_causality_num_complex",
  "deep_causality_par",
  "deep_causality_rand",
@@ -1870,14 +1923,16 @@ dependencies = [
 
 [[package]]
 name = "deep_causality_uncertain"
-version = "0.5.0"
+version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5a17bd77e1df578421027ae6ab840013b599f88dc98279a6a157ef253d73884"
+checksum = "16fb412fdb1ccf15f6991e9b2d381546ddf80e17edcc7a77ffe5d0b58bc9bede"
 dependencies = [
- "deep_causality_algebra",
- "deep_causality_ast",
- "deep_causality_num",
+ "deep_causality_algebra 0.4.4",
+ "deep_causality_ast 0.2.0",
+ "deep_causality_haft 0.6.0",
+ "deep_causality_num 0.5.2",
  "deep_causality_rand",
+ "deep_causality_stats",
 ]
 
 [[package]]
