@@ -16,7 +16,8 @@ Run them all with `bazel test --config=remote //formal/dire/...`; `make test` ru
   really see:
   - Armis sync: the Armis device id, plus MACs when Armis reports them.
   - Network discovery: every interface MAC.
-  - ARP-style observation: one MAC and its address.
+  - ARP-style observation: one MAC and its address. A randomized MAC from this observer is
+    not registered, so that sighting is address-only.
   - Sweep: the address only.
 
   Each observation is resolved following `Resolver.do_resolve_device_id/2`, the sync ingestor
@@ -57,9 +58,8 @@ either way; the property guards against any change that lets address evidence me
 
 | Switch | Model | Code path | Witness property |
 |---|---|---|---|
-| `mac_only_conflicts_blocked` | resolution | `inventory/identity/merge_policy.ex` `mac_only_matches?/1` (an agent check-in reporting MACs owned by two records) | `EvidenceConverges` |
-| `mapper_resolves_by_address` | resolution | `network_discovery/mapper_results_ingestor.ex` `resolve_device_ids/2` (address first, then alias, then DIRE) | `NoFalseInterfaceClaim` |
-| `fence_observe_only` | lifecycle | `inventory/identity/fence.ex` (no enforcing caller) | `NoStaleCommit` |
+| `seed_adopts_existing` | resolution | `inventory/sync/device_writes.ex` `resolve_record_active_ip/7` (a strong write adopts the anchorless provisional seed at its address even when the written record already exists; the record keeps its identifiers and its stale address, and nothing is recorded; #4705) | `ObservedAddressHeld` |
+| `randomized_mac_seeds_uid` | resolution | `inventory/identity/batch_resolver.ex` `resolve_one/4` (a census's randomized MAC is neither looked up nor registered, but `Ids.has_strong_identifier?/1` counts it, so the record's uid is derived from it and later sightings follow it across addresses) | `RandomizedMacsNeverIdentify` |
 
 Code paths are relative to `elixir/serviceradar_core/lib/serviceradar/`.
 
@@ -88,7 +88,13 @@ existing one. `AgentGatewaySync` diverged from that: it adopted any holder with 
 own, or one sharing the agent's hostname. It now adopts only a holder claiming no identity the
 agent does not claim, and an existing agent device takes the address under the #4639 rule. Trace
 `agent_stale_armis_holder` records the fixed path; the same steps recorded from the old code are
-rejected by TLC.
+rejected by TLC. The sync path still adopts the seed for an existing record:
+`seed_adopts_existing` (#4705).
+
+#4705 also corrected `ArpObserve`, which registered every census MAC. The census neither looks up
+nor registers a randomized MAC (`SourcePolicy.include_mac_identifier?/1`); the model registers
+only a globally-unique one. A trace of the old assumption (the census registering `r1`) is
+matched by the previous model and rejected by this one.
 
 ## Resolution environments
 
@@ -100,7 +106,7 @@ Each environment stands for a real situation:
 | `armis_nomacs` | Two Armis devices; Armis reports only its id. The Armis record and a discovered record of the same device share no identifier, so they cannot converge automatically (a de-duplication task, #4604). |
 | `mixed` | One Armis device (no MACs reported) and one device seen only by network discovery. |
 | `router` | One multi-interface router; each interface has its own MAC and address. |
-| `phones` | Two devices with randomized (locally-administered) MACs. |
+| `phones` | Two devices with randomized (locally-administered) MACs. No observer here registers one, so under the goal every sighting is address-only; `RandomizedMacsNeverIdentify` checks that no record is seeded from one. |
 | `agents` | An Armis device (no MACs reported) and a device running an agent; the agent's check-ins go through the Resolver and AliasGuard. |
 | `router_agent` | A router running an agent; its interfaces are sighted one MAC at a time before the agent reports them all. |
 | `armis_shared_mac` | Two Armis devices reporting the same MAC (cloned VMs, a swapped NIC). Observers are limited to Armis until the quarantine question in the goal design is decided. |
@@ -143,9 +149,18 @@ are ghosts the harness supplies: which identifiers a merged-away device owned wh
 ran (`srcIds`), and the insertion order of `merge_audit` rows, whose `created_at` has
 one-second precision. `DireLifecycleTrace.tla` checks them the same way.
 
-A lifecycle trace whose defect is still present is also rejected by the model with that
-defect switch turned off (a knockout), which proves the defect on the real code. None is left:
-every recorded trace is a regression trace of a fixed defect.
+A trace whose defect is still present is also rejected by the model with that defect switch
+turned off (a knockout, `Trace_<name>__knockout.cfg`, written by the test's
+`assert_golden!(demonstrates: switch)`), which proves the defect on the real code. Every
+lifecycle trace is a regression trace of a fixed defect. Two resolution traces demonstrate a
+switch:
+
+- `armis_moves_onto_sweep_seed` (`seed_adopts_existing`): an Armis device synced at a new
+  address a sweep has seeded is written onto the seed, twice; it keeps its stale address.
+- `census_randomized_mac` (`randomized_mac_seeds_uid`): two census sightings of one randomized
+  MAC at different addresses land on the record seeded from that MAC, which owns no identifier.
+
+The lifecycle regression traces:
 
 - `stale_redirect` (#4616) records the fixed resolver keeping a device deleted after an unmerge
   on its own uid.

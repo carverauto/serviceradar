@@ -6,14 +6,14 @@
 (*                                                                          *)
 (* A fix removes its switch from this file and from the model's KnownBugs. *)
 (* The models ASSUME Bugs \subseteq KnownBugs, so a switch left here after *)
-(* it leaves KnownBugs fails every check that uses it. A lifecycle trace's *)
-(* knockout (Trace_<name>__knockout.cfg) is this set minus the switch the  *)
+(* it leaves KnownBugs fails every check that uses it. A trace's knockout  *)
+(* (Trace_<name>__knockout.cfg) is this set minus the switch the           *)
 (* trace demonstrates; once the switch is gone the two sets are equal, TLC *)
 (* matches the trace under the knockout, and its target fails until the    *)
 (* knockout is deleted.                                                     *)
 (***************************************************************************)
 
-ResolutionBugs == {}
+ResolutionBugs == {"seed_adopts_existing", "randomized_mac_seeds_uid"}
 
 LifecycleBugs == {
 }

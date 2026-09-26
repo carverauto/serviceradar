@@ -228,6 +228,62 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
     |> DireTrace.assert_golden!()
   end
 
+  # #4705 (randomized_mac_seeds_uid, still present): a census of a randomized MAC registers no
+  # identifier, yet the record's uid is derived from that MAC. Steps: a phone (r1) is sighted by
+  # the census at p1; DHCP moves it to p2 and it is sighted again. Today both sightings land on
+  # the one record seeded from r1, which follows the phone to p2 although r1 is owned by none.
+  # Under the goal each sighting is address-only; the knockout proves the code differs.
+  test "census_randomized_mac", %{actor: actor} do
+    world = %{
+      phys: ["h1"],
+      ifaces: %{"x1" => %{phys: "h1", mac: "r1"}},
+      src_of: %{},
+      armis_macs: false,
+      src_ids: [],
+      hw_ids: [],
+      laa_ids: ["r1"],
+      ips: ["p1", "p2"],
+      observers: ["Arp"]
+    }
+
+    "census_randomized_mac"
+    |> DireTrace.start(world, actor)
+    |> DireTrace.lease("x1", "p1")
+    |> DireTrace.arp("h1", "x1")
+    |> DireTrace.lease("x1", "p2")
+    |> DireTrace.arp("h1", "x1")
+    |> DireTrace.assert_golden!(demonstrates: "randomized_mac_seeds_uid")
+  end
+
+  # #4705 (seed_adopts_existing, still present): an existing identified device moves onto an
+  # address a sweep seeded. Steps: Armis A (a1, no MAC reported) is synced at p1; DHCP moves A to
+  # p2; a sweep finds p2 answering and creates a provisional record there; A is synced at p2,
+  # twice. Today each sync is written onto the seed: A keeps a1 and its stale address p1, and no
+  # decision is recorded. The goal (#4639) has A take p2 and the seed release it, recorded.
+  test "armis_moves_onto_sweep_seed", %{actor: actor} do
+    world = %{
+      phys: ["h1"],
+      ifaces: %{"x1" => %{phys: "h1", mac: nil}},
+      src_of: %{"h1" => "a1"},
+      armis_macs: false,
+      src_ids: ["a1"],
+      hw_ids: [],
+      laa_ids: [],
+      ips: ["p1", "p2"],
+      observers: ["Armis", "Sweep"]
+    }
+
+    "armis_moves_onto_sweep_seed"
+    |> DireTrace.start(world, actor)
+    |> DireTrace.lease("x1", "p1")
+    |> DireTrace.armis("h1", "x1")
+    |> DireTrace.lease("x1", "p2")
+    |> DireTrace.sweep("h1", "x1")
+    |> DireTrace.armis("h1", "x1")
+    |> DireTrace.armis("h1", "x1")
+    |> DireTrace.assert_golden!(demonstrates: "seed_adopts_existing")
+  end
+
   # #4638 (fixed): the mapper resolves a polled device by its interface MACs, not by the address
   # it was polled at. After DHCP moves an address from A to B, polling B there gives B its own
   # record, and A's record claims none of B's MACs.
