@@ -122,7 +122,10 @@ collector when it is enabled and EventWriter when it is not:
   and sets no size today. When `bmpCollector.enabled` the chart renders the
   ownership flag into core so that consumer runs with
   `reconcile_stream_shape: false` (subjects only) and bmp-collector owns
-  `max_bytes` and replicas. The 1 GiB EventWriter fallback applies only when
+  `max_bytes` and replicas. Today bmp-collector sets them only when it creates
+  the stream and merely merges subjects on an existing one, so its publisher
+  gains a create-or-update that reconciles `max_bytes` and `num_replicas`
+  under the D6 rule. The 1 GiB EventWriter fallback applies only when
   bmp-collector is disabled and EventWriter creates the stream. Without this,
   EventWriter would cap a 12 GiB `medium` BMP stream at its own fallback.
 
@@ -187,15 +190,16 @@ The v1.4.73 shape (26 GiB full, 5.25 GiB R1, three servers, `30G`) needs
 26 + 5.25/3 + 1 = 28.75 GiB against a 23.75 GiB limit, and fails the check,
 as it should.
 
-### D6. One owner reconciles a stream, and never below stored bytes
+### D6. One owner reconciles a stream, and never squeezes stored data
 
 Exactly one component owns the shape (`max_bytes`, replicas, retention) of
 each stream and reconciles it; any secondary creator (EventWriter for `flows`
 and `ARANCINI_CAUSAL`, D3) creates the stream only when absent and merges
 subjects without touching the shape.
 
-datasvc (`reconcileStreamConfigLocked`), the otel log-collector and
-EventWriter reconcile `max_bytes` on existing streams. Three owners create
+datasvc (`reconcileStreamConfigLocked`), the otel log-collector, EventWriter
+and bmp-collector (for `ARANCINI_CAUSAL`, D3) reconcile `max_bytes` on
+existing streams. Three owners create
 their bucket once and never update it, so on an existing install the bucket
 stays unlimited while the budget counts it at its profile size: web-ng's
 plugin bucket (`plugins/storage.ex`), web-ng's fieldsurvey bucket
@@ -204,11 +208,15 @@ without updating) and core's threat-intel bucket
 (`threat_intel_raw_payload_store.ex`). Each SHALL reconcile `max_bytes` on
 startup, creating the bucket when absent and updating it when it exists.
 
-For every reconciling owner, when the configured value is below the stream's
-current `Store`, the owner SHALL keep the larger of the two and log both
-values. Lowering a default, or capping a previously unlimited bucket,
-therefore converges installs whose data fits and never evicts data from one
-that does not; the next upgrade after the data ages out completes the shrink.
+For every reconciling owner, when the configured `max_bytes` is below the
+bytes currently stored, the owner SHALL leave `max_bytes` unchanged and log
+the configured, stored and current values. It SHALL NOT set `max_bytes` to the
+stored size: these buckets discard new writes when full, so a cap equal to
+`Store` would refuse every later write. An existing unlimited bucket whose
+stored bytes exceed the configured cap therefore stays unlimited, and is
+logged, until the data ages out or an operator raises the cap. Lowering a
+default, or capping a previously unlimited bucket, converges installs whose
+data fits and never evicts data or blocks writes on one that does not.
 
 ### D7. Docker Compose and packaged installs
 
@@ -244,7 +252,11 @@ A Bazel `go_test` enforces this without reading any component source. It
 parses the NATS configuration with the nats-server config parser, after
 setting each preset's variables as the process environment, so `30G` means
 what NATS means, and parses each preset and the packaged sizes file into typed
-values. It fails when a key of the stream inventory is missing or unknown,
+values. It also parses `docker-compose.yml` and the packaged systemd units
+into typed models and asserts that every size-owning service loads the
+selected preset (`env_file`, whose path is interpolated from
+`SERVICERADAR_NATS_PROFILE`) or the sizes file (`EnvironmentFile`), so a
+service that kept a literal size, or never loaded the file, fails the test. It fails when a key of the stream inventory is missing or unknown,
 when a size is not a positive integer, or when `need` exceeds 85% of the
 parsed `max_file_store`, and it names the streams and the limit. The
 inventory is a typed list owned by the test, so adding a stream forces the
@@ -379,8 +391,8 @@ Installs that override sizes upward, or that enable BMP with a larger
 values. Selecting `medium` or `large` follows the volume-expansion runbook
 (D8) first; a StorageClass without expansion needs a new install or
 migration. Compose and packaged installs converge when their config files are
-replaced on upgrade; D6 keeps any stream whose stored bytes exceed the new
-size at its current size.
+replaced on upgrade; D6 leaves any stream whose stored bytes exceed the new
+size at its current `max_bytes`.
 
 ## Resolved Questions
 

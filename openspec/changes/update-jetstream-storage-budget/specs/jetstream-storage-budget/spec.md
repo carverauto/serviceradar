@@ -134,10 +134,11 @@ A profile SHALL set `max_file_store` (30G, 100G and 500G) and the default `max_b
 - **WHEN** the chart renders
 - **THEN** rendering SHALL succeed
 
-### Requirement: Stream owners reconcile max_bytes and never shrink below stored bytes
+### Requirement: Stream owners reconcile max_bytes without squeezing stored data
 The web-ng plugin bucket owner, the web-ng fieldsurvey bucket owner and the core threat-intel bucket owner SHALL reconcile `max_bytes` on startup, creating the bucket when it is absent and updating it when it exists.
-A component that reconciles `max_bytes` on an existing stream or bucket SHALL NOT set it below the bytes the stream currently stores.
-When the configured value is lower than the stored bytes, the component SHALL keep the larger value and log both values.
+The bmp-collector publisher SHALL create-or-update `ARANCINI_CAUSAL`, reconciling `max_bytes` and `num_replicas` on an existing stream.
+When the configured `max_bytes` is below the bytes currently stored, a reconciling component SHALL leave `max_bytes` unchanged, SHALL NOT set it to the stored size, and SHALL log the configured, stored and current values.
+An existing unlimited bucket whose stored bytes exceed the configured cap SHALL stay unlimited, and be logged, until the data ages out or an operator raises the cap.
 
 #### Scenario: Lowered default with data that fits
 - **GIVEN** `OBJ_serviceradar-objects` stores 0.5 GiB with `max_bytes` 10 GiB
@@ -161,15 +162,30 @@ When the configured value is lower than the stored bytes, the component SHALL ke
 - **GIVEN** `OBJ_serviceradar-objects` stores 6 GiB with `max_bytes` 10 GiB
 - **AND** the configured `objectStoreBytes` is 4 GiB
 - **WHEN** datasvc starts
-- **THEN** the bucket SHALL keep a `max_bytes` of at least 6 GiB
-- **AND** no stored object SHALL be removed
+- **THEN** the bucket's `max_bytes` SHALL remain 10 GiB
+- **AND** the log SHALL record the configured 4 GiB, the stored 6 GiB and the current 10 GiB
+- **AND** no stored object SHALL be removed and later uploads SHALL still succeed
+
+#### Scenario: Unlimited bucket holding more than the cap
+- **GIVEN** the `serviceradar_fieldsurvey` object store has no `max_bytes` and stores 3 GiB
+- **AND** the configured fieldsurvey size is 1 GiB
+- **WHEN** web-ng starts
+- **THEN** the bucket SHALL stay unlimited
+- **AND** the log SHALL record the configured, stored and current values
+- **AND** later uploads SHALL still succeed
+
+#### Scenario: bmp-collector reconciles an existing stream
+- **GIVEN** `ARANCINI_CAUSAL` exists with 10 GiB `max_bytes` and stores 0.5 GiB
+- **AND** `bmpCollector.config.streamMaxBytes` is 2 GiB
+- **WHEN** bmp-collector starts
+- **THEN** the stream's `max_bytes` SHALL become 2 GiB
 
 ### Requirement: One owner reconciles each stream shape
 Exactly one component SHALL reconcile the shape (`max_bytes`, replicas, retention) of a given stream. A secondary creator SHALL create the stream only when it is absent and otherwise merge subjects without changing the shape.
 When `bmpCollector.enabled` is true the Helm chart SHALL configure the EventWriter `ARANCINI_CAUSAL` consumer not to reconcile the stream shape, so bmp-collector owns `max_bytes` and replicas. The EventWriter fallback size SHALL apply only when bmp-collector is disabled and EventWriter creates the stream.
 
 #### Scenario: bmp-collector owns the stream
-- **GIVEN** `bmpCollector.enabled: true` with the `medium` profile, so bmp-collector reconciles `ARANCINI_CAUSAL` to 12 GiB
+- **GIVEN** `bmpCollector.enabled: true` with the `medium` profile, so bmp-collector, which reconciles `max_bytes` and replicas, sets `ARANCINI_CAUSAL` to 12 GiB
 - **WHEN** EventWriter starts and sets up its `ARANCINI_CAUSAL` consumer
 - **THEN** the stream's `max_bytes` SHALL remain 12 GiB
 - **AND** EventWriter SHALL NOT change its replicas or retention
@@ -184,6 +200,7 @@ When `bmpCollector.enabled` is true the Helm chart SHALL configure the EventWrit
 Docker Compose SHALL ship one preset file per sizing profile that sets `max_file_store` and every stream size explicitly, and packaged installs SHALL ship the same explicit sizes as a file; the NATS server configuration SHALL read `max_file_store` from them.
 For every preset the worst-case reservation, computed as for the Helm chart with `nats.replicas` equal to 1, SHALL NOT exceed 85% of `max_file_store`.
 A Bazel test SHALL enforce this by parsing the NATS server configuration with the NATS configuration parser and the preset and sizes files into typed values, without reading component source. The test SHALL fail on a missing or unknown stream key or a non-positive size.
+The test SHALL also parse `docker-compose.yml` and the packaged systemd units into typed models and SHALL fail when a size-owning service does not load the selected preset (`env_file`) or the sizes file (`EnvironmentFile`).
 
 #### Scenario: Shipped Compose presets
 - **GIVEN** the `small`, `medium` and `large` Compose presets and `docker/compose/nats.docker.conf`
@@ -200,6 +217,11 @@ A Bazel test SHALL enforce this by parsing the NATS server configuration with th
 - **GIVEN** a preset omits the size of one stream
 - **WHEN** the budget test runs
 - **THEN** the test SHALL fail and name the stream
+
+#### Scenario: A service does not load the preset
+- **GIVEN** a size-owning Compose service, or a packaged unit, that does not load the selected preset or sizes file
+- **WHEN** the budget test runs
+- **THEN** the test SHALL fail and name the service
 
 #### Scenario: A preset overcommits
 - **GIVEN** a shipped stream size is raised so the sum exceeds 85% of `max_file_store`

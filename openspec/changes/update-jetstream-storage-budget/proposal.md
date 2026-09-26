@@ -93,11 +93,15 @@ one unplaceable stream stops unrelated ingestion.
 - **Control-plane contract.** The serviceradar-control SaaS control plane is
   out of scope; it consumes this change as a profile name plus optional
   per-stream overrides.
-- **Caps converge on upgrade and shrinking is safe.** The plugin, fieldsurvey
-  and threat-intel bucket owners, which today create their bucket once, SHALL
-  reconcile `max_bytes` on startup. Every owner that reconciles `max_bytes`
-  SHALL NOT set it below the bytes already stored; it keeps the larger value
-  and logs why.
+- **Caps converge on upgrade and never squeeze stored data.** The plugin,
+  fieldsurvey and threat-intel bucket owners, which today create their bucket
+  once, SHALL reconcile `max_bytes` on startup, and the bmp-collector
+  publisher SHALL create-or-update `ARANCINI_CAUSAL` so it truly owns that
+  stream's size. When the configured cap is below the bytes already stored, an
+  owner leaves `max_bytes` unchanged (it never sets it to the stored size,
+  which would make a discard-new bucket refuse every write) and logs the
+  configured, stored and current values; an unlimited bucket holding more than
+  the cap stays unlimited until the data ages out or the cap is raised.
 
 ## Impact
 
@@ -107,7 +111,8 @@ one unplaceable stream stops unrelated ingestion.
   `elixir/serviceradar_core` EventWriter (`producer.ex`, `config.ex`) and
   `serviceradar_core_elx/config/runtime.exs`; Go datasvc stream reconcile
   (`go/pkg/datasvc/nats.go`); Rust otel log-collector reconcile
-  (`rust/otel/src/nats/stream.rs`); the trivy/bmp stream creators and the
+  (`rust/otel/src/nats/stream.rs`); the bmp-collector publisher
+  (`rust/bmp-collector/src/publisher.rs`); the trivy/bmp stream creators and the
   web-ng plugin (`plugins/storage.ex`), web-ng fieldsurvey
   (`field_survey_artifact_store.ex`) and core threat-intel
   (`threat_intel_raw_payload_store.ex`) bucket owners, including web-ng

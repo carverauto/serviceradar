@@ -60,23 +60,30 @@
 
 ## 4. Reconcile and safe shrink (D6)
 
-- [ ] 4.1 datasvc `reconcileStreamConfigLocked`: never below stored bytes.
+- [ ] 4.1 datasvc `reconcileStreamConfigLocked`: when configured is below
+      stored, leave `max_bytes` unchanged and log configured, stored and
+      current values; never set it to the stored size.
 - [ ] 4.2 otel log-collector `events` reconcile: same rule.
 - [ ] 4.3 EventWriter `reconcile_stream`: same rule.
 - [ ] 4.4 web-ng plugin bucket (`plugins/storage.ex`): reconcile `max_bytes`
-      on startup, create-or-update, never below stored bytes.
+      on startup, create-or-update, same rule; an unlimited bucket holding more
+      than the cap stays unlimited and is logged.
 - [ ] 4.5 web-ng fieldsurvey bucket (`field_survey_artifact_store.ex`
       `ensure_bucket`): same rule instead of returning `:exists` untouched.
 - [ ] 4.6 core threat-intel bucket (`threat_intel_raw_payload_store.ex`): same
       rule.
 - [ ] 4.7 Tests for each owner: an existing unlimited bucket gets the cap when
-      its data fits, the cap is held above stored bytes when it does not, and
-      an absent bucket is created with the cap.
+      its data fits; when the data does not fit `max_bytes` is left unchanged,
+      the values are logged and a later write still succeeds; an absent
+      bucket is created with the cap.
 - [ ] 4.8 Ownership test: with bmp-collector enabled and `ARANCINI_CAUSAL`
       sized above the fallback, EventWriter startup leaves `max_bytes` and
       replicas unchanged (fails on the current default-true behaviour once the
       fallback size is set); with it disabled EventWriter creates the stream
       at the fallback size.
+- [ ] 4.9 `rust/bmp-collector` publisher: create-or-update `ARANCINI_CAUSAL`,
+      reconciling `max_bytes` and `num_replicas` on an existing stream under the
+      same rule, with a test for an existing 10 GiB stream reconciled to 2 GiB.
 
 ## 5. Compose and packaged installs (D7)
 
@@ -96,6 +103,9 @@
       file into typed values, fails on a missing or unknown inventory key or a
       non-positive size, and evaluates the D5 formula with `nats.replicas = 1`;
       config files are declared `data` inputs and no component source is read.
+      It also parses `docker-compose.yml` and the packaged systemd units into
+      typed models and fails when a size-owning service does not load the
+      selected preset (`env_file`) or the sizes file (`EnvironmentFile`).
       A vector with the v1.4.73 single-server shape must fail.
 - [ ] 5.5 Bump `addons/<name>/addon.yaml` `version` for any native add-on whose
       config changes.
