@@ -17,10 +17,10 @@ defmodule ServiceRadarWebNGWeb.Router.SAMLACSRouteTest do
     assert info.pipe_through == [:saml_acs, :rate_limit_auth_saml]
   end
 
-  test "starting a SAML login stays in the :browser pipeline" do
+  test "starting a SAML login keeps the browser session and is rate limited" do
     info = Phoenix.Router.route_info(Router, "GET", "/auth/saml", "localhost")
 
     assert info.plug_opts == :request
-    assert :browser in info.pipe_through
+    assert info.pipe_through == [:browser, :rate_limit_auth_saml_request]
   end
 end

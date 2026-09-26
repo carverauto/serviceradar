@@ -302,6 +302,15 @@ defmodule ServiceRadarWebNGWeb.Router do
     )
   end
 
+  pipeline :rate_limit_auth_saml_request do
+    plug(RateLimit,
+      bucket: :auth_saml_request,
+      subject: :ip,
+      response_mode: :auto,
+      html_redirect_to: "/users/log-in"
+    )
+  end
+
   pipeline :rate_limit_cli_device_auth do
     plug(RateLimit,
       bucket: :cli_device_auth,
@@ -1030,7 +1039,6 @@ defmodule ServiceRadarWebNGWeb.Router do
 
     # SSO initiation + non-callback metadata
     get("/oidc", OIDCController, :request)
-    get("/saml", SAMLController, :request)
     get("/saml/metadata", SAMLController, :metadata)
   end
 
@@ -1055,6 +1063,13 @@ defmodule ServiceRadarWebNGWeb.Router do
     pipe_through([:browser, :rate_limit_auth_oidc])
 
     get("/oidc/callback", OIDCController, :callback)
+  end
+
+  # SAML login start persists a pending AuthnRequest row, so it is metered.
+  scope "/auth", ServiceRadarWebNGWeb do
+    pipe_through([:browser, :rate_limit_auth_saml_request])
+
+    get("/saml", SAMLController, :request)
   end
 
   # SAML assertion consumer — rate limited, no CSRF token or session required
