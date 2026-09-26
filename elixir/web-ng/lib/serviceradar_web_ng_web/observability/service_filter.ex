@@ -181,18 +181,26 @@ defmodule ServiceRadarWebNGWeb.Observability.ServiceFilter do
 
     * `nil` -- no filter; cards show every service.
     * a list of exact names, or a wildcard pattern string.
-    * `:all_services` -- the pane is filtered but the cards cannot be; they
-      must say they cover all services rather than pass for filtered numbers.
+    * `:all_services` -- the pane is filtered but the cards cannot be (a
+      negated or unsupported filter); they must say they cover all services
+      rather than pass for filtered numbers.
   """
   @spec stats_scope(String.t() | nil) :: nil | [String.t()] | String.t() | :all_services
   def stats_scope(query) do
-    case parse(query) do
-      :none -> nil
-      {:exact, names} -> names
-      {:wildcard, pattern} -> pattern
-      :unsupported -> :all_services
+    if negated?(query) do
+      :all_services
+    else
+      case parse(query) do
+        :none -> nil
+        {:exact, names} -> names
+        {:wildcard, pattern} -> pattern
+        :unsupported -> :all_services
+      end
     end
   end
+
+  defp negated?(query) when is_binary(query), do: query |> tokenize() |> Enum.any?(&negated_token?/1)
+  defp negated?(_query), do: false
 
   @doc "Short label for a trigger button: `All services`, the name, or `N services`."
   @spec label([String.t()]) :: String.t()
@@ -264,6 +272,9 @@ defmodule ServiceRadarWebNGWeb.Observability.ServiceFilter do
       _ -> false
     end
   end
+
+  defp negated_token?("!" <> token), do: service_token?(token)
+  defp negated_token?(_token), do: false
 
   # -- value decoding (mirrors parser/tokens.rs parse_value) -----------------
 

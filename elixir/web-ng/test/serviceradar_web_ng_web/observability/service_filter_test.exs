@@ -99,6 +99,21 @@ defmodule ServiceRadarWebNGWeb.Observability.ServiceFilterTest do
     end
   end
 
+  describe "stats_scope/1" do
+    test "no filter, exact, and wildcard filters are expressible" do
+      assert ServiceFilter.stats_scope("in:logs") == nil
+      assert ServiceFilter.stats_scope(~s(in:logs service_name:"checkout")) == ["checkout"]
+      assert ServiceFilter.stats_scope("in:logs service_name:%pay%") == "%pay%"
+    end
+
+    test "a filter the cards cannot express reads as all services" do
+      assert ServiceFilter.stats_scope("in:logs service_name:>a") == :all_services
+      assert ServiceFilter.stats_scope("in:logs !service_name:noisy") == :all_services
+      assert ServiceFilter.stats_scope("in:logs !SERVICE_NAME:(a,b)") == :all_services
+      assert ServiceFilter.stats_scope("in:logs service_name:checkout !service_name:noisy") == :all_services
+    end
+  end
+
   describe "tab links carry the service filter" do
     defp decoded_q(path) do
       path |> URI.parse() |> Map.get(:query) |> URI.decode_query() |> Map.get("q")
