@@ -282,6 +282,10 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
     assert Enum.map(devices_at_ip, & &1.uid) == [agent_device.uid]
   end
 
+  # Unboxed: each ingest writes inside its own fenced transaction (Identity.Fence),
+  # and two open transactions cannot share one sandbox connection, so the second
+  # writer could never reach its precheck while the first holds the barrier.
+  @tag sandbox: :unboxed
   test "concurrent distinct strong identities race on a free IP without dual holders", %{
     actor: actor
   } do
@@ -346,6 +350,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
 
     first_uid = device_uid_for_integration!(first_id, actor)
     second_uid = device_uid_for_integration!(second_id, actor)
+    on_exit(fn -> purge_unboxed_devices!([first_uid, second_uid]) end)
     assert first_uid != second_uid
 
     {:ok, first} = Device.get_by_uid(first_uid, false, actor: actor)
@@ -791,5 +796,19 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
   defp ip_taken_error?(error) do
     fields = List.wrap(Map.get(error, :fields) || []) ++ List.wrap(Map.get(error, :field))
     :ip in fields and Map.get(error, :message) == "has already been taken"
+  end
+
+  # Unboxed rows outlive the test: tombstone them and let the cleanup worker's purge
+  # remove every restricting child row with them.
+  defp purge_unboxed_devices!(uids) do
+    Repo.query!(
+      "UPDATE platform.ocsf_devices SET deleted_at = now() WHERE uid = ANY($1) AND deleted_at IS NULL",
+      [uids]
+    )
+
+    ServiceRadar.Inventory.DeviceCleanupWorker.hard_delete_records(
+      %{deleted: 0, errors: 0},
+      Enum.map(uids, &%{uid: &1})
+    )
   end
 end

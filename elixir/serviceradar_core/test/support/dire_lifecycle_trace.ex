@@ -17,8 +17,8 @@ defmodule ServiceRadar.DireLifecycleTrace do
 
   An ingest is logged as the model's two steps: `StartWork` (the uid the source reached and
   the device DIRE resolved it to) and `Commit`. The code runs them in one call, so `work` is
-  never stale here; a merge landing between the two is the fence's case and stays model-only
-  until the fence is enforced (#4618).
+  never stale here; a merge landing between the two is the fence's case, which a black-box
+  trace cannot schedule and `fence_enforcement_test.exs` covers instead (#4618).
 
   Two values are ghosts the database cannot record, and the harness supplies them: which
   identifiers the merged-away device owned when a merge ran (`srcIds`), and the insertion order
