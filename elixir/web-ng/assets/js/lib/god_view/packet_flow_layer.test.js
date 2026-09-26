@@ -1,4 +1,4 @@
-import {WGSLShaderAssembler} from "@luma.gl/shadertools"
+import {getShaderAssembler} from "@deck.gl/core"
 import {describe, expect, it, vi} from "vitest"
 import {WgslReflect} from "wgsl_reflect"
 
@@ -30,7 +30,8 @@ function layerOnWebGPU() {
 }
 
 function assembledWGSL(layer) {
-  return new WGSLShaderAssembler().assembleWGSLShader({
+  // The assembler deck.gl itself hands luma for WGSL pipelines.
+  return getShaderAssembler("wgsl").assembleWGSLShader({
     platformInfo: {type: "webgpu", shaderLanguage: "wgsl", shaderLanguageVersion: 100, gpu: "test", features: new Set()},
     ...layer.getShaders(),
   })
