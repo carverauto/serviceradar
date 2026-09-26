@@ -252,6 +252,9 @@ kind (`policy_block`, `guard_block`, `source_block`, `alias_invalidated`, `ip_co
 evidence, and how often and when it was made. A repeat updates the row rather than adding
 one. Administrative merges are not decisions and are not recorded.
 
+Read them with SRQL `in:identity_decisions` (for one device, `device:<uid>`), or through the
+`trace_device_identity` MCP tool. Both are read-only.
+
 ## De-duplication tasks
 
 Every identity decision that names two or more devices also opens or updates the
@@ -259,6 +262,8 @@ de-duplication task for that device set (`platform.identity_deduplication_tasks`
 `ServiceRadar.Inventory.DeduplicationTask`); the scheduled duplicate sweep records each
 ambiguous component it declines the same way (`component_block`). There is exactly one task per
 device set for its whole life; later decisions update its count, last reason and evidence.
+SRQL `in:deduplication_tasks` lists them (`status:open` for the review queue); the
+`trace_device_identity` MCP tool reports a device's open tasks.
 
 An operator resolves an open task through `ServiceRadar.Inventory.Identity.Deduplication`:
 
