@@ -10,6 +10,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDepthTest do
   defp hop(number, received, addr \\ nil),
     do: %{"hop_number" => number, "sent" => 3, "received" => received, "addr" => addr}
 
+  defp unreached(last, probed), do: %{"target_reached" => false, "last_responding_hop" => last, "probed_hops" => probed}
+
   describe "depth_summary/1 and hop_count_label/1" do
     test "a reached trace is described by its path length" do
       trace = %{"target_reached" => true, "total_hops" => 7, "last_responding_hop" => 7, "probed_hops" => 8}
@@ -47,6 +49,66 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDepthTest do
 
       assert MtrDepth.hop_count_label(trace) == "16"
       assert MtrDepth.depth_summary(trace) == "Not reached (16 hops recorded)"
+    end
+  end
+
+  describe "incomplete?/1" do
+    defp cut_off_hops(deepest_reply) do
+      [
+        hop(1, 3, "192.0.2.1"),
+        hop(2, 3, "192.0.2.2"),
+        Map.merge(hop(3, 3, "198.51.100.3"), deepest_reply)
+      ]
+    end
+
+    test "a trace cut off while its deepest hop still answered is incomplete, not unreachable" do
+      trace = Map.put(unreached(3, 3), "hops", cut_off_hops(%{"reply_time_exceeded" => 3}))
+
+      assert MtrDepth.incomplete?(trace)
+      assert MtrDepth.depth_summary(trace) == "Stopped at hop 3 while hops were still answering"
+      assert Helpers.trace_status_label(trace) == "Incomplete"
+      assert Helpers.trace_status_variant(trace) == "warning"
+    end
+
+    test "an older row derives the cut-off from its hops" do
+      trace = %{
+        "target_reached" => false,
+        "total_hops" => 3,
+        "hops" => [hop(1, 3, "192.0.2.1"), hop(2, 0), hop(3, 2, "198.51.100.3")]
+      }
+
+      assert MtrDepth.incomplete?(trace)
+    end
+
+    test "a deepest hop answering Destination Unreachable is a blocked path, not a cut-off" do
+      hops = cut_off_hops(%{"reply_unreachable" => 3, "unreachable_code" => 13})
+      trace = Map.put(unreached(3, 3), "hops", hops)
+
+      refute MtrDepth.incomplete?(trace)
+      assert Helpers.trace_status_label(trace) == "Unreachable"
+      assert Helpers.trace_status_variant(trace) == "error"
+    end
+
+    test "a trace without its hops is never incomplete" do
+      trace = unreached(16, 16)
+
+      refute MtrDepth.incomplete?(trace)
+      assert Helpers.trace_status_label(trace) == "Unreachable"
+    end
+
+    test "a trace whose path went silent stays unreachable" do
+      trace = Map.put(unreached(2, 3), "hops", [hop(1, 3, "192.0.2.1"), hop(2, 3, "192.0.2.2"), hop(3, 0)])
+
+      refute MtrDepth.incomplete?(trace)
+      assert Helpers.trace_status_label(trace) == "Unreachable"
+    end
+
+    test "reached traces, silent traces and rows without depth are never incomplete" do
+      hops = cut_off_hops(%{"reply_time_exceeded" => 3})
+
+      refute MtrDepth.incomplete?(%{Map.put(unreached(3, 3), "hops", hops) | "target_reached" => true})
+      refute MtrDepth.incomplete?(unreached(0, 0))
+      refute MtrDepth.incomplete?(%{"target_reached" => false, "total_hops" => 16})
     end
   end
 

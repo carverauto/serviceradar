@@ -53,8 +53,8 @@ func TestCalculateTargetsPerMinute(t *testing.T) {
 func TestBulkMtrOptions_AppliesFastExecutionProfile(t *testing.T) {
 	opts := bulkMtrOptions(mtrBulkRunPayload{ExecutionProfile: "fast"})
 
-	if opts.MaxHops != fastBulkMaxHops {
-		t.Fatalf("expected fast profile max hops %d, got %d", fastBulkMaxHops, opts.MaxHops)
+	if opts.MaxHops != mtr.DefaultMaxHops {
+		t.Fatalf("expected fast profile max hops %d, got %d", mtr.DefaultMaxHops, opts.MaxHops)
 	}
 	if opts.ProbesPerHop != 3 {
 		t.Fatalf("expected fast profile probes_per_hop=3, got %d", opts.ProbesPerHop)
@@ -79,8 +79,8 @@ func TestBulkMtrOptions_AppliesFastExecutionProfile(t *testing.T) {
 func TestBulkMtrOptions_AppliesBalancedExecutionProfile(t *testing.T) {
 	opts := bulkMtrOptions(mtrBulkRunPayload{ExecutionProfile: "balanced"})
 
-	if opts.MaxHops != balancedBulkMaxHops {
-		t.Fatalf("expected balanced profile max hops %d, got %d", balancedBulkMaxHops, opts.MaxHops)
+	if opts.MaxHops != mtr.DefaultMaxHops {
+		t.Fatalf("expected balanced profile max hops %d, got %d", mtr.DefaultMaxHops, opts.MaxHops)
 	}
 	if opts.ProbesPerHop != 5 {
 		t.Fatalf("expected balanced profile probes_per_hop=5, got %d", opts.ProbesPerHop)

@@ -19,6 +19,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDepth do
     cond do
       trace["target_reached"] == true -> "Reached in #{total} #{hops_word(total)}"
       legacy?(trace) -> "Not reached (#{total} #{hops_word(total)} recorded)"
+      incomplete?(trace) -> "Stopped at hop #{last} while hops were still answering"
       last > 0 -> "No reply past hop #{last} (#{probed} probed)"
       probed > 0 -> "No replies (#{probed} probed)"
       true -> "No probes recorded"
@@ -26,6 +27,27 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDepth do
   end
 
   def depth_summary(_trace), do: "No probes recorded"
+
+  @doc """
+  True when an unreached trace stopped while its deepest probed hop was still
+  answering with something other than Destination Unreachable. Probing ended on
+  the hop limit or time budget, not at a silent path, so the trace says nothing
+  about whether the target is reachable.
+
+  A router with no route to the target answers Destination Unreachable at every
+  depth, which looks the same as a cut-off in the depth columns alone. Telling
+  them apart needs the deepest hop's replies, so a trace without its hops, such
+  as a list row, is never incomplete.
+  """
+  @spec incomplete?(map()) :: boolean()
+  def incomplete?(trace) when is_map(trace) do
+    last = last_responding_hop(trace)
+
+    trace["target_reached"] != true and last > 0 and last >= probed_hops(trace) and
+      not destination_unreachable?(deepest_hop(trace, last))
+  end
+
+  def incomplete?(_trace), do: false
 
   @doc "Compact hop count for tables: the path length, or `last/probed` when unreached."
   @spec hop_count_label(map()) :: String.t()
@@ -133,6 +155,17 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDepth do
       _ -> deepest(trace, &(int(&1["sent"]) > 0))
     end
   end
+
+  defp deepest_hop(trace, number) do
+    trace
+    |> Map.get("hops", [])
+    |> List.wrap()
+    |> Enum.find(&(is_map(&1) and int(&1["hop_number"]) == number))
+  end
+
+  defp destination_unreachable?(nil), do: true
+
+  defp destination_unreachable?(hop), do: not is_nil(hop["unreachable_code"]) or int(hop["reply_unreachable"]) > 0
 
   defp deepest(trace, counted?) do
     trace
