@@ -115,6 +115,12 @@ a `policy_block` identity decision (reason `hostname_agreement_not_identity`),
 which opens a de-duplication task for an operator to merge, mark distinct or
 dismiss.
 
+An agent check-in never adopts on hostname: `AgentGatewaySync` adopts a holder
+only when it claims no anchor identifier (agent id, Armis id, MAC, serial, ...)
+that the agent does not also claim. An agent's existing device is never
+replaced by the holder; it takes the address under the rule above or keeps its
+own, and either decision is recorded.
+
 Merged-away device IDs are never resurrected: resolution follows the
 `merge_audit` canonical mapping to the survivor (`Identity.Resolver` /
 `Identity.BatchResolver`), including after the tombstone row has been purged,
