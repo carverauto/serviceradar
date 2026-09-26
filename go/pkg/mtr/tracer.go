@@ -106,6 +106,10 @@ type Tracer struct {
 	targetReached atomic.Bool
 }
 
+// openProbeSocket opens the probe socket for a tracer that was not given one.
+// It is a variable so tests can substitute a fake socket.
+var openProbeSocket = NewRawSocket //nolint:gochecknoglobals // test seam
+
 var (
 	errMissingTargetInfo       = errors.New("missing target info")
 	errSocketIPVersionMismatch = errors.New("socket IP version mismatch")
@@ -220,7 +224,7 @@ func (t *Tracer) Run(ctx context.Context) (*TraceResult, error) {
 	isIPv6 := t.ipVersion == 6
 
 	if t.sock == nil {
-		sock, err := NewRawSocket(isIPv6)
+		sock, err := openProbeSocket(isIPv6)
 		if err != nil {
 			return nil, fmt.Errorf("create socket: %w", err)
 		}
@@ -296,14 +300,24 @@ func (t *Tracer) Run(ctx context.Context) (*TraceResult, error) {
 	t.runTCPHandshake(ctx)
 	stopReceive()
 
-	// Signal receiver to stop.
+	// Signal receiver to stop. Closing an owned socket unblocks Receive; the
+	// field is cleared once the receivers have exited so the deferred cleanup
+	// above does not close it a second time. A second close(2) of the send
+	// descriptor would close whatever descriptor the process was handed that
+	// number in the meantime -- under concurrent traces, another trace's probe
+	// or DNS socket.
+	closedOwnedSocket := false
 	if t.ownsSocket && t.sock != nil {
 		if err := t.sock.Close(); err != nil {
 			t.logger.Debug().Err(err).Msg("close probe socket for receiver shutdown")
 		}
+		closedOwnedSocket = true
 	}
 	<-recvDone
 	<-tcpRecvDone
+	if closedOwnedSocket {
+		t.sock = nil
+	}
 
 	// Mark unanswered probes as timed out before computing loss snapshots.
 	t.finalizeTimeouts()

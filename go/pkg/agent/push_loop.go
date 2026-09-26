@@ -130,6 +130,9 @@ type PushLoop struct {
 	tcpMu                      sync.Mutex
 	tcpSessions                map[string]*remoteaccess.TCPAdapter
 
+	// mtrOnDemandRun runs one on-demand mtr.run trace; nil means runOnDemandMtr.
+	mtrOnDemandRun onDemandMtrRunner
+
 	addonLastGoodMu sync.Mutex
 	addonLastGood   map[string]agentaddon.Spec // last successfully applied add-on spec, by addon id
 
