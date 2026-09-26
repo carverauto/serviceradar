@@ -18,7 +18,7 @@ defmodule ServiceRadar.Observability.MtrHopAttributionBackfillDbTest do
       VALUES ($1, $2, $3, $4, $5, false, $6)
       ON CONFLICT DO NOTHING
       """,
-      [id, time, "agent-backfill-test", "test-host", attrs[:target_ip], attrs[:device_id]]
+      [Ecto.UUID.dump!(id), time, "agent-backfill-test", "test-host", attrs[:target_ip], attrs[:device_id]]
     )
 
     %{id: id, time: time, target_ip: attrs[:target_ip], device_id: attrs[:device_id]}
@@ -35,7 +35,7 @@ defmodule ServiceRadar.Observability.MtrHopAttributionBackfillDbTest do
       VALUES ($1, $2, $3, 1, 10, 10, 0.0)
       ON CONFLICT DO NOTHING
       """,
-      [id, time, trace_id]
+      [Ecto.UUID.dump!(id), time, Ecto.UUID.dump!(trace_id)]
     )
 
     id
@@ -44,7 +44,6 @@ defmodule ServiceRadar.Observability.MtrHopAttributionBackfillDbTest do
   # Insert a hop with an unknown trace_id (simulates a trace that aged out).
   defp insert_orphan_hop do
     id = Ecto.UUID.generate()
-    ghost_trace_id = Ecto.UUID.generate()
 
     Repo.query!(
       """
@@ -53,7 +52,7 @@ defmodule ServiceRadar.Observability.MtrHopAttributionBackfillDbTest do
       VALUES ($1, now(), $2, 1, 10, 10, 0.0)
       ON CONFLICT DO NOTHING
       """,
-      [id, ghost_trace_id]
+      [Ecto.UUID.dump!(id), Ecto.UUID.dump!(Ecto.UUID.generate())]
     )
 
     id
@@ -63,7 +62,7 @@ defmodule ServiceRadar.Observability.MtrHopAttributionBackfillDbTest do
     %Postgrex.Result{rows: rows} =
       Repo.query!(
         "SELECT target_ip, device_id FROM #{@schema}.mtr_hops WHERE id = $1",
-        [hop_id]
+        [Ecto.UUID.dump!(hop_id)]
       )
 
     case rows do
@@ -106,7 +105,7 @@ defmodule ServiceRadar.Observability.MtrHopAttributionBackfillDbTest do
     # Simulate a partial prior run: manually attribute hop1 (as if it was already processed).
     Repo.query!(
       "UPDATE #{@schema}.mtr_hops SET target_ip = $1, device_id = $2 WHERE id = $3",
-      [trace1.target_ip, trace1.device_id, hop1_id]
+      [trace1.target_ip, trace1.device_id, Ecto.UUID.dump!(hop1_id)]
     )
 
     assert {:ok, report} = MtrHopAttributionBackfill.run(mode: :execute)
