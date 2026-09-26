@@ -125,6 +125,32 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
     |> DireTrace.assert_golden!()
   end
 
+  # #4664 (fixed): an agent check-in never adopts a record identified as something else on
+  # address evidence. Steps: Armis A (a1, no MAC reported) is synced at p1; DHCP moves A to p2
+  # before its next sync, so its record still holds p1; agent B (g2, m2) leases p1 and checks
+  # in. Expected: B gets its own record and takes p1, A releases it, and the address conflict
+  # is recorded. The check-in used to adopt A's record, which has no agent of its own.
+  test "agent_stale_armis_holder", %{actor: actor} do
+    world =
+      two_devices(%{
+        src_of: %{"h1" => "a1"},
+        src_ids: ["a1"],
+        agent_of: %{"h2" => "g2"},
+        agent_ids: ["g2"],
+        armis_macs: false,
+        observers: ["Armis", "Agent"]
+      })
+
+    "agent_stale_armis_holder"
+    |> DireTrace.start(world, actor)
+    |> DireTrace.lease("x1", "p1")
+    |> DireTrace.armis("h1", "x1")
+    |> DireTrace.lease("x1", "p2")
+    |> DireTrace.lease("x2", "p1")
+    |> DireTrace.agent("h2", "x2")
+    |> DireTrace.assert_golden!()
+  end
+
   # #4611 (fixed): two Armis devices report the same MAC (cloned VMs, a swapped NIC).
   # Steps: A (a1, m1) is synced at p1; B (a2, m1) is synced at p2, twice. Expected: B gets its
   # own record, since its Armis id decides; m1 stays with A; each sync of B records the override.

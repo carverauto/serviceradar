@@ -428,6 +428,18 @@ tlc_test(
 )
 
 tlc_test(
+    name = "trace_agent_stale_armis_holder_test",
+    cfg = "traces/Trace_agent_stale_armis_holder.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_agent_stale_armis_holder.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
     name = "trace_agent_mac_split_test",
     cfg = "traces/Trace_agent_mac_split.cfg",
     expect = "violation:TraceIncomplete",

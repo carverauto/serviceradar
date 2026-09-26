@@ -17,6 +17,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
   alias ServiceRadar.Infrastructure.Gateway
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.IdentityDecision
   alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.SweepJobs.SweepGroup
 
@@ -514,48 +515,65 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       assert current_agent.device_uid == current_uid
     end
 
-    test "an existing agent check-in does not take an address held by a different agent",
-         %{
-           unique_id: unique_id,
-           actor: actor
-         } do
-      moving_agent_id = "agent-moving-#{unique_id}"
-      holder_agent_id = "agent-holder-#{unique_id}"
-      original_ip = "192.0.2.#{rem(unique_id, 200) + 10}"
-      held_ip = "198.51.100.#{rem(unique_id, 200) + 10}"
+    # #4664: a check-in on an existing agent device at an address another agent's device
+    # holds. The update path used to release the holder's address and then crash creating a
+    # second device (MatchError: its context has no device uid). The address follows the
+    # newer observation (#4639): a holder last seen before the check-in releases it.
+    test "an existing agent check-in takes an address from a stale holder and records it",
+         %{actor: actor} do
+      uniq = System.unique_integer([:positive, :monotonic])
+      moving_agent_id = "agent-moving-#{uniq}"
+      holder_agent_id = "agent-holder-#{uniq}"
+      original_ip = unique_test_ip(uniq, 0)
+      held_ip = unique_test_ip(uniq, 1)
 
-      :ok =
-        AgentGatewaySync.upsert_agent(moving_agent_id, %{
-          host: original_ip,
-          capabilities: ["sysmon"]
-        })
+      {moving_uid, holder_uid} =
+        enroll_moving_and_holder(moving_agent_id, original_ip, holder_agent_id, held_ip)
 
-      {:ok, moving_uid} =
-        AgentGatewaySync.ensure_device_for_agent(moving_agent_id, %{
-          hostname: "moving-host-#{unique_id}",
-          source_ip: original_ip,
-          partition: "default",
-          capabilities: ["sysmon"]
-        })
+      set_last_seen!(holder_uid, DateTime.add(DateTime.utc_now(), -3600, :second), actor)
 
-      :ok =
-        AgentGatewaySync.upsert_agent(holder_agent_id, %{
-          host: held_ip,
-          capabilities: ["sysmon"]
-        })
-
-      {:ok, holder_uid} =
-        AgentGatewaySync.ensure_device_for_agent(holder_agent_id, %{
-          hostname: "holder-host-#{unique_id}",
-          source_ip: held_ip,
-          partition: "default",
-          capabilities: ["sysmon"]
-        })
-
-      assert {:error,
-              {:active_ip_owned_by_different_agent, ^held_ip, ^holder_uid, ^holder_agent_id}} =
+      assert {:ok, ^moving_uid} =
                AgentGatewaySync.ensure_device_for_agent(moving_agent_id, %{
-                 hostname: "moving-host-#{unique_id}",
+                 hostname: "moving-host-#{uniq}",
+                 source_ip: held_ip,
+                 partition: "default",
+                 capabilities: ["sysmon"]
+               })
+
+      {:ok, moving_device} = Device.get_by_uid(moving_uid, false, actor: actor)
+      {:ok, holder_device} = Device.get_by_uid(holder_uid, false, actor: actor)
+
+      assert moving_device.ip == held_ip
+      assert moving_device.agent_id == moving_agent_id
+      assert is_nil(holder_device.ip)
+      assert is_nil(holder_device.deleted_at)
+      assert holder_device.agent_id == holder_agent_id
+
+      assert_ip_conflict_recorded(
+        moving_uid,
+        holder_uid,
+        held_ip,
+        "preserve_source_identity_release_stale_ip",
+        actor
+      )
+    end
+
+    test "an existing agent check-in keeps its own address when the holder was seen no earlier",
+         %{actor: actor} do
+      uniq = System.unique_integer([:positive, :monotonic])
+      moving_agent_id = "agent-moving-#{uniq}"
+      holder_agent_id = "agent-holder-#{uniq}"
+      original_ip = unique_test_ip(uniq, 0)
+      held_ip = unique_test_ip(uniq, 1)
+
+      {moving_uid, holder_uid} =
+        enroll_moving_and_holder(moving_agent_id, original_ip, holder_agent_id, held_ip)
+
+      set_last_seen!(holder_uid, DateTime.add(DateTime.utc_now(), 3600, :second), actor)
+
+      assert {:ok, ^moving_uid} =
+               AgentGatewaySync.ensure_device_for_agent(moving_agent_id, %{
+                 hostname: "moving-host-renamed-#{uniq}",
                  source_ip: held_ip,
                  partition: "default",
                  capabilities: ["sysmon"]
@@ -565,10 +583,121 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       {:ok, holder_device} = Device.get_by_uid(holder_uid, false, actor: actor)
 
       assert moving_device.ip == original_ip
-      assert moving_device.agent_id == moving_agent_id
+      assert moving_device.hostname == "moving-host-renamed-#{uniq}"
       assert holder_device.ip == held_ip
       assert holder_device.agent_id == holder_agent_id
       refute get_in(holder_device.metadata || %{}, ["released_conflicting_active_ip"])
+
+      assert_ip_conflict_recorded(
+        moving_uid,
+        holder_uid,
+        held_ip,
+        "preserve_source_identity_drop_conflicting_ip",
+        actor
+      )
+    end
+
+    # #4664: address evidence never decides identity. A new agent enrolling at an address an
+    # Armis-identified device holds used to adopt that record, because it had no agent_id.
+    test "a new agent at an address held by an Armis-identified device does not adopt it",
+         %{actor: actor} do
+      uniq = System.unique_integer([:positive, :monotonic])
+      agent_id = "agent-armis-addr-#{uniq}"
+      held_ip = unique_test_ip(uniq, 0)
+      armis_uid = "sr:" <> Ecto.UUID.generate()
+      armis_id = "armis-synthetic-#{uniq}"
+
+      assert {:ok, _device} =
+               Device
+               |> Ash.Changeset.for_create(:create, %{
+                 uid: armis_uid,
+                 hostname: "armis-host-#{uniq}",
+                 ip: held_ip,
+                 discovery_sources: ["armis"],
+                 metadata: %{"armis_device_id" => armis_id, "integration_type" => "armis"},
+                 last_seen_time: DateTime.add(DateTime.utc_now(), -3600, :second),
+                 is_available: true
+               })
+               |> Ash.create(actor: actor)
+
+      assert {:ok, _identifier} =
+               DeviceIdentifier
+               |> Ash.Changeset.for_create(:upsert, %{
+                 device_id: armis_uid,
+                 identifier_type: :armis_device_id,
+                 identifier_value: armis_id,
+                 partition: "default",
+                 confidence: :strong,
+                 source: "test-armis"
+               })
+               |> Ash.create(actor: actor)
+
+      assert {:ok, agent_uid} =
+               AgentGatewaySync.ensure_device_for_agent(agent_id, %{
+                 hostname: "armis-host-#{uniq}",
+                 source_ip: held_ip,
+                 partition: "default",
+                 capabilities: ["sysmon"]
+               })
+
+      refute agent_uid == armis_uid
+
+      {:ok, armis_device} = Device.get_by_uid(armis_uid, false, actor: actor)
+      {:ok, agent_device} = Device.get_by_uid(agent_uid, false, actor: actor)
+
+      assert is_nil(armis_device.agent_id)
+      refute "agent" in (armis_device.discovery_sources || [])
+      assert agent_device.agent_id == agent_id
+
+      assert_ip_conflict_recorded(
+        agent_uid,
+        armis_uid,
+        held_ip,
+        "preserve_source_identity_release_stale_ip",
+        actor
+      )
+    end
+
+    test "a new agent sharing a hostname with a different agent's device does not adopt it",
+         %{actor: actor} do
+      uniq = System.unique_integer([:positive, :monotonic])
+      holder_agent_id = "agent-name-holder-#{uniq}"
+      agent_id = "agent-name-twin-#{uniq}"
+      held_ip = unique_test_ip(uniq, 0)
+
+      :ok = AgentGatewaySync.upsert_agent(agent_id, %{host: held_ip, capabilities: ["sysmon"]})
+
+      {:ok, holder_uid} =
+        AgentGatewaySync.ensure_device_for_agent(holder_agent_id, %{
+          hostname: "shared-name-#{uniq}",
+          source_ip: held_ip,
+          partition: "default",
+          capabilities: ["sysmon"]
+        })
+
+      assert {:ok, agent_uid} =
+               AgentGatewaySync.ensure_device_for_agent(agent_id, %{
+                 hostname: "SHARED-NAME-#{uniq}",
+                 source_ip: held_ip,
+                 partition: "default",
+                 capabilities: ["sysmon"]
+               })
+
+      refute agent_uid == holder_uid
+
+      {:ok, holder_device} = Device.get_by_uid(holder_uid, false, actor: actor)
+      {:ok, agent_device} = Device.get_by_uid(agent_uid, false, actor: actor)
+
+      assert holder_device.agent_id == holder_agent_id
+      assert agent_device.agent_id == agent_id
+
+      assert_ip_conflict_recorded(
+        agent_uid,
+        holder_uid,
+        held_ip,
+        "preserve_source_identity_release_stale_ip",
+        actor
+      )
     end
 
     test "marks older duplicate-prefix agent unavailable when reenrollment resolves to same device",
@@ -580,11 +709,14 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       replacement_agent_id = "agent-agent-dusk-#{unique_id}"
       source_ip = "192.168.50.#{rem(unique_id, 200) + 10}"
 
+      # The host's MAC makes the re-enrolled agent the same device; a shared hostname and
+      # address alone would not (#4664).
       attrs = %{
         hostname: "dusk-#{unique_id}",
         source_ip: source_ip,
         partition: "default",
-        capabilities: ["sysmon"]
+        capabilities: ["sysmon"],
+        host_macs: ["00:00:5e:00:53:4a"]
       }
 
       :ok =
@@ -618,11 +750,14 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       replacement_agent_id = "agent-dusk01-#{unique_id}"
       source_ip = "192.168.60.#{rem(unique_id, 200) + 10}"
 
+      # The host's MAC makes the re-enrolled agent the same device; a shared hostname and
+      # address alone would not (#4664).
       attrs = %{
         hostname: "dusk-#{unique_id}",
         source_ip: source_ip,
         partition: "default",
-        capabilities: ["sysmon"]
+        capabilities: ["sysmon"],
+        host_macs: ["00:00:5e:00:53:4b"]
       }
 
       :ok =
@@ -1047,6 +1182,61 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       assert recovered.is_healthy == true
       assert recovered.config_source == :remote
     end
+  end
+
+  defp enroll_moving_and_holder(moving_agent_id, original_ip, holder_agent_id, held_ip) do
+    :ok =
+      AgentGatewaySync.upsert_agent(moving_agent_id, %{
+        host: original_ip,
+        capabilities: ["sysmon"]
+      })
+
+    {:ok, moving_uid} =
+      AgentGatewaySync.ensure_device_for_agent(moving_agent_id, %{
+        hostname: "moving-host-#{moving_agent_id}",
+        source_ip: original_ip,
+        partition: "default",
+        capabilities: ["sysmon"]
+      })
+
+    :ok =
+      AgentGatewaySync.upsert_agent(holder_agent_id, %{host: held_ip, capabilities: ["sysmon"]})
+
+    {:ok, holder_uid} =
+      AgentGatewaySync.ensure_device_for_agent(holder_agent_id, %{
+        hostname: "holder-host-#{holder_agent_id}",
+        source_ip: held_ip,
+        partition: "default",
+        capabilities: ["sysmon"]
+      })
+
+    {moving_uid, holder_uid}
+  end
+
+  defp set_last_seen!(device_uid, last_seen_time, actor) do
+    {:ok, device} = Device.get_by_uid(device_uid, false, actor: actor)
+
+    {:ok, _device} =
+      device
+      |> Ash.Changeset.for_update(:gateway_sync, %{last_seen_time: last_seen_time})
+      |> Ash.update(actor: actor)
+  end
+
+  defp assert_ip_conflict_recorded(device_uid, holder_uid, ip, proposed_action, actor) do
+    assert {:ok, decisions} = IdentityDecision.for_device(device_uid, actor: actor)
+
+    assert Enum.any?(decisions, fn decision ->
+             decision.decision_kind == :ip_conflict and decision.subject == ip and
+               decision.device_uids == Enum.sort([device_uid, holder_uid]) and
+               decision.evidence["proposed_action"] == proposed_action
+           end)
+  end
+
+  # Distinct host addresses in the 198.18.0.0/15 benchmarking range, per test and offset.
+  defp unique_test_ip(uniq, offset) do
+    n = rem(uniq * 2 + offset, 512 * 250)
+    net = div(n, 250)
+    "198.#{18 + div(net, 256)}.#{rem(net, 256)}.#{rem(n, 250) + 1}"
   end
 
   defp publish_test_release(version, actor) do

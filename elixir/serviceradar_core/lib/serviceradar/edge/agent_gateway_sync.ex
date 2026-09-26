@@ -24,10 +24,16 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.Gateway
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Identity.DecisionLog
   alias ServiceRadar.Inventory.Identity.Fence
+  alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.Identity.Registrar
   alias ServiceRadar.Inventory.IdentityReconciler
+  alias ServiceRadar.Inventory.SourceIdentityDrift
+  alias ServiceRadar.Inventory.Sync.DeviceWrites
   alias ServiceRadar.NetworkDiscovery.MapperJob
+  alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.AgentAssignment
   alias ServiceRadar.SweepJobs.SweepGroup
 
@@ -504,7 +510,8 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
             source_ip: source_ip,
             partition: partition,
             os_info: os_info,
-            capabilities: capabilities
+            capabilities: capabilities,
+            identity: agent_identity_pairs(agent_id, attrs)
           },
           actor,
           now
@@ -527,7 +534,8 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
             source_ip: source_ip,
             partition: partition,
             os_info: os_info,
-            capabilities: capabilities
+            capabilities: capabilities,
+            identity: agent_identity_pairs(agent_id, attrs)
           }
 
           create_device_for_agent(device_context, actor, now)
@@ -652,6 +660,10 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end
   end
 
+  # A new agent device whose address another live device holds. The holder is adopted
+  # -- the agent's device becomes that record -- only when it is genuinely this agent's
+  # device (adoptable_active_ip_owner?/3). Otherwise the new enrollment, observed at the
+  # address now, releases it from the holder, and the conflict is recorded.
   defp handle_active_ip_owner_conflict(
          existing_device,
          source_ip,
@@ -661,7 +673,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
          allow_conflict_release?
        ) do
     cond do
-      adoptable_active_ip_owner?(existing_device, device_context) ->
+      adoptable_active_ip_owner?(existing_device, device_context, actor) ->
         Logger.info(
           "Adopting existing device #{existing_device.uid} for agent #{device_context.agent_id} after active IP conflict on #{source_ip}"
         )
@@ -689,6 +701,14 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
                  device_context,
                  actor
                ) do
+          record_active_ip_conflict(
+            device_context.device_uid,
+            device_context.agent_id,
+            existing_device,
+            source_ip,
+            :release_holder
+          )
+
           create_device_for_agent(device_context, actor, now, false)
         end
 
@@ -699,14 +719,197 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end
   end
 
-  defp adoptable_active_ip_owner?(%Device{} = existing_device, device_context) do
-    existing_agent_id = normalize_optional_string(existing_device.agent_id)
-    current_agent_id = normalize_optional_string(device_context.agent_id)
-    existing_hostname = normalize_hostname(existing_device.hostname || existing_device.name)
-    current_hostname = normalize_hostname(device_context.hostname)
+  # The address holder is genuinely this agent's device only when it claims no identity
+  # the agent does not also claim: an unbound record that knows nothing but the address
+  # (a sweep or mapper seed, perhaps with a name), or a record already bound to this
+  # agent. Address and hostname are evidence, not identity, so they never decide it: a
+  # holder identified as something else -- another agent, an Armis id, a MAC, a serial,
+  # on the record or registered for it -- is never taken over (#4664).
+  defp adoptable_active_ip_owner?(%Device{} = holder, device_context, actor) do
+    holder
+    |> holder_identity_pairs(actor)
+    |> MapSet.subset?(device_context.identity)
+  end
 
-    is_nil(existing_agent_id) or existing_agent_id == current_agent_id or
-      (present_string?(existing_hostname) and existing_hostname == current_hostname)
+  # The anchor identifiers (`Ids.identifier_priority/0`) the agent's check-in claims.
+  defp agent_identity_pairs(agent_id, attrs) do
+    agent_id
+    |> build_device_update_from_agent(attrs)
+    |> IdentityReconciler.extract_strong_identifiers()
+    |> identity_pairs()
+  end
+
+  # The anchor identifiers a holder carries on its record or has registered.
+  defp holder_identity_pairs(%Device{} = holder, actor) do
+    on_record =
+      identity_pairs(
+        IdentityReconciler.extract_strong_identifiers(%{
+          mac: holder.mac,
+          metadata: holder.metadata || %{},
+          partition: holder.partition
+        })
+      )
+
+    anchor_types = Ids.identifier_priority()
+
+    registered =
+      case DeviceIdentifier.get_by_device(holder.uid, actor: actor) do
+        {:ok, identifiers} ->
+          for %DeviceIdentifier{identifier_type: type, identifier_value: value} <- identifiers,
+              type in anchor_types,
+              into: MapSet.new(),
+              do: {Atom.to_string(type), value}
+
+        # Unknown identity is not "no identity": a failed lookup never adopts.
+        {:error, _reason} ->
+          MapSet.new([{"lookup_failed", holder.uid}])
+      end
+
+    bound_agent =
+      case normalize_optional_string(holder.agent_id) do
+        nil -> MapSet.new()
+        holder_agent_id -> MapSet.new([{"agent_id", holder_agent_id}])
+      end
+
+    on_record |> MapSet.union(registered) |> MapSet.union(bound_agent)
+  end
+
+  defp identity_pairs(ids) do
+    for type <- Ids.identifier_priority(),
+        value <- Ids.get_identifier_values(type, ids),
+        Ids.present_id?(value),
+        into: MapSet.new(),
+        do: {Atom.to_string(type), value}
+  end
+
+  # An agent check-in on a device that already exists, at an address another live device
+  # holds. The holder is neither adopted nor released to create a second device (#4664):
+  # DIRE resolved this agent's device by its strong identity, and the address is evidence,
+  # not identity. The address follows the newer observation, under the rule of
+  # `DeviceWrites.claim_address_from_holder/4` (#4639): the check-in observed the agent at
+  # the address now, so a holder last seen before now is stale (DHCP churn) and releases the
+  # address in the transaction this device takes it in; a holder seen no earlier keeps it
+  # and this device keeps its own address. Either way the check-in's other fields are
+  # written and the conflict is recorded.
+  defp claim_active_ip_for_existing_device(device, action, update_attrs, reason, actor, now) do
+    source_ip = Map.fetch!(update_attrs, :ip)
+
+    case live_active_ip_holder(device, source_ip, actor) do
+      %Device{} = holder ->
+        if DeviceWrites.observed_after?(%{last_seen_time: now}, holder) do
+          take_active_ip_from_stale_holder(device, holder, action, update_attrs, actor)
+        else
+          keep_own_address(device, holder, action, update_attrs, actor)
+        end
+
+      nil ->
+        {:error, reason}
+    end
+  end
+
+  defp take_active_ip_from_stale_holder(device, holder, action, update_attrs, actor) do
+    source_ip = update_attrs.ip
+
+    fn ->
+      DeviceWrites.lock_and_clear_for_upsert([%{uid: device.uid}], [{holder.uid, source_ip}])
+
+      device
+      |> Ash.Changeset.for_update(action, update_attrs)
+      |> Ash.update(actor: actor, return_notifications?: true)
+      |> case do
+        {:ok, _device, notifications} -> notifications
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end
+    |> Repo.transaction()
+    |> case do
+      {:ok, notifications} ->
+        Ash.Notifier.notify(notifications)
+
+        Logger.info(
+          "Agent #{update_attrs.agent_id} device #{device.uid} takes active IP #{source_ip}; " <>
+            "released from stale holder #{holder.uid}"
+        )
+
+        record_active_ip_conflict(
+          device.uid,
+          update_attrs.agent_id,
+          holder,
+          source_ip,
+          :release_holder
+        )
+
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp keep_own_address(device, holder, action, update_attrs, actor) do
+    source_ip = update_attrs.ip
+
+    Logger.info(
+      "Agent #{update_attrs.agent_id} device #{device.uid} keeps #{inspect(device.ip)}; " <>
+        "active IP #{source_ip} stays with #{holder.uid}, seen no earlier"
+    )
+
+    record_active_ip_conflict(device.uid, update_attrs.agent_id, holder, source_ip, :drop_ip)
+
+    update_attrs = Map.delete(update_attrs, :ip)
+
+    device
+    |> Ash.Changeset.for_update(action, update_attrs)
+    |> Ash.update(actor: actor)
+    |> case do
+      {:ok, _device} ->
+        :ok
+
+      {:error, error} ->
+        if stale_record_error?(error),
+          do: force_gateway_sync_update(device.uid, action, update_attrs, actor),
+          else: {:error, error}
+    end
+  end
+
+  defp live_active_ip_holder(%Device{} = device, source_ip, actor) do
+    Device
+    |> Ash.Query.for_read(:by_ip, %{ip: source_ip, partition: device.partition})
+    |> Ash.Query.filter(uid != ^device.uid)
+    |> Ash.read(actor: actor)
+    |> case do
+      {:ok, [holder | _]} -> holder
+      _none_or_error -> nil
+    end
+  end
+
+  # One active-IP conflict: a DIRE conflict row and an identity decision, as the sync and
+  # mapper paths record theirs. `:release_holder` -- the agent's device took the address from
+  # a stale holder; `:drop_ip` -- the holder kept it.
+  defp record_active_ip_conflict(device_uid, agent_id, %Device{} = holder, ip, action) do
+    conflict =
+      SourceIdentityDrift.build_active_ip_conflict(
+        %{uid: device_uid, metadata: %{"integration_type" => "agent", "agent_id" => agent_id}},
+        holder.uid,
+        ip,
+        action: action
+      )
+
+    SourceIdentityDrift.record_conflicts([conflict])
+
+    DecisionLog.record(:ip_conflict, "active_ip_conflict", [device_uid, holder.uid],
+      subject: ip,
+      source: "agent_gateway_sync",
+      evidence: %{
+        "incoming_device_uid" => device_uid,
+        "existing_device_uid" => holder.uid,
+        "ip" => ip,
+        "agent_id" => agent_id,
+        "existing_agent_id" => holder.agent_id,
+        "adoption" => "refused",
+        "proposed_action" => conflict.proposed_action
+      }
+    )
   end
 
   defp release_conflicting_active_ip_owner(
@@ -805,47 +1008,17 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         Logger.debug("Updated device #{device.uid} for agent #{agent_id} (#{action})")
         :ok
 
-      {:error, %Invalid{} = error} ->
+      {:error, error} ->
         cond do
           stale_record_error?(error) ->
             force_gateway_sync_update(device.uid, action, update_attrs, actor)
 
-          active_ip_unique_conflict?(error) ->
-            # This device already exists. Do not clear the address holder and
-            # create a second device; that create also crashes, because this
-            # context has no device uid.
-            maybe_adopt_existing_active_ip_device(
-              error,
-              source_ip,
-              %{
-                agent_id: agent_id,
-                hostname: hostname,
-                source_ip: source_ip,
-                capabilities: capabilities
-              },
-              actor,
-              now,
-              false
-            )
+          active_ip_unique_conflict?(error) and present_string?(source_ip) ->
+            claim_active_ip_for_existing_device(device, action, update_attrs, error, actor, now)
 
           true ->
             {:error, error}
         end
-
-      {:error, reason} ->
-        maybe_adopt_existing_active_ip_device(
-          reason,
-          source_ip,
-          %{
-            agent_id: agent_id,
-            hostname: hostname,
-            source_ip: source_ip,
-            capabilities: capabilities
-          },
-          actor,
-          now,
-          false
-        )
     end
   end
 
