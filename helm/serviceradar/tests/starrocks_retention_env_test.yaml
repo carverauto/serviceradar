@@ -199,4 +199,3 @@ tests:
                 name: serviceradar-starrocks-analytics
                 key: streamLoadMaxAgeMs
           count: 1
-
