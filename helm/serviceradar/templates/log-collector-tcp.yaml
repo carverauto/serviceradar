@@ -232,7 +232,7 @@ spec:
   loadBalancerIP: {{ $tcpCollectorService.loadBalancerIP }}
   {{- end }}
   ports:
-  {{- if (default true ((default (dict) $tcpCollectorServicePorts.syslog).enabled)) }}
+  {{- if (include "serviceradar.boolDefaultTrue" (list (default (dict) $tcpCollectorServicePorts.syslog) "enabled") | eq "true") }}
   - name: syslog-tcp
     port: {{ default 514 ((default (dict) $tcpCollectorServicePorts.syslog).port) }}
     targetPort: {{ default 514 ((default (dict) $tcpCollectorServicePorts.syslog).targetPort) }}
@@ -266,7 +266,7 @@ spec:
     app: serviceradar-log-collector-tcp
     app.kubernetes.io/part-of: serviceradar
   ports:
-  {{- if (default true ((default (dict) $tcpCollectorExternalServicePorts.syslog).enabled)) }}
+  {{- if (include "serviceradar.boolDefaultTrue" (list (default (dict) $tcpCollectorExternalServicePorts.syslog) "enabled") | eq "true") }}
   - name: syslog-tcp
     port: {{ default 514 ((default (dict) $tcpCollectorExternalServicePorts.syslog).port) }}
     targetPort: {{ default 514 ((default (dict) $tcpCollectorExternalServicePorts.syslog).targetPort) }}

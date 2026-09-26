@@ -151,7 +151,7 @@ spec:
         - name: AGENT_GATEWAY_NATS_URL
           value: {{ default "tls://serviceradar-nats:4222" $gateway.natsUrl | quote }}
         - name: AGENT_GATEWAY_NATS_TLS
-          value: {{ default true $gateway.natsTls | quote }}
+          value: {{ include "serviceradar.boolDefaultTrue" (list $gateway "natsTls") | eq "true" | quote }}
         - name: AGENT_GATEWAY_NATS_SERVER_NAME
           value: {{ default "serviceradar-nats" $gateway.natsServerName | quote }}
         {{- if or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate }}

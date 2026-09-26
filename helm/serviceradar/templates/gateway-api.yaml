@@ -18,7 +18,7 @@
 {{- $envoyPDB := default (dict) $envoyProxy.pdb -}}
 {{- $envoyService := default (dict) $envoyProxy.service -}}
 {{- $http := default (dict) $gatewayApi.http -}}
-{{- $httpEnabled := default true $http.enabled -}}
+{{- $httpEnabled := include "serviceradar.boolDefaultTrue" (list $http "enabled") | eq "true" -}}
 {{- $httpRedirectToHttps := default false $http.redirectToHttps -}}
 {{- $tls := default (dict) $gatewayApi.tls -}}
 {{- $tlsEnabled := default false $tls.enabled -}}

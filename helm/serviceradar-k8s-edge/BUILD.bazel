@@ -1,0 +1,27 @@
+load("@rules_python//python:py_test.bzl", "py_test")
+
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "chart_files",
+    srcs = [
+        "Chart.yaml",
+        "values-example.yaml",
+        "values.yaml",
+    ] + glob(["templates/**"]),
+)
+
+py_test(
+    name = "helm_unittest_suite_test",
+    srcs = ["//helm/serviceradar:helm_unittest_suite_test.py"],
+    data = [
+        "Chart.yaml",
+        ":chart_files",
+        "//helm/serviceradar:helm_unittest_binary",
+    ] + glob(["tests/**"]),
+    env = {
+        "SERVICERADAR_CHART_YAML": "$(rootpath Chart.yaml)",
+        "SERVICERADAR_HELM_UNITTEST_BINARY": "$(rootpath //helm/serviceradar:helm_unittest_binary)",
+    },
+    main = "//helm/serviceradar:helm_unittest_suite_test.py",
+)
