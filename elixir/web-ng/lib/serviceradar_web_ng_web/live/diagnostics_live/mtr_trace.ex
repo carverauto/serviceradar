@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
   alias ServiceRadar.Observability.MtrHop
   alias ServiceRadar.Observability.MtrTcpHandshake
   alias ServiceRadar.Observability.MtrTrace
+  alias ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.Helpers
   alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrDepth
   alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrHandshake
   alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse
@@ -134,16 +135,18 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
             <div class="stat">
               <div class="sr-ui-stat-title">Status</div>
               <div class="sr-ui-stat-value text-lg">
-                <span class={status_class(@trace)}>{status_label(@trace)}</span>
+                <span class={status_class(with_hops(@trace, @hops))}>
+                  {Helpers.trace_status_label(with_hops(@trace, @hops))}
+                </span>
               </div>
             </div>
             <div class="stat">
               <div class="sr-ui-stat-title">Hops</div>
               <div class="sr-ui-stat-value text-lg">
-                {MtrDepth.hop_count_label(Map.put(@trace, "hops", @hops))}
+                {MtrDepth.hop_count_label(with_hops(@trace, @hops))}
               </div>
               <div class="sr-ui-stat-desc">
-                {MtrDepth.depth_summary(Map.put(@trace, "hops", @hops))}
+                {MtrDepth.depth_summary(with_hops(@trace, @hops))}
               </div>
             </div>
             <div class="stat">
@@ -358,34 +361,16 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
     end
   end
 
-  defp status_label(trace) when is_map(trace) do
-    reached? = trace["target_reached"] == true
-    protocol = trace["protocol"] |> to_string() |> String.downcase()
-    total_hops = trace["total_hops"] || 0
+  defp with_hops(trace, hops) when is_map(trace), do: Map.put(trace, "hops", hops)
+  defp with_hops(trace, _hops), do: trace
 
-    cond do
-      reached? ->
-        "Reached"
-
-      protocol == "tcp" and is_integer(total_hops) and total_hops > 0 ->
-        "No Terminal Reply"
-
-      true ->
-        "Unreachable"
-    end
-  end
-
-  defp status_label(_), do: "Unreachable"
-
-  defp status_class(trace) when is_map(trace) do
-    case status_label(trace) do
-      "Reached" -> "text-success"
-      "No Terminal Reply" -> "text-warning"
+  defp status_class(trace) do
+    case Helpers.trace_status_variant(trace) do
+      "success" -> "text-success"
+      "warning" -> "text-warning"
       _ -> "text-error"
     end
   end
-
-  defp status_class(_), do: "text-error"
 
   defp loss_class(nil), do: ""
   defp loss_class(pct) when pct > 50, do: "text-error font-bold"
