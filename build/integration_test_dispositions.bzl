@@ -360,7 +360,7 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/automation/ansible/run_watchdog_db_test.exs": 1,
     "test/serviceradar/automation/ansible/secure_execution_lifecycle_db_test.exs": 3,
     "test/serviceradar/automation/ansible/secure_execution_partition_migration_db_test.exs": 1,
-    "test/serviceradar/automation/northbound/action_lifecycle_test.exs": 7,
+    "test/serviceradar/automation/northbound/action_lifecycle_test.exs": 8,
     "test/serviceradar/automation/northbound/invocation_service_test.exs": 5,
     "test/serviceradar/cluster/startup_migrations_test.exs": 2,
     "test/serviceradar/composite_checks/composite_check_input_test.exs": 8,
