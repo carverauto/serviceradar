@@ -33,7 +33,7 @@
 - [ ] 4.4 Migrate plugin secret-reference fields to the same descriptor catalog and credentials area.
 - [ ] 4.5 Migrate remote access and remaining consumer-local credential stores to broker references.
 - [ ] 4.6 Keep all plaintext material inside trusted protocol adapters; prove Wasm guests receive neither source credentials nor derived tokens.
-- [ ] 4.7 Define package-owned credential test actions and replace the Proxmox-specific rule test plan and dispatcher in core.
+- [ ] 4.7 Define package-owned credential test actions (requirement "Package-owned credential rule tests"): a manifest-declared test action per auth method, run by the agent plugin runtime with a scoped broker grant, surfaced as a Test control on the rule preview. The Proxmox-specific core test plan, dispatcher, rule test actions, and agent handler were removed in #4745; this task now covers only the package-owned replacement.
 - [ ] 4.8 Let a package declare its credential delivery mode, and stop offering or accepting polled/interval assignments for plugins whose credentials arrive per-invocation with a command. Report any existing unsatisfiable assignment as such rather than as a credential resolution failure. (Observed: the AWX / AAP Bridge accepted a 60s manual assignment and emitted `api_token is required` once a minute while credential resolution was healthy; three were created, two silently disabled by operators.)
 
 ## 5. Docs and Tests
