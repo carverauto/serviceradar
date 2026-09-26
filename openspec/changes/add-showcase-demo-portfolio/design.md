@@ -314,9 +314,10 @@ alerts and the same metric changes.
 - **Guards.** A maximum duration per fault kind, at most one active injected
   fault per kind and target, a per-assignment rate limit, and an "end fault
   early" action that expires the override and emits the resolving event.
-  Scheduled faults do not start on a target that already has an injected fault
-  of the same kind, and an injection is rejected while a scheduled fault of
-  that kind is active on the target (the action evaluates the schedule). Each
+  Scheduled faults are never suppressed: an injection is rejected when its
+  window (start to start plus duration) overlaps an active injected fault or
+  any scheduled window of the same kind on the target, and the action
+  evaluates the schedule to decide. Each
   pack can turn its schedule off for presenter-only sessions. Every fault
   carries an id in its opening and resolving events, and resolving an alert
   that is already resolved is a no-op, so a resolving event repeated by an
