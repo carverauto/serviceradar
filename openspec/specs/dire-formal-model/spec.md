@@ -56,8 +56,8 @@ recorded trace is regenerated with `DIRE_TRACE_WRITE=1` and model-checked before
 - **WHEN** a trace's final state is altered in exactly one model variable
 - **THEN** TLC rejects the altered trace
 
-#### Scenario: A lifecycle trace proves its defect
-- **WHEN** a lifecycle trace is checked with the defect switch it demonstrates turned off
+#### Scenario: A trace proves its defect
+- **WHEN** a trace is checked with the defect switch it demonstrates turned off
 - **THEN** TLC rejects the trace, so the real code exhibits that defect
 
 ### Requirement: Formal Model Fixtures Are Synthetic

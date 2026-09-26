@@ -195,8 +195,8 @@ still describes the code. The switches today's code has are listed once, in `Cur
 3. Remove the switch from the model (keep only the intended branch and its `KnownBugs` entry)
    and from `CurrentBugs.tla`. A switch left in `CurrentBugs.tla` after it leaves `KnownBugs`
    fails the models' `ASSUME Bugs \subseteq KnownBugs`.
-4. Delete its witness configuration and target and, for a lifecycle switch, the trace's
-   `__knockout` configuration and target (and the test's `demonstrates:` option): with the
+4. Delete its witness configuration and target and the `__knockout` configuration and target
+   of any trace that demonstrates it (and the test's `demonstrates:` option): with the
    switch gone the knockout checks the trace with today's switches, TLC matches it, and the
    target fails until it is deleted.
 5. Add its property to `lifecycle_current.cfg` (lifecycle) or confirm it in every
