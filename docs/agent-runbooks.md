@@ -65,7 +65,7 @@ Use this when the diff only touches `elixir/web-ng/**` and you want a faster `de
 
 ## Local Development with Docker CNPG
 
-Use this quick playbook when running `mix phx.server` locally and connecting to the CNPG instance in Docker on the same machine. This is the fastest iteration loop for testing changes.
+Use this quick playbook when running `mix phx.server` locally and connecting to the CNPG instance in Docker on the same machine. This is the fastest iteration loop for testing changes. It is for running the dev server only; database-backed tests use the `srql-fixtures` CNPG, never this instance (see the SRQL Fixture Integration Tests section of `AGENTS.md`).
 
 ### 1. Ensure Docker Compose is Running
 
