@@ -250,7 +250,8 @@ gates for this overhaul use these targets:
 - Critical share below 5%.
 - No series above 20 rows/day.
 - No stored score above the configured bound.
-- Alert evaluation queue overflow at 0.
+- No growing redelivery backlog on the EventWriter events consumer (stateful
+  evaluation runs synchronously per batch and JetStream redelivers a failed one).
 
 If volume rises, first check producer versions, profile priority ties, stale
 manual assignments, and shed rollups. Do not tune the whole fleet around one bad
