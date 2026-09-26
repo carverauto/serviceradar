@@ -37,9 +37,13 @@ one unplaceable stream stops unrelated ingestion.
   Unlimited streams (`trivy_reports`, `ARANCINI_CAUSAL`, plugin, fieldsurvey
   and threat-intel object stores) still consume placement headroom through
   stored bytes, which the budget cannot see.
-- **EventWriter stream sizes become Helm values** under
-  `core.eventWriter.streams.<name>.maxBytes`, rendered into the core
-  environment, so the whole budget lives in one values tree.
+- **Every stream size becomes a Helm value at its owner.** EventWriter
+  streams under `core.eventWriter.streams.<name>.maxBytes`, rendered into the
+  core environment; the plugin and fieldsurvey buckets under `webNg`, rendered
+  into web-ng's own environment; the threat-intel bucket under `core`,
+  rendered as `SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES`. The whole budget lives
+  in one values tree, and no size is set in a process that does not create the
+  bucket.
 - **The chart renders `max_file_store` as an exact byte count**, parsed with
   NATS's `G` (10^9) and `Gi` (2^30) semantics. The value is
   `nats.jetstream.maxFileStore` when set, otherwise the selected profile's;
@@ -54,7 +58,7 @@ one unplaceable stream stops unrelated ingestion.
   every stream, KV bucket and object store, including `flows` and
   `ARANCINI_CAUSAL`, and each is still individually overridable. Every
   profile is shown to pass the budget with flow-collector, bmp-collector and
-  the trivy sidecar all enabled (design D9).
+  the trivy sidecar all enabled (design D8).
 - **Smaller defaults that fit with headroom.** In `small`, datasvc KV 4 GiB ->
   1 GiB, object store 10 GiB -> 4 GiB and flow-collector `flows` 10 GiB ->
   8 GiB (all R3; the KV holds kilobytes, and the object store is capped at
@@ -69,10 +73,13 @@ one unplaceable stream stops unrelated ingestion.
   count come from its own chart value, including the optional producers when
   enabled, and are bucketed against `nats.replicas`.
 - **Profiles never resize the NATS PVC.** The check also fails when
-  `max_file_store` exceeds 94% of `nats.persistence.size`, telling the
-  operator to expand the PVC out of band and raise `nats.persistence.size`
-  first. `StatefulSet` `volumeClaimTemplates` is immutable, so an existing
-  30Gi install that selects `medium` fails render until expanded.
+  `max_file_store` exceeds 94% of `nats.persistence.size`, pointing at a
+  runbook. `volumeClaimTemplates` is immutable, so an existing 30Gi install
+  that selects `medium` follows the standard volume-expansion procedure
+  (expand the PVCs, delete the StatefulSet with `--cascade=orphan`, `helm
+  upgrade` with the raised size and profile), specified as a new runbook at
+  `docs/nats-jetstream-profile-runbook.md`. A StorageClass without expansion
+  needs a new install or migration. The chart does not automate this.
 - **Docker Compose and packaged installs are in scope.** Both pin
   `max_file_store: 10G` on a single server and ship stream sizes that do not
   fit it. Compose ships one preset env file per profile
@@ -86,11 +93,11 @@ one unplaceable stream stops unrelated ingestion.
 - **Control-plane contract.** The serviceradar-control SaaS control plane is
   out of scope; it consumes this change as a profile name plus optional
   per-stream overrides.
-- **Shrinking is safe on upgrade.** An owner that reconciles `max_bytes`
-  downward SHALL NOT shrink below the bytes already stored; it keeps the
-  larger value and logs why.
-- Fix `core.eventWriter.enabled: false` rendering `EVENT_WRITER_ENABLED="true"`
-  (`default` treats `false` as empty).
+- **Caps converge on upgrade and shrinking is safe.** The plugin, fieldsurvey
+  and threat-intel bucket owners, which today create their bucket once, SHALL
+  reconcile `max_bytes` on startup. Every owner that reconciles `max_bytes`
+  SHALL NOT set it below the bytes already stored; it keeps the larger value
+  and logs why.
 
 ## Impact
 
@@ -100,8 +107,11 @@ one unplaceable stream stops unrelated ingestion.
   `elixir/serviceradar_core` EventWriter (`producer.ex`, `config.ex`) and
   `serviceradar_core_elx/config/runtime.exs`; Go datasvc stream reconcile
   (`go/pkg/datasvc/nats.go`); Rust otel log-collector reconcile
-  (`rust/otel/src/nats/stream.rs`); trivy/bmp/plugin/fieldsurvey/threat-intel
-  stream creators for finite caps; `docker/compose/` and
+  (`rust/otel/src/nats/stream.rs`); the trivy/bmp stream creators and the
+  web-ng plugin (`plugins/storage.ex`), web-ng fieldsurvey
+  (`field_survey_artifact_store.ex`) and core threat-intel
+  (`threat_intel_raw_payload_store.ex`) bucket owners, including web-ng
+  `runtime.exs`; `docs/nats-jetstream-profile-runbook.md`; `docker/compose/` and
   `build/packaging/` NATS configs, profile presets and sizes files, the
   size-owning services' env handling (datasvc, otel log-collector,
   flow-collector, bmp-collector, core), and a new budget `go_test`.
@@ -110,4 +120,6 @@ one unplaceable stream stops unrelated ingestion.
   `volumeClaimTemplates` is immutable). An install whose explicit overrides
   exceed the budget fails `helm upgrade` with a message listing each
   reservation, and can opt out with `allowOvercommit`. Selecting a larger
-  profile needs the PVC expanded first.
+  profile follows the volume-expansion runbook first.
+- The `core.eventWriter.enabled: false` rendering `EVENT_WRITER_ENABLED="true"`
+  bug is independent of this change and is tracked as a separate bug fix.

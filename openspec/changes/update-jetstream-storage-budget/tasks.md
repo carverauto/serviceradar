@@ -16,51 +16,67 @@
 - [ ] 2.3 Expose every EventWriter stream size as
       `core.eventWriter.streams.<name>.maxBytes`, rendered into the core
       environment and read in `serviceradar_core_elx/config/runtime.exs`.
+- [ ] 2.4 Expose `webNg.pluginStorage.jetstreamMaxBucketBytes`
+      (`PLUGIN_STORAGE_JS_MAX_BUCKET_BYTES`) and
+      `webNg.fieldSurveyArtifactStore.jetstreamMaxBucketBytes`, rendered into
+      the web-ng environment; read the fieldsurvey value in web-ng
+      `runtime.exs` into `:field_survey_artifact_store`.
+- [ ] 2.5 Expose a `core` value for the threat-intel bucket, rendered as
+      `SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES`.
 
-## 3. Chart budget and profiles (D2, D4, D5, D7, D9)
+## 3. Chart budget and profiles (D2, D4, D5, D8)
 
 - [ ] 3.1 Byte-exact `max_file_store` helper with `G`/`Gi` parsing. Make
       `nats.jetstream.maxFileStore` and every stream size key unset by default
       in `values.yaml` and `values-demo.yaml` so the profile supplies them; an
       explicit value wins.
 - [ ] 3.2 Add `nats.jetstream.profile` (`small` default, `medium`, `large`)
-      with the D9 Helm table as chart data, covering `datasvc`, `events`,
+      with the D8 Helm table as chart data, covering `datasvc`, `events`,
       `flows`, plugins, `bmpCollector.config.streamMaxBytes` /
       `streamReplicas` and every `core.eventWriter.streams.<name>.maxBytes`;
-      correct the budget comments in `values.yaml`.
+      correct the budget comments in `values.yaml`, including the
+      `nats.jetstream.maxFileStore` / `nats.persistence.size` guidance (lines
+      216-219), which points at the runbook instead of "expand PVCs
+      out-of-band first".
 - [ ] 3.3 Budget helper and `fail` with itemised message, bucketing each
       stream by its own size and replica value against `nats.replicas` (D5),
       including flow-collector and bmp-collector when enabled;
       `nats.jetstream.allowOvercommit` escape hatch for the reservation check.
 - [ ] 3.4 PVC ceiling: `fail` when `max_file_store` exceeds 94% of
-      `bytes(nats.persistence.size)` with the expand-the-PVC-first message;
-      `allowOvercommit` does not skip it.
-- [ ] 3.5 Fix `EVENT_WRITER_ENABLED` rendering of `false`.
-- [ ] 3.6 helm-unittest per profile: with flow-collector, bmp-collector and the
+      `bytes(nats.persistence.size)` with a message that points at the
+      runbook; `allowOvercommit` does not skip it.
+- [ ] 3.5 helm-unittest per profile: with flow-collector, bmp-collector and the
       trivy sidecar all enabled and with them all disabled, `small`,
       `medium` and `large` render (`medium` and `large` with a matching
       `persistence.size`); the v1.4.73 shape fails; overrides fail with the
       itemised message; `allowOvercommit` passes; R2 and R3 streams on a
       5-server NATS land in the spread bucket; an existing 30Gi install that
-      sets `medium` fails with the expand-the-PVC message and renders once
-      `persistence.size` is `100Gi`; `values-demo.yaml` passes.
+      sets `medium` fails with the runbook message and renders with
+      `persistence.size` of `100Gi`; `values-demo.yaml` passes.
 
-## 4. Safe shrink (D6)
+## 4. Reconcile and safe shrink (D6)
 
 - [ ] 4.1 datasvc `reconcileStreamConfigLocked`: never below stored bytes.
 - [ ] 4.2 otel log-collector `events` reconcile: same rule.
 - [ ] 4.3 EventWriter `reconcile_stream`: same rule.
-- [ ] 4.4 Tests for each owner: shrink applies when data fits, is held when
-      it does not.
+- [ ] 4.4 web-ng plugin bucket (`plugins/storage.ex`): reconcile `max_bytes`
+      on startup, create-or-update, never below stored bytes.
+- [ ] 4.5 web-ng fieldsurvey bucket (`field_survey_artifact_store.ex`
+      `ensure_bucket`): same rule instead of returning `:exists` untouched.
+- [ ] 4.6 core threat-intel bucket (`threat_intel_raw_payload_store.ex`): same
+      rule.
+- [ ] 4.7 Tests for each owner: an existing unlimited bucket gets the cap when
+      its data fits, the cap is held above stored bytes when it does not, and
+      an absent bucket is created with the cap.
 
-## 5. Compose and packaged installs (D8)
+## 5. Compose and packaged installs (D7)
 
-- [ ] 5.1 Add `docker/compose/profiles/{small,medium,large}.env` with the D9
+- [ ] 5.1 Add `docker/compose/profiles/{small,medium,large}.env` with the D8
       Compose table and every stream size explicit; select the file with
       `SERVICERADAR_NATS_PROFILE` (default `small`) through `env_file`.
 - [ ] 5.2 `docker/compose/nats.docker.conf` reads `max_file_store` from
       `$SERVICERADAR_NATS_MAX_FILE_STORE`; datasvc, otel log-collector,
-      flow-collector, bmp-collector and core read their sizes from the preset
+      flow-collector, bmp-collector, core and web-ng read their sizes from the preset
       variables instead of literals in their config files.
 - [ ] 5.3 Ship `build/packaging/nats/config/jetstream-sizes.env` with the
       `small` content; load it with `EnvironmentFile=` in the NATS, datasvc,
@@ -75,9 +91,24 @@
 - [ ] 5.5 Bump `addons/<name>/addon.yaml` `version` for any native add-on whose
       config changes.
 
-## 6. Verification
+## 6. Runbook (D8)
 
-- [ ] 6.1 `make test` green.
-- [ ] 6.2 Upgrade a v1.4.73 install with flow-collector enabled and default
+- [ ] 6.1 Write `docs/nats-jetstream-profile-runbook.md` (repo-root `docs/`,
+      ASCII Markdown): confirm `allowVolumeExpansion`, patch each
+      `serviceradar-nats` PVC and wait for the resize, delete the StatefulSet
+      with `--cascade=orphan`, `helm upgrade` with the raised
+      `nats.persistence.size` and the new profile, and verify. State that a
+      StorageClass without expansion needs a new install or migration and that
+      the chart does not automate this.
+- [ ] 6.2 Link the runbook from `docs/agent-runbooks.md` and from the
+      `values.yaml` comment.
+
+## 7. Verification
+
+- [ ] 7.1 `make test` green.
+- [ ] 7.2 Upgrade a v1.4.73 install with flow-collector enabled and default
       values on a scratch cluster: render passes, datasvc shrinks, every
       stream places, `nats server report jetstream` shows reserved below 85%.
+- [ ] 7.3 On a scratch cluster with expandable storage, follow the runbook
+      from `small` to `medium` and confirm the StatefulSet is recreated, the
+      PVCs are the same objects and larger, and every NATS pod is ready.

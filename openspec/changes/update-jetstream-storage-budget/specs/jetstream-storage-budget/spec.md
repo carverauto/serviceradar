@@ -36,7 +36,7 @@ The chart SHALL take the value from `nats.jetstream.maxFileStore` when set and o
 - **THEN** `max_file_store` SHALL be `30000000000`
 
 #### Scenario: Binary suffix override
-- **GIVEN** `nats.jetstream.maxFileStore` is `30Gi`
+- **GIVEN** `nats.jetstream.maxFileStore` is `30Gi` and `nats.persistence.size` is `40Gi`
 - **WHEN** the chart renders the NATS configuration
 - **THEN** `max_file_store` SHALL be `32212254720`
 
@@ -47,7 +47,7 @@ The chart SHALL take the value from `nats.jetstream.maxFileStore` when set and o
 
 ### Requirement: Render-time JetStream budget check
 The Helm chart SHALL fail to render when the worst-case per-server reservation exceeds 85% of `max_file_store`, unless `nats.jetstream.allowOvercommit` is true.
-Each stream's size and replica count SHALL come from its own chart value: `datasvc.jetstreamReplicas`, `logCollector.streamReplicas`, `flowCollector.config.stream_max_bytes` and `stream_replicas` when flow-collector is enabled, `bmpCollector.config.streamMaxBytes` and `streamReplicas` when bmp-collector is enabled, `webNg.pluginStorage.jetstreamReplicas`, and 1 replica for every EventWriter-created stream, including `trivy_reports` and the `flows` and `ARANCINI_CAUSAL` fallbacks while their collector is disabled.
+Each stream's size and replica count SHALL come from its own chart value: `datasvc.jetstreamReplicas`, `logCollector.streamReplicas`, `flowCollector.config.stream_max_bytes` and `stream_replicas` when flow-collector is enabled, `bmpCollector.config.streamMaxBytes` and `streamReplicas` when bmp-collector is enabled, `webNg.pluginStorage.jetstreamMaxBucketBytes` and `jetstreamReplicas`, `webNg.fieldSurveyArtifactStore.jetstreamMaxBucketBytes`, the core threat-intel bucket value, and `core.eventWriter.streams.<name>.maxBytes` with 1 replica for every EventWriter-created stream, including `trivy_reports` and the `flows` and `ARANCINI_CAUSAL` fallbacks while their collector is disabled. A size SHALL be set through the environment of the component that creates the bucket.
 A stream whose replicas are greater than or equal to `nats.replicas` SHALL count its full `max_bytes` on every server. The worst case SHALL be computed as the sum of those reservations, plus the sum over every other stream of `max_bytes` times replicas divided by `nats.replicas`, plus the largest `max_bytes` among the other streams. The failure message SHALL list every reservation with its replicas and the computed limit.
 
 #### Scenario: Chart defaults with every optional producer enabled
@@ -83,19 +83,27 @@ A stream whose replicas are greater than or equal to `nats.replicas` SHALL count
 - **THEN** rendering SHALL succeed
 
 ### Requirement: NATS file store fits the disk
-The Helm chart SHALL fail to render when `max_file_store` exceeds 94% of the byte size of `nats.persistence.size`, and the message SHALL tell the operator to expand the PVC out of band and raise `nats.persistence.size` first. `nats.jetstream.allowOvercommit` SHALL NOT skip this check.
+The Helm chart SHALL fail to render when `max_file_store` exceeds 94% of the byte size of `nats.persistence.size`, and the message SHALL point at the volume-expansion runbook. `nats.jetstream.allowOvercommit` SHALL NOT skip this check.
 
 #### Scenario: Larger profile on an unexpanded PVC
 - **GIVEN** an existing install with `nats.persistence.size` of `30Gi`
 - **AND** `nats.jetstream.profile` is `medium`
 - **WHEN** `helm upgrade` renders the chart
-- **THEN** rendering SHALL fail with a message to expand the PVC and raise `nats.persistence.size`
+- **THEN** rendering SHALL fail with a message that points at the volume-expansion runbook
 
-#### Scenario: Larger profile after expansion
-- **GIVEN** the PVC has been expanded out of band and `nats.persistence.size` is `100Gi`
-- **AND** `nats.jetstream.profile` is `medium`
-- **WHEN** `helm upgrade` renders the chart
+#### Scenario: Larger profile through the volume-expansion runbook
+- **GIVEN** a live `small` install on a StorageClass with `allowVolumeExpansion`
+- **WHEN** the operator patches each `serviceradar-nats` PVC to `100Gi`, waits for the resize, deletes the StatefulSet with `--cascade=orphan`, and runs `helm upgrade` with `nats.persistence.size` of `100Gi` and `nats.jetstream.profile` of `medium`
 - **THEN** rendering SHALL succeed
+- **AND** the StatefulSet SHALL be recreated with the new `volumeClaimTemplates`
+- **AND** the PVCs SHALL be the same objects, now `100Gi`
+- **AND** every NATS pod SHALL become ready after a one-at-a-time roll
+
+#### Scenario: Storage without expansion
+- **GIVEN** a StorageClass without `allowVolumeExpansion`
+- **WHEN** the operator wants a larger profile
+- **THEN** the runbook SHALL state that the install needs a new install or a data migration
+- **AND** the chart SHALL NOT attempt to automate it
 
 #### Scenario: Shipped profiles fit their PVC
 - **GIVEN** `small` on `30Gi`, `medium` on `100Gi` and `large` on `500Gi`
@@ -126,7 +134,8 @@ A profile SHALL set `max_file_store` (30G, 100G and 500G) and the default `max_b
 - **WHEN** the chart renders
 - **THEN** rendering SHALL succeed
 
-### Requirement: Stream owners never shrink below stored bytes
+### Requirement: Stream owners reconcile max_bytes and never shrink below stored bytes
+The web-ng plugin bucket owner, the web-ng fieldsurvey bucket owner and the core threat-intel bucket owner SHALL reconcile `max_bytes` on startup, creating the bucket when it is absent and updating it when it exists.
 A component that reconciles `max_bytes` on an existing stream or bucket SHALL NOT set it below the bytes the stream currently stores.
 When the configured value is lower than the stored bytes, the component SHALL keep the larger value and log both values.
 
@@ -135,6 +144,18 @@ When the configured value is lower than the stored bytes, the component SHALL ke
 - **AND** the configured `objectStoreBytes` is 4 GiB
 - **WHEN** datasvc starts
 - **THEN** the bucket's `max_bytes` SHALL become 4 GiB
+
+#### Scenario: Existing unlimited bucket gains a cap
+- **GIVEN** the `serviceradar_fieldsurvey` object store exists with no `max_bytes` and stores 0.1 GiB
+- **AND** the configured fieldsurvey size is 1 GiB
+- **WHEN** web-ng starts
+- **THEN** the bucket's `max_bytes` SHALL become 1 GiB
+- **AND** no stored object SHALL be removed
+
+#### Scenario: Absent bucket is created with the cap
+- **GIVEN** the plugin bucket does not exist and the configured plugin size is 2 GiB
+- **WHEN** web-ng starts
+- **THEN** the bucket SHALL be created with a `max_bytes` of 2 GiB
 
 #### Scenario: Lowered default with data that does not fit
 - **GIVEN** `OBJ_serviceradar-objects` stores 6 GiB with `max_bytes` 10 GiB
@@ -168,11 +189,3 @@ A Bazel test SHALL enforce this by parsing the NATS server configuration with th
 - **GIVEN** a shipped stream size is raised so the sum exceeds 85% of `max_file_store`
 - **WHEN** the budget test runs
 - **THEN** the test SHALL fail and name the streams and the limit
-
-### Requirement: EventWriter can be disabled through Helm
-The Helm chart SHALL render `EVENT_WRITER_ENABLED` as `"false"` when `core.eventWriter.enabled` is `false`.
-
-#### Scenario: Disabled EventWriter
-- **GIVEN** `core.eventWriter.enabled: false`
-- **WHEN** the chart renders the core Deployment
-- **THEN** `EVENT_WRITER_ENABLED` SHALL be `"false"`

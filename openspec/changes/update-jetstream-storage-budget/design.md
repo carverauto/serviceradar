@@ -31,7 +31,8 @@ Default reservations on v1.4.73 (three NATS servers, `maxFileStore: 30G` =
 | `NOTIFICATIONS` | core notifications | 1 GiB | 1 |
 | `trivy_reports` | EventWriter | unlimited | 1 |
 | `ARANCINI_CAUSAL` | bmp-collector when enabled (`bmpCollector.config.streamMaxBytes`, `streamReplicas`) / EventWriter otherwise | 10 GiB / unlimited | 1 |
-| fieldsurvey, threat-intel object stores | web-ng / core | unlimited | 1 |
+| fieldsurvey object store | web-ng (`field_survey_artifact_store.ex`) | unlimited | 1 |
+| threat-intel object store | core (`threat_intel_raw_payload_store.ex`) | unlimited | 1 |
 
 With flow-collector enabled: 26 GiB of R3 on every server, 1.94 GiB left,
 5.25 GiB of R1 to spread. Fragmentation leaves no server with 1 GiB.
@@ -75,7 +76,7 @@ The existing `best_effort` split stays for drain consumers.
 
 `templates/nats.yaml` renders `max_file_store: <integer>`. The value is
 `nats.jetstream.maxFileStore` when set, otherwise the selected profile's
-value (D9); the `small` profile is `30G`, so the default still renders
+value (D8); the `small` profile is `30G`, so the default still renders
 `30000000000` (27.94 GiB), exactly what NATS enforces today. A helper parses
 the `G` (10^9) and `Gi` (2^30) suffixes the way NATS does.
 
@@ -93,10 +94,20 @@ StatefulSet claim is immutable. The PVC only bounds the value from above
 `trivy_reports`, `OBJ_serviceradar_plugins`, the fieldsurvey and threat-intel
 object stores, and the EventWriter-created fallbacks of `flows` and
 `ARANCINI_CAUSAL` (used only while flow-collector or bmp-collector is
-disabled) get positive sizes in every profile (D9). When flow-collector or
+disabled) get positive sizes in every profile (D8). When flow-collector or
 bmp-collector is enabled it reconciles its stream to
 `flowCollector.config.stream_max_bytes` or `bmpCollector.config.streamMaxBytes`,
 which the profile now sets too.
+
+Each size reaches the process that creates the bucket through that owner's own
+setting, never through another component's environment:
+
+| Stream | Owner | Helm value | Environment variable |
+| --- | --- | --- | --- |
+| `OBJ_serviceradar_plugins` | web-ng | `webNg.pluginStorage.jetstreamMaxBucketBytes` | `PLUGIN_STORAGE_JS_MAX_BUCKET_BYTES` (already read by web-ng `runtime.exs`) |
+| fieldsurvey object store | web-ng | `webNg.fieldSurveyArtifactStore.jetstreamMaxBucketBytes` | a new web-ng variable read by `runtime.exs` into `:field_survey_artifact_store` |
+| threat-intel object store | core | a new value under `core` | `SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES` (already read by core `runtime.exs`) |
+| `trivy_reports`, `metrics`, `k8s_inventory`, `analytics_predictions`, `mtr_results`, `scan_results`, `flows` / `ARANCINI_CAUSAL` fallbacks | EventWriter (core) | `core.eventWriter.streams.<name>.maxBytes` | one variable per stream in the core environment |
 
 ### D4. Smaller datasvc defaults
 
@@ -115,12 +126,14 @@ object store), `logCollector.streamReplicas` (`events`),
 `flowCollector.config.stream_max_bytes` / `stream_replicas` (`flows`, when
 flow-collector is enabled), `bmpCollector.config.streamMaxBytes` /
 `streamReplicas` (`ARANCINI_CAUSAL`, when bmp-collector is enabled),
-`webNg.pluginStorage.jetstreamReplicas` (plugins), and
-`core.eventWriter.streams.<name>.maxBytes` with 1 replica for every
-EventWriter-created stream, including `trivy_reports`, the fieldsurvey and
-threat-intel object stores, and the `flows` / `ARANCINI_CAUSAL` fallbacks
-while their collector is disabled. The trivy sidecar only publishes to
-`trivy_reports`; the stream is counted whether or not the sidecar runs.
+`webNg.pluginStorage.jetstreamMaxBucketBytes` / `jetstreamReplicas`
+(plugins), `webNg.fieldSurveyArtifactStore.jetstreamMaxBucketBytes` (fieldsurvey,
+1 replica), the core threat-intel value from D3 (threat-intel, 1 replica),
+and `core.eventWriter.streams.<name>.maxBytes` with 1 replica for every
+EventWriter-created stream, including `trivy_reports` and the `flows` /
+`ARANCINI_CAUSAL` fallbacks while their collector is disabled. The trivy
+sidecar only publishes to `trivy_reports`; the stream is counted whether or
+not the sidecar runs.
 
 With `n = nats.replicas`, a stream is classified by comparing its replicas
 `r` to `n`:
@@ -147,9 +160,8 @@ v1.4.73 failure. `nats.jetstream.allowOvercommit: true` skips this check.
 
 A second check bounds `max_file_store` by the disk: the chart also `fail`s
 when `max_file_store > 0.94 * bytes(nats.persistence.size)`, with a message
-telling the operator to expand the PVC out of band and raise
-`nats.persistence.size` first. `allowOvercommit` does not skip it, because a
-full disk is worse than an unplaceable stream. The ceiling is 94%, not a
+pointing at the volume-expansion runbook (D8). `allowOvercommit` does not
+skip it, because a full disk is worse than an unplaceable stream. The ceiling is 94%, not a
 rounder number below the profile ratio: `30G` on a `30Gi` claim is 93.13%,
 and so are `100G` on `100Gi` and `500G` on `500Gi`, so a 93% ceiling would
 reject every shipped profile.
@@ -158,25 +170,30 @@ The v1.4.73 shape (26 GiB full, 5.25 GiB R1, three servers, `30G`) needs
 26 + 5.25/3 + 1 = 28.75 GiB against a 23.75 GiB limit, and fails the check,
 as it should.
 
-### D6. Owners never shrink below stored bytes
+### D6. Owners reconcile `max_bytes` and never shrink below stored bytes
 
 datasvc (`reconcileStreamConfigLocked`), the otel log-collector and
-EventWriter reconcile `max_bytes` on existing streams. When the configured
-value is below the stream's current `Store`, the owner SHALL keep the larger
-of the two and log both values. Lowering a default therefore converges
-installs whose data fits and never evicts data from one that does not; the
-next upgrade after the data ages out completes the shrink.
+EventWriter reconcile `max_bytes` on existing streams. Three owners create
+their bucket once and never update it, so on an existing install the bucket
+stays unlimited while the budget counts it at its profile size: web-ng's
+plugin bucket (`plugins/storage.ex`), web-ng's fieldsurvey bucket
+(`field_survey_artifact_store.ex`, whose `ensure_bucket` returns `:exists`
+without updating) and core's threat-intel bucket
+(`threat_intel_raw_payload_store.ex`). Each SHALL reconcile `max_bytes` on
+startup, creating the bucket when absent and updating it when it exists.
 
-### D7. `core.eventWriter.enabled` honours `false`
+For every reconciling owner, when the configured value is below the stream's
+current `Store`, the owner SHALL keep the larger of the two and log both
+values. Lowering a default, or capping a previously unlimited bucket,
+therefore converges installs whose data fits and never evicts data from one
+that does not; the next upgrade after the data ages out completes the shrink.
 
-Render with `ternary` / `hasKey` instead of `default true`.
-
-### D8. Docker Compose and packaged installs
+### D7. Docker Compose and packaged installs
 
 These installs run one NATS server (`nats.replicas = 1`), so every stream is
 in `full` and `need` is the plain sum of every `max_bytes`; the limit is
 `0.85 * max_file_store`. They select the same profiles as Helm and pay for
-sharing one server with their own size tables (D9).
+sharing one server with their own size tables (D8).
 
 - Compose ships one preset per profile, `docker/compose/profiles/small.env`,
   `medium.env` and `large.env`, each setting `max_file_store` and **every**
@@ -185,7 +202,8 @@ sharing one server with their own size tables (D9).
   `docker/compose/nats.docker.conf` reads
   `max_file_store: $SERVICERADAR_NATS_MAX_FILE_STORE` through NATS environment
   substitution, and every size-owning service (datasvc, otel log-collector,
-  flow-collector, bmp-collector, core) reads its sizes from those variables.
+  flow-collector, bmp-collector, core, web-ng) reads its sizes from those
+  variables.
   An operator overrides a single size in the environment of the service.
 - Packaged installs ship the same explicit sizes as a file
   (`build/packaging/nats/config/jetstream-sizes.env`, `small` content) that
@@ -195,7 +213,7 @@ sharing one server with their own size tables (D9).
 - Neither install has a PVC. A profile's `max_file_store` is a reservation
   ceiling, so the host needs at least that much free disk for JetStream. This
   raises the Compose and packaged ceiling from today's `10G` to `30G` for
-  `small`, and the shipped stream sizes fit it (D9) where today's do not.
+  `small`, and the shipped stream sizes fit it (D8) where today's do not.
 
 A Bazel `go_test` enforces this without reading any component source. It
 parses the NATS configuration with the nats-server config parser, after
@@ -208,7 +226,7 @@ inventory is a typed list owned by the test, so adding a stream forces the
 presets to be updated. A vector with the v1.4.73 single-server shape must
 fail. Helm is covered separately by helm-unittest cases per profile.
 
-### D9. Sizing profiles
+### D8. Sizing profiles
 
 `nats.jetstream.profile` (Helm) and `SERVICERADAR_NATS_PROFILE` (Compose)
 select `small` (default), `medium` or `large`. A profile sets
@@ -221,12 +239,34 @@ operator's choice; the defaults are safe rather than generous. The
 serviceradar-control SaaS control plane picks a larger profile, plus optional
 per-stream overrides, for enterprise deployments.
 
-A profile never changes the NATS PVC (`volumeClaimTemplates` is immutable).
-`small` targets the default 30Gi PVC, `medium` a 100Gi PVC and `large` a 500Gi
-PVC; D5 rejects a profile whose `max_file_store` exceeds 94% of the claim the
-chart is configured with, so an existing 30Gi install that selects `medium`
-fails to render until the PVC is expanded out of band and
-`nats.persistence.size` is raised.
+A profile never resizes the NATS PVC by itself. `small` targets the default
+30Gi PVC, `medium` a 100Gi PVC and `large` a 500Gi PVC; D5 rejects a profile
+whose `max_file_store` exceeds 94% of `nats.persistence.size`, so an existing
+30Gi install that selects `medium` fails to render until its volumes have
+been expanded.
+
+`nats.persistence.size` feeds the StatefulSet `volumeClaimTemplates`, which
+Kubernetes forbids changing on a live StatefulSet, so raising it with a plain
+`helm upgrade` or Argo sync is rejected at apply time. The supported path to a
+larger profile on a live install is the standard volume-expansion procedure,
+written as a runbook at `docs/nats-jetstream-profile-runbook.md` (repo-root
+`docs/`, not the published `docs/docs/` site):
+
+1. Confirm the NATS StorageClass has `allowVolumeExpansion: true`.
+2. Patch each `serviceradar-nats` PVC to the new size and wait for the resize
+   to complete.
+3. Delete the StatefulSet with `--cascade=orphan`, so the pods and PVCs keep
+   running.
+4. `helm upgrade` with the raised `nats.persistence.size` and the new
+   profile. This recreates the StatefulSet with the new `volumeClaimTemplates`
+   around the same PVCs and rolls the pods one at a time.
+
+A StorageClass without volume expansion cannot move up a profile in place; it
+needs a new install or a data migration. The chart does not automate any of
+this. The `values.yaml` comment on `nats.jetstream.maxFileStore` and
+`nats.persistence.size` (currently "do not raise persistence.size via Helm on
+a live StatefulSet; expand PVCs out-of-band first") is updated to point at the
+runbook.
 
 Helm sizes, three servers (GiB; `medium` and `large` are starting points that
 implementation checks against observed peaks, with most of the extra space
@@ -290,9 +330,11 @@ stream counts in full (GiB; replicas are irrelevant):
 - **Smaller object store.** An install already using more than 4 GiB keeps
   its current size (D6) and does not lose data, but new installs cap earlier.
 - **A profile does not resize a disk.** Selecting `medium` on a 30Gi install
-  fails render until the PVC is expanded (D5); this is intended, since the
-  chart cannot expand an immutable claim and a reservation ceiling above the
-  disk defeats the check.
+  fails render until the PVC is expanded and the StatefulSet recreated by the
+  runbook (D8); this is intended, since the chart cannot expand an immutable
+  claim and a reservation ceiling above the disk defeats the check. The
+  runbook briefly orphans the StatefulSet, and the pod roll in its last step
+  restarts each NATS server in turn.
 - **Compose and packaged ceiling rises to 30G.** The reservation is not an
   allocation, but a host with less free disk than `max_file_store` can fill
   it before NATS refuses a write. The presets document the requirement.
@@ -304,13 +346,14 @@ stream counts in full (GiB; replicas are irrelevant):
 ## Migration
 
 No manual step for installs on chart defaults: the next upgrade selects the
-`small` profile, lowers KV and object-store caps (D6 permitting), sets finite
-caps on unlimited streams, and renders the byte-exact `max_file_store`
-(`30000000000`, unchanged in effect). Installs that override sizes upward, or
-that enable BMP with a larger `streamMaxBytes` than the profile, get an
-itemised render failure and adjust values. Selecting `medium` or `large`
-requires expanding the PVC out of band and raising `nats.persistence.size`
-first. Compose and packaged installs converge when their config files are
+`small` profile, lowers KV and object-store caps (D6 permitting), has each
+owner set a finite cap on its previously unlimited bucket at startup (D6), and
+renders the byte-exact `max_file_store` (`30000000000`, unchanged in effect).
+Installs that override sizes upward, or that enable BMP with a larger
+`streamMaxBytes` than the profile, get an itemised render failure and adjust
+values. Selecting `medium` or `large` follows the volume-expansion runbook
+(D8) first; a StorageClass without expansion needs a new install or
+migration. Compose and packaged installs converge when their config files are
 replaced on upgrade; D6 keeps any stream whose stored bytes exceed the new
 size at its current size.
 
