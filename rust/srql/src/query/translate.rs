@@ -54,6 +54,8 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
                 identity::reconciliation_runs::to_sql_and_params(&plan)?
             }
             Entity::IdentityEvidenceEdges => identity::evidence_edges::to_sql_and_params(&plan)?,
+            Entity::IdentityDecisions => identity::decisions::to_sql_and_params(&plan)?,
+            Entity::DeduplicationTasks => identity::deduplication_tasks::to_sql_and_params(&plan)?,
             Entity::EndpointInventoryScans => endpoint_inventory_scans::to_sql_and_params(&plan)?,
             Entity::EndpointPackageCatalog => endpoint_package_catalog::to_sql_and_params(&plan)?,
             Entity::EndpointPackages => endpoint_packages::to_sql_and_params(&plan)?,

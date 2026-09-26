@@ -162,6 +162,13 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
         "identity_evidence_edges" | "identity_evidence" | "evidence_edges" => {
             Ok(Entity::IdentityEvidenceEdges)
         }
+        "identity_decisions" | "identity_decision" | "dire_decisions" => {
+            Ok(Entity::IdentityDecisions)
+        }
+        "deduplication_tasks"
+        | "deduplication_task"
+        | "dedup_tasks"
+        | "identity_deduplication_tasks" => Ok(Entity::DeduplicationTasks),
         "vulnerability_advisories" | "vulnerability_advisory" | "advisories" | "cves" => {
             Ok(Entity::VulnerabilityAdvisories)
         }

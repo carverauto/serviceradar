@@ -46,7 +46,9 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
     {"device_revival_audit", ~w(device_revival_audit device_revivals revivals)},
     {"device_identifiers", ~w(device_identifiers identifiers device_identity)},
     {"identity_reconciliation_runs", ~w(identity_reconciliation_runs reconciliation_runs dire_runs)},
-    {"identity_evidence_edges", ~w(identity_evidence_edges identity_evidence evidence_edges)}
+    {"identity_evidence_edges", ~w(identity_evidence_edges identity_evidence evidence_edges)},
+    {"identity_decisions", ~w(identity_decisions identity_decision dire_decisions)},
+    {"deduplication_tasks", ~w(deduplication_tasks deduplication_task dedup_tasks identity_deduplication_tasks)}
   ]
 
   test "every identity diagnostic alias is gated by devices.view, never passthrough" do

@@ -84,6 +84,10 @@ impl QueryEngine {
                 Entity::IdentityEvidenceEdges => {
                     identity::evidence_edges::execute(&mut conn, &plan).await?
                 }
+                Entity::IdentityDecisions => identity::decisions::execute(&mut conn, &plan).await?,
+                Entity::DeduplicationTasks => {
+                    identity::deduplication_tasks::execute(&mut conn, &plan).await?
+                }
                 Entity::EndpointInventoryScans => {
                     endpoint_inventory_scans::execute(&mut conn, &plan).await?
                 }

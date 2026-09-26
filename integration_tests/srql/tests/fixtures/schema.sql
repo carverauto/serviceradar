@@ -1051,3 +1051,49 @@ CREATE TABLE identity_reconciliation_runs (
 
 CREATE OR REPLACE VIEW platform.identity_reconciliation_runs AS
     SELECT * FROM public.identity_reconciliation_runs;
+
+DROP TABLE IF EXISTS identity_decisions CASCADE;
+
+CREATE TABLE identity_decisions (
+    id                UUID        PRIMARY KEY,
+    decision_kind     TEXT        NOT NULL,
+    reason            TEXT        NOT NULL,
+    device_uids       TEXT[]      NOT NULL,
+    subject           TEXT,
+    decision_key      TEXT        NOT NULL UNIQUE,
+    source            TEXT,
+    evidence          JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    occurrence_count  BIGINT      NOT NULL DEFAULT 1,
+    first_decided_at  TIMESTAMPTZ NOT NULL,
+    last_decided_at   TIMESTAMPTZ NOT NULL,
+    inserted_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE OR REPLACE VIEW platform.identity_decisions AS
+    SELECT * FROM public.identity_decisions;
+
+DROP TABLE IF EXISTS identity_deduplication_tasks CASCADE;
+
+CREATE TABLE identity_deduplication_tasks (
+    id                  UUID        PRIMARY KEY,
+    candidate_key       TEXT        NOT NULL UNIQUE,
+    device_uids         TEXT[]      NOT NULL,
+    category            TEXT        NOT NULL,
+    last_decision_kind  TEXT        NOT NULL,
+    last_reason         TEXT        NOT NULL,
+    evidence            JSONB       NOT NULL DEFAULT '{}'::jsonb,
+    status              TEXT        NOT NULL DEFAULT 'open',
+    occurrence_count    BIGINT      NOT NULL DEFAULT 1,
+    opened_at           TIMESTAMPTZ NOT NULL,
+    last_decided_at     TIMESTAMPTZ NOT NULL,
+    resolved_at         TIMESTAMPTZ,
+    resolved_by         TEXT,
+    merged_into         TEXT,
+    resolution_note     TEXT,
+    inserted_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE OR REPLACE VIEW platform.identity_deduplication_tasks AS
+    SELECT * FROM public.identity_deduplication_tasks;

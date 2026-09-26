@@ -2677,3 +2677,34 @@ VALUES
      NOW() - INTERVAL '30 minutes' + INTERVAL '2 seconds', 2000, 'failed',
      '** (Postgrex.Error) ERROR 40001 (serialization_failure)',
      0, 0, 0, 0, 0, 0, 0, 0, 200, FALSE, '[]'::jsonb, 'scheduled', 7);
+
+-- Identity decisions and de-duplication tasks. Every device uid, reason and
+-- evidence value here is invented. identity-comp-a and identity-comp-b have one
+-- refused merge counted three times and an open task; identity-comp-b and
+-- identity-comp-c were marked distinct by an operator.
+INSERT INTO public.identity_decisions
+    (id, decision_kind, reason, device_uids, subject, decision_key, source, evidence,
+     occurrence_count, first_decided_at, last_decided_at)
+VALUES
+    ('88888888-8888-4888-8888-000000000001', 'policy_block', 'mac_only_conflict',
+     ARRAY['identity-comp-a', 'identity-comp-b'], NULL, 'fixture-decision-1', 'merge_policy',
+     '{"randomized_macs": ["02:00:5E:00:53:01"]}'::jsonb,
+     3, NOW() - INTERVAL '3 days', NOW() - INTERVAL '1 hour'),
+    ('88888888-8888-4888-8888-000000000002', 'ip_conflict', 'strong_identity_address_held',
+     ARRAY['identity-comp-b', 'identity-comp-c'], '192.0.2.44', 'fixture-decision-2', 'sync',
+     '{}'::jsonb, 1, NOW() - INTERVAL '10 days', NOW() - INTERVAL '10 days');
+
+INSERT INTO public.identity_deduplication_tasks
+    (id, candidate_key, device_uids, category, last_decision_kind, last_reason, evidence,
+     status, occurrence_count, opened_at, last_decided_at, resolved_at, resolved_by,
+     merged_into, resolution_note)
+VALUES
+    ('99999999-9999-4999-8999-000000000001', 'fixture-candidate-1',
+     ARRAY['identity-comp-a', 'identity-comp-b'], 'policy_block', 'policy_block',
+     'mac_only_conflict', '{"randomized_macs": ["02:00:5E:00:53:01"]}'::jsonb,
+     'open', 3, NOW() - INTERVAL '3 days', NOW() - INTERVAL '1 hour', NULL, NULL, NULL, NULL),
+    ('99999999-9999-4999-8999-000000000002', 'fixture-candidate-2',
+     ARRAY['identity-comp-b', 'identity-comp-c'], 'ip_conflict', 'ip_conflict',
+     'strong_identity_address_held', '{}'::jsonb,
+     'distinct', 1, NOW() - INTERVAL '10 days', NOW() - INTERVAL '10 days',
+     NOW() - INTERVAL '9 days', 'operator@example.com', NULL, 'different chassis');

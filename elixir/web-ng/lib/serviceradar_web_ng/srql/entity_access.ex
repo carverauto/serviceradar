@@ -61,6 +61,8 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
       device_identifiers identifiers device_identity
       identity_reconciliation_runs reconciliation_runs dire_runs
       identity_evidence_edges identity_evidence evidence_edges
+      identity_decisions identity_decision dire_decisions
+      deduplication_tasks deduplication_task dedup_tasks identity_deduplication_tasks
     ),
     "services.view" => ~w(
       services service
