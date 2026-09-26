@@ -227,13 +227,18 @@ func TestStateBucketReconcileMaxBytes(t *testing.T) {
 		configured int64
 		wantCap    int64
 		wantHeld   bool
+
+		// configuredIsStored sets configured to the exact bytes stored once seeded.
+		configuredIsStored bool
 	}{
 		{name: "kv shrinks when the data fits", initialCap: 256 * kib, payload: 4 * kib, configured: 64 * kib, wantCap: 64 * kib},
 		{name: "kv holds its cap when stored exceeds configured", initialCap: 256 * kib, payload: 48 * kib, configured: 16 * kib, wantCap: 256 * kib, wantHeld: true},
+		{name: "kv holds its cap when stored equals configured", initialCap: 256 * kib, payload: 48 * kib, configuredIsStored: true, wantCap: 256 * kib, wantHeld: true},
 		{name: "unlimited kv over the cap stays unlimited", payload: 48 * kib, configured: 16 * kib, wantCap: unlimited, wantHeld: true},
 		{name: "unlimited kv gains the cap when the data fits", payload: 4 * kib, configured: 64 * kib, wantCap: 64 * kib},
 		{name: "object store shrinks when the data fits", objects: true, initialCap: 256 * kib, payload: 4 * kib, configured: 64 * kib, wantCap: 64 * kib},
 		{name: "object store holds its cap when stored exceeds configured", objects: true, initialCap: 256 * kib, payload: 48 * kib, configured: 16 * kib, wantCap: 256 * kib, wantHeld: true},
+		{name: "object store holds its cap when stored equals configured", objects: true, initialCap: 256 * kib, payload: 48 * kib, configuredIsStored: true, wantCap: 256 * kib, wantHeld: true},
 		{name: "unlimited object store over the cap stays unlimited", objects: true, payload: 48 * kib, configured: 16 * kib, wantCap: unlimited, wantHeld: true},
 		{name: "unlimited object store gains the cap when the data fits", objects: true, payload: 4 * kib, configured: 64 * kib, wantCap: 64 * kib},
 	}
@@ -297,7 +302,10 @@ func TestStateBucketReconcileMaxBytes(t *testing.T) {
 			}
 
 			before := streamInfo(ctx, t, js, streamName)
-			if tt.wantHeld {
+			if tt.configuredIsStored {
+				tt.configured = int64(before.State.Bytes)
+			}
+			if tt.wantHeld && !tt.configuredIsStored {
 				require.Greater(t, before.State.Bytes, uint64(tt.configured), "fixture must store more than the configured cap")
 			} else {
 				require.LessOrEqual(t, before.State.Bytes, uint64(tt.configured), "fixture must fit the configured cap")

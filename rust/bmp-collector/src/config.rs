@@ -52,6 +52,14 @@ impl Config {
         env: impl Fn(&str) -> Option<String>,
     ) -> anyhow::Result<Self> {
         let mut cfg: Config = serde_json::from_str(content)?;
+        if cfg.stream_max_bytes <= 0 {
+            log::warn!(
+                "stream_max_bytes={} is not a finite size; using the default of {} bytes",
+                cfg.stream_max_bytes,
+                default_stream_max_bytes()
+            );
+            cfg.stream_max_bytes = default_stream_max_bytes();
+        }
         cfg.apply_stream_env_overrides(env)?;
         cfg.validate()?;
         Ok(cfg)
@@ -60,8 +68,8 @@ impl Config {
     /// Overrides `stream_max_bytes` and `stream_replicas` from
     /// `SERVICERADAR_JS_<STREAM>_MAX_BYTES` and `SERVICERADAR_JS_<STREAM>_REPLICAS`,
     /// where `<STREAM>` is `stream_name` upper-cased with every non-alphanumeric
-    /// character replaced by `_`. A value that is not a positive integer is an error
-    /// naming the variable.
+    /// character replaced by `_`. An empty or whitespace-only value counts as unset; any
+    /// other value that is not a positive integer is an error naming the variable.
     fn apply_stream_env_overrides(
         &mut self,
         env: impl Fn(&str) -> Option<String>,
@@ -69,12 +77,12 @@ impl Config {
         let prefix = stream_env_prefix(&self.stream_name);
 
         let max_bytes_var = format!("{prefix}_MAX_BYTES");
-        if let Some(raw) = env(&max_bytes_var) {
+        if let Some(raw) = env(&max_bytes_var).filter(|raw| !raw.trim().is_empty()) {
             self.stream_max_bytes = parse_positive_env::<i64>(&max_bytes_var, &raw)?;
         }
 
         let replicas_var = format!("{prefix}_REPLICAS");
-        if let Some(raw) = env(&replicas_var) {
+        if let Some(raw) = env(&replicas_var).filter(|raw| !raw.trim().is_empty()) {
             self.stream_replicas = parse_positive_env::<usize>(&replicas_var, &raw)?;
         }
 
@@ -102,9 +110,6 @@ impl Config {
         }
         if self.subject_prefix.trim().is_empty() {
             anyhow::bail!("subject_prefix is required");
-        }
-        if self.stream_max_bytes <= 0 {
-            anyhow::bail!("stream_max_bytes must be > 0");
         }
         if self.stream_replicas == 0 {
             anyhow::bail!("stream_replicas must be > 0");
@@ -280,7 +285,7 @@ mod tests {
             ("SERVICERADAR_JS_ARANCINI_CAUSAL_MAX_BYTES", "0"),
             ("SERVICERADAR_JS_ARANCINI_CAUSAL_MAX_BYTES", "-1"),
             ("SERVICERADAR_JS_ARANCINI_CAUSAL_MAX_BYTES", "2G"),
-            ("SERVICERADAR_JS_ARANCINI_CAUSAL_MAX_BYTES", ""),
+            ("SERVICERADAR_JS_ARANCINI_CAUSAL_MAX_BYTES", "1.5"),
             ("SERVICERADAR_JS_ARANCINI_CAUSAL_REPLICAS", "abc"),
             ("SERVICERADAR_JS_ARANCINI_CAUSAL_REPLICAS", "0"),
             ("SERVICERADAR_JS_ARANCINI_CAUSAL_REPLICAS", "-3"),
@@ -295,8 +300,26 @@ mod tests {
     }
 
     #[test]
-    fn non_positive_json_stream_size_is_rejected() {
-        let err = load(&json_with_stream(Some(-1), None), &[]).expect_err("unlimited rejected");
-        assert!(err.to_string().contains("stream_max_bytes"));
+    fn empty_env_values_count_as_unset() {
+        for raw in ["", "   "] {
+            let cfg = load(
+                &json_with_stream(Some(2 * GIB), Some(3)),
+                &[
+                    ("SERVICERADAR_JS_ARANCINI_CAUSAL_MAX_BYTES", raw),
+                    ("SERVICERADAR_JS_ARANCINI_CAUSAL_REPLICAS", raw),
+                ],
+            )
+            .expect("config loads");
+            assert_eq!(cfg.stream_max_bytes, 2 * GIB);
+            assert_eq!(cfg.stream_replicas, 3);
+        }
+    }
+
+    #[test]
+    fn non_positive_json_stream_size_falls_back_to_the_default() {
+        for max_bytes in [-1, 0] {
+            let cfg = load(&json_with_stream(Some(max_bytes), None), &[]).expect("config loads");
+            assert_eq!(cfg.stream_max_bytes, default_stream_max_bytes());
+        }
     }
 }

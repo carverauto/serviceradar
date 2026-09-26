@@ -137,10 +137,10 @@ func lookupReplicas(lookup func(string) (string, bool), name string, fallback in
 // stateBucketMaxBytes decides the max_bytes a discard-new state bucket (the
 // datasvc KV bucket and object store) reconciles to. A discard-new bucket
 // refuses every write once it is full and holds state that cannot be
-// regenerated, so a configured cap below the bytes already stored is not
+// regenerated, so a configured cap at or below the bytes already stored is not
 // applied: the current max_bytes (which may be unlimited) is kept and held is
-// true so the caller can log it. The cap is never set to the stored size,
-// because a cap equal to the stored bytes would refuse every later write. A
+// true so the caller can log it. A cap equal to the stored bytes would leave no
+// headroom and refuse every later write. A
 // non-positive configured value means no cap is configured and the current
 // value is kept.
 func stateBucketMaxBytes(current int64, stored uint64, configured int64) (target int64, held bool) {
@@ -148,7 +148,7 @@ func stateBucketMaxBytes(current int64, stored uint64, configured int64) (target
 		return current, false
 	}
 
-	if stored > uint64(configured) {
+	if stored >= uint64(configured) {
 		return current, true
 	}
 

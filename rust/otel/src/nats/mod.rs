@@ -128,8 +128,9 @@ impl NATSConfig {
     /// Applies the `SERVICERADAR_JS_<STREAM>_MAX_BYTES` and
     /// `SERVICERADAR_JS_<STREAM>_REPLICAS` overrides to the stream size and
     /// replica count, so the precedence is environment, then the TOML value,
-    /// then the compiled default. A set variable that is not a positive
-    /// integer is an error naming the variable, which fails startup.
+    /// then the compiled default. An empty or whitespace-only variable counts
+    /// as unset; any other value that is not a positive integer is an error
+    /// naming the variable, which fails startup.
     ///
     /// `lookup` resolves a variable name to its value; production passes
     /// [`process_env`].
@@ -138,7 +139,7 @@ impl NATSConfig {
         F: Fn(&str) -> Option<String>,
     {
         let max_bytes_key = stream_env_var(&self.stream, ENV_MAX_BYTES_SUFFIX);
-        if let Some(raw) = lookup(&max_bytes_key) {
+        if let Some(raw) = lookup(&max_bytes_key).filter(|raw| !raw.trim().is_empty()) {
             let max_bytes: i64 = parse_positive_env(&max_bytes_key, &raw)?;
             info!(
                 "Stream '{}' max_bytes {} from {max_bytes_key} (config file value {})",
@@ -148,7 +149,7 @@ impl NATSConfig {
         }
 
         let replicas_key = stream_env_var(&self.stream, ENV_REPLICAS_SUFFIX);
-        if let Some(raw) = lookup(&replicas_key) {
+        if let Some(raw) = lookup(&replicas_key).filter(|raw| !raw.trim().is_empty()) {
             let replicas: usize = parse_positive_env(&replicas_key, &raw)?;
             info!(
                 "Stream '{}' replicas {} from {replicas_key} (config file value {})",

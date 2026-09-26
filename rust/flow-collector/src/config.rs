@@ -359,9 +359,9 @@ pub(crate) fn stream_env_var(stream_name: &str, suffix: &str) -> String {
 }
 
 /// Parse an optional environment override that must be a positive integer.
-/// An unset variable yields `None`; any other non-positive-integer value is an
-/// error naming the variable, so startup fails rather than running on a
-/// silently ignored size.
+/// An unset, empty or whitespace-only variable yields `None`; any other
+/// non-positive-integer value is an error naming the variable, so startup fails
+/// rather than running on a silently ignored size.
 fn positive_env_override<T>(
     env: &impl Fn(&str) -> Option<OsString>,
     name: &str,
@@ -375,6 +375,10 @@ where
     let Some(text) = raw.to_str() else {
         anyhow::bail!("{name} must be a positive integer, got a non-UTF-8 value");
     };
+    let text = text.trim();
+    if text.is_empty() {
+        return Ok(None);
+    }
     match text.parse::<T>() {
         Ok(value) if value > T::default() => Ok(Some(value)),
         _ => anyhow::bail!("{name} must be a positive integer, got {text:?}"),
@@ -1261,12 +1265,28 @@ mod tests {
     }
 
     #[test]
+    fn empty_env_size_counts_as_unset() {
+        for value in ["", "   "] {
+            let config = Config::from_json_with_env(
+                FLOWS_JSON_WITH_SIZE,
+                env_of(&[
+                    ("SERVICERADAR_JS_FLOWS_MAX_BYTES", value),
+                    ("SERVICERADAR_JS_FLOWS_REPLICAS", value),
+                ]),
+            )
+            .unwrap();
+            assert_eq!(config.stream_max_bytes, GIB);
+            assert_eq!(config.stream_replicas, 1);
+        }
+    }
+
+    #[test]
     fn invalid_env_size_fails_naming_the_variable() {
         for (name, value) in [
             ("SERVICERADAR_JS_FLOWS_MAX_BYTES", "abc"),
             ("SERVICERADAR_JS_FLOWS_MAX_BYTES", "0"),
             ("SERVICERADAR_JS_FLOWS_MAX_BYTES", "-1"),
-            ("SERVICERADAR_JS_FLOWS_MAX_BYTES", ""),
+            ("SERVICERADAR_JS_FLOWS_MAX_BYTES", "1.5"),
             ("SERVICERADAR_JS_FLOWS_REPLICAS", "abc"),
             ("SERVICERADAR_JS_FLOWS_REPLICAS", "0"),
             ("SERVICERADAR_JS_FLOWS_REPLICAS", "1.5"),

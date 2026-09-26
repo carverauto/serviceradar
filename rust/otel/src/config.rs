@@ -1246,6 +1246,32 @@ stream = "events"
     }
 
     #[test]
+    fn test_empty_events_stream_size_env_counts_as_unset() {
+        let config: Config = toml::from_str(
+            r#"
+[nats]
+url = "nats://nats.example.com:4222"
+stream = "events"
+max_bytes = 1073741824
+stream_replicas = 2
+"#,
+        )
+        .unwrap();
+
+        for value in ["", "   "] {
+            let nats = config
+                .nats_config_with_env(env_from(&[
+                    ("SERVICERADAR_JS_EVENTS_MAX_BYTES", value),
+                    ("SERVICERADAR_JS_EVENTS_REPLICAS", value),
+                ]))
+                .unwrap()
+                .unwrap();
+            assert_eq!(nats.max_bytes, GIB);
+            assert_eq!(nats.stream_replicas, 2);
+        }
+    }
+
+    #[test]
     fn test_invalid_events_stream_size_env_fails_naming_the_variable() {
         let config: Config = toml::from_str(
             r#"
@@ -1261,7 +1287,6 @@ stream = "events"
             ("SERVICERADAR_JS_EVENTS_MAX_BYTES", "0"),
             ("SERVICERADAR_JS_EVENTS_MAX_BYTES", "-1"),
             ("SERVICERADAR_JS_EVENTS_MAX_BYTES", "1.5"),
-            ("SERVICERADAR_JS_EVENTS_MAX_BYTES", ""),
             ("SERVICERADAR_JS_EVENTS_REPLICAS", "0"),
             ("SERVICERADAR_JS_EVENTS_REPLICAS", "-3"),
             ("SERVICERADAR_JS_EVENTS_REPLICAS", "three"),
