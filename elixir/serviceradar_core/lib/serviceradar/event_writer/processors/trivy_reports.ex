@@ -955,14 +955,17 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
   defp persist_warehouse_events(rows) do
     replace = %{ids: Enum.map(rows, & &1.id), log_provider: "trivy"}
 
-    ServiceRadar.Repo.transaction(fn ->
-      lock_trivy_event_rows()
+    ServiceRadar.Repo.transaction(
+      fn ->
+        lock_trivy_event_rows()
 
-      case Destination.persist_after_cnpg(:events, rows, replace: replace) do
-        {:ok, result} -> result
-        {:error, reason} -> ServiceRadar.Repo.rollback(reason)
-      end
-    end)
+        case Destination.persist_after_cnpg(:events, rows, replace: replace) do
+          {:ok, result} -> result
+          {:error, reason} -> ServiceRadar.Repo.rollback(reason)
+        end
+      end,
+      timeout: :infinity
+    )
   end
 
   defp lock_trivy_event_rows do
