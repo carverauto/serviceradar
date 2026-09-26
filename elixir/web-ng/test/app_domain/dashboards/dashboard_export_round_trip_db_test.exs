@@ -49,8 +49,7 @@ defmodule ServiceRadarWebNG.Dashboards.DashboardExportRoundTripDbTest do
     panels = [
       %{
         title: "Hop loss by position",
-        srql_query:
-          ~s|stats:"loss_ratio(sent, received) as loss by hop_number" in:mtr_hops sort:hop_number limit:20|,
+        srql_query: ~s|stats:"loss_ratio(sent, received) as loss by hop_number" in:mtr_hops sort:hop_number limit:20|,
         visual_type: :bar,
         data_binding: %{"label_field" => "hop_number", "value_field" => "loss"},
         display_config: %{"caption" => "Loss by hop"},
@@ -60,8 +59,7 @@ defmodule ServiceRadarWebNG.Dashboards.DashboardExportRoundTripDbTest do
       },
       %{
         title: "Reach rate per target",
-        srql_query:
-          ~s|stats:"avg(target_reached) as reach by target_ip" in:mtr_traces sort:reach:desc limit:10|,
+        srql_query: ~s|stats:"avg(target_reached) as reach by target_ip" in:mtr_traces sort:reach:desc limit:10|,
         visual_type: :table,
         data_binding: %{},
         display_config: %{},
@@ -71,8 +69,7 @@ defmodule ServiceRadarWebNG.Dashboards.DashboardExportRoundTripDbTest do
       },
       %{
         title: "Loss trend",
-        srql_query:
-          ~s|stats:"loss_ratio(sent, received) as loss by time:1h" in:mtr_hops sort:bucket limit:48|,
+        srql_query: ~s|stats:"loss_ratio(sent, received) as loss by time:1h" in:mtr_hops sort:bucket limit:48|,
         visual_type: :line,
         data_binding: %{"time_field" => "bucket", "value_field" => "loss"},
         display_config: %{},
