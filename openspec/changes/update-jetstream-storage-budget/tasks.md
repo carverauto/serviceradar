@@ -80,8 +80,8 @@
       variables instead of literals in their config files.
 - [ ] 5.3 Ship `build/packaging/nats/config/jetstream-sizes.env` with the
       `small` content; load it with `EnvironmentFile=` in the NATS, datasvc,
-      log-collector, flow-collector and core units, and read `max_file_store`
-      from it in `nats-server.conf`.
+      log-collector, flow-collector, bmp-collector, core and web-ng units, and
+      read `max_file_store` from it in `nats-server.conf`.
 - [ ] 5.4 Add a `go_test` that sets each preset's variables, parses the NATS
       configs with the nats-server config parser, parses the presets and sizes
       file into typed values, fails on a missing or unknown inventory key or a

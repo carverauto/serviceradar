@@ -114,7 +114,7 @@ one unplaceable stream stops unrelated ingestion.
   `runtime.exs`; `docs/nats-jetstream-profile-runbook.md`; `docker/compose/` and
   `build/packaging/` NATS configs, profile presets and sizes files, the
   size-owning services' env handling (datasvc, otel log-collector,
-  flow-collector, bmp-collector, core), and a new budget `go_test`.
+  flow-collector, bmp-collector, core, web-ng), and a new budget `go_test`.
 - **Upgrade behaviour:** existing installs converge on the next upgrade with
   no manual step. The NATS PVC size is not changed (StatefulSet
   `volumeClaimTemplates` is immutable). An install whose explicit overrides
