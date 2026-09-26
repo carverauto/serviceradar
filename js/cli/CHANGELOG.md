@@ -1,5 +1,14 @@
 # `@carverauto/serviceradar-cli` Changelog
 
+## Unreleased
+
+- `react-map` template: the site scatter goes through `useScreenLod` from
+  `@carverauto/serviceradar-dashboard-sdk@^0.3.0`. Zoomed out, the map draws one
+  marker per screen cell, sized by how many sites it holds; from zoom 5 it
+  draws each site. Clicking a group flies to it. A new `dense-synthetic` fixture
+  of about 1,400 invented sites makes the switch visible in `dashboard dev`.
+  The `sites` frame limit rises from 500 to 2000.
+
 ## 0.1.9
 
 - `dashboard list --instance <url>`: new subcommand. Lists all dashboard packages
