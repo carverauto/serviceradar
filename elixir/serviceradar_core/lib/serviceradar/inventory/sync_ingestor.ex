@@ -145,7 +145,11 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
            strong_uids,
            resolved_updates
          ) do
-      {:ok, {{remap, identifier_records, identifier_result, previous_device_states}, stale}} ->
+      {:ok,
+       {{remap, identifier_records, identifier_result, previous_device_states, remap_stale},
+        pin_stale}} ->
+        Enum.each(remap_stale, &Fence.report_stale_target(:sync_ingestor, &1, Map.get(pins, &1)))
+        stale = MapSet.union(pin_stale, remap_stale)
         keep = &(not MapSet.member?(stale, &1))
         device_records = Enum.filter(device_records, &keep.(&1.uid))
         interface_records = Enum.filter(interface_records, &keep.(&1.device_id))
@@ -203,15 +207,21 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       previous_device_states = StateEvents.previous_device_states(device_records)
 
       case upsert_devices(device_records, strong_uids, resolved_updates) do
-        {:ok, remap} ->
-          # An IP-conflict recovery may have rewritten device uids during the
-          # device upsert. Apply the same mapping to identifier records so they
-          # reference uids that actually landed in `ocsf_devices` and don't trip
-          # the FK constraint.
-          identifier_records = apply_uid_remap_to_identifier_records(identifier_records, remap)
+        {:ok, remap, remap_stale} ->
+          # A record whose redirect target was no longer live was withheld; so are
+          # its identifiers. An IP-conflict recovery may have rewritten device uids
+          # during the device upsert. Apply the same mapping to identifier records
+          # so they reference uids that actually landed in `ocsf_devices` and don't
+          # trip the FK constraint.
+          remap_stale = MapSet.new(remap_stale)
+
+          identifier_records =
+            identifier_records
+            |> Enum.reject(&MapSet.member?(remap_stale, &1.device_id))
+            |> apply_uid_remap_to_identifier_records(remap)
 
           case upsert_identifiers(identifier_records) do
-            :ok -> {:ok, {remap, identifier_records, :ok, previous_device_states}}
+            :ok -> {:ok, {remap, identifier_records, :ok, previous_device_states, remap_stale}}
             {:error, _} = error -> error
           end
 
@@ -497,10 +507,15 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     end
   end
 
-  defp upsert_devices([], _strong_uids, _resolved_updates), do: {:ok, %{}}
+  defp upsert_devices([], _strong_uids, _resolved_updates), do: {:ok, %{}, []}
 
+  # Inside the fenced transaction: DeviceWrites locks every device it redirects a
+  # record to and reports a record whose target is no longer live as stale.
   defp upsert_devices(records, strong_uids, resolved_updates),
-    do: DeviceWrites.bulk_upsert_devices(records, strong_uids, resolved_updates)
+    do:
+      DeviceWrites.bulk_upsert_devices(records, strong_uids, resolved_updates,
+        lock_remap_targets: true
+      )
 
   defp upsert_identifiers([]), do: :ok
   defp upsert_identifiers(records), do: IdentifierRecords.bulk_upsert_identifiers(records)

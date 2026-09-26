@@ -347,7 +347,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end)
     |> case do
       {:ok, {{:written, deferred_merge}, _stale}} ->
-        # After the commit: a merge takes its own device-row locks.
+        # After the commit: the merges take their own device-row locks.
         :ok = Registrar.run_deferred_merge(deferred_merge, actor)
         finish_agent_device_sync(device_uid, agent_id, attrs, actor)
 
@@ -371,7 +371,8 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
   # Register agent_id as a strong identifier so DIRE can resolve subsequent
   # enrollments (even from different IPs) to this device, repair a stale agent_id
-  # row, and link the agent. Returns the register-time merge, deferred.
+  # row, and link the agent. Returns the identifier-conflict and register-time merges,
+  # deferred.
   defp write_agent_identity(device_uid, agent_id, device_update, actor) do
     ids = IdentityReconciler.extract_strong_identifiers(device_update)
 

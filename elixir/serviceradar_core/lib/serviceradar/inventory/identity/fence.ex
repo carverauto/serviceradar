@@ -240,6 +240,28 @@ defmodule ServiceRadar.Inventory.Identity.Fence do
   end
 
   @doc """
+  Report a write held back inside `fenced_write/3` because the existing device it
+  was redirected to (an adopted active-IP holder, a merge survivor) was no longer
+  live: one `[:serviceradar, :identity_fence, :stale]` event with
+  `reason: :redirect_target`. The caller re-resolves it as a stale pin.
+  """
+  @spec report_stale_target(atom(), String.t(), batch_pin() | nil) :: :ok
+  def report_stale_target(pipeline, device_id, pin) do
+    :telemetry.execute(
+      @telemetry_prefix ++ [:stale],
+      %{count: 1},
+      %{
+        pipeline: pipeline,
+        device_id: device_id,
+        pinned_revision: if(is_integer(pin), do: pin),
+        pin: pin,
+        current_revision: nil,
+        reason: :redirect_target
+      }
+    )
+  end
+
+  @doc """
   Report one stale pin found outside `fenced_write/3` (a single-device consumer
   that re-resolves on its own): one `[:serviceradar, :identity_fence, :stale]`
   event, with the pin it held and what it found (a revision, `:absent` or `:merged`).

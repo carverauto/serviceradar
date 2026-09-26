@@ -21,6 +21,7 @@ defmodule ServiceRadar.Inventory.Identity.FenceEnforcementTest do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceCleanupWorker
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Identity.Registrar
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.Repo
@@ -58,6 +59,7 @@ defmodule ServiceRadar.Inventory.Identity.FenceEnforcementTest do
     on_exit(fn ->
       :telemetry.detach(handler_id)
       Application.delete_env(:serviceradar_core, :identity_fence_test_hooks)
+      Application.delete_env(:serviceradar_core, :device_writes_test_hooks)
     end)
 
     {:ok, actor: actor, uids: start_supervised!({Agent, fn -> [] end})}
@@ -77,13 +79,13 @@ defmodule ServiceRadar.Inventory.Identity.FenceEnforcementTest do
     # The stale write for the source was withheld and re-resolved: the source's
     # integration id now belongs to the survivor, so the write -- hostname and the
     # new MAC -- landed there, and the tombstone was left alone.
-    assert_receive {:fence, :stale, %{pipeline: :sync_ingestor, device_id: stale_uid}}
-    assert stale_uid == source.uid
+    source_uid = source.uid
+    assert_receive {:fence, :stale, %{pipeline: :sync_ingestor, device_id: ^source_uid}}
 
     assert %Device{deleted_reason: "merged"} = device!(source.uid, actor)
     assert %Device{deleted_at: nil, hostname: "after-merge"} = device!(survivor.uid, actor)
     assert new_mac |> String.replace(":", "") |> String.upcase() |> owner(actor) == survivor.uid
-    refute_received {:fence, :abandoned, _}
+    refute_received {:fence, :abandoned, %{device_id: ^source_uid}}
   end
 
   test "a merge and a purge between pin and write do not re-create the purged uid", ctx do
@@ -98,8 +100,8 @@ defmodule ServiceRadar.Inventory.Identity.FenceEnforcementTest do
 
     assert :ok = ingest(actor, [uid_update(source.uid, source.ip, "after-purge")])
 
-    assert_receive {:fence, :stale, %{device_id: stale_uid, current_revision: nil}}
-    assert stale_uid == source.uid
+    source_uid = source.uid
+    assert_receive {:fence, :stale, %{device_id: ^source_uid, current_revision: nil}}
 
     refute match?({:ok, %Device{}}, Device.get_by_uid(source.uid, true, actor: actor))
     assert %Device{hostname: "after-purge"} = device!(survivor.uid, actor)
@@ -117,8 +119,8 @@ defmodule ServiceRadar.Inventory.Identity.FenceEnforcementTest do
 
     assert :ok = ingest(actor, [update(device.integration_id, device.ip, "never-lands", nil)])
 
-    assert_receive {:fence, :stale, %{device_id: uid}}
-    assert uid == device.uid
+    uid = device.uid
+    assert_receive {:fence, :stale, %{device_id: ^uid}}
     assert_receive {:fence, :abandoned, %{pipeline: :sync_ingestor, device_id: ^uid}}
     assert %Device{hostname: hostname} = device!(device.uid, actor)
     assert hostname != "never-lands"
@@ -148,7 +150,8 @@ defmodule ServiceRadar.Inventory.Identity.FenceEnforcementTest do
 
     # The write committed first, on the device it resolved; the merge then folded
     # that device into the survivor. Nothing was stale.
-    refute_received {:fence, :stale, _}
+    source_uid = source.uid
+    refute_received {:fence, :stale, %{device_id: ^source_uid}}
 
     assert %Device{deleted_reason: "merged", hostname: "before-merge"} =
              device!(source.uid, actor)
@@ -228,7 +231,146 @@ defmodule ServiceRadar.Inventory.Identity.FenceEnforcementTest do
     assert owner(agent_id, actor) == device_uid
   end
 
+  test "an agent check-in whose identifiers match two devices commits its writes, then merges",
+       ctx do
+    %{actor: actor} = ctx
+    agent_id = "fence-agent-conflict-#{System.unique_integer([:positive])}"
+    mac = doc_mac()
+    # device_identifiers stores a MAC normalized: no separators, upper case.
+    stored_mac = mac |> String.replace(":", "") |> String.upcase()
+    attrs = agent_attrs(agent_id, unique_ip())
+
+    assert {:ok, agent_uid} = AgentGatewaySync.ensure_device_for_agent(agent_id, attrs)
+    on_exit(fn -> cleanup!(agent_uid) end)
+
+    # A second device already owns the MAC the agent host will report.
+    mac_owner = "fence-mac-owner-#{System.unique_integer([:positive])}"
+    assert :ok = ingest(actor, [update(mac_owner, unique_ip(), "mac-owner", mac)])
+    other_uid = owner(stored_mac, actor)
+    Agent.update(ctx.uids, &[other_uid | &1])
+    on_exit(fn -> cleanup!(other_uid) end)
+    assert other_uid != agent_uid
+
+    assert {:ok, landed} =
+             AgentGatewaySync.ensure_device_for_agent(agent_id, %{attrs | host_macs: [mac]})
+
+    assert landed in [agent_uid, other_uid]
+    loser = if landed == agent_uid, do: other_uid, else: agent_uid
+
+    assert %Device{deleted_reason: "merged"} = device!(loser, actor)
+    assert %Device{deleted_at: nil} = device!(landed, actor)
+    assert owner(agent_id, actor) == landed
+    assert owner(stored_mac, actor) == landed
+  end
+
+  test "identifier-conflict merges are returned deferred and run only on request", ctx do
+    %{actor: actor} = ctx
+    first = seed!(ctx, "fence-conflict-first")
+    second = seed!(ctx, "fence-conflict-second")
+    n = System.unique_integer([:positive])
+    armis_id = "fence-armis-#{n}"
+    netbox_id = "fence-netbox-#{n}"
+
+    assert :ok = Registrar.register_identifiers(first.uid, %{armis_id: armis_id}, actor: actor)
+    assert :ok = Registrar.register_identifiers(second.uid, %{netbox_id: netbox_id}, actor: actor)
+
+    assert {:ok, [{:conflicts, canonical, device_ids, _matches}] = deferred} =
+             Registrar.register_identifiers_deferring_merge(
+               first.uid,
+               %{armis_id: armis_id, netbox_id: netbox_id},
+               actor: actor
+             )
+
+    assert Enum.sort(device_ids) == Enum.sort([first.uid, second.uid])
+    loser = Enum.find(device_ids, &(&1 != canonical))
+    assert %Device{deleted_at: nil} = device!(loser, actor)
+
+    assert :ok = Registrar.run_deferred_merge(deferred, actor)
+
+    assert %Device{deleted_reason: "merged"} = device!(loser, actor)
+    assert owner(armis_id, actor) == canonical
+    assert owner(netbox_id, actor) == canonical
+  end
+
+  # An active-IP holder the upsert adopts is chosen inside the fenced transaction, so
+  # the fence never pinned it. It is locked before the write and must still be live.
+  test "a write redirected to an adopted address holder soft-deleted meanwhile is re-resolved",
+       ctx do
+    %{actor: actor} = ctx
+    holder = address_only_holder!(ctx)
+
+    once_before_write(fn ->
+      {:ok, device} = Device.get_by_uid(holder.uid, false, actor: actor)
+      {:ok, _} = Device.soft_delete(device, "fence_test_delete", "fence-test", actor: actor)
+    end)
+
+    integration_id = "fence-remap-deleted-#{System.unique_integer([:positive])}"
+    assert :ok = ingest(actor, [update(integration_id, holder.ip, "remap-writer", nil)])
+
+    # The write was not landed on the deleted holder (reviving it); it was
+    # re-resolved and landed on a device of its own.
+    landed = owner(integration_id, actor)
+    Agent.update(ctx.uids, &[landed | &1])
+    on_exit(fn -> cleanup!(landed) end)
+
+    assert landed != holder.uid
+    assert %Device{deleted_reason: "fence_test_delete"} = device!(holder.uid, actor)
+    assert %Device{deleted_at: nil, ip: ip} = device!(landed, actor)
+    assert ip == holder.ip
+
+    assert_receive {:fence, :stale,
+                    %{pipeline: :sync_ingestor, reason: :redirect_target, device_id: ^landed}}
+  end
+
+  test "a write redirected to an adopted address holder merged meanwhile is re-resolved", ctx do
+    %{actor: actor} = ctx
+    holder = address_only_holder!(ctx)
+    survivor = seed!(ctx, "fence-remap-survivor")
+
+    once_before_write(fn -> assert :ok = merge!(holder.uid, survivor.uid, actor) end)
+
+    integration_id = "fence-remap-merged-#{System.unique_integer([:positive])}"
+    assert :ok = ingest(actor, [update(integration_id, holder.ip, "remap-writer", nil)])
+
+    # Without the check the identifiers followed the holder's merge onto the survivor.
+    landed = owner(integration_id, actor)
+    Agent.update(ctx.uids, &[landed | &1])
+    on_exit(fn -> cleanup!(landed) end)
+
+    refute landed in [holder.uid, survivor.uid]
+    assert %Device{deleted_reason: "merged"} = device!(holder.uid, actor)
+
+    assert_receive {:fence, :stale,
+                    %{pipeline: :sync_ingestor, reason: :redirect_target, device_id: ^landed}}
+  end
+
   # ---------------------------------------------------------------------------------------
+
+  # An address-only device: DeviceWrites adopts it for a strong-identified write at
+  # its address (a provisional IP seed), remapping the write onto it.
+  defp address_only_holder!(ctx) do
+    uid = "sr:" <> Ecto.UUID.generate()
+    ip = unique_ip()
+
+    {:ok, _} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{uid: uid, ip: ip})
+      |> Ash.create(actor: ctx.actor)
+
+    Agent.update(ctx.uids, &[uid | &1])
+    on_exit(fn -> cleanup!(uid) end)
+    %{uid: uid, ip: ip}
+  end
+
+  # Runs `fun` once, in another process (its own connection, committing on its own),
+  # after DeviceWrites has chosen its active-IP holders and before it writes.
+  defp once_before_write(fun) do
+    run = once_fun(fn -> fun |> Task.async() |> Task.await(30_000) end)
+
+    Application.put_env(:serviceradar_core, :device_writes_test_hooks, %{
+      after_active_ip_precheck: run
+    })
+  end
 
   defp agent_attrs(agent_id, ip) do
     %{

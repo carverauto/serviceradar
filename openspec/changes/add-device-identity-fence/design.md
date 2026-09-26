@@ -239,6 +239,13 @@ merge and soft-delete UPDATEs and with a purge DELETE, but not with the `FOR KEY
 unrelated child-row insert takes on the device, so those writers are not blocked. The CAS helper `pin/2` remains for single-row
 writers.
 
+A device the upsert redirects a record to is not one the batch resolved: `DeviceWrites` adopts an
+active-IP holder (`remap_records_to_existing_ip`) or follows a merged-away uid to its survivor,
+inside the fenced transaction. Those redirect targets are locked the same way (`FOR NO KEY UPDATE`,
+uid order) before anything is written to them and must still be live; a record whose target is
+missing, soft-deleted or merged is withheld and re-resolved like a stale pin
+(`DeviceWrites.bulk_upsert_devices/4` with `lock_remap_targets: true`).
+
 ## Risks / Trade-offs
 
 - **Child tables outside the fenced write stay detection-only.** Interfaces, risk
