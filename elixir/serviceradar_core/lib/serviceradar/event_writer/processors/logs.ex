@@ -28,6 +28,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   alias ServiceRadar.EventWriter.IngestAttribution
   alias ServiceRadar.EventWriter.OtelId
   alias ServiceRadar.EventWriter.SignalTelemetry
+  alias ServiceRadar.EventWriter.StableId
   alias ServiceRadar.Observability.LogPromotion
   alias ServiceRadar.Observability.LogPromotionParser
   alias ServiceRadar.Observability.LogPubSub
@@ -98,6 +99,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     case_result
     |> IngestAttribution.attach(attribution)
     |> redact_log_row()
+    |> stabilize_ids(metadata)
   end
 
   @doc false
@@ -690,6 +692,30 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
       normalized in @sensitive_log_keys or
         Enum.any?(@sensitive_log_keys, fn key -> String.ends_with?(normalized, "_#{key}") end)
     end)
+  end
+
+  # A message that came from JetStream gets row ids derived from its identity
+  # and each record's position in it, so a redelivery after a failed batch
+  # conflicts with the rows already stored and promotes nothing twice. A
+  # message with no JetStream identity keeps its generated ids.
+  defp stabilize_ids(nil, _metadata), do: nil
+
+  defp stabilize_ids(parsed, metadata) do
+    case StableId.message_identity(metadata) do
+      nil ->
+        parsed
+
+      identity ->
+        stable =
+          parsed
+          |> List.wrap()
+          |> Enum.with_index()
+          |> Enum.map(fn {row, index} ->
+            Map.put(row, :id, StableId.uuid("log:#{identity}:#{index}"))
+          end)
+
+        if is_list(parsed), do: stable, else: hd(stable)
+    end
   end
 
   defp generated_uuid do

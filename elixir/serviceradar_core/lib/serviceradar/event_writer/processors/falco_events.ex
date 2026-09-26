@@ -20,7 +20,7 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Observability.LogPubSub
-  alias ServiceRadar.Observability.StatefulAlertEngine
+  alias ServiceRadar.Observability.StatefulEvaluationLedger
 
   require Logger
 
@@ -80,17 +80,22 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
         |> Enum.map(& &1.event_row)
         |> dedupe_rows_by_conflict_key(&Map.get(&1, :id))
 
-      {event_count, inserted_events} = insert_event_rows(promoted_rows)
+      event_count = insert_event_rows(promoted_rows)
 
-      warehouse =
+      # Every promoted row, not only those this delivery inserted: a delivery
+      # redelivered after a failed warehouse load or evaluation finds its rows
+      # already in CNPG, and must still finish both. The warehouse load is
+      # idempotent on the event id, and the ledger evaluates only the events no
+      # earlier delivery finished; an evaluation failure fails the batch so
+      # JetStream redelivers it.
+      stored =
         with {:ok, _} <- Destination.persist_after_cnpg(:logs, log_rows),
-             {:ok, _} <- Destination.persist_after_cnpg(:events, inserted_events) do
-          :ok
+             {:ok, _} <- Destination.persist_after_cnpg(:events, promoted_rows) do
+          StatefulEvaluationLedger.evaluate_once(promoted_rows)
         end
 
       maybe_broadcast_logs(log_count)
       maybe_broadcast_events(event_count)
-      maybe_evaluate_stateful_rules(inserted_events)
 
       :telemetry.execute(
         [:serviceradar, :event_writer, :falco, :processed],
@@ -98,7 +103,7 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
         %{}
       )
 
-      case warehouse do
+      case stored do
         :ok -> {:ok, log_count}
         {:error, reason} -> {:error, reason}
       end
@@ -340,38 +345,14 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
     count
   end
 
-  defp insert_event_rows([]), do: {0, []}
+  defp insert_event_rows([]), do: 0
 
   defp insert_event_rows(rows) do
-    {count, inserted} =
-      BulkInsert.insert_all("ocsf_events", rows,
-        on_conflict: :nothing,
-        returning: [:id]
-      )
+    {count, _} =
+      BulkInsert.insert_all("ocsf_events", rows, on_conflict: :nothing, returning: false)
 
-    inserted_ids = MapSet.new(Enum.map(inserted, & &1.id))
-
-    inserted_rows =
-      rows
-      |> Enum.filter(&MapSet.member?(inserted_ids, &1.id))
-      |> dedupe_rows_by_conflict_key(&Map.get(&1, :id))
-      |> Enum.map(&decode_inserted_event_row/1)
-
-    {count, inserted_rows}
+    count
   end
-
-  defp decode_inserted_event_row(row) when is_map(row) do
-    Map.update(row, :id, nil, &load_uuid/1)
-  end
-
-  defp load_uuid(value) when is_binary(value) and byte_size(value) == 16 do
-    case Ecto.UUID.load(value) do
-      {:ok, uuid} -> uuid
-      :error -> value
-    end
-  end
-
-  defp load_uuid(value), do: value
 
   defp dedupe_rows_by_conflict_key(rows, key_fun)
        when is_list(rows) and is_function(key_fun, 1) do
@@ -399,19 +380,6 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
 
   defp maybe_broadcast_events(0), do: :ok
   defp maybe_broadcast_events(count), do: EventsPubSub.broadcast_event(%{count: count})
-
-  defp maybe_evaluate_stateful_rules([]), do: :ok
-
-  defp maybe_evaluate_stateful_rules(events) do
-    case StatefulAlertEngine.evaluate_events(events) do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning("Stateful alert evaluation failed for Falco events: #{inspect(reason)}")
-        :ok
-    end
-  end
 
   defp severity_status_for_priority(priority) do
     normalized =

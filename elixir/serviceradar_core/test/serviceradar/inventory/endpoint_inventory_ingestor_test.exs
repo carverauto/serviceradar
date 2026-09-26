@@ -1,3 +1,10 @@
+defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest.UnreachableNats do
+  @moduledoc false
+
+  # A JetStream publisher whose stream never acknowledges.
+  def publish(_subject, _body, _opts), do: {:error, :timeout}
+end
+
 defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
   use ServiceRadar.DataCase, async: false
 
@@ -10,6 +17,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
   alias ServiceRadar.Inventory.EndpointInventoryFleetOrdinal
   alias ServiceRadar.Inventory.EndpointInventoryIngestor
   alias ServiceRadar.Inventory.EndpointInventoryTelemetry
+  alias ServiceRadar.NATS.DurablePublishWorker
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
@@ -1219,6 +1227,54 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     assert scan.package_set_hash_mismatch == true
   end
 
+  test "package change signals NATS does not acknowledge are queued for retry, not dropped",
+       %{actor: actor} do
+    unique = System.unique_integer([:positive])
+    device = create_device!(actor, "endpoint-inventory-outage-device-#{unique}")
+    agent_id = "endpoint-inventory-outage-agent-#{unique}"
+    create_agent!(actor, agent_id, device.uid)
+
+    previous = Application.get_env(:serviceradar_core, :internal_telemetry_publisher)
+
+    Application.put_env(
+      :serviceradar_core,
+      :internal_telemetry_publisher,
+      __MODULE__.UnreachableNats
+    )
+
+    on_exit(fn ->
+      Application.put_env(:serviceradar_core, :internal_telemetry_publisher, previous)
+    end)
+
+    assert {:ok, result} =
+             EndpointInventoryIngestor.ingest_report(
+               scan_payload(agent_id, "scan-outage-#{unique}",
+                 components: [
+                   package_component("nginx-outage-#{unique}", "1.24.0-2ubuntu7"),
+                   package_component("openssl-outage-#{unique}", "3.0.13-0ubuntu3")
+                 ]
+               ),
+               actor: actor,
+               upload_object: successful_upload()
+             )
+
+    assert result.package_change_signal_publish_count == 2
+
+    queued =
+      Repo.all(
+        from(j in Oban.Job,
+          where:
+            j.queue == "events" and j.worker == ^Oban.Worker.to_string(DurablePublishWorker) and
+              fragment("?->>'subject' = ?", j.args, "signals.analytics.inventory.added") and
+              like(fragment("?->>'body'", j.args), ^"%#{agent_id}%"),
+          select: j.args
+        ),
+        prefix: "platform"
+      )
+
+    assert length(queued) == 2
+  end
+
   test "records changed scan history and server-computed package diff events", %{actor: actor} do
     unique = System.unique_integer([:positive])
     device = create_device!(actor, "endpoint-inventory-history-device-#{unique}")
@@ -1308,7 +1364,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
 
     second_signals = collect_causal_signals(3)
 
-    assert Enum.map(second_signals, & &1.subject) == [
+    # Signals are published concurrently; their order is not a contract.
+    assert second_signals |> Enum.map(& &1.subject) |> Enum.sort() == [
              "signals.analytics.inventory.added",
              "signals.analytics.inventory.removed",
              "signals.analytics.inventory.version_changed"
@@ -1732,6 +1789,17 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
       prefix: "platform"
     )
 
+    # Scan events wait in the publish outbox, committed with the scan; remove
+    # this test's so no later test publishes them.
+    Repo.delete_all(
+      from(j in Oban.Job,
+        where:
+          j.queue == "events" and j.worker == ^Oban.Worker.to_string(DurablePublishWorker) and
+            like(fragment("?->>'body'", j.args), ^"%#{agent_id}%")
+      ),
+      prefix: "platform"
+    )
+
     Repo.delete_all(
       from(s in "endpoint_inventory_scans", where: s.agent_id == ^agent_id),
       prefix: "platform"
@@ -1765,7 +1833,11 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     )
   end
 
+  # The scan activity event is published from the scan's transaction, so it
+  # waits in the publish outbox until that commits; deliver it before reading.
   defp endpoint_inventory_scan_activity(scan_id) do
+    Oban.drain_queue(queue: :events)
+
     Repo.one(
       from(e in "ocsf_events",
         where:
@@ -1934,7 +2006,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
 
   defp capture_causal_signals(parent_pid) do
     fn subject, payload ->
-      send(parent_pid, {:causal_signal_published, subject, Jason.decode!(payload)})
+      send(parent_pid, {:causal_signal_published, subject, payload})
       :ok
     end
   end

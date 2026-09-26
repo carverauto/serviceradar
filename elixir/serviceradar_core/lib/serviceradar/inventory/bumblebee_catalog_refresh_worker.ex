@@ -134,7 +134,7 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
            ) do
       _ = publish_agent_catalog(promoted)
       _ = push_config.(:bumblebee)
-      _ = BumblebeeCatalogRefreshEventWriter.write_success(source, promoted, actor: actor)
+      _ = BumblebeeCatalogRefreshEventWriter.write_success(source, promoted)
       {:ok, promoted}
     else
       {:error, reason} = error ->
@@ -143,7 +143,7 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
           reason: inspect(reason)
         )
 
-        _ = BumblebeeCatalogRefreshEventWriter.write_failure(source, reason, actor: actor)
+        _ = BumblebeeCatalogRefreshEventWriter.write_failure(source, reason)
         error
     end
   end

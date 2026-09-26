@@ -133,10 +133,6 @@ defmodule ServiceRadar.Application do
         endpoint_inventory_ingestor_task_supervisor_child(),
         endpoint_inventory_ingestor_queue_child(),
 
-        # Bounded async stateful alert evaluation for bursty event sources
-        stateful_alert_evaluation_task_supervisor_child(),
-        stateful_alert_evaluation_queue_child(),
-
         # Out-of-band, report-only anomaly disposition reporter. AnalyticsSignals
         # casts persisted class-2004 anomaly findings here; it drives
         # AnomalyDisposition.report_finding/2 (telemetry only) OFF the alert hot path.
@@ -335,18 +331,6 @@ defmodule ServiceRadar.Application do
 
   defp endpoint_inventory_ingestor_queue_child do
     ServiceRadar.Inventory.EndpointInventoryIngestorQueue
-  end
-
-  defp stateful_alert_evaluation_task_supervisor_child do
-    if repo_enabled?() do
-      {Task.Supervisor, name: ServiceRadar.StatefulAlertEvaluation.TaskSupervisor}
-    end
-  end
-
-  defp stateful_alert_evaluation_queue_child do
-    if repo_enabled?() do
-      ServiceRadar.Observability.StatefulAlertEvaluationQueue
-    end
   end
 
   defp security_events_task_supervisor_child do

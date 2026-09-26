@@ -5,9 +5,8 @@ defmodule ServiceRadar.Camera.AnalysisWorkerAlertRouter do
   """
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Events.PubSub, as: EventsPubSub
+  alias ServiceRadar.Events.OcsfEventPublisher
   alias ServiceRadar.Monitoring.Alert
-  alias ServiceRadar.Monitoring.OcsfEvent
 
   require Ash.Query
 
@@ -28,7 +27,6 @@ defmodule ServiceRadar.Camera.AnalysisWorkerAlertRouter do
       when is_map(previous_worker) and is_map(updated_worker) do
     actor = Keyword.get(opts, :actor, SystemActor.system(:camera_analysis_worker_alert_router))
     record_event = Keyword.get(opts, :record_event, &record_event/2)
-    broadcast_event = Keyword.get(opts, :broadcast_event, &EventsPubSub.broadcast_event/1)
     create_alert = Keyword.get(opts, :create_alert, &create_alert/2)
     list_active_alerts = Keyword.get(opts, :list_active_alerts, &list_active_alerts/2)
     resolve_alert = Keyword.get(opts, :resolve_alert, &resolve_alert/3)
@@ -45,7 +43,6 @@ defmodule ServiceRadar.Camera.AnalysisWorkerAlertRouter do
       |> route_steps(
         actor,
         record_event,
-        broadcast_event,
         create_alert,
         list_active_alerts,
         resolve_alert
@@ -60,7 +57,6 @@ defmodule ServiceRadar.Camera.AnalysisWorkerAlertRouter do
          transitions,
          actor,
          record_event,
-         broadcast_event,
          create_alert,
          list_active_alerts,
          resolve_alert
@@ -70,7 +66,6 @@ defmodule ServiceRadar.Camera.AnalysisWorkerAlertRouter do
              transition,
              actor,
              record_event,
-             broadcast_event,
              create_alert,
              list_active_alerts,
              resolve_alert
@@ -150,7 +145,6 @@ defmodule ServiceRadar.Camera.AnalysisWorkerAlertRouter do
          %{kind: :activate} = transition,
          actor,
          record_event,
-         broadcast_event,
          create_alert,
          _list_active_alerts,
          _resolve_alert
@@ -158,7 +152,6 @@ defmodule ServiceRadar.Camera.AnalysisWorkerAlertRouter do
     attrs = build_event_attrs(transition)
 
     with {:ok, event} <- record_event.(attrs, actor),
-         :ok <- broadcast_event.(event),
          {:ok, _alert} <- create_alert.(build_alert_attrs(transition, event), actor) do
       :ok
     end
@@ -168,7 +161,6 @@ defmodule ServiceRadar.Camera.AnalysisWorkerAlertRouter do
          %{kind: :clear} = transition,
          actor,
          record_event,
-         broadcast_event,
          _create_alert,
          list_active_alerts,
          resolve_alert
@@ -176,7 +168,6 @@ defmodule ServiceRadar.Camera.AnalysisWorkerAlertRouter do
     attrs = build_event_attrs(transition)
 
     with {:ok, event} <- record_event.(attrs, actor),
-         :ok <- broadcast_event.(event),
          {:ok, alerts} <- list_active_alerts.(transition.routing_key, actor) do
       resolve_alerts(alerts, event, actor, resolve_alert, transition)
     end
@@ -393,13 +384,9 @@ defmodule ServiceRadar.Camera.AnalysisWorkerAlertRouter do
     %{"name" => name, "type" => "string", "value" => value}
   end
 
-  defp record_event(attrs, actor) do
-    Ash.create(OcsfEvent, attrs,
-      action: :record,
-      actor: actor,
-      domain: ServiceRadar.Monitoring
-    )
-  end
+  # Published to JetStream; the returned event carries the id and time the
+  # alert links. EventWriter broadcasts once it is stored.
+  defp record_event(attrs, _actor), do: OcsfEventPublisher.publish(attrs, family: :camera)
 
   defp create_alert(attrs, actor) do
     Ash.create(Alert, attrs, action: :trigger, actor: actor, domain: ServiceRadar.Monitoring)

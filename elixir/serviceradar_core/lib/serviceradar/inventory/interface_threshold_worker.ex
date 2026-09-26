@@ -25,12 +25,9 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
   - metric details including interface info
   - threshold configuration metadata
 
-  ## Warehouse Copy
-
-  Recorded events are also Stream Loaded into StarRocks when the `events`
-  dataset is cut over. This worker has no broker to redeliver a failed load,
-  so a failed batch is quarantined and replayed by later runs of this worker;
-  `ServiceRadar.Analytics.StarRocks.PendingLoads` owns that contract.
+  Events are published through `ServiceRadar.Events.OcsfEventPublisher`:
+  EventWriter stores them in the active telemetry backend, loads the
+  warehouse in batches and applies stateful alert rules once per event.
   """
 
   use Oban.Worker,
@@ -39,17 +36,14 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
     unique: [period: :infinity, states: :incomplete]
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Analytics.StarRocks.PendingLoads
+  alias ServiceRadar.Events.OcsfEventPublisher
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Inventory.InterfaceSettings
   alias ServiceRadar.Jobs.SelfScheduling
-  alias ServiceRadar.Observability.StatefulAlertEngine
   alias ServiceRadar.SweepJobs.ObanSupport
 
   require Ash.Query
   require Logger
-
-  @event_buffer_key {__MODULE__, :shadow_events}
 
   # How often to run the evaluator (1 minute)
   @evaluation_interval_seconds 60
@@ -103,13 +97,7 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
   def perform(%Oban.Job{args: args}) do
     Logger.info("Running interface threshold evaluation")
 
-    result = evaluate_and_reschedule(args)
-
-    # Replaying quarantined warehouse batches must never delay alerting, so
-    # it runs once this job has already evaluated and queued its successor.
-    drain_pending_loads()
-
-    result
+    evaluate_and_reschedule(args)
   end
 
   defp evaluate_and_reschedule(args) do
@@ -117,13 +105,9 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
       {:ok, settings} when settings != [] ->
         Logger.info("Evaluating #{length(settings)} interface thresholds")
 
-        start_event_buffer()
-
         Enum.each(settings, fn setting ->
           evaluate_threshold(setting)
         end)
-
-        flush_event_buffer()
 
         # Reschedule for next check
         schedule_next_check(args)
@@ -499,12 +483,11 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
 
     event = build_metric_event(setting, metric_name, config, metric_value, duration_seconds)
 
-    case record_event(event) do
-      {:ok, :skipped} ->
+    case OcsfEventPublisher.publish(event, family: :inventory) do
+      {:ok, _event} ->
         :ok
 
-      {:ok, _} ->
-        _ = StatefulAlertEngine.evaluate_events([event])
+      {:error, :suppressed} ->
         :ok
 
       {:error, reason} ->
@@ -515,75 +498,6 @@ defmodule ServiceRadar.Inventory.InterfaceThresholdWorker do
           reason: inspect(reason)
         )
     end
-  end
-
-  defp record_event(event) do
-    {count, _} =
-      ServiceRadar.Repo.insert_all(
-        "ocsf_events",
-        [event],
-        on_conflict: :nothing,
-        returning: false
-      )
-
-    if count == 0 do
-      {:ok, :skipped}
-    else
-      buffer_event(event)
-      {:ok, event}
-    end
-  rescue
-    error -> {:error, error}
-  end
-
-  # One job run can emit an event per threshold per interface. A Stream Load per
-  # event would put a synchronous HTTP round trip between each violation and its
-  # alert evaluation, and a burst of single-row loads is the StarRocks small-load
-  # anti-pattern. The job owns the batch boundary instead.
-  defp start_event_buffer, do: Process.put(@event_buffer_key, [])
-
-  defp buffer_event(event) do
-    Process.put(@event_buffer_key, [event | Process.get(@event_buffer_key, [])])
-    :ok
-  end
-
-  defp flush_event_buffer do
-    case Process.delete(@event_buffer_key) do
-      [_ | _] = events ->
-        events
-        |> Enum.reverse()
-        |> then(&PendingLoads.persist_or_enqueue(:events, &1))
-        |> case do
-          {:error, reason} ->
-            Logger.error(
-              "StarRocks threshold event batch lost: persist and quarantine both failed",
-              error: inspect(reason)
-            )
-
-          _ ->
-            :ok
-        end
-
-      _ ->
-        :ok
-    end
-
-    :ok
-  end
-
-  # Replays warehouse batches quarantined by earlier runs. A drain problem
-  # must never fail threshold evaluation, so every failure is contained here.
-  defp drain_pending_loads do
-    {:ok, _summary} = PendingLoads.drain_due()
-    :ok
-  rescue
-    error ->
-      Logger.error("StarRocks pending loads drain crashed; batches remain queued",
-        error: Exception.message(error),
-        stacktrace: Exception.format_stacktrace(__STACKTRACE__)
-      )
-
-      :ok
   end
 
   defp build_metric_event(setting, metric_name, config, metric_value, duration_seconds) do

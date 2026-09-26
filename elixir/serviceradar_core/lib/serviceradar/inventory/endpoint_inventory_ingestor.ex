@@ -7,7 +7,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
   import Ecto.Query
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Analytics.StarRocks.Destination
+  alias ServiceRadar.Events.OcsfEventPublisher
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.EndpointInventoryArtifactPersistence
@@ -765,14 +765,18 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
       raw_data: normalize_scan_activity_raw_payload(context.payload)
     }
 
-    Repo.insert_all("ocsf_events", [row],
-      prefix: "platform",
-      on_conflict: :nothing,
-      conflict_target: [:time, :id],
-      returning: false
-    )
+    # The deterministic id makes a re-ingested scan the same event, which
+    # EventWriter stores once.
+    case OcsfEventPublisher.publish(row, family: :inventory) do
+      {:error, reason} when reason != :suppressed ->
+        Logger.warning("Failed to publish endpoint inventory scan event",
+          scan_id: context.scan_id,
+          reason: inspect(reason)
+        )
 
-    _ = Destination.persist_after_cnpg(:events, [row])
+      _ ->
+        :ok
+    end
 
     :ok
   end

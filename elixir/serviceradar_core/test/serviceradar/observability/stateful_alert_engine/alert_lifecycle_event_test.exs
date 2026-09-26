@@ -115,7 +115,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycleEventTest
              }
     end
 
-    # OcsfEvent :record rejects operational events for an out-of-service device.
+    # The event publisher suppresses operational events for an out-of-service device.
     # Incidents for such a device fired before the event carried a device, so the
     # event is recorded without one rather than losing the incident.
     test "an out-of-service device is left off so the incident still records" do

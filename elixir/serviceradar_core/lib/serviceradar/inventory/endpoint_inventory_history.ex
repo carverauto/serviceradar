@@ -1,9 +1,9 @@
 defmodule ServiceRadar.Inventory.EndpointInventoryHistory do
   @moduledoc false
 
+  alias ServiceRadar.Events.SignalPublisher
   alias ServiceRadar.Inventory.EndpointInventoryPackageSet
   alias ServiceRadar.Inventory.EndpointInventoryPayload, as: Payload
-  alias ServiceRadar.NATS.Connection
   alias ServiceRadar.Repo
 
   require Logger
@@ -37,23 +37,37 @@ defmodule ServiceRadar.Inventory.EndpointInventoryHistory do
 
   def publish_package_change_signals([], _opts), do: 0
 
+  # Package change signals are stored telemetry (EventWriter's AnalyticsSignals
+  # maps them), so each is published durably: a publish NATS does not
+  # acknowledge is retried from an Oban job. They are published after the scan
+  # commits, a first scan can carry one per package, so up to 16 wait for their
+  # acknowledgement at once. Returns how many were published or queued.
   def publish_package_change_signals(signals, opts) do
-    publisher = Keyword.get(opts, :causal_signal_publisher, {Connection, :publish, []})
+    publish = Keyword.get(opts, :causal_signal_publisher, &SignalPublisher.publish/2)
 
-    Enum.reduce(signals, 0, fn %{subject: subject, payload: payload}, count ->
-      encoded = Jason.encode!(payload)
+    signals
+    |> Task.async_stream(
+      fn %{subject: subject, payload: payload} -> {subject, publish.(subject, payload)} end,
+      max_concurrency: 16,
+      timeout: :infinity
+    )
+    |> Enum.count(fn
+      {:ok, {_subject, :ok}} ->
+        true
 
-      case publish_causal_signal(publisher, subject, encoded) do
-        :ok ->
-          count + 1
+      {:ok, {subject, {:error, reason}}} ->
+        Logger.warning(
+          "Endpoint inventory package change signal lost: subject=#{subject} reason=#{inspect(reason)}"
+        )
 
-        {:error, reason} ->
-          Logger.warning(
-            "Endpoint inventory causal signal publish failed: subject=#{subject} reason=#{inspect(reason)}"
-          )
+        false
 
-          count
-      end
+      {:exit, reason} ->
+        Logger.warning(
+          "Endpoint inventory package change signal publish exited: #{inspect(reason)}"
+        )
+
+        false
     end)
   end
 
@@ -185,14 +199,6 @@ defmodule ServiceRadar.Inventory.EndpointInventoryHistory do
       "purl" => row.previous_purl,
       "purl_canonical" => row.previous_purl_canonical
     })
-  end
-
-  defp publish_causal_signal(fun, subject, payload) when is_function(fun, 2) do
-    fun.(subject, payload)
-  end
-
-  defp publish_causal_signal({module, function, extra_args}, subject, payload) do
-    apply(module, function, [subject, payload | extra_args])
   end
 
   defp package_event_row(scan_ref, current, event, scan_time, context) do

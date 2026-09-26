@@ -384,8 +384,6 @@
    "The pattern pattern <__value@1, _default@1> can never match the type, because it is covered by previous clauses."},
   {"lib/serviceradar/observability/netflow_oui_dataset_refresh_worker.ex",
    "The pattern can never match the type true."},
-  {"lib/serviceradar/observability/stateful_alert_evaluation_queue.ex",
-   "The pattern can never match the type {:ok, pid()}."},
   {"lib/serviceradar/observability/threat_intel_plugin_ingestor.ex",
    "The pattern pattern <__page@1, __payload@1, __actor@1, __observed_at@1> can never match the type, because it is covered by previous clauses."},
   {"lib/serviceradar/observability/threat_intel_plugin_ingestor.ex",

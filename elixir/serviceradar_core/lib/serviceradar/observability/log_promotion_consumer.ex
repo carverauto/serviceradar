@@ -6,6 +6,8 @@ defmodule ServiceRadar.Observability.LogPromotionConsumer do
   use Gnat.Jetstream.PullConsumer
 
   alias Gnat.Jetstream.API.Consumer
+  alias ServiceRadar.EventWriter.JetStreamAck
+  alias ServiceRadar.EventWriter.StableId
   alias ServiceRadar.NATS.Connection
   alias ServiceRadar.NATS.JetstreamConsumer
   alias ServiceRadar.Observability.LogPromotion
@@ -84,9 +86,13 @@ defmodule ServiceRadar.Observability.LogPromotionConsumer do
   end
 
   @impl true
-  def handle_message(%{body: body, topic: subject}, state) do
+  def handle_message(%{body: body, topic: subject} = message, state) do
     received_at = DateTime.utc_now()
-    logs = LogPromotionParser.parse_payload(body, subject, received_at)
+
+    logs =
+      body
+      |> LogPromotionParser.parse_payload(subject, received_at)
+      |> stabilize_log_ids(message)
 
     case logs do
       [] ->
@@ -113,6 +119,27 @@ defmodule ServiceRadar.Observability.LogPromotionConsumer do
     error ->
       Logger.error("Log promotion consumer crashed", error: inspect(error), subject: subject)
       {:nack, %{state | last_error: error}}
+  end
+
+  # A NACKed message is redelivered and parsed again; ids derived from the
+  # message identity make its promoted events the ones already stored, so a
+  # redelivery promotes and alerts nothing twice.
+  defp stabilize_log_ids(logs, message) do
+    identity =
+      StableId.message_identity(%{
+        headers: Map.get(message, :headers),
+        jetstream_ack: JetStreamAck.parse(Map.get(message, :reply_to))
+      })
+
+    if identity do
+      logs
+      |> Enum.with_index()
+      |> Enum.map(fn {log, index} ->
+        Map.put(log, :id, Ecto.UUID.load!(StableId.uuid("promotion-log:#{identity}:#{index}")))
+      end)
+    else
+      logs
+    end
   end
 
   defp load_config(opts) do

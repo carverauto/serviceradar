@@ -3,10 +3,8 @@ defmodule ServiceRadar.Camera.AnalysisResultIngestor do
   Normalizes camera analysis results into OCSF event surfaces with relay provenance.
   """
 
-  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.AnalysisContract
-  alias ServiceRadar.Events.PubSub, as: EventsPubSub
-  alias ServiceRadar.Monitoring.OcsfEvent
+  alias ServiceRadar.Events.OcsfEventPublisher
 
   @default_class_uid 1008
   @default_category_uid 1
@@ -20,19 +18,12 @@ defmodule ServiceRadar.Camera.AnalysisResultIngestor do
   def ingest(result, opts \\ [])
 
   def ingest(result, opts) when is_map(result) do
-    actor = Keyword.get(opts, :actor, SystemActor.system(:camera_analysis_result_ingestor))
-    record_event = Keyword.get(opts, :record_event, &record_event/2)
-    broadcast_event = Keyword.get(opts, :broadcast_event, &EventsPubSub.broadcast_event/1)
+    publish_event = Keyword.get(opts, :publish_event, &publish_event/1)
     normalized = AnalysisContract.normalize_result(result)
-    attrs = build_event_attrs(normalized)
 
-    case record_event.(attrs, actor) do
-      {:ok, record} ->
-        broadcast_event.(record)
-        :ok
-
-      {:error, reason} ->
-        {:error, reason}
+    case normalized |> build_event_attrs() |> publish_event.() do
+      {:ok, _event} -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -155,7 +146,5 @@ defmodule ServiceRadar.Camera.AnalysisResultIngestor do
   defp severity_log_level(2), do: "info"
   defp severity_log_level(1), do: "info"
 
-  defp record_event(attrs, actor) do
-    Ash.create(OcsfEvent, attrs, actor: actor, domain: ServiceRadar.Monitoring)
-  end
+  defp publish_event(attrs), do: OcsfEventPublisher.publish(attrs, family: :camera)
 end

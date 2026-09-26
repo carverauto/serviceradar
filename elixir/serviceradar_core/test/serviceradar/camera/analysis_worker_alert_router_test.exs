@@ -36,11 +36,6 @@ defmodule ServiceRadar.Camera.AnalysisWorkerAlertRouterTest do
       {:ok, Map.put(attrs, :id, attrs.id)}
     end
 
-    broadcast_event = fn event ->
-      send(parent, {:broadcast_event, event})
-      :ok
-    end
-
     create_alert = fn attrs, _actor ->
       send(parent, {:create_alert, attrs})
       {:ok, attrs}
@@ -51,7 +46,6 @@ defmodule ServiceRadar.Camera.AnalysisWorkerAlertRouterTest do
                previous_worker,
                updated_worker,
                record_event: record_event,
-               broadcast_event: broadcast_event,
                create_alert: create_alert
              )
 
@@ -63,9 +57,6 @@ defmodule ServiceRadar.Camera.AnalysisWorkerAlertRouterTest do
 
     assert event_attrs.metadata["routed_alert_key"] ==
              "camera_analysis_worker:worker-alpha:unhealthy"
-
-    event_id = event_attrs.id
-    assert_receive {:broadcast_event, %{id: ^event_id}}
 
     assert_receive {:create_alert, alert_attrs}
     assert alert_attrs.source_type == :event
@@ -111,11 +102,6 @@ defmodule ServiceRadar.Camera.AnalysisWorkerAlertRouterTest do
       {:ok, Map.put(attrs, :id, attrs.id)}
     end
 
-    broadcast_event = fn event ->
-      send(parent, {:broadcast_event, event})
-      :ok
-    end
-
     list_active_alerts = fn routing_key, _actor ->
       send(parent, {:list_active_alerts, routing_key})
       {:ok, [alert]}
@@ -131,7 +117,6 @@ defmodule ServiceRadar.Camera.AnalysisWorkerAlertRouterTest do
                previous_worker,
                updated_worker,
                record_event: record_event,
-               broadcast_event: broadcast_event,
                list_active_alerts: list_active_alerts,
                resolve_alert: resolve_alert
              )
@@ -175,8 +160,6 @@ defmodule ServiceRadar.Camera.AnalysisWorkerAlertRouterTest do
       {:ok, Map.put(attrs, :id, attrs.id)}
     end
 
-    broadcast_event = fn _event -> :ok end
-
     create_alert = fn attrs, _actor ->
       send(parent, {:create_alert, attrs})
       {:ok, attrs}
@@ -197,7 +180,6 @@ defmodule ServiceRadar.Camera.AnalysisWorkerAlertRouterTest do
                previous_worker,
                updated_worker,
                record_event: record_event,
-               broadcast_event: broadcast_event,
                create_alert: create_alert,
                list_active_alerts: list_active_alerts,
                resolve_alert: resolve_alert

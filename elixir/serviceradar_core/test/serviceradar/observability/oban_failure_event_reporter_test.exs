@@ -67,4 +67,45 @@ defmodule ServiceRadar.Observability.ObanFailureEventReporterTest do
       assert attrs.log_level == "error"
     end
   end
+
+  describe "reporting a job exception" do
+    defp report(worker) do
+      parent = self()
+
+      job = %Oban.Job{
+        id: 1,
+        queue: "events",
+        worker: worker,
+        attempt: 1,
+        max_attempts: 20,
+        args: %{},
+        meta: %{}
+      }
+
+      state = %{
+        enabled?: true,
+        record_event: fn attrs ->
+          send(parent, {:recorded, attrs})
+          {:ok, attrs}
+        end
+      }
+
+      ObanFailureEventReporter.handle_info(
+        {:oban_job_exception, %{}, %{job: job, kind: :error, reason: :timeout}},
+        state
+      )
+    end
+
+    test "a failed job is recorded as an event" do
+      report("ServiceRadar.Integrations.ArmisNorthboundRunWorker")
+      assert_received {:recorded, %{log_name: "serviceradar.oban"}}
+    end
+
+    # Recording would publish through the NATS whose outage failed the job,
+    # queueing another retry job for every failure.
+    test "a failed JetStream publish retry is not recorded" do
+      report("ServiceRadar.NATS.DurablePublishWorker")
+      refute_received {:recorded, _}
+    end
+  end
 end

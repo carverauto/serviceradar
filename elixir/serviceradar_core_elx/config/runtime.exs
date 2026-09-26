@@ -1030,6 +1030,9 @@ if config_env() == :prod do
       {System.get_env("SERVICERADAR_OBSERVABILITY_RETENTION_CRON") || "17 3 * * *", DataRetentionWorker,
        queue: :maintenance},
       {System.get_env("ALERT_RETENTION_CRON") || "15 * * * *", AlertsRetentionWorker, queue: :maintenance},
+      # Drops evaluated-event ids past the redelivery window. Offset from the
+      # 03:17 observability sweep.
+      {"37 3 * * *", ServiceRadar.Observability.StatefulEvaluationLedgerPruneWorker, queue: :maintenance},
       # Credential broker grants and secret resolution audits had no retention at
       # all: nothing destroys a grant and nothing calls its :expire transition, so
       # they and their paper_trail versions grew unbounded (~1.9 GB / 460k rows
