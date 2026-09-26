@@ -34,6 +34,7 @@ Overrides SHALL carry an expiry no later than the maximum duration the plugin's 
 #### Scenario: Expiry run fails or does not happen
 - **WHEN** the first run after expiry fails, is cancelled, or does not occur because the assignment is paused
 - **THEN** the platform SHALL keep the expired override and deliver it marked expired to the next run of that assignment
+- **AND** a resolving event repeated by that retry SHALL be safe for the receiving plugin to emit, because it carries the override's id and resolving an already-resolved alert is a no-op
 
 #### Scenario: Excessive duration
 - **WHEN** an action result requests an override longer than the descriptor's maximum duration

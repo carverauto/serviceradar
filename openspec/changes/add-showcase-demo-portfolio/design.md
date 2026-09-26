@@ -315,8 +315,12 @@ alerts and the same metric changes.
   fault per kind and target, a per-assignment rate limit, and an "end fault
   early" action that expires the override and emits the resolving event.
   Scheduled faults do not start on a target that already has an injected fault
-  of the same kind, and each pack can turn its schedule off for presenter-only
-  sessions.
+  of the same kind, and an injection is rejected while a scheduled fault of
+  that kind is active on the target (the action evaluates the schedule). Each
+  pack can turn its schedule off for presenter-only sessions. Every fault
+  carries an id in its opening and resolving events, and resolving an alert
+  that is already resolved is a no-op, so a resolving event repeated by an
+  expiry retry is harmless.
 - **Presenter strip.** Each dashboard shows the active incident (linking to the
   real alert), the countdown to the next scheduled fault, and a trigger button
   per declared fault, rendered from the plugin's action descriptors. Users

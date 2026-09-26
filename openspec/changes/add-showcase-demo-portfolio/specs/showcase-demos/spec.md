@@ -67,7 +67,7 @@ While a pack's schedule is enabled, at every instant at least one fault SHALL be
 - **AND** the plugin SHALL emit the resolving event when it expires or is ended early
 
 #### Scenario: Injected fault on a busy target
-- **WHEN** a fault of the same kind is already injected on the target
+- **WHEN** a fault of the same kind is already injected on the target, or a scheduled fault of that kind is active on it
 - **THEN** the injection SHALL be rejected with a distinguishable error
 - **AND** no second opening event SHALL be emitted
 
