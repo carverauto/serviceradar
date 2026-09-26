@@ -27,8 +27,7 @@ defmodule ServiceRadarSRQL.Native do
   Equivalent to `translate/6` with `nil`, so entities that require a trusted
   signal set (`in:otel_services`) are rejected as forbidden.
   """
-  def translate(query, limit, cursor, direction, mode),
-    do: translate(query, limit, cursor, direction, mode, nil)
+  def translate(query, limit, cursor, direction, mode), do: translate(query, limit, cursor, direction, mode, nil)
 
   @doc """
   Translate an SRQL query to SQL and return the result as JSON.
@@ -39,8 +38,7 @@ defmodule ServiceRadarSRQL.Native do
   needs the set and lacks it, or asks for a signal outside it, returns
   `{:error, "forbidden: " <> reason}`.
   """
-  def translate(_query, _limit, _cursor, _direction, _mode, _permitted_signals),
-    do: :erlang.nif_error(:nif_not_loaded)
+  def translate(_query, _limit, _cursor, _direction, _mode, _permitted_signals), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
   Parse an SRQL query and return the AST as JSON.
