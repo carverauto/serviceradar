@@ -64,18 +64,23 @@ in `SourcePolicy.sufficient_to_create?/1`.
 4. IP/alias fallback — only for weak updates
 5. Deterministic (IP-seeded) or random UID
 
-A source-authoritative identifier (`armis_device_id`) decides identity. An
-update carrying one never resolves, through a shared MAC or any other
-identifier, onto a record that holds a different one in the same scope (the
-identifier partition, which carries the sync source), whether that id is
-stored or was claimed earlier in the same batch: that record is not a
-match, the update resolves by its own identifier, and the shared identifier
-stays with its owner as evidence. Each override is recorded as an open
+A source-authoritative identifier (`armis_device_id`, `netbox_device_id`)
+decides identity. An update carrying one never resolves, through a shared MAC
+or any other identifier, onto a record that holds a different one of the same
+type in the same scope (the identifier partition; Armis partitions carry the
+sync source, and a NetBox device id carries its source in the value), whether
+that id is stored or was claimed earlier in the same batch: that record is
+not a match, the update resolves by its own identifier, and the shared
+identifier stays with its owner as evidence. Each override is recorded as a
+`source_override` identity decision naming both records, and as an open
 `source_authoritative_override` source-identity conflict on the incoming
 record, naming the overridden records and the identifiers they share, so it
-can be reviewed. A record holding no source-authoritative identifier is still
-a match: that is how an Armis id attaches to the discovered record of the same
-device.
+can be reviewed. A record holding no source-authoritative identifier of that
+type is still a match: that is how an Armis id attaches to the discovered
+record of the same device, and how the Armis and NetBox records of one device
+converge through a shared MAC. An automatic merge of two records holding
+different values of one type in one scope is refused and recorded as a
+`source_block` decision.
 
 An address follows the device observed at it. When a strong-identified write
 that observed the device at its address (Armis, the passive census,

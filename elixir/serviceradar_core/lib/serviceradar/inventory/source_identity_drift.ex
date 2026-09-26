@@ -8,6 +8,7 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
   """
 
   alias ServiceRadar.Inventory.Identity.Ids
+  alias ServiceRadar.Inventory.Identity.SourceAuthorityGuard
   alias ServiceRadar.Inventory.IntegrationIdentity
   alias ServiceRadar.Repo
 
@@ -293,6 +294,14 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
 
   def build_active_ip_conflict(_record, _existing_device_uid, _ip, _opts), do: nil
 
+  @doc """
+  The `source_type` a conflict about a source-authoritative identifier type is filed under.
+  """
+  @spec source_type_for(atom() | nil) :: String.t()
+  def source_type_for(:armis_device_id), do: "armis"
+  def source_type_for(:netbox_device_id), do: "netbox"
+  def source_type_for(_identifier_type), do: "unknown"
+
   defp active_ip_conflict_action(:drop_ip), do: "preserve_source_identity_drop_conflicting_ip"
   defp active_ip_conflict_action(:release_holder), do: "preserve_source_identity_release_stale_ip"
 
@@ -311,16 +320,19 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
   """
   def build_source_override_conflict(%{update: update, ids: ids} = override) do
     metadata = Map.get(update, :metadata) || %{}
-    source_value = Ids.ids_get(ids, :armis_id)
+
+    # The update's highest-priority source-authoritative identifier keys the conflict.
+    {source_identifier_type, source_value} =
+      ids |> SourceAuthorityGuard.update_source_ids() |> List.first({nil, nil})
+
     device_uid = override.device_uid
     overridden = Enum.sort_by(override.overridden, & &1.device_uid)
     overridden_uids = overridden |> Enum.map(& &1.device_uid) |> Enum.uniq()
 
     conflict = %{
-      # The only source-authoritative identifier type governed today is Armis's.
-      source_type: "armis",
+      source_type: source_type_for(source_identifier_type),
       source_id: normalize_string(metadata["sync_service_id"]),
-      source_identifier_type: "armis_device_id",
+      source_identifier_type: stringify(source_identifier_type),
       source_identifier_value: source_value,
       device_uid: device_uid,
       current_ip: normalize_string(Ids.ids_get(ids, :ip)),

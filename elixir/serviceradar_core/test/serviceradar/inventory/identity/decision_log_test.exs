@@ -137,6 +137,26 @@ defmodule ServiceRadar.Inventory.Identity.DecisionLogTest do
       assert map_size(decision.evidence["source_ids"]) == 2
     end
 
+    test "different NetBox ids refuse the merge and record a source block", %{actor: actor} do
+      a = create_device!(actor)
+      b = create_device!(actor)
+      register!(actor, a.uid, :netbox_device_id, "decision-log-netbox:#{unique()}")
+      register!(actor, b.uid, :netbox_device_id, "decision-log-netbox:#{unique()}")
+
+      assert {:error, {:merge_blocked, :source_authority_conflict}} =
+               MergeEngine.merge_devices(a.uid, b.uid,
+                 actor: actor,
+                 reason: "identifier_conflict"
+               )
+
+      assert {:ok, %Device{deleted_at: nil}} = Device.get_by_uid(a.uid, true, actor: actor)
+      assert [decision] = decisions_for(actor, a.uid)
+      assert decision.decision_kind == :source_block
+      assert decision.device_uids == Enum.sort([a.uid, b.uid])
+      assert decision.evidence["identifier_type"] == "netbox_device_id"
+      assert map_size(decision.evidence["source_ids"]) == 2
+    end
+
     test "an administrative merge is not a decision to record", %{actor: actor} do
       a = create_device!(actor)
       b = create_device!(actor)
