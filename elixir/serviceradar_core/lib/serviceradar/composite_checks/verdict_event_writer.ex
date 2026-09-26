@@ -2,21 +2,17 @@ defmodule ServiceRadar.CompositeChecks.VerdictEventWriter do
   @moduledoc """
   Records an OCSF event when a device's composite check verdict changes.
 
-  Verdicts are derived state, not metrics, so they follow the core-originated
-  OCSF event path — a system-actor `Ash.create/3` into `ocsf_events` — rather
-  than JetStream. The JetStream-first rule in AGENTS.md governs metric
-  ingestion; see `ServiceRadar.Credentials.CredentialEventWriter` for the same
-  pattern on control-plane lifecycle events.
+  The event is published through `ServiceRadar.Events.OcsfEventPublisher`, the
+  one path for core-produced events: JetStream, then EventWriter stores it in
+  the active telemetry backend and applies stateful rules.
 
-  Event write failures are logged and swallowed. The verdict has already been
+  Event publish failures are logged and swallowed. The verdict has already been
   persisted by the time this runs, and failing the pass over a missing audit row
   would discard correct results.
   """
 
-  alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Analytics.StarRocks.Destination
+  alias ServiceRadar.Events.OcsfEventPublisher
   alias ServiceRadar.EventWriter.OCSF
-  alias ServiceRadar.Monitoring.OcsfEvent
 
   require Logger
 
@@ -33,13 +29,11 @@ defmodule ServiceRadar.CompositeChecks.VerdictEventWriter do
   defp write_transition(check, transition) do
     attrs = event_attrs(check, transition)
 
-    case Ash.create(OcsfEvent, attrs,
-           action: :record,
-           actor: SystemActor.system(:composite_check_verdict_writer),
-           domain: ServiceRadar.Monitoring
-         ) do
-      {:ok, event} ->
-        _ = Destination.persist_after_cnpg(:events, [event])
+    case OcsfEventPublisher.publish(attrs, family: :composite_check) do
+      {:ok, _event} ->
+        :ok
+
+      {:error, :suppressed} ->
         :ok
 
       {:error, error} ->

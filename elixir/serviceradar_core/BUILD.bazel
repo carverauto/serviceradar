@@ -111,6 +111,8 @@ INTEGRATION_RUNTIME_DATA = glob(
 INTEGRATION_SELECTION_DATA = glob(
     [
         "config/**",
+        # test/credo/ loads the custom Credo checks it tests.
+        "credo/**",
         "lib/**",
         "priv/**",
         "test/**",
@@ -442,6 +444,8 @@ ex_unit_tests(
     # priv/repo/migrations to assert on it, and test/support carries fixtures.
     data = glob(
         [
+            # The custom Credo checks, which test/credo/ loads and runs.
+            "credo/**",
             "lib/**",
             "priv/**",
             "test/**",

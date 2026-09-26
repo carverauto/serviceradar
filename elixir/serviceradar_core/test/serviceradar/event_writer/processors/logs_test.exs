@@ -641,4 +641,53 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
       assert Enum.map(prepared_rows, & &1.body) == ["one", "two"]
     end
   end
+
+  describe "row ids across redelivery" do
+    @log Jason.encode!(%{
+           "timestamp" => "2026-01-15T10:30:00Z",
+           "severity_text" => "INFO",
+           "body" => "gateway state changed",
+           "service_name" => "serviceradar.core"
+         })
+
+    defp delivered(sequence, delivery_count) do
+      %{
+        data: @log,
+        metadata: %{
+          subject: "logs.internal.health",
+          headers: [],
+          jetstream_ack: %{
+            stream: "events",
+            stream_sequence: sequence,
+            delivery_count: delivery_count
+          }
+        }
+      }
+    end
+
+    # A batch that failed after inserting is redelivered; the same ids make the
+    # insert conflict instead of storing and promoting the log a second time.
+    test "a redelivered message parses to the ids it had on first delivery" do
+      assert Logs.parse_message(delivered(42, 1)).id == Logs.parse_message(delivered(42, 2)).id
+    end
+
+    test "different messages get different ids" do
+      refute Logs.parse_message(delivered(42, 1)).id == Logs.parse_message(delivered(43, 1)).id
+    end
+
+    test "a producer's Nats-Msg-Id identifies the message" do
+      message = put_in(delivered(42, 1), [:metadata, :headers], [{"Nats-Msg-Id", "log-alpha"}])
+
+      other_position =
+        put_in(delivered(99, 1), [:metadata, :headers], [{"Nats-Msg-Id", "log-alpha"}])
+
+      assert Logs.parse_message(message).id == Logs.parse_message(other_position).id
+    end
+
+    test "a message with no JetStream identity keeps generated ids" do
+      message = %{data: @log, metadata: %{subject: "logs.app"}}
+
+      refute Logs.parse_message(message).id == Logs.parse_message(message).id
+    end
+  end
 end

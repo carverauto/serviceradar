@@ -18,13 +18,9 @@ defmodule ServiceRadar.Camera.RelayHealthEventRouterTest do
                  stage: "record_chunk",
                  viewer_count: 2
                },
-               record_event: fn attrs, _actor ->
+               publish_event: fn attrs ->
                  send(test_pid, {:record_event, attrs})
-                 {:ok, Map.put(attrs, :persisted, true)}
-               end,
-               broadcast_event: fn event ->
-                 send(test_pid, {:broadcast_event, event})
-                 :ok
+                 {:ok, attrs}
                end
              )
 
@@ -36,9 +32,6 @@ defmodule ServiceRadar.Camera.RelayHealthEventRouterTest do
     assert attrs.metadata["relay_session_id"] == "relay-1"
     assert attrs.metadata["gateway_id"] == "gateway-1"
     assert attrs.metadata["viewer_count"] == 2
-
-    assert_receive {:broadcast_event, event}
-    assert event.persisted == true
   end
 
   test "records a structured gateway saturation denial event" do
@@ -54,13 +47,9 @@ defmodule ServiceRadar.Camera.RelayHealthEventRouterTest do
                  limit_kind: "gateway",
                  limit: 32
                },
-               record_event: fn attrs, _actor ->
+               publish_event: fn attrs ->
                  send(test_pid, {:record_event, attrs})
                  {:ok, attrs}
-               end,
-               broadcast_event: fn event ->
-                 send(test_pid, {:broadcast_event, event})
-                 :ok
                end
              )
 
@@ -70,9 +59,6 @@ defmodule ServiceRadar.Camera.RelayHealthEventRouterTest do
     assert attrs.metadata["limit_kind"] == "gateway"
     assert attrs.metadata["limit"] == 32
     assert attrs.message =~ "gateway-2"
-
-    assert_receive {:broadcast_event, event}
-    assert event.log_name == RelayHealthEventRouter.gateway_saturation_log_name()
   end
 
   test "records a structured viewer idle termination event" do
@@ -88,13 +74,9 @@ defmodule ServiceRadar.Camera.RelayHealthEventRouterTest do
                  close_reason: "viewer idle timeout",
                  termination_kind: "viewer_idle"
                },
-               record_event: fn attrs, _actor ->
+               publish_event: fn attrs ->
                  send(test_pid, {:record_event, attrs})
                  {:ok, attrs}
-               end,
-               broadcast_event: fn event ->
-                 send(test_pid, {:broadcast_event, event})
-                 :ok
                end
              )
 
@@ -104,8 +86,5 @@ defmodule ServiceRadar.Camera.RelayHealthEventRouterTest do
     assert attrs.metadata["relay_health_kind"] == "viewer_idle_termination"
     assert attrs.metadata["termination_kind"] == "viewer_idle"
     assert attrs.status_detail == "viewer idle timeout"
-
-    assert_receive {:broadcast_event, event}
-    assert event.log_name == RelayHealthEventRouter.viewer_idle_log_name()
   end
 end

@@ -11,7 +11,8 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
   alias ServiceRadar.Events.PubSub, as: EventsPubSub
   alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.FieldParser
-  alias ServiceRadar.Observability.StatefulAlertEngine
+  alias ServiceRadar.EventWriter.StableId
+  alias ServiceRadar.Observability.StatefulEvaluationLedger
 
   require Logger
 
@@ -94,12 +95,16 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
         returning: false
       )
 
-    maybe_evaluate_stateful_rules(rows)
-    EventsPubSub.broadcast_event(%{count: count})
+    if count > 0, do: EventsPubSub.broadcast_event(%{count: count})
 
-    case ServiceRadar.Analytics.StarRocks.Destination.persist_after_cnpg(:events, rows) do
-      {:ok, _} -> {:ok, count}
-      {:error, reason} -> {:error, reason}
+    # Stateful evaluation runs once per event (the ledger), synchronously, and
+    # a failure fails the batch so JetStream redelivers it. The insert and the
+    # warehouse load are idempotent on the event id, so the redelivery repeats
+    # only what did not finish.
+    with {:ok, _} <-
+           ServiceRadar.Analytics.StarRocks.Destination.persist_after_cnpg(:events, rows),
+         :ok <- StatefulEvaluationLedger.evaluate_once(rows) do
+      {:ok, count}
     end
   end
 
@@ -140,12 +145,14 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
           device: jsonb_or_empty_map(json["device"]),
           src_endpoint: jsonb_or_empty_map(json["src_endpoint"]),
           dst_endpoint: jsonb_or_empty_map(json["dst_endpoint"]),
-          log_name: parse_string_or(json["log_name"], metadata[:subject]),
+          # An absent key means the producer left the field to EventWriter; an
+          # explicit null (core's publisher sends every field) is stored as null.
+          log_name: default_when_absent(json, "log_name", metadata[:subject]),
           log_provider: parse_string(json["log_provider"]),
           log_level: parse_string(json["log_level"]),
           log_version: parse_string(json["log_version"]),
           unmapped: jsonb_or_empty_map(json["unmapped"]),
-          raw_data: parse_string_or(json["raw_data"], raw_data),
+          raw_data: default_when_absent(json, "raw_data", raw_data),
           created_at: DateTime.utc_now()
         }
 
@@ -186,20 +193,17 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
   # de-duplication stays deterministic, instead of losing the whole batch.
   defp coerce_event_id(id) do
     case Ecto.UUID.dump(id) do
-      {:ok, dumped} ->
-        dumped
-
-      :error ->
-        <<u0::48, _::4, u1::12, _::2, u2::62, _rest::bitstring>> =
-          :crypto.hash(:sha256, to_string(id))
-
-        <<u0::48, 5::4, u1::12, 2::2, u2::62>>
+      {:ok, dumped} -> dumped
+      :error -> StableId.uuid(to_string(id))
     end
   end
 
   defp jsonb_or_empty_map(value), do: FieldParser.encode_jsonb(value) || %{}
   defp jsonb_or_empty_list(value), do: FieldParser.encode_jsonb(value) || []
-  defp parse_string_or(value, fallback), do: parse_string(value) || fallback
+
+  defp default_when_absent(json, key, default) do
+    if Map.has_key?(json, key), do: parse_string(json[key]), else: default
+  end
 
   defp fetch_required_string(json, key) do
     case parse_string(json[key]) do
@@ -241,17 +245,4 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
   defp severity_name(5), do: "Critical"
   defp severity_name(6), do: "Fatal"
   defp severity_name(_), do: "Unknown"
-
-  defp maybe_evaluate_stateful_rules([]), do: :ok
-
-  defp maybe_evaluate_stateful_rules(rows) do
-    case StatefulAlertEngine.evaluate_events(rows) do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning("Stateful alert evaluation failed: #{inspect(reason)}")
-        :ok
-    end
-  end
 end

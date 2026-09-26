@@ -22,8 +22,10 @@ extra_checks = ex_slop_checks ++ ex_dna_checks ++ jump_checks
       plugins: [{AshCredo, []}],
       requires: [
         "deps/ex_dna/lib/ex_dna/integrations/credo.ex",
-        # Shared with serviceradar_core, which owns the check; web-ng defines Oban workers too.
-        "../serviceradar_core/credo/check/warning/oban_worker_name_comparison.ex"
+        # Shared with serviceradar_core, which owns the checks; web-ng defines Oban workers too,
+        # and must not write events or logs around JetStream either.
+        "../serviceradar_core/credo/check/warning/oban_worker_name_comparison.ex",
+        "../serviceradar_core/credo/check/warning/direct_telemetry_write.ex"
       ],
       strict: false,
       parse_timeout: 5000,
@@ -33,6 +35,7 @@ extra_checks = ex_slop_checks ++ ex_dna_checks ++ jump_checks
         enabled: [
           # Custom checks
           {ServiceRadar.Credo.Check.Warning.ObanWorkerNameComparison, []},
+          {ServiceRadar.Credo.Check.Warning.DirectTelemetryWrite, []},
 
           # Consistency Checks
           {Credo.Check.Consistency.ExceptionNames, []},

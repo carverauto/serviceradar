@@ -6,7 +6,7 @@ defmodule ServiceRadar.Camera.EventIngestorTest do
   test "records correlated camera ocsf events with source and stream profile metadata" do
     parent = self()
 
-    record_event = fn attrs, _actor ->
+    publish_event = fn attrs ->
       send(parent, {:record_event, attrs})
       {:ok, attrs}
     end
@@ -87,7 +87,7 @@ defmodule ServiceRadar.Camera.EventIngestorTest do
              EventIngestor.ingest(
                payload,
                %{agent_id: "agent-camera-1", gateway_id: "gateway-camera-1"},
-               record_event: record_event,
+               publish_event: publish_event,
                load_source: load_source
              )
 
@@ -115,7 +115,7 @@ defmodule ServiceRadar.Camera.EventIngestorTest do
   test "correlates events using camera descriptors derived from generic device enrichment" do
     parent = self()
 
-    record_event = fn attrs, _actor ->
+    publish_event = fn attrs ->
       send(parent, {:record_event, attrs})
       {:ok, attrs}
     end
@@ -194,7 +194,7 @@ defmodule ServiceRadar.Camera.EventIngestorTest do
              EventIngestor.ingest(
                payload,
                %{agent_id: "agent-camera-42", gateway_id: "gateway-camera-42"},
-               record_event: record_event,
+               publish_event: publish_event,
                load_source: load_source
              )
 

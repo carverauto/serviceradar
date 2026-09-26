@@ -7,14 +7,9 @@ defmodule ServiceRadar.Camera.AnalysisResultIngestorTest do
   test "normalizes worker detections into OCSF event attrs with relay provenance" do
     parent = self()
 
-    record_event = fn attrs, _actor ->
+    publish_event = fn attrs ->
       send(parent, {:record_event, attrs})
       {:ok, attrs}
-    end
-
-    broadcast_event = fn event ->
-      send(parent, {:broadcast_event, event})
-      :ok
     end
 
     observed_at = DateTime.from_naive!(~N[2026-03-24 10:42:00.123456], "Etc/UTC")
@@ -44,8 +39,7 @@ defmodule ServiceRadar.Camera.AnalysisResultIngestorTest do
     assert :ok =
              AnalysisResultIngestor.ingest(
                result,
-               record_event: record_event,
-               broadcast_event: broadcast_event
+               publish_event: publish_event
              )
 
     assert_receive {:record_event, attrs}
@@ -63,8 +57,5 @@ defmodule ServiceRadar.Camera.AnalysisResultIngestorTest do
     assert attrs.log_provider == "object-detector-1"
     assert attrs.unmapped["detection"]["label"] == "person"
     assert Enum.any?(attrs.observables, &(&1["value"] == "relay-analysis-1"))
-
-    assert_receive {:broadcast_event, broadcast_event_attrs}
-    assert broadcast_event_attrs.metadata["analysis_worker_id"] == "object-detector-1"
   end
 end
