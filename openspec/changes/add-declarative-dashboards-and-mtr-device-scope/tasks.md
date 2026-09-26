@@ -189,8 +189,15 @@ the third consumer, so it moves once rather than being copied a third time.
       iterating TRACE_GROUP_BY_FIELDS).  StarRocks guard extended with three
       device_id/reach-rate query vectors in
       `mtr_entities_are_refused_by_the_warehouse_dialect`.
-- [ ] 8.5 Backfill: resumable after interruption, idempotent on a second run, and
+- [x] 8.5 Backfill: resumable after interruption, idempotent on a second run, and
       correct for a hop whose trace has no `device_id`.
+      Five tests in `test/serviceradar/observability/mtr_hop_attribution_backfill_db_test.exs`
+      (async DataCase, `transaction_owner`): attributes target_ip and device_id from
+      trace; idempotent (second full run: rows_updated=0); skips already-attributed rows
+      (simulates resuming after a partial run); hop with nil device_id on trace gets
+      target_ip set but device_id=nil; orphan hop (no matching trace) counted in
+      rows_unrecoverable, not retried. Registered in INTEGRATION_SOURCE_DISPOSITIONS.tsv
+      and ASYNC_INTEGRATION_SRCS.
 - [x] 8.6 A test asserting no shipped definition aggregates loss across all hop
       positions without a qualifying title, so the misleading panel cannot return.
 
