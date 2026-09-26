@@ -104,5 +104,8 @@
   level mapping moves to `EventWriter.LogSeverity`), its Helm value, env vars and
   cluster-health entry; EventWriter deletes the leftover `log-promotion` durable after its
   consumers are ready.
+- [x] 5.5 Trivy replaces its event by id in the warehouse (decision 9): `Destination`
+  `replace:` deletes before the load, under the Trivy advisory lock; StarRocks migration 0020
+  removes existing duplicates. Demo lists `events` in `cutoverDatasets`.
 - [ ] 5.3 Verify on a deployment, after the rollout completes: every internal event family
   appears in both CNPG and StarRocks for the same window, with equal counts per `log_name`.
