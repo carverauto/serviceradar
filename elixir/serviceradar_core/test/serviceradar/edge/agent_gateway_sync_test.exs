@@ -470,7 +470,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       assert identifier.device_id == current_uid
     end
 
-    test "releases conflicting active IP from a different agent-owned device instead of adopting it",
+    test "a new agent does not take an address held by a different agent",
          %{
            unique_id: unique_id,
            actor: actor
@@ -507,19 +507,17 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       {:ok, current_device} = Device.get_by_uid(current_uid, false, actor: actor)
       {:ok, current_agent} = Agent.get_by_uid(current_agent_id, actor: actor)
 
-      assert is_nil(stale_owner_device.ip)
+      assert stale_owner_device.ip == conflict_ip
       assert stale_owner_device.agent_id == stale_owner_agent_id
-      assert stale_owner_device.metadata["released_conflicting_active_ip"] == conflict_ip
-      assert current_device.ip == conflict_ip
+      refute get_in(stale_owner_device.metadata || %{}, ["released_conflicting_active_ip"])
+      assert is_nil(current_device.ip)
       assert current_device.agent_id == current_agent_id
       assert current_agent.device_uid == current_uid
     end
 
-    # #4664: a check-in on an existing agent device at an address another agent's device
-    # holds. The update path used to release the holder's address and then crash creating a
-    # second device (MatchError: its context has no device uid). The address follows the
-    # newer observation (#4639): a holder last seen before the check-in releases it.
-    test "an existing agent check-in takes an address from a stale holder and records it",
+    # Another agent's device keeps its address even when this check-in is newer.
+    # Otherwise two agents behind one NAT address swap it on every reconnect.
+    test "an existing agent check-in does not take an address held by another agent",
          %{actor: actor} do
       uniq = System.unique_integer([:positive, :monotonic])
       moving_agent_id = "agent-moving-#{uniq}"
@@ -543,9 +541,9 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       {:ok, moving_device} = Device.get_by_uid(moving_uid, false, actor: actor)
       {:ok, holder_device} = Device.get_by_uid(holder_uid, false, actor: actor)
 
-      assert moving_device.ip == held_ip
+      assert moving_device.ip == original_ip
       assert moving_device.agent_id == moving_agent_id
-      assert is_nil(holder_device.ip)
+      assert holder_device.ip == held_ip
       assert is_nil(holder_device.deleted_at)
       assert holder_device.agent_id == holder_agent_id
 
@@ -553,7 +551,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
         moving_uid,
         holder_uid,
         held_ip,
-        "preserve_source_identity_release_stale_ip",
+        "preserve_source_identity_drop_conflicting_ip",
         actor
       )
     end
@@ -595,6 +593,40 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
         "preserve_source_identity_drop_conflicting_ip",
         actor
       )
+    end
+
+    test "a new agent does not release an address held in another partition", %{actor: actor} do
+      uniq = System.unique_integer([:positive, :monotonic])
+      holder_agent_id = "agent-other-partition-#{uniq}"
+      agent_id = "agent-this-partition-#{uniq}"
+      shared_ip = unique_test_ip(uniq, 0)
+
+      assert {:ok, holder_uid} =
+               AgentGatewaySync.ensure_device_for_agent(holder_agent_id, %{
+                 hostname: "other-partition-#{uniq}",
+                 source_ip: shared_ip,
+                 partition: "site-b",
+                 capabilities: ["sysmon"]
+               })
+
+      assert {:ok, agent_uid} =
+               AgentGatewaySync.ensure_device_for_agent(agent_id, %{
+                 hostname: "this-partition-#{uniq}",
+                 source_ip: shared_ip,
+                 partition: "default",
+                 capabilities: ["sysmon"]
+               })
+
+      refute agent_uid == holder_uid
+
+      {:ok, holder_device} = Device.get_by_uid(holder_uid, false, actor: actor)
+      {:ok, agent_device} = Device.get_by_uid(agent_uid, false, actor: actor)
+
+      assert holder_device.partition == "site-b"
+      assert holder_device.ip == shared_ip
+      assert agent_device.partition == "default"
+      assert agent_device.ip == shared_ip
+      refute get_in(holder_device.metadata || %{}, ["released_conflicting_active_ip"])
     end
 
     # #4664: address evidence never decides identity. A new agent enrolling at an address an
