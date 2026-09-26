@@ -400,7 +400,9 @@ Work this adds:
   alert engine through the pack's event-signal rules, matching on label and
   confidence only, so the drone incident flow includes a real detection. A
   detection is an image-space box and is not geolocated, so no rule joins it
-  against drone position or geofence polygons.
+  against drone position or geofence polygons. The alert resolves
+  after a configured quiet window with no matching detection, so detection
+  alerts close without operator action.
 - **Bounded cost.** Analysis runs only while a relay session is active and at
   the bounded sample rate the camera-streaming spec already requires; the
   demo caps the number of concurrently analysed streams.

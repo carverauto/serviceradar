@@ -158,6 +158,10 @@ Detections SHALL come from inference on the video, never from painted or scripte
 - **THEN** the drone's camera tile SHALL draw the detection box on the frame it came from
 - **AND** an alert SHALL open through the demo's event-signal rules
 
+#### Scenario: Detections stop
+- **WHEN** no matching detection arrives for the configured quiet window
+- **THEN** the alert SHALL resolve without operator action
+
 #### Scenario: No viewers
 - **WHEN** no relay session is active for a drone camera
 - **THEN** no analysis SHALL run for that camera
