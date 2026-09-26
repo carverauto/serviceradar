@@ -19,6 +19,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDepth do
     cond do
       trace["target_reached"] == true -> "Reached in #{total} #{hops_word(total)}"
       legacy?(trace) -> "Not reached (#{total} #{hops_word(total)} recorded)"
+      incomplete?(trace) -> "Stopped at hop #{last} while hops were still answering"
       last > 0 -> "No reply past hop #{last} (#{probed} probed)"
       probed > 0 -> "No replies (#{probed} probed)"
       true -> "No probes recorded"
@@ -26,6 +27,21 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDepth do
   end
 
   def depth_summary(_trace), do: "No probes recorded"
+
+  @doc """
+  True when an unreached trace stopped while its deepest probed hop was still
+  answering. Probing ended on the hop limit or time budget, not at a silent
+  path, so the trace says nothing about whether the target is reachable.
+  """
+  @spec incomplete?(map()) :: boolean()
+  def incomplete?(trace) when is_map(trace) do
+    last = last_responding_hop(trace)
+
+    trace["target_reached"] != true and not legacy?(trace) and last > 0 and
+      last >= probed_hops(trace)
+  end
+
+  def incomplete?(_trace), do: false
 
   @doc "Compact hop count for tables: the path length, or `last/probed` when unreached."
   @spec hop_count_label(map()) :: String.t()

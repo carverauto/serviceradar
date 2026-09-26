@@ -264,7 +264,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
                 <.ui_badge :if={trace["target_reached"]} size="sm" variant="success">
                   Reached
                 </.ui_badge>
-                <.ui_badge :if={!trace["target_reached"]} size="sm" variant="error">
+                <.ui_badge
+                  :if={!trace["target_reached"] and MtrDepth.incomplete?(trace)}
+                  size="sm"
+                  variant="warning"
+                  title={MtrDepth.depth_summary(trace)}
+                >
+                  Incomplete
+                </.ui_badge>
+                <.ui_badge
+                  :if={!trace["target_reached"] and !MtrDepth.incomplete?(trace)}
+                  size="sm"
+                  variant="error"
+                >
                   Unreachable
                 </.ui_badge>
               </td>

@@ -31,6 +31,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.Helpers do
 
     cond do
       reached? -> "Reached"
+      MtrDepth.incomplete?(trace) -> "Incomplete"
       protocol == "tcp" and is_integer(total_hops) and total_hops > 0 -> "No Terminal Reply"
       true -> "Unreachable"
     end
@@ -42,6 +43,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.Helpers do
     case trace_status_label(trace) do
       "Reached" -> "success"
       "No Terminal Reply" -> "warning"
+      "Incomplete" -> "warning"
       _ -> "error"
     end
   end

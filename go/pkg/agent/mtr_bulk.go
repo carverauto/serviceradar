@@ -21,8 +21,6 @@ const (
 	balancedBulkMtrTimeout     = 2500 * time.Millisecond
 	fastBulkRingBufferSize     = 32
 	balancedBulkRingBufferSize = 64
-	fastBulkMaxHops            = 16
-	balancedBulkMaxHops        = 24
 	bulkMtrProgressBatchSize   = 16
 	bulkMtrProgressInterval    = 200 * time.Millisecond
 	bulkMtrAdaptiveWindowSize  = 32
@@ -579,9 +577,13 @@ func applyBulkExecutionProfile(opts *mtr.Options, profile string) {
 		return
 	}
 
+	// Every profile probes to the full default depth. A profile trades probe
+	// count and timeouts for speed, never path depth: a shallower ceiling cut
+	// internet paths short and recorded a reachable target as unreachable.
+	opts.MaxHops = mtr.DefaultMaxHops
+
 	switch normalizeBulkExecutionProfile(profile) {
 	case bulkMtrProfileBalanced:
-		opts.MaxHops = balancedBulkMaxHops
 		opts.ProbesPerHop = 5
 		opts.ProbeInterval = 50 * time.Millisecond
 		opts.Timeout = balancedBulkMtrTimeout
@@ -589,7 +591,6 @@ func applyBulkExecutionProfile(opts *mtr.Options, profile string) {
 		opts.MaxUnknownHops = 7
 		opts.RingBufferSize = balancedBulkRingBufferSize
 	case bulkMtrProfileDeep:
-		opts.MaxHops = mtr.DefaultMaxHops
 		opts.ProbesPerHop = mtr.DefaultProbesPerHop
 		opts.ProbeInterval = time.Duration(mtr.DefaultProbeIntervalMs) * time.Millisecond
 		opts.Timeout = mtr.DefaultTimeout
@@ -597,7 +598,6 @@ func applyBulkExecutionProfile(opts *mtr.Options, profile string) {
 		opts.MaxUnknownHops = mtr.DefaultMaxUnknownHops
 		opts.RingBufferSize = mtr.DefaultRingBufferSize
 	default:
-		opts.MaxHops = fastBulkMaxHops
 		opts.ProbesPerHop = 3
 		opts.ProbeInterval = 25 * time.Millisecond
 		opts.Timeout = fastBulkMtrTimeout
