@@ -121,8 +121,8 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
         held = SourceAuthorityGuard.held_source_ids([device_id], actor)
 
         if SourceAuthorityGuard.source_mismatch?(ids, device_id, held),
-           do: {:refuse, SourceAuthorityGuard.scoped_source_ids(held, device_id, ids)},
-           else: :accept
+          do: {:refuse, SourceAuthorityGuard.scoped_source_ids(held, device_id, ids)},
+          else: :accept
       end
     end
   end
