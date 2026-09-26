@@ -147,9 +147,11 @@ renders the byte-exact `max_file_store`. Installs that override
 `maxFileStore` below the derived value, or raise datasvc sizes, get an
 itemised render failure and adjust values.
 
-## Open Questions
+## Resolved Questions
 
-1. Hard fail by default (proposed) or opt-in strict mode?
-2. Is 2 GiB enough for `OBJ_serviceradar_plugins` with the largest first-party
-   Wasm and native add-on bundles, or should it be 4 GiB (+2 GiB R3)?
-3. Should the 15% margin be a value (`nats.jetstream.budgetHeadroomPercent`)?
+1. Over budget: the render fails by default, with
+   `nats.jetstream.allowOvercommit: true` as the opt-out.
+2. `OBJ_serviceradar_plugins` defaults to 2 GiB R3. Implementation checks
+   this against the largest first-party Wasm and native add-on bundles.
+3. The 15% margin is fixed, not a value; `allowOvercommit` covers operators
+   who want to run hotter.
