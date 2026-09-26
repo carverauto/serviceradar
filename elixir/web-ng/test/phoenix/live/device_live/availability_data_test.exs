@@ -122,6 +122,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityDataTest do
     assert List.last(result.segments).status == :offline
   end
 
+  test "a swept host that answers TCP but not ICMP reads as online" do
+    respond_with([rows([]), rows([point("1999-06-16T01:00:00Z", 1)])])
+
+    assert %{online_checks: 1, offline_checks: 0, uptime_pct: 100.0} = load()
+    assert_receive {:query, _dedicated, _}
+    assert_receive {:query, sweep, _}
+    assert sweep =~ "metric_name:sweep.host.available"
+    refute sweep =~ "icmp_available"
+  end
+
   test "no authoritative observations means unknown coverage without a success percentage" do
     respond_with([rows([]), rows([])])
     result = load(now: ~U[1999-06-16 12:00:00Z])
