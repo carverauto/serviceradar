@@ -41,6 +41,11 @@ the core-elx runtime config.
 {{- if and (eq $natsStorageClass "") (not $allowInsecureStorage) -}}
   {{- fail "nats.persistence.storageClassName or global.storage.encryptedStorageClassName is required unless global.storage.allowInsecureStorage=true" -}}
 {{- end -}}
+{{- /* JetStream storage budget: max_file_store in exact bytes from the sizing profile
+     or nats.jetstream.maxFileStore, and the render-time reservation and disk checks
+     (serviceradar.jetstreamBudget in _helpers.tpl). */ -}}
+{{- $jsBudget := include "serviceradar.jetstreamBudget" . | fromJson -}}
+{{- include "serviceradar.validateJetStreamBudget" (list . $jsBudget) -}}
 ---
 apiVersion: v1
 kind: Service
@@ -126,7 +131,7 @@ spec:
           jetstream {
             store_dir: /data/jetstream
             max_memory_store: {{ default "1G" $jetstream.maxMemoryStore }}
-            max_file_store: {{ default "10G" $jetstream.maxFileStore }}
+            max_file_store: {{ $jsBudget.maxFileStore }}
           }
 
           tls {

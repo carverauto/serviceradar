@@ -603,6 +603,11 @@ spec:
           value: {{ default 3600 $webNgNativeAddonImport.syncIntervalSeconds | quote }}
         - name: SERVICERADAR_NATIVE_ADDON_AUTO_APPROVE_IDS
           value: {{ join "," (default (list) $webNgNativeAddonImport.autoApproveAddonIds) | quote }}
+        {{- /* JetStream reservations the chart budget counted (serviceradar.jetstreamBudget)
+             for the object stores web-ng creates. */}}
+        {{- $webNgJs := (include "serviceradar.jetstreamBudget" . | fromJson).sizes }}
+        - name: FIELD_SURVEY_JS_MAX_BUCKET_BYTES
+          value: {{ $webNgJs.fieldsurvey.maxBytes | quote }}
         {{- if $pluginStorage.enabled }}
         - name: PLUGIN_STORAGE_BACKEND
           value: {{ $pluginStorageBackend | quote }}
@@ -618,6 +623,8 @@ spec:
         - name: PLUGIN_STORAGE_JS_REPLICAS
           value: {{ $pluginStorage.jetstreamReplicas | quote }}
         {{- end }}
+        - name: PLUGIN_STORAGE_JS_MAX_BUCKET_BYTES
+          value: {{ $webNgJs.plugins.maxBytes | quote }}
         - name: PLUGIN_STORAGE_SIGNING_SECRET
           valueFrom:
             secretKeyRef:

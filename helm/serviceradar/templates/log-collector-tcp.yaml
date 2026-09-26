@@ -147,6 +147,14 @@ spec:
 {{ include "serviceradar.kvEnv" . | indent 8 }}
         - name: CONFIG_PATH
           value: "/etc/serviceradar/log-collector.toml"
+        {{- /* The events stream's owner values (logCollector.*), as budgeted by
+             serviceradar.jetstreamBudget, so every log collector that can create
+             the shared stream is given the same reservation. */}}
+        {{- $eventsJs := (include "serviceradar.jetstreamBudget" . | fromJson).sizes.events }}
+        - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $eventsJs.stream "suffix" "MAX_BYTES") }}
+          value: {{ $eventsJs.maxBytes | quote }}
+        - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $eventsJs.stream "suffix" "REPLICAS") }}
+          value: {{ $eventsJs.replicas | quote }}
         - name: RUST_LOG
           value: "info"
         {{- include "serviceradar.configSyncEnv" (dict "cfg" (default (dict) .Values.configSync.logCollector)) | nindent 8 }}

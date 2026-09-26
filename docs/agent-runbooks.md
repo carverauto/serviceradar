@@ -7,6 +7,13 @@ sequences. This page is intentionally NOT part of the published Docusaurus
 site under `docs/docs/` -- it is operator/agent tooling, not product
 documentation.
 
+Related runbooks in this directory:
+
+- [NATS JetStream sizing profiles](nats-jetstream-profile-runbook.md): the
+  chart's render-time JetStream budget, moving a live install to a larger
+  `nats.jetstream.profile` (PVC expansion), and reclaiming a collector-owned
+  stream for EventWriter.
+
 ## Demo Namespace Helm Refresh
 
 - Build and push release artifacts: `make build` then `make push_all`.

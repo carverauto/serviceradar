@@ -41,6 +41,13 @@ spec:
         env:
         - name: RUST_LOG
           value: "info"
+        {{- /* The bootstrap creates the flows stream, so it is given the same
+             budgeted reservation as the Deployment. */}}
+        {{- $flowsJs := (include "serviceradar.jetstreamBudget" . | fromJson).sizes.flows }}
+        - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $flowsJs.stream "suffix" "MAX_BYTES") }}
+          value: {{ $flowsJs.maxBytes | quote }}
+        - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $flowsJs.stream "suffix" "REPLICAS") }}
+          value: {{ $flowsJs.replicas | quote }}
         volumeMounts:
         - name: flow-collector-config
           mountPath: /etc/serviceradar

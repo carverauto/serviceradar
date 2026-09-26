@@ -1,0 +1,322 @@
+suite: jetstream storage budget
+# openspec change update-jetstream-storage-budget (design D2, D5, D8).
+#
+# NATS reserves a stream's full max_bytes on every server that holds a replica
+# and refuses to place a stream once no server has that much of max_file_store
+# left. v1.4.73 shipped a default whose reservations left no server room for a
+# new 1 GiB stream. These cases pin the render-time budget: the byte-exact
+# max_file_store, the sizing profiles, the per-server formula (full vs spread
+# buckets against nats.replicas), the allowOvercommit escape hatch, the PVC
+# ceiling it does not skip, and that every component is given the size the
+# budget counted.
+#
+# Only templates/nats.yaml is listed: the budget and the PVC ceiling fail there,
+# and a size that does not parse fails in whichever template includes the
+# helper first, so a single-template suite keeps each failedTemplate assertion
+# attributable (tests/README.md trap 4). jetstream_sizes_env_test.yaml covers
+# the component environments.
+templates:
+  - templates/nats.yaml
+release:
+  namespace: serviceradar-test
+tests:
+  # --- max_file_store in exact bytes (D2) ------------------------------------
+  - it: renders the small profile's 30G as 30000000000 bytes by default
+    template: templates/nats.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: "max_file_store: 30000000000\n"
+
+  - it: reads an explicit Gi maxFileStore as 2^30 bytes
+    set:
+      nats.jetstream.maxFileStore: 30Gi
+      nats.persistence.size: 40Gi
+    template: templates/nats.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: "max_file_store: 32212254720\n"
+
+  - it: accepts a bare byte count given as a YAML number
+    set:
+      nats.jetstream.maxFileStore: 29000000000
+    template: templates/nats.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: "max_file_store: 29000000000\n"
+
+  - it: does not derive max_file_store from a larger persistence.size
+    set:
+      nats.persistence.size: 100Gi
+    template: templates/nats.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: "max_file_store: 30000000000\n"
+
+  - it: rejects a unit NATS does not read
+    set:
+      nats.jetstream.maxFileStore: 30GB2
+    template: templates/nats.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: 'nats\.jetstream\.maxFileStore: "30GB2" is not a positive size'
+
+  - it: rejects an unknown sizing profile
+    set:
+      nats.jetstream.profile: huge
+    template: templates/nats.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: 'nats\.jetstream\.profile "huge" is not a JetStream sizing profile; use one of: large, medium, small'
+
+  # --- every profile renders, with and without the optional producers (D8) --
+  - it: small renders with flow-collector, bmp-collector and the trivy sidecar enabled
+    set:
+      flowCollector.enabled: true
+      bmpCollector.enabled: true
+      trivySidecar.enabled: true
+    template: templates/nats.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: "max_file_store: 30000000000\n"
+
+  - it: small renders with every optional producer disabled
+    set:
+      flowCollector.enabled: false
+      bmpCollector.enabled: false
+      trivySidecar.enabled: false
+    template: templates/nats.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: "max_file_store: 30000000000\n"
+
+  - it: medium renders on a 100Gi PVC with every optional producer enabled
+    set:
+      nats.jetstream.profile: medium
+      nats.persistence.size: 100Gi
+      flowCollector.enabled: true
+      bmpCollector.enabled: true
+      trivySidecar.enabled: true
+    template: templates/nats.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: "max_file_store: 100000000000\n"
+      - equal:
+          path: spec.volumeClaimTemplates[0].spec.resources.requests.storage
+          value: 100Gi
+
+  - it: medium renders on a 100Gi PVC with every optional producer disabled
+    set:
+      nats.jetstream.profile: medium
+      nats.persistence.size: 100Gi
+      flowCollector.enabled: false
+      bmpCollector.enabled: false
+      trivySidecar.enabled: false
+    template: templates/nats.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: "max_file_store: 100000000000\n"
+
+  - it: large renders on a 500Gi PVC with every optional producer enabled
+    set:
+      nats.jetstream.profile: large
+      nats.persistence.size: 500Gi
+      flowCollector.enabled: true
+      bmpCollector.enabled: true
+      trivySidecar.enabled: true
+    template: templates/nats.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: "max_file_store: 500000000000\n"
+
+  - it: large renders on a 500Gi PVC with every optional producer disabled
+    set:
+      nats.jetstream.profile: large
+      nats.persistence.size: 500Gi
+      flowCollector.enabled: false
+      bmpCollector.enabled: false
+      trivySidecar.enabled: false
+    template: templates/nats.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: "max_file_store: 500000000000\n"
+
+  - it: the demo overlay passes the budget
+    values:
+      - ../values-demo.yaml
+    template: templates/nats.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: "max_file_store: 30000000000\n"
+
+  # --- the budget itself (D5) -------------------------------------------------
+  # The v1.4.73 reservations (KV 4 GiB, objects 10 GiB, flows 10 GiB, all R3)
+  # plus today's other streams. The exact figure pins the formula:
+  # full 28 GiB + ceil(10.25 GiB x 1 / 3) + largest spread 2 GiB.
+  - it: fails the v1.4.73 shape
+    set:
+      nats.jetstream.maxFileStore: 30G
+      datasvc.bucketMaxBytes: 4294967296
+      datasvc.objectStoreBytes: 10737418240
+      flowCollector.enabled: true
+      flowCollector.config.stream_max_bytes: 10737418240
+    template: templates/nats.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: 'JetStream storage budget exceeded \(nats\.jetstream\.profile=small\): the most loaded NATS server may have to reserve 35880872619 bytes \(33\.42 GiB\), above the limit of 25500000000 bytes'
+
+  - it: fails an override with a message listing every reservation
+    set:
+      datasvc.objectStoreBytes: 12Gi
+    template: templates/nats.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: 'reserve 32659647147 bytes \(30\.42 GiB\), above the limit of 25500000000 bytes \(23\.75 GiB\): 85% of max_file_store 30000000000 bytes'
+      - failedTemplate:
+          errorPattern: 'OBJ_serviceradar-objects: 12884901888 bytes \(12\.00 GiB\) x R3, full \[datasvc\.objectStoreBytes\]'
+      - failedTemplate:
+          errorPattern: 'KV_serviceradar-datasvc: 1073741824 bytes \(1\.00 GiB\) x R3, full \[nats\.jetstream\.profile=small\]'
+      - failedTemplate:
+          errorPattern: 'flows: 8589934592 bytes \(8\.00 GiB\) x R3, full'
+      - failedTemplate:
+          errorPattern: 'ARANCINI_CAUSAL: 2147483648 bytes \(2\.00 GiB\) x R1, spread'
+      - failedTemplate:
+          errorPattern: 'scan_results: 268435456 bytes \(0\.25 GiB\) x R1, spread'
+      - failedTemplate:
+          errorPattern: 'NOTIFICATIONS: 1073741824 bytes \(1\.00 GiB\) x R1, spread'
+      - failedTemplate:
+          errorPattern: 'nats\.jetstream\.allowOvercommit=true'
+
+  - it: allowOvercommit accepts the same override
+    set:
+      datasvc.objectStoreBytes: 12Gi
+      nats.jetstream.allowOvercommit: true
+    template: templates/nats.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: "max_file_store: 30000000000\n"
+
+  - it: counts the BMP stream at its own size and replicas
+    set:
+      bmpCollector.enabled: true
+      bmpCollector.config.streamMaxBytes: 8589934592
+    template: templates/nats.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: 'ARANCINI_CAUSAL: 8589934592 bytes \(8\.00 GiB\) x R1, spread \[bmpCollector\.config\.streamMaxBytes\]'
+
+  - it: counts flows at the collector size even when flow-collector is disabled
+    set:
+      flowCollector.enabled: false
+      flowCollector.config.stream_max_bytes: 16Gi
+    template: templates/nats.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: 'flows: 17179869184 bytes \(16\.00 GiB\) x R3, full \[flowCollector\.config\.stream_max_bytes\]'
+
+  # On five servers every stream has fewer replicas than servers, so the R3
+  # streams are spread, weighted by 3/5, not reserved on every server:
+  # ceil((19 GiB x 3 + 10.25 GiB x 1) / 5) + largest 10 GiB = 25179245773.
+  - it: spreads R3 streams across a five-server NATS
+    set:
+      nats.replicas: 5
+      nats.jetstream.maxFileStore: 29G
+      flowCollector.config.stream_max_bytes: 10Gi
+    template: templates/nats.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: 'reserve 25179245773 bytes \(23\.45 GiB\)'
+      - failedTemplate:
+          errorPattern: '= 0 \+ 14441827533 \+ 10737418240 bytes'
+      - failedTemplate:
+          errorPattern: 'flows: 10737418240 bytes \(10\.00 GiB\) x R3, spread'
+      - failedTemplate:
+          errorPattern: 'KV_serviceradar-datasvc: 1073741824 bytes \(1\.00 GiB\) x R3, spread'
+
+  - it: the same five-server shape fits 30G
+    set:
+      nats.replicas: 5
+      flowCollector.config.stream_max_bytes: 10Gi
+    template: templates/nats.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 5
+
+  - it: an EventWriter fallback may not exceed the collector size it hides behind
+    set:
+      core.eventWriter.streams.flows.maxBytes: 9Gi
+    template: templates/nats.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: 'the EventWriter fallback for flows \(9663676416 bytes from core\.eventWriter\.streams\.flows\.maxBytes\) exceeds the collector size the budget counts \(8589934592 bytes'
+
+  # --- PVC ceiling (D5, D8) ---------------------------------------------------
+  - it: fails an existing 30Gi install that selects medium, pointing at the runbook
+    set:
+      nats.jetstream.profile: medium
+    template: templates/nats.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: 'NATS max_file_store 100000000000 bytes \(93\.13 GiB, from nats\.jetstream\.profile=medium\) exceeds 94% of nats\.persistence\.size 30Gi \(32212254720 bytes\)'
+      - failedTemplate:
+          errorPattern: 'docs/nats-jetstream-profile-runbook\.md'
+
+  - it: allowOvercommit does not skip the PVC ceiling
+    set:
+      nats.jetstream.maxFileStore: 40G
+      nats.jetstream.allowOvercommit: true
+    template: templates/nats.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: 'exceeds 94% of nats\.persistence\.size 30Gi .*nats\.jetstream\.allowOvercommit does not skip this check'

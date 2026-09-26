@@ -1,0 +1,103 @@
+# JetStream sizing profiles (openspec change update-jetstream-storage-budget,
+# design D8). Chart data, not values: select one with nats.jetstream.profile and
+# override any single size through its own value (the `source` below).
+#
+# Sizes use the NATS quantity grammar: a bare number is bytes, G is 10^9 and
+# Gi is 2^30. `persistenceSize` is the NATS PVC each profile targets; the chart
+# never applies it (volumeClaimTemplates are immutable), it only rejects a
+# max_file_store above 94% of nats.persistence.size. Moving a live install to a
+# larger profile follows docs/nats-jetstream-profile-runbook.md.
+#
+# Every profile passes the render-time budget (need <= 85% of max_file_store on
+# three NATS servers) with flow-collector, bmp-collector and the trivy sidecar
+# enabled; flows and ARANCINI_CAUSAL are always counted at the collector size.
+#
+#   profile  full  spread (sum, largest)  need    limit
+#   small    17    10.25, 2               22.42   23.75 GiB
+#   medium   53    27.5, 12               74.17   79.16 GiB
+#   large    266   124, 64                371.33  395.81 GiB
+profiles:
+  small:
+    maxFileStore: 30G
+    persistenceSize: 30Gi
+    sizes:
+      datasvcKV: 1Gi
+      datasvcObjects: 4Gi
+      events: 2Gi
+      flows: 8Gi
+      plugins: 2Gi
+      arancini: 2Gi
+      metrics: 1Gi
+      k8s_inventory: 1Gi
+      analytics_predictions: 1Gi
+      mtr_results: 1Gi
+      scan_results: 256Mi
+      notifications: 1Gi
+      trivy_reports: 1Gi
+      fieldsurvey: 1Gi
+      threatIntel: 1Gi
+      flowsFallback: 1Gi
+      aranciniFallback: 1Gi
+  medium:
+    maxFileStore: 100G
+    persistenceSize: 100Gi
+    sizes:
+      datasvcKV: 1Gi
+      datasvcObjects: 8Gi
+      events: 8Gi
+      flows: 32Gi
+      plugins: 4Gi
+      arancini: 12Gi
+      metrics: 2Gi
+      k8s_inventory: 2Gi
+      analytics_predictions: 2Gi
+      mtr_results: 2Gi
+      scan_results: 512Mi
+      notifications: 1Gi
+      trivy_reports: 2Gi
+      fieldsurvey: 2Gi
+      threatIntel: 2Gi
+      flowsFallback: 1Gi
+      aranciniFallback: 1Gi
+  large:
+    maxFileStore: 500G
+    persistenceSize: 500Gi
+    sizes:
+      datasvcKV: 2Gi
+      datasvcObjects: 32Gi
+      events: 32Gi
+      flows: 192Gi
+      plugins: 8Gi
+      arancini: 64Gi
+      metrics: 8Gi
+      k8s_inventory: 8Gi
+      analytics_predictions: 8Gi
+      mtr_results: 8Gi
+      scan_results: 2Gi
+      notifications: 2Gi
+      trivy_reports: 8Gi
+      fieldsurvey: 8Gi
+      threatIntel: 8Gi
+      flowsFallback: 1Gi
+      aranciniFallback: 1Gi
+
+# Replica count used when a stream's own replica value is unset. The same in
+# every profile: a profile changes sizes, not the replication topology.
+replicas:
+  datasvcKV: 3
+  datasvcObjects: 3
+  events: 3
+  flows: 3
+  plugins: 3
+  arancini: 1
+  metrics: 1
+  k8s_inventory: 1
+  analytics_predictions: 1
+  mtr_results: 1
+  scan_results: 1
+  notifications: 1
+  trivy_reports: 1
+  fieldsurvey: 1
+  threatIntel: 1
+  flowsFallback: 1
+  aranciniFallback: 1
