@@ -92,12 +92,11 @@ StatefulSet claim is immutable. The PVC only bounds the value from above
 ### D3. Every created stream has a finite `max_bytes`
 
 `trivy_reports`, `OBJ_serviceradar_plugins`, the fieldsurvey and threat-intel
-object stores, and the EventWriter-created fallbacks of `flows` and
-`ARANCINI_CAUSAL` (used only while flow-collector or bmp-collector is
-disabled) get positive sizes in every profile (D8). When flow-collector or
-bmp-collector is enabled it reconciles its stream to
-`flowCollector.config.stream_max_bytes` or `bmpCollector.config.streamMaxBytes`,
-which the profile now sets too.
+object stores, and the EventWriter-created fallbacks of `events`, `flows` and
+`ARANCINI_CAUSAL` (used until a component claims the stream, D6) get positive
+sizes in every profile (D8). When flow-collector or bmp-collector runs it
+claims and reconciles its stream to `flowCollector.config.stream_max_bytes` or
+`bmpCollector.config.streamMaxBytes`, which the profile now sets too.
 
 Each size reaches the process that creates the bucket through that owner's own
 setting, never through another component's environment:
@@ -107,52 +106,21 @@ setting, never through another component's environment:
 | `OBJ_serviceradar_plugins` | web-ng | `webNg.pluginStorage.jetstreamMaxBucketBytes` | `PLUGIN_STORAGE_JS_MAX_BUCKET_BYTES` (already read by web-ng `runtime.exs`) |
 | fieldsurvey object store | web-ng | `webNg.fieldSurveyArtifactStore.jetstreamMaxBucketBytes` | a new web-ng variable read by `runtime.exs` into `:field_survey_artifact_store` |
 | threat-intel object store | core | a new value under `core` | `SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES` (already read by core `runtime.exs`) |
-| `trivy_reports`, `metrics`, `k8s_inventory`, `analytics_predictions`, `mtr_results`, `scan_results`, `flows` / `ARANCINI_CAUSAL` fallbacks | EventWriter (core) | `core.eventWriter.streams.<name>.maxBytes` | one variable per stream in the core environment |
+| `trivy_reports`, `metrics`, `k8s_inventory`, `analytics_predictions`, `mtr_results`, `scan_results` | EventWriter (core) | `core.eventWriter.streams.<name>.maxBytes` | one variable per stream in the core environment |
+| `events`, `flows`, `ARANCINI_CAUSAL` EventWriter fallback (used until the owning component claims the stream) | EventWriter (core) | `logCollector.streamMaxBytes` / `streamReplicas` for `events`; `core.eventWriter.streams.<name>.maxBytes` (1 GiB, 1 replica) for `flows` and `ARANCINI_CAUSAL` | `SERVICERADAR_JS_<STREAM>_FALLBACK_MAX_BYTES` and `_FALLBACK_REPLICAS` in the core environment |
 
-`flows` and `ARANCINI_CAUSAL` have two possible creators, so exactly one of
-them owns the stream shape (`max_bytes`, replicas, retention) and the other
-creates it only when absent and otherwise merges subjects. The owner is the
-collector when it is running and EventWriter when it is not. Core learns which
-from an explicit signal, one per stream, in the same form on every install:
-
-- `SERVICERADAR_JS_FLOWS_OWNER` is `flow-collector` or `eventwriter`, and
-  `SERVICERADAR_JS_ARANCINI_CAUSAL_OWNER` is `bmp-collector` or `eventwriter`.
-- **Unset means the collector owns the stream**, so a missing signal can never
-  make EventWriter fight the collector: EventWriter's consumer is
-  subjects-only (`reconcile_stream_shape: false`) and create-only.
-- EventWriter takes the create-time size, and the reconcile size when it is
-  the owner, from `SERVICERADAR_JS_FLOWS_MAX_BYTES` / `_REPLICAS` and
-  `SERVICERADAR_JS_ARANCINI_CAUSAL_MAX_BYTES` / `_REPLICAS`, the same keys the
-  collector reads (D7). Helm renders the pair from the collector's values when
-  the collector is enabled and from the profile fallback (1 GiB, 1 replica)
-  when it is not.
-- Helm renders the owner from `flowCollector.enabled` and
-  `bmpCollector.enabled`. Every Compose preset and the packaged sizes file sets
-  both explicitly, to the collector, because the presets size every stream for
-  the case where all optional producers run; an install that does not run a
-  collector sets `eventwriter`. The preset test asserts both are set and hold
-  a valid value.
-
-The two streams differ in what EventWriter does today:
-
-- `flows`: EventWriter's `flows` consumers (`SFLOW_RAW`, `NETFLOW_RAW`) always
-  run with `reconcile_stream_shape: false`, so with flow-collector disabled
-  nothing reconciles an existing `flows` stream, and an install whose
-  EventWriter created it at 10 GiB keeps reserving 10 GiB against the budgeted
-  fallback. When the owner is `eventwriter` the consumers now use
-  `reconcile_stream_shape: true`, so an existing 10 GiB `flows` converges to
-  the fallback at the next core start under the discard-old rule (D6),
-  evicting the oldest messages. When the owner is the collector they stay
-  subjects-only and flow-collector owns the shape.
-- `ARANCINI_CAUSAL`: EventWriter's consumer defaults to reconciling the shape
-  and sets no size today. When the owner is `bmp-collector` it runs with
-  `reconcile_stream_shape: false` and bmp-collector owns `max_bytes` and
-  replicas. Today bmp-collector sets them only when it creates the stream and
-  merely merges subjects on an existing one, so its publisher gains a
-  create-or-update that reconciles `max_bytes` and `num_replicas` under the D6
-  rule. The 1 GiB fallback applies only when the owner is `eventwriter`.
-  Without this, EventWriter would cap a 12 GiB `medium` BMP stream at its own
-  fallback.
+`events`, `flows` and `ARANCINI_CAUSAL` each have two possible writers of the
+stream shape: a dedicated component (the otel log-collector, flow-collector,
+bmp-collector) and EventWriter, which creates them when absent so its consumers
+can bind. Which one reconciles the shape is decided by ownership claimed on the
+stream itself (D6), not by a deployment flag, so it is the same on Helm,
+Compose and packaged installs and cannot disagree with what is actually
+running. EventWriter's create-time and claim-time size and replicas for these
+three come from the fallback variables in the table above, so it never creates
+an unlimited stream and never reconciles to a size the budget does not count.
+Today EventWriter's default `EVENTS` consumer carries a hardcoded 8 GiB
+`stream_max_bytes` on `events`, which would overwrite the budgeted 2 GiB on
+every server; that literal is removed.
 
 ### D4. Smaller datasvc defaults
 
@@ -168,17 +136,20 @@ so a profile can supply them; an explicit value still wins.
 Each stream's size and replica count come from its own chart value:
 `datasvc.bucketMaxBytes` / `objectStoreBytes` / `jetstreamReplicas` (KV and
 object store), `logCollector.streamMaxBytes` / `streamReplicas` (`events`),
-`flowCollector.config.stream_max_bytes` / `stream_replicas` (`flows`, when
-flow-collector is enabled), `bmpCollector.config.streamMaxBytes` /
-`streamReplicas` (`ARANCINI_CAUSAL`, when bmp-collector is enabled),
+`flowCollector.config.stream_max_bytes` / `stream_replicas` (`flows`),
+`bmpCollector.config.streamMaxBytes` / `streamReplicas` (`ARANCINI_CAUSAL`),
 `webNg.pluginStorage.jetstreamMaxBucketBytes` / `jetstreamReplicas`
 (plugins), `webNg.fieldSurveyArtifactStore.jetstreamMaxBucketBytes` (fieldsurvey,
 1 replica), the core threat-intel value from D3 (threat-intel, 1 replica),
 and `core.eventWriter.streams.<name>.maxBytes` with 1 replica for every
-EventWriter-created stream, including `trivy_reports` and the `flows` /
-`ARANCINI_CAUSAL` fallbacks while their collector is disabled. The trivy
-sidecar only publishes to `trivy_reports`; the stream is counted whether or
-not the sidecar runs.
+EventWriter-created stream, including `trivy_reports`. `flows` and
+`ARANCINI_CAUSAL` are counted at the collector's size and replicas whether or
+not the collector is enabled: a collector that claimed a stream keeps its claim
+and size after it is disabled (D6), and history is invisible to a render-time
+check, so the conservative figure is the only safe one. The EventWriter
+fallbacks are never larger than the collector sizes and are not counted. The
+trivy sidecar only publishes to `trivy_reports`; the stream is counted whether
+or not the sidecar runs.
 
 With `n = nats.replicas`, a stream is classified by comparing its replicas
 `r` to `n`:
@@ -215,55 +186,63 @@ The v1.4.73 shape (26 GiB full, 5.25 GiB R1, three servers, `30G`) needs
 26 + 5.25/3 + 1 = 28.75 GiB against a 23.75 GiB limit, and fails the check,
 as it should.
 
-### D6. One owner reconciles a stream, by discard policy
+### D6. One owner reconciles a stream, claimed on the stream
 
 Exactly one component owns the shape (`max_bytes`, replicas, retention) of
-each stream and reconciles it; any secondary creator (EventWriter for
-`events`, `flows` and `ARANCINI_CAUSAL`, D3) creates the stream only when
-absent and merges subjects without touching the shape.
+each stream and reconciles it. Streams with a single writer (the datasvc, web-ng
+and threat-intel buckets, `NOTIFICATIONS`, and the EventWriter-only streams
+`metrics`, `k8s_inventory`, `analytics_predictions`, `mtr_results`,
+`scan_results`, `trivy_reports`) need no claim. The three streams with two
+possible writers, `events`, `flows` and `ARANCINI_CAUSAL`, use a claim recorded
+in JetStream stream metadata (`metadata` in the stream config, NATS 2.10 and
+later; the chart runs 2.14) under the key `serviceradar.owner`:
 
-| Stream | Owner (reconciles the shape) | Other components |
+| Stream | Owner claim | Claimed by |
 | --- | --- | --- |
-| `KV_serviceradar-datasvc`, `OBJ_serviceradar-objects` | datasvc | none |
-| `events` | otel log-collector | EventWriter consumers, subjects only |
-| `flows` | flow-collector when enabled, EventWriter (fallback size, R1) otherwise | EventWriter `flows` consumers subjects only while flow-collector is enabled |
-| `ARANCINI_CAUSAL` | bmp-collector when enabled, EventWriter otherwise | EventWriter consumer subjects only when bmp-collector is enabled |
-| `OBJ_serviceradar_plugins`, fieldsurvey | web-ng | none |
-| threat-intel object store | core | none |
-| `NOTIFICATIONS` | core notifications | none |
-| `metrics`, `k8s_inventory`, `analytics_predictions`, `mtr_results`, `scan_results`, `trivy_reports` | EventWriter | none |
+| `events` | `otel-log-collector` | otel log-collector |
+| `flows` | `flow-collector` | flow-collector |
+| `ARANCINI_CAUSAL` | `bmp-collector` | bmp-collector |
+| any of the three | `event-writer` | EventWriter fallback |
 
-`events` is shared: the log-collector owns its shape at
-`logCollector.streamMaxBytes` and `logCollector.streamReplicas` (the profile's
-`events` size, 2 GiB R3 in `small`), while EventWriter's default `EVENTS`
-consumer today carries `stream_max_bytes` of 8 GiB and reconciles it, so an
-EventWriter start would write 8 GiB over the budgeted 2 GiB on every server.
+1. When the dedicated component runs it sets `serviceradar.owner` to its own
+   name on its stream, creating the stream when absent, and reconciles the
+   shape. Its claim overrides an `event-writer` claim.
+2. EventWriter creates the stream when it is absent, with
+   `serviceradar.owner: event-writer` and the fallback size and replicas of D3.
+   It reconciles the shape only while the stream is unclaimed or claimed by
+   `event-writer`. When the claim names another component it merges subjects
+   only and leaves the shape alone. It never overrides another component's
+   claim.
+3. A stream created before this change has no metadata. The first owner to
+   start claims it: a collector reconciles it to its size, and EventWriter
+   reconciles it to the fallback, which is how an existing 10 GiB `flows` or
+   unlimited `ARANCINI_CAUSAL` converges on an install with no collector. If
+   EventWriter claims first and a collector starts later, the collector's
+   claim overrides it and the shape is reconciled to the collector size.
+4. Disabling a collector after it claimed a stream leaves the claim and the
+   stream at the collector's size: nothing reconciles it. The runbook
+   (`docs/nats-jetstream-profile-runbook.md`) documents a one-line reclaim,
+   `nats stream edit <STREAM>` setting `serviceradar.owner` to `event-writer`
+   or removing it (the exact flag is confirmed against the nats CLI in the
+   implementation), after which EventWriter reconciles the stream to the
+   fallback. Until then the stream keeps its collector reservation, and the
+   render check (D5) and the Compose and packaged budget (D7) already count
+   `flows` and `ARANCINI_CAUSAL` at the collector size regardless of whether
+   the collector is enabled.
 
-Creating and reconciling are separate. In `jetstream_consumer.ex` the create
-path takes its size from the consumer's `stream_max_bytes`, and only the update
-path is gated by `reconcile_stream_shape`. Every EventWriter consumer on
-`events` (`EVENTS`, `PDNS_OCSF`, `FALCO`, the `OTEL_*` consumers, `LOGS`,
-`BMP_CAUSAL`, `SIEM_CAUSAL`, `ATTRIBUTED_FLOW`) therefore SHALL carry both:
+Every writer that can reconcile these streams applies the same rule; the
+Rust otel log-collector, flow-collector and bmp-collector each gain the claim
+on their publishers, and EventWriter's consumers read it before deciding
+whether to reconcile, replacing the `reconcile_stream_shape` default. The
+otel log-collector and EventWriter agree on `events` (both read the same
+profile size), so an EventWriter claim on a legacy `events` stream is harmless
+until the log-collector overrides it. An EventWriter start therefore can never
+overwrite a collector-owned stream, which is what the 8 GiB `EVENTS` literal
+did to `events`.
 
-- `stream_max_bytes` equal to the profile `events` size, and the matching
-  replicas, read from `SERVICERADAR_JS_EVENTS_MAX_BYTES` and `_REPLICAS` (D7).
-  It is used only on the create path, when `events` is absent because
-  EventWriter started first, so the stream is never created unlimited and the
-  budget counts what actually gets created. The chart renders these two
-  variables into the core environment from `logCollector.streamMaxBytes` and
-  `streamReplicas`, so both creators agree.
-- `reconcile_stream_shape: false`, so EventWriter never updates an existing
-  `events` stream.
-
-This holds in every config path (`Config.default_streams/0` in
-`serviceradar_core`, `serviceradar_core/config/runtime.exs` and
-`serviceradar_core_elx/config/runtime.exs`), and the hardcoded 8 GiB `EVENTS`
-size is removed.
-
-Owners that reconcile `max_bytes` on an existing stream: datasvc
-(`reconcileStreamConfigLocked`), the otel log-collector, flow-collector (for
-`flows`), bmp-collector (for `ARANCINI_CAUSAL`, D3) and EventWriter (for the
-streams only it owns). Three
+Other owners that reconcile `max_bytes` on an existing stream: datasvc
+(`reconcileStreamConfigLocked`) and EventWriter (for the streams only it
+owns). Three
 owners create their bucket once and never update it, so on an existing install
 the bucket stays unlimited while the budget counts it at its profile size:
 web-ng's plugin bucket (`plugins/storage.ex`), web-ng's fieldsurvey bucket
@@ -322,11 +301,17 @@ sharing one server with their own size tables (D8).
   the systemd units load with `EnvironmentFile=`;
   `build/packaging/nats/config/nats-server.conf` reads `max_file_store` from
   it the same way. Moving to `medium` or `large` replaces that file.
-- The Compose and packaged presets carry one `flows` and one `ARANCINI_CAUSAL`
-  size key that both the collector and EventWriter read, so the two agree on
-  the size, plus the `SERVICERADAR_JS_FLOWS_OWNER` and
-  `SERVICERADAR_JS_ARANCINI_CAUSAL_OWNER` signals of D3, set explicitly to the
-  collector in every preset and in the packaged sizes file.
+- The presets carry the collector size keys and the EventWriter
+  `SERVICERADAR_JS_<STREAM>_FALLBACK_MAX_BYTES` / `_FALLBACK_REPLICAS` keys for
+  `events`, `flows` and `ARANCINI_CAUSAL` (D3). They carry no ownership
+  signal: which component owns a stream is claimed on the stream itself (D6),
+  so a default install with no collector converges through EventWriter and one
+  with a collector converges through the collector, with no per-install
+  setting to get wrong. The budget counts `flows` and `ARANCINI_CAUSAL` at the
+  collector size either way.
+- The Compose and packaged NATS servers must be 2.10 or later for stream
+  metadata; the implementation verifies the shipped versions and raises them
+  where needed.
 - Neither install has a PVC. A profile's `max_file_store` is a reservation
   ceiling, so the host needs at least that much free disk for JetStream. This
   raises the Compose and packaged ceiling from today's `10G` to `30G` for
@@ -425,17 +410,20 @@ given to the high-volume streams: `flows`, `ARANCINI_CAUSAL`, `events`):
 | `KV_serviceradar-datasvc` | 3 | 1 | 1 | 2 |
 | `OBJ_serviceradar-objects` | 3 | 4 | 8 | 32 |
 | `events` | 3 | 2 | 8 | 32 |
-| `flows` (flow-collector on) | 3 | 8 | 32 | 192 |
+| `flows` | 3 | 8 | 32 | 192 |
 | `OBJ_serviceradar_plugins` | 3 | 2 | 4 | 8 |
-| `ARANCINI_CAUSAL` (bmp-collector on) | 1 | 2 | 12 | 64 |
+| `ARANCINI_CAUSAL` | 1 | 2 | 12 | 64 |
 | `metrics`, `k8s_inventory`, `analytics_predictions`, `mtr_results` (each) | 1 | 1 | 2 | 8 |
 | `scan_results` | 1 | 0.25 | 0.5 | 2 |
 | `NOTIFICATIONS` | 1 | 1 | 1 | 2 |
 | `trivy_reports`, fieldsurvey, threat-intel (each) | 1 | 1 | 2 | 8 |
-| `flows`, `ARANCINI_CAUSAL` fallbacks (collector off) | 1 | 1 | 1 | 1 |
+| `flows`, `ARANCINI_CAUSAL` EventWriter fallback (not counted) | 1 | 1 | 1 | 1 |
+| `events` EventWriter fallback (equals the `events` row, not counted) | 3 | 2 | 8 | 32 |
 
-All optional producers enabled (flow-collector, bmp-collector, trivy
-sidecar), limit `0.85 * max_file_store`:
+`flows` and `ARANCINI_CAUSAL` are counted at the collector size whether or not
+the collector is enabled (D5), so these figures are the need in every
+optional-producer shape (flow-collector, bmp-collector, trivy sidecar), limit
+`0.85 * max_file_store`:
 
 | Profile | full | rest | need | limit | margin |
 | --- | --- | --- | --- | --- | --- |
@@ -443,9 +431,7 @@ sidecar), limit `0.85 * max_file_store`:
 | medium (93.13 GiB) | 53 | 27.5, largest 12 | 53 + 27.5/3 + 12 = 74.17 | 79.16 | 4.99 |
 | large (465.66 GiB) | 266 | 124, largest 64 | 266 + 124/3 + 64 = 371.33 | 395.81 | 24.48 |
 
-With both collectors disabled the need is 13.42 (small), 28.83 (medium) and
-102.67 (large) GiB, so every subset of producers passes. Each `max_file_store`
-is 93.13% of its PVC, under the 94% ceiling.
+Each `max_file_store` is 93.13% of its PVC, under the 94% ceiling.
 
 Compose and packaged sizes, one server, so the flow stream is smaller and every
 stream counts in full (GiB; replicas are irrelevant):
@@ -504,9 +490,12 @@ migration. Compose and packaged installs converge when their preset or sizes
 file is replaced on upgrade and their services restart. Discard-old buffers
 (`flows`, `events`, `ARANCINI_CAUSAL`, EventWriter streams) reach the budgeted
 reservation at the next start of their owner, evicting the oldest messages if
-they were fuller than the new cap. That includes `flows` on an install with
-flow-collector disabled: EventWriter owns it there (D3) and reconciles an
-existing 10 GiB stream to the fallback size at the next core start. Discard-new state buckets reach it too when their data fits;
+they were fuller than the new cap. That includes `flows` and
+`ARANCINI_CAUSAL` on an install with no collector: EventWriter claims the
+legacy stream on its first start (D6) and reconciles it to the fallback, so an
+existing 10 GiB `flows` converges on Helm, Compose and packaged installs alike.
+A collector disabled after it claimed a stream keeps its size until the
+runbook reclaim (D6). Discard-new state buckets reach it too when their data fits;
 one holding more than its cap keeps its current reservation, logged, until the
 data ages out or the cap is raised, so an install with an unusually full object
 store can run above the budgeted reservation until then.

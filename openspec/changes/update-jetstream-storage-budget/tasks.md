@@ -24,13 +24,17 @@
       `runtime.exs` into `:field_survey_artifact_store`.
 - [ ] 2.5 Expose a `core` value for the threat-intel bucket, rendered as
       `SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES`.
-- [ ] 2.6 EventWriter `ARANCINI_CAUSAL` consumer: read the owner from
-      `SERVICERADAR_JS_ARANCINI_CAUSAL_OWNER` (`bmp-collector` or
-      `eventwriter`; unset means the collector owns it, so subjects-only and
-      create-only) and its size from `SERVICERADAR_JS_ARANCINI_CAUSAL_MAX_BYTES`
-      / `_REPLICAS`; the chart renders the owner from `bmpCollector.enabled`
-      and the size pair from the collector's values or the 1 GiB / 1 replica
-      fallback.
+- [ ] 2.6 EventWriter fallback sizes for the shared streams: read
+      `SERVICERADAR_JS_EVENTS_FALLBACK_MAX_BYTES` / `_REPLICAS`,
+      `SERVICERADAR_JS_FLOWS_FALLBACK_...` and
+      `SERVICERADAR_JS_ARANCINI_CAUSAL_FALLBACK_...` (used on create and when
+      EventWriter owns the stream, D6). The chart renders `events` from
+      `logCollector.streamMaxBytes` / `streamReplicas` and `flows` and
+      `ARANCINI_CAUSAL` from `core.eventWriter.streams.<name>.maxBytes` (1 GiB,
+      1 replica). Remove the hardcoded 8 GiB `EVENTS` `stream_max_bytes` in
+      `Config.default_streams/0` (`serviceradar_core` `config.ex`),
+      `serviceradar_core/config/runtime.exs` and
+      `serviceradar_core_elx/config/runtime.exs`.
 
 ## 3. Chart budget and profiles (D2, D4, D5, D8)
 
@@ -68,9 +72,10 @@
       discard-new): when configured is below stored, leave `max_bytes`
       unchanged and log configured, stored and current values; never set it to
       the stored size.
-- [ ] 4.2 otel log-collector `events` reconcile (discard-old): reconcile to the
-      configured value even when it evicts the oldest messages; log before and
-      after.
+- [ ] 4.2 otel log-collector `events` reconcile (discard-old): claim `events`
+      with `serviceradar.owner` `otel-log-collector` (overriding an
+      `event-writer` claim) and reconcile to the configured value even when it
+      evicts the oldest messages; log before and after.
 - [ ] 4.3 EventWriter `reconcile_stream` (discard-old): same rule for every
       EventWriter-created stream.
 - [ ] 4.4 web-ng plugin bucket (`plugins/storage.ex`): reconcile `max_bytes`
@@ -85,51 +90,40 @@
       unchanged, the values are logged and a later write still succeeds; for
       discard-old streams a full stream shrinks, evicts the oldest messages
       and logs before and after; an absent bucket is created with the cap.
-- [ ] 4.8 Ownership test: with bmp-collector enabled and `ARANCINI_CAUSAL`
-      sized above the fallback, EventWriter startup leaves `max_bytes` and
-      replicas unchanged (fails on the current default-true behaviour once the
-      fallback size is set); with it disabled EventWriter creates the stream
-      at the fallback size.
-- [ ] 4.9 `rust/bmp-collector` publisher: create-or-update `ARANCINI_CAUSAL`,
-      reconciling `max_bytes` and `num_replicas` on an existing stream under the
-      discard-old rule, with a test for an existing 10 GiB stream reconciled to
-      2 GiB.
-- [ ] 4.10 `rust/flow-collector` publisher: reconcile `flows` `max_bytes` and
+- [ ] 4.8 Claim protocol in EventWriter (D6): for `events`, `flows` and
+      `ARANCINI_CAUSAL`, read `serviceradar.owner` from the stream metadata
+      before deciding; create when absent with `serviceradar.owner:
+      event-writer` and the fallback size and replicas; reconcile the shape only
+      while the stream is unclaimed or claimed by `event-writer` (claiming an
+      unclaimed legacy stream); merge subjects only when a collector holds the
+      claim. Replaces the `reconcile_stream_shape` default for these consumers
+      (`SFLOW_RAW`, `NETFLOW_RAW`, `ARANCINI_CAUSAL`, and the `events`
+      consumers `EVENTS`, `PDNS_OCSF`, `FALCO`, `OTEL_*`, `LOGS`, `BMP_CAUSAL`,
+      `SIEM_CAUSAL`, `ATTRIBUTED_FLOW`). Tests: an existing 10 GiB `flows` with
+      no metadata and no collector converges to the fallback and is claimed;
+      a collector-claimed stream is left unchanged; starting first creates the
+      stream at the fallback size, not unlimited.
+- [ ] 4.9 `rust/bmp-collector` publisher: claim `ARANCINI_CAUSAL` by setting
+      `serviceradar.owner` to `bmp-collector` (overriding an `event-writer`
+      claim, claiming a legacy stream) and create-or-update it, reconciling
+      `max_bytes` and `num_replicas` under the discard-old rule, with a test
+      for an existing 10 GiB stream reconciled to 2 GiB.
+- [ ] 4.10 `rust/flow-collector` publisher: claim `flows` with
+      `serviceradar.owner` `flow-collector` and reconcile `max_bytes` and
       replicas under the discard-old rule, with a test for `flows` at 10 GiB
       full reconciled to 8 GiB.
 - [ ] 4.11 Classify `NOTIFICATIONS` (created by core notifications) by its
       discard policy and apply the matching D6 rule.
-- [ ] 4.12 EventWriter `events` consumers (`EVENTS`, `PDNS_OCSF`, `FALCO`,
-      `OTEL_*`, `LOGS`, `BMP_CAUSAL`, `SIEM_CAUSAL`, `ATTRIBUTED_FLOW`):
-      `reconcile_stream_shape: false` (never update an existing stream) and
-      `stream_max_bytes` / replicas read from `SERVICERADAR_JS_EVENTS_MAX_BYTES`
-      / `_REPLICAS` (create-only, used when `events` is absent), in
-      `Config.default_streams/0` (`serviceradar_core` `config.ex`),
-      `serviceradar_core/config/runtime.exs` and
-      `serviceradar_core_elx/config/runtime.exs`; remove the hardcoded 8 GiB
-      `EVENTS` `stream_max_bytes`. Render the two variables into the core
-      environment from `logCollector.streamMaxBytes` / `streamReplicas`. Tests:
-      an EventWriter start leaves an existing `events` stream's `max_bytes`
-      unchanged, and starting first creates it at the profile size, not
-      unlimited.
-- [ ] 4.13 Ownership test (ExUnit, in `serviceradar_core`): call
-      `Config.default_streams/0` and the runtime configuration loaders, join
-      them with a typed inventory of streams and declared owners (D6 table), and
-      assert that no EventWriter consumer reconciles the shape of a stream it
-      does not own, with `flows` and `ARANCINI_CAUSAL` evaluated for both the
-      collector-enabled and collector-disabled configurations. It derives the answer from the loaded configuration, not
-      from source text, and fails on the current `EVENTS` default. Go and Rust
-      owner behaviour is covered by each owner's unit tests (4.1, 4.2, 4.9,
-      4.10).
-- [ ] 4.14 Flow ownership: EventWriter `flows` consumers (`SFLOW_RAW`,
-      `NETFLOW_RAW`) read `SERVICERADAR_JS_FLOWS_OWNER` (`flow-collector` or
-      `eventwriter`; unset means flow-collector owns it) and use
-      `reconcile_stream_shape: false` unless it is `eventwriter`, in which case
-      they reconcile to `SERVICERADAR_JS_FLOWS_MAX_BYTES` / `_REPLICAS`. The
-      chart renders the owner from `flowCollector.enabled` and the size pair
-      from the collector's values or the fallback. Tests: owner `eventwriter`
-      converges an existing 10 GiB `flows` to the fallback at core start; owner
-      `flow-collector` and an unset owner both leave `flows` unchanged.
+- [ ] 4.12 Ownership test (ExUnit, in `serviceradar_core`): call the EventWriter
+      claim decision (4.8) for each of `events`, `flows` and `ARANCINI_CAUSAL`
+      with no claim, an `event-writer` claim and a collector claim, and assert
+      it reconciles only the unclaimed and `event-writer` cases and never
+      reconciles a collector-claimed stream. It exercises the decision through
+      its public function, not source text, and fails on the current
+      `reconcile_stream_shape` default. Go and Rust owner behaviour is covered by
+      each owner's unit tests (4.1, 4.2, 4.9, 4.10).
+- [ ] 4.13 Verify the shipped Compose and packaged NATS servers are 2.10 or
+      later for stream metadata and raise them where they are not.
 
 ## 5. Compose and packaged installs (D7)
 
@@ -139,15 +133,14 @@
 - [ ] 5.2 `docker/compose/nats.docker.conf` reads `max_file_store` from
       `$SERVICERADAR_NATS_MAX_FILE_STORE`. The presets set every stream size
       through the `SERVICERADAR_JS_<STREAM>_MAX_BYTES` / `_REPLICAS` variables
-      of D7 (core and web-ng through their own variables, task 2.3-2.5) and
-      set `SERVICERADAR_JS_FLOWS_OWNER=flow-collector` and
-      `SERVICERADAR_JS_ARANCINI_CAUSAL_OWNER=bmp-collector` explicitly.
+      of D7 (core and web-ng through their own variables, tasks 2.3-2.5), plus
+      the EventWriter `SERVICERADAR_JS_<STREAM>_FALLBACK_MAX_BYTES` / `_REPLICAS`
+      keys for `events`, `flows` and `ARANCINI_CAUSAL` (task 2.6). No ownership
+      variable is set: ownership is claimed on the stream (D6).
 - [ ] 5.3 Ship `build/packaging/nats/config/jetstream-sizes.env` with the
       `small` content; load it with `EnvironmentFile=` in the NATS, datasvc,
       log-collector, flow-collector, bmp-collector, core and web-ng units, and
-      read `max_file_store` from it in `nats-server.conf`; the file also sets
-      `SERVICERADAR_JS_FLOWS_OWNER` and `SERVICERADAR_JS_ARANCINI_CAUSAL_OWNER`
-      explicitly.
+      read `max_file_store` from it in `nats-server.conf`.
 - [ ] 5.4 Add a `go_test` that sets each preset's variables, parses the NATS
       configs with the nats-server config parser, parses the presets and sizes
       file into typed values, fails on a missing or unknown inventory key or a
@@ -156,7 +149,6 @@
       It also parses `docker-compose.yml` and the packaged systemd units into
       typed models and fails when a size-owning service does not load the
       selected preset (`env_file`) or the sizes file (`EnvironmentFile`).
-      It fails when either owner variable is missing or invalid.
       A vector with the v1.4.73 single-server shape must fail.
 - [ ] 5.5 Bump `addons/<name>/addon.yaml` `version` for any native add-on whose
       config changes.
@@ -182,7 +174,11 @@
       with `--cascade=orphan`, `helm upgrade` with the raised
       `nats.persistence.size` and the new profile, and verify. State that a
       StorageClass without expansion needs a new install or migration and that
-      the chart does not automate this.
+      the chart does not automate this. Add a reclaim section (D6): after a
+      collector is disabled, reclaim its stream for EventWriter with one
+      `nats stream edit <STREAM>` command that sets `serviceradar.owner` to
+      `event-writer` or removes it, and state that until then the stream keeps
+      the collector's reservation.
 - [ ] 6.2 Link the runbook from `docs/agent-runbooks.md` and from the
       `values.yaml` comment.
 

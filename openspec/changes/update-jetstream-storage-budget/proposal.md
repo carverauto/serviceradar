@@ -106,12 +106,21 @@ one unplaceable stream stops unrelated ingestion.
   flow-collector's `flows` 10 to 8 GiB) reconcile to the configured value even
   when that evicts the oldest messages, so installs reach the budgeted
   reservation.
-- **One owner per stream shape.** The otel log-collector owns `events`;
-  every EventWriter consumer on it stops reconciling the shape and carries the
-  profile `events` size only as a create-time size, replacing the hardcoded
-  8 GiB, so EventWriter can neither overwrite the budgeted 2 GiB nor create the
-  stream unlimited. An ownership test asserts no EventWriter consumer
-  reconciles a stream it does not own.
+- **One owner per stream shape, claimed on the stream.** The otel log-collector,
+  flow-collector and bmp-collector each claim `events`, `flows` and
+  `ARANCINI_CAUSAL` through stream metadata (`serviceradar.owner`) and
+  reconcile the shape. EventWriter creates them when absent with an
+  `event-writer` claim and a finite fallback size, reconciles only while the
+  stream is unclaimed or its own, and only merges subjects when a collector
+  holds the claim. A legacy stream with no metadata is claimed by the first
+  owner to start, so an existing 10 GiB `flows` converges on Helm, Compose and
+  packaged installs with no per-install ownership setting. The hardcoded 8 GiB
+  `EVENTS` size is removed, so EventWriter can neither overwrite the budgeted
+  2 GiB nor create the stream unlimited. `flows` and `ARANCINI_CAUSAL` are
+  budgeted at the collector size whether or not the collector is enabled,
+  because a collector that claimed a stream keeps its size after it is
+  disabled; a runbook reclaim returns it to EventWriter. An ownership test
+  asserts EventWriter never reconciles a collector-claimed stream.
 - **Non-Helm services honour environment size overrides.** datasvc, the otel
   log-collector, flow-collector and bmp-collector read
   `SERVICERADAR_JS_<STREAM>_MAX_BYTES` / `_REPLICAS`, taking precedence over
