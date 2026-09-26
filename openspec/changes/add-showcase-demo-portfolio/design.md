@@ -36,9 +36,7 @@ The survey behind this change found these constraints in the current platform:
 - **The Rust SDK lags the Go SDK**: no RTSP over host TCP, no TLS, no
   `status_body` HTTP mode, `wasm32-unknown-unknown` target (so
   `Instant::now()` / `OffsetDateTime::now_utc()` likely panic and there is no
-  sleep), private `http` module, missing builders and packaged examples. Both
-  SDKs lack `notify:v1` and the `actions`/`integrations` manifest fields the
-  agent and real manifests use.
+  sleep), private `http` module, missing builders and packaged examples.
 
 ## Goals / Non-Goals
 
@@ -167,7 +165,7 @@ Per the repository's live-data rule, everything is invented from nothing:
 
 - IPv4 only from `192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`; IPv6 from
   `2001:db8::/32`.
-- MACs from `00:00:5e:00:53:00/24` or locally administered unicast
+- MACs from `00:00:5e:00:53:00` through `00:00:5e:00:53:ff` (the `00:00:5e:00:53:xx` block) or locally administered unicast
   (`02:xx:...`) derived from the seed -- never a real vendor OUI.
 - Hostnames under `example.com`, `example.net` or `.test`; site, facility and
   asset codes invented, and never shaped like IATA/ICAO codes.

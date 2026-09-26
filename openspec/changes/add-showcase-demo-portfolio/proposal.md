@@ -51,7 +51,7 @@ parity with Go.
 - **Rust SDK parity** with the Go SDK, enforced by a shared conformance suite:
   RTSP over host TCP (with TLS), HTTP `status_body` responses, a WASI build
   target so clocks and sleep work, public API exports, check-descriptor
-  builders, manifest model parity, and packaged examples.
+  builders, and packaged examples.
 - **Demo RTSP replayer:** a Bazel-built image deployed in `demo` that pulls
   licensed H.264 clips from a Linode Object Storage bucket and loops them as RTSP
   paths, so drone cameras are real relayed streams without real drones.
@@ -78,8 +78,7 @@ parity with Go.
     (`js/cli/src/dashboard/`).
   - `carverauto/serviceradar-sdk-dashboard`: camera hooks and components,
     plan-view canvas, types, harness mocks.
-  - `carverauto/serviceradar-sdk-go`: topology-link emitter; manifest model
-    drift fixes.
+  - `carverauto/serviceradar-sdk-go`: topology-link emitter.
   - `carverauto/serviceradar-sdk-rust`: parity work and conformance suite.
   - `carverauto/gitops`: `demo` namespace resources (RTSP replayer, WebRTC/TURN
     settings, demo plugin signing key trust).

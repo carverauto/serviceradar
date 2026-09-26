@@ -32,9 +32,8 @@ alerts. Every PR goes through the no-mistakes gate.
 - [ ] 3.3 RTSP transport over host TCP, RTSPS over TLS, Basic/Digest auth.
 - [ ] 3.4 HTTP `status_body` response mode; export the default HTTP client and the payload limit.
 - [ ] 3.5 Check-descriptor builders (`optional_target_fields`, `schedule_bounds`, `threshold_schema`).
-- [ ] 3.6 Manifest model parity in both SDKs: `notify:v1`, `actions`, `integrations`.
-- [ ] 3.7 Packaged examples with `plugin.yaml` and `config.schema.json`, covering the Go examples plus an RTSP example and a northbound-actions example.
-- [ ] 3.8 Update `js/cli/templates/plugin-rust/` and `docs/docs/sdks.md`.
+- [ ] 3.6 Packaged examples with `plugin.yaml` and `config.schema.json`, covering the Go examples plus an RTSP example and a northbound-actions example.
+- [ ] 3.7 Update `js/cli/templates/plugin-rust/` and `docs/docs/sdks.md`.
 
 ## 4. Dashboard platform additions
 - [ ] 4.1 Per-frame `refresh_interval_ms` in the manifest, clamped 1-60 s, replacing the hardcoded interval in `dashboard_package_live/show.ex`.

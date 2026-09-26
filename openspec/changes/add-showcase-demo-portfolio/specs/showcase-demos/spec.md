@@ -22,7 +22,7 @@ No demo data SHALL be exported, replayed, sanitized or reshaped from a live depl
 - **THEN** the synthetic-data guard SHALL fail the test and name the record and field
 
 #### Scenario: A simulator emits a vendor MAC
-- **WHEN** an emitted MAC address is neither in `00:00:5e:00:53:00/24` nor locally administered
+- **WHEN** an emitted MAC address is neither in the `00:00:5e:00:53:00` through `00:00:5e:00:53:ff` block nor locally administered
 - **THEN** the synthetic-data guard SHALL fail
 
 #### Scenario: Coordinates fall outside the declared bounds
