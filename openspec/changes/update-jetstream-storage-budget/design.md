@@ -29,7 +29,8 @@ Default reservations on v1.4.73 (three NATS servers, `maxFileStore: 30G` =
 | `metrics`, `k8s_inventory`, `analytics_predictions`, `mtr_results` | EventWriter | 1 GiB each | 1 |
 | `scan_results` | EventWriter | 0.25 GiB | 1 |
 | `NOTIFICATIONS` | core notifications | 1 GiB | 1 |
-| `trivy_reports`, `ARANCINI_CAUSAL` | EventWriter | unlimited | 1 |
+| `trivy_reports` | EventWriter | unlimited | 1 |
+| `ARANCINI_CAUSAL` | bmp-collector when enabled (`bmpCollector.config.streamMaxBytes`, `streamReplicas`) / EventWriter otherwise | 10 GiB / unlimited | 1 |
 | fieldsurvey, threat-intel object stores | web-ng / core | unlimited | 1 |
 
 With flow-collector enabled: 26 GiB of R3 on every server, 1.94 GiB left,
@@ -38,14 +39,21 @@ With flow-collector enabled: 26 GiB of R3 on every server, 1.94 GiB left,
 ## Goals / Non-Goals
 
 - Goals: a default install of every OSS shape (Helm, Docker Compose,
-  packaged), with or without flow-collector, can always place every stream
-  ServiceRadar creates plus headroom for streams future releases add; the rule is a pure function of values, so it is idempotent and holds
-  for any environment; existing installs converge on upgrade with no manual
-  step; one unplaceable stream never stops unrelated ingestion.
+  packaged), with or without the optional producers (flow-collector,
+  bmp-collector, trivy sidecar), can always place every stream ServiceRadar
+  creates plus headroom for streams future releases add; sizing is an
+  operator choice made by naming a profile, identically for Helm and Docker
+  Compose, with individual sizes still overridable; the rule is a pure
+  function of values, so it is idempotent and holds for any environment;
+  existing installs converge on upgrade with no manual step; one unplaceable
+  stream never stops unrelated ingestion.
 - Non-Goals: changing the NATS PVC default (StatefulSet
   `volumeClaimTemplates` is immutable, so a new default breaks every existing
-  upgrade); making EventWriter streams R3; auto-sizing from live cluster state
-  (`lookup` returns nothing under `helm template` and Argo CD).
+  upgrade) or resizing a PVC from a profile; making EventWriter streams R3;
+  auto-sizing from live cluster state (`lookup` returns nothing under
+  `helm template` and Argo CD); the serviceradar-control SaaS control plane,
+  which is a separate repository. Its contract with this change is a profile
+  name plus optional per-stream overrides.
 
 ## Decisions
 
@@ -65,11 +73,11 @@ The existing `best_effort` split stays for drain consumers.
 
 ### D2. `max_file_store` is rendered in bytes
 
-`templates/nats.yaml` renders `max_file_store: <integer>`.
-`nats.jetstream.maxFileStore` stays an explicit value whose chart default
-stays `30G`; a helper parses the `G` (10^9) and `Gi` (2^30) suffixes the way
-NATS does, so the default renders `30000000000` (27.94 GiB), exactly what
-NATS enforces today.
+`templates/nats.yaml` renders `max_file_store: <integer>`. The value is
+`nats.jetstream.maxFileStore` when set, otherwise the selected profile's
+value (D9); the `small` profile is `30G`, so the default still renders
+`30000000000` (27.94 GiB), exactly what NATS enforces today. A helper parses
+the `G` (10^9) and `Gi` (2^30) suffixes the way NATS does.
 
 `max_file_store` is deliberately not derived from `nats.persistence.size`.
 Deriving it as the PVC size minus a reserve raises the cap toward the disk:
@@ -77,33 +85,45 @@ on a 30Gi ext4 volume usable space is below 30 GiB, NATS writes index and
 metadata files beyond stream `max_bytes`, and a 1 GiB reserve risks a full
 disk, which is worse than an unplaceable stream. `persistence.size` also
 diverges from the real claim after an out-of-band PVC expansion, because the
-StatefulSet claim is immutable. The budget passes at 27.94 GiB, so no raise
-is needed.
+StatefulSet claim is immutable. The PVC only bounds the value from above
+(D5).
 
 ### D3. Every created stream has a finite `max_bytes`
 
-New defaults: `trivy_reports` 1 GiB, `ARANCINI_CAUSAL` (EventWriter-created)
-1 GiB, `OBJ_serviceradar_plugins` 2 GiB R3, fieldsurvey and threat-intel
-object stores 1 GiB each. The EventWriter-created `flows` stream (used only
-when flow-collector is disabled) drops to 1 GiB; flow-collector continues to
-reconcile it to `flowCollector.config.stream_max_bytes` when enabled.
+`trivy_reports`, `OBJ_serviceradar_plugins`, the fieldsurvey and threat-intel
+object stores, and the EventWriter-created fallbacks of `flows` and
+`ARANCINI_CAUSAL` (used only while flow-collector or bmp-collector is
+disabled) get positive sizes in every profile (D9). When flow-collector or
+bmp-collector is enabled it reconciles its stream to
+`flowCollector.config.stream_max_bytes` or `bmpCollector.config.streamMaxBytes`,
+which the profile now sets too.
 
 ### D4. Smaller datasvc defaults
 
-`datasvc.bucketMaxBytes` 4 GiB -> 1 GiB and `datasvc.objectStoreBytes`
-10 GiB -> 4 GiB, both R3. The KV holds kilobytes of configuration. The object
-store is `DiscardNew`, so a full bucket rejects writes rather than evicting;
-4 GiB is twice the cap the reference demo install runs on.
+In the default (`small`) profile, `datasvc.bucketMaxBytes` drops 4 GiB ->
+1 GiB and `datasvc.objectStoreBytes` 10 GiB -> 4 GiB, both R3. The KV holds
+kilobytes of configuration. The object store is `DiscardNew`, so a full
+bucket rejects writes rather than evicting; 4 GiB is twice the cap the
+reference demo install runs on. The size keys in `values.yaml` become unset
+so a profile can supply them; an explicit value still wins.
 
 ### D5. Render-time budget check
 
-Each stream's replica count comes from its own chart value:
-`datasvc.jetstreamReplicas` (KV and object store),
-`logCollector.streamReplicas` (`events`),
-`flowCollector.config.stream_replicas` (`flows`, only when flow-collector is
-enabled), `webNg.pluginStorage.jetstreamReplicas` (plugins), and 1 for every
-EventWriter-created stream. With `n = nats.replicas`, a stream is classified
-by comparing its replicas `r` to `n`:
+Each stream's size and replica count come from its own chart value:
+`datasvc.bucketMaxBytes` / `objectStoreBytes` / `jetstreamReplicas` (KV and
+object store), `logCollector.streamReplicas` (`events`),
+`flowCollector.config.stream_max_bytes` / `stream_replicas` (`flows`, when
+flow-collector is enabled), `bmpCollector.config.streamMaxBytes` /
+`streamReplicas` (`ARANCINI_CAUSAL`, when bmp-collector is enabled),
+`webNg.pluginStorage.jetstreamReplicas` (plugins), and
+`core.eventWriter.streams.<name>.maxBytes` with 1 replica for every
+EventWriter-created stream, including `trivy_reports`, the fieldsurvey and
+threat-intel object stores, and the `flows` / `ARANCINI_CAUSAL` fallbacks
+while their collector is disabled. The trivy sidecar only publishes to
+`trivy_reports`; the stream is counted whether or not the sidecar runs.
+
+With `n = nats.replicas`, a stream is classified by comparing its replicas
+`r` to `n`:
 
 ```
 full   = streams with r >= n        (a replica lands on every server)
@@ -123,19 +143,20 @@ with `r > n` cannot be placed at all and counts as `full`.
 The chart `fail`s when `need > 0.85 * max_file_store`, listing every stream
 with its `max_bytes`, replicas and bucket, plus `need` and the limit. The 15%
 margin is room for streams a later release adds, which is exactly the
-v1.4.73 failure. `nats.jetstream.allowOvercommit: true` skips the check.
+v1.4.73 failure. `nats.jetstream.allowOvercommit: true` skips this check.
 
-Defaults after D3/D4 with three servers (`max_file_store` 30000000000 bytes =
-27.94 GiB, limit 23.75 GiB):
+A second check bounds `max_file_store` by the disk: the chart also `fail`s
+when `max_file_store > 0.94 * bytes(nats.persistence.size)`, with a message
+telling the operator to expand the PVC out of band and raise
+`nats.persistence.size` first. `allowOvercommit` does not skip it, because a
+full disk is worse than an unplaceable stream. The ceiling is 94%, not a
+rounder number below the profile ratio: `30G` on a `30Gi` claim is 93.13%,
+and so are `100G` on `100Gi` and `500G` on `500Gi`, so a 93% ceiling would
+reject every shipped profile.
 
-| Shape | full | rest (R1) | need |
-| --- | --- | --- | --- |
-| flow-collector enabled (flows 10 GiB R3) | 19 | 9.25 | 19 + 9.25/3 + 1 = 23.08 |
-| flow-collector disabled (flows 1 GiB R1) | 9 | 10.25 | 9 + 10.25/3 + 1 = 13.42 |
-
-The enabled shape leaves 0.67 GiB of margin under the limit and 4.86 GiB
-below `max_file_store`; the v1.4.73 shape (26 GiB full, 5.25 GiB R1) needs
-26 + 5.25/3 + 1 = 28.75 GiB and fails the check, as it should.
+The v1.4.73 shape (26 GiB full, 5.25 GiB R1, three servers, `30G`) needs
+26 + 5.25/3 + 1 = 28.75 GiB against a 23.75 GiB limit, and fails the check,
+as it should.
 
 ### D6. Owners never shrink below stored bytes
 
@@ -150,53 +171,113 @@ next upgrade after the data ages out completes the shrink.
 
 Render with `ternary` / `hasKey` instead of `default true`.
 
-### D8. Docker Compose and packaged installs meet the same budget
+### D8. Docker Compose and packaged installs
 
 These installs run one NATS server (`nats.replicas = 1`), so every stream is
-in `full` and `need` is the plain sum of every `max_bytes`. The limit is
-`0.85 * max_file_store`; both `docker/compose/nats.docker.conf` and
-`build/packaging/nats/config/nats-server.conf` pin `max_file_store: 10G`
-(10^10 bytes = 9.31 GiB, limit 7.92 GiB).
+in `full` and `need` is the plain sum of every `max_bytes`; the limit is
+`0.85 * max_file_store`. They select the same profiles as Helm and pay for
+sharing one server with their own size tables (D9).
 
-The shared defaults do not fit: with the D3/D4 sizes and flow-collector and
-bmp-collector present, `need` is 1 (KV) + 4 (objects) + 2 (`events`) + 1
-(`flows`) + 0.125 (bmp) + 5.25 (EventWriter) + 4 (trivy, ARANCINI_CAUSAL,
-fieldsurvey, threat-intel) + 2 (plugins) = 19.4 GiB. The sizes those configs
-ship today (KV 2 or 5 GiB, `events` 2 GiB) already sum above 9.31 GiB, so
-they have the v1.4.73 failure latent. `max_file_store` is not raised: it is a
-reservation ceiling on a host disk the chart does not size. Instead both
-config sets override the stream sizes:
+- Compose ships one preset per profile, `docker/compose/profiles/small.env`,
+  `medium.env` and `large.env`, each setting `max_file_store` and **every**
+  stream size explicitly. `SERVICERADAR_NATS_PROFILE` (default `small`)
+  selects the file through the service `env_file` path.
+  `docker/compose/nats.docker.conf` reads
+  `max_file_store: $SERVICERADAR_NATS_MAX_FILE_STORE` through NATS environment
+  substitution, and every size-owning service (datasvc, otel log-collector,
+  flow-collector, bmp-collector, core) reads its sizes from those variables.
+  An operator overrides a single size in the environment of the service.
+- Packaged installs ship the same explicit sizes as a file
+  (`build/packaging/nats/config/jetstream-sizes.env`, `small` content) that
+  the systemd units load with `EnvironmentFile=`;
+  `build/packaging/nats/config/nats-server.conf` reads `max_file_store` from
+  it the same way. Moving to `medium` or `large` replaces that file.
+- Neither install has a PVC. A profile's `max_file_store` is a reservation
+  ceiling, so the host needs at least that much free disk for JetStream. This
+  raises the Compose and packaged ceiling from today's `10G` to `30G` for
+  `small`, and the shipped stream sizes fit it (D9) where today's do not.
 
-| Stream | Size |
-| --- | --- |
-| `KV_serviceradar-datasvc` | 0.25 GiB |
-| `OBJ_serviceradar-objects` | 1 GiB |
-| `events` | 1 GiB |
-| `flows` | 1 GiB (unchanged) |
-| bmp-collector stream (Compose only) | 0.125 GiB (unchanged) |
-| `metrics` | 0.5 GiB |
-| `k8s_inventory`, `analytics_predictions`, `mtr_results`, `scan_results`, `NOTIFICATIONS` | 0.25 GiB each |
-| `trivy_reports`, `ARANCINI_CAUSAL`, fieldsurvey, threat-intel | 0.25 GiB each |
-| `OBJ_serviceradar_plugins` | 0.5 GiB |
+A Bazel `go_test` enforces this without reading any component source. It
+parses the NATS configuration with the nats-server config parser, after
+setting each preset's variables as the process environment, so `30G` means
+what NATS means, and parses each preset and the packaged sizes file into typed
+values. It fails when a key of the stream inventory is missing or unknown,
+when a size is not a positive integer, or when `need` exceeds 85% of the
+parsed `max_file_store`, and it names the streams and the limit. The
+inventory is a typed list owned by the test, so adding a stream forces the
+presets to be updated. A vector with the v1.4.73 single-server shape must
+fail. Helm is covered separately by helm-unittest cases per profile.
 
-`need` is 6.625 GiB against 7.92 GiB. The values are starting points that
-implementation checks against observed per-stream peaks; a value that must
-rise is paid for by lowering another or by raising `max_file_store` after
-checking host disk, never by dropping the check. Compose sets them through
-`docker/compose/datasvc.mtls.json` (`bucket_max_bytes`, `object_store_bytes`),
-`otel.docker.toml` and the core service environment; packaged installs through
-`datasvc.json`, `otel.toml` and `core-elx.env`.
+### D9. Sizing profiles
 
-A Bazel `go_test` enforces this. It loads `nats.docker.conf` and
-`nats-server.conf` with the NATS server's own config parser (so `10G` means
-what NATS means), decodes the datasvc JSON, otel TOML, flow-collector and
-bmp-collector JSON and the core environment into typed structs, takes any
-size a config leaves unset from the same default the component compiles in,
-and evaluates the D5 formula with `n = 1`. The files are declared `data`
-inputs. The formula is shared with the Helm check through one table of
-vectors (the two default shapes above and the v1.4.73 shape) run by both this
-test and helm-unittest, so the two implementations cannot drift, and the
-vector for the v1.4.73 shape must fail the check.
+`nats.jetstream.profile` (Helm) and `SERVICERADAR_NATS_PROFILE` (Compose)
+select `small` (default), `medium` or `large`. A profile sets
+`max_file_store` and the default `max_bytes` of every stream, KV bucket and
+object store in the inventory, including `ARANCINI_CAUSAL` and `flows`, with
+the replica sources named in D5. An explicit value for any single size or for
+`maxFileStore` overrides the profile. There is no single right size (a site
+with heavy BMP needs far more than one with little), so the profile is the
+operator's choice; the defaults are safe rather than generous. The
+serviceradar-control SaaS control plane picks a larger profile, plus optional
+per-stream overrides, for enterprise deployments.
+
+A profile never changes the NATS PVC (`volumeClaimTemplates` is immutable).
+`small` targets the default 30Gi PVC, `medium` a 100Gi PVC and `large` a 500Gi
+PVC; D5 rejects a profile whose `max_file_store` exceeds 94% of the claim the
+chart is configured with, so an existing 30Gi install that selects `medium`
+fails to render until the PVC is expanded out of band and
+`nats.persistence.size` is raised.
+
+Helm sizes, three servers (GiB; `medium` and `large` are starting points that
+implementation checks against observed peaks, with most of the extra space
+given to the high-volume streams: `flows`, `ARANCINI_CAUSAL`, `events`):
+
+| Stream | Replicas | small | medium | large |
+| --- | --- | --- | --- | --- |
+| `max_file_store` (PVC) | | 30G (30Gi) | 100G (100Gi) | 500G (500Gi) |
+| `KV_serviceradar-datasvc` | 3 | 1 | 1 | 2 |
+| `OBJ_serviceradar-objects` | 3 | 4 | 8 | 32 |
+| `events` | 3 | 2 | 8 | 32 |
+| `flows` (flow-collector on) | 3 | 8 | 32 | 192 |
+| `OBJ_serviceradar_plugins` | 3 | 2 | 4 | 8 |
+| `ARANCINI_CAUSAL` (bmp-collector on) | 1 | 2 | 12 | 64 |
+| `metrics`, `k8s_inventory`, `analytics_predictions`, `mtr_results` (each) | 1 | 1 | 2 | 8 |
+| `scan_results` | 1 | 0.25 | 0.5 | 2 |
+| `NOTIFICATIONS` | 1 | 1 | 1 | 2 |
+| `trivy_reports`, fieldsurvey, threat-intel (each) | 1 | 1 | 2 | 8 |
+| `flows`, `ARANCINI_CAUSAL` fallbacks (collector off) | 1 | 1 | 1 | 1 |
+
+All optional producers enabled (flow-collector, bmp-collector, trivy
+sidecar), limit `0.85 * max_file_store`:
+
+| Profile | full | rest | need | limit | margin |
+| --- | --- | --- | --- | --- | --- |
+| small (27.94 GiB) | 17 | 10.25, largest 2 | 17 + 10.25/3 + 2 = 22.42 | 23.75 | 1.33 |
+| medium (93.13 GiB) | 53 | 27.5, largest 12 | 53 + 27.5/3 + 12 = 74.17 | 79.16 | 4.99 |
+| large (465.66 GiB) | 266 | 124, largest 64 | 266 + 124/3 + 64 = 371.33 | 395.81 | 24.48 |
+
+With both collectors disabled the need is 13.42 (small), 28.83 (medium) and
+102.67 (large) GiB, so every subset of producers passes. Each `max_file_store`
+is 93.13% of its PVC, under the 94% ceiling.
+
+Compose and packaged sizes, one server, so the flow stream is smaller and every
+stream counts in full (GiB; replicas are irrelevant):
+
+| Stream | small | medium | large |
+| --- | --- | --- | --- |
+| `max_file_store` | 30G | 100G | 500G |
+| `KV_serviceradar-datasvc` | 1 | 1 | 2 |
+| `OBJ_serviceradar-objects` | 4 | 8 | 32 |
+| `events` | 2 | 8 | 32 |
+| `flows` | 3 | 24 | 160 |
+| `OBJ_serviceradar_plugins` | 2 | 4 | 8 |
+| `ARANCINI_CAUSAL` | 2 | 12 | 64 |
+| `metrics`, `k8s_inventory`, `analytics_predictions`, `mtr_results` (each) | 1 | 2 | 8 |
+| `scan_results` | 0.25 | 0.5 | 2 |
+| `NOTIFICATIONS` | 1 | 1 | 2 |
+| `trivy_reports`, fieldsurvey, threat-intel (each) | 1 | 2 | 8 |
+| **need** | **22.25** | **72.5** | **358** |
+| limit (`0.85 * max_file_store`) | 23.75 | 79.16 | 395.81 |
 
 ## Risks / Trade-offs
 
@@ -208,6 +289,13 @@ vector for the v1.4.73 shape must fail the check.
   nobody reads upgrade notes on an automated Argo sync.
 - **Smaller object store.** An install already using more than 4 GiB keeps
   its current size (D6) and does not lose data, but new installs cap earlier.
+- **A profile does not resize a disk.** Selecting `medium` on a 30Gi install
+  fails render until the PVC is expanded (D5); this is intended, since the
+  chart cannot expand an immutable claim and a reservation ceiling above the
+  disk defeats the check.
+- **Compose and packaged ceiling rises to 30G.** The reservation is not an
+  allocation, but a host with less free disk than `max_file_store` can fill
+  it before NATS refuses a write. The presets document the requirement.
 - **EventWriter sizes move to values.** Two sources of truth for defaults
   (Elixir constants and Helm) must not drift; the Elixir constants become the
   fallback only when the env var is absent, and a helm-unittest asserts the
@@ -215,13 +303,16 @@ vector for the v1.4.73 shape must fail the check.
 
 ## Migration
 
-No manual step for installs on chart defaults: the next upgrade lowers KV and
-object-store caps (D6 permitting), sets finite caps on unlimited streams, and
-renders the byte-exact `max_file_store` (`30000000000`, unchanged in effect).
-Installs that override `maxFileStore` low or raise stream sizes get an
-itemised render failure and adjust values. Compose and packaged installs
-converge when their config files are replaced on upgrade; D6 keeps any stream
-whose stored bytes exceed the new size at its current size.
+No manual step for installs on chart defaults: the next upgrade selects the
+`small` profile, lowers KV and object-store caps (D6 permitting), sets finite
+caps on unlimited streams, and renders the byte-exact `max_file_store`
+(`30000000000`, unchanged in effect). Installs that override sizes upward, or
+that enable BMP with a larger `streamMaxBytes` than the profile, get an
+itemised render failure and adjust values. Selecting `medium` or `large`
+requires expanding the PVC out of band and raising `nats.persistence.size`
+first. Compose and packaged installs converge when their config files are
+replaced on upgrade; D6 keeps any stream whose stored bytes exceed the new
+size at its current size.
 
 ## Resolved Questions
 
@@ -231,3 +322,5 @@ whose stored bytes exceed the new size at its current size.
    this against the largest first-party Wasm and native add-on bundles.
 3. The 15% margin is fixed, not a value; `allowOvercommit` covers operators
    who want to run hotter.
+4. The PVC ceiling is 94% of `nats.persistence.size` and is not skipped by
+   `allowOvercommit` (D5).

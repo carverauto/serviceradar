@@ -17,21 +17,33 @@
       `core.eventWriter.streams.<name>.maxBytes`, rendered into the core
       environment and read in `serviceradar_core_elx/config/runtime.exs`.
 
-## 3. Chart budget (D2, D4, D5, D7)
+## 3. Chart budget and profiles (D2, D4, D5, D7, D9)
 
-- [ ] 3.1 Byte-exact `max_file_store` helper with `G`/`Gi` parsing; keep the
-      `nats.jetstream.maxFileStore: 30G` default in `values.yaml` and
-      `values-demo.yaml` (renders `30000000000`).
-- [ ] 3.2 Lower `datasvc.bucketMaxBytes` to 1 GiB and
-      `datasvc.objectStoreBytes` to 4 GiB; correct the budget comments.
+- [ ] 3.1 Byte-exact `max_file_store` helper with `G`/`Gi` parsing. Make
+      `nats.jetstream.maxFileStore` and every stream size key unset by default
+      in `values.yaml` and `values-demo.yaml` so the profile supplies them; an
+      explicit value wins.
+- [ ] 3.2 Add `nats.jetstream.profile` (`small` default, `medium`, `large`)
+      with the D9 Helm table as chart data, covering `datasvc`, `events`,
+      `flows`, plugins, `bmpCollector.config.streamMaxBytes` /
+      `streamReplicas` and every `core.eventWriter.streams.<name>.maxBytes`;
+      correct the budget comments in `values.yaml`.
 - [ ] 3.3 Budget helper and `fail` with itemised message, bucketing each
-      stream by its own replica value against `nats.replicas` (D5);
-      `nats.jetstream.allowOvercommit` escape hatch.
-- [ ] 3.4 Fix `EVENT_WRITER_ENABLED` rendering of `false`.
-- [ ] 3.5 helm-unittest: defaults pass with flow-collector on and off;
-      overrides fail with the itemised message; `allowOvercommit` passes;
-      `values-demo.yaml` passes; R2 and R3 streams on a 5-server NATS land in
-      the spread bucket; the v1.4.73 shape fails.
+      stream by its own size and replica value against `nats.replicas` (D5),
+      including flow-collector and bmp-collector when enabled;
+      `nats.jetstream.allowOvercommit` escape hatch for the reservation check.
+- [ ] 3.4 PVC ceiling: `fail` when `max_file_store` exceeds 94% of
+      `bytes(nats.persistence.size)` with the expand-the-PVC-first message;
+      `allowOvercommit` does not skip it.
+- [ ] 3.5 Fix `EVENT_WRITER_ENABLED` rendering of `false`.
+- [ ] 3.6 helm-unittest per profile: with flow-collector, bmp-collector and the
+      trivy sidecar all enabled and with them all disabled, `small`,
+      `medium` and `large` render (`medium` and `large` with a matching
+      `persistence.size`); the v1.4.73 shape fails; overrides fail with the
+      itemised message; `allowOvercommit` passes; R2 and R3 streams on a
+      5-server NATS land in the spread bucket; an existing 30Gi install that
+      sets `medium` fails with the expand-the-PVC message and renders once
+      `persistence.size` is `100Gi`; `values-demo.yaml` passes.
 
 ## 4. Safe shrink (D6)
 
@@ -43,18 +55,24 @@
 
 ## 5. Compose and packaged installs (D8)
 
-- [ ] 5.1 Set the D8 stream sizes in `docker/compose/datasvc.mtls.json`,
-      `otel.docker.toml`, the core service environment in
-      `docker-compose.yml`, and the packaged `datasvc.json`, `otel.toml` and
-      `core-elx.env`.
-- [ ] 5.2 Add a `go_test` that parses `nats.docker.conf` and
-      `nats-server.conf` with the NATS config parser, decodes the size
-      sources into typed structs, and evaluates the D5 formula with
-      `nats.replicas = 1`; config files are declared `data` inputs.
-- [ ] 5.3 Share one vector table (defaults with flow-collector on and off,
-      v1.4.73 shape) between this test and helm-unittest; the v1.4.73 vector
-      fails the check.
-- [ ] 5.4 Bump `addons/<name>/addon.yaml` `version` for any native add-on whose
+- [ ] 5.1 Add `docker/compose/profiles/{small,medium,large}.env` with the D9
+      Compose table and every stream size explicit; select the file with
+      `SERVICERADAR_NATS_PROFILE` (default `small`) through `env_file`.
+- [ ] 5.2 `docker/compose/nats.docker.conf` reads `max_file_store` from
+      `$SERVICERADAR_NATS_MAX_FILE_STORE`; datasvc, otel log-collector,
+      flow-collector, bmp-collector and core read their sizes from the preset
+      variables instead of literals in their config files.
+- [ ] 5.3 Ship `build/packaging/nats/config/jetstream-sizes.env` with the
+      `small` content; load it with `EnvironmentFile=` in the NATS, datasvc,
+      log-collector, flow-collector and core units, and read `max_file_store`
+      from it in `nats-server.conf`.
+- [ ] 5.4 Add a `go_test` that sets each preset's variables, parses the NATS
+      configs with the nats-server config parser, parses the presets and sizes
+      file into typed values, fails on a missing or unknown inventory key or a
+      non-positive size, and evaluates the D5 formula with `nats.replicas = 1`;
+      config files are declared `data` inputs and no component source is read.
+      A vector with the v1.4.73 single-server shape must fail.
+- [ ] 5.5 Bump `addons/<name>/addon.yaml` `version` for any native add-on whose
       config changes.
 
 ## 6. Verification

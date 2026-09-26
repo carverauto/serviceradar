@@ -40,25 +40,52 @@ one unplaceable stream stops unrelated ingestion.
 - **EventWriter stream sizes become Helm values** under
   `core.eventWriter.streams.<name>.maxBytes`, rendered into the core
   environment, so the whole budget lives in one values tree.
-- **The chart renders `max_file_store` as an exact byte count.**
-  `nats.jetstream.maxFileStore` stays an explicit value with the `30G`
-  default, parsed with NATS's `G` (10^9) and `Gi` (2^30) semantics, so the
-  default renders `30000000000`. It is not derived from the PVC size: a
-  reserve-based derivation raises the cap toward the disk and drifts from the
-  real claim after out-of-band expansion.
-- **Smaller defaults that fit with headroom.** datasvc KV 4 GiB -> 1 GiB and
-  object store 10 GiB -> 4 GiB (both R3; the KV holds kilobytes, and the
-  object store is capped at 2 GiB on the reference demo install).
+- **The chart renders `max_file_store` as an exact byte count**, parsed with
+  NATS's `G` (10^9) and `Gi` (2^30) semantics. The value is
+  `nats.jetstream.maxFileStore` when set, otherwise the selected profile's;
+  the default `small` profile renders `30000000000`. It is not derived from
+  the PVC size: a reserve-based derivation raises the cap toward the disk and
+  drifts from the real claim after out-of-band expansion.
+- **Sizing profiles.** `nats.jetstream.profile` (Helm) and
+  `SERVICERADAR_NATS_PROFILE` (Compose) select `small` (default; 30Gi PVC,
+  `max_file_store` 30G), `medium` (100Gi, 100G) or `large` (500Gi, 500G).
+  There is no single right size, so sizing is an operator choice with safe
+  defaults. A profile sets `max_file_store` and the default `max_bytes` of
+  every stream, KV bucket and object store, including `flows` and
+  `ARANCINI_CAUSAL`, and each is still individually overridable. Every
+  profile is shown to pass the budget with flow-collector, bmp-collector and
+  the trivy sidecar all enabled (design D9).
+- **Smaller defaults that fit with headroom.** In `small`, datasvc KV 4 GiB ->
+  1 GiB, object store 10 GiB -> 4 GiB and flow-collector `flows` 10 GiB ->
+  8 GiB (all R3; the KV holds kilobytes, and the object store is capped at
+  2 GiB on the reference demo install). The BMP stream is counted at its own
+  `bmpCollector.config.streamMaxBytes` / `streamReplicas`, which the profile
+  sets to 2 GiB R1 instead of the 10 GiB chart default; that default would
+  otherwise push a default install with BMP enabled over the budget.
 - **A render-time budget check.** `helm template` / `helm upgrade` SHALL fail
   with an itemised message when the worst per-server reservation exceeds 85%
   of `max_file_store`, unless the operator sets
-  `nats.jetstream.allowOvercommit: true`. Each stream's replica count comes
-  from its own chart value and is bucketed against `nats.replicas`.
+  `nats.jetstream.allowOvercommit: true`. Each stream's size and replica
+  count come from its own chart value, including the optional producers when
+  enabled, and are bucketed against `nats.replicas`.
+- **Profiles never resize the NATS PVC.** The check also fails when
+  `max_file_store` exceeds 94% of `nats.persistence.size`, telling the
+  operator to expand the PVC out of band and raise `nats.persistence.size`
+  first. `StatefulSet` `volumeClaimTemplates` is immutable, so an existing
+  30Gi install that selects `medium` fails render until expanded.
 - **Docker Compose and packaged installs are in scope.** Both pin
   `max_file_store: 10G` on a single server and ship stream sizes that do not
-  fit it. They get smaller stream sizes (design D8) and a Bazel test that
-  evaluates the same budget formula with `nats.replicas = 1` against the
-  shipped config files.
+  fit it. Compose ships one preset env file per profile
+  (`docker/compose/profiles/{small,medium,large}.env`) that sets every size
+  explicitly, and `nats.docker.conf` reads `max_file_store` from it;
+  packaged installs ship the same explicit sizes as a file. A Bazel test
+  parses the NATS config with the nats-server parser and the preset and sizes
+  files, requires every size to be explicit, and evaluates the budget with
+  `nats.replicas = 1`. It never reads component source. Helm is covered by
+  helm-unittest cases per profile.
+- **Control-plane contract.** The serviceradar-control SaaS control plane is
+  out of scope; it consumes this change as a profile name plus optional
+  per-stream overrides.
 - **Shrinking is safe on upgrade.** An owner that reconciles `max_bytes`
   downward SHALL NOT shrink below the bytes already stored; it keeps the
   larger value and logs why.
@@ -75,10 +102,12 @@ one unplaceable stream stops unrelated ingestion.
   (`go/pkg/datasvc/nats.go`); Rust otel log-collector reconcile
   (`rust/otel/src/nats/stream.rs`); trivy/bmp/plugin/fieldsurvey/threat-intel
   stream creators for finite caps; `docker/compose/` and
-  `build/packaging/` NATS, datasvc, otel and core config files plus a new
-  budget `go_test`.
+  `build/packaging/` NATS configs, profile presets and sizes files, the
+  size-owning services' env handling (datasvc, otel log-collector,
+  flow-collector, bmp-collector, core), and a new budget `go_test`.
 - **Upgrade behaviour:** existing installs converge on the next upgrade with
   no manual step. The NATS PVC size is not changed (StatefulSet
   `volumeClaimTemplates` is immutable). An install whose explicit overrides
   exceed the budget fails `helm upgrade` with a message listing each
-  reservation, and can opt out with `allowOvercommit`.
+  reservation, and can opt out with `allowOvercommit`. Selecting a larger
+  profile needs the PVC expanded first.
