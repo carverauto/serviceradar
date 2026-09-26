@@ -172,7 +172,12 @@ Every dataset defaults to 365 days: `STARROCKS_RETENTION_DAYS_FLOWS`,
 `STARROCKS_RETENTION_DAYS_METRICS`, `STARROCKS_RETENTION_DAYS_LOGS`,
 `STARROCKS_RETENTION_DAYS_EVENTS` and `STARROCKS_RETENTION_DAYS_MTR` (MTR traces
 and hops together).
-Core applies them at start and retries with backoff until the warehouse
+Warehouse loads are sized by `STARROCKS_STREAM_LOAD_MAX_AGE_MS` (flush a
+batch after this long, default 2000), `STARROCKS_STREAM_LOAD_MAX_ROWS` (50000)
+and `STARROCKS_STREAM_LOAD_MAX_BYTES` (33554432) per load, and
+`STARROCKS_STREAM_LOAD_MAX_IN_FLIGHT` (4) loads at once. Each Stream Load is a
+warehouse transaction, so fewer, larger loads are cheaper than many small ones.
+Retention values are re-applied at every core start: core retries with backoff until the warehouse
 accepts them, so a slow Frontend does not leave the tables on their DDL
 default. With the warehouse enabled, MTR traces and hops are stored only there,
 so `STARROCKS_RETENTION_DAYS_MTR` is the MTR retention that applies; the value

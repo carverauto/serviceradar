@@ -169,3 +169,34 @@ tests:
           content:
             name: SERVICERADAR_STARROCKS_RETENTION_DAYS_FLOWS
             value: "90"
+
+  # Stream Load sizing reaches core from the analytics ConfigMap, so a change
+  # rolls core through its checksum; before this the keys were rendered and
+  # never read.
+  - it: publishes the Stream Load sizing from the analytics ConfigMap
+    set:
+      analytics.starrocks.enabled: true
+      analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_STARROCKS_STREAM_LOAD_MAX_BYTES
+            valueFrom:
+              configMapKeyRef:
+                name: serviceradar-starrocks-analytics
+                key: streamLoadMaxBytes
+          count: 1
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_STARROCKS_STREAM_LOAD_MAX_AGE_MS
+            valueFrom:
+              configMapKeyRef:
+                name: serviceradar-starrocks-analytics
+                key: streamLoadMaxAgeMs
+          count: 1
+

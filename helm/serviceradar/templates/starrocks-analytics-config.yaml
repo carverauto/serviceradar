@@ -24,10 +24,10 @@ data:
   feService: {{ $sr.fe.service | quote }}
   feQueryPort: {{ $sr.fe.queryPort | quote }}
   feHttpPort: {{ $sr.fe.httpPort | quote }}
-  streamLoadMaxRows: {{ $sr.streamLoad.maxRows | quote }}
-  streamLoadMaxBytes: {{ $sr.streamLoad.maxBytes | quote }}
-  streamLoadMaxAgeMs: {{ $sr.streamLoad.maxAgeMs | quote }}
-  streamLoadMaxInFlight: {{ $sr.streamLoad.maxInFlight | quote }}
+  streamLoadMaxRows: {{ $sr.streamLoad.maxRows | int64 | quote }}
+  streamLoadMaxBytes: {{ $sr.streamLoad.maxBytes | int64 | quote }}
+  streamLoadMaxAgeMs: {{ $sr.streamLoad.maxAgeMs | int64 | quote }}
+  streamLoadMaxInFlight: {{ $sr.streamLoad.maxInFlight | int64 | quote }}
   enabled: "true"
   shadowDatasets: {{ include "serviceradar.starrocksShadowDatasets" . | quote }}
   cutoverDatasets: {{ $sr.cutoverDatasets | default list | join "," | quote }}

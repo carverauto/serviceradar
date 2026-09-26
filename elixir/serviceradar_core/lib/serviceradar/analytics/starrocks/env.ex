@@ -35,6 +35,21 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
   # a round-trip saving; 0 disables reuse and probes every query.
   @default_rollup_cache_ttl_seconds 60
 
+  # Stream Load sizing. Every warehouse load is a transaction and, in
+  # shared-data mode, object-store writes plus later compaction, so many small
+  # loads cost far more than a few large ones. EventWriter flushes a warehouse
+  # batch after `max_age_ms`, splits it into loads of at most `max_rows` rows
+  # and `max_bytes` encoded bytes, and runs at most `max_in_flight` of those
+  # loads at once. These match the Helm `analytics.starrocks.streamLoad`
+  # defaults; they are starting points for the #4516 benchmark, not measured
+  # optima.
+  @default_stream_load [
+    max_rows: 50_000,
+    max_bytes: 33_554_432,
+    max_age_ms: 2_000,
+    max_in_flight: 4
+  ]
+
   @spec config() :: keyword()
   def config do
     enabled = truthy?("SERVICERADAR_STARROCKS_ENABLED")
@@ -53,9 +68,13 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
       password: System.get_env("SERVICERADAR_STARROCKS_PASSWORD", ""),
       retention_days: retention_days(),
       rollup_stale_after_seconds: rollup_stale_after_seconds(),
-      rollup_cache_ttl_seconds: rollup_cache_ttl_seconds()
+      rollup_cache_ttl_seconds: rollup_cache_ttl_seconds(),
+      stream_load: stream_load()
     ]
   end
+
+  @spec default_stream_load() :: keyword(pos_integer())
+  def default_stream_load, do: @default_stream_load
 
   @spec table(String.t()) :: String.t()
   def table(name) when is_binary(name) do
@@ -87,6 +106,28 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
     case Integer.parse(nonempty("SERVICERADAR_STARROCKS_ROLLUP_CACHE_TTL_SECONDS", "")) do
       {seconds, _} when seconds >= 0 -> seconds
       _ -> @default_rollup_cache_ttl_seconds
+    end
+  end
+
+  defp stream_load do
+    Enum.map(@default_stream_load, fn {key, default} ->
+      name = "SERVICERADAR_STARROCKS_STREAM_LOAD_" <> String.upcase(Atom.to_string(key))
+      {key, positive_int(nonempty(name, ""), default)}
+    end)
+  end
+
+  # Helm renders `maxBytes` through `quote`, which can turn a large integer into
+  # scientific notation ("3.3554432e+07"), so a float spelling is accepted.
+  defp positive_int(raw, default) do
+    case Integer.parse(raw) do
+      {value, ""} when value > 0 ->
+        value
+
+      _ ->
+        case Float.parse(raw) do
+          {value, ""} when value >= 1 -> trunc(value)
+          _ -> default
+        end
     end
   end
 

@@ -483,4 +483,105 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
     assert_received {:load_label, replay_label}
     refute first_label == replay_label
   end
+
+  describe "Stream Load sizing" do
+    @log_rows for n <- 1..5,
+                  do: %{
+                    id: "log-alpha-000#{n}",
+                    timestamp: ~U[2026-01-15 10:00:01Z],
+                    body: "line #{n}"
+                  }
+
+    test "a batch within the limits is one load whose body is the rows' JSON array" do
+      parent = self()
+
+      persist = fn table, rows, opts ->
+        send(parent, {:load, table, rows, opts})
+        {:ok, %{label: "sr-single", loaded: length(rows)}}
+      end
+
+      assert {:ok, %{loaded: 5, label: "sr-single"}} =
+               Destination.persist_warehouse(:logs, @log_rows, persist: persist)
+
+      assert_received {:load, "logs", rows, opts}
+      refute_received {:load, _, _, _}
+      assert opts[:body] == Jason.encode!(rows)
+      refute Keyword.has_key?(opts, :label)
+    end
+
+    test "a batch over max_rows is split into loads that must all succeed" do
+      parent = self()
+
+      persist = fn _table, rows, opts ->
+        send(parent, {:load, rows, opts[:body]})
+        {:ok, %{loaded: length(rows)}}
+      end
+
+      assert {:ok, %{loaded: 5, loads: 3}} =
+               Destination.persist_warehouse(:logs, @log_rows,
+                 persist: persist,
+                 stream_load: [max_rows: 2, max_in_flight: 1]
+               )
+
+      sizes =
+        for _ <- 1..3 do
+          assert_received {:load, rows, body}
+          assert body == Jason.encode!(rows)
+          length(rows)
+        end
+
+      assert sizes == [2, 2, 1]
+    end
+
+    test "one failed load fails the batch so JetStream redelivers it" do
+      persist = fn _table, rows, _opts ->
+        if Enum.any?(rows, &(&1["id"] == "log-alpha-0003")),
+          do: {:error, {:http_status, 500, "sr-x"}},
+          else: {:ok, %{loaded: length(rows)}}
+      end
+
+      assert {:error, {:warehouse_load, :logs, {:http_status, 500, "sr-x"}}} =
+               Destination.persist_warehouse(:logs, @log_rows,
+                 persist: persist,
+                 stream_load: [max_rows: 2, max_in_flight: 4]
+               )
+    end
+
+    test "a caller label is suffixed per load so split loads never share a label" do
+      parent = self()
+
+      persist = fn _table, rows, opts ->
+        send(parent, {:label, opts[:label]})
+        {:ok, %{loaded: length(rows)}}
+      end
+
+      assert {:ok, _} =
+               Destination.persist_warehouse(:logs, @log_rows,
+                 persist: persist,
+                 label: "sr-replay",
+                 stream_load: [max_rows: 3, max_in_flight: 1]
+               )
+
+      assert_received {:label, "sr-replay-0"}
+      assert_received {:label, "sr-replay-1"}
+    end
+
+    test "loads are cut at max_bytes, and a single oversized row still loads alone" do
+      rows = [
+        %{"id" => "a", "body" => String.duplicate("x", 40)},
+        %{"id" => "b", "body" => "y"},
+        %{"id" => "c", "body" => "z"}
+      ]
+
+      loads = Destination.split_loads(rows, max_rows: 100, max_bytes: 50)
+
+      assert Enum.map(loads, fn {load_rows, _body, _bytes} -> Enum.map(load_rows, & &1["id"]) end) ==
+               [["a"], ["b", "c"]]
+
+      for {load_rows, body, bytes} <- loads do
+        assert body == Jason.encode!(load_rows)
+        assert bytes == byte_size(body)
+      end
+    end
+  end
 end

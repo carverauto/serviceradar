@@ -23,6 +23,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   use Broadway
 
   alias Broadway.Message
+  alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.EventWriter.Config
   alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
   alias ServiceRadar.EventWriter.Processors.Events
@@ -413,12 +414,80 @@ defmodule ServiceRadar.EventWriter.Pipeline do
         end
       end)
 
-    if Keyword.has_key?(stream_batchers, :default) do
-      stream_batchers
-    else
-      Keyword.put(stream_batchers, :default, batcher_opts)
+    stream_batchers =
+      if Keyword.has_key?(stream_batchers, :default) do
+        stream_batchers
+      else
+        Keyword.put(stream_batchers, :default, batcher_opts)
+      end
+
+    size_warehouse_batchers(stream_batchers, config, warehouse_sizing(config))
+  end
+
+  # Batchers whose processor loads the StarRocks warehouse. Each of their
+  # batches becomes one Stream Load call (split by rows/bytes in
+  # `Destination`), so their batch shape is the warehouse load shape.
+  @warehouse_batchers [
+    :flows_raw,
+    :flow_attribution,
+    :metrics,
+    :telemetry,
+    :logs,
+    :events,
+    :falco,
+    :trivy,
+    :mtr_results,
+    :bmp_causal,
+    :arancini_causal,
+    :siem_causal,
+    :analytics_predictions
+  ]
+
+  @doc false
+  def warehouse_batchers, do: @warehouse_batchers
+
+  defp warehouse_sizing(%Config{} = config) do
+    if Destination.enabled?() do
+      Map.merge(
+        %{max_ack_pending: config.max_ack_pending},
+        Map.new(Destination.stream_load_limits())
+      )
     end
   end
+
+  @doc false
+  # With the warehouse enabled, a warehouse batcher flushes after the Stream
+  # Load max age rather than the CNPG-sized batch timeout, and holds up to half
+  # of its consumer's `max_ack_pending` messages: the producer cannot deliver
+  # more than `max_ack_pending` unacked messages, so a larger batch would only
+  # ever flush on age, and half leaves room for the next batch to fill while
+  # this one loads. An operator's larger configured size or timeout still wins.
+  # Without the warehouse the batchers are left exactly as configured.
+  def size_warehouse_batchers(batchers, _config, nil), do: batchers
+
+  def size_warehouse_batchers(batchers, %Config{} = config, sizing) do
+    Enum.map(batchers, fn {name, opts} ->
+      if name in @warehouse_batchers do
+        max_ack_pending = batcher_max_ack_pending(config, name) || sizing.max_ack_pending
+        size = max(Keyword.fetch!(opts, :batch_size), div(max_ack_pending || 0, 2))
+        timeout = max(Keyword.fetch!(opts, :batch_timeout), sizing.max_age_ms)
+        {name, Keyword.merge(opts, batch_size: size, batch_timeout: timeout)}
+      else
+        {name, opts}
+      end
+    end)
+  end
+
+  defp batcher_max_ack_pending(%Config{streams: streams}, name) when is_list(streams) do
+    Enum.find_value(streams, fn stream ->
+      batcher =
+        if Config.flow_stream?(stream), do: :flows_raw, else: stream_to_batcher_name(stream.name)
+
+      if batcher == name, do: stream[:consumer_max_ack_pending]
+    end)
+  end
+
+  defp batcher_max_ack_pending(_config, _name), do: nil
 
   defp determine_batcher(subject) when is_binary(subject) do
     Enum.find_value(batcher_rules(), :default, fn {batcher, matcher} ->
