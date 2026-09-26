@@ -2,10 +2,18 @@ defmodule ServiceRadar.Credentials.CredentialRedactor do
   @moduledoc """
   Redacts credential material before values are logged, returned, or cached.
 
-  Secret references are intentionally preserved because agents need them to
-  resolve scoped material through the authenticated secret path. Plaintext
-  tokens, passwords, passphrases, private keys, and encrypted payload fields are
-  replaced with a stable redaction marker.
+  Secret references are intentionally preserved under any sensitive key, except
+  `external_secret_ref`, because agents need them to resolve scoped material
+  through the authenticated secret path. Plaintext tokens, passwords,
+  passphrases, private keys, and encrypted payload fields are replaced with a
+  stable redaction marker.
+
+  Bare keys such as `token`, `secret`, `client_secret`, `authorization` and
+  `api_key` are redacted only when the value is a binary, map or list, so
+  manifest booleans and `nil` placeholders pass through unchanged.
+
+  Callers use `redact(x) == x` as a "safe to transmit or persist" gate, so a key
+  added here also starts refusing payloads at those gates.
   """
 
   @redacted "REDACTED"

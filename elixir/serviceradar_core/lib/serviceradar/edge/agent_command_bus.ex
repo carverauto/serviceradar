@@ -169,9 +169,9 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   # A northbound launch hands each target its own callback token and HMAC
   # signing secret, minted per job by the dispatcher. The agent needs them to
-  # call back, and the published action SDK
-  # reads `callback.token`, so they are the one sanctioned plaintext here. Every
-  # other part of the payload, including the rest of each callback, is checked.
+  # call back, and the published action SDK reads `callback.token`, so they are
+  # the one sanctioned plaintext here. Every other part of the payload,
+  # including the rest of each callback, is checked.
   defp without_northbound_callback_credentials(
          %{"schema" => "serviceradar.northbound_action_invocation.v1", "targets" => targets} =
            payload
