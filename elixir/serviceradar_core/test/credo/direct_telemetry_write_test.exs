@@ -9,7 +9,7 @@ defmodule ServiceRadar.Credo.Check.Warning.DirectTelemetryWriteTest do
   setup_all do
     {:ok, _apps} = Application.ensure_all_started(:credo)
 
-    unless Code.ensure_loaded?(DirectTelemetryWrite) do
+    if !Code.ensure_loaded?(DirectTelemetryWrite) do
       Code.require_file("../../credo/check/warning/direct_telemetry_write.ex", __DIR__)
     end
 
