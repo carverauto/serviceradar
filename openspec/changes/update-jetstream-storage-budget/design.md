@@ -298,7 +298,7 @@ without updating) and core's threat-intel bucket
 (`threat_intel_raw_payload_store.ex`). Each SHALL reconcile `max_bytes` on
 startup, creating the bucket when absent and updating it when it exists.
 
-What a reconcile does when the configured `max_bytes` is below the bytes
+What a reconcile does when the configured `max_bytes` is at or below the bytes
 currently stored depends on the stream's discard policy, because the two kinds
 of stream fail differently when full:
 
@@ -308,7 +308,7 @@ of stream fail differently when full:
   The owner SHALL leave `max_bytes` unchanged and log the configured, stored
   and current values. It SHALL NOT set `max_bytes` to the stored size, since a
   cap equal to `Store` would refuse every later write. An existing unlimited
-  bucket whose stored bytes exceed the configured cap stays unlimited, and is
+  bucket whose stored bytes reach the configured cap stays unlimited, and is
   logged, until the data ages out or an operator raises the cap.
 - **Discard-old buffer streams** (`flows`, `events`, `ARANCINI_CAUSAL` and
   every EventWriter-created stream: `metrics`, `k8s_inventory`,
@@ -381,6 +381,8 @@ environment overrides that take precedence over its file:
   variable and core's threat-intel variable keep their existing names.
 - Precedence: environment, then the JSON or TOML value, then the compiled
   default. Sizes must be positive integers; an invalid value fails startup.
+  An empty or whitespace-only variable is treated as unset, so a template that
+  renders an empty string falls back to the JSON value or default.
 - Components: Go datasvc (KV and object-store max bytes and replicas), the
   otel log-collector (`events`), Rust flow-collector (`stream_max_bytes`,
   `stream_replicas`) and Rust bmp-collector (stream max bytes and replicas).

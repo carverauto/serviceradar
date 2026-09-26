@@ -140,9 +140,8 @@ func lookupReplicas(lookup func(string) (string, bool), name string, fallback in
 // regenerated, so a configured cap at or below the bytes already stored is not
 // applied: the current max_bytes (which may be unlimited) is kept and held is
 // true so the caller can log it. A cap equal to the stored bytes would leave no
-// headroom and refuse every later write. A
-// non-positive configured value means no cap is configured and the current
-// value is kept.
+// headroom and refuse every later write. A non-positive configured value means
+// no cap is configured and the current value is kept.
 func stateBucketMaxBytes(current int64, stored uint64, configured int64) (target int64, held bool) {
 	if configured <= 0 || current == configured {
 		return current, false

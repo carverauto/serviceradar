@@ -68,11 +68,11 @@
 
 ## 4. Reconcile and safe shrink (D6)
 
-- [ ] 4.1 datasvc `reconcileStreamConfigLocked` (KV and object store,
+- [x] 4.1 datasvc `reconcileStreamConfigLocked` (KV and object store,
       discard-new): when configured is below stored, leave `max_bytes`
       unchanged and log configured, stored and current values; never set it to
       the stored size.
-- [ ] 4.2 otel log-collector `events` reconcile (discard-old): claim `events`
+- [x] 4.2 otel log-collector `events` reconcile (discard-old): claim `events`
       with `serviceradar.owner` `otel-log-collector` (overriding an
       `event-writer` claim) and reconcile to the configured value even when it
       evicts the oldest messages; log before and after.
@@ -126,12 +126,14 @@
       stream claimed by a collector and later reclaimed with
       `serviceradar.owner: event-writer` is reconciled at the next tick with no
       grace period, and a removed claim starts the grace period.
-- [ ] 4.9 `rust/bmp-collector` publisher: claim `ARANCINI_CAUSAL` by setting
+- [x] 4.9 `rust/bmp-collector` publisher: claim `ARANCINI_CAUSAL` by setting
       `serviceradar.owner` to `bmp-collector` (overriding an `event-writer`
       claim, claiming a legacy stream) and create-or-update it, reconciling
       `max_bytes` and `num_replicas` under the discard-old rule, with a test
-      for an existing 10 GiB stream reconciled to 2 GiB.
-- [ ] 4.10 `rust/flow-collector` publisher: claim `flows` with
+      for an existing 10 GiB stream reconciled to 2 GiB. A non-positive JSON
+      `stream_max_bytes` logs a warning and falls back to the compiled default,
+      so the stream is never created or reconciled unlimited.
+- [x] 4.10 `rust/flow-collector` publisher: claim `flows` with
       `serviceradar.owner` `flow-collector` and reconcile `max_bytes` and
       replicas under the discard-old rule, with a test for `flows` at 10 GiB
       full reconciled to 8 GiB.
@@ -177,17 +179,17 @@
       A vector with the v1.4.73 single-server shape must fail.
 - [ ] 5.5 Bump `addons/<name>/addon.yaml` `version` for any native add-on whose
       config changes.
-- [ ] 5.6 Go datasvc: read `SERVICERADAR_JS_KV_SERVICERADAR_DATASVC_MAX_BYTES`,
+- [x] 5.6 Go datasvc: read `SERVICERADAR_JS_KV_SERVICERADAR_DATASVC_MAX_BYTES`,
       `SERVICERADAR_JS_OBJ_SERVICERADAR_OBJECTS_MAX_BYTES` and the matching
       `_REPLICAS`, taking precedence over JSON (env > JSON > compiled default);
       unit test for the precedence and for an invalid value failing startup.
-- [ ] 5.7 Rust flow-collector: `SERVICERADAR_JS_FLOWS_MAX_BYTES` and
+- [x] 5.7 Rust flow-collector: `SERVICERADAR_JS_FLOWS_MAX_BYTES` and
       `SERVICERADAR_JS_FLOWS_REPLICAS` override `stream_max_bytes` and
       `stream_replicas`; unit test for the precedence.
-- [ ] 5.8 Rust bmp-collector: `SERVICERADAR_JS_ARANCINI_CAUSAL_MAX_BYTES` and
+- [x] 5.8 Rust bmp-collector: `SERVICERADAR_JS_ARANCINI_CAUSAL_MAX_BYTES` and
       `_REPLICAS` override the JSON stream size and replicas; unit test for the
       precedence.
-- [ ] 5.9 Rust otel log-collector: `SERVICERADAR_JS_EVENTS_MAX_BYTES` and
+- [x] 5.9 Rust otel log-collector: `SERVICERADAR_JS_EVENTS_MAX_BYTES` and
       `_REPLICAS` override `max_bytes` and `stream_replicas`; unit test for the
       precedence.
 
