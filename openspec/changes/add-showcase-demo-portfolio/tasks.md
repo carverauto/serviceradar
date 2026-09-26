@@ -31,7 +31,7 @@ goes through the no-mistakes gate.
 - [ ] 2.9 Tests: host capability and permission rejection, session cap, close-on-destroy; SDK component tests; harness mock.
 
 ## 3. On-demand actions and event-driven dashboards (D13; depends on `add-northbound-action-integrations`)
-- [ ] 3.1 Time-bounded run overrides: accept them in plugin action results, retain per assignment with expiry clamped to the descriptor maximum, pass active overrides to every run, end early on a later action; Go and Rust SDK support and conformance transcripts.
+- [ ] 3.1 Time-bounded run overrides and event emission from actions: accept overrides in plugin action results, retain per assignment with expiry clamped to the descriptor maximum, pass active overrides to every run, deliver an expired override once marked `expired` to the first run after expiry, end early on a later action; add a host call letting an action entrypoint emit plugin OCSF events through the run-result event path; Go and Rust SDK support and conformance transcripts.
 - [ ] 3.2 Dashboard `actions.invoke` capability: list actions for targets, invoke through the northbound action model with RBAC, audit and history, report progress and result to the dashboard.
 - [ ] 3.3 Live event subscription for dashboards (OCSF events by filter, RBAC-scoped) and on-demand frame refresh; SDK hooks and types; harness replays fixture events on a timeline.
 - [ ] 3.4 Measure trigger-to-screen latency in `demo` (button, action, opening event persisted, dashboard updated) and keep it within a few seconds.
@@ -67,7 +67,7 @@ goes through the no-mistakes gate.
 - [ ] 7.4 Tests: resolved link visible, unresolved dropped and counted, stale marking.
 
 ## 8. P0 demo: Wi-Fi twin
-- [ ] 8.1 Pick the airport venue (public, not the hub of an airline we work with) and define the fictional carrier (an airline designator no real airline holds, flight schedule, flight numbers); both shared with the baggage pack (design D6).
+- [ ] 8.1 Pick the airport venue (public, not the hub of an airline we work with) and define the fictional carrier (an airline designator absent from the public IATA and ICAO designator listings, checked and dated in the pack, flight schedule, flight numbers); both shared with the baggage pack (design D6).
 - [ ] 8.2 Scenario pack: concourses and gates, controllers, switches, APs (real vendor models welcome), client load driven by the carrier's departures and arrivals, RF health, roaming; faults: channel saturation, rogue AP, controller partition, AP reboot storm.
 - [ ] 8.3 `wifi-campus` plugin: controller-API-shaped simulated source, normalizer to Wi-Fi map batches, metrics and events; alert rules.
 - [ ] 8.4 Dashboard from the `react-map` template: site map and indoor floorplan (plan view), AP pins with client-density/interference heat, controller -> switch -> AP topology drawer, roam trail, capacity-forecast strip, AP detail card, SRQL chips.

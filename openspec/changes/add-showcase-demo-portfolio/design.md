@@ -183,7 +183,11 @@ venue shows RF, OT and (later) perimeter drones together. The airport is real
 and public, but it is chosen so it is not the hub of an airline we work with,
 and every flight belongs to a fictional carrier: an airline designator that no
 real airline holds, invented flight numbers and bag tags in the standard
-10-digit format under that carrier. The venue is picked in task 8.1.
+10-digit format under that carrier. The designator is checked by looking it up
+in the public IATA and ICAO airline designator listings, and is used only if it
+appears in neither (most two-letter IATA and three-letter ICAO codes are
+assigned, so expect to try several); the pack records the code and the date it
+was checked. The venue is picked in task 8.1.
 
 One mechanical rule remains, for operational safety rather than privacy:
 simulated devices use only private (RFC 1918) or documentation IP ranges and
@@ -290,11 +294,19 @@ alerts and the same metric changes.
   agent over the command bus and the plugin's action entrypoint runs at once.
 - **Immediate event.** The action emits the fault's opening OCSF event right
   away, so it reaches the events store and the alert engine within seconds.
+  This needs a host call that lets an action entrypoint emit plugin events
+  through the same path as run results; the action model in
+  `add-northbound-action-integrations` records only invocation lifecycle and
+  audit events, so this change adds that call (task 3.1).
 - **Stateless runs still see the fault.** The action result carries a
   time-bounded run override (fault kind, target, start, expiry). The platform
   keeps active overrides for the assignment and passes them to every run until
-  they expire; `simkit` overlays them exactly like scheduled faults, and the
-  run that sees an override expire emits the resolving event. This is a generic
+  they expire; `simkit` overlays them exactly like scheduled faults. Runs are
+  stateless, so expiry is signalled by the platform: the first run after an
+  override's expiry receives it once, marked `expired`, and the platform then
+  discards it. That run emits the resolving event and does not apply the fault.
+  Ending early emits the resolving event from the action instead, and the
+  override is discarded without an `expired` delivery. This is a generic
   product capability (a real plugin could use it for a maintenance window or a
   temporary threshold change), not a demo-only path.
 - **Guards.** A maximum duration per fault kind, at most one active injected
