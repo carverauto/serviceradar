@@ -276,6 +276,9 @@ An operator resolves an open task through `ServiceRadar.Inventory.Identity.Dedup
   about the set open no task.
 - `dismiss/3` closes it without a decision; a dismissed task can be reopened.
 
+Every resolution, dismissal and reopen publishes a refresh pulse so a review queue open in
+another session updates; see `ServiceRadar.Inventory.DeduplicationTaskNotifier`.
+
 ## Release gate
 
 `test/serviceradar/inventory/identifier_cardinality_gate_test.exs`
