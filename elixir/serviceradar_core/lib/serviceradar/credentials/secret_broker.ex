@@ -19,7 +19,21 @@ defmodule ServiceRadar.Credentials.SecretBroker do
   alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadar.Vault
 
+  require Logger
+
   @default_external_lease_seconds 300
+  @audit_write_failed_event [:serviceradar, :credentials, :resolution_audit, :write_failed]
+  @audit_failure_fields [
+    :grant_id,
+    :secret_id,
+    :secret_provider_id,
+    :consumer_kind,
+    :consumer_id,
+    :agent_id,
+    :resolution_location,
+    :outcome,
+    :error_class
+  ]
 
   @type resolved_secret :: %{
           required(:value) => String.t(),
@@ -54,17 +68,23 @@ defmodule ServiceRadar.Credentials.SecretBroker do
   This is the intended entry point for task runners and agent-side broker
   integrations that have been handed a scoped grant instead of plaintext
   credentials.
+
+  Refusing the presented grant (no resolvable secret, not active, expired,
+  missing expiry, or a scope mismatch) writes a resolution audit row with
+  outcome `:denied` whether or not `:audit?` is set: a refused grant is a
+  security event, not a routine resolution. An `:audit_sink` still decides when
+  that row is committed.
   """
   @spec resolve_with_grant(map() | struct(), keyword()) ::
           {:ok, resolved_secret()} | {:error, atom() | {atom(), term()}}
   def resolve_with_grant(grant, opts \\ []) when is_map(grant) do
-    with {:ok, secret_id} <- secret_id_from_grant(grant),
-         :ok <-
-           CredentialBrokerGrant.validate_loaded_grant(
-             grant_with_secret_id(grant, secret_id),
-             Keyword.put(opts, :secret_id, secret_id)
-           ) do
-      resolve_network_credential_secret(secret_id, grant_resolution_opts(grant, opts))
+    case authorize_grant(grant, opts) do
+      {:ok, secret_id} ->
+        resolve_network_credential_secret(secret_id, grant_resolution_opts(grant, opts))
+
+      {:error, reason} = error ->
+        audit_grant_denial(grant, reason, opts)
+        error
     end
   end
 
@@ -176,6 +196,72 @@ defmodule ServiceRadar.Credentials.SecretBroker do
   defp external_resolution_allowed?(opts) do
     is_map(Keyword.get(opts, :grant))
   end
+
+  defp authorize_grant(grant, opts) do
+    with {:ok, secret_id} <- secret_id_from_grant(grant),
+         :ok <-
+           CredentialBrokerGrant.validate_loaded_grant(
+             grant_with_secret_id(grant, secret_id),
+             Keyword.put(opts, :secret_id, secret_id)
+           ) do
+      {:ok, secret_id}
+    end
+  end
+
+  # The row records what the caller asked for (its scope wins over the grant's,
+  # as on the resolution path) plus why the grant was refused. Columns the
+  # resource requires fall back to the defaults the resolution path uses, so a
+  # sparse grant still leaves a row.
+  defp audit_grant_denial(grant, reason, opts) do
+    audit_opts = grant_resolution_opts(grant, opts)
+    consumer_kind = audit_opts |> Keyword.get(:consumer_kind) |> present_atom(:test)
+    location = audit_opts |> Keyword.get(:resolution_location) |> present_atom(:control_plane)
+
+    audit_opts =
+      Keyword.merge(audit_opts,
+        audit?: true,
+        consumer_kind: consumer_kind,
+        resolution_location: location
+      )
+
+    secret = %{id: denied_secret_id(grant)}
+    maybe_audit(:denied, secret, nil, denial_result(reason, grant), audit_opts)
+  end
+
+  defp denied_secret_id(grant) do
+    with {:ok, secret_id} <- secret_id_from_grant(grant),
+         {:ok, uuid} <- Ecto.UUID.cast(secret_id) do
+      uuid
+    else
+      _unresolvable -> nil
+    end
+  end
+
+  defp denial_result(reason, grant) do
+    metadata =
+      %{
+        "denial_reason" => denial_reason_name(reason),
+        "denied_field" => denied_field(reason),
+        "grant_status" => string_value(value(grant, :status))
+      }
+      |> Enum.reject(fn {_key, entry} -> is_nil(entry) end)
+      |> Map.new()
+
+    reason
+    |> audit_error()
+    |> Map.put(:metadata, metadata)
+  end
+
+  defp denial_reason_name({reason, _detail}) when is_atom(reason), do: Atom.to_string(reason)
+  defp denial_reason_name(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp denial_reason_name(_reason), do: "unknown"
+
+  defp denied_field({:grant_scope_mismatch, field}) when is_atom(field), do: Atom.to_string(field)
+
+  defp denied_field(_reason), do: nil
+
+  defp present_atom(nil, default), do: default
+  defp present_atom(value, default), do: normalize_atom(value, default)
 
   defp secret_id_from_grant(grant) do
     case value(grant, :secret_id) || secret_id_from_ref(value(grant, :secret_ref)) do
@@ -506,8 +592,6 @@ defmodule ServiceRadar.Credentials.SecretBroker do
     end
   rescue
     exception ->
-      require Logger
-
       Logger.warning("Failed to write credential secret resolution audit",
         reason: Exception.message(exception)
       )
@@ -520,23 +604,68 @@ defmodule ServiceRadar.Credentials.SecretBroker do
   from prepared `attrs`. Public so a deferred-audit sink can flush audits that
   were collected during resolution but only committed once the material is
   actually delivered (see `AgentConfigGenerator`). Never raises into the caller.
+
+  A row the audit resource rejects does not fail the resolution it describes
+  (availability wins), but it is never dropped silently: it logs a redacted
+  warning and emits the `#{inspect(@audit_write_failed_event)}` telemetry
+  event with `%{count: 1}` and the row's identifying fields.
   """
   @spec write_audit(map()) :: :ok
   def write_audit(attrs) when is_map(attrs) do
-    audit_actor = SystemActor.system(:credential_secret_broker_audit)
-    _audit_result = CredentialSecretResolutionAudit.create_audit(attrs, actor: audit_actor)
+    persist_audit(attrs)
     CredentialEventWriter.write_secret_resolution(attrs)
     :ok
   rescue
     exception ->
-      require Logger
-
-      Logger.warning("Failed to write credential secret resolution audit",
+      Logger.warning("Failed to write credential secret resolution event",
         reason: Exception.message(exception)
       )
 
       :ok
   end
+
+  defp persist_audit(attrs) do
+    audit_actor = SystemActor.system(:credential_secret_broker_audit)
+
+    case CredentialSecretResolutionAudit.create_audit(attrs, actor: audit_actor) do
+      {:ok, _audit} -> :ok
+      {:error, error} -> report_audit_write_failure(attrs, error)
+    end
+  rescue
+    exception -> report_audit_write_failure(attrs, exception)
+  end
+
+  # Logs and measures only identifying fields, redacted; never the row's
+  # metadata or the rejected values, which the error would otherwise echo.
+  defp report_audit_write_failure(attrs, error) do
+    summary =
+      attrs
+      |> Map.take(@audit_failure_fields)
+      |> CredentialRedactor.redact()
+      |> Map.put(:rejected_fields, rejected_audit_fields(error))
+
+    Logger.warning(
+      "Credential secret resolution audit row was not written: " <>
+        Enum.map_join(summary, " ", fn {key, entry} -> "#{key}=#{inspect(entry)}" end)
+    )
+
+    :telemetry.execute(@audit_write_failed_event, %{count: 1}, summary)
+    :ok
+  end
+
+  defp rejected_audit_fields(%{errors: errors}) when is_list(errors) do
+    errors
+    |> Enum.map(&rejected_audit_field/1)
+    |> Enum.uniq()
+  end
+
+  defp rejected_audit_fields(error), do: [rejected_audit_field(error)]
+
+  defp rejected_audit_field(%{field: field}) when is_atom(field) and not is_nil(field),
+    do: Atom.to_string(field)
+
+  defp rejected_audit_field(%{__struct__: module}), do: inspect(module)
+  defp rejected_audit_field(_error), do: "unknown"
 
   defp present?(value), do: is_binary(value) and String.trim(value) != ""
 
