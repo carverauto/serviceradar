@@ -245,6 +245,7 @@ defmodule ServiceRadar.Notifications.Dispatcher do
   alias ServiceRadar.Notifications.Transport.Request
   alias ServiceRadar.Notifications.Transport.Result
   alias ServiceRadar.Notifications.Transports
+  alias ServiceRadar.Notifications.Transports.ChannelCredentials
   alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadar.Repo
@@ -2285,7 +2286,16 @@ defmodule ServiceRadar.Notifications.Dispatcher do
     schema = field(provider, :config_schema) || %{}
     refs = channel.secret_refs || %{}
 
-    case SecretRefs.resolve_runtime_params(schema, refs) do
+    # Delivery happens here on the control plane. A credential held by an
+    # external provider needs a broker grant, so one is issued per reference,
+    # bound to this channel; internally encrypted credentials resolve directly.
+    opts = [
+      broker_opts: ChannelCredentials.broker_opts(channel.id),
+      grant_issuer:
+        &ChannelCredentials.issue_grant(&1, channel.id, to_string(provider.provider_key))
+    ]
+
+    case SecretRefs.resolve_runtime_params(schema, refs, opts) do
       {:ok, resolved} ->
         {:ok, resolved}
 
