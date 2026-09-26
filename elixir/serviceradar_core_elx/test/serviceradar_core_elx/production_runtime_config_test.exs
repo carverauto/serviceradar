@@ -17,6 +17,7 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
   @runtime_config Path.expand("../../config/runtime.exs", __DIR__)
 
   @required_production_workers [
+    ServiceRadar.Identity.SAMLAssertionCleanupWorker,
     ServiceRadar.Jobs.AlertsRetentionWorker,
     ServiceRadar.Jobs.RefreshLogsSeverityStatsWorker,
     ServiceRadar.Observability.AnomalyAddonConfigProjector,

@@ -2,8 +2,9 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLStrategy do
   @moduledoc """
   Dynamic SAML 2.0 configuration from auth_settings.
 
-  This module provides runtime SAML configuration for Samly based on the
-  current AuthSettings. It supports:
+  This module provides the runtime SAML configuration used by
+  `ServiceRadarWebNGWeb.SAMLController`, built from the current AuthSettings.
+  It supports:
 
   - Dynamic IdP metadata loading (URL or XML)
   - Custom SP entity ID configuration
@@ -24,6 +25,7 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLStrategy do
 
   alias ServiceRadarWebNGWeb.Auth.ConfigCache
   alias ServiceRadarWebNGWeb.Auth.OutboundFetch
+  alias ServiceRadarWebNGWeb.Auth.SAMLMetadata
 
   require Logger
 
@@ -38,7 +40,7 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLStrategy do
   end
 
   @doc """
-  Gets the current SAML configuration for Samly.
+  Gets the current SAML configuration.
 
   Returns `{:ok, config}` if SAML is configured, `{:error, reason}` otherwise.
   """
@@ -178,42 +180,6 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLStrategy do
     end
   end
 
-  defp extract_idp_entity_id({:xml, xml}) when is_binary(xml) do
-    import SweetXml
-
-    with {:ok, doc} <- safe_sweetxml_parse(xml) do
-      entity_id =
-        xpath(
-          doc,
-          ~x"//md:EntityDescriptor/@entityID"s,
-          namespace_conformant: true,
-          namespaces: [md: "urn:oasis:names:tc:SAML:2.0:metadata"]
-        )
-
-      if is_binary(entity_id) and String.trim(entity_id) != "" do
-        {:ok, String.trim(entity_id)}
-      else
-        {:ok, nil}
-      end
-    end
-  end
-
+  defp extract_idp_entity_id({:xml, xml}) when is_binary(xml), do: SAMLMetadata.entity_id(xml)
   defp extract_idp_entity_id(_), do: {:error, :invalid_metadata}
-
-  defp safe_sweetxml_parse(xml_string) do
-    options = [
-      quiet: true,
-      xmerl_options: [
-        fetch_fun: &reject_external_resource/2
-      ]
-    ]
-
-    {:ok, SweetXml.parse(xml_string, options)}
-  rescue
-    _ -> {:error, :invalid_metadata}
-  catch
-    :exit, _ -> {:error, :invalid_metadata}
-  end
-
-  defp reject_external_resource(_ext_spec, _scanner_state), do: {:error, :disabled_for_security}
 end

@@ -319,7 +319,15 @@ config :serviceradar_web_ng, :plugin_verification,
     "serviceradar-first-party-v2" => "2KMsaqvof357MV3RQl4/0DNXfF6+eIMQ+qjDJfL/N8I="
   }
 
+# IdP-initiated (unsolicited) SAML responses have no request to bind to and so
+# permit login CSRF. Rejected unless explicitly enabled; see
+# ServiceRadarWebNGWeb.SAMLController.
+config :serviceradar_web_ng, :saml_allow_idp_initiated, false
 config :serviceradar_web_ng, :saml_assertion_max_validity_seconds, 300
+
+# How long an SP-initiated SAML login may take at the IdP: the AuthnRequest ID
+# stored in the session is only accepted as an InResponseTo for this long.
+config :serviceradar_web_ng, :saml_authn_request_ttl_seconds, 600
 
 config :serviceradar_web_ng, :scopes,
   user: [

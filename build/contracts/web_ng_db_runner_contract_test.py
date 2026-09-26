@@ -22,6 +22,7 @@ SHARED_FIXTURE_SOURCES = {
     "test/phoenix/controllers/dashboard_package_asset_controller_test.exs",
     "test/phoenix/controllers/dashboard_package_publish_controller_test.exs",
     "test/phoenix/controllers/dashboard_package_read_controller_test.exs",
+    "test/phoenix/controllers/saml_controller_test.exs",
     "test/phoenix/live/admin/dashboard_package_live_test.exs",
     "test/phoenix/live/alert_live/show_test.exs",
     "test/phoenix/live/authored_dashboard_live_test.exs",

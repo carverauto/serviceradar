@@ -1,48 +1,17 @@
-# EEF-CVE-2026-53425 / Missing InResponseTo validation in Samly
-# EEF-CVE-2026-53424 / Missing one-time-use enforcement / SAML replay
+# GHSA-4g2h-vm7x-747c / EEF-CVE-2026-28809 / esaml XXE
 #
-# samly 1.4.0 is still the latest Hex release, and both advisories list
-# every release from 0.3.0 as affected, so there is no patched package
-# to upgrade to. hex.audit reports these as EEF-CVE ids (aka CVE-2026-53425
-# / CVE-2026-53424); no GHSA aliases are published.
-#
-# web-ng's live SAML ACS path is the custom controller/strategy, not
-# Samly.SPHandler:
-# - lib/serviceradar_web_ng_web/controllers/saml_controller.ex
-# - lib/serviceradar_web_ng_web/auth/saml_strategy.ex
-# That path validates signature, audience, recipient, issuer, and
-# assertion time window, plus a RelayState CSRF token. It does not
-# persist AuthnRequest IDs or compare InResponseTo, and it does not
-# record assertion IDs to reject replays. Keep this waiver until
-# upstream publishes a patched samly or those checks are added here.
-EEF-CVE-2026-53425
-EEF-CVE-2026-53424
-
-# GHSA-4g2h-vm7x-747c / esaml XXE
-#
-# web-ng does not rely on default external-entity expansion in the SAML flow.
-# Its local parsing paths explicitly disable external entities and DTD nodes:
-# - lib/serviceradar_web_ng_web/controllers/saml_controller.ex
-# - lib/serviceradar_web_ng_web/auth/saml_strategy.ex
+# The advisory is in esaml's own XML decoding (esaml_sp / esaml_util), which
+# web-ng never calls. esaml is a direct dependency only for :xmerl_dsig
+# signature verification, and every document it sees -- SAML responses and IdP
+# metadata alike -- is parsed first by
+# lib/serviceradar_web_ng_web/auth/saml_xml.ex with `dtd: :none`, which rejects
+# any entity declaration and never fetches an external resource. Covered by
+# test/phoenix/auth/saml_response_test.exs and saml_metadata_test.exs.
 #
 # There is no newer Hex release than esaml 4.6.0 available to upgrade to
-# (re-verified 2026-09-09 via hex.info), so we track the advisory here until
+# (re-verified 2026-09-25 via mix hex.info), so we track the advisory here until
 # upstream publishes a patched package or the dependency is replaced.
 GHSA-4g2h-vm7x-747c
-
-# EEF-CVE-2026-53424 (CRITICAL) / EEF-CVE-2026-53425 (HIGH) / samly 1.4.0
-#
-# 53424 is Samly.Helper.decode_idp_auth_resp/3 never supplying esaml's
-# DuplicateFun, so bearer assertions can be replayed. 53425 is
-# Samly.SPHandler.validate_authresp/3 never checking InResponseTo against a
-# persisted AuthnRequest ID. web-ng's ACS is
-# ServiceRadarWebNGWeb.SAMLController, which does not call those functions.
-#
-# Hex has no release newer than 1.4.0; the advisories list every 0.3.0+ as
-# affected. Keep this waiver until upstream publishes a patched package or
-# samly is removed from this Mix project.
-EEF-CVE-2026-53424
-EEF-CVE-2026-53425
 
 # GHSA-rhv4-8758-jx7v / Decimal unbounded exponent DoS
 #

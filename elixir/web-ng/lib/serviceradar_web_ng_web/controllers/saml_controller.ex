@@ -10,27 +10,53 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
   ## Flow
 
   1. User clicks "Sign in with SSO" on login page
-  2. App redirects to `/auth/saml` which redirects to IdP
+  2. App redirects to `/auth/saml`, which stores a RelayState CSRF token and the
+     AuthnRequest ID in the session and redirects to the IdP
   3. User authenticates at IdP
-  4. IdP POSTs SAML assertion to `/auth/saml/consume`
-  5. App validates assertion and creates session
+  4. IdP POSTs SAML response to `/auth/saml/consume`
+  5. App validates the response, spends the assertion, and creates a session
   6. User is redirected to the application
 
   ## Security
 
-  - SAML assertions are validated using the IdP's certificate
-  - Assertions are checked for expiration and audience
-  - Replay attacks are prevented using assertion IDs
+  - The response is parsed with DTDs disabled (`SAMLXml`) and its signature is
+    verified against the signing certificates in the IdP metadata, honouring
+    certificate pinning (`SAMLResponse`)
+  - The assertion must carry an `ID`, an `Issuer` and a bounded `Conditions`
+    window, and match the expected issuer, audience and recipient
+    (`SAMLAssertionValidator`)
+  - **Request binding.** The AuthnRequest ID is kept in the (signed, encrypted)
+    session cookie next to the RelayState CSRF token, for
+    `:saml_authn_request_ttl_seconds` (default 600). The bearer
+    `SubjectConfirmationData/@InResponseTo` must equal it, as must the
+    `Response/@InResponseTo` when present. Both are removed from the session on
+    the first consume attempt, whatever its outcome, so a request ID answers at
+    most one response.
+  - **IdP-initiated (unsolicited) responses are rejected** unless
+    `config :serviceradar_web_ng, :saml_allow_idp_initiated, true` is set. That
+    setting is off by default because an unsolicited response has no request or
+    CSRF token to bind to, which allows login CSRF. When it is enabled, only a
+    browser with no pending SP-initiated request can use it, the assertion must
+    not name any `InResponseTo`, RelayState is ignored, and every other check,
+    including replay protection, still applies.
+  - **Replay protection.** Each accepted assertion is recorded as
+    `(issuer, assertion ID)` in `ServiceRadar.Identity.SAMLConsumedAssertion`
+    before any user is looked up or a session is created. A second submission of
+    the same assertion conflicts on the unique identity and is rejected, on any
+    web node. A failure to record fails closed.
   """
 
   use ServiceRadarWebNGWeb, :controller
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Identity.SAMLConsumedAssertion
   alias ServiceRadar.Security.Lockouts
   alias ServiceRadarWebNG.Audit.UserAuthEvents
   alias ServiceRadarWebNG.Auth.Hooks
   alias ServiceRadarWebNGWeb.Auth.OutboundURLPolicy
   alias ServiceRadarWebNGWeb.Auth.SAMLAssertionValidator
+  alias ServiceRadarWebNGWeb.Auth.SAMLMetadata
+  alias ServiceRadarWebNGWeb.Auth.SAMLResponse
   alias ServiceRadarWebNGWeb.Auth.SAMLStrategy
   alias ServiceRadarWebNGWeb.Auth.SSOProvisioning
   alias ServiceRadarWebNGWeb.ClientIP
@@ -43,6 +69,19 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
   # Rate limiting for `consume` happens at the
   # `:rate_limit_auth_saml` pipeline (router.ex).
 
+  @csrf_session_key :saml_csrf_token
+  @request_session_key :saml_authn_request
+  @default_authn_request_ttl_seconds 600
+
+  # Failures that mean "this browser did not start this login" rather than "the
+  # IdP's response was bad"; they share the invalid-request message.
+  @request_binding_failures [
+    :csrf_validation_failed,
+    :unsolicited_response,
+    :missing_authn_request,
+    :authn_request_expired
+  ]
+
   defp get_client_ip(conn) do
     ClientIP.get(conn)
   end
@@ -50,18 +89,22 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
   @doc """
   Initiates SAML authentication by redirecting to the IdP.
 
-  Generates a CSRF token stored in session and passed via RelayState
-  to prevent cross-site request forgery attacks.
+  Stores a CSRF token (also sent as RelayState) and the AuthnRequest ID in the
+  session; `consume/2` requires both.
   """
   def request(conn, _params) do
     if SAMLStrategy.enabled?() do
-      # Generate CSRF token for RelayState
       csrf_token = generate_csrf_token()
+      request_id = generate_request_id()
 
-      case get_saml_request_url(csrf_token) do
+      case get_saml_request_url(csrf_token, request_id) do
         {:ok, url} ->
           conn
-          |> put_session(:saml_csrf_token, csrf_token)
+          |> put_session(@csrf_session_key, csrf_token)
+          |> put_session(@request_session_key, %{
+            "id" => request_id,
+            "issued_at" => System.system_time(:second)
+          })
           |> redirect(external: url)
 
         {:error, reason} ->
@@ -82,65 +125,107 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
     32 |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false)
   end
 
+  # XML IDs must not start with a digit.
+  defp generate_request_id do
+    "_" <> Base.encode16(:crypto.strong_rand_bytes(16), case: :lower)
+  end
+
   @doc """
   Assertion Consumer Service (ACS) endpoint.
 
-  Receives and validates SAML assertions from the IdP.
-  Validates CSRF token from RelayState before processing.
+  Receives and validates SAML responses from the IdP. The pending request
+  (CSRF token and AuthnRequest ID) is taken out of the session before anything
+  else, so it can be used at most once.
   """
   def consume(conn, params) do
-    saml_response = params["SAMLResponse"]
-    relay_state = params["RelayState"]
-    stored_csrf_token = get_session(conn, :saml_csrf_token)
+    stored_csrf_token = get_session(conn, @csrf_session_key)
+    pending_request = get_session(conn, @request_session_key)
 
-    # Clear CSRF token from session
-    conn = delete_session(conn, :saml_csrf_token)
+    conn =
+      conn
+      |> delete_session(@csrf_session_key)
+      |> delete_session(@request_session_key)
 
-    # Parse RelayState to extract CSRF token and return URL
-    {csrf_token, return_to} = parse_relay_state(relay_state)
+    # RelayState carries the CSRF token and an optional return URL.
+    {csrf_token, return_to} = parse_relay_state(params["RelayState"])
 
-    cond do
-      !valid_saml_csrf_token?(csrf_token, stored_csrf_token) ->
-        Logger.warning("SAML CSRF token mismatch")
-
-        Hooks.on_auth_failed(:csrf_validation_failed, %{
-          method: :saml,
-          ip: get_client_ip(conn)
-        })
-
-        conn
-        |> put_flash(:error, "Authentication failed: invalid request. Please try again.")
-        |> redirect(to: ~p"/users/log-in")
-
-      !saml_response ->
-        Hooks.on_auth_failed(:no_saml_response, %{
-          method: :saml,
-          ip: get_client_ip(conn)
-        })
-
-        conn
-        |> put_flash(:error, "No SAML response received.")
-        |> redirect(to: ~p"/users/log-in")
-
-      true ->
-        case validate_saml_response(saml_response) do
-          {:ok, assertion} ->
-            handle_successful_assertion(conn, assertion, return_to)
-
-          {:error, reason} ->
-            Logger.warning("SAML assertion validation failed: #{inspect(reason)}")
-
-            Hooks.on_auth_failed(reason, %{
-              method: :saml,
-              ip: get_client_ip(conn),
-              user_agent: conn |> get_req_header("user-agent") |> List.first()
-            })
-
-            conn
-            |> put_flash(:error, "Authentication failed. Please try again.")
-            |> redirect(to: ~p"/users/log-in")
-        end
+    with {:ok, expected_request, return_to} <-
+           expected_request(stored_csrf_token, pending_request, csrf_token, return_to),
+         {:ok, saml_response} <- fetch_saml_response(params),
+         {:ok, config} <- SAMLStrategy.get_config(),
+         {:ok, assertion} <- validate_saml_response(saml_response, config, expected_request),
+         :ok <- spend_assertion(assertion) do
+      handle_successful_assertion(conn, assertion, config, return_to)
+    else
+      {:error, reason} -> reject(conn, reason)
     end
+  end
+
+  defp expected_request(nil, nil, _csrf_token, _return_to) do
+    if allow_idp_initiated?() do
+      {:ok, :unsolicited, nil}
+    else
+      {:error, :unsolicited_response}
+    end
+  end
+
+  defp expected_request(stored_csrf_token, pending_request, csrf_token, return_to) do
+    if valid_saml_csrf_token?(csrf_token, stored_csrf_token) do
+      with {:ok, request_id} <- pending_request_id(pending_request) do
+        {:ok, request_id, return_to}
+      end
+    else
+      {:error, :csrf_validation_failed}
+    end
+  end
+
+  defp pending_request_id(%{"id" => request_id, "issued_at" => issued_at})
+       when is_binary(request_id) and request_id != "" and is_integer(issued_at) do
+    age = System.system_time(:second) - issued_at
+
+    if age >= 0 and age <= authn_request_ttl_seconds() do
+      {:ok, request_id}
+    else
+      {:error, :authn_request_expired}
+    end
+  end
+
+  defp pending_request_id(_pending_request), do: {:error, :missing_authn_request}
+
+  defp fetch_saml_response(%{"SAMLResponse" => saml_response}) when is_binary(saml_response) and saml_response != "",
+    do: {:ok, saml_response}
+
+  defp fetch_saml_response(_params), do: {:error, :no_saml_response}
+
+  defp reject(conn, reason) when reason in @request_binding_failures do
+    Logger.warning("SAML request binding failed: #{inspect(reason)}")
+    Hooks.on_auth_failed(reason, %{method: :saml, ip: get_client_ip(conn)})
+
+    conn
+    |> put_flash(:error, "Authentication failed: invalid request. Please try again.")
+    |> redirect(to: ~p"/users/log-in")
+  end
+
+  defp reject(conn, :no_saml_response) do
+    Hooks.on_auth_failed(:no_saml_response, %{method: :saml, ip: get_client_ip(conn)})
+
+    conn
+    |> put_flash(:error, "No SAML response received.")
+    |> redirect(to: ~p"/users/log-in")
+  end
+
+  defp reject(conn, reason) do
+    Logger.warning("SAML assertion validation failed: #{inspect(reason)}")
+
+    Hooks.on_auth_failed(reason, %{
+      method: :saml,
+      ip: get_client_ip(conn),
+      user_agent: conn |> get_req_header("user-agent") |> List.first()
+    })
+
+    conn
+    |> put_flash(:error, "Authentication failed. Please try again.")
+    |> redirect(to: ~p"/users/log-in")
   end
 
   # Parse RelayState to extract CSRF token and optional return URL
@@ -162,6 +247,17 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
 
   defp valid_saml_csrf_token?(_csrf_token, _stored_csrf_token), do: false
 
+  defp authn_request_ttl_seconds do
+    case Application.get_env(:serviceradar_web_ng, :saml_authn_request_ttl_seconds) do
+      seconds when is_integer(seconds) and seconds > 0 -> seconds
+      _ -> @default_authn_request_ttl_seconds
+    end
+  end
+
+  defp allow_idp_initiated? do
+    Application.get_env(:serviceradar_web_ng, :saml_allow_idp_initiated, false) == true
+  end
+
   @doc """
   SP Metadata endpoint.
 
@@ -177,62 +273,27 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
 
   # Private functions
 
-  defp get_saml_request_url(csrf_token) do
+  defp get_saml_request_url(csrf_token, request_id) do
     with {:ok, config} <- SAMLStrategy.get_config(),
          {:xml, xml} <- config.idp_metadata,
-         {:ok, sso_url} <- extract_sso_url_from_metadata(xml),
+         {:ok, sso_url} <- SAMLMetadata.sso_redirect_url(xml),
          :ok <- validate_sso_redirect_url(sso_url) do
-      # Build AuthnRequest URL
-      sp_entity_id = config.sp_entity_id
-      acs_url = config.acs_url
+      authn_request = build_authn_request(request_id, config.sp_entity_id, config.acs_url, sso_url)
 
-      # Build the AuthnRequest
-      authn_request = build_authn_request(sp_entity_id, acs_url)
-      encoded_request = Base.encode64(authn_request)
+      # HTTP-Redirect binding: raw DEFLATE, then base64, then URL-encoded.
+      query =
+        URI.encode_query(%{
+          "SAMLRequest" => authn_request |> :zlib.zip() |> Base.encode64(),
+          "RelayState" => csrf_token
+        })
 
-      # Include CSRF token in RelayState
-      relay_state = csrf_token
+      separator = if String.contains?(sso_url, "?"), do: "&", else: "?"
 
-      url =
-        "#{sso_url}?SAMLRequest=#{URI.encode(encoded_request)}&RelayState=#{URI.encode(relay_state)}"
-
-      {:ok, url}
+      {:ok, sso_url <> separator <> query}
     else
       {:error, :invalid_sso_url} -> {:error, :invalid_metadata}
       error -> error
     end
-  end
-
-  # Parse IdP metadata to extract SSO URL
-  defp extract_sso_url_from_metadata(xml) do
-    import SweetXml
-
-    # Use safe parser
-    doc = safe_sweetxml_parse(xml)
-
-    sso_url =
-      xpath(doc, ~x"//md:SingleSignOnService[@Binding='urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect']/@Location"s,
-        namespace_conformant: true,
-        namespaces: [md: "urn:oasis:names:tc:SAML:2.0:metadata"]
-      )
-
-    if sso_url && sso_url != "" do
-      {:ok, sso_url}
-    else
-      # Try without namespace prefix
-      sso_url_alt =
-        xpath(doc, ~x"//SingleSignOnService[@Binding='urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect']/@Location"s)
-
-      if sso_url_alt && sso_url_alt != "" do
-        {:ok, sso_url_alt}
-      else
-        {:error, :sso_url_not_found}
-      end
-    end
-  rescue
-    e ->
-      Logger.error("Failed to parse IdP metadata: #{inspect(e)}")
-      {:error, :metadata_parse_failed}
   end
 
   defp validate_sso_redirect_url(url) when is_binary(url) do
@@ -244,12 +305,10 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
 
   defp validate_sso_redirect_url(_url), do: {:error, :invalid_sso_url}
 
-  defp build_authn_request(sp_entity_id, acs_url) do
-    # Build a minimal SAML AuthnRequest
-    request_id = "_" <> Base.encode16(:crypto.strong_rand_bytes(16), case: :lower)
+  defp build_authn_request(request_id, sp_entity_id, acs_url, sso_url) do
     issue_instant = DateTime.to_iso8601(DateTime.utc_now())
 
-    """
+    String.trim("""
     <?xml version="1.0" encoding="UTF-8"?>
     <samlp:AuthnRequest
       xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol"
@@ -257,400 +316,78 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
       ID="#{request_id}"
       Version="2.0"
       IssueInstant="#{issue_instant}"
-      AssertionConsumerServiceURL="#{acs_url}"
+      Destination="#{xml_escape(sso_url)}"
+      AssertionConsumerServiceURL="#{xml_escape(acs_url)}"
       ProtocolBinding="urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST">
-      <saml:Issuer>#{sp_entity_id}</saml:Issuer>
+      <saml:Issuer>#{xml_escape(sp_entity_id)}</saml:Issuer>
       <samlp:NameIDPolicy
         Format="urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress"
         AllowCreate="true"/>
     </samlp:AuthnRequest>
-    """
-    |> String.trim()
-    |> :zlib.compress()
+    """)
   end
 
-  defp validate_saml_response(saml_response_b64) do
-    with {:ok, saml_response_xml} <- Base.decode64(saml_response_b64),
-         {:ok, config} <- SAMLStrategy.get_config(),
-         {:ok, verified_element} <- validate_xml_signature(saml_response_xml, config),
-         {:ok, assertion} <- parse_saml_assertion(verified_element),
-         :ok <- SAMLAssertionValidator.validate(assertion, config) do
+  defp xml_escape(value) do
+    value
+    |> to_string()
+    |> String.replace("&", "&amp;")
+    |> String.replace("<", "&lt;")
+    |> String.replace(">", "&gt;")
+    |> String.replace("\"", "&quot;")
+    |> String.replace("'", "&apos;")
+  end
+
+  defp validate_saml_response(saml_response_b64, config, expected_request) do
+    with {:ok, assertion} <- SAMLResponse.decode(saml_response_b64, config),
+         :ok <- SAMLAssertionValidator.validate(assertion, config),
+         :ok <- SAMLAssertionValidator.validate_in_response_to(assertion, expected_request) do
       {:ok, assertion}
-    else
-      :error ->
-        {:error, :invalid_base64}
-
-      {:error, reason} = error ->
-        Logger.warning("SAML response validation failed: #{inspect(reason)}")
-        error
     end
   end
 
-  # Validate the XML signature on the SAML response/assertion
-  defp validate_xml_signature(xml, config) do
-    with {:ok, certs} when certs != [] <- get_idp_certificates(config),
-         :ok <- validate_certificate_pinning(certs, config),
-         fingerprints = build_trusted_fingerprints(certs),
-         {:ok, verified_element} <- validate_signature_with_fingerprints(xml, fingerprints) do
-      {:ok, verified_element}
-    else
-      {:ok, []} ->
-        Logger.warning("No IdP certificates found for signature validation")
-        {:error, :missing_signing_certificates}
+  # Records the assertion as used. Runs after every other check and before any
+  # user lookup or session, so a replayed assertion never reaches provisioning.
+  # The validator has already required a non-empty ID and issuer and a parseable
+  # NotOnOrAfter; anything that stops the row being written fails closed.
+  defp spend_assertion(assertion) do
+    actor = SystemActor.system(:saml_controller)
 
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  # Validate that at least one certificate matches pinned fingerprints
-  defp validate_certificate_pinning(certs, config) do
-    pinned_fingerprints = Map.get(config, :pinned_cert_fingerprints, [])
-
-    if Enum.empty?(pinned_fingerprints) do
-      # No pinning configured, allow any valid cert
+    with {:ok, not_on_or_after, _offset} <-
+           DateTime.from_iso8601(assertion.conditions.not_on_or_after),
+         {:ok, _row} <-
+           SAMLConsumedAssertion.record(
+             String.trim(assertion.issuer),
+             String.trim(assertion.id),
+             not_on_or_after,
+             actor: actor
+           ) do
       :ok
     else
-      # Compute fingerprints of current certificates
-      current_fingerprints =
-        certs
-        |> Enum.map(&compute_cert_fingerprint/1)
-        |> Enum.filter(&(&1 != nil))
-
-      # Check if any current cert matches a pinned fingerprint
-      matching =
-        Enum.any?(current_fingerprints, fn fp ->
-          Enum.member?(pinned_fingerprints, fp)
-        end)
-
-      if matching do
-        :ok
-      else
-        Logger.error("SAML certificate pinning validation failed - no matching certificates")
-        {:error, :certificate_pinning_failed}
-      end
-    end
-  end
-
-  @doc """
-  Compute SHA256 fingerprint of a certificate in DER format.
-  Returns the fingerprint as a hex string with colons (e.g., "AB:CD:EF:...")
-  """
-  def compute_cert_fingerprint(cert) do
-    # If it's an Erlang certificate record, encode to DER
-    der =
-      case cert do
-        {:Certificate, _, _, _} ->
-          :public_key.der_encode(:Certificate, cert)
-
-        binary when is_binary(binary) ->
-          binary
-
-        _ ->
-          nil
-      end
-
-    if der do
-      :sha256
-      |> :crypto.hash(der)
-      |> Base.encode16(case: :upper)
-      |> String.graphemes()
-      |> Enum.chunk_every(2)
-      |> Enum.join(":")
-    end
-  rescue
-    _ -> nil
-  end
-
-  @doc """
-  Extract and compute fingerprints for all certificates in IdP metadata.
-  Used by the admin UI to display available certificates for pinning.
-  """
-  def get_idp_certificate_fingerprints do
-    case SAMLStrategy.get_config() do
-      {:ok, config} ->
-        {:ok, certs} = get_idp_certificates(config)
-
-        fingerprints =
-          certs
-          |> Enum.map(&compute_cert_fingerprint/1)
-          |> Enum.filter(&(&1 != nil))
-
-        {:ok, fingerprints}
+      {:error, %Ash.Error.Invalid{errors: errors}} = error ->
+        if Enum.any?(errors, &unique_violation?/1) do
+          {:error, :assertion_replayed}
+        else
+          Logger.error("Failed to record SAML assertion use: #{inspect(error)}")
+          {:error, :assertion_replay_check_failed}
+        end
 
       error ->
-        error
+        Logger.error("Failed to record SAML assertion use: #{inspect(error)}")
+        {:error, :assertion_replay_check_failed}
     end
   end
 
-  defp get_idp_certificates(config) do
-    {:xml, metadata_xml} = config.idp_metadata
-    extract_certificates_from_metadata(metadata_xml)
+  defp unique_violation?(%Ash.Error.Changes.InvalidAttribute{private_vars: private_vars}) do
+    Keyword.get(private_vars || [], :constraint_type) == :unique
   end
 
-  defp extract_certificates_from_metadata(xml) do
-    import SweetXml
+  defp unique_violation?(_error), do: false
 
-    # Use safe parser
-    doc = safe_sweetxml_parse(xml)
-
-    # Extract X509 certificates from IdP metadata
-    # These are typically in ds:X509Certificate elements
-    certs =
-      xpath(doc, ~x"//md:KeyDescriptor[@use='signing']/ds:KeyInfo/ds:X509Data/ds:X509Certificate/text()"ls,
-        namespace_conformant: true,
-        namespaces: [md: "urn:oasis:names:tc:SAML:2.0:metadata", ds: "http://www.w3.org/2000/09/xmldsig#"]
-      )
-
-    # Fallback: try without namespace prefix or with different paths
-    certs =
-      if Enum.empty?(certs) do
-        # Try alternative path without use attribute
-        xpath(
-          doc,
-          ~x"//md:KeyDescriptor/ds:KeyInfo/ds:X509Data/ds:X509Certificate/text()"ls,
-          namespace_conformant: true,
-          namespaces: [
-            md: "urn:oasis:names:tc:SAML:2.0:metadata",
-            ds: "http://www.w3.org/2000/09/xmldsig#"
-          ]
-        )
-      else
-        certs
-      end
-
-    # Second fallback: try without namespace prefixes
-    certs =
-      if Enum.empty?(certs) do
-        xpath(doc, ~x"//X509Certificate/text()"ls)
-      else
-        certs
-      end
-
-    # Decode base64 certificates to DER format
-    decoded_certs =
-      certs
-      |> Enum.map(&String.replace(&1, ~r/\s+/, ""))
-      |> Enum.filter(&(&1 != ""))
-      |> Enum.map(&decode_certificate/1)
-      |> Enum.filter(&(&1 != nil))
-
-    {:ok, decoded_certs}
-  rescue
-    e ->
-      Logger.error("Failed to extract IdP certificates: #{inspect(e)}")
-      {:ok, []}
-  end
-
-  defp decode_certificate(base64_cert) do
-    case Base.decode64(base64_cert) do
-      {:ok, der} ->
-        # Convert DER to Erlang certificate record
-        try do
-          :public_key.der_decode(:Certificate, der)
-        rescue
-          _ -> nil
-        end
-
-      :error ->
-        nil
-    end
-  end
-
-  defp validate_signature_with_fingerprints(xml_string, fingerprints) when is_binary(xml_string) do
-    # Parse XML safely using xmerl (disable external entities)
-    {doc, _} = safe_xmerl_scan(xml_string)
-
-    signed_elements = signed_elements(doc)
-
-    case signed_elements do
-      [] ->
-        Logger.warning("No signature found in SAML response or assertion")
-        {:error, :no_signature}
-
-      elements ->
-        case verify_signed_elements(elements, fingerprints) do
-          {:ok, verified_element} -> {:ok, verified_element}
-          {:error, reason} -> {:error, reason}
-        end
-    end
-  rescue
-    e ->
-      Logger.error("Signature validation error: #{inspect(e)}")
-      {:error, :signature_validation_error}
-  end
-
-  defp signed_elements(doc) do
-    namespaces = [
-      {"saml2p", ~c"urn:oasis:names:tc:SAML:2.0:protocol"},
-      {"saml2", ~c"urn:oasis:names:tc:SAML:2.0:assertion"},
-      {"ds", ~c"http://www.w3.org/2000/09/xmldsig#"}
-    ]
-
-    # Prioritize Assertion signatures to prevent XSW where Response is signed but Assertion is spoofed
-    assertion_signed =
-      :xmerl_xpath.string(~c"//saml2:Assertion[ds:Signature]", doc, namespace: namespaces)
-
-    response_signed =
-      :xmerl_xpath.string(~c"//saml2p:Response[ds:Signature]", doc, namespace: namespaces)
-
-    Enum.uniq(assertion_signed ++ response_signed)
-  end
-
-  defp verify_signed_elements(elements, fingerprints) do
-    # Return the first element that verifies successfully
-    verified =
-      Enum.find_value(elements, fn element ->
-        case :xmerl_dsig.verify(element, fingerprints) do
-          :ok -> element
-          _ -> nil
-        end
-      end)
-
-    if verified do
-      {:ok, verified}
-    else
-      Logger.warning("SAML signature verification failed")
-      {:error, :invalid_signature}
-    end
-  end
-
-  defp build_trusted_fingerprints(certs) when is_list(certs) do
-    certs
-    |> Enum.flat_map(fn cert ->
-      case cert_der(cert) do
-        nil ->
-          []
-
-        der ->
-          sha = :crypto.hash(:sha, der)
-          sha256 = :crypto.hash(:sha256, der)
-          [sha, {:sha, sha}, {:sha256, sha256}]
-      end
-    end)
-    |> Enum.uniq()
-  end
-
-  defp cert_der({:Certificate, _, _, _} = cert), do: :public_key.der_encode(:Certificate, cert)
-  defp cert_der(der) when is_binary(der), do: der
-  defp cert_der(_), do: nil
-
-  defp parse_saml_assertion(node) do
-    import SweetXml
-
-    # Extract assertion data relative to the verified node
-    namespaces = [
-      saml: "urn:oasis:names:tc:SAML:2.0:assertion",
-      samlp: "urn:oasis:names:tc:SAML:2.0:protocol"
-    ]
-
-    # Note: We use relative paths (.) to ensure we only look within the verified assertion node
-    assertion = %{
-      subject_name_id: xpath(node, ~x"./saml:Subject/saml:NameID/text()"s, namespaces: namespaces),
-      issuer: xpath(node, ~x"./saml:Issuer/text()"s, namespaces: namespaces),
-      session_index: xpath(node, ~x"./saml:AuthnStatement/@SessionIndex"s, namespaces: namespaces),
-      attributes: parse_attributes(node, namespaces),
-      conditions: %{
-        not_before: xpath(node, ~x"./saml:Conditions/@NotBefore"s, namespaces: namespaces),
-        not_on_or_after: xpath(node, ~x"./saml:Conditions/@NotOnOrAfter"s, namespaces: namespaces),
-        audience:
-          xpath(node, ~x"./saml:Conditions/saml:AudienceRestriction/saml:Audience/text()"s, namespaces: namespaces)
-      },
-      subject_confirmation: %{
-        recipient:
-          xpath(node, ~x"./saml:SubjectConfirmation/saml:SubjectConfirmationData/@Recipient"s, namespaces: namespaces)
-      }
-    }
-
-    # Fallback for non-namespaced XML
-    assertion =
-      if assertion.subject_name_id == "" do
-        %{
-          assertion
-          | subject_name_id: xpath(node, ~x"./Subject/NameID/text()"s),
-            session_index: xpath(node, ~x"./AuthnStatement/@SessionIndex"s),
-            conditions: %{
-              not_before: xpath(node, ~x"./Conditions/@NotBefore"s),
-              not_on_or_after: xpath(node, ~x"./Conditions/@NotOnOrAfter"s),
-              audience: xpath(node, ~x"./Conditions/AudienceRestriction/Audience/text()"s)
-            },
-            issuer: xpath(node, ~x"./Issuer/text()"s),
-            subject_confirmation: %{
-              recipient: xpath(node, ~x"./SubjectConfirmation/SubjectConfirmationData/@Recipient"s)
-            }
-        }
-      else
-        assertion
-      end
-
-    if assertion.subject_name_id == "" do
-      {:error, :no_subject}
-    else
-      {:ok, assertion}
-    end
-  rescue
-    e ->
-      Logger.error("Failed to parse SAML assertion: #{inspect(e)}")
-      {:error, :parse_failed}
-  end
-
-  defp parse_attributes(node, namespaces) do
-    import SweetXml
-
-    # Use relative path statement
-    attrs =
-      node
-      |> xpath(
-        ~x"./saml:AttributeStatement/saml:Attribute"l,
-        namespaces: namespaces
-      )
-      |> Enum.map(fn attr ->
-        name = xpath(attr, ~x"./@Name"s, namespaces: namespaces)
-        value = xpath(attr, ~x"./saml:AttributeValue/text()"s, namespaces: namespaces)
-        %{name: name, value: value}
-      end)
-
-    # Fallback to non-namespaced
-    attrs =
-      if Enum.empty?(attrs) do
-        xpath(node, ~x"./AttributeStatement/Attribute"l, name: ~x"./@Name"s, value: ~x"./AttributeValue/text()"s)
-      else
-        attrs
-      end
-
-    Enum.reduce(attrs, %{}, fn %{name: name, value: value}, acc ->
-      if name && name != "", do: Map.put(acc, name, value), else: acc
-    end)
-  end
-
-  # Safe XML parsing helpers to prevent XXE
-
-  defp safe_xmerl_scan(xml_string) do
-    xml_charlist = String.to_charlist(xml_string)
-
-    :xmerl_scan.string(xml_charlist, [
-      {:quiet, true},
-      {:validation, false},
-      {:fetch_fun, &reject_external_resource/2}
-    ])
-  end
-
-  defp safe_sweetxml_parse(xml_string) do
-    SweetXml.parse(xml_string,
-      quiet: true,
-      xmerl_options: [
-        fetch_fun: &reject_external_resource/2
-      ]
-    )
-  end
-
-  defp reject_external_resource(_ext_spec, _scanner_state), do: {:error, :disabled_for_security}
-
-  defp handle_successful_assertion(conn, assertion, relay_state) do
+  defp handle_successful_assertion(conn, assertion, config, relay_state) do
     actor = SystemActor.system(:saml_controller)
 
     # Extract user info from assertion
-    user_info = extract_user_info(assertion)
+    user_info = extract_user_info(assertion, config)
 
     with {:ok, user} <- find_or_create_user(user_info, actor),
          {:ok, user} <- SSOProvisioning.record_successful_authentication(user, :saml, actor) do
@@ -742,9 +479,7 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
     end
   end
 
-  defp extract_user_info(assertion) do
-    # Get claim mappings from config
-    {:ok, config} = SAMLStrategy.get_config()
+  defp extract_user_info(assertion, config) do
     mappings = config.claim_mappings
 
     # Extract from assertion attributes with fallbacks

@@ -15,6 +15,7 @@ defmodule ServiceRadar.Identity do
   - `ServiceRadar.Identity.OAuthClient` - OAuth2 client credentials for self-service API access
   - `ServiceRadar.Identity.AuthSettings` - Instance-level SSO configuration
   - `ServiceRadar.Identity.AuthorizationSettings` - Default role and role mapping configuration
+  - `ServiceRadar.Identity.SAMLConsumedAssertion` - Replay ledger for accepted SAML assertions
 
   ## Authentication
 
@@ -48,6 +49,7 @@ defmodule ServiceRadar.Identity do
     resource ServiceRadar.Identity.McpOAuthGrant
     resource ServiceRadar.Identity.McpOAuthCode
     resource ServiceRadar.Identity.McpOAuthRefreshToken
+    resource ServiceRadar.Identity.SAMLConsumedAssertion
     resource ServiceRadar.Identity.DeviceAliasState
     resource ServiceRadar.Identity.UserGroup
     resource ServiceRadar.Identity.UserGroupMembership
