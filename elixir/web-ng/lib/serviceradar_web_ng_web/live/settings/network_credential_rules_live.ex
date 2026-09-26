@@ -77,11 +77,30 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       |> assign(:form_mode, socket.assigns.live_action)
 
     if connected?(socket) do
+      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "producer_schedule:updated")
       {:noreply, load_page(socket, params)}
     else
       {:noreply, socket}
     end
   end
+
+  @impl true
+  def handle_info({:producer_schedule_updated, updated_schedule}, socket) do
+    updated_schedules =
+      socket.assigns.integration_schedules
+      |> Enum.map(fn {rule_id, schedule} ->
+        if schedule.id == updated_schedule.id do
+          {rule_id, updated_schedule}
+        else
+          {rule_id, schedule}
+        end
+      end)
+      |> Map.new()
+
+    {:noreply, assign(socket, :integration_schedules, updated_schedules)}
+  end
+
+  def handle_info(_msg, socket), do: {:noreply, socket}
 
   @impl true
   def handle_event("save_rule", %{"credential_rule" => params}, socket) do
@@ -2921,7 +2940,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     ~H"""
     <%= if @scheduled? do %>
       <%= case Map.get(@schedules, to_string(@rule.id)) do %>
-        <% %{last_status: status, last_run_at: last_run_at} -> %>
+        <% %{last_status: status, last_run_at: last_run_at, last_error: last_error} -> %>
           {status} /
           <.user_time
             id={
@@ -2932,6 +2951,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
             style={:compact}
             fallback="never"
           />
+          <%= if last_error do %>
+            <span class="text-error text-xs block truncate" title={last_error}>{last_error}</span>
+          <% end %>
         <% nil -> %>
           Awaiting provisioning
       <% end %>

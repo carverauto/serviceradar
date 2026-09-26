@@ -63,6 +63,9 @@
 {{- $gatewayArtifactPublicUrl = printf "https://%s:%v" $gateway.publicHostname (default 50053 $gatewayService.artifactPort) -}}
 {{- end -}}
 {{- $agentArtifactPublicUrl := default $webNgPublicUrl $gatewayArtifactPublicUrl -}}
+{{- if $gateway.inClusterArtifactPublicUrl -}}
+{{- $agentArtifactPublicUrl = $gateway.inClusterArtifactPublicUrl -}}
+{{- end -}}
 {{- $pluginStorageBackend := lower (default "file" $pluginStorage.backend) -}}
 {{- $pluginStorageFileBackend := and $pluginStorage.enabled (eq $pluginStorageBackend "file") -}}
 {{- $objectStoreRetention := default (dict) .Values.objectStoreRetention -}}
