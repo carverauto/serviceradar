@@ -8,7 +8,7 @@ using `AshPaperTrail.Resource`. See `add-audit-history-page/tasks.md` for
 that change's remaining work.
 
 Confirmed via the library's docs (`ash-events.hexdocs.pm`, `~> 0.7.0`,
-compatible with this repo's Ash `~> 3.31.3`):
+compatible with this repo's Ash `~> 3.33.11`):
 
 - **Event log resource**: a plain Ash resource using the
   `AshEvents.EventLog` extension, configured via an `event_log do end`
