@@ -5,6 +5,7 @@ templates:
   - templates/network-policy.yaml
   - templates/agent-gateway.yaml
   - templates/web.yaml
+  - templates/serviceradar-config.yaml
 release:
   namespace: sr-bool-default
 tests:
@@ -208,3 +209,29 @@ tests:
         documentSelector:
           path: kind
           value: Deployment
+
+  - it: renders the identity drift flags true in core.json by default
+    template: templates/serviceradar-config.yaml
+    asserts:
+      - matchRegex:
+          path: data["core.json"]
+          pattern: '"pause_on_drift": true,\s+"alert_on_drift": true'
+
+  - it: renders the identity drift flags false in core.json when they are false
+    template: templates/serviceradar-config.yaml
+    set:
+      core.identity.drift.pauseOnDrift: false
+      core.identity.drift.alertOnDrift: false
+    asserts:
+      - matchRegex:
+          path: data["core.json"]
+          pattern: '"pause_on_drift": false,\s+"alert_on_drift": false'
+
+  - it: renders the sweep high-performance ICMP flag false when it is false
+    template: templates/serviceradar-config.yaml
+    set:
+      sweep.icmp.highPerf: false
+    asserts:
+      - matchRegex:
+          path: data["sweep.json"]
+          pattern: '"high_perf_icmp": false'
