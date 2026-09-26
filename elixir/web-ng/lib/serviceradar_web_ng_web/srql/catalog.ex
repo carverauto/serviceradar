@@ -429,7 +429,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     %{
       id: "deduplication_tasks",
       label: "De-duplication Tasks",
-      route: "/devices",
+      route: "/devices/deduplication",
       default_time: "",
       default_sort_field: "last_decided_at",
       default_sort_dir: "desc",

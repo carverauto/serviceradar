@@ -38,10 +38,10 @@ it finds duplicates it cannot reconcile safely it opens a task instead of mergin
 
 ## Impact
 
-- Affected specs: `device-identity-reconciliation` (ADDED "Identity De-duplication Tasks");
-  `srql` (ADDED "SRQL Identity Decisions Entity" and "SRQL De-duplication Tasks Entity",
-  MODIFIED "Identity Diagnostic Entities Are Permission Gated"); `mcp` (MODIFIED "MCP exposes a
-  device identity trace tool").
+- Affected specs: `device-identity-reconciliation` (ADDED "Identity De-duplication Tasks" and
+  "De-duplication Review Queue"); `srql` (ADDED "SRQL Identity Decisions Entity" and "SRQL
+  De-duplication Tasks Entity", MODIFIED "Identity Diagnostic Entities Are Permission Gated");
+  `mcp` (MODIFIED "MCP exposes a device identity trace tool").
 - Affected code: `elixir/serviceradar_core` identity modules, one migration.
 - Depends on `add-identity-decision-log` (#4613).
 - Follow-up (#4704): the web-ng review queue; the SRQL entities `identity_decisions` and

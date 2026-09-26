@@ -117,6 +117,13 @@ defmodule ServiceRadar.Inventory.Identity.Deduplication do
     update(task, :dismiss, %{resolution_note: Keyword.get(opts, :note)}, actor)
   end
 
+  @doc """
+  Reopens a dismissed task so it can be resolved. A task that was merged or marked distinct
+  stays resolved.
+  """
+  @spec reopen(DeduplicationTask.t(), term()) :: {:ok, DeduplicationTask.t()} | {:error, term()}
+  def reopen(%DeduplicationTask{} = task, actor), do: update(task, :reopen, %{}, actor)
+
   # ---------------------------------------------------------------------------------------
 
   defp mark_distinct_in_transaction(task, actor, note) do
