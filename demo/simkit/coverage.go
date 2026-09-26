@@ -13,6 +13,9 @@ type Gap struct {
 // returns the instants that break the "an incident is active or starts within
 // horizon" guarantee. A pack's tests call it over a simulated week.
 func (s *Schedule) CoverageGaps(from, to time.Time, step, horizon time.Duration) []Gap {
+	if step <= 0 {
+		return nil
+	}
 	var gaps []Gap
 	for t := from; !t.After(to); t = t.Add(step) {
 		if len(s.ScheduledAt(t)) > 0 {

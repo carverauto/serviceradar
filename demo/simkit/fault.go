@@ -75,7 +75,8 @@ var ErrOverlap = errors.New("simkit: fault window overlaps an existing fault of 
 
 // Validate checks that the schedule can keep its guarantees: positive
 // periods and durations, Duration+Jitter within the period (so instances of
-// one kind never overlap), unique kinds and selectors that match assets.
+// one kind never overlap), unique kinds, selectors that match assets and
+// overlays that name a metric and a known mode.
 func (s *Schedule) Validate() error {
 	seen := map[string]bool{}
 	for i, f := range s.Faults {
@@ -92,6 +93,14 @@ func (s *Schedule) Validate() error {
 			return fmt.Errorf("fault %q: duration+jitter exceeds period", f.Kind)
 		case len(s.resolve(f.Targets)) == 0:
 			return fmt.Errorf("fault %q: targets match no asset", f.Kind)
+		}
+		for _, o := range f.Overlays {
+			if o.Metric == "" {
+				return fmt.Errorf("fault %q: overlay metric is required", f.Kind)
+			}
+			if !validOverlayMode(o.Mode) {
+				return fmt.Errorf("fault %q: overlay mode %q is not set, add or scale", f.Kind, o.Mode)
+			}
 		}
 		seen[f.Kind] = true
 	}

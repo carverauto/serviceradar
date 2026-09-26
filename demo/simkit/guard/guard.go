@@ -9,6 +9,7 @@ package guard
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/netip"
 	"net/url"
 	"sort"
@@ -39,12 +40,6 @@ var safePrefixes = []netip.Prefix{
 var safeSuffixes = []string{
 	".test", ".example", ".invalid", ".localhost", ".local", ".internal", ".home.arpa", ".lan",
 	".example.com", ".example.net", ".example.org",
-}
-
-// hostKeys are field names whose string values are host names.
-var hostKeys = map[string]bool{
-	"host": true, "hostname": true, "fqdn": true, "domain": true, "dns_name": true,
-	"server": true, "controller_host": true,
 }
 
 // SafeIP reports whether addr is an IP address that cannot reach a public host.
@@ -86,7 +81,7 @@ func CheckJSON(data []byte) ([]Violation, error) {
 		return nil, err
 	}
 	var out []Violation
-	walk("$", "", v, &out)
+	walk("$", "", "", v, &out)
 	return out, nil
 }
 
@@ -99,7 +94,7 @@ func Check(v any) ([]Violation, error) {
 	return CheckJSON(data)
 }
 
-func walk(path, key string, v any, out *[]Violation) {
+func walk(path, key, owner string, v any, out *[]Violation) {
 	switch t := v.(type) {
 	case map[string]any:
 		keys := make([]string, 0, len(t))
@@ -108,24 +103,18 @@ func walk(path, key string, v any, out *[]Violation) {
 		}
 		sort.Strings(keys)
 		for _, k := range keys {
-			walk(path+"."+k, k, t[k], out)
+			walk(path+"."+k, k, key, t[k], out)
 		}
 	case []any:
 		for i, e := range t {
-			walk(fmt.Sprintf("%s[%d]", path, i), key, e, out)
+			walk(fmt.Sprintf("%s[%d]", path, i), key, owner, e, out)
 		}
 	case string:
-		checkString(path, key, t, out)
+		checkString(path, key, owner, t, out)
 	}
 }
 
-func checkString(path, key, s string, out *[]Violation) {
-	if addr, err := netip.ParseAddr(s); err == nil {
-		if !SafeIP(addr) {
-			*out = append(*out, Violation{path, s, "publicly routable IP address"})
-		}
-		return
-	}
+func checkString(path, key, owner, s string, out *[]Violation) {
 	if prefix, err := netip.ParsePrefix(s); err == nil {
 		if !SafeIP(prefix.Addr()) {
 			*out = append(*out, Violation{path, s, "publicly routable prefix"})
@@ -138,7 +127,54 @@ func checkString(path, key, s string, out *[]Violation) {
 		}
 		return
 	}
-	if hostKeys[strings.ToLower(key)] && !SafeHost(s) {
+	host := s
+	if h, _, err := net.SplitHostPort(s); err == nil {
+		host = h
+	}
+	if addr, err := netip.ParseAddr(host); err == nil {
+		if !SafeIP(addr) {
+			*out = append(*out, Violation{path, s, "publicly routable IP address"})
+		}
+		return
+	}
+	if !isMetricName(key, owner) && looksLikeHostname(host) && !SafeHost(host) {
 		*out = append(*out, Violation{path, s, "public DNS name"})
 	}
+}
+
+// isMetricName reports whether a string field names a metric, which is a dotted
+// identifier and never a host.
+func isMetricName(key, owner string) bool {
+	return key == "metric" || (key == "name" && owner == "metrics")
+}
+
+// looksLikeHostname reports whether s has the shape of a dotted DNS name: LDH
+// labels and an alphabetic top-level label. Prose, versions and identifiers
+// without such a shape are not host names.
+func looksLikeHostname(s string) bool {
+	s = strings.TrimSuffix(strings.ToLower(s), ".")
+	labels := strings.Split(s, ".")
+	if len(labels) < 2 {
+		return false
+	}
+	for _, l := range labels {
+		if l == "" {
+			return false
+		}
+		for _, c := range l {
+			if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' || c == '_') {
+				return false
+			}
+		}
+	}
+	tld := labels[len(labels)-1]
+	if len(tld) < 2 {
+		return false
+	}
+	for _, c := range tld {
+		if c < 'a' || c > 'z' {
+			return false
+		}
+	}
+	return true
 }

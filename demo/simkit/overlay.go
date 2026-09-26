@@ -12,6 +12,10 @@ type Overlay struct {
 	RampS  int64   `json:"ramp_s"`
 }
 
+func validOverlayMode(mode string) bool {
+	return mode == "set" || mode == "add" || mode == "scale"
+}
+
 // ApplyOverlays returns base adjusted by every active fault on the asset that
 // carries an overlay for the metric.
 func ApplyOverlays(asset, metric string, base float64, t time.Time, active []Fault) float64 {

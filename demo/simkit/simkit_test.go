@@ -147,6 +147,22 @@ func TestScheduleValidate(t *testing.T) {
 	if dup.Validate() == nil {
 		t.Fatal("duplicate kinds must be rejected")
 	}
+	typo := testSchedule()
+	typo.Faults[0].Overlays[0].Mode = "offset"
+	if typo.Validate() == nil {
+		t.Fatal("unknown overlay mode must be rejected")
+	}
+	unnamed := testSchedule()
+	unnamed.Faults[0].Overlays[0].Metric = ""
+	if unnamed.Validate() == nil {
+		t.Fatal("overlay without a metric must be rejected")
+	}
+}
+
+func TestCoverageGapsRejectsNonPositiveStep(t *testing.T) {
+	if gaps := testSchedule().CoverageGaps(t0, t0.Add(time.Hour), 0, time.Minute); gaps != nil {
+		t.Fatalf("non-positive step must return no samples, got %v", gaps)
+	}
 }
 
 func TestWeekOfScheduleCoverageAndPairing(t *testing.T) {

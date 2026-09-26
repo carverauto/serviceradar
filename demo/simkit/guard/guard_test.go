@@ -13,7 +13,12 @@ func TestCheckJSON(t *testing.T) {
 	  ],
 	  "camera": {"rtsp_url": "rtsp://replayer.demo.svc.cluster.local:8554/drone-1"},
 	  "leak": {"source_url": "https://api.example-vendor.io/v1"},
-	  "title": "Channel saturation on concourse B"
+	  "title": "Channel saturation on concourse B",
+	  "targets": ["8.8.8.8:53", "1.1.1.1:443", "[2606:4700::1111]:443", "192.0.2.7:8080", "[2001:db8::5]:443"],
+	  "peer": "dns.google",
+	  "endpoint": "dns.google:443",
+	  "note": "github.com",
+	  "metrics": [{"name": "demo.fault.active", "value": 1}]
 	}`
 	vs, err := CheckJSON([]byte(doc))
 	if err != nil {
@@ -24,6 +29,12 @@ func TestCheckJSON(t *testing.T) {
 		"$.devices[2].hostname": true,
 		"$.devices[4].ip":       true,
 		"$.leak.source_url":     true,
+		"$.targets[0]":          true,
+		"$.targets[1]":          true,
+		"$.targets[2]":          true,
+		"$.peer":                true,
+		"$.endpoint":            true,
+		"$.note":                true,
 	}
 	if len(vs) != len(want) {
 		t.Fatalf("got %d violations, want %d: %v", len(vs), len(want), vs)

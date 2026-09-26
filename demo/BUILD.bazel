@@ -12,4 +12,4 @@ package_group(
     packages = ["//demo/..."],
 )
 
-exports_files(["README.md"])
+exports_files(["README.md"], visibility = ["//demo:__subpackages__"])
