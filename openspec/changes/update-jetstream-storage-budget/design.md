@@ -114,10 +114,18 @@ them owns the stream shape (`max_bytes`, replicas, retention) and the other
 creates it only when absent and otherwise merges subjects. The owner is the
 collector when it is enabled and EventWriter when it is not:
 
-- `flows`: EventWriter already runs its `flows` consumers with
-  `reconcile_stream_shape: false`, so it never reconciles the shape;
-  flow-collector owns it when enabled, and the EventWriter fallback size
-  applies only when EventWriter has to create the stream.
+- `flows`: EventWriter's `flows` consumers (`SFLOW_RAW`, `NETFLOW_RAW`) today
+  always run with `reconcile_stream_shape: false`, so with flow-collector
+  disabled nothing reconciles an existing `flows` stream, and an install whose
+  EventWriter created it at 10 GiB keeps reserving 10 GiB against the budgeted
+  1 GiB fallback. The chart therefore renders whether flow-collector is
+  enabled into core, and EventWriter's `flows` consumers follow it. While
+  flow-collector is enabled they stay subjects-only
+  (`reconcile_stream_shape: false`) and flow-collector owns the shape. While it
+  is disabled EventWriter owns `flows` and its consumers use
+  `reconcile_stream_shape: true` with the profile fallback size and 1 replica,
+  so an existing 10 GiB `flows` converges to the fallback at the next core
+  start under the discard-old rule (D6), evicting the oldest messages.
 - `ARANCINI_CAUSAL`: EventWriter's consumer defaults to reconciling the shape
   and sets no size today. When `bmpCollector.enabled` the chart renders the
   ownership flag into core so that consumer runs with
@@ -201,7 +209,7 @@ absent and merges subjects without touching the shape.
 | --- | --- | --- |
 | `KV_serviceradar-datasvc`, `OBJ_serviceradar-objects` | datasvc | none |
 | `events` | otel log-collector | EventWriter consumers, subjects only |
-| `flows` | flow-collector when enabled, EventWriter otherwise | EventWriter `flows` consumers never reconcile |
+| `flows` | flow-collector when enabled, EventWriter (fallback size, R1) otherwise | EventWriter `flows` consumers subjects only while flow-collector is enabled |
 | `ARANCINI_CAUSAL` | bmp-collector when enabled, EventWriter otherwise | EventWriter consumer subjects only when bmp-collector is enabled |
 | `OBJ_serviceradar_plugins`, fieldsurvey | web-ng | none |
 | threat-intel object store | core | none |
@@ -476,8 +484,10 @@ values. Selecting `medium` or `large` follows the volume-expansion runbook
 migration. Compose and packaged installs converge when their preset or sizes
 file is replaced on upgrade and their services restart. Discard-old buffers
 (`flows`, `events`, `ARANCINI_CAUSAL`, EventWriter streams) reach the budgeted
-reservation at the next start, evicting the oldest messages if they were fuller
-than the new cap. Discard-new state buckets reach it too when their data fits;
+reservation at the next start of their owner, evicting the oldest messages if
+they were fuller than the new cap. That includes `flows` on an install with
+flow-collector disabled: EventWriter owns it there (D3) and reconciles an
+existing 10 GiB stream to the fallback size at the next core start. Discard-new state buckets reach it too when their data fits;
 one holding more than its cap keeps its current reservation, logged, until the
 data ages out or the cap is raised, so an install with an unusually full object
 store can run above the budgeted reservation until then.

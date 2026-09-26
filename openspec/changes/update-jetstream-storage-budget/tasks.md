@@ -12,7 +12,8 @@
 - [ ] 2.1 Give `trivy_reports`, EventWriter-created `ARANCINI_CAUSAL`,
       `OBJ_serviceradar_plugins`, fieldsurvey and threat-intel object stores
       a positive default `max_bytes`.
-- [ ] 2.2 Lower the EventWriter-created `flows` default to 1 GiB.
+- [ ] 2.2 Lower the EventWriter-created `flows` default to 1 GiB (the profile
+      fallback size, R1).
 - [ ] 2.3 Expose every EventWriter stream size as
       `core.eventWriter.streams.<name>.maxBytes`, rendered into the core
       environment and read in `serviceradar_core_elx/config/runtime.exs`.
@@ -112,10 +113,18 @@
       `Config.default_streams/0` and the runtime configuration loaders, join
       them with a typed inventory of streams and declared owners (D6 table), and
       assert that no EventWriter consumer reconciles the shape of a stream it
-      does not own. It derives the answer from the loaded configuration, not
+      does not own, with `flows` and `ARANCINI_CAUSAL` evaluated for both the
+      collector-enabled and collector-disabled configurations. It derives the answer from the loaded configuration, not
       from source text, and fails on the current `EVENTS` default. Go and Rust
       owner behaviour is covered by each owner's unit tests (4.1, 4.2, 4.9,
       4.10).
+- [ ] 4.14 Flow ownership: render whether flow-collector is enabled into the
+      core environment; EventWriter `flows` consumers (`SFLOW_RAW`,
+      `NETFLOW_RAW`) use `reconcile_stream_shape: false` while it is enabled and
+      `true` with the profile fallback size and 1 replica while it is
+      disabled. Tests: with flow-collector disabled an existing 10 GiB `flows`
+      converges to the fallback at core start; with it enabled EventWriter
+      leaves `flows` unchanged.
 
 ## 5. Compose and packaged installs (D7)
 

@@ -191,6 +191,7 @@ For a discard-old buffer stream (`flows`, `events`, `ARANCINI_CAUSAL` and every 
 ### Requirement: One owner reconciles each stream shape
 Exactly one component SHALL reconcile the shape (`max_bytes`, replicas, retention) of a given stream. A secondary creator SHALL create the stream only when it is absent and otherwise merge subjects without changing the shape.
 When `bmpCollector.enabled` is true the Helm chart SHALL configure the EventWriter `ARANCINI_CAUSAL` consumer not to reconcile the stream shape, so bmp-collector owns `max_bytes` and replicas. The EventWriter fallback size SHALL apply only when bmp-collector is disabled and EventWriter creates the stream.
+The Helm chart SHALL render whether flow-collector is enabled into the core environment. While flow-collector is enabled the EventWriter `flows` consumers SHALL NOT reconcile the stream shape and flow-collector owns it. While flow-collector is disabled EventWriter owns `flows` and its `flows` consumers SHALL reconcile the shape to the profile fallback size with 1 replica.
 
 The otel log-collector SHALL own the shape of `events`. Every EventWriter consumer on `events` SHALL carry `reconcile_stream_shape` false, so it never updates an existing `events` stream, and SHALL carry a `stream_max_bytes` equal to the profile `events` size, used only when it creates the stream because `events` is absent, in every EventWriter configuration path. The Helm chart SHALL render that size and the matching replicas into the core environment from `logCollector.streamMaxBytes` and `logCollector.streamReplicas`. Creating a stream and reconciling its shape are separate operations.
 An ownership test SHALL fail when an EventWriter consumer reconciles the shape of a stream that EventWriter does not own, derived from the loaded EventWriter configuration and the inventory's declared owners. Behaviour of the Go and Rust owners is covered by each owner's own tests.
@@ -217,6 +218,19 @@ An ownership test SHALL fail when an EventWriter consumer reconciles the shape o
 - **WHEN** EventWriter starts and sets up its `ARANCINI_CAUSAL` consumer
 - **THEN** the stream's `max_bytes` SHALL remain 12 GiB
 - **AND** EventWriter SHALL NOT change its replicas or retention
+
+#### Scenario: Existing flows stream with flow-collector disabled converges
+- **GIVEN** `flowCollector.enabled: false`
+- **AND** `flows` exists with 10 GiB `max_bytes`, created earlier by EventWriter
+- **AND** the profile's `flows` fallback size is 1 GiB
+- **WHEN** core starts
+- **THEN** EventWriter SHALL reconcile the stream's `max_bytes` to 1 GiB, evicting the oldest messages if needed
+- **AND** the log SHALL record the values before and after
+
+#### Scenario: flow-collector owns flows when enabled
+- **GIVEN** `flowCollector.enabled: true` and flow-collector has set `flows` to 8 GiB
+- **WHEN** EventWriter starts
+- **THEN** the `flows` stream's `max_bytes` and replicas SHALL be unchanged
 
 #### Scenario: EventWriter creates the stream when bmp-collector is disabled
 - **GIVEN** `bmpCollector.enabled: false`
