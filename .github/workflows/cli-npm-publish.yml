@@ -114,6 +114,11 @@ jobs:
         run: |
           set -euo pipefail
 
+          # npm pack does not run prepublishOnly, so dist/ may be absent on a
+          # clean runner after npm run ci completes. Rebuild here to guarantee
+          # the archive carries exactly the source on disk right now.
+          npm run build
+
           tarball="$(npm pack --silent)"
           trap 'rm -f "${tarball}"' EXIT
 
