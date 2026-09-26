@@ -11,7 +11,8 @@ cannot be shown.
 
 A portfolio of self-running demos fixes that: Wasm plugins that simulate
 believable fleets (drones, campus Wi-Fi, airport baggage PLCs, well pads),
-inject faults on their own timers, and feed the normal pipeline; and signed
+inject faults on their own timers or when a presenter asks, and feed the normal
+pipeline; and signed
 React dashboards that tell the story map -> asset -> live signal -> incident ->
 drill-down. Building them also forces the SDKs to grow the features real
 customers will need: a dashboard video API, plan-view (non-geographic)
