@@ -1,0 +1,220 @@
+## 1. EventWriter isolation (D1)
+
+- [ ] 1.1 Change `Producer.finalize_consumer_setup/3` to keep successful
+      consumers and schedule per-stream retries with backoff capped at 60 s.
+- [ ] 1.2 Emit `[:serviceradar, :event_writer, :consumer_setup, :failed]`
+      telemetry and a health event naming the stream and NATS error code.
+- [ ] 1.3 Regression test: a stream rejected with err 10005 leaves the other
+      consumers subscribed; the test fails on the current tear-down code.
+
+## 2. Finite reservations (D3)
+
+- [ ] 2.1 Give `trivy_reports`, EventWriter-created `ARANCINI_CAUSAL`,
+      `OBJ_serviceradar_plugins`, fieldsurvey and threat-intel object stores
+      a positive default `max_bytes`.
+- [ ] 2.2 Lower the EventWriter-created `flows` default to 1 GiB (the profile
+      fallback size, R1).
+- [ ] 2.3 Expose every EventWriter stream size as
+      `core.eventWriter.streams.<name>.maxBytes`, rendered into the core
+      environment and read in `serviceradar_core_elx/config/runtime.exs`.
+- [ ] 2.4 Expose `webNg.pluginStorage.jetstreamMaxBucketBytes`
+      (`PLUGIN_STORAGE_JS_MAX_BUCKET_BYTES`) and
+      `webNg.fieldSurveyArtifactStore.jetstreamMaxBucketBytes`, rendered into
+      the web-ng environment; read the fieldsurvey value in web-ng
+      `runtime.exs` into `:field_survey_artifact_store`.
+- [ ] 2.5 Expose a `core` value for the threat-intel bucket, rendered as
+      `SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES`.
+- [ ] 2.6 EventWriter fallback sizes for the shared streams: read
+      `SERVICERADAR_JS_EVENTS_FALLBACK_MAX_BYTES` / `_REPLICAS`,
+      `SERVICERADAR_JS_FLOWS_FALLBACK_...` and
+      `SERVICERADAR_JS_ARANCINI_CAUSAL_FALLBACK_...` (used on create and when
+      EventWriter owns the stream, D6). The chart renders `events` from
+      `logCollector.streamMaxBytes` / `streamReplicas` and `flows` and
+      `ARANCINI_CAUSAL` from `core.eventWriter.streams.<name>.maxBytes` (1 GiB,
+      1 replica). Remove the hardcoded 8 GiB `EVENTS` `stream_max_bytes` in
+      `Config.default_streams/0` (`serviceradar_core` `config.ex`),
+      `serviceradar_core/config/runtime.exs` and
+      `serviceradar_core_elx/config/runtime.exs`.
+
+## 3. Chart budget and profiles (D2, D4, D5, D8)
+
+- [ ] 3.1 Byte-exact `max_file_store` helper with `G`/`Gi` parsing. Make
+      `nats.jetstream.maxFileStore` and every stream size key unset by default
+      in `values.yaml` and `values-demo.yaml` so the profile supplies them; an
+      explicit value wins.
+- [ ] 3.2 Add `nats.jetstream.profile` (`small` default, `medium`, `large`)
+      with the D8 Helm table as chart data, covering `datasvc`, `events`,
+      `flows`, plugins, `bmpCollector.config.streamMaxBytes` /
+      `streamReplicas` and every `core.eventWriter.streams.<name>.maxBytes`;
+      correct the budget comments in `values.yaml`, including the
+      `nats.jetstream.maxFileStore` / `nats.persistence.size` guidance (lines
+      216-219), which points at the runbook instead of "expand PVCs
+      out-of-band first".
+- [ ] 3.3 Budget helper and `fail` with itemised message, bucketing each
+      stream by its own size and replica value against `nats.replicas` (D5),
+      including flow-collector and bmp-collector when enabled;
+      `nats.jetstream.allowOvercommit` escape hatch for the reservation check.
+- [ ] 3.4 PVC ceiling: `fail` when `max_file_store` exceeds 94% of
+      `bytes(nats.persistence.size)` with a message that points at the
+      runbook; `allowOvercommit` does not skip it.
+- [ ] 3.5 helm-unittest per profile: with flow-collector, bmp-collector and the
+      trivy sidecar all enabled and with them all disabled, `small`,
+      `medium` and `large` render (`medium` and `large` with a matching
+      `persistence.size`); the v1.4.73 shape fails; overrides fail with the
+      itemised message; `allowOvercommit` passes; R2 and R3 streams on a
+      5-server NATS land in the spread bucket; an existing 30Gi install that
+      sets `medium` fails with the runbook message and renders with
+      `persistence.size` of `100Gi`; `values-demo.yaml` passes.
+
+## 4. Reconcile and safe shrink (D6)
+
+- [ ] 4.1 datasvc `reconcileStreamConfigLocked` (KV and object store,
+      discard-new): when configured is below stored, leave `max_bytes`
+      unchanged and log configured, stored and current values; never set it to
+      the stored size.
+- [ ] 4.2 otel log-collector `events` reconcile (discard-old): claim `events`
+      with `serviceradar.owner` `otel-log-collector` (overriding an
+      `event-writer` claim) and reconcile to the configured value even when it
+      evicts the oldest messages; log before and after.
+- [ ] 4.3 EventWriter `reconcile_stream` (discard-old): same rule for every
+      EventWriter-created stream.
+- [ ] 4.4 web-ng plugin bucket (`plugins/storage.ex`): reconcile `max_bytes`
+      on startup, create-or-update, discard-new rule; an unlimited bucket
+      holding more than the cap stays unlimited and is logged.
+- [ ] 4.5 web-ng fieldsurvey bucket (`field_survey_artifact_store.ex`
+      `ensure_bucket`): same rule instead of returning `:exists` untouched.
+- [ ] 4.6 core threat-intel bucket (`threat_intel_raw_payload_store.ex`): same
+      rule.
+- [ ] 4.7 Tests per owner: for discard-new buckets an existing unlimited bucket
+      gets the cap when its data fits, and when it does not `max_bytes` is left
+      unchanged, the values are logged and a later write still succeeds; for
+      discard-old streams a full stream shrinks, evicts the oldest messages
+      and logs before and after; an absent bucket is created with the cap.
+- [ ] 4.8 Claim protocol in EventWriter (D6): for `events`, `flows` and
+      `ARANCINI_CAUSAL`, read `serviceradar.owner` from the stream metadata
+      before deciding; create when absent with `serviceradar.owner:
+      event-writer` and the fallback size and replicas; reconcile only a stream
+      it claimed; merge subjects only when a collector holds the claim. On a
+      legacy stream with no metadata merge subjects only, and claim and
+      reconcile it only after it has stayed unclaimed for the grace period (15
+      minutes by default, configurable), re-reading the stream immediately
+      before the claim update and skipping it if a claim has appeared. Replaces
+      the `reconcile_stream_shape` default for these consumers (`SFLOW_RAW`,
+      `NETFLOW_RAW`, `ARANCINI_CAUSAL`, and the `events` consumers `EVENTS`,
+      `PDNS_OCSF`, `FALCO`, `OTEL_*`, `LOGS`, `BMP_CAUSAL`, `SIEM_CAUSAL`,
+      `ATTRIBUTED_FLOW`). Tests with an injected clock: a legacy 10 GiB `flows`
+      with no collector is left unchanged inside the grace period and
+      converges to the fallback and is claimed after it; a collector that
+      claims inside the window is never overridden and nothing is evicted; a
+      collector-claimed stream is left unchanged; the pre-update re-read skips
+      a claim that appeared; starting first creates the stream at the fallback
+      size, not unlimited.
+- [ ] 4.8a Ownership reconcile timer in `Producer` (D6): a new periodic tick
+      (5 minutes by default, configurable), separate from the fetch tick, the
+      reconnect retry and the D1 failed-consumer retries. It watches every
+      multi-owner stream (`events`, `flows`, `ARANCINI_CAUSAL`) the EventWriter
+      consumes for the life of the process and never drops one. Each tick
+      re-reads `STREAM.INFO` and applies the claim rule: claimed by
+      `event-writer` reconciles the shape if it drifted; claimed by a collector
+      merges subjects only; unclaimed applies the grace-period logic, recording
+      in process state when the stream was first seen unclaimed (a restart
+      resets it, delaying convergence and never claiming early). It only
+      issues `STREAM.UPDATE` and never tears down or resubscribes a consumer;
+      the clock is injectable. Test with an injected clock: claim and converge
+      after the grace period; no claim when a collector claims within the grace
+      period; a restart resets the clock; no consumer restart on any tick; a
+      stream claimed by a collector and later reclaimed with
+      `serviceradar.owner: event-writer` is reconciled at the next tick with no
+      grace period, and a removed claim starts the grace period.
+- [ ] 4.9 `rust/bmp-collector` publisher: claim `ARANCINI_CAUSAL` by setting
+      `serviceradar.owner` to `bmp-collector` (overriding an `event-writer`
+      claim, claiming a legacy stream) and create-or-update it, reconciling
+      `max_bytes` and `num_replicas` under the discard-old rule, with a test
+      for an existing 10 GiB stream reconciled to 2 GiB.
+- [ ] 4.10 `rust/flow-collector` publisher: claim `flows` with
+      `serviceradar.owner` `flow-collector` and reconcile `max_bytes` and
+      replicas under the discard-old rule, with a test for `flows` at 10 GiB
+      full reconciled to 8 GiB.
+- [ ] 4.11 Classify `NOTIFICATIONS` (created by core notifications) by its
+      discard policy and apply the matching D6 rule.
+- [ ] 4.12 Ownership test (ExUnit, in `serviceradar_core`): call the EventWriter
+      claim decision (4.8), with an injected clock, for each of `events`,
+      `flows` and `ARANCINI_CAUSAL` with no claim inside and after the grace
+      period, an `event-writer` claim and a collector claim, and assert it
+      reconciles only a stream EventWriter claimed or a legacy stream after the
+      grace period, and never a collector-claimed stream or a legacy stream
+      inside the grace period, including a restart that resets the clock. It exercises the decision through
+      its public function, not source text, and fails on the current
+      `reconcile_stream_shape` default. Go and Rust owner behaviour is covered by
+      each owner's unit tests (4.1, 4.2, 4.9, 4.10).
+- [ ] 4.13 Verify the shipped Compose and packaged NATS servers are 2.10 or
+      later for stream metadata and raise them where they are not.
+
+## 5. Compose and packaged installs (D7)
+
+- [ ] 5.1 Add `docker/compose/profiles/{small,medium,large}.env` with the D8
+      Compose table and every stream size explicit; select the file with
+      `SERVICERADAR_NATS_PROFILE` (default `small`) through `env_file`.
+- [ ] 5.2 `docker/compose/nats.docker.conf` reads `max_file_store` from
+      `$SERVICERADAR_NATS_MAX_FILE_STORE`. The presets set every stream size
+      through the `SERVICERADAR_JS_<STREAM>_MAX_BYTES` / `_REPLICAS` variables
+      of D7 (core and web-ng through their own variables, tasks 2.3-2.5), plus
+      the EventWriter `SERVICERADAR_JS_<STREAM>_FALLBACK_MAX_BYTES` / `_REPLICAS`
+      keys for `events`, `flows` and `ARANCINI_CAUSAL` (task 2.6). No ownership
+      variable is set: ownership is claimed on the stream (D6).
+- [ ] 5.3 Ship `build/packaging/nats/config/jetstream-sizes.env` with the
+      `small` content; load it with `EnvironmentFile=` in the NATS, datasvc,
+      log-collector, flow-collector, bmp-collector, core and web-ng units, and
+      read `max_file_store` from it in `nats-server.conf`.
+- [ ] 5.4 Add a `go_test` that sets each preset's variables, parses the NATS
+      configs with the nats-server config parser, parses the presets and sizes
+      file into typed values, fails on a missing or unknown inventory key or a
+      non-positive size, and evaluates the D5 formula with `nats.replicas = 1`;
+      config files are declared `data` inputs and no component source is read.
+      It also parses `docker-compose.yml` and the packaged systemd units into
+      typed models and fails when a size-owning service does not load the
+      selected preset (`env_file`) or the sizes file (`EnvironmentFile`).
+      A vector with the v1.4.73 single-server shape must fail.
+- [ ] 5.5 Bump `addons/<name>/addon.yaml` `version` for any native add-on whose
+      config changes.
+- [ ] 5.6 Go datasvc: read `SERVICERADAR_JS_KV_SERVICERADAR_DATASVC_MAX_BYTES`,
+      `SERVICERADAR_JS_OBJ_SERVICERADAR_OBJECTS_MAX_BYTES` and the matching
+      `_REPLICAS`, taking precedence over JSON (env > JSON > compiled default);
+      unit test for the precedence and for an invalid value failing startup.
+- [ ] 5.7 Rust flow-collector: `SERVICERADAR_JS_FLOWS_MAX_BYTES` and
+      `SERVICERADAR_JS_FLOWS_REPLICAS` override `stream_max_bytes` and
+      `stream_replicas`; unit test for the precedence.
+- [ ] 5.8 Rust bmp-collector: `SERVICERADAR_JS_ARANCINI_CAUSAL_MAX_BYTES` and
+      `_REPLICAS` override the JSON stream size and replicas; unit test for the
+      precedence.
+- [ ] 5.9 Rust otel log-collector: `SERVICERADAR_JS_EVENTS_MAX_BYTES` and
+      `_REPLICAS` override `max_bytes` and `stream_replicas`; unit test for the
+      precedence.
+
+## 6. Runbook (D8)
+
+- [ ] 6.1 Write `docs/nats-jetstream-profile-runbook.md` (repo-root `docs/`,
+      ASCII Markdown): confirm `allowVolumeExpansion`, patch each
+      `serviceradar-nats` PVC and wait for the resize, delete the StatefulSet
+      with `--cascade=orphan`, `helm upgrade` with the raised
+      `nats.persistence.size` and the new profile, and verify. State that a
+      StorageClass without expansion needs a new install or migration and that
+      the chart does not automate this. Add a reclaim section (D6): after a
+      collector is disabled, reclaim its stream for EventWriter with one
+      `nats stream edit <STREAM>` command. Setting `serviceradar.owner` to
+      `event-writer` takes effect at EventWriter's next ownership tick, within
+      5 minutes by default and with no grace period; removing the claim starts
+      the grace period instead. State that until then the stream keeps the
+      collector's reservation and that no core restart is needed.
+- [ ] 6.2 Link the runbook from `docs/agent-runbooks.md` and from the
+      `values.yaml` comment.
+
+## 7. Verification
+
+- [ ] 7.1 `make test` green.
+- [ ] 7.2 Upgrade a v1.4.73 install with flow-collector enabled and default
+      values on a scratch cluster: render passes, datasvc shrinks, every
+      stream places, `nats server report jetstream` shows reserved below 85%.
+- [ ] 7.3 On a scratch cluster with expandable storage, follow the runbook
+      from `small` to `medium` and confirm the StatefulSet is recreated, the
+      PVCs are the same objects and larger, and every NATS pod is ready.

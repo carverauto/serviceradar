@@ -1,0 +1,566 @@
+# Design: JetStream storage budget
+
+## Context
+
+How NATS places a stream (nats-server 2.14, `server/jetstream.go` and
+`server/jetstream_cluster.go`):
+
+- A stream with `max_bytes > 0` adds `max_bytes` to `ReservedStore` on every
+  server holding a replica. A stream with `max_bytes <= 0` reserves nothing.
+- A server's available space is
+  `max_file_store - max(ReservedStore, Store)`. A replica is placed only on a
+  server with `available >= max_bytes`; candidates are tried most-available
+  first.
+
+So the budget is per server, R3 streams cost their size on every server, and
+unlimited streams are invisible to reservation accounting but still consume
+headroom through `Store`.
+
+Default reservations on v1.4.73 (three NATS servers, `maxFileStore: 30G` =
+27.94 GiB):
+
+| Stream / bucket | Owner | max_bytes | Replicas |
+| --- | --- | --- | --- |
+| `KV_serviceradar-datasvc` | datasvc | 4 GiB | 3 |
+| `OBJ_serviceradar-objects` | datasvc | 10 GiB | 3 |
+| `events` | otel log-collector | 2 GiB | 3 |
+| `flows` | flow-collector when enabled / EventWriter otherwise | 10 GiB | 3 / 1 |
+| `OBJ_serviceradar_plugins` | web-ng | unlimited | 3 |
+| `metrics`, `k8s_inventory`, `analytics_predictions`, `mtr_results` | EventWriter | 1 GiB each | 1 |
+| `scan_results` | EventWriter | 0.25 GiB | 1 |
+| `NOTIFICATIONS` | core notifications | 1 GiB | 1 |
+| `trivy_reports` | EventWriter | unlimited | 1 |
+| `ARANCINI_CAUSAL` | bmp-collector when enabled (`bmpCollector.config.streamMaxBytes`, `streamReplicas`) / EventWriter otherwise | 10 GiB / unlimited | 1 |
+| fieldsurvey object store | web-ng (`field_survey_artifact_store.ex`) | unlimited | 1 |
+| threat-intel object store | core (`threat_intel_raw_payload_store.ex`) | unlimited | 1 |
+
+With flow-collector enabled: 26 GiB of R3 on every server, 1.94 GiB left,
+5.25 GiB of R1 to spread. Fragmentation leaves no server with 1 GiB.
+
+## Goals / Non-Goals
+
+- Goals: a default install of every OSS shape (Helm, Docker Compose,
+  packaged), with or without the optional producers (flow-collector,
+  bmp-collector, trivy sidecar), can always place every stream ServiceRadar
+  creates plus headroom for streams future releases add; sizing is an
+  operator choice made by naming a profile, identically for Helm and Docker
+  Compose, with individual sizes still overridable; the rule is a pure
+  function of values, so it is idempotent and holds for any environment;
+  existing installs converge on upgrade with no manual step; one unplaceable
+  stream never stops unrelated ingestion.
+- Non-Goals: changing the NATS PVC default (StatefulSet
+  `volumeClaimTemplates` is immutable, so a new default breaks every existing
+  upgrade) or resizing a PVC from a profile; making EventWriter streams R3;
+  auto-sizing from live cluster state (`lookup` returns nothing under
+  `helm template` and Argo CD); the serviceradar-control SaaS control plane,
+  which is a separate repository. Its contract with this change is a profile
+  name plus optional per-stream overrides.
+
+## Decisions
+
+### D1. EventWriter isolates per-stream setup failures
+
+`Producer.finalize_consumer_setup/3` currently closes the connection when any
+required consumer fails and retries all of them. It SHALL instead keep the
+successful consumers and schedule a retry, with exponential backoff capped at
+60 s, for each failed stream alone. A failed stream emits
+`[:serviceradar, :event_writer, :consumer_setup, :failed]` with the stream
+and NATS error code, logs once per backoff step, and raises a health event
+naming the stream. This is the guard that protects every environment
+regardless of sizing, including operator-created streams the budget cannot
+know about.
+
+The existing `best_effort` split stays for drain consumers.
+
+These retries handle a consumer that failed to set up. They are unrelated to
+the ownership reconcile timer of D6, a separate periodic tick in the `Producer`
+that revisits streams whose consumers set up successfully and never tears down
+or resubscribes a consumer.
+
+### D2. `max_file_store` is rendered in bytes
+
+`templates/nats.yaml` renders `max_file_store: <integer>`. The value is
+`nats.jetstream.maxFileStore` when set, otherwise the selected profile's
+value (D8); the `small` profile is `30G`, so the default still renders
+`30000000000` (27.94 GiB), exactly what NATS enforces today. A helper parses
+the `G` (10^9) and `Gi` (2^30) suffixes the way NATS does.
+
+`max_file_store` is deliberately not derived from `nats.persistence.size`.
+Deriving it as the PVC size minus a reserve raises the cap toward the disk:
+on a 30Gi ext4 volume usable space is below 30 GiB, NATS writes index and
+metadata files beyond stream `max_bytes`, and a 1 GiB reserve risks a full
+disk, which is worse than an unplaceable stream. `persistence.size` also
+diverges from the real claim after an out-of-band PVC expansion, because the
+StatefulSet claim is immutable. The PVC only bounds the value from above
+(D5).
+
+### D3. Every created stream has a finite `max_bytes`
+
+`trivy_reports`, `OBJ_serviceradar_plugins`, the fieldsurvey and threat-intel
+object stores, and the EventWriter-created fallbacks of `events`, `flows` and
+`ARANCINI_CAUSAL` (used until a component claims the stream, D6) get positive
+sizes in every profile (D8). When flow-collector or bmp-collector runs it
+claims and reconciles its stream to `flowCollector.config.stream_max_bytes` or
+`bmpCollector.config.streamMaxBytes`, which the profile now sets too.
+
+Each size reaches the process that creates the bucket through that owner's own
+setting, never through another component's environment:
+
+| Stream | Owner | Helm value | Environment variable |
+| --- | --- | --- | --- |
+| `OBJ_serviceradar_plugins` | web-ng | `webNg.pluginStorage.jetstreamMaxBucketBytes` | `PLUGIN_STORAGE_JS_MAX_BUCKET_BYTES` (already read by web-ng `runtime.exs`) |
+| fieldsurvey object store | web-ng | `webNg.fieldSurveyArtifactStore.jetstreamMaxBucketBytes` | a new web-ng variable read by `runtime.exs` into `:field_survey_artifact_store` |
+| threat-intel object store | core | a new value under `core` | `SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES` (already read by core `runtime.exs`) |
+| `trivy_reports`, `metrics`, `k8s_inventory`, `analytics_predictions`, `mtr_results`, `scan_results` | EventWriter (core) | `core.eventWriter.streams.<name>.maxBytes` | one variable per stream in the core environment |
+| `events`, `flows`, `ARANCINI_CAUSAL` EventWriter fallback (used until the owning component claims the stream) | EventWriter (core) | `logCollector.streamMaxBytes` / `streamReplicas` for `events`; `core.eventWriter.streams.<name>.maxBytes` (1 GiB, 1 replica) for `flows` and `ARANCINI_CAUSAL` | `SERVICERADAR_JS_<STREAM>_FALLBACK_MAX_BYTES` and `_FALLBACK_REPLICAS` in the core environment |
+
+`events`, `flows` and `ARANCINI_CAUSAL` each have two possible writers of the
+stream shape: a dedicated component (the otel log-collector, flow-collector,
+bmp-collector) and EventWriter, which creates them when absent so its consumers
+can bind. Which one reconciles the shape is decided by ownership claimed on the
+stream itself (D6), not by a deployment flag, so it is the same on Helm,
+Compose and packaged installs and cannot disagree with what is actually
+running. EventWriter's create-time and claim-time size and replicas for these
+three come from the fallback variables in the table above, so it never creates
+an unlimited stream and never reconciles to a size the budget does not count.
+Today EventWriter's default `EVENTS` consumer carries a hardcoded 8 GiB
+`stream_max_bytes` on `events`, which would overwrite the budgeted 2 GiB on
+every server; that literal is removed.
+
+### D4. Smaller datasvc defaults
+
+In the default (`small`) profile, `datasvc.bucketMaxBytes` drops 4 GiB ->
+1 GiB and `datasvc.objectStoreBytes` 10 GiB -> 4 GiB, both R3. The KV holds
+kilobytes of configuration. The object store is `DiscardNew`, so a full
+bucket rejects writes rather than evicting; 4 GiB is twice the cap the
+reference demo install runs on. The size keys in `values.yaml` become unset
+so a profile can supply them; an explicit value still wins.
+
+### D5. Render-time budget check
+
+Each stream's size and replica count come from its own chart value:
+`datasvc.bucketMaxBytes` / `objectStoreBytes` / `jetstreamReplicas` (KV and
+object store), `logCollector.streamMaxBytes` / `streamReplicas` (`events`),
+`flowCollector.config.stream_max_bytes` / `stream_replicas` (`flows`),
+`bmpCollector.config.streamMaxBytes` / `streamReplicas` (`ARANCINI_CAUSAL`),
+`webNg.pluginStorage.jetstreamMaxBucketBytes` / `jetstreamReplicas`
+(plugins), `webNg.fieldSurveyArtifactStore.jetstreamMaxBucketBytes` (fieldsurvey,
+1 replica), the core threat-intel value from D3 (threat-intel, 1 replica),
+and `core.eventWriter.streams.<name>.maxBytes` with 1 replica for every
+EventWriter-created stream, including `trivy_reports`. `flows` and
+`ARANCINI_CAUSAL` are counted at the collector's size and replicas whether or
+not the collector is enabled: a collector that claimed a stream keeps its claim
+and size after it is disabled (D6), and history is invisible to a render-time
+check, so the conservative figure is the only safe one. The EventWriter
+fallbacks are never larger than the collector sizes and are not counted. The
+trivy sidecar only publishes to `trivy_reports`; the stream is counted whether
+or not the sidecar runs.
+
+With `n = nats.replicas`, a stream is classified by comparing its replicas
+`r` to `n`:
+
+```
+full   = streams with r >= n        (a replica lands on every server)
+rest   = streams with r <  n        (spread over the servers)
+need   = sum(max_bytes of full)
+       + sum(max_bytes * r of rest) / n
+       + max(max_bytes of rest)
+```
+
+`sum(max_bytes * r) / n` is the even-spread share of the partial streams, and
+the largest partial stream added on top bounds the most loaded server under
+most-available-first placement, so `need` is the space the worst server may
+hold. An intermediate count (R2 or R3 streams on a 5-server NATS) is
+therefore in `rest`, weighted by `r / n`, not dropped from the sum. A stream
+with `r > n` cannot be placed at all and counts as `full`.
+
+The chart `fail`s when `need > 0.85 * max_file_store`, listing every stream
+with its `max_bytes`, replicas and bucket, plus `need` and the limit. The 15%
+margin is room for streams a later release adds, which is exactly the
+v1.4.73 failure. `nats.jetstream.allowOvercommit: true` skips this check.
+
+A second check bounds `max_file_store` by the disk: the chart also `fail`s
+when `max_file_store > 0.94 * bytes(nats.persistence.size)`, with a message
+pointing at the volume-expansion runbook (D8). `allowOvercommit` does not
+skip it, because a full disk is worse than an unplaceable stream. The ceiling is 94%, not a
+rounder number below the profile ratio: `30G` on a `30Gi` claim is 93.13%,
+and so are `100G` on `100Gi` and `500G` on `500Gi`, so a 93% ceiling would
+reject every shipped profile.
+
+The v1.4.73 shape (26 GiB full, 5.25 GiB R1, three servers, `30G`) needs
+26 + 5.25/3 + 1 = 28.75 GiB against a 23.75 GiB limit, and fails the check,
+as it should.
+
+### D6. One owner reconciles a stream, claimed on the stream
+
+Exactly one component owns the shape (`max_bytes`, replicas, retention) of
+each stream and reconciles it. Streams with a single writer (the datasvc, web-ng
+and threat-intel buckets, `NOTIFICATIONS`, and the EventWriter-only streams
+`metrics`, `k8s_inventory`, `analytics_predictions`, `mtr_results`,
+`scan_results`, `trivy_reports`) need no claim. The three streams with two
+possible writers, `events`, `flows` and `ARANCINI_CAUSAL`, use a claim recorded
+in JetStream stream metadata (`metadata` in the stream config, NATS 2.10 and
+later; the chart runs 2.14) under the key `serviceradar.owner`:
+
+| Stream | Owner claim | Claimed by |
+| --- | --- | --- |
+| `events` | `otel-log-collector` | otel log-collector |
+| `flows` | `flow-collector` | flow-collector |
+| `ARANCINI_CAUSAL` | `bmp-collector` | bmp-collector |
+| any of the three | `event-writer` | EventWriter fallback |
+
+1. When the dedicated component runs it sets `serviceradar.owner` to its own
+   name on its stream, creating the stream when absent, and reconciles the
+   shape. The claim and the shape go in one stream update, so they land
+   together. Its claim overrides an `event-writer` claim and claims a legacy
+   stream, and it never waits.
+2. EventWriter claims only streams it creates. It creates the stream when it
+   is absent, with `serviceradar.owner: event-writer` and the fallback size and
+   replicas of D3, and reconciles a stream it claimed. When the claim names
+   another component it merges subjects only and never overrides the claim.
+3. A stream created before this change has no metadata (a legacy stream).
+   EventWriter merges subjects only and does not touch the shape. It claims a
+   legacy stream (sets `event-writer`, then reconciles it to the fallback)
+   only after the stream has stayed unclaimed for a grace period, 15 minutes by
+   default and configurable. A collector that starts inside the window claims
+   the stream first, so EventWriter never shrinks it.
+
+   Nothing in EventWriter revisits a consumer that set up successfully today:
+   stream reconcile runs once per consumer setup, and the `Producer` timers are
+   only the fetch tick and the reconnect retry, and D1 retries only failed
+   consumers. So the grace period needs its own mechanism, the **ownership
+   reconcile timer**: a new periodic tick in the `Producer`, every 5 minutes by
+   default and configurable, that re-reads `STREAM.INFO` for each multi-owner
+   stream (`events`, `flows`, `ARANCINI_CAUSAL`) the EventWriter consumes and
+   applies rules 2 and 3. It records, in process state, when it first observed
+   each stream unclaimed, and once a stream has been unclaimed for the grace
+   period it re-reads the stream, and if it is still unclaimed sets
+   `serviceradar.owner: event-writer` and reconciles the shape. It only issues
+   `STREAM.UPDATE`; it never tears down or resubscribes a consumer. The clock is
+   read through an injectable source. The first-seen time lives in process
+   state, so a restart resets it, which can only delay convergence by up to one
+   grace period and never evicts early. The timer watches every multi-owner
+   stream the EventWriter consumes for the life of the process and never drops
+   one. Each tick applies the rules to what it reads: a stream claimed by
+   `event-writer` has its shape reconciled if it drifted, a stream claimed by a
+   collector only has its subjects merged, and an unclaimed stream goes through
+   the grace-period logic above.
+
+   The race this closes is the upgrade restart. On an install with
+   flow-collector enabled and a legacy 10 GiB `flows` created by EventWriter,
+   core and flow-collector restart together. Without the grace period
+   EventWriter's consumers could see no claim, claim `flows`, shrink it to
+   1 GiB and evict about 9 GiB of retained flow data before flow-collector
+   claims it and grows it to 8 GiB R3. With it, flow-collector claims `flows`
+   within seconds, sets 8 GiB R3, and EventWriter finds a collector claim and
+   only merges subjects: no eviction, and the replica count changes once. On
+   an install with no collector nothing claims `flows`, so EventWriter claims it
+   after the grace period and converges it to the fallback, evicting the oldest
+   messages then. The same holds for `ARANCINI_CAUSAL` with bmp-collector and
+   for `events` with the log-collector.
+
+   Stream update in JetStream is not compare-and-swap, so the check and the
+   update cannot be made atomic. EventWriter narrows the window by re-reading
+   the stream immediately before its update and skipping it if any claim has
+   appeared, and the grace period makes the window practically unreachable
+   after a collector restart. If it is ever lost, `flows` is left at the
+   fallback with an `event-writer` claim until the collector's next start
+   restores its claim and size; nothing is lost that the fallback would not
+   have evicted anyway.
+4. Disabling a collector after it claimed a stream leaves the claim and the
+   stream at the collector's size: nothing reconciles it. The runbook
+   (`docs/nats-jetstream-profile-runbook.md`) documents a one-line reclaim,
+   `nats stream edit <STREAM>` (the exact flag is confirmed against the nats
+   CLI in the implementation). Setting `serviceradar.owner` to `event-writer`
+   takes effect at EventWriter's next ownership tick, with no grace period and
+   no core restart, and EventWriter then reconciles the stream to the fallback;
+   removing the claim instead starts the grace period. Until then the stream
+   keeps its collector reservation, and the
+   render check (D5) and the Compose and packaged budget (D7) already count
+   `flows` and `ARANCINI_CAUSAL` at the collector size regardless of whether
+   the collector is enabled.
+
+Every writer that can reconcile these streams applies the same rule; the
+Rust otel log-collector, flow-collector and bmp-collector each gain the claim
+on their publishers, and EventWriter's consumers read it before deciding
+whether to reconcile, replacing the `reconcile_stream_shape` default. An
+EventWriter start therefore can never overwrite a collector-owned stream, which
+is what the 8 GiB `EVENTS` literal did to `events`.
+
+Other owners that reconcile `max_bytes` on an existing stream: datasvc
+(`reconcileStreamConfigLocked`) and EventWriter (for the streams only it
+owns). Three
+owners create their bucket once and never update it, so on an existing install
+the bucket stays unlimited while the budget counts it at its profile size:
+web-ng's plugin bucket (`plugins/storage.ex`), web-ng's fieldsurvey bucket
+(`field_survey_artifact_store.ex`, whose `ensure_bucket` returns `:exists`
+without updating) and core's threat-intel bucket
+(`threat_intel_raw_payload_store.ex`). Each SHALL reconcile `max_bytes` on
+startup, creating the bucket when absent and updating it when it exists.
+
+What a reconcile does when the configured `max_bytes` is below the bytes
+currently stored depends on the stream's discard policy, because the two kinds
+of stream fail differently when full:
+
+- **Discard-new state buckets** (datasvc KV `KV_serviceradar-datasvc` and
+  `OBJ_serviceradar-objects`, the plugin, fieldsurvey and threat-intel
+  buckets) refuse writes when full and hold state that cannot be regenerated.
+  The owner SHALL leave `max_bytes` unchanged and log the configured, stored
+  and current values. It SHALL NOT set `max_bytes` to the stored size, since a
+  cap equal to `Store` would refuse every later write. An existing unlimited
+  bucket whose stored bytes exceed the configured cap stays unlimited, and is
+  logged, until the data ages out or an operator raises the cap.
+- **Discard-old buffer streams** (`flows`, `events`, `ARANCINI_CAUSAL` and
+  every EventWriter-created stream: `metrics`, `k8s_inventory`,
+  `analytics_predictions`, `mtr_results`, `scan_results`, `trivy_reports`) fill
+  to their cap by design and evict the oldest messages. The owner SHALL
+  reconcile `max_bytes` to the configured value even when that evicts the
+  oldest messages, and log the values before and after. `flows` is the case
+  that needs this: it runs at its cap, so refusing to shrink would leave every
+  running install reserving 10 GiB instead of the profile's 8 GiB and exceed
+  the budget the render check passed. `NOTIFICATIONS`, created by core
+  notifications, follows whichever rule its discard policy selects.
+
+Lowering a default therefore converges: buffers reach the budgeted size at the
+next start, state buckets whose data fits do too, and a state bucket holding
+more than its cap keeps its current reservation, logged, until the data ages
+out or the cap is raised.
+
+### D7. Docker Compose and packaged installs
+
+These installs run one NATS server (`nats.replicas = 1`), so every stream is
+in `full` and `need` is the plain sum of every `max_bytes`; the limit is
+`0.85 * max_file_store`. They select the same profiles as Helm and pay for
+sharing one server with their own size tables (D8).
+
+- Compose ships one preset per profile, `docker/compose/profiles/small.env`,
+  `medium.env` and `large.env`, each setting `max_file_store` and **every**
+  stream size explicitly. `SERVICERADAR_NATS_PROFILE` (default `small`)
+  selects the file through the service `env_file` path.
+  `docker/compose/nats.docker.conf` reads
+  `max_file_store: $SERVICERADAR_NATS_MAX_FILE_STORE` through NATS environment
+  substitution, and every size-owning service (datasvc, otel log-collector,
+  flow-collector, bmp-collector, core, web-ng) reads its sizes from those
+  variables (see below).
+  An operator overrides a single size in the environment of the service.
+- Packaged installs ship the same explicit sizes as a file
+  (`build/packaging/nats/config/jetstream-sizes.env`, `small` content) that
+  the systemd units load with `EnvironmentFile=`;
+  `build/packaging/nats/config/nats-server.conf` reads `max_file_store` from
+  it the same way. Moving to `medium` or `large` replaces that file.
+- The presets carry the collector size keys and the EventWriter
+  `SERVICERADAR_JS_<STREAM>_FALLBACK_MAX_BYTES` / `_FALLBACK_REPLICAS` keys for
+  `events`, `flows` and `ARANCINI_CAUSAL` (D3). They carry no ownership
+  signal: which component owns a stream is claimed on the stream itself (D6),
+  so a default install with no collector converges through EventWriter and one
+  with a collector converges through the collector, with no per-install
+  setting to get wrong. The budget counts `flows` and `ARANCINI_CAUSAL` at the
+  collector size either way.
+- The Compose and packaged NATS servers must be 2.10 or later for stream
+  metadata; the implementation verifies the shipped versions and raises them
+  where needed.
+- Neither install has a PVC. A profile's `max_file_store` is a reservation
+  ceiling, so the host needs at least that much free disk for JetStream. This
+  raises the Compose and packaged ceiling from today's `10G` to `30G` for
+  `small`, and the shipped stream sizes fit it (D8) where today's do not.
+
+None of datasvc, the otel log-collector, flow-collector or bmp-collector reads
+a stream size from the environment today: their sizes come only from JSON or
+TOML, so a preset alone would not change them. Each therefore gains
+environment overrides that take precedence over its file:
+
+- Naming: `SERVICERADAR_JS_<STREAM>_MAX_BYTES` and
+  `SERVICERADAR_JS_<STREAM>_REPLICAS`, where `<STREAM>` is the JetStream stream
+  name upper-cased with every non-alphanumeric character replaced by `_`, for
+  example `SERVICERADAR_JS_FLOWS_MAX_BYTES`,
+  `SERVICERADAR_JS_ARANCINI_CAUSAL_MAX_BYTES`,
+  `SERVICERADAR_JS_EVENTS_MAX_BYTES`,
+  `SERVICERADAR_JS_KV_SERVICERADAR_DATASVC_MAX_BYTES` and
+  `SERVICERADAR_JS_OBJ_SERVICERADAR_OBJECTS_MAX_BYTES`. EventWriter's
+  per-stream variables (task 2.3) follow the same scheme; web-ng's plugin
+  variable and core's threat-intel variable keep their existing names.
+- Precedence: environment, then the JSON or TOML value, then the compiled
+  default. Sizes must be positive integers; an invalid value fails startup.
+- Components: Go datasvc (KV and object-store max bytes and replicas), the
+  otel log-collector (`events`), Rust flow-collector (`stream_max_bytes`,
+  `stream_replicas`) and Rust bmp-collector (stream max bytes and replicas).
+  Each has a unit test for the precedence. Helm keeps rendering these values
+  into the JSON config, and additionally renders
+  `SERVICERADAR_JS_EVENTS_FALLBACK_MAX_BYTES` and `_FALLBACK_REPLICAS` (from
+  `logCollector.streamMaxBytes` and `streamReplicas`) into the core
+  environment for EventWriter's `events` fallback (D3, D6).
+
+A Bazel `go_test` enforces the shipped wiring without reading any component
+source; the precedence tests above are what prove a service honours the
+variables it is given. It
+parses the NATS configuration with the nats-server config parser, after
+setting each preset's variables as the process environment, so `30G` means
+what NATS means, and parses each preset and the packaged sizes file into typed
+values. It also parses `docker-compose.yml` and the packaged systemd units
+into typed models and asserts that every size-owning service loads the
+selected preset (`env_file`, whose path is interpolated from
+`SERVICERADAR_NATS_PROFILE`) or the sizes file (`EnvironmentFile`), so a
+service that never loads the file fails the test. It fails when a key of the stream inventory is missing or unknown,
+when a size is not a positive integer, or when `need` exceeds 85% of the
+parsed `max_file_store`, and it names the streams and the limit. The
+inventory is a typed list owned by the test, so adding a stream forces the
+presets to be updated. A vector with the v1.4.73 single-server shape must
+fail. Helm is covered separately by helm-unittest cases per profile.
+
+### D8. Sizing profiles
+
+`nats.jetstream.profile` (Helm) and `SERVICERADAR_NATS_PROFILE` (Compose)
+select `small` (default), `medium` or `large`. A profile sets
+`max_file_store` and the default `max_bytes` of every stream, KV bucket and
+object store in the inventory, including `ARANCINI_CAUSAL` and `flows`, with
+the replica sources named in D5. An explicit value for any single size or for
+`maxFileStore` overrides the profile. There is no single right size (a site
+with heavy BMP needs far more than one with little), so the profile is the
+operator's choice; the defaults are safe rather than generous. The
+serviceradar-control SaaS control plane picks a larger profile, plus optional
+per-stream overrides, for enterprise deployments.
+
+A profile never resizes the NATS PVC by itself. `small` targets the default
+30Gi PVC, `medium` a 100Gi PVC and `large` a 500Gi PVC; D5 rejects a profile
+whose `max_file_store` exceeds 94% of `nats.persistence.size`, so an existing
+30Gi install that selects `medium` fails to render until its volumes have
+been expanded.
+
+`nats.persistence.size` feeds the StatefulSet `volumeClaimTemplates`, which
+Kubernetes forbids changing on a live StatefulSet, so raising it with a plain
+`helm upgrade` or Argo sync is rejected at apply time. The supported path to a
+larger profile on a live install is the standard volume-expansion procedure,
+written as a runbook at `docs/nats-jetstream-profile-runbook.md` (repo-root
+`docs/`, not the published `docs/docs/` site):
+
+1. Confirm the NATS StorageClass has `allowVolumeExpansion: true`.
+2. Patch each `serviceradar-nats` PVC to the new size and wait for the resize
+   to complete.
+3. Delete the StatefulSet with `--cascade=orphan`, so the pods and PVCs keep
+   running.
+4. `helm upgrade` with the raised `nats.persistence.size` and the new
+   profile. This recreates the StatefulSet with the new `volumeClaimTemplates`
+   around the same PVCs and rolls the pods one at a time.
+
+A StorageClass without volume expansion cannot move up a profile in place; it
+needs a new install or a data migration. The chart does not automate any of
+this. The `values.yaml` comment on `nats.jetstream.maxFileStore` and
+`nats.persistence.size` (currently "do not raise persistence.size via Helm on
+a live StatefulSet; expand PVCs out-of-band first") is updated to point at the
+runbook.
+
+Helm sizes, three servers (GiB; `medium` and `large` are starting points that
+implementation checks against observed peaks, with most of the extra space
+given to the high-volume streams: `flows`, `ARANCINI_CAUSAL`, `events`):
+
+| Stream | Replicas | small | medium | large |
+| --- | --- | --- | --- | --- |
+| `max_file_store` (PVC) | | 30G (30Gi) | 100G (100Gi) | 500G (500Gi) |
+| `KV_serviceradar-datasvc` | 3 | 1 | 1 | 2 |
+| `OBJ_serviceradar-objects` | 3 | 4 | 8 | 32 |
+| `events` | 3 | 2 | 8 | 32 |
+| `flows` | 3 | 8 | 32 | 192 |
+| `OBJ_serviceradar_plugins` | 3 | 2 | 4 | 8 |
+| `ARANCINI_CAUSAL` | 1 | 2 | 12 | 64 |
+| `metrics`, `k8s_inventory`, `analytics_predictions`, `mtr_results` (each) | 1 | 1 | 2 | 8 |
+| `scan_results` | 1 | 0.25 | 0.5 | 2 |
+| `NOTIFICATIONS` | 1 | 1 | 1 | 2 |
+| `trivy_reports`, fieldsurvey, threat-intel (each) | 1 | 1 | 2 | 8 |
+| `flows`, `ARANCINI_CAUSAL` EventWriter fallback (not counted) | 1 | 1 | 1 | 1 |
+| `events` EventWriter fallback (equals the `events` row, not counted) | 3 | 2 | 8 | 32 |
+
+`flows` and `ARANCINI_CAUSAL` are counted at the collector size whether or not
+the collector is enabled (D5), so these figures are the need in every
+optional-producer shape (flow-collector, bmp-collector, trivy sidecar), limit
+`0.85 * max_file_store`:
+
+| Profile | full | rest | need | limit | margin |
+| --- | --- | --- | --- | --- | --- |
+| small (27.94 GiB) | 17 | 10.25, largest 2 | 17 + 10.25/3 + 2 = 22.42 | 23.75 | 1.33 |
+| medium (93.13 GiB) | 53 | 27.5, largest 12 | 53 + 27.5/3 + 12 = 74.17 | 79.16 | 4.99 |
+| large (465.66 GiB) | 266 | 124, largest 64 | 266 + 124/3 + 64 = 371.33 | 395.81 | 24.48 |
+
+Each `max_file_store` is 93.13% of its PVC, under the 94% ceiling.
+
+Compose and packaged sizes, one server, so the flow stream is smaller and every
+stream counts in full (GiB; replicas are irrelevant):
+
+| Stream | small | medium | large |
+| --- | --- | --- | --- |
+| `max_file_store` | 30G | 100G | 500G |
+| `KV_serviceradar-datasvc` | 1 | 1 | 2 |
+| `OBJ_serviceradar-objects` | 4 | 8 | 32 |
+| `events` | 2 | 8 | 32 |
+| `flows` | 3 | 24 | 160 |
+| `OBJ_serviceradar_plugins` | 2 | 4 | 8 |
+| `ARANCINI_CAUSAL` | 2 | 12 | 64 |
+| `metrics`, `k8s_inventory`, `analytics_predictions`, `mtr_results` (each) | 1 | 2 | 8 |
+| `scan_results` | 0.25 | 0.5 | 2 |
+| `NOTIFICATIONS` | 1 | 1 | 2 |
+| `trivy_reports`, fieldsurvey, threat-intel (each) | 1 | 2 | 8 |
+| **need** | **22.25** | **72.5** | **358** |
+| limit (`0.85 * max_file_store`) | 23.75 | 79.16 | 395.81 |
+
+## Risks / Trade-offs
+
+- **Hard fail on upgrade.** An install whose explicit overrides exceed the
+  budget stops upgrading until values change or `allowOvercommit` is set.
+  This is deliberate: such an install is one new stream away from the
+  v1.4.73 outage. The message names each reservation so the fix is a values
+  edit. Alternative considered: warn in `NOTES.txt` only; rejected because
+  nobody reads upgrade notes on an automated Argo sync.
+- **Smaller object store.** An install already using more than 4 GiB keeps
+  its current size (D6) and does not lose data, but new installs cap earlier.
+- **A profile does not resize a disk.** Selecting `medium` on a 30Gi install
+  fails render until the PVC is expanded and the StatefulSet recreated by the
+  runbook (D8); this is intended, since the chart cannot expand an immutable
+  claim and a reservation ceiling above the disk defeats the check. The
+  runbook briefly orphans the StatefulSet, and the pod roll in its last step
+  restarts each NATS server in turn.
+- **Compose and packaged ceiling rises to 30G.** The reservation is not an
+  allocation, but a host with less free disk than `max_file_store` can fill
+  it before NATS refuses a write. The presets document the requirement.
+- **EventWriter sizes move to values.** Two sources of truth for defaults
+  (Elixir constants and Helm) must not drift; the Elixir constants become the
+  fallback only when the env var is absent, and a helm-unittest asserts the
+  chart renders every stream's env var.
+
+## Migration
+
+No manual step for installs on chart defaults: the next upgrade selects the
+`small` profile, lowers KV and object-store caps (D6 permitting), has each
+owner set a finite cap on its previously unlimited bucket at startup (D6), and
+renders the byte-exact `max_file_store` (`30000000000`, unchanged in effect).
+Installs that override sizes upward, or that enable BMP with a larger
+`streamMaxBytes` than the profile, get an itemised render failure and adjust
+values. Selecting `medium` or `large` follows the volume-expansion runbook
+(D8) first; a StorageClass without expansion needs a new install or
+migration. Compose and packaged installs converge when their preset or sizes
+file is replaced on upgrade and their services restart. Discard-old buffers
+(`flows`, `events`, `ARANCINI_CAUSAL`, EventWriter streams) reach the budgeted
+reservation at the next start of their owner, evicting the oldest messages if
+they were fuller than the new cap. That includes `flows` and
+`ARANCINI_CAUSAL` on an install with no collector: EventWriter claims the
+legacy stream once it has stayed unclaimed for the grace period (D6) and
+reconciles it to the fallback, so an existing 10 GiB `flows` converges on
+Helm, Compose and packaged installs alike; with a collector running, the
+collector claims it first and nothing is evicted. The check is made by the
+EventWriter ownership reconcile timer (D6, every 5 minutes by default), so
+convergence takes the grace period plus at most one tick, and a core restart
+restarts the grace period, which only delays convergence.
+A collector disabled after it claimed a stream keeps its size until the
+runbook reclaim (D6). Discard-new state buckets reach it too when their data fits;
+one holding more than its cap keeps its current reservation, logged, until the
+data ages out or the cap is raised, so an install with an unusually full object
+store can run above the budgeted reservation until then.
+
+## Resolved Questions
+
+1. Over budget: the render fails by default, with
+   `nats.jetstream.allowOvercommit: true` as the opt-out.
+2. `OBJ_serviceradar_plugins` defaults to 2 GiB R3. Implementation checks
+   this against the largest first-party Wasm and native add-on bundles.
+3. The 15% margin is fixed, not a value; `allowOvercommit` covers operators
+   who want to run hotter.
+4. The PVC ceiling is 94% of `nats.persistence.size` and is not skipped by
+   `allowOvercommit` (D5).
