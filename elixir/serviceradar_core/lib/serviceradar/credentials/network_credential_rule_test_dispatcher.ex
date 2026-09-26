@@ -46,8 +46,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestDispatcher do
       ttl_seconds: plan.ttl_seconds,
       required_capability: plan.required_capability,
       context: plan.context,
-      actor: Keyword.get(opts, :actor),
-      test_pid: Keyword.get(opts, :test_pid)
+      actor: Keyword.get(opts, :actor)
     )
   end
 

@@ -137,14 +137,6 @@ tlc_test(
 )
 
 tlc_test(
-    name = "resolution_witness_mapper_resolves_by_address_test",
-    cfg = "resolution_witness_mapper_resolves_by_address.cfg",
-    expect = "violation:NoFalseInterfaceClaim",
-    spec = "MCDireResolution.tla",
-    deps = ["DireResolution.tla"],
-)
-
-tlc_test(
     name = "resolution_vacuity_router_merges_test",
     cfg = "resolution_vacuity_router_merges.cfg",
     expect = "violation:NeverMerged",

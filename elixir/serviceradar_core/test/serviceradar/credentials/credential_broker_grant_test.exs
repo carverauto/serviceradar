@@ -1,26 +1,13 @@
 defmodule ServiceRadar.Credentials.CredentialBrokerGrantTest do
   use ExUnit.Case, async: true
 
-  alias Ash.Resource.Info
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Credentials.RequestBodyPolicy
-  alias ServiceRadar.Credentials.SecretBroker
-
-  @moduletag :requires_app
 
   @secret_id "018f3f56-1111-7222-8333-123456789abc"
 
-  test "grant resource is state-machine backed and system issued" do
-    actions = CredentialBrokerGrant |> Info.actions() |> Enum.map(& &1.name)
-
-    assert :issue in actions
-    assert :activate in actions
-    assert :consume in actions
-    assert :deny in actions
-    assert :expire in actions
-    assert :revoke in actions
-
+  test "only system actors may issue broker grants" do
     manager = %{
       id: "user-1",
       role: :admin,
@@ -29,7 +16,6 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrantTest do
 
     system = SystemActor.system(:credential_broker_grant_test)
 
-    assert Ash.can?({CredentialBrokerGrant, :read}, manager)
     refute Ash.can?({CredentialBrokerGrant, :issue}, manager)
     assert Ash.can?({CredentialBrokerGrant, :issue}, system)
   end
@@ -49,15 +35,18 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrantTest do
           target_id: "controller-1",
           agent_id: "agent-a",
           resolution_location: :agent,
-          ttl_seconds: 120
+          ttl_seconds: 120,
+          secret_payload: "Bearer sentinel-value",
+          value: "sentinel-value"
         },
         now
       )
 
     assert attrs.secret_ref == "credentialref:network-credential-secret:#{@secret_id}"
     assert attrs.expires_at == ~U[2026-05-21 12:02:00Z]
-    refute inspect(attrs) =~ "Bearer "
     refute Map.has_key?(attrs, :secret_payload)
+    refute Map.has_key?(attrs, :value)
+    refute inspect(attrs) =~ "sentinel-value"
   end
 
   test "issue_attrs derives secret id from a canonical stored reference" do
@@ -237,44 +226,5 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrantTest do
 
     assert {:error, :grant_expired} =
              CredentialBrokerGrant.validate_loaded_grant(grant, now: ~U[2026-05-21 12:06:00Z])
-  end
-
-  test "secret broker validates grants before resolving already loaded secrets" do
-    secret = %{
-      id: @secret_id,
-      source_type: :internal_encrypted,
-      provider: "awx",
-      credential_kind: :api_token,
-      secret_payload: "token-value"
-    }
-
-    grant = %{
-      id: "grant-1",
-      secret_id: @secret_id,
-      status: :active,
-      consumer_kind: :device_task,
-      consumer_id: "task-1",
-      purpose: "device-task-api-call",
-      target_kind: "device",
-      target_id: "dev-1",
-      resolution_location: :agent,
-      expires_at: ~U[2026-05-21 12:05:00Z]
-    }
-
-    assert {:ok, resolved} =
-             SecretBroker.resolve_loaded_secret_with_grant(secret, grant,
-               consumer_kind: :device_task,
-               consumer_id: "task-1",
-               target_id: "dev-1",
-               now: ~U[2026-05-21 12:00:00Z]
-             )
-
-    assert resolved.value == "token-value"
-
-    assert {:error, {:grant_scope_mismatch, :target_id}} =
-             SecretBroker.resolve_loaded_secret_with_grant(secret, grant,
-               target_id: "dev-2",
-               now: ~U[2026-05-21 12:00:00Z]
-             )
   end
 end

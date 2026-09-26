@@ -5,22 +5,28 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageAssetControllerTest do
 
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNG.Plugins.Storage
+  alias ServiceRadarWebNG.PluginStorageTestClient
+
+  @moduletag :web_ng_shared_fixture_db
 
   @renderer "export function mountDashboard() {}"
 
   setup %{conn: conn} do
     original_storage = Application.get_env(:serviceradar_web_ng, :plugin_storage)
-    tmp = Path.join(System.tmp_dir!(), "sr-dashboard-asset-test-#{System.unique_integer([:positive])}")
+    # Package blobs always go to the JetStream object store, and the DB lane has
+    # no NATS, so blob writes go to the in-memory test client instead.
+    store_name = :"sr_dashboard_asset_test_#{System.unique_integer([:positive])}"
+    {:ok, _store} = PluginStorageTestClient.start_link(store_name)
     user = admin_user_fixture()
 
     Application.put_env(:serviceradar_web_ng, :plugin_storage,
-      backend: :filesystem,
-      base_path: tmp,
+      backend: :jetstream,
+      jetstream_client: PluginStorageTestClient,
+      test_store: store_name,
       signing_secret: "test-secret"
     )
 
     on_exit(fn ->
-      File.rm_rf(tmp)
       restore_env(:plugin_storage, original_storage)
     end)
 

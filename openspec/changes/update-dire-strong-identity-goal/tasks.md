@@ -29,14 +29,15 @@ configuration. Confirmed defects (`formal/dire/README.md` has code paths and wit
       DHCP address into the device that leased it; give it the distinct-identity veto.
 - [x] 3.2 `alias_merge_on_unknown_mac`: `AliasGuard` treats an unknown MAC set as not
       distinct; an address must never merge two identified records. The real route is agent
-      check-in (`AgentGatewaySync`), confirmed by trace; the mapper never reaches `AliasGuard`.
+      check-in (`AgentGatewaySync`), confirmed by trace; the mapper did not reach `AliasGuard`
+      until 3.13.
       `maybe_merge_ip_alias_device/3` no longer merges: an identified alias holder has the alias
       invalidated, an address-only holder is left alone.
 - [x] 3.3 `src_attach_via_mac`: a source-authoritative id attaches through a MAC to a record
       holding a different source-authoritative id.
 - [ ] 3.4 `mac_only_conflicts_blocked`: allow globally-unique MAC evidence to merge; keep
       randomized MACs excluded. The conflict arises on agent check-in; a router's per-interface
-      records also stay split because of 3.13.
+      records stayed split until 3.13.
 - [x] 3.5 `silent_blocks`: record blocked merges and alias invalidations (#4613, `add-identity-decision-log`).
 - [x] 3.6 `upsert_revives_merged`: the upsert `on_conflict` must not revive a merged tombstone and
       must bump on any revival.
@@ -47,10 +48,11 @@ configuration. Confirmed defects (`formal/dire/README.md` has code paths and wit
 - [x] 3.11 `unmerge_restores_matches`: record the source's identifiers at merge time and restore
       exactly those.
 - [x] 3.12 `purge_forgets_redirect`: resolve purged merged-away uids through `merge_audit`.
-- [ ] 3.13 `mapper_resolves_by_address` (found by trace validation): the mapper attaches a polled
+- [x] 3.13 `mapper_resolves_by_address` (found by trace validation): the mapper attaches a polled
       device's interface table to whichever record holds the address, or a stale alias of it;
       after DHCP churn the new device's MACs land on the old device's record and the new device
-      gets no record. Resolve by the reported MACs; the address is evidence only.
+      gets no record. Resolve by the reported MACs; the address is evidence only. Fixed in
+      #4638: the mapper resolves through the Resolver, so its polls now reach `AliasGuard` too.
 - [x] 3.14 `stale_holder_keeps_address` (found by trace validation): a fresh source-authoritative
       write drops its address when a stale record still holds it; the stale record keeps it and
       address-only sightings attach to the wrong device. The observed device must hold its

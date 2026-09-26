@@ -4,10 +4,13 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrantLifecycleIntegrationTest
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Credentials.NetworkCredentialSecret
+  alias ServiceRadar.Credentials.SecretBroker
   alias ServiceRadar.Edge.AgentGatewaySync
   alias ServiceRadar.Monitoring.OcsfEvent
+  alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
+  alias ServiceRadar.TestSupport.CredentialIntegrationFixtures
 
   @moduletag :integration
 
@@ -105,6 +108,69 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrantLifecycleIntegrationTest
                get_in(event.unmapped || %{}, ["action"]) == "expire" and
                get_in(event.unmapped || %{}, ["status"]) == "expired"
            end)
+  end
+
+  test "resolve_with_grant resolves the secret named by a grant that carries only a reference" do
+    actor = SystemActor.system(:credential_broker_grant_lifecycle_test)
+    unique = System.unique_integer([:positive])
+
+    secret =
+      CredentialIntegrationFixtures.secret!(
+        actor: actor,
+        secret_payload: "token-from-ref-#{unique}"
+      )
+
+    grant = %{
+      id: "grant-#{unique}",
+      secret_ref: SecretRefs.network_credential_ref(to_string(secret.id)),
+      status: :issued,
+      resolution_location: :agent,
+      expires_at: DateTime.add(DateTime.utc_now(), 60, :second)
+    }
+
+    assert {:ok, resolved} = SecretBroker.resolve_with_grant(grant, actor: actor)
+    assert resolved.value == "token-from-ref-#{unique}"
+  end
+
+  test "resolve_with_grant refuses scope mismatch and inactive grants" do
+    actor = SystemActor.system(:credential_broker_grant_lifecycle_test)
+    unique = System.unique_integer([:positive])
+
+    secret =
+      CredentialIntegrationFixtures.secret!(
+        actor: actor,
+        secret_payload: "scoped-token-#{unique}"
+      )
+
+    grant = %{
+      id: "grant-#{unique}",
+      secret_id: to_string(secret.id),
+      status: :active,
+      consumer_kind: :device_task,
+      consumer_id: "task-#{unique}",
+      purpose: "device-task-api-call",
+      target_kind: "device",
+      target_id: "device-#{unique}",
+      resolution_location: :agent,
+      expires_at: DateTime.add(DateTime.utc_now(), 60, :second)
+    }
+
+    assert {:ok, resolved} =
+             SecretBroker.resolve_with_grant(grant, actor: actor, target_id: grant.target_id)
+
+    assert resolved.value == "scoped-token-#{unique}"
+
+    assert {:error, {:grant_scope_mismatch, :target_id}} =
+             SecretBroker.resolve_with_grant(grant,
+               actor: actor,
+               target_id: "device-other-#{unique}"
+             )
+
+    assert {:error, {:grant_not_active, :revoked}} =
+             SecretBroker.resolve_with_grant(%{grant | status: :revoked},
+               actor: actor,
+               target_id: grant.target_id
+             )
   end
 
   defp credential_broker_grant_events(actor, grant_id) do

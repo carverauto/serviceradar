@@ -149,15 +149,12 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
     define :get_secret_by_id, action: :by_id_with_secret, args: [:id]
     define :list_by_provider, action: :by_provider, args: [:provider]
     define :create_secret, action: :create
-    define :update_secret, action: :update
-    define :edit_details, action: :edit_details
-    define :destroy_permanently, action: :destroy_permanently, args: [:confirm_secret_id]
   end
 
   actions do
     # Primary because every update on this resource needs it. Without a primary
-    # read, `:update`, `:disable_rotation` and the rotation transitions all fail
-    # -- first with Ash.Error.Framework.MustBeAtomic, and then, once
+    # read, `:edit_details`, `:disable_rotation` and the rotation transitions
+    # all fail -- first with Ash.Error.Framework.MustBeAtomic, and then, once
     # `atomic_upgrade_with` is configured, with `Required primary read action`
     # raised from the `Ash.load/3` inside `Ash.Actions.Update.run/4`. No caller
     # had ever updated this resource, so none of its update actions worked.
@@ -195,10 +192,6 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
 
     create :create do
       accept [:secret_payload | @fields]
-    end
-
-    update :update do
-      accept @editable_fields
     end
 
     update :edit_details do
@@ -275,7 +268,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
     action_with_permission([:read, :by_id, :by_provider], @credential_manage_check)
 
     action_with_permission(
-      [:create, :update, :edit_details, :destroy_permanently],
+      [:create, :edit_details, :destroy_permanently],
       @credential_manage_check
     )
 

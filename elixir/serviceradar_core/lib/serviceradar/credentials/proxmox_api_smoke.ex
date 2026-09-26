@@ -3,8 +3,8 @@ defmodule ServiceRadar.Credentials.ProxmoxApiSmoke do
   Direct Proxmox API smoke test helper for local credential validation.
 
   This path is intentionally independent of edge agents. Operators can provide
-  Proxmox API details through environment variables and run a local ExUnit smoke
-  test or Mix task from `elixir/serviceradar_core`.
+  Proxmox API details through environment variables and run the
+  `mix serviceradar.proxmox.smoke` task from `elixir/serviceradar_core`.
   """
 
   @default_timeout_ms 30_000
@@ -57,11 +57,6 @@ defmodule ServiceRadar.Credentials.ProxmoxApiSmoke do
            |> truthy?()
        }}
     end
-  end
-
-  @spec env_configured?(keyword()) :: boolean()
-  def env_configured?(opts \\ []) do
-    match?({:ok, _config}, from_env(opts))
   end
 
   @spec run(config(), keyword()) :: {:ok, result()} | {:error, term()}

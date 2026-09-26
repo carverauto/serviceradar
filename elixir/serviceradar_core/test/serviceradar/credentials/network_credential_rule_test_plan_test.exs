@@ -1,6 +1,7 @@
 defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestPlanTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Credentials.NetworkCredentialRuleTestPlan
 
   defmodule FakePreviewer do
@@ -17,7 +18,8 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestPlanTest do
              "uid" => "device-1",
              "agent_id" => "agent-a",
              "ip" => "192.0.2.10",
-             "hostname" => "pve-a"
+             "hostname" => "pve-a",
+             "api_token" => "sentinel-token"
            }
          ],
          conflicts: []
@@ -40,7 +42,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestPlanTest do
     end
   end
 
-  test "proxmox_api_test builds redacted command plan from preview target" do
+  test "proxmox_api_test builds a credential-free command plan from the preview target" do
     rule = %{
       id: "rule-1",
       provider: "proxmox",
@@ -48,14 +50,30 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestPlanTest do
       secret_id: "018f3f56-1111-7222-8333-123456789abc",
       target_query: "in:devices metadata.proxmox_candidate:true",
       tls_policy: :skip_verify,
-      metadata: %{"timeout_ms" => 45_000, "test_ttl_seconds" => 180}
+      metadata: %{
+        "timeout_ms" => 45_000,
+        "test_ttl_seconds" => 180,
+        "api_token" => "sentinel-token"
+      }
     }
+
+    test_pid = self()
+
+    grant_issuer = fn attrs ->
+      send(test_pid, {:grant_attrs, attrs})
+      {:ok, Map.put(CredentialBrokerGrant.issue_attrs(attrs), :id, "grant-1")}
+    end
 
     assert {:ok, plan} =
              NetworkCredentialRuleTestPlan.proxmox_api_test(rule,
                previewer: FakePreviewer,
-               actor: %{id: "system"}
+               grant_issuer: grant_issuer
              )
+
+    assert_received {:grant_attrs, grant_attrs}
+    assert grant_attrs.credential_rule_id == "rule-1"
+    assert grant_attrs.consumer_kind == :test
+    assert grant_attrs.purpose == "credential_rule_test"
 
     assert plan.command_type == "proxmox.credential_test"
     assert plan.agent_id == "agent-a"
@@ -69,7 +87,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestPlanTest do
     assert plan.payload["credential_broker"]["schema"] ==
              "serviceradar.edge_credential_broker_grant.v1"
 
-    assert is_binary(plan.payload["credential_broker"]["grant_id"])
+    assert plan.payload["credential_broker"]["grant_id"] == "grant-1"
 
     assert {:ok, _expires_at, 0} =
              DateTime.from_iso8601(plan.payload["credential_broker"]["expires_at"])
@@ -104,7 +122,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestPlanTest do
     assert plan.payload["tls"] == %{"insecure_skip_verify" => true}
     assert plan.payload["timeout_ms"] == 45_000
 
-    refute inspect(plan) =~ "test-token"
+    refute inspect(plan) =~ "sentinel-token"
     assert plan.payload["credential_broker"]["inject"]["scheme"] == "PVEAPIToken"
     refute Map.has_key?(plan.payload, "api_token")
   end

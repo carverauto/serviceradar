@@ -21,10 +21,9 @@ ASYNC_INTEGRATION_SRCS = [
     "test/serviceradar/cold_tier/registry_drift_test.exs",
     "test/serviceradar/composite_checks/verdict_event_writer_test.exs",
     "test/serviceradar/credentials/credential_broker_grant_db_test.exs",
-    "test/serviceradar/credentials/credential_broker_grant_test.exs",
-    "test/serviceradar/credentials/credential_lifecycle_test.exs",
     "test/serviceradar/credentials/credential_rotation_db_test.exs",
     "test/serviceradar/credentials/credential_usage_test.exs",
+    "test/serviceradar/credentials/plugin_integration_provisioner_store_db_test.exs",
     "test/serviceradar/edge/addon_config_contract_fixtures_test.exs",
     "test/serviceradar/edge/agent_config_credential_delivery_test.exs",
     "test/serviceradar/edge/agent_gateway_sync_config_ack_test.exs",
@@ -155,7 +154,6 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/integration/advisory_feed_loader_products_integration_test.exs": 1,
     "test/integration/credential_event_writer_resolution_integration_test.exs": 1,
     "test/integration/netflow_ingestion_integration_test.exs": 1,
-    "test/integration/proxmox_api_smoke_integration_test.exs": 1,
     "test/serviceradar/actors/device_test.exs": 1,
     "test/serviceradar/agent_commands/status_handler_cleanup_test.exs": 1,
     "test/serviceradar/agent_config/dependency_catalog_test.exs": 1,
@@ -346,9 +344,8 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
 SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/integration/advisory_feed_loader_integration_test.exs": 25,
     "test/integration/advisory_feed_loader_products_integration_test.exs": 11,
-    "test/integration/credential_event_writer_resolution_integration_test.exs": 4,
+    "test/integration/credential_event_writer_resolution_integration_test.exs": 3,
     "test/integration/netflow_ingestion_integration_test.exs": 2,
-    "test/integration/proxmox_api_smoke_integration_test.exs": 1,
     "test/serviceradar/actors/device_test.exs": 24,
     "test/serviceradar/agent_commands/status_handler_cleanup_test.exs": 7,
     "test/serviceradar/agent_config/dependency_catalog_test.exs": 19,
@@ -380,7 +377,7 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/composite_checks/validation/coverage_test.exs": 7,
     "test/serviceradar/composite_checks/validation/orchestrator_test.exs": 9,
     "test/serviceradar/credentials/credential_secret_reference_committed_race_db_test.exs": 1,
-    "test/serviceradar/credentials/credential_secret_reference_constraints_db_test.exs": 30,
+    "test/serviceradar/credentials/credential_secret_reference_constraints_db_test.exs": 16,
     "test/serviceradar/credentials/network_credential_rule_lifecycle_db_test.exs": 3,
     "test/serviceradar/credentials/network_credential_secret_destroy_db_test.exs": 4,
     "test/serviceradar/data_service/client_test.exs": 2,
@@ -538,6 +535,5 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
 
 FIXED_EXTERNAL_INTEGRATION_SRCS = [
     "test/integration/netflow_ingestion_integration_test.exs",
-    "test/integration/proxmox_api_smoke_integration_test.exs",
     "test/serviceradar/scans/adhoc_scan_nats_e2e_test.exs",
 ]
