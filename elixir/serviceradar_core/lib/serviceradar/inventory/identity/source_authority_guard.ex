@@ -3,7 +3,9 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
   Fail-closed guard for automatic merges across source-authoritative IDs.
 
   A MAC, IP, hostname, or transitive duplicate edge cannot authorize combining
-  two non-empty, disjoint Armis identity sets from the same source scope.
+  two non-empty, disjoint sets of the same source-authoritative identifier type
+  (`armis_device_id` or `netbox_device_id`) from the same source scope. An
+  `integration_id` is not source-authoritative.
 
   The same rule governs resolution: an update carrying a source-authoritative
   identifier never resolves onto a record, through a shared MAC or any other

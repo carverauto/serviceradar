@@ -64,18 +64,19 @@ in `SourcePolicy.sufficient_to_create?/1`.
 4. IP/alias fallback — only for weak updates
 5. Deterministic (IP-seeded) or random UID
 
-A source-authoritative identifier (`armis_device_id`) decides identity. An
-update carrying one never resolves, through a shared MAC or any other
+A source-authoritative identifier (`armis_device_id` or `netbox_device_id`) decides
+identity. An update carrying one never resolves, through a shared MAC or any other
 identifier, onto a record that holds a different one in the same scope (the
 identifier partition, which carries the sync source), whether that id is
 stored or was claimed earlier in the same batch: that record is not a
 match, the update resolves by its own identifier, and the shared identifier
 stays with its owner as evidence. Each override is recorded as an open
 `source_authoritative_override` source-identity conflict on the incoming
-record, naming the overridden records and the identifiers they share, so it
-can be reviewed. A record holding no source-authoritative identifier is still
-a match: that is how an Armis id attaches to the discovered record of the same
-device.
+record, naming the overridden records, the identifiers they share and the
+source-authoritative identifier that differed, so it can be reviewed. An
+`integration_id` is not source-authoritative and never causes a refusal. A record holding no source-authoritative identifier
+is still a match: that is how an Armis id attaches to the discovered record of
+the same device.
 
 An address follows the device observed at it. When a strong-identified write
 that observed the device at its address (Armis, the passive census,

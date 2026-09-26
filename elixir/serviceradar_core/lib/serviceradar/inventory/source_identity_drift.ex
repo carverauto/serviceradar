@@ -305,9 +305,9 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
   `override` carries the update (`:update`), its extracted identifiers
   (`:ids`), the record the update resolved to (`:device_uid`), and the refused
   matches (`:overridden`, a list of `%{device_uid:, identifier_type:,
-  identifier_value:, source_ids:}`) and the source-authoritative identifier type they were
-  refused for (`:claim_type`). The conflict is keyed by the incoming
-  record and its source-authoritative identifier, so a repeated sighting
+  identifier_value:, source_ids:}`), and the source-authoritative identifier type they
+  were refused for (`:claim_type`, `:armis_device_id` or `:netbox_device_id`). The
+  conflict is keyed by the incoming record and that identifier, so a repeated sighting
   refreshes the open row instead of adding one.
   """
   def build_source_override_conflict(%{update: update, ids: ids} = override) do
