@@ -24,7 +24,10 @@ defmodule ServiceRadarWebNG.Dashboards.DashboardExportRoundTripDbTest do
   end
 
   @tag :web_ng_shared_fixture_db
-  test "export/import round trip preserves all format-defined fields", %{actor: actor, marker: marker} do
+  test "export/import round trip preserves all format-defined fields", %{
+    actor: actor,
+    marker: marker
+  } do
     source_slug = "#{marker}-source"
     import_slug = "#{marker}-imported"
 
