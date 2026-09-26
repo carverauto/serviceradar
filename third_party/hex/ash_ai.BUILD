@@ -34,7 +34,6 @@ mix_app(
         "@hex_igniter//:erlang_app",
         "@hex_open_api_spex//:erlang_app",
         "@hex_plug//:erlang_app",
-        "@hex_req_llm//:erlang_app",
         "@rules_elixir//elixir",
     ],
 )
