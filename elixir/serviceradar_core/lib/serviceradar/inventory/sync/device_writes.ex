@@ -17,7 +17,6 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.DecisionLog
   alias ServiceRadar.Inventory.Identity.Ids
-  alias ServiceRadar.Inventory.Identity.MergeEngine
   alias ServiceRadar.Inventory.Identity.Resolver
   alias ServiceRadar.Inventory.SourceIdentityDrift
   alias ServiceRadar.Inventory.Sync.DeviceRecords
@@ -40,9 +39,9 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     :mac
   ]
 
-  # A shared hostname is not an identifier. These types decide identity, so
-  # two different values of one type veto hostname-agreement adoption.
-  @source_authoritative_types ~w(armis_device_id netbox_device_id)
+  # Source-authoritative identifier types. A record or holder carrying one is
+  # never adopted on hostname agreement: that identifier decides its identity.
+  @source_authoritative_types [:armis_device_id, :netbox_device_id]
 
   # DB connection's search_path determines the schema
   def bulk_upsert_devices(records, strong_uids \\ MapSet.new(), resolved_updates \\ nil) do
@@ -607,14 +606,18 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
 
     incoming_ip_owners = incoming_ip_owners(records)
 
-    # Registration owners for the hostname-agreement adoption below. Loaded
-    # once per batch and only when a strong record actually collides with a
-    # different holder; batches without such collisions pay no extra query.
+    # Registration owners and the holders' source-authoritative identifier
+    # rows for the hostname-agreement adoption below. Loaded once per batch and
+    # only when a strong record actually collides with a different holder;
+    # batches without such collisions pay no extra query.
     identity_regs =
       if Enum.any?(records, &strong_ip_collision?(&1, strong_uids, active_holders)) do
-        load_identity_registrations(records, existing_by_ip)
+        %{
+          registrations: load_identity_registrations(records, existing_by_ip),
+          source_authoritative: load_source_authoritative_holders(existing_by_ip)
+        }
       else
-        %{}
+        %{registrations: %{}, source_authoritative: MapSet.new()}
       end
 
     {remapped_records, {remap, conflicts, _anchors, stale_releases}} =
@@ -782,8 +785,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
             {Map.put(record, :uid, existing_uid),
              {Map.put(remap, record.uid, existing_uid), conflicts, anchors, stale_releases}}
           else
-            if adopt_on_hostname_agreement?(record, existing, existing_uid, identity_regs) and
-                 merge_existing_duplicate(record.uid, existing_uid) do
+            if adopt_on_hostname_agreement?(record, existing, existing_uid, identity_regs) do
               Logger.info(
                 "SyncIngestor: adopting active IP #{ip} holder #{existing_uid} for " <>
                   "strong-identified device #{record.uid} (hostname agreement)"
@@ -874,19 +876,6 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
       do: DateTime.after?(incoming, held)
 
   def observed_after?(_record, _holder), do: false
-
-  defp merge_existing_duplicate(incoming_uid, holder_uid) do
-    if Repo.exists?(from(d in Device, where: d.uid == ^incoming_uid)) do
-      case MergeEngine.merge_devices(incoming_uid, holder_uid,
-             reason: "sync_ip_hostname_agreement"
-           ) do
-        :ok -> true
-        {:error, _reason} -> false
-      end
-    else
-      true
-    end
-  end
 
   defp attach_identity_claims(records, nil), do: records
 
@@ -992,23 +981,106 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
         do: {Atom.to_string(type), value, partition}
   end
 
-  # Hostname-agreement adoption: a strong-identified
-  # record may converge onto the holder when both sides name the same
-  # hostname and neither side's strong identity is claimed by a third
-  # device. Either hostname blank vetoes: two records that say nothing about
-  # a name do not agree, they are merely silent. Any third-device claim
-  # vetoes: that is the over-merge shape (a collector's agent_id, a
-  # re-pointed integration id) the fork rule exists to refuse.
+  # Hostname-agreement adoption. A hostname is evidence, like the address,
+  # never identity: agreement may only attach a record that is not yet a
+  # device to the holder, and only when neither side carries a
+  # source-authoritative identifier (`@source_authoritative_types`), no
+  # hardware serial or partition disagrees, and no third device claims either
+  # side's strong identity (the over-merge shape -- a collector's agent_id, a
+  # re-pointed integration id -- the fork rule exists to refuse). Either
+  # hostname blank is not agreement: two records that say nothing about a name
+  # are merely silent.
+  #
+  # Agreement never merges two existing devices and never overrides a
+  # source-authoritative identifier. When the hostnames agree but adoption is
+  # refused, the incoming record is written as its own device through
+  # `claim_address_from_holder/4`, and the pair is recorded as a
+  # `:policy_block` decision, which opens a de-duplication task for an
+  # operator to merge, mark distinct or dismiss.
   defp adopt_on_hostname_agreement?(record, holder, holder_uid, identity_regs) do
-    hostnames_agree?(Map.get(record, :hostname), Map.get(holder, :hostname)) and
-      compatible_identity_claims?(record, holder) and
-      not third_party_identity_claim?(
+    if hostnames_agree?(Map.get(record, :hostname), Map.get(holder, :hostname)) do
+      case hostname_adoption_refusal(record, holder, holder_uid, identity_regs) do
+        nil ->
+          true
+
+        refusal ->
+          record_hostname_agreement(record, holder, holder_uid, refusal)
+          false
+      end
+    else
+      false
+    end
+  end
+
+  defp hostname_adoption_refusal(record, holder, holder_uid, identity_regs) do
+    partition = record_partition(record)
+
+    cond do
+      Repo.exists?(from(d in Device, where: d.uid == ^record.uid)) ->
+        "existing_device"
+
+      source_authoritative?(record_identity_pairs(record, partition)) or
+        source_authoritative?(record_identity_pairs(holder, partition)) or
+          MapSet.member?(identity_regs.source_authoritative, holder_uid) ->
+        "source_authoritative_identifier"
+
+      not compatible_identity_claims?(record, holder) ->
+        "incompatible_identity_claims"
+
+      third_party_identity_claim?(
         record,
         holder,
         holder_uid,
-        record_partition(record),
-        identity_regs
-      )
+        partition,
+        identity_regs.registrations
+      ) ->
+        "third_party_identity_claim"
+
+      true ->
+        nil
+    end
+  end
+
+  defp source_authoritative?(pairs) do
+    types = Enum.map(@source_authoritative_types, &Atom.to_string/1)
+    Enum.any?(pairs, fn {type, _value, _partition} -> type in types end)
+  end
+
+  # Holders with a source-authoritative identifier row. The holder map's
+  # metadata may not carry the identifier the row does.
+  defp load_source_authoritative_holders(existing_by_ip) do
+    uids = existing_by_ip |> Map.values() |> Enum.map(& &1.uid) |> Enum.uniq()
+
+    DeviceIdentifier
+    |> where(
+      [i],
+      i.device_id in ^uids and i.identifier_type in ^@source_authoritative_types
+    )
+    |> select([i], i.device_id)
+    |> distinct(true)
+    |> Repo.all()
+    |> MapSet.new()
+  end
+
+  defp record_hostname_agreement(record, holder, holder_uid, refusal) do
+    ip = Map.get(record, :ip)
+
+    Logger.info(
+      "SyncIngestor: not adopting active IP #{ip} holder #{holder_uid} for device " <>
+        "#{record.uid} on hostname agreement (#{refusal}); recording a de-duplication decision"
+    )
+
+    DecisionLog.record(:policy_block, "hostname_agreement_not_identity", [record.uid, holder_uid],
+      subject: ip,
+      source: "sync_ip_hostname_agreement",
+      evidence: %{
+        "incoming_device_uid" => record.uid,
+        "existing_device_uid" => holder_uid,
+        "hostname" => Map.get(holder, :hostname),
+        "ip" => ip,
+        "refusal" => refusal
+      }
+    )
   end
 
   defp compatible_identity_claims?(record, holder) do
@@ -1022,18 +1094,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
 
     length(partitions) <= 1 and
       (incoming_serials == [] or existing_serials == [] or
-         Enum.any?(incoming_serials, &(&1 in existing_serials))) and
-      not conflicting_source_ids?(incoming, existing)
-  end
-
-  defp conflicting_source_ids?(incoming, existing) do
-    Enum.any?(@source_authoritative_types, fn type ->
-      incoming_values = for {^type, value, _} <- incoming, do: value
-      existing_values = for {^type, value, _} <- existing, do: value
-
-      incoming_values != [] and existing_values != [] and
-        Enum.all?(incoming_values, &(&1 not in existing_values))
-    end)
+         Enum.any?(incoming_serials, &(&1 in existing_serials)))
   end
 
   defp hostnames_agree?(a, b) when is_binary(a) and is_binary(b) do

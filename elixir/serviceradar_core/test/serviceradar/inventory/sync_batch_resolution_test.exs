@@ -16,6 +16,7 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
   import Ecto.Query
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Inventory.DeduplicationTask
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.IdentityDecision
@@ -42,6 +43,33 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
   defp unique_ip do
     a = System.unique_integer([:positive])
     "10.#{rem(div(a, 65_536), 60) + 60}.#{rem(div(a, 256), 256)}.#{rem(a, 254) + 1}"
+  end
+
+  # Benchmarking range (198.18.0.0/15), one address per call, never reused by
+  # another test in this run.
+  defp benchmark_ip do
+    n = System.unique_integer([:positive, :monotonic])
+    "198.#{18 + rem(div(n, 254 * 256), 2)}.#{rem(div(n, 254), 256)}.#{rem(n, 254) + 1}"
+  end
+
+  # The hostname-agreement pair was recorded as a decision and opened a
+  # de-duplication task for an operator.
+  defp assert_hostname_pair_recorded(uid_a, uid_b, ip, actor) do
+    pair = Enum.sort([uid_a, uid_b])
+    {:ok, decisions} = IdentityDecision.for_device(uid_b, actor: actor)
+
+    assert Enum.any?(
+             decisions,
+             &(&1.decision_kind == :policy_block and
+                 &1.reason == "hostname_agreement_not_identity" and
+                 &1.device_uids == pair and &1.subject == ip)
+           ),
+           "the hostname-agreement pair was not recorded as a decision"
+
+    {:ok, tasks} = DeduplicationTask.for_device(uid_b, actor: actor)
+
+    assert Enum.any?(tasks, &(&1.device_uids == pair and &1.status == :open)),
+           "no open de-duplication task for the pair"
   end
 
   defp integration_update(integration_id, ip, hostname) do
@@ -853,9 +881,12 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
            "a MAC-less re-observation must not trigger the distinct-MAC veto"
   end
 
+  # A shared hostname and address are evidence, not identity (#4671): two Armis
+  # ids at one address under one hostname stay two devices, and the pair is
+  # recorded for an operator instead of being merged.
   test "hostname agreement does not merge two Armis devices at one address", %{actor: actor} do
     n = System.unique_integer([:positive])
-    ip = "203.0.113.#{rem(n, 200) + 10}"
+    ip = benchmark_ip()
     hostname = "shared-name-#{n}"
     armis_a = "armis-shared-a-#{n}"
     armis_b = "armis-shared-b-#{n}"
@@ -879,6 +910,53 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
     assert is_binary(uid_b)
     assert uid_a != uid_b
     assert device_for_armis_id(armis_a, actor) == uid_a
+    assert_hostname_pair_recorded(uid_a, uid_b, ip, actor)
+  end
+
+  # One source-authoritative identifier is enough (#4671): a record without one
+  # is not adopted onto a holder that holds an Armis id, even when their
+  # hostnames agree.
+  test "hostname agreement does not adopt a holder that holds an Armis id", %{actor: actor} do
+    n = System.unique_integer([:positive])
+    ip = benchmark_ip()
+    hostname = "armis-held-#{n}"
+    armis_id = "armis-held-#{n}"
+    netbox_id = "netbox:source-a:device:armis-held-#{n}"
+
+    assert :ok =
+             SyncIngestor.ingest_updates(
+               [
+                 %{
+                   "hostname" => hostname,
+                   "source" => "armis",
+                   "ip" => ip,
+                   "metadata" => %{"integration_type" => "armis", "armis_device_id" => armis_id}
+                 }
+               ],
+               actor: actor
+             )
+
+    holder = device_for_armis_id(armis_id, actor)
+    assert is_binary(holder)
+
+    assert :ok =
+             SyncIngestor.ingest_updates(
+               [
+                 %{
+                   "hostname" => hostname,
+                   "source" => "netbox",
+                   "ip" => ip,
+                   "metadata" => %{"integration_type" => "netbox", "integration_id" => netbox_id}
+                 }
+               ],
+               actor: actor
+             )
+
+    incoming = device_for_integration_id(netbox_id, actor)
+    assert is_binary(incoming)
+    assert incoming != holder, "the NetBox record was adopted onto the Armis holder"
+    assert device_for_armis_id(armis_id, actor) == holder
+    assert_hostname_pair_recorded(holder, incoming, ip, actor)
   end
 
   test "a new typed Armis ID does not adopt another device's historical MAC", %{actor: actor} do
