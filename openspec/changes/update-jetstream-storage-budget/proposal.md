@@ -40,16 +40,25 @@ one unplaceable stream stops unrelated ingestion.
 - **EventWriter stream sizes become Helm values** under
   `core.eventWriter.streams.<name>.maxBytes`, rendered into the core
   environment, so the whole budget lives in one values tree.
-- **The chart renders `max_file_store` as an exact byte count**, derived by
-  default from `nats.persistence.size` minus a fixed filesystem reserve. An
-  explicit `nats.jetstream.maxFileStore` still wins.
+- **The chart renders `max_file_store` as an exact byte count.**
+  `nats.jetstream.maxFileStore` stays an explicit value with the `30G`
+  default, parsed with NATS's `G` (10^9) and `Gi` (2^30) semantics, so the
+  default renders `30000000000`. It is not derived from the PVC size: a
+  reserve-based derivation raises the cap toward the disk and drifts from the
+  real claim after out-of-band expansion.
 - **Smaller defaults that fit with headroom.** datasvc KV 4 GiB -> 1 GiB and
   object store 10 GiB -> 4 GiB (both R3; the KV holds kilobytes, and the
   object store is capped at 2 GiB on the reference demo install).
 - **A render-time budget check.** `helm template` / `helm upgrade` SHALL fail
-  with an itemised message when R3 reservations plus all R1 reservations
-  exceed 85% of `max_file_store`, unless the operator sets
-  `nats.jetstream.allowOvercommit: true`.
+  with an itemised message when the worst per-server reservation exceeds 85%
+  of `max_file_store`, unless the operator sets
+  `nats.jetstream.allowOvercommit: true`. Each stream's replica count comes
+  from its own chart value and is bucketed against `nats.replicas`.
+- **Docker Compose and packaged installs are in scope.** Both pin
+  `max_file_store: 10G` on a single server and ship stream sizes that do not
+  fit it. They get smaller stream sizes (design D8) and a Bazel test that
+  evaluates the same budget formula with `nats.replicas = 1` against the
+  shipped config files.
 - **Shrinking is safe on upgrade.** An owner that reconciles `max_bytes`
   downward SHALL NOT shrink below the bytes already stored; it keeps the
   larger value and logs why.
@@ -65,7 +74,9 @@ one unplaceable stream stops unrelated ingestion.
   `serviceradar_core_elx/config/runtime.exs`; Go datasvc stream reconcile
   (`go/pkg/datasvc/nats.go`); Rust otel log-collector reconcile
   (`rust/otel/src/nats/stream.rs`); trivy/bmp/plugin/fieldsurvey/threat-intel
-  stream creators for finite caps.
+  stream creators for finite caps; `docker/compose/` and
+  `build/packaging/` NATS, datasvc, otel and core config files plus a new
+  budget `go_test`.
 - **Upgrade behaviour:** existing installs converge on the next upgrade with
   no manual step. The NATS PVC size is not changed (StatefulSet
   `volumeClaimTemplates` is immutable). An install whose explicit overrides

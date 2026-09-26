@@ -19,16 +19,19 @@
 
 ## 3. Chart budget (D2, D4, D5, D7)
 
-- [ ] 3.1 Byte-exact `max_file_store` helper with `G`/`Gi` parsing and the
-      persistence-derived default.
+- [ ] 3.1 Byte-exact `max_file_store` helper with `G`/`Gi` parsing; keep the
+      `nats.jetstream.maxFileStore: 30G` default in `values.yaml` and
+      `values-demo.yaml` (renders `30000000000`).
 - [ ] 3.2 Lower `datasvc.bucketMaxBytes` to 1 GiB and
       `datasvc.objectStoreBytes` to 4 GiB; correct the budget comments.
-- [ ] 3.3 Budget helper and `fail` with itemised message;
+- [ ] 3.3 Budget helper and `fail` with itemised message, bucketing each
+      stream by its own replica value against `nats.replicas` (D5);
       `nats.jetstream.allowOvercommit` escape hatch.
 - [ ] 3.4 Fix `EVENT_WRITER_ENABLED` rendering of `false`.
 - [ ] 3.5 helm-unittest: defaults pass with flow-collector on and off;
       overrides fail with the itemised message; `allowOvercommit` passes;
-      `values-demo.yaml` passes.
+      `values-demo.yaml` passes; R2 and R3 streams on a 5-server NATS land in
+      the spread bucket; the v1.4.73 shape fails.
 
 ## 4. Safe shrink (D6)
 
@@ -38,9 +41,25 @@
 - [ ] 4.4 Tests for each owner: shrink applies when data fits, is held when
       it does not.
 
-## 5. Verification
+## 5. Compose and packaged installs (D8)
 
-- [ ] 5.1 `make test` green.
-- [ ] 5.2 Upgrade a v1.4.73 install with flow-collector enabled and default
+- [ ] 5.1 Set the D8 stream sizes in `docker/compose/datasvc.mtls.json`,
+      `otel.docker.toml`, the core service environment in
+      `docker-compose.yml`, and the packaged `datasvc.json`, `otel.toml` and
+      `core-elx.env`.
+- [ ] 5.2 Add a `go_test` that parses `nats.docker.conf` and
+      `nats-server.conf` with the NATS config parser, decodes the size
+      sources into typed structs, and evaluates the D5 formula with
+      `nats.replicas = 1`; config files are declared `data` inputs.
+- [ ] 5.3 Share one vector table (defaults with flow-collector on and off,
+      v1.4.73 shape) between this test and helm-unittest; the v1.4.73 vector
+      fails the check.
+- [ ] 5.4 Bump `addons/<name>/addon.yaml` `version` for any native add-on whose
+      config changes.
+
+## 6. Verification
+
+- [ ] 6.1 `make test` green.
+- [ ] 6.2 Upgrade a v1.4.73 install with flow-collector enabled and default
       values on a scratch cluster: render passes, datasvc shrinks, every
       stream places, `nats server report jetstream` shows reserved below 85%.
