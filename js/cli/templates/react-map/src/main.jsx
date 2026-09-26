@@ -73,6 +73,7 @@ function MapDashboard() {
     getFillColor: (row) => (row.__lod === "far"
       ? [37, 99, 235, 200]
       : dark ? [17, 24, 39, 232] : [255, 255, 255, 240]),
+    updateTriggers: {getFillColor: [dark]},
     getLineColor: [37, 99, 235, 255],
     lineWidthUnits: "pixels",
     getLineWidth: 2,
