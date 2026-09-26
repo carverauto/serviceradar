@@ -296,7 +296,6 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
 
   defp source_overrides(ids, final_id, preloads) do
     for id_type <- Ids.identifier_priority(),
-        id_type not in SourceAuthorityGuard.source_identifier_types(),
         value <- Ids.get_identifier_values(id_type, ids),
         device_id <- identifier_owners(id_type, value, ids, preloads.identifiers),
         device_id != final_id,

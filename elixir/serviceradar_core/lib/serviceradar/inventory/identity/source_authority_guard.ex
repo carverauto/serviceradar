@@ -345,6 +345,10 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
 
   defp maybe_lock_ownership(_device_ids, false), do: :ok
 
+  # The lock key is shared with the `device_identifiers` ownership trigger
+  # (`platform.lock_armis_identifier_ownership`), which takes it for a write of
+  # any source-authoritative identifier type, so a concurrent writer of either
+  # type serializes with this check.
   defp maybe_lock_ownership(device_ids, true) do
     if Repo.in_transaction?() do
       sql = """

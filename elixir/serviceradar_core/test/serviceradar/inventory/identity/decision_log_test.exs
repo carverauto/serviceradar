@@ -166,6 +166,24 @@ defmodule ServiceRadar.Inventory.Identity.DecisionLogTest do
     end
   end
 
+  describe "source-authoritative identifier ownership lock" do
+    for type <- [:armis_device_id, :netbox_device_id] do
+      test "registering a #{type} identifier takes the device ownership lock", %{actor: actor} do
+        device = create_device!(actor)
+        register!(actor, device.uid, unquote(type), "decision-log-lock:#{unique()}")
+
+        assert ownership_lock_held?(device.uid)
+      end
+    end
+
+    test "registering an identifier of another type does not take the lock", %{actor: actor} do
+      device = create_device!(actor)
+      register!(actor, device.uid, :agent_id, "decision-log-agent-#{unique()}")
+
+      refute ownership_lock_held?(device.uid)
+    end
+  end
+
   describe "AliasGuard" do
     test "invalidating a conflicting alias records the decision and its address", %{actor: actor} do
       owner = create_device!(actor)
@@ -222,6 +240,26 @@ defmodule ServiceRadar.Inventory.Identity.DecisionLogTest do
       source: "test"
     })
     |> Ash.create!(actor: actor)
+  end
+
+  defp ownership_lock_held?(uid) do
+    %{rows: [[held?]]} =
+      ServiceRadar.Repo.query!(
+        """
+        SELECT EXISTS (
+          SELECT 1
+          FROM pg_locks
+          WHERE locktype = 'advisory'
+            AND granted
+            AND pid = pg_backend_pid()
+            AND ((classid::bigint << 32) | objid::bigint) =
+                  hashtextextended('serviceradar:armis-identifier-owner:' || $1::text, 0)
+        )
+        """,
+        [uid]
+      )
+
+    held?
   end
 
   defp create_alias_state!(actor, uid, ip) do

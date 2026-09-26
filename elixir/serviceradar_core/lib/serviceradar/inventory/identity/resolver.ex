@@ -117,13 +117,10 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
   # (`SourceAuthorityGuard.source_mismatch?/3`). `nil` for every other update.
   defp source_refusal(ids, actor) do
     if SourceAuthorityGuard.carries_source_id?(ids) do
-      source_types = SourceAuthorityGuard.source_identifier_types()
-
-      fn id_type, device_id ->
+      fn _id_type, device_id ->
         held = SourceAuthorityGuard.held_source_ids([device_id], actor)
 
-        if id_type not in source_types and
-             SourceAuthorityGuard.source_mismatch?(ids, device_id, held),
+        if SourceAuthorityGuard.source_mismatch?(ids, device_id, held),
            do: {:refuse, SourceAuthorityGuard.scoped_source_ids(held, device_id, ids)},
            else: :accept
       end
