@@ -79,3 +79,37 @@ The dashboard dev harness SHALL pass SRQL query updates to an optional author-su
 #### Scenario: Filter chip offline
 - **WHEN** a dashboard in the dev harness applies a filter and its config supplies a fixture resolver
 - **THEN** the harness SHALL deliver the resolver's frames to the dashboard
+
+### Requirement: Dashboards can invoke plugin actions
+The dashboard platform SHALL let a dashboard package that declares the `actions.invoke` capability list the plugin actions available for its targets and invoke them through the northbound action model, with the host enforcing the user's action permissions, recording audit and invocation history, and reporting the invocation's progress and result to the dashboard.
+
+#### Scenario: Permitted invocation
+- **WHEN** a permitted user triggers a plugin action from a dashboard declaring `actions.invoke`
+- **THEN** the host SHALL submit the invocation through the northbound action model
+- **AND** SHALL report its progress and final result to the dashboard
+- **AND** the invocation SHALL appear in action history with the user as actor
+
+#### Scenario: Permission denied
+- **WHEN** a user without permission for an action tries to invoke it from a dashboard
+- **THEN** the host SHALL reject the invocation without contacting the agent
+
+#### Scenario: Package without the capability
+- **WHEN** a dashboard package that does not declare `actions.invoke` calls the action API
+- **THEN** the host SHALL reject the call
+
+### Requirement: Dashboards receive live events
+The dashboard platform SHALL let a dashboard subscribe to OCSF events matching a filter, scoped to what the user may see, and SHALL let a dashboard request an immediate refresh of its frames, so dashboards change state within seconds of an event instead of waiting for the next frame refresh.
+
+#### Scenario: Matching event arrives
+- **GIVEN** a dashboard subscribed to events from its plugin's source
+- **WHEN** a matching OCSF event is persisted
+- **THEN** the dashboard SHALL receive it within seconds
+- **AND** a frame refresh requested in response SHALL return data that includes the event's effects
+
+#### Scenario: Event outside the user's scope
+- **WHEN** an event the user may not see matches a subscription filter
+- **THEN** the host SHALL NOT deliver it
+
+#### Scenario: Offline harness
+- **WHEN** a dashboard with an event subscription runs in the dev harness
+- **THEN** the harness SHALL deliver events from the selected fixture on a timeline

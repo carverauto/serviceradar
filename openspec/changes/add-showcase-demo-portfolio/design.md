@@ -178,6 +178,17 @@ from public information and invention, and a pack is not set up to mirror a
 specific customer's deployment. Dashboards start from the generic SDK
 templates, not from any customer dashboard repository.
 
+**Airport venue.** The Wi-Fi and baggage demos share one airport so a single
+venue shows RF, OT and (later) perimeter drones together. The airport is real
+and public, but it is chosen so it is not the hub of an airline we work with,
+and every flight belongs to a fictional carrier: an airline designator that no
+real airline holds, invented flight numbers and bag tags in the standard
+10-digit format under that carrier. The designator is checked by looking it up
+in the public IATA and ICAO airline designator listings, and is used only if it
+appears in neither (most two-letter IATA and three-letter ICAO codes are
+assigned, so expect to try several); the pack records the code and the date it
+was checked. The venue is picked in task 8.1.
+
 One mechanical rule remains, for operational safety rather than privacy:
 simulated devices use only private (RFC 1918) or documentation IP ranges and
 non-public host names, so no sweep, MTR run or plugin probe in `demo` ever
@@ -267,25 +278,74 @@ action input. Cluster-side resources (replayer Deployment, WebRTC/TURN
 settings, trust for the demo upload key) are declared in `carverauto/gitops`
 for the `demo` namespace in the `carverauto` context.
 
-### D13. Presenter strip instead of fault buttons
+### D13. Faults on a timer or on demand, always through the plugin
 
-Presenters still need to know what is about to happen. Each demo dashboard
-shows a read-only strip with the active incident (linking to the real alert)
-and a countdown to the next scheduled fault. The simulator publishes the
-schedule as metrics (`demo.fault.next_at`, `demo.fault.active`) so the strip
-reads SRQL like everything else; the dashboard never injects, clears or resets
-anything. Those metrics exist only with the simulator, so the countdown hides
-when they are absent and the strip keeps showing the active incident from real
-alerts; a real Source needs no dashboard change. Acknowledging an alert happens through the product's normal alert
-workflow; the fault's resolution comes from the simulator.
+Waiting minutes for the next scheduled fault kills a live demo, so presenters
+can trigger faults from the dashboard, as the mockups show. The trigger must be
+as real as the timer: the dashboard never fakes state. Both paths go through
+the plugin and produce the same OCSF events in the events store, the same
+alerts and the same metric changes.
+
+- **Faults are plugin actions.** Each demo plugin declares a fault-injection
+  action (inputs: a fault kind the pack declares, a target, an optional
+  duration) using the northbound action model from
+  `add-northbound-action-integrations`: action descriptor, input schema, RBAC,
+  audit and invocation history. The platform delivers the invocation to the
+  agent over the command bus and the plugin's action entrypoint runs at once.
+- **Immediate event.** The action emits the fault's opening OCSF event right
+  away, so it reaches the events store and the alert engine within seconds.
+  This needs a host call that lets an action entrypoint emit plugin events
+  through the same path as run results; the action model in
+  `add-northbound-action-integrations` records only invocation lifecycle and
+  audit events, so this change adds that call (task 3.1).
+- **Stateless runs still see the fault.** The action result carries a
+  time-bounded run override (fault kind, target, start, expiry). The platform
+  keeps active overrides for the assignment and passes them to every run until
+  they expire; `simkit` overlays them exactly like scheduled faults. Runs are
+  stateless, so expiry is signalled by the platform: the first run after an
+  override's expiry receives it marked `expired`, and the platform discards it
+  only once a run that received it reports success, so a failed or missed run
+  is retried by the next one. The run that receives it emits the resolving
+  event and does not apply the fault.
+  Ending early emits the resolving event from the action instead, and the
+  override is discarded without an `expired` delivery. This is a generic
+  product capability (a real plugin could use it for a maintenance window or a
+  temporary threshold change), not a demo-only path.
+- **Guards.** A maximum duration per fault kind, at most one active injected
+  fault per kind and target, a per-assignment rate limit, and an "end fault
+  early" action that expires the override and emits the resolving event.
+  Scheduled faults are never suppressed: an injection is rejected when its
+  window (start to start plus duration) overlaps an active injected fault or
+  any scheduled window of the same kind on the target, and the action
+  evaluates the schedule to decide. Each
+  pack can turn its schedule off for presenter-only sessions. Every fault
+  carries an id in its opening and resolving events, and resolving an alert
+  that is already resolved is a no-op, so a resolving event repeated by an
+  expiry retry is harmless.
+- **Presenter strip.** Each dashboard shows the active incident (linking to the
+  real alert), the countdown to the next scheduled fault, and a trigger button
+  per declared fault, rendered from the plugin's action descriptors. Users
+  without permission to invoke the action see the strip without buttons. The
+  countdown reads the simulator's `demo.fault.next_at` / `demo.fault.active`
+  metrics and hides when they are absent, so a real `Source` needs no dashboard
+  change; with a real source the same buttons become real operational actions
+  (reboot an AP, run a crossing test).
+- **Event-driven dashboards.** Frames stay the source of truth, but a dashboard
+  must react in seconds, not on its next poll. The dashboard host gains a live,
+  RBAC-scoped event subscription (OCSF events matching a filter, for example
+  the plugin's source or the dashboard's assets) and an on-demand frame
+  refresh. When a matching event arrives, or an action the dashboard invoked
+  completes, the dashboard refreshes the affected frames, so the incident
+  banner, map highlight and detail panel change as soon as the event lands.
 
 ### D14. UI references (mockups)
 
 A set of AI-generated mockups (a standalone React/Vite app kept outside the
 repository) guides layout for the drone, Wi-Fi, baggage, pipeline and
 cyber + OT dashboards. They are references for structure and content; their
-public real-world data (real airports and gates, airline flight numbers, a
-real oil basin, vendor product names) is acceptable to reuse under D6.
+public real-world data (real airports and gates, a real oil basin, vendor
+product names) is acceptable to reuse under D6, except that the airport venue
+and its flights follow the airport-venue rule in D6 rather than the mockups.
 
 Adopted:
 
@@ -314,9 +374,9 @@ Adopted:
 
 Rejected:
 
-- Manual fault injection, clear/reset/suppress/neutralize buttons, the
-  "system reset" control and the storyboard step that says to press a fault
-  button (replaced by D13).
+- Buttons that change dashboard state directly: every fault button calls the
+  plugin action (D13), and "clear" means the "end fault early" action. The
+  mockups' global "system reset" control is dropped.
 - Operator-control language ("reset ESD valve") and anything that shows the
   dashboard talking to a device (raw `rtsp://` handles, `ip:502` register
   endpoints). Video is WebRTC through the camera API.
