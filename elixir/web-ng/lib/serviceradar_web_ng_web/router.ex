@@ -1068,6 +1068,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/flows/visualize", PageController, :redirect_to_observability_flows)
     get("/observability/flows", PageController, :redirect_to_observability_flows)
     get("/observability/flows/visualize", PageController, :redirect_to_observability_flows)
+    get("/dashboard/:dashboard_id/export.json", AuthoredDashboardExportController, :definition_json)
     get("/dashboard/:dashboard_id/panels/:panel_id/export.csv", AuthoredDashboardExportController, :panel_csv)
     get("/scans/:id/export.csv", ScanExportController, :csv)
     get("/scans/:id/export.xlsx", ScanExportController, :xlsx)

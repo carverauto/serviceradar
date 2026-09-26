@@ -34,11 +34,21 @@
 
 ## 4. Export
 
-- [ ] 4.1 Serialize an authored dashboard and its panels to the definition format.
-- [ ] 4.2 Expose export to an operator holding dashboard view authority, over the
+- [x] 4.1 Serialize an authored dashboard and its panels to the definition format.
+      `DefinitionSerializer.serialize/1` in `dashboards/definition_serializer.ex`
+      maps dashboard and panel structs to the version-1 JSON shape. Panels are
+      sorted by `:position` before serialization.
+- [x] 4.2 Expose export to an operator holding dashboard view authority, over the
       same authorization the dashboard itself uses.
-- [ ] 4.3 State in the spec which fields are outside the format — ids, timestamps,
+      `AuthoredDashboardExportController.definition_json/2` at
+      `GET /dashboard/:dashboard_id/export.json`, protected by the same session
+      auth scope as the panel CSV export. Authorization is enforced by the
+      `get_authored_dashboard/3` call: an actor without view access receives
+      a 404 (the dashboard is not found for them), same as the LiveView.
+- [x] 4.3 State in the spec which fields are outside the format — ids, timestamps,
       `dashboard_ref`, ownership, grants, schedules — so "equivalent" is defined.
+      Enumerated by specific field name in both the spec requirement and the
+      `DefinitionSerializer` moduledoc.
 
 ## 4b. Shared package-source module (extraction)
 

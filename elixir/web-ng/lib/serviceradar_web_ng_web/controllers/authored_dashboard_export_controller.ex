@@ -3,9 +3,30 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardExportController do
   use ServiceRadarWebNGWeb, :controller
 
   alias ServiceRadarWebNG.Dashboards
+  alias ServiceRadarWebNG.Dashboards.DefinitionSerializer
   alias ServiceRadarWebNGWeb.AuthoredDashboardLive.DashboardVariables
 
   @export_limit 10_000
+
+  def definition_json(conn, %{"dashboard_id" => dashboard_id}) do
+    scope = conn.assigns.current_scope
+
+    with {:ok, dashboard} <- Dashboards.get_authored_dashboard(scope, dashboard_id, load: [:panels]) do
+      definition = DefinitionSerializer.serialize(dashboard)
+      filename = safe_filename(dashboard.slug || dashboard.title)
+
+      conn
+      |> put_resp_content_type("application/json")
+      |> put_resp_header("content-disposition", "attachment; filename=\"#{filename}.json\"")
+      |> send_resp(200, Jason.encode!(definition, pretty: true))
+    else
+      {:error, :not_found} ->
+        send_resp(conn, 404, "Dashboard not found")
+
+      {:error, reason} ->
+        send_resp(conn, 422, "Could not export dashboard: #{format_error(reason)}")
+    end
+  end
 
   def panel_csv(conn, %{"dashboard_id" => dashboard_id, "panel_id" => panel_id} = params) do
     scope = conn.assigns.current_scope

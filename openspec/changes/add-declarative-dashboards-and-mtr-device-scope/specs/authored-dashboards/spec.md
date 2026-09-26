@@ -70,7 +70,23 @@ The product SHALL export an existing authored dashboard to the same definition f
 
 Export SHALL be available to an actor authorized to view that dashboard, under the same authorization the dashboard itself enforces.
 
-Export and import SHALL be inverses over the fields the format defines. Fields outside the format SHALL be stated explicitly: database identifiers, timestamps, the dashboard reference number, ownership, access grants and report schedules are not carried, because they name principals and state that need not exist in an importing installation.
+Export and import SHALL be inverses over the fields the format defines. Fields outside the format SHALL be stated explicitly so that "equivalent" is defined.
+
+**Dashboard-level exclusions** (not in the exported definition):
+- `id`, `dashboard_ref` — database and display identifiers, reassigned on import
+- `inserted_at`, `updated_at`, `archived_at` — timestamps
+- `owner_id` — ownership; the importing installation applies its own
+- `visibility`, `status` — operational state set by the importing installation
+
+**Panel-level exclusions** (not in the exported definition):
+- `id`, `dashboard_id` — database identifiers
+- `inserted_at`, `updated_at` — timestamps
+- `builder_state` — transient UI state, reconstructed from the query
+- `field_metadata` — cached display hints, repopulated on load
+- `dataset_key` — inferred by the compiler from the query
+- `refresh_interval_seconds`, `metadata` — installation-local configuration
+
+**Associated collections excluded entirely:** access grants and report schedules reference principals and schedules that may not exist in an importing installation.
 
 #### Scenario: A builder-made dashboard round-trips
 - **GIVEN** a dashboard assembled in the builder with several panels
