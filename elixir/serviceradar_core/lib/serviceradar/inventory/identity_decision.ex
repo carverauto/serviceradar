@@ -8,7 +8,9 @@ defmodule ServiceRadar.Inventory.IdentityDecision do
 
     * `:policy_block` - `MergePolicy` refused a match set (agent-id-only, randomized-MAC-only), or
       a record linked to an allowed conflict only through randomized MACs was left out of the
-      merge (`randomized_mac_link`).
+      merge (`randomized_mac_link`), or a strong-identified record at an address another
+      device holds agreed with it on hostname, which is not identity, and was not adopted
+      (`hostname_agreement_not_identity`).
     * `:guard_block` - a `MergeEngine` guard refused an automatic merge (distinct agent
       identities, provisional topology, the per-pair cooldown).
     * `:source_block` - two records hold different identifiers from one source-authoritative

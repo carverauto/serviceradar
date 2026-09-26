@@ -102,9 +102,18 @@ The holder keeps the address, and the incoming record drops it, in these cases
   also claims the address: neither observation is fresher.
 
 Two further cases adopt the holder's uid instead of moving the address: an
-anchorless provisional seed at the address, and a holder whose hostname agrees.
-Hostname agreement never adopts across two different `armis_device_id` or
-`netbox_device_id` values: those records stay separate devices.
+anchorless provisional seed at the address, and a holder whose hostname agrees,
+under narrow conditions. A hostname is evidence, like the address, never
+identity, so hostname agreement adopts the holder only when the incoming
+record is not yet a device and neither side holds a source-authoritative
+identifier (`armis_device_id`, `netbox_device_id`), with no disagreeing
+hardware serial and no third device claiming either side's identity. It never
+merges two existing devices and never adopts across a source-authoritative
+identifier. When the hostnames agree but adoption is refused, the two stay
+separate devices, the address is decided as above, and the pair is recorded as
+a `policy_block` identity decision (reason `hostname_agreement_not_identity`),
+which opens a de-duplication task for an operator to merge, mark distinct or
+dismiss.
 
 An agent check-in never adopts on hostname: `AgentGatewaySync` adopts a holder
 only when it claims no anchor identifier (agent id, Armis id, MAC, serial, ...)
