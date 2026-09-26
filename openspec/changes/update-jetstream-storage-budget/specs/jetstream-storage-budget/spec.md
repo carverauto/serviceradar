@@ -164,6 +164,22 @@ When the configured value is lower than the stored bytes, the component SHALL ke
 - **THEN** the bucket SHALL keep a `max_bytes` of at least 6 GiB
 - **AND** no stored object SHALL be removed
 
+### Requirement: One owner reconciles each stream shape
+Exactly one component SHALL reconcile the shape (`max_bytes`, replicas, retention) of a given stream. A secondary creator SHALL create the stream only when it is absent and otherwise merge subjects without changing the shape.
+When `bmpCollector.enabled` is true the Helm chart SHALL configure the EventWriter `ARANCINI_CAUSAL` consumer not to reconcile the stream shape, so bmp-collector owns `max_bytes` and replicas. The EventWriter fallback size SHALL apply only when bmp-collector is disabled and EventWriter creates the stream.
+
+#### Scenario: bmp-collector owns the stream
+- **GIVEN** `bmpCollector.enabled: true` with the `medium` profile, so bmp-collector reconciles `ARANCINI_CAUSAL` to 12 GiB
+- **WHEN** EventWriter starts and sets up its `ARANCINI_CAUSAL` consumer
+- **THEN** the stream's `max_bytes` SHALL remain 12 GiB
+- **AND** EventWriter SHALL NOT change its replicas or retention
+
+#### Scenario: EventWriter creates the stream when bmp-collector is disabled
+- **GIVEN** `bmpCollector.enabled: false`
+- **AND** `ARANCINI_CAUSAL` does not exist
+- **WHEN** EventWriter starts
+- **THEN** it SHALL create the stream with the 1 GiB fallback `max_bytes`
+
 ### Requirement: Non-Helm installs ship explicit profile sizes that fit
 Docker Compose SHALL ship one preset file per sizing profile that sets `max_file_store` and every stream size explicitly, and packaged installs SHALL ship the same explicit sizes as a file; the NATS server configuration SHALL read `max_file_store` from them.
 For every preset the worst-case reservation, computed as for the Helm chart with `nats.replicas` equal to 1, SHALL NOT exceed 85% of `max_file_store`.

@@ -109,6 +109,23 @@ setting, never through another component's environment:
 | threat-intel object store | core | a new value under `core` | `SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES` (already read by core `runtime.exs`) |
 | `trivy_reports`, `metrics`, `k8s_inventory`, `analytics_predictions`, `mtr_results`, `scan_results`, `flows` / `ARANCINI_CAUSAL` fallbacks | EventWriter (core) | `core.eventWriter.streams.<name>.maxBytes` | one variable per stream in the core environment |
 
+`flows` and `ARANCINI_CAUSAL` have two possible creators, so exactly one of
+them owns the stream shape (`max_bytes`, replicas, retention) and the other
+creates it only when absent and otherwise merges subjects. The owner is the
+collector when it is enabled and EventWriter when it is not:
+
+- `flows`: EventWriter already runs its `flows` consumers with
+  `reconcile_stream_shape: false`, so it never reconciles the shape;
+  flow-collector owns it when enabled, and the EventWriter fallback size
+  applies only when EventWriter has to create the stream.
+- `ARANCINI_CAUSAL`: EventWriter's consumer defaults to reconciling the shape
+  and sets no size today. When `bmpCollector.enabled` the chart renders the
+  ownership flag into core so that consumer runs with
+  `reconcile_stream_shape: false` (subjects only) and bmp-collector owns
+  `max_bytes` and replicas. The 1 GiB EventWriter fallback applies only when
+  bmp-collector is disabled and EventWriter creates the stream. Without this,
+  EventWriter would cap a 12 GiB `medium` BMP stream at its own fallback.
+
 ### D4. Smaller datasvc defaults
 
 In the default (`small`) profile, `datasvc.bucketMaxBytes` drops 4 GiB ->
@@ -170,7 +187,12 @@ The v1.4.73 shape (26 GiB full, 5.25 GiB R1, three servers, `30G`) needs
 26 + 5.25/3 + 1 = 28.75 GiB against a 23.75 GiB limit, and fails the check,
 as it should.
 
-### D6. Owners reconcile `max_bytes` and never shrink below stored bytes
+### D6. One owner reconciles a stream, and never below stored bytes
+
+Exactly one component owns the shape (`max_bytes`, replicas, retention) of
+each stream and reconciles it; any secondary creator (EventWriter for `flows`
+and `ARANCINI_CAUSAL`, D3) creates the stream only when absent and merges
+subjects without touching the shape.
 
 datasvc (`reconcileStreamConfigLocked`), the otel log-collector and
 EventWriter reconcile `max_bytes` on existing streams. Three owners create
@@ -210,6 +232,9 @@ sharing one server with their own size tables (D8).
   the systemd units load with `EnvironmentFile=`;
   `build/packaging/nats/config/nats-server.conf` reads `max_file_store` from
   it the same way. Moving to `medium` or `large` replaces that file.
+- The Compose and packaged presets carry one `ARANCINI_CAUSAL` key that both
+  bmp-collector and EventWriter read, so the two agree on the size without
+  the Helm ownership flag.
 - Neither install has a PVC. A profile's `max_file_store` is a reservation
   ceiling, so the host needs at least that much free disk for JetStream. This
   raises the Compose and packaged ceiling from today's `10G` to `30G` for

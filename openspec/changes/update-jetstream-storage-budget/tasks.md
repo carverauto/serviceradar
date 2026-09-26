@@ -23,6 +23,10 @@
       `runtime.exs` into `:field_survey_artifact_store`.
 - [ ] 2.5 Expose a `core` value for the threat-intel bucket, rendered as
       `SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES`.
+- [ ] 2.6 EventWriter `ARANCINI_CAUSAL` consumer: honour a
+      `reconcile_stream_shape` setting from the core environment, and have the
+      chart render it `false` whenever `bmpCollector.enabled`; the 1 GiB
+      fallback size applies only when EventWriter creates the stream.
 
 ## 3. Chart budget and profiles (D2, D4, D5, D8)
 
@@ -68,6 +72,11 @@
 - [ ] 4.7 Tests for each owner: an existing unlimited bucket gets the cap when
       its data fits, the cap is held above stored bytes when it does not, and
       an absent bucket is created with the cap.
+- [ ] 4.8 Ownership test: with bmp-collector enabled and `ARANCINI_CAUSAL`
+      sized above the fallback, EventWriter startup leaves `max_bytes` and
+      replicas unchanged (fails on the current default-true behaviour once the
+      fallback size is set); with it disabled EventWriter creates the stream
+      at the fallback size.
 
 ## 5. Compose and packaged installs (D7)
 
