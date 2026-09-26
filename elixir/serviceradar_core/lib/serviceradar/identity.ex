@@ -16,6 +16,7 @@ defmodule ServiceRadar.Identity do
   - `ServiceRadar.Identity.AuthSettings` - Instance-level SSO configuration
   - `ServiceRadar.Identity.AuthorizationSettings` - Default role and role mapping configuration
   - `ServiceRadar.Identity.SAMLConsumedAssertion` - Replay ledger for accepted SAML assertions
+  - `ServiceRadar.Identity.SAMLPendingRequest` - In-flight SAML logins, by RelayState
 
   ## Authentication
 
@@ -50,6 +51,7 @@ defmodule ServiceRadar.Identity do
     resource ServiceRadar.Identity.McpOAuthCode
     resource ServiceRadar.Identity.McpOAuthRefreshToken
     resource ServiceRadar.Identity.SAMLConsumedAssertion
+    resource ServiceRadar.Identity.SAMLPendingRequest
     resource ServiceRadar.Identity.DeviceAliasState
     resource ServiceRadar.Identity.UserGroup
     resource ServiceRadar.Identity.UserGroupMembership

@@ -73,6 +73,22 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(:set_ash_actor)
   end
 
+  # The SAML assertion consumer. The IdP's form POST is a cross-site request: it
+  # carries no Phoenix CSRF token, and under the SameSite=Lax session cookie the
+  # browser usually sends no session either, so `:protect_from_forgery` would
+  # refuse every real login. Forgery protection comes from the server-side,
+  # one-use AuthnRequest bound to RelayState and InResponseTo, plus the
+  # assertion replay ledger (see SAMLController). Also excluded: GatewayAuth and
+  # the current-user plugs, which need a session this request does not have.
+  # The session is still fetched so a successful login can write one.
+  pipeline :saml_acs do
+    plug(:accepts, ["html"])
+    plug(:fetch_session)
+    plug(:fetch_live_flash)
+    plug(:put_secure_browser_headers, %{"content-security-policy" => @csp})
+    plug(SecurityHeaders)
+  end
+
   # Authenticated browser pipeline without content negotiation.
   # Used for binary endpoints where clients may send non-HTML Accept headers.
   pipeline :browser_raw_auth do
@@ -1041,9 +1057,10 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/oidc/callback", OIDCController, :callback)
   end
 
-  # SAML callback — rate limited.
+  # SAML assertion consumer — rate limited, no CSRF token or session required
+  # (see `:saml_acs`).
   scope "/auth", ServiceRadarWebNGWeb do
-    pipe_through([:browser, :rate_limit_auth_saml])
+    pipe_through([:saml_acs, :rate_limit_auth_saml])
 
     post("/saml/consume", SAMLController, :consume)
   end

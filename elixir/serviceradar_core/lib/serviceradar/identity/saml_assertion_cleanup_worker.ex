@@ -1,15 +1,19 @@
 defmodule ServiceRadar.Identity.SAMLAssertionCleanupWorker do
   @moduledoc """
-  Deletes expired rows from the SAML assertion replay ledger
-  (`ServiceRadar.Identity.SAMLConsumedAssertion`).
+  Deletes expired rows from the two SAML login tables:
 
-  A ledger row only matters while its assertion could still be accepted, which
-  the assertion consumer bounds by the assertion's `NotOnOrAfter`. Rows are
-  deleted once `not_on_or_after` is more than `grace_seconds` in the past
-  (default 300). The grace period absorbs clock skew between the web node that
-  validated the assertion and the database clock this sweep compares against:
-  deleting a row while a skewed node still accepts its assertion would reopen
-  the replay window the ledger exists to close.
+  - the assertion replay ledger (`ServiceRadar.Identity.SAMLConsumedAssertion`),
+    once `not_on_or_after` has passed;
+  - SP-initiated logins that were never completed
+    (`ServiceRadar.Identity.SAMLPendingRequest`), once `expires_at` has passed.
+    The assertion consumer rejects an expired pending request anyway; this only
+    reclaims the rows.
+
+  Both use the same cutoff: now minus `grace_seconds` (default 300). The grace
+  period absorbs clock skew between the web node that validated an assertion
+  and the database clock this sweep compares against: deleting a ledger row
+  while a skewed node still accepts its assertion would reopen the replay
+  window the ledger exists to close.
 
   Idempotent and argument-free. Scheduled from the Oban crontab in
   `serviceradar_core_elx/config/runtime.exs` (mirrored in this project's
@@ -25,6 +29,7 @@ defmodule ServiceRadar.Identity.SAMLAssertionCleanupWorker do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.SAMLConsumedAssertion
+  alias ServiceRadar.Identity.SAMLPendingRequest
 
   require Ash.Query
   require Logger
@@ -36,10 +41,17 @@ defmodule ServiceRadar.Identity.SAMLAssertionCleanupWorker do
     cutoff = DateTime.add(DateTime.utc_now(), -grace_seconds(), :second)
     actor = SystemActor.system(:saml_assertion_cleanup)
 
+    consumed = Ash.Query.filter(SAMLConsumedAssertion, expr(not_on_or_after < ^cutoff))
+    pending = Ash.Query.filter(SAMLPendingRequest, expr(expires_at < ^cutoff))
+
+    with :ok <- purge(consumed, actor) do
+      purge(pending, actor)
+    end
+  end
+
+  defp purge(query, actor) do
     result =
-      SAMLConsumedAssertion
-      |> Ash.Query.filter(expr(not_on_or_after < ^cutoff))
-      |> Ash.bulk_destroy(:destroy, %{},
+      Ash.bulk_destroy(query, :destroy, %{},
         actor: actor,
         strategy: [:atomic, :stream],
         return_records?: false,
@@ -51,7 +63,11 @@ defmodule ServiceRadar.Identity.SAMLAssertionCleanupWorker do
         :ok
 
       %Ash.BulkResult{errors: errors} ->
-        Logger.warning("SAMLAssertionCleanupWorker: purge failed", reason: inspect(errors))
+        Logger.warning("SAMLAssertionCleanupWorker: purge failed",
+          resource: inspect(query.resource),
+          reason: inspect(errors)
+        )
+
         {:error, errors}
     end
   end

@@ -10,46 +10,68 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
   ## Flow
 
   1. User clicks "Sign in with SSO" on login page
-  2. App redirects to `/auth/saml`, which stores a RelayState CSRF token and the
-     AuthnRequest ID in the session and redirects to the IdP
+  2. `GET /auth/saml` records the AuthnRequest server-side under a fresh,
+     unguessable RelayState and redirects to the IdP with both
   3. User authenticates at IdP
-  4. IdP POSTs SAML response to `/auth/saml/consume`
-  5. App validates the response, spends the assertion, and creates a session
-  6. User is redirected to the application
+  4. IdP POSTs the SAML response and RelayState to `/auth/saml/consume`
+  5. App takes the pending request for that RelayState, validates the response
+     against it, spends the assertion, and creates a session
+  6. User is redirected to where they were going when the login started
 
-  ## Security
+  ## The ACS does not use the browser session
 
-  - The response is parsed with DTDs disabled (`SAMLXml`) and its signature is
-    verified against the signing certificates in the IdP metadata, honouring
-    certificate pinning (`SAMLResponse`)
-  - The assertion must carry an `ID`, an `Issuer` and a bounded `Conditions`
-    window, and match the expected issuer, audience and recipient
-    (`SAMLAssertionValidator`)
-  - **Request binding.** The AuthnRequest ID is kept in the (signed, encrypted)
-    session cookie next to the RelayState CSRF token, for
-    `:saml_authn_request_ttl_seconds` (default 600). The bearer
-    `SubjectConfirmationData/@InResponseTo` must equal it, as must the
-    `Response/@InResponseTo` when present. Both are removed from the session on
-    the first consume attempt, whatever its outcome, so a request ID answers at
-    most one response.
-  - **IdP-initiated (unsolicited) responses are rejected** unless
-    `config :serviceradar_web_ng, :saml_allow_idp_initiated, true` is set. That
-    setting is off by default because an unsolicited response has no request or
-    CSRF token to bind to, which allows login CSRF. When it is enabled, only a
-    browser with no pending SP-initiated request can use it, the assertion must
-    not name any `InResponseTo`, RelayState is ignored, and every other check,
-    including replay protection, still applies.
+  The IdP's POST to `/auth/saml/consume` is a cross-site form submission. It
+  carries no Phoenix CSRF token, and with the `SameSite=Lax` session cookie the
+  browser usually sends no session with it either. The route therefore runs in
+  the `:saml_acs` pipeline, without `:protect_from_forgery`, and nothing here
+  reads the session. Security rests on four checks instead:
+
+  - **Signature.** The response is parsed with DTDs disabled (`SAMLXml`) and
+    its signature is verified against the signing certificates in the IdP
+    metadata, honouring certificate pinning (`SAMLResponse`).
+  - **Assertion content.** It must carry an `ID`, an `Issuer` and a bounded
+    `Conditions` window containing now, and match the expected issuer,
+    audience and recipient (`SAMLAssertionValidator`).
+  - **One-use request binding.** `GET /auth/saml` stores
+    `ServiceRadar.Identity.SAMLPendingRequest` rows keyed by a hash of a
+    256-bit RelayState, valid for `:saml_authn_request_ttl_seconds` (default
+    600). The consumer deletes the row for the posted RelayState in one atomic
+    statement, so a RelayState answers at most one response; an unknown, used
+    or expired one is rejected. The bearer
+    `SubjectConfirmationData/@InResponseTo` must then equal the stored request
+    ID, as must `Response/@InResponseTo` when present.
   - **Replay protection.** Each accepted assertion is recorded as
     `(issuer, assertion ID)` in `ServiceRadar.Identity.SAMLConsumedAssertion`
     before any user is looked up or a session is created. A second submission of
     the same assertion conflicts on the unique identity and is rejected, on any
     web node. A failure to record fails closed.
+
+  What the session used to add, and no longer can: proof that the browser
+  posting the response is the one that started the login. Someone who starts a
+  login, authenticates as themselves and gets a victim's browser to post the
+  result can sign the victim into the attacker's account (login CSRF). The
+  RelayState binding keeps that to responses the attacker obtained for their own
+  request, within the TTL, once.
+
+  The return path is taken from the session when the login starts, stored on
+  the pending request, and passed through `UserAuth.log_in_user/3`'s
+  same-origin sanitizer. Nothing in the POST chooses it.
+
+  ## IdP-initiated (unsolicited) responses
+
+  Rejected unless `config :serviceradar_web_ng, :saml_allow_idp_initiated,
+  true` is set; it is off by default because an unsolicited response has no
+  request to bind to. When it is enabled, a response whose RelayState matches
+  no pending request (or that has none) is treated as unsolicited: it must not
+  name any `InResponseTo`, it lands on the default page, and every other check,
+  including replay protection, still applies.
   """
 
   use ServiceRadarWebNGWeb, :controller
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.SAMLConsumedAssertion
+  alias ServiceRadar.Identity.SAMLPendingRequest
   alias ServiceRadar.Security.Lockouts
   alias ServiceRadarWebNG.Audit.UserAuthEvents
   alias ServiceRadarWebNG.Auth.Hooks
@@ -69,16 +91,13 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
   # Rate limiting for `consume` happens at the
   # `:rate_limit_auth_saml` pipeline (router.ex).
 
-  @csrf_session_key :saml_csrf_token
-  @request_session_key :saml_authn_request
   @default_authn_request_ttl_seconds 600
 
   # Failures that mean "this browser did not start this login" rather than "the
   # IdP's response was bad"; they share the invalid-request message.
   @request_binding_failures [
-    :csrf_validation_failed,
     :unsolicited_response,
-    :missing_authn_request,
+    :unknown_relay_state,
     :authn_request_expired
   ]
 
@@ -89,24 +108,18 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
   @doc """
   Initiates SAML authentication by redirecting to the IdP.
 
-  Stores a CSRF token (also sent as RelayState) and the AuthnRequest ID in the
-  session; `consume/2` requires both.
+  Records the AuthnRequest server-side under a fresh RelayState (see the
+  moduledoc); `consume/2` requires that RelayState back.
   """
   def request(conn, _params) do
     if SAMLStrategy.enabled?() do
-      csrf_token = generate_csrf_token()
+      relay_state = generate_relay_state()
       request_id = generate_request_id()
 
-      case get_saml_request_url(csrf_token, request_id) do
-        {:ok, url} ->
-          conn
-          |> put_session(@csrf_session_key, csrf_token)
-          |> put_session(@request_session_key, %{
-            "id" => request_id,
-            "issued_at" => System.system_time(:second)
-          })
-          |> redirect(external: url)
-
+      with {:ok, url} <- get_saml_request_url(relay_state, request_id),
+           :ok <- open_pending_request(relay_state, request_id, get_session(conn, :user_return_to)) do
+        redirect(conn, external: url)
+      else
         {:error, reason} ->
           Logger.error("Failed to initiate SAML auth: #{inspect(reason)}")
 
@@ -121,7 +134,8 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
     end
   end
 
-  defp generate_csrf_token do
+  # 256 bits, URL-safe, 43 characters (SAML caps RelayState at 80 bytes).
+  defp generate_relay_state do
     32 |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false)
   end
 
@@ -130,27 +144,28 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
     "_" <> Base.encode16(:crypto.strong_rand_bytes(16), case: :lower)
   end
 
+  defp open_pending_request(relay_state, request_id, return_to) do
+    expires_at = DateTime.add(DateTime.utc_now(), authn_request_ttl_seconds(), :second)
+    # An unusable path is dropped rather than failing the login.
+    return_to = if is_binary(return_to) and byte_size(return_to) <= 2048, do: return_to
+
+    case SAMLPendingRequest.open(relay_state, request_id, expires_at, %{return_to: return_to},
+           actor: SystemActor.system(:saml_controller)
+         ) do
+      {:ok, _pending} -> :ok
+      {:error, reason} -> {:error, {:pending_request_not_stored, reason}}
+    end
+  end
+
   @doc """
   Assertion Consumer Service (ACS) endpoint.
 
-  Receives and validates SAML responses from the IdP. The pending request
-  (CSRF token and AuthnRequest ID) is taken out of the session before anything
-  else, so it can be used at most once.
+  Receives and validates SAML responses from the IdP. Reads nothing from the
+  browser session; the posted RelayState selects the server-side pending
+  request, which is consumed before the response is looked at.
   """
   def consume(conn, params) do
-    stored_csrf_token = get_session(conn, @csrf_session_key)
-    pending_request = get_session(conn, @request_session_key)
-
-    conn =
-      conn
-      |> delete_session(@csrf_session_key)
-      |> delete_session(@request_session_key)
-
-    # RelayState carries the CSRF token and an optional return URL.
-    {csrf_token, return_to} = parse_relay_state(params["RelayState"])
-
-    with {:ok, expected_request, return_to} <-
-           expected_request(stored_csrf_token, pending_request, csrf_token, return_to),
+    with {:ok, expected_request, return_to} <- take_pending_request(params["RelayState"]),
          {:ok, saml_response} <- fetch_saml_response(params),
          {:ok, config} <- SAMLStrategy.get_config(),
          {:ok, assertion} <- validate_saml_response(saml_response, config, expected_request),
@@ -161,36 +176,29 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
     end
   end
 
-  defp expected_request(nil, nil, _csrf_token, _return_to) do
-    if allow_idp_initiated?() do
-      {:ok, :unsolicited, nil}
-    else
-      {:error, :unsolicited_response}
+  defp take_pending_request(relay_state) when is_binary(relay_state) and relay_state != "" do
+    case SAMLPendingRequest.take(relay_state, actor: SystemActor.system(:saml_controller)) do
+      {:ok, %SAMLPendingRequest{} = pending} ->
+        if DateTime.before?(DateTime.utc_now(), pending.expires_at) do
+          {:ok, pending.request_id, pending.return_to}
+        else
+          {:error, :authn_request_expired}
+        end
+
+      {:ok, nil} ->
+        unsolicited_or(:unknown_relay_state)
+
+      {:error, reason} ->
+        Logger.error("Failed to look up SAML pending request: #{inspect(reason)}")
+        {:error, :authn_request_lookup_failed}
     end
   end
 
-  defp expected_request(stored_csrf_token, pending_request, csrf_token, return_to) do
-    if valid_saml_csrf_token?(csrf_token, stored_csrf_token) do
-      with {:ok, request_id} <- pending_request_id(pending_request) do
-        {:ok, request_id, return_to}
-      end
-    else
-      {:error, :csrf_validation_failed}
-    end
+  defp take_pending_request(_relay_state), do: unsolicited_or(:unsolicited_response)
+
+  defp unsolicited_or(reason) do
+    if allow_idp_initiated?(), do: {:ok, :unsolicited, nil}, else: {:error, reason}
   end
-
-  defp pending_request_id(%{"id" => request_id, "issued_at" => issued_at})
-       when is_binary(request_id) and request_id != "" and is_integer(issued_at) do
-    age = System.system_time(:second) - issued_at
-
-    if age >= 0 and age <= authn_request_ttl_seconds() do
-      {:ok, request_id}
-    else
-      {:error, :authn_request_expired}
-    end
-  end
-
-  defp pending_request_id(_pending_request), do: {:error, :missing_authn_request}
 
   defp fetch_saml_response(%{"SAMLResponse" => saml_response}) when is_binary(saml_response) and saml_response != "",
     do: {:ok, saml_response}
@@ -228,25 +236,6 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
     |> redirect(to: ~p"/users/log-in")
   end
 
-  # Parse RelayState to extract CSRF token and optional return URL
-  # Format: "csrf_token" or "csrf_token|return_url"
-  defp parse_relay_state(nil), do: {nil, nil}
-  defp parse_relay_state(""), do: {nil, nil}
-
-  defp parse_relay_state(relay_state) do
-    case String.split(relay_state, "|", parts: 2) do
-      [token, return_url] -> {token, return_url}
-      [token] -> {token, nil}
-    end
-  end
-
-  defp valid_saml_csrf_token?(csrf_token, stored_csrf_token)
-       when is_binary(csrf_token) and is_binary(stored_csrf_token) do
-    Plug.Crypto.secure_compare(csrf_token, stored_csrf_token)
-  end
-
-  defp valid_saml_csrf_token?(_csrf_token, _stored_csrf_token), do: false
-
   defp authn_request_ttl_seconds do
     case Application.get_env(:serviceradar_web_ng, :saml_authn_request_ttl_seconds) do
       seconds when is_integer(seconds) and seconds > 0 -> seconds
@@ -273,7 +262,7 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
 
   # Private functions
 
-  defp get_saml_request_url(csrf_token, request_id) do
+  defp get_saml_request_url(relay_state, request_id) do
     with {:ok, config} <- SAMLStrategy.get_config(),
          {:xml, xml} <- config.idp_metadata,
          {:ok, sso_url} <- SAMLMetadata.sso_redirect_url(xml),
@@ -284,7 +273,7 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
       query =
         URI.encode_query(%{
           "SAMLRequest" => authn_request |> :zlib.zip() |> Base.encode64(),
-          "RelayState" => csrf_token
+          "RelayState" => relay_state
         })
 
       separator = if String.contains?(sso_url, "?"), do: "&", else: "?"
@@ -383,7 +372,7 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
 
   defp unique_violation?(_error), do: false
 
-  defp handle_successful_assertion(conn, assertion, config, relay_state) do
+  defp handle_successful_assertion(conn, assertion, config, return_to) do
     actor = SystemActor.system(:saml_controller)
 
     # Extract user info from assertion
@@ -396,8 +385,8 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
 
       _ = UserAuthEvents.record_login(conn, user, :saml)
 
-      # Determine redirect destination
-      return_to = relay_state || ~p"/dashboard"
+      # The stored path from the pending request; log_in_user/3 keeps it same-origin.
+      return_to = return_to || ~p"/dashboard"
 
       identity_claims =
         user_info.attributes

@@ -325,8 +325,8 @@ config :serviceradar_web_ng, :plugin_verification,
 config :serviceradar_web_ng, :saml_allow_idp_initiated, false
 config :serviceradar_web_ng, :saml_assertion_max_validity_seconds, 300
 
-# How long an SP-initiated SAML login may take at the IdP: the AuthnRequest ID
-# stored in the session is only accepted as an InResponseTo for this long.
+# How long an SP-initiated SAML login may take at the IdP: the pending
+# AuthnRequest stored under its RelayState (SAMLPendingRequest) expires after this.
 config :serviceradar_web_ng, :saml_authn_request_ttl_seconds, 600
 
 config :serviceradar_web_ng, :scopes,
