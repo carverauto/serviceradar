@@ -733,6 +733,7 @@ mod tests {
             cursor: None,
             direction: QueryDirection::Next,
             mode: Some("starrocks".into()),
+            permitted_signals: None,
         };
         build_query_plan(&config, &request, parser::parse(query).expect("parse")).expect("plan")
     }

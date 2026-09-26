@@ -69,6 +69,7 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
   alias ServiceRadar.EventWriter.IngestAttribution
   alias ServiceRadar.EventWriter.OtelId
   alias ServiceRadar.EventWriter.OtlpAttributes
+  alias ServiceRadar.EventWriter.ServiceCatalog
   alias ServiceRadar.EventWriter.SignalTelemetry
   alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
   alias ServiceRadar.Observability.OtelPubSub
@@ -142,6 +143,8 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
     SignalTelemetry.emit(:traces, :written, count)
     OtelPubSub.broadcast_traces(%{count: count})
     if count > 0, do: request_summary_refresh()
+    # Best-effort catalog upsert after the spans are durable; never fails the batch.
+    _ = ServiceCatalog.record(:traces, rows)
     {:ok, count}
   end
 

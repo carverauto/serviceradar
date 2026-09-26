@@ -28,6 +28,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   alias ServiceRadar.EventWriter.IngestAttribution
   alias ServiceRadar.EventWriter.LogSeverity
   alias ServiceRadar.EventWriter.OtelId
+  alias ServiceRadar.EventWriter.ServiceCatalog
   alias ServiceRadar.EventWriter.SignalTelemetry
   alias ServiceRadar.EventWriter.StableId
   alias ServiceRadar.Observability.LogPromotion
@@ -146,8 +147,15 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     cond do
       match?({:error, _}, shadow) -> shadow
       match?({:error, _}, promotion) -> promotion
-      true -> {:ok, count}
+      true -> record_services(rows, count)
     end
+  end
+
+  # After the batch is durable in every destination this mode requires (CNPG,
+  # plus StarRocks when logs are cut over). Best-effort: never fails the batch.
+  defp record_services(rows, count) do
+    _ = ServiceCatalog.record(:logs, rows)
+    {:ok, count}
   end
 
   defp parse_log_payload({:ok, json}, _data, metadata) do

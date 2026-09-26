@@ -35,6 +35,7 @@ async fn query_ok(harness: &SrqlTestHarness, query: &str) -> serde_json::Value {
             cursor: None,
             direction: QueryDirection::Next,
             mode: None,
+            permitted_signals: None,
         })
         .await;
     let (status, body) = read_json(response).await;
@@ -226,6 +227,7 @@ async fn check_mtr_traces_query_contract(harness: &SrqlTestHarness) {
                 cursor,
                 direction: QueryDirection::Next,
                 mode: None,
+                permitted_signals: None,
             })
             .await;
         let (status, body) = read_json(response).await;
@@ -256,6 +258,7 @@ async fn check_mtr_traces_query_contract(harness: &SrqlTestHarness) {
             cursor,
             direction: QueryDirection::Next,
             mode: None,
+            permitted_signals: None,
         })
         .await;
     let (exhausted_status, exhausted_body) = read_json(exhausted_response).await;
@@ -431,6 +434,7 @@ async fn check_logs_severity_topn_paginates_by_effective_timestamp(harness: &Srq
                 cursor,
                 direction: QueryDirection::Next,
                 mode: None,
+                permitted_signals: None,
             })
             .await;
         let (status, body) = read_json(response).await;
@@ -470,6 +474,7 @@ async fn check_logs_severity_topn_paginates_by_effective_timestamp(harness: &Srq
             cursor,
             direction: QueryDirection::Next,
             mode: None,
+            permitted_signals: None,
         })
         .await;
     let (exhausted_status, exhausted_body) = read_json(exhausted_response).await;
@@ -486,6 +491,7 @@ async fn check_devices_inventory_query_matches_fixture(harness: &SrqlTestHarness
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = harness.query(request).await;
@@ -534,6 +540,7 @@ async fn check_invalid_field_returns_400(harness: &SrqlTestHarness) {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = harness.query(request).await;
@@ -553,6 +560,7 @@ async fn check_missing_api_key_returns_401(harness: &SrqlTestHarness) {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = harness.query_without_api_key(request).await;
@@ -577,6 +585,7 @@ async fn check_device_graph_query_returns_neighborhood(harness: &SrqlTestHarness
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = harness.query(request).await;
@@ -677,6 +686,7 @@ async fn check_device_graph_query_returns_neighborhood(harness: &SrqlTestHarness
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let filtered_response = harness.query(filtered_request).await;
@@ -711,6 +721,7 @@ async fn check_device_graph_query_rejects_invalid_device_id(harness: &SrqlTestHa
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = harness.query(request).await;
@@ -735,6 +746,7 @@ async fn check_timeseries_metrics_query_returns_rows(harness: &SrqlTestHarness) 
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = harness.query(request).await;
@@ -763,6 +775,7 @@ async fn check_timeseries_other_rollup_returns_tail_row(harness: &SrqlTestHarnes
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = harness.query(request).await;
@@ -789,6 +802,7 @@ async fn check_timeseries_metrics_profile_hour_of_week(harness: &SrqlTestHarness
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = harness.query(request).await;
@@ -849,6 +863,7 @@ async fn check_snmp_metrics_alias_filters_metric_type(harness: &SrqlTestHarness)
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = harness.query(request).await;
@@ -876,6 +891,7 @@ async fn check_virtualization_inventory_queries(harness: &SrqlTestHarness) {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = harness.query(hosts).await;
@@ -897,6 +913,7 @@ async fn check_virtualization_inventory_queries(harness: &SrqlTestHarness) {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = harness.query(guests).await;
@@ -918,6 +935,7 @@ async fn check_virtualization_inventory_queries(harness: &SrqlTestHarness) {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = harness.query(datastores).await;
@@ -938,6 +956,7 @@ async fn check_virtualization_inventory_queries(harness: &SrqlTestHarness) {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = harness.query(guest_nics).await;
@@ -962,6 +981,7 @@ async fn check_virtualization_inventory_queries(harness: &SrqlTestHarness) {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = harness.query(ceph).await;
@@ -980,6 +1000,7 @@ async fn check_rperf_metrics_queries_still_work(harness: &SrqlTestHarness) {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = harness.query(request).await;

@@ -274,6 +274,7 @@ mod tests {
             cursor: None,
             direction: Default::default(),
             mode: None,
+            permitted_signals: None,
         };
         let ast = parser::parse(query).expect("parse public_endpoints query");
         build_query_plan(

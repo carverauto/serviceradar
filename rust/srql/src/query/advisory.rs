@@ -486,6 +486,7 @@ pub(super) fn plan_for_query(query: &str) -> QueryPlan {
         cursor: None,
         direction: Default::default(),
         mode: None,
+        permitted_signals: None,
     };
     let ast = parser::parse(query).expect("parse advisory query");
     super::build_query_plan(

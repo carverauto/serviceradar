@@ -106,6 +106,7 @@ fn short_old_cpu_stats_window_translates_to_cagg_source() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("old short window should translate");
@@ -135,6 +136,7 @@ fn short_old_timeseries_downsample_translates_to_cagg_source() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response =
@@ -160,6 +162,7 @@ fn aggregate_metric_query_allows_one_year_timeframe() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let plan = build_query_plan(&config, &request, ast)
@@ -183,6 +186,7 @@ fn plain_metric_query_still_rejects_one_year_timeframe() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let err = build_query_plan(&config, &request, ast)
@@ -230,6 +234,7 @@ fn cpu_stats_without_group_by_translates_and_routes_to_cagg() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response =
@@ -262,6 +267,7 @@ fn cpu_stats_without_alias_translates_and_routes_to_cagg() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response =

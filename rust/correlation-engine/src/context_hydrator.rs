@@ -168,6 +168,7 @@ impl ContextHydrator {
             cursor: None,
             direction: QueryDirection::default(),
             mode: None,
+            permitted_signals: None,
         };
 
         let response =

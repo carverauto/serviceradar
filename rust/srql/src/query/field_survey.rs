@@ -780,6 +780,7 @@ mod tests {
                 cursor: None,
                 direction: Default::default(),
                 mode: None,
+                permitted_signals: None,
             },
         )
         .unwrap()
@@ -819,6 +820,7 @@ mod tests {
                 cursor: None,
                 direction: Default::default(),
                 mode: None,
+                permitted_signals: None,
             },
         )
         .unwrap();
@@ -863,6 +865,7 @@ mod tests {
                 cursor: None,
                 direction: Default::default(),
                 mode: None,
+                permitted_signals: None,
             },
         );
 

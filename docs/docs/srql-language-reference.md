@@ -305,6 +305,8 @@ fields; using a field that the entity does not support returns an
 | `rperf_metrics` | `rperf` | rperf network performance metrics (shares the time-series schema) |
 | `otel_metrics` | `metrics` | OpenTelemetry span-derived metrics |
 | `traces` | `otel_traces`, `trace_spans` | OpenTelemetry trace spans |
+| `otel_trace_summaries` | `trace_summaries`, `traces_summaries` | One row per trace. `service_name` matches any participating span (`service_set`). |
+| `otel_services` | — | Catalog of OTel `service.name` values that reported logs, traces or metrics (not monitored service checks; see `services`). Requires at least one of `observability.logs.view`, `observability.traces.view`, `observability.metrics.view`. |
 | `composite_results` | `composite_check_results`, `composite_verdicts` | Composite-check evaluations. Row queries return per-device verdicts; `stats:count()` groups by check / verdict / vantage (`input_*`). |
 | `endpoint_packages` | `endpoint_package`, `packages`, `endpoint_inventory` | Current and historical endpoint software inventory (installed packages, CPE arrays) |
 | `vulnerability_advisories` | `advisories`, `cves`, `vulnerability_advisory` | NVD/KEV advisory catalog. Default `current:true`. |
@@ -812,6 +814,37 @@ Sortable fields: `timestamp`, `service_name` / `service`, `metric_type` / `type`
 
 Sortable fields: `timestamp`, `start_time_unix_nano`, `end_time_unix_nano`,
 `service_name`.
+
+### otel_trace_summaries
+
+`service_name` matches a trace when any participating span (`service_set`) has that
+service, not only the root span. Use an exact name (`service_name:checkout`) or a list
+(`service_name:(checkout,cart)`); `!service_name:` also matches traces with no recorded
+service set. `%` wildcards are rejected on this field; use `root_service_name` for pattern
+matches.
+
+### otel_services
+
+`in:otel_services` reads the service catalog that EventWriter maintains from persisted
+logs, traces and metrics. It is best-effort and throttled, and entries expire after 30
+days without activity. The catalog is CNPG state in every storage mode.
+
+| Field | Description |
+|-------|-------------|
+| `service_name` | Service name; supports `%` wildcards |
+| `signal` | `logs`, `traces` or `metrics`; a list is allowed, a repeated or negated `signal:` is rejected |
+
+Rows carry `signals` and per-signal last-seen timestamps (`logs_last_seen`,
+`traces_last_seen`, `metrics_last_seen`) plus `last_seen`. All of them are derived only
+from the signals the caller may view: without `signal:` the query covers every permitted
+signal, and requesting a signal the caller cannot view is forbidden (403). Sortable
+fields: `service_name`, `last_seen` (default, descending). The default limit is 50 and the
+maximum is 500. `stats:"count() as total"` is the only aggregation. The standalone SRQL
+server rejects this entity because it cannot resolve the caller's permitted signals.
+
+```text
+in:otel_services signal:traces service_name:%pay% sort:last_seen:desc limit:50
+```
 
 ### endpoint_packages
 

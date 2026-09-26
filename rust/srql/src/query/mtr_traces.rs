@@ -477,6 +477,7 @@ mod tests {
             cursor: None,
             direction: crate::query::QueryDirection::Next,
             mode: None,
+            permitted_signals: None,
         };
         let ast = parse(query).expect("query should parse");
         build_query_plan(config.as_ref(), &request, ast).expect("query plan should build")

@@ -360,6 +360,7 @@ pub(super) mod tests_support {
             cursor: None,
             direction: Default::default(),
             mode: None,
+            permitted_signals: None,
         };
         let ast = parser::parse(query).expect("parse identity query");
         build_query_plan(

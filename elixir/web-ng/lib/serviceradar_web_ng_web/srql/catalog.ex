@@ -1240,6 +1240,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       default_filter_field: "trace_id",
       filter_fields: [
         "trace_id",
+        # Matches any participating span (`service_set`), not only the root.
+        # Exact names and lists only: SRQL rejects `%` wildcards on this field.
+        "service_name",
         "root_service_name",
         "root_span_name",
         "error_count",
@@ -1294,6 +1297,25 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "ingest_partition"
       ],
       numeric_fields: ["status_code"],
+      downsample: false
+    },
+    %{
+      # Catalog of OTel `service.name` values that reported logs, traces or
+      # metrics -- not monitored service checks (`in:services`). Access is the
+      # any-of `observability.{logs,traces,metrics}.view` set; `signal:` is
+      # intersected with the caller's permitted signals by SRQL itself.
+      id: "otel_services",
+      label: "OTel Services",
+      route: "/observability/logs",
+      route_params: %{},
+      default_time: "",
+      default_sort_field: "last_seen",
+      default_sort_dir: "desc",
+      default_filter_field: "service_name",
+      filter_fields: ["service_name", "signal"],
+      known_values: %{"signal" => ["logs", "traces", "metrics"]},
+      array_fields: ["signals"],
+      timestamp_fields: ["last_seen", "logs_last_seen", "traces_last_seen", "metrics_last_seen"],
       downsample: false
     },
     %{

@@ -784,6 +784,7 @@ async fn comprehensive_queries_match_fixtures() {
                 cursor: None,
                 direction: QueryDirection::Next,
                 mode: None,
+                permitted_signals: None,
             };
 
             let response = harness.query(request).await;
