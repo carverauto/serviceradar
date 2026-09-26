@@ -239,8 +239,12 @@ later; the chart runs 2.14) under the key `serviceradar.owner`:
    `STREAM.UPDATE`; it never tears down or resubscribes a consumer. The clock is
    read through an injectable source. The first-seen time lives in process
    state, so a restart resets it, which can only delay convergence by up to one
-   grace period and never evicts early. A tick that finds a collector claim
-   drops the stream from its watch list.
+   grace period and never evicts early. The timer watches every multi-owner
+   stream the EventWriter consumes for the life of the process and never drops
+   one. Each tick applies the rules to what it reads: a stream claimed by
+   `event-writer` has its shape reconciled if it drifted, a stream claimed by a
+   collector only has its subjects merged, and an unclaimed stream goes through
+   the grace-period logic above.
 
    The race this closes is the upgrade restart. On an install with
    flow-collector enabled and a legacy 10 GiB `flows` created by EventWriter,
@@ -266,10 +270,12 @@ later; the chart runs 2.14) under the key `serviceradar.owner`:
 4. Disabling a collector after it claimed a stream leaves the claim and the
    stream at the collector's size: nothing reconciles it. The runbook
    (`docs/nats-jetstream-profile-runbook.md`) documents a one-line reclaim,
-   `nats stream edit <STREAM>` setting `serviceradar.owner` to `event-writer`
-   or removing it (the exact flag is confirmed against the nats CLI in the
-   implementation), after which EventWriter reconciles the stream to the
-   fallback. Until then the stream keeps its collector reservation, and the
+   `nats stream edit <STREAM>` (the exact flag is confirmed against the nats
+   CLI in the implementation). Setting `serviceradar.owner` to `event-writer`
+   takes effect at EventWriter's next ownership tick, with no grace period and
+   no core restart, and EventWriter then reconciles the stream to the fallback;
+   removing the claim instead starts the grace period. Until then the stream
+   keeps its collector reservation, and the
    render check (D5) and the Compose and packaged budget (D7) already count
    `flows` and `ARANCINI_CAUSAL` at the collector size regardless of whether
    the collector is enabled.

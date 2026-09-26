@@ -193,7 +193,8 @@ Exactly one component SHALL reconcile the shape (`max_bytes`, replicas, retentio
 When its dedicated component runs it SHALL set `serviceradar.owner` to its own name on its stream, creating the stream when absent, and reconcile the shape; that claim SHALL override an `event-writer` claim.
 EventWriter SHALL claim only streams it creates. It SHALL create `events`, `flows` and `ARANCINI_CAUSAL` when absent with `serviceradar.owner` set to `event-writer` and the fallback size and replicas from `SERVICERADAR_JS_<STREAM>_FALLBACK_MAX_BYTES` and `_FALLBACK_REPLICAS`, never unlimited, and it SHALL reconcile a stream it claimed. It SHALL merge subjects only, never overriding the claim, when another component holds it.
 A stream created before this change has no metadata. EventWriter SHALL merge subjects only on such a stream and SHALL NOT change its shape until the stream has stayed unclaimed for a grace period of 15 minutes by default; only then SHALL it set `serviceradar.owner` to `event-writer` and reconcile the shape.
-EventWriter SHALL check this with an ownership reconcile timer, a periodic tick in its producer, every 5 minutes by default and configurable, that re-reads each multi-owner stream it consumes, records in process state when it first saw the stream unclaimed, and applies the claim rule. The timer SHALL only issue stream updates and SHALL NOT tear down or resubscribe a consumer, and it SHALL be distinct from the retry of consumers that failed to set up. A restart SHALL reset the recorded time, which can delay convergence but SHALL NOT cause an early claim. A dedicated component SHALL claim a legacy stream as soon as it starts, without waiting. EventWriter SHALL re-read the stream immediately before its claim update and skip the update if any claim has appeared.
+EventWriter SHALL check this with an ownership reconcile timer, a periodic tick in its producer, every 5 minutes by default and configurable, that re-reads each multi-owner stream it consumes, records in process state when it first saw the stream unclaimed, and applies the claim rule. The timer SHALL only issue stream updates and SHALL NOT tear down or resubscribe a consumer, and it SHALL be distinct from the retry of consumers that failed to set up. A restart SHALL reset the recorded time, which can delay convergence but SHALL NOT cause an early claim.
+The timer SHALL watch every multi-owner stream the EventWriter consumes for the life of the process. On each tick it SHALL reconcile the shape of a stream claimed by `event-writer` if it drifted, merge subjects only on a stream claimed by a collector, and apply the grace period to an unclaimed stream, so a reclaim takes effect within one tick on a running install. A dedicated component SHALL claim a legacy stream as soon as it starts, without waiting. EventWriter SHALL re-read the stream immediately before its claim update and skip the update if any claim has appeared.
 When a collector is disabled after claiming a stream, the claim and the stream size SHALL remain until an operator reclaims it, and the runbook SHALL document the reclaim. The render-time budget and the non-Helm preset budget SHALL count `flows` and `ARANCINI_CAUSAL` at the collector size whether or not the collector is enabled.
 An ownership test SHALL exercise the EventWriter claim decision, with an injected clock, for each of `events`, `flows` and `ARANCINI_CAUSAL` with no claim inside and after the grace period, an `event-writer` claim and a collector claim, including a restart that resets the clock, and SHALL fail if EventWriter reconciles the shape of a stream claimed by another component or of a legacy stream inside the grace period. Behaviour of the Go and Rust owners is covered by each owner's own tests.
 
@@ -256,10 +257,19 @@ An ownership test SHALL exercise the EventWriter claim decision, with an injecte
 
 #### Scenario: Collector disabled after claiming
 - **GIVEN** `ARANCINI_CAUSAL` is claimed by `bmp-collector` at 12 GiB and bmp-collector is then disabled
-- **WHEN** EventWriter starts
+- **WHEN** EventWriter starts and its ownership timer ticks
 - **THEN** the stream SHALL remain at 12 GiB
 - **AND** the budget SHALL already have counted it at the collector size
-- **AND** the runbook reclaim SHALL make EventWriter reconcile it to the fallback
+
+#### Scenario: Reclaim by setting the owner
+- **GIVEN** `ARANCINI_CAUSAL` is claimed by `bmp-collector` at 12 GiB, bmp-collector is disabled, and EventWriter is running
+- **WHEN** an operator sets `serviceradar.owner` to `event-writer` with the runbook command
+- **THEN** at the next ownership timer tick, with no grace period and no core restart, EventWriter SHALL reconcile the stream to the fallback
+
+#### Scenario: Reclaim by removing the claim
+- **GIVEN** the same stream and an operator who removes `serviceradar.owner`
+- **WHEN** the ownership timer ticks
+- **THEN** EventWriter SHALL treat the stream as unclaimed and start the grace period, and SHALL claim and reconcile it only after the grace period
 
 #### Scenario: EventWriter claim decision is safe
 - **GIVEN** each of `events`, `flows` and `ARANCINI_CAUSAL` with no claim, an `event-writer` claim and a collector claim

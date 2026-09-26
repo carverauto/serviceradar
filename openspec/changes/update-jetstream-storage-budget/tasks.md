@@ -98,27 +98,34 @@
       legacy stream with no metadata merge subjects only, and claim and
       reconcile it only after it has stayed unclaimed for the grace period (15
       minutes by default, configurable), re-reading the stream immediately
-      before the claim update and skipping it if a claim has appeared.
+      before the claim update and skipping it if a claim has appeared. Replaces
+      the `reconcile_stream_shape` default for these consumers (`SFLOW_RAW`,
+      `NETFLOW_RAW`, `ARANCINI_CAUSAL`, and the `events` consumers `EVENTS`,
+      `PDNS_OCSF`, `FALCO`, `OTEL_*`, `LOGS`, `BMP_CAUSAL`, `SIEM_CAUSAL`,
+      `ATTRIBUTED_FLOW`). Tests with an injected clock: a legacy 10 GiB `flows`
+      with no collector is left unchanged inside the grace period and
+      converges to the fallback and is claimed after it; a collector that
+      claims inside the window is never overridden and nothing is evicted; a
+      collector-claimed stream is left unchanged; the pre-update re-read skips
+      a claim that appeared; starting first creates the stream at the fallback
+      size, not unlimited.
 - [ ] 4.8a Ownership reconcile timer in `Producer` (D6): a new periodic tick
       (5 minutes by default, configurable), separate from the fetch tick, the
-      reconnect retry and the D1 failed-consumer retries. Each tick re-reads
-      `STREAM.INFO` for `events`, `flows` and `ARANCINI_CAUSAL` and applies the
-      claim rule, recording in process state when it first saw each stream
-      unclaimed (a restart resets it, delaying convergence and never claiming
-      early). It only issues `STREAM.UPDATE` and never tears down or
-      resubscribes a consumer; the clock is injectable. Test with an injected
-      clock: claim and converge after the grace period; no claim when a
-      collector claims within the grace period; a restart resets the clock; no
-      consumer restart on any tick. Replaces the `reconcile_stream_shape` default for these consumers
-      (`SFLOW_RAW`, `NETFLOW_RAW`, `ARANCINI_CAUSAL`, and the `events`
-      consumers `EVENTS`, `PDNS_OCSF`, `FALCO`, `OTEL_*`, `LOGS`, `BMP_CAUSAL`,
-      `SIEM_CAUSAL`, `ATTRIBUTED_FLOW`). Tests with an injected clock: a legacy
-      10 GiB `flows` with no collector is left unchanged inside the grace
-      period and converges to the fallback and is claimed after it; a
-      collector that claims inside the window is never overridden and nothing
-      is evicted; a collector-claimed stream is left unchanged; the pre-update
-      re-read skips a claim that appeared; starting first creates the stream
-      at the fallback size, not unlimited.
+      reconnect retry and the D1 failed-consumer retries. It watches every
+      multi-owner stream (`events`, `flows`, `ARANCINI_CAUSAL`) the EventWriter
+      consumes for the life of the process and never drops one. Each tick
+      re-reads `STREAM.INFO` and applies the claim rule: claimed by
+      `event-writer` reconciles the shape if it drifted; claimed by a collector
+      merges subjects only; unclaimed applies the grace-period logic, recording
+      in process state when the stream was first seen unclaimed (a restart
+      resets it, delaying convergence and never claiming early). It only
+      issues `STREAM.UPDATE` and never tears down or resubscribes a consumer;
+      the clock is injectable. Test with an injected clock: claim and converge
+      after the grace period; no claim when a collector claims within the grace
+      period; a restart resets the clock; no consumer restart on any tick; a
+      stream claimed by a collector and later reclaimed with
+      `serviceradar.owner: event-writer` is reconciled at the next tick with no
+      grace period, and a removed claim starts the grace period.
 - [ ] 4.9 `rust/bmp-collector` publisher: claim `ARANCINI_CAUSAL` by setting
       `serviceradar.owner` to `bmp-collector` (overriding an `event-writer`
       claim, claiming a legacy stream) and create-or-update it, reconciling
@@ -194,9 +201,11 @@
       StorageClass without expansion needs a new install or migration and that
       the chart does not automate this. Add a reclaim section (D6): after a
       collector is disabled, reclaim its stream for EventWriter with one
-      `nats stream edit <STREAM>` command that sets `serviceradar.owner` to
-      `event-writer` or removes it, and state that until then the stream keeps
-      the collector's reservation.
+      `nats stream edit <STREAM>` command. Setting `serviceradar.owner` to
+      `event-writer` takes effect at EventWriter's next ownership tick, within
+      5 minutes by default and with no grace period; removing the claim starts
+      the grace period instead. State that until then the stream keeps the
+      collector's reservation and that no core restart is needed.
 - [ ] 6.2 Link the runbook from `docs/agent-runbooks.md` and from the
       `values.yaml` comment.
 
