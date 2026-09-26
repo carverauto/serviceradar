@@ -514,6 +514,63 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       assert current_agent.device_uid == current_uid
     end
 
+    test "an existing agent check-in does not take an address held by a different agent",
+         %{
+           unique_id: unique_id,
+           actor: actor
+         } do
+      moving_agent_id = "agent-moving-#{unique_id}"
+      holder_agent_id = "agent-holder-#{unique_id}"
+      original_ip = "192.0.2.#{rem(unique_id, 200) + 10}"
+      held_ip = "198.51.100.#{rem(unique_id, 200) + 10}"
+
+      :ok =
+        AgentGatewaySync.upsert_agent(moving_agent_id, %{
+          host: original_ip,
+          capabilities: ["sysmon"]
+        })
+
+      {:ok, moving_uid} =
+        AgentGatewaySync.ensure_device_for_agent(moving_agent_id, %{
+          hostname: "moving-host-#{unique_id}",
+          source_ip: original_ip,
+          partition: "default",
+          capabilities: ["sysmon"]
+        })
+
+      :ok =
+        AgentGatewaySync.upsert_agent(holder_agent_id, %{
+          host: held_ip,
+          capabilities: ["sysmon"]
+        })
+
+      {:ok, holder_uid} =
+        AgentGatewaySync.ensure_device_for_agent(holder_agent_id, %{
+          hostname: "holder-host-#{unique_id}",
+          source_ip: held_ip,
+          partition: "default",
+          capabilities: ["sysmon"]
+        })
+
+      assert {:error,
+              {:active_ip_owned_by_different_agent, ^held_ip, ^holder_uid, ^holder_agent_id}} =
+               AgentGatewaySync.ensure_device_for_agent(moving_agent_id, %{
+                 hostname: "moving-host-#{unique_id}",
+                 source_ip: held_ip,
+                 partition: "default",
+                 capabilities: ["sysmon"]
+               })
+
+      {:ok, moving_device} = Device.get_by_uid(moving_uid, false, actor: actor)
+      {:ok, holder_device} = Device.get_by_uid(holder_uid, false, actor: actor)
+
+      assert moving_device.ip == original_ip
+      assert moving_device.agent_id == moving_agent_id
+      assert holder_device.ip == held_ip
+      assert holder_device.agent_id == holder_agent_id
+      refute get_in(holder_device.metadata || %{}, ["released_conflicting_active_ip"])
+    end
+
     test "marks older duplicate-prefix agent unavailable when reenrollment resolves to same device",
          %{
            unique_id: unique_id,
