@@ -524,6 +524,13 @@ Tidewave MCP tools are optional and may not always be available. Use them when p
 
 ## SRQL Fixture Integration Tests
 
+**Database-backed tests run only against a scratch database on the CNPG in the
+`srql-fixtures` namespace (kube context `carverauto`), never against a local Postgres.**
+Do not install, start, or connect to a workstation Postgres (Homebrew, `/tmp:5432`,
+`localhost:5432`) and do not start the Docker Compose stack to get one, even if a server
+happens to be running: it lacks the TimescaleDB and AGE extensions and is not the fixture.
+This applies to every agent, including review and test agents in a validation pipeline.
+
 Use the `srql-fixtures-db-tests` skill when `elixir/serviceradar_core` integration tests
 need the shared CNPG/AGE fixture. There is deliberately no orchestration script — you
 invoke the guarded Bazel lifecycle in order, as the caller:
