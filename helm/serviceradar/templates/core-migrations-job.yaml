@@ -88,8 +88,6 @@ spec:
           value: "false"
         - name: HEALTH_CHECK_REGISTRAR_ENABLED
           value: "false"
-        - name: LOG_PROMOTION_CONSUMER_ENABLED
-          value: "false"
         - name: EVENT_WRITER_ENABLED
           value: "false"
         - name: SERVICERADAR_CORE_RUN_MIGRATIONS

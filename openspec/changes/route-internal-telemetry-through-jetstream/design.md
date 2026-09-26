@@ -107,8 +107,8 @@ Today evaluation is at most once, and it still double-counts:
 
 That guarantee becomes the rule for every event. `StatefulEvaluationLedger`, a CNPG table keyed
 by event id, records which events the engine has evaluated. EventWriter, for each batch of
-insert-only event rows it stores (`Processors.Events`, promotion in `Processors.Logs` and
-`LogPromotionConsumer`, the Falco and Trivy processors, and the analytics-signal rows):
+insert-only event rows it stores (`Processors.Events`, promotion in `Processors.Logs`, the
+Falco and Trivy processors, and the analytics-signal rows):
 
 1. reads which of the batch's event ids the ledger has not recorded;
 2. evaluates those events synchronously, and fails the batch if evaluation fails, so JetStream
@@ -201,6 +201,25 @@ consumers) and test files, it flags:
 
 A lint check reads the code as syntax, not as text, and runs where code is reviewed. Run over the pre-change versions of the migrated producers, it
 flags every one of them.
+
+### 8. One log promoter: the standalone promotion consumer is retired
+
+Core also ran `LogPromotionConsumer`, a JetStream pull consumer (durable `log-promotion`,
+filter `logs.*.processed`) on the same `events` stream EventWriter's LOGS consumer reads with
+`logs.>`. `Processors.Logs` promotes every log it stores, so each processed log was promoted
+twice, and the two paths derived promoted-event ids in different namespaces, so the copies
+did not collapse: a processed log matching a rule produced two events and two evaluations.
+Aligning the namespaces would not fix it: the two paths parse a message with different
+parsers, which do not promise the same record order, so shared indices could merge
+different logs.
+
+The consumer, its parser, its Helm value (`core.logPromotionConsumerEnabled`), its
+environment variables and its cluster-health entry are removed. EventWriter is the one
+promoter wherever it runs, and the chart always runs it. The durable itself outlives the
+code on every server it was created on; EventWriter deletes retired durables once its own
+consumers are ready (`Config` `retired_consumers`), treating an absent one as done and a
+failed delete as a logged retry on the next connect. The `events` stream uses limits
+retention, so the leftover durable never held data back; it only lingered as dead state.
 
 ## Risks / Trade-offs
 

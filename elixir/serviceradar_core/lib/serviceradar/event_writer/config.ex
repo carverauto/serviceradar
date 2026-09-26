@@ -80,6 +80,16 @@ defmodule ServiceRadar.EventWriter.Config do
   @default_ack_wait_ns 120_000_000_000
   @default_max_deliver 5
 
+  # Durables earlier releases created that nothing consumes any more. The shared
+  # pipeline deletes them once its own consumers are ready, so they do not sit
+  # on the server as dead state with an ever-growing pending count.
+  @retired_consumers [
+    # Core's standalone log promotion consumer. The LOGS consumer below already
+    # promotes every log on the same stream, so the two promoted each processed
+    # log twice, under different event ids.
+    %{stream_name: "events", consumer_name: "log-promotion"}
+  ]
+
   defstruct [
     :enabled,
     :nats,
@@ -94,7 +104,8 @@ defmodule ServiceRadar.EventWriter.Config do
     :ack_wait_ns,
     :max_deliver,
     :consumer_lag_poll_interval_ms,
-    :pull_expires_ns
+    :pull_expires_ns,
+    retired_consumers: []
   ]
 
   @type t :: %__MODULE__{
@@ -111,7 +122,8 @@ defmodule ServiceRadar.EventWriter.Config do
           ack_wait_ns: pos_integer(),
           max_deliver: pos_integer(),
           consumer_lag_poll_interval_ms: pos_integer(),
-          pull_expires_ns: non_neg_integer() | nil
+          pull_expires_ns: non_neg_integer() | nil,
+          retired_consumers: [%{stream_name: String.t(), consumer_name: String.t()}]
         }
 
   @type nats_config :: %{
@@ -177,7 +189,8 @@ defmodule ServiceRadar.EventWriter.Config do
       max_deliver: load_max_deliver(config),
       consumer_lag_poll_interval_ms: load_consumer_lag_poll_interval_ms(config),
       # Shared pipeline keeps the legacy no_wait + timer path (pull_expires_ns nil/0).
-      pull_expires_ns: 0
+      pull_expires_ns: 0,
+      retired_consumers: @retired_consumers
     }
   end
 

@@ -26,11 +26,11 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.IngestAttribution
+  alias ServiceRadar.EventWriter.LogSeverity
   alias ServiceRadar.EventWriter.OtelId
   alias ServiceRadar.EventWriter.SignalTelemetry
   alias ServiceRadar.EventWriter.StableId
   alias ServiceRadar.Observability.LogPromotion
-  alias ServiceRadar.Observability.LogPromotionParser
   alias ServiceRadar.Observability.LogPubSub
   alias ServiceRadar.Observability.Zen.Normalizer, as: ZenNormalizer
 
@@ -314,7 +314,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   # Resolves {severity_text, severity_number}. When an explicit severity_text /
   # severity is present it wins. Otherwise a numeric GELF/syslog `level` is mapped
-  # through the shared LogPromotionParser.severity_from_level/1 helper so we always
+  # through `LogSeverity.from_level/1` so we always
   # populate BOTH columns (by_severity filtering + severity_color need
   # severity_number) and never store a bare 0-7 int as severity_text. This is the
   # Elixir-side complement to the bundled `syslog_severity` Zen rule.
@@ -331,7 +331,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
         {text, number}
 
       not is_nil(json["level"]) ->
-        {level_text, level_number} = LogPromotionParser.severity_from_level(json["level"])
+        {level_text, level_number} = LogSeverity.from_level(json["level"])
         {level_text, number || level_number}
 
       true ->

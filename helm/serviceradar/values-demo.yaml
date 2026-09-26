@@ -714,7 +714,6 @@ core:
   #   consensusEnabled: true
   #   baselineTickMs: 60000
   #   consensusCohortRetentionMs: 300000
-  logPromotionConsumerEnabled: true
   capacityForecasting:
     enabled: true
     emitVerdicts: true

@@ -65,6 +65,12 @@ batch is redelivered, and an event already evaluated is not evaluated again.
 - **THEN** the log rows and their promoted events are not stored again
 - **AND** no promotion alert or stateful rule fires a second time
 
+#### Scenario: A processed log is promoted by one consumer
+- **GIVEN** a processed log on a `logs.*.processed` subject that matches an event rule
+- **WHEN** it is ingested
+- **THEN** exactly one event is promoted from it, by EventWriter's logs consumer
+- **AND** no durable consumer created for a retired promotion path remains on the stream
+
 ### Requirement: Internal probes stay invisible
 The system SHALL NOT publish or store the OCSF event of a synthetic liveness probe.
 

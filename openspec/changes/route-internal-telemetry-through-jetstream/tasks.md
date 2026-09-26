@@ -100,5 +100,9 @@
   `ocsf_events`, `logs`, `OcsfEvent` or `Log`, a processor's `process_batch/1`, and a processor
   module used as a value. Its unit test runs it over sample sources; run over the pre-change
   producers it flags each of them.
+- [x] 5.4 Retire `LogPromotionConsumer` (decision 8): delete the consumer, its parser (the
+  level mapping moves to `EventWriter.LogSeverity`), its Helm value, env vars and
+  cluster-health entry; EventWriter deletes the leftover `log-promotion` durable after its
+  consumers are ready.
 - [ ] 5.3 Verify on a deployment, after the rollout completes: every internal event family
   appears in both CNPG and StarRocks for the same window, with equal counts per `log_name`.

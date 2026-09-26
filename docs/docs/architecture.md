@@ -107,8 +107,8 @@ Collectors publish bulk telemetry into JetStream (commonly the `events` and
 `metrics` streams). The platform runs:
 
 - in-process Zen normalization and persistence workers inside `serviceradar_core`
-- `log-promotion`, an in-process JetStream pull consumer inside
-  `serviceradar_core` that promotes matching logs into OCSF-style events
+- EventWriter, whose logs consumer also promotes logs that match an event rule
+  into OCSF events as it stores them
 
 See [Data Pipeline](./data-pipeline.md).
 

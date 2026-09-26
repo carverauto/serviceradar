@@ -40,8 +40,7 @@ defmodule ServiceRadar.Credo.Check.Warning.DirectTelemetryWrite do
   Not flagged: files under a `test/` directory, and the `:allowed_paths`
   param -- by default EventWriter itself (its pipeline, configuration and
   processors) and `ServiceRadar.Observability.LogPromotion`, whose only
-  callers are the two JetStream consumers of logs (`Processors.Logs` and
-  `LogPromotionConsumer`).
+  caller is EventWriter's logs processor (`Processors.Logs`).
   A module or table reached through a variable is not resolved.
   """
 

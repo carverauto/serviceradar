@@ -326,7 +326,6 @@ core:
   kubernetesSelector: "app=serviceradar-core"
   kubernetesNodeBasename: "serviceradar_core"
   ashObanSchedulerEnabled: true
-  logPromotionConsumerEnabled: true
   # Outbound mail for the native email notification transport and the auth
   # senders (confirmation, password reset).
   #
