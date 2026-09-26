@@ -128,8 +128,9 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
   # #4664 (fixed): an agent check-in never adopts a record identified as something else on
   # address evidence. Steps: Armis A (a1, no MAC reported) is synced at p1; DHCP moves A to p2
   # before its next sync, so its record still holds p1; agent B (g2, m2) leases p1 and checks
-  # in. Expected: B gets its own record and takes p1, A releases it, and the address conflict
-  # is recorded. The check-in used to adopt A's record, which has no agent of its own.
+  # in, after A's sync. Expected: B gets its own record and takes p1, A releases it, and the
+  # address conflict is recorded. The check-in used to adopt A's record, which has no agent of
+  # its own. A holder synced after the check-in would keep the address instead.
   test "agent_stale_armis_holder", %{actor: actor} do
     world =
       two_devices(%{
@@ -144,7 +145,7 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
     "agent_stale_armis_holder"
     |> DireTrace.start(world, actor)
     |> DireTrace.lease("x1", "p1")
-    |> DireTrace.armis("h1", "x1")
+    |> DireTrace.armis("h1", "x1", seen_offset: -60)
     |> DireTrace.lease("x1", "p2")
     |> DireTrace.lease("x2", "p1")
     |> DireTrace.agent("h2", "x2")
