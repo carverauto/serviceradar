@@ -55,6 +55,22 @@ filegroup(
     ),
 )
 
+# Scanned by //integration_tests/srql_parity:srql_parity_test (task 1.5 of the
+# extend-starrocks-to-all-telemetry change): every SRQL chart query built here for a
+# warehouse-served entity must have a parity inventory entry. A named input, so a refactor of
+# the broader globs cannot silently drop sources from the audit. The browser bundle is its own
+# package: //elixir/web-ng/assets:srql_chart_query_sources.
+filegroup(
+    name = "srql_chart_query_sources",
+    srcs = glob(
+        [
+            "lib/**/*.ex",
+            "priv/dashboards/**/*.json",
+            "priv/dashboard-packages/**/*.json",
+        ],
+    ),
+)
+
 filegroup(
     name = "srcs",
     srcs = glob(

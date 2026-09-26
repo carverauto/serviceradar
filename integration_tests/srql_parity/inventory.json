@@ -1,0 +1,113 @@
+{
+  "deviations": {
+    "upper_bound_inclusive_on_cnpg": {
+      "kind": "accepted",
+      "reason": "The CNPG metric and event builders close the window at its upper bound (timestamp <= end); the StarRocks dialect, and the CNPG flow and MTR builders, keep it half-open (< end), so a sample exactly on the bound is counted by CNPG alone. Half-open is the correct reading for adjacent chart windows (a sample is never counted twice); a bucketed query over whole hours reads the hourly rollup, whose end StarRocks widens to the next hour, so it agrees (metrics.edge.upper_bound)."
+    },
+    "rollup_average_mean_of_means": {
+      "kind": "accepted",
+      "reason": "Averaging a multi-hour bucket from the hourly rollups: CNPG takes AVG(avg_value), the mean of the hourly means; StarRocks weights each hour by sample_count, which is the raw-row average. They agree whenever every hour holds the same number of samples and differ when sampling is uneven, as the ICMP fixture is (every minute in even hours, every ten in odd ones). StarRocks is the one that matches the raw answer."
+    },
+    "no_counter_ceiling_in_warehouse": {
+      "kind": "accepted",
+      "reason": "The producer-supplied max_counter_rate_per_second ceiling lives in timeseries_metrics.metadata, which the warehouse table does not carry (counter_rate_sql documents this). Without a ceiling CNPG never adds the 2^64 modulus either, so they agree wherever it is absent; with one, CNPG recovers the interval across a 64-bit wrap and StarRocks drops it as a reset."
+    },
+    "tcp_flags_none_label": {
+      "kind": "accepted",
+      "reason": "A flow with no TCP flags is labelled 'none' by the StarRocks dialect and '' by CNPG, which joined an empty tcp_flags_labels array. Deliberate: flows have no CNPG read path any more, and '' charts as a blank slice the UI's unknown fallback does not catch (tcp_flags_label_sql)."
+    },
+    "flow_totals_fall_back_to_directional_halves": {
+      "kind": "accepted",
+      "reason": "For a flow whose exporter sent no bytes_total/packets_total, the StarRocks dialect (and its hourly rollup) uses bytes_in + bytes_out, packets_in + packets_out; CNPG sums the stored total only and returns NULL. Deliberate (aggregate_totals_prefer_stored_counters_before_directional_fallback); flows are served from the warehouse only."
+    },
+    "cnpg_cannot_group_flows_by_partition": {
+      "kind": "reference_gap",
+      "reason": "The dashboard traffic card groups flows by partition, which the CNPG flow stats builder refuses (unsupported group-by field). Flows are served from the warehouse only, so the product never asks CNPG; the harness checks the StarRocks query still runs and returns rows."
+    },
+    "flow_app_is_a_different_classifier": {
+      "kind": "defect",
+      "reason": "`by app` means two different classifiers. CNPG computes it at query time: the FLOW_APP_EXPR port table (https, ssh, dns, ...; 8080 is 'unknown') overridden by the operator's netflow_app_classification_rules. The StarRocks dialect reads the ingest-time dst_service_label, the ServicePorts display label (HTTPS, SSH, DNS, HTTP Alt). The labels differ in case and coverage, and operator classification rules are never applied on the warehouse path, which is the only path flows are served from. Not a small dialect fix: the rules live in CNPG, so honouring them needs the cnpg_platform catalog join or the rules applied at ingest."
+    },
+    "cnpg_events_count_column": {
+      "kind": "accepted",
+      "reason": "The CNPG events builder accepts only `count() as total` and returns the column unaliased, as `count`; the StarRocks dialect honours the alias. The values are compared after renaming the CNPG column."
+    }
+  },
+  "scan_exclusions": [
+    {
+      "file": "elixir/web-ng/lib/serviceradar_web_ng_web/live/log_live/index.ex",
+      "text": "count() as points by metric_name",
+      "reason": "The base query is built by otlp_points_base_query/1 as in:otel_metric_points, which SRQL never serves from StarRocks; the scan only attributes the fragment to the flows/logs entities this file also names."
+    }
+  ],
+  "entries": [
+    {"id": "metrics.snmp.rate_by_metric_name.one_device", "query": "in:snmp_metrics {window_main} device_id:\"sr:parity-dev-a\" if_index:7 bucket:5m agg:rate series:metric_name limit:500", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/interface_live/metrics_query.ex", "elixir/web-ng/lib/serviceradar_web_ng_web/live/event_live/show.ex"]},
+    {"id": "metrics.snmp.rate_by_metric_name.two_gateways", "query": "in:snmp_metrics {window_main} metric_name:ifHCInOctets if_index:7 bucket:5m agg:rate series:metric_name limit:500"},
+    {"id": "metrics.snmp.rate.32bit_wrap", "query": "in:snmp_metrics {window_main} metric_name:ifInOctets bucket:5m agg:rate series:metric_name limit:500"},
+    {"id": "metrics.snmp.rate.legacy_width", "query": "in:snmp_metrics {window_main} metric_name:ifOutOctets bucket:5m agg:rate series:metric_name limit:500"},
+    {"id": "metrics.snmp.rate.64bit_wrap_with_ceiling", "query": "in:snmp_metrics {window_main} device_id:\"sr:parity-dev-c\" bucket:5m agg:rate series:metric_name limit:500", "expect": "mismatch", "deviation": "no_counter_ceiling_in_warehouse"},
+    {"id": "metrics.snmp.avg_by_metric_name", "query": "in:snmp_metrics {window_main} device_id:\"sr:parity-dev-a\" if_index:7 bucket:5m agg:avg series:metric_name limit:500", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/event_live/show.ex"]},
+    {"id": "metrics.snmp.presence_count_by_uid", "query": "in:snmp_metrics {window_main} bucket:15m agg:count series:uid limit:500", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/device_live/index_data/telemetry.ex"]},
+    {"id": "metrics.snmp.interface_presence_24h_by_if_index", "query": "in:snmp_metrics {window_main} device_id:\"sr:parity-dev-a\" bucket:24h agg:count series:if_index limit:100", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/device_live/interface_data.ex"]},
+    {"id": "metrics.snmp.avg_by_if_index_null_dimension", "query": "in:snmp_metrics {window_main} device_id:\"sr:parity-dev-a\" bucket:30m agg:max series:if_index limit:200"},
+    {"id": "metrics.timeseries.avg_by_metric_name", "query": "in:timeseries_metrics {window_main} metric_type:icmp device_id:\"sr:parity-dev-b\" bucket:5m agg:avg series:metric_name limit:500", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/event_live/show.ex"]},
+    {"id": "metrics.icmp.avg_by_uid", "query": "in:timeseries_metrics {window_main} metric_type:icmp metric_name:icmp.rtt_ms uid:(\"sr:parity-dev-a\",\"sr:parity-dev-b\") bucket:5m agg:avg series:uid sort:timestamp:asc limit:500", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/device_live/icmp_data.ex"]},
+    {"id": "metrics.icmp.max_by_uid", "query": "in:timeseries_metrics {window_main} metric_type:icmp metric_name:icmp.loss_pct uid:(\"sr:parity-dev-a\",\"sr:parity-dev-b\") bucket:5m agg:max series:uid sort:timestamp:asc limit:500"},
+    {"id": "metrics.icmp.avg_2h_buckets_long_window", "query": "in:timeseries_metrics {window_long} metric_type:icmp metric_name:icmp.rtt_ms bucket:2h agg:avg series:uid limit:100", "expect": "mismatch", "deviation": "rollup_average_mean_of_means"},
+    {"id": "metrics.sysmon.avg_newest_n", "query": "in:timeseries_metrics {window_main} metric_type:\"sysmon.cpu\" metric_name:\"cpu.usage_percent\" bucket:5m agg:avg sort:timestamp:desc limit:20", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/device_live/sysmon_metrics/query.ex"]},
+    {"id": "metrics.sysmon.max_by_core_newest_n", "query": "in:timeseries_metrics {window_main} metric_type:\"sysmon.cpu\" metric_name:\"cpu.usage_percent\" bucket:5m agg:max series:core_id sort:timestamp:desc limit:50", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/device_live/sysmon_metrics/query.ex (series via maybe_add_token, invisible to the scan)"]},
+    {"id": "metrics.sysmon.min_by_tag", "query": "in:timeseries_metrics {window_cpu} metric_type:\"sysmon.cpu\" bucket:10m agg:min series:tags.core_id limit:200"},
+    {"id": "metrics.capacity.avg_1h_by_uid_long_window", "query": "in:timeseries_metrics {window_long} metric_type:\"sysmon.cpu\" metric_name:\"cpu.usage_percent\" bucket:1h agg:avg series:uid sort:timestamp:desc window_scan:true limit:500", "sources": ["elixir/serviceradar_core/lib/serviceradar/observability/capacity_forecasting/source.ex"]},
+    {"id": "metrics.profile.hour_of_week_peak", "query": "in:timeseries_metrics {window_long} metric_type:\"sysmon.cpu\" metric_name:\"cpu.usage_percent\" bucket:1h agg:avg series:uid stats:profile_hour_of_week_peak(value) timezone:\"UTC\" sort:dow:asc,hod:asc limit:500", "sources": ["elixir/serviceradar_core/lib/serviceradar/observability/anomaly_disposition/peak_profile.ex"]},
+    {"id": "metrics.profile.hour_of_week", "query": "in:timeseries_metrics {window_long} metric_type:\"sysmon.cpu\" metric_name:\"cpu.usage_percent\" bucket:1h agg:avg series:uid stats:profile_hour_of_week(value) timezone:\"UTC\" sort:dow:asc,hod:asc window_scan:true limit:500", "sources": ["elixir/serviceradar_core/lib/serviceradar/observability/seasonal_disposition/source.ex"]},
+    {"id": "metrics.edge.upper_bound_raw_route", "query": "in:timeseries_metrics {window_edge} metric_type:parity.edge bucket:5m agg:sum limit:20", "expect": "mismatch", "deviation": "upper_bound_inclusive_on_cnpg"},
+    {"id": "metrics.edge.upper_bound", "query": "in:timeseries_metrics {window_edge} metric_type:parity.edge bucket:1h agg:sum limit:10"},
+    {"id": "metrics.rperf.avg_by_metric_name", "query": "in:rperf_metrics {window_main} bucket:10m agg:avg series:metric_name limit:500"},
+
+    {"id": "flows.bytes_5m_sum", "query": "in:flows {window_main} bucket:5m agg:sum value_field:bytes_total limit:500"},
+    {"id": "flows.bytes_5m_sum_by_series", "query": "in:flows {window_main} bucket:5m agg:sum value_field:bytes_total series:protocol_name limit:2000", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/log_live/index.ex"]},
+    {"id": "flows.bytes_1h_sum_long_window", "query": "in:flows {window_long} bucket:1h agg:sum value_field:bytes_total limit:100"},
+    {"id": "flows.capacity.bytes_by_bucket", "query": "in:flows {window_long} bucket:1h stats:sum(bytes_total) as bytes_total by bucket sort:bucket:desc window_scan:true limit:100", "sources": ["elixir/serviceradar_core/lib/serviceradar/observability/capacity_forecasting/source.ex"]},
+    {"id": "flows.endpoint_scan.bytes_by_src", "query": "in:flows {window_main} window_scan:true stats:\"sum(bytes_total) as total_bytes by src_endpoint_ip\" sort:src_endpoint_ip:asc limit:100", "sources": ["elixir/serviceradar_core/lib/serviceradar/observability/flow_endpoint_scan.ex"]},
+    {"id": "flows.security.unique_ports_by_src", "query": "in:flows {window_main} stats:\"count_distinct(dst_endpoint_port) as unique_ports by src_endpoint_ip\" sort:unique_ports:desc limit:20", "sources": ["elixir/serviceradar_core/lib/serviceradar/observability/netflow_security_refresh_worker.ex"]},
+    {"id": "flows.security.bytes_by_dst_port", "query": "in:flows {window_main} stats:\"sum(bytes_total) as current_bytes by dst_endpoint_port\" sort:current_bytes:desc limit:20", "sources": ["elixir/serviceradar_core/lib/serviceradar/observability/netflow_security_refresh_worker.ex", "elixir/web-ng/lib/serviceradar_web_ng_web/live/log_live/index.ex"]},
+    {"id": "flows.summary.totals", "query": "in:flows {window_main} stats:\"sum(bytes_total) as bytes_total, sum(packets_total) as packets_total, count(*) as flow_count, min(time) as first_seen, max(time) as last_seen\" limit:1", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/dashboard_live/data/netflow_summary.ex"]},
+    {"id": "flows.traffic.pairs_by_partition", "query": "in:flows {window_main} stats:\"sum(bytes_total) as bytes_total, sum(packets_total) as packets_total, count(*) as flow_count by src_endpoint_ip,dst_endpoint_ip,partition\" sort:bytes_total:desc limit:50", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/dashboard_live/data/netflow_traffic.ex"], "expect": "cnpg_refuses", "deviation": "cnpg_cannot_group_flows_by_partition"},
+    {"id": "flows.device.bytes_by_protocol", "query": "in:flows {window_main} stats:\"sum(bytes_total) as bytes_total by protocol_num, protocol_name\" sort:bytes_total:desc limit:5", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/device_live/flow_data.ex"]},
+    {"id": "flows.device.bytes_by_dst_bare_stats", "query": "in:flows {window_main} stats:sum(bytes_total) as bytes_total by dst_endpoint_ip sort:bytes_total:desc limit:5", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/device_live/flow_data.ex"]},
+    {"id": "flows.device.flow_count", "query": "in:flows {window_main} stats:\"count(*) as flows\"", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/device_live/flow_data.ex (stats:\"#{...}\")"]},
+    {"id": "flows.top_talkers", "query": "in:flows {window_main} stats:\"sum(bytes_total) as total_bytes by src_endpoint_ip\" sort:total_bytes:desc limit:1000", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/log_live/index.ex"]},
+    {"id": "flows.top_talkers_long_window", "query": "in:flows {window_long} stats:\"sum(bytes_total) as total_bytes by src_endpoint_ip\" sort:total_bytes:desc limit:10"},
+    {"id": "flows.top_packets_by_src", "query": "in:flows {window_main} stats:\"sum(packets_total) as total_packets by src_endpoint_ip\" sort:total_packets:desc limit:10", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/log_live/index.ex"]},
+    {"id": "flows.bytes_by_app", "query": "in:flows {window_main} stats:\"sum(bytes_total) as total_bytes by app\" sort:total_bytes:desc limit:8", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/log_live/index.ex"], "expect": "mismatch", "deviation": "flow_app_is_a_different_classifier"},
+    {"id": "flows.other.top3_sources", "query": "in:flows {window_main} stats:\"sum(bytes_total) as total_bytes by src_endpoint_ip\" sort:total_bytes:desc limit:3 other:true", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/netflow_visualize/query.ex"]},
+    {"id": "flows.other.top5_triples", "query": "in:flows {window_main} stats:\"sum(bytes_total) as total_bytes by src_endpoint_ip, dst_endpoint_port, dst_endpoint_ip\" sort:total_bytes:desc limit:5 other:true", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/netflow_visualize/query.ex"]},
+    {"id": "flows.halves.null_totals", "query": "in:flows {window_halves} stats:\"sum(bytes_total) as total_bytes, sum(packets_total) as total_packets, count(*) as flows\" limit:1", "expect": "mismatch", "deviation": "flow_totals_fall_back_to_directional_halves"},
+    {"id": "flows.edge.upper_bound", "query": "in:flows {window_edge} stats:\"count(*) as flows, sum(bytes_total) as total_bytes\" limit:1"},
+    {"id": "flows.tcp_flags_label", "query": "in:flows {window_main} stats:\"count(*) as flows by tcp_flags_label\" sort:flows:desc limit:20", "expect": "mismatch", "deviation": "tcp_flags_none_label"},
+    {"id": "flows.duration_bucket", "query": "in:flows {window_main} stats:\"count(*) as flows by duration_bucket\" sort:flows:desc limit:20"},
+    {"id": "flows.attributed.by_status", "query": "in:attributed_flows {window_main} stats:\"count(*) as total, sum(bytes_total) as total_bytes by attribution_status\" sort:total:desc limit:10", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/flows/attributed_live.ex"]},
+
+    {"id": "logs.rollup_severity", "query": "in:logs {window_main} rollup_stats:severity", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/stats/query.ex"]},
+    {"id": "logs.rollup_severity.one_service", "query": "in:logs {window_main} service_name:svc-beta rollup_stats:severity"},
+    {"id": "logs.count", "query": "in:logs {window_main} stats:\"count() as total\"", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/stats/query.ex"]},
+    {"id": "logs.count.severity_filter", "query": "in:logs {window_main} severity_text:error stats:\"count() as total\""},
+
+    {"id": "events.rollup_anomaly_findings", "query": "in:events {window_main} rollup_stats:anomaly_findings limit:1", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/stats/query.ex", "elixir/web-ng/lib/serviceradar_web_ng_web/live/observability_health_live/index.ex"]},
+    {"id": "events.count", "query": "in:events {window_main} stats:\"count() as total\"", "deviation": "cnpg_events_count_column", "cnpg_rename": {"count": "total"}},
+    {"id": "events.security_findings.count", "query": "in:security_findings {window_main} stats:\"count() as total\"", "deviation": "cnpg_events_count_column", "cnpg_rename": {"count": "total"}},
+    {"id": "events.scan_activity.count", "query": "in:scan_activity {window_main} stats:\"count() as total\"", "deviation": "cnpg_events_count_column", "cnpg_rename": {"count": "total"}},
+    {"id": "events.dns_activity.count", "query": "in:dns_activity {window_main} stats:\"count() as total\"", "deviation": "cnpg_events_count_column", "cnpg_rename": {"count": "total"}},
+    {"id": "events.source_filter.count", "query": "in:security_findings {window_main} source:trivy stats:\"count() as total\"", "deviation": "cnpg_events_count_column", "cnpg_rename": {"count": "total"}},
+
+    {"id": "mtr.hops.loss_by_addr", "query": "in:mtr_hops {window_main} stats:loss_ratio(sent, received) as loss by addr sort:loss:desc limit:20", "sources": ["rust/srql/src/query/starrocks/mtr.rs PANEL_QUERIES"]},
+    {"id": "mtr.hops.latency_by_addr", "query": "in:mtr_hops {window_main} stats:wavg(avg_us, received) as latency by addr sort:latency:desc limit:20", "sources": ["rust/srql/src/query/starrocks/mtr.rs PANEL_QUERIES"]},
+    {"id": "mtr.hops.loss_by_asn", "query": "in:mtr_hops {window_main} asn:>0 stats:loss_ratio(sent, received) as loss by asn sort:loss:desc limit:20", "sources": ["rust/srql/src/query/starrocks/mtr.rs PANEL_QUERIES"]},
+    {"id": "mtr.hops.loss_trend_hourly", "query": "in:mtr_hops {window_main} stats:loss_ratio(sent, received) as loss by time:1h limit:500", "sources": ["elixir/web-ng/priv/dashboards/mtr-path-analytics.json"]},
+    {"id": "mtr.hops.loss_by_addr_and_hour", "query": "in:mtr_hops {window_main} stats:loss_ratio(sent, received) as loss by addr,time:1h sort:loss:asc limit:50"},
+    {"id": "mtr.hops.loss_by_hop_number", "query": "in:mtr_hops {window_main} stats:\"loss_ratio(sent, received) as loss, count() as samples by hop_number\" sort:hop_number:asc limit:40", "sources": ["elixir/web-ng/priv/dashboards/mtr-path-analytics.json"]},
+    {"id": "mtr.hops.loss_and_traces_by_addr", "query": "in:mtr_hops {window_main} stats:\"loss_ratio(sent, received) as loss, count() as traces by addr\" sort:loss:desc limit:20", "sources": ["elixir/web-ng/priv/dashboards/mtr-path-analytics.json"]},
+    {"id": "mtr.hops.latency_and_traces_by_addr", "query": "in:mtr_hops {window_main} stats:\"wavg(avg_us, received) as latency, count() as traces by addr\" sort:latency:desc limit:20", "sources": ["elixir/web-ng/priv/dashboards/mtr-path-analytics.json"]},
+    {"id": "mtr.traces.reach_rate_by_target", "query": "in:mtr_traces {window_main} stats:\"count() as traces, avg(target_reached) as reach_rate by target_ip\" sort:reach_rate:asc limit:25", "sources": ["elixir/web-ng/priv/dashboards/mtr-path-analytics.json"]}
+  ]
+}

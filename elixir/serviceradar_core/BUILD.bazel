@@ -145,6 +145,15 @@ INTEGRATION_TEST_DEPS = [
 # ALL_TEST_SRCS, while the ordinary database lanes below use only the audited selected-source
 # union. The contract needs every source in order to fail when the glob and disposition inventory
 # drift in either direction.
+# Scanned by //integration_tests/srql_parity:srql_parity_test (task 1.5 of the
+# extend-starrocks-to-all-telemetry change): every SRQL chart query built here for a
+# warehouse-served entity must have a parity inventory entry. A named input, so a refactor of
+# the broader globs cannot silently drop sources from the audit.
+filegroup(
+    name = "srql_chart_query_sources",
+    srcs = glob(["lib/**/*.ex"]),
+)
+
 filegroup(
     name = "integration_contract_test_inputs",
     srcs = ALL_TEST_SRCS + ["test/INTEGRATION_SOURCE_DISPOSITIONS.tsv"],

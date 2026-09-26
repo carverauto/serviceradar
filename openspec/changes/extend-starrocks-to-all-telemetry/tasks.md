@@ -4,9 +4,12 @@
 - [ ] 1.2 Land flows parity: `tcp_flags_label`, `duration_bucket`, `exporter_name` (with the reader grant), `src_cidr`/`dst_cidr` filters.
 - [x] 1.3 Make the StarRocks dialect fail closed: a plan feature it does not consume (`rollup_stats`, `other`, unknown field, ignored `sort`) is an `InvalidRequest`, with a test per feature.
   - `refuse_unimplemented_features` (`rust/srql/src/query/starrocks.rs`) runs before compilation and returns `InvalidRequest` for a `rollup_stats` kind this dialect does not implement (named in the message), a rollup combined with `stats:`/`bucket:`, and `other:true` outside a grouped flow/metric stats query; an unknown field is refused by `column_sql` as `unsupported StarRocks field`. A caller's `sort` is compiled rather than dropped, including on the profile route. One test per refusal.
-- [ ] 1.4 Add a repository target that seeds CNPG and StarRocks with the same synthetic rows and diffs result sets for a list of query shapes; synthetic data only.
-- [ ] 1.5 Derive the per-dataset query-shape inventory from the code and check it into the harness; a test fails when a new `in:<entity>` chart query appears without an inventory entry.
+- [x] 1.4 Add a repository target that seeds CNPG and StarRocks with the same synthetic rows and diffs result sets for a list of query shapes; synthetic data only.
+  - `//integration_tests/srql_parity:parity_test` (tagged `integration_test`, `manual`, `external`, `no-remote-cache`, `requires-network`; gated by `requires_shared_fixture()`). It creates a throwaway `srql_parity_<stamp>_<pid>` database on the srql-fixtures CNPG and on a StarRocks FE, builds the CNPG side from the committed baseline plus the post-baseline columns and continuous aggregates, the StarRocks side from `priv/starrocks/*.sql` as `SchemaMigrator` applies it, seeds both from one synthetic generator (metrics, flows, logs, events, MTR), compiles every inventory query through `srql::query::translate_request` in both modes, and diffs the normalised rows; both databases are dropped at the end and stale ones swept. Credentials are read from the environment at run time (`--test_env` passthrough). The first run found the chart `series` column differing (`'all'`/NULL on StarRocks where CNPG returns NULL/`''`); fixed in the dialect (`downsample_series_sql`). A mutation check (rate as SUM of counters; loss as mean of per-hop `loss_pct`) fails the counter-rate and MTR loss entries.
+- [x] 1.5 Derive the per-dataset query-shape inventory from the code and check it into the harness; a test fails when a new `in:<entity>` chart query appears without an inventory entry.
+  - `integration_tests/srql_parity/inventory.json`; `//integration_tests/srql_parity:srql_parity_test` (unit tier) scans web-ng, core, the dashboards and dashboard packages and the browser bundle for chart templates on a warehouse-served entity and fails on one no entry's shape covers. A template the scan cannot see (a clause added by `maybe_add_token`) is inventoried by hand; a fragment whose base names a non-warehouse entity is a reasoned `scan_exclusions` entry.
 - [ ] 1.6 Record each accepted deviation (approximate percentiles, sample-weighted vs mean-of-means average, inclusive vs exclusive upper bound) with its reason; align the ones that are accidents.
+  - Recorded in `inventory.json` `deviations`, each with the entry that proves it still holds: inclusive (CNPG metrics/events) vs exclusive upper bound, mean-of-hourly-means (CNPG rollup) vs sample-weighted (StarRocks, equal to the raw answer), no counter ceiling / 2^64 wrap arm in the warehouse, `'none'` vs `''` TCP-flag label, directional fallback for flows without totals, the CNPG events `count` column name, and CNPG refusing flow `by partition`. Open: `by app` is a different classifier on each backend (StarRocks reads the ingest-time ServicePorts label and never applies `netflow_app_classification_rules`), recorded as a `defect`; no approximate-percentile shape is inventoried yet; the inclusive/exclusive bound is not aligned.
 - [x] 1.7 `other:true` top-N with an "Other" tail for flows and metrics.
   - `other_rollup_sql` mirrors CNPG's `build_other_rollup_sql`: groups are ranked by the query's own sort with every group key as an ascending tie-break, the top `limit` are kept, and the remainder folds into one row with NULL group keys and `__other__` set, absent when nothing is left over. Only `sum`/`count` re-aggregate by summing, so only those are accepted, and `offset` is not part of the cut on either backend. Both engines returned the same rows in the same order in the parity run recorded in `k8s/starrocks/README.md`.
 
@@ -84,16 +87,17 @@
       `DiagnosticsLive.MtrWarehouse` serves every `MtrData` reader (so the device MTR tab too), the
       dashboard card and sparklines, and the trace and Compare pages' Ash reads. Filters, including
       the diagnostics page's SRQL-style string (parsed in Elixir, not by the SRQL service), are one
-      term list with a CNPG and a warehouse renderer. Only SQL-shape tests exist: result parity is
-      NOT proven until task 1.4's harness runs these shapes. Still open:
+      term list with a CNPG and a warehouse renderer. Only SQL-shape tests exist: these Elixir
+      readers are not SRQL, so the 1.4 harness does not reach them and their result parity is
+      still NOT proven. Still open:
       `MtrData.retention_status/1` reports the CNPG retention policy.
     - SRQL `in:mtr_traces`/`in:mtr_hops`/`in:mtr_hop_stats` (the system report panels) have a
       StarRocks dialect (`rust/srql/src/query/starrocks/mtr.rs`), and `Readers.mode_for/1` sends
       MTR SRQL to it whenever StarRocks is enabled, to CNPG otherwise. It renders the CNPG MTR
       builders' own parse of `stats:`, so both backends accept the same queries; bucket widths
-      that do not divide a day, `bucket:` and `rollup_stats:` are refused. Only SQL-shape tests
-      and an accept/refuse equivalence corpus exist: result parity is NOT proven until task
-      1.4's harness runs these shapes.
+      that do not divide a day, `bucket:` and `rollup_stats:` are refused. The 1.4 harness runs
+      the dashboard panel shapes (`PANEL_QUERIES`) and a mixed `by addr,time:1h` shape against
+      both backends; they agree.
   - [x] 3.4.7 Delete the MTR exception from the AGENTS.md JetStream rule when 3.4.1 and 3.4.3 land.
     - Done with 3.4.1: after it, no MTR path bypasses JetStream (ad-hoc traces already arrive on
       `scans.results.>` and are written inside EventWriter). 3.4.3 is about warehouse-awareness,
