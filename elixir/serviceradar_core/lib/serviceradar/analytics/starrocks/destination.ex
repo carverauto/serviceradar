@@ -11,10 +11,24 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
   MTR traces and hops (`:mtr_traces`, `:mtr_hops`) are not shadowed: while
   StarRocks is enabled they are written to the warehouse only, through
   `persist_warehouse/3`, and a failed load fails the ACK.
+
+  ## Load sizing
+
+  One call is one EventWriter batch. Its rows are encoded once and split into
+  Stream Loads of at most `stream_load[:max_rows]` rows and
+  `stream_load[:max_bytes]` encoded bytes, run at most
+  `stream_load[:max_in_flight]` at a time. Every load must succeed before the
+  call does, so the batch keeps a single ACK decision. A batch within both
+  limits is one load, labelled exactly as before; a split load's label is still
+  derived from its own rows (or suffixed from a caller-supplied label), so a
+  retry of the same batch reuses the same labels. The tables are primary-key
+  tables, so a retry that regroups rows into different loads upserts rather
+  than duplicates.
   """
 
   alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.Analytics.StarRocks.Attribution
+  alias ServiceRadar.Analytics.StarRocks.Env
   alias ServiceRadar.Analytics.StarRocks.Readers
   alias ServiceRadar.Analytics.StarRocks.Rows
   alias ServiceRadar.Analytics.StarRocks.StreamLoad
@@ -192,6 +206,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
     else
       table = table_for(dataset)
       persist = Keyword.get(opts, :persist, &StreamLoad.persist/3)
+      limits = stream_load_limits(opts)
 
       persist_opts =
         opts
@@ -199,18 +214,153 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
         |> Keyword.put_new(:config, client_config())
         |> attribution_load_opts(dataset)
 
-      case persist.(table, encoded, persist_opts) do
-        {:quarantine, reason} when dataset == :flow_attribution ->
-          {:error, reason}
+      chunks = split_loads(encoded, limits)
+      emit_batch_telemetry(dataset, table, chunks)
 
-        {:quarantine, reason} ->
-          report_quarantine(dataset, table, reason)
-          {:ok, %{quarantine: true, reason: reason}}
+      case chunks do
+        [{rows, body, _bytes}] ->
+          load_chunk(persist, dataset, table, rows, Keyword.put(persist_opts, :body, body))
 
-        other ->
-          other
+        chunks ->
+          load_chunks(persist, dataset, table, chunks, persist_opts, limits[:max_in_flight])
       end
     end
+  end
+
+  defp load_chunk(persist, dataset, table, rows, persist_opts) do
+    case persist.(table, rows, persist_opts) do
+      {:quarantine, reason} when dataset == :flow_attribution ->
+        {:error, reason}
+
+      {:quarantine, reason} ->
+        report_quarantine(dataset, table, reason)
+        {:ok, %{quarantine: true, reason: reason}}
+
+      other ->
+        other
+    end
+  end
+
+  defp load_chunks(persist, dataset, table, chunks, persist_opts, max_in_flight) do
+    count = length(chunks)
+
+    load = fn {{rows, body, _bytes}, index} ->
+      opts =
+        persist_opts
+        |> Keyword.put(:body, body)
+        |> chunk_label(index)
+
+      load_chunk(persist, dataset, table, rows, opts)
+    end
+
+    indexed = Enum.with_index(chunks)
+
+    results =
+      if max_in_flight <= 1 do
+        Enum.map(indexed, load)
+      else
+        indexed
+        |> Task.async_stream(load,
+          max_concurrency: max_in_flight,
+          ordered: true,
+          timeout: :infinity
+        )
+        |> Enum.map(fn
+          {:ok, result} -> result
+          {:exit, reason} -> {:error, {:load_exit, reason}}
+        end)
+      end
+
+    case Enum.find(results, &(not match?({:ok, _}, &1))) do
+      nil ->
+        loaded =
+          results |> Enum.map(fn {:ok, result} -> Map.get(result, :loaded, 0) end) |> Enum.sum()
+
+        quarantined? =
+          Enum.any?(results, fn {:ok, result} -> Map.get(result, :quarantine, false) end)
+
+        {:ok, %{loaded: loaded, loads: count, quarantine: quarantined?}}
+
+      failure ->
+        failure
+    end
+  end
+
+  # A caller-supplied label names the whole batch; each load of a split batch
+  # needs its own, or the second would be reconciled against the first.
+  defp chunk_label(opts, index) do
+    case Keyword.fetch(opts, :label) do
+      {:ok, label} when is_binary(label) -> Keyword.put(opts, :label, "#{label}-#{index}")
+      _ -> opts
+    end
+  end
+
+  @doc false
+  # Splits rows into loads of at most `max_rows` rows and `max_bytes` encoded
+  # bytes. Each load carries its rows, its JSON array body and the body size.
+  # A single row larger than `max_bytes` still loads on its own: refusing it
+  # would wedge the batch on redelivery forever.
+  def split_loads([], _limits), do: []
+
+  def split_loads(rows, limits) do
+    max_rows = limits[:max_rows]
+    max_bytes = limits[:max_bytes]
+
+    rows
+    |> Enum.map(fn row ->
+      json = Jason.encode_to_iodata!(row)
+      {row, json, IO.iodata_length(json)}
+    end)
+    |> Enum.chunk_while(
+      {[], [], 0, 0},
+      fn {row, json, size}, {chunk_rows, chunk_json, count, bytes} = acc ->
+        # 2 bytes for the array brackets, 1 per separating comma.
+        next_bytes = bytes + size + if(count == 0, do: 2, else: 1)
+
+        if count > 0 and (count >= max_rows or next_bytes > max_bytes) do
+          {:cont, finish_load(acc), {[row], [json], 1, size + 2}}
+        else
+          {:cont, {[row | chunk_rows], [json | chunk_json], count + 1, next_bytes}}
+        end
+      end,
+      fn
+        {_, _, 0, _} -> {:cont, []}
+        acc -> {:cont, finish_load(acc), []}
+      end
+    )
+  end
+
+  defp finish_load({chunk_rows, chunk_json, _count, bytes}) do
+    body = IO.iodata_to_binary(["[", chunk_json |> Enum.reverse() |> Enum.intersperse(","), "]"])
+    {Enum.reverse(chunk_rows), body, bytes}
+  end
+
+  defp emit_batch_telemetry(dataset, table, chunks) do
+    :telemetry.execute(
+      [:serviceradar, :starrocks, :stream_load, :batch],
+      %{
+        rows: chunks |> Enum.map(fn {rows, _body, _bytes} -> length(rows) end) |> Enum.sum(),
+        bytes: chunks |> Enum.map(fn {_rows, _body, bytes} -> bytes end) |> Enum.sum(),
+        loads: length(chunks)
+      },
+      %{dataset: dataset, table: table}
+    )
+  end
+
+  @doc """
+  Stream Load sizing limits: `opts[:stream_load]`, else the runtime
+  `stream_load` config, else `Env.default_stream_load/0`.
+  """
+  @spec stream_load_limits(keyword()) :: keyword(pos_integer())
+  def stream_load_limits(opts \\ []) do
+    configured =
+      Keyword.get_lazy(opts, :stream_load, fn ->
+        :serviceradar_core
+        |> Application.get_env(StarRocks, [])
+        |> Keyword.get(:stream_load, [])
+      end)
+
+    Keyword.merge(Env.default_stream_load(), configured || [])
   end
 
   @doc """

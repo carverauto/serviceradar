@@ -2732,6 +2732,16 @@ analytics:
       secretName: ""
       accessKeyKey: access_key_id
       secretKeyKey: secret_access_key
+    # Warehouse load sizing. Every Stream Load is a transaction plus
+    # object-store writes and later compaction, so a few large loads cost far
+    # less than many small ones. EventWriter flushes a warehouse batch after
+    # maxAgeMs (also the freshness floor for warehouse charts), splits it into
+    # loads of at most maxRows rows and maxBytes encoded bytes, and runs at
+    # most maxInFlight of them at once. A batch fills to half of its
+    # JetStream consumer's max_ack_pending (the producer never holds more
+    # unacked messages than that), so a busy stream flushes on size and a
+    # quiet one on maxAgeMs. Starting points for the #4516 benchmark, not
+    # measured optima.
     streamLoad:
       maxRows: 50000
       maxBytes: 33554432

@@ -323,15 +323,15 @@ The shadow list is included explicitly because it is derived, not set.
       key: database
 {{- $retention := default (dict) $sr.retentionDays }}
 - name: SERVICERADAR_STARROCKS_RETENTION_DAYS_FLOWS
-  value: {{ $retention.flows | default 90 | quote }}
+  value: {{ $retention.flows | default 365 | quote }}
 - name: SERVICERADAR_STARROCKS_RETENTION_DAYS_METRICS
-  value: {{ $retention.metrics | default 90 | quote }}
+  value: {{ $retention.metrics | default 365 | quote }}
 - name: SERVICERADAR_STARROCKS_RETENTION_DAYS_LOGS
   value: {{ $retention.logs | default 365 | quote }}
 - name: SERVICERADAR_STARROCKS_RETENTION_DAYS_EVENTS
   value: {{ $retention.events | default 365 | quote }}
 - name: SERVICERADAR_STARROCKS_RETENTION_DAYS_MTR
-  value: {{ $retention.mtr | default 30 | quote }}
+  value: {{ $retention.mtr | default 365 | quote }}
 {{- /* Not `default`: sprig treats 0 as empty, and 0 is the strictest setting
        this knob accepts (serve only a fully current view), not an absent one. */}}
 {{- $rollupStaleAfter := 7200 }}
@@ -348,6 +348,17 @@ The shadow list is included explicitly because it is derived, not set.
 {{- end }}
 - name: SERVICERADAR_STARROCKS_ROLLUP_CACHE_TTL_SECONDS
   value: {{ $rollupCacheTtl | quote }}
+{{- /* Stream Load sizing: EventWriter flushes a warehouse batch after maxAgeMs,
+       splits it into loads of at most maxRows rows / maxBytes bytes, and runs at
+       most maxInFlight of them at once. Read from the analytics ConfigMap so a
+       change rolls core through its checksum. */}}
+{{- range $key := list "maxRows" "maxBytes" "maxAgeMs" "maxInFlight" }}
+- name: SERVICERADAR_STARROCKS_STREAM_LOAD_{{ $key | snakecase | upper }}
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "serviceradar.fullname" $ }}-starrocks-analytics
+      key: streamLoad{{ $key | title }}
+{{- end }}
 - name: SERVICERADAR_STARROCKS_FE_HTTP
   value: {{ printf "http://%s:%v" $sr.fe.service $sr.fe.httpPort | quote }}
 - name: SERVICERADAR_STARROCKS_FE_HOST
