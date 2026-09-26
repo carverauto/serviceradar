@@ -47,6 +47,37 @@ The system SHALL build Wasm integration provider, authentication, secret-field, 
 - **THEN** the system SHALL reject the request
 - **AND** it SHALL not persist partial secret material
 
+### Requirement: Package-owned credential rule tests
+The system SHALL test a credential rule only through a credential test action declared by an approved integration package and run by an eligible agent through the same broker-grant path that production collection uses.
+Core and web-ng SHALL NOT contain provider-specific credential test plans, dispatchers, or agent command handlers. A test SHALL report bounded, redacted status and SHALL NOT count as a collection run.
+
+#### Scenario: Package declares a credential test
+- **GIVEN** an approved package declares a credential test action for an auth method in its signed manifest
+- **WHEN** an authorized admin tests a rule that uses that auth method against a matched target
+- **THEN** the system SHALL issue a short-lived broker grant scoped to that rule, target, agent, and test purpose
+- **AND** the agent SHALL run the package-declared action through the plugin runtime with that grant
+
+#### Scenario: Test uses the production resolution path
+- **GIVEN** a rule whose credential cannot be resolved at the agent's resolution location
+- **WHEN** an admin tests the rule
+- **THEN** the test SHALL fail with the same resolution error that production collection would report
+
+#### Scenario: Test result is bounded and redacted
+- **WHEN** a credential test completes or fails
+- **THEN** the result SHALL report only bounded status fields such as reachability, authentication, TLS verification, host-key verification, and API version
+- **AND** token, password, private key, passphrase, cookie, ticket, and raw command output values SHALL NOT appear in the result, logs, audit rows, or events
+
+#### Scenario: Plaintext stays in the trusted adapter
+- **WHEN** the agent resolves the credential for a test
+- **THEN** decrypted material SHALL remain inside the trusted protocol adapter
+- **AND** neither the Wasm guest nor a generic command handler SHALL receive source credentials or derived tokens
+
+#### Scenario: No declared test action
+- **GIVEN** no approved package declares a credential test for the rule's auth method
+- **WHEN** an admin views the rule
+- **THEN** the system SHALL NOT offer a test
+- **AND** no provider-specific fallback in core SHALL run one
+
 ### Requirement: Inline secret creation for credential rules
 Credential rule creation SHALL allow admins to create or rotate the referenced encrypted secret inline while preserving the ability to select an existing secret.
 

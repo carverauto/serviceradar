@@ -127,7 +127,7 @@ Console access must be separately permissioned from read-only Proxmox enrichment
 ## UI Shape
 Settings gains a reusable credentials area, not a Proxmox-only page:
 - Settings -> Networks -> Credential Rules
-- create/edit/test rule
+- create/edit rule (testing is package-owned; see `refactor-unified-credential-management`)
 - choose provider/auth method
 - store or rotate secrets through secret-reference fields
 - define SRQL target query and preview matching devices
