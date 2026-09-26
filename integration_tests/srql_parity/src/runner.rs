@@ -27,7 +27,7 @@
 use crate::compare::{self, Row, Tolerance, Verdict};
 use crate::fixture::{self, Anchor, Backend};
 use crate::inventory::{
-    DEFAULT_ABSOLUTE_TOLERANCE, DEFAULT_RELATIVE_TOLERANCE, Entry, Expect, Inventory,
+    DEFAULT_ABSOLUTE_TOLERANCE, DEFAULT_RELATIVE_TOLERANCE, Entry, Expect, Inventory, Recorded,
 };
 use crate::schema;
 use anyhow::{Context, Result, anyhow, bail};
@@ -416,6 +416,7 @@ fn translate(query: &str, starrocks_database: &str) -> Translated {
         cursor: None,
         direction: QueryDirection::Next,
         mode: mode.map(str::to_string),
+        permitted_signals: None,
     };
     Translated {
         cnpg: srql::query::translate_request(&config, request(None)),
@@ -562,7 +563,8 @@ async fn run_entry(
             .unwrap_or_default(),
         wide: entry.tolerance.as_ref().map(|t| t.relative).unwrap_or(0.0),
     };
-    let verdict = compare::compare(&cnpg_rows, &sr_rows, &order_keys(entry, &query), &tolerance);
+    let keys = order_keys(entry, &query);
+    let verdict = compare::compare(&cnpg_rows, &sr_rows, &keys, &tolerance);
     let render = |rows: &[Row]| {
         rows.iter()
             .take(40)
@@ -592,16 +594,55 @@ async fn run_entry(
         (Verdict::Different(diff), Expect::Match) => {
             Outcome::Fail(format!("results differ:\n    {diff}"))
         }
-        (Verdict::Different(diff), Expect::Mismatch) => Outcome::Pass(format!(
-            "differs as recorded ({}): {}",
-            entry.deviation.as_deref().unwrap_or("?"),
-            diff.lines().next().unwrap_or("")
-        )),
+        (Verdict::Different(diff), Expect::Mismatch) => {
+            let observed = Recorded {
+                cnpg: compare::relative_to(cnpg_rows, anchor.0),
+                starrocks: compare::relative_to(sr_rows, anchor.0),
+            };
+            match pinned_difference(entry.recorded.as_ref(), &observed, &keys, &tolerance) {
+                Ok(()) => Outcome::Pass(format!(
+                    "differs as recorded ({}): {}",
+                    entry.deviation.as_deref().unwrap_or("?"),
+                    diff.lines().next().unwrap_or("")
+                )),
+                Err(why) => Outcome::Fail(why),
+            }
+        }
         (Verdict::Equal, Expect::Mismatch) => Outcome::Fail(format!(
             "recorded as a mismatch ({reason}) but the backends now agree: make it a match"
         )),
         (_, Expect::StarrocksRefuses | Expect::CnpgRefuses) => unreachable!("handled above"),
     }
+}
+
+/// The rows an `expect: mismatch` entry must still return on each backend. `Err` says which side
+/// moved, or, when nothing is recorded yet, the `recorded` block to add to the entry.
+fn pinned_difference(
+    recorded: Option<&Recorded>,
+    observed: &Recorded,
+    order_keys: &[String],
+    tolerance: &Tolerance,
+) -> Result<(), String> {
+    let Some(recorded) = recorded else {
+        return Err(format!(
+            "the backends differ, but the entry pins no rows, so any difference would pass; \
+             record what they return now, if that is the deviation the entry describes: \
+             \"recorded\": {}",
+            serde_json::to_string(observed).unwrap_or_default()
+        ));
+    };
+    for (side, seen, pinned) in [
+        ("cnpg", &observed.cnpg, &recorded.cnpg),
+        ("starrocks", &observed.starrocks, &recorded.starrocks),
+    ] {
+        if let Verdict::Different(diff) = compare::compare(seen, pinned, order_keys, tolerance) {
+            return Err(format!(
+                "{side} no longer returns the recorded rows (observed on the left, recorded on \
+                 the right):\n    {diff}"
+            ));
+        }
+    }
+    Ok(())
 }
 
 async fn seed(
@@ -829,5 +870,66 @@ mod tests {
         ] {
             assert_eq!(run_database_created(other), None, "{other}");
         }
+    }
+
+    fn recorded(cnpg: Value, starrocks: Value) -> Recorded {
+        let rows = |value: Value| -> Vec<Row> {
+            value
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|r| r.as_object().unwrap().clone())
+                .collect()
+        };
+        Recorded {
+            cnpg: rows(cnpg),
+            starrocks: rows(starrocks),
+        }
+    }
+
+    fn exact() -> Tolerance {
+        Tolerance {
+            relative: DEFAULT_RELATIVE_TOLERANCE,
+            absolute: DEFAULT_ABSOLUTE_TOLERANCE,
+            wide_columns: Vec::new(),
+            wide: 0.0,
+        }
+    }
+
+    #[test]
+    fn a_recorded_deviation_passes_only_while_both_sides_return_the_recorded_rows() {
+        use serde_json::json;
+        let pinned = recorded(
+            json!([{"label": "", "flows": 3}]),
+            json!([{"label": "none", "flows": 3}]),
+        );
+        let keys = ["flows".to_string()];
+        assert!(pinned_difference(Some(&pinned), &pinned, &keys, &exact()).is_ok());
+
+        // Same difference in kind, new wrong count on the warehouse: the entry must fail.
+        let regressed = recorded(
+            json!([{"label": "", "flows": 3}]),
+            json!([{"label": "none", "flows": 2}]),
+        );
+        let why = pinned_difference(Some(&pinned), &regressed, &keys, &exact()).unwrap_err();
+        assert!(why.starts_with("starrocks no longer returns"), "{why}");
+
+        let moved = recorded(
+            json!([{"label": "", "flows": 4}]),
+            json!([{"label": "none", "flows": 3}]),
+        );
+        let why = pinned_difference(Some(&pinned), &moved, &keys, &exact()).unwrap_err();
+        assert!(why.starts_with("cnpg no longer returns"), "{why}");
+    }
+
+    #[test]
+    fn an_unpinned_mismatch_fails_and_says_what_to_record() {
+        use serde_json::json;
+        let observed = recorded(json!([{"v": 1}]), json!([{"v": 2}]));
+        let why = pinned_difference(None, &observed, &[], &exact()).unwrap_err();
+        assert!(
+            why.contains("\"recorded\": {\"cnpg\":[{\"v\":1}],\"starrocks\":[{\"v\":2}]}"),
+            "{why}"
+        );
     }
 }

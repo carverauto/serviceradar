@@ -1,7 +1,7 @@
 //! The SHAPE of an SRQL query: what the inventory and the source scan are compared by.
 //!
-//! Exact text cannot be compared, because the product builds queries from interpolated
-//! fragments. A shape is the entity plus the clauses that select a SQL code path in either
+//! Exact text cannot be compared, because a dashboard panel and an inventory entry differ in
+//! filters and windows. A shape is the entity plus the clauses that select a SQL code path in either
 //! dialect -- `bucket`, `agg`, `series`, `value_field`, `stats`, `rollup_stats`, `other` --
 //! and the `sort`/`limit` modifiers. Filters are deliberately NOT part of a shape: a new
 //! filter value does not pick a new aggregate translation, a new `agg:` does.
@@ -12,9 +12,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-/// What an interpolation (`#{...}`) is replaced with before a template is tokenised.
-pub const PLACEHOLDER: &str = "{}";
-/// A clause value that was interpolated, so the scan cannot know it.
+/// The `bucket` clause value: the width never selects a translation on its own.
 pub const WILDCARD: &str = "*";
 
 /// Clauses whose value picks a translation path. Order is irrelevant; membership is not.
@@ -49,22 +47,15 @@ impl Shape {
             .any(|key| CHART_KEYS.contains(&key.as_str()))
     }
 
-    /// Whether `inventory` (a fully literal shape) accounts for `self` (a scanned shape that
-    /// may carry wildcards).
+    /// Whether `inventory` accounts for `self`: the same clauses with the same values, and no
+    /// more modifiers.
     pub fn covered_by(&self, inventory: &Shape) -> bool {
         if let (Some(mine), Some(theirs)) = (&self.entity, &inventory.entity)
             && mine != theirs
         {
             return false;
         }
-        if self.clauses.keys().ne(inventory.clauses.keys()) {
-            return false;
-        }
-        let values_agree = self.clauses.iter().all(|(key, value)| {
-            let theirs = &inventory.clauses[key];
-            wildcard_match(value, theirs)
-        });
-        values_agree && self.modifiers.is_subset(&inventory.modifiers)
+        self.clauses == inventory.clauses && self.modifiers.is_subset(&inventory.modifiers)
     }
 
     pub fn describe(&self) -> String {
@@ -76,32 +67,6 @@ impl Shape {
         parts.extend(self.modifiers.iter().map(|m| format!("+{m}")));
         parts.join(" ")
     }
-}
-
-/// `*` in a scanned value stands for one interpolation. `a,*` matches `a,b`; `*` matches
-/// anything. Only the scanned side may carry wildcards.
-fn wildcard_match(scanned: &str, literal: &str) -> bool {
-    if !scanned.contains(WILDCARD) {
-        return scanned == literal;
-    }
-    let pieces: Vec<&str> = scanned.split(WILDCARD).collect();
-    let mut rest = literal;
-    for (index, piece) in pieces.iter().enumerate() {
-        if index == 0 {
-            let Some(after) = rest.strip_prefix(piece) else {
-                return false;
-            };
-            rest = after;
-        } else if index == pieces.len() - 1 {
-            return rest.ends_with(piece);
-        } else {
-            let Some(at) = rest.find(piece) else {
-                return false;
-            };
-            rest = &rest[at + piece.len()..];
-        }
-    }
-    true
 }
 
 /// One `key:value` token of an SRQL text, with quoted values kept whole.
@@ -154,7 +119,7 @@ fn split_key(word: &str) -> Option<(&str, &str)> {
         && key
             .chars()
             .all(|c| c.is_ascii_lowercase() || c == '_' || c == '.' || c.is_ascii_digit());
-    // `bucket: bucket` is an Elixir keyword pair, not SRQL: SRQL never has a bare `key:`.
+    // SRQL never has a bare `key:`.
     (is_key && !value.is_empty()).then_some((key, value))
 }
 
@@ -186,7 +151,7 @@ fn unquote(value: &str) -> String {
     value.trim_matches('"').to_string()
 }
 
-/// The shape of one SRQL text. Interpolation placeholders become wildcards.
+/// The shape of one SRQL text.
 pub fn shape_of(text: &str) -> Shape {
     shape_of_tokens(&tokenize(text))
 }
@@ -200,9 +165,7 @@ pub fn shape_of_tokens(tokens: &[Token]) -> Shape {
     for token in tokens {
         let key = token.key.as_str();
         if key == "in" {
-            if !token.value.contains(PLACEHOLDER) {
-                entity = Some(token.value.clone());
-            }
+            entity = Some(token.value.clone());
         } else if key == "stats" {
             stats_values.push(token.value.clone());
         } else if key == "bucket" {
@@ -210,7 +173,7 @@ pub fn shape_of_tokens(tokens: &[Token]) -> Shape {
             // can trigger is covered by inventorying a coarse-bucket shape explicitly.
             clauses.insert("bucket".into(), WILDCARD.into());
         } else if CLAUSE_KEYS.contains(&key) {
-            clauses.insert(key.into(), wildcarded(&token.value));
+            clauses.insert(key.into(), token.value.clone());
         } else if MODIFIER_KEYS.contains(&key) {
             modifiers.insert(key.to_string());
         }
@@ -225,14 +188,6 @@ pub fn shape_of_tokens(tokens: &[Token]) -> Shape {
     }
 }
 
-fn wildcarded(value: &str) -> String {
-    if value.contains(PLACEHOLDER) {
-        value.replace(PLACEHOLDER, WILDCARD)
-    } else {
-        value.to_string()
-    }
-}
-
 /// `sum(bytes_total) as b, count(*) as n by src_ip, dst_ip` -> `count(*),sum(bytes_total)|by:src_ip,dst_ip`.
 ///
 /// Aliases are dropped (they rename a column, they do not change the SQL's meaning); the
@@ -242,8 +197,7 @@ pub fn stats_signature(values: &[String]) -> String {
     let mut functions: BTreeSet<String> = BTreeSet::new();
     let mut group_by: Vec<String> = Vec::new();
     for value in values {
-        let value = wildcarded(value);
-        let (aggregates, by) = match split_by(&value) {
+        let (aggregates, by) = match split_by(value) {
             Some((aggregates, by)) => (aggregates, Some(by)),
             None => (value.as_str(), None),
         };
@@ -330,18 +284,12 @@ mod tests {
     #[test]
     fn two_stats_clauses_merge() {
         let shape = shape_of(
-            "{} stats:sum(bytes_total) as bytes_total stats:sum(packets_total) as packets_total by {} sort:{}:desc limit:{}",
+            "in:flows stats:sum(bytes_total) as bytes_total stats:sum(packets_total) as packets_total by src_endpoint_ip sort:bytes_total:desc limit:5",
         );
-        assert_eq!(shape.entity, None);
         assert_eq!(
             shape.clauses["stats"],
-            "sum(bytes_total),sum(packets_total)|by:*"
+            "sum(bytes_total),sum(packets_total)|by:src_endpoint_ip"
         );
-    }
-
-    #[test]
-    fn elixir_keyword_pairs_are_not_clauses() {
-        assert!(!shape_of("bucket: bucket, agg: agg").is_chart());
     }
 
     #[test]
@@ -353,28 +301,13 @@ mod tests {
     }
 
     #[test]
-    fn interpolated_value_is_a_wildcard_and_modifiers_are_a_subset() {
-        let scanned = shape_of("in:timeseries_metrics bucket:{} agg:{}");
+    fn modifiers_are_a_subset_and_other_clauses_are_exact() {
         let inventory = shape_of("in:timeseries_metrics bucket:5m agg:avg sort:timestamp:desc");
-        assert!(scanned.covered_by(&inventory));
-        // The inventory entry has no `series`, so a scanned query with one is a new shape.
-        let with_series = shape_of("in:timeseries_metrics bucket:{} agg:{} series:core_id");
+        assert!(shape_of("in:timeseries_metrics bucket:1h agg:avg").covered_by(&inventory));
+        let with_series = shape_of("in:timeseries_metrics bucket:5m agg:avg series:core_id");
         assert!(!with_series.covered_by(&inventory));
-        // A source query that sorts is not covered by an entry that does not.
         let sorted = shape_of("in:timeseries_metrics bucket:5m agg:avg sort:timestamp:desc");
         let unsorted = shape_of("in:timeseries_metrics bucket:5m agg:avg");
         assert!(!sorted.covered_by(&unsorted));
-    }
-
-    #[test]
-    fn partial_wildcards_match_by_position() {
-        assert!(wildcard_match(
-            "sum(bytes_total)|by:*,b",
-            "sum(bytes_total)|by:a,b"
-        ));
-        assert!(!wildcard_match(
-            "sum(bytes_total)|by:*,b",
-            "sum(bytes_total)|by:a,c"
-        ));
     }
 }

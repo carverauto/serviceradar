@@ -2,8 +2,8 @@
 //!
 //! * `inventory.json` + `inventory`: the checked-in query shapes, each with its expectation and,
 //!   where the backends may differ, a named deviation with its reason.
-//! * `coverage` + `scan` + `shape`: the source scan that fails when a product chart query has
-//!   no inventory entry.
+//! * `coverage` + `shape`: the dashboard-definition check that fails when a checked-in chart
+//!   query has no inventory entry.
 //! * `fixture`: the one synthetic row generator both backends are seeded from.
 //! * `schema`: the DDL each throwaway database is built from.
 //! * `compare`: result normalisation and the diff.
@@ -14,7 +14,6 @@ pub mod coverage;
 pub mod fixture;
 pub mod inventory;
 pub mod runner;
-pub mod scan;
 pub mod schema;
 pub mod shape;
 

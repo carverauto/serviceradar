@@ -35,19 +35,6 @@ exports_files([
 # executor's mutable /cache.
 npm_link_all_packages(name = "node_modules")
 
-# Scanned by //integration_tests/srql_parity:srql_parity_test: an SRQL chart query the
-# browser bundle builds for a warehouse-served entity must have a parity inventory entry.
-filegroup(
-    name = "srql_chart_query_sources",
-    srcs = glob(
-        ["js/**/*.js"],
-        exclude = [
-            "js/**/*.test.js",
-            "js/**/*.spec.js",
-        ],
-    ),
-)
-
 # Production JavaScript inputs scanned by the timestamp formatter inventory guard.
 # Keep this broad enough to catch new dashboard and hook modules while excluding
 # test-only, vendored, generated, and static trees.

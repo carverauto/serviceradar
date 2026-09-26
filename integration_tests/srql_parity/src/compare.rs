@@ -119,6 +119,39 @@ pub fn canonical_timestamp(text: &str) -> Option<String> {
     None
 }
 
+/// Rewrites every canonical timestamp in `rows` as its offset from `anchor` (`@+300000ms`), so
+/// rows recorded in `inventory.json` do not depend on the day a run was made. Call after
+/// `normalize_rows`.
+pub fn relative_to(rows: Vec<Row>, anchor: chrono::DateTime<chrono::Utc>) -> Vec<Row> {
+    fn relative(value: Value, anchor: chrono::DateTime<chrono::Utc>) -> Value {
+        match value {
+            Value::String(text) => match chrono::DateTime::parse_from_rfc3339(&text) {
+                Ok(at) => Value::String(format!(
+                    "@{:+}ms",
+                    (at.with_timezone(&chrono::Utc) - anchor).num_milliseconds()
+                )),
+                Err(_) => Value::String(text),
+            },
+            Value::Array(items) => {
+                Value::Array(items.into_iter().map(|v| relative(v, anchor)).collect())
+            }
+            Value::Object(map) => Value::Object(
+                map.into_iter()
+                    .map(|(k, v)| (k, relative(v, anchor)))
+                    .collect(),
+            ),
+            other => other,
+        }
+    }
+    rows.into_iter()
+        .map(|row| {
+            row.into_iter()
+                .map(|(k, v)| (k, relative(v, anchor)))
+                .collect()
+        })
+        .collect()
+}
+
 fn numbers_equal(a: f64, b: f64, relative: f64, absolute: f64) -> bool {
     if a == b {
         return true;
@@ -288,6 +321,27 @@ mod tests {
             wide_columns: vec![],
             wide: 0.0,
         }
+    }
+
+    #[test]
+    fn recorded_timestamps_are_offsets_from_the_anchor() {
+        let anchor = chrono::DateTime::parse_from_rfc3339("2030-01-02T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let observed = normalize_rows(
+            rows(json!([{"timestamp": "2030-01-02 00:05:00", "value": 3, "series": "a"}])),
+            &[],
+        );
+        let recorded = rows(json!([{"timestamp": "@+300000ms", "value": 3.0, "series": "a"}]));
+        assert_eq!(
+            compare(&relative_to(observed, anchor), &recorded, &[], &exact()),
+            Verdict::Equal
+        );
+        let drifted = rows(json!([{"timestamp": "@+300000ms", "value": 4.0, "series": "a"}]));
+        assert!(matches!(
+            compare(&recorded, &drifted, &[], &exact()),
+            Verdict::Different(_)
+        ));
     }
 
     #[test]

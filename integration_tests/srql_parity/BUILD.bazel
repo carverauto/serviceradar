@@ -5,14 +5,14 @@ load("//build:integration_tests.bzl", "requires_shared_fixture")
 
 # SRQL StarRocks-vs-CNPG parity harness: openspec change extend-starrocks-to-all-telemetry,
 # tasks 1.4 (seed both backends with the same synthetic rows, diff result sets), 1.5 (the
-# query-shape inventory, enforced against the product source) and 1.6 (accepted deviations,
-# each with its reason, in inventory.json).
+# query-shape inventory, enforced against the checked-in dashboard definitions) and 1.6 (accepted
+# deviations, each with its reason and the rows each backend returns, in inventory.json).
 #
 # Two tiers:
 #
-#   :srql_parity_test -- the unit tier. Database-free: inventory validity, the source scan
-#     (every warehouse chart query in the product has an inventory entry), the fixture
-#     generator's adversarial cases, the comparison. `make test` runs it.
+#   :srql_parity_test -- the unit tier. Database-free: inventory validity, the dashboard
+#     coverage test (every warehouse chart panel in a checked-in dashboard has an inventory
+#     entry), the fixture generator's adversarial cases, the comparison. `make test` runs it.
 #
 #   :parity_test -- the database tier. Creates `srql_parity_<stamp>_<pid>` on the srql-fixtures
 #     CNPG and on a StarRocks FE, seeds both, runs every entry through both dialects, drops
@@ -43,12 +43,10 @@ PARITY_DATA = [
     "//elixir/serviceradar_core/priv/starrocks:schema_sql",
 ]
 
-# The trees the task-1.5 scan walks (src/coverage.rs SOURCE_ROOTS).
-SCAN_DATA = [
+# The dashboard definitions the task-1.5 coverage test loads (src/coverage.rs DASHBOARD_ROOTS).
+DASHBOARD_DATA = [
     "inventory.json",
-    "//elixir/serviceradar_core:srql_chart_query_sources",
-    "//elixir/web-ng:srql_chart_query_sources",
-    "//elixir/web-ng/assets:srql_chart_query_sources",
+    "//elixir/web-ng:srql_dashboard_definitions",
 ]
 
 rust_library(
@@ -68,7 +66,7 @@ rust_test(
     name = "srql_parity_test",
     size = "small",
     crate = ":srql_parity",
-    data = SCAN_DATA,
+    data = DASHBOARD_DATA,
     edition = "2024",
     deps = all_crate_deps(
         cargo_only = True,

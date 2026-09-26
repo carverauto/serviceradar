@@ -33,11 +33,52 @@
       "reason": "The CNPG events builder accepts only `count() as total` and returns the column unaliased, as `count`; the StarRocks dialect honours the alias. The values are compared after renaming the CNPG column."
     }
   },
-  "scan_exclusions": [
+  "unreached_builders": [
     {
-      "file": "elixir/web-ng/lib/serviceradar_web_ng_web/live/log_live/index.ex",
-      "text": "count() as points by metric_name",
-      "reason": "The base query is built by otlp_points_base_query/1 as in:otel_metric_points, which SRQL never serves from StarRocks; the scan only attributes the fragment to the flows/logs entities this file also names."
+      "reason": "Private function (or module attribute): only its LiveView or worker reaches it, and that runs the query against a live SRQL service, so the harness cannot call it. Its shape is covered through the entries whose sources name the file.",
+      "sites": [
+        {"file": "elixir/serviceradar_core/lib/serviceradar/observability/capacity_forecasting/source.ex", "function": "all_sources"},
+        {"file": "elixir/serviceradar_core/lib/serviceradar/observability/flow_endpoint_scan.ex", "function": "page_query"},
+        {"file": "elixir/serviceradar_core/lib/serviceradar/observability/netflow_security_refresh_worker.ex", "function": "maybe_refresh_port_scan"},
+        {"file": "elixir/serviceradar_core/lib/serviceradar/observability/netflow_security_refresh_worker.ex", "function": "maybe_refresh_anomalies"},
+        {"file": "elixir/serviceradar_core/lib/serviceradar/observability/seasonal_disposition/source.ex", "function": "profile_query"},
+        {"file": "elixir/web-ng/lib/serviceradar_web_ng_web/live/dashboard_live/data/netflow_summary.ex", "function": "flow_summary"},
+        {"file": "elixir/web-ng/lib/serviceradar_web_ng_web/live/device_live/flow_data.ex", "function": "summary_group"},
+        {"file": "elixir/web-ng/lib/serviceradar_web_ng_web/live/device_live/flow_data.ex", "function": "load_device_flow_top_n"},
+        {"file": "elixir/web-ng/lib/serviceradar_web_ng_web/live/device_live/flow_data.ex", "function": "load_device_flow_protocols"},
+        {"file": "elixir/web-ng/lib/serviceradar_web_ng_web/live/device_live/flow_data.ex", "function": "load_device_flow_timeseries"},
+        {"file": "elixir/web-ng/lib/serviceradar_web_ng_web/live/device_live/icmp_data.ex", "function": "query"},
+        {"file": "elixir/web-ng/lib/serviceradar_web_ng_web/live/device_live/index_data/telemetry.ex", "function": "load_metric_presence"},
+        {"file": "elixir/web-ng/lib/serviceradar_web_ng_web/live/device_live/interface_data.ex", "function": "load_snmp_derived_interfaces"},
+        {"file": "elixir/web-ng/lib/serviceradar_web_ng_web/live/event_live/show.ex", "function": "build_anomaly_metric_query_variants"},
+        {"file": "elixir/web-ng/lib/serviceradar_web_ng_web/live/flows/attributed_live.ex", "function": "fetch_summary"},
+        {"file": "elixir/web-ng/lib/serviceradar_web_ng_web/live/log_live/index.ex", "function": "load_netflow_top_talkers"},
+        {"file": "elixir/web-ng/lib/serviceradar_web_ng_web/live/log_live/index.ex", "function": "load_netflow_top_ports"},
+        {"file": "elixir/web-ng/lib/serviceradar_web_ng_web/live/log_live/index.ex", "function": "load_netflow_timeseries"},
+        {"file": "elixir/web-ng/lib/serviceradar_web_ng_web/live/log_live/index.ex", "function": "load_netflow_app_activity"},
+        {"file": "elixir/web-ng/lib/serviceradar_web_ng_web/live/log_live/index.ex", "function": "load_netflow_frequent_talkers_packets"},
+        {"file": "elixir/web-ng/lib/serviceradar_web_ng_web/live/log_live/index.ex", "function": "load_netflow_frequent_talkers_bytes"},
+        {"file": "elixir/web-ng/lib/serviceradar_web_ng_web/live/log_live/index.ex", "function": "load_netflow_timeseries_series_maps"},
+        {"file": "elixir/web-ng/lib/serviceradar_web_ng_web/live/log_live/index.ex", "function": "load_netflow_top_talkers_ips"},
+        {"file": "elixir/web-ng/lib/serviceradar_web_ng_web/live/log_live/index.ex", "function": "load_netflow_keyed_series_maps"},
+        {"file": "elixir/web-ng/lib/serviceradar_web_ng_web/live/log_live/index.ex", "function": "load_netflow_timeseries_compare"},
+        {"file": "elixir/web-ng/lib/serviceradar_web_ng_web/live/log_live/index.ex", "function": "load_netflow_geo_heatmap"},
+        {"file": "elixir/web-ng/lib/serviceradar_web_ng_web/live/observability_health_live/index.ex", "function": "@health_query"},
+        {"file": "elixir/web-ng/lib/serviceradar_web_ng_web/netflow_visualize/query.ex", "function": "sankey_stats_query"},
+        {"file": "elixir/web-ng/lib/serviceradar_web_ng_web/netflow_visualize/query.ex", "function": "sankey_ip_fallback_query"}
+      ]
+    },
+    {
+      "reason": "Public builder, but the harness is Rust and cannot call Elixir, so its output is not checked against this inventory. Its shape is covered through the entries whose sources name the file.",
+      "sites": [
+        {"file": "elixir/serviceradar_core/lib/serviceradar/observability/anomaly_disposition/peak_profile.ex", "function": "peak_query"},
+        {"file": "elixir/web-ng/lib/serviceradar_web_ng_web/live/dashboard_live/data/netflow_traffic.ex", "function": "srql_query"},
+        {"file": "elixir/web-ng/lib/serviceradar_web_ng_web/live/device_live/sysmon_metrics/query.ex", "function": "timeseries_metric_query"},
+        {"file": "elixir/web-ng/lib/serviceradar_web_ng_web/live/interface_live/metrics_query.ex", "function": "build_snmp_counter_query"},
+        {"file": "elixir/web-ng/lib/serviceradar_web_ng_web/stats/query.ex", "function": "logs_severity"},
+        {"file": "elixir/web-ng/lib/serviceradar_web_ng_web/stats/query.ex", "function": "logs_severity_count_query"},
+        {"file": "elixir/web-ng/lib/serviceradar_web_ng_web/stats/query.ex", "function": "anomaly_findings"}
+      ]
     }
   ],
   "entries": [
@@ -55,7 +96,7 @@
     {"id": "metrics.icmp.max_by_uid", "query": "in:timeseries_metrics {window_main} metric_type:icmp metric_name:icmp.loss_pct uid:(\"sr:parity-dev-a\",\"sr:parity-dev-b\") bucket:5m agg:max series:uid sort:timestamp:asc limit:500"},
     {"id": "metrics.icmp.avg_2h_buckets_long_window", "query": "in:timeseries_metrics {window_long} metric_type:icmp metric_name:icmp.rtt_ms bucket:2h agg:avg series:uid limit:100", "expect": "mismatch", "deviation": "rollup_average_mean_of_means"},
     {"id": "metrics.sysmon.avg_newest_n", "query": "in:timeseries_metrics {window_main} metric_type:\"sysmon.cpu\" metric_name:\"cpu.usage_percent\" bucket:5m agg:avg sort:timestamp:desc limit:20", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/device_live/sysmon_metrics/query.ex"]},
-    {"id": "metrics.sysmon.max_by_core_newest_n", "query": "in:timeseries_metrics {window_main} metric_type:\"sysmon.cpu\" metric_name:\"cpu.usage_percent\" bucket:5m agg:max series:core_id sort:timestamp:desc limit:50", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/device_live/sysmon_metrics/query.ex (series via maybe_add_token, invisible to the scan)"]},
+    {"id": "metrics.sysmon.max_by_core_newest_n", "query": "in:timeseries_metrics {window_main} metric_type:\"sysmon.cpu\" metric_name:\"cpu.usage_percent\" bucket:5m agg:max series:core_id sort:timestamp:desc limit:50", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/device_live/sysmon_metrics/query.ex (series added via maybe_add_token)"]},
     {"id": "metrics.sysmon.min_by_tag", "query": "in:timeseries_metrics {window_cpu} metric_type:\"sysmon.cpu\" bucket:10m agg:min series:tags.core_id limit:200"},
     {"id": "metrics.capacity.avg_1h_by_uid_long_window", "query": "in:timeseries_metrics {window_long} metric_type:\"sysmon.cpu\" metric_name:\"cpu.usage_percent\" bucket:1h agg:avg series:uid sort:timestamp:desc window_scan:true limit:500", "sources": ["elixir/serviceradar_core/lib/serviceradar/observability/capacity_forecasting/source.ex"]},
     {"id": "metrics.profile.hour_of_week_peak", "query": "in:timeseries_metrics {window_long} metric_type:\"sysmon.cpu\" metric_name:\"cpu.usage_percent\" bucket:1h agg:avg series:uid stats:profile_hour_of_week_peak(value) timezone:\"UTC\" sort:dow:asc,hod:asc limit:500", "sources": ["elixir/serviceradar_core/lib/serviceradar/observability/anomaly_disposition/peak_profile.ex"]},
