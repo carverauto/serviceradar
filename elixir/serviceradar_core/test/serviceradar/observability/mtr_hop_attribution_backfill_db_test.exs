@@ -112,7 +112,7 @@ defmodule ServiceRadar.Observability.MtrHopAttributionBackfillDbTest do
     assert {:ok, report} = MtrHopAttributionBackfill.run(mode: :execute)
 
     # Only hop2 should have been updated by the backfill.
-    assert report.rows_updated >= 1
+    assert report.rows_updated == 1
 
     hop2_attr = hop_attribution(hop2_id)
     assert hop2_attr.target_ip == "198.51.100.21"
