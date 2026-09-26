@@ -303,8 +303,10 @@ alerts and the same metric changes.
   keeps active overrides for the assignment and passes them to every run until
   they expire; `simkit` overlays them exactly like scheduled faults. Runs are
   stateless, so expiry is signalled by the platform: the first run after an
-  override's expiry receives it once, marked `expired`, and the platform then
-  discards it. That run emits the resolving event and does not apply the fault.
+  override's expiry receives it marked `expired`, and the platform discards it
+  only once a run that received it reports success, so a failed or missed run
+  is retried by the next one. The run that receives it emits the resolving
+  event and does not apply the fault.
   Ending early emits the resolving event from the action instead, and the
   override is discarded without an `expired` delivery. This is a generic
   product capability (a real plugin could use it for a maintenance window or a

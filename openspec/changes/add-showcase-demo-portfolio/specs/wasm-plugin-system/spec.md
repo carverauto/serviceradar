@@ -18,7 +18,7 @@ Links whose endpoints cannot be resolved SHALL be dropped and counted, not store
 - **THEN** the platform SHALL mark the link stale
 
 ### Requirement: Plugin actions can set time-bounded run overrides
-The platform SHALL accept a time-bounded run override in a plugin action result, retain it for the plugin assignment until it expires or is ended by a later action, pass every active override to each run of that assignment, and deliver an expired override once to the first run after expiry.
+The platform SHALL accept a time-bounded run override in a plugin action result, retain it for the plugin assignment until it expires or is ended by a later action, pass every active override to each run of that assignment, and deliver an expired override marked expired to runs of that assignment until one reports success.
 Overrides SHALL carry an expiry no later than the maximum duration the plugin's action descriptor declares.
 
 #### Scenario: Override reaches later runs
@@ -26,10 +26,18 @@ Overrides SHALL carry an expiry no later than the maximum duration the plugin's 
 - **THEN** every run of that assignment during the next ten minutes SHALL receive the override
 - **AND** runs after the expiry signal SHALL NOT receive it
 
-#### Scenario: Override expiry is signalled once
+#### Scenario: Override expiry is signalled until acknowledged
 - **WHEN** an override expires without being ended early
 - **THEN** the first run of that assignment after expiry SHALL receive the override marked expired
-- **AND** the platform SHALL discard the override after that run, so later runs SHALL NOT receive it
+- **AND** the platform SHALL discard the override only after a run that received it marked expired reports success, so later runs SHALL NOT receive it
+
+#### Scenario: Expiry run fails or does not happen
+- **WHEN** the first run after expiry fails, is cancelled, or does not occur because the assignment is paused
+- **THEN** the platform SHALL keep the expired override and deliver it marked expired to the next run of that assignment
+
+#### Scenario: Excessive duration
+- **WHEN** an action result requests an override longer than the descriptor's maximum duration
+- **THEN** the platform SHALL clamp the expiry to the maximum
 
 #### Scenario: Override ended early
 - **WHEN** a later action ends an active override
@@ -47,7 +55,3 @@ Emission SHALL be subject to the action's RBAC and audit and SHALL be rejected w
 #### Scenario: Capability not granted
 - **WHEN** an action entrypoint emits an event and the plugin does not hold the event-emission capability
 - **THEN** the platform SHALL reject the call and SHALL NOT persist an event
-
-#### Scenario: Excessive duration
-- **WHEN** an action result requests an override longer than the descriptor's maximum duration
-- **THEN** the platform SHALL clamp the expiry to the maximum
