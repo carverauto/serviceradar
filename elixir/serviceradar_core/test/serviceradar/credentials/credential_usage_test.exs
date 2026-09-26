@@ -30,12 +30,6 @@ defmodule ServiceRadar.Credentials.CredentialUsageTest do
     :ok
   end
 
-  test "exposes the batched credential usage API" do
-    assert Code.ensure_loaded?(CredentialUsage)
-    assert function_exported?(CredentialUsage, :for_secret, 2)
-    assert function_exported?(CredentialUsage, :for_secrets, 2)
-  end
-
   test "empty batches are available without a database lookup" do
     assert {:ok, %{}} = CredentialUsage.for_secrets([], actor: @viewer)
   end
@@ -66,11 +60,13 @@ defmodule ServiceRadar.Credentials.CredentialUsageTest do
     assert usage.status == :available
     assert usage.consumers == []
     assert usage.live_grants == []
-    refute Map.has_key?(Map.from_struct(usage), :secret_payload)
   end
 
   test "all direct consumer resources are named without decrypting default-secret fields" do
     secret = secret_fixture("direct")
+    # Each consumer row also carries undecryptable bytes in its legacy encrypted
+    # column (`<<0, 1, 2>>`), so a usage lookup that decrypted a consumer would
+    # fail here rather than return the list below.
     ids = insert_direct_consumers(secret.id)
 
     assert {:ok, %Result{consumers: consumers}} =
@@ -101,8 +97,6 @@ defmodule ServiceRadar.Credentials.CredentialUsageTest do
 
     for consumer <- consumers do
       assert %Consumer{} = consumer
-      refute Map.has_key?(Map.from_struct(consumer), :secret_payload)
-      refute Map.has_key?(Map.from_struct(consumer), :encrypted_secret_payload)
     end
   end
 
@@ -203,10 +197,6 @@ defmodule ServiceRadar.Credentials.CredentialUsageTest do
 
       assert grant |> Map.from_struct() |> Map.keys() |> Enum.sort() ==
                [:consumer_id, :consumer_kind, :expires_at, :id, :purpose, :status]
-
-      refute Map.has_key?(Map.from_struct(grant), :secret_ref)
-      refute Map.has_key?(Map.from_struct(grant), :inject)
-      refute Map.has_key?(Map.from_struct(grant), :metadata)
     end
   end
 

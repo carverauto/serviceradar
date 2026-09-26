@@ -79,6 +79,9 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRulePreviewTest do
       "scope_value" => "agent-a"
     }
 
+    # Same overlap at a different priority is resolved by priority, not a conflict.
+    different_priority_rule = %{other_rule | "id" => "rule-c", "priority" => 10}
+
     rows_by_query = %{
       "in:devices vendor:Proxmox" => [
         %{"uid" => "device-1", "agent_id" => "agent-a"},
@@ -94,7 +97,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRulePreviewTest do
              NetworkCredentialRulePreview.preview_rule(rule,
                resolver: FakeResolver,
                rows_by_query: rows_by_query,
-               other_rules: [other_rule]
+               other_rules: [other_rule, different_priority_rule]
              )
 
     assert [

@@ -9,7 +9,7 @@ defmodule ServiceRadar.Credentials.SecretBrokerAuditIntegrationTest do
 
   @moduletag :integration
 
-  test "failure audits keep loaded provider and effective resolution location" do
+  test "grant-driven location denials are audited with provider, grant and effective location" do
     actor = SystemActor.system(:secret_broker_audit_integration_test)
     unique = System.unique_integer([:positive])
 
@@ -36,22 +36,27 @@ defmodule ServiceRadar.Credentials.SecretBrokerAuditIntegrationTest do
           credential_kind: :api_token,
           source_type: :external_reference,
           secret_provider_id: provider.id,
-          external_secret_ref: "secret/data/broker-audit/#{unique}",
-          resolution_location: :agent
+          external_secret_ref: "secret/data/broker-audit/#{unique}"
         },
         actor: actor
       )
 
+    # The secret sets no resolution location of its own, so the agent location
+    # the provider refuses can only come from the grant.
+    grant = %{
+      id: "grant-#{unique}",
+      secret_id: to_string(secret.id),
+      status: :active,
+      consumer_kind: :plugin,
+      consumer_id: "plugin-#{unique}",
+      resolution_location: :agent,
+      expires_at: DateTime.add(DateTime.utc_now(), 300, :second)
+    }
+
     assert {:error, {:resolution_location_not_allowed, :agent}} =
-             SecretBroker.resolve_network_credential_secret(secret.id,
+             SecretBroker.resolve_with_grant(grant,
+               actor: actor,
                audit?: true,
-               grant: %{
-                 id: "grant-#{unique}",
-                 secret_id: to_string(secret.id),
-                 status: :active,
-                 resolution_location: :agent,
-                 expires_at: DateTime.add(DateTime.utc_now(), 300, :second)
-               },
                consumer_kind: :plugin,
                consumer_id: "plugin-#{unique}"
              )
@@ -60,6 +65,7 @@ defmodule ServiceRadar.Credentials.SecretBrokerAuditIntegrationTest do
              CredentialSecretResolutionAudit.list_for_secret(secret.id, actor: actor)
 
     assert audit.secret_provider_id == provider.id
+    assert audit.grant_id == "grant-#{unique}"
     assert audit.resolution_location == :agent
     assert audit.outcome == :failed
     assert audit.error_class == :provider_policy_denied

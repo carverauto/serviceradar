@@ -30,7 +30,6 @@ load(
 
 _FIXED_EXTERNAL_RESOURCE_SRCS = [
     "test/integration/netflow_ingestion_integration_test.exs",
-    "test/integration/proxmox_api_smoke_integration_test.exs",
     "test/serviceradar/scans/adhoc_scan_nats_e2e_test.exs",
 ]
 
@@ -49,7 +48,7 @@ def _missing_fixed_source_failure_test_impl(ctx):
     env = analysistest.begin(ctx)
     asserts.expect_failure(
         env,
-        "audited integration source is absent from ALL_TEST_SRCS: test/integration/proxmox_api_smoke_integration_test.exs",
+        "audited integration source is absent from ALL_TEST_SRCS: test/serviceradar/scans/adhoc_scan_nats_e2e_test.exs",
     )
     return analysistest.end(env)
 

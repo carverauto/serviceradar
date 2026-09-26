@@ -82,7 +82,6 @@ RELEASE_IDENTIFIER_CARDINALITY = (
 )
 FIXED_EXTERNAL_RESOURCE_PATHS = (
     "test/integration/netflow_ingestion_integration_test.exs",
-    "test/integration/proxmox_api_smoke_integration_test.exs",
     "test/serviceradar/scans/adhoc_scan_nats_e2e_test.exs",
 )
 SERIAL_COMPOSITE_CHECK_SRCS = (

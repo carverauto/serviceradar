@@ -397,8 +397,9 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
   # this worker again. Anything this provisioner cannot provision is not its work.
   #
   # Skipped rather than routed to `disable_and_continue`: these rules are valid and
-  # owned elsewhere -- target_policy by PluginTargetPolicyReconcileWorker,
-  # credential_only by nothing at all (the rule exists purely to bind a secret).
+  # owned elsewhere -- target_policy by PluginCredentialRuleReconcileWorker (which
+  # drives PluginAssignmentMaterializer), credential_only by nothing at all (the
+  # rule exists purely to bind a secret).
   # Treating an unmatched profile as "revoked" would tear down working assignments.
   defp producer_schedule_rule?(rule, profiles_by_provider) do
     case Map.get(profiles_by_provider, provider(rule)) do
