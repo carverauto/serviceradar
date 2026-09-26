@@ -159,23 +159,56 @@ defmodule ServiceRadar.NATS.StateBucketSizingTest do
                StateBucketSizing.ensure(fits, stream, %{name: stream}, @gib)
     end
 
-    test "returns an update rejected by JetStream as an error", %{stream: stream} do
-      request =
+    test "treats a rejected update as an existing bucket and retries it next call",
+         %{stream: stream} do
+      rejected =
         fake_jetstream(info(stream_config(stream, -1), 0),
-          update: {:error, %{"code" => 500, "description" => "update failed"}}
+          update:
+            {:error,
+             %{"code" => 500, "err_code" => 10047, "description" => "insufficient resources"}}
         )
+
+      log =
+        capture_log(fn ->
+          assert {:ok, :exists} =
+                   StateBucketSizing.ensure(rejected, stream, %{name: stream}, @gib)
+        end)
+
+      assert log =~ stream
+      assert log =~ "configured=#{@gib}"
+      assert log =~ "stored=0"
+      assert log =~ "current=unlimited"
+      assert log =~ "insufficient resources"
+      refute_received {:js, "$JS.API.STREAM.CREATE." <> _, _}
+
+      accepted = fake_jetstream(info(stream_config(stream, -1), 0))
+
+      assert {:ok, {:update, @gib}} =
+               StateBucketSizing.ensure(accepted, stream, %{name: stream}, @gib)
+    end
+
+    test "treats a stream info reply without stored bytes as an existing bucket",
+         %{stream: stream} do
+      request = fake_jetstream({:ok, %{"config" => stream_config(stream, -1)}})
+
+      log =
+        capture_log(fn ->
+          assert {:ok, :exists} = StateBucketSizing.ensure(request, stream, %{name: stream}, @gib)
+        end)
+
+      assert log =~ stream
+      refute_received {:js, "$JS.API.STREAM.UPDATE." <> _, _}
+      refute_received {:js, "$JS.API.STREAM.CREATE." <> _, _}
+    end
+
+    test "returns a failure to create an absent bucket", %{stream: stream} do
+      request = fn
+        "$JS.API.STREAM.INFO." <> _, _ -> @not_found
+        "$JS.API.STREAM.CREATE." <> _, _ -> {:error, %{"code" => 500, "description" => "boom"}}
+      end
 
       assert {:error, %{"code" => 500}} =
                StateBucketSizing.ensure(request, stream, %{name: stream}, @gib)
-    end
-
-    test "rejects a stream info reply without stored bytes", %{stream: stream} do
-      request = fake_jetstream({:ok, %{"config" => stream_config(stream, -1)}})
-
-      assert {:error, {:unexpected_stream_info_response, _}} =
-               StateBucketSizing.ensure(request, stream, %{name: stream}, @gib)
-
-      refute_received {:js, "$JS.API.STREAM.UPDATE." <> _, _}
     end
   end
 

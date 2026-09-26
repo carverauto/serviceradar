@@ -15,6 +15,12 @@ defmodule ServiceRadar.NATS.StateBucketSizing do
   `plan/3` is the pure decision. `ensure/4` reads `STREAM.INFO`, applies the
   plan with `STREAM.CREATE` or `STREAM.UPDATE`, and reconciles a given stream
   once per node: later calls only recreate the bucket if it disappeared.
+
+  Reconciling is best-effort for a bucket that exists: when the update is
+  rejected or `STREAM.INFO` cannot be understood, the failure is logged, the
+  call returns `{:ok, :exists}` so reads and writes of the existing bucket keep
+  working, and the next call retries. Only creating an absent bucket can fail
+  the caller.
   """
 
   require Logger
@@ -67,7 +73,7 @@ defmodule ServiceRadar.NATS.StateBucketSizing do
       ensure_exists(request, stream_name, create_config)
     else
       with {:ok, outcome} <- reconcile(request, stream_name, create_config, configured) do
-        :persistent_term.put(memo_key(stream_name), configured)
+        if outcome != :exists, do: :persistent_term.put(memo_key(stream_name), configured)
         {:ok, outcome}
       end
     end
@@ -135,6 +141,14 @@ defmodule ServiceRadar.NATS.StateBucketSizing do
       :absent ->
         create(request, stream_name, create_config)
 
+      {:error, {:unexpected_stream_info_response, _} = reason} ->
+        Logger.warning(
+          "JetStream state bucket #{stream_name} max_bytes not reconciled: " <>
+            "#{inspect(reason)} (configured=#{configured})"
+        )
+
+        {:ok, :exists}
+
       {:error, reason} ->
         {:error, reason}
     end
@@ -161,7 +175,13 @@ defmodule ServiceRadar.NATS.StateBucketSizing do
         {:ok, {:update, max_bytes}}
 
       {:error, reason} ->
-        {:error, reason}
+        Logger.warning(
+          "JetStream state bucket #{stream_name} max_bytes not reconciled: update rejected " <>
+            "(configured=#{max_bytes} stored=#{stored} current=#{describe(current)}) " <>
+            inspect(reason)
+        )
+
+        {:ok, :exists}
     end
   end
 
