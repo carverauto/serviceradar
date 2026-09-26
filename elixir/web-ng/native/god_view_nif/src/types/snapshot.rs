@@ -18,9 +18,20 @@ pub(crate) struct EncodeSnapshotPayload {
     /// Monotonic revision of the topology state this frame captures.
     pub(crate) revision: u64,
     /// Node rows: `(x, y, state, label, pps, oper_up, details_json)`.
+    ///
+    /// `x` and `y` are quantized layout coordinates, so 16 bits is the layout
+    /// space rather than a limit on how many nodes a frame can carry.
     pub(crate) nodes: Vec<(u16, u16, u8, String, u32, u8, String)>,
+    /// Stable node identifier per node row, parallel to `nodes`.
+    ///
+    /// Written to its own column so a decoder can name a node without parsing
+    /// its `details_json`. A missing entry encodes as an empty string.
+    pub(crate) node_ids: Vec<String>,
     /// Edge rows: `(source, target, pps, flow_bps, capacity_bps, label, telemetry_eligible)`.
-    pub(crate) edges: Vec<(u16, u16, u32, u64, u64, String, u8)>,
+    ///
+    /// `source` and `target` index into `nodes`. They are 32-bit so a frame
+    /// larger than 65535 nodes can still name both endpoints.
+    pub(crate) edges: Vec<(u32, u32, u32, u64, u64, String, u8)>,
     /// Per-edge classification: `(topology_class, protocol, evidence_class)`.
     pub(crate) edge_meta: Vec<(String, String, String)>,
     /// Per-edge directional telemetry: `(pps_ab, pps_ba, bps_ab, bps_ba)`.

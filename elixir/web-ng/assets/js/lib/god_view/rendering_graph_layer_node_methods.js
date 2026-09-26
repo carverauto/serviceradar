@@ -1,12 +1,60 @@
 import {COORDINATE_SYSTEM} from "@deck.gl/core"
 import {LineLayer, ScatterplotLayer, TextLayer} from "@deck.gl/layers"
 import {admitTopologyLabels} from "./rendering_label_collision"
+import {nodeGlyphLayerData} from "./rendering_node_frame"
 import {
   managedNodeOuterRadiusCap,
   managedVisualDensityContract,
   normalizeManagedVisualDensity,
 } from "./rendering_managed_visual_density"
 import {hasExpandedCluster, hasManagedTopologyScene, topologySemanticLevel} from "./topology_layout_mode"
+
+const labelSelections = new WeakMap()
+
+/**
+ * Projects world positions to CSS pixels like `viewport.project(position)`, without the
+ * three arrays that call allocates. A non-geospatial deck viewport is a plain matrix
+ * multiply by `pixelProjectionMatrix`; anything else falls back to `project`.
+ */
+function screenProjector(viewport) {
+  const matrix = viewport?.isGeospatial === false ? viewport.pixelProjectionMatrix : null
+  const direct = Boolean(matrix && matrix.length === 16)
+  const zScale = Number(viewport?.distanceScales?.unitsPerMeter?.[2] ?? 1)
+  const projector = {
+    x: NaN,
+    y: NaN,
+    project(position) {
+      const px = Number(position?.[0] ?? 0)
+      const py = Number(position?.[1] ?? 0)
+      const pz = Number(position?.[2] ?? 0) * zScale
+      if (direct) {
+        const w = matrix[3] * px + matrix[7] * py + matrix[11] * pz + matrix[15]
+        projector.x = (matrix[0] * px + matrix[4] * py + matrix[8] * pz + matrix[12]) / w
+        projector.y = (matrix[1] * px + matrix[5] * py + matrix[9] * pz + matrix[13]) / w
+      } else {
+        const projected = viewport.project(position || [0, 0, 0])
+        projector.x = Number(projected?.[0])
+        projector.y = Number(projected?.[1])
+      }
+      return Number.isFinite(projector.x) && Number.isFinite(projector.y)
+    },
+  }
+  return projector
+}
+
+// Label priority, most significant first. Each numeric field sorts descending; ties fall
+// through to the label text, ascending.
+const LABEL_PRIORITY_FIELDS = [
+  (ctx, node) => (node?.selected === true || ctx.focusedNodeLabel(node) ? 1 : 0),
+  (ctx, node) => (ctx.unplacedNodeLabel(node) ? 1 : 0),
+  (ctx, node) => (ctx.backboneLabelCandidate(node) ? 1 : 0),
+  (_ctx, node) => (String(node?.details?.cluster_kind || "") === "endpoint-anchor" ? 1 : 0),
+  (_ctx, node) => (String(node?.details?.identity_source || "") !== "mapper_topology_sighting" ? 1 : 0),
+  (_ctx, node) => Number(node?.clusterCount || 1),
+  (_ctx, node) => (Number(node?.state ?? 3) === 0 ? 1 : 0),
+  (_ctx, node) => (Number(node?.state ?? 3) === 1 ? 1 : 0),
+  (_ctx, node) => Math.round(Number(node?.pps || 0)),
+]
 
 export const godViewRenderingGraphLayerNodeMethods = {
   visualClusterCount(node) {
@@ -139,43 +187,16 @@ export const godViewRenderingGraphLayerNodeMethods = {
     }
     return !this.opaqueIdentityLabel(node)
   },
-  nodeLabelPriority(node) {
-    const details = node?.details || {}
-    const clusterKind = String(details?.cluster_kind || "")
-    const identitySource = String(details?.identity_source || "")
-    const clusterCount = Number(node?.clusterCount || 1)
-    const pps = Number(node?.pps || 0)
-    const state = Number(node?.state ?? 3)
-
-    return [
-      node?.selected === true || this.focusedNodeLabel(node) ? 1 : 0,
-      this.unplacedNodeLabel(node) ? 1 : 0,
-      this.backboneLabelCandidate(node) ? 1 : 0,
-      clusterKind === "endpoint-anchor" ? 1 : 0,
-      identitySource !== "mapper_topology_sighting" ? 1 : 0,
-      clusterCount,
-      state === 0 ? 1 : 0,
-      state === 1 ? 1 : 0,
-      Math.round(pps),
-      String(node?.label || node?.id || ""),
-    ]
-  },
+  /**
+   * Orders two label candidates by `LABEL_PRIORITY_FIELDS`, field by field, without building
+   * a priority tuple per comparison: a label pass sorts every visible node.
+   */
   compareNodeLabelPriority(left, right) {
-    const leftPriority = this.nodeLabelPriority(left)
-    const rightPriority = this.nodeLabelPriority(right)
-
-    for (let index = 0; index < leftPriority.length; index += 1) {
-      if (index === leftPriority.length - 1) {
-        const compare = String(leftPriority[index]).localeCompare(String(rightPriority[index]))
-        if (compare !== 0) return compare
-        continue
-      }
-
-      const compare = Number(rightPriority[index] || 0) - Number(leftPriority[index] || 0)
+    for (const field of LABEL_PRIORITY_FIELDS) {
+      const compare = Number(field(this, right) || 0) - Number(field(this, left) || 0)
       if (compare !== 0) return compare
     }
-
-    return 0
+    return String(left?.label || left?.id || "").localeCompare(String(right?.label || right?.id || ""))
   },
   selectNodeLabels(nodeData, shape, options = {}) {
     if (!Array.isArray(nodeData) || nodeData.length === 0) return []
@@ -229,6 +250,27 @@ export const godViewRenderingGraphLayerNodeMethods = {
     }
 
     return picked
+  },
+  /**
+   * `selectNodeLabels` for a render frame, reused while only the camera moves.
+   *
+   * The selection sorts every visible node, and it depends on the node list, the shape, the
+   * managed density, and the hovered and selected node -- not on the camera. A pan or zoom
+   * refreshes layers with the same `nodeData`, so it gets the same selection back.
+   */
+  cachedNodeLabelSelection(nodeData, shape, options = {}) {
+    if (!Array.isArray(nodeData)) return this.selectNodeLabels(nodeData, shape, options)
+    const key = [
+      shape,
+      options.managedVisualDensity || "",
+      this.state?.hoveredNodeIndex ?? "",
+      this.state?.selectedNodeIndex ?? "",
+    ].join("|")
+    const cached = labelSelections.get(nodeData)
+    if (cached && cached.owner === this && cached.key === key) return cached.value
+    const value = this.selectNodeLabels(nodeData, shape, options)
+    labelSelections.set(nodeData, {owner: this, key, value})
+    return value
   },
   nodeLabelAdmissionPool(_nodeData, selectedCandidates, _options = {}) {
     return selectedCandidates
@@ -303,18 +345,42 @@ export const godViewRenderingGraphLayerNodeMethods = {
       }
     }
 
+    // Every protected glyph is an obstacle, so this loop visits every visible node on each
+    // camera move. It projects without allocating, and keeps only glyphs that reach the safe
+    // rect: a label must lie inside the safe rect, so a glyph wholly outside it can never
+    // block one. A candidate's own glyph is always kept, since its label anchors to it.
+    const safeRect = this.topologyLabelSafeRect(viewport, options.safeRect)
+    const candidateIds = new Set()
+    for (const node of labelCandidates || []) {
+      const nodeId = String(node?.id || "")
+      if (nodeId !== "") candidateIds.add(nodeId)
+    }
     const projectedById = new Map()
-    const glyphBoxes = []
+    const glyphBoxes = {nodeIds: [], boxes: new Float64Array(4 * (protectedNodes?.length || 0)), count: 0}
+    const projector = screenProjector(viewport)
     for (const node of protectedNodes || []) {
       const nodeId = String(node?.id || "")
       if (nodeId === "") continue
-      const projected = viewport.project(node?.position || [0, 0, 0])
-      const x = Number(projected?.[0])
-      const y = Number(projected?.[1])
-      if (!Number.isFinite(x) || !Number.isFinite(y)) continue
-      projectedById.set(nodeId, [x, y])
+      if (!projector.project(node?.position)) continue
+      const x = projector.x
+      const y = projector.y
+      const candidate = candidateIds.has(nodeId)
+      if (candidate) projectedById.set(nodeId, [x, y])
       const radius = Math.max(0, Number(this.nodeVisibleOuterRadiusPixels(node, options)) || 0)
-      glyphBoxes.push({nodeId, left: x - radius, top: y - radius, right: x + radius, bottom: y + radius})
+      const left = x - radius
+      const top = y - radius
+      const right = x + radius
+      const bottom = y + radius
+      if (!candidate && (right < safeRect.left || left > safeRect.right || bottom < safeRect.top || top > safeRect.bottom)) {
+        continue
+      }
+      const offset = glyphBoxes.count * 4
+      glyphBoxes.boxes[offset] = left
+      glyphBoxes.boxes[offset + 1] = top
+      glyphBoxes.boxes[offset + 2] = right
+      glyphBoxes.boxes[offset + 3] = bottom
+      glyphBoxes.nodeIds.push(nodeId)
+      glyphBoxes.count += 1
     }
 
     const labelShape = options.managedVisualDensity
@@ -369,7 +435,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
       candidates,
       glyphBoxes,
       routeCorridors,
-      safeRect: this.topologyLabelSafeRect(viewport, options.safeRect),
+      safeRect,
       maximumCount: options.maximumLabelCount,
       requiredLabelIds: options.requiredLabelIds || (
         options.managedVisualDensity ? candidates.map((candidate) => candidate.nodeId) : undefined
@@ -386,7 +452,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
     const labelShape = managedVisualDensity
       ? managedVisualDensityContract(managedVisualDensity).labelShape
       : effective.shape
-    const selectedLabelCandidates = this.selectNodeLabels(nodeData, effective.shape, densityOptions)
+    const selectedLabelCandidates = this.cachedNodeLabelSelection(nodeData, effective.shape, densityOptions)
     const labelCandidates = this.nodeLabelAdmissionPool(nodeData, selectedLabelCandidates, densityOptions)
     const labelAdmission = this.admitNodeLabelsForViewport(effective, labelCandidates, nodeData, {
       ...densityOptions,
@@ -418,12 +484,35 @@ export const godViewRenderingGraphLayerNodeMethods = {
     } else if (managedTopologyScene) {
       this.state.topologyDroppedLabelIds = []
     }
-    const nodeById = new Map(nodeData.map((node) => [String(node?.id || ""), node]))
+    const admittedById = new Map()
+    for (const admitted of labelAdmission.admitted) admittedById.set(admitted.nodeId, admitted)
+    const nodeById = new Map()
+    if (admittedById.size > 0) {
+      for (const node of nodeData) {
+        const id = String(node?.id || "")
+        if (admittedById.has(id)) nodeById.set(id, node)
+      }
+    }
     const labelData = labelAdmission.admitted.flatMap((admitted) => {
       const node = nodeById.get(admitted.nodeId)
       return node ? [{...node, labelAdmission: admitted}] : []
     })
     this.state.topologyLabelDetailsFallbackIds = [...labelAdmission.detailsFallbackIds]
+
+    // Glyph layers take deck.gl binary data: `length` plus the packed `getPosition` column.
+    // The remaining accessors read the node by index and write colors into deck's reusable
+    // `target`, so rebuilding these attributes allocates nothing per node.
+    const glyphData = nodeGlyphLayerData(nodeData)
+    const glyphNodes = glyphData.nodes
+    const security = this.state.layers.security
+    const writeNodeColor = (target, node, alpha) => {
+      const color = security ? this.nodeColor(node?.state) : this.nodeNeutralColor(node?.operUp)
+      target[0] = color[0]
+      target[1] = color[1]
+      target[2] = color[2]
+      target[3] = alpha === undefined ? (color[3] ?? 255) : alpha
+      return target
+    }
 
     return [
       new LineLayer({
@@ -446,18 +535,14 @@ export const godViewRenderingGraphLayerNodeMethods = {
       }),
       new ScatterplotLayer({
         id: "god-view-nodes-halo",
-        data: nodeData,
+        data: glyphData,
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
-        getPosition: (d) => d.position,
-        getRadius: (d) => this.nodeHaloRadiusPixels(d, densityOptions),
+        getRadius: (_, {index}) => this.nodeHaloRadiusPixels(glyphNodes[index], densityOptions),
         radiusUnits: "pixels",
         filled: true,
         stroked: false,
         pickable: true,
-        getFillColor: (d) => {
-          const baseColor = this.state.layers.security ? this.nodeColor(d.state) : this.nodeNeutralColor(d.operUp)
-          return [baseColor[0], baseColor[1], baseColor[2], 15]
-        },
+        getFillColor: (_, {index, target}) => writeNodeColor(target, glyphNodes[index], 15),
         parameters: {
           blend: true,
           blendFunc: this.state.visual.particleBlend,
@@ -470,18 +555,17 @@ export const godViewRenderingGraphLayerNodeMethods = {
       }),
       new ScatterplotLayer({
         id: "god-view-nodes-ring",
-        data: nodeData,
+        data: glyphData,
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
-        getPosition: (d) => d.position,
-        getRadius: (d) => this.nodeRingRadiusPixels(d, densityOptions),
+        getRadius: (_, {index}) => this.nodeRingRadiusPixels(glyphNodes[index], densityOptions),
         radiusUnits: "pixels",
         radiusMinPixels: 5,
         stroked: true,
         filled: false,
         lineWidthUnits: "pixels",
         pickable: false,
-        getLineWidth: (d) => (d.selected ? 2 : 1),
-        getLineColor: (d) => (this.state.layers.security ? this.nodeColor(d.state) : this.nodeNeutralColor(d.operUp)),
+        getLineWidth: (_, {index}) => (glyphNodes[index]?.selected ? 2 : 1),
+        getLineColor: (_, {index, target}) => writeNodeColor(target, glyphNodes[index]),
         parameters: {
           depthTest: false,
           depthWrite: false,
@@ -492,10 +576,9 @@ export const godViewRenderingGraphLayerNodeMethods = {
       }),
       new ScatterplotLayer({
         id: "god-view-nodes-hitbox",
-        data: nodeData,
+        data: glyphData,
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
-        getPosition: (d) => d.position,
-        getRadius: (d) => this.nodeHaloRadiusPixels(d, densityOptions),
+        getRadius: (_, {index}) => this.nodeHaloRadiusPixels(glyphNodes[index], densityOptions),
         radiusUnits: "pixels",
         stroked: false,
         filled: true,
@@ -512,10 +595,9 @@ export const godViewRenderingGraphLayerNodeMethods = {
       }),
       new ScatterplotLayer({
         id: "god-view-nodes",
-        data: nodeData,
+        data: glyphData,
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
-        getPosition: (d) => d.position,
-        getRadius: (d) => this.nodeCoreRadiusPixels(d, densityOptions),
+        getRadius: (_, {index}) => this.nodeCoreRadiusPixels(glyphNodes[index], densityOptions),
         radiusUnits: "pixels",
         radiusMinPixels: 3,
         stroked: false,

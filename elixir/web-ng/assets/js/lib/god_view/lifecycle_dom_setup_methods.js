@@ -1,4 +1,6 @@
 import {Deck, OrthographicView} from "@deck.gl/core"
+import {webgl2Adapter} from "@luma.gl/webgl"
+import {webgpuAdapter} from "@luma.gl/webgpu"
 import {viewportProfileForSize} from "./layout_elk_scene"
 import {detectThemeMode, visualForTheme, hudStyleForTheme} from "./lifecycle_bootstrap_state_defaults_methods"
 import {
@@ -11,6 +13,17 @@ import {
   surfaceRecoverableManagedTopologyError,
 } from "./lifecycle_managed_camera_recovery"
 import {hasManagedTopologyScene} from "./topology_layout_mode"
+import {pickedNodeObject} from "./rendering_node_frame"
+
+// The device each Deck constructor asks luma for. They differ in the adapter and the type,
+// not just in the label we report: the WebGL path never touches WebGPU.
+export const GOD_VIEW_WEBGPU_DEVICE_PROPS = Object.freeze({type: "webgpu", adapters: [webgpuAdapter]})
+export const GOD_VIEW_WEBGL_DEVICE_PROPS = Object.freeze({type: "webgl", adapters: [webgl2Adapter]})
+
+function webgpuRequestable() {
+  const gpu = globalThis.navigator?.gpu
+  return Boolean(gpu) && typeof gpu.requestAdapter === "function"
+}
 
 /**
  * Adopts a resized canvas into Deck's own viewport before anything reads it back.
@@ -574,11 +587,13 @@ export const godViewLifecycleDomSetupMethods = {
       })
     }
   },
-  createDeckInstance(width, height) {
+  createDeckInstance(width, height, deviceProps = GOD_VIEW_WEBGL_DEVICE_PROPS) {
     return new Deck({
       canvas: this.state.canvas,
       width,
       height,
+      deviceProps,
+      onDeviceInitialized: (device) => this.recordDeckDevice(device),
       views: new OrthographicView({id: "god-view-ortho"}),
       // Managed scenes own geometry, not the camera. Gestures are allowed
       // and then clamped by onViewStateChange via managedViewStateForCamera,
@@ -604,10 +619,12 @@ export const godViewLifecycleDomSetupMethods = {
         depthTest: false,
         depthWrite: false,
       },
-      getTooltip: (...args) => this.deps.getNodeTooltip(...args),
-      onHover: (...args) => this.deps.handleHover(...args),
-      onClick: (...args) => {
-        this.deps.handlePick(...args)
+      // Node glyph layers use binary data, so deck reports the picked index without an
+      // object; resolve it before the handlers see the pick.
+      getTooltip: (info, ...args) => this.deps.getNodeTooltip(pickedNodeObject(info), ...args),
+      onHover: (info, ...args) => this.deps.handleHover(pickedNodeObject(info), ...args),
+      onClick: (info, ...args) => {
+        this.deps.handlePick(pickedNodeObject(info), ...args)
         this.redrawDeckAfterClick()
       },
       onViewStateChange: ({viewState}) => {
@@ -667,6 +684,10 @@ export const godViewLifecycleDomSetupMethods = {
         return acceptedViewState
       },
       onError: (error, layer) => {
+        if (this.rendererFailedOnWebGPU()) {
+          this.fallBackToWebGL(error)
+          return
+        }
         const layerId = String(layer?.id || "")
         if (layerId.includes("god-view-atmosphere-particles")) {
           const now = typeof performance !== "undefined" ? performance.now() : Date.now()
@@ -684,19 +705,87 @@ export const godViewLifecycleDomSetupMethods = {
       },
     })
   },
+  createWebGPUDeckInstance(width, height) {
+    return this.createDeckInstance(width, height, GOD_VIEW_WEBGPU_DEVICE_PROPS)
+  },
+  createWebGLDeckInstance(width, height) {
+    return this.createDeckInstance(width, height, GOD_VIEW_WEBGL_DEVICE_PROPS)
+  },
+  deckSize() {
+    return {
+      width: Math.max(320, Math.floor(this.state.el?.clientWidth || 0)),
+      height: Math.max(260, Math.floor(this.state.el?.clientHeight || 0)),
+    }
+  },
+  /**
+   * Records the renderer from the device deck actually created, not from what was asked for.
+   * Deck creates its device asynchronously, so until this runs the mode says which device is
+   * still pending.
+   */
+  recordDeckDevice(device) {
+    const type = String(device?.type || "")
+    this.state.rendererDeviceType = type
+    if (type === "webgpu") {
+      this.state.rendererMode = "webgpu"
+    } else {
+      this.state.rendererMode = this.state.rendererFallbackReason ? "webgl-fallback" : "webgl"
+    }
+  },
+  rendererFailedOnWebGPU() {
+    return this.state.rendererFallbackReason == null &&
+      (this.state.rendererMode === "webgpu-pending" || this.state.rendererMode === "webgpu")
+  },
+  /**
+   * Replaces a Deck that failed on WebGPU -- device creation, or a layer the WebGPU backend
+   * cannot draw -- with one built by the WebGL constructor. The canvas is replaced too: once
+   * a canvas has handed out a WebGPU context it cannot give out a WebGL one.
+   */
+  fallBackToWebGL(error, {rerender = true} = {}) {
+    const failed = this.state.deck
+    this.state.deck = null
+    try {
+      failed?.finalize?.()
+    } catch (_finalizeError) {
+      // The failed deck is discarded either way.
+    }
+    this.state.rendererFallbackReason = String(error?.message || error || "webgpu unavailable")
+    this.state.rendererMode = "webgl-fallback"
+    this.replaceRendererCanvas()
+    const {width, height} = this.deckSize()
+    this.state.deck = this.createWebGLDeckInstance(width, height)
+    if (rerender && this.state.lastGraph) this.deps.renderGraph(this.state.lastGraph)
+  },
+  replaceRendererCanvas() {
+    const previous = this.state.canvas
+    if (!previous || typeof document === "undefined" || typeof previous.replaceWith !== "function") return
+    const next = document.createElement("canvas")
+    next.className = previous.className
+    next.style.cssText = previous.style.cssText
+    previous.removeEventListener("wheel", this.handleWheelZoom)
+    previous.removeEventListener("pointerdown", this.handlePanStart)
+    previous.replaceWith(next)
+    next.addEventListener("wheel", this.handleWheelZoom, {passive: false})
+    next.addEventListener("pointerdown", this.handlePanStart)
+    this.state.canvas = next
+  },
   ensureDeck() {
     if (this.state.deck) return
     this.ensureDOM()
-    const width = Math.max(320, Math.floor(this.state.el.clientWidth || 0))
-    const height = Math.max(260, Math.floor(this.state.el.clientHeight || 0))
-    const mode = navigator.gpu ? "webgpu" : "webgl"
-    this.state.rendererMode = mode
+    const {width, height} = this.deckSize()
 
-    try {
-      this.state.deck = this.createDeckInstance(width, height)
-    } catch (_error) {
-      this.state.rendererMode = "webgl-fallback"
-      this.state.deck = this.createDeckInstance(width, height)
+    if (webgpuRequestable() && this.state.rendererFallbackReason == null) {
+      this.state.rendererMode = "webgpu-pending"
+      try {
+        this.state.deck = this.createWebGPUDeckInstance(width, height)
+        return
+      } catch (error) {
+        // ensureDeck runs inside a render, which goes on to draw into the new deck.
+        this.fallBackToWebGL(error, {rerender: false})
+        return
+      }
     }
+
+    this.state.rendererMode = this.state.rendererFallbackReason ? "webgl-fallback" : "webgl-pending"
+    this.state.deck = this.createWebGLDeckInstance(width, height)
   },
 }

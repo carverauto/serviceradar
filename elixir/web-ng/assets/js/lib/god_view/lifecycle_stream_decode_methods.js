@@ -1,6 +1,9 @@
-import {tableFromIPC} from "apache-arrow"
+import {decodeSnapshotColumns, defineLazyProperty} from "./snapshot_columns"
+import {canonicalSemanticRelationId} from "./topology_relation_identity"
 
-import {topologyRelationId} from "./topology_relation_identity"
+function finiteOrNaN(value) {
+  return Number.isFinite(value) ? value : NaN
+}
 
 export const godViewLifecycleStreamDecodeMethods = {
   parseOptionalFloat(value) {
@@ -14,112 +17,90 @@ export const godViewLifecycleStreamDecodeMethods = {
     }
     return NaN
   },
+  /**
+   * Decodes a snapshot into the typed columns plus the one object graph layout still needs.
+   *
+   * Nothing here parses `node_details` or `edge_details`. Each node's and edge's `details`
+   * (and the fields derived from them: `clusterCount`, `geoLat`, `geoLon`, edge `metadata`,
+   * `relationType` and the semantic edge `id`) is a lazy property that parses its own row on
+   * first read. `graph.columns` carries the typed arrays the render path draws from.
+   */
   decodeArrowGraph(bytes) {
-    const table = tableFromIPC(bytes)
-    const rowType = table.getChild("row_type")
-    const nodeX = table.getChild("node_x")
-    const nodeY = table.getChild("node_y")
-    const nodeState = table.getChild("node_state")
-    const nodeLabel = table.getChild("node_label")
-    const nodePps = table.getChild("node_pps")
-    const nodeOperUp = table.getChild("node_oper_up")
-    const nodeDetails = table.getChild("node_details")
-    const edgeSource = table.getChild("edge_source")
-    const edgeTarget = table.getChild("edge_target")
-    const edgePps = table.getChild("edge_pps")
-    const edgePpsAb = table.getChild("edge_pps_ab")
-    const edgePpsBa = table.getChild("edge_pps_ba")
-    const edgeFlowBps = table.getChild("edge_flow_bps")
-    const edgeFlowBpsAb = table.getChild("edge_flow_bps_ab")
-    const edgeFlowBpsBa = table.getChild("edge_flow_bps_ba")
-    const edgeCapacityBps = table.getChild("edge_capacity_bps")
-    const edgeTelemetryEligible = table.getChild("edge_telemetry_eligible")
-    const edgeLabel = table.getChild("edge_label")
-    const edgeTopologyClass = table.getChild("edge_topology_class")
-    const edgeProtocol = table.getChild("edge_protocol")
-    const edgeEvidenceClass = table.getChild("edge_evidence_class")
-    const edgeDetails = table.getChild("edge_details")
+    const columns = decodeSnapshotColumns(bytes)
+    const normalizeDisplayLabel = this.deps.normalizeDisplayLabel
+    const parseOptionalFloat = (value) => this.parseOptionalFloat(value)
+    const {nodeCount, edgeCount} = columns
 
-    const nodes = []
-    const edges = []
-    const edgeSourceIndex = []
-    const edgeTargetIndex = []
-    const rowCount = table.numRows || 0
-
-    for (let i = 0; i < rowCount; i += 1) {
-      const t = rowType?.get(i)
-      if (t === 0) {
-        const fallbackLabel = `node-${nodes.length + 1}`
-        let parsedDetails = {}
-        const rawDetails = nodeDetails?.get(i)
-        if (typeof rawDetails === "string" && rawDetails.trim() !== "") {
-          try {
-            parsedDetails = JSON.parse(rawDetails)
-          } catch (_err) {
-            parsedDetails = {}
-          }
-        }
-        const detailLat = this.parseOptionalFloat(parsedDetails?.geo_lat)
-        const detailLon = this.parseOptionalFloat(parsedDetails?.geo_lon)
-        nodes.push({
-          id: this.deps.normalizeDisplayLabel(parsedDetails?.id, fallbackLabel),
-          x: Number(nodeX?.get(i) || 0),
-          y: Number(nodeY?.get(i) || 0),
-          state: Number(nodeState?.get(i) || 3),
-          label: this.deps.normalizeDisplayLabel(nodeLabel?.get(i), fallbackLabel),
-          clusterCount: Math.max(1, Number(parsedDetails?.cluster_member_count || 1)),
-          pps: Number(nodePps?.get(i) || 0),
-          operUp: Number(nodeOperUp?.get(i) || 0),
-          geoLat: Number.isFinite(detailLat) ? detailLat : NaN,
-          geoLon: Number.isFinite(detailLon) ? detailLon : NaN,
-          details: parsedDetails,
-        })
-      } else if (t === 1) {
-        const source = Number(edgeSource?.get(i) || 0)
-        const target = Number(edgeTarget?.get(i) || 0)
-        let parsedEdgeDetails = {}
-        const rawEdgeDetails = edgeDetails?.get(i)
-        if (typeof rawEdgeDetails === "string" && rawEdgeDetails.trim() !== "") {
-          try {
-            parsedEdgeDetails = JSON.parse(rawEdgeDetails)
-          } catch (_err) {
-            parsedEdgeDetails = {}
-          }
-        }
-        const edgeMetadata =
-          parsedEdgeDetails?.metadata && typeof parsedEdgeDetails.metadata === "object"
-            ? parsedEdgeDetails.metadata
-            : {}
-
-        edges.push({
-          source,
-          target,
-          flowPps: Number(edgePps?.get(i) || 0),
-          flowPpsAb: Number(edgePpsAb?.get(i) || 0),
-          flowPpsBa: Number(edgePpsBa?.get(i) || 0),
-          flowBps: Number(edgeFlowBps?.get(i) || 0),
-          flowBpsAb: Number(edgeFlowBpsAb?.get(i) || 0),
-          flowBpsBa: Number(edgeFlowBpsBa?.get(i) || 0),
-          capacityBps: Number(edgeCapacityBps?.get(i) || 0),
-          telemetryEligible: Number(edgeTelemetryEligible?.get(i) ?? 1) > 0,
-          label: this.deps.normalizeDisplayLabel(edgeLabel?.get(i), ""),
-          topologyClass: this.deps.normalizeDisplayLabel(edgeTopologyClass?.get(i), "unknown"),
-          protocol: this.deps.normalizeDisplayLabel(edgeProtocol?.get(i), ""),
-          evidenceClass: this.deps.normalizeDisplayLabel(edgeEvidenceClass?.get(i), ""),
-          details: parsedEdgeDetails,
-          metadata: edgeMetadata,
-          relationType: this.deps.normalizeDisplayLabel(edgeMetadata.relation_type, ""),
-        })
-        edgeSourceIndex.push(source)
-        edgeTargetIndex.push(target)
+    const nodes = new Array(nodeCount)
+    for (let i = 0; i < nodeCount; i += 1) {
+      const fallbackLabel = `node-${i + 1}`
+      const node = {
+        id: normalizeDisplayLabel(columns.nodeId(i), fallbackLabel),
+        x: columns.nodeX[i],
+        y: columns.nodeY[i],
+        state: columns.nodeState[i],
+        label: normalizeDisplayLabel(columns.nodeLabel(i), fallbackLabel),
+        pps: columns.nodePps[i],
+        operUp: columns.nodeOperUp[i],
       }
+      defineLazyProperty(node, "clusterCount", () => Math.max(1, Number(node.details?.cluster_member_count || 1)))
+      defineLazyProperty(node, "geoLat", () => finiteOrNaN(parseOptionalFloat(node.details?.geo_lat)))
+      defineLazyProperty(node, "geoLon", () => finiteOrNaN(parseOptionalFloat(node.details?.geo_lon)))
+      defineLazyProperty(node, "details", () => columns.nodeDetails(i))
+      nodes[i] = node
+    }
+
+    const flowPps = columns.edgeColumn("edge_pps")
+    const flowPpsAb = columns.edgeColumn("edge_pps_ab")
+    const flowPpsBa = columns.edgeColumn("edge_pps_ba")
+    const flowBps = columns.edgeColumn("edge_flow_bps")
+    const flowBpsAb = columns.edgeColumn("edge_flow_bps_ab")
+    const flowBpsBa = columns.edgeColumn("edge_flow_bps_ba")
+    const capacityBps = columns.edgeColumn("edge_capacity_bps")
+    const telemetryEligible = columns.edgeColumn("edge_telemetry_eligible", Uint8Array, 1)
+    const edgeLabel = columns.edgeStrings("edge_label")
+    const edgeTopologyClass = columns.edgeStrings("edge_topology_class")
+    const edgeProtocol = columns.edgeStrings("edge_protocol")
+    const edgeEvidenceClass = columns.edgeStrings("edge_evidence_class")
+
+    const edges = new Array(edgeCount)
+    for (let i = 0; i < edgeCount; i += 1) {
+      const edge = {
+        source: columns.edgeSource[i],
+        target: columns.edgeTarget[i],
+        flowPps: flowPps[i],
+        flowPpsAb: flowPpsAb[i],
+        flowPpsBa: flowPpsBa[i],
+        flowBps: flowBps[i],
+        flowBpsAb: flowBpsAb[i],
+        flowBpsBa: flowBpsBa[i],
+        capacityBps: capacityBps[i],
+        telemetryEligible: telemetryEligible[i] > 0,
+        label: normalizeDisplayLabel(edgeLabel(i), ""),
+        topologyClass: normalizeDisplayLabel(edgeTopologyClass(i), "unknown"),
+        protocol: normalizeDisplayLabel(edgeProtocol(i), ""),
+        evidenceClass: normalizeDisplayLabel(edgeEvidenceClass(i), ""),
+      }
+      defineLazyProperty(edge, "details", () => columns.edgeDetails(i))
+      defineLazyProperty(edge, "metadata", () => {
+        const details = edge.details
+        return details?.metadata && typeof details.metadata === "object" ? details.metadata : {}
+      })
+      defineLazyProperty(edge, "relationType", () => normalizeDisplayLabel(edge.metadata?.relation_type, ""))
+      defineLazyProperty(edge, "id", () => {
+        const sourceId = String(nodes[edge.source]?.id ?? "").trim()
+        const targetId = String(nodes[edge.target]?.id ?? "").trim()
+        return canonicalSemanticRelationId(edge, sourceId, targetId)
+      })
+      edges[i] = edge
     }
 
     return {
       nodes,
-      edges: edges.map((edge) => ({...edge, id: topologyRelationId(edge, nodes)})),
-      edgeSourceIndex: Uint32Array.from(edgeSourceIndex),
-      edgeTargetIndex: Uint32Array.from(edgeTargetIndex),
+      edges,
+      edgeSourceIndex: columns.edgeSource,
+      edgeTargetIndex: columns.edgeTarget,
+      columns,
     }
   },
 }

@@ -1,74 +1,41 @@
-import {describe, expect, it, vi} from "vitest"
+import {tableFromArrays, tableToIPC} from "apache-arrow"
+import {describe, expect, it} from "vitest"
 
-vi.mock("apache-arrow", () => ({
-  tableFromIPC: vi.fn(),
-}))
-
-import {godViewLifecycleStreamDecodeMethods} from "./lifecycle_stream_decode_methods"
 import {bindApi, createStateBackedContext} from "./api_helpers"
-import {tableFromIPC} from "apache-arrow"
+import {largeRingSnapshotIpcBytes, snapshotIpcBytes, syntheticRing} from "./fixtures/snapshot_ipc"
+import {godViewLifecycleStreamDecodeMethods} from "./lifecycle_stream_decode_methods"
 
-function makeColumn(values) {
-  return {get: (idx) => values[idx]}
-}
-
-function makeTable(columns, numRows) {
-  return {
-    numRows,
-    getChild: (name) => columns[name],
+function decoder() {
+  const deps = {
+    normalizeDisplayLabel: (value, fallback) =>
+      typeof value === "string" && value.trim() !== "" ? value : fallback,
   }
+  const methods = createStateBackedContext({}, deps)
+  Object.assign(methods, bindApi(methods, godViewLifecycleStreamDecodeMethods))
+  return methods
 }
 
 describe("lifecycle_stream_decode_methods", () => {
   it("decodes explicit edge topology metadata without label inference", () => {
-    tableFromIPC.mockReturnValueOnce(
-      makeTable(
-        {
-          row_type: makeColumn([0, 1]),
-          node_x: makeColumn([10, null]),
-          node_y: makeColumn([20, null]),
-          node_state: makeColumn([2, null]),
-          node_label: makeColumn(["farm01", null]),
-          node_pps: makeColumn([0, null]),
-          node_oper_up: makeColumn([1, null]),
-          node_details: makeColumn([JSON.stringify({id: "farm01"}), null]),
-          edge_source: makeColumn([null, 0]),
-          edge_target: makeColumn([null, 0]),
-          edge_pps: makeColumn([null, 77]),
-          edge_pps_ab: makeColumn([null, 55]),
-          edge_pps_ba: makeColumn([null, 22]),
-          edge_flow_bps: makeColumn([null, 1000]),
-          edge_flow_bps_ab: makeColumn([null, 800]),
-          edge_flow_bps_ba: makeColumn([null, 200]),
-          edge_capacity_bps: makeColumn([null, 1_000_000_000]),
-          edge_telemetry_eligible: makeColumn([null, 1]),
-          edge_label: makeColumn([null, "LINK ENDPOINT attachment"]),
-          edge_topology_class: makeColumn([null, "backbone"]),
-          edge_protocol: makeColumn([null, "snmp-l2"]),
-          edge_evidence_class: makeColumn([null, "direct"]),
-          edge_details: makeColumn([
-            null,
-            JSON.stringify({
-              source_interface: "xe-0/0/0",
-              target_interface: "xe-0/0/1",
-              metadata: {relation_type: "ATTACHED_TO", topology_plane: "attachment"},
-              interface_sparkline: [{value: 1000}, {value: 2000}],
-            }),
-          ]),
+    const decoded = decoder().decodeArrowGraph(snapshotIpcBytes({
+      nodes: [{id: "core-a", label: "core-a", x: 10, y: 20, state: 2, operUp: 1}],
+      edges: [{
+        source: 0,
+        target: 0,
+        flowPps: 77,
+        label: "LINK ENDPOINT attachment",
+        topologyClass: "backbone",
+        protocol: "snmp-l2",
+        evidenceClass: "direct",
+        details: {
+          source_interface: "xe-0/0/0",
+          target_interface: "xe-0/0/1",
+          metadata: {relation_type: "ATTACHED_TO", topology_plane: "attachment"},
+          interface_sparkline: [{value: 1000}, {value: 2000}],
         },
-        2,
-      ),
-    )
+      }],
+    }))
 
-    const state = {}
-    const deps = {
-      normalizeDisplayLabel: (value, fallback) =>
-        typeof value === "string" && value.trim() !== "" ? value : fallback,
-    }
-    const methods = createStateBackedContext(state, deps)
-    Object.assign(methods, bindApi(methods, godViewLifecycleStreamDecodeMethods))
-
-    const decoded = methods.decodeArrowGraph(new Uint8Array([1, 2, 3]))
     expect(decoded.nodes).toHaveLength(1)
     expect(decoded.edges).toHaveLength(1)
     expect(decoded.edges[0].topologyClass).toEqual("backbone")
@@ -81,94 +48,40 @@ describe("lifecycle_stream_decode_methods", () => {
   })
 
   it("preserves backend edge rows and directional fields without client-side reshaping", () => {
-    tableFromIPC.mockReturnValueOnce(
-      makeTable(
-        {
-          row_type: makeColumn([0, 0, 1, 1]),
-          node_x: makeColumn([10, 20, null, null]),
-          node_y: makeColumn([30, 40, null, null]),
-          node_state: makeColumn([1, 1, null, null]),
-          node_label: makeColumn(["a", "b", null, null]),
-          node_pps: makeColumn([0, 0, null, null]),
-          node_oper_up: makeColumn([1, 1, null, null]),
-          node_details: makeColumn([JSON.stringify({id: "a"}), JSON.stringify({id: "b"}), null, null]),
-          edge_source: makeColumn([null, null, 0, 1]),
-          edge_target: makeColumn([null, null, 1, 0]),
-          edge_pps: makeColumn([null, null, 300, 120]),
-          edge_pps_ab: makeColumn([null, null, 250, 20]),
-          edge_pps_ba: makeColumn([null, null, 50, 100]),
-          edge_flow_bps: makeColumn([null, null, 3_000, 1_200]),
-          edge_flow_bps_ab: makeColumn([null, null, 2_500, 200]),
-          edge_flow_bps_ba: makeColumn([null, null, 500, 1_000]),
-          edge_capacity_bps: makeColumn([null, null, 10_000, 10_000]),
-          edge_telemetry_eligible: makeColumn([null, null, 1, 1]),
-          edge_label: makeColumn([null, null, "edge-ab", "edge-ba"]),
-          edge_topology_class: makeColumn([null, null, "backbone", "backbone"]),
-          edge_protocol: makeColumn([null, null, "snmp", "snmp"]),
-          edge_evidence_class: makeColumn([null, null, "direct", "direct"]),
-        },
-        4,
-      ),
-    )
+    const decoded = decoder().decodeArrowGraph(snapshotIpcBytes({
+      nodes: [{id: "a", label: "a"}, {id: "b", label: "b"}],
+      edges: [
+        {source: 0, target: 1, flowPps: 300, flowPpsAb: 250, flowPpsBa: 50, flowBps: 3000, capacityBps: 10000},
+        {source: 1, target: 0, flowPps: 120, flowPpsAb: 20, flowPpsBa: 100, flowBps: 1200, capacityBps: 10000},
+      ],
+    }))
 
-    const state = {}
-    const deps = {
-      normalizeDisplayLabel: (value, fallback) =>
-        typeof value === "string" && value.trim() !== "" ? value : fallback,
-    }
-    const methods = createStateBackedContext(state, deps)
-    Object.assign(methods, bindApi(methods, godViewLifecycleStreamDecodeMethods))
-
-    const decoded = methods.decodeArrowGraph(new Uint8Array([1, 2, 3]))
     expect(decoded.nodes).toHaveLength(2)
     expect(decoded.edges).toHaveLength(2)
-
-    expect(decoded.edges[0].source).toEqual(0)
-    expect(decoded.edges[0].target).toEqual(1)
-    expect(decoded.edges[0].flowPpsAb).toEqual(250)
-    expect(decoded.edges[0].flowPpsBa).toEqual(50)
-
-    expect(decoded.edges[1].source).toEqual(1)
-    expect(decoded.edges[1].target).toEqual(0)
-    expect(decoded.edges[1].flowPpsAb).toEqual(20)
-    expect(decoded.edges[1].flowPpsBa).toEqual(100)
+    expect(decoded.edges[0]).toMatchObject({source: 0, target: 1, flowPpsAb: 250, flowPpsBa: 50})
+    expect(decoded.edges[1]).toMatchObject({source: 1, target: 0, flowPpsAb: 20, flowPpsBa: 100})
   })
 
   it("emits canonical edge field set with typed defaults when optional columns are absent", () => {
-    tableFromIPC.mockReturnValueOnce(
-      makeTable(
-        {
-          row_type: makeColumn([0, 0, 1]),
-          node_x: makeColumn([10, 20, null]),
-          node_y: makeColumn([30, 40, null]),
-          node_state: makeColumn([1, 1, null]),
-          node_label: makeColumn(["a", "b", null]),
-          node_pps: makeColumn([0, 0, null]),
-          node_oper_up: makeColumn([1, 1, null]),
-          node_details: makeColumn([JSON.stringify({id: "a"}), JSON.stringify({id: "b"}), null]),
-          edge_source: makeColumn([null, null, 0]),
-          edge_target: makeColumn([null, null, 1]),
-          edge_pps: makeColumn([null, null, 42]),
-          edge_flow_bps: makeColumn([null, null, 4242]),
-          edge_capacity_bps: makeColumn([null, null, 1_000_000]),
-        },
-        3,
-      ),
-    )
+    const decoded = decoder().decodeArrowGraph(snapshotIpcBytes({
+      nodes: [{id: "a"}, {id: "b"}],
+      edges: [{source: 0, target: 1, flowPps: 42, flowBps: 4242, capacityBps: 1_000_000}],
+      omitColumns: [
+        "edge_pps_ab",
+        "edge_pps_ba",
+        "edge_flow_bps_ab",
+        "edge_flow_bps_ba",
+        "edge_telemetry_eligible",
+        "edge_label",
+        "edge_topology_class",
+        "edge_protocol",
+        "edge_evidence_class",
+        "edge_details",
+      ],
+    }))
 
-    const state = {}
-    const deps = {
-      normalizeDisplayLabel: (value, fallback) =>
-        typeof value === "string" && value.trim() !== "" ? value : fallback,
-    }
-    const methods = createStateBackedContext(state, deps)
-    Object.assign(methods, bindApi(methods, godViewLifecycleStreamDecodeMethods))
-
-    const decoded = methods.decodeArrowGraph(new Uint8Array([1, 2, 3]))
     expect(decoded.edges).toHaveLength(1)
-    const edge = decoded.edges[0]
-
-    expect(edge).toMatchObject({
+    expect(decoded.edges[0]).toMatchObject({
       source: 0,
       target: 1,
       flowPps: 42,
@@ -186,114 +99,111 @@ describe("lifecycle_stream_decode_methods", () => {
     })
   })
 
-  it("preserves known unstable directional links without collapsing or reorientation", () => {
-    tableFromIPC.mockReturnValueOnce(
-      makeTable(
-        {
-          row_type: makeColumn([0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1]),
-          node_x: makeColumn([10, 20, 30, 40, 50, 60, null, null, null, null, null, null]),
-          node_y: makeColumn([15, 25, 35, 45, 55, 65, null, null, null, null, null, null]),
-          node_state: makeColumn([1, 1, 1, 1, 1, 1, null, null, null, null, null, null]),
-          node_label: makeColumn([
-            "farm01",
-            "uswaggregation",
-            "tonka01",
-            "aruba-24g-02",
-            "uswlite8poe",
-            "u6mesh",
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-          ]),
-          node_pps: makeColumn([0, 0, 0, 0, 0, 0, null, null, null, null, null, null]),
-          node_oper_up: makeColumn([1, 1, 1, 1, 1, 1, null, null, null, null, null, null]),
-          node_details: makeColumn([
-            JSON.stringify({id: "sr:farm01"}),
-            JSON.stringify({id: "sr:uswaggregation"}),
-            JSON.stringify({id: "sr:tonka01"}),
-            JSON.stringify({id: "sr:aruba-24g-02"}),
-            JSON.stringify({id: "sr:uswlite8poe"}),
-            JSON.stringify({id: "sr:u6mesh"}),
-            null,
-            null,
-            null,
-            null,
-            null,
-            null,
-          ]),
-          edge_source: makeColumn([null, null, null, null, null, null, 0, 1, 2, 3, 4, 5]),
-          edge_target: makeColumn([null, null, null, null, null, null, 1, 0, 3, 2, 5, 4]),
-          edge_pps: makeColumn([null, null, null, null, null, null, 140, 75, 90, 65, 55, 49]),
-          edge_pps_ab: makeColumn([null, null, null, null, null, null, 80, 40, 50, 30, 40, 18]),
-          edge_pps_ba: makeColumn([null, null, null, null, null, null, 60, 35, 40, 35, 15, 31]),
-          edge_flow_bps: makeColumn([null, null, null, null, null, null, 14_000, 7_500, 9_000, 6_500, 5_500, 4_900]),
-          edge_flow_bps_ab: makeColumn([null, null, null, null, null, null, 8_000, 4_000, 5_000, 3_000, 4_000, 1_800]),
-          edge_flow_bps_ba: makeColumn([null, null, null, null, null, null, 6_000, 3_500, 4_000, 3_500, 1_500, 3_100]),
-          edge_capacity_bps: makeColumn([null, null, null, null, null, null, 1_000_000_000, 1_000_000_000, 1_000_000_000, 1_000_000_000, 1_000_000_000, 1_000_000_000]),
-          edge_telemetry_eligible: makeColumn([null, null, null, null, null, null, 1, 1, 1, 1, 1, 1]),
-          edge_label: makeColumn([null, null, null, null, null, null, "", "", "", "", "", ""]),
-          edge_topology_class: makeColumn([null, null, null, null, null, null, "backbone", "backbone", "backbone", "backbone", "endpoint", "endpoint"]),
-          edge_protocol: makeColumn([null, null, null, null, null, null, "snmp-l2", "snmp-l2", "snmp-l2", "snmp-l2", "snmp-l2", "snmp-l2"]),
-          edge_evidence_class: makeColumn([null, null, null, null, null, null, "direct", "direct", "direct", "direct", "direct", "direct"]),
-        },
-        12,
-      ),
-    )
+  it("preserves reversed directional links without collapsing or reorientation", () => {
+    const nodes = ["hub-a", "hub-b", "edge-c", "edge-d", "leaf-e", "leaf-f"].map((id, index) => ({
+      id,
+      label: id,
+      x: 10 * (index + 1),
+      y: 10 * (index + 1) + 5,
+      state: 1,
+      operUp: 1,
+    }))
+    const decoded = decoder().decodeArrowGraph(snapshotIpcBytes({
+      nodes,
+      edges: [
+        {source: 0, target: 1, flowPpsAb: 80, flowPpsBa: 60},
+        {source: 1, target: 0, flowPpsAb: 40, flowPpsBa: 35},
+        {source: 2, target: 3, flowPpsAb: 50, flowPpsBa: 40},
+        {source: 3, target: 2, flowPpsAb: 30, flowPpsBa: 35},
+        {source: 4, target: 5, flowPpsAb: 40, flowPpsBa: 15, topologyClass: "endpoint"},
+        {source: 5, target: 4, flowPpsAb: 18, flowPpsBa: 31, topologyClass: "endpoint"},
+      ],
+    }))
 
-    const state = {}
-    const deps = {
-      normalizeDisplayLabel: (value, fallback) =>
-        typeof value === "string" && value.trim() !== "" ? value : fallback,
-    }
-    const methods = createStateBackedContext(state, deps)
-    Object.assign(methods, bindApi(methods, godViewLifecycleStreamDecodeMethods))
-
-    const decoded = methods.decodeArrowGraph(new Uint8Array([1, 2, 3]))
     expect(decoded.nodes).toHaveLength(6)
     expect(decoded.edges).toHaveLength(6)
-
-    const hasFarmForward = decoded.edges.some((edge) => edge.source === 0 && edge.target === 1 && edge.flowPpsAb === 80 && edge.flowPpsBa === 60)
-    const hasFarmReverse = decoded.edges.some((edge) => edge.source === 1 && edge.target === 0 && edge.flowPpsAb === 40 && edge.flowPpsBa === 35)
-    const hasTonkaForward = decoded.edges.some((edge) => edge.source === 2 && edge.target === 3 && edge.flowPpsAb === 50 && edge.flowPpsBa === 40)
-    const hasLiteForward = decoded.edges.some((edge) => edge.source === 4 && edge.target === 5 && edge.flowPpsAb === 40 && edge.flowPpsBa === 15)
-
-    expect(hasFarmForward).toEqual(true)
-    expect(hasFarmReverse).toEqual(true)
-    expect(hasTonkaForward).toEqual(true)
-    expect(hasLiteForward).toEqual(true)
+    const has = (source, target, ab, ba) => decoded.edges.some((edge) =>
+      edge.source === source && edge.target === target && edge.flowPpsAb === ab && edge.flowPpsBa === ba)
+    expect(has(0, 1, 80, 60)).toEqual(true)
+    expect(has(1, 0, 40, 35)).toEqual(true)
+    expect(has(2, 3, 50, 40)).toEqual(true)
+    expect(has(4, 5, 40, 15)).toEqual(true)
   })
 
   it("treats null geo fields as missing coordinates instead of 0,0", () => {
-    tableFromIPC.mockReturnValueOnce(
-      makeTable(
-        {
-          row_type: makeColumn([0]),
-          node_x: makeColumn([10]),
-          node_y: makeColumn([20]),
-          node_state: makeColumn([1]),
-          node_label: makeColumn(["geo-null-node"]),
-          node_pps: makeColumn([0]),
-          node_oper_up: makeColumn([1]),
-          node_details: makeColumn([JSON.stringify({id: "sr:geo-null", geo_lat: null, geo_lon: null})]),
-        },
-        1,
-      ),
-    )
+    const decoded = decoder().decodeArrowGraph(snapshotIpcBytes({
+      nodes: [{id: "sr:geo-null", label: "geo-null-node", details: {id: "sr:geo-null", geo_lat: null, geo_lon: null}}],
+    }))
 
-    const state = {}
-    const deps = {
-      normalizeDisplayLabel: (value, fallback) =>
-        typeof value === "string" && value.trim() !== "" ? value : fallback,
-    }
-    const methods = createStateBackedContext(state, deps)
-    Object.assign(methods, bindApi(methods, godViewLifecycleStreamDecodeMethods))
-
-    const decoded = methods.decodeArrowGraph(new Uint8Array([1, 2, 3]))
     expect(decoded.nodes).toHaveLength(1)
     expect(Number.isNaN(decoded.nodes[0].geoLat)).toEqual(true)
     expect(Number.isNaN(decoded.nodes[0].geoLon)).toEqual(true)
+  })
+
+  it("names edge endpoints above 65535 and exposes positions as one packed Float32Array", () => {
+    const count = 70_000
+    const decoded = decoder().decodeArrowGraph(largeRingSnapshotIpcBytes(count))
+
+    expect(decoded.nodes).toHaveLength(count)
+    expect(decoded.edges).toHaveLength(count)
+    expect(decoded.edgeSourceIndex).toBeInstanceOf(Uint32Array)
+    expect(decoded.edgeSourceIndex[69_999]).toEqual(69_999)
+    expect(decoded.edgeTargetIndex[69_999]).toEqual(0)
+    expect(decoded.edgeTargetIndex[65_535]).toEqual(65_536)
+    expect(decoded.edges[65_536]).toMatchObject({source: 65_536, target: 65_537})
+    expect(decoded.nodes[65_537].id).toEqual("n-65537")
+
+    const {positions, nodeState} = decoded.columns
+    expect(positions).toBeInstanceOf(Float32Array)
+    expect(positions).toHaveLength(count * 2)
+    expect([positions[65_537 * 2], positions[65_537 * 2 + 1]]).toEqual([1, (65_537 * 7) % 65536])
+    expect(nodeState).toBeInstanceOf(Uint8Array)
+    expect(nodeState[65_538]).toEqual(65_538 % 4)
+  }, 30_000)
+
+  it("parses details JSON only for the row that is read", () => {
+    const {nodes, edges} = syntheticRing(500)
+    const decoded = decoder().decodeArrowGraph(snapshotIpcBytes({nodes, edges}))
+
+    // Decoding, ids, positions and endpoints need no details.
+    expect(decoded.nodes[123].id).toEqual("n-123")
+    expect(decoded.edges[42].target).toEqual(43)
+    expect(decoded.columns.parsedDetailCounts()).toEqual({nodes: 0, edges: 0})
+
+    // Picking one node parses that node only, once.
+    expect(decoded.nodes[321].details.ip).toEqual("192.0.2.65")
+    expect(decoded.nodes[321].details.ip).toEqual("192.0.2.65")
+    expect(decoded.columns.parsedDetailCounts()).toEqual({nodes: 1, edges: 0})
+
+    // Same for an edge.
+    expect(decoded.edges[7].details.source_id).toEqual("n-7")
+    expect(decoded.columns.parsedDetailCounts()).toEqual({nodes: 1, edges: 1})
+  })
+
+  it("reads node ids from details for a frame that predates the node_id column", () => {
+    const decoded = decoder().decodeArrowGraph(snapshotIpcBytes({
+      nodes: [{id: "ignored", label: "A", details: {id: "sr:a"}}, {label: "B", details: {}}],
+      omitColumns: ["node_id"],
+    }))
+
+    expect(decoded.nodes.map((node) => node.id)).toEqual(["sr:a", "node-2"])
+  })
+
+  it("counts rows from row_type when the count metadata is absent, and refuses interleaved rows", () => {
+    const nodeFirst = snapshotIpcBytes({
+      nodes: [{id: "a"}, {id: "b"}],
+      edges: [{source: 1, target: 0}],
+      metadata: false,
+    })
+    const decoded = decoder().decodeArrowGraph(nodeFirst)
+    expect(decoded.nodes.map((node) => node.id)).toEqual(["a", "b"])
+    expect(decoded.edges[0]).toMatchObject({source: 1, target: 0})
+
+    const interleaved = tableToIPC(tableFromArrays({
+      row_type: Int8Array.from([0, 1, 0]),
+      node_x: Uint16Array.from([1, 0, 2]),
+      node_y: Uint16Array.from([1, 0, 2]),
+    }), "file")
+    expect(() => decoder().decodeArrowGraph(interleaved)).toThrow(/not node-first/)
   })
 })

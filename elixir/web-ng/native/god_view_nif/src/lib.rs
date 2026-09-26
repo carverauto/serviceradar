@@ -290,21 +290,14 @@ fn runtime_graph_encode_snapshot<'a>(
     let guard = graph.links.read().map_err(|_| rustler::Error::BadArg)?;
     let indexed = indexed_edges_from_runtime_rows(&guard, &node_ids);
     let telemetry = indexed_edge_telemetry(&edge_telemetry, &node_ids);
-    let mut edges: Vec<(u16, u16, u32, u64, u64, String, u8)> = Vec::new();
+    let mut edges: Vec<(u32, u32, u32, u64, u64, String, u8)> = Vec::new();
     let mut edge_meta: Vec<(String, String, String)> = Vec::new();
 
-    for (a, b, protocol) in indexed {
+    for (src, dst, protocol) in indexed {
         let Some((flow_pps, flow_bps, capacity_bps, label)) = telemetry
-            .get(&crate::core::utils::canonical_pair_u32(a, b))
+            .get(&crate::core::utils::canonical_pair_u32(src, dst))
             .cloned()
         else {
-            continue;
-        };
-
-        let Some(src) = u16::try_from(a).ok() else {
-            continue;
-        };
-        let Some(dst) = u16::try_from(b).ok() else {
             continue;
         };
 
@@ -332,6 +325,7 @@ fn runtime_graph_encode_snapshot<'a>(
             schema_version: u32::from(schema_version),
             revision,
             nodes,
+            node_ids,
             edges,
             edge_meta,
             edge_directional: Vec::new(),
@@ -364,7 +358,7 @@ mod tests {
     use std::sync::Arc;
     use std::time::Instant;
 
-    fn edge(source: u16, target: u16) -> (u16, u16, u32, u64, u64, String, u8) {
+    fn edge(source: u32, target: u32) -> (u32, u32, u32, u64, u64, String, u8) {
         (source, target, 0, 0, 0, String::new(), 1)
     }
 

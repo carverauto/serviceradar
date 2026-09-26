@@ -456,23 +456,70 @@ function boxIntersectsIncidentRouteOutsideOwnerApproach(box, route, candidate, o
   return false
 }
 
-function fixedObstacleFree(placement, candidate, glyphBoxes, routeCorridors, safeRect) {
+// `boxesIntersect(box, glyph)` over the typed glyph obstacles, skipping the candidate's own.
+function glyphIntersects(glyphs, candidateId, box) {
+  const {boxes, nodeIds, count} = glyphs
+  for (let index = 0; index < count; index += 1) {
+    const offset = index * 4
+    if (
+      box.left < boxes[offset + 2] - EPSILON &&
+      box.right > boxes[offset] + EPSILON &&
+      box.top < boxes[offset + 3] - EPSILON &&
+      box.bottom > boxes[offset + 1] + EPSILON &&
+      nodeIds[index] !== candidateId
+    ) {
+      return true
+    }
+  }
+  return false
+}
+
+function fixedObstacleFree(placement, candidate, glyphs, ownerGlyph, routeCorridors, safeRect) {
   if (!boxInside(placement.box, safeRect)) return false
-  if (glyphBoxes.some((glyph) => glyph.nodeId !== candidate.nodeId && boxesIntersect(placement.box, glyph.box))) return false
+  if (glyphIntersects(glyphs, candidate.nodeId, placement.box)) return false
   if (routeCorridors.some((route) => {
     const sourceId = String(route?.sourceId ?? "")
     const targetId = String(route?.targetId ?? "")
     const incidentToOwner = sourceId === candidate.nodeId || targetId === candidate.nodeId
     return incidentToOwner
-      ? boxIntersectsIncidentRouteOutsideOwnerApproach(
-          placement.box,
-          route,
-          candidate,
-          glyphBoxes.find((glyph) => glyph.nodeId === candidate.nodeId)?.box || normalizedBox(null, candidate.point),
-        )
+      ? boxIntersectsIncidentRouteOutsideOwnerApproach(placement.box, route, candidate, ownerGlyph)
       : boxIntersectsRoute(placement.box, route)
   })) return false
   return true
+}
+
+/**
+ * Normalizes glyph obstacles to `{nodeIds, boxes, count}`, where `boxes` holds
+ * `left, top, right, bottom` per glyph. Callers on the render hot path pass that form
+ * directly; an array of `{nodeId, left, top, right, bottom}` is converted once.
+ */
+function glyphObstacles(glyphBoxes) {
+  if (glyphBoxes && ArrayBuffer.isView(glyphBoxes.boxes) && Array.isArray(glyphBoxes.nodeIds)) {
+    const count = Math.min(Number(glyphBoxes.count ?? glyphBoxes.nodeIds.length) || 0, glyphBoxes.nodeIds.length)
+    const nodeIds = glyphBoxes.nodeIds
+    const boxes = glyphBoxes.boxes
+    for (let index = 0; index < count; index += 1) {
+      const offset = index * 4
+      const left = Math.min(boxes[offset], boxes[offset + 2])
+      const right = Math.max(boxes[offset], boxes[offset + 2])
+      const top = Math.min(boxes[offset + 1], boxes[offset + 3])
+      const bottom = Math.max(boxes[offset + 1], boxes[offset + 3])
+      boxes[offset] = left
+      boxes[offset + 1] = top
+      boxes[offset + 2] = right
+      boxes[offset + 3] = bottom
+    }
+    return {nodeIds, boxes, count}
+  }
+
+  const glyphs = (Array.isArray(glyphBoxes) ? glyphBoxes : [])
+    .map((glyph) => ({nodeId: String(glyph?.nodeId || ""), box: normalizedBox(glyph)}))
+    .filter((glyph) => glyph.nodeId !== "")
+  const boxes = new Float64Array(glyphs.length * 4)
+  glyphs.forEach((glyph, index) => {
+    boxes.set([glyph.box.left, glyph.box.top, glyph.box.right, glyph.box.bottom], index * 4)
+  })
+  return {nodeIds: glyphs.map((glyph) => glyph.nodeId), boxes, count: glyphs.length}
 }
 
 /**
@@ -489,14 +536,25 @@ export function admitTopologyLabels({
   measureText,
 } = {}) {
   const normalizedSafeRect = normalizedBox(safeRect, [0, 0])
-  const glyphs = glyphBoxes
-    .map((glyph) => ({nodeId: String(glyph?.nodeId || ""), box: normalizedBox(glyph)}))
-    .filter((glyph) => glyph.nodeId !== "")
-  const glyphByNodeId = new Map(glyphs.map((glyph) => [glyph.nodeId, glyph.box]))
+  const glyphs = glyphObstacles(glyphBoxes)
   const ordered = candidates
     .filter((candidate) => String(candidate?.nodeId || "") !== "")
     .map((candidate) => ({...candidate, nodeId: String(candidate.nodeId)}))
     .sort(compareCandidates)
+  // Owner boxes are only needed for candidates, never for every obstacle.
+  const candidateIds = new Set(ordered.map((candidate) => candidate.nodeId))
+  const glyphByNodeId = new Map()
+  for (let index = 0; index < glyphs.count; index += 1) {
+    const nodeId = glyphs.nodeIds[index]
+    if (!candidateIds.has(nodeId)) continue
+    const offset = index * 4
+    glyphByNodeId.set(nodeId, {
+      left: glyphs.boxes[offset],
+      top: glyphs.boxes[offset + 1],
+      right: glyphs.boxes[offset + 2],
+      bottom: glyphs.boxes[offset + 3],
+    })
+  }
   const admitted = []
   const admittedCandidates = new Map()
   const detailsFallbackIds = []
@@ -508,6 +566,7 @@ export function admitTopologyLabels({
   for (const candidate of ordered) {
     const point = Array.isArray(candidate.point) ? candidate.point : [0, 0]
     const ownerGlyph = glyphByNodeId.get(candidate.nodeId) || normalizedBox(candidate?.glyphBox, point)
+    const routeOwnerGlyph = glyphByNodeId.get(candidate.nodeId) || normalizedBox(null, point)
     const metrics = measuredTextBox(candidate, measureText)
     const attention = candidate.selected === true || candidate.focused === true
     let placed = false
@@ -519,7 +578,7 @@ export function admitTopologyLabels({
 
     for (const anchor of ANCHORS) {
       const placement = anchorPlacement(candidate, ownerGlyph, metrics, anchor)
-      if (!fixedObstacleFree(placement, candidate, glyphs, routeCorridors, normalizedSafeRect)) continue
+      if (!fixedObstacleFree(placement, candidate, glyphs, routeOwnerGlyph, routeCorridors, normalizedSafeRect)) continue
 
       const conflicts = admitted.filter((item) => boxesIntersect(placement.box, item.box))
       if (conflicts.length === 0) {

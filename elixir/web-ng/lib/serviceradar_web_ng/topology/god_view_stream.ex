@@ -218,11 +218,14 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
         edge |> edge_details_json() |> normalize_details_json()
       end)
 
+    node_ids = Enum.map(snapshot.nodes, &to_string(&1.id))
+
     {:ok,
      Native.encode_snapshot(%{
        schema_version: snapshot.schema_version,
        revision: snapshot.revision,
        nodes: nodes,
+       node_ids: node_ids,
        edges: edges,
        edge_meta: edge_meta,
        edge_directional: edge_directional,

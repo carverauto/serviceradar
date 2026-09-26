@@ -16,7 +16,11 @@ vi.mock("@deck.gl/core", async (importOriginal) => ({
 
 import {bindApi, createStateBackedContext} from "./api_helpers"
 import {godViewLayoutClusterMethods} from "./layout_cluster_methods"
-import {godViewLifecycleDomSetupMethods} from "./lifecycle_dom_setup_methods"
+import {
+  GOD_VIEW_WEBGL_DEVICE_PROPS,
+  GOD_VIEW_WEBGPU_DEVICE_PROPS,
+  godViewLifecycleDomSetupMethods,
+} from "./lifecycle_dom_setup_methods"
 import {godViewRenderingGraphCoreMethods} from "./rendering_graph_core_methods"
 import {godViewRenderingGraphLayerNodeMethods} from "./rendering_graph_layer_node_methods"
 import {godViewRenderingGraphViewMethods} from "./rendering_graph_view_methods"
@@ -1839,5 +1843,93 @@ describe("lifecycle_dom_setup_methods", () => {
     expect(event.stopPropagation).toHaveBeenCalledTimes(1)
     expect(ctx.navigateToHref).toHaveBeenCalledWith("/devices/sr%3Atest-02")
     expect(deps.focusNodeByIndex).not.toHaveBeenCalled()
+  })
+
+  describe("renderer device", () => {
+    function deckContext() {
+      const state = {
+        el: {clientWidth: 800, clientHeight: 600},
+        canvas: {},
+        summary: {textContent: ""},
+        visual: {bg: [10, 10, 10, 255]},
+        viewState: {zoom: 1},
+        lastGraph: {nodes: [], edges: []},
+        rendererMode: "initializing",
+        rendererFallbackReason: null,
+      }
+      const deps = {renderGraph: vi.fn()}
+      const ctx = createStateBackedContext(state, deps)
+      Object.assign(ctx, bindApi(ctx, godViewLifecycleDomSetupMethods))
+      return {ctx, state, deps}
+    }
+
+    it("asks deck for a WebGPU device and reports webgpu only once one exists", () => {
+      vi.stubGlobal("navigator", {gpu: {requestAdapter: vi.fn()}})
+      try {
+        const {ctx, state} = deckContext()
+        ctx.ensureDeck()
+
+        expect(state.deck.props.deviceProps).toBe(GOD_VIEW_WEBGPU_DEVICE_PROPS)
+        expect(state.deck.props.deviceProps.type).toBe("webgpu")
+        expect(state.rendererMode).toBe("webgpu-pending")
+
+        state.deck.props.onDeviceInitialized({type: "webgpu"})
+        expect(state.rendererMode).toBe("webgpu")
+        expect(state.rendererDeviceType).toBe("webgpu")
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    })
+
+    it("does not report webgpu when deck hands back a WebGL device", () => {
+      vi.stubGlobal("navigator", {gpu: {requestAdapter: vi.fn()}})
+      try {
+        const {ctx, state} = deckContext()
+        ctx.ensureDeck()
+        state.deck.props.onDeviceInitialized({type: "webgl"})
+
+        expect(state.rendererMode).toBe("webgl")
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    })
+
+    it("replaces a deck whose WebGPU device failed with one built for WebGL", () => {
+      vi.stubGlobal("navigator", {gpu: {requestAdapter: vi.fn()}})
+      try {
+        const {ctx, state, deps} = deckContext()
+        ctx.ensureDeck()
+        const webgpuDeck = state.deck
+        webgpuDeck.finalize = vi.fn()
+
+        webgpuDeck.props.onError(new Error("no compatible GPU adapter"))
+
+        expect(webgpuDeck.finalize).toHaveBeenCalledTimes(1)
+        expect(state.deck).not.toBe(webgpuDeck)
+        expect(state.deck.props.deviceProps).toBe(GOD_VIEW_WEBGL_DEVICE_PROPS)
+        expect(state.rendererMode).toBe("webgl-fallback")
+        expect(state.rendererFallbackReason).toBe("no compatible GPU adapter")
+        expect(deps.renderGraph).toHaveBeenCalledWith(state.lastGraph)
+
+        state.deck.props.onDeviceInitialized({type: "webgl"})
+        expect(state.rendererMode).toBe("webgl-fallback")
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    })
+
+    it("uses the WebGL constructor when the browser has no WebGPU", () => {
+      vi.stubGlobal("navigator", {})
+      try {
+        const {ctx, state} = deckContext()
+        ctx.ensureDeck()
+
+        expect(state.deck.props.deviceProps).toBe(GOD_VIEW_WEBGL_DEVICE_PROPS)
+        state.deck.props.onDeviceInitialized({type: "webgl"})
+        expect(state.rendererMode).toBe("webgl")
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    })
   })
 })

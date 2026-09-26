@@ -1,5 +1,9 @@
 import {topologyRelationId} from "./topology_relation_identity"
 import {hasManagedTopologyScene, isOverviewScene} from "./topology_layout_mode"
+import {nodeRenderFrame} from "./rendering_node_frame"
+
+const INCIDENT_ENDPOINT = 1
+const INCIDENT_NON_ENDPOINT = 2
 
 function isEndpointCensusSummary(node) {
   return String(node?.details?.cluster_kind || "").trim() === "endpoint-summary"
@@ -138,17 +142,17 @@ export function hasManagedTopologySceneRoutes(effective) {
 
 export const godViewRenderingGraphDataMethods = {
   buildVisibleGraphData(effective) {
-    const states = Uint8Array.from(effective.nodes.map((node) => node.state))
-    const stateMask = this.visibilityMask(states)
-    const mask = new Uint8Array(effective.nodes.length)
+    // One record per node, cached for this node array; a render only rewrites `mask`.
+    const frame = nodeRenderFrame(this, effective.nodes, effective.shape)
+    const {records} = frame
+    const stateMask = this.visibilityMask(frame.states)
+    const mask = frame.mask
     const topologyLayers = this.state.topologyLayers || {}
     const managedSceneNodeById = isOverviewScene(effective)
       ? new Map((effective._topologyScene.nodes || []).map((node) => [String(node?.id || ""), node]))
       : null
-    const endpointIncidentFlags =
-      effective.shape === "local"
-        ? effective.nodes.map(() => ({endpoint: false, nonEndpoint: false}))
-        : null
+    const endpointIncidentFlags = effective.shape === "local" ? frame.incidentFlags : null
+    if (endpointIncidentFlags) endpointIncidentFlags.fill(0)
 
     const edgeTopologyClass = (edge) => {
       if (typeof this.edgeTopologyClass === "function") {
@@ -217,17 +221,13 @@ export const godViewRenderingGraphDataMethods = {
         for (const index of [source, target]) {
           if (!Number.isInteger(index) || index < 0 || index >= endpointIncidentFlags.length) continue
 
-          if (endpointOnly) {
-            endpointIncidentFlags[index].endpoint = true
-          } else {
-            endpointIncidentFlags[index].nonEndpoint = true
-          }
+          endpointIncidentFlags[index] |= endpointOnly ? INCIDENT_ENDPOINT : INCIDENT_NON_ENDPOINT
         }
       }
     }
 
-    for (let i = 0; i < effective.nodes.length; i += 1) {
-      const node = effective.nodes[i]
+    for (let i = 0; i < records.length; i += 1) {
+      const node = records[i]
       const details = node?.details && typeof node.details === "object" ? node.details : {}
       const stateVisible = stateMask[i] === 1
       const clusterKind = String(details.cluster_kind || "").trim()
@@ -251,21 +251,16 @@ export const godViewRenderingGraphDataMethods = {
           attachmentCensusVisible ||
           expandedMemberVisible ||
           endpointAnchorVisible ||
-          endpointIncidentFlags[i].nonEndpoint ||
-          !endpointIncidentFlags[i].endpoint)
+          (endpointIncidentFlags[i] & INCIDENT_NON_ENDPOINT) !== 0 ||
+          (endpointIncidentFlags[i] & INCIDENT_ENDPOINT) === 0)
 
       mask[i] = stateVisible && endpointLayerVisible && managedSceneVisible ? 1 : 0
     }
 
-    const visibleNodes = effective.nodes.map((node, index) => ({
-      ...node,
-      index,
-      selected: this.state.selectedNodeIndex === index,
-      visible: mask[index] === 1,
-      zHeight: 0,
-    }))
-    const visibleById = new Map(visibleNodes.map((node) => [node.id, node]))
-    const visibleByNormalizedId = new Map(visibleNodes.map((node) => [String(node.id || ""), node]))
+    frame.selectedNodeIndex = this.state.selectedNodeIndex
+    const visibleNodes = records
+    const visibleById = frame.byId
+    const visibleByNormalizedId = frame.byNormalizedId
     const resolveVisibleEndpoint = (node) => {
       if (!node) return null
       if (node.visible) return node
@@ -369,25 +364,14 @@ export const godViewRenderingGraphDataMethods = {
     if (this.state.selectedEdgeKey && !edgeKeys.has(this.state.selectedEdgeKey)) this.state.selectedEdgeKey = null
     const edgeLabelData = this.selectEdgeLabels(edgeData, effective.shape)
 
-    const nodeData = visibleNodes
-      .filter((node) => node.visible)
-      .map((node) => ({
-        id: node.id,
-        position: [node.x, node.y, 0],
-        zHeight: 0,
-        index: node.index,
-        state: node.state,
-        selected: node.selected,
-        clusterCount: node.clusterCount || 1,
-        pps: Number(node.pps || 0),
-        operUp: Number(node.operUp || 0),
-        details: node.details || {},
-        label:
-          this.normalizeDisplayLabel(node.label, node.id || `node-${node.index + 1}`),
-        metricText: this.nodeMetricText(node, effective.shape),
-        statusIcon: this.nodeStatusIcon(node.operUp),
-        stateReason: this.stateReasonForNode(node, edgeData, visibleNodes),
-      }))
+    // The glyph layers draw these records by reference; `stateReason` is resolved on read
+    // (tooltip, details card) against this render's edges instead of for every node.
+    frame.edgeData = edgeData
+    frame.stateReason = (node) => this.stateReasonForNode(node, frame.edgeData, records)
+    const nodeData = []
+    for (let i = 0; i < records.length; i += 1) {
+      if (mask[i] === 1) nodeData.push(records[i])
+    }
     const rootPulseNodes = nodeData.filter((node) => node.state === 0)
 
     this.state.lastVisibleNodeCount = nodeData.length
@@ -572,7 +556,8 @@ export const godViewRenderingGraphDataMethods = {
   collapseExpandedMemberTrunks(edgeData, visibleNodes) {
     if (!Array.isArray(edgeData) || edgeData.length === 0) return []
 
-    const nodeById = new Map((visibleNodes || []).map((node) => [node.id, node]))
+    const nodeById = new Map()
+    for (const node of visibleNodes || []) nodeById.set(node.id, node)
     const trunks = new Map()
     const kept = []
 

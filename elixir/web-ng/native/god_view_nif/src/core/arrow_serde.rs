@@ -31,10 +31,26 @@ pub(crate) fn encode_snapshot_impl(
     env: Env,
     payload: EncodeSnapshotPayload,
 ) -> Result<Binary, rustler::Error> {
+    let bytes = encode_snapshot_ipc(payload)?;
+    vec_into_binary(env, bytes)
+}
+
+/// Writes a snapshot frame as one Arrow IPC file.
+///
+/// Node rows come first, in `nodes` order, and edge rows follow. The schema
+/// metadata carries `node_count` and `edge_count`, so every numeric column is
+/// dense over rows `0..node_count` for nodes and `node_count..node_count +
+/// edge_count` for edges. A decoder can slice positions, states and endpoints
+/// straight out of the column buffers without branching on `row_type` or
+/// parsing the `node_details` / `edge_details` JSON.
+pub(crate) fn encode_snapshot_ipc(
+    payload: EncodeSnapshotPayload,
+) -> Result<Vec<u8>, rustler::Error> {
     let EncodeSnapshotPayload {
         schema_version,
         revision,
         nodes,
+        node_ids,
         edges,
         edge_meta,
         edge_directional,
@@ -45,7 +61,9 @@ pub(crate) fn encode_snapshot_impl(
         unknown_bitmap_bytes,
     } = payload;
 
-    let total_rows = nodes.len() + edges.len();
+    let node_count = nodes.len();
+    let edge_count = edges.len();
+    let total_rows = node_count + edge_count;
     let hypergraph_projection = build_hypergraph_projection(nodes.len(), &edges);
     let hypergraph = build_hypergraph_from_projection(&hypergraph_projection);
 
@@ -57,8 +75,9 @@ pub(crate) fn encode_snapshot_impl(
     let mut node_pps = Vec::<Option<u32>>::with_capacity(total_rows);
     let mut node_oper_up = Vec::<Option<u8>>::with_capacity(total_rows);
     let mut node_details = Vec::<Option<String>>::with_capacity(total_rows);
-    let mut edge_source = Vec::<Option<u16>>::with_capacity(total_rows);
-    let mut edge_target = Vec::<Option<u16>>::with_capacity(total_rows);
+    let mut node_id = Vec::<Option<String>>::with_capacity(total_rows);
+    let mut edge_source = Vec::<Option<u32>>::with_capacity(total_rows);
+    let mut edge_target = Vec::<Option<u32>>::with_capacity(total_rows);
     let mut edge_pps = Vec::<Option<u32>>::with_capacity(total_rows);
     let mut edge_pps_ab = Vec::<Option<u32>>::with_capacity(total_rows);
     let mut edge_pps_ba = Vec::<Option<u32>>::with_capacity(total_rows);
@@ -73,8 +92,9 @@ pub(crate) fn encode_snapshot_impl(
     let mut edge_evidence_class = Vec::<Option<String>>::with_capacity(total_rows);
     let mut edge_details_json = Vec::<Option<String>>::with_capacity(total_rows);
 
-    for (x, y, state, label, pps, oper_up, details) in nodes {
+    for (idx, (x, y, state, label, pps, oper_up, details)) in nodes.into_iter().enumerate() {
         row_type.push(0);
+        node_id.push(Some(node_ids.get(idx).cloned().unwrap_or_default()));
         node_x.push(Some(x));
         node_y.push(Some(y));
         node_state.push(Some(u16::from(state)));
@@ -125,6 +145,7 @@ pub(crate) fn encode_snapshot_impl(
         node_pps.push(None);
         node_oper_up.push(None);
         node_details.push(None);
+        node_id.push(None);
         edge_source.push(Some(source));
         edge_target.push(Some(target));
         edge_pps.push(Some(pps));
@@ -145,6 +166,8 @@ pub(crate) fn encode_snapshot_impl(
     let mut metadata = HashMap::new();
     metadata.insert("schema_version".to_string(), schema_version.to_string());
     metadata.insert("revision".to_string(), revision.to_string());
+    metadata.insert("node_count".to_string(), node_count.to_string());
+    metadata.insert("edge_count".to_string(), edge_count.to_string());
     metadata.insert(
         "root_bitmap_bytes".to_string(),
         root_bitmap_bytes.to_string(),
@@ -188,8 +211,8 @@ pub(crate) fn encode_snapshot_impl(
             Field::new("node_pps", DataType::UInt32, true),
             Field::new("node_oper_up", DataType::UInt8, true),
             Field::new("node_details", DataType::Utf8, true),
-            Field::new("edge_source", DataType::UInt16, true),
-            Field::new("edge_target", DataType::UInt16, true),
+            Field::new("edge_source", DataType::UInt32, true),
+            Field::new("edge_target", DataType::UInt32, true),
             Field::new("edge_pps", DataType::UInt32, true),
             Field::new("edge_pps_ab", DataType::UInt32, true),
             Field::new("edge_pps_ba", DataType::UInt32, true),
@@ -205,6 +228,7 @@ pub(crate) fn encode_snapshot_impl(
             Field::new("edge_details", DataType::Utf8, true),
             Field::new("snapshot_schema_version", DataType::UInt32, false),
             Field::new("snapshot_revision", DataType::UInt64, false),
+            Field::new("node_id", DataType::Utf8, true),
         ],
         metadata,
     ));
@@ -223,8 +247,8 @@ pub(crate) fn encode_snapshot_impl(
             Arc::new(UInt32Array::from(node_pps)),
             Arc::new(UInt8Array::from(node_oper_up)),
             Arc::new(StringArray::from(node_details)),
-            Arc::new(UInt16Array::from(edge_source)),
-            Arc::new(UInt16Array::from(edge_target)),
+            Arc::new(UInt32Array::from(edge_source)),
+            Arc::new(UInt32Array::from(edge_target)),
             Arc::new(UInt32Array::from(edge_pps)),
             Arc::new(UInt32Array::from(edge_pps_ab)),
             Arc::new(UInt32Array::from(edge_pps_ba)),
@@ -240,6 +264,7 @@ pub(crate) fn encode_snapshot_impl(
             Arc::new(StringArray::from(edge_details_json)),
             Arc::new(UInt32Array::from(schema_version_col)),
             Arc::new(UInt64Array::from(revision_col)),
+            Arc::new(StringArray::from(node_id)),
         ],
     )
     .map_err(|_| rustler::Error::BadArg)?;
@@ -252,9 +277,7 @@ pub(crate) fn encode_snapshot_impl(
         writer.finish().map_err(|_| rustler::Error::BadArg)?;
     }
 
-    let mut out = OwnedBinary::new(payload.len()).ok_or(rustler::Error::BadArg)?;
-    out.as_mut_slice().copy_from_slice(&payload);
-    Ok(Binary::from_owned(out, env))
+    Ok(payload)
 }
 
 /// Serializes a sparse `RoaringBitmap` directly into byte chunks for Erlang interop.
@@ -870,4 +893,111 @@ fn optional_f64_value(
             Some(array.value(index))
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::encode_snapshot_ipc;
+    use crate::types::snapshot::EncodeSnapshotPayload;
+    use arrow_array::{Array, RecordBatch, StringArray, UInt16Array, UInt32Array};
+    use arrow_ipc::reader::FileReader;
+    use arrow_schema::DataType;
+
+    fn decode(bytes: Vec<u8>) -> RecordBatch {
+        let reader = FileReader::try_new(std::io::Cursor::new(bytes), None).unwrap();
+        let batches: Vec<RecordBatch> = reader.map(|batch| batch.unwrap()).collect();
+        assert_eq!(batches.len(), 1);
+        batches.into_iter().next().unwrap()
+    }
+
+    fn column<'a, T: 'static>(batch: &'a RecordBatch, name: &str) -> &'a T {
+        batch
+            .column_by_name(name)
+            .unwrap_or_else(|| panic!("missing column {name}"))
+            .as_any()
+            .downcast_ref::<T>()
+            .unwrap_or_else(|| panic!("column {name} has an unexpected type"))
+    }
+
+    #[test]
+    fn snapshot_endpoints_above_u16_round_trip() {
+        let node_count: u32 = 70_000;
+        let nodes = (0..node_count)
+            .map(|idx| {
+                (
+                    (idx % 65_536) as u16,
+                    (idx / 2 % 65_536) as u16,
+                    (idx % 4) as u8,
+                    format!("node-{idx}"),
+                    idx,
+                    1u8,
+                    "{}".to_string(),
+                )
+            })
+            .collect();
+        let node_ids = (0..node_count)
+            .map(|idx| format!("sr:test-{idx}"))
+            .collect();
+        let edges = vec![
+            (0u32, 65_535u32, 1u32, 2u64, 3u64, "a".to_string(), 1u8),
+            (65_536, 69_999, 4, 5, 6, "b".to_string(), 1),
+            (69_998, 1, 7, 8, 9, "c".to_string(), 0),
+        ];
+
+        let batch = decode(
+            encode_snapshot_ipc(EncodeSnapshotPayload {
+                schema_version: 3,
+                revision: 9,
+                nodes,
+                node_ids,
+                edges,
+                edge_meta: Vec::new(),
+                edge_directional: Vec::new(),
+                edge_details: Vec::new(),
+                root_bitmap_bytes: 0,
+                affected_bitmap_bytes: 0,
+                healthy_bitmap_bytes: 0,
+                unknown_bitmap_bytes: 0,
+            })
+            .unwrap(),
+        );
+
+        let edge_offset = node_count as usize;
+        assert_eq!(batch.num_rows(), edge_offset + 3);
+        let metadata = batch.schema().metadata().clone();
+        assert_eq!(
+            metadata.get("node_count").map(String::as_str),
+            Some("70000")
+        );
+        assert_eq!(metadata.get("edge_count").map(String::as_str), Some("3"));
+        assert_eq!(
+            metadata.get("schema_version").map(String::as_str),
+            Some("3")
+        );
+        assert_eq!(
+            metadata
+                .get("topology_hypergraph_dropped_edges")
+                .map(String::as_str),
+            Some("0")
+        );
+
+        let sources: &UInt32Array = column(&batch, "edge_source");
+        let targets: &UInt32Array = column(&batch, "edge_target");
+        assert_eq!(sources.data_type(), &DataType::UInt32);
+        let endpoints: Vec<(u32, u32)> = (edge_offset..edge_offset + 3)
+            .map(|row| (sources.value(row), targets.value(row)))
+            .collect();
+        assert_eq!(endpoints, vec![(0, 65_535), (65_536, 69_999), (69_998, 1)]);
+        assert!(sources.is_null(0) && targets.is_null(edge_offset - 1));
+
+        // Layout coordinates stay in the 16-bit quantized space.
+        let xs: &UInt16Array = column(&batch, "node_x");
+        let ys: &UInt16Array = column(&batch, "node_y");
+        assert_eq!((xs.value(65_537), ys.value(65_537)), (1, 32_768));
+        assert!(xs.is_null(edge_offset));
+
+        let ids: &StringArray = column(&batch, "node_id");
+        assert_eq!(ids.value(69_999), "sr:test-69999");
+        assert!(ids.is_null(edge_offset));
+    }
 }
