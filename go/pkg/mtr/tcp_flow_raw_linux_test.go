@@ -3,6 +3,7 @@ package mtr
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"net"
 	"syscall"
 	"testing"
@@ -171,5 +172,20 @@ func TestRawTCPFlow_EveryProbeSharesTheFlowFiveTuple(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// The raw flow rejects a zone-less IPv6 link-local target before its route
+// lookup, which would otherwise fail with an opaque EINVAL from the udp6 dial.
+func TestOpenRawTCPFlow_RejectsLinkLocalIPv6BeforeRouteLookup(t *testing.T) {
+	t.Parallel()
+
+	flow, err := openRawTCPFlow(net.ParseIP("fe80::1"), 443, true)
+	if !errors.Is(err, errLinkLocalTCPTarget) {
+		t.Fatalf("err = %v, want %v", err, errLinkLocalTCPTarget)
+	}
+
+	if flow != nil {
+		t.Fatalf("flow = %#v, want nil", flow)
 	}
 }

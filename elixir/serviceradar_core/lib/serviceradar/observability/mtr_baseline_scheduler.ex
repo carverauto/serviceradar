@@ -60,7 +60,7 @@ defmodule ServiceRadar.Observability.MtrBaselineScheduler do
   end
 
   defp run_policy(policy) do
-    targets = MtrAutomationDispatcher.baseline_targets(policy)
+    {targets, skipped_link_local} = MtrAutomationDispatcher.baseline_target_selection(policy)
 
     if bulk_baseline_policy?(policy) do
       stats = run_bulk_policy(policy, targets)
@@ -69,6 +69,7 @@ defmodule ServiceRadar.Observability.MtrBaselineScheduler do
         "MTR baseline bulk dispatch summary",
         Map.get(policy, :name),
         length(targets),
+        skipped_link_local,
         stats
       )
     else
@@ -111,6 +112,7 @@ defmodule ServiceRadar.Observability.MtrBaselineScheduler do
         "MTR baseline dispatch summary",
         Map.get(policy, :name),
         length(targets),
+        skipped_link_local,
         stats
       )
     end
@@ -263,10 +265,13 @@ defmodule ServiceRadar.Observability.MtrBaselineScheduler do
   defp dispatch_reason_key(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp dispatch_reason_key({kind, _}) when is_atom(kind), do: Atom.to_string(kind)
 
-  defp log_dispatch_summary(prefix, policy_name, target_count, stats) do
+  # `targets` counts only traceable targets; link-local addresses the selector
+  # matched are excluded before dispatch and reported as `skipped_link_local`.
+  defp log_dispatch_summary(prefix, policy_name, target_count, skipped_link_local, stats) do
     Logger.info(
       "#{prefix} policy=#{policy_name || "unknown"} " <>
-        "targets=#{target_count} dispatched=#{stats.dispatched} cooldown=#{stats.cooldown} " <>
+        "targets=#{target_count} skipped_link_local=#{skipped_link_local} " <>
+        "dispatched=#{stats.dispatched} cooldown=#{stats.cooldown} " <>
         "no_candidates=#{stats.no_candidates} failed=#{stats.failed} " <>
         "reasons=#{format_reason_counts(stats.reasons)}"
     )
