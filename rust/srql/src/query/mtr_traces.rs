@@ -888,6 +888,42 @@ mod tests {
             "{params:?}"
         );
     }
+
+    #[test]
+    fn device_id_groups_by_attribution_column() {
+        // The trace-level reach signal: for each device UUID, how many traces
+        // ran and what fraction reached the target?  Grouping by device_id rather
+        // than target_ip is needed when the same device_id has multiple IPs (or
+        // when the caller already knows the ID and wants a single series).
+        let plan = plan_for(
+            "in:mtr_traces time:last_24h stats:\"count() as traces, avg(target_reached) as reach_rate by device_id\" limit:50",
+        );
+        let (sql, params) =
+            to_sql_and_params(&plan).expect("device_id group-by stats should translate");
+        let lower = sql.to_lowercase();
+
+        assert!(lower.contains("count(*)"), "{sql}");
+        // avg over the bool-cast-to-int indicator; reach_rate_per_target_is_expressible
+        // asserts the full cast form; here we only need to confirm AVG is emitted.
+        assert!(lower.contains("avg(target_reached"), "{sql}");
+        assert!(lower.contains("group by device_id"), "{sql}");
+        assert_eq!(params.len(), 2, "only the time window binds: {params:?}");
+    }
+
+    #[test]
+    fn every_trace_group_by_field_compiles_in_a_stats_query() {
+        // Parity guard: confirms every field in TRACE_GROUP_BY_FIELDS compiles through
+        // parse_trace_group_dims + build_stats_sql + to_sql_and_params without error.
+        // A field added to the constant but absent from the actual mtr_traces table, or
+        // one that causes a SQL build failure, surfaces here rather than silently in production.
+        for field in TRACE_GROUP_BY_FIELDS {
+            let query =
+                format!("in:mtr_traces time:last_24h stats:count() as n by {field} limit:10");
+            to_sql_and_params(&plan_for(&query)).unwrap_or_else(|err| {
+                panic!("group-by '{field}' must compile for mtr_traces: {err}")
+            });
+        }
+    }
 }
 
 // ─── stats ───────────────────────────────────────────────────────────────────

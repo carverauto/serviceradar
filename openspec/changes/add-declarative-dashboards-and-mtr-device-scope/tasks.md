@@ -177,9 +177,18 @@ the third consumer, so it moves once rather than being copied a third time.
       a `*_db_test.exs` added to that target's `srcs`.
 - [ ] 8.3 Export/import round trip against the fixture database: export, import
       into a clean slug, assert equivalence over the fields the format defines.
-- [ ] 8.4 SRQL: `target_ip` and `device_id` filters on `mtr_hops`; `stats:` on
+- [x] 8.4 SRQL: `target_ip` and `device_id` filters on `mtr_hops`; `stats:` on
       `mtr_traces` grouping by target with reach counts; both dialects; parity
       guard extended.
+      `mtr_hops` tests (target_ip_filter_scopes_hops_to_a_device,
+      device_scoped_stats_constrain_on_the_attribution_column,
+      device_id_is_filterable_and_groupable, hop_rows_project_their_attribution)
+      pre-existed in mtr_hops.rs.  New in mtr_traces.rs:
+      `device_id_groups_by_attribution_column` (reach rate grouped by device_id)
+      and `every_trace_group_by_field_compiles_in_a_stats_query` (parity guard
+      iterating TRACE_GROUP_BY_FIELDS).  StarRocks guard extended with three
+      device_id/reach-rate query vectors in
+      `mtr_entities_are_refused_by_the_warehouse_dialect`.
 - [ ] 8.5 Backfill: resumable after interruption, idempotent on a second run, and
       correct for a hop whose trace has no `device_id`.
 - [x] 8.6 A test asserting no shipped definition aggregates loss across all hop
