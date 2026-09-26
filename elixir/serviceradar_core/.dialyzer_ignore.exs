@@ -144,8 +144,6 @@
   {"lib/serviceradar/automation/northbound/plugin_action_sync.ex",
    "The guard clause can never succeed."},
   {"lib/serviceradar/cluster/cluster_health.ex", "The guard clause can never succeed."},
-  {"lib/serviceradar/credentials/network_credential_rule_test_plan.ex",
-   "The guard clause can never succeed."},
   {"lib/serviceradar/monitoring/alert.ex", "The guard clause can never succeed."},
   {"lib/serviceradar/monitoring/ocsf_event.ex", "The guard clause can never succeed."},
   {"lib/serviceradar/observability/threat_intel_plugin_ingestor.ex",
