@@ -3,7 +3,7 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
   Shared helpers for creating durable JetStream consumers.
 
   This module centralizes the JetStream API plumbing so multiple consumers
-  (EventWriter, log promotion, and future consumers) use one consistent path.
+  (EventWriter and future consumers) use one consistent path.
   """
 
   alias Gnat.Jetstream.API.Util
