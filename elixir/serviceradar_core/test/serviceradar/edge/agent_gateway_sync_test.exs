@@ -721,13 +721,14 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       {:ok, agent_device} = Device.get_by_uid(agent_uid, false, actor: actor)
 
       assert holder_device.agent_id == holder_agent_id
+      assert holder_device.ip == held_ip
       assert agent_device.agent_id == agent_id
 
       assert_ip_conflict_recorded(
         agent_uid,
         holder_uid,
         held_ip,
-        "preserve_source_identity_release_stale_ip",
+        "preserve_source_identity_drop_conflicting_ip",
         actor
       )
     end
