@@ -5,7 +5,10 @@
 // checkboxes. Space toggles the focused checkbox natively (it fires the
 // checkbox's phx-click). Enter applies the selection: the search field does it
 // through its form's phx-submit, and this hook does it for a focused option.
-// Escape is owned by DialogTopLayer (data-cancel on the <dialog>).
+// Escape closes the picker without applying, in one press. The search field is
+// type="search", whose default Escape action only clears the text (and keeps
+// the dialog's own cancel from firing), so this hook takes Escape first and
+// pushes the cancel itself. DialogTopLayer still owns backdrop clicks.
 //
 // Usage:
 //   <div id="service-picker-body" phx-hook="ServicePickerKeys">
@@ -29,6 +32,13 @@ export default {
   },
 
   handleKeydown(e) {
+    if (e.key === "Escape") {
+      e.preventDefault()
+      e.stopPropagation()
+      this.pushEvent("service_picker_cancel", {})
+      return
+    }
+
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       const items = this.items()
       if (items.length === 0) return

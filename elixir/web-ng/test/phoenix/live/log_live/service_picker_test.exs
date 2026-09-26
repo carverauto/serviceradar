@@ -198,6 +198,57 @@ defmodule ServiceRadarWebNGWeb.LogLive.ServicePickerTest do
     assert ~s|in:otel_services signal:traces time:last_24h stats:"count() as total"| in catalog_queries()
   end
 
+  describe "trace stat cards under a service filter" do
+    # The trace list matches a service anywhere in the trace; the summary rollup
+    # groups root spans by the ROOT service. A trace rooted in `checkout` that
+    # calls `billing` is therefore in the `billing` list but absent from the
+    # rollup's `billing` bucket, and the cards must count it from the list's
+    # own entity instead.
+    test "count the traces the list shows, not the root-grouped rollup", %{conn: conn} do
+      q = ~s(in:otel_trace_summaries time:last_6h sort:timestamp:desc service_name:"billing")
+      {:ok, lv, _html} = live(conn, ~p"/observability/traces?#{%{q: q}}")
+
+      queries = srql_queries()
+
+      assert ~s|in:otel_trace_summaries time:last_6h service_name:"billing" stats:"count() as total"| in queries
+
+      assert ~s|in:otel_trace_summaries time:last_6h service_name:"billing" error_count:>0 stats:"count() as total"| in queries
+
+      refute Enum.any?(queries, &(&1 =~ "rollup_stats:summary" and &1 =~ "service_name"))
+
+      assert has_element?(lv, "#traces-card-total", "1")
+      assert has_element?(lv, "#traces-card-successful", "0")
+      assert has_element?(lv, "#traces-card-errors", "1")
+      assert has_element?(lv, "#traces-card-error-rate", "100")
+
+      # Duration cards cannot be narrowed and say so rather than pass for filtered.
+      assert has_element?(lv, ~s(#traces-card-avg-duration [data-role="all-services"]))
+      assert has_element?(lv, ~s(#traces-card-p95-duration [data-role="all-services"]))
+      refute has_element?(lv, ~s(#traces-card-total [data-role="all-services"]))
+    end
+
+    test "unfiltered, every trace card still comes from the rollup", %{conn: conn} do
+      {:ok, lv, _html} = live(conn, ~p"/observability/traces?#{%{q: "in:otel_trace_summaries time:last_6h"}}")
+
+      queries = srql_queries()
+
+      assert "in:otel_traces time:last_24h rollup_stats:summary" in queries
+      refute Enum.any?(queries, &(&1 =~ "in:otel_trace_summaries" and &1 =~ "stats:"))
+
+      assert has_element?(lv, "#traces-card-total", "900")
+      assert has_element?(lv, "#traces-card-errors", "9")
+      refute has_element?(lv, ~s(#traces-summary-cards [data-role="all-services"]))
+    end
+  end
+
+  defp srql_queries(acc \\ []) do
+    receive do
+      {:srql_query, query} -> srql_queries([query | acc])
+    after
+      100 -> Enum.reverse(acc)
+    end
+  end
+
   defmodule CatalogStub do
     @moduledoc false
     @behaviour ServiceRadarWebNG.SRQLBehaviour
@@ -246,9 +297,28 @@ defmodule ServiceRadarWebNGWeb.LogLive.ServicePickerTest do
       end
     end
 
-    defp results("in:otel_traces" <> _), do: [%{"total" => 0, "errors" => 0}]
+    # The root-grouped rollup: a `service_name` filter selects by ROOT service,
+    # and no trace here is rooted in the filtered services.
+    defp results("in:otel_traces" <> _ = query) do
+      if String.contains?(query, "service_name") do
+        [%{"total" => 0, "errors" => 0}]
+      else
+        [%{"total" => 900, "errors" => 9, "avg_duration_ms" => 20.0, "p95_duration_ms" => 80.0}]
+      end
+    end
 
-    defp results("in:otel_trace_summaries" <> _) do
+    # One `checkout`-rooted trace calls `billing` and carries an error.
+    defp results("in:otel_trace_summaries" <> _ = query) do
+      if String.contains?(query, "stats:") do
+        [%{"total" => if(String.contains?(query, ~s(service_name:"billing")), do: 1, else: 0)}]
+      else
+        trace_rows()
+      end
+    end
+
+    defp results(_query), do: []
+
+    defp trace_rows do
       [
         %{
           "trace_id" => "0af7651916cd43dd8448eb211c80319c",
@@ -261,7 +331,5 @@ defmodule ServiceRadarWebNGWeb.LogLive.ServicePickerTest do
         }
       ]
     end
-
-    defp results(_query), do: []
   end
 end

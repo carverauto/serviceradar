@@ -127,6 +127,6 @@
       shards).
 - [x] 7.3 Run the new migrations and DB-backed tests against a srql-fixtures
       scratch DB (not the shared template).
-- [ ] 7.4 Local web-ng + Playwright check with a synthetic catalog of more
+- [x] 7.4 Local web-ng + Playwright check with a synthetic catalog of more
       than 1,000 invented service names: search latency, cap, apply, tab
       carry.

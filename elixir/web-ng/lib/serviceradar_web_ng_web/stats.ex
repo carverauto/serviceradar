@@ -400,6 +400,29 @@ defmodule ServiceRadarWebNGWeb.Stats do
   end
 
   @doc """
+  Count the traces that touch any of `names` (a participating span, not only
+  the root) and how many of them carry an error, from `in:otel_trace_summaries`.
+  See `Query.trace_summary_counts/2` for why the rollup cannot answer this.
+
+  ## Options
+
+    * `:time` - Time range filter (default: "last_24h"); pass the list's window
+    * `:scope`, `:srql_module`
+  """
+  @spec trace_summary_counts([String.t()], keyword()) ::
+          {:ok, %{total: non_neg_integer(), errors: non_neg_integer()}} | {:error, term()}
+  def trace_summary_counts(names, opts \\ []) when is_list(names) do
+    srql_module = Keyword.get(opts, :srql_module, default_srql_module())
+    scope = Keyword.get(opts, :scope)
+    {total_query, errors_query} = Query.trace_summary_counts(names, opts)
+
+    with {:ok, total} <- total_query |> srql_module.query(%{scope: scope}) |> Extract.count_total(),
+         {:ok, errors} <- errors_query |> srql_module.query(%{scope: scope}) |> Extract.count_total() do
+      {:ok, %{total: total, errors: errors}}
+    end
+  end
+
+  @doc """
   Fetch anomaly detection finding and at-risk capacity forecast counts.
 
   Uses the events `rollup_stats:anomaly_findings` SRQL path so UI cards share a

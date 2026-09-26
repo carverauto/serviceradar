@@ -142,6 +142,26 @@ defmodule ServiceRadarWebNGWeb.Stats.Query do
   end
 
   @doc """
+  Build the trace-count queries for a service-filtered traces pane.
+
+  `traces_summary/1` reads `traces_stats_5m`, which holds root spans grouped by
+  the ROOT service, so a service list there counts only traces rooted in those
+  services. The traces pane matches a service anywhere in the trace
+  (`otel_trace_summaries.service_set`), so its filtered cards count from that
+  entity with the same `service_name` list and time window as the list.
+
+  Returns `{total_query, errors_query}`; each yields `count() as total`.
+  """
+  @spec trace_summary_counts([String.t()], keyword()) :: {String.t(), String.t()}
+  def trace_summary_counts(names, opts \\ []) when is_list(names) do
+    time = Keyword.get(opts, :time, @default_time_window)
+    base = append_service_filter("in:otel_trace_summaries time:#{time}", names)
+    count = ~s|stats:"count() as total"|
+
+    {"#{base} #{count}", "#{base} error_count:>0 #{count}"}
+  end
+
+  @doc """
   Build SRQL query for span RED (rate/errors/duration) stats.
 
   Returns: total, errors, slow, error_rate, avg_duration_ms, p50_duration_ms,

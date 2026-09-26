@@ -25,7 +25,7 @@ function makeHook(items) {
   hook.pushEvent = vi.fn()
   hook.mounted()
   const keydown = (key, target) => {
-    const event = {key, target, preventDefault: vi.fn()}
+    const event = {key, target, preventDefault: vi.fn(), stopPropagation: vi.fn()}
     listeners.keydown(event)
     return event
   }
@@ -75,5 +75,18 @@ describe("ServicePickerKeys hook", () => {
 
     expect(event.preventDefault).not.toHaveBeenCalled()
     expect(hook.pushEvent).not.toHaveBeenCalled()
+  })
+
+  it("closes the picker on the first Escape even while the search field holds text", () => {
+    const search = makeItem("search")
+    search.value = "billing"
+    const {hook, keydown} = makeHook([search])
+
+    const event = keydown("Escape", search)
+
+    // Default prevented: the browser must not spend this Escape clearing the field.
+    expect(event.preventDefault).toHaveBeenCalled()
+    expect(hook.pushEvent).toHaveBeenCalledTimes(1)
+    expect(hook.pushEvent).toHaveBeenCalledWith("service_picker_cancel", {})
   })
 })

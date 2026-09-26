@@ -4243,8 +4243,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     total = Map.get(assigns.stats, :total, 0)
     error_traces = Map.get(assigns.stats, :error_traces, 0)
     slow_traces = Map.get(assigns.stats, :slow_traces, 0)
-    error_rate = if total > 0, do: Float.round(error_traces / total * 100.0, 1), else: 0.0
-    successful = max(total - error_traces, 0)
+    counted? = is_integer(total) and is_integer(error_traces)
+    error_rate = if counted? and total > 0, do: Float.round(error_traces / total * 100.0, 1), else: 0.0
+    successful = if counted?, do: max(total - error_traces, 0)
 
     avg_duration_ms = Map.get(assigns.latency, :avg_duration_ms, 0.0)
     p95_duration_ms = Map.get(assigns.latency, :p95_duration_ms, 0.0)
@@ -4262,18 +4263,22 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:p95_duration_ms, p95_duration_ms)
       |> assign(:services_count, services_count)
       |> assign(:sample_size, sample_size)
+      |> assign(:counted?, counted?)
+      |> assign(:latency_all_services?, Map.get(assigns.latency, :all_services?, false))
 
     ~H"""
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+    <div id="traces-summary-cards" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
       <.obs_stat
+        id="traces-card-total"
         title="Total Traces"
-        value={format_compact_int(@total)}
+        value={trace_count_value(@total)}
         icon="hero-clock"
         href={traces_card_href(@service_scope, "in:otel_trace_summaries sort:timestamp:desc")}
       />
       <.obs_stat
+        id="traces-card-successful"
         title="Successful"
-        value={format_compact_int(@successful)}
+        value={trace_count_value(@successful)}
         icon="hero-check-circle"
         tone="success"
         href={
@@ -4284,10 +4289,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         }
       />
       <.obs_stat
+        id="traces-card-errors"
         title="Errors"
-        value={format_compact_int(@error_traces)}
+        value={trace_count_value(@error_traces)}
         icon="hero-x-circle"
-        tone={if @error_traces > 0, do: "error", else: "success"}
+        tone={if @counted? and @error_traces > 0, do: "error", else: "success"}
         href={
           traces_card_href(
             @service_scope,
@@ -4296,8 +4302,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         }
       />
       <.obs_stat
+        id="traces-card-error-rate"
         title="Error Rate"
-        value={"#{format_pct(@error_rate)}%"}
+        value={if @counted?, do: "#{format_pct(@error_rate)}%", else: "—"}
         icon="hero-trending-up"
         tone={if @error_rate > 1.0, do: "error", else: "success"}
         href={
@@ -4308,18 +4315,22 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         }
       />
       <.obs_stat
+        id="traces-card-avg-duration"
         title="Avg Duration"
         value={format_duration_ms(@avg_duration_ms)}
         subtitle={if @sample_size > 0, do: "sample (#{@sample_size})", else: "sample"}
         icon="hero-chart-bar"
         tone="info"
+        all_services?={@latency_all_services?}
       />
       <.obs_stat
+        id="traces-card-p95-duration"
         title="P95 Duration"
         value={format_duration_ms(@p95_duration_ms)}
         subtitle={if @services_count > 0, do: "#{@services_count} services", else: "sample"}
         icon="hero-bolt"
         tone="warning"
+        all_services?={@latency_all_services?}
       />
     </div>
     """
@@ -4404,12 +4415,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     """
   end
 
+  attr(:id, :string, default: nil)
   attr(:title, :string, required: true)
   attr(:value, :string, required: true)
   attr(:subtitle, :string, default: nil)
   attr(:icon, :string, required: true)
   attr(:tone, :string, default: "neutral", values: ~w(neutral success warning error info))
   attr(:href, :string, default: nil)
+  # The card's number is NOT narrowed by the pane's service filter.
+  attr(:all_services?, :boolean, default: false)
 
   defp obs_stat(assigns) do
     {bg, fg} =
@@ -4426,6 +4440,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     ~H"""
     <.link
       :if={is_binary(@href)}
+      id={@id}
       patch={@href}
       class="block rounded-xl border border-sr-line bg-sr-surface p-3 hover:bg-sr-subtle/40 transition-colors cursor-pointer"
     >
@@ -4436,9 +4451,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         icon={@icon}
         bg={@bg}
         fg={@fg}
+        all_services?={@all_services?}
       />
     </.link>
-    <div :if={not is_binary(@href)} class="rounded-xl border border-sr-line bg-sr-surface p-3">
+    <div
+      :if={not is_binary(@href)}
+      id={@id}
+      class="rounded-xl border border-sr-line bg-sr-surface p-3"
+    >
       <.obs_stat_body
         title={@title}
         value={@value}
@@ -4446,6 +4466,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         icon={@icon}
         bg={@bg}
         fg={@fg}
+        all_services?={@all_services?}
       />
     </div>
     """
@@ -4457,6 +4478,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:icon, :string, required: true)
   attr(:bg, :string, required: true)
   attr(:fg, :string, required: true)
+  attr(:all_services?, :boolean, default: false)
 
   defp obs_stat_body(assigns) do
     ~H"""
@@ -4470,10 +4492,23 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         <div :if={is_binary(@subtitle)} class="text-[10px] text-sr-muted truncate">
           {@subtitle}
         </div>
+        <.ui_badge
+          :if={@all_services?}
+          variant="warning"
+          size="xs"
+          data-role="all-services"
+          title="Not narrowed by the service filter"
+        >
+          All services
+        </.ui_badge>
       </div>
     </div>
     """
   end
+
+  # A trace count that could not be computed renders as unknown, never as 0.
+  defp trace_count_value(count) when is_integer(count), do: format_compact_int(count)
+  defp trace_count_value(_count), do: "—"
 
   attr(:id, :string, required: true)
   attr(:logs, :any, required: true)
@@ -8312,8 +8347,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp apply_tab_assigns(socket, "traces", srql_module) do
     scope = Map.get(socket.assigns, :current_scope)
-    service_scope = service_stats_scope(socket)
-    {trace_stats, trace_latency} = load_trace_summary_cards(srql_module, scope, service_scope)
+    query = socket.assigns |> Map.get(:srql, %{}) |> Map.get(:query) |> to_string()
+    service_scope = socket |> service_stats_scope() |> trace_cards_scope()
+    window = extract_time_from_query(query) || "last_24h"
+    {trace_stats, trace_latency} = load_trace_summary_cards(srql_module, scope, service_scope, window)
 
     socket
     |> assign(:service_stats_scope, service_scope)
@@ -9001,11 +9038,37 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     socket.assigns |> Map.get(:srql, %{}) |> Map.get(:entity) || "logs"
   end
 
-  # Use pre-computed CAGG via rollup_stats pattern for trace stat cards. The
-  # services count comes from the OTel service catalog for the same 24h window.
-  defp load_trace_summary_cards(srql_module, scope, service_scope) do
-    service_filter = card_service_filter(service_scope)
-    summary = Stats.traces_summary(srql_module: srql_module, scope: scope, service_name: service_filter)
+  # Trace summaries match a service anywhere in the trace and reject `%`
+  # patterns, so only an exact selection can scope the trace cards; any other
+  # service filter leaves them unscoped and labelled as covering all services.
+  defp trace_cards_scope(names) when is_list(names), do: names
+  defp trace_cards_scope(nil), do: nil
+  defp trace_cards_scope(_pattern_or_unsupported), do: :all_services
+
+  # Unfiltered, every trace card comes from the pre-computed CAGG
+  # (rollup_stats:summary) for the 24h window, and the services count from the
+  # OTel service catalog.
+  #
+  # With an exact service selection the rollup cannot be used for counts: it
+  # holds root spans grouped by the ROOT service, while the list matches a
+  # service anywhere in the trace (`service_set`). Total / Successful / Errors /
+  # Error Rate are then counted from `in:otel_trace_summaries` with the list's
+  # own service filter and window. Duration percentiles have no such source, so
+  # those cards keep the unscoped rollup and are labelled "All services".
+  defp load_trace_summary_cards(srql_module, scope, names, window) when is_list(names) and names != [] do
+    rollup = Stats.traces_summary(srql_module: srql_module, scope: scope)
+
+    trace_stats =
+      case Stats.trace_summary_counts(names, srql_module: srql_module, scope: scope, time: window) do
+        {:ok, %{total: total, errors: errors}} -> %{total: total, error_traces: errors, slow_traces: 0}
+        {:error, _reason} -> %{total: nil, error_traces: nil, slow_traces: 0}
+      end
+
+    {trace_stats, trace_latency(srql_module, scope, rollup, true)}
+  end
+
+  defp load_trace_summary_cards(srql_module, scope, _service_scope, _window) do
+    summary = Stats.traces_summary(srql_module: srql_module, scope: scope)
 
     trace_stats = %{
       total: Map.get(summary, :total, 0),
@@ -9013,14 +9076,19 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       slow_traces: 0
     }
 
-    trace_latency = %{
-      avg_duration_ms: Map.get(summary, :avg_duration_ms, 0.0),
-      p95_duration_ms: Map.get(summary, :p95_duration_ms, 0.0),
-      service_count: trace_service_count(srql_module, scope, service_scope),
-      sample_size: Map.get(summary, :total, 0)
-    }
+    {trace_stats, trace_latency(srql_module, scope, summary, false)}
+  end
 
-    {trace_stats, trace_latency}
+  # Latency cards (and the services count beside P95) always come from the
+  # unscoped rollup; `all_services?` says so when the pane is service-filtered.
+  defp trace_latency(srql_module, scope, rollup, all_services?) do
+    %{
+      avg_duration_ms: Map.get(rollup, :avg_duration_ms, 0.0),
+      p95_duration_ms: Map.get(rollup, :p95_duration_ms, 0.0),
+      service_count: trace_service_count(srql_module, scope, nil),
+      sample_size: Map.get(rollup, :total, 0),
+      all_services?: all_services?
+    }
   end
 
   # Catalog count of services with traces in the card window, narrowed like the

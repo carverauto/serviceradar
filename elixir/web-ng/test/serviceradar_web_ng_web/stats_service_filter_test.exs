@@ -56,6 +56,45 @@ defmodule ServiceRadarWebNGWeb.StatsServiceFilterTest do
     end
   end
 
+  describe "trace_summary_counts/2" do
+    # The traces pane's service filter matches any participating span, so its
+    # counts must come from `in:otel_trace_summaries`, not the root-grouped
+    # `rollup_stats:summary`, with the list's own filter and window.
+    test "counts from trace summaries with the list's filter and window, and errors separately" do
+      {total_query, errors_query} = Query.trace_summary_counts(@selection, time: "last_6h")
+
+      for query <- [total_query, errors_query] do
+        assert %{"entity" => "trace_summaries", "stats" => %{"raw" => "count() as total"}} = ast(query)
+        assert [%{"op" => "in", "value" => @selection}] = service_filter(query)
+        refute query =~ "rollup_stats"
+        assert query =~ "time:last_6h"
+      end
+
+      assert [%{"op" => "gt", "value" => "0"}] = ast_filters(errors_query, "error_count")
+      assert ast_filters(total_query, "error_count") == []
+    end
+
+    defmodule SummaryCountStub do
+      @moduledoc false
+      def query(query, %{scope: :scope}) do
+        total = if query =~ "error_count", do: 1, else: 3
+        {:ok, %{"results" => [%{"total" => total}]}}
+      end
+    end
+
+    test "returns both counts" do
+      assert {:ok, %{total: 3, errors: 1}} =
+               Stats.trace_summary_counts(["billing"], srql_module: SummaryCountStub, scope: :scope)
+    end
+  end
+
+  defp ast(query) do
+    {:ok, json} = Native.parse_ast(query)
+    Jason.decode!(json)
+  end
+
+  defp ast_filters(query, field), do: query |> ast() |> Map.fetch!("filters") |> Enum.filter(&(&1["field"] == field))
+
   describe "otel_service_count/2" do
     defmodule CountStub do
       @moduledoc false
