@@ -173,9 +173,11 @@ up to one job interval of lag. Rejected, except for the one-shot backfill (D6).
       planner returns a distinct forbidden error kind, which web-ng maps to
       `{:error, :forbidden}` and HTTP 403.
     - Malformed form: a repeated `signal:` token and a negated `signal:`. These
-      are invalid-request errors (HTTP 400). With no `signal:`, the planner uses the
-    permitted set as the requested signals. Case-insensitive keys and list
-    forms resolve the same way because only the planner parses them.
+      are invalid-request errors (HTTP 400).
+    - Default: with no `signal:`, the planner uses the permitted set as the
+      requested signals.
+    - Case-insensitive keys and list forms resolve the same way because only
+      the planner parses them.
   - A nil scope with `optional_scope: true` gets no permitted set, so an
     `otel_services` query from it fails closed in the planner.
 
