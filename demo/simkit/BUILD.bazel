@@ -1,0 +1,43 @@
+# gazelle:ignore
+#
+# simkit is its own dependency-free Go module (see go.mod) so TinyGo demo
+# plugins can import it with a local replace. rules_go builds it here for the
+# native tests and the fixture exporter; //demo/simkit/internal/tinygocheck
+# proves it still compiles for wasip1.
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+package(default_visibility = ["//demo:__subpackages__"])
+
+go_library(
+    name = "simkit",
+    srcs = [
+        "batch.go",
+        "counter.go",
+        "coverage.go",
+        "doc.go",
+        "fault.go",
+        "identity.go",
+        "overlay.go",
+        "rng.go",
+        "signal.go",
+        "source.go",
+        "timewin.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/demo/simkit",
+)
+
+go_test(
+    name = "simkit_test",
+    size = "small",
+    srcs = ["simkit_test.go"],
+    embed = [":simkit"],
+)
+
+# Every source file of the module, for the TinyGo compile check.
+filegroup(
+    name = "module_srcs",
+    srcs = ["go.mod"] + glob(
+        ["*.go"],
+        exclude = ["*_test.go"],
+    ),
+)

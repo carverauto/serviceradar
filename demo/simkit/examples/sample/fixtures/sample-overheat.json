@@ -1,0 +1,218 @@
+[
+  {
+    "id": "sensors",
+    "query": "in:devices type:env_sensor",
+    "encoding": "json_rows",
+    "status": "ok",
+    "limit": 500,
+    "results": [
+      {
+        "asset_id": "sensor-0001",
+        "hostname": "sensor-0001.sample.test",
+        "ip": "10.40.0.10",
+        "kind": "env_sensor",
+        "last_seen": "2026-01-02T00:02:00Z",
+        "lat": 41,
+        "lon": -93,
+        "mac": "02:ec:09:01:90:f8",
+        "model": "ENV-100",
+        "name": "Sensor sensor-0001",
+        "rx_packets": 3468482,
+        "serial": "E7VDDQHEA7KN",
+        "site": "sample-site",
+        "temp_c": 42.3
+      },
+      {
+        "asset_id": "sensor-0002",
+        "hostname": "sensor-0002.sample.test",
+        "ip": "10.40.0.11",
+        "kind": "env_sensor",
+        "last_seen": "2026-01-02T00:02:00Z",
+        "lat": 41.01,
+        "lon": -93.01,
+        "mac": "02:5b:59:06:64:1c",
+        "model": "ENV-100",
+        "name": "Sensor sensor-0002",
+        "rx_packets": 3462915,
+        "serial": "FYBJE5DLN3C6",
+        "site": "sample-site",
+        "temp_c": 23.5
+      },
+      {
+        "asset_id": "sensor-0003",
+        "hostname": "sensor-0003.sample.test",
+        "ip": "10.40.0.12",
+        "kind": "env_sensor",
+        "last_seen": "2026-01-02T00:02:00Z",
+        "lat": 41.02,
+        "lon": -93.02,
+        "mac": "02:c6:6e:d2:94:4a",
+        "model": "ENV-100",
+        "name": "Sensor sensor-0003",
+        "rx_packets": 3462540,
+        "serial": "BXVEHLDDLU94",
+        "site": "sample-site",
+        "temp_c": 23.7
+      }
+    ]
+  },
+  {
+    "id": "events",
+    "query": "in:events source:sample time:last_1h",
+    "encoding": "json_rows",
+    "status": "ok",
+    "limit": 100,
+    "results": [
+      {
+        "asset_id": "sensor-0001",
+        "fault_id": "overheat@sensor-0001#3681900",
+        "id": "overheat@sensor-0001#3681900/opened",
+        "kind": "overheat",
+        "severity": "high",
+        "state": "open",
+        "time": "2026-01-02T00:00:27Z",
+        "title": "Sensor over temperature"
+      },
+      {
+        "asset_id": "sensor-0001",
+        "fault_id": "overheat@sensor-0001#3681899",
+        "id": "overheat@sensor-0001#3681899/resolved",
+        "kind": "overheat",
+        "severity": "high",
+        "state": "resolved",
+        "time": "2026-01-01T23:55:06Z",
+        "title": "Sensor over temperature"
+      },
+      {
+        "asset_id": "sensor-0001",
+        "fault_id": "overheat@sensor-0001#3681899",
+        "id": "overheat@sensor-0001#3681899/opened",
+        "kind": "overheat",
+        "severity": "high",
+        "state": "open",
+        "time": "2026-01-01T23:52:06Z",
+        "title": "Sensor over temperature"
+      },
+      {
+        "asset_id": "sensor-0003",
+        "fault_id": "overheat@sensor-0003#3681898",
+        "id": "overheat@sensor-0003#3681898/resolved",
+        "kind": "overheat",
+        "severity": "high",
+        "state": "resolved",
+        "time": "2026-01-01T23:47:49Z",
+        "title": "Sensor over temperature"
+      },
+      {
+        "asset_id": "sensor-0003",
+        "fault_id": "overheat@sensor-0003#3681898",
+        "id": "overheat@sensor-0003#3681898/opened",
+        "kind": "overheat",
+        "severity": "high",
+        "state": "open",
+        "time": "2026-01-01T23:44:49Z",
+        "title": "Sensor over temperature"
+      },
+      {
+        "asset_id": "sensor-0001",
+        "fault_id": "overheat@sensor-0001#3681897",
+        "id": "overheat@sensor-0001#3681897/resolved",
+        "kind": "overheat",
+        "severity": "high",
+        "state": "resolved",
+        "time": "2026-01-01T23:39:43Z",
+        "title": "Sensor over temperature"
+      },
+      {
+        "asset_id": "sensor-0001",
+        "fault_id": "overheat@sensor-0001#3681897",
+        "id": "overheat@sensor-0001#3681897/opened",
+        "kind": "overheat",
+        "severity": "high",
+        "state": "open",
+        "time": "2026-01-01T23:36:43Z",
+        "title": "Sensor over temperature"
+      },
+      {
+        "asset_id": "sensor-0002",
+        "fault_id": "overheat@sensor-0002#3681896",
+        "id": "overheat@sensor-0002#3681896/resolved",
+        "kind": "overheat",
+        "severity": "high",
+        "state": "resolved",
+        "time": "2026-01-01T23:31:19Z",
+        "title": "Sensor over temperature"
+      },
+      {
+        "asset_id": "sensor-0002",
+        "fault_id": "overheat@sensor-0002#3681896",
+        "id": "overheat@sensor-0002#3681896/opened",
+        "kind": "overheat",
+        "severity": "high",
+        "state": "open",
+        "time": "2026-01-01T23:28:19Z",
+        "title": "Sensor over temperature"
+      },
+      {
+        "asset_id": "sensor-0001",
+        "fault_id": "overheat@sensor-0001#3681895",
+        "id": "overheat@sensor-0001#3681895/resolved",
+        "kind": "overheat",
+        "severity": "high",
+        "state": "resolved",
+        "time": "2026-01-01T23:23:06Z",
+        "title": "Sensor over temperature"
+      },
+      {
+        "asset_id": "sensor-0001",
+        "fault_id": "overheat@sensor-0001#3681895",
+        "id": "overheat@sensor-0001#3681895/opened",
+        "kind": "overheat",
+        "severity": "high",
+        "state": "open",
+        "time": "2026-01-01T23:20:06Z",
+        "title": "Sensor over temperature"
+      },
+      {
+        "asset_id": "sensor-0001",
+        "fault_id": "overheat@sensor-0001#3681894",
+        "id": "overheat@sensor-0001#3681894/resolved",
+        "kind": "overheat",
+        "severity": "high",
+        "state": "resolved",
+        "time": "2026-01-01T23:15:59Z",
+        "title": "Sensor over temperature"
+      },
+      {
+        "asset_id": "sensor-0001",
+        "fault_id": "overheat@sensor-0001#3681894",
+        "id": "overheat@sensor-0001#3681894/opened",
+        "kind": "overheat",
+        "severity": "high",
+        "state": "open",
+        "time": "2026-01-01T23:12:59Z",
+        "title": "Sensor over temperature"
+      },
+      {
+        "asset_id": "sensor-0003",
+        "fault_id": "overheat@sensor-0003#3681893",
+        "id": "overheat@sensor-0003#3681893/resolved",
+        "kind": "overheat",
+        "severity": "high",
+        "state": "resolved",
+        "time": "2026-01-01T23:07:22Z",
+        "title": "Sensor over temperature"
+      },
+      {
+        "asset_id": "sensor-0003",
+        "fault_id": "overheat@sensor-0003#3681893",
+        "id": "overheat@sensor-0003#3681893/opened",
+        "kind": "overheat",
+        "severity": "high",
+        "state": "open",
+        "time": "2026-01-01T23:04:22Z",
+        "title": "Sensor over temperature"
+      }
+    ]
+  }
+]
