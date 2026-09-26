@@ -16,7 +16,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ICMPData do
 
   @availability_sources [
     {"metric_type:icmp metric_name:icmp_available", :status},
-    {"metric_type:sweep metric_name:sweep.host.icmp_available", :status}
+    {"metric_type:sweep metric_name:sweep.host.available", :status}
   ]
 
   def load(srql_module, device_uids, scope, opts) when is_list(device_uids) do
