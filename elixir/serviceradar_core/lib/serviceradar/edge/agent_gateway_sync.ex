@@ -602,6 +602,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         is_managed: true,
         is_trusted: true,
         discovery_sources: discovery_sources,
+        partition: partition || "default",
         first_seen_time: now,
         last_seen_time: now,
         created_time: now,
@@ -641,7 +642,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
          allow_conflict_release?
        ) do
     if active_ip_unique_conflict?(reason) and present_string?(source_ip) do
-      case fetch_active_device_by_ip(source_ip, actor) do
+      case fetch_active_device_by_ip(source_ip, device_context.partition, actor) do
         {:ok, %Device{} = existing_device} ->
           handle_active_ip_owner_conflict(
             existing_device,
@@ -661,9 +662,11 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   end
 
   # A new agent device whose address another live device holds. The holder is adopted
-  # -- the agent's device becomes that record -- only when it is genuinely this agent's
-  # device (adoptable_active_ip_owner?/3). Otherwise the new enrollment, observed at the
-  # address now, releases it from the holder, and the conflict is recorded.
+  # only when it is genuinely this agent's device. Another agent's device never loses
+  # the address: two agents behind one NAT address would otherwise swap it on every
+  # check-in. A holder that is not another agent releases the address only when this
+  # check-in is the newer observation. Otherwise the new device is created without the
+  # address and the holder keeps it. The lookup is this partition only.
   defp handle_active_ip_owner_conflict(
          existing_device,
          source_ip,
@@ -693,7 +696,8 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
           {:error, update_reason} -> {:error, update_reason}
         end
 
-      allow_conflict_release? ->
+      allow_conflict_release? and
+          releasable_address_holder?(existing_device, device_context.agent_id, now) ->
         with :ok <-
                release_conflicting_active_ip_owner(
                  existing_device,
@@ -711,6 +715,22 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
           create_device_for_agent(device_context, actor, now, false)
         end
+
+      allow_conflict_release? ->
+        record_active_ip_conflict(
+          device_context.device_uid,
+          device_context.agent_id,
+          existing_device,
+          source_ip,
+          :drop_ip
+        )
+
+        create_device_for_agent(
+          %{device_context | source_ip: nil},
+          actor,
+          now,
+          false
+        )
 
       true ->
         {:error,
@@ -783,20 +803,15 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   end
 
   # An agent check-in on a device that already exists, at an address another live device
-  # holds. The holder is neither adopted nor released to create a second device (#4664):
-  # DIRE resolved this agent's device by its strong identity, and the address is evidence,
-  # not identity. The address follows the newer observation, under the rule of
-  # `DeviceWrites.claim_address_from_holder/4` (#4639): the check-in observed the agent at
-  # the address now, so a holder last seen before now is stale (DHCP churn) and releases the
-  # address in the transaction this device takes it in; a holder seen no earlier keeps it
-  # and this device keeps its own address. Either way the check-in's other fields are
-  # written and the conflict is recorded.
+  # holds. Another agent's device keeps the address. A holder with no agent releases it
+  # only when this check-in is the newer observation. Either way the check-in's other
+  # fields are written and the conflict is recorded.
   defp claim_active_ip_for_existing_device(device, action, update_attrs, reason, actor, now) do
     source_ip = Map.fetch!(update_attrs, :ip)
 
     case live_active_ip_holder(device, source_ip, actor) do
       %Device{} = holder ->
-        if DeviceWrites.observed_after?(%{last_seen_time: now}, holder) do
+        if releasable_address_holder?(holder, update_attrs.agent_id, now) do
           take_active_ip_from_stale_holder(device, holder, action, update_attrs, actor)
         else
           keep_own_address(device, holder, action, update_attrs, actor)
@@ -962,12 +977,28 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
   defp normalize_hostname(_), do: nil
 
-  defp fetch_active_device_by_ip(source_ip, actor) do
-    case Device.get_by_ip(source_ip, false, actor: actor) do
-      {:ok, %Device{} = device} -> {:ok, device}
+  # Another agent's device keeps its address. A holder with no agent releases it
+  # only when this check-in was observed later.
+  defp releasable_address_holder?(%Device{} = holder, agent_id, now) do
+    not different_agent?(holder, agent_id) and
+      DeviceWrites.observed_after?(%{last_seen_time: now}, holder)
+  end
+
+  defp different_agent?(%Device{} = holder, agent_id) do
+    case {normalize_optional_string(holder.agent_id), normalize_optional_string(agent_id)} do
+      {nil, _} -> false
+      {same, same} -> false
+      {_holder_agent_id, _} -> true
+    end
+  end
+
+  defp fetch_active_device_by_ip(source_ip, partition, actor) do
+    Device
+    |> Ash.Query.for_read(:by_ip, %{ip: source_ip, partition: partition})
+    |> Ash.read(actor: actor)
+    |> case do
       {:ok, [device | _]} -> {:ok, device}
       {:ok, []} -> {:error, %NotFound{}}
-      {:ok, nil} -> {:error, %NotFound{}}
       {:error, reason} -> {:error, reason}
     end
   end

@@ -386,7 +386,7 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/data_service/client_test.exs": 2,
     "test/serviceradar/edge/agent_command_bus_test.exs": 35,
     "test/serviceradar/edge/agent_config_generator_test.exs": 50,
-    "test/serviceradar/edge/agent_gateway_sync_test.exs": 29,
+    "test/serviceradar/edge/agent_gateway_sync_test.exs": 30,
     "test/serviceradar/edge/agent_release_manager_test.exs": 22,
     "test/serviceradar/edge/onboarding_package_atomicity_test.exs": 1,
     "test/serviceradar/edge/proxmox_console_sessions_test.exs": 15,

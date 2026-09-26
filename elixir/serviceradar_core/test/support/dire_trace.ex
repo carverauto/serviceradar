@@ -151,8 +151,12 @@ defmodule ServiceRadar.DireTrace do
     })
   end
 
-  @doc "Armis sync of physical device `h`, seen at interface `x`'s address."
-  def armis(trace, h, x) do
+  @doc """
+  Armis sync of physical device `h`, seen at interface `x`'s address. The sync is stamped a
+  minute ahead of now, so it is the newest observation of the address; `seen_offset: seconds`
+  moves the stamp, for a sync that a later observation must outrank.
+  """
+  def armis(trace, h, x, opts \\ []) do
     src = Map.fetch!(trace.world.src_of, h)
     macs = if trace.world.armis_macs, do: macs_of(trace, h), else: []
     ip = real_ip!(trace, x)
@@ -164,7 +168,10 @@ defmodule ServiceRadar.DireTrace do
       "_alias_last_seen_ip" => ip
     }
 
-    seen_at = DateTime.to_iso8601(DateTime.add(DateTime.utc_now(), 60, :second))
+    seen_at =
+      DateTime.to_iso8601(
+        DateTime.add(DateTime.utc_now(), Keyword.get(opts, :seen_offset, 60), :second)
+      )
 
     update =
       maybe_put_macs(

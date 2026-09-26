@@ -99,7 +99,11 @@ The holder keeps the address, and the incoming record drops it, in these cases
   `last_seen_time` is missing), so an Armis last-known address of an offline
   device does not displace a live holder;
 - another record in the same batch, the holder's own or a second incoming one,
-  also claims the address: neither observation is fresher.
+  also claims the address: neither observation is fresher;
+- the holder is bound to a different agent (an agent check-in only): two agents
+  behind one NAT address each keep their own device and the address does not
+  flap between them. A holder with no agent, such as an Armis device, still
+  releases a stale address to a newer check-in.
 
 Two further cases adopt the holder's uid instead of moving the address: an
 anchorless provisional seed at the address, and a holder whose hostname agrees,
@@ -119,7 +123,8 @@ An agent check-in never adopts on hostname: `AgentGatewaySync` adopts a holder
 only when it claims no anchor identifier (agent id, Armis id, MAC, serial, ...)
 that the agent does not also claim. An agent's existing device is never
 replaced by the holder; it takes the address under the rule above or keeps its
-own, and either decision is recorded.
+own, and either decision is recorded. The holder lookup for a new agent device
+is scoped to that device's partition.
 
 Merged-away device IDs are never resurrected: resolution follows the
 `merge_audit` canonical mapping to the survivor (`Identity.Resolver` /
