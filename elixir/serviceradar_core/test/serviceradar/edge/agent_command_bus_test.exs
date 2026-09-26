@@ -179,6 +179,42 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       assert commands == []
     end
 
+    test "a northbound launch may carry its callback credentials and nothing else", %{
+      agent_id: agent_id
+    } do
+      launch = fn input_values ->
+        %{
+          "schema" => "serviceradar.northbound_action_invocation.v1",
+          "phase" => "launch",
+          "targets" => [
+            %{
+              "northbound_job_id" => "job-1",
+              "callback" => %{
+                "path" => "/api/northbound/action-callbacks/job-1",
+                "token" => "callback-token-sentinel",
+                "signing_secret" => "callback-signing-sentinel"
+              }
+            }
+          ],
+          "input_values" => input_values
+        }
+      end
+
+      assert {:error, {:agent_offline, ^agent_id}} =
+               AgentCommandBus.dispatch(
+                 agent_id,
+                 "test.northbound_launch",
+                 launch.(%{"limit" => 5})
+               )
+
+      assert {:error, :sensitive_transmit_payload_denied} =
+               AgentCommandBus.dispatch(
+                 agent_id,
+                 "test.northbound_launch",
+                 launch.(%{"token" => "input-token-sentinel"})
+               )
+    end
+
     test "fails fast and marks command offline", %{agent_id: agent_id, actor: actor} do
       command_type = "test.offline"
 

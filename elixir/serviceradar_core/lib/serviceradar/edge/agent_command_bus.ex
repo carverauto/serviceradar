@@ -158,12 +158,35 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   end
 
   defp reject_sensitive_transmit_payload(payload) do
-    if CredentialRedactor.redact(payload) == payload do
+    checked = without_northbound_callback_credentials(payload)
+
+    if CredentialRedactor.redact(checked) == checked do
       :ok
     else
       {:error, :sensitive_transmit_payload_denied}
     end
   end
+
+  # A northbound launch hands each target its own callback token and HMAC
+  # signing secret, minted per job by the dispatcher. The agent needs them to
+  # call back, and the published action SDK reads `callback.token`, so they are
+  # the one sanctioned plaintext here. Every other part of the payload,
+  # including the rest of each callback, is checked.
+  defp without_northbound_callback_credentials(
+         %{"schema" => "serviceradar.northbound_action_invocation.v1", "targets" => targets} =
+           payload
+       )
+       when is_list(targets) do
+    Map.put(payload, "targets", Enum.map(targets, &without_callback_credentials/1))
+  end
+
+  defp without_northbound_callback_credentials(payload), do: payload
+
+  defp without_callback_credentials(%{"callback" => %{} = callback} = target) do
+    Map.put(target, "callback", Map.drop(callback, ["token", "signing_secret"]))
+  end
+
+  defp without_callback_credentials(target), do: target
 
   defp normalize_preallocated_command_id("awx.create_callback_credential", nil),
     do: {:error, :preallocated_command_id_required}
