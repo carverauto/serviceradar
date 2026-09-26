@@ -651,10 +651,6 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end
   end
 
-  defp maybe_adopt_existing_active_ip_device(reason, source_ip, device_context, actor, now) do
-    maybe_adopt_existing_active_ip_device(reason, source_ip, device_context, actor, now, true)
-  end
-
   defp handle_active_ip_owner_conflict(
          existing_device,
          source_ip,
@@ -814,6 +810,9 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
             force_gateway_sync_update(device.uid, action, update_attrs, actor)
 
           active_ip_unique_conflict?(error) ->
+            # This device already exists. Do not clear the address holder and
+            # create a second device; that create also crashes, because this
+            # context has no device uid.
             maybe_adopt_existing_active_ip_device(
               error,
               source_ip,
@@ -824,7 +823,8 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
                 capabilities: capabilities
               },
               actor,
-              now
+              now,
+              false
             )
 
           true ->
@@ -842,7 +842,8 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
             capabilities: capabilities
           },
           actor,
-          now
+          now,
+          false
         )
     end
   end
