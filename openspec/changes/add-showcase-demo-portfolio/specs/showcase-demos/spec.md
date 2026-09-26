@@ -13,21 +13,24 @@ Every `demo/` Bazel target is visible only within `//demo/...`, and demo plugins
 - **WHEN** the fencing test inspects `build/wasm_plugins/plugin_inventory.bzl`, the Helm chart and the release manifests
 - **THEN** it SHALL fail if any of them references a path under `demo/`
 
-### Requirement: Demo data is synthetic by construction
-Every identifier a demo simulator or fixture emits SHALL be invented and SHALL fall inside the reserved ranges defined for demos: documentation IPv4 and IPv6 prefixes, the documentation or locally administered MAC ranges, `example`/`.test` host names, invented site and asset codes that are not shaped like IATA or ICAO codes, and coordinates inside the scenario pack's declared safe bounds.
-No demo data SHALL be exported, replayed, sanitized or reshaped from a live deployment or a customer dataset.
+### Requirement: Demo data never derives from customer deployments
+Demo scenario packs, simulators and fixtures SHALL be built from public information and invention and SHALL NOT contain data exported, replayed, sanitized or reshaped from a customer or partner deployment or dataset.
+Public real-world reference data (airports, flight numbers, public coordinates, vendor product names and OUIs) is permitted.
+
+#### Scenario: Pack uses public reference data
+- **WHEN** a scenario pack places assets at a real airport and names real vendor equipment models
+- **THEN** the pack SHALL be accepted by the demo checks
+
+### Requirement: Simulated addresses are non-routable
+Every IP address and host name a demo simulator or fixture emits SHALL be private (RFC 1918), a documentation range, or a non-public name, so that no platform probe in the `demo` namespace targets a real internet host.
 
 #### Scenario: A simulator emits a routable address
-- **WHEN** a simulator test or the fixture exporter produces a record containing an IPv4 address outside `192.0.2.0/24`, `198.51.100.0/24` and `203.0.113.0/24`
-- **THEN** the synthetic-data guard SHALL fail the test and name the record and field
+- **WHEN** a simulator test or the fixture exporter produces a record containing a publicly routable IP address
+- **THEN** the demo guard SHALL fail the test and name the record and field
 
-#### Scenario: A simulator emits a vendor MAC
-- **WHEN** an emitted MAC address is neither in the `00:00:5e:00:53:00` through `00:00:5e:00:53:ff` block nor locally administered
-- **THEN** the synthetic-data guard SHALL fail
-
-#### Scenario: Coordinates fall outside the declared bounds
-- **WHEN** an emitted coordinate lies outside the scenario pack's declared safe bounds
-- **THEN** the synthetic-data guard SHALL fail
+#### Scenario: A simulator emits a public host name
+- **WHEN** an emitted record contains a host name under a public DNS domain
+- **THEN** the demo guard SHALL fail the test
 
 ### Requirement: Simulator state is derived from seed and time
 A demo simulator SHALL compute every emitted value as a deterministic function of the scenario seed, the entity identity and wall-clock time, and SHALL NOT depend on state carried between plugin runs.
@@ -108,12 +111,12 @@ Selecting a drone on the map SHALL highlight its tile, and selecting a tile SHAL
 - **AND** an alert SHALL open for that drone
 
 ### Requirement: Wi-Fi campus twin demo
-The Wi-Fi campus demo SHALL present a fictional campus and branch sites with controllers, access points, client load, RF health and roaming, using the platform's Wi-Fi map result contract and SRQL Wi-Fi entities.
-It SHALL NOT be derived from, or shaped after, any customer's Wi-Fi dataset or dashboard.
+The Wi-Fi demo SHALL present venue or campus sites with controllers, access points, an indoor floorplan, client load, RF health and roaming, using the platform's Wi-Fi map result contract and SRQL Wi-Fi entities.
+It SHALL NOT be derived from any customer's Wi-Fi dataset or dashboard.
 
 #### Scenario: Channel saturation fault
 - **WHEN** a scheduled channel-saturation fault affects a site
-- **THEN** the affected access points SHALL show elevated utilization on the map
+- **THEN** the affected access points SHALL show elevated utilization on the floorplan and map
 - **AND** an alert SHALL open and later resolve for that site
 
 ### Requirement: OT process demos share one PLC simulator
@@ -136,3 +139,32 @@ Each demo SHALL provide a Bazel run target that publishes its signed plugin bund
 - **WHEN** an operator runs a demo's publish target with a valid token for the `demo` instance
 - **THEN** the plugin, dashboard, alert rules and assignment SHALL be present in `demo`
 - **AND** re-running the target with unchanged artifacts SHALL succeed without creating duplicates
+
+### Requirement: Demo plugins separate the source from normalization
+Every demo plugin SHALL obtain device observations through a source interface whose simulated implementation produces the same device-native shapes a real device or vendor API returns, and SHALL map observations to product contracts in a normalizer shared by simulated and real sources.
+Demo plugins and dashboards SHALL use only product result contracts and product SRQL entities, never demo-only schemas.
+
+#### Scenario: Swapping in a real source
+- **WHEN** a real source implementation passes the plugin's source contract test
+- **THEN** the plugin SHALL emit the same contracts with the real source as with the simulated one
+- **AND** the demo dashboard SHALL render the real data without modification
+
+### Requirement: Drone video carries real detections
+The drone demo SHALL run a real object-detection worker on its relayed camera streams through the platform's camera analysis pipeline, draw the resulting detections on the matching camera tiles, and raise alerts for configured detections.
+Detections SHALL come from inference on the video, never from painted or scripted boxes.
+
+#### Scenario: Vehicle on the corridor
+- **WHEN** the detector reports a vehicle above the configured confidence inside a corridor geofence
+- **THEN** the drone's camera tile SHALL draw the detection box on the frame it came from
+- **AND** an alert SHALL open through the demo's event-signal rules
+
+#### Scenario: No viewers
+- **WHEN** no relay session is active for a drone camera
+- **THEN** no analysis SHALL run for that camera
+
+### Requirement: Presenter strip shows schedule without controlling it
+Each demo dashboard SHALL show the active incident and a countdown to the next scheduled fault, read from simulator-published metrics, and SHALL NOT offer any control that injects, clears or resets a fault.
+
+#### Scenario: Waiting for the next fault
+- **WHEN** no fault is active
+- **THEN** the strip SHALL show the time remaining until the next scheduled fault

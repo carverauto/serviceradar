@@ -48,10 +48,15 @@ The survey behind this change found these constraints in the current platform:
   - Every platform gap a demo hits is fixed in the product or SDK, not worked
     around inside the demo.
   - Rust SDK parity with Go, proven by tests rather than asserted.
+  - Each demo is one step from a customer deployment: swap the simulated
+    source for a real one and keep everything else (D17).
+  - The camera analysis pipeline proven end to end with a real model (D16).
 - Non-Goals:
   - A video management system. A multiview of a handful of tiles is the ceiling.
-  - Faithful Modbus/DNP3/IEC-104 stacks. Registers are simulated; the pitch is
-    that the real adapter uses the same allowlisted TCP proxy.
+  - Faithful Modbus/DNP3/IEC-104 stacks in this change. Registers are
+    simulated behind the `Source` boundary (D17); a real adapter uses the same
+    allowlisted TCP proxy.
+  - Training or fine-tuning models; the detector is off the shelf.
   - Shipping any demo artifact to customers or in a release.
   - A Grafana-style panel builder.
 
@@ -159,31 +164,26 @@ express that frame efficiently today, the SRQL change is a task of this change,
 not a demo-side workaround. The drone map interpolates between the last two
 known positions so movement is smooth despite frame refresh granularity.
 
-### D6. Synthetic identifiers, enforced
+### D6. Data provenance: real public data yes, customer data never
 
-Per the repository's live-data rule, everything is invented from nothing:
+Demos should be as real as possible, so public real-world reference data is
+welcome: real airports, IATA codes and gates, airline flight numbers, public
+coordinates and region names, vendor product and model names, and real vendor
+MAC OUIs.
 
-- IPv4 only from `192.0.2.0/24`, `198.51.100.0/24`, `203.0.113.0/24`; IPv6 from
-  `2001:db8::/32`.
-- MACs from `00:00:5e:00:53:00` through `00:00:5e:00:53:ff` (the `00:00:5e:00:53:xx` block) or locally administered unicast
-  (`02:xx:...`) derived from the seed -- never a real vendor OUI.
-- Hostnames under `example.com`, `example.net` or `.test`; site, facility and
-  asset codes invented, and never shaped like IATA/ICAO codes.
-- Map placement avoids real named facilities (airports, bases, plants,
-  wellheads, pipelines); each scenario pack records why its coordinates are
-  safe. Plan views (baggage hall, DC hall) use no basemap at all.
-- Phone numbers `555-0100`-`555-0199`; people, organizations and
-  serials invented.
+What is forbidden is anything exported, replayed, "sanitized" or reshaped from
+a customer or partner deployment or dataset -- their site lists, naming
+schemes, IP plans, serials, fleet shape or captures. Scenario packs are built
+from public information and invention, and a pack is not set up to mirror a
+specific customer's deployment. Dashboards start from the generic SDK
+templates, not from any customer dashboard repository.
 
-The Wi-Fi twin is a fictional university/corporate campus plus branch sites.
-It is deliberately not airport-shaped and is not derived, "sanitized" or
-re-shaped from any customer dataset or customer dashboard repository: the shape
-of real data identifies its owner even after names are removed. The dashboard
-starts from the generic `react-map` template.
-
-`simkit` ships a guard used by every plugin's tests and by the fixture
-exporter: it walks every emitted record and fails on an IP, MAC, hostname or
-coordinate outside the rules above.
+One mechanical rule remains, for operational safety rather than privacy:
+simulated devices use only private (RFC 1918) or documentation IP ranges and
+non-public host names, so no sweep, MTR run or plugin probe in `demo` ever
+targets a real internet host. `simkit` ships a guard, used by every plugin's
+tests and by the fixture exporter, that fails on a publicly routable address or
+a public DNS name in any emitted record.
 
 ### D7. Fixtures come from the simulator
 
@@ -267,11 +267,185 @@ action input. Cluster-side resources (replayer Deployment, WebRTC/TURN
 settings, trust for the demo upload key) are declared in `carverauto/gitops`
 for the `demo` namespace in the `carverauto` context.
 
+### D13. Presenter strip instead of fault buttons
+
+Presenters still need to know what is about to happen. Each demo dashboard
+shows a read-only strip with the active incident (linking to the real alert)
+and a countdown to the next scheduled fault. The simulator publishes the
+schedule as metrics (`demo.fault.next_at`, `demo.fault.active`) so the strip
+reads SRQL like everything else; the dashboard never injects, clears or resets
+anything. Acknowledging an alert happens through the product's normal alert
+workflow; the fault's resolution comes from the simulator.
+
+### D14. UI references (mockups)
+
+A set of AI-generated mockups (a standalone React/Vite app kept outside the
+repository) guides layout for the drone, Wi-Fi, baggage, pipeline and
+cyber + OT dashboards. They are references for structure and content; their
+public real-world data (real airports and gates, airline flight numbers, a
+real oil basin, vendor product names) is acceptable to reuse under D6.
+
+Adopted:
+
+- **Common frame:** incident banner at the top; header with scenario/filter
+  chips and KPIs; body split roughly 7/12 visual and 5/12 detail; the active
+  SRQL query visible as chips.
+- **Drone:** tactical map with heading-rotated icons, callsign/altitude/battery
+  labels, range rings around ground stations, geofence polygons, corridor
+  paths and a methane overlay toggle; video tiles carry a telemetry HUD
+  (heading, altitude, speed, battery, gimbal) and detection boxes (D16);
+  detail cards for link quality, battery, gimbal and geofence margin. The
+  single video pane becomes the multiview overlay the spec requires.
+- **Wi-Fi:** an indoor floorplan (plan view, D9) with AP pins, client-density
+  and interference heat, a roam trail, a capacity-forecast strip and a
+  controller -> switch -> AP topology drawer.
+- **Baggage:** sorter schematic chain with per-conveyor speed and state, a
+  register table, an in-flight bag list, a controller table and a fieldbus
+  topology tab; KPIs for bags/hour, screening reject rate and transit time.
+- **Pipeline:** lease map with trunkline path, radio lines from each asset to a
+  backhaul tower, station cards (pressure, flow, vibration, radio SNR, radio
+  path) and a radio backhaul topology drawer.
+- **Cyber + OT:** one interleaved timeline with domain filters (OT, IT syslog,
+  plugin sandbox, RF) and severity.
+- **Entity fields** in the mockups (drone, AP, PLC, bag, pipeline asset,
+  incident, security event) seed the simulator data models.
+
+Rejected:
+
+- Manual fault injection, clear/reset/suppress/neutralize buttons, the
+  "system reset" control and the storyboard step that says to press a fault
+  button (replaced by D13).
+- Operator-control language ("reset ESD valve") and anything that shows the
+  dashboard talking to a device (raw `rtsp://` handles, `ip:502` register
+  endpoints). Video is WebRTC through the camera API.
+- Randomized "latency" and fake throughput counters; every number on screen
+  comes from a frame.
+- Claims that the demo agent or plugins are Rust or `wasmtime`; demo plugins
+  are Go SDK plugins on the agent's wazero runtime.
+
+### D15. Shared IoT asset shape and later rail / agriculture packs
+
+Later packs are sparse, poorly connected sites with many cheap sensors, and
+they share one asset shape so dashboards can share hooks:
+`asset_id, kind, location (lat/lon or track milepost), status, link_quality,
+last_seen` plus kind-specific metrics and `fault | geofence | stale | hotspot`
+events. Link quality and last-seen are columns on every asset, and "live" vs
+"edge last-known" is a first-class state -- the edge store-and-forward story
+is the differentiator against single-vertical vendors. `simkit` provides the
+shape; a `sim-iot` plugin family would carry these packs.
+
+Candidates, each a later change reusing `simkit`:
+
+- **Rail, short line:** locomotives (position, speed, notch, fuel), grade
+  crossings (power, gates, lights, last test), wayside detectors (axle count,
+  bearing temperature), radio heartbeat, work windows as time-bounded
+  geofences. Faults: crossing power failure, bearing temperature at a
+  detector, dragging equipment before a bridge, locomotive dark in a canyon
+  (store-and-forward replay on reconnect).
+- **Rail, yard and corridor:** switch machines, retarders, bowl occupancy,
+  ramp cranes and hostlers, car identity reads, detector ribbons, wayside huts
+  (power and fiber). Faults: switch fails to throw, radio fade on the hump
+  lead, hazmat car routed to the wrong bowl.
+- **Ranch:** pivots (heading, pressure, percent complete), wells and VFDs
+  (flow, level, energy, trips), soil probe grid, weather station, grain bin
+  temperature cables, LoRa/mesh gateway signal. Faults: pivot stuck, end-gun
+  pressure collapse, well low level, bin hotspot, gateway down with probes
+  going stale.
+- **Agriculture district:** hundreds of pivots and pumps grouped by ranch,
+  crop and water district; machine fleet; allocation burn; elevator or packing
+  shed as a small OT site.
+- **Midwest row crop:** corn/soybean/small-grain fields named the way farmers
+  name them, a normalized machine record, coverage heat as the headline
+  visual, radio signal by field, shop and gateway staleness. Two scripts:
+  planting week (vacuum drop leaves a zero-population streak; RTK/radio fade
+  grays the machine to last-known) and harvest week (combine, cart and trucks;
+  yield/moisture hex layer with a wet low spot; dryer plenum over-temperature
+  while the combine runs). If only one scene is built, build harvest on a
+  single quarter-section. Positioning: the site and connectivity twin for
+  co-ops, rural carriers, dealers and elevators -- not an agronomy platform.
+  No satellite imagery, prescriptions or crop models.
+
+### D16. Real detections on drone video
+
+The mockups draw detection boxes on the drone feed. These are real, not
+painted: the demo exercises the camera analysis pipeline that already exists
+(relay analysis branches, bounded frame extraction, HTTP worker dispatch,
+`camera_analysis_result.v1`, `Camera.AnalysisResultIngestor` -> OCSF events)
+and has never been validated end to end outside tests. Today both analysis
+workers (`ReferenceAnalysisWorker`, `ExternalBoomboxAnalysisWorker`) are
+deterministic stubs that return one fixed label at confidence 1.0.
+
+Work this adds:
+
+- **A real inference worker.** A containerized HTTP worker speaking
+  `camera_analysis_input.v1` / `camera_analysis_result.v1`, running an
+  off-the-shelf object detector (ONNX runtime, CPU first; GPU optional) with
+  a model whose license permits commercial demo use. Bazel-built image,
+  deployed in `demo`, registered through the existing worker registry, probed
+  and health-tracked like any other worker.
+- **Multiple detections per result.** The contract carries one `detection`
+  today; a frame with three vehicles needs a list. Extend the contract
+  additively (`detections[]`, keeping `detection` for existing workers) with
+  normalized bbox coordinates, label, confidence, and the frame's media
+  timestamp.
+- **Detections reach viewers.** Results currently become OCSF events only.
+  Add a relay-session-scoped detection feed that the dashboard camera API
+  exposes (`onDetections`), so `<CameraTile>` can draw boxes aligned to the
+  frame they came from, within a stated latency budget; detections older than
+  the budget are dropped rather than drawn late.
+- **Detections become incidents.** Detection events above a confidence
+  threshold for configured labels (e.g. a person inside a geofence, a vehicle
+  on the corridor) feed the stateful alert engine through the pack's
+  event-signal rules, so the drone incident flow includes a real detection.
+- **Bounded cost.** Analysis runs only while a relay session is active and at
+  the bounded sample rate the camera-streaming spec already requires; the
+  demo caps the number of concurrently analysed streams.
+
+The replayed clips make this reproducible: the same footage produces the same
+detections, so the demo is stable while the pipeline is real.
+
+### D17. Built to swap in real sources
+
+The purpose of each demo is to be one step from a customer deployment: replace
+the simulated source, keep everything else. So:
+
+- **Product contracts only.** Plugins emit only standard contracts (device
+  discovery, metric batches, OCSF events, Wi-Fi map batches, camera
+  descriptors, topology links). No demo-only schemas, SRQL entities or
+  database tables. Dashboards read only product SRQL entities and would render
+  a real customer's data unchanged.
+- **A source boundary in every plugin.** Each plugin is split into a `Source`
+  (produces device-native observations: register blocks, controller-API JSON,
+  telemetry frames, camera URLs) and a normalizer that maps observations to
+  product contracts. `simkit` implements the simulated `Source`, producing the
+  same device-native shapes a real device or vendor API returns. Each plugin
+  documents the real `Source` it expects in production (for example a Modbus
+  TCP client over the host TCP proxy, a controller REST client over the host
+  HTTP proxy) and ships at least the interface and a contract test that a real
+  implementation must pass.
+- **Real transport where it is cheap.** Video is real RTSP through the real
+  relay; analysis is a real model; alerts, topology and inventory go through
+  the real pipeline. Only the device protocol layer is simulated.
+
+Alternative considered: simulated devices as network endpoints (a simulator
+service exposing Modbus TCP, vendor-shaped HTTP APIs and RTSP, polled by
+production adapters through the host proxy), the pattern `faker` uses for the
+Armis API. It is more faithful but needs a stateful service per domain; it is
+the natural next step for any pack a customer is about to buy, and the `Source`
+boundary makes it a drop-in.
+
 ## Risks / Trade-offs
 
-- Map placement that "looks real" can still land on a real facility ->
-  placement review is part of each pack, the guard checks coordinates against
-  the pack's declared safe bounds, and plan views avoid basemaps entirely.
+- A scenario pack drifts toward mirroring a customer's deployment -> packs are
+  built from public information and invention (D6), and review checks where
+  each pack's data came from.
+- Real inference is CPU-heavy and the analysis pipeline is unproven -> sample
+  rate and concurrent-stream caps, analysis only while a session is active,
+  and the pipeline is validated on one stream before the multiview uses it.
+- Detection boxes drawn late look broken -> a latency budget; stale
+  detections are dropped, not drawn.
+- Model licensing -> only models whose license allows commercial demo use,
+  recorded beside the worker image.
 - Several WebRTC tiles cost relay CPU and bandwidth in a shared namespace ->
   per-renderer tile cap, sessions close when the overlay is hidden or the tab is
   backgrounded, and the replayer serves modest bitrates.
@@ -295,5 +469,7 @@ assignments in `demo`; product-side additions are independently revertible.
 - Wire the unconsumed SDK `alert_hint` into core, or remove it from the
   `plugin-sdk-go` spec? Demos do not depend on it; recommend a separate fix.
 - Does the demo need TURN, or does the ingress path suffice for booth networks?
+- Which detector model and runtime (CPU ONNX first); is a GPU node available
+  to `demo` for more concurrent analysed streams?
 - Should `simkit` be promoted into the Go SDK (and then Rust) once it proves
   useful to plugin authors writing test doubles?

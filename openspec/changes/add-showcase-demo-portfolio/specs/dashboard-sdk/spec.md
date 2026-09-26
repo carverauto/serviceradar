@@ -25,6 +25,14 @@ The host SHALL authorize each session with the viewing user's camera permissions
 - **WHEN** the camera API is first released
 - **THEN** a dashboard SHALL have played at least two UniFi Protect camera streams concurrently in the `demo` namespace through it
 
+### Requirement: Camera tiles draw analysis detections
+The host camera API SHALL expose analysis detections for an open session through an `onDetections` subscription, and `<CameraTile>` SHALL draw them as labelled boxes aligned to the video frame they belong to.
+
+#### Scenario: Detection overlay
+- **WHEN** detections arrive for a playing camera tile
+- **THEN** the tile SHALL draw each box with its label and confidence over the matching frame
+- **AND** SHALL remove boxes once their frame is no longer displayed
+
 ### Requirement: Camera sessions per dashboard are bounded
 The host SHALL cap the number of concurrent camera sessions a single dashboard renderer may hold (default nine) and SHALL reject further opens with a distinguishable error.
 

@@ -33,8 +33,19 @@ parity with Go.
 - **Automatic faults only.** Every scenario pack schedules its own recurring
   faults; nobody presses a button. At any moment a visitor sees an active
   incident or one starting within ten minutes, and every fault resolves.
-- **Synthetic data by construction**, with an automated guard that fails the
-  build if any emitted identifier leaves the reserved ranges (see design).
+- **As real as possible.** Real public reference data (airports, flight
+  numbers, vendor models) is welcome; customer data never is. Every plugin
+  splits a device `Source` from the normalizer, and the simulator is just one
+  `Source`, so selling a demo means writing the customer's real `Source` and
+  keeping the rest. Simulated device addresses stay non-routable so demo
+  sweeps never probe the internet.
+- **Real detections on drone video:** prove the existing camera analysis
+  pipeline end to end with a real off-the-shelf object detector, carry
+  multiple detections per frame, deliver them to viewers, draw them on camera
+  tiles, and raise alerts from them.
+- **Mockup-guided dashboards:** a common frame (incident banner, chip/KPI
+  header, visual/detail split) and a read-only presenter strip that counts
+  down to the next scheduled fault instead of offering fault buttons.
 - **Dashboard video API** (product + dashboard SDK): a `camera.stream.view`
   manifest capability, a host `camera` session API wrapping the existing relay
   and WebRTC signaling, `useCameraStream` / `<CameraTile>` / `<CameraGrid>` in
@@ -61,8 +72,11 @@ parity with Go.
   - P1: airport baggage-handling OT; well-pad / pipeline SCADA-lite (same PLC
     simulator, second scenario pack).
   - P2: data-center hall plan view; cyber + OT interleaved timeline.
-  - Later changes (not this one): port/rail yard, retail/stadium, mine site,
-    maritime, public safety, constrained forward site.
+  - Later changes (not this one): rail short line and yard/corridor, ranch
+    and agriculture district, Midwest row crop (planting and harvest), port,
+    retail/stadium, mine site, maritime, public safety, constrained forward
+    site -- sharing one IoT asset shape with link quality and last-seen on
+    every asset.
 
 ## Impact
 
@@ -76,11 +90,16 @@ parity with Go.
     the camera-source entity; a topology-link ingestor beside
     `observability/plugin_result_ingestor.ex`; dashboard CLI harness
     (`js/cli/src/dashboard/`).
+    Camera analysis: the `camera_analysis_result.v1` contract and
+    `Camera.AnalysisResultIngestor` (core), relay analysis branches and
+    dispatch (`serviceradar_core_elx/.../camera_relay/`), and a new inference
+    worker image.
   - `carverauto/serviceradar-sdk-dashboard`: camera hooks and components,
     plan-view canvas, types, harness mocks.
   - `carverauto/serviceradar-sdk-go`: topology-link emitter.
   - `carverauto/serviceradar-sdk-rust`: parity work and conformance suite.
-  - `carverauto/gitops`: `demo` namespace resources (RTSP replayer, WebRTC/TURN
+  - `carverauto/gitops`: `demo` namespace resources (RTSP replayer, inference
+    worker, WebRTC/TURN
     settings, demo plugin signing key trust).
 - Depends on: `restore-unifi-protect-camera-streams` (a working relay in
   `demo`), `fix-dashboard-frame-staleness`. Coordinates with
