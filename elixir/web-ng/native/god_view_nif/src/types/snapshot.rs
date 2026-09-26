@@ -22,11 +22,6 @@ pub(crate) struct EncodeSnapshotPayload {
     /// `x` and `y` are quantized layout coordinates, so 16 bits is the layout
     /// space rather than a limit on how many nodes a frame can carry.
     pub(crate) nodes: Vec<(u16, u16, u8, String, u32, u8, String)>,
-    /// Stable node identifier per node row, parallel to `nodes`.
-    ///
-    /// Written to its own column so a decoder can name a node without parsing
-    /// its `details_json`. A missing entry encodes as an empty string.
-    pub(crate) node_ids: Vec<String>,
     /// Edge rows: `(source, target, pps, flow_bps, capacity_bps, label, telemetry_eligible)`.
     ///
     /// `source` and `target` index into `nodes`. They are 32-bit so a frame

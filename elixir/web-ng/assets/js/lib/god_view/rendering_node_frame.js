@@ -8,8 +8,9 @@
  * per-node visibility into a reused `Uint8Array` and selects records by reference.
  *
  * A record carries the node's own fields plus `index`, `position` and `zHeight`. Fields that
- * change between renders -- `selected`, `visible` and `stateReason` -- are read from the
- * frame's current state rather than stored, so nothing per node is rewritten when they change.
+ * change between renders -- `selected`, `visible` and `stateReason` -- and the display-only
+ * `metricText` / `statusIcon` are prototype getters over the frame's current state, so
+ * nothing per node is rewritten when they change.
  */
 
 const frames = new WeakMap()
@@ -28,42 +29,24 @@ class GodViewNodeRecord {
   get stateReason() {
     return this.frame.stateReason(this)
   }
+
+  get metricText() {
+    return this.frame.metricText(this)
+  }
+
+  get statusIcon() {
+    return this.frame.statusIcon(this.operUp)
+  }
 }
+
+const COMPUTED_FIELDS = new Set(["selected", "visible", "stateReason", "metricText", "statusIcon"])
 
 function copyNodeFields(record, node) {
   for (const key of Object.keys(node)) {
-    const descriptor = Object.getOwnPropertyDescriptor(node, key)
-    if (typeof descriptor?.get === "function") {
-      // Keep the decoder's lazy fields (details and what derives from it) lazy.
-      Object.defineProperty(record, key, {
-        configurable: true,
-        enumerable: true,
-        get() {
-          return node[key]
-        },
-        set(value) {
-          Object.defineProperty(record, key, {value, writable: true, enumerable: true, configurable: true})
-        },
-      })
-    } else if (key !== "selected" && key !== "visible" && key !== "stateReason") {
-      record[key] = descriptor.value
-    }
+    if (!COMPUTED_FIELDS.has(key)) record[key] = node[key]
   }
-  // Inspect the descriptor rather than the value, so a lazy `details` accessor is not forced.
-  const details = Object.getOwnPropertyDescriptor(record, "details")
-  if (!details || (!details.get && !details.value)) record.details = {}
-}
-
-function lazyValue(record, key, compute) {
-  Object.defineProperty(record, key, {
-    configurable: true,
-    enumerable: true,
-    get() {
-      const value = compute()
-      Object.defineProperty(record, key, {value, writable: true, enumerable: true, configurable: true})
-      return value
-    },
-  })
+  // Reading `details` hands back the (possibly lazy) object without parsing it.
+  if (!record.details || typeof record.details !== "object") record.details = {}
 }
 
 function buildFrame(context, nodes, shape) {
@@ -80,23 +63,24 @@ function buildFrame(context, nodes, shape) {
     selectedNodeIndex: null,
     edgeData: [],
     stateReason: () => "",
+    metricText: (record) => context.nodeMetricText(record, shape),
+    statusIcon: (operUp) => context.nodeStatusIcon(operUp),
   }
+  // `frame` lives on this graph's record prototype: every record reaches it, and it stays out
+  // of spreads and serialization without a per-record property definition.
+  class FrameNodeRecord extends GodViewNodeRecord {}
+  FrameNodeRecord.prototype.frame = frame
 
   for (let index = 0; index < count; index += 1) {
     const node = nodes[index] || {}
-    const record = new GodViewNodeRecord()
+    const record = new FrameNodeRecord()
     copyNodeFields(record, node)
-    record.frame = frame
     record.index = index
     record.zHeight = 0
     record.pps = Number(node.pps || 0)
     record.operUp = Number(node.operUp || 0)
     record.label = context.normalizeDisplayLabel(node.label, node.id || `node-${index + 1}`)
     record.position = [node.x, node.y, 0]
-    record.statusIcon = context.nodeStatusIcon(record.operUp)
-    lazyValue(record, "metricText", () => context.nodeMetricText(record, shape))
-    // `frame` is bookkeeping, not node data: keep it out of spreads and serialization.
-    Object.defineProperty(record, "frame", {enumerable: false})
 
     frame.records[index] = record
     frame.states[index] = Number(node.state)

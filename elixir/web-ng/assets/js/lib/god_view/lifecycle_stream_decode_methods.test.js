@@ -4,6 +4,7 @@ import {describe, expect, it} from "vitest"
 import {bindApi, createStateBackedContext} from "./api_helpers"
 import {largeRingSnapshotIpcBytes, snapshotIpcBytes, syntheticRing} from "./fixtures/snapshot_ipc"
 import {godViewLifecycleStreamDecodeMethods} from "./lifecycle_stream_decode_methods"
+import {copyDetails, detailsHaveSparkline} from "./snapshot_columns"
 
 function decoder() {
   const deps = {
@@ -161,29 +162,110 @@ describe("lifecycle_stream_decode_methods", () => {
     expect(nodeState[65_538]).toEqual(65_538 % 4)
   }, 30_000)
 
-  it("parses details JSON only for the row that is read", () => {
+  it("answers the per-row details keys from columns and parses JSON only for the row that is read", () => {
     const {nodes, edges} = syntheticRing(500)
     const decoded = decoder().decodeArrowGraph(snapshotIpcBytes({nodes, edges}))
 
-    // Decoding, ids, positions and endpoints need no details.
+    // Ids, positions, endpoints, relation identity and the keys every render reads.
     expect(decoded.nodes[123].id).toEqual("n-123")
+    expect(decoded.nodes[123].details.type).toEqual("switch")
+    expect(decoded.nodes[123].details.topology_unplaced).toBe(false)
+    expect(decoded.nodes[123].details.cluster_kind).toBeUndefined()
     expect(decoded.edges[42].target).toEqual(43)
+    expect(decoded.edges[42].details.source_id).toEqual("n-42")
+    expect(decoded.edges[42].metadata.relation_type).toEqual("CONNECTS_TO")
+    expect(decoded.edges[42].details.metadata.topology_plane).toEqual("physical")
+    expect(decoded.edges[42].id).toMatch(/^semantic:/)
     expect(decoded.columns.parsedDetailCounts()).toEqual({nodes: 0, edges: 0})
 
-    // Picking one node parses that node only, once.
+    // A key without a column parses that row, once.
     expect(decoded.nodes[321].details.ip).toEqual("192.0.2.65")
-    expect(decoded.nodes[321].details.ip).toEqual("192.0.2.65")
+    expect(decoded.nodes[321].details.hostname).toEqual("host-321.example.com")
     expect(decoded.columns.parsedDetailCounts()).toEqual({nodes: 1, edges: 0})
-
-    // Same for an edge.
-    expect(decoded.edges[7].details.source_id).toEqual("n-7")
+    expect(decoded.edges[7].details.interface_sparkline).toEqual([])
     expect(decoded.columns.parsedDetailCounts()).toEqual({nodes: 1, edges: 1})
   })
 
-  it("reads node ids from details for a frame that predates the node_id column", () => {
+  it("serves exactly what the JSON says for every column-backed key", () => {
+    const nodeDetails = [
+      {id: "a", type: "router", cluster_kind: "endpoint-summary", cluster_id: "c1", cluster_anchor_id: "b",
+        cluster_panel_side: "right", identity_source: "mapper", topology_plane: "backbone",
+        cluster_expanded: true, topology_unplaced: false, cluster_member_count: 12, geo_lat: 0.5, geo_lon: null},
+      {id: "b"},
+      {},
+    ]
+    const edgeDetails = [
+      {source_id: "a", target_id: "b", source_interface: "ge-0/0/1", source_if_index: 3, target_if_index: null,
+        telemetry_source: "interface", telemetry_observed_at: "2026-01-01T00:00:00Z", interface_sparkline: [{value: 1}],
+        metadata: {relation_type: "CONNECTS_TO", topology_plane: "physical", connectivity_forest_bridge: true, raw_relation_type: "X"}},
+      {source_id: "b"},
+    ]
     const decoded = decoder().decodeArrowGraph(snapshotIpcBytes({
-      nodes: [{id: "ignored", label: "A", details: {id: "sr:a"}}, {label: "B", details: {}}],
-      omitColumns: ["node_id"],
+      nodes: nodeDetails.map((details, index) => ({id: details.id, details, x: index})),
+      edges: edgeDetails.map((details, index) => ({source: index, target: index + 1, details})),
+    }))
+    const nodeKeys = ["id", "type", "cluster_kind", "cluster_id", "cluster_anchor_id", "cluster_panel_side",
+      "identity_source", "topology_plane", "cluster_expanded", "topology_unplaced", "cluster_member_count", "geo_lat", "geo_lon"]
+    const edgeKeys = ["source_id", "target_id", "source_interface", "target_interface", "telemetry_source",
+      "telemetry_observed_at", "observed_at", "source_if_index", "target_if_index"]
+    const metadataKeys = ["relation_type", "topology_plane", "confidence_tier", "confidence_reason", "connectivity_forest_bridge"]
+
+    const served = {
+      nodes: decoded.nodes.map((node) => nodeKeys.map((key) => node.details[key])),
+      edges: decoded.edges.map((edge) => edgeKeys.map((key) => edge.details[key])),
+      metadata: decoded.edges.map((edge) => metadataKeys.map((key) => edge.metadata[key])),
+      hasMetadata: decoded.edges.map((edge) => edge.details.metadata !== undefined),
+    }
+    expect(decoded.columns.parsedDetailCounts()).toEqual({nodes: 0, edges: 0})
+
+    // `?? undefined`: a column cannot tell JSON null from an absent key; readers treat both alike.
+    const plain = (value) => value ?? undefined
+    expect(served).toEqual({
+      nodes: nodeDetails.map((details) => nodeKeys.map((key) => plain(details[key]))),
+      edges: edgeDetails.map((details) => edgeKeys.map((key) => plain(details[key]))),
+      metadata: edgeDetails.map((details) => metadataKeys.map((key) => plain(details.metadata?.[key]))),
+      hasMetadata: [true, false],
+    })
+    // Spreading or reading any other key is the full JSON.
+    expect({...decoded.edges[0].metadata}).toEqual(edgeDetails[0].metadata)
+    expect({...decoded.nodes[0].details}).toEqual(nodeDetails[0])
+  })
+
+  it("parses a row up front when a column cannot carry one of its values", () => {
+    const decoded = decoder().decodeArrowGraph(snapshotIpcBytes({
+      nodes: [
+        {id: "a", details: {id: "a", cluster_expanded: "true"}},
+        {id: "b", details: {id: "b", cluster_expanded: true}},
+      ],
+      edges: [{source: 0, target: 1, details: {metadata: {"relation-type": "CONNECTS_TO"}}}],
+    }))
+
+    expect(decoded.columns.parsedDetailCounts()).toEqual({nodes: 1, edges: 1})
+    expect(decoded.nodes[0].details.cluster_expanded).toBe("true")
+    expect(decoded.nodes[1].details.cluster_expanded).toBe(true)
+    expect(decoded.edges[0].metadata["relation-type"]).toBe("CONNECTS_TO")
+  })
+
+  it("copies details without parsing, and a copy writes to itself", () => {
+    const {nodes, edges} = syntheticRing(3)
+    const decoded = decoder().decodeArrowGraph(snapshotIpcBytes({nodes, edges}))
+    const original = decoded.edges[1].details
+
+    const copy = copyDetails(original)
+    expect(copy.source_id).toEqual("n-1")
+    expect(copy.metadata.relation_type).toEqual("CONNECTS_TO")
+    expect(detailsHaveSparkline(copy)).toBe(false)
+    expect(decoded.columns.parsedDetailCounts()).toEqual({nodes: 0, edges: 0})
+
+    copy.source_id = "changed"
+    expect(copy.source_id).toEqual("changed")
+    expect(original.source_id).toEqual("n-1")
+  })
+
+  it("reads node ids from details for a frame without details columns", () => {
+    const decoded = decoder().decodeArrowGraph(snapshotIpcBytes({
+      nodes: [{label: "A", details: {id: "sr:a"}}, {label: "B", details: {}}],
+      detailColumns: false,
     }))
 
     expect(decoded.nodes.map((node) => node.id)).toEqual(["sr:a", "node-2"])

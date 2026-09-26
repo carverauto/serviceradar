@@ -1,6 +1,7 @@
 import {topologyRelationId} from "./topology_relation_identity"
 import {hasManagedTopologyScene, isOverviewScene} from "./topology_layout_mode"
 import {nodeRenderFrame} from "./rendering_node_frame"
+import {copyDetails, detailsHaveSparkline, snapshotDetailsJson} from "./snapshot_columns"
 
 const INCIDENT_ENDPOINT = 1
 const INCIDENT_NON_ENDPOINT = 2
@@ -102,17 +103,26 @@ function deterministicRelationPresentation(relations) {
     const details = relation?.details && typeof relation.details === "object" && !Array.isArray(relation.details)
       ? relation.details
       : {}
+    let serializedDetails
     return {
       details,
-      hasSparkline: Array.isArray(details.interface_sparkline) && details.interface_sparkline.length > 0,
+      hasSparkline: detailsHaveSparkline(details),
       label: String(relation?.label || "").trim(),
       observedAt: observationEpoch(details),
-      serializedDetails: stableSerializedValue(details),
+      // Only reached when two relations tie on everything above. A snapshot row compares by
+      // the JSON the server shipped (a deterministic, content-derived key, like the canonical
+      // serialization) so that breaking the tie does not parse it.
+      get serializedDetails() {
+        if (serializedDetails === undefined) {
+          serializedDetails = snapshotDetailsJson(details) ?? stableSerializedValue(details)
+        }
+        return serializedDetails
+      },
       telemetrySource: String(details.telemetry_source || "").trim(),
     }
   })
 
-  candidates.sort((left, right) => {
+  if (candidates.length > 1) candidates.sort((left, right) => {
     if (left.hasSparkline !== right.hasSparkline) return left.hasSparkline ? -1 : 1
 
     const leftHasObservation = left.observedAt !== null
@@ -128,7 +138,7 @@ function deterministicRelationPresentation(relations) {
   const representative = candidates[0]
 
   return {
-    details: representative ? {...representative.details} : {},
+    details: representative ? copyDetails(representative.details) : {},
     label: representative?.label || "",
   }
 }

@@ -19,7 +19,7 @@ function buildFrame(payloadBytes) {
   out[3] = "1".charCodeAt(0)
 
   const view = new DataView(out.buffer)
-  view.setUint8(4, 2)
+  view.setUint8(4, 3)
   view.setBigUint64(5, 42n, false)
   view.setBigInt64(13, 1_700_000_000_000n, false)
   view.setUint32(21, 11, false)
@@ -40,7 +40,7 @@ describe("lifecycle_stream_snapshot_methods", () => {
     const frame = buildFrame([7, 8, 9])
     const parsed = godViewLifecycleStreamSnapshotMethods.parseBinarySnapshotFrame(frame)
 
-    expect(parsed.schemaVersion).toEqual(2)
+    expect(parsed.schemaVersion).toEqual(3)
     expect(parsed.revision).toEqual(42)
     expect(parsed.bitmapMetadata.root_cause.bytes).toEqual(11)
     expect(parsed.bitmapMetadata.unknown.count).toEqual(6)

@@ -1,4 +1,5 @@
 import {canonicalSemanticRelationId} from "./topology_relation_identity"
+import {snapshotDetailsJson} from "./snapshot_columns"
 
 const SUPER_ROOT_ID = "overview:super-root"
 // Keep this boundary aligned with the server's endpoint-like classification:
@@ -160,7 +161,9 @@ function normalizeNodes(graph) {
     if (id === "") return
     indexToId.set(index, id)
 
-    const candidate = {id, raw: stableValue(rawNode), type: nodeType(rawNode)}
+    // `raw` is the node itself: the projection only reads it. The canonical JSON that breaks
+    // a tie between two nodes sharing an id is built only when such a tie exists.
+    const candidate = {id, raw: rawNode, type: nodeType(rawNode)}
     const current = byId.get(id)
     if (!current || stableJson(candidate.raw).localeCompare(stableJson(current.raw)) < 0) byId.set(id, candidate)
   })
@@ -188,6 +191,14 @@ function pairId(leftId, rightId) {
 
 function evidenceFor(edge, relationId, sourceId, targetId) {
   const {source: _source, target: _target, ...rest} = edge || {}
+  // A snapshot edge's details (metadata included) are fingerprinted by the JSON the server
+  // shipped rather than by parsing it: the evidence only has to change when they change.
+  const detailsJson = snapshotDetailsJson(rest.details)
+  if (detailsJson !== null) {
+    delete rest.details
+    delete rest.metadata
+    rest.detailsJson = detailsJson
+  }
   return stableValue({
     id: relationId,
     sourceId,

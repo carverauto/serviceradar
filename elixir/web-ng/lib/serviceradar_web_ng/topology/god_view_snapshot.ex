@@ -8,9 +8,10 @@ defmodule ServiceRadarWebNG.Topology.GodViewSnapshot do
   """
 
   # Version 3 widened the Arrow `edge_source` / `edge_target` endpoint indexes to
-  # UInt32 and added a dense `node_id` column, so a frame larger than 65535 nodes
-  # can name both ends of an edge and a decoder can read ids, positions and
-  # endpoints without parsing the per-row details JSON.
+  # UInt32, so a frame larger than 65535 nodes can name both ends of an edge, and
+  # added dense columns for every details key the client reads on each row (the
+  # node id, cluster and placement keys, relation identity and metadata). The client
+  # parses a row's details JSON only when that node or edge is picked.
   @schema_version 3
   @required_keys ~w(schema_version revision generated_at nodes edges causal_bitmaps bitmap_metadata)a
   @required_edge_keys ~w(

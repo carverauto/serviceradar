@@ -1,9 +1,5 @@
-import {decodeSnapshotColumns, defineLazyProperty} from "./snapshot_columns"
+import {decodeSnapshotColumns} from "./snapshot_columns"
 import {canonicalSemanticRelationId} from "./topology_relation_identity"
-
-function finiteOrNaN(value) {
-  return Number.isFinite(value) ? value : NaN
-}
 
 export const godViewLifecycleStreamDecodeMethods = {
   parseOptionalFloat(value) {
@@ -20,34 +16,37 @@ export const godViewLifecycleStreamDecodeMethods = {
   /**
    * Decodes a snapshot into the typed columns plus the one object graph layout still needs.
    *
-   * Nothing here parses `node_details` or `edge_details`. Each node's and edge's `details`
-   * (and the fields derived from them: `clusterCount`, `geoLat`, `geoLon`, edge `metadata`,
-   * `relationType` and the semantic edge `id`) is a lazy property that parses its own row on
-   * first read. `graph.columns` carries the typed arrays the render path draws from.
+   * Every node and edge is one plain object with data properties only, so the spreads and
+   * copies the layout path makes keep every field. Nothing here parses `node_details` or
+   * `edge_details`: ids, cluster counts, coordinates, relation identity and metadata come
+   * from the encoder's details columns, and each `details` / `metadata` is an object that
+   * answers those keys from the columns and parses its own row only for any other key.
+   * `graph.columns` (not enumerable) carries the typed arrays.
    */
   decodeArrowGraph(bytes) {
     const columns = decodeSnapshotColumns(bytes)
     const normalizeDisplayLabel = this.deps.normalizeDisplayLabel
     const parseOptionalFloat = (value) => this.parseOptionalFloat(value)
-    const {nodeCount, edgeCount} = columns
+    const {nodeCount, edgeCount, nodeX, nodeY, nodeState, nodePps, nodeOperUp} = columns
 
     const nodes = new Array(nodeCount)
     for (let i = 0; i < nodeCount; i += 1) {
       const fallbackLabel = `node-${i + 1}`
-      const node = {
-        id: normalizeDisplayLabel(columns.nodeId(i), fallbackLabel),
-        x: columns.nodeX[i],
-        y: columns.nodeY[i],
-        state: columns.nodeState[i],
+      const geoLat = parseOptionalFloat(columns.nodeDetail(i, "geo_lat"))
+      const geoLon = parseOptionalFloat(columns.nodeDetail(i, "geo_lon"))
+      nodes[i] = {
+        id: normalizeDisplayLabel(columns.nodeDetail(i, "id"), fallbackLabel),
+        x: nodeX[i],
+        y: nodeY[i],
+        state: nodeState[i],
         label: normalizeDisplayLabel(columns.nodeLabel(i), fallbackLabel),
-        pps: columns.nodePps[i],
-        operUp: columns.nodeOperUp[i],
+        clusterCount: Math.max(1, Number(columns.nodeDetail(i, "cluster_member_count") || 1)),
+        pps: nodePps[i],
+        operUp: nodeOperUp[i],
+        geoLat: Number.isFinite(geoLat) ? geoLat : NaN,
+        geoLon: Number.isFinite(geoLon) ? geoLon : NaN,
+        details: columns.nodeDetails(i),
       }
-      defineLazyProperty(node, "clusterCount", () => Math.max(1, Number(node.details?.cluster_member_count || 1)))
-      defineLazyProperty(node, "geoLat", () => finiteOrNaN(parseOptionalFloat(node.details?.geo_lat)))
-      defineLazyProperty(node, "geoLon", () => finiteOrNaN(parseOptionalFloat(node.details?.geo_lon)))
-      defineLazyProperty(node, "details", () => columns.nodeDetails(i))
-      nodes[i] = node
     }
 
     const flowPps = columns.edgeColumn("edge_pps")
@@ -65,6 +64,7 @@ export const godViewLifecycleStreamDecodeMethods = {
 
     const edges = new Array(edgeCount)
     for (let i = 0; i < edgeCount; i += 1) {
+      const {details, metadata} = columns.edgeDetailsAndMetadata(i)
       const edge = {
         source: columns.edgeSource[i],
         target: columns.edgeTarget[i],
@@ -80,27 +80,25 @@ export const godViewLifecycleStreamDecodeMethods = {
         topologyClass: normalizeDisplayLabel(edgeTopologyClass(i), "unknown"),
         protocol: normalizeDisplayLabel(edgeProtocol(i), ""),
         evidenceClass: normalizeDisplayLabel(edgeEvidenceClass(i), ""),
+        details,
+        metadata,
+        relationType: normalizeDisplayLabel(metadata.relation_type, ""),
+        id: "",
       }
-      defineLazyProperty(edge, "details", () => columns.edgeDetails(i))
-      defineLazyProperty(edge, "metadata", () => {
-        const details = edge.details
-        return details?.metadata && typeof details.metadata === "object" ? details.metadata : {}
-      })
-      defineLazyProperty(edge, "relationType", () => normalizeDisplayLabel(edge.metadata?.relation_type, ""))
-      defineLazyProperty(edge, "id", () => {
-        const sourceId = String(nodes[edge.source]?.id ?? "").trim()
-        const targetId = String(nodes[edge.target]?.id ?? "").trim()
-        return canonicalSemanticRelationId(edge, sourceId, targetId)
-      })
+      const sourceId = String(nodes[edge.source]?.id ?? "").trim()
+      const targetId = String(nodes[edge.target]?.id ?? "").trim()
+      edge.id = canonicalSemanticRelationId(edge, sourceId, targetId)
       edges[i] = edge
     }
 
-    return {
+    const graph = {
       nodes,
       edges,
       edgeSourceIndex: columns.edgeSource,
       edgeTargetIndex: columns.edgeTarget,
-      columns,
     }
+    // Not enumerable: layout spreads and deep-clones the graph, and must not copy the table.
+    Object.defineProperty(graph, "columns", {value: columns, enumerable: false})
+    return graph
   },
 }

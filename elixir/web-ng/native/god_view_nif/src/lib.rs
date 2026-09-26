@@ -325,7 +325,6 @@ fn runtime_graph_encode_snapshot<'a>(
             schema_version: u32::from(schema_version),
             revision,
             nodes,
-            node_ids,
             edges,
             edge_meta,
             edge_directional: Vec::new(),
