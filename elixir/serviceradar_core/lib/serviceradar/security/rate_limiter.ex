@@ -43,6 +43,7 @@ defmodule ServiceRadar.Security.RateLimiter do
     auth_password_reset: [limit: 5, window_seconds: 300],
     auth_oidc_callback: [limit: 30, window_seconds: 60],
     auth_saml_callback: [limit: 30, window_seconds: 60],
+    auth_saml_request: [limit: 30, window_seconds: 60],
     cli_device_auth: [limit: 30, window_seconds: 60],
     dashboard_publish: [limit: 10, window_seconds: 60],
     dashboard_publish_admin: [limit: 30, window_seconds: 60],

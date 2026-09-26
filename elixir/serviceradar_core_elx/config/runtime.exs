@@ -1036,7 +1036,11 @@ if config_env() == :prod do
       # per table on demo). Offset from the 03:17 observability sweep so the two
       # large deletes do not overlap.
       {System.get_env("SERVICERADAR_CREDENTIAL_BROKER_RETENTION_CRON") || "43 3 * * *",
-       ServiceRadar.Credentials.BrokerRetentionWorker, queue: :maintenance}
+       ServiceRadar.Credentials.BrokerRetentionWorker, queue: :maintenance},
+      # Expired rows of the SAML assertion replay ledger. Rows are only needed
+      # until the assertion's NotOnOrAfter (minutes), so an hourly sweep keeps
+      # the table small.
+      {"29 * * * *", ServiceRadar.Identity.SAMLAssertionCleanupWorker, queue: :maintenance}
     ] ++
       object_store_retention_crontab ++
       capacity_forecasting_crontab ++

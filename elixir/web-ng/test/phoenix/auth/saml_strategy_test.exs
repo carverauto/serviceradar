@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLStrategyTest do
   alias ServiceRadarWebNGWeb.Auth.ConfigCache
   alias ServiceRadarWebNGWeb.Auth.SAMLStrategy
 
+  @moduletag :db_free
+
   setup do
     maybe_start_config_cache()
 
@@ -55,14 +57,24 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLStrategyTest do
     assert config.idp_entity_id == "https://idp.example.com/metadata"
   end
 
+  # The database-free tier does not start the application, so the PubSub
+  # server ConfigCache subscribes to may not exist yet.
   defp maybe_start_config_cache do
+    {:ok, _apps} = Application.ensure_all_started(:phoenix_pubsub)
+
+    if is_nil(Process.whereis(ServiceRadar.PubSub)) do
+      start_supervised!({Phoenix.PubSub, name: ServiceRadar.PubSub})
+    end
+
     case Process.whereis(ConfigCache) do
       nil -> start_supervised!({ConfigCache, ttl_ms: 60_000})
       _pid -> :ok
     end
   end
 
+  # AuthSettings carries every field; build_config/1 reads the optional ones.
   defp put_saml_settings(settings) do
+    settings = Map.merge(%{claim_mappings: nil, saml_pinned_cert_fingerprints: nil}, settings)
     expires_at = System.monotonic_time(:millisecond) + to_timeout(minute: 5)
     :ets.insert(ConfigCache, {:auth_settings, settings, expires_at})
   end

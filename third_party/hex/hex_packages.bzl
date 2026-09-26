@@ -242,7 +242,6 @@ HEX_PACKAGES = [
     ("rustler", "rustler", "0.38.0", "704c03c1bf66be12b031c5a389347b91c81c5cb819a24b068b0de36fe4a5652a"),
     ("rustler_precompiled", "rustler_precompiled", "0.9.0", "471d97315bd3bf7b64623418b3693eedd8e47de3d1cb79a0ac8f9da7d770d94c"),
     ("salsa20", "salsa20", "1.0.4", "745ddcd8cfa563ddb0fd61e7ce48d5146279a2cf7834e1da8441b369fdc58ac6"),
-    ("samly", "samly", "1.4.0", "9cc53e043cb4508c3df2f9a4e13bc101a6835aded5cd49ee1c931158f7ce1dd6"),
     ("shmex", "shmex", "0.5.2", "7325f40a7308fecaaab1b19790903034926e5fb202a48fcf51dfd2c4ba97f861"),
     ("simple_sat", "simple_sat", "0.1.4", "3569b68e346a5fd7154b8d14173ff8bcc829f2eb7b088c30c3f42a383443930b"),
     ("sobelow", "sobelow", "0.14.1", "8fac9a2bd90fdc4b15d6fca6e1608efb7f7c600fa75800813b794ee9364c87f2"),

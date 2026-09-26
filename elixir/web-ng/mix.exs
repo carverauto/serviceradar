@@ -184,8 +184,11 @@ defmodule ServiceRadarWebNG.MixProject do
       {:ueberauth, "~> 0.10"},
       {:ueberauth_oidcc, "~> 0.4"},
 
-      # Samly - SAML 2.0 Service Provider
-      {:samly, "~> 1.0"},
+      # SAML 2.0 Service Provider. The SP flow is our own
+      # (ServiceRadarWebNGWeb.SAMLController); these supply XML signature
+      # verification (:xmerl_dsig) and XPath extraction.
+      {:esaml, "~> 4.6"},
+      {:sweet_xml, "~> 0.7.5"},
 
       # Note: ash_admin comes from serviceradar_core dependency
 
