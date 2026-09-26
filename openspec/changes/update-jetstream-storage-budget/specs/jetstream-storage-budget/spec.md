@@ -190,8 +190,9 @@ For a discard-old buffer stream (`flows`, `events`, `ARANCINI_CAUSAL` and every 
 
 ### Requirement: One owner reconciles each stream shape
 Exactly one component SHALL reconcile the shape (`max_bytes`, replicas, retention) of a given stream. A secondary creator SHALL create the stream only when it is absent and otherwise merge subjects without changing the shape.
-When `bmpCollector.enabled` is true the Helm chart SHALL configure the EventWriter `ARANCINI_CAUSAL` consumer not to reconcile the stream shape, so bmp-collector owns `max_bytes` and replicas. The EventWriter fallback size SHALL apply only when bmp-collector is disabled and EventWriter creates the stream.
-The Helm chart SHALL render whether flow-collector is enabled into the core environment. While flow-collector is enabled the EventWriter `flows` consumers SHALL NOT reconcile the stream shape and flow-collector owns it. While flow-collector is disabled EventWriter owns `flows` and its `flows` consumers SHALL reconcile the shape to the profile fallback size with 1 replica.
+Core SHALL read the owner of `flows` from `SERVICERADAR_JS_FLOWS_OWNER` (`flow-collector` or `eventwriter`) and the owner of `ARANCINI_CAUSAL` from `SERVICERADAR_JS_ARANCINI_CAUSAL_OWNER` (`bmp-collector` or `eventwriter`). When a signal is unset the collector SHALL own the stream, so EventWriter's consumers are subjects-only and create-only.
+When the owner is the collector, the EventWriter consumers SHALL NOT reconcile the stream shape. When the owner is `eventwriter`, they SHALL reconcile the shape to the size and replicas in `SERVICERADAR_JS_FLOWS_MAX_BYTES` / `_REPLICAS` or `SERVICERADAR_JS_ARANCINI_CAUSAL_MAX_BYTES` / `_REPLICAS`, the same variables the collector reads.
+The Helm chart SHALL render the owner from `flowCollector.enabled` and `bmpCollector.enabled`, and SHALL render those size variables from the collector's values when it is enabled and from the profile fallback with 1 replica when it is not. Every Compose preset and the packaged sizes file SHALL set both owner variables explicitly.
 
 The otel log-collector SHALL own the shape of `events`. Every EventWriter consumer on `events` SHALL carry `reconcile_stream_shape` false, so it never updates an existing `events` stream, and SHALL carry a `stream_max_bytes` equal to the profile `events` size, used only when it creates the stream because `events` is absent, in every EventWriter configuration path. The Helm chart SHALL render that size and the matching replicas into the core environment from `logCollector.streamMaxBytes` and `logCollector.streamReplicas`. Creating a stream and reconciling its shape are separate operations.
 An ownership test SHALL fail when an EventWriter consumer reconciles the shape of a stream that EventWriter does not own, derived from the loaded EventWriter configuration and the inventory's declared owners. Behaviour of the Go and Rust owners is covered by each owner's own tests.
@@ -220,7 +221,7 @@ An ownership test SHALL fail when an EventWriter consumer reconciles the shape o
 - **AND** EventWriter SHALL NOT change its replicas or retention
 
 #### Scenario: Existing flows stream with flow-collector disabled converges
-- **GIVEN** `flowCollector.enabled: false`
+- **GIVEN** `flowCollector.enabled: false`, so the chart renders `SERVICERADAR_JS_FLOWS_OWNER` as `eventwriter`
 - **AND** `flows` exists with 10 GiB `max_bytes`, created earlier by EventWriter
 - **AND** the profile's `flows` fallback size is 1 GiB
 - **WHEN** core starts
@@ -231,6 +232,16 @@ An ownership test SHALL fail when an EventWriter consumer reconciles the shape o
 - **GIVEN** `flowCollector.enabled: true` and flow-collector has set `flows` to 8 GiB
 - **WHEN** EventWriter starts
 - **THEN** the `flows` stream's `max_bytes` and replicas SHALL be unchanged
+
+#### Scenario: Missing ownership signal never fights the collector
+- **GIVEN** `SERVICERADAR_JS_FLOWS_OWNER` is unset and flow-collector has set `flows` to 8 GiB
+- **WHEN** EventWriter starts
+- **THEN** the `flows` stream's `max_bytes` and replicas SHALL be unchanged
+
+#### Scenario: Compose preset sets the owner explicitly
+- **GIVEN** a Compose preset or the packaged sizes file
+- **WHEN** the budget test runs
+- **THEN** it SHALL fail if `SERVICERADAR_JS_FLOWS_OWNER` or `SERVICERADAR_JS_ARANCINI_CAUSAL_OWNER` is missing or not one of its allowed values
 
 #### Scenario: EventWriter creates the stream when bmp-collector is disabled
 - **GIVEN** `bmpCollector.enabled: false`
@@ -261,7 +272,7 @@ The precedence SHALL be environment, then the JSON or TOML value, then the compi
 ### Requirement: Non-Helm installs ship explicit profile sizes that fit
 Docker Compose SHALL ship one preset file per sizing profile that sets `max_file_store` and every stream size explicitly, and packaged installs SHALL ship the same explicit sizes as a file; the NATS server configuration SHALL read `max_file_store` from them.
 For every preset the worst-case reservation, computed as for the Helm chart with `nats.replicas` equal to 1, SHALL NOT exceed 85% of `max_file_store`.
-A Bazel test SHALL enforce this by parsing the NATS server configuration with the NATS configuration parser and the preset and sizes files into typed values, without reading component source. The test SHALL fail on a missing or unknown stream key or a non-positive size.
+A Bazel test SHALL enforce this by parsing the NATS server configuration with the NATS configuration parser and the preset and sizes files into typed values, without reading component source. The test SHALL fail on a missing or unknown stream key, a non-positive size, or a missing or invalid `SERVICERADAR_JS_FLOWS_OWNER` or `SERVICERADAR_JS_ARANCINI_CAUSAL_OWNER`.
 The test SHALL also parse `docker-compose.yml` and the packaged systemd units into typed models and SHALL fail when a size-owning service does not load the selected preset (`env_file`) or the sizes file (`EnvironmentFile`).
 
 #### Scenario: Shipped Compose presets

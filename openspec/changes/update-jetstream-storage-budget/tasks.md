@@ -24,10 +24,13 @@
       `runtime.exs` into `:field_survey_artifact_store`.
 - [ ] 2.5 Expose a `core` value for the threat-intel bucket, rendered as
       `SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES`.
-- [ ] 2.6 EventWriter `ARANCINI_CAUSAL` consumer: honour a
-      `reconcile_stream_shape` setting from the core environment, and have the
-      chart render it `false` whenever `bmpCollector.enabled`; the 1 GiB
-      fallback size applies only when EventWriter creates the stream.
+- [ ] 2.6 EventWriter `ARANCINI_CAUSAL` consumer: read the owner from
+      `SERVICERADAR_JS_ARANCINI_CAUSAL_OWNER` (`bmp-collector` or
+      `eventwriter`; unset means the collector owns it, so subjects-only and
+      create-only) and its size from `SERVICERADAR_JS_ARANCINI_CAUSAL_MAX_BYTES`
+      / `_REPLICAS`; the chart renders the owner from `bmpCollector.enabled`
+      and the size pair from the collector's values or the 1 GiB / 1 replica
+      fallback.
 
 ## 3. Chart budget and profiles (D2, D4, D5, D8)
 
@@ -118,13 +121,15 @@
       from source text, and fails on the current `EVENTS` default. Go and Rust
       owner behaviour is covered by each owner's unit tests (4.1, 4.2, 4.9,
       4.10).
-- [ ] 4.14 Flow ownership: render whether flow-collector is enabled into the
-      core environment; EventWriter `flows` consumers (`SFLOW_RAW`,
-      `NETFLOW_RAW`) use `reconcile_stream_shape: false` while it is enabled and
-      `true` with the profile fallback size and 1 replica while it is
-      disabled. Tests: with flow-collector disabled an existing 10 GiB `flows`
-      converges to the fallback at core start; with it enabled EventWriter
-      leaves `flows` unchanged.
+- [ ] 4.14 Flow ownership: EventWriter `flows` consumers (`SFLOW_RAW`,
+      `NETFLOW_RAW`) read `SERVICERADAR_JS_FLOWS_OWNER` (`flow-collector` or
+      `eventwriter`; unset means flow-collector owns it) and use
+      `reconcile_stream_shape: false` unless it is `eventwriter`, in which case
+      they reconcile to `SERVICERADAR_JS_FLOWS_MAX_BYTES` / `_REPLICAS`. The
+      chart renders the owner from `flowCollector.enabled` and the size pair
+      from the collector's values or the fallback. Tests: owner `eventwriter`
+      converges an existing 10 GiB `flows` to the fallback at core start; owner
+      `flow-collector` and an unset owner both leave `flows` unchanged.
 
 ## 5. Compose and packaged installs (D7)
 
@@ -134,11 +139,15 @@
 - [ ] 5.2 `docker/compose/nats.docker.conf` reads `max_file_store` from
       `$SERVICERADAR_NATS_MAX_FILE_STORE`. The presets set every stream size
       through the `SERVICERADAR_JS_<STREAM>_MAX_BYTES` / `_REPLICAS` variables
-      of D7 (core and web-ng through their own variables, task 2.3-2.5).
+      of D7 (core and web-ng through their own variables, task 2.3-2.5) and
+      set `SERVICERADAR_JS_FLOWS_OWNER=flow-collector` and
+      `SERVICERADAR_JS_ARANCINI_CAUSAL_OWNER=bmp-collector` explicitly.
 - [ ] 5.3 Ship `build/packaging/nats/config/jetstream-sizes.env` with the
       `small` content; load it with `EnvironmentFile=` in the NATS, datasvc,
       log-collector, flow-collector, bmp-collector, core and web-ng units, and
-      read `max_file_store` from it in `nats-server.conf`.
+      read `max_file_store` from it in `nats-server.conf`; the file also sets
+      `SERVICERADAR_JS_FLOWS_OWNER` and `SERVICERADAR_JS_ARANCINI_CAUSAL_OWNER`
+      explicitly.
 - [ ] 5.4 Add a `go_test` that sets each preset's variables, parses the NATS
       configs with the nats-server config parser, parses the presets and sizes
       file into typed values, fails on a missing or unknown inventory key or a
@@ -147,6 +156,7 @@
       It also parses `docker-compose.yml` and the packaged systemd units into
       typed models and fails when a size-owning service does not load the
       selected preset (`env_file`) or the sizes file (`EnvironmentFile`).
+      It fails when either owner variable is missing or invalid.
       A vector with the v1.4.73 single-server shape must fail.
 - [ ] 5.5 Bump `addons/<name>/addon.yaml` `version` for any native add-on whose
       config changes.

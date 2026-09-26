@@ -112,30 +112,47 @@ setting, never through another component's environment:
 `flows` and `ARANCINI_CAUSAL` have two possible creators, so exactly one of
 them owns the stream shape (`max_bytes`, replicas, retention) and the other
 creates it only when absent and otherwise merges subjects. The owner is the
-collector when it is enabled and EventWriter when it is not:
+collector when it is running and EventWriter when it is not. Core learns which
+from an explicit signal, one per stream, in the same form on every install:
 
-- `flows`: EventWriter's `flows` consumers (`SFLOW_RAW`, `NETFLOW_RAW`) today
-  always run with `reconcile_stream_shape: false`, so with flow-collector
-  disabled nothing reconciles an existing `flows` stream, and an install whose
+- `SERVICERADAR_JS_FLOWS_OWNER` is `flow-collector` or `eventwriter`, and
+  `SERVICERADAR_JS_ARANCINI_CAUSAL_OWNER` is `bmp-collector` or `eventwriter`.
+- **Unset means the collector owns the stream**, so a missing signal can never
+  make EventWriter fight the collector: EventWriter's consumer is
+  subjects-only (`reconcile_stream_shape: false`) and create-only.
+- EventWriter takes the create-time size, and the reconcile size when it is
+  the owner, from `SERVICERADAR_JS_FLOWS_MAX_BYTES` / `_REPLICAS` and
+  `SERVICERADAR_JS_ARANCINI_CAUSAL_MAX_BYTES` / `_REPLICAS`, the same keys the
+  collector reads (D7). Helm renders the pair from the collector's values when
+  the collector is enabled and from the profile fallback (1 GiB, 1 replica)
+  when it is not.
+- Helm renders the owner from `flowCollector.enabled` and
+  `bmpCollector.enabled`. Every Compose preset and the packaged sizes file sets
+  both explicitly, to the collector, because the presets size every stream for
+  the case where all optional producers run; an install that does not run a
+  collector sets `eventwriter`. The preset test asserts both are set and hold
+  a valid value.
+
+The two streams differ in what EventWriter does today:
+
+- `flows`: EventWriter's `flows` consumers (`SFLOW_RAW`, `NETFLOW_RAW`) always
+  run with `reconcile_stream_shape: false`, so with flow-collector disabled
+  nothing reconciles an existing `flows` stream, and an install whose
   EventWriter created it at 10 GiB keeps reserving 10 GiB against the budgeted
-  1 GiB fallback. The chart therefore renders whether flow-collector is
-  enabled into core, and EventWriter's `flows` consumers follow it. While
-  flow-collector is enabled they stay subjects-only
-  (`reconcile_stream_shape: false`) and flow-collector owns the shape. While it
-  is disabled EventWriter owns `flows` and its consumers use
-  `reconcile_stream_shape: true` with the profile fallback size and 1 replica,
-  so an existing 10 GiB `flows` converges to the fallback at the next core
-  start under the discard-old rule (D6), evicting the oldest messages.
+  fallback. When the owner is `eventwriter` the consumers now use
+  `reconcile_stream_shape: true`, so an existing 10 GiB `flows` converges to
+  the fallback at the next core start under the discard-old rule (D6),
+  evicting the oldest messages. When the owner is the collector they stay
+  subjects-only and flow-collector owns the shape.
 - `ARANCINI_CAUSAL`: EventWriter's consumer defaults to reconciling the shape
-  and sets no size today. When `bmpCollector.enabled` the chart renders the
-  ownership flag into core so that consumer runs with
-  `reconcile_stream_shape: false` (subjects only) and bmp-collector owns
-  `max_bytes` and replicas. Today bmp-collector sets them only when it creates
-  the stream and merely merges subjects on an existing one, so its publisher
-  gains a create-or-update that reconciles `max_bytes` and `num_replicas`
-  under the D6 rule. The 1 GiB EventWriter fallback applies only when
-  bmp-collector is disabled and EventWriter creates the stream. Without this,
-  EventWriter would cap a 12 GiB `medium` BMP stream at its own fallback.
+  and sets no size today. When the owner is `bmp-collector` it runs with
+  `reconcile_stream_shape: false` and bmp-collector owns `max_bytes` and
+  replicas. Today bmp-collector sets them only when it creates the stream and
+  merely merges subjects on an existing one, so its publisher gains a
+  create-or-update that reconciles `max_bytes` and `num_replicas` under the D6
+  rule. The 1 GiB fallback applies only when the owner is `eventwriter`.
+  Without this, EventWriter would cap a 12 GiB `medium` BMP stream at its own
+  fallback.
 
 ### D4. Smaller datasvc defaults
 
@@ -305,9 +322,11 @@ sharing one server with their own size tables (D8).
   the systemd units load with `EnvironmentFile=`;
   `build/packaging/nats/config/nats-server.conf` reads `max_file_store` from
   it the same way. Moving to `medium` or `large` replaces that file.
-- The Compose and packaged presets carry one `ARANCINI_CAUSAL` key that both
-  bmp-collector and EventWriter read, so the two agree on the size without
-  the Helm ownership flag.
+- The Compose and packaged presets carry one `flows` and one `ARANCINI_CAUSAL`
+  size key that both the collector and EventWriter read, so the two agree on
+  the size, plus the `SERVICERADAR_JS_FLOWS_OWNER` and
+  `SERVICERADAR_JS_ARANCINI_CAUSAL_OWNER` signals of D3, set explicitly to the
+  collector in every preset and in the packaged sizes file.
 - Neither install has a PVC. A profile's `max_file_store` is a reservation
   ceiling, so the host needs at least that much free disk for JetStream. This
   raises the Compose and packaged ceiling from today's `10G` to `30G` for
