@@ -101,14 +101,15 @@ defmodule ServiceRadarWebNGWeb.Stats do
   ## Options
 
     * `:time` - Time range filter (default: "last_24h")
-    * `:service_name` - Filter by service name (optional)
+    * `:service_name` - Filter by OTel service: a list of exact names (the
+      rollup's list filter), or one pattern string (optional)
     * `:srql_module` - SRQL module to use (default from config)
 
   ## Examples
 
       Stats.logs_severity()
       Stats.logs_severity(time: "last_1h")
-      Stats.logs_severity(service_name: "api-gateway")
+      Stats.logs_severity(service_name: ["checkout", "billing"])
   """
   @spec logs_severity(keyword()) :: Extract.logs_severity()
   def logs_severity(opts \\ []) do
@@ -324,14 +325,15 @@ defmodule ServiceRadarWebNGWeb.Stats do
   ## Options
 
     * `:time` - Time range filter (default: "last_24h")
-    * `:service_name` - Filter by service name (optional)
+    * `:service_name` - Filter by OTel service: a list of exact names (the
+      rollup's list filter), or one pattern string (optional)
     * `:srql_module` - SRQL module to use (default from config)
 
   ## Examples
 
       Stats.traces_summary()
       Stats.traces_summary(time: "last_6h")
-      Stats.traces_summary(service_name: "user-service")
+      Stats.traces_summary(service_name: ["checkout"])
   """
   @spec traces_summary(keyword()) :: Extract.traces_summary()
   def traces_summary(opts \\ []) do
@@ -355,14 +357,15 @@ defmodule ServiceRadarWebNGWeb.Stats do
   ## Options
 
     * `:time` - Time range filter (default: "last_24h")
-    * `:service_name` - Filter by service name (optional)
+    * `:service_name` - Filter by OTel service: a list of exact names (the
+      rollup's list filter), or one pattern string (optional)
     * `:srql_module` - SRQL module to use (default from config)
 
   ## Examples
 
       Stats.metrics_summary()
       Stats.metrics_summary(time: "last_6h")
-      Stats.metrics_summary(service_name: "core-elx")
+      Stats.metrics_summary(service_name: ["checkout"])
   """
   @spec metrics_summary(keyword()) :: metrics_summary()
   def metrics_summary(opts \\ []) do
@@ -373,6 +376,27 @@ defmodule ServiceRadarWebNGWeb.Stats do
     query
     |> srql_module.query(%{scope: scope})
     |> Extract.metrics_red()
+  end
+
+  @doc """
+  Count the OTel services that reported `signal` in the window, from the
+  service catalog (`in:otel_services`), not from telemetry.
+
+  ## Options
+
+    * `:time` - Time range filter (default: "last_24h")
+    * `:service_name` - Narrow to a list of exact names (optional)
+    * `:scope`, `:srql_module`
+  """
+  @spec otel_service_count(String.t(), keyword()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def otel_service_count(signal, opts \\ []) do
+    srql_module = Keyword.get(opts, :srql_module, default_srql_module())
+    scope = Keyword.get(opts, :scope)
+
+    signal
+    |> Query.otel_service_count(opts)
+    |> srql_module.query(%{scope: scope})
+    |> Extract.count_total()
   end
 
   @doc """

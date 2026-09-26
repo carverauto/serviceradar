@@ -421,3 +421,36 @@ impl TraceSummaryRow {
         })
     }
 }
+
+/// One `in:otel_services` row. Every timestamp is already narrowed to the
+/// caller's effective signals by the query: a signal outside that set arrives
+/// as NULL, and `last_seen` is the greatest of the effective signals only.
+#[derive(Debug, Clone, QueryableByName)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct OtelServiceRow {
+    #[diesel(sql_type = Text)]
+    pub service_name: String,
+    #[diesel(sql_type = Array<Text>)]
+    pub signals: Vec<String>,
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    pub last_seen: Option<DateTime<Utc>>,
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    pub logs_last_seen: Option<DateTime<Utc>>,
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    pub traces_last_seen: Option<DateTime<Utc>>,
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    pub metrics_last_seen: Option<DateTime<Utc>>,
+}
+
+impl OtelServiceRow {
+    pub fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "service_name": self.service_name,
+            "signals": self.signals,
+            "last_seen": self.last_seen,
+            "logs_last_seen": self.logs_last_seen,
+            "traces_last_seen": self.traces_last_seen,
+            "metrics_last_seen": self.metrics_last_seen,
+        })
+    }
+}

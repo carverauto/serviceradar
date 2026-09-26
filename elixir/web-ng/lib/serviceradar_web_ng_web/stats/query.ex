@@ -4,7 +4,19 @@ defmodule ServiceRadarWebNGWeb.Stats.Query do
 
   These functions return the raw SRQL query strings that use the `rollup_stats:<type>`
   pattern to query pre-computed continuous aggregates instead of counting rows at query time.
+
+  ## Service filter
+
+  The OTel rollups (`logs_severity/1`, `traces_summary/1`, `metrics_red/1`)
+  and `logs_severity_data_query/2` take `:service_name` as either:
+
+    * a list of exact names -- emitted as the rollup's list filter
+      (`service_name:("checkout","billing")`), never truncated; or
+    * a single string -- emitted as a quoted scalar, so a `%` in it is a
+      wildcard pattern (the pane's own hand-typed filter).
   """
+
+  alias ServiceRadarWebNGWeb.Observability.ServiceFilter
 
   @default_time_window "last_24h"
   @log_severity_values %{
@@ -38,20 +50,8 @@ defmodule ServiceRadarWebNGWeb.Stats.Query do
   @spec logs_severity(keyword()) :: String.t()
   def logs_severity(opts \\ []) do
     time = Keyword.get(opts, :time, @default_time_window)
-    service_name = Keyword.get(opts, :service_name)
 
-    base = "in:logs time:#{time} rollup_stats:severity"
-
-    filters =
-      []
-      |> maybe_add_filter("service_name", service_name)
-      |> Enum.join(" ")
-
-    if filters == "" do
-      base
-    else
-      "#{base} #{filters}"
-    end
+    append_service_filter("in:logs time:#{time} rollup_stats:severity", Keyword.get(opts, :service_name))
   end
 
   @doc """
@@ -96,7 +96,11 @@ defmodule ServiceRadarWebNGWeb.Stats.Query do
     sort = Keyword.get(opts, :sort, "timestamp:desc")
     limit = Keyword.get(opts, :limit)
 
-    base = "in:logs #{log_severity_filter(levels)} time:#{time} sort:#{sort}"
+    base =
+      append_service_filter(
+        "in:logs #{log_severity_filter(levels)} time:#{time} sort:#{sort}",
+        Keyword.get(opts, :service_name)
+      )
 
     if is_integer(limit) and limit > 0 do
       "#{base} limit:#{limit}"
@@ -133,15 +137,8 @@ defmodule ServiceRadarWebNGWeb.Stats.Query do
   @spec traces_summary(keyword()) :: String.t()
   def traces_summary(opts \\ []) do
     time = Keyword.get(opts, :time, @default_time_window)
-    service_name = Keyword.get(opts, :service_name)
 
-    base = "in:otel_traces time:#{time} rollup_stats:summary"
-
-    if is_binary(service_name) and service_name != "" do
-      "#{base} service_name:\"#{escape_value(service_name)}\""
-    else
-      base
-    end
+    append_service_filter("in:otel_traces time:#{time} rollup_stats:summary", Keyword.get(opts, :service_name))
   end
 
   @doc """
@@ -154,15 +151,22 @@ defmodule ServiceRadarWebNGWeb.Stats.Query do
   @spec metrics_red(keyword()) :: String.t()
   def metrics_red(opts \\ []) do
     time = Keyword.get(opts, :time, @default_time_window)
-    service_name = Keyword.get(opts, :service_name)
 
-    base = "in:otel_traces time:#{time} rollup_stats:red"
+    append_service_filter("in:otel_traces time:#{time} rollup_stats:red", Keyword.get(opts, :service_name))
+  end
 
-    if is_binary(service_name) and service_name != "" do
-      "#{base} service_name:\"#{escape_value(service_name)}\""
-    else
-      base
-    end
+  @doc """
+  Build the OTel service-catalog count for a signal: how many services
+  reported `signal` within `:time`, optionally narrowed to `:service_name`
+  (a list of exact names). Reads `in:otel_services`, never telemetry.
+  """
+  @spec otel_service_count(String.t(), keyword()) :: String.t()
+  def otel_service_count(signal, opts \\ []) when signal in ["logs", "traces", "metrics"] do
+    time = Keyword.get(opts, :time, @default_time_window)
+
+    "in:otel_services signal:#{signal} time:#{time}"
+    |> append_service_filter(Keyword.get(opts, :service_name))
+    |> Kernel.<>(~s| stats:"count() as total"|)
   end
 
   @doc """
@@ -246,6 +250,19 @@ defmodule ServiceRadarWebNGWeb.Stats.Query do
   defp normalize_finding_rollup_kind("capacity_at_risk"), do: "capacity_at_risk"
   defp normalize_finding_rollup_kind("health"), do: "health"
   defp normalize_finding_rollup_kind(other), do: raise(ArgumentError, "unknown finding rollup kind: #{inspect(other)}")
+
+  defp append_service_filter(base, names) when is_list(names) do
+    case ServiceFilter.token(names) do
+      nil -> base
+      token -> "#{base} #{token}"
+    end
+  end
+
+  defp append_service_filter(base, name) when is_binary(name) and name != "" do
+    ~s|#{base} service_name:"#{escape_value(name)}"|
+  end
+
+  defp append_service_filter(base, _none), do: base
 
   defp maybe_add_filter(filters, _field, nil), do: filters
   defp maybe_add_filter(filters, _field, ""), do: filters

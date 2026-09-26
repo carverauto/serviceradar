@@ -46,6 +46,7 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
   alias ServiceRadar.EventWriter.DeviceCorrelation
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.OCSF
+  alias ServiceRadar.EventWriter.ServiceCatalog
   alias ServiceRadar.Monitoring.AlertGenerator
   alias ServiceRadar.Observability.LogPubSub
   alias ServiceRadar.Observability.StatefulEvaluationLedger
@@ -184,8 +185,13 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
       )
 
       case stored do
-        :ok -> {:ok, log_count}
-        {:error, reason} -> {:error, reason}
+        :ok ->
+          # Best-effort OTel service catalog upsert; never fails the batch.
+          _ = ServiceCatalog.record(:logs, log_rows)
+          {:ok, log_count}
+
+        {:error, reason} ->
+          {:error, reason}
       end
     end
   rescue

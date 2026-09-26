@@ -271,6 +271,35 @@ pub(super) fn trace_summaries() -> VizMeta {
     }
 }
 
+/// The OTel `service.name` catalog. Per-signal fields outside the caller's
+/// permitted signals are always null.
+pub(super) fn otel_services() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col(
+                "service_name",
+                ColumnType::Text,
+                Some(ColumnSemantic::Label),
+            ),
+            col("signals", ColumnType::TextArray, None),
+            col(
+                "last_seen",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+            col("logs_last_seen", ColumnType::Timestamptz, None),
+            col("traces_last_seen", ColumnType::Timestamptz, None),
+            col("metrics_last_seen", ColumnType::Timestamptz, None),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
+
 pub(super) fn otel_metrics() -> VizMeta {
     VizMeta {
         columns: vec![

@@ -13,6 +13,7 @@ fn translate_param_arity_matches_sql_placeholders() {
                 cursor: None,
                 direction: QueryDirection::Next,
                 mode: None,
+                permitted_signals: None,
             },
             QueryRequest {
                 query: "in:services available:false time:last_24h stats:count() as failing"
@@ -21,6 +22,7 @@ fn translate_param_arity_matches_sql_placeholders() {
                 cursor: None,
                 direction: QueryDirection::Next,
                 mode: None,
+                permitted_signals: None,
             },
             QueryRequest {
                 query: "in:gateways is_healthy:true status:ready sort:agent_count:desc".to_string(),
@@ -28,6 +30,7 @@ fn translate_param_arity_matches_sql_placeholders() {
                 cursor: None,
                 direction: QueryDirection::Next,
                 mode: None,
+                permitted_signals: None,
             },
             QueryRequest {
                 query:
@@ -37,6 +40,7 @@ fn translate_param_arity_matches_sql_placeholders() {
                 cursor: None,
                 direction: QueryDirection::Next,
                 mode: None,
+                permitted_signals: None,
             },
             QueryRequest {
                 query: "in:devices time:last_7d sort:last_seen:desc is_available:true discovery_sources:(sweep,armis)".to_string(),
@@ -44,6 +48,7 @@ fn translate_param_arity_matches_sql_placeholders() {
                 cursor: Some(cursor.clone()),
                 direction: QueryDirection::Next,
                 mode: None,
+                permitted_signals: None,
             },
             QueryRequest {
                 query: r#"in:logs device_id:"sr:device-1" time:last_24h sort:timestamp:desc"#.to_string(),
@@ -51,6 +56,7 @@ fn translate_param_arity_matches_sql_placeholders() {
                 cursor: None,
                 direction: QueryDirection::Next,
                 mode: None,
+                permitted_signals: None,
             },
             QueryRequest {
                 query: "in:interfaces time:last_24h ip_addresses:(10.0.0.1,10.0.0.2) sort:timestamp:asc".to_string(),
@@ -58,6 +64,7 @@ fn translate_param_arity_matches_sql_placeholders() {
                 cursor: None,
                 direction: QueryDirection::Next,
                 mode: None,
+                permitted_signals: None,
             },
             QueryRequest {
                 query: "in:traces time:last_24h status_code:(1,2) kind:(1,2,3) sort:timestamp:desc".to_string(),
@@ -65,6 +72,7 @@ fn translate_param_arity_matches_sql_placeholders() {
                 cursor: None,
                 direction: QueryDirection::Next,
                 mode: None,
+                permitted_signals: None,
             },
             QueryRequest {
                 query: "in:device_graph device_id:dev-1 collector_owned_only:true include_topology:false".to_string(),
@@ -72,6 +80,7 @@ fn translate_param_arity_matches_sql_placeholders() {
                 cursor: None,
                 direction: QueryDirection::Next,
                 mode: None,
+                permitted_signals: None,
             },
             QueryRequest {
                 query: "in:devices switch_port_attachment.switch_hostname:switch01.example.com vlan_uid:200".to_string(),
@@ -79,6 +88,7 @@ fn translate_param_arity_matches_sql_placeholders() {
                 cursor: None,
                 direction: QueryDirection::Next,
                 mode: None,
+                permitted_signals: None,
             },
             QueryRequest {
                 query: "in:source_fact_disagreements fact_key:switch_port_attachment status:open sort:last_detected_at:desc".to_string(),
@@ -86,6 +96,7 @@ fn translate_param_arity_matches_sql_placeholders() {
                 cursor: None,
                 direction: QueryDirection::Next,
                 mode: None,
+                permitted_signals: None,
             },
         ];
 
@@ -117,6 +128,7 @@ fn translate_timestamp_sorted_severity_list_uses_bounded_topn_branches() {
         cursor: Some(cursor),
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -173,6 +185,7 @@ fn translate_includes_visualization_metadata() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -204,6 +217,7 @@ fn translate_logs_device_id_resolves_inventory_aliases() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -238,6 +252,7 @@ fn translate_logs_without_time_gets_default_window() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -273,6 +288,7 @@ fn translate_logs_stats_without_time_gets_default_window() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -305,6 +321,7 @@ fn translate_downsample_emits_time_bucket_query() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -354,6 +371,7 @@ fn translate_timeseries_downsample_supports_sysmon_core_series_from_tags() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -376,6 +394,7 @@ fn translate_timeseries_downsample_with_cagg_safe_filters_reads_hourly_cagg() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -407,6 +426,7 @@ fn translate_timeseries_downsample_with_non_cagg_series_stays_raw() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -435,6 +455,7 @@ fn translate_downsample_allows_timeseries_series_key() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -460,6 +481,7 @@ fn translate_timeseries_metric_interface_hourly_reads_interface_cagg() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -508,6 +530,7 @@ fn translate_timeseries_metric_disk_hourly_reads_disk_cagg() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -560,6 +583,7 @@ fn translate_timeseries_metric_disk_hourly_rejects_stats_and_unknown_fields() {
             cursor: None,
             direction: QueryDirection::Next,
             mode: None,
+            permitted_signals: None,
         };
 
         assert!(
@@ -578,6 +602,7 @@ fn translate_timeseries_metric_interface_hourly_profile_uses_rate_cagg() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -635,6 +660,7 @@ fn translate_interface_full_profile_with_device_and_interface_lists_scope_to_any
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -688,6 +714,7 @@ fn full_profiles_continue_past_the_generic_cursor_cap_in_translation() {
         cursor: Some(cursor),
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("full-profile page above cap");
@@ -718,6 +745,7 @@ fn discovery_profiles_continue_past_the_generic_cursor_cap_in_translation() {
                 cursor,
                 direction: QueryDirection::Next,
                 mode: None,
+                permitted_signals: None,
             };
 
             let response = translate_request(&config, request).expect("discovery page");
@@ -744,6 +772,7 @@ fn ordinary_translation_retains_the_generic_cursor_cap() {
         cursor: Some(encode_cursor(100, &config.cursor_secret).expect("cursor")),
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request.clone()).expect("page at cap");
@@ -762,6 +791,7 @@ fn translate_downsample_respects_value_field() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -790,6 +820,7 @@ fn translate_flows_downsample_emits_time_bucket_query() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -843,6 +874,7 @@ fn translate_flows_app_filter_binds_value_and_correlates_override_rules() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("app filter should translate");
@@ -886,6 +918,7 @@ fn translate_flows_downsample_30d_reads_prescaled_cagg() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -924,6 +957,7 @@ fn translate_flows_downsample_can_filter_by_input_snmp() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -958,6 +992,7 @@ fn translate_rate_downsample_orders_by_bucket_and_series() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -1001,6 +1036,7 @@ fn translate_rate_downsample_is_counter_wrap_aware() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -1066,6 +1102,7 @@ fn translate_graph_cypher_rejects_mutations() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let err = translate_request(&config, request).expect_err("should reject write cypher");
@@ -1085,6 +1122,7 @@ fn translate_graph_cypher_rejects_mutations_without_keyword_spacing() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let err = translate_request(&config, request).expect_err("should reject write cypher");
@@ -1105,6 +1143,7 @@ RETURN {id: n.id, label: 'create'} AS result" limit:10"#
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -1126,6 +1165,7 @@ fn translate_graph_cypher_still_rejects_mutations_after_comments() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let err = translate_request(&config, request).expect_err("should reject write cypher");
@@ -1144,6 +1184,7 @@ fn translate_graph_dql_rejects_mutations() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let err = translate_request(&config, request).expect_err("should reject write dql");
@@ -1163,6 +1204,7 @@ fn translate_graph_dql_requires_dql() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let err = translate_request(&config, request).expect_err("should require dql");
@@ -1181,6 +1223,7 @@ fn translate_graph_dql_is_not_sql() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let err = translate_request(&config, request).expect_err("graph_dql is not SQL");
@@ -1199,6 +1242,7 @@ fn translate_graph_cypher_wraps_rows_as_topology_payload() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -1234,6 +1278,7 @@ fn translate_device_filtered_hourly_downsample_routes_to_timeseries_cagg() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -1267,6 +1312,7 @@ fn translate_agent_filtered_hourly_downsample_stays_on_raw_hypertable() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -1294,6 +1340,7 @@ fn translate_subhour_device_filtered_downsample_stays_on_raw_hypertable() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -1318,6 +1365,7 @@ fn translate_hourly_max_downsample_reads_cagg_max_value_column() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -1349,6 +1397,7 @@ fn translate_downsample_sort_desc_truncates_from_the_newest_bucket() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -1377,6 +1426,7 @@ fn translate_downsample_without_sort_keeps_ascending_truncation() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -1414,6 +1464,7 @@ fn translate_downsample_sort_desc_applies_on_cagg_and_rate_paths() {
             cursor: None,
             direction: QueryDirection::Next,
             mode: None,
+            permitted_signals: None,
         };
 
         let response = translate_request(&config, request).expect("translation should succeed");
@@ -1443,6 +1494,7 @@ fn translate_flows_bidirectional_ip_matches_either_endpoint() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -1483,6 +1535,7 @@ fn translate_flows_negated_bidirectional_ip_requires_both_sides_to_miss() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -1509,6 +1562,7 @@ fn translate_flows_bidirectional_cidr_matches_either_endpoint() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
     let response = translate_request(&config, request).expect("translation should succeed");
     let sql = response.sql.to_lowercase();
@@ -1526,6 +1580,7 @@ fn translate_flows_bidirectional_cidr_matches_either_endpoint() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
     let response = translate_request(&config, request).expect("translation should succeed");
     assert_eq!(
@@ -1564,6 +1619,7 @@ fn translate_flows_bidirectional_ip_works_on_stats_and_downsample_paths() {
             cursor: None,
             direction: QueryDirection::Next,
             mode: None,
+            permitted_signals: None,
         };
 
         let response = translate_request(&config, request).expect("translation should succeed");
@@ -1601,6 +1657,7 @@ fn translate_flows_cidr_works_on_stats_and_downsample_paths() {
             cursor: None,
             direction: QueryDirection::Next,
             mode: None,
+            permitted_signals: None,
         };
 
         let response = translate_request(&config, request)
@@ -1634,6 +1691,7 @@ fn translate_query(query: &str) -> std::result::Result<String, crate::error::Ser
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     crate::query::translate::translate_request(&config, request).map(|response| response.sql)

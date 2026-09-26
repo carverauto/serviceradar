@@ -18,6 +18,7 @@ defmodule ServiceRadar.Observability do
   - `ServiceRadar.Observability.MemoryMetric` - Memory usage metrics
   - `ServiceRadar.Observability.DiskMetric` - Disk usage metrics
   - `ServiceRadar.Observability.OtelTraceSummary` - OpenTelemetry trace summaries
+  - `ServiceRadar.Observability.OtelServiceCatalogEntry` - OTel services seen per signal
 
   ## TimescaleDB Integration
 
@@ -105,6 +106,8 @@ defmodule ServiceRadar.Observability do
     resource ServiceRadar.Observability.OtelMetricPoint
     resource ServiceRadar.Observability.OtelTrace
     resource ServiceRadar.Observability.OtelTraceSummary
+    # Control-plane catalog of OTel services; schema owned by this resource.
+    resource ServiceRadar.Observability.OtelServiceCatalogEntry
   end
 
   authorization do

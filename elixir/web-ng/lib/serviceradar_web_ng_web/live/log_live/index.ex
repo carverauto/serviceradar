@@ -27,6 +27,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.Components.PrefixTagChips
+  alias ServiceRadarWebNGWeb.Components.ServicePicker
   alias ServiceRadarWebNGWeb.LogLive.EventSummary
   alias ServiceRadarWebNGWeb.LogLive.NetflowRuntime
   alias ServiceRadarWebNGWeb.LogLive.NetflowSankey
@@ -41,6 +42,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadarWebNGWeb.NetflowLive.Visualize.FlowContext.MapMarkers
   alias ServiceRadarWebNGWeb.NetflowVisualize.Query, as: NFQuery
   alias ServiceRadarWebNGWeb.NetflowVisualize.State, as: NFState
+  alias ServiceRadarWebNGWeb.Observability.ServiceFilter
   alias ServiceRadarWebNGWeb.ObservabilityPaths
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
   alias ServiceRadarWebNGWeb.Stats
@@ -152,6 +154,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      |> stream_configure(:events, dom_id: &event_dom_id/1)
      |> stream(:logs, [])
      |> stream(:events, [])
+     |> assign(:service_stats_scope, nil)
+     |> assign(:service_filter_notice?, false)
+     |> ServicePicker.init()
      |> SRQLPage.init("logs", default_limit: @default_limit)}
   end
 
@@ -313,6 +318,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       socket
       |> assign(:alert_selection, MapSet.new())
       |> assign(:alert_bulk_result, nil)
+      |> assign(:service_filter_notice?, ObservabilityPaths.service_filter_not_carried?(params))
 
     socket =
       if connected?(socket) do
@@ -326,6 +332,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   @impl true
+  def handle_event("service_picker_" <> _action = event, params, socket) do
+    context = %{
+      tab: socket.assigns.active_tab,
+      query: socket.assigns |> Map.get(:srql, %{}) |> Map.get(:query),
+      params: Map.get(socket.assigns, :current_params, %{})
+    }
+
+    {:noreply, ServicePicker.handle_event(event, params, socket, context)}
+  end
+
   def handle_event("srql_change", params, socket) do
     {:noreply, SRQLPage.handle_event(socket, "srql_change", params)}
   end
@@ -1460,6 +1476,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   @impl true
+  def handle_async(:service_picker, result, socket) do
+    {:noreply, ServicePicker.handle_async(result, socket)}
+  end
+
+  @impl true
   def handle_info({:load_tab_data, tab, params, uri}, socket) do
     if current_tab_load?(socket, tab, params) do
       {:noreply, load_tab(socket, tab, params, uri)}
@@ -1521,7 +1542,25 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="sr-observability-page mx-auto max-w-7xl p-6 font-sans">
         <div class="space-y-4">
-          <.observability_chrome active_pane={@active_tab} tab_link_kind="patch" />
+          <.observability_chrome
+            active_pane={@active_tab}
+            tab_link_kind="patch"
+            tab_paths={ObservabilityPaths.service_carry_paths(@active_tab, Map.get(@srql, :query))}
+          />
+
+          <div
+            :if={@service_filter_notice? and @active_tab in ServiceFilter.signal_tabs()}
+            id="service-filter-not-carried"
+            role="status"
+            class={ui_alert_class("info")}
+          >
+            <.icon name="hero-information-circle" class="size-5" />
+            <div class="text-sm">
+              The previous pane's service filter was not carried over: this pane
+              cannot express it (trace summaries match exact service names, not
+              wildcard patterns).
+            </div>
+          </div>
 
           <div :if={@active_tab == "traces" and trace_rollup_warning?(@trace_rollup_status)}>
             <div role="alert" class={ui_alert_class("warning")}>
@@ -1543,15 +1582,29 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             </div>
           </div>
 
-          <.log_summary :if={@active_tab == "logs"} summary={@summary} />
+          <ServicePicker.stat_scope_badge
+            :if={@active_tab in ServiceFilter.signal_tabs()}
+            id="service-stats-scope"
+            scope={@service_stats_scope}
+          />
+          <.log_summary
+            :if={@active_tab == "logs"}
+            summary={@summary}
+            service_scope={@service_stats_scope}
+          />
           <.event_summary :if={@active_tab == "events"} summary={@event_summary} />
           <.alert_summary :if={@active_tab == "alerts"} summary={@alert_summary} />
           <.traces_summary
             :if={@active_tab == "traces"}
             stats={@trace_stats}
             latency={@trace_latency}
+            service_scope={@service_stats_scope}
           />
-          <.metrics_summary :if={@active_tab == "metrics"} stats={@metrics_stats} />
+          <.metrics_summary
+            :if={@active_tab == "metrics"}
+            stats={@metrics_stats}
+            service_scope={@service_stats_scope}
+          />
           <.metric_window_controls
             :if={@active_tab == "netflows"}
             id="netflow-window"
@@ -1642,6 +1695,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               id="logs"
               logs={@streams.logs}
               count={length(@logs)}
+              query={Map.get(@srql, :query) || ""}
               timezone={@current_scope.user.timezone}
             />
             <.traces_table
@@ -1663,6 +1717,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 id="metrics"
                 metrics={@metrics}
                 sparklines={@sparklines}
+                query={Map.get(@srql, :query) || ""}
                 timezone={@current_scope.user.timezone}
               />
             </div>
@@ -1764,6 +1819,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             view={@netflow_view}
             arin_lookup={@netflow_arin_lookup}
           />
+
+          <ServicePicker.service_picker picker={@service_picker} />
         </div>
       </div>
     </Layouts.app>
@@ -1771,6 +1828,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   attr(:summary, :map, required: true)
+  attr(:service_scope, :any, default: nil)
 
   defp log_summary(assigns) do
     total = assigns.summary.total
@@ -1807,7 +1865,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           </.ui_button>
           <.ui_button
             patch={
-              ~p"/observability/logs?#{%{q: StatsQuery.logs_severity_data_query([:fatal, :error])}}"
+              ~p"/observability/logs?#{%{q: StatsQuery.logs_severity_data_query([:fatal, :error], service_name: card_service_filter(@service_scope))}}"
             }
             size="xs"
             variant="danger"
@@ -1823,6 +1881,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           total={@total}
           color="error"
           level={:fatal}
+          service_scope={@service_scope}
         />
         <.level_stat
           label="Error"
@@ -1830,6 +1889,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           total={@total}
           color="warning"
           level={:error}
+          service_scope={@service_scope}
         />
         <.level_stat
           label="Warning"
@@ -1837,6 +1897,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           total={@total}
           color="info"
           level={:warning}
+          service_scope={@service_scope}
         />
         <.level_stat
           label="Info"
@@ -1844,6 +1905,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           total={@total}
           color="primary"
           level={:info}
+          service_scope={@service_scope}
         />
         <.level_stat
           label="Debug"
@@ -1851,6 +1913,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           total={@total}
           color="success"
           level={:debug}
+          service_scope={@service_scope}
         />
       </div>
     </div>
@@ -1862,10 +1925,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:total, :integer, required: true)
   attr(:color, :string, required: true)
   attr(:level, :atom, required: true)
+  attr(:service_scope, :any, default: nil)
 
   defp level_stat(assigns) do
     pct = if assigns.total > 0, do: round(assigns.count / assigns.total * 100), else: 0
-    query = StatsQuery.logs_severity_data_query(assigns.level)
+
+    query =
+      StatsQuery.logs_severity_data_query(assigns.level, service_name: card_service_filter(assigns.service_scope))
 
     assigns =
       assigns
@@ -3690,6 +3756,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     ~H"""
     <div class="flex items-center gap-2">
+      <ServicePicker.service_picker_trigger id="logs-service-filter" query={@query} />
       <div class="hidden sm:flex items-center gap-2">
         <span class="text-[10px] uppercase tracking-wider text-sr-muted">Source</span>
         <div class="flex flex-wrap gap-1">
@@ -4170,6 +4237,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   attr(:stats, :map, required: true)
   attr(:latency, :map, required: true)
+  attr(:service_scope, :any, default: nil)
 
   defp traces_summary(assigns) do
     total = Map.get(assigns.stats, :total, 0)
@@ -4201,28 +4269,43 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         title="Total Traces"
         value={format_compact_int(@total)}
         icon="hero-clock"
-        href={traces_card_href("in:otel_trace_summaries sort:timestamp:desc")}
+        href={traces_card_href(@service_scope, "in:otel_trace_summaries sort:timestamp:desc")}
       />
       <.obs_stat
         title="Successful"
         value={format_compact_int(@successful)}
         icon="hero-check-circle"
         tone="success"
-        href={traces_card_href("in:otel_trace_summaries error_count:0 sort:timestamp:desc")}
+        href={
+          traces_card_href(
+            @service_scope,
+            "in:otel_trace_summaries error_count:0 sort:timestamp:desc"
+          )
+        }
       />
       <.obs_stat
         title="Errors"
         value={format_compact_int(@error_traces)}
         icon="hero-x-circle"
         tone={if @error_traces > 0, do: "error", else: "success"}
-        href={traces_card_href("in:otel_trace_summaries error_count:>0 sort:timestamp:desc")}
+        href={
+          traces_card_href(
+            @service_scope,
+            "in:otel_trace_summaries error_count:>0 sort:timestamp:desc"
+          )
+        }
       />
       <.obs_stat
         title="Error Rate"
         value={"#{format_pct(@error_rate)}%"}
         icon="hero-trending-up"
         tone={if @error_rate > 1.0, do: "error", else: "success"}
-        href={traces_card_href("in:otel_trace_summaries error_count:>0 sort:timestamp:desc")}
+        href={
+          traces_card_href(
+            @service_scope,
+            "in:otel_trace_summaries error_count:>0 sort:timestamp:desc"
+          )
+        }
       />
       <.obs_stat
         title="Avg Duration"
@@ -4243,6 +4326,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   attr(:stats, :map, required: true)
+  attr(:service_scope, :any, default: nil)
 
   defp metrics_summary(assigns) do
     total = Map.get(assigns.stats, :total, 0)
@@ -4269,28 +4353,38 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         title="Total Metrics"
         value={format_compact_int(@total)}
         icon="hero-chart-bar"
-        href={metrics_card_href("in:otel_metrics sort:timestamp:desc")}
+        href={metrics_card_href(@service_scope, "in:otel_metrics sort:timestamp:desc")}
       />
       <.obs_stat
         title="Slow Spans"
         value={format_compact_int(@slow_spans)}
         icon="hero-bolt"
         tone={if @slow_spans > 0, do: "warning", else: "success"}
-        href={metrics_card_href("in:otel_metrics is_slow:true sort:timestamp:desc")}
+        href={metrics_card_href(@service_scope, "in:otel_metrics is_slow:true sort:timestamp:desc")}
       />
       <.obs_stat
         title="Errors"
         value={format_compact_int(@error_spans)}
         icon="hero-exclamation-triangle"
         tone={if @error_spans > 0, do: "error", else: "success"}
-        href={traces_card_href("in:otel_trace_summaries error_count:>0 sort:timestamp:desc")}
+        href={
+          traces_card_href(
+            @service_scope,
+            "in:otel_trace_summaries error_count:>0 sort:timestamp:desc"
+          )
+        }
       />
       <.obs_stat
         title="Error Rate"
         value={"#{format_pct(@error_rate)}%"}
         icon="hero-trending-up"
         tone={if @error_rate > 1.0, do: "error", else: "success"}
-        href={traces_card_href("in:otel_trace_summaries error_count:>0 sort:timestamp:desc")}
+        href={
+          traces_card_href(
+            @service_scope,
+            "in:otel_trace_summaries error_count:>0 sort:timestamp:desc"
+          )
+        }
       />
       <.obs_stat
         title="Avg Duration"
@@ -4384,6 +4478,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:id, :string, required: true)
   attr(:logs, :any, required: true)
   attr(:count, :integer, required: true)
+  attr(:query, :string, default: "")
   attr(:timezone, :string, required: true)
 
   defp logs_table(assigns) do
@@ -4433,7 +4528,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 <.severity_badge value={Map.get(log, "severity_text")} />
               </td>
               <td class="whitespace-nowrap text-xs truncate max-w-[10rem]" title={log_service(log)}>
-                {log_service(log)}
+                <ServicePicker.service_row_link
+                  id={"#{dom_id}-service"}
+                  name={Map.get(log, "service_name")}
+                  tab="logs"
+                  query={@query}
+                  fallback={log_service(log)}
+                />
               </td>
               <td class="text-xs truncate max-w-[36rem]" title={log_message(log)}>
                 {log_message(log)}
@@ -4539,7 +4640,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 class="whitespace-nowrap text-xs truncate max-w-[14rem]"
                 title={trace_service_name(trace)}
               >
-                {trace_service_name(trace) || "—"}
+                <ServicePicker.service_row_link
+                  id={"#{@id}-row-#{idx}-service"}
+                  name={trace_service_name(trace)}
+                  tab="traces"
+                  query={@query}
+                />
               </td>
               <td class="text-xs truncate max-w-[28rem]" title={trace_operation_name(trace)}>
                 {trace_operation_name(trace) || "—"}
@@ -4596,6 +4702,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         live?={@live?}
         start_title="Start live trace streaming"
         pause_title="Pause live trace streaming"
+      />
+      <ServicePicker.service_picker_trigger
+        id="traces-service-filter"
+        query={Map.get(@srql, :query) || ""}
       />
       <span class="text-[10px] uppercase tracking-wider text-sr-muted">Filter</span>
       <.ui_button
@@ -4663,6 +4773,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:id, :string, required: true)
   attr(:metrics, :list, default: [])
   attr(:sparklines, :map, default: %{})
+  attr(:query, :string, default: "")
   attr(:timezone, :string, required: true)
 
   defp metrics_table(assigns) do
@@ -4736,7 +4847,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 class="whitespace-nowrap text-xs truncate max-w-[14rem]"
                 title={Map.get(metric, "service_name")}
               >
-                {Map.get(metric, "service_name") || "—"}
+                <ServicePicker.service_row_link
+                  id={"#{@id}-row-#{idx}-service"}
+                  name={Map.get(metric, "service_name")}
+                  tab="metrics"
+                  query={@query}
+                />
               </td>
               <td
                 class="whitespace-nowrap text-xs truncate max-w-[10rem]"
@@ -4829,6 +4945,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         live?={@live?}
         start_title="Start live metric streaming"
         pause_title="Pause live metric streaming"
+      />
+      <ServicePicker.service_picker_trigger
+        id="metrics-service-filter"
+        query={Map.get(@srql, :query) || ""}
       />
       <.ui_button
         patch={metrics_view_href(@srql, @limit, "samples")}
@@ -8192,9 +8312,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp apply_tab_assigns(socket, "traces", srql_module) do
     scope = Map.get(socket.assigns, :current_scope)
-    {trace_stats, trace_latency} = load_trace_summary_cards(srql_module, scope)
+    service_scope = service_stats_scope(socket)
+    {trace_stats, trace_latency} = load_trace_summary_cards(srql_module, scope, service_scope)
 
     socket
+    |> assign(:service_stats_scope, service_scope)
     |> assign(:trace_stats, trace_stats)
     |> assign(:trace_latency, trace_latency)
     |> assign(:trace_rollup_status, Stats.trace_rollup_status())
@@ -8203,10 +8325,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp apply_tab_assigns(socket, "metrics", srql_module) do
     scope = Map.get(socket.assigns, :current_scope)
-    metrics_stats = build_metrics_stats(srql_module, scope)
+    service_scope = service_stats_scope(socket)
+    metrics_stats = build_metrics_stats(srql_module, scope, service_scope)
     sparklines = load_sparklines(socket.assigns.metrics, scope)
 
     socket
+    |> assign(:service_stats_scope, service_scope)
     |> assign(:metrics_stats, metrics_stats)
     |> assign(:sparklines, sparklines)
     |> assign(:trace_stats, empty_trace_stats())
@@ -8365,12 +8489,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp apply_tab_assigns(socket, _tab, srql_module) do
     scope = Map.get(socket.assigns, :current_scope)
-    {summary, logs_rollup_status} = maybe_load_log_summary(socket, srql_module, scope)
+    service_scope = service_stats_scope(socket)
+    {summary, logs_rollup_status} = maybe_load_log_summary(socket, srql_module, scope, service_scope)
 
     socket
     |> assign(:summary, summary)
     |> assign(:logs_rollup_status, logs_rollup_status)
     |> assign(:_summary_loaded, true)
+    |> assign(:_summary_service_scope, service_scope)
+    |> assign(:service_stats_scope, service_scope)
     |> assign(:event_summary, empty_event_summary())
     |> assign(:alert_summary, empty_alert_summary())
     |> assign(:netflow_summary, empty_netflow_summary())
@@ -8625,9 +8752,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp stream_active_tab(socket, _tab), do: socket
 
-  defp build_metrics_stats(srql_module, scope) do
+  defp build_metrics_stats(srql_module, scope, service_scope) do
     # rollup_stats:red over spans_red_1h already includes error_rate (0-100).
-    Stats.metrics_summary(srql_module: srql_module, scope: scope)
+    Stats.metrics_summary(srql_module: srql_module, scope: scope, service_name: card_service_filter(service_scope))
+  end
+
+  # What the active pane's service filter means for its stat cards; see
+  # `ServiceFilter.stats_scope/1`.
+  defp service_stats_scope(socket) do
+    socket.assigns |> Map.get(:srql, %{}) |> Map.get(:query) |> ServiceFilter.stats_scope()
   end
 
   defp parse_metrics_view("points"), do: "points"
@@ -8775,21 +8908,26 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp format_series_number(_), do: "—"
 
-  defp maybe_load_log_summary(socket, srql_module, scope) do
+  defp maybe_load_log_summary(socket, srql_module, scope, service_scope) do
     # If we already attempted to load the summary (even if still 0 while async
     # counts are pending), don't re-query on every handle_params/refresh call.
-    # The summary shows overall 24h breakdown — it doesn't change per-query.
-    if socket.assigns[:_summary_loaded] do
+    # The summary shows the 24h breakdown for the pane's service filter only --
+    # other query tokens do not change it -- so it reloads when that changes.
+    if socket.assigns[:_summary_loaded] == true and
+         socket.assigns[:_summary_service_scope] == service_scope do
       {socket.assigns.summary, socket.assigns.logs_rollup_status}
     else
-      fetch_log_summary(socket, srql_module, scope)
+      fetch_log_summary(srql_module, scope, service_scope)
     end
   end
 
-  defp fetch_log_summary(_socket, srql_module, scope) do
-    # Use the same simple call as the analytics page — no query-specific filters.
-    # The stat cards always show the overall 24h picture.
-    case Stats.logs_severity_result(srql_module: srql_module, scope: scope) do
+  defp fetch_log_summary(srql_module, scope, service_scope) do
+    # The stat cards show the 24h picture, narrowed only by the service filter.
+    case Stats.logs_severity_result(
+           srql_module: srql_module,
+           scope: scope,
+           service_name: card_service_filter(service_scope)
+         ) do
       {:ok, summary} -> {summary, Stats.logs_rollup_status()}
       {:error, _reason} -> {Stats.empty_logs_severity(), unavailable_logs_rollup_status()}
     end
@@ -8863,9 +9001,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     socket.assigns |> Map.get(:srql, %{}) |> Map.get(:entity) || "logs"
   end
 
-  # Use pre-computed CAGG via rollup_stats pattern for trace stat cards.
-  defp load_trace_summary_cards(srql_module, scope) do
-    summary = Stats.traces_summary(srql_module: srql_module, scope: scope)
+  # Use pre-computed CAGG via rollup_stats pattern for trace stat cards. The
+  # services count comes from the OTel service catalog for the same 24h window.
+  defp load_trace_summary_cards(srql_module, scope, service_scope) do
+    service_filter = card_service_filter(service_scope)
+    summary = Stats.traces_summary(srql_module: srql_module, scope: scope, service_name: service_filter)
 
     trace_stats = %{
       total: Map.get(summary, :total, 0),
@@ -8876,11 +9016,23 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     trace_latency = %{
       avg_duration_ms: Map.get(summary, :avg_duration_ms, 0.0),
       p95_duration_ms: Map.get(summary, :p95_duration_ms, 0.0),
-      service_count: 0,
+      service_count: trace_service_count(srql_module, scope, service_scope),
       sample_size: Map.get(summary, :total, 0)
     }
 
     {trace_stats, trace_latency}
+  end
+
+  # Catalog count of services with traces in the card window, narrowed like the
+  # other cards. A failed count renders as unknown (0 -> "sample"), never as a
+  # made-up number.
+  defp trace_service_count(srql_module, scope, service_scope) do
+    service_filter = card_service_filter(service_scope)
+
+    case Stats.otel_service_count("traces", srql_module: srql_module, scope: scope, service_name: service_filter) do
+      {:ok, count} -> count
+      {:error, _reason} -> 0
+    end
   end
 
   defp load_netflow_summary(srql_module, current_query, scope) do
@@ -10143,8 +10295,21 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   # Stat-card click-through targets (same patch pattern as the logs cards).
-  defp traces_card_href(q), do: ObservabilityPaths.path("traces", %{q: q})
-  defp metrics_card_href(q), do: ObservabilityPaths.path("metrics", %{q: q})
+  # Card drill-downs keep an exact service selection (a pattern is not carried:
+  # trace summaries match service names exactly).
+  defp traces_card_href(service_scope, q), do: ObservabilityPaths.path("traces", %{q: scope_card_query(q, service_scope)})
+
+  defp metrics_card_href(service_scope, q),
+    do: ObservabilityPaths.path("metrics", %{q: scope_card_query(q, service_scope)})
+
+  defp scope_card_query(q, names) when is_list(names) and names != [], do: ServiceFilter.put(q, names)
+  defp scope_card_query(q, _service_scope), do: q
+
+  # The service filter the stats layer takes for a card: exact names or a
+  # pattern; nothing for an unfiltered pane or one the cards cannot scope.
+  defp card_service_filter(names) when is_list(names), do: names
+  defp card_service_filter(pattern) when is_binary(pattern), do: pattern
+  defp card_service_filter(_service_scope), do: nil
 
   defp correlate_metric_href(metric) do
     trace_id = Map.get(metric, "trace_id")

@@ -20,6 +20,12 @@ pub enum ServiceError {
     #[error("invalid request: {0}")]
     InvalidRequest(String),
 
+    /// The caller is not permitted to read what the query asks for. Distinct
+    /// from `InvalidRequest` so an embedding caller can map it to its own
+    /// forbidden outcome (HTTP 403) by the `forbidden: ` message prefix.
+    #[error("forbidden: {0}")]
+    Forbidden(String),
+
     #[error("not implemented: {0}")]
     NotImplemented(String),
 
@@ -38,11 +44,15 @@ impl IntoResponse for ServiceError {
             ServiceError::Config(_) => StatusCode::INTERNAL_SERVER_ERROR,
             ServiceError::Auth => StatusCode::UNAUTHORIZED,
             ServiceError::InvalidRequest(_) => StatusCode::BAD_REQUEST,
+            ServiceError::Forbidden(_) => StatusCode::FORBIDDEN,
             ServiceError::NotImplemented(_) => StatusCode::NOT_IMPLEMENTED,
             ServiceError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         };
 
-        if !matches!(self, ServiceError::InvalidRequest(_) | ServiceError::Auth) {
+        if !matches!(
+            self,
+            ServiceError::InvalidRequest(_) | ServiceError::Forbidden(_) | ServiceError::Auth
+        ) {
             error!(error = %self, "request failed");
         }
 
@@ -50,5 +60,20 @@ impl IntoResponse for ServiceError {
             error: self.to_string(),
         };
         (status, Json(body)).into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn forbidden_maps_to_http_403_with_prefixed_message() {
+        let err = ServiceError::Forbidden("signal 'traces' is not permitted".into());
+        assert_eq!(
+            err.to_string(),
+            "forbidden: signal 'traces' is not permitted"
+        );
+        assert_eq!(err.into_response().status(), StatusCode::FORBIDDEN);
     }
 }

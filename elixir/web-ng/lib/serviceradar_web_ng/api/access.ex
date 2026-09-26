@@ -34,6 +34,11 @@ defmodule ServiceRadarWebNG.Api.Access do
   def execute_query(scope, params) when is_map(params) do
     params = params |> stringify_keys() |> Map.put("scope", scope)
 
+    # A pre-gate only. The permitted signal set for a signal-scoped entity
+    # (`otel_services`) is deliberately NOT forwarded in `params`: those come
+    # from the HTTP/MCP client, so a set carried there would be client-settable.
+    # `query_request/1` re-derives the set from the same server-side `scope`
+    # through `EntityAccess.authorize_signals/3` and passes it to translate.
     with :ok <- EntityAccess.authorize(Map.get(params, "query"), scope) do
       srql_module().query_request(params)
     end

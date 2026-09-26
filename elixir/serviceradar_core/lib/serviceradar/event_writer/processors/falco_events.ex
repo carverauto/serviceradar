@@ -19,6 +19,7 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
   alias ServiceRadar.EventWriter.FalcoDecomposition
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.OCSF
+  alias ServiceRadar.EventWriter.ServiceCatalog
   alias ServiceRadar.Observability.LogPubSub
   alias ServiceRadar.Observability.StatefulEvaluationLedger
 
@@ -104,8 +105,13 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
       )
 
       case stored do
-        :ok -> {:ok, log_count}
-        {:error, reason} -> {:error, reason}
+        :ok ->
+          # Best-effort OTel service catalog upsert; never fails the batch.
+          _ = ServiceCatalog.record(:logs, log_rows)
+          {:ok, log_count}
+
+        {:error, reason} ->
+          {:error, reason}
       end
     end
   rescue

@@ -119,6 +119,7 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
             Ok(Entity::TraceSummaries)
         }
         "otel_traces" | "traces" | "trace_spans" => Ok(Entity::Traces),
+        "otel_services" => Ok(Entity::OtelServices),
         "threat_intel_matches" | "threat_intel_match" | "ioc_matches" | "ioc_match" => {
             Ok(Entity::ThreatIntelMatches)
         }

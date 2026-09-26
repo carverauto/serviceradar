@@ -250,6 +250,7 @@ fn build_filters_clause_raw(plan: &QueryPlan) -> Result<(Vec<String>, Vec<SqlBin
             "root_service_name" => {
                 add_text_condition(&mut clauses, &mut binds, "root_service_name", filter)?
             }
+            "service_name" => add_service_set_condition(&mut clauses, &mut binds, filter)?,
             "root_service_namespace" => {
                 add_text_condition(&mut clauses, &mut binds, "root_service_namespace", filter)?
             }
@@ -342,6 +343,52 @@ fn add_text_condition(
         }
     }
 
+    Ok(())
+}
+
+/// `service_name` matches a trace when ANY of its spans belongs to the service,
+/// not only the root span (`root_service_name` keeps that meaning). Array
+/// containment is exact, so wildcards are refused rather than silently taken
+/// literally. `service_set` is nullable and `NOT (NULL)` drops the row, so the
+/// negated forms coalesce it: a trace with no service names does not touch the
+/// excluded service and must be returned.
+fn add_service_set_condition(
+    clauses: &mut Vec<String>,
+    binds: &mut Vec<SqlBindValue>,
+    filter: &Filter,
+) -> Result<()> {
+    let (clause, values) = match filter.op {
+        FilterOp::Eq => (
+            "service_set @> ?",
+            vec![filter.value.as_scalar()?.to_string()],
+        ),
+        FilterOp::NotEq => (
+            "NOT (COALESCE(service_set, '{}') @> ?)",
+            vec![filter.value.as_scalar()?.to_string()],
+        ),
+        FilterOp::In => ("service_set && ?", filter.value.as_list()?.to_vec()),
+        FilterOp::NotIn => (
+            "NOT (COALESCE(service_set, '{}') && ?)",
+            filter.value.as_list()?.to_vec(),
+        ),
+        FilterOp::Like | FilterOp::NotLike => {
+            return Err(ServiceError::InvalidRequest(
+                "service_name on otel_trace_summaries matches exact service names; \
+                 wildcards are not supported (use root_service_name for pattern matches \
+                 on the root span)"
+                    .into(),
+            ));
+        }
+        _ => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "service_name filter does not support operator {:?}",
+                filter.op
+            )));
+        }
+    };
+
+    clauses.push(clause.to_string());
+    binds.push(SqlBindValue::TextArray(values));
     Ok(())
 }
 
@@ -746,4 +793,104 @@ fn parse_condition(raw: &str) -> Result<StatsExprKind> {
     Err(ServiceError::InvalidRequest(
         "unable to parse stats condition".into(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        config::AppConfig,
+        error::ServiceError,
+        parser,
+        query::{QueryDirection, QueryRequest, build_query_plan},
+    };
+
+    fn translate(query: &str) -> Result<(String, Vec<BindParam>)> {
+        let request = QueryRequest {
+            query: query.to_string(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+            permitted_signals: None,
+        };
+        let config = AppConfig::embedded("postgres://srql-test".to_string());
+        let ast = parser::parse(query)?;
+        let plan = build_query_plan(&config, &request, ast)?;
+        to_sql_and_params(&plan)
+    }
+
+    fn first_bind(params: &[BindParam]) -> &[String] {
+        match params.first() {
+            Some(BindParam::TextArray(values)) => values,
+            other => panic!("expected a text[] bind, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn service_name_matches_any_span_in_the_trace() {
+        let (sql, params) =
+            translate("in:otel_trace_summaries service_name:checkout").expect("translate");
+        assert!(sql.contains("WHERE service_set @> $1"), "{sql}");
+        assert_eq!(first_bind(&params), ["checkout".to_string()]);
+
+        let (sql, params) = translate("in:otel_trace_summaries service_name:(checkout,billing)")
+            .expect("translate");
+        assert!(sql.contains("WHERE service_set && $1"), "{sql}");
+        assert_eq!(
+            first_bind(&params),
+            ["checkout".to_string(), "billing".to_string()]
+        );
+    }
+
+    #[test]
+    fn negated_service_name_keeps_traces_with_a_null_service_set() {
+        // `NOT (service_set @> ...)` is NULL for a NULL service_set, which would
+        // drop exactly the traces that do not touch the service.
+        let (sql, _) =
+            translate("in:otel_trace_summaries !service_name:checkout").expect("translate");
+        assert!(
+            sql.contains("WHERE NOT (COALESCE(service_set, '{}') @> $1)"),
+            "{sql}"
+        );
+
+        let (sql, _) = translate("in:otel_trace_summaries !service_name:(checkout,billing)")
+            .expect("translate");
+        assert!(
+            sql.contains("WHERE NOT (COALESCE(service_set, '{}') && $1)"),
+            "{sql}"
+        );
+    }
+
+    #[test]
+    fn service_name_applies_in_stats_mode_too() {
+        let (sql, params) =
+            translate(r#"in:otel_trace_summaries service_name:checkout stats:"count() as total""#)
+                .expect("translate");
+        assert!(sql.contains("WHERE service_set @> $1"), "{sql}");
+        assert_eq!(first_bind(&params), ["checkout".to_string()]);
+    }
+
+    #[test]
+    fn service_name_wildcards_are_rejected_naming_the_field() {
+        for query in [
+            "in:otel_trace_summaries service_name:%check%",
+            "in:otel_trace_summaries !service_name:%check%",
+        ] {
+            match translate(query) {
+                Err(ServiceError::InvalidRequest(message)) => {
+                    assert!(message.contains("service_name"), "{query}: {message}");
+                }
+                other => panic!("{query}: expected InvalidRequest, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn root_service_name_keeps_its_root_only_meaning() {
+        let (sql, _) =
+            translate("in:otel_trace_summaries root_service_name:checkout").expect("translate");
+        assert!(sql.contains("WHERE root_service_name = $1"), "{sql}");
+        assert!(!sql.contains("service_set @>"), "{sql}");
+    }
 }

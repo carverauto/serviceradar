@@ -71,6 +71,17 @@ pub struct QueryRequest {
     pub direction: QueryDirection,
     #[serde(default)]
     pub mode: Option<String>,
+    /// OTel signals (`logs`, `traces`, `metrics`) the caller may view, as
+    /// computed by a trusted caller's access gate. `None` means no trusted set
+    /// was supplied.
+    ///
+    /// Never (de)serialized: the standalone server deserializes this struct
+    /// from client JSON, so a wire field here would let any client grant
+    /// itself signals. Only in-process callers (the NIF, `EmbeddedSrql`) can
+    /// set it, and a query that needs it (`in:otel_services`) fails closed
+    /// when it is `None`.
+    #[serde(skip)]
+    pub permitted_signals: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -94,6 +105,7 @@ impl From<TranslateRequest> for QueryRequest {
             cursor: request.cursor,
             direction: request.direction,
             mode: request.mode,
+            permitted_signals: None,
         }
     }
 }

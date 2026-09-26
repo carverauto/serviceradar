@@ -20,6 +20,8 @@ pub(crate) fn build_query_plan(
 
     let limit = if is_grouped_device_stats(&ast) {
         determine_grouped_device_limit(config, requested_limit)
+    } else if matches!(ast.entity, Entity::OtelServices) {
+        determine_otel_services_limit(config, requested_limit)
     } else {
         determine_limit(config, requested_limit)
     };
@@ -165,6 +167,19 @@ fn determine_limit(config: &AppConfig, candidate: Option<i64>) -> i64 {
     let max = config.max_limit;
     let limit = candidate.unwrap_or(default).max(1);
     if max <= 0 { limit } else { limit.min(max) }
+}
+
+/// The service picker pages the catalog in small windows, so it has its own
+/// default and ceiling; a configured `srql_max_limit` below that still wins.
+fn determine_otel_services_limit(config: &AppConfig, candidate: Option<i64>) -> i64 {
+    let limit = candidate
+        .unwrap_or(super::otel_services::DEFAULT_LIMIT)
+        .clamp(1, super::otel_services::MAX_LIMIT);
+    if config.max_limit <= 0 {
+        limit
+    } else {
+        limit.min(config.max_limit)
+    }
 }
 
 fn is_grouped_device_stats(ast: &QueryAst) -> bool {
@@ -423,6 +438,7 @@ mod tests {
             cursor: Some(encode_cursor(offset, &config.cursor_secret).expect("encode cursor")),
             direction: Default::default(),
             mode: None,
+            permitted_signals: None,
         };
         let ast = parser::parse(query).expect("parse query");
         build_query_plan(&config, &request, ast)
@@ -457,6 +473,7 @@ mod tests {
             cursor: None,
             direction: Default::default(),
             mode: None,
+            permitted_signals: None,
         };
         let plan = build_query_plan(&config, &request, parser::parse(query).expect("parse"))
             .expect("plan");

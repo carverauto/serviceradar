@@ -503,6 +503,7 @@ mod tests {
             cursor: None,
             direction: Default::default(),
             mode: None,
+            permitted_signals: None,
         };
         let ast = parser::parse(query).expect("parse threat_intel_matches query");
         build_query_plan(
@@ -568,6 +569,7 @@ mod tests {
                         cursor: None,
                         direction: Default::default(),
                         mode: None,
+                        permitted_signals: None,
                     },
                     ast,
                 )

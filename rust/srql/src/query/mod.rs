@@ -45,6 +45,7 @@ mod mtr_hops;
 mod mtr_traces;
 mod otel_metric_points;
 mod otel_metrics;
+mod otel_services;
 mod process_metrics;
 mod public_endpoints;
 mod services;

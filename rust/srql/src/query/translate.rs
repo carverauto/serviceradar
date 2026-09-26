@@ -6,10 +6,10 @@ use super::{
     endpoint_package_catalog, endpoint_packages, endpoint_vulnerability_matches, events,
     field_survey, flows, gateways, graph_cypher, graph_dql, identity, interfaces,
     is_exhaustive_profile_query, logs, memory_metrics, mtr_hops, mtr_traces, otel_metric_points,
-    otel_metrics, process_metrics, public_endpoints, services, source_fact_disagreements,
-    starrocks, sweep_coverage, sweep_executions, sweep_groups, sweep_profiles, sweep_results,
-    threat_intel_matches, timeseries_metrics, trace_summaries, traces, virtualization, viz,
-    vulnerability_advisories, wifi_map,
+    otel_metrics, otel_services, process_metrics, public_endpoints, services,
+    source_fact_disagreements, starrocks, sweep_coverage, sweep_executions, sweep_groups,
+    sweep_profiles, sweep_results, threat_intel_matches, timeseries_metrics, trace_summaries,
+    traces, virtualization, viz, vulnerability_advisories, wifi_map,
 };
 use crate::{
     config::AppConfig,
@@ -39,6 +39,10 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
         // bucketed query would fall through to the CNPG downsample builder.
         let compiled = starrocks::translate_raw(&plan, &config.starrocks_database)?;
         (compiled.sql, compiled.params)
+    } else if matches!(plan.entity, Entity::OtelServices) {
+        // Ahead of the downsample branch: this entity's access check lives in its
+        // own builder, so no other builder may ever compile it.
+        otel_services::to_sql_and_params(&plan, request.permitted_signals.as_deref())?
     } else if plan.downsample.is_some() && !is_profile_stats {
         downsample::to_sql_and_params(&plan)?
     } else {
@@ -106,6 +110,9 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             Entity::Dashboards => dashboards::to_sql_and_params(&plan)?,
             Entity::TraceSummaries => trace_summaries::to_sql_and_params(&plan)?,
             Entity::Traces => traces::to_sql_and_params(&plan)?,
+            Entity::OtelServices => {
+                otel_services::to_sql_and_params(&plan, request.permitted_signals.as_deref())?
+            }
             Entity::Alerts => alerts::to_sql_and_params(&plan)?,
             Entity::VirtualizationClusters
             | Entity::VirtualizationHosts

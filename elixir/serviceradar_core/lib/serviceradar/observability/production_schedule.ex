@@ -19,6 +19,7 @@ defmodule ServiceRadar.Observability.ProductionSchedule do
   alias ServiceRadar.Observability.AnomalyAlertLivenessWorker
   alias ServiceRadar.Observability.AnomalyEpisodeStaleCloseWorker
   alias ServiceRadar.Observability.AnomalyIngestSilenceWorker
+  alias ServiceRadar.Observability.OtelServiceCatalogPruneWorker
   alias ServiceRadar.Observability.ResolveStaleAnomaliesWorker
   alias ServiceRadar.Observability.SeasonalBaselineFreshnessWorker
   alias ServiceRadar.Observability.SeasonalDisposition
@@ -44,7 +45,8 @@ defmodule ServiceRadar.Observability.ProductionSchedule do
       resolve_stale_anomalies_entries(fetch),
       anomaly_alert_liveness_entries(fetch),
       anomaly_ingest_silence_entries(fetch),
-      seasonal_baseline_freshness_entries(fetch)
+      seasonal_baseline_freshness_entries(fetch),
+      otel_service_catalog_prune_entries(fetch)
     ])
   end
 
@@ -89,7 +91,9 @@ defmodule ServiceRadar.Observability.ProductionSchedule do
           boolean(fetch, "SERVICERADAR_STALE_ANOMALY_EPISODE_LIVENESS_CHECK"),
         anomaly_silence_hours: positive_int(fetch, "SERVICERADAR_ANOMALY_SILENCE_HOURS"),
         seasonal_baseline_freshness_hours:
-          positive_int(fetch, "SERVICERADAR_SEASONAL_BASELINE_FRESHNESS_HOURS")
+          positive_int(fetch, "SERVICERADAR_SEASONAL_BASELINE_FRESHNESS_HOURS"),
+        otel_service_catalog_retention_days:
+          positive_int(fetch, "SERVICERADAR_OTEL_SERVICE_CATALOG_RETENTION_DAYS")
       ],
       fn {_key, value} -> is_nil(value) end
     )
@@ -191,6 +195,14 @@ defmodule ServiceRadar.Observability.ProductionSchedule do
     else
       []
     end
+  end
+
+  # Daily OTel service catalog retention; offset from the 03:17 observability sweep.
+  defp otel_service_catalog_prune_entries(fetch) do
+    [
+      {fetch.("SERVICERADAR_OTEL_SERVICE_CATALOG_PRUNE_CRON", "29 3 * * *"),
+       OtelServiceCatalogPruneWorker, queue: :maintenance}
+    ]
   end
 
   defp seasonal_disposition_enabled?(fetch) do

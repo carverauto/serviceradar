@@ -17,7 +17,7 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
       Catalog.entities()
       |> Enum.map(& &1.id)
       |> Enum.reject(fn id ->
-        id == "dashboards" or match?({:ok, _}, EntityAccess.permission_for_entity(id))
+        id == "dashboards" or EntityAccess.permission_for_entity(id) != :passthrough
       end)
 
     assert unmapped == []
@@ -266,6 +266,48 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
 
     for {canonical, _aliases} <- @sweep_diagnostic_aliases do
       assert :ok = EntityAccess.authorize("in:#{canonical} limit:1", scope)
+    end
+  end
+
+  describe "otel_services any-of gate" do
+    # One catalog covers three signals, so the gate admits a caller holding any
+    # one view permission and hands SRQL the signals it holds. Before this
+    # mapping the entity was :passthrough -- ungated on the HTTP and MCP paths.
+    defp signals_scope(permissions), do: %Scope{user: nil, permissions: MapSet.new(permissions)}
+
+    test "returns exactly the signals the caller may view" do
+      cases = [
+        {["observability.logs.view"], ["logs"]},
+        {["observability.traces.view", "observability.metrics.view"], ["traces", "metrics"]},
+        {["observability.logs.view", "observability.traces.view", "observability.metrics.view"],
+         ["logs", "traces", "metrics"]}
+      ]
+
+      for {permissions, signals} <- cases do
+        assert {:ok, ^signals} =
+                 EntityAccess.authorize_signals("in:otel_services limit:5", signals_scope(permissions))
+
+        assert :ok = EntityAccess.authorize("in:otel_services limit:5", signals_scope(permissions))
+      end
+    end
+
+    test "refuses a caller holding none of the three observability views" do
+      scope = signals_scope(["devices.view", "observability.events.view"])
+
+      assert {:error, :forbidden} = EntityAccess.authorize_signals("in:otel_services", scope)
+      assert {:error, :forbidden} = EntityAccess.authorize("in:otel_services", scope)
+    end
+
+    test "a missing scope is forbidden, and optional_scope admits it with no permitted set" do
+      assert {:error, :forbidden} = EntityAccess.authorize_signals("in:otel_services", nil)
+      assert {:ok, nil} = EntityAccess.authorize_signals("in:otel_services", nil, optional_scope: true)
+    end
+
+    test "single-permission entities carry no permitted set" do
+      scope = signals_scope(["observability.logs.view"])
+
+      assert {:ok, nil} = EntityAccess.authorize_signals("in:logs", scope)
+      assert {:error, :forbidden} = EntityAccess.authorize_signals("in:otel_traces", scope)
     end
   end
 end
