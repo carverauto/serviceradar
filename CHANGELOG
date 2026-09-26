@@ -1,3 +1,83 @@
+# ServiceRadar v1.4.73
+
+MTR traces run ICMP and TCP from one profile, record handshake
+and hop reply detail, and flow through JetStream into the
+StarRocks warehouse. Device identity resolution stops reviving
+and over-merging devices and records every decision it does
+not merge. Queries no longer truncate results silently.
+
+## Whats New
+
+**1.4.73**
+- MTR: a profile can trace ICMP and TCP in one run. Traces
+  store the TCP handshake result and each hop's reply kinds,
+  and show how deep an unreached trace probed. MTR scans
+  appear on the Active Scans tab (PR #4592, PR #4623,
+  PR #4606, PR #4601, PR #4634).
+- MTR: results travel on JetStream to the EventWriter. With
+  StarRocks enabled, traces are stored and queried in the
+  warehouse, including SRQL (PR #4633, PR #4645, PR #4651,
+  PR #4665, PR #4688).
+- MTR: bulk and baseline traces probe to 30 hops in every
+  execution profile. The fast profile stopped at 16 and
+  marked distant reachable targets unreachable. A trace that
+  stopped while its deepest hop still answered shows as
+  Incomplete on the trace page (PR #4707).
+- MTR: concurrent on-demand traces each report a result, and
+  hop reads are bounded by time (PR #4689, PR #4625).
+- Device identity: the identity fence is enforced on ingest
+  writes. Upserts, gateway sync and sweeps no longer revive
+  merged-away devices. Unmerge restores exactly the
+  merged-away identifiers (PR #4691, PR #4700, PR #4656,
+  PR #4662, PR #4672, PR #4658, PR #4650, PR #4673).
+- Device identity: agent check-in never merges on an IP
+  alias. Devices sharing a globally unique MAC merge. Mapper
+  devices resolve by interface MAC, and an agent check-in
+  that hits an active-IP conflict returns the conflict
+  (PR #4648, PR #4627, PR #4699, PR #4686, PR #4670,
+  PR #4659, PR #4701).
+- Device identity: identity decisions that do not merge are
+  recorded, and ambiguous ones open de-duplication tasks.
+  Ephemeral devices can expire on last-seen; this is off by
+  default (PR #4682, PR #4684, PR #4669).
+- Queries: SRQL and inventory reads no longer truncate
+  results at a fixed page size (PR #4641, PR #4629).
+- Dashboards: built-in dashboards ship as declarative JSON.
+  A package version API, CLI list/status commands and a
+  doctor check are added. An unknown dashboard id returns
+  not found instead of an error (PR #4640, PR #4642,
+  PR #4697, PR #4654).
+- Web: device bulk actions apply to every matching device.
+  Events severity cards count over the query window
+  (PR #4667, PR #4666).
+- OpenText NOM: interface configuration compliance checks,
+  reading NA-stored masked config, and cached OAuth tokens
+  (PR #4608, PR #4602).
+- OTel: log chunks carry the device id header (PR #4635).
+- Jobs: the stale periodic job reaper covers AshOban
+  schedules (PR #4622).
+- Security: the Ash ecosystem and auth libraries are
+  upgraded to clear Hex advisories (PR #4702).
+- Helm: the log-collector certificate has a
+  namespace-qualified SAN, and core may publish ad-hoc scan
+  results to NATS (PR #4655, PR #4631).
+
+## Upgrade Notes
+
+- StarRocks: with the warehouse enabled, the chart refuses
+  to render unless
+  `analytics.starrocks.catalog.fePasswordSecretName` names a
+  Secret holding the Frontend root password. Create the
+  Secret and set the password before upgrading (PR #4647).
+- StarRocks retention defaults to 365 days for every dataset.
+  Flows and metrics were 90 days and MTR 30 (PR #4666).
+- Six new migrations add MTR protocol sets, trace depth and
+  handshake fields, identity decisions, de-duplication tasks
+  and ephemeral expiry settings.
+  `core.migrations.expectedVersion` is `20260925100000`.
+- Bulk MTR traces to unreached targets can send more probes,
+  up to 30 hops instead of 16 or 24.
+
 # ServiceRadar v1.4.72
 
 OpenText NOM can retrieve a device running-config. Crafted-SYN
