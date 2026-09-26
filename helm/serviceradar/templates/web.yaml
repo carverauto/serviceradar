@@ -378,14 +378,14 @@ spec:
           value: {{ $webNgPublicUrl | quote }}
         {{- end }}
         - name: PHX_CHECK_ORIGIN
-          value: {{ default "true" $webNg.checkOrigin | quote }}
+          value: {{ if kindIs "invalid" $webNg.checkOrigin }}"true"{{ else }}{{ default "true" (toString $webNg.checkOrigin) | quote }}{{ end }}
         - name: SERVICERADAR_GOD_VIEW_ENABLED
-          value: {{ default "true" $webNg.godViewEnabled | quote }}
+          value: {{ include "serviceradar.boolDefaultTrue" (list $webNg "godViewEnabled") | quote }}
         {{/* First-class flags. extraEnv cannot shadow SERVICERADAR_MCP_*. */}}
         - name: SERVICERADAR_MCP_ENABLED
           value: {{ default "false" $webNg.mcpEnabled | quote }}
         - name: SERVICERADAR_MCP_CLIENT_CREDENTIALS_ENABLED
-          value: {{ default "true" $webNg.mcpClientCredentialsEnabled | quote }}
+          value: {{ include "serviceradar.boolDefaultTrue" (list $webNg "mcpClientCredentialsEnabled") | quote }}
         - name: SERVICERADAR_MCP_REFRESH_TTL_SECONDS
           value: {{ default "28800" $webNg.mcpRefreshTtlSeconds | quote }}
         - name: SERVICERADAR_DEV_ROUTES
@@ -460,7 +460,7 @@ spec:
         - name: CORE_ADDRESS
           value: {{ $coreAddress | quote }}
         - name: CLUSTER_ENABLED
-          value: {{ default "true" $webNg.clusterEnabled | quote }}
+          value: {{ include "serviceradar.boolDefaultTrue" (list $webNg "clusterEnabled") | quote }}
         - name: CLUSTER_STRATEGY
           value: {{ $webClusterStrategy | quote }}
         - name: CLUSTER_DNS_QUERY

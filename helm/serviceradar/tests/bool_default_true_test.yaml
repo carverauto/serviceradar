@@ -4,6 +4,7 @@ templates:
   - templates/poddisruptionbudgets.yaml
   - templates/network-policy.yaml
   - templates/agent-gateway.yaml
+  - templates/web.yaml
 release:
   namespace: sr-bool-default
 tests:
@@ -125,3 +126,85 @@ tests:
           name: serviceradar-flow-collector-external
           any: true
         not: true
+
+  - it: renders the web-ng flags true when they are at their defaults
+    template: templates/web.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CLUSTER_ENABLED
+            value: "true"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PHX_CHECK_ORIGIN
+            value: "true"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: renders the web-ng flags false when they are the boolean false
+    template: templates/web.yaml
+    set:
+      webNg.clusterEnabled: false
+      webNg.godViewEnabled: false
+      webNg.mcpClientCredentialsEnabled: false
+      webNg.checkOrigin: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CLUSTER_ENABLED
+            value: "false"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_GOD_VIEW_ENABLED
+            value: "false"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_MCP_CLIENT_CREDENTIALS_ENABLED
+            value: "false"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PHX_CHECK_ORIGIN
+            value: "false"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: passes a comma-separated check-origin list through unchanged
+    template: templates/web.yaml
+    set:
+      webNg.checkOrigin: "https://a.example.com,https://b.example.com"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PHX_CHECK_ORIGIN
+            value: "https://a.example.com,https://b.example.com"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
