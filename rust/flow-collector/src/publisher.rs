@@ -2165,6 +2165,281 @@ async fn restore_subjects_to_events(js: &jetstream::Context, subjects: &[String]
     Ok(())
 }
 
+/// Stream-config metadata key recording which component owns the shape
+/// (`max_bytes`, replicas, retention) of a stream more than one component can
+/// write. EventWriter reads it before deciding whether to reconcile.
+pub(crate) const STREAM_OWNER_METADATA_KEY: &str = "serviceradar.owner";
+/// The claim flow-collector records on the stream it owns.
+pub(crate) const FLOW_COLLECTOR_OWNER: &str = "flow-collector";
+
+/// Configured shape of the dedicated flows stream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct FlowsStreamShape {
+    pub(crate) max_bytes: i64,
+    pub(crate) max_age: Duration,
+    pub(crate) replicas: usize,
+}
+
+/// One reconciled limit: its value on the server and the configured value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct LimitChange<T> {
+    pub(crate) before: T,
+    pub(crate) after: T,
+}
+
+/// What flow-collector does to an existing flows stream: the full config to
+/// send and a record of the claim and shape changes, for the log.
+#[derive(Debug, Clone)]
+pub(crate) struct FlowsStreamReconcile {
+    pub(crate) config: jetstream::stream::Config,
+    pub(crate) needs_update: bool,
+    /// Bytes stored in the stream when it was read.
+    pub(crate) stored_bytes: u64,
+    /// `serviceradar.owner` before this reconcile; `None` for a legacy stream.
+    pub(crate) previous_owner: Option<String>,
+    pub(crate) max_bytes: Option<LimitChange<i64>>,
+    pub(crate) max_age: Option<LimitChange<Duration>>,
+    pub(crate) replicas: Option<LimitChange<usize>>,
+}
+
+impl FlowsStreamReconcile {
+    /// True when the claim on the stream changes (legacy stream or another owner).
+    pub(crate) fn claims(&self) -> bool {
+        self.previous_owner.as_deref() != Some(FLOW_COLLECTOR_OWNER)
+    }
+
+    /// True when the new `max_bytes` is below the bytes stored, so JetStream
+    /// evicts the oldest messages (discard-old) to fit.
+    pub(crate) fn evicts_oldest(&self) -> bool {
+        self.max_bytes.is_some_and(|change| {
+            change.after > 0 && u64::try_from(change.after).is_ok_and(|a| a < self.stored_bytes)
+        })
+    }
+
+    pub(crate) fn ownership_log_line(&self, stream_name: &str) -> Option<String> {
+        if !self.claims() {
+            return None;
+        }
+        let previous = self
+            .previous_owner
+            .as_deref()
+            .map(|owner| format!("'{owner}'"))
+            .unwrap_or_else(|| "none (legacy stream)".to_string());
+        Some(format!(
+            "Claiming stream '{stream_name}': {STREAM_OWNER_METADATA_KEY} {previous} -> '{FLOW_COLLECTOR_OWNER}'"
+        ))
+    }
+
+    /// Before/after line for the shape reconcile, or `None` when nothing changes.
+    pub(crate) fn shape_log_line(&self, stream_name: &str) -> Option<String> {
+        if self.max_bytes.is_none() && self.max_age.is_none() && self.replicas.is_none() {
+            return None;
+        }
+        let mut parts = Vec::new();
+        if let Some(change) = self.max_bytes {
+            parts.push(format!("max_bytes {} -> {}", change.before, change.after));
+        }
+        if let Some(change) = self.max_age {
+            parts.push(format!("max_age {:?} -> {:?}", change.before, change.after));
+        }
+        if let Some(change) = self.replicas {
+            parts.push(format!(
+                "num_replicas {} -> {}",
+                change.before, change.after
+            ));
+        }
+        let eviction = if self.evicts_oldest() {
+            "; discard-old: JetStream evicts the oldest messages to fit"
+        } else {
+            ""
+        };
+        Some(format!(
+            "Reconciling stream '{stream_name}' (stored_bytes={}): {}{eviction}",
+            self.stored_bytes,
+            parts.join(", ")
+        ))
+    }
+}
+
+/// The owner recorded in a stream's metadata, if any.
+pub(crate) fn stream_owner(config: &jetstream::stream::Config) -> Option<&str> {
+    config
+        .metadata
+        .get(STREAM_OWNER_METADATA_KEY)
+        .map(String::as_str)
+}
+
+/// Decide how flow-collector reconciles an existing flows stream.
+///
+/// flow-collector owns this stream's shape while it runs (D6): it records its
+/// claim in `serviceradar.owner`, overriding an `event-writer` claim and claiming
+/// a legacy stream with no metadata, and reconciles `max_bytes`, `max_age` and
+/// `num_replicas` to the configured values in the same update. The stream is a
+/// discard-old buffer, so `max_bytes` is reconciled even when it is below the
+/// bytes stored: JetStream evicts the oldest messages. Subjects are only ever
+/// added (union with `target_subjects`), never dropped, and other metadata keys
+/// are kept.
+pub(crate) fn reconcile_existing_flows_stream(
+    existing: &jetstream::stream::Config,
+    stored_bytes: u64,
+    target_subjects: &[String],
+    desired: FlowsStreamShape,
+) -> FlowsStreamReconcile {
+    let mut updated_config = existing.clone();
+    let mut needs_update = false;
+    let previous_owner = stream_owner(existing).map(str::to_string);
+
+    if previous_owner.as_deref() != Some(FLOW_COLLECTOR_OWNER) {
+        updated_config.metadata.insert(
+            STREAM_OWNER_METADATA_KEY.to_string(),
+            FLOW_COLLECTOR_OWNER.to_string(),
+        );
+        needs_update = true;
+    }
+
+    for required in target_subjects {
+        let already_covered = updated_config
+            .subjects
+            .iter()
+            .any(|s| s == required || subject_covers(s, required));
+        if !already_covered {
+            updated_config.subjects.push(required.clone());
+            needs_update = true;
+        }
+    }
+    // Re-normalize after union in case wildcards + exacts both present.
+    let normalized = normalize_stream_subjects(updated_config.subjects.clone());
+    if normalized != updated_config.subjects {
+        updated_config.subjects = normalized;
+        needs_update = true;
+    }
+
+    let mut replicas_change = None;
+    if updated_config.num_replicas != desired.replicas {
+        replicas_change = Some(LimitChange {
+            before: updated_config.num_replicas,
+            after: desired.replicas,
+        });
+        updated_config.num_replicas = desired.replicas;
+        needs_update = true;
+    }
+
+    let mut max_bytes_change = None;
+    if updated_config.max_bytes != desired.max_bytes {
+        max_bytes_change = Some(LimitChange {
+            before: updated_config.max_bytes,
+            after: desired.max_bytes,
+        });
+        updated_config.max_bytes = desired.max_bytes;
+        needs_update = true;
+    }
+
+    let mut max_age_change = None;
+    if updated_config.max_age != desired.max_age {
+        max_age_change = Some(LimitChange {
+            before: updated_config.max_age,
+            after: desired.max_age,
+        });
+        updated_config.max_age = desired.max_age;
+        needs_update = true;
+    }
+
+    if updated_config.retention != RetentionPolicy::Limits {
+        updated_config.retention = RetentionPolicy::Limits;
+        needs_update = true;
+    }
+    if updated_config.discard != DiscardPolicy::Old {
+        updated_config.discard = DiscardPolicy::Old;
+        needs_update = true;
+    }
+    if updated_config.storage != StorageType::File {
+        updated_config.storage = StorageType::File;
+        needs_update = true;
+    }
+
+    // Publisher correctness requires publish ACKs. no_ack=true stores
+    // messages but never ACKs, so every flow falls into the ambiguous path.
+    if updated_config.no_ack {
+        info!(
+            "Updating stream '{}' no_ack from true to false (publisher requires ACKs)",
+            updated_config.name
+        );
+        updated_config.no_ack = false;
+        needs_update = true;
+    }
+
+    // Use the post-update max_age (may have just been changed above).
+    let effective_max_age = updated_config.max_age;
+    let desired_dup = clamp_duplicate_window(
+        Duration::from_secs(PREFERRED_DUPLICATE_WINDOW_SECS),
+        effective_max_age,
+    );
+    if updated_config.duplicate_window != desired_dup
+        && (updated_config.duplicate_window < desired_dup
+            || updated_config.duplicate_window > effective_max_age && !effective_max_age.is_zero())
+    {
+        info!(
+            "Updating stream '{}' duplicate_window from {:?} to {:?} (max_age={:?})",
+            updated_config.name, updated_config.duplicate_window, desired_dup, effective_max_age
+        );
+        updated_config.duplicate_window = desired_dup;
+        needs_update = true;
+    }
+
+    FlowsStreamReconcile {
+        config: updated_config,
+        needs_update,
+        stored_bytes,
+        previous_owner,
+        max_bytes: max_bytes_change,
+        max_age: max_age_change,
+        replicas: replicas_change,
+    }
+}
+
+/// Warn when the server did not keep the claim (NATS older than 2.10 drops
+/// stream metadata); publishing still works, but EventWriter cannot see the
+/// claim and may later reconcile the stream to its fallback.
+fn warn_if_claim_missing(stream_name: &str, verified: &jetstream::stream::Config) {
+    if stream_owner(verified) != Some(FLOW_COLLECTOR_OWNER) {
+        warn!(
+            "stream '{stream_name}' does not record {STREAM_OWNER_METADATA_KEY}={FLOW_COLLECTOR_OWNER} \
+             after reconcile (found {:?}); the NATS server may predate stream metadata (2.10)",
+            stream_owner(verified)
+        );
+    }
+}
+
+/// Config for a flows stream flow-collector creates, carrying its claim.
+pub(crate) fn new_flows_stream_config(
+    stream_name: &str,
+    target_subjects: &[String],
+    shape: FlowsStreamShape,
+) -> jetstream::stream::Config {
+    jetstream::stream::Config {
+        name: stream_name.to_string(),
+        subjects: target_subjects.to_vec(),
+        storage: StorageType::File,
+        retention: RetentionPolicy::Limits,
+        discard: DiscardPolicy::Old,
+        max_bytes: shape.max_bytes,
+        max_age: shape.max_age,
+        num_replicas: shape.replicas,
+        no_ack: false,
+        // Preferred window (≤ max_age). Server jetstream.limits.duplicate_window
+        // (often 2m) may reject larger values with 10052 — fall back below.
+        duplicate_window: clamp_duplicate_window(
+            Duration::from_secs(PREFERRED_DUPLICATE_WINDOW_SECS),
+            shape.max_age,
+        ),
+        metadata: std::collections::HashMap::from([(
+            STREAM_OWNER_METADATA_KEY.to_string(),
+            FLOW_COLLECTOR_OWNER.to_string(),
+        )]),
+        ..Default::default()
+    }
+}
+
 async fn ensure_flows_stream(
     js: &jetstream::Context,
     stream_name: &str,
@@ -2176,100 +2451,36 @@ async fn ensure_flows_stream(
     match js.get_stream(stream_name).await {
         Ok(mut existing_stream) => {
             let info = existing_stream.info().await?;
-            let mut updated_config = info.config.clone();
-            let mut needs_update = false;
-
-            for required in target_subjects {
-                let already_covered = updated_config
-                    .subjects
-                    .iter()
-                    .any(|s| s == required || subject_covers(s, required));
-                if !already_covered {
-                    updated_config.subjects.push(required.clone());
-                    needs_update = true;
+            let plan = reconcile_existing_flows_stream(
+                &info.config,
+                info.state.bytes,
+                target_subjects,
+                FlowsStreamShape {
+                    max_bytes,
+                    max_age,
+                    replicas,
+                },
+            );
+            if let Some(line) = plan.ownership_log_line(stream_name) {
+                info!("{line}");
+            }
+            if let Some(line) = plan.shape_log_line(stream_name) {
+                if plan.evicts_oldest() {
+                    warn!("{line}");
+                } else {
+                    info!("{line}");
                 }
             }
-            // Re-normalize after union in case wildcards + exacts both present.
-            let normalized = normalize_stream_subjects(updated_config.subjects.clone());
-            if normalized != updated_config.subjects {
-                updated_config.subjects = normalized;
-                needs_update = true;
-            }
 
-            if updated_config.num_replicas != replicas {
-                updated_config.num_replicas = replicas;
-                needs_update = true;
-            }
-
-            if updated_config.max_bytes != max_bytes {
-                info!(
-                    "Updating stream '{}' max_bytes from {} to {}",
-                    stream_name, updated_config.max_bytes, max_bytes
-                );
-                updated_config.max_bytes = max_bytes;
-                needs_update = true;
-            }
-
-            if updated_config.max_age != max_age {
-                info!(
-                    "Updating stream '{}' max_age from {:?} to {:?}",
-                    stream_name, updated_config.max_age, max_age
-                );
-                updated_config.max_age = max_age;
-                needs_update = true;
-            }
-
-            if updated_config.retention != RetentionPolicy::Limits {
-                updated_config.retention = RetentionPolicy::Limits;
-                needs_update = true;
-            }
-            if updated_config.discard != DiscardPolicy::Old {
-                updated_config.discard = DiscardPolicy::Old;
-                needs_update = true;
-            }
-            if updated_config.storage != StorageType::File {
-                updated_config.storage = StorageType::File;
-                needs_update = true;
-            }
-
-            // Publisher correctness requires publish ACKs. no_ack=true stores
-            // messages but never ACKs, so every flow falls into the ambiguous path.
-            if updated_config.no_ack {
-                info!(
-                    "Updating stream '{}' no_ack from true to false (publisher requires ACKs)",
-                    stream_name
-                );
-                updated_config.no_ack = false;
-                needs_update = true;
-            }
-
-            // Use the post-update max_age (may have just been changed above).
-            let effective_max_age = updated_config.max_age;
-            let desired_dup = clamp_duplicate_window(
-                Duration::from_secs(PREFERRED_DUPLICATE_WINDOW_SECS),
-                effective_max_age,
-            );
-            if updated_config.duplicate_window != desired_dup
-                && (updated_config.duplicate_window < desired_dup
-                    || updated_config.duplicate_window > effective_max_age
-                        && !effective_max_age.is_zero())
-            {
-                info!(
-                    "Updating stream '{}' duplicate_window from {:?} to {:?} (max_age={:?})",
-                    stream_name, updated_config.duplicate_window, desired_dup, effective_max_age
-                );
-                updated_config.duplicate_window = desired_dup;
-                needs_update = true;
-            }
-
-            if needs_update {
+            if plan.needs_update {
+                // The claim and the shape travel in this one update, so they land together.
                 // If server rejects duplicate_window (server limit), retry without raising it.
-                if let Err(err) = js.update_stream(updated_config.clone()).await {
+                if let Err(err) = js.update_stream(plan.config.clone()).await {
                     warn!(
                         "stream '{}' update failed ({err}); retrying without duplicate_window change",
                         stream_name
                     );
-                    let mut fallback = updated_config.clone();
+                    let mut fallback = plan.config.clone();
                     // Restore prior window from INFO we started with
                     fallback.duplicate_window = info.config.duplicate_window;
                     js.update_stream(fallback).await?;
@@ -2294,6 +2505,7 @@ async fn ensure_flows_stream(
                     "stream '{stream_name}' has no_ack=true after reconcile; publisher requires publish ACKs"
                 ));
             }
+            warn_if_claim_missing(stream_name, &verified_info.config);
             // Verified INFO subjects (includes pre-existing extensions not in target).
             Ok((
                 verified_info.config.duplicate_window,
@@ -2301,24 +2513,19 @@ async fn ensure_flows_stream(
             ))
         }
         Err(err) if is_stream_not_found(&err) => {
-            let stream_config = jetstream::stream::Config {
-                name: stream_name.to_string(),
-                subjects: target_subjects.to_vec(),
-                storage: StorageType::File,
-                retention: RetentionPolicy::Limits,
-                discard: DiscardPolicy::Old,
-                max_bytes,
-                max_age,
-                num_replicas: replicas,
-                no_ack: false,
-                // Preferred window (≤ max_age). Server jetstream.limits.duplicate_window
-                // (often 2m) may reject larger values with 10052 — fall back below.
-                duplicate_window: clamp_duplicate_window(
-                    Duration::from_secs(PREFERRED_DUPLICATE_WINDOW_SECS),
+            let stream_config = new_flows_stream_config(
+                stream_name,
+                target_subjects,
+                FlowsStreamShape {
+                    max_bytes,
                     max_age,
-                ),
-                ..Default::default()
-            };
+                    replicas,
+                },
+            );
+            info!(
+                "Creating stream '{stream_name}' claimed {STREAM_OWNER_METADATA_KEY}={FLOW_COLLECTOR_OWNER} \
+                 (max_bytes={max_bytes}, max_age={max_age:?}, num_replicas={replicas})"
+            );
             // Prefer create_stream over get_or_create: get_or_create can return an
             // existing handle without applying our config when races occur.
             // If preferred window exceeds server limit, fall back to omit (server default).
@@ -2350,6 +2557,7 @@ async fn ensure_flows_stream(
                     "stream '{stream_name}' has no_ack=true after create; publisher requires publish ACKs"
                 ));
             }
+            warn_if_claim_missing(stream_name, &verified_info.config);
             Ok((
                 verified_info.config.duplicate_window,
                 verified_info.config.subjects.clone(),
@@ -2890,5 +3098,218 @@ mod tests {
         let normalized =
             normalize_stream_subjects(vec!["flows.raw.*".to_string(), "flows.raw.>".to_string()]);
         assert_eq!(normalized, vec!["flows.raw.>".to_string()]);
+    }
+
+    const GIB: i64 = 1024 * 1024 * 1024;
+
+    fn flows_shape(max_bytes: i64, replicas: usize) -> FlowsStreamShape {
+        FlowsStreamShape {
+            max_bytes,
+            max_age: Duration::from_secs(6 * 60 * 60),
+            replicas,
+        }
+    }
+
+    /// An existing `flows` stream as the server reports it: discard-old buffer,
+    /// the given size and replicas, and the given owner claim (`None` = legacy).
+    fn existing_flows(
+        subjects: &[&str],
+        max_bytes: i64,
+        replicas: usize,
+        owner: Option<&str>,
+    ) -> jetstream::stream::Config {
+        let mut config = jetstream::stream::Config {
+            name: "flows".to_string(),
+            subjects: subjects.iter().map(|s| (*s).to_string()).collect(),
+            storage: StorageType::File,
+            retention: RetentionPolicy::Limits,
+            discard: DiscardPolicy::Old,
+            max_bytes,
+            max_age: Duration::from_secs(6 * 60 * 60),
+            num_replicas: replicas,
+            duplicate_window: Duration::from_secs(PREFERRED_DUPLICATE_WINDOW_SECS),
+            ..Default::default()
+        };
+        if let Some(owner) = owner {
+            config
+                .metadata
+                .insert(STREAM_OWNER_METADATA_KEY.to_string(), owner.to_string());
+        }
+        config
+    }
+
+    fn netflow_subjects() -> Vec<String> {
+        vec!["flows.raw.netflow".to_string()]
+    }
+
+    #[test]
+    fn full_flows_stream_reconciles_down_to_configured_size() {
+        // 10 GiB stream, full, claimed by an earlier flow-collector; profile says 8 GiB.
+        let existing = existing_flows(&["flows.raw.netflow"], 10 * GIB, 3, Some("flow-collector"));
+        let plan = reconcile_existing_flows_stream(
+            &existing,
+            (10 * GIB) as u64,
+            &netflow_subjects(),
+            flows_shape(8 * GIB, 3),
+        );
+
+        // Discard-old: reconcile below the stored bytes; JetStream evicts oldest.
+        assert!(plan.needs_update);
+        assert_eq!(plan.config.max_bytes, 8 * GIB);
+        assert_eq!(plan.config.discard, DiscardPolicy::Old);
+        assert_eq!(
+            plan.max_bytes,
+            Some(LimitChange {
+                before: 10 * GIB,
+                after: 8 * GIB
+            })
+        );
+        assert!(plan.evicts_oldest());
+        assert_eq!(stream_owner(&plan.config), Some(FLOW_COLLECTOR_OWNER));
+
+        let line = plan
+            .shape_log_line("flows")
+            .expect("before/after is logged");
+        assert!(line.contains("stored_bytes=10737418240"), "{line}");
+        assert!(
+            line.contains("max_bytes 10737418240 -> 8589934592"),
+            "{line}"
+        );
+        assert!(line.contains("evicts the oldest"), "{line}");
+    }
+
+    #[test]
+    fn reconcile_sets_max_age_and_replicas_with_before_after() {
+        let mut existing =
+            existing_flows(&["flows.raw.netflow"], 8 * GIB, 1, Some("flow-collector"));
+        existing.max_age = Duration::from_secs(24 * 60 * 60);
+        let plan = reconcile_existing_flows_stream(
+            &existing,
+            GIB as u64,
+            &netflow_subjects(),
+            flows_shape(8 * GIB, 3),
+        );
+        assert_eq!(plan.config.num_replicas, 3);
+        assert_eq!(plan.config.max_age, Duration::from_secs(6 * 60 * 60));
+        assert_eq!(
+            plan.replicas,
+            Some(LimitChange {
+                before: 1,
+                after: 3
+            })
+        );
+        assert!(plan.max_bytes.is_none());
+        assert!(!plan.evicts_oldest());
+        let line = plan.shape_log_line("flows").unwrap();
+        assert!(line.contains("stored_bytes=1073741824"), "{line}");
+        assert!(line.contains("num_replicas 1 -> 3"), "{line}");
+        assert!(line.contains("max_age 86400s -> 21600s"), "{line}");
+    }
+
+    #[test]
+    fn claim_overrides_event_writer_claim() {
+        // EventWriter created flows as its 1 GiB R1 fallback and claimed it.
+        let existing = existing_flows(&["flows.raw.netflow"], GIB, 1, Some("event-writer"));
+        let plan = reconcile_existing_flows_stream(
+            &existing,
+            (GIB / 2) as u64,
+            &netflow_subjects(),
+            flows_shape(8 * GIB, 3),
+        );
+        assert!(plan.needs_update);
+        assert!(plan.claims());
+        assert_eq!(plan.previous_owner.as_deref(), Some("event-writer"));
+        assert_eq!(stream_owner(&plan.config), Some(FLOW_COLLECTOR_OWNER));
+        assert_eq!(plan.config.max_bytes, 8 * GIB);
+        assert_eq!(plan.config.num_replicas, 3);
+        let line = plan.ownership_log_line("flows").unwrap();
+        assert!(
+            line.contains("'event-writer' -> 'flow-collector'"),
+            "{line}"
+        );
+
+        // Once claimed and reconciled, the next start changes nothing.
+        let again = reconcile_existing_flows_stream(
+            &plan.config,
+            (GIB / 2) as u64,
+            &netflow_subjects(),
+            flows_shape(8 * GIB, 3),
+        );
+        assert!(!again.needs_update);
+        assert!(!again.claims());
+        assert!(again.ownership_log_line("flows").is_none());
+        assert!(again.shape_log_line("flows").is_none());
+    }
+
+    #[test]
+    fn claims_legacy_stream_without_metadata() {
+        // Created before ownership claims existed: no metadata at all.
+        let existing = existing_flows(&["flows.raw.netflow"], 10 * GIB, 1, None);
+        assert!(existing.metadata.is_empty());
+        let plan = reconcile_existing_flows_stream(
+            &existing,
+            (9 * GIB) as u64,
+            &netflow_subjects(),
+            flows_shape(8 * GIB, 3),
+        );
+        assert!(plan.needs_update);
+        assert_eq!(plan.previous_owner, None);
+        assert_eq!(stream_owner(&plan.config), Some(FLOW_COLLECTOR_OWNER));
+        assert_eq!(plan.config.max_bytes, 8 * GIB);
+        assert!(plan.evicts_oldest());
+        let line = plan.ownership_log_line("flows").unwrap();
+        assert!(line.contains("none (legacy stream)"), "{line}");
+    }
+
+    #[test]
+    fn claim_keeps_subjects_and_other_metadata() {
+        // Extension subject added by another writer, plus an unrelated metadata key.
+        let mut existing = existing_flows(
+            &["flows.raw.netflow", "flows.raw.ipfix"],
+            GIB,
+            1,
+            Some("event-writer"),
+        );
+        existing
+            .metadata
+            .insert("example.note".to_string(), "kept".to_string());
+        let plan = reconcile_existing_flows_stream(
+            &existing,
+            0,
+            &[
+                "flows.raw.netflow".to_string(),
+                "flows.raw.sflow".to_string(),
+            ],
+            flows_shape(8 * GIB, 1),
+        );
+        assert_eq!(stream_owner(&plan.config), Some(FLOW_COLLECTOR_OWNER));
+        assert_eq!(
+            plan.config.metadata.get("example.note").map(String::as_str),
+            Some("kept")
+        );
+        for subject in ["flows.raw.netflow", "flows.raw.ipfix", "flows.raw.sflow"] {
+            assert!(
+                plan.config.subjects.iter().any(|s| s == subject),
+                "subject {subject} must survive the reconcile: {:?}",
+                plan.config.subjects
+            );
+        }
+    }
+
+    #[test]
+    fn created_flows_stream_carries_claim() {
+        let config = new_flows_stream_config("flows", &netflow_subjects(), flows_shape(8 * GIB, 3));
+        assert_eq!(stream_owner(&config), Some(FLOW_COLLECTOR_OWNER));
+        assert_eq!(config.max_bytes, 8 * GIB);
+        assert_eq!(config.num_replicas, 3);
+        assert_eq!(config.discard, DiscardPolicy::Old);
+    }
+
+    #[test]
+    fn owner_claim_serializes_as_stream_metadata() {
+        // The claim must reach the wire as JetStream `metadata`, which EventWriter reads.
+        let config = new_flows_stream_config("flows", &netflow_subjects(), flows_shape(GIB, 1));
+        let json = serde_json::to_value(&config).unwrap();
+        assert_eq!(json["metadata"]["serviceradar.owner"], "flow-collector");
     }
 }

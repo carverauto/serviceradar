@@ -278,7 +278,7 @@ An ownership test SHALL exercise the EventWriter claim decision, with an injecte
 
 ### Requirement: Size-owning services honour environment size overrides
 The Go datasvc, the otel log-collector, the flow-collector and the bmp-collector SHALL read their stream sizes and replica counts from `SERVICERADAR_JS_<STREAM>_MAX_BYTES` and `SERVICERADAR_JS_<STREAM>_REPLICAS`, where `<STREAM>` is the stream name upper-cased with each non-alphanumeric character replaced by `_`.
-The precedence SHALL be environment, then the JSON or TOML value, then the compiled default. A value that is not a positive integer SHALL fail startup.
+The precedence SHALL be environment, then the JSON or TOML value, then the compiled default. A value that is not a positive integer SHALL fail startup, except that an empty or whitespace-only variable SHALL be treated as unset.
 
 #### Scenario: Environment overrides the file
 - **GIVEN** the flow-collector JSON sets `stream_max_bytes` to 1 GiB
@@ -295,6 +295,11 @@ The precedence SHALL be environment, then the JSON or TOML value, then the compi
 - **GIVEN** `SERVICERADAR_JS_ARANCINI_CAUSAL_MAX_BYTES` is `abc`
 - **WHEN** bmp-collector starts
 - **THEN** startup SHALL fail with an error naming the variable
+
+#### Scenario: Empty value is unset
+- **GIVEN** `SERVICERADAR_JS_ARANCINI_CAUSAL_MAX_BYTES` is empty and the JSON sets a size
+- **WHEN** bmp-collector resolves its configuration
+- **THEN** the JSON value SHALL be used
 
 ### Requirement: Non-Helm installs ship explicit profile sizes that fit
 Docker Compose SHALL ship one preset file per sizing profile that sets `max_file_store` and every stream size explicitly, and packaged installs SHALL ship the same explicit sizes as a file; the NATS server configuration SHALL read `max_file_store` from them.
