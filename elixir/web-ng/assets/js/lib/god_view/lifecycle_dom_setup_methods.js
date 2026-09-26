@@ -39,13 +39,19 @@ function webgpuRequestable() {
  * rect measured in the new one is how a scene that fits exactly reports glyphs 560px outside
  * it -- half the width difference between the two frames.
  *
- * Deck's refresh is idempotent and reads the size straight off the canvas we just sized, so
- * pulling it forward costs nothing and leaves no frame drawn at the wrong size. It is internal
- * API, so a Deck that no longer exposes it degrades to the old behaviour (one stale frame)
- * rather than failing: the fallback still corrects the view manager, even though Deck's next
- * `setProps` re-asserts its own cached size over it.
+ * Deck's refresh is idempotent, so pulling it forward costs nothing and leaves no frame drawn
+ * at the wrong size. Since deck.gl 9.4 it reads the size from luma's canvas context, which
+ * learns it from a ResizeObserver one frame later -- so the context is told the new CSS size
+ * first. It is internal API, so a Deck that no longer exposes it degrades to the old behaviour
+ * (one stale frame) rather than failing: the fallback still corrects the view manager, even
+ * though Deck's next `setProps` re-asserts its own cached size over it.
  */
 function adoptDeckViewportSize(deck, width, height) {
+  const canvasContext = deck?.device?.canvasContext
+  if (canvasContext && typeof canvasContext.getCSSSize === "function" && "cssWidth" in canvasContext) {
+    canvasContext.cssWidth = width
+    canvasContext.cssHeight = height
+  }
   if (typeof deck?._updateCanvasSize === "function") {
     deck._updateCanvasSize()
     if (Number(deck.width) === width && Number(deck.height) === height) return true

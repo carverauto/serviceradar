@@ -329,6 +329,46 @@ describe("lifecycle_dom_setup_methods", () => {
       .toBeLessThan(deck.redraw.mock.invocationCallOrder[0])
   })
 
+  it("tells luma's canvas context the new size before deck 9.4 reads it back", () => {
+    // @deck.gl/core 9.4: _updateCanvasSize reads canvasContext.getCSSSize(), which luma only
+    // refreshes from a ResizeObserver callback a frame later. Without the new size there, the
+    // refresh adopts nothing and the frame is drawn -- and labels admitted -- at the old size.
+    const canvasContext = {
+      cssWidth: 1920,
+      cssHeight: 1080,
+      getCSSSize() {
+        return [this.cssWidth, this.cssHeight]
+      },
+    }
+    const deck = {
+      width: 1920,
+      height: 1080,
+      device: {canvasContext},
+      setProps: vi.fn(),
+      _updateCanvasSize: vi.fn(() => {
+        ;[deck.width, deck.height] = canvasContext.getCSSSize()
+      }),
+      redraw: vi.fn(),
+    }
+    const state = {
+      el: {
+        clientWidth: 1080,
+        clientHeight: 1920,
+        getBoundingClientRect: () => ({left: 0, top: 0, width: 1080, height: 1920, right: 1080, bottom: 1920}),
+      },
+      canvas: {style: {}},
+      deck,
+      viewportWidth: 1920,
+      viewportHeight: 1080,
+    }
+    const ctx = createStateBackedContext(state, {})
+    Object.assign(ctx, bindApi(ctx, godViewLifecycleDomSetupMethods))
+
+    ctx.resizeCanvas()
+
+    expect([deck.width, deck.height]).toEqual([1080, 1920])
+  })
+
   it("falls back to the Deck view manager when the canvas-size refresh is unavailable", () => {
     const canvas = {style: {}}
     const viewManagerSetProps = vi.fn()
