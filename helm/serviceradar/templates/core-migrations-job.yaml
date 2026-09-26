@@ -12,7 +12,7 @@
 {{- $coreVals := default (dict) .Values.core -}}
 {{- $migrationVals := default (dict) $coreVals.migrations -}}
 {{- $observabilityRetention := default (dict) $coreVals.observabilityRetention -}}
-{{- $migrationsEnabled := default true $migrationVals.enabled -}}
+{{- $migrationsEnabled := include "serviceradar.boolDefaultTrue" (list $migrationVals "enabled") | eq "true" -}}
 {{- $webNg := default (dict) .Values.webNg -}}
 {{- $pluginStorage := default (dict) $webNg.pluginStorage -}}
 {{- $secrets := default "serviceradar-secrets" .Values.secrets.existingSecretName -}}

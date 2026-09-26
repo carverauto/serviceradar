@@ -1095,3 +1095,22 @@ puts that same password into CREATE EXTERNAL CATALOG.
 {{- $cat := default (dict) (default (dict) (default (dict) .Values.analytics).starrocks).catalog -}}
 {{- default "serviceradar-starrocks-reader" $cat.readerPasswordSecret -}}
 {{- end -}}
+
+{{/*
+serviceradar.boolDefaultTrue renders "true" or "false" for (list $dict "key").
+An absent key, a nil or empty value, or a container that is not a map all mean
+true; an explicit false (the boolean or the string "false") renders "false".
+Use it instead of `default true $x.key`: Sprig's `default` treats false as
+empty, so that form turns an explicit `false` back into true.
+*/}}
+{{- define "serviceradar.boolDefaultTrue" -}}
+{{- $d := index . 0 -}}
+{{- $k := index . 1 -}}
+{{- $v := "" -}}
+{{- if and (kindIs "map" $d) (hasKey $d $k) -}}{{- $v = index $d $k -}}{{- end -}}
+{{- if or (kindIs "invalid" $v) (eq (toString $v) "") -}}true
+{{- else if eq (lower (toString $v)) "false" -}}false
+{{- else if $v -}}true
+{{- else -}}false
+{{- end -}}
+{{- end -}}

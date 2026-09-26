@@ -134,7 +134,7 @@
 {{- $deviceEnrichmentFsSecret := default "" $deviceEnrichmentFsOverrides.existingSecret -}}
 {{- $deviceEnrichmentFsClaim := default "" $deviceEnrichmentFsOverrides.existingClaim -}}
 {{- $migrationVals := default (dict) $coreVals.migrations -}}
-{{- $migrationsEnabled := default true $migrationVals.enabled -}}
+{{- $migrationsEnabled := include "serviceradar.boolDefaultTrue" (list $migrationVals "enabled") | eq "true" -}}
 {{- $coreClusterNodeBasename := default "serviceradar_core" $coreVals.kubernetesNodeBasename -}}
 {{- $gatewayVals := default (dict) .Values.agentGateway -}}
 {{- $gatewayServiceName := "serviceradar-agent-gateway" -}}
@@ -520,7 +520,7 @@ spec:
         - name: DATABASE_POOL_TIMEOUT_MS
           value: {{ default 120000 $webNgDatabase.poolTimeoutMs | quote }}
         - name: SERVICERADAR_WEB_NG_OBAN_ENABLED
-          value: {{ default true $webNg.obanEnabled | quote }}
+          value: {{ include "serviceradar.boolDefaultTrue" (list $webNg "obanEnabled") | eq "true" | quote }}
         - name: WEB_NG_OBAN_QUEUE_DEFAULT
           value: {{ $webNgObanQueueDefault | quote }}
         - name: WEB_NG_OBAN_QUEUE_ALERTS
