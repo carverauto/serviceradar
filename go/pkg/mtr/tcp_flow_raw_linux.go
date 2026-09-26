@@ -60,6 +60,10 @@ var (
 )
 
 func openRawTCPFlow(dst net.IP, dstPort int, ipv6 bool) (*rawTCPFlow, error) {
+	if err := checkTCPFlowTarget(dst); err != nil {
+		return nil, err
+	}
+
 	src, err := routeSourceAddr(dst, dstPort, ipv6)
 	if err != nil {
 		return nil, err
@@ -107,8 +111,8 @@ func openRawTCPFlow(dst net.IP, dstPort int, ipv6 bool) (*rawTCPFlow, error) {
 
 // routeSourceAddr asks the kernel which local address it would use toward dst.
 // Connecting a UDP socket sends nothing; it only resolves the route. It fails
-// for destinations the host cannot route, such as an IPv6 link-local address
-// without a zone.
+// for destinations the host cannot route; an IPv6 link-local address, which
+// would fail here without a zone, is rejected earlier by checkTCPFlowTarget.
 func routeSourceAddr(dst net.IP, dstPort int, ipv6 bool) (net.IP, error) {
 	network := "udp4"
 	if ipv6 {

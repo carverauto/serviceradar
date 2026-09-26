@@ -266,6 +266,11 @@ no-mistakes gate, in order. All fixtures are synthetic
     depth +/-1.
   - The TCP diagnostics columns are populated for Linux-agent traces.
   - A multi-protocol profile writes one trace per protocol per target.
+    "Target" means a traceable target: automated selection (baseline and bulk
+    dispatch) excludes link-local addresses (IPv4 169.254.0.0/16, IPv6
+    fe80::/10), so compare trace counts against the selected target count, not
+    the selector's raw match count. The scheduler's dispatch summary reports
+    the excluded count as `skipped_link_local`.
   - Explicit failure branch: if zero post-rollout TCP rows exist, the check
     fails, not "pending".
 - [ ] 6.5 Active Scans shows the running demo MTR bulk job and its completion.
