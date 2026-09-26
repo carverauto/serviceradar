@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::ffi::OsString;
 use std::net::IpAddr;
 use std::path::PathBuf;
 
@@ -339,12 +340,93 @@ fn default_pending_ttl_secs() -> u64 {
     300
 }
 
+/// Environment variable overriding a stream size or replica count:
+/// `SERVICERADAR_JS_<STREAM>_<SUFFIX>`, where `<STREAM>` is the stream name
+/// upper-cased with every non-alphanumeric character replaced by `_`. For the
+/// `flows` stream: `SERVICERADAR_JS_FLOWS_MAX_BYTES` / `SERVICERADAR_JS_FLOWS_REPLICAS`.
+pub(crate) fn stream_env_var(stream_name: &str, suffix: &str) -> String {
+    let stream: String = stream_name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_uppercase()
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    format!("SERVICERADAR_JS_{stream}_{suffix}")
+}
+
+/// Parse an optional environment override that must be a positive integer.
+/// An unset variable yields `None`; any other non-positive-integer value is an
+/// error naming the variable, so startup fails rather than running on a
+/// silently ignored size.
+fn positive_env_override<T>(
+    env: &impl Fn(&str) -> Option<OsString>,
+    name: &str,
+) -> anyhow::Result<Option<T>>
+where
+    T: std::str::FromStr + PartialOrd + Default,
+{
+    let Some(raw) = env(name) else {
+        return Ok(None);
+    };
+    let Some(text) = raw.to_str() else {
+        anyhow::bail!("{name} must be a positive integer, got a non-UTF-8 value");
+    };
+    match text.parse::<T>() {
+        Ok(value) if value > T::default() => Ok(Some(value)),
+        _ => anyhow::bail!("{name} must be a positive integer, got {text:?}"),
+    }
+}
+
 impl Config {
     pub fn from_file(path: &str) -> anyhow::Result<Self> {
         let content = std::fs::read_to_string(path)?;
-        let config: Config = serde_json::from_str(&content)?;
+        Self::from_json_with_env(&content, |name| std::env::var_os(name))
+    }
+
+    /// Parse the JSON config, apply environment size overrides, then validate.
+    /// Precedence for the stream size and replicas: environment, then JSON,
+    /// then the compiled default.
+    pub(crate) fn from_json_with_env(
+        content: &str,
+        env: impl Fn(&str) -> Option<OsString>,
+    ) -> anyhow::Result<Self> {
+        let mut config: Config = serde_json::from_str(content)?;
+        config.apply_env_overrides(&env)?;
         config.validate()?;
         Ok(config)
+    }
+
+    fn apply_env_overrides(
+        &mut self,
+        env: &impl Fn(&str) -> Option<OsString>,
+    ) -> anyhow::Result<()> {
+        if self.stream_name == "events" {
+            // Legacy mode never sizes the shared `events` stream (the otel
+            // log-collector owns it), so its SERVICERADAR_JS_EVENTS_* keys are
+            // not ours to read.
+            return Ok(());
+        }
+        let max_bytes_var = stream_env_var(&self.stream_name, "MAX_BYTES");
+        if let Some(max_bytes) = positive_env_override::<i64>(env, &max_bytes_var)? {
+            log::info!(
+                "{max_bytes_var}={max_bytes} overrides stream_max_bytes={}",
+                self.stream_max_bytes
+            );
+            self.stream_max_bytes = max_bytes;
+        }
+        let replicas_var = stream_env_var(&self.stream_name, "REPLICAS");
+        if let Some(replicas) = positive_env_override::<usize>(env, &replicas_var)? {
+            log::info!(
+                "{replicas_var}={replicas} overrides stream_replicas={}",
+                self.stream_replicas
+            );
+            self.stream_replicas = replicas;
+        }
+        Ok(())
     }
 
     fn validate(&self) -> anyhow::Result<()> {
@@ -1121,6 +1203,80 @@ mod tests {
             // None means "leave the library default of 10_000 alone".
             ListenerConfig::Netflow { max_sources, .. } => assert_eq!(*max_sources, None),
             other => panic!("expected netflow listener, got {other:?}"),
+        }
+    }
+
+    const GIB: i64 = 1024 * 1024 * 1024;
+
+    /// flows config whose JSON sets the stream size and replicas.
+    const FLOWS_JSON_WITH_SIZE: &str = r#"{
+        "nats_url": "nats://localhost:4222",
+        "stream_name": "flows",
+        "stream_max_bytes": 1073741824,
+        "stream_replicas": 1,
+        "listeners": [{"protocol":"netflow","listen_addr":"0.0.0.0:2055","subject":"flows.raw.netflow"}]
+    }"#;
+
+    /// flows config that leaves size and replicas to the compiled defaults.
+    const FLOWS_JSON_NO_SIZE: &str = r#"{
+        "nats_url": "nats://localhost:4222",
+        "stream_name": "flows",
+        "listeners": [{"protocol":"netflow","listen_addr":"0.0.0.0:2055","subject":"flows.raw.netflow"}]
+    }"#;
+
+    fn env_of(vars: &[(&str, &str)]) -> impl Fn(&str) -> Option<OsString> + use<> {
+        let vars: HashMap<String, OsString> = vars
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), OsString::from(*v)))
+            .collect();
+        move |name| vars.get(name).cloned()
+    }
+
+    #[test]
+    fn size_precedence_is_env_then_json_then_default() {
+        let override_env = || {
+            env_of(&[
+                ("SERVICERADAR_JS_FLOWS_MAX_BYTES", "3221225472"),
+                ("SERVICERADAR_JS_FLOWS_REPLICAS", "3"),
+            ])
+        };
+
+        // Environment beats the JSON value.
+        let config = Config::from_json_with_env(FLOWS_JSON_WITH_SIZE, override_env()).unwrap();
+        assert_eq!(config.stream_max_bytes, 3 * GIB);
+        assert_eq!(config.stream_replicas, 3);
+
+        // Environment beats the compiled default.
+        let config = Config::from_json_with_env(FLOWS_JSON_NO_SIZE, override_env()).unwrap();
+        assert_eq!(config.stream_max_bytes, 3 * GIB);
+        assert_eq!(config.stream_replicas, 3);
+
+        // Without the environment, the JSON value, then the compiled default.
+        let config = Config::from_json_with_env(FLOWS_JSON_WITH_SIZE, env_of(&[])).unwrap();
+        assert_eq!(config.stream_max_bytes, GIB);
+        assert_eq!(config.stream_replicas, 1);
+        let config = Config::from_json_with_env(FLOWS_JSON_NO_SIZE, env_of(&[])).unwrap();
+        assert_eq!(config.stream_max_bytes, 10 * GIB);
+        assert_eq!(config.stream_replicas, 1);
+    }
+
+    #[test]
+    fn invalid_env_size_fails_naming_the_variable() {
+        for (name, value) in [
+            ("SERVICERADAR_JS_FLOWS_MAX_BYTES", "abc"),
+            ("SERVICERADAR_JS_FLOWS_MAX_BYTES", "0"),
+            ("SERVICERADAR_JS_FLOWS_MAX_BYTES", "-1"),
+            ("SERVICERADAR_JS_FLOWS_MAX_BYTES", ""),
+            ("SERVICERADAR_JS_FLOWS_REPLICAS", "abc"),
+            ("SERVICERADAR_JS_FLOWS_REPLICAS", "0"),
+            ("SERVICERADAR_JS_FLOWS_REPLICAS", "1.5"),
+        ] {
+            let err = Config::from_json_with_env(FLOWS_JSON_WITH_SIZE, env_of(&[(name, value)]))
+                .expect_err(&format!("{name}={value:?} must fail startup"));
+            assert!(
+                err.to_string().contains(name),
+                "error for {name}={value:?} must name the variable, got: {err}"
+            );
         }
     }
 }
