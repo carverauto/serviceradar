@@ -25,7 +25,7 @@ defmodule ServiceRadar.Credentials.CredentialRedactor do
     token access_token refresh_token id_token auth_token bearer bearer_token
     secret client_secret authorization api_key apikey x_api_key
   )
-  @version "serviceradar_credential_redactor_v1"
+  @version "serviceradar_credential_redactor_v2"
 
   @spec version() :: String.t()
   def version, do: @version

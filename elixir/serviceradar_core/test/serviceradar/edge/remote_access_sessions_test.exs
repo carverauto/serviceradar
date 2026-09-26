@@ -1432,7 +1432,7 @@ defmodule ServiceRadar.Edge.RemoteAccessSessionsTest do
     assert recording.manifest["absolute_timeout_seconds"] == 3600
 
     assert recording.manifest["redaction_policy"]["credential_redactor"] ==
-             "serviceradar_credential_redactor_v1"
+             "serviceradar_credential_redactor_v2"
 
     assert recording.manifest["redaction_policy"]["decision_time"] == "record_time"
     assert recording.manifest["redaction_policy"]["policy_edits_retroactive"] == false
