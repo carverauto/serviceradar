@@ -458,25 +458,33 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   @doc false
   # With the warehouse enabled, a warehouse batcher flushes after the Stream
   # Load max age rather than the CNPG-sized batch timeout, and holds up to half
-  # of its consumer's `max_ack_pending` messages: the producer cannot deliver
-  # more than `max_ack_pending` unacked messages, so a larger batch would only
-  # ever flush on age, and half leaves room for the next batch to fill while
-  # this one loads. An operator's larger configured size or timeout still wins.
-  # Without the warehouse the batchers are left exactly as configured.
+  # of its consumer's `max_ack_pending` messages, whether that raises or caps
+  # the configured size: the producer cannot deliver more than
+  # `max_ack_pending` unacked messages, so a larger batch would only ever flush
+  # on age, and half leaves room for the next batch to fill while this one
+  # loads. Batchers sharing one consumer (`:events` and `:flow_attribution`
+  # both read EVENTS) split that headroom, so in the worst case they flush on
+  # age instead of stalling. A busy stream then flushes on size and a quiet one
+  # on age. Without the warehouse, or when `max_ack_pending` is unknown, the
+  # batch size is left as configured.
   def size_warehouse_batchers(batchers, _config, nil), do: batchers
 
   def size_warehouse_batchers(batchers, %Config{} = config, sizing) do
     Enum.map(batchers, fn {name, opts} ->
       if name in @warehouse_batchers do
         max_ack_pending = batcher_max_ack_pending(config, name) || sizing.max_ack_pending
-        size = max(Keyword.fetch!(opts, :batch_size), div(max_ack_pending || 0, 2))
         timeout = max(Keyword.fetch!(opts, :batch_timeout), sizing.max_age_ms)
-        {name, Keyword.merge(opts, batch_size: size, batch_timeout: timeout)}
+        {name, Keyword.merge(opts, batch_size_for(opts, max_ack_pending), batch_timeout: timeout)}
       else
         {name, opts}
       end
     end)
   end
+
+  defp batch_size_for(opts, nil), do: Keyword.take(opts, [:batch_size])
+
+  defp batch_size_for(_opts, max_ack_pending),
+    do: [batch_size: max(div(max_ack_pending, 2), 1)]
 
   defp batcher_max_ack_pending(%Config{streams: streams}, name) when is_list(streams) do
     Enum.find_value(streams, fn stream ->

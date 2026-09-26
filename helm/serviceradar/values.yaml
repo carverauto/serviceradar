@@ -2737,9 +2737,10 @@ analytics:
     # less than many small ones. EventWriter flushes a warehouse batch after
     # maxAgeMs (also the freshness floor for warehouse charts), splits it into
     # loads of at most maxRows rows and maxBytes encoded bytes, and runs at
-    # most maxInFlight of them at once. A batch also fills to half of its
-    # JetStream consumer's max_ack_pending, so raising that is how busy
-    # streams get larger loads. Starting points for the #4516 benchmark, not
+    # most maxInFlight of them at once. A batch fills to half of its
+    # JetStream consumer's max_ack_pending (the producer never holds more
+    # unacked messages than that), so a busy stream flushes on size and a
+    # quiet one on maxAgeMs. Starting points for the #4516 benchmark, not
     # measured optima.
     streamLoad:
       maxRows: 50000
