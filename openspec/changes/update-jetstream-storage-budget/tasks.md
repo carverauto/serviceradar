@@ -60,22 +60,27 @@
 
 ## 4. Reconcile and safe shrink (D6)
 
-- [ ] 4.1 datasvc `reconcileStreamConfigLocked`: when configured is below
-      stored, leave `max_bytes` unchanged and log configured, stored and
-      current values; never set it to the stored size.
-- [ ] 4.2 otel log-collector `events` reconcile: same rule.
-- [ ] 4.3 EventWriter `reconcile_stream`: same rule.
+- [ ] 4.1 datasvc `reconcileStreamConfigLocked` (KV and object store,
+      discard-new): when configured is below stored, leave `max_bytes`
+      unchanged and log configured, stored and current values; never set it to
+      the stored size.
+- [ ] 4.2 otel log-collector `events` reconcile (discard-old): reconcile to the
+      configured value even when it evicts the oldest messages; log before and
+      after.
+- [ ] 4.3 EventWriter `reconcile_stream` (discard-old): same rule for every
+      EventWriter-created stream.
 - [ ] 4.4 web-ng plugin bucket (`plugins/storage.ex`): reconcile `max_bytes`
-      on startup, create-or-update, same rule; an unlimited bucket holding more
-      than the cap stays unlimited and is logged.
+      on startup, create-or-update, discard-new rule; an unlimited bucket
+      holding more than the cap stays unlimited and is logged.
 - [ ] 4.5 web-ng fieldsurvey bucket (`field_survey_artifact_store.ex`
       `ensure_bucket`): same rule instead of returning `:exists` untouched.
 - [ ] 4.6 core threat-intel bucket (`threat_intel_raw_payload_store.ex`): same
       rule.
-- [ ] 4.7 Tests for each owner: an existing unlimited bucket gets the cap when
-      its data fits; when the data does not fit `max_bytes` is left unchanged,
-      the values are logged and a later write still succeeds; an absent
-      bucket is created with the cap.
+- [ ] 4.7 Tests per owner: for discard-new buckets an existing unlimited bucket
+      gets the cap when its data fits, and when it does not `max_bytes` is left
+      unchanged, the values are logged and a later write still succeeds; for
+      discard-old streams a full stream shrinks, evicts the oldest messages
+      and logs before and after; an absent bucket is created with the cap.
 - [ ] 4.8 Ownership test: with bmp-collector enabled and `ARANCINI_CAUSAL`
       sized above the fallback, EventWriter startup leaves `max_bytes` and
       replicas unchanged (fails on the current default-true behaviour once the
@@ -83,7 +88,13 @@
       at the fallback size.
 - [ ] 4.9 `rust/bmp-collector` publisher: create-or-update `ARANCINI_CAUSAL`,
       reconciling `max_bytes` and `num_replicas` on an existing stream under the
-      same rule, with a test for an existing 10 GiB stream reconciled to 2 GiB.
+      discard-old rule, with a test for an existing 10 GiB stream reconciled to
+      2 GiB.
+- [ ] 4.10 `rust/flow-collector` publisher: reconcile `flows` `max_bytes` and
+      replicas under the discard-old rule, with a test for `flows` at 10 GiB
+      full reconciled to 8 GiB.
+- [ ] 4.11 Classify `NOTIFICATIONS` (created by core notifications) by its
+      discard policy and apply the matching D6 rule.
 
 ## 5. Compose and packaged installs (D7)
 
@@ -91,9 +102,9 @@
       Compose table and every stream size explicit; select the file with
       `SERVICERADAR_NATS_PROFILE` (default `small`) through `env_file`.
 - [ ] 5.2 `docker/compose/nats.docker.conf` reads `max_file_store` from
-      `$SERVICERADAR_NATS_MAX_FILE_STORE`; datasvc, otel log-collector,
-      flow-collector, bmp-collector, core and web-ng read their sizes from the preset
-      variables instead of literals in their config files.
+      `$SERVICERADAR_NATS_MAX_FILE_STORE`. The presets set every stream size
+      through the `SERVICERADAR_JS_<STREAM>_MAX_BYTES` / `_REPLICAS` variables
+      of D7 (core and web-ng through their own variables, task 2.3-2.5).
 - [ ] 5.3 Ship `build/packaging/nats/config/jetstream-sizes.env` with the
       `small` content; load it with `EnvironmentFile=` in the NATS, datasvc,
       log-collector, flow-collector, bmp-collector, core and web-ng units, and
@@ -109,6 +120,19 @@
       A vector with the v1.4.73 single-server shape must fail.
 - [ ] 5.5 Bump `addons/<name>/addon.yaml` `version` for any native add-on whose
       config changes.
+- [ ] 5.6 Go datasvc: read `SERVICERADAR_JS_KV_SERVICERADAR_DATASVC_MAX_BYTES`,
+      `SERVICERADAR_JS_OBJ_SERVICERADAR_OBJECTS_MAX_BYTES` and the matching
+      `_REPLICAS`, taking precedence over JSON (env > JSON > compiled default);
+      unit test for the precedence and for an invalid value failing startup.
+- [ ] 5.7 Rust flow-collector: `SERVICERADAR_JS_FLOWS_MAX_BYTES` and
+      `SERVICERADAR_JS_FLOWS_REPLICAS` override `stream_max_bytes` and
+      `stream_replicas`; unit test for the precedence.
+- [ ] 5.8 Rust bmp-collector: `SERVICERADAR_JS_ARANCINI_CAUSAL_MAX_BYTES` and
+      `_REPLICAS` override the JSON stream size and replicas; unit test for the
+      precedence.
+- [ ] 5.9 Rust otel log-collector: `SERVICERADAR_JS_EVENTS_MAX_BYTES` and
+      `_REPLICAS` override `max_bytes` and `stream_replicas`; unit test for the
+      precedence.
 
 ## 6. Runbook (D8)
 

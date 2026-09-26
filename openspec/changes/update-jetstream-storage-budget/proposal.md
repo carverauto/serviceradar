@@ -93,15 +93,24 @@ one unplaceable stream stops unrelated ingestion.
 - **Control-plane contract.** The serviceradar-control SaaS control plane is
   out of scope; it consumes this change as a profile name plus optional
   per-stream overrides.
-- **Caps converge on upgrade and never squeeze stored data.** The plugin,
-  fieldsurvey and threat-intel bucket owners, which today create their bucket
-  once, SHALL reconcile `max_bytes` on startup, and the bmp-collector
-  publisher SHALL create-or-update `ARANCINI_CAUSAL` so it truly owns that
-  stream's size. When the configured cap is below the bytes already stored, an
-  owner leaves `max_bytes` unchanged (it never sets it to the stored size,
-  which would make a discard-new bucket refuse every write) and logs the
-  configured, stored and current values; an unlimited bucket holding more than
-  the cap stays unlimited until the data ages out or the cap is raised.
+- **Caps converge on upgrade, by discard policy.** The plugin, fieldsurvey and
+  threat-intel bucket owners, which today create their bucket once, SHALL
+  reconcile `max_bytes` on startup, and the bmp-collector publisher SHALL
+  create-or-update `ARANCINI_CAUSAL` so it truly owns that stream's size.
+  Discard-new state buckets (datasvc KV and objects, plugins, fieldsurvey,
+  threat-intel) never shrink below stored bytes: `max_bytes` is left unchanged
+  and the values are logged, since setting it to the stored size would refuse
+  every write, and an unlimited bucket holding more than the cap stays
+  unlimited until the data ages out or the cap is raised. Discard-old buffers
+  (`flows`, `events`, `ARANCINI_CAUSAL`, every EventWriter stream, including
+  flow-collector's `flows` 10 to 8 GiB) reconcile to the configured value even
+  when that evicts the oldest messages, so installs reach the budgeted
+  reservation.
+- **Non-Helm services honour environment size overrides.** datasvc, the otel
+  log-collector, flow-collector and bmp-collector read
+  `SERVICERADAR_JS_<STREAM>_MAX_BYTES` / `_REPLICAS`, taking precedence over
+  their JSON or TOML (env, then file, then compiled default), so a Compose
+  preset or packaged sizes file actually sets the reservation.
 
 ## Impact
 
@@ -111,8 +120,9 @@ one unplaceable stream stops unrelated ingestion.
   `elixir/serviceradar_core` EventWriter (`producer.ex`, `config.ex`) and
   `serviceradar_core_elx/config/runtime.exs`; Go datasvc stream reconcile
   (`go/pkg/datasvc/nats.go`); Rust otel log-collector reconcile
-  (`rust/otel/src/nats/stream.rs`); the bmp-collector publisher
-  (`rust/bmp-collector/src/publisher.rs`); the trivy/bmp stream creators and the
+  (`rust/otel/src/nats/stream.rs`); the flow-collector and bmp-collector
+  publishers (`rust/flow-collector/src/publisher.rs`,
+  `rust/bmp-collector/src/publisher.rs`) and their config loading; the trivy/bmp stream creators and the
   web-ng plugin (`plugins/storage.ex`), web-ng fieldsurvey
   (`field_survey_artifact_store.ex`) and core threat-intel
   (`threat_intel_raw_payload_store.ex`) bucket owners, including web-ng

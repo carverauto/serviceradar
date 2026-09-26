@@ -134,11 +134,11 @@ A profile SHALL set `max_file_store` (30G, 100G and 500G) and the default `max_b
 - **WHEN** the chart renders
 - **THEN** rendering SHALL succeed
 
-### Requirement: Stream owners reconcile max_bytes without squeezing stored data
+### Requirement: Stream owners reconcile max_bytes by discard policy
 The web-ng plugin bucket owner, the web-ng fieldsurvey bucket owner and the core threat-intel bucket owner SHALL reconcile `max_bytes` on startup, creating the bucket when it is absent and updating it when it exists.
-The bmp-collector publisher SHALL create-or-update `ARANCINI_CAUSAL`, reconciling `max_bytes` and `num_replicas` on an existing stream.
-When the configured `max_bytes` is below the bytes currently stored, a reconciling component SHALL leave `max_bytes` unchanged, SHALL NOT set it to the stored size, and SHALL log the configured, stored and current values.
-An existing unlimited bucket whose stored bytes exceed the configured cap SHALL stay unlimited, and be logged, until the data ages out or an operator raises the cap.
+The bmp-collector publisher SHALL create-or-update `ARANCINI_CAUSAL`, and the flow-collector publisher SHALL reconcile `flows`, each reconciling `max_bytes` and `num_replicas` on an existing stream.
+For a discard-new state bucket (datasvc KV, `OBJ_serviceradar-objects`, and the plugin, fieldsurvey and threat-intel buckets), when the configured `max_bytes` is below the bytes currently stored, the owner SHALL leave `max_bytes` unchanged, SHALL NOT set it to the stored size, and SHALL log the configured, stored and current values. An existing unlimited bucket whose stored bytes exceed the configured cap SHALL stay unlimited, and be logged, until the data ages out or an operator raises the cap.
+For a discard-old buffer stream (`flows`, `events`, `ARANCINI_CAUSAL` and every EventWriter-created stream), the owner SHALL reconcile `max_bytes` to the configured value even when that evicts the oldest messages, and SHALL log the values before and after.
 
 #### Scenario: Lowered default with data that fits
 - **GIVEN** `OBJ_serviceradar-objects` stores 0.5 GiB with `max_bytes` 10 GiB
@@ -158,7 +158,7 @@ An existing unlimited bucket whose stored bytes exceed the configured cap SHALL 
 - **WHEN** web-ng starts
 - **THEN** the bucket SHALL be created with a `max_bytes` of 2 GiB
 
-#### Scenario: Lowered default with data that does not fit
+#### Scenario: State bucket holding more than the cap is unchanged
 - **GIVEN** `OBJ_serviceradar-objects` stores 6 GiB with `max_bytes` 10 GiB
 - **AND** the configured `objectStoreBytes` is 4 GiB
 - **WHEN** datasvc starts
@@ -166,13 +166,21 @@ An existing unlimited bucket whose stored bytes exceed the configured cap SHALL 
 - **AND** the log SHALL record the configured 4 GiB, the stored 6 GiB and the current 10 GiB
 - **AND** no stored object SHALL be removed and later uploads SHALL still succeed
 
-#### Scenario: Unlimited bucket holding more than the cap
+#### Scenario: Unlimited state bucket holding more than the cap
 - **GIVEN** the `serviceradar_fieldsurvey` object store has no `max_bytes` and stores 3 GiB
 - **AND** the configured fieldsurvey size is 1 GiB
 - **WHEN** web-ng starts
 - **THEN** the bucket SHALL stay unlimited
 - **AND** the log SHALL record the configured, stored and current values
 - **AND** later uploads SHALL still succeed
+
+#### Scenario: Full buffer stream shrinks and evicts
+- **GIVEN** `flows` holds 10 GiB with `max_bytes` 10 GiB
+- **AND** the profile's `flows` size is 8 GiB
+- **WHEN** flow-collector starts
+- **THEN** the stream's `max_bytes` SHALL become 8 GiB
+- **AND** the oldest messages SHALL be evicted to fit
+- **AND** the log SHALL record the before and after values
 
 #### Scenario: bmp-collector reconciles an existing stream
 - **GIVEN** `ARANCINI_CAUSAL` exists with 10 GiB `max_bytes` and stores 0.5 GiB
@@ -195,6 +203,26 @@ When `bmpCollector.enabled` is true the Helm chart SHALL configure the EventWrit
 - **AND** `ARANCINI_CAUSAL` does not exist
 - **WHEN** EventWriter starts
 - **THEN** it SHALL create the stream with the 1 GiB fallback `max_bytes`
+
+### Requirement: Size-owning services honour environment size overrides
+The Go datasvc, the otel log-collector, the flow-collector and the bmp-collector SHALL read their stream sizes and replica counts from `SERVICERADAR_JS_<STREAM>_MAX_BYTES` and `SERVICERADAR_JS_<STREAM>_REPLICAS`, where `<STREAM>` is the stream name upper-cased with each non-alphanumeric character replaced by `_`.
+The precedence SHALL be environment, then the JSON or TOML value, then the compiled default. A value that is not a positive integer SHALL fail startup.
+
+#### Scenario: Environment overrides the file
+- **GIVEN** the flow-collector JSON sets `stream_max_bytes` to 1 GiB
+- **AND** `SERVICERADAR_JS_FLOWS_MAX_BYTES` is 3 GiB
+- **WHEN** flow-collector resolves its configuration
+- **THEN** the `flows` stream size SHALL be 3 GiB
+
+#### Scenario: File overrides the compiled default
+- **GIVEN** no size environment variable is set and the JSON sets a size
+- **WHEN** the component resolves its configuration
+- **THEN** the JSON value SHALL be used
+
+#### Scenario: Invalid value
+- **GIVEN** `SERVICERADAR_JS_ARANCINI_CAUSAL_MAX_BYTES` is `abc`
+- **WHEN** bmp-collector starts
+- **THEN** startup SHALL fail with an error naming the variable
 
 ### Requirement: Non-Helm installs ship explicit profile sizes that fit
 Docker Compose SHALL ship one preset file per sizing profile that sets `max_file_store` and every stream size explicitly, and packaged installs SHALL ship the same explicit sizes as a file; the NATS server configuration SHALL read `max_file_store` from them.

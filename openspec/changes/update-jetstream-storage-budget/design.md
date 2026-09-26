@@ -190,33 +190,51 @@ The v1.4.73 shape (26 GiB full, 5.25 GiB R1, three servers, `30G`) needs
 26 + 5.25/3 + 1 = 28.75 GiB against a 23.75 GiB limit, and fails the check,
 as it should.
 
-### D6. One owner reconciles a stream, and never squeezes stored data
+### D6. One owner reconciles a stream, by discard policy
 
 Exactly one component owns the shape (`max_bytes`, replicas, retention) of
 each stream and reconciles it; any secondary creator (EventWriter for `flows`
 and `ARANCINI_CAUSAL`, D3) creates the stream only when absent and merges
 subjects without touching the shape.
 
-datasvc (`reconcileStreamConfigLocked`), the otel log-collector, EventWriter
-and bmp-collector (for `ARANCINI_CAUSAL`, D3) reconcile `max_bytes` on
-existing streams. Three owners create
-their bucket once and never update it, so on an existing install the bucket
-stays unlimited while the budget counts it at its profile size: web-ng's
-plugin bucket (`plugins/storage.ex`), web-ng's fieldsurvey bucket
+Owners that reconcile `max_bytes` on an existing stream: datasvc
+(`reconcileStreamConfigLocked`), the otel log-collector, flow-collector (for
+`flows`), bmp-collector (for `ARANCINI_CAUSAL`, D3) and EventWriter. Three
+owners create their bucket once and never update it, so on an existing install
+the bucket stays unlimited while the budget counts it at its profile size:
+web-ng's plugin bucket (`plugins/storage.ex`), web-ng's fieldsurvey bucket
 (`field_survey_artifact_store.ex`, whose `ensure_bucket` returns `:exists`
 without updating) and core's threat-intel bucket
 (`threat_intel_raw_payload_store.ex`). Each SHALL reconcile `max_bytes` on
 startup, creating the bucket when absent and updating it when it exists.
 
-For every reconciling owner, when the configured `max_bytes` is below the
-bytes currently stored, the owner SHALL leave `max_bytes` unchanged and log
-the configured, stored and current values. It SHALL NOT set `max_bytes` to the
-stored size: these buckets discard new writes when full, so a cap equal to
-`Store` would refuse every later write. An existing unlimited bucket whose
-stored bytes exceed the configured cap therefore stays unlimited, and is
-logged, until the data ages out or an operator raises the cap. Lowering a
-default, or capping a previously unlimited bucket, converges installs whose
-data fits and never evicts data or blocks writes on one that does not.
+What a reconcile does when the configured `max_bytes` is below the bytes
+currently stored depends on the stream's discard policy, because the two kinds
+of stream fail differently when full:
+
+- **Discard-new state buckets** (datasvc KV `KV_serviceradar-datasvc` and
+  `OBJ_serviceradar-objects`, the plugin, fieldsurvey and threat-intel
+  buckets) refuse writes when full and hold state that cannot be regenerated.
+  The owner SHALL leave `max_bytes` unchanged and log the configured, stored
+  and current values. It SHALL NOT set `max_bytes` to the stored size, since a
+  cap equal to `Store` would refuse every later write. An existing unlimited
+  bucket whose stored bytes exceed the configured cap stays unlimited, and is
+  logged, until the data ages out or an operator raises the cap.
+- **Discard-old buffer streams** (`flows`, `events`, `ARANCINI_CAUSAL` and
+  every EventWriter-created stream: `metrics`, `k8s_inventory`,
+  `analytics_predictions`, `mtr_results`, `scan_results`, `trivy_reports`) fill
+  to their cap by design and evict the oldest messages. The owner SHALL
+  reconcile `max_bytes` to the configured value even when that evicts the
+  oldest messages, and log the values before and after. `flows` is the case
+  that needs this: it runs at its cap, so refusing to shrink would leave every
+  running install reserving 10 GiB instead of the profile's 8 GiB and exceed
+  the budget the render check passed. `NOTIFICATIONS`, created by core
+  notifications, follows whichever rule its discard policy selects.
+
+Lowering a default therefore converges: buffers reach the budgeted size at the
+next start, state buckets whose data fits do too, and a state bucket holding
+more than its cap keeps its current reservation, logged, until the data ages
+out or the cap is raised.
 
 ### D7. Docker Compose and packaged installs
 
@@ -233,7 +251,7 @@ sharing one server with their own size tables (D8).
   `max_file_store: $SERVICERADAR_NATS_MAX_FILE_STORE` through NATS environment
   substitution, and every size-owning service (datasvc, otel log-collector,
   flow-collector, bmp-collector, core, web-ng) reads its sizes from those
-  variables.
+  variables (see below).
   An operator overrides a single size in the environment of the service.
 - Packaged installs ship the same explicit sizes as a file
   (`build/packaging/nats/config/jetstream-sizes.env`, `small` content) that
@@ -248,7 +266,32 @@ sharing one server with their own size tables (D8).
   raises the Compose and packaged ceiling from today's `10G` to `30G` for
   `small`, and the shipped stream sizes fit it (D8) where today's do not.
 
-A Bazel `go_test` enforces this without reading any component source. It
+None of datasvc, the otel log-collector, flow-collector or bmp-collector reads
+a stream size from the environment today: their sizes come only from JSON or
+TOML, so a preset alone would not change them. Each therefore gains
+environment overrides that take precedence over its file:
+
+- Naming: `SERVICERADAR_JS_<STREAM>_MAX_BYTES` and
+  `SERVICERADAR_JS_<STREAM>_REPLICAS`, where `<STREAM>` is the JetStream stream
+  name upper-cased with every non-alphanumeric character replaced by `_`, for
+  example `SERVICERADAR_JS_FLOWS_MAX_BYTES`,
+  `SERVICERADAR_JS_ARANCINI_CAUSAL_MAX_BYTES`,
+  `SERVICERADAR_JS_EVENTS_MAX_BYTES`,
+  `SERVICERADAR_JS_KV_SERVICERADAR_DATASVC_MAX_BYTES` and
+  `SERVICERADAR_JS_OBJ_SERVICERADAR_OBJECTS_MAX_BYTES`. EventWriter's
+  per-stream variables (task 2.3) follow the same scheme; web-ng's plugin
+  variable and core's threat-intel variable keep their existing names.
+- Precedence: environment, then the JSON or TOML value, then the compiled
+  default. Sizes must be positive integers; an invalid value fails startup.
+- Components: Go datasvc (KV and object-store max bytes and replicas), the
+  otel log-collector (`events`), Rust flow-collector (`stream_max_bytes`,
+  `stream_replicas`) and Rust bmp-collector (stream max bytes and replicas).
+  Each has a unit test for the precedence. Helm keeps rendering these values
+  into the JSON config and is unchanged.
+
+A Bazel `go_test` enforces the shipped wiring without reading any component
+source; the precedence tests above are what prove a service honours the
+variables it is given. It
 parses the NATS configuration with the nats-server config parser, after
 setting each preset's variables as the process environment, so `30G` means
 what NATS means, and parses each preset and the packaged sizes file into typed
@@ -256,7 +299,7 @@ values. It also parses `docker-compose.yml` and the packaged systemd units
 into typed models and asserts that every size-owning service loads the
 selected preset (`env_file`, whose path is interpolated from
 `SERVICERADAR_NATS_PROFILE`) or the sizes file (`EnvironmentFile`), so a
-service that kept a literal size, or never loaded the file, fails the test. It fails when a key of the stream inventory is missing or unknown,
+service that never loads the file fails the test. It fails when a key of the stream inventory is missing or unknown,
 when a size is not a positive integer, or when `need` exceeds 85% of the
 parsed `max_file_store`, and it names the streams and the limit. The
 inventory is a typed list owned by the test, so adding a stream forces the
@@ -390,9 +433,14 @@ Installs that override sizes upward, or that enable BMP with a larger
 `streamMaxBytes` than the profile, get an itemised render failure and adjust
 values. Selecting `medium` or `large` follows the volume-expansion runbook
 (D8) first; a StorageClass without expansion needs a new install or
-migration. Compose and packaged installs converge when their config files are
-replaced on upgrade; D6 leaves any stream whose stored bytes exceed the new
-size at its current `max_bytes`.
+migration. Compose and packaged installs converge when their preset or sizes
+file is replaced on upgrade and their services restart. Discard-old buffers
+(`flows`, `events`, `ARANCINI_CAUSAL`, EventWriter streams) reach the budgeted
+reservation at the next start, evicting the oldest messages if they were fuller
+than the new cap. Discard-new state buckets reach it too when their data fits;
+one holding more than its cap keeps its current reservation, logged, until the
+data ages out or the cap is raised, so an install with an unusually full object
+store can run above the budgeted reservation until then.
 
 ## Resolved Questions
 
