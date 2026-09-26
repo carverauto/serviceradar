@@ -310,7 +310,7 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
 
   defp source_overrides(ids, final_id, preloads) do
     for id_type <- Ids.identifier_priority(),
-        id_type != :armis_device_id,
+        id_type not in SourceAuthorityGuard.source_identifier_types(),
         value <- Ids.get_identifier_values(id_type, ids),
         device_id <- identifier_owners(id_type, value, ids, preloads.identifiers),
         device_id != final_id,
@@ -602,13 +602,13 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
   def preload_source_ids(updates_with_ids, lookups, actor) do
     updates_with_ids
     |> Enum.flat_map(fn {_update, ids} ->
-      if Ids.ids_get(ids, :armis_id) in [nil, ""] do
-        []
-      else
+      if SourceAuthorityGuard.source_authoritative_update?(ids) do
         for id_type <- Ids.identifier_priority(),
             value <- Ids.get_identifier_values(id_type, ids),
             device_id <- identifier_owners(id_type, value, ids, lookups.identifiers),
             do: device_id
+      else
+        []
       end
     end)
     |> SourceAuthorityGuard.held_source_ids(actor)

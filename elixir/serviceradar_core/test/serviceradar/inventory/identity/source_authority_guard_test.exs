@@ -40,6 +40,17 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuardTest do
     assert SourceAuthorityGuard.conflict_from_rows(rows, ["device-a", "device-b"]) == nil
   end
 
+  test "blocks disjoint NetBox ids without comparing them to Armis ids" do
+    rows = [
+      row("device-a", "nb-1", "default", "netbox-source", :netbox_device_id),
+      row("device-b", "nb-2", "default", "netbox-source", :netbox_device_id),
+      row("device-a", "100", "default", "armis-source", :armis_device_id)
+    ]
+
+    assert %{identifier_type: :netbox_device_id, source_id: "netbox-source"} =
+             SourceAuthorityGuard.conflict_from_rows(rows, ["device-a", "device-b"])
+  end
+
   describe "source_mismatch?/3" do
     setup do
       held = %{
@@ -66,13 +77,48 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuardTest do
     test "never refuses for an update without a source-authoritative id", %{held: held} do
       refute SourceAuthorityGuard.source_mismatch?(%{partition: "default"}, "device-a", held)
     end
+
+    test "refuses a different NetBox id and a different integration id in the same scope" do
+      held = %{
+        "device-a" =>
+          MapSet.new([
+            {"default", "netbox_device_id", "nb-1"},
+            {"default", "integration_id", "netbox:source-a:device:nb-1"}
+          ])
+      }
+
+      assert SourceAuthorityGuard.source_mismatch?(
+               %{netbox_id: "nb-2", partition: "default"},
+               "device-a",
+               held
+             )
+
+      assert SourceAuthorityGuard.source_mismatch?(
+               %{integration_id: "netbox:source-a:device:nb-2", partition: "default"},
+               "device-a",
+               held
+             )
+
+      refute SourceAuthorityGuard.source_mismatch?(
+               %{netbox_id: "nb-1", partition: "default"},
+               "device-a",
+               held
+             )
+
+      refute SourceAuthorityGuard.source_mismatch?(
+               %{armis_id: "200", partition: "default"},
+               "device-a",
+               held
+             )
+    end
   end
 
   defp ids(armis_id, partition), do: %{armis_id: armis_id, partition: partition}
 
-  defp row(device_id, identifier_value, partition, source_id) do
+  defp row(device_id, identifier_value, partition, source_id, identifier_type \\ :armis_device_id) do
     %{
       device_id: device_id,
+      identifier_type: identifier_type,
       identifier_value: identifier_value,
       partition: partition,
       metadata: %{"sync_service_id" => source_id}

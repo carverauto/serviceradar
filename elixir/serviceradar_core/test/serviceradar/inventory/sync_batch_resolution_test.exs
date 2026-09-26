@@ -98,6 +98,20 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
     end
   end
 
+  defp device_for_typed_id(type, value, actor, partition \\ "default") do
+    query =
+      Ash.Query.for_read(DeviceIdentifier, :lookup, %{
+        identifier_type: type,
+        identifier_value: value,
+        partition: partition
+      })
+
+    case Ash.read(query, actor: actor) do
+      {:ok, [identifier | _]} -> identifier.device_id
+      _ -> nil
+    end
+  end
+
   defp device_for_armis_id(armis_id, actor, partition \\ "default") do
     query =
       Ash.Query.for_read(DeviceIdentifier, :lookup, %{
@@ -1208,6 +1222,39 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
       assert resolved != device_a
       assert [conflict] = override_conflicts(resolved, actor)
       assert conflict.conflicting_identifiers["overridden_device_uids"] == [device_a]
+    end
+
+    test "a NetBox id does not attach through a shared MAC to a different NetBox id", %{
+      actor: actor
+    } do
+      n = System.unique_integer([:positive])
+      mac = "00:00:5E:00:53:#{hex2(rem(n, 200) + 16)}"
+      netbox_a = "nb-#{n}-a"
+      netbox_b = "nb-#{n}-b"
+
+      update = fn id, ip ->
+        %{
+          "ip" => ip,
+          "mac" => mac,
+          "hostname" => "netbox-#{id}",
+          "source" => "netbox",
+          "metadata" => %{"integration_type" => "netbox", "netbox_device_id" => id}
+        }
+      end
+
+      assert :ok =
+               SyncIngestor.ingest_updates([update.(netbox_a, doc_ip(n, 1))], actor: actor)
+
+      uid_a = device_for_typed_id(:netbox_device_id, netbox_a, actor)
+      assert is_binary(uid_a)
+
+      assert :ok =
+               SyncIngestor.ingest_updates([update.(netbox_b, doc_ip(n, 2))], actor: actor)
+
+      uid_b = device_for_typed_id(:netbox_device_id, netbox_b, actor)
+      assert is_binary(uid_b)
+      assert uid_a != uid_b
+      assert device_for_typed_id(:netbox_device_id, netbox_a, actor) == uid_a
     end
 
     test "an Armis id still attaches to a record holding no Armis id through its MAC", %{

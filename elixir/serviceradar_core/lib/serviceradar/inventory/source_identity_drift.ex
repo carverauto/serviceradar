@@ -311,16 +311,15 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
   """
   def build_source_override_conflict(%{update: update, ids: ids} = override) do
     metadata = Map.get(update, :metadata) || %{}
-    source_value = Ids.ids_get(ids, :armis_id)
+    {source_type, source_identifier_type, source_value} = governing_source(ids)
     device_uid = override.device_uid
     overridden = Enum.sort_by(override.overridden, & &1.device_uid)
     overridden_uids = overridden |> Enum.map(& &1.device_uid) |> Enum.uniq()
 
     conflict = %{
-      # The only source-authoritative identifier type governed today is Armis's.
-      source_type: "armis",
+      source_type: source_type,
       source_id: normalize_string(metadata["sync_service_id"]),
-      source_identifier_type: "armis_device_id",
+      source_identifier_type: source_identifier_type,
       source_identifier_value: source_value,
       device_uid: device_uid,
       current_ip: normalize_string(Ids.ids_get(ids, :ip)),
@@ -362,6 +361,25 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
 
     conflict
   end
+
+  defp governing_source(ids) do
+    cond do
+      present_source_id?(Ids.ids_get(ids, :armis_id)) ->
+        {"armis", "armis_device_id", Ids.ids_get(ids, :armis_id)}
+
+      present_source_id?(Ids.ids_get(ids, :netbox_id)) ->
+        {"netbox", "netbox_device_id", Ids.ids_get(ids, :netbox_id)}
+
+      present_source_id?(Ids.ids_get(ids, :integration_id)) ->
+        {"integration", "integration_id", Ids.ids_get(ids, :integration_id)}
+
+      true ->
+        {"armis", "armis_device_id", nil}
+    end
+  end
+
+  defp present_source_id?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present_source_id?(_value), do: false
 
   @doc """
   Persist and emit telemetry for a single active-IP recovery conflict.
