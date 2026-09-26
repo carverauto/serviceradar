@@ -42,9 +42,6 @@ The inventory of writers, by file, is in `tasks.md` sections 2 to 4.
 5. Returns `{:ok, %OcsfEvent{}}`, a struct carrying the id and every field, so a caller that
    links the event (alerts, alert history, invocations) keeps its id.
 
-`publish_many/2` does the same for a list, as one publish per event with up to 16 in flight,
-for the batched writers (interface thresholds, endpoint inventory).
-
 The event is sent with every field, explicit nulls included. `Processors.Events` fills
 `log_name` and `raw_data` only when the key is absent, as it always did for external
 producers, so an internal producer that sets `raw_data: nil` stores null.
@@ -218,8 +215,8 @@ flags every one of them.
   full. JetStream buffers the backlog; the consumer's 120-second ack_wait bounds a single
   evaluation.
 - **JetStream publish latency on the producer path.** It is one request/reply per event. For
-  the high-volume camera-analysis producer this is measured, and `publish_many/2` pipelines
-  the publishes rather than awaiting each serially.
+  the high-volume camera-analysis producer this is measured; each event is one acknowledged
+  publish.
 
 ## Migration Plan
 

@@ -90,9 +90,6 @@ defmodule ServiceRadar.Events.OcsfEventPublisher do
           | :jobs
           | :observability
 
-  @doc false
-  def families, do: Map.keys(@families)
-
   @doc """
   Publishes one OCSF event. `attrs` takes the `OcsfEvent` attribute names as
   atom keys.
@@ -119,31 +116,6 @@ defmodule ServiceRadar.Events.OcsfEventPublisher do
 
       true ->
         durable_publish(event, subject, opts)
-    end
-  end
-
-  @doc """
-  Publishes a list of events with the same options. Suppressed events are
-  left out of the result; the first event that could be neither published nor
-  queued returns `{:error, reason}`.
-  """
-  @spec publish_many([map()], keyword()) :: {:ok, [OcsfEvent.t()]} | {:error, term()}
-  def publish_many(attrs_list, opts) when is_list(attrs_list) do
-    attrs_list
-    |> Task.async_stream(&publish(&1, opts),
-      max_concurrency: 16,
-      ordered: true,
-      timeout: :infinity
-    )
-    |> Enum.reduce_while({:ok, []}, fn
-      {:ok, {:ok, event}}, {:ok, acc} -> {:cont, {:ok, [event | acc]}}
-      {:ok, {:error, :suppressed}}, acc -> {:cont, acc}
-      {:ok, {:error, reason}}, _acc -> {:halt, {:error, reason}}
-      {:exit, reason}, _acc -> {:halt, {:error, {:publish_exit, reason}}}
-    end)
-    |> case do
-      {:ok, events} -> {:ok, Enum.reverse(events)}
-      error -> error
     end
   end
 

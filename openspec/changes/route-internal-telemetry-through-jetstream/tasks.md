@@ -1,6 +1,6 @@
 ## 1. Publisher and EventWriter changes
 
-- [x] 1.1 Add `ServiceRadar.Events.OcsfEventPublisher.publish/2` and `publish_many/2`:
+- [x] 1.1 Add `ServiceRadar.Events.OcsfEventPublisher.publish/2`:
   - build the event from the `OcsfEvent` field set, assigning `id` and `time` when absent;
   - apply the out-of-service device suppression;
   - publish to `events.internal.<family>` with `JetStreamPublish` (awaiting the PubAck,

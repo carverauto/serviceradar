@@ -122,30 +122,6 @@ defmodule ServiceRadar.Events.OcsfEventPublisherTest do
              )
   end
 
-  test "publish_many returns published events in order and leaves out suppressed ones" do
-    attrs = for n <- 1..3, do: Map.put(@attrs, :message, "event #{n}")
-
-    assert {:ok, events} =
-             OcsfEventPublisher.publish_many(attrs,
-               family: :inventory,
-               publish: fn _subject, _body, _opts -> :ok end,
-               suppress?: fn attrs -> attrs.metadata == %{"skip" => true} end
-             )
-
-    assert Enum.map(events, & &1.message) == ["event 1", "event 2", "event 3"]
-
-    suppressed = List.replace_at(attrs, 1, Map.put(@attrs, :metadata, %{"skip" => true}))
-
-    assert {:ok, [first, last]} =
-             OcsfEventPublisher.publish_many(suppressed,
-               family: :inventory,
-               publish: fn _subject, _body, _opts -> :ok end,
-               suppress?: fn attrs -> attrs.metadata == %{"skip" => true} end
-             )
-
-    assert {first.message, last.message} == {"event 1", "event 3"}
-  end
-
   test "a family outside the closed list is refused" do
     assert_raise KeyError, fn ->
       OcsfEventPublisher.publish(@attrs, family: :operator_supplied, publish: capture_publish())
