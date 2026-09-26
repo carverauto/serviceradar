@@ -14,7 +14,7 @@ Credential handling is the blocker: Proxmox API tokens should be defined once, s
 - Persist Proxmox host, VM, and LXC enrichment against canonical devices, including resource-efficiency metrics requested by Forgejo #223.
 - Add a Proxmox console access strategy so authorized operators can open web terminal sessions to PVE hosts through the reachable edge path, with QEMU/LXC guest console modes modeled but unavailable until a native connector is enabled.
 - Store SSH keys and console credentials as encrypted credential-rule secrets, with per-agent/per-target scope and audited session launch.
-- Expose settings UI for credential rules, Proxmox rule preview/test, agent distribution, and redacted credential lifecycle.
+- Expose settings UI for credential rules, Proxmox rule preview, agent distribution, and redacted credential lifecycle.
 
 ## Research Summary
 - Forgejo #518 asks for Proxmox metrics, network mapper support, and device discovery.
@@ -36,7 +36,7 @@ Credential handling is the blocker: Proxmox API tokens should be defined once, s
   - `wasm-plugin-system`
 - Affected code:
   - Ash resources/actions and migrations for credential rules and credential-secret references
-  - Settings UI for network-wide credential rules and rule testing
+  - Settings UI for network-wide credential rules and rule preview
   - Plugin target policy reconciliation and per-agent assignment compilation
   - First-party Go WASM plugin under `go/cmd/wasm-plugins/`
   - Proxmox enrichment ingestion in core-elx/web-ng
