@@ -67,7 +67,8 @@ writer when the warehouse is enabled. It cannot do that while producers bypass E
   redelivered log message no longer stores, promotes or alerts twice. Today it does, for every
   log. The Falco and Trivy processors use the same ledger, and mirror every promoted row to the
   warehouse rather than only the rows their CNPG insert returned, which a redelivery never
-  re-sent.
+  re-sent. The standalone `LogPromotionConsumer`, which promoted processed logs a second time
+  under different ids, is retired, and EventWriter deletes its leftover durable.
 - **Consumers read persisted rows.** Producers stop broadcasting. The broadcast EventWriter
   sends after the insert is the only one, so the Events tab never re-queries before the row
   exists.

@@ -564,6 +564,22 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
     end
   end
 
+  @doc """
+  Deletes the durable `consumer_name` from `stream_name`. Returns `{:ok, :absent}`
+  when the consumer or its stream does not exist, so retiring a consumer is
+  idempotent.
+  """
+  @spec delete_durable(connection_ref(), String.t(), String.t(), String.t() | nil) ::
+          {:ok, :deleted | :absent} | {:error, term()}
+  def delete_durable(connection_ref, stream_name, consumer_name, domain \\ nil)
+      when is_binary(stream_name) and is_binary(consumer_name) do
+    case delete_consumer(connection_ref, stream_name, consumer_name, domain) do
+      :ok -> {:ok, :deleted}
+      {:error, %{"code" => 404}} -> {:ok, :absent}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   defp delete_consumer(connection_ref, stream_name, consumer_name, domain) do
     topic = "#{js_api(domain)}.CONSUMER.DELETE.#{stream_name}.#{consumer_name}"
 

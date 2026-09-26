@@ -372,8 +372,7 @@ config :serviceradar_core,
   spiffe_cert_monitor_enabled: false,
   status_handler_enabled: false,
   control_repo_enabled: false,
-  seeders_enabled: false,
-  log_promotion_consumer_enabled: false
+  seeders_enabled: false
 
 # Prefix-tag enrichment off by default in tests; enable per-test when needed.
 # Loader stays off so unit tests don't hit CNPG on application start.

@@ -12,7 +12,6 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
   alias ServiceRadar.Admission.FlowSupervisor
   alias ServiceRadar.Admission.RetainedPluginLeaseSupervisor
   alias ServiceRadar.Admission.RetainedPluginSupervisor
-  alias ServiceRadar.Observability.LogPromotionConsumer
 
   def start_link(opts \\ []) do
     Supervisor.start_link(__MODULE__, opts)
@@ -83,7 +82,6 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
         plugin_target_policy_scheduler_child(),
         bumblebee_catalog_scheduler_child(),
         cli_auth_scheduler_child(),
-        log_promotion_consumer_child(),
         event_writer_child()
       ],
       &is_nil/1
@@ -461,12 +459,6 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
   defp cli_auth_scheduler_child do
     if enabled?("CLI_AUTH_SCHEDULER_ENABLED", :cli_auth_scheduler_enabled, true) do
       ServiceRadar.Identity.CliAuthScheduler
-    end
-  end
-
-  defp log_promotion_consumer_child do
-    if LogPromotionConsumer.enabled?() do
-      LogPromotionConsumer
     end
   end
 

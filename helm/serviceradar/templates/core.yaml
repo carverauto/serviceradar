@@ -648,8 +648,6 @@ spec:
         - name: NATS_CREDS_FILE
           value: "/etc/serviceradar/creds/platform.creds"
         {{- end }}
-        - name: LOG_PROMOTION_CONSUMER_ENABLED
-          value: {{ default false $coreVals.logPromotionConsumerEnabled | quote }}
         {{- /* Keep `default false` here even though the chart default in
                values.yaml is now true. Sprig's `default` treats `false` as
                EMPTY, so `default true $mtrAutomation.enabled` would return true
