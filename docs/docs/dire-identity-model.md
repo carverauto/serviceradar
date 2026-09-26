@@ -103,6 +103,12 @@ The holder keeps the address, and the incoming record drops it, in these cases
 
 Two further cases adopt the holder's uid instead of moving the address: an
 anchorless provisional seed at the address, and a holder whose hostname agrees.
+Hostname agreement never adopts across source-authoritative ids: when the
+record carries an Armis device id and the holder holds a different one in the
+same partition, the adoption is refused and recorded as a `source_block`
+decision (`sync_ip_hostname_agreement`), and the address is decided as above. When the
+record is already a device of its own and the merge guards allow it, the
+adoption is followed by a merge that runs after the sync write commits.
 
 Merged-away device IDs are never resurrected: resolution follows the
 `merge_audit` canonical mapping to the survivor (`Identity.Resolver` /
