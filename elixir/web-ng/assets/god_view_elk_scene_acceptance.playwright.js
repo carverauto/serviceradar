@@ -297,8 +297,17 @@ async function runStep(measure, name, operation, describeResult) {
   return test.step(name, () => measure(name, operation, describeResult))
 }
 
+const FIXTURE_URL = "http://localhost/god-view-fixture"
+
+async function loadFixturePage(page, html) {
+  await page.route(FIXTURE_URL, (route) => route.fulfill({status: 200, contentType: "text/html", body: html}))
+  await page.goto(FIXTURE_URL)
+}
+
 async function preparePage(page, measure) {
-  await runStep(measure, "install fixture DOM", () => page.setContent(`<!doctype html>
+  // WebGPU is only exposed to secure contexts, which `about:blank` is not. Serve the fixture
+  // from an intercepted localhost URL instead: localhost is a secure context.
+  await runStep(measure, "install fixture DOM", () => loadFixturePage(page, `<!doctype html>
     <meta charset="utf-8">
     <style>
       * { animation: none !important; transition: none !important; caret-color: transparent !important; }
@@ -312,7 +321,11 @@ async function preparePage(page, measure) {
     </style>
     <div id="god-view-fixture"></div>`))
   await runStep(measure, "load production renderer bundle", () => page.addScriptTag({path: BUNDLE}))
-  await runStep(measure, "wait for acceptance harness", () => page.waitForFunction(() => window.__SR_GOD_VIEW_HARNESS__))
+  await runStep(measure, "wait for acceptance harness", async () => {
+    await page.waitForFunction(() => window.__SR_GOD_VIEW_HARNESS__ || window.__SR_GOD_VIEW_HARNESS_ERROR__)
+    const failure = await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS_ERROR__)
+    if (failure) throw new Error(`acceptance harness failed to start: ${failure}`)
+  })
   await runStep(measure, "wait for document fonts", () => page.evaluate(() => document.fonts.ready))
 }
 

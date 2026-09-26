@@ -64,6 +64,17 @@ function settle() {
   return new Promise((resolveFrame) => requestAnimationFrame(() => requestAnimationFrame(resolveFrame)))
 }
 
+// God View renders on WebGPU only. Wait for deck's device so a browser without WebGPU fails
+// here, naming the cause, instead of as a null deck several calls later.
+async function rendererReady(state, timeoutMs = 30_000) {
+  const deadline = performance.now() + timeoutMs
+  while (state.rendererMode === "initializing" && performance.now() < deadline) await settle()
+  if (state.rendererMode !== "webgpu") {
+    const context = `navigator.gpu=${Boolean(navigator.gpu)} secureContext=${globalThis.isSecureContext}`
+    throw new Error(`God View renderer is ${state.rendererMode}: ${state.rendererError || "no WebGPU device"} (${context})`)
+  }
+}
+
 async function start() {
   window.__SR_GOD_VIEW_ACCEPTANCE__ = true
   await document.fonts.ready
@@ -81,6 +92,7 @@ async function start() {
   lifecycle.resizeCanvas()
   lifecycle.syncReducedMotionPreference()
   lifecycle.ensureDeck()
+  await rendererReady(state)
 
   let revision = 100
   let currentFixture = ""
@@ -142,4 +154,6 @@ async function start() {
   })
 }
 
-void start()
+start().catch((error) => {
+  window.__SR_GOD_VIEW_HARNESS_ERROR__ = String(error?.stack || error)
+})
