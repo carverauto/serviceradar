@@ -5,7 +5,8 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
   A MAC, IP, hostname, or transitive duplicate edge cannot authorize combining
   two non-empty, disjoint identity sets of one source-authoritative identifier
   type (`source_identifier_types/0`: the Armis device id and the NetBox device
-  id) from the same source scope.
+  id) from the same source scope. An `integration_id` is not
+  source-authoritative.
 
   The same rule governs resolution: an update carrying a source-authoritative
   identifier never resolves onto a record, through a shared MAC or any other
