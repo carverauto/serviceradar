@@ -13,9 +13,7 @@
 (* knockout is deleted.                                                     *)
 (***************************************************************************)
 
-ResolutionBugs == {
-    "mac_only_conflicts_blocked"
-}
+ResolutionBugs == {}
 
 LifecycleBugs == {
 }

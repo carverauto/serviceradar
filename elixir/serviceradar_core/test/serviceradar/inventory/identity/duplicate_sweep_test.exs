@@ -161,15 +161,26 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweepTest do
                DuplicateSweep.classify_duplicate_components(entries)
     end
 
-    test "blocks a pair whose only evidence is :mac — MAC-only policy" do
+    test "blocks a pair whose only evidence is a randomized :mac" do
       entries = [
-        {{"default", :mac, "A1B2C3D4E5F6"}, MapSet.new(["sr:a", "sr:b"])}
+        {{"default", :mac, "A2B2C3D4E5F6"}, MapSet.new(["sr:a", "sr:b"])}
       ]
 
       assert %{mergeable: [], blocked: [blocked]} =
                DuplicateSweep.classify_duplicate_components(entries)
 
       assert blocked.device_ids == ["sr:a", "sr:b"]
+    end
+
+    test "allows a pair whose evidence is a globally-unique :mac" do
+      entries = [
+        {{"default", :mac, "A1B2C3D4E5F6"}, MapSet.new(["sr:a", "sr:b"])}
+      ]
+
+      assert %{mergeable: [merged], blocked: []} =
+               DuplicateSweep.classify_duplicate_components(entries)
+
+      assert merged.device_ids == ["sr:a", "sr:b"]
     end
 
     test "allows a pair with mixed :mac and :agent_id evidence" do

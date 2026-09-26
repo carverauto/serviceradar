@@ -147,8 +147,12 @@ the MACs identify.
 
 ## Merge policy and stability
 
-- Evidence gates (`Identity.MergePolicy`): never merge on agent_id-only,
-  MAC-only, or medium-confidence-only match sets.
+- Evidence gates (`Identity.MergePolicy`): never merge on agent_id-only or
+  randomized-MAC-only match sets. A globally-unique MAC is hardware identity:
+  records that share one, or that one device's interfaces report together,
+  converge, and the merge is recorded in `merge_audit`. A record linked to a
+  conflict only through a randomized MAC drops out of the merge, recorded as a
+  `randomized_mac_link` policy block.
 - Stability guards (`Identity.MergeEngine`, every automatic merge):
   - devices bound to **different agents** never merge; a conflicting IP
     alias is invalidated (`mark_stale`) instead

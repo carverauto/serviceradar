@@ -9,6 +9,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMacClassificationTest do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.IdentityReconciler
+  alias ServiceRadar.Inventory.MergeAudit
   alias ServiceRadar.TestSupport
 
   require Ash.Query
@@ -186,7 +187,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMacClassificationTest do
       assert {:ok, _} = Device.get_by_uid(device_b.uid, false, actor: actor)
     end
 
-    test "shared globally-unique MAC does not auto-merge devices", %{actor: actor} do
+    test "shared globally-unique MAC merges the claiming device into its holder", %{actor: actor} do
       {:ok, device_a} = create_device(actor, "gu-mac-device-a")
       {:ok, device_b} = create_device(actor, "gu-mac-device-b")
 
@@ -196,7 +197,8 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMacClassificationTest do
       # Register MAC for device A
       assert {:ok, _} = register_identifier(actor, device_a.uid, :mac, gu_mac, :strong)
 
-      # Now register the same MAC for device B — should NOT trigger auto-merge
+      # Now register the same MAC for device B: a globally-unique MAC is hardware identity, so
+      # B converges into A, the device already holding it (#4612).
       ids = %{
         agent_id: nil,
         armis_id: nil,
@@ -209,15 +211,12 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMacClassificationTest do
 
       IdentityReconciler.register_identifiers(device_b.uid, ids, actor: actor)
 
-      assert_receive {:telemetry_event, [:serviceradar, :identity_reconciler, :merge, :blocked],
-                      %{count: 1}, telemetry_metadata}
+      refute_received {:telemetry_event, [:serviceradar, :identity_reconciler, :merge, :blocked],
+                       _, _}
 
-      assert telemetry_metadata.reason == "mac_only_conflict"
-      assert telemetry_metadata.device_count == 2
-
-      # Both devices should still exist
       assert {:ok, _} = Device.get_by_uid(device_a.uid, false, actor: actor)
-      assert {:ok, _} = Device.get_by_uid(device_b.uid, false, actor: actor)
+      assert {:ok, [audit | _]} = MergeAudit.get_merged_to(device_b.uid, actor: actor)
+      assert audit.to_device_id == device_a.uid
     end
   end
 

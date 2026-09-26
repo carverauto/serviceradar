@@ -513,10 +513,10 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
   # that one of them reports the other's anchor MAC on its OWN interface table,
   # over authenticated SNMP.
   #
-  # This is not "merge on a shared MAC" -- MergePolicy blocks MAC-only matches as
-  # "too noisy (especially interface MACs observed by mapper)", and that stays
-  # true for MACs merely OBSERVED. The distinction is ownership: a neighbour
-  # table says what a device can see, an interface table says what it IS.
+  # This is not "merge on a shared MAC" -- a MAC merely OBSERVED (a neighbour or
+  # ARP table entry, especially an interface MAC seen by mapper) is not identity.
+  # The distinction is ownership: a neighbour table says what a device can see,
+  # an interface table says what it IS.
   #
   # Chosen over calling AliasGuard from BatchResolver, and the measurement is why.
   # On a 126-device deployment that alternative would have merged 6 pairs, and 5

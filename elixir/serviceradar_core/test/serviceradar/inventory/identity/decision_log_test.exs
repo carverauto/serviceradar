@@ -71,6 +71,32 @@ defmodule ServiceRadar.Inventory.Identity.DecisionLogTest do
     end
   end
 
+  describe "globally-unique MAC evidence (#4612)" do
+    test "records merge on it, and a randomized-MAC link drops out as a recorded block", %{
+      actor: actor
+    } do
+      a = create_device!(actor)
+      b = create_device!(actor)
+      c = create_device!(actor)
+
+      matches = [
+        {:mac, %{value: uaa_mac(), device_id: a.uid}},
+        {:mac, %{value: uaa_mac(), device_id: b.uid}},
+        {:mac, %{value: laa_mac(), device_id: c.uid}}
+      ]
+
+      MergeEngine.merge_conflicting_devices(a.uid, [a.uid, b.uid, c.uid], matches, actor)
+
+      refute live?(actor, b.uid), "the record sharing a globally-unique MAC converged"
+      assert live?(actor, a.uid) and live?(actor, c.uid)
+
+      assert [decision] = decisions_for(actor, c.uid)
+      assert decision.decision_kind == :policy_block
+      assert decision.reason == "randomized_mac_link"
+      assert decision.device_uids == Enum.sort([a.uid, c.uid])
+    end
+  end
+
   describe "MergeEngine guards" do
     test "distinct agent identities refuse the merge and record a guard block", %{actor: actor} do
       a = create_device!(actor)
@@ -195,6 +221,11 @@ defmodule ServiceRadar.Inventory.Identity.DecisionLogTest do
   # documentation OUI (RFC 7042), so no fixture value can name a real network. Consecutive
   # unique integers keep the values of one test distinct.
   defp unique_ip, do: "203.0.113.#{rem(unique(), 254) + 1}"
+
+  # Globally-unique (universally administered) MACs under the documentation OUI.
+  defp uaa_mac do
+    "00:00:5E:00:53:" <> Base.encode16(<<rem(unique(), 256)>>)
+  end
 
   defp laa_mac do
     "02:00:5E:00:53:" <> Base.encode16(<<rem(unique(), 256)>>)

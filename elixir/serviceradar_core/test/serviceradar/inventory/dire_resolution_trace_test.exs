@@ -148,8 +148,9 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
     |> DireTrace.assert_golden!()
   end
 
-  # #4612: a router's interfaces are sighted one MAC at a time, then the mapper polls it. The
-  # poll's MACs name both per-MAC records (#4638), and the merge policy decides between them.
+  # #4612 (fixed): a router's interfaces are sighted one MAC at a time, then the mapper polls it.
+  # The poll's MACs name both per-MAC records (#4638), and globally-unique MAC evidence merges
+  # them into one record owning both MACs.
   test "router_mac_only", %{actor: actor} do
     world = %{
       phys: ["h1"],
@@ -170,6 +171,33 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
     |> DireTrace.arp("h1", "x1")
     |> DireTrace.arp("h1", "x2")
     |> DireTrace.discovery("h1", "x1")
+    |> DireTrace.assert_golden!()
+  end
+
+  # #4612 on the agent check-in path: a router's interfaces are sighted one MAC at a time, then
+  # the agent on it checks in reporting both MACs. The records converge into one.
+  test "agent_mac_split", %{actor: actor} do
+    world = %{
+      phys: ["h1"],
+      ifaces: %{"x1" => %{phys: "h1", mac: "m1"}, "x2" => %{phys: "h1", mac: "m2"}},
+      src_of: %{},
+      agent_of: %{"h1" => "g1"},
+      agent_ids: ["g1"],
+      armis_macs: false,
+      src_ids: [],
+      hw_ids: ["m1", "m2"],
+      laa_ids: [],
+      ips: ["p1", "p2"],
+      observers: ["Agent", "Arp"]
+    }
+
+    "agent_mac_split"
+    |> DireTrace.start(world, actor)
+    |> DireTrace.lease("x1", "p1")
+    |> DireTrace.lease("x2", "p2")
+    |> DireTrace.arp("h1", "x1")
+    |> DireTrace.arp("h1", "x2")
+    |> DireTrace.agent("h1", "x1")
     |> DireTrace.assert_golden!()
   end
 

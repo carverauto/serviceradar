@@ -57,9 +57,10 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
         )
 
       MergePolicy.merge_allowed_for_matches?(matches) ->
-        device_ids
-        |> Enum.reject(&(&1 == canonical_id))
-        |> Enum.each(fn from_id ->
+        {mergeable, randomized_only} =
+          MergePolicy.split_randomized_mac_links(device_ids, matches, canonical_id)
+
+        Enum.each(mergeable, fn from_id ->
           _ =
             merge_devices(from_id, canonical_id,
               actor: actor,
@@ -67,6 +68,15 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
               details: details
             )
         end)
+
+        if randomized_only != [] do
+          MergePolicy.record_blocked_merge(
+            "randomized_mac_link",
+            [canonical_id | randomized_only],
+            details.identifiers,
+            "identifier_conflict"
+          )
+        end
 
       true ->
         blocked_reason = MergePolicy.blocked_merge_reason(matches)
