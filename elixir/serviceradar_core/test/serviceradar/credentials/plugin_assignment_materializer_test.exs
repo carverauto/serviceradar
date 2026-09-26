@@ -205,6 +205,25 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerTest do
     assert opts[:target_agent_uid] == "agent-a"
   end
 
+  test "a non-system actor with no grant issuer is refused instead of given a grant" do
+    # Only a system actor may issue the persisted grant a materialized
+    # assignment carries. An unpersisted grant id would reach the agent as a
+    # grant it can never redeem, so the reconcile must stop before delivery.
+    assert {:error, :grant_issuer_requires_system_actor} =
+             PluginAssignmentMaterializer.reconcile_provider_for_agent(
+               profile(),
+               "agent-a",
+               "device_inventory",
+               rules: [credential_rule(%{})],
+               plugin_package: %{id: "pkg-example"},
+               reconciler: FakeReconciler,
+               test_pid: self(),
+               actor: %{id: "operator-1", role: :admin}
+             )
+
+    refute_receive {:reconcile, _policy, _input_defs, _opts}
+  end
+
   # Enters through reconcile_provider_for_agent/4, the function the reconcile
   # worker reaches through reconcile_all_for_agent/2. Injected rules are
   # filtered by provider and purpose exactly as the loaded path is.

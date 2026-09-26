@@ -254,8 +254,9 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   Returns the resolved SRQL target list (bounded by `opts[:target_limit]`,
   default 50) plus, per eligible purpose, the stored params template with
   secret material redacted. Secret refs are preserved (they are references, not
-  material); the credential-broker grant is ephemeral — no grant is persisted
-  and no secret is ever resolved.
+  material). The credential-broker grant is a placeholder that is never
+  persisted, never dispatched to an agent, and has its id masked in the output;
+  no secret is ever resolved.
 
   Options: `:actor`, `:resolver` (default `SRQLInputResolver`),
   `:target_limit`, `:agent_id` (defaults to the rule's agent scope value),
@@ -267,10 +268,14 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
     resolver = Keyword.get(opts, :resolver, SRQLInputResolver)
     target_limit = Keyword.get(opts, :target_limit, 50)
 
+    # The dry run only renders the policy template: it never calls the
+    # reconciler, so nothing it builds reaches an agent. It therefore uses the
+    # placeholder issuer unconditionally, even for a system actor that the
+    # default issuer would otherwise let persist a real grant.
     opts =
       opts
       |> Keyword.put(:actor, actor)
-      |> Keyword.put(:grant_issuer, &issue_ephemeral_test_grant/1)
+      |> Keyword.put(:grant_issuer, &dry_run_placeholder_grant/1)
 
     with {:ok, provider} <- required_string(rule, [:provider, "provider"], "provider"),
          {:ok, profile} <- profile_for_provider(provider, actor, opts),
@@ -587,20 +592,31 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   end
 
   defp issue_grant(attrs, actor, opts, extras) do
-    issuer = Keyword.get(opts, :grant_issuer, default_grant_issuer(actor))
-
-    case issuer.(attrs) do
-      {:ok, %{} = grant} -> {:ok, CredentialBrokerGrant.to_payload(grant, extras)}
-      {:error, reason} -> {:error, reason}
-      other -> {:error, {:invalid_credential_broker_grant_issuer_result, other}}
+    with {:ok, issuer} <- grant_issuer(actor, opts) do
+      case issuer.(attrs) do
+        {:ok, %{} = grant} -> {:ok, CredentialBrokerGrant.to_payload(grant, extras)}
+        {:error, reason} -> {:error, reason}
+        other -> {:error, {:invalid_credential_broker_grant_issuer_result, other}}
+      end
     end
   end
 
+  defp grant_issuer(actor, opts) do
+    case Keyword.fetch(opts, :grant_issuer) do
+      {:ok, issuer} -> {:ok, issuer}
+      :error -> default_grant_issuer(actor)
+    end
+  end
+
+  # Only a system actor may issue the persisted grant a materialized assignment
+  # carries. Any other actor is refused: a grant id that was never persisted
+  # would reach the agent as a grant it can never redeem, and would skip the
+  # grant lifecycle's issue guard.
   defp default_grant_issuer(actor) do
     if SystemActor.system_actor?(actor) do
-      &issue_persisted_grant(&1, actor)
+      {:ok, &issue_persisted_grant(&1, actor)}
     else
-      &issue_ephemeral_test_grant/1
+      {:error, :grant_issuer_requires_system_actor}
     end
   end
 
@@ -610,11 +626,13 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
     |> CredentialBrokerGrant.issue_grant(actor: actor)
   end
 
-  defp issue_ephemeral_test_grant(attrs) do
+  # dry_run_rule/2 only: never persisted or dispatched, and mask_dry_run_grant/1
+  # replaces the id before the template is returned.
+  defp dry_run_placeholder_grant(attrs) do
     grant =
       attrs
       |> CredentialBrokerGrant.issue_attrs()
-      |> Map.put(:id, "test-grant-#{System.unique_integer([:positive])}")
+      |> Map.put(:id, "dry-run-placeholder")
 
     {:ok, grant}
   end

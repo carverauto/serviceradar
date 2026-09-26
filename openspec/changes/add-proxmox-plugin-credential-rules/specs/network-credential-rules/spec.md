@@ -69,8 +69,8 @@ The system SHALL materialize credential rules as scoped credential references an
 - **AND** the policy status SHALL report the scope mismatch without exposing the secret
 
 #### Scenario: Credential broker grant constrains runtime use
-- **GIVEN** a Proxmox credential test is dispatched to an eligible agent
-- **WHEN** the command payload is sent
+- **GIVEN** a Proxmox plugin assignment is delivered to an eligible agent
+- **WHEN** the assignment payload is sent
 - **THEN** it SHALL contain a credential broker grant with credential reference, target device, target base URL, allowed methods, allowed API paths, and TTL
 - **AND** it SHALL NOT contain `api_token`, password, private key, ticket, cookie, or CSRF token values
 
@@ -88,19 +88,3 @@ The system SHALL resolve credentials deterministically using provider-compatible
 - **WHEN** reconciliation runs
 - **THEN** the system SHALL NOT try both secrets blindly
 - **AND** it SHALL report a credential conflict requiring operator resolution
-
-### Requirement: Credential test execution is brokered and redacted
-The system SHALL allow authorized admins to test credential rules through an eligible agent using a credential broker grant while preserving redaction boundaries.
-
-#### Scenario: Test Proxmox credential rule
-- **GIVEN** an admin tests a Proxmox credential rule against a matched target
-- **WHEN** the selected agent runs the test
-- **THEN** the system SHALL report reachability, authentication, TLS, and API-version status
-- **AND** the plugin or generic command handler SHALL NOT receive decrypted token material
-- **AND** any failure details SHALL redact token, password, cookie, and ticket values
-
-#### Scenario: Test SSH credential rule
-- **GIVEN** an admin tests an SSH credential rule against a matched PVE host
-- **WHEN** the selected agent runs the test
-- **THEN** the system SHALL report reachability, host key verification status, authentication status, and shell availability
-- **AND** raw private key, passphrase, and command output SHALL NOT be returned in the test response

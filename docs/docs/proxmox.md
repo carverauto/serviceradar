@@ -226,8 +226,8 @@ step 4 is required. Do not add `-k`, and do not put a Proxmox token on a shell c
 line; the point of the check is the handshake.
 
 Then confirm through ServiceRadar rather than through curl alone: use the target preview
-and rule test on the credential rule, and check the `proxmox-inventory` plugin result for
-a run timestamped after the agent restart. A stale successful result from before the
+on the credential rule, and check the `proxmox-inventory` plugin result for a run
+timestamped after the agent restart. A stale successful result from before the
 change proves nothing.
 
 ### Credential Custody
