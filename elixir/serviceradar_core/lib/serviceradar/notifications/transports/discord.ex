@@ -83,10 +83,10 @@ defmodule ServiceRadar.Notifications.Transports.Discord do
   @behaviour ServiceRadar.Notifications.Transport
 
   alias ServiceRadar.Automation.Northbound.ActionRedaction
-  alias ServiceRadar.Credentials.SecretBroker
   alias ServiceRadar.Notifications.Transport
   alias ServiceRadar.Notifications.Transport.Request
   alias ServiceRadar.Notifications.Transport.Result
+  alias ServiceRadar.Notifications.Transports.ChannelCredentials
   alias ServiceRadar.Notifications.Transports.HTTP
   alias ServiceRadar.Plugins.SecretRefs
 
@@ -389,11 +389,9 @@ defmodule ServiceRadar.Notifications.Transports.Discord do
   end
 
   defp resolve_secret_ref(ref, key, request, opts) when is_binary(ref) do
-    broker = Keyword.get(opts, :secret_broker, SecretBroker)
-
     with {:ok, secret_id} <- SecretRefs.network_credential_ref_id(String.trim(ref)),
          {:ok, resolved} <-
-           broker.resolve_network_credential_secret(secret_id, broker_opts(request, opts)),
+           ChannelCredentials.resolve(secret_id, request.channel_id, "discord", opts),
          value when is_binary(value) <- presence(Map.get(resolved, :value)) do
       {:ok, value}
     else
@@ -417,19 +415,6 @@ defmodule ServiceRadar.Notifications.Transports.Discord do
     Result.retryable_failure("discord_secret_unavailable",
       error_message: "the #{key} credential could not be resolved: #{format_reason(reason)}",
       result_summary: %{"transport" => "discord"}
-    )
-  end
-
-  defp broker_opts(request, opts) do
-    Keyword.merge(
-      [
-        allow_external_resolution?: true,
-        resolution_location: :control_plane,
-        consumer_kind: :northbound_action,
-        consumer_id: request.channel_id,
-        purpose: "notification_delivery"
-      ],
-      Keyword.get(opts, :broker_opts, [])
     )
   end
 
