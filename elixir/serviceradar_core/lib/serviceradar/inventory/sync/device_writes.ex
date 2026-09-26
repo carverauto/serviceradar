@@ -42,20 +42,46 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
 
   # DB connection's search_path determines the schema
   def bulk_upsert_devices(records, strong_uids \\ MapSet.new(), resolved_updates \\ nil) do
+    case bulk_upsert_devices(records, strong_uids, resolved_updates, []) do
+      {:ok, remap, _stale_uids} -> {:ok, remap}
+      {:error, _} = error -> error
+    end
+  end
+
+  @doc """
+  `bulk_upsert_devices/3` for a fenced caller (`SyncIngestor`, inside
+  `Identity.Fence.fenced_write/3`).
+
+  With `lock_remap_targets: true`, every existing device the upsert redirects a
+  record to -- an active-IP holder it adopts, or the survivor of a merged-away uid
+  -- is locked `FOR NO KEY UPDATE` in uid order before anything is written to it and
+  must still be live. The fence pins and locks only the uids the batch resolved; a
+  redirect target is chosen later, inside the transaction, and without this a merge,
+  delete or purge of it that committed after it was chosen would go unseen. A record
+  whose target is gone, tombstoned or merged is withheld, and its resolved uid is
+  returned in `stale_uids` so the caller treats it as a stale pin: re-resolve once,
+  then abandon.
+
+  Returns `{:ok, remap, stale_uids}`.
+  """
+  @spec bulk_upsert_devices([map()], MapSet.t(), list() | nil, keyword()) ::
+          {:ok, %{String.t() => String.t()}, [String.t()]} | {:error, term()}
+  def bulk_upsert_devices(records, strong_uids, resolved_updates, opts) do
     records = attach_identity_claims(records, resolved_updates)
     update_query = device_upsert_update_query()
     refresh_rollups? = inventory_rollup_bulk_refresh_required?(length(records))
+    lock? = Keyword.get(opts, :lock_remap_targets, false)
 
     records
-    |> do_bulk_upsert_devices(update_query, strong_uids, refresh_rollups?)
-    |> follow_merged_away_uids(records)
+    |> do_bulk_upsert_devices(update_query, strong_uids, refresh_rollups?, lock?)
+    |> follow_merged_away_uids(records, lock?)
   rescue
     e ->
       Logger.warning("Bulk device upsert failed: #{inspect(e)}")
       {:error, e}
   end
 
-  defp do_bulk_upsert_devices(records, update_query, strong_uids, refresh_rollups?) do
+  defp do_bulk_upsert_devices(records, update_query, strong_uids, refresh_rollups?, lock?) do
     # Resolve predictable active-IP collisions up front so the first insert
     # succeeds. Reactive recovery below only covers concurrent writers that
     # land between this prepare step and insert_all.
@@ -65,12 +91,22 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     # Test-only barrier point (Application env :device_writes_test_hooks).
     run_test_hook(:after_active_ip_precheck)
 
+    {prepared_records, remap, stale_uids} =
+      withhold_stale_remap_targets(prepared_records, remap, lock?)
+
     insert_devices_with_releases(prepared_records, releases, update_query, refresh_rollups?)
-    {:ok, remap}
+    {:ok, remap, stale_uids}
   rescue
     e in Postgrex.Error ->
       if ip_unique_conflict?(e) do
-        recover_ip_conflict_and_retry(records, update_query, strong_uids, e, refresh_rollups?)
+        recover_ip_conflict_and_retry(
+          records,
+          update_query,
+          strong_uids,
+          e,
+          refresh_rollups?,
+          lock?
+        )
       else
         Logger.warning("Bulk device upsert failed: #{inspect(e)}")
         {:error, e}
@@ -82,12 +118,16 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
          update_query,
          strong_uids,
          original_error,
-         refresh_rollups?
+         refresh_rollups?,
+         lock?
        ) do
     {recovered_records, remap, releases} =
       prepare_active_ip_claims(records, strong_uids, :retry)
 
     run_test_hook(:after_active_ip_precheck)
+
+    {recovered_records, remap, stale_uids} =
+      withhold_stale_remap_targets(recovered_records, remap, lock?)
 
     conflict_ip = unique_violation_ip(original_error)
 
@@ -112,9 +152,57 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
            update_query,
            refresh_rollups?
          ) do
-      :ok -> {:ok, remap}
+      :ok -> {:ok, remap, stale_uids}
       {:error, _} = error -> error
     end
+  end
+
+  # Lock every adopted active-IP holder in uid order and withhold the records
+  # redirected to one that is no longer live (see bulk_upsert_devices/4). The
+  # holders were live when prepare_active_ip_claims/3 read them; the lock is what
+  # keeps a later transition from landing before this write commits.
+  defp withhold_stale_remap_targets(records, remap, false), do: {records, remap, []}
+
+  defp withhold_stale_remap_targets(records, remap, _lock?) when map_size(remap) == 0,
+    do: {records, remap, []}
+
+  defp withhold_stale_remap_targets(records, remap, true) do
+    case remap |> Map.values() |> dead_targets() do
+      [] ->
+        {records, remap, []}
+
+      dead ->
+        dead = MapSet.new(dead)
+        stale_uids = for {from, to} <- remap, MapSet.member?(dead, to), do: from
+
+        Logger.warning(
+          "SyncIngestor: withheld #{length(stale_uids)} write(s) whose adopted device " <>
+            "is no longer live: #{inspect(Enum.sort(MapSet.to_list(dead)))}"
+        )
+
+        {Enum.reject(records, &MapSet.member?(dead, &1.uid)), Map.drop(remap, stale_uids),
+         stale_uids}
+    end
+  end
+
+  # The target uids that are missing or tombstoned (soft-deleted or merged), read
+  # under FOR NO KEY UPDATE in uid order -- the order Identity.Fence and
+  # MergeEngine lock device rows in.
+  defp dead_targets(targets) do
+    targets = targets |> Enum.uniq() |> Enum.sort()
+
+    live =
+      from(d in Device,
+        where: d.uid in ^targets,
+        order_by: [asc: d.uid],
+        lock: "FOR NO KEY UPDATE",
+        select: {d.uid, is_nil(d.deleted_at)}
+      )
+      |> Repo.all()
+      |> Enum.filter(&elem(&1, 1))
+      |> MapSet.new(&elem(&1, 0))
+
+    Enum.reject(targets, &MapSet.member?(live, &1))
   end
 
   defp do_bulk_upsert_devices_once(records, releases, update_query, refresh_rollups?) do
@@ -137,16 +225,23 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   # after the upsert, so a merge that commits between the upsert and this read is
   # caught as well; the window left is the one between here and the dependent
   # writes, which the identity fence covers (#4618).
-  defp follow_merged_away_uids({:ok, remap}, records) do
-    landed = Map.new(records, fn %{uid: uid} -> {uid, Map.get(remap, uid, uid)} end)
+  defp follow_merged_away_uids({:ok, remap, stale_uids}, records, lock?) do
+    stale = MapSet.new(stale_uids)
+
+    landed =
+      for %{uid: uid} <- records,
+          not MapSet.member?(stale, uid),
+          into: %{},
+          do: {uid, Map.get(remap, uid, uid)}
 
     case landed |> Map.values() |> Enum.uniq() |> merged_away_uids() do
       [] ->
-        {:ok, remap}
+        {:ok, remap, stale_uids}
 
       merged ->
         actor = SystemActor.system(:device_writes)
         survivors = Map.new(merged, &{&1, Resolver.follow_canonical_device_id(&1, actor)})
+        {survivors, dead_survivor_uids} = drop_dead_survivors(survivors, landed, lock?)
 
         Enum.each(survivors, fn
           {uid, uid} ->
@@ -162,11 +257,35 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
             )
         end)
 
-        {:ok, Enum.reduce(landed, remap, &redirect_to_survivor(&1, &2, survivors))}
+        {:ok, Enum.reduce(landed, remap, &redirect_to_survivor(&1, &2, survivors)),
+         stale_uids ++ dead_survivor_uids}
     end
   end
 
-  defp follow_merged_away_uids(result, _records), do: result
+  defp follow_merged_away_uids(result, _records, _lock?), do: result
+
+  # A fenced caller locks each survivor it will redirect to, like an adopted
+  # active-IP holder; a survivor that is no longer live makes the writes that
+  # would follow it stale instead.
+  defp drop_dead_survivors(survivors, _landed, false), do: {survivors, []}
+
+  defp drop_dead_survivors(survivors, landed, true) do
+    targets = for {merged, survivor} <- survivors, survivor != merged, do: survivor
+
+    case dead_targets(targets) do
+      [] ->
+        {survivors, []}
+
+      dead ->
+        dead = MapSet.new(dead)
+
+        dead_merged =
+          for {merged, survivor} <- survivors, MapSet.member?(dead, survivor), do: merged
+
+        stale_uids = for {uid, landed_uid} <- landed, landed_uid in dead_merged, do: uid
+        {Map.drop(survivors, dead_merged), stale_uids}
+    end
+  end
 
   defp redirect_to_survivor({uid, landed_uid}, remap, survivors) do
     case Map.get(survivors, landed_uid, landed_uid) do

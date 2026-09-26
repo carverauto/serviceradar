@@ -59,6 +59,7 @@ defmodule ServiceRadar.Inventory.Identity.FenceEnforcementTest do
     on_exit(fn ->
       :telemetry.detach(handler_id)
       Application.delete_env(:serviceradar_core, :identity_fence_test_hooks)
+      Application.delete_env(:serviceradar_core, :device_writes_test_hooks)
     end)
 
     {:ok, actor: actor, uids: start_supervised!({Agent, fn -> [] end})}
@@ -291,7 +292,85 @@ defmodule ServiceRadar.Inventory.Identity.FenceEnforcementTest do
     assert owner(netbox_id, actor) == canonical
   end
 
+  # An active-IP holder the upsert adopts is chosen inside the fenced transaction, so
+  # the fence never pinned it. It is locked before the write and must still be live.
+  test "a write redirected to an adopted address holder soft-deleted meanwhile is re-resolved",
+       ctx do
+    %{actor: actor} = ctx
+    holder = address_only_holder!(ctx)
+
+    once_before_write(fn ->
+      {:ok, device} = Device.get_by_uid(holder.uid, false, actor: actor)
+      {:ok, _} = Device.soft_delete(device, "fence_test_delete", "fence-test", actor: actor)
+    end)
+
+    integration_id = "fence-remap-deleted-#{System.unique_integer([:positive])}"
+    assert :ok = ingest(actor, [update(integration_id, holder.ip, "remap-writer", nil)])
+
+    # The write was not landed on the deleted holder (reviving it); it was
+    # re-resolved and landed on a device of its own.
+    landed = owner(integration_id, actor)
+    Agent.update(ctx.uids, &[landed | &1])
+    on_exit(fn -> cleanup!(landed) end)
+
+    assert landed != holder.uid
+    assert %Device{deleted_reason: "fence_test_delete"} = device!(holder.uid, actor)
+    assert %Device{deleted_at: nil, ip: ip} = device!(landed, actor)
+    assert ip == holder.ip
+
+    assert_receive {:fence, :stale,
+                    %{pipeline: :sync_ingestor, reason: :redirect_target, device_id: ^landed}}
+  end
+
+  test "a write redirected to an adopted address holder merged meanwhile is re-resolved", ctx do
+    %{actor: actor} = ctx
+    holder = address_only_holder!(ctx)
+    survivor = seed!(ctx, "fence-remap-survivor")
+
+    once_before_write(fn -> assert :ok = merge!(holder.uid, survivor.uid, actor) end)
+
+    integration_id = "fence-remap-merged-#{System.unique_integer([:positive])}"
+    assert :ok = ingest(actor, [update(integration_id, holder.ip, "remap-writer", nil)])
+
+    # Without the check the identifiers followed the holder's merge onto the survivor.
+    landed = owner(integration_id, actor)
+    Agent.update(ctx.uids, &[landed | &1])
+    on_exit(fn -> cleanup!(landed) end)
+
+    refute landed in [holder.uid, survivor.uid]
+    assert %Device{deleted_reason: "merged"} = device!(holder.uid, actor)
+
+    assert_receive {:fence, :stale,
+                    %{pipeline: :sync_ingestor, reason: :redirect_target, device_id: ^landed}}
+  end
+
   # ---------------------------------------------------------------------------------------
+
+  # An address-only device: DeviceWrites adopts it for a strong-identified write at
+  # its address (a provisional IP seed), remapping the write onto it.
+  defp address_only_holder!(ctx) do
+    uid = "sr:" <> Ecto.UUID.generate()
+    ip = unique_ip()
+
+    {:ok, _} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{uid: uid, ip: ip})
+      |> Ash.create(actor: ctx.actor)
+
+    Agent.update(ctx.uids, &[uid | &1])
+    on_exit(fn -> cleanup!(uid) end)
+    %{uid: uid, ip: ip}
+  end
+
+  # Runs `fun` once, in another process (its own connection, committing on its own),
+  # after DeviceWrites has chosen its active-IP holders and before it writes.
+  defp once_before_write(fun) do
+    run = once_fun(fn -> fun |> Task.async() |> Task.await(30_000) end)
+
+    Application.put_env(:serviceradar_core, :device_writes_test_hooks, %{
+      after_active_ip_precheck: run
+    })
+  end
 
   defp agent_attrs(agent_id, ip) do
     %{
