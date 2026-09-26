@@ -67,6 +67,13 @@ defmodule ServiceRadar.Dashboards.ManifestTest do
     assert parsed.settings_schema["type"] == "object"
   end
 
+  test "accepts the camera stream view capability" do
+    manifest = put_in(valid_manifest(), ["capabilities"], ["srql.execute", "camera.stream.view"])
+
+    assert {:ok, parsed} = Manifest.from_map(manifest)
+    assert "camera.stream.view" in parsed.capabilities
+  end
+
   test "rejects unsupported renderer capabilities and mutable package shape" do
     manifest = valid_manifest()
 

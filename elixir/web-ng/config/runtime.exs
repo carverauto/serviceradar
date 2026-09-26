@@ -676,6 +676,18 @@ remote_access_desktop_webrtc =
     credential_ttl_seconds: System.get_env("SERVICERADAR_REMOTE_ACCESS_DESKTOP_WEBRTC_TURN_CREDENTIAL_TTL_SECONDS")
   )
 
+camera_relay_webrtc_enabled =
+  case to_bool.(System.get_env("SERVICERADAR_CAMERA_RELAY_WEBRTC_ENABLED", "false")) do
+    nil -> false
+    value -> value
+  end
+
+# Camera relay ICE servers use the same urls-only JSON contract as remote desktop.
+camera_relay_webrtc_ice_servers =
+  RemoteDesktopWebRTCConfig.load_ice_servers!(
+    System.get_env("SERVICERADAR_CAMERA_RELAY_WEBRTC_ICE_SERVERS_JSON")
+  )
+
 remote_access_app_enabled =
   case to_bool.(System.get_env("SERVICERADAR_REMOTE_ACCESS_APP_ENABLED", "false")) do
     nil -> false
@@ -811,6 +823,10 @@ config :serviceradar_web_ng,
 
 config :serviceradar_web_ng,
   remote_access_app_enabled: remote_access_app_enabled
+
+config :serviceradar_web_ng,
+  camera_relay_webrtc_enabled: camera_relay_webrtc_enabled,
+  camera_relay_webrtc_ice_servers: camera_relay_webrtc_ice_servers
 
 config :serviceradar_web_ng,
   remote_access_browser_key_remember_enabled: remote_access_browser_key_remember_enabled

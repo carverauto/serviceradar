@@ -32,7 +32,7 @@ defmodule ServiceRadarWebNGWeb.Router do
          "style-src 'self' 'unsafe-inline'; " <>
          "img-src 'self' data: https://api.mapbox.com https://*.tiles.mapbox.com https://*.tile.openstreetmap.org https://*.basemaps.cartocdn.com; " <>
          "font-src 'self' data:; " <>
-         "media-src 'none'; " <>
+         "media-src blob: mediastream:; " <>
          "connect-src 'self' https: wss:; " <>
          "worker-src 'self' blob:; " <>
          "child-src blob:; " <>

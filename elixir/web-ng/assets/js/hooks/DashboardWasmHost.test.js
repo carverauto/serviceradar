@@ -243,6 +243,62 @@ describe("DashboardWasmHost browser-module API", () => {
     expect(hook.pushEvent).toHaveBeenCalledWith("dashboard_preference_update", {key: "density", value: "compact"})
   })
 
+  test("gates the camera API on the package capability and the viewer's permission", () => {
+    const hook = hookContext()
+    const withoutCapability = hook.browserModuleApi(baseHost({permissions: {camera_stream_view: true}}))
+    const request = {
+      camera_source_id: "11111111-1111-4111-8111-111111111111",
+      stream_profile_id: "22222222-2222-4222-8222-222222222222",
+    }
+
+    expect(() => withoutCapability.camera.open(request)).toThrow(
+      expect.objectContaining({code: "capability_denied"})
+    )
+
+    const withoutPermission = hook.browserModuleApi(
+      baseHost({package: {...baseHost().package, capabilities: ["camera.stream.view"]}})
+    )
+
+    expect(withoutPermission.camera.allowed()).toBe(false)
+    expect(() => withoutPermission.camera.open(request)).toThrow(expect.objectContaining({code: "permission_denied"}))
+
+    const allowed = hook.browserModuleApi(
+      baseHost({
+        package: {...baseHost().package, capabilities: ["camera.stream.view"]},
+        permissions: {camera_stream_view: true},
+      })
+    )
+
+    expect(allowed.camera.allowed()).toBe(true)
+    expect(allowed.camera.maxSessions).toBe(9)
+  })
+
+  test("closes camera sessions when the dashboard is destroyed", () => {
+    globalThis.fetch = vi.fn(() => new Promise(() => {}))
+    globalThis.document.addEventListener = vi.fn()
+    globalThis.document.removeEventListener = vi.fn()
+    globalThis.window.removeEventListener = vi.fn()
+    const hook = hookContext({disconnectFrameStream: vi.fn(), teardownMap: vi.fn()})
+    const api = hook.browserModuleApi(
+      baseHost({
+        package: {...baseHost().package, capabilities: ["camera.stream.view"]},
+        permissions: {camera_stream_view: true},
+      })
+    )
+
+    const handle = api.camera.open({
+      camera_source_id: "11111111-1111-4111-8111-111111111111",
+      stream_profile_id: "22222222-2222-4222-8222-222222222222",
+    })
+    expect(api.camera.activeCount()).toBe(1)
+
+    hook.destroyed()
+
+    expect(handle.state).toBe("closed")
+    expect(api.camera.activeCount()).toBe(0)
+    delete globalThis.fetch
+  })
+
   test("enforces popup and detail host actions", () => {
     const hook = hookContext()
     const denied = hook.browserModuleApi(baseHost())

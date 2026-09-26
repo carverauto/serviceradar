@@ -1,5 +1,6 @@
 import {Socket} from "phoenix"
 import {builtInDashboardRenderers} from "../dashboards"
+import {createDashboardCameraApi} from "../lib/camera_relay/dashboard_camera"
 
 const DEFAULT_LIGHT_STYLE = "mapbox://styles/mapbox/light-v11"
 const DEFAULT_DARK_STYLE = "mapbox://styles/mapbox/dark-v11"
@@ -290,7 +291,15 @@ const DashboardWasmHost = {
     this._hostPayloadSignature = null
     this._onResize = () => this.resizeMap()
     this._onThemeChange = () => this.applyThemeStyle()
+    this._onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        this._cameraApi?.suspendAll()
+      } else {
+        this._cameraApi?.resumeAll()
+      }
+    }
     window.addEventListener("resize", this._onResize)
+    document.addEventListener("visibilitychange", this._onVisibilityChange)
 
     this._themeObserver = new MutationObserver(this._onThemeChange)
     this._themeObserver.observe(document.documentElement, {
@@ -320,6 +329,7 @@ const DashboardWasmHost = {
 
     this.disconnectFrameStream()
     this.teardownMap()
+    this.closeCameraSessions()
     this._frameUpdateCallbacks = []
     this._moduleDestroy = null
     this._wasmContext = null
@@ -369,6 +379,7 @@ const DashboardWasmHost = {
   destroyed() {
     this.cancelled = true
     window.removeEventListener("resize", this._onResize)
+    document.removeEventListener("visibilitychange", this._onVisibilityChange)
 
     try {
       this._themeObserver?.disconnect()
@@ -380,6 +391,21 @@ const DashboardWasmHost = {
 
     this.disconnectFrameStream()
     this.teardownMap()
+    this.closeCameraSessions()
+  },
+
+  closeCameraSessions() {
+    this._cameraApi?.closeAll()
+    this._cameraApi = null
+  },
+
+  cameraApiFor(host, capabilityAllowed) {
+    this.closeCameraSessions()
+    this._cameraApi = createDashboardCameraApi({
+      capabilityAllowed,
+      permitted: host?.permissions?.camera_stream_view === true,
+    })
+    return this._cameraApi.publicApi()
   },
 
   async boot() {
@@ -652,6 +678,7 @@ const DashboardWasmHost = {
       savedQueries: savedQueriesApi,
       popup: popupApi,
       details: detailsApi,
+      camera: this.cameraApiFor(host, capabilityAllowed),
       onFrameUpdate: (callback) => {
         if (typeof callback !== "function") return () => {}
 

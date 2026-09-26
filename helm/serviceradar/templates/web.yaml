@@ -92,6 +92,11 @@
 {{- $remoteAccessDesktopTurn := default (dict) $remoteAccessDesktopWebRTC.turn -}}
 {{- include "serviceradar.validateRemoteAccessDesktopWebRTC" . -}}
 {{- $remoteAccessSsh := default (dict) $remoteAccess.ssh -}}
+{{- $webNgCameraRelay := default (dict) (default (dict) .Values.webNg).cameraRelay -}}
+{{- $cameraRelayWebRTC := default (dict) $webNgCameraRelay.webRTC -}}
+{{- $cameraRelayWebRTCEnabled := false -}}
+{{- if hasKey $cameraRelayWebRTC "enabled" -}}{{- $cameraRelayWebRTCEnabled = get $cameraRelayWebRTC "enabled" -}}{{- end -}}
+{{- $cameraRelayIceServersJSON := toJson (default (list) $cameraRelayWebRTC.iceServers) -}}
 {{- $remoteAccessSshEnabled := false -}}
 {{- if hasKey $remoteAccessSsh "enabled" -}}{{- $remoteAccessSshEnabled = get $remoteAccessSsh "enabled" -}}{{- end -}}
 {{- $remoteAccessSshBrowserKeyRemember := default (dict) $remoteAccessSsh.browserKeyRemember -}}
@@ -687,6 +692,12 @@ spec:
           value: {{ toJson $sshCaSigner.args | quote }}
         - name: SERVICERADAR_REMOTE_ACCESS_SSH_CA_KEY_ID
           value: {{ $sshCaSigner.keyId | quote }}
+        {{- end }}
+        - name: SERVICERADAR_CAMERA_RELAY_WEBRTC_ENABLED
+          value: {{ $cameraRelayWebRTCEnabled | quote }}
+        {{- if $cameraRelayWebRTCEnabled }}
+        - name: SERVICERADAR_CAMERA_RELAY_WEBRTC_ICE_SERVERS_JSON
+          value: {{ $cameraRelayIceServersJSON | quote }}
         {{- end }}
         - name: SERVICERADAR_REMOTE_ACCESS_DESKTOP_RDP_ENABLED
           value: {{ $remoteAccessDesktopRdpEnabled | quote }}

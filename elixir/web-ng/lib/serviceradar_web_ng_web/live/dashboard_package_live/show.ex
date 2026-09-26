@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
   alias ServiceRadar.Dashboards.DashboardUserPreference
   alias ServiceRadar.Integrations.MapboxSettings
   alias ServiceRadarWebNG.Dashboards
+  alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.DashboardFrameChannel
   alias ServiceRadarWebNGWeb.DashboardPackageLive.AccessControls
   alias ServiceRadarWebNGWeb.DashboardPackageLive.Preferences
@@ -309,6 +310,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
             stored_preferences(socket, instance.route_slug),
             current_user_id(socket)
           )
+          |> Map.put("permissions", host_permissions(socket.assigns.current_scope, package))
         )
       )
 
@@ -672,6 +674,14 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
       %{user: %{id: _id} = user} -> user
       _ -> nil
     end
+  end
+
+  # Host-side hints only; every relay request is authorized again by the API.
+  defp host_permissions(scope, %DashboardPackage{} = package) do
+    %{
+      "camera_stream_view" =>
+        "camera.stream.view" in (package.capabilities || []) and RBAC.can?(scope, "devices.view")
+    }
   end
 
   defp host_payload(
