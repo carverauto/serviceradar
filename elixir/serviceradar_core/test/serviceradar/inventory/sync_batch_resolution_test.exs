@@ -852,6 +852,34 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
            "a MAC-less re-observation must not trigger the distinct-MAC veto"
   end
 
+  test "hostname agreement does not merge two Armis devices at one address", %{actor: actor} do
+    n = System.unique_integer([:positive])
+    ip = "203.0.113.#{rem(n, 200) + 10}"
+    hostname = "shared-name-#{n}"
+    armis_a = "armis-shared-a-#{n}"
+    armis_b = "armis-shared-b-#{n}"
+
+    update = fn armis_id ->
+      %{
+        "hostname" => hostname,
+        "source" => "armis",
+        "ip" => ip,
+        "metadata" => %{"integration_type" => "armis", "armis_device_id" => armis_id}
+      }
+    end
+
+    assert :ok = SyncIngestor.ingest_updates([update.(armis_a)], actor: actor)
+    uid_a = device_for_armis_id(armis_a, actor)
+    assert is_binary(uid_a)
+
+    assert :ok = SyncIngestor.ingest_updates([update.(armis_b)], actor: actor)
+    uid_b = device_for_armis_id(armis_b, actor)
+
+    assert is_binary(uid_b)
+    assert uid_a != uid_b
+    assert device_for_armis_id(armis_a, actor) == uid_a
+  end
+
   test "a new typed Armis ID does not adopt another device's historical MAC", %{actor: actor} do
     armis_a = "armis-history-a-#{System.unique_integer([:positive])}"
     armis_b = "armis-history-b-#{System.unique_integer([:positive])}"
