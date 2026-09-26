@@ -13,7 +13,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardExportController do
 
     with {:ok, dashboard} <- Dashboards.get_authored_dashboard(scope, dashboard_id, load: [:panels]) do
       definition = DefinitionSerializer.serialize(dashboard)
-      filename = safe_filename(dashboard.slug || dashboard.title)
+      filename = safe_filename(dashboard.slug || dashboard.title || "dashboard")
 
       conn
       |> put_resp_content_type("application/json")
