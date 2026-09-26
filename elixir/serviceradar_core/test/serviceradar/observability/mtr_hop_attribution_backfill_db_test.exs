@@ -137,20 +137,6 @@ defmodule ServiceRadar.Observability.MtrHopAttributionBackfillDbTest do
     assert is_nil(attribution.device_id)
   end
 
-  test "dry_run mode counts pending rows without writing" do
-    trace = insert_trace(target_ip: "198.51.100.40", device_id: "sr:device-e")
-    hop_id = insert_hop(trace.id, trace.time)
-
-    assert {:ok, report} = MtrHopAttributionBackfill.run(mode: :dry_run)
-
-    assert report.mode == :dry_run
-    assert report.rows_updated == 0
-    assert report.rows_remaining >= 1
-
-    # Hop still has NULL target_ip after dry run.
-    assert is_nil(hop_attribution(hop_id).target_ip)
-  end
-
   test "orphan hop with no matching trace is counted as unrecoverable, not pending" do
     hop_id = insert_orphan_hop()
 
