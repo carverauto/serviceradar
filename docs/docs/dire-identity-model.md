@@ -103,6 +103,8 @@ The holder keeps the address, and the incoming record drops it, in these cases
 
 Two further cases adopt the holder's uid instead of moving the address: an
 anchorless provisional seed at the address, and a holder whose hostname agrees.
+Hostname agreement never adopts across two different `armis_device_id` or
+`netbox_device_id` values: those records stay separate devices.
 
 Merged-away device IDs are never resurrected: resolution follows the
 `merge_audit` canonical mapping to the survivor (`Identity.Resolver` /

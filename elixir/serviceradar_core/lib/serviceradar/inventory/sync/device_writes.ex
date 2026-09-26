@@ -40,6 +40,10 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     :mac
   ]
 
+  # A shared hostname is not an identifier. These types decide identity, so
+  # two different values of one type veto hostname-agreement adoption.
+  @source_authoritative_types ~w(armis_device_id netbox_device_id)
+
   # DB connection's search_path determines the schema
   def bulk_upsert_devices(records, strong_uids \\ MapSet.new(), resolved_updates \\ nil) do
     case bulk_upsert_devices(records, strong_uids, resolved_updates, []) do
@@ -1018,7 +1022,18 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
 
     length(partitions) <= 1 and
       (incoming_serials == [] or existing_serials == [] or
-         Enum.any?(incoming_serials, &(&1 in existing_serials)))
+         Enum.any?(incoming_serials, &(&1 in existing_serials))) and
+      not conflicting_source_ids?(incoming, existing)
+  end
+
+  defp conflicting_source_ids?(incoming, existing) do
+    Enum.any?(@source_authoritative_types, fn type ->
+      incoming_values = for {^type, value, _} <- incoming, do: value
+      existing_values = for {^type, value, _} <- existing, do: value
+
+      incoming_values != [] and existing_values != [] and
+        Enum.all?(incoming_values, &(&1 not in existing_values))
+    end)
   end
 
   defp hostnames_agree?(a, b) when is_binary(a) and is_binary(b) do
