@@ -261,8 +261,10 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
 
     conn = start_supervised!({FakeJetStreamConnection, self()})
 
+    [stream] = config.streams
+
     capture_log(fn ->
-      assert {:error, {:consumer_setup_failed, _}} =
+      assert {:error, {:consumer_setup_failed, [{^stream, {"NETFLOW_RAW_REQUIRED", _reason}}]}} =
                Producer.setup_jetstream_consumers(conn, config)
     end)
 
@@ -414,7 +416,12 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
       state = producer_state(conn, config)
 
       entry = %{stream: mtr, attempt: 1, reason: :placement}
-      state = %{state | failed_streams: %{"MTR_RESULTS" => entry}}
+
+      state = %{
+        state
+        | failed_streams: %{"MTR_RESULTS" => entry},
+          degraded_streams: %{"MTR_RESULTS" => 1}
+      }
 
       {:noreply, [], state} =
         capture_log_result(fn ->
@@ -422,6 +429,7 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
         end)
 
       assert state.failed_streams == %{}
+      assert state.degraded_streams == %{}
       assert Enum.map(state.consumer_context.consumers, & &1.stream) == ["metrics", "mtr_results"]
       assert MapSet.size(state.pull_subjects) == 2
       assert_received {:setup_recovered, "MTR_RESULTS", 1}
@@ -437,7 +445,8 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
 
       state = %{
         state
-        | failed_streams: %{"MTR_RESULTS" => %{stream: mtr, attempt: 1, reason: :placement}}
+        | failed_streams: %{"MTR_RESULTS" => %{stream: mtr, attempt: 1, reason: :placement}},
+          degraded_streams: %{"MTR_RESULTS" => 1}
       }
 
       {:noreply, [], state} =
@@ -446,6 +455,7 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
         end)
 
       assert %{"MTR_RESULTS" => %{attempt: 2}} = state.failed_streams
+      assert state.degraded_streams == %{"MTR_RESULTS" => 2}
       assert Enum.map(state.consumer_context.consumers, & &1.stream) == ["metrics"]
       assert_received {:setup_failed, "MTR_RESULTS", {"MTR_RESULTS", %{"err_code" => 10_005}}, 2}
     end
@@ -463,6 +473,82 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
 
       assert {:noreply, [], ^state} =
                Producer.handle_info({:retry_consumer, stale_conn, "MTR_RESULTS"}, state)
+    end
+  end
+
+  describe "stream health across reconnects" do
+    setup do
+      Process.register(self(), :event_writer_stream_health_test)
+
+      config = %Config{
+        consumer_name: "serviceradar-event-writer",
+        streams: [%{name: "MTR_RESULTS", stream_name: "mtr_results", subject: "mtr.results.>"}]
+      }
+
+      mtr = hd(config.streams)
+
+      state = %Producer{
+        config: config,
+        failed_streams: %{},
+        degraded_streams: %{},
+        setup_failures: 0
+      }
+
+      %{state: %{state | stream_health: RecordingStreamHealth}, mtr: mtr}
+    end
+
+    test "a stream degraded before a reconnect and set up after it recovers exactly once",
+         %{state: state, mtr: mtr} do
+      state = Producer.track_failed_streams(state, [{mtr, :placement}])
+      assert_received {:setup_failed, "MTR_RESULTS", :placement, 1}
+      assert state.degraded_streams == %{"MTR_RESULTS" => 1}
+
+      # The connection drops and the reconnect sets every stream up.
+      state = %{state | failed_streams: %{}}
+      state = Producer.track_failed_streams(state, [])
+      assert_received {:setup_recovered, "MTR_RESULTS", 1}
+      assert state.degraded_streams == %{}
+
+      state = Producer.track_failed_streams(state, [])
+      refute_received {:setup_recovered, _stream, _attempts}
+      assert state.degraded_streams == %{}
+    end
+
+    test "a stream failing before and after a reconnect is degraded once",
+         %{state: state, mtr: mtr} do
+      state = Producer.track_failed_streams(state, [{mtr, :placement}])
+      state = %{state | failed_streams: %{}}
+      state = Producer.track_failed_streams(state, [{mtr, :placement}])
+
+      assert_received {:setup_failed, "MTR_RESULTS", :placement, 1}
+      assert_received {:setup_failed, "MTR_RESULTS", :placement, 2}
+      refute_received {:setup_recovered, _stream, _attempts}
+      assert state.degraded_streams == %{"MTR_RESULTS" => 2}
+    end
+
+    test "a connect where no required consumer set up reports each stream and backs off",
+         %{state: state, mtr: mtr} do
+      error = {:consumer_setup_failed, [{mtr, :placement}]}
+
+      state = Producer.record_connect_failure(state, error)
+      assert_received {:setup_failed, "MTR_RESULTS", :placement, 1}
+      assert state.degraded_streams == %{"MTR_RESULTS" => 1}
+      assert state.setup_failures == 1
+      assert Producer.reconnect_delay(error, state.setup_failures) == 5_000
+
+      state = Producer.record_connect_failure(state, error)
+      assert_received {:setup_failed, "MTR_RESULTS", :placement, 2}
+      assert state.degraded_streams == %{"MTR_RESULTS" => 2}
+      assert Producer.reconnect_delay(error, state.setup_failures) == 10_000
+
+      assert Producer.reconnect_delay(error, 50) == 60_000
+    end
+
+    test "a transport failure reconnects at the fixed delay and reports no stream",
+         %{state: state} do
+      assert Producer.record_connect_failure(state, :econnrefused) == state
+      assert Producer.reconnect_delay(:econnrefused, 7) == 5_000
+      refute_received {:setup_failed, _stream, _reason, _attempt}
     end
   end
 
@@ -495,6 +581,8 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
       pull_subjects: context.pull_subjects,
       sid_to_pull_subject: context.sid_to_pull_subject,
       failed_streams: %{},
+      degraded_streams: %{},
+      setup_failures: 0,
       stream_health: RecordingStreamHealth
     }
   end

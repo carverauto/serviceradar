@@ -88,6 +88,8 @@ defmodule ServiceRadar.EventWriter.Producer do
     :dropped_overflow,
     :pull_subjects,
     :failed_streams,
+    :degraded_streams,
+    :setup_failures,
     :stream_health
   ]
 
@@ -124,6 +126,8 @@ defmodule ServiceRadar.EventWriter.Producer do
       dropped_overflow: 0,
       pull_subjects: MapSet.new(),
       failed_streams: %{},
+      degraded_streams: %{},
+      setup_failures: 0,
       stream_health:
         Application.get_env(
           :serviceradar_core,
@@ -207,7 +211,8 @@ defmodule ServiceRadar.EventWriter.Producer do
                 connected: true,
                 sid_to_pull_subject: sid_map,
                 pull_subjects: Map.get(consumer_context, :pull_subjects, MapSet.new()),
-                failed_streams: %{}
+                failed_streams: %{},
+                setup_failures: 0
             },
             Map.get(consumer_context, :failed_streams, [])
           )
@@ -218,7 +223,12 @@ defmodule ServiceRadar.EventWriter.Producer do
         {:noreply, [], new_state}
 
       {:error, reason} ->
-        Logger.warning("EventWriter NATS connection failed: #{inspect(reason)}, retrying...")
+        state = record_connect_failure(state, reason)
+        delay = reconnect_delay(reason, state.setup_failures)
+
+        Logger.warning(
+          "EventWriter NATS connection failed: #{inspect(reason)}, retrying in #{delay}ms..."
+        )
 
         :telemetry.execute(
           [:serviceradar, :event_writer, :connection_failed],
@@ -226,7 +236,7 @@ defmodule ServiceRadar.EventWriter.Producer do
           %{reason: inspect(reason)}
         )
 
-        Process.send_after(self(), :connect, @reconnect_delay)
+        Process.send_after(self(), :connect, delay)
         {:noreply, [], state}
     end
   end
@@ -589,7 +599,7 @@ defmodule ServiceRadar.EventWriter.Producer do
 
         {:error,
          {:consumer_setup_failed,
-          Enum.map(failures, fn {_stream, {:error, reason}} -> reason end)}}
+          Enum.map(failures, fn {stream, {:error, reason}} -> {stream, reason} end)}}
 
       true ->
         # Some required consumers came up. Keep them running and hand the
@@ -734,25 +744,68 @@ defmodule ServiceRadar.EventWriter.Producer do
     end
   end
 
-  defp track_failed_streams(state, failed) do
+  # Health is transition-based and survives reconnects: `degraded_streams` maps
+  # a stream to its consecutive failed setup attempts and is only cleared when
+  # the stream sets up, so a reconnect neither repeats a degraded event nor
+  # leaves a recovered stream reported as degraded.
+  @doc false
+  def track_failed_streams(state, failed) do
+    failed_names = MapSet.new(failed, fn {stream, _reason} -> Map.fetch!(stream, :name) end)
+
+    state =
+      state.degraded_streams
+      |> Map.keys()
+      |> Enum.reject(&MapSet.member?(failed_names, &1))
+      |> Enum.reduce(state, &record_stream_recovered(&2, &1))
+
     Enum.reduce(failed, state, fn {stream, reason}, acc ->
       name = Map.fetch!(stream, :name)
-      entry = %{stream: stream, attempt: 1, reason: reason}
-      acc.stream_health.consumer_setup_failed(name, reason, 1)
-      schedule_consumer_retry(acc.conn, name, 1)
+      {acc, attempt} = record_stream_failed(acc, name, reason)
+      schedule_consumer_retry(acc.conn, name, attempt)
+      entry = %{stream: stream, attempt: attempt, reason: reason}
       %{acc | failed_streams: Map.put(acc.failed_streams, name, entry)}
     end)
   end
 
-  defp retry_failed_consumer(state, name, %{stream: stream, attempt: attempt} = entry) do
+  @doc false
+  def record_connect_failure(state, {:consumer_setup_failed, failures}) do
+    state =
+      Enum.reduce(failures, state, fn {stream, reason}, acc ->
+        {acc, _attempt} = record_stream_failed(acc, Map.fetch!(stream, :name), reason)
+        acc
+      end)
+
+    %{state | setup_failures: state.setup_failures + 1}
+  end
+
+  def record_connect_failure(state, _reason), do: state
+
+  defp record_stream_failed(state, name, reason) do
+    attempt = Map.get(state.degraded_streams, name, 0) + 1
+    state.stream_health.consumer_setup_failed(name, reason, attempt)
+    {%{state | degraded_streams: Map.put(state.degraded_streams, name, attempt)}, attempt}
+  end
+
+  defp record_stream_recovered(state, name) do
+    case Map.pop(state.degraded_streams, name) do
+      {nil, _degraded} ->
+        state
+
+      {attempts, degraded} ->
+        state.stream_health.consumer_setup_recovered(name, attempts)
+        %{state | degraded_streams: degraded}
+    end
+  end
+
+  defp retry_failed_consumer(state, name, %{stream: stream} = entry) do
     case setup_consumer(state.conn, state.config, stream) do
       {:ok, consumer} ->
         Logger.info("EventWriter consumer set up after retry",
           consumer: name,
-          failed_attempts: attempt
+          failed_attempts: entry.attempt
         )
 
-        state.stream_health.consumer_setup_recovered(name, attempt)
+        state = record_stream_recovered(state, name)
         failed_streams = Map.delete(state.failed_streams, name)
 
         if failed_streams == %{},
@@ -761,7 +814,7 @@ defmodule ServiceRadar.EventWriter.Producer do
         add_consumer(%{state | failed_streams: failed_streams}, consumer)
 
       {:error, reason} ->
-        next = attempt + 1
+        {state, next} = record_stream_failed(state, name, reason)
 
         Logger.warning("EventWriter consumer setup still failing; retrying this stream only",
           consumer: name,
@@ -770,7 +823,6 @@ defmodule ServiceRadar.EventWriter.Producer do
           reason: inspect(reason)
         )
 
-        state.stream_health.consumer_setup_failed(name, reason, next)
         schedule_consumer_retry(state.conn, name, next)
         entry = %{entry | attempt: next, reason: reason}
         %{state | failed_streams: Map.put(state.failed_streams, name, entry)}
@@ -797,6 +849,15 @@ defmodule ServiceRadar.EventWriter.Producer do
   defp schedule_consumer_retry(conn, name, attempt) do
     Process.send_after(self(), {:retry_consumer, conn, name}, consumer_retry_delay(attempt))
   end
+
+  @doc false
+  # Delay before reconnecting after a failed connect. A setup failure is the
+  # stream, not the transport, so it backs off like a per-stream retry;
+  # `setup_failures` counts consecutive ones including this one.
+  def reconnect_delay({:consumer_setup_failed, _failures}, setup_failures),
+    do: consumer_retry_delay(max(setup_failures, 1))
+
+  def reconnect_delay(_reason, _setup_failures), do: @reconnect_delay
 
   @doc false
   # Backoff before retry `attempt` of a failed stream: 5 s doubling to 60 s.
