@@ -314,16 +314,19 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
         value <- Ids.get_identifier_values(id_type, ids),
         device_id <- identifier_owners(id_type, value, ids, preloads.identifiers),
         device_id != final_id,
-        source_mismatch?(ids, device_id, preloads) do
+        types = SourceAuthorityGuard.mismatched_types(ids, device_id, preloads.source_ids),
+        types != [] do
       %{
         device_uid: device_id,
         identifier_type: id_type,
         identifier_value: value,
+        claim_types: types,
         source_ids:
           SourceAuthorityGuard.scoped_source_ids(
             preloads.source_ids,
             device_id,
-            Ids.ids_get_partition(ids)
+            Ids.ids_get_partition(ids),
+            types
           )
       }
     end

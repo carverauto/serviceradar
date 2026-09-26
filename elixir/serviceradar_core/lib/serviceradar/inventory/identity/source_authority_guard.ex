@@ -25,13 +25,13 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
 
   require Ash.Query
 
-  # Armis and NetBox device ids always govern. An integration id governs only
-  # when extraction kept it, which it does not for an Armis or NetBox echo of
-  # the typed id.
-  @source_identifier_types [:armis_device_id, :netbox_device_id, :integration_id]
+  @source_identifier_types [:armis_device_id, :netbox_device_id]
 
-  @typedoc "Source-authoritative identifiers per device, as `{partition, value}` pairs."
-  @type held :: %{String.t() => MapSet.t({String.t(), String.t()})}
+  @typedoc """
+  Source-authoritative identifiers per device, as `{partition, identifier_type, value}`
+  triples.
+  """
+  @type held :: %{String.t() => MapSet.t({String.t(), String.t(), String.t()})}
 
   @typedoc """
   A resolution that refused identifier matches on records holding a different
@@ -46,6 +46,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
               device_uid: String.t(),
               identifier_type: atom(),
               identifier_value: String.t(),
+              claim_types: [atom()],
               source_ids: [String.t()]
             }
           ]
@@ -88,13 +89,20 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
   source-authoritative identifier should attach to.
   """
   @spec source_mismatch?(Ids.strong_identifiers(), String.t(), held()) :: boolean()
-  def source_mismatch?(ids, device_id, held) do
+  def source_mismatch?(ids, device_id, held), do: mismatched_types(ids, device_id, held) != []
+
+  @doc """
+  The source-authoritative identifier types on which an update carrying `ids` differs from
+  `device_id` in the update's scope.
+  """
+  @spec mismatched_types(Ids.strong_identifiers(), String.t(), held()) :: [atom()]
+  def mismatched_types(ids, device_id, held) do
     partition = Ids.ids_get_partition(ids)
 
-    Enum.any?(authoritative_claims(ids), fn {type, value} ->
-      scoped = scoped_values(held, device_id, partition, type)
-      scoped != [] and value not in scoped
-    end)
+    for {type, value} <- authoritative_claims(ids),
+        scoped = scoped_values(held, device_id, partition, type),
+        scoped != [] and value not in scoped,
+        do: type
   end
 
   @doc false
@@ -107,8 +115,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
     Enum.filter(
       [
         {:armis_device_id, Ids.ids_get(ids, :armis_id)},
-        {:netbox_device_id, Ids.ids_get(ids, :netbox_id)},
-        {:integration_id, Ids.ids_get(ids, :integration_id)}
+        {:netbox_device_id, Ids.ids_get(ids, :netbox_id)}
       ],
       fn {_type, value} -> Ids.present_id?(value) end
     )
@@ -120,20 +127,20 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
     held
     |> Map.get(device_id, MapSet.new())
     |> Enum.flat_map(fn
-      {^partition, value} when type == "armis_device_id" -> [value]
       {^partition, ^type, value} -> [value]
       _other -> []
     end)
   end
 
-  @doc "The source-authoritative identifiers `device_id` holds in `partition`, sorted."
-  @spec scoped_source_ids(held(), String.t(), String.t()) :: [String.t()]
-  def scoped_source_ids(held, device_id, partition) do
+  @doc "The `types` identifiers `device_id` holds in `partition`, sorted."
+  @spec scoped_source_ids(held(), String.t(), String.t(), [atom()]) :: [String.t()]
+  def scoped_source_ids(held, device_id, partition, types) do
+    types = Enum.map(types, &Atom.to_string/1)
+
     held
     |> Map.get(device_id, MapSet.new())
     |> Enum.flat_map(fn
-      {^partition, value} -> [value]
-      {^partition, _type, value} -> [value]
+      {^partition, type, value} -> if type in types, do: [value], else: []
       _other -> []
     end)
     |> Enum.sort()
@@ -157,8 +164,21 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
     _ = DecisionLog.record_many(Enum.map(overrides, &override_decision/1))
 
     overrides
+    |> Enum.flat_map(&split_by_claim/1)
     |> Enum.map(&SourceIdentityDrift.build_source_override_conflict/1)
     |> SourceIdentityDrift.record_conflicts()
+  end
+
+  defp split_by_claim(%{overridden: overridden} = override) do
+    overridden
+    |> Enum.flat_map(& &1.claim_types)
+    |> Enum.uniq()
+    |> Enum.map(fn type ->
+      Map.merge(override, %{
+        claim_type: type,
+        overridden: Enum.filter(overridden, &(type in &1.claim_types))
+      })
+    end)
   end
 
   defp override_decision(%{device_uid: device_uid, overridden: overridden} = override) do
@@ -172,7 +192,6 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
       evidence: %{
         "armis_device_id" => Ids.ids_get(override.ids, :armis_id),
         "netbox_device_id" => Ids.ids_get(override.ids, :netbox_id),
-        "integration_id" => Ids.ids_get(override.ids, :integration_id),
         "partition" => Ids.ids_get_partition(override.ids),
         "matched_identifiers" =>
           Enum.map(overridden, fn match ->
@@ -214,7 +233,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
   def conflict_from_rows(rows, device_ids) when is_list(rows) and is_list(device_ids) do
     rows
     |> Enum.group_by(fn row ->
-      {row.partition, source_id(row), Map.get(row, :identifier_type, :armis_device_id)}
+      {row.partition, source_id(row), row.identifier_type}
     end)
     |> Enum.find_value(fn {{partition, source_id, identifier_type}, scoped_rows} ->
       sets =
@@ -349,7 +368,6 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
 
   defp source_type(:armis_device_id), do: "armis"
   defp source_type(:netbox_device_id), do: "netbox"
-  defp source_type(:integration_id), do: "integration"
   defp source_type(other), do: to_string(other)
 
   defp source_id(row) do

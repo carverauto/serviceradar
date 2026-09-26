@@ -305,13 +305,15 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
   `override` carries the update (`:update`), its extracted identifiers
   (`:ids`), the record the update resolved to (`:device_uid`), and the refused
   matches (`:overridden`, a list of `%{device_uid:, identifier_type:,
-  identifier_value:, source_ids:}`). The conflict is keyed by the incoming
+  identifier_value:, source_ids:}`) and the source-authoritative identifier type they were
+  refused for (`:claim_type`). The conflict is keyed by the incoming
   record and its source-authoritative identifier, so a repeated sighting
   refreshes the open row instead of adding one.
   """
   def build_source_override_conflict(%{update: update, ids: ids} = override) do
     metadata = Map.get(update, :metadata) || %{}
-    {source_type, source_identifier_type, source_value} = governing_source(ids)
+    {source_type, source_identifier_type, source_value} =
+      governing_source(override.claim_type, ids)
     device_uid = override.device_uid
     overridden = Enum.sort_by(override.overridden, & &1.device_uid)
     overridden_uids = overridden |> Enum.map(& &1.device_uid) |> Enum.uniq()
@@ -362,24 +364,11 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
     conflict
   end
 
-  defp governing_source(ids) do
-    cond do
-      present_source_id?(Ids.ids_get(ids, :armis_id)) ->
-        {"armis", "armis_device_id", Ids.ids_get(ids, :armis_id)}
+  defp governing_source(:armis_device_id, ids),
+    do: {"armis", "armis_device_id", Ids.ids_get(ids, :armis_id)}
 
-      present_source_id?(Ids.ids_get(ids, :netbox_id)) ->
-        {"netbox", "netbox_device_id", Ids.ids_get(ids, :netbox_id)}
-
-      present_source_id?(Ids.ids_get(ids, :integration_id)) ->
-        {"integration", "integration_id", Ids.ids_get(ids, :integration_id)}
-
-      true ->
-        {"armis", "armis_device_id", nil}
-    end
-  end
-
-  defp present_source_id?(value) when is_binary(value), do: String.trim(value) != ""
-  defp present_source_id?(_value), do: false
+  defp governing_source(:netbox_device_id, ids),
+    do: {"netbox", "netbox_device_id", Ids.ids_get(ids, :netbox_id)}
 
   @doc """
   Persist and emit telemetry for a single active-IP recovery conflict.

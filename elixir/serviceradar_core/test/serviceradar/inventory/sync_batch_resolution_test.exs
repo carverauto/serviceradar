@@ -1257,6 +1257,39 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
       assert device_for_typed_id(:netbox_device_id, netbox_a, actor) == uid_a
     end
 
+    test "a NetBox record joins an Armis record through a shared MAC despite its integration id",
+         %{actor: actor} do
+      n = System.unique_integer([:positive])
+      mac = "00:00:5E:00:53:#{hex2(rem(n, 200) + 16)}"
+      armis_id = "#{n}06"
+      netbox_id = "nb-#{n}-c"
+
+      assert :ok =
+               SyncIngestor.ingest_updates([armis_update(armis_id, doc_ip(n, 5), mac)],
+                 actor: actor
+               )
+
+      armis_uid = device_for_armis_id(armis_id, actor)
+      assert is_binary(armis_uid)
+
+      netbox = %{
+        "ip" => doc_ip(n, 5),
+        "mac" => mac,
+        "hostname" => "netbox-#{netbox_id}",
+        "source" => "netbox",
+        "metadata" => %{
+          "integration_type" => "netbox",
+          "netbox_device_id" => netbox_id,
+          "integration_id" => "netbox:batch-resolution:device:#{netbox_id}"
+        }
+      }
+
+      assert :ok = SyncIngestor.ingest_updates([netbox], actor: actor)
+
+      assert device_for_typed_id(:netbox_device_id, netbox_id, actor) == armis_uid
+      assert override_conflicts(armis_uid, actor) == []
+    end
+
     test "an Armis id still attaches to a record holding no Armis id through its MAC", %{
       actor: actor
     } do

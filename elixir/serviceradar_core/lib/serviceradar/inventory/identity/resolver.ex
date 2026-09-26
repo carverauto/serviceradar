@@ -120,14 +120,27 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
       fn id_type, device_id ->
         held = SourceAuthorityGuard.held_source_ids([device_id], actor)
 
-        if id_type not in SourceAuthorityGuard.source_identifier_types() and
-             SourceAuthorityGuard.source_mismatch?(ids, device_id, held),
-           do:
-             {:refuse,
-              SourceAuthorityGuard.scoped_source_ids(held, device_id, Ids.ids_get_partition(ids))},
-           else: :accept
+        case source_refusal_types(id_type, ids, device_id, held) do
+          [] ->
+            :accept
+
+          types ->
+            {:refuse, types,
+             SourceAuthorityGuard.scoped_source_ids(
+               held,
+               device_id,
+               Ids.ids_get_partition(ids),
+               types
+             )}
+        end
       end
     end
+  end
+
+  defp source_refusal_types(id_type, ids, device_id, held) do
+    if id_type in SourceAuthorityGuard.source_identifier_types(),
+      do: [],
+      else: SourceAuthorityGuard.mismatched_types(ids, device_id, held)
   end
 
   defp record_source_overrides(_update, _ids, _device_id, []), do: :ok
@@ -563,11 +576,12 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
               {Map.put_new(matches, id_type, %{value: id_value, device_id: device_id}),
                overridden}
 
-            {:refuse, source_ids} ->
+            {:refuse, claim_types, source_ids} ->
               refused = %{
                 device_uid: device_id,
                 identifier_type: id_type,
                 identifier_value: id_value,
+                claim_types: claim_types,
                 source_ids: source_ids
               }
 
@@ -670,11 +684,12 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
             :accept ->
               {found || device_id, refused}
 
-            {:refuse, source_ids} ->
+            {:refuse, claim_types, source_ids} ->
               refusal = %{
                 device_uid: device_id,
                 identifier_type: :mac,
                 identifier_value: mac,
+                claim_types: claim_types,
                 source_ids: source_ids
               }
 
@@ -717,12 +732,13 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
         :accept ->
           merge_hardware_mac_pair(device_id, other_id, mac, sibling, actor)
 
-        {:refuse, source_ids} ->
+        {:refuse, claim_types, source_ids} ->
           {:refused,
            %{
              device_uid: other_id,
              identifier_type: :mac,
              identifier_value: mac,
+             claim_types: claim_types,
              source_ids: source_ids
            }}
       end

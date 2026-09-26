@@ -40,6 +40,15 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuardTest do
     assert SourceAuthorityGuard.conflict_from_rows(rows, ["device-a", "device-b"]) == nil
   end
 
+  test "does not treat disjoint integration ids as a merge conflict" do
+    rows = [
+      row("device-a", "legacy-1", "default", "source", :integration_id),
+      row("device-b", "canonical-1", "default", "source", :integration_id)
+    ]
+
+    assert SourceAuthorityGuard.conflict_from_rows(rows, ["device-a", "device-b"]) == nil
+  end
+
   test "blocks disjoint NetBox ids without comparing them to Armis ids" do
     rows = [
       row("device-a", "nb-1", "default", "netbox-source", :netbox_device_id),
@@ -54,8 +63,8 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuardTest do
   describe "source_mismatch?/3" do
     setup do
       held = %{
-        "device-a" => MapSet.new([{"default", "100"}]),
-        "device-b" => MapSet.new([{"default:armis:source-2", "200"}])
+        "device-a" => MapSet.new([{"default", "armis_device_id", "100"}]),
+        "device-b" => MapSet.new([{"default:armis:source-2", "armis_device_id", "200"}])
       }
 
       {:ok, held: held}
@@ -78,12 +87,12 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuardTest do
       refute SourceAuthorityGuard.source_mismatch?(%{partition: "default"}, "device-a", held)
     end
 
-    test "refuses a different NetBox id and a different integration id in the same scope" do
+    test "refuses a different NetBox id in the same scope, and names the differing type" do
       held = %{
         "device-a" =>
           MapSet.new([
             {"default", "netbox_device_id", "nb-1"},
-            {"default", "integration_id", "netbox:source-a:device:nb-1"}
+            {"default", "integration_id", "armis:source-a:device:100"}
           ])
       }
 
@@ -93,11 +102,12 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuardTest do
                held
              )
 
-      assert SourceAuthorityGuard.source_mismatch?(
-               %{integration_id: "netbox:source-a:device:nb-2", partition: "default"},
-               "device-a",
-               held
-             )
+      assert [:netbox_device_id] =
+               SourceAuthorityGuard.mismatched_types(
+                 %{netbox_id: "nb-2", armis_id: "nb-1", partition: "default"},
+                 "device-a",
+                 held
+               )
 
       refute SourceAuthorityGuard.source_mismatch?(
                %{netbox_id: "nb-1", partition: "default"},
@@ -110,6 +120,23 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuardTest do
                "device-a",
                held
              )
+    end
+
+    test "an integration id neither refuses nor is held as source-authoritative" do
+      held = %{
+        "device-a" => MapSet.new([{"default", "integration_id", "armis:source-a:device:100"}])
+      }
+
+      refute SourceAuthorityGuard.source_mismatch?(
+               %{integration_id: "netbox:source-b:device:nb-1", partition: "default"},
+               "device-a",
+               held
+             )
+
+      refute SourceAuthorityGuard.source_authoritative_update?(%{
+               integration_id: "netbox:source-b:device:nb-1",
+               partition: "default"
+             })
     end
   end
 
