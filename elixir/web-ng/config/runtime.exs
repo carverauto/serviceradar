@@ -684,9 +684,7 @@ camera_relay_webrtc_enabled =
 
 # Camera relay ICE servers use the same urls-only JSON contract as remote desktop.
 camera_relay_webrtc_ice_servers =
-  RemoteDesktopWebRTCConfig.load_ice_servers!(
-    System.get_env("SERVICERADAR_CAMERA_RELAY_WEBRTC_ICE_SERVERS_JSON")
-  )
+  RemoteDesktopWebRTCConfig.load_ice_servers!(System.get_env("SERVICERADAR_CAMERA_RELAY_WEBRTC_ICE_SERVERS_JSON"))
 
 remote_access_app_enabled =
   case to_bool.(System.get_env("SERVICERADAR_REMOTE_ACCESS_APP_ENABLED", "false")) do
@@ -811,6 +809,10 @@ config :serviceradar_web_ng,
   camera_relay_browser_stream_timeout_ms: camera_relay_browser_stream_timeout_ms
 
 config :serviceradar_web_ng,
+  camera_relay_webrtc_enabled: camera_relay_webrtc_enabled,
+  camera_relay_webrtc_ice_servers: camera_relay_webrtc_ice_servers
+
+config :serviceradar_web_ng,
   device_enrichment_rules_dir:
     System.get_env("DEVICE_ENRICHMENT_RULES_DIR", "/var/lib/serviceradar/rules/device-enrichment")
 
@@ -823,10 +825,6 @@ config :serviceradar_web_ng,
 
 config :serviceradar_web_ng,
   remote_access_app_enabled: remote_access_app_enabled
-
-config :serviceradar_web_ng,
-  camera_relay_webrtc_enabled: camera_relay_webrtc_enabled,
-  camera_relay_webrtc_ice_servers: camera_relay_webrtc_ice_servers
 
 config :serviceradar_web_ng,
   remote_access_browser_key_remember_enabled: remote_access_browser_key_remember_enabled

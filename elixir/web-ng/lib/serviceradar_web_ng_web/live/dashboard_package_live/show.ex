@@ -299,19 +299,18 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
       |> assign_sharing(instance)
       |> assign(
         :host_payload_json,
-        Jason.encode!(
-          host_payload(
-            instance,
-            package,
-            data_frames,
-            frames,
-            mapbox,
-            socket.assigns.frame_query_overrides,
-            stored_preferences(socket, instance.route_slug),
-            current_user_id(socket)
-          )
-          |> Map.put("permissions", host_permissions(socket.assigns.current_scope, package))
+        instance
+        |> host_payload(
+          package,
+          data_frames,
+          frames,
+          mapbox,
+          socket.assigns.frame_query_overrides,
+          stored_preferences(socket, instance.route_slug),
+          current_user_id(socket)
         )
+        |> Map.put("permissions", host_permissions(socket.assigns.current_scope, package))
+        |> Jason.encode!()
       )
 
     {:noreply, socket}
@@ -679,8 +678,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
   # Host-side hints only; every relay request is authorized again by the API.
   defp host_permissions(scope, %DashboardPackage{} = package) do
     %{
-      "camera_stream_view" =>
-        "camera.stream.view" in (package.capabilities || []) and RBAC.can?(scope, "devices.view")
+      "camera_stream_view" => "camera.stream.view" in (package.capabilities || []) and RBAC.can?(scope, "devices.view")
     }
   end
 
