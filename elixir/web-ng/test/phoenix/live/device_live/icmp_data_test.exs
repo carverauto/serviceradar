@@ -111,7 +111,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ICMPDataTest do
     assert_receive {:icmp_query, sweep, _}
     assert dedicated =~ "metric_name:icmp_available"
     assert dedicated =~ "time:[1999-06-15T00:00:00Z,1999-06-16T00:00:00Z] bucket:30m agg:max"
-    assert sweep =~ "metric_name:sweep.host.icmp_available"
+    assert sweep =~ "metric_name:sweep.host.available"
     assert sweep =~ "bucket:30m agg:max"
     assert sweep =~ "limit:100"
     refute_receive {:icmp_query, _, _}
