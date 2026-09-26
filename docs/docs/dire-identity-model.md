@@ -100,10 +100,12 @@ The holder keeps the address, and the incoming record drops it, in these cases
   device does not displace a live holder;
 - another record in the same batch, the holder's own or a second incoming one,
   also claims the address: neither observation is fresher;
-- the holder is bound to a different agent (an agent check-in only): two agents
-  behind one NAT address each keep their own device and the address does not
-  flap between them. A holder with no agent, such as an Armis device, still
-  releases a stale address to a newer check-in.
+- the holder is bound to a different agent that is still live (an agent
+  check-in only; live means not retired and seen within the last 30 minutes):
+  two live agents behind one NAT address each keep their own device and the
+  address does not flap between them. A holder bound to an agent that is
+  gone, or with no agent, such as an Armis device, still releases a stale
+  address to a newer check-in.
 
 Two further cases adopt the holder's uid instead of moving the address: an
 anchorless provisional seed at the address, and a holder whose hostname agrees,
@@ -123,8 +125,10 @@ An agent check-in never adopts on hostname: `AgentGatewaySync` adopts a holder
 only when it claims no anchor identifier (agent id, Armis id, MAC, serial, ...)
 that the agent does not also claim. An agent's existing device is never
 replaced by the holder; it takes the address under the rule above or keeps its
-own, and either decision is recorded. The holder lookup for a new agent device
-is scoped to that device's partition.
+own, and either decision is recorded, with an evidence `reason`: `holder_stale`
+(released), `holder_seen_no_earlier` or `held_by_live_agent` (kept). The holder
+lookup for a new agent device is scoped to that device's partition; a missing or
+blank partition on the check-in is `default`, for the device and the lookup.
 
 Merged-away device IDs are never resurrected: resolution follows the
 `merge_audit` canonical mapping to the survivor (`Identity.Resolver` /
