@@ -165,8 +165,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDepth do
 
   defp destination_unreachable?(nil), do: true
 
-  defp destination_unreachable?(hop),
-    do: not is_nil(hop["unreachable_code"]) or int(hop["reply_unreachable"]) > 0
+  defp destination_unreachable?(hop), do: not is_nil(hop["unreachable_code"]) or int(hop["reply_unreachable"]) > 0
 
   defp deepest(trace, counted?) do
     trace

@@ -10,8 +10,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDepthTest do
   defp hop(number, received, addr \\ nil),
     do: %{"hop_number" => number, "sent" => 3, "received" => received, "addr" => addr}
 
-  defp unreached(last, probed),
-    do: %{"target_reached" => false, "last_responding_hop" => last, "probed_hops" => probed}
+  defp unreached(last, probed), do: %{"target_reached" => false, "last_responding_hop" => last, "probed_hops" => probed}
 
   describe "depth_summary/1 and hop_count_label/1" do
     test "a reached trace is described by its path length" do
