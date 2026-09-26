@@ -20,12 +20,12 @@ goes through the no-mistakes gate.
 - [ ] 1.13 `simkit` fault injection: the fault-injection and end-fault-early action handlers (opening/resolving events emitted from the action), overlay of active run overrides on every run, guards (maximum duration, one per kind and target, rate limit), schedule on/off per pack.
 
 ## 2. Dashboard video API (validated with UniFi Protect in `demo`)
-- [ ] 2.1 Extract the relay player's signaling, retry and WebCodecs/MSE fallback from `CameraRelayStatusStream.js` into a shared module; keep the LiveView hook on it.
-- [ ] 2.2 Add `camera.stream.view` to the dashboard manifest capability allowlist and staged-import review.
-- [ ] 2.3 Host `api.camera.open/attach/close/onState` in `DashboardWasmHost.js`, RBAC-checked, per-renderer session cap (default 9), close-all on destroy and on hidden tab.
+- [x] 2.1 Extract the relay player's signaling, retry and WebCodecs/MSE fallback from `CameraRelayStatusStream.js` into a shared module; keep the LiveView hook on it.
+- [x] 2.2 Add `camera.stream.view` to the dashboard manifest capability allowlist and staged-import review.
+- [x] 2.3 Host `api.camera.open/attach/close/onState` in `DashboardWasmHost.js`, RBAC-checked, per-renderer session cap (default 9), close-all on destroy and on hidden tab.
 - [ ] 2.4 SRQL camera-source entity (sources, owning device, availability, viewable stream profiles) with RBAC filtering, plus any migration it needs.
-- [ ] 2.5 CSP: add `blob:` and `mediastream:` to `media-src` only.
-- [ ] 2.6 Wire `camera_relay_webrtc_enabled` and ICE/TURN servers into `runtime.exs` and Helm values; set them for `demo` in gitops.
+- [x] 2.5 CSP: add `blob:` and `mediastream:` to `media-src` only.
+- [ ] 2.6 Wire `camera_relay_webrtc_enabled` and ICE/TURN servers into `runtime.exs` and Helm values (done); set them for `demo` in gitops (pending).
 - [ ] 2.7 SDK: `useCameraStream`, `<CameraTile>`, `<CameraGrid>`, TypeScript types, README section; harness mock camera API.
 - [ ] 2.8 `demo/camera-wall` test dashboard; confirm two or more UniFi Protect streams play concurrently in `demo` and sessions close on navigation (check relay session counts after close, not just the UI).
 - [ ] 2.9 Tests: host capability and permission rejection, session cap, close-on-destroy; SDK component tests; harness mock.
