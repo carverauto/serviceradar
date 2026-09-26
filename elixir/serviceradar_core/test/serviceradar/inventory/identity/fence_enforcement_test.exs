@@ -344,6 +344,40 @@ defmodule ServiceRadar.Inventory.Identity.FenceEnforcementTest do
                     %{pipeline: :sync_ingestor, reason: :redirect_target, device_id: ^landed}}
   end
 
+  # DeviceWrites chooses a hostname-agreement merge inside the fenced transaction; the
+  # merge itself must run only after that transaction commits, so MergeEngine never
+  # takes device-row locks while the fence holds the batch's (#4671).
+  test "a hostname-agreement merge runs after the fenced write commits", ctx do
+    %{actor: actor} = ctx
+    holder = seed!(ctx, "fence-hostname-merge")
+    mover = seed!(ctx, "fence-hostname-merge")
+    test_pid = self()
+    handler_id = "fence-hostname-merge-#{mover.uid}"
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        [:serviceradar, :identity_reconciler, :merge, :executed],
+        fn _event, _measurements, %{from_device_id: from, to_device_id: to}, _config ->
+          if from == mover.uid, do: send(test_pid, {:merged, to, Repo.in_transaction?()})
+        end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    assert :ok =
+             ingest(actor, [update(mover.integration_id, holder.ip, "fence-hostname-merge", nil)])
+
+    holder_uid = holder.uid
+    assert_received {:merged, ^holder_uid, in_transaction?}
+    refute in_transaction?, "the merge ran inside the fenced transaction"
+
+    assert owner(mover.integration_id, actor) == holder.uid
+    assert %Device{deleted_reason: "merged"} = device!(mover.uid, actor)
+    assert %Device{deleted_at: nil} = device!(holder.uid, actor)
+  end
+
   # ---------------------------------------------------------------------------------------
 
   # An address-only device: DeviceWrites adopts it for a strong-identified write at

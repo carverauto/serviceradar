@@ -105,11 +105,37 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
     reason = Keyword.get(opts, :reason, "identity_resolution")
     details = Keyword.get(opts, :details, %{})
 
-    cond do
-      from_device_id == to_device_id ->
+    if from_device_id == to_device_id do
+      :ok
+    else
+      with :ok <- check_merge_allowed(from_device_id, to_device_id, opts) do
+        do_merge_devices(from_device_id, to_device_id, reason, details, actor)
+      end
+    end
+  end
+
+  @doc """
+  Applies the automatic-merge guards of `merge_devices/3` to merging `from_device_id`
+  into `to_device_id`, without merging. Returns `:ok`, or
+  `{:error, {:merge_blocked, guard}}` with the refusal recorded exactly as
+  `merge_devices/3` records it. Takes the same options.
+
+  A caller that decides now and merges later (after its own transaction commits) uses
+  this to refuse up front what the merge would refuse; `merge_devices/3` checks again
+  when it runs.
+  """
+  @spec check_merge_allowed(String.t(), String.t(), keyword()) ::
+          :ok | {:error, {:merge_blocked, atom()}}
+  def check_merge_allowed(from_device_id, to_device_id, opts \\ []) do
+    actor = Keyword.get(opts, :actor, SystemActor.system(:device_merge))
+    reason = Keyword.get(opts, :reason, "identity_resolution")
+    details = Keyword.get(opts, :details, %{})
+
+    case merge_guard_violation(from_device_id, to_device_id, reason, actor) do
+      nil ->
         :ok
 
-      merge_guard_blocked = merge_guard_violation(from_device_id, to_device_id, reason, actor) ->
+      merge_guard_blocked ->
         emit_merge_guard_telemetry(merge_guard_blocked, reason, from_device_id, to_device_id)
         record_guard_block(merge_guard_blocked, reason, from_device_id, to_device_id, details)
 
@@ -119,9 +145,6 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
         )
 
         {:error, {:merge_blocked, merge_guard_blocked}}
-
-      true ->
-        do_merge_devices(from_device_id, to_device_id, reason, details, actor)
     end
   end
 

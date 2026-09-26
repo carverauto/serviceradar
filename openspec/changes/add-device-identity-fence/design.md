@@ -246,6 +246,13 @@ uid order) before anything is written to them and must still be live; a record w
 missing, soft-deleted or merged is withheld and re-resolved like a stale pin
 (`DeviceWrites.bulk_upsert_devices/4` with `lock_remap_targets: true`).
 
+No merge runs inside the fenced transaction. When `DeviceWrites` adopts an active-IP holder on
+hostname agreement for a record that is already a device of its own, it applies `MergeEngine`'s
+guards up front (`MergeEngine.check_merge_allowed/3`) and returns the merge; `SyncIngestor` runs
+it after the transaction commits (`DeviceWrites.run_merges/2`), so `MergeEngine` never takes
+device-row locks while the fence holds the batch's. The agent check-in defers its conflict merges
+the same way (`Registrar.run_deferred_merge/2`).
+
 ## Risks / Trade-offs
 
 - **Child tables outside the fenced write stay detection-only.** Interfaces, risk

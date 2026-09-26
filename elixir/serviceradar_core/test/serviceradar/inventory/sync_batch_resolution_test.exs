@@ -18,6 +18,7 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.IdentityDecision
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.SourceIdentityConflict
   alias ServiceRadar.Inventory.SyncIngestor
@@ -41,6 +42,13 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
   defp unique_ip do
     a = System.unique_integer([:positive])
     "10.#{rem(div(a, 65_536), 60) + 60}.#{rem(div(a, 256), 256)}.#{rem(a, 254) + 1}"
+  end
+
+  # Benchmarking range (198.18.0.0/15), one address per call, never reused by
+  # another test in this run.
+  defp benchmark_ip do
+    n = System.unique_integer([:positive, :monotonic])
+    "198.#{18 + rem(div(n, 254 * 256), 2)}.#{rem(div(n, 254), 256)}.#{rem(n, 254) + 1}"
   end
 
   defp integration_update(integration_id, ip, hostname) do
@@ -893,6 +901,43 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
     resolved_b = device_for_armis_id(armis_b, actor)
     assert is_binary(resolved_b)
     assert resolved_b != canonical
+  end
+
+  # GitHub #4671: a shared address plus an agreeing hostname is evidence, not
+  # identity. Two different Armis ids at one address under one hostname are two
+  # devices, and the refused hostname adoption is recorded.
+  test "hostname agreement at a shared address never merges two Armis ids", %{actor: actor} do
+    ip = benchmark_ip()
+    hostname = "shared-name-#{System.unique_integer([:positive])}.example.com"
+    armis_a = "armis-hostname-a-#{System.unique_integer([:positive])}"
+    armis_b = "armis-hostname-b-#{System.unique_integer([:positive])}"
+
+    armis_update = fn armis_id ->
+      %{
+        "ip" => ip,
+        "hostname" => hostname,
+        "source" => "armis",
+        "metadata" => %{"integration_type" => "armis", "armis_device_id" => armis_id}
+      }
+    end
+
+    assert :ok = SyncIngestor.ingest_updates([armis_update.(armis_a)], actor: actor)
+    assert :ok = SyncIngestor.ingest_updates([armis_update.(armis_b)], actor: actor)
+
+    device_a = device_for_armis_id(armis_a, actor)
+    device_b = device_for_armis_id(armis_b, actor)
+    assert is_binary(device_a) and is_binary(device_b)
+    assert device_a != device_b, "two Armis ids were merged on address plus hostname"
+
+    {:ok, decisions} = IdentityDecision.for_device(device_b, actor: actor)
+
+    assert Enum.any?(
+             decisions,
+             &(&1.decision_kind == :source_block and
+                 &1.device_uids == Enum.sort([device_a, device_b]) and
+                 &1.source == "sync_ip_hostname_agreement")
+           ),
+           "the refused hostname adoption was not recorded"
   end
 
   test "direct current-primary MAC match is not vetoed even with DIFFERENT armis_device_ids", %{

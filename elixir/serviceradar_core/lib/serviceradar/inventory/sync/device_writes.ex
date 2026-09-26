@@ -19,6 +19,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.Identity.MergeEngine
   alias ServiceRadar.Inventory.Identity.Resolver
+  alias ServiceRadar.Inventory.Identity.SourceAuthorityGuard
   alias ServiceRadar.Inventory.SourceIdentityDrift
   alias ServiceRadar.Inventory.Sync.DeviceRecords
   alias ServiceRadar.Inventory.Sync.SourcePolicy
@@ -31,6 +32,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   # Concurrent cross-handoffs can deadlock on per-row release UPDATEs; retry a
   # few times after locking UIDs in a deterministic order.
   @deadlock_retries 3
+  @hostname_merge_reason "sync_ip_hostname_agreement"
   @identity_anchor_types [
     :agent_id,
     :armis_device_id,
@@ -43,9 +45,25 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   # DB connection's search_path determines the schema
   def bulk_upsert_devices(records, strong_uids \\ MapSet.new(), resolved_updates \\ nil) do
     case bulk_upsert_devices(records, strong_uids, resolved_updates, []) do
-      {:ok, remap, _stale_uids} -> {:ok, remap}
+      {:ok, remap, _stale_uids, merges} -> {:ok, run_merges(merges, remap)}
       {:error, _} = error -> error
     end
+  end
+
+  @doc """
+  Runs the merges `bulk_upsert_devices/4` returned, once its write has
+  committed. Returns `remap` with each merged-away uid pointing at its survivor,
+  so writes that depend on the batch follow the merge.
+  """
+  @spec run_merges([{String.t(), String.t()}], %{String.t() => String.t()}) ::
+          %{String.t() => String.t()}
+  def run_merges(merges, remap) do
+    Enum.reduce(merges, remap, fn {from, into}, remap ->
+      case MergeEngine.merge_devices(from, into, reason: @hostname_merge_reason) do
+        :ok -> Map.put(remap, from, into)
+        {:error, _reason} -> remap
+      end
+    end)
   end
 
   @doc """
@@ -62,10 +80,16 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   returned in `stale_uids` so the caller treats it as a stale pin: re-resolve once,
   then abandon.
 
-  Returns `{:ok, remap, stale_uids}`.
+  A record that agrees on hostname with the active-IP holder of its address but
+  is already a device of its own is written to the holder, and `merges` lists
+  `{from_uid, into_uid}` for the caller to run with `run_merges/2` after the
+  write commits, so MergeEngine never runs inside the caller's transaction.
+
+  Returns `{:ok, remap, stale_uids, merges}`.
   """
   @spec bulk_upsert_devices([map()], MapSet.t(), list() | nil, keyword()) ::
-          {:ok, %{String.t() => String.t()}, [String.t()]} | {:error, term()}
+          {:ok, %{String.t() => String.t()}, [String.t()], [{String.t(), String.t()}]}
+          | {:error, term()}
   def bulk_upsert_devices(records, strong_uids, resolved_updates, opts) do
     records = attach_identity_claims(records, resolved_updates)
     update_query = device_upsert_update_query()
@@ -85,7 +109,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     # Resolve predictable active-IP collisions up front so the first insert
     # succeeds. Reactive recovery below only covers concurrent writers that
     # land between this prepare step and insert_all.
-    {prepared_records, remap, releases} =
+    {prepared_records, remap, releases, merges} =
       prepare_active_ip_claims(records, strong_uids, :precheck)
 
     # Test-only barrier point (Application env :device_writes_test_hooks).
@@ -95,7 +119,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
       withhold_stale_remap_targets(prepared_records, remap, lock?)
 
     insert_devices_with_releases(prepared_records, releases, update_query, refresh_rollups?)
-    {:ok, remap, stale_uids}
+    {:ok, remap, stale_uids, withhold_stale_merges(merges, stale_uids)}
   rescue
     e in Postgrex.Error ->
       if ip_unique_conflict?(e) do
@@ -121,7 +145,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
          refresh_rollups?,
          lock?
        ) do
-    {recovered_records, remap, releases} =
+    {recovered_records, remap, releases, merges} =
       prepare_active_ip_claims(records, strong_uids, :retry)
 
     run_test_hook(:after_active_ip_precheck)
@@ -152,9 +176,16 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
            update_query,
            refresh_rollups?
          ) do
-      :ok -> {:ok, remap, stale_uids}
+      :ok -> {:ok, remap, stale_uids, withhold_stale_merges(merges, stale_uids)}
       {:error, _} = error -> error
     end
+  end
+
+  defp withhold_stale_merges(merges, []), do: merges
+
+  defp withhold_stale_merges(merges, stale_uids) do
+    stale = MapSet.new(stale_uids)
+    Enum.reject(merges, fn {from, _into} -> MapSet.member?(stale, from) end)
   end
 
   # Lock every adopted active-IP holder in uid order and withhold the records
@@ -225,7 +256,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   # after the upsert, so a merge that commits between the upsert and this read is
   # caught as well; the window left is the one between here and the dependent
   # writes, which the identity fence covers (#4618).
-  defp follow_merged_away_uids({:ok, remap, stale_uids}, records, lock?) do
+  defp follow_merged_away_uids({:ok, remap, stale_uids, merges}, records, lock?) do
     stale = MapSet.new(stale_uids)
 
     landed =
@@ -236,7 +267,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
 
     case landed |> Map.values() |> Enum.uniq() |> merged_away_uids() do
       [] ->
-        {:ok, remap, stale_uids}
+        {:ok, remap, stale_uids, merges}
 
       merged ->
         actor = SystemActor.system(:device_writes)
@@ -258,7 +289,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
         end)
 
         {:ok, Enum.reduce(landed, remap, &redirect_to_survivor(&1, &2, survivors)),
-         stale_uids ++ dead_survivor_uids}
+         stale_uids ++ dead_survivor_uids, withhold_stale_merges(merges, dead_survivor_uids)}
     end
   end
 
@@ -523,16 +554,20 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
 
   # Apply the same active-IP policy used by conflict recovery *before* insert so
   # recurring sync batches do not pay a unique_violation + retry every cycle.
-  # Returns `{prepared_records, remap, releases}` where `remap` is
-  # `original_uid => canonical_uid` and `releases` is a list of
+  # Returns `{prepared_records, remap, releases, merges}` where `remap` is
+  # `original_uid => canonical_uid`, `releases` is a list of
   # `{owner_uid, ip}` pairs that this batch moves off an IP (staged before
-  # insert so same-batch handoffs are atomic).
+  # insert so same-batch handoffs are atomic), and `merges` lists the
+  # `{from_uid, into_uid}` merges to run after the write (hostname agreement).
   defp prepare_active_ip_claims(records, strong_uids, reason) do
     {remapped_records, remap, releases} = remap_records_to_existing_ip(records, strong_uids)
 
+    merges =
+      for %{merge_from: from, uid: into} <- remapped_records, uniq: true, do: {from, into}
+
     prepared_records =
       remapped_records
-      |> Enum.map(&Map.drop(&1, [:identity_claims, :observed_address]))
+      |> Enum.map(&Map.drop(&1, [:identity_claims, :observed_address, :merge_from]))
       |> DeviceRecords.merge_records_by_uid()
 
     if map_size(remap) > 0 or active_ip_claims_changed?(records, prepared_records) or
@@ -544,7 +579,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
       )
     end
 
-    {prepared_records, remap, releases}
+    {prepared_records, remap, releases, merges}
   end
 
   defp active_ip_prepare_label(:precheck), do: "pre-resolved"
@@ -603,14 +638,18 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
 
     incoming_ip_owners = incoming_ip_owners(records)
 
-    # Registration owners for the hostname-agreement adoption below. Loaded
-    # once per batch and only when a strong record actually collides with a
-    # different holder; batches without such collisions pay no extra query.
+    # Registration owners and the holders' source-authoritative identifiers
+    # for the hostname-agreement adoption below. Loaded once per batch and only
+    # when a strong record actually collides with a different holder; batches
+    # without such collisions pay no extra query.
     identity_regs =
       if Enum.any?(records, &strong_ip_collision?(&1, strong_uids, active_holders)) do
-        load_identity_registrations(records, existing_by_ip)
+        %{
+          registrations: load_identity_registrations(records, existing_by_ip),
+          source_ids: load_holder_source_ids(existing_by_ip)
+        }
       else
-        %{}
+        %{registrations: %{}, source_ids: %{}}
       end
 
     {remapped_records, {remap, conflicts, _anchors, stale_releases}} =
@@ -778,22 +817,32 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
             {Map.put(record, :uid, existing_uid),
              {Map.put(remap, record.uid, existing_uid), conflicts, anchors, stale_releases}}
           else
-            if adopt_on_hostname_agreement?(record, existing, existing_uid, identity_regs) and
-                 merge_existing_duplicate(record.uid, existing_uid) do
-              Logger.info(
-                "SyncIngestor: adopting active IP #{ip} holder #{existing_uid} for " <>
-                  "strong-identified device #{record.uid} (hostname agreement)"
-              )
+            case hostname_agreement(record, existing, existing_uid, identity_regs) do
+              :adopt ->
+                Logger.info(
+                  "SyncIngestor: adopting active IP #{ip} holder #{existing_uid} for " <>
+                    "strong-identified device #{record.uid} (hostname agreement)"
+                )
 
-              {Map.put(record, :uid, existing_uid),
-               {Map.put(remap, record.uid, existing_uid), conflicts, anchors, stale_releases}}
-            else
-              claim_address_from_holder(
-                record,
-                existing,
-                incoming_ip_owners,
-                {remap, conflicts, anchors, stale_releases}
-              )
+                {Map.put(record, :uid, existing_uid),
+                 {Map.put(remap, record.uid, existing_uid), conflicts, anchors, stale_releases}}
+
+              :adopt_and_merge ->
+                Logger.info(
+                  "SyncIngestor: adopting active IP #{ip} holder #{existing_uid} for " <>
+                    "existing device #{record.uid} (hostname agreement); merging it after the write"
+                )
+
+                {record |> Map.put(:uid, existing_uid) |> Map.put(:merge_from, record.uid),
+                 {Map.put(remap, record.uid, existing_uid), conflicts, anchors, stale_releases}}
+
+              :decline ->
+                claim_address_from_holder(
+                  record,
+                  existing,
+                  incoming_ip_owners,
+                  {remap, conflicts, anchors, stale_releases}
+                )
             end
           end
         else
@@ -870,19 +919,6 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
       do: DateTime.after?(incoming, held)
 
   def observed_after?(_record, _holder), do: false
-
-  defp merge_existing_duplicate(incoming_uid, holder_uid) do
-    if Repo.exists?(from(d in Device, where: d.uid == ^incoming_uid)) do
-      case MergeEngine.merge_devices(incoming_uid, holder_uid,
-             reason: "sync_ip_hostname_agreement"
-           ) do
-        :ok -> true
-        {:error, _reason} -> false
-      end
-    else
-      true
-    end
-  end
 
   defp attach_identity_claims(records, nil), do: records
 
@@ -995,16 +1031,95 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   # a name do not agree, they are merely silent. Any third-device claim
   # vetoes: that is the over-merge shape (a collector's agent_id, a
   # re-pointed integration id) the fork rule exists to refuse.
-  defp adopt_on_hostname_agreement?(record, holder, holder_uid, identity_regs) do
+  #
+  # A hostname is not an identifier; at most it corroborates the address. So
+  # agreement never overrides a source-authoritative identifier: when the
+  # record carries one and the holder holds a different one in the same scope
+  # (`SourceAuthorityGuard.source_mismatch?/3`'s rule), they are two devices,
+  # the adoption is refused and the refusal is recorded as a `:source_block`
+  # decision.
+  #
+  # A record that is not yet a device takes the holder's uid (`:adopt`). A
+  # record that already is one takes it as well, and its own device is merged
+  # into the holder (`:adopt_and_merge`) -- but not here: the caller runs the
+  # merge after the write (`bulk_upsert_devices/4`'s `merges`), a fenced caller
+  # after its transaction commits, so MergeEngine never takes device-row locks
+  # while the fence holds the batch's. MergeEngine's guards are applied now
+  # (`MergeEngine.check_merge_allowed/3`, recording a refusal), so a merge they
+  # refuse declines the adoption up front, as a refused inline merge did.
+  defp hostname_agreement(record, holder, holder_uid, identity_regs) do
+    cond do
+      not agree_on_hostname?(record, holder, holder_uid, identity_regs) ->
+        :decline
+
+      not Repo.exists?(from(d in Device, where: d.uid == ^record.uid)) ->
+        :adopt
+
+      MergeEngine.check_merge_allowed(record.uid, holder_uid, reason: @hostname_merge_reason) ==
+          :ok ->
+        :adopt_and_merge
+
+      true ->
+        :decline
+    end
+  end
+
+  defp agree_on_hostname?(record, holder, holder_uid, identity_regs) do
     hostnames_agree?(Map.get(record, :hostname), Map.get(holder, :hostname)) and
+      not source_authority_refusal?(record, holder, holder_uid, identity_regs.source_ids) and
       compatible_identity_claims?(record, holder) and
       not third_party_identity_claim?(
         record,
         holder,
         holder_uid,
         record_partition(record),
-        identity_regs
+        identity_regs.registrations
       )
+  end
+
+  # The holders' source-authoritative identifiers, as `SourceAuthorityGuard`
+  # reads them (`held_source_ids/2`).
+  defp load_holder_source_ids(existing_by_ip) do
+    existing_by_ip
+    |> Map.values()
+    |> Enum.map(& &1.uid)
+    |> SourceAuthorityGuard.held_source_ids(SystemActor.system(:device_writes))
+  end
+
+  defp source_authority_refusal?(record, holder, holder_uid, held) do
+    ip = Map.get(record, :ip)
+
+    mismatched =
+      for {"armis_device_id", value, partition} <-
+            record_identity_pairs(record, record_partition(record)),
+          held_ids <- [SourceAuthorityGuard.scoped_source_ids(held, holder_uid, partition)],
+          held_ids != [] and value not in held_ids,
+          do: {partition, value, held_ids}
+
+    case mismatched do
+      [] ->
+        false
+
+      [{partition, value, held_ids} | _] ->
+        Logger.info(
+          "SyncIngestor: not adopting active IP #{ip} holder #{holder_uid} for " <>
+            "device #{record.uid} on hostname agreement: different source-authoritative identifiers"
+        )
+
+        _ =
+          SourceAuthorityGuard.record_blocked(
+            %{
+              partition: partition,
+              source_id: nil,
+              device_ids: Enum.sort([record.uid, holder_uid]),
+              source_ids: %{record.uid => [value], holder_uid => held_ids}
+            },
+            @hostname_merge_reason,
+            %{"ip" => ip, "hostname" => Map.get(holder, :hostname)}
+          )
+
+        true
+    end
   end
 
   defp compatible_identity_claims?(record, holder) do
