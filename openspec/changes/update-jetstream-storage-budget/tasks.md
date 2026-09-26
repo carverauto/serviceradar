@@ -93,16 +93,23 @@
 - [ ] 4.8 Claim protocol in EventWriter (D6): for `events`, `flows` and
       `ARANCINI_CAUSAL`, read `serviceradar.owner` from the stream metadata
       before deciding; create when absent with `serviceradar.owner:
-      event-writer` and the fallback size and replicas; reconcile the shape only
-      while the stream is unclaimed or claimed by `event-writer` (claiming an
-      unclaimed legacy stream); merge subjects only when a collector holds the
-      claim. Replaces the `reconcile_stream_shape` default for these consumers
+      event-writer` and the fallback size and replicas; reconcile only a stream
+      it claimed; merge subjects only when a collector holds the claim. On a
+      legacy stream with no metadata merge subjects only, and claim and
+      reconcile it only after it has stayed unclaimed for the grace period (15
+      minutes by default, configurable, measured from consumer setup and
+      checked on the retry and refresh cycle), re-reading the stream
+      immediately before the claim update and skipping it if a claim has
+      appeared. Replaces the `reconcile_stream_shape` default for these consumers
       (`SFLOW_RAW`, `NETFLOW_RAW`, `ARANCINI_CAUSAL`, and the `events`
       consumers `EVENTS`, `PDNS_OCSF`, `FALCO`, `OTEL_*`, `LOGS`, `BMP_CAUSAL`,
-      `SIEM_CAUSAL`, `ATTRIBUTED_FLOW`). Tests: an existing 10 GiB `flows` with
-      no metadata and no collector converges to the fallback and is claimed;
-      a collector-claimed stream is left unchanged; starting first creates the
-      stream at the fallback size, not unlimited.
+      `SIEM_CAUSAL`, `ATTRIBUTED_FLOW`). Tests with an injected clock: a legacy
+      10 GiB `flows` with no collector is left unchanged inside the grace
+      period and converges to the fallback and is claimed after it; a
+      collector that claims inside the window is never overridden and nothing
+      is evicted; a collector-claimed stream is left unchanged; the pre-update
+      re-read skips a claim that appeared; starting first creates the stream
+      at the fallback size, not unlimited.
 - [ ] 4.9 `rust/bmp-collector` publisher: claim `ARANCINI_CAUSAL` by setting
       `serviceradar.owner` to `bmp-collector` (overriding an `event-writer`
       claim, claiming a legacy stream) and create-or-update it, reconciling
@@ -115,10 +122,12 @@
 - [ ] 4.11 Classify `NOTIFICATIONS` (created by core notifications) by its
       discard policy and apply the matching D6 rule.
 - [ ] 4.12 Ownership test (ExUnit, in `serviceradar_core`): call the EventWriter
-      claim decision (4.8) for each of `events`, `flows` and `ARANCINI_CAUSAL`
-      with no claim, an `event-writer` claim and a collector claim, and assert
-      it reconciles only the unclaimed and `event-writer` cases and never
-      reconciles a collector-claimed stream. It exercises the decision through
+      claim decision (4.8), with an injected clock, for each of `events`,
+      `flows` and `ARANCINI_CAUSAL` with no claim inside and after the grace
+      period, an `event-writer` claim and a collector claim, and assert it
+      reconciles only a stream EventWriter claimed or a legacy stream after the
+      grace period, and never a collector-claimed stream or a legacy stream
+      inside the grace period. It exercises the decision through
       its public function, not source text, and fails on the current
       `reconcile_stream_shape` default. Go and Rust owner behaviour is covered by
       each owner's unit tests (4.1, 4.2, 4.9, 4.10).

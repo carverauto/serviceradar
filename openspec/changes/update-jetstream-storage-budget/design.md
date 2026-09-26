@@ -206,19 +206,42 @@ later; the chart runs 2.14) under the key `serviceradar.owner`:
 
 1. When the dedicated component runs it sets `serviceradar.owner` to its own
    name on its stream, creating the stream when absent, and reconciles the
-   shape. Its claim overrides an `event-writer` claim.
-2. EventWriter creates the stream when it is absent, with
-   `serviceradar.owner: event-writer` and the fallback size and replicas of D3.
-   It reconciles the shape only while the stream is unclaimed or claimed by
-   `event-writer`. When the claim names another component it merges subjects
-   only and leaves the shape alone. It never overrides another component's
-   claim.
-3. A stream created before this change has no metadata. The first owner to
-   start claims it: a collector reconciles it to its size, and EventWriter
-   reconciles it to the fallback, which is how an existing 10 GiB `flows` or
-   unlimited `ARANCINI_CAUSAL` converges on an install with no collector. If
-   EventWriter claims first and a collector starts later, the collector's
-   claim overrides it and the shape is reconciled to the collector size.
+   shape. The claim and the shape go in one stream update, so they land
+   together. Its claim overrides an `event-writer` claim and claims a legacy
+   stream, and it never waits.
+2. EventWriter claims only streams it creates. It creates the stream when it
+   is absent, with `serviceradar.owner: event-writer` and the fallback size and
+   replicas of D3, and reconciles a stream it claimed. When the claim names
+   another component it merges subjects only and never overrides the claim.
+3. A stream created before this change has no metadata (a legacy stream).
+   EventWriter merges subjects only and does not touch the shape. It claims a
+   legacy stream (sets `event-writer`, then reconciles it to the fallback)
+   only after the stream has stayed unclaimed for a grace period, 15 minutes by
+   default and configurable, measured from EventWriter's consumer setup and
+   checked on its existing retry and refresh cycle. A collector that starts
+   inside the window claims the stream first, so EventWriter never shrinks it.
+
+   The race this closes is the upgrade restart. On an install with
+   flow-collector enabled and a legacy 10 GiB `flows` created by EventWriter,
+   core and flow-collector restart together. Without the grace period
+   EventWriter's consumers could see no claim, claim `flows`, shrink it to
+   1 GiB and evict about 9 GiB of retained flow data before flow-collector
+   claims it and grows it to 8 GiB R3. With it, flow-collector claims `flows`
+   within seconds, sets 8 GiB R3, and EventWriter finds a collector claim and
+   only merges subjects: no eviction, and the replica count changes once. On
+   an install with no collector nothing claims `flows`, so EventWriter claims it
+   after the grace period and converges it to the fallback, evicting the oldest
+   messages then. The same holds for `ARANCINI_CAUSAL` with bmp-collector and
+   for `events` with the log-collector.
+
+   Stream update in JetStream is not compare-and-swap, so the check and the
+   update cannot be made atomic. EventWriter narrows the window by re-reading
+   the stream immediately before its update and skipping it if any claim has
+   appeared, and the grace period makes the window practically unreachable
+   after a collector restart. If it is ever lost, `flows` is left at the
+   fallback with an `event-writer` claim until the collector's next start
+   restores its claim and size; nothing is lost that the fallback would not
+   have evicted anyway.
 4. Disabling a collector after it claimed a stream leaves the claim and the
    stream at the collector's size: nothing reconciles it. The runbook
    (`docs/nats-jetstream-profile-runbook.md`) documents a one-line reclaim,
@@ -233,12 +256,9 @@ later; the chart runs 2.14) under the key `serviceradar.owner`:
 Every writer that can reconcile these streams applies the same rule; the
 Rust otel log-collector, flow-collector and bmp-collector each gain the claim
 on their publishers, and EventWriter's consumers read it before deciding
-whether to reconcile, replacing the `reconcile_stream_shape` default. The
-otel log-collector and EventWriter agree on `events` (both read the same
-profile size), so an EventWriter claim on a legacy `events` stream is harmless
-until the log-collector overrides it. An EventWriter start therefore can never
-overwrite a collector-owned stream, which is what the 8 GiB `EVENTS` literal
-did to `events`.
+whether to reconcile, replacing the `reconcile_stream_shape` default. An
+EventWriter start therefore can never overwrite a collector-owned stream, which
+is what the 8 GiB `EVENTS` literal did to `events`.
 
 Other owners that reconcile `max_bytes` on an existing stream: datasvc
 (`reconcileStreamConfigLocked`) and EventWriter (for the streams only it
@@ -338,8 +358,10 @@ environment overrides that take precedence over its file:
   otel log-collector (`events`), Rust flow-collector (`stream_max_bytes`,
   `stream_replicas`) and Rust bmp-collector (stream max bytes and replicas).
   Each has a unit test for the precedence. Helm keeps rendering these values
-  into the JSON config, and additionally renders the `events` pair into the
-  core environment for EventWriter's create-only `events` size (D6).
+  into the JSON config, and additionally renders
+  `SERVICERADAR_JS_EVENTS_FALLBACK_MAX_BYTES` and `_FALLBACK_REPLICAS` (from
+  `logCollector.streamMaxBytes` and `streamReplicas`) into the core
+  environment for EventWriter's `events` fallback (D3, D6).
 
 A Bazel `go_test` enforces the shipped wiring without reading any component
 source; the precedence tests above are what prove a service honours the
@@ -492,8 +514,10 @@ file is replaced on upgrade and their services restart. Discard-old buffers
 reservation at the next start of their owner, evicting the oldest messages if
 they were fuller than the new cap. That includes `flows` and
 `ARANCINI_CAUSAL` on an install with no collector: EventWriter claims the
-legacy stream on its first start (D6) and reconciles it to the fallback, so an
-existing 10 GiB `flows` converges on Helm, Compose and packaged installs alike.
+legacy stream once it has stayed unclaimed for the grace period (D6) and
+reconciles it to the fallback, so an existing 10 GiB `flows` converges on
+Helm, Compose and packaged installs alike; with a collector running, the
+collector claims it first and nothing is evicted.
 A collector disabled after it claimed a stream keeps its size until the
 runbook reclaim (D6). Discard-new state buckets reach it too when their data fits;
 one holding more than its cap keeps its current reservation, logged, until the

@@ -109,12 +109,15 @@ one unplaceable stream stops unrelated ingestion.
 - **One owner per stream shape, claimed on the stream.** The otel log-collector,
   flow-collector and bmp-collector each claim `events`, `flows` and
   `ARANCINI_CAUSAL` through stream metadata (`serviceradar.owner`) and
-  reconcile the shape. EventWriter creates them when absent with an
-  `event-writer` claim and a finite fallback size, reconciles only while the
-  stream is unclaimed or its own, and only merges subjects when a collector
-  holds the claim. A legacy stream with no metadata is claimed by the first
-  owner to start, so an existing 10 GiB `flows` converges on Helm, Compose and
-  packaged installs with no per-install ownership setting. The hardcoded 8 GiB
+  reconcile the shape. EventWriter claims only streams it creates: it creates
+  them when absent with an `event-writer` claim and a finite fallback size,
+  and merges subjects only when a collector holds the claim. A legacy stream
+  with no metadata is claimed by a collector as soon as it starts; EventWriter
+  claims it only after it has stayed unclaimed for a grace period (15 minutes
+  by default), so on an upgrade restart the collector wins and nothing is
+  evicted, while an install with no collector converges its existing 10 GiB
+  `flows` after the grace period, on Helm, Compose and packaged installs, with
+  no per-install ownership setting. The hardcoded 8 GiB
   `EVENTS` size is removed, so EventWriter can neither overwrite the budgeted
   2 GiB nor create the stream unlimited. `flows` and `ARANCINI_CAUSAL` are
   budgeted at the collector size whether or not the collector is enabled,
