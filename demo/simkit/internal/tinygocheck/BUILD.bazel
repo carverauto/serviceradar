@@ -1,0 +1,36 @@
+# gazelle:ignore
+#
+# Proves //demo/simkit compiles for wasip1 with the TinyGo toolchain and flags
+# first-party plugins use (//build/wasm_plugins:build_wasm_binary.sh). This is a
+# compile check, not a plugin: it is never bundled or published.
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
+
+package(default_visibility = ["//demo:__subpackages__"])
+
+genrule(
+    name = "tinygocheck_wasm",
+    srcs = [
+        "go.mod",
+        "main.go",
+        "//demo/simkit:module_srcs",
+    ],
+    outs = ["tinygocheck.wasm"],
+    cmd = " ".join([
+        "$(location //build/wasm_plugins:build_wasm_binary.sh)",
+        "--tinygo $(location //build/wasm_plugins:selected_tinygo)",
+        "--go-bin $(location //build/wasm_plugins:selected_go)",
+        "--main-go $(location main.go)",
+        "--out $@",
+    ]),
+    tools = [
+        "//build/wasm_plugins:build_wasm_binary.sh",
+        "//build/wasm_plugins:selected_go",
+        "//build/wasm_plugins:selected_tinygo",
+        "//build/wasm_plugins:selected_tinygo_tree",
+    ],
+)
+
+build_test(
+    name = "tinygo_compile_test",
+    targets = [":tinygocheck_wasm"],
+)

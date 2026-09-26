@@ -5,14 +5,14 @@ alerts. Dashboards follow the mockup layouts described in design D14. Every PR
 goes through the no-mistakes gate.
 
 ## 1. Foundations (`demo/` and `simkit`)
-- [ ] 1.1 Create `demo/` with `README.md`, a `package_group`, and default visibility restricted to `//demo:__subpackages__`.
-- [ ] 1.2 Add the fencing test: no target outside `//demo/...` depends on a demo target; `plugin_inventory.bzl`, the Helm chart and release manifests reference nothing under `demo/`.
-- [ ] 1.3 Build `demo/simkit`: seeded RNG and identity minting, time-derived evaluation, closed-form counters, fine-resolution backfill of the elapsed window, inventory cadence gate.
-- [ ] 1.4 Fault scheduler with period/phase/duration/jitter, target selectors, overlays and opening/resolving events; a seven-day coverage test (no gap over 10 min, no same-kind overlap, every fault resolves); schedule published as `demo.fault.next_at` / `demo.fault.active` metrics (D13).
-- [ ] 1.5 Source boundary (D17): the `Source` interface, the simulated implementation over `simkit` producing device-native shapes, the shared normalizer to product contracts, and a reusable source contract test.
+- [x] 1.1 Create `demo/` with `README.md`, a `package_group`, and default visibility restricted to `//demo:__subpackages__`.
+- [x] 1.2 Add the fencing test: no target outside `//demo/...` depends on a demo target; `plugin_inventory.bzl`, the Helm chart and release manifests reference nothing under `demo/`.
+- [x] 1.3 Build `demo/simkit`: seeded RNG and identity minting, time-derived evaluation, closed-form counters, fine-resolution backfill of the elapsed window, inventory cadence gate.
+- [x] 1.4 Fault scheduler with period/phase/duration/jitter, target selectors, overlays and opening/resolving events; a seven-day coverage test (no gap over 10 min, no same-kind overlap, every fault resolves); schedule published as `demo.fault.next_at` / `demo.fault.active` metrics (D13).
+- [x] 1.5 Source boundary (D17): the `Source` interface, the simulated implementation over `simkit` producing device-native shapes, the shared normalizer to product contracts, and a reusable source contract test.
 - [ ] 1.6 Emitters over `serviceradar-sdk-go`: device discovery, metric batches via `emit_telemetry` (respecting the 256-record batch cap), OCSF events, Wi-Fi map batches, camera descriptors, topology links (after 7.x).
-- [ ] 1.7 Demo guard (D6): fail on publicly routable IPs and public DNS names in emitted records; usable from plugin tests and the fixture exporter.
-- [ ] 1.8 Native fixture exporter and the `:fixtures` / `:update_fixtures` / `diff_test` target pattern (`write_source_files`).
+- [x] 1.7 Demo guard (D6): fail on publicly routable IPs and public DNS names in emitted records; usable from plugin tests and the fixture exporter.
+- [x] 1.8 Native fixture exporter and the `:fixtures` / `:update_fixtures` / `diff_test` target pattern (`write_source_files`).
 - [ ] 1.9 Demo plugin Bazel macro: TinyGo Wasm build, bundle with manifest and config schema, signature with the demo-only upload key.
 - [ ] 1.10 Publish run target: signed plugin bundle and dashboard package via the CLI publish APIs, alert-rule install, assignment to the demo agent; token from the client environment; idempotent re-runs.
 - [ ] 1.11 gitops: trust the demo upload key in `demo` only; demo agent assignment target.
