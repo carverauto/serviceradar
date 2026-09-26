@@ -18,7 +18,14 @@ defmodule ServiceRadar.Observability.MtrHopAttributionBackfillDbTest do
       VALUES ($1, $2, $3, $4, $5, false, $6)
       ON CONFLICT DO NOTHING
       """,
-      [Ecto.UUID.dump!(id), time, "agent-backfill-test", "test-host", attrs[:target_ip], attrs[:device_id]]
+      [
+        Ecto.UUID.dump!(id),
+        time,
+        "agent-backfill-test",
+        "test-host",
+        attrs[:target_ip],
+        attrs[:device_id]
+      ]
     )
 
     %{id: id, time: time, target_ip: attrs[:target_ip], device_id: attrs[:device_id]}
