@@ -422,6 +422,7 @@ func (m *PluginManager) prefetchAssignment(assignment *pluginAssignment) {
 				Err(err).
 				Str("assignment_id", assignment.AssignmentID).
 				Msg("Plugin wasm prefetch failed")
+			m.tryEnqueueResult(buildPluginErrorResult(assignment, fmt.Sprintf("wasm_prefetch_failed: %s", err)))
 		}
 	}()
 }

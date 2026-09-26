@@ -77,11 +77,30 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       |> assign(:form_mode, socket.assigns.live_action)
 
     if connected?(socket) do
+      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "producer_schedule:updated")
       {:noreply, load_page(socket, params)}
     else
       {:noreply, socket}
     end
   end
+
+  @impl true
+  def handle_info({:producer_schedule_updated, updated_schedule}, socket) do
+    updated_schedules =
+      socket.assigns.integration_schedules
+      |> Enum.map(fn {rule_id, schedule} ->
+        if schedule.id == updated_schedule.id do
+          {rule_id, updated_schedule}
+        else
+          {rule_id, schedule}
+        end
+      end)
+      |> Map.new()
+
+    {:noreply, assign(socket, :integration_schedules, updated_schedules)}
+  end
+
+  def handle_info(_msg, socket), do: {:noreply, socket}
 
   @impl true
   def handle_event("save_rule", %{"credential_rule" => params}, socket) do
@@ -144,7 +163,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   def handle_event("preview_rule", %{"id" => id}, socket) do
     scope = socket.assigns.current_scope
 
-    with %NetworkCredentialRule{} = rule <- Enum.find(socket.assigns.rules, &(to_string(&1.id) == to_string(id))),
+    with %NetworkCredentialRule{} = rule <-
+           Enum.find(socket.assigns.rules, &(to_string(&1.id) == to_string(id))),
          {:ok, preview} <-
            NetworkCredentialRulePreview.preview_rule(rule,
              resolver: credential_preview_resolver(),
@@ -159,7 +179,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           target_limit: 50
         )
 
-      {:noreply, assign(socket, :rule_preview, %{rule: rule, preview: preview, effective: effective})}
+      {:noreply,
+       assign(socket, :rule_preview, %{rule: rule, preview: preview, effective: effective})}
     else
       nil ->
         {:noreply, put_flash(socket, :error, "Credential rule not found")}
@@ -188,7 +209,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
            |> assign(:rule_consumers, consumers)}
 
         {:error, reason} ->
-          {:noreply, put_flash(socket, :error, "Failed to load consumers: #{format_error(reason)}")}
+          {:noreply,
+           put_flash(socket, :error, "Failed to load consumers: #{format_error(reason)}")}
       end
     end
   end
@@ -605,8 +627,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     """
   end
 
-  attr :form, :map, required: true
-  attr :descriptor, :map, default: nil
+  attr(:form, :map, required: true)
+  attr(:descriptor, :map, default: nil)
 
   defp secret_form_modal(assigns) do
     assigns =
@@ -683,9 +705,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     """
   end
 
-  attr :consumers, :map, default: nil
-  attr :rule_id, :any, required: true
-  attr :timezone, :string, required: true
+  attr(:consumers, :map, default: nil)
+  attr(:rule_id, :any, required: true)
+  attr(:timezone, :string, required: true)
 
   defp rule_consumers_panel(assigns) do
     ~H"""
@@ -756,7 +778,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     """
   end
 
-  attr :rule_preview, :map, required: true
+  attr(:rule_preview, :map, required: true)
 
   defp rule_preview_modal(assigns) do
     ~H"""
@@ -930,13 +952,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     """
   end
 
-  attr :form, :map, required: true
-  attr :mode, :atom, required: true
-  attr :secrets, :list, required: true
-  attr :provider_options, :list, required: true
-  attr :integration_profiles, :map, required: true
-  attr :agent_options, :list, required: true
-  attr :editing_rule, :any, default: nil
+  attr(:form, :map, required: true)
+  attr(:mode, :atom, required: true)
+  attr(:secrets, :list, required: true)
+  attr(:provider_options, :list, required: true)
+  attr(:integration_profiles, :map, required: true)
+  attr(:agent_options, :list, required: true)
+  attr(:editing_rule, :any, default: nil)
 
   defp rule_form_modal(assigns) do
     assigns =
@@ -1418,9 +1440,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   defp credential_details_form(params), do: to_form(params, as: :credential_details)
 
-  defp credential_rotation_form(id), do: to_form(%{"id" => to_string(id)}, as: :credential_rotation)
+  defp credential_rotation_form(id),
+    do: to_form(%{"id" => to_string(id)}, as: :credential_rotation)
 
-  defp credential_delete_form(id), do: to_form(%{"id" => to_string(id), "confirmation_id" => ""}, as: :credential_delete)
+  defp credential_delete_form(id),
+    do: to_form(%{"id" => to_string(id), "confirmation_id" => ""}, as: :credential_delete)
 
   defp save_credential_rotation(socket, id, submitted_values) do
     case CredentialManagement.rotate(
@@ -1458,21 +1482,25 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     Map.get(private, :credential_management_opts, [])
   end
 
-  defp credential_open_error(:credential_rotation_not_supported), do: "This credential cannot be rotated"
+  defp credential_open_error(:credential_rotation_not_supported),
+    do: "This credential cannot be rotated"
 
   defp credential_open_error(:credential_descriptor_unavailable),
     do: "The approved credential descriptor is no longer available"
 
   defp credential_open_error(_reason), do: "Credential action could not be opened"
 
-  defp credential_rotation_error({:missing_credential_field, field}), do: "#{credential_field_label(field)} is required"
+  defp credential_rotation_error({:missing_credential_field, field}),
+    do: "#{credential_field_label(field)} is required"
 
-  defp credential_rotation_error({:invalid_credential_field, field}), do: "#{credential_field_label(field)} is invalid"
+  defp credential_rotation_error({:invalid_credential_field, field}),
+    do: "#{credential_field_label(field)} is invalid"
 
   defp credential_rotation_error(:credential_descriptor_unavailable),
     do: "The approved credential descriptor is no longer available"
 
-  defp credential_rotation_error(:credential_rotation_not_supported), do: "This credential cannot be rotated"
+  defp credential_rotation_error(:credential_rotation_not_supported),
+    do: "This credential cannot be rotated"
 
   defp credential_rotation_error(_reason), do: "Credential rotation failed"
 
@@ -1564,7 +1592,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     end
   end
 
-  defp save_rule(%{assigns: %{form_mode: :edit, editing_rule: %NetworkCredentialRule{} = rule}} = socket, attrs) do
+  defp save_rule(
+         %{assigns: %{form_mode: :edit, editing_rule: %NetworkCredentialRule{} = rule}} = socket,
+         attrs
+       ) do
     attrs = merge_rule_metadata(rule, attrs)
 
     case rule
@@ -1616,14 +1647,16 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
          |> maybe_select_rule_secret(secret)}
 
       {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to save credential secret: #{format_error(reason)}")}
+        {:noreply,
+         put_flash(socket, :error, "Failed to save credential secret: #{format_error(reason)}")}
     end
   end
 
   defp update_enabled(socket, id, action, message) do
     scope = socket.assigns.current_scope
 
-    with %NetworkCredentialRule{} = rule <- Enum.find(socket.assigns.rules, &(to_string(&1.id) == to_string(id))),
+    with %NetworkCredentialRule{} = rule <-
+           Enum.find(socket.assigns.rules, &(to_string(&1.id) == to_string(id))),
          {:ok, _rule} <-
            rule
            |> Ash.Changeset.for_update(action, %{}, scope: scope)
@@ -1866,7 +1899,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     ArgumentError -> {:error, "Required credential fields are missing"}
   end
 
-  defp normalize_secret_params(_params, _integration_profiles), do: {:error, "Credential descriptor is required"}
+  defp normalize_secret_params(_params, _integration_profiles),
+    do: {:error, "Credential descriptor is required"}
 
   defp descriptor_secret_values(raw_values, fields) when is_map(raw_values) and is_list(fields) do
     values = Map.new(raw_values, fn {key, value} -> {to_string(key), to_string(value)} end)
@@ -1899,7 +1933,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     end
   end
 
-  defp descriptor_secret_values(_raw_values, _fields), do: {:error, "Required credential fields are missing"}
+  defp descriptor_secret_values(_raw_values, _fields),
+    do: {:error, "Required credential fields are missing"}
 
   defp default_rule_params(params \\ %{}, integration_profiles \\ %{})
 
@@ -1907,7 +1942,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     requested_provider = params |> Map.get("provider", "") |> to_string() |> String.trim()
 
     profile =
-      Map.get(integration_profiles, requested_provider) || default_integration_profile(integration_profiles)
+      Map.get(integration_profiles, requested_provider) ||
+        default_integration_profile(integration_profiles)
 
     cond do
       scheduled_integration_profile?(profile) -> scheduled_rule_defaults(profile)
@@ -2015,7 +2051,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     provider = normalize_provider(Map.get(params, "provider"), integration_profiles)
     profile = Map.get(integration_profiles, provider)
     defaults = default_rule_params(%{"provider" => provider}, integration_profiles)
-    auth_method = normalize_auth_method(provider, Map.get(params, "auth_method"), integration_profiles)
+
+    auth_method =
+      normalize_auth_method(provider, Map.get(params, "auth_method"), integration_profiles)
 
     purposes =
       normalize_form_purposes(
@@ -2041,7 +2079,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     |> clear_unsupported_profile_fields(profile)
   end
 
-  defp normalize_rule_form_params(_, integration_profiles), do: default_rule_params(%{}, integration_profiles)
+  defp normalize_rule_form_params(_, integration_profiles),
+    do: default_rule_params(%{}, integration_profiles)
 
   defp rule_form(params), do: to_form(params, as: :credential_rule)
 
@@ -2267,7 +2306,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   defp maybe_put_policy_selectors(policy, _key, []), do: policy
   defp maybe_put_policy_selectors(policy, key, selectors), do: Map.put(policy, key, selectors)
 
-  defp rule_metadata(params, _provider, purposes, profile, credential_use_policy) when is_map(profile) do
+  defp rule_metadata(params, _provider, purposes, profile, credential_use_policy)
+       when is_map(profile) do
     if scheduled_integration_profile?(profile) do
       scheduled_rule_metadata(params, purposes, profile, credential_use_policy)
     else
@@ -2299,7 +2339,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   defp scheduled_rule_metadata(params, purposes, profile, credential_use_policy) do
     schedule = profile["producer_schedule"]
-    config = ConfigSchema.normalize_params(profile["config_schema"] || %{}, params["plugin_config"] || %{})
+
+    config =
+      ConfigSchema.normalize_params(
+        profile["config_schema"] || %{},
+        params["plugin_config"] || %{}
+      )
 
     with :ok <- ConfigSchema.validate_params(profile["config_schema"] || %{}, config),
          {:ok, cadence_seconds} <- strict_integer(params, "cadence_seconds"),
@@ -2603,7 +2648,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   # only provider-specific text available, so it names the host and everything else
   # stays provider-neutral; per-provider guidance belongs in the profile banner and
   # the integration's docs page.
-  defp controller_host_label(%{"label" => label}) when is_binary(label) and label != "", do: "#{label} controller host"
+  defp controller_host_label(%{"label" => label}) when is_binary(label) and label != "",
+    do: "#{label} controller host"
 
   defp controller_host_label(_profile), do: "Controller host"
 
@@ -2721,7 +2767,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   defp form_plugin_config(_form), do: %{}
 
-  defp secret_options_for(secrets, provider, auth_method, selected_secret_id, integration_profiles) do
+  defp secret_options_for(
+         secrets,
+         provider,
+         auth_method,
+         selected_secret_id,
+         integration_profiles
+       ) do
     descriptor = credential_method(integration_profiles, provider, auth_method)
 
     secrets
@@ -2905,10 +2957,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     end
   end
 
-  attr :rule, :map, required: true
-  attr :profiles, :list, required: true
-  attr :schedules, :map, required: true
-  attr :timezone, :string, required: true
+  attr(:rule, :map, required: true)
+  attr(:profiles, :list, required: true)
+  attr(:schedules, :map, required: true)
+  attr(:timezone, :string, required: true)
 
   defp runtime_status(assigns) do
     assigns =
@@ -2921,7 +2973,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     ~H"""
     <%= if @scheduled? do %>
       <%= case Map.get(@schedules, to_string(@rule.id)) do %>
-        <% %{last_status: status, last_run_at: last_run_at} -> %>
+        <% %{last_status: status, last_run_at: last_run_at, last_error: last_error} -> %>
           {status} /
           <.user_time
             id={
@@ -2932,6 +2984,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
             style={:compact}
             fallback="never"
           />
+          <%= if last_error do %>
+            <span class="text-error text-xs block truncate" title={last_error}>{last_error}</span>
+          <% end %>
         <% nil -> %>
           Awaiting provisioning
       <% end %>
@@ -2961,6 +3016,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   defp format_error(%Ash.Error.Invalid{} = error), do: Exception.message(error)
   defp format_error(%Ash.Error.Forbidden{} = error), do: Exception.message(error)
   defp format_error({field, reason}), do: "#{field}: #{inspect(reason)}"
-  defp format_error(reason) when is_atom(reason), do: reason |> to_string() |> String.replace("_", " ")
+
+  defp format_error(reason) when is_atom(reason),
+    do: reason |> to_string() |> String.replace("_", " ")
+
   defp format_error(reason), do: inspect(reason)
 end
