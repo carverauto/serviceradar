@@ -38,7 +38,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityDataTest do
     assert query =~ "metric_name:icmp_available"
     assert query =~ "agg:max"
     assert_receive {:query, sweep, _}
-    assert sweep =~ "metric_name:sweep.host.icmp_available"
+    assert sweep =~ "metric_name:sweep.host.available"
     refute_receive {:query, _, _}
   end
 
@@ -94,7 +94,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityDataTest do
     assert_receive {:query, dedicated, _}
     assert_receive {:query, sweep, _}
     assert dedicated =~ "metric_name:icmp_available"
-    assert sweep =~ "metric_name:sweep.host.icmp_available"
+    assert sweep =~ "metric_name:sweep.host.available"
 
     assert Enum.find(String.split(dedicated), &String.starts_with?(&1, "time:")) ==
              Enum.find(String.split(sweep), &String.starts_with?(&1, "time:"))
