@@ -63,6 +63,15 @@ defmodule ServiceRadarWebNG.Mcp.IdentityDiagnosticsTest do
               %{"direct" => false, "cross_partition" => true, "depth" => 2}
             ]
 
+          String.starts_with?(query, "in:identity_decisions") ->
+            [%{"decision_kind" => "policy_block", "reason" => "mac_only_conflict"}]
+
+          String.starts_with?(query, "in:deduplication_tasks") ->
+            [
+              %{"id" => "task-open", "status" => "open"},
+              %{"id" => "task-distinct", "status" => "distinct"}
+            ]
+
           String.starts_with?(query, "in:identity_reconciliation_runs") ->
             [
               %{
@@ -129,6 +138,8 @@ defmodule ServiceRadarWebNG.Mcp.IdentityDiagnosticsTest do
       assert Enum.any?(queries, &String.starts_with?(&1, "in:identity_evidence_edges device:"))
       assert Enum.any?(queries, &String.starts_with?(&1, "in:device_identifiers device_id:"))
       assert Enum.any?(queries, &String.starts_with?(&1, "in:device_revival_audit device_uid:"))
+      assert Enum.any?(queries, &String.starts_with?(&1, "in:identity_decisions device:"))
+      assert Enum.any?(queries, &String.starts_with?(&1, "in:deduplication_tasks device:"))
     end
 
     test "an injection payload in the seed never reaches SRQL at all" do
@@ -182,6 +193,17 @@ defmodule ServiceRadarWebNG.Mcp.IdentityDiagnosticsTest do
       assert summary["cross_partition_evidence"]
       assert summary["revival_count"] == 1
       refute summary["chain_truncated"]
+    end
+
+    test "names the decisions that refused a merge and the tasks still open" do
+      use_srql(StubSRQL)
+
+      assert {:ok, payload} = IdentityDiagnostics.trace(scope(), @uid)
+
+      assert [%{"reason" => "mac_only_conflict"}] = payload["identity_decisions"]
+      assert length(payload["deduplication_tasks"]) == 2
+      assert payload["summary"]["identity_decision_count"] == 1
+      assert payload["summary"]["open_deduplication_tasks"] == ["task-open"]
     end
   end
 

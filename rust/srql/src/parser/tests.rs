@@ -224,6 +224,13 @@ fn parses_every_identity_diagnostic_entity_alias() {
         ("identity_evidence_edges", Entity::IdentityEvidenceEdges),
         ("identity_evidence", Entity::IdentityEvidenceEdges),
         ("evidence_edges", Entity::IdentityEvidenceEdges),
+        ("identity_decisions", Entity::IdentityDecisions),
+        ("identity_decision", Entity::IdentityDecisions),
+        ("dire_decisions", Entity::IdentityDecisions),
+        ("deduplication_tasks", Entity::DeduplicationTasks),
+        ("deduplication_task", Entity::DeduplicationTasks),
+        ("dedup_tasks", Entity::DeduplicationTasks),
+        ("identity_deduplication_tasks", Entity::DeduplicationTasks),
     ];
 
     for (alias, expected) in cases {

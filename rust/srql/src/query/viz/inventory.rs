@@ -234,6 +234,70 @@ pub(super) fn identity_reconciliation_runs() -> VizMeta {
     }
 }
 
+pub(super) fn identity_decisions() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col(
+                "decision_kind",
+                ColumnType::Text,
+                Some(ColumnSemantic::Label),
+            ),
+            col("reason", ColumnType::Text, None),
+            col("device_uids", ColumnType::TextArray, None),
+            col("device_count", ColumnType::Int, None),
+            col("subject", ColumnType::Text, None),
+            col("source", ColumnType::Text, None),
+            col("occurrence_count", ColumnType::Int, None),
+            col("first_decided_at", ColumnType::Timestamptz, None),
+            col(
+                "last_decided_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+            col("evidence", ColumnType::Jsonb, None),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
+
+pub(super) fn deduplication_tasks() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("status", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("category", ColumnType::Text, None),
+            col("device_uids", ColumnType::TextArray, None),
+            col("device_count", ColumnType::Int, None),
+            col("last_decision_kind", ColumnType::Text, None),
+            col("last_reason", ColumnType::Text, None),
+            col("occurrence_count", ColumnType::Int, None),
+            col("opened_at", ColumnType::Timestamptz, None),
+            col(
+                "last_decided_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+            col("resolved_at", ColumnType::Timestamptz, None),
+            col("resolved_by", ColumnType::Text, None),
+            col("merged_into", ColumnType::Text, None),
+            col("resolution_note", ColumnType::Text, None),
+            col("evidence", ColumnType::Jsonb, None),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
+
 pub(super) fn identity_evidence_edges() -> VizMeta {
     VizMeta {
         columns: vec![

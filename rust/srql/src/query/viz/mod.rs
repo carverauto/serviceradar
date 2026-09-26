@@ -188,6 +188,8 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
         Entity::DeviceIdentifiers => inventory::device_identifiers(),
         Entity::IdentityReconciliationRuns => inventory::identity_reconciliation_runs(),
         Entity::IdentityEvidenceEdges => inventory::identity_evidence_edges(),
+        Entity::IdentityDecisions => inventory::identity_decisions(),
+        Entity::DeduplicationTasks => inventory::deduplication_tasks(),
     })
 }
 

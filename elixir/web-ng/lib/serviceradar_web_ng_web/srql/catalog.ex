@@ -397,6 +397,69 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       downsample: false
     },
     %{
+      id: "identity_decisions",
+      label: "Identity Decisions",
+      route: "/devices",
+      default_time: "",
+      default_sort_field: "last_decided_at",
+      default_sort_dir: "desc",
+      default_filter_field: "device",
+      filter_fields: [
+        "device",
+        "decision_kind",
+        "reason",
+        "subject",
+        "source",
+        "occurrence_count",
+        "device_count"
+      ],
+      known_values: %{
+        "decision_kind" => [
+          "policy_block",
+          "guard_block",
+          "source_block",
+          "alias_invalidated",
+          "ip_conflict",
+          "source_override",
+          "component_block"
+        ]
+      },
+      downsample: false
+    },
+    %{
+      id: "deduplication_tasks",
+      label: "De-duplication Tasks",
+      route: "/devices",
+      default_time: "",
+      default_sort_field: "last_decided_at",
+      default_sort_dir: "desc",
+      default_filter_field: "status",
+      filter_fields: [
+        "status",
+        "device",
+        "category",
+        "last_decision_kind",
+        "last_reason",
+        "resolved_by",
+        "merged_into",
+        "occurrence_count",
+        "device_count"
+      ],
+      known_values: %{
+        "status" => ["open", "merged", "distinct", "dismissed"],
+        "category" => [
+          "policy_block",
+          "guard_block",
+          "source_block",
+          "alias_invalidated",
+          "ip_conflict",
+          "source_override",
+          "component_block"
+        ]
+      },
+      downsample: false
+    },
+    %{
       id: "gateways",
       label: "Gateways",
       route: "/gateways",

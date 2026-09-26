@@ -723,6 +723,45 @@ async fn comprehensive_queries_match_fixtures() {
             })),
         },
         TestCase {
+            query: "in:identity_decisions device:identity-comp-a",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                let row = &body["results"][0];
+                assert_eq!(row["decision_kind"], "policy_block");
+                assert_eq!(row["reason"], "mac_only_conflict");
+                assert_eq!(row["occurrence_count"], 3);
+                assert_eq!(row["device_count"], 2);
+                assert_eq!(row["device_uids"][1], "identity-comp-b");
+                assert!(row.get("decision_key").is_none(), "internal key leaked: {row}");
+            })),
+        },
+        TestCase {
+            query: "in:dire_decisions kind:ip_conflict subject:192.0.2.44",
+            expected_count: 1,
+            validator: None,
+        },
+        TestCase {
+            // A device named by both tasks: `status:open` keeps only the unresolved one.
+            query: "in:deduplication_tasks status:open device:identity-comp-b",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                let row = &body["results"][0];
+                assert_eq!(row["category"], "policy_block");
+                assert_eq!(row["occurrence_count"], 3);
+                assert!(row["resolved_at"].is_null());
+                assert!(row.get("candidate_key").is_none(), "internal key leaked: {row}");
+            })),
+        },
+        TestCase {
+            query: "in:dedup_tasks status:distinct",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                let row = &body["results"][0];
+                assert_eq!(row["resolved_by"], "operator@example.com");
+                assert_eq!(row["resolution_note"], "different chassis");
+            })),
+        },
+        TestCase {
             query: "in:dire_runs status:failed",
             expected_count: 1,
             validator: Some(Box::new(|body| {
