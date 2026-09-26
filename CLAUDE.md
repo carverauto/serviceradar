@@ -16,16 +16,21 @@ Forbidden when real; use the reserved alternative:
 | Hostnames, FQDNs, device/site/closet naming schemes | `host01.example.com`, `SITE01-...` |
 | Site, region, facility or datacenter codes | invented codes |
 | IPs and CIDRs, including someone else's RFC1918 plan | `192.0.2.0/24`, `198.51.100.0/24` |
-| MACs with a real vendor OUI | `00:00:5e:00:53:xx` |
+| MAC addresses observed on a live system | invented (a real vendor OUI is fine) |
 | Serial numbers, asset tags, chassis IDs | invented |
 | Exact firmware/build numbers tied to a deployment | generic version |
-| GPS coordinates resolving to a real facility | `0.0, 0.0` |
+| GPS coordinates taken from a customer's site records | public coordinates or invented |
 | Phone numbers, including NOC lines | `555-0100`–`555-0199` |
 | Person names, emails, usernames, employee IDs | invented |
 | Namespaces, cluster/tenant/workspace/account names | invented |
 | Policy, AAA/802.1X, RADIUS, VLAN, SSID names | invented |
 | Session IDs, syslog/packet captures, trace IDs | hand-constructed |
 | Fleet scale figures describing a real estate | rounded, invented |
+
+The table is about data taken from a deployment. Public reference data is fine
+in fixtures and demos: coordinates of real facilities such as airports, airport
+codes, airline flight numbers, vendor product names and OUIs, public place
+names.
 
 **Removing the organization's name is not enough.** A naming convention, a
 coordinate pair, a build number, a serial, or a distinctive fleet shape

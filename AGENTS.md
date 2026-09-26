@@ -29,8 +29,9 @@ Keep this managed block so 'openspec update' can refresh the instructions.
   This repository's `CLAUDE.md` tabulates the forbidden classes and their
   reserved replacements, and is the authority; it is not repeated here. The
   classes cover hostnames and internal naming schemes, site/facility codes, IPs
-  and CIDRs, MACs with a real vendor OUI, serials and asset tags, deployment
-  build numbers, GPS coordinates, phone numbers, people, namespaces and
+  and CIDRs, MAC addresses observed on a live system (an invented MAC may
+  use a real vendor OUI), serials and asset tags, deployment
+  build numbers, GPS coordinates from customer site records, phone numbers, people, namespaces and
   cluster/tenant/account names, policy/RADIUS/VLAN/SSID names, session and trace
   IDs, verbatim capture slices, and fleet-scale figures.
 
