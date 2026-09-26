@@ -47,7 +47,7 @@ The chart SHALL take the value from `nats.jetstream.maxFileStore` when set and o
 
 ### Requirement: Render-time JetStream budget check
 The Helm chart SHALL fail to render when the worst-case per-server reservation exceeds 85% of `max_file_store`, unless `nats.jetstream.allowOvercommit` is true.
-Each stream's size and replica count SHALL come from its own chart value: `datasvc.jetstreamReplicas`, `logCollector.streamReplicas`, `flowCollector.config.stream_max_bytes` and `stream_replicas` when flow-collector is enabled, `bmpCollector.config.streamMaxBytes` and `streamReplicas` when bmp-collector is enabled, `webNg.pluginStorage.jetstreamMaxBucketBytes` and `jetstreamReplicas`, `webNg.fieldSurveyArtifactStore.jetstreamMaxBucketBytes`, the core threat-intel bucket value, and `core.eventWriter.streams.<name>.maxBytes` with 1 replica for every EventWriter-created stream, including `trivy_reports` and the `flows` and `ARANCINI_CAUSAL` fallbacks while their collector is disabled. A size SHALL be set through the environment of the component that creates the bucket.
+Each stream's size and replica count SHALL come from its own chart value: `datasvc.jetstreamReplicas`, `logCollector.streamMaxBytes` and `logCollector.streamReplicas`, `flowCollector.config.stream_max_bytes` and `stream_replicas` when flow-collector is enabled, `bmpCollector.config.streamMaxBytes` and `streamReplicas` when bmp-collector is enabled, `webNg.pluginStorage.jetstreamMaxBucketBytes` and `jetstreamReplicas`, `webNg.fieldSurveyArtifactStore.jetstreamMaxBucketBytes`, the core threat-intel bucket value, and `core.eventWriter.streams.<name>.maxBytes` with 1 replica for every EventWriter-created stream, including `trivy_reports` and the `flows` and `ARANCINI_CAUSAL` fallbacks while their collector is disabled. A size SHALL be set through the environment of the component that creates the bucket.
 A stream whose replicas are greater than or equal to `nats.replicas` SHALL count its full `max_bytes` on every server. The worst case SHALL be computed as the sum of those reservations, plus the sum over every other stream of `max_bytes` times replicas divided by `nats.replicas`, plus the largest `max_bytes` among the other streams. The failure message SHALL list every reservation with its replicas and the computed limit.
 
 #### Scenario: Chart defaults with every optional producer enabled
@@ -192,7 +192,8 @@ For a discard-old buffer stream (`flows`, `events`, `ARANCINI_CAUSAL` and every 
 Exactly one component SHALL reconcile the shape (`max_bytes`, replicas, retention) of a given stream. A secondary creator SHALL create the stream only when it is absent and otherwise merge subjects without changing the shape.
 When `bmpCollector.enabled` is true the Helm chart SHALL configure the EventWriter `ARANCINI_CAUSAL` consumer not to reconcile the stream shape, so bmp-collector owns `max_bytes` and replicas. The EventWriter fallback size SHALL apply only when bmp-collector is disabled and EventWriter creates the stream.
 
-The otel log-collector SHALL own the shape of `events`. Every EventWriter consumer on `events` SHALL reconcile only subjects, with `reconcile_stream_shape` false and no `stream_max_bytes`, in every EventWriter configuration path. An ownership test SHALL fail when any stream in the inventory has zero or more than one component reconciling its shape, derived from the typed EventWriter configuration and the inventory's declared owners.
+The otel log-collector SHALL own the shape of `events`. Every EventWriter consumer on `events` SHALL carry `reconcile_stream_shape` false, so it never updates an existing `events` stream, and SHALL carry a `stream_max_bytes` equal to the profile `events` size, used only when it creates the stream because `events` is absent, in every EventWriter configuration path. The Helm chart SHALL render that size and the matching replicas into the core environment from `logCollector.streamMaxBytes` and `logCollector.streamReplicas`. Creating a stream and reconciling its shape are separate operations.
+An ownership test SHALL fail when an EventWriter consumer reconciles the shape of a stream that EventWriter does not own, derived from the loaded EventWriter configuration and the inventory's declared owners. Behaviour of the Go and Rust owners is covered by each owner's own tests.
 
 #### Scenario: EventWriter start does not change the events stream
 - **GIVEN** the otel log-collector has set `events` to a `max_bytes` of 2 GiB
@@ -203,11 +204,12 @@ The otel log-collector SHALL own the shape of `events`. Every EventWriter consum
 - **GIVEN** the `events` stream does not exist
 - **WHEN** EventWriter starts first
 - **THEN** it SHALL create the stream with the profile `events` size and replicas, not unlimited
+- **AND** a later EventWriter start SHALL NOT update that stream
 
-#### Scenario: Ownership is unambiguous
-- **GIVEN** the stream inventory and the EventWriter default streams
+#### Scenario: EventWriter does not reconcile streams it does not own
+- **GIVEN** the stream inventory with declared owners and the loaded EventWriter default streams
 - **WHEN** the ownership test runs
-- **THEN** every stream SHALL have exactly one reconciling owner
+- **THEN** no EventWriter consumer SHALL reconcile the shape of a stream owned by another component
 - **AND** the test SHALL fail if an EventWriter consumer on `events` reconciles the stream shape
 
 #### Scenario: bmp-collector owns the stream

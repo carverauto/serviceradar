@@ -142,7 +142,7 @@ so a profile can supply them; an explicit value still wins.
 
 Each stream's size and replica count come from its own chart value:
 `datasvc.bucketMaxBytes` / `objectStoreBytes` / `jetstreamReplicas` (KV and
-object store), `logCollector.streamReplicas` (`events`),
+object store), `logCollector.streamMaxBytes` / `streamReplicas` (`events`),
 `flowCollector.config.stream_max_bytes` / `stream_replicas` (`flows`, when
 flow-collector is enabled), `bmpCollector.config.streamMaxBytes` /
 `streamReplicas` (`ARANCINI_CAUSAL`, when bmp-collector is enabled),
@@ -209,19 +209,31 @@ absent and merges subjects without touching the shape.
 | `metrics`, `k8s_inventory`, `analytics_predictions`, `mtr_results`, `scan_results`, `trivy_reports` | EventWriter | none |
 
 `events` is shared: the log-collector owns its shape at
-`logCollector.streamReplicas` and the profile's `events` size (2 GiB R3 in
-`small`), while EventWriter's default `EVENTS` consumer today carries
-`stream_max_bytes` of 8 GiB and reconciles it, so an EventWriter start would
-write 8 GiB over the budgeted 2 GiB on every server. Every EventWriter consumer
-on `events` (`EVENTS`, `PDNS_OCSF`, `FALCO`, the `OTEL_*` consumers, `LOGS`,
-`BMP_CAUSAL`, `SIEM_CAUSAL`, `ATTRIBUTED_FLOW`) SHALL be subjects only:
-`reconcile_stream_shape: false` and no `stream_max_bytes`, in every config path
-(`Config.default_streams/0` in `serviceradar_core`, `serviceradar_core/config/runtime.exs`
-and `serviceradar_core_elx/config/runtime.exs`), and the 8 GiB `EVENTS` size is
-removed. If the stream is absent when EventWriter starts, EventWriter creates
-it with the same profile size and replicas the log-collector uses
-(`SERVICERADAR_JS_EVENTS_MAX_BYTES` and `_REPLICAS`, D7), never unlimited, and
-otherwise leaves the shape alone.
+`logCollector.streamMaxBytes` and `logCollector.streamReplicas` (the profile's
+`events` size, 2 GiB R3 in `small`), while EventWriter's default `EVENTS`
+consumer today carries `stream_max_bytes` of 8 GiB and reconciles it, so an
+EventWriter start would write 8 GiB over the budgeted 2 GiB on every server.
+
+Creating and reconciling are separate. In `jetstream_consumer.ex` the create
+path takes its size from the consumer's `stream_max_bytes`, and only the update
+path is gated by `reconcile_stream_shape`. Every EventWriter consumer on
+`events` (`EVENTS`, `PDNS_OCSF`, `FALCO`, the `OTEL_*` consumers, `LOGS`,
+`BMP_CAUSAL`, `SIEM_CAUSAL`, `ATTRIBUTED_FLOW`) therefore SHALL carry both:
+
+- `stream_max_bytes` equal to the profile `events` size, and the matching
+  replicas, read from `SERVICERADAR_JS_EVENTS_MAX_BYTES` and `_REPLICAS` (D7).
+  It is used only on the create path, when `events` is absent because
+  EventWriter started first, so the stream is never created unlimited and the
+  budget counts what actually gets created. The chart renders these two
+  variables into the core environment from `logCollector.streamMaxBytes` and
+  `streamReplicas`, so both creators agree.
+- `reconcile_stream_shape: false`, so EventWriter never updates an existing
+  `events` stream.
+
+This holds in every config path (`Config.default_streams/0` in
+`serviceradar_core`, `serviceradar_core/config/runtime.exs` and
+`serviceradar_core_elx/config/runtime.exs`), and the hardcoded 8 GiB `EVENTS`
+size is removed.
 
 Owners that reconcile `max_bytes` on an existing stream: datasvc
 (`reconcileStreamConfigLocked`), the otel log-collector, flow-collector (for
@@ -314,7 +326,8 @@ environment overrides that take precedence over its file:
   otel log-collector (`events`), Rust flow-collector (`stream_max_bytes`,
   `stream_replicas`) and Rust bmp-collector (stream max bytes and replicas).
   Each has a unit test for the precedence. Helm keeps rendering these values
-  into the JSON config and is unchanged.
+  into the JSON config, and additionally renders the `events` pair into the
+  core environment for EventWriter's create-only `events` size (D6).
 
 A Bazel `go_test` enforces the shipped wiring without reading any component
 source; the precedence tests above are what prove a service honours the

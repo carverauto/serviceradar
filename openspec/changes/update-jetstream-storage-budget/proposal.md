@@ -107,10 +107,11 @@ one unplaceable stream stops unrelated ingestion.
   when that evicts the oldest messages, so installs reach the budgeted
   reservation.
 - **One owner per stream shape.** The otel log-collector owns `events`;
-  every EventWriter consumer on it becomes subjects-only and the 8 GiB
-  `EVENTS` `stream_max_bytes` is removed, so EventWriter cannot overwrite the
-  budgeted 2 GiB. An ownership test asserts every inventory stream has exactly
-  one reconciling component.
+  every EventWriter consumer on it stops reconciling the shape and carries the
+  profile `events` size only as a create-time size, replacing the hardcoded
+  8 GiB, so EventWriter can neither overwrite the budgeted 2 GiB nor create the
+  stream unlimited. An ownership test asserts no EventWriter consumer
+  reconciles a stream it does not own.
 - **Non-Helm services honour environment size overrides.** datasvc, the otel
   log-collector, flow-collector and bmp-collector read
   `SERVICERADAR_JS_<STREAM>_MAX_BYTES` / `_REPLICAS`, taking precedence over
