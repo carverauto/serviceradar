@@ -580,6 +580,12 @@ a failed load is redelivered from JetStream rather than written to CNPG. Their
 retention is `analytics.starrocks.retentionDays.mtr` (default 365), applied to
 both tables.
 
+`0020` deletes the extra Trivy rows in `events`, keeping each report id's latest
+row. A Trivy report's event keeps its id across rescans while its time moves
+forward, so the `(id, time)` key kept every rescan; EventWriter now deletes the
+id before loading (`Destination` `replace:`), and `0020` clears what accumulated
+earlier. Only `log_provider = 'trivy'` rows are touched, and a rerun is a no-op.
+
 `cutoverDatasets` defaults to empty, so metric, log and event panels stay on
 CNPG throughout; the NetFlow panel does not fall back -- it is refused with a
 warehouse-required error until `flows` is cut over to a populated warehouse.
