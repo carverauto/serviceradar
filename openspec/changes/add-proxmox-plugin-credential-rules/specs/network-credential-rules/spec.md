@@ -69,8 +69,8 @@ The system SHALL materialize credential rules as scoped credential references an
 - **AND** the policy status SHALL report the scope mismatch without exposing the secret
 
 #### Scenario: Credential broker grant constrains runtime use
-- **GIVEN** a Proxmox credential test is dispatched to an eligible agent
-- **WHEN** the command payload is sent
+- **GIVEN** a Proxmox plugin assignment is delivered to an eligible agent
+- **WHEN** the assignment payload is sent
 - **THEN** it SHALL contain a credential broker grant with credential reference, target device, target base URL, allowed methods, allowed API paths, and TTL
 - **AND** it SHALL NOT contain `api_token`, password, private key, ticket, cookie, or CSRF token values
 

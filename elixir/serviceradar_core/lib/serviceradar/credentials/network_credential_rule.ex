@@ -14,8 +14,6 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
 
   alias ServiceRadar.Credentials.Changes.GuardCredentialRuleLifecycle
   alias ServiceRadar.Credentials.NetworkCredentialRulePreview
-  alias ServiceRadar.Credentials.NetworkCredentialRuleTestDispatcher
-  alias ServiceRadar.Credentials.NetworkCredentialRuleTestPlan
   alias ServiceRadar.Credentials.Validations.TargetQuery
   alias ServiceRadar.Credentials.Validations.TrustMaterial
   alias ServiceRadar.Policies.Checks.ActorHasPermission
@@ -81,9 +79,6 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
     define :update_rule, action: :update
     define :destroy_rule, action: :destroy
     define :preview, action: :preview, args: [:id]
-    define :proxmox_api_test_plan, action: :proxmox_api_test_plan, args: [:id]
-    define :dispatch_proxmox_api_test, action: :dispatch_proxmox_api_test, args: [:id]
-    define :record_test_result, action: :record_test_result
   end
 
   actions do
@@ -132,11 +127,6 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
       change {GuardCredentialRuleLifecycle, mode: :destroy}
     end
 
-    update :record_test_result do
-      accept [:last_test_status, :last_test_message]
-      change set_attribute(:last_tested_at, &DateTime.utc_now/0)
-    end
-
     action :preview do
       argument :id, :uuid, allow_nil?: false
       argument :sample_limit, :integer, allow_nil?: true, default: 10
@@ -145,28 +135,6 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
         NetworkCredentialRulePreview.preview_by_id(
           input.arguments.id,
           sample_limit: input.arguments.sample_limit,
-          actor: context.actor
-        )
-      end
-    end
-
-    action :proxmox_api_test_plan do
-      argument :id, :uuid, allow_nil?: false
-
-      run fn input, context ->
-        NetworkCredentialRuleTestPlan.proxmox_api_test_by_id(
-          input.arguments.id,
-          actor: context.actor
-        )
-      end
-    end
-
-    action :dispatch_proxmox_api_test do
-      argument :id, :uuid, allow_nil?: false
-
-      run fn input, context ->
-        NetworkCredentialRuleTestDispatcher.dispatch_proxmox_api_test_by_id(
-          input.arguments.id,
           actor: context.actor
         )
       end
@@ -180,8 +148,6 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
     read_with_permission(@credential_manage_check)
     action_type_with_permission([:create, :update, :destroy], @credential_manage_check)
     action_with_permission(:preview, @credential_manage_check)
-    action_with_permission(:proxmox_api_test_plan, @credential_manage_check)
-    action_with_permission(:dispatch_proxmox_api_test, @credential_manage_check)
   end
 
   attributes do
