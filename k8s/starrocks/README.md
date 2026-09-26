@@ -20,11 +20,13 @@ The CNPG JDBC catalog (`cnpg_platform`) is opt-in and off by default. FE/BE
 expect the pinned PostgreSQL JDBC driver at
 `file:///opt/starrocks/jdbc/postgresql.jar` (checksum in
 `third_party/jdbc/postgresql.pin`). `values-cluster.yaml` has a checksummed
-alpine initContainer that mounts an emptyDir `jdbc` volume (chart 1.11.7
+curl initContainer that mounts an emptyDir `jdbc` volume (chart 1.11.7
 ignores extra storageVolumes; emptyDir is the extra-volume API) so FE/BE
 share `file:///opt/starrocks/jdbc/postgresql.jar`. The initContainer
-re-fetches the pinned jar (BusyBox wget) when the checksum is missing.
-Nodes that cannot resolve repo1.maven.org will CrashLoop the init
+re-fetches the pinned jar when the checksum is missing. It uses curl, not
+BusyBox wget: repo1.maven.org resolves to IPv6 first, and BusyBox wget does
+not fall back to IPv4, so on a cluster without IPv6 egress every retry fails.
+Nodes that cannot reach repo1.maven.org will CrashLoop the init
 container; do not roll those until the jar is available in-cluster.
 Demo CNPG now has an additive NetworkPolicy allowing namespace
 `starrocks` on 5432. Lab FE has `cnpg_platform`, created by the chart's
