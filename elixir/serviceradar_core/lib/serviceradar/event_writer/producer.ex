@@ -53,6 +53,10 @@ defmodule ServiceRadar.EventWriter.Producer do
   # Slow idle tick while long-polling so reconnect hygiene still runs.
   @long_poll_idle_interval 5_000
   @reconnect_delay 5_000
+  # A stream whose consumer cannot be set up (for example NATS cannot place it)
+  # is retried on its own with this backoff while the other consumers run.
+  @consumer_retry_base_ms 5_000
+  @consumer_retry_max_ms 60_000
   # Slack added to pull_expires so a late empty-status can still arrive.
   @long_poll_stale_slack_ms 5_000
   # no_wait pulls should return immediately; 5s covers a lost reply.
@@ -82,7 +86,9 @@ defmodule ServiceRadar.EventWriter.Producer do
     :sid_to_pull_subject,
     :max_buffered,
     :dropped_overflow,
-    :pull_subjects
+    :pull_subjects,
+    :failed_streams,
+    :stream_health
   ]
 
   # Client API
@@ -116,7 +122,14 @@ defmodule ServiceRadar.EventWriter.Producer do
       sid_to_pull_subject: %{},
       max_buffered: max_buffered,
       dropped_overflow: 0,
-      pull_subjects: MapSet.new()
+      pull_subjects: MapSet.new(),
+      failed_streams: %{},
+      stream_health:
+        Application.get_env(
+          :serviceradar_core,
+          :event_writer_stream_health,
+          ServiceRadar.EventWriter.StreamHealth
+        )
     }
 
     # Start connection asynchronously
@@ -185,14 +198,19 @@ defmodule ServiceRadar.EventWriter.Producer do
 
         sid_map = Map.get(consumer_context, :sid_to_pull_subject, %{})
 
-        new_state = %{
-          state
-          | conn: conn,
-            consumer_context: consumer_context,
-            connected: true,
-            sid_to_pull_subject: sid_map,
-            pull_subjects: Map.get(consumer_context, :pull_subjects, MapSet.new())
-        }
+        new_state =
+          track_failed_streams(
+            %{
+              state
+              | conn: conn,
+                consumer_context: consumer_context,
+                connected: true,
+                sid_to_pull_subject: sid_map,
+                pull_subjects: Map.get(consumer_context, :pull_subjects, MapSet.new()),
+                failed_streams: %{}
+            },
+            Map.get(consumer_context, :failed_streams, [])
+          )
 
         # Schedule periodic / idle fetch tick (long-poll producers use a slower tick).
         schedule_fetch(new_state)
@@ -216,6 +234,18 @@ defmodule ServiceRadar.EventWriter.Producer do
   def handle_info(:fetch, state) do
     handle_info({:fetch, System.monotonic_time(:millisecond)}, state)
   end
+
+  # Retry one stream whose consumer failed to set up. The message carries the
+  # connection it was scheduled for, so a retry left over from before a
+  # reconnect is dropped: the reconnect set up every stream again.
+  def handle_info({:retry_consumer, conn, name}, %{conn: conn, connected: true} = state) do
+    case Map.fetch(state.failed_streams, name) do
+      {:ok, entry} -> {:noreply, [], retry_failed_consumer(state, name, entry)}
+      :error -> {:noreply, [], state}
+    end
+  end
+
+  def handle_info({:retry_consumer, _stale_conn, _name}, state), do: {:noreply, [], state}
 
   def handle_info({:fetch, now_ms}, state) when is_integer(now_ms) do
     state = expire_stale_pulls(state, now_ms)
@@ -246,7 +276,8 @@ defmodule ServiceRadar.EventWriter.Producer do
          consumer_context: nil,
          pull_inflight: 0,
          pull_inflight_by_subject: %{},
-         pull_inflight_started_at: %{}
+         pull_inflight_started_at: %{},
+         failed_streams: %{}
      }}
   end
 
@@ -486,6 +517,16 @@ defmodule ServiceRadar.EventWriter.Producer do
 
   @doc false
   def setup_jetstream_consumers(conn, config) do
+    results =
+      Enum.map(config.streams, fn stream -> {stream, setup_consumer(conn, config, stream)} end)
+
+    finalize_consumer_setup(conn, config, results)
+  end
+
+  @doc false
+  # Sets up the durable consumer for one configured stream. Used for the initial
+  # setup of every stream and for the per-stream retry of one that failed.
+  def setup_consumer(conn, %Config{} = config, stream) do
     # Resolve flow-control values with defaults so a Config built directly (e.g.
     # in tests) without going through Config.load/0 still gets a bounded consumer.
     max_ack_pending = config.max_ack_pending || Config.default_max_ack_pending()
@@ -495,21 +536,15 @@ defmodule ServiceRadar.EventWriter.Producer do
     default_pull_batch_size =
       config.consumer_pull_batch_size || Config.default_consumer_pull_batch_size()
 
-    results =
-      Enum.map(config.streams, fn stream ->
-        {stream,
-         setup_one_consumer(
-           conn,
-           config,
-           stream,
-           ack_wait_ns,
-           max_ack_pending,
-           max_deliver,
-           default_pull_batch_size
-         )}
-      end)
-
-    finalize_consumer_setup(conn, config, results)
+    setup_one_consumer(
+      conn,
+      config,
+      stream,
+      ack_wait_ns,
+      max_ack_pending,
+      max_deliver,
+      default_pull_batch_size
+    )
   end
 
   defp finalize_consumer_setup(conn, %Config{} = config, results) when is_list(results) do
@@ -535,14 +570,20 @@ defmodule ServiceRadar.EventWriter.Producer do
       log_consumer_setup_failure(:required, config, stream, reason)
     end)
 
+    required_ok? =
+      Enum.any?(results, fn {stream, result} ->
+        match?({:ok, _}, result) and not Map.get(stream, :best_effort, false)
+      end)
+
     cond do
       expected_count == 0 ->
         safe_stop_conn(conn)
         {:error, :no_streams_configured}
 
-      failures != [] ->
-        # Do not accept a partial flow (or shared) pipeline; close connection so
-        # leaked inbox subscriptions cannot duplicate replies after reconnect.
+      failures != [] and not required_ok? ->
+        # No required consumer came up, which points at the connection or the
+        # server rather than one stream: close the connection so leaked inbox
+        # subscriptions cannot duplicate replies, and reconnect.
         Enum.each(consumers, fn c -> safe_unsub(conn, c.sid) end)
         safe_stop_conn(conn)
 
@@ -551,7 +592,12 @@ defmodule ServiceRadar.EventWriter.Producer do
           Enum.map(failures, fn {_stream, {:error, reason}} -> reason end)}}
 
       true ->
-        retire_consumers(conn, config.retired_consumers)
+        # Some required consumers came up. Keep them running and hand the
+        # failed streams back to the producer, which retries each on its own:
+        # one stream NATS refuses to place must not stop unrelated ingestion.
+        # A retired consumer is only deleted once every live consumer is up,
+        # since the one still failing may be its replacement.
+        if failures == [], do: retire_consumers(conn, config.retired_consumers)
         pull_subjects = MapSet.new(consumers, & &1.pull_subject)
         sid_to_pull = Map.new(consumers, fn c -> {c.sid, c.pull_subject} end)
 
@@ -561,7 +607,9 @@ defmodule ServiceRadar.EventWriter.Producer do
            consumer_name: config.consumer_name,
            consumers: consumers,
            pull_subjects: pull_subjects,
-           sid_to_pull_subject: sid_to_pull
+           sid_to_pull_subject: sid_to_pull,
+           failed_streams:
+             Enum.map(failures, fn {stream, {:error, reason}} -> {stream, reason} end)
          }}
     end
   end
@@ -684,6 +732,76 @@ defmodule ServiceRadar.EventWriter.Producer do
     else
       :ok
     end
+  end
+
+  defp track_failed_streams(state, failed) do
+    Enum.reduce(failed, state, fn {stream, reason}, acc ->
+      name = Map.fetch!(stream, :name)
+      entry = %{stream: stream, attempt: 1, reason: reason}
+      acc.stream_health.consumer_setup_failed(name, reason, 1)
+      schedule_consumer_retry(acc.conn, name, 1)
+      %{acc | failed_streams: Map.put(acc.failed_streams, name, entry)}
+    end)
+  end
+
+  defp retry_failed_consumer(state, name, %{stream: stream, attempt: attempt} = entry) do
+    case setup_consumer(state.conn, state.config, stream) do
+      {:ok, consumer} ->
+        Logger.info("EventWriter consumer set up after retry",
+          consumer: name,
+          failed_attempts: attempt
+        )
+
+        state.stream_health.consumer_setup_recovered(name, attempt)
+        failed_streams = Map.delete(state.failed_streams, name)
+
+        if failed_streams == %{},
+          do: retire_consumers(state.conn, state.config.retired_consumers)
+
+        add_consumer(%{state | failed_streams: failed_streams}, consumer)
+
+      {:error, reason} ->
+        next = attempt + 1
+
+        Logger.warning("EventWriter consumer setup still failing; retrying this stream only",
+          consumer: name,
+          attempt: next,
+          retry_in_ms: consumer_retry_delay(next),
+          reason: inspect(reason)
+        )
+
+        state.stream_health.consumer_setup_failed(name, reason, next)
+        schedule_consumer_retry(state.conn, name, next)
+        entry = %{entry | attempt: next, reason: reason}
+        %{state | failed_streams: Map.put(state.failed_streams, name, entry)}
+    end
+  end
+
+  defp add_consumer(%{consumer_context: context} = state, consumer) do
+    context = %{
+      context
+      | consumers: context.consumers ++ [consumer],
+        pull_subjects: MapSet.put(context.pull_subjects, consumer.pull_subject),
+        sid_to_pull_subject:
+          Map.put(context.sid_to_pull_subject, consumer.sid, consumer.pull_subject)
+    }
+
+    %{
+      state
+      | consumer_context: context,
+        pull_subjects: context.pull_subjects,
+        sid_to_pull_subject: context.sid_to_pull_subject
+    }
+  end
+
+  defp schedule_consumer_retry(conn, name, attempt) do
+    Process.send_after(self(), {:retry_consumer, conn, name}, consumer_retry_delay(attempt))
+  end
+
+  @doc false
+  # Backoff before retry `attempt` of a failed stream: 5 s doubling to 60 s.
+  def consumer_retry_delay(attempt) when is_integer(attempt) and attempt >= 1 do
+    min(@consumer_retry_base_ms * Integer.pow(2, min(attempt - 1, 4)), @consumer_retry_max_ms)
   end
 
   defp safe_unsub(conn, sid) when is_integer(sid) do
