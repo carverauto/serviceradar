@@ -79,22 +79,6 @@ defmodule ServiceRadar.NetworkDiscovery.World do
     |> transaction_result()
   end
 
-  @doc "Removes only an unpublished stage that lost its cold-start publication race."
-  def discard_stage(layout_version) do
-    @resources
-    |> Ash.transact(fn ->
-      with {:ok, layout} <- locked_layout(layout_version),
-           :ok <- building?(layout),
-           :ok <- clear_stage_rows(WorldRelation, layout_version),
-           :ok <- clear_stage_rows(WorldPosition, layout_version) do
-        layout
-        |> Ash.Changeset.for_destroy(:discard)
-        |> Ash.destroy(actor: actor())
-      end
-    end)
-    |> transaction_result()
-  end
-
   @doc "Appends a bounded batch to an unpublished layout; positions must precede their relations."
   def append_stage(layout_version, positions, relations)
       when is_list(positions) and is_list(relations) and length(positions) <= @batch_size and
