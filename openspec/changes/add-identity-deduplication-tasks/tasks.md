@@ -16,7 +16,9 @@
 
 ## 2. Follow-up
 
-- [ ] 2.1 web-ng review queue for open tasks with the three operator actions.
+- [x] 2.1 web-ng review queue (`/devices/deduplication`) for tasks with their devices and
+      decisions; merge into a chosen survivor, mark distinct, dismiss and reopen for operators,
+      read-only for viewers; refreshed by resolution notifications.
 - [x] 2.2 SRQL entities for tasks and identity decisions, and MCP identity-diagnostics
       visibility: `in:identity_decisions` and `in:deduplication_tasks` (read-only, gated by
       `devices.view`, catalog and cookbook entries), and both in `trace_device_identity`.

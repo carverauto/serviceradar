@@ -37,6 +37,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Header do
         >
           <.icon name="hero-arrow-up-tray" class="size-4" /> Import CSV
         </.ui_button>
+        <.ui_button
+          :if={RBAC.can?(@current_scope, "devices.view")}
+          id="open-deduplication-queue"
+          navigate={~p"/devices/deduplication"}
+          variant="ghost"
+          size="sm"
+        >
+          <.icon name="hero-document-duplicate" class="size-4" /> De-duplication
+        </.ui_button>
         <.link
           :if={RBAC.can?(@current_scope, "settings.networks.manage")}
           navigate={~p"/settings/networks"}

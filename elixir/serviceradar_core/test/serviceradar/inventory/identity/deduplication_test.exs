@@ -275,8 +275,8 @@ defmodule ServiceRadar.Inventory.Identity.DeduplicationTest do
       assert [%DeduplicationTask{status: :dismissed, occurrence_count: 2} = task] =
                tasks_for(a.uid)
 
-      assert {:ok, %DeduplicationTask{status: :open}} =
-               task |> Ash.Changeset.for_update(:reopen, %{}, actor: @operator) |> Ash.update()
+      assert {:error, _viewer} = Deduplication.reopen(task, @viewer)
+      assert {:ok, %DeduplicationTask{status: :open}} = Deduplication.reopen(task, @operator)
     end
 
     test "only an open task can be resolved", %{actor: actor} do
@@ -328,8 +328,7 @@ defmodule ServiceRadar.Inventory.Identity.DeduplicationTest do
       {:ok, dismissed} = Deduplication.dismiss(task, @operator)
       assert_receive {:deduplication_task_updated, %{id: ^task_id, status: :dismissed}}
 
-      {:ok, reopened} =
-        dismissed |> Ash.Changeset.for_update(:reopen, %{}, actor: @operator) |> Ash.update()
+      {:ok, reopened} = Deduplication.reopen(dismissed, @operator)
 
       assert_receive {:deduplication_task_updated, %{id: ^task_id, status: :open}}
 

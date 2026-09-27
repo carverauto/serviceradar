@@ -29,6 +29,7 @@ SHARED_FIXTURE_SOURCES = {
     "test/phoenix/live/authored_dashboard_live_test.exs",
     "test/phoenix/live/camera_analysis_worker_live_test.exs",
     "test/phoenix/live/dashboard_live/netflow_map_geo_test.exs",
+    "test/phoenix/live/deduplication_live_test.exs",
     "test/phoenix/live/device_live/bulk_state_apply_db_test.exs",
     "test/phoenix/live/device_live_test.exs",
     "test/phoenix/live/device_live/endpoint_inventory_data_db_test.exs",
