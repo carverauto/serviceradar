@@ -2511,10 +2511,9 @@ fn flow_cidr_group(field: &str) -> Option<Result<(&'static str, u8)>> {
     let field = field.trim();
     let (endpoint, bits) = if let Some(bits) = field.strip_prefix("src_cidr:") {
         ("src", bits)
-    } else if let Some(bits) = field.strip_prefix("dst_cidr:") {
-        ("dst", bits)
     } else {
-        return None;
+        let bits = field.strip_prefix("dst_cidr:")?;
+        ("dst", bits)
     };
     let prefix = match bits.trim().parse::<u8>() {
         Ok(prefix) if prefix <= 128 => Ok((endpoint, prefix)),
