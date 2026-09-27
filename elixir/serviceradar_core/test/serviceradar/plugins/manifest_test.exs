@@ -366,6 +366,35 @@ defmodule ServiceRadar.Plugins.ManifestTest do
     assert action.requires_confirmation == true
   end
 
+  test "northbound actions declare a maximum run override duration only when set" do
+    action = %{
+      "action_id" => "demo.inject_fault",
+      "label" => "Inject fault",
+      "scopes" => ["device"]
+    }
+
+    manifest =
+      Map.put(@valid_manifest, "actions", [
+        Map.put(action, "max_override_duration_seconds", 1800),
+        Map.put(action, "action_id", "demo.status")
+      ])
+
+    assert {:ok, parsed} = Manifest.from_map(manifest)
+    assert [with_max, without_max] = parsed.actions
+    assert with_max.max_override_duration_seconds == 1800
+    # Absent rather than nil, so existing descriptors keep their hash.
+    refute Map.has_key?(without_max, :max_override_duration_seconds)
+
+    assert {:error, errors} =
+             Manifest.from_map(
+               Map.put(@valid_manifest, "actions", [
+                 Map.put(action, "max_override_duration_seconds", 0)
+               ])
+             )
+
+    assert "actions[1].max_override_duration_seconds must be a positive integer" in errors
+  end
+
   test "northbound action descriptors reject provider-owned UI code" do
     manifest =
       Map.put(@valid_manifest, "actions", [

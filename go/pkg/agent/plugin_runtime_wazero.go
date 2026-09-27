@@ -42,6 +42,7 @@ func (m *PluginManager) executeWithWasm(ctx context.Context, assignment *pluginA
 
 	exec := newPluginExecution(m, assignment)
 	defer exec.closeAll()
+	exec.applyRunOverrides(time.Now())
 
 	if err := exec.instantiateHostModule(ctx, runtime); err != nil {
 		return err

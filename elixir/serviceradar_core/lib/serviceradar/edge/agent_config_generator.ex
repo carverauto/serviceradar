@@ -59,6 +59,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Plugins.ProxmoxHostAuthority
   alias ServiceRadar.Plugins.RetiredNativeAddons
+  alias ServiceRadar.Plugins.RunOverrides
   alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadar.Plugins.StorageToken
 
@@ -390,10 +391,28 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     |> Enum.uniq_by(&logical_plugin_id/1)
     |> Enum.map(&build_plugin_assignment_config/1)
     |> Enum.reject(&is_nil/1)
+    |> attach_run_overrides(actor)
   rescue
     e ->
       Logger.warning("Error loading plugin assignments: #{inspect(e)}")
       []
+  end
+
+  # Run overrides set by an assignment's plugin actions ride in their own proto
+  # field; the agent merges them into scheduled-run config. They are part of the
+  # assignment map, so setting, ending or acknowledging one changes the config
+  # fingerprint and reaches the agent on its next poll.
+  defp attach_run_overrides([], _actor), do: []
+
+  defp attach_run_overrides(assignments, actor) do
+    overrides =
+      assignments
+      |> Enum.map(& &1.assignment_id)
+      |> RunOverrides.deliverable_by_assignment(actor: actor)
+
+    Enum.map(assignments, fn assignment ->
+      Map.put(assignment, :run_overrides, Map.get(overrides, assignment.assignment_id, []))
+    end)
   end
 
   defp ensure_plugin_package_loaded(
@@ -2885,9 +2904,15 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       # Deliberately separate from params_json for mixed-version safety. An old
       # agent ignores unknown protobuf field 23 and therefore cannot expose the
       # host-only envelope through Wasm get_config.
-      host_params_json: encode_json(host_params)
+      host_params_json: encode_json(host_params),
+      run_overrides_json: encode_run_overrides(Map.get(assignment, :run_overrides))
     }
   end
+
+  defp encode_run_overrides([_ | _] = overrides),
+    do: overrides |> RunOverrides.encode_list() |> encode_json()
+
+  defp encode_run_overrides(_overrides), do: <<>>
 
   defp resolved_assignment_params(assignment) do
     params = normalize_map(assignment.params)

@@ -1711,7 +1711,8 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
       BatchIngestor,
       ThreatIntelPluginIngestor,
       EventIngestor,
-      InventoryIngestor
+      InventoryIngestor,
+      ServiceRadar.Plugins.RunOverrideAckIngestor
     ]
   end
 
