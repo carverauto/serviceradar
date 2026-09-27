@@ -235,12 +235,17 @@
       "all_tenants?": false,
       "concurrently": false,
       "error_fields": [
-        "layout_version"
+        "layout_version",
+        "device_id"
       ],
       "fields": [
         {
           "type": "atom",
           "value": "layout_version"
+        },
+        {
+          "type": "atom",
+          "value": "device_id"
         }
       ],
       "include": null,
