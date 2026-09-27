@@ -64,6 +64,27 @@ pub fn logs(anchor: Anchor) -> Vec<LogRow> {
             });
         }
     }
+
+    // The edge window: five lines inside it and one EXACTLY on its upper bound, which a
+    // half-open window leaves to the next one.
+    let edge_times = [10_i64, 20, 30, 40, 50]
+        .into_iter()
+        .map(|offset_minutes| anchor.at(7 * 3600 + offset_minutes * 60))
+        .chain(std::iter::once(anchor.edge_instant()));
+    for (n, timestamp) in edge_times.enumerate() {
+        let (service, source, ip) = SERVICES[0];
+        rows.push(LogRow {
+            id: synthetic_uuid(0x42, n as u64),
+            timestamp,
+            severity_text: Some("INFO"),
+            severity_number: Some(9),
+            body: format!("synthetic edge log line {n}"),
+            service_name: service,
+            source,
+            ingest_agent_id: "agent-parity-01",
+            source_ip: ip,
+        });
+    }
     rows
 }
 
@@ -103,4 +124,27 @@ pub fn inserts(rows: &[LogRow], backend: Backend, qualifier: &str) -> Vec<String
             )
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::{DateTime, Utc};
+
+    fn anchor() -> Anchor {
+        Anchor::for_run(
+            DateTime::parse_from_rfc3339("2030-03-04T15:16:17Z")
+                .unwrap()
+                .with_timezone(&Utc),
+        )
+    }
+
+    #[test]
+    fn the_edge_window_has_a_line_exactly_on_its_upper_bound() {
+        let rows = logs(anchor());
+        assert!(
+            rows.iter()
+                .any(|row| row.timestamp == anchor().edge_instant())
+        );
+    }
 }

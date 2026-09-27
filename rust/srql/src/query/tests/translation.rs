@@ -267,7 +267,7 @@ fn translate_logs_without_time_gets_default_window() {
     assert!(
         response
             .sql
-            .contains("COALESCE(observed_timestamp, timestamp) <= $2"),
+            .contains("COALESCE(observed_timestamp, timestamp) < $2"),
         "logs list query should be upper-bounded by default, got: {}",
         response.sql
     );
@@ -299,7 +299,7 @@ fn translate_logs_stats_without_time_gets_default_window() {
             .contains("COALESCE(observed_timestamp, timestamp) >= $1")
             && response
                 .sql
-                .contains("COALESCE(observed_timestamp, timestamp) <= $2"),
+                .contains("COALESCE(observed_timestamp, timestamp) < $2"),
         "logs stats query should be time-bounded by default, got: {}",
         response.sql
     );
@@ -1964,7 +1964,7 @@ fn translate_rejects_unknown_agg_and_names_rate_sum() {
 /// dialect and the CNPG flow and MTR builders: a sample stamped exactly on `end` belongs
 /// to the next window, so two adjacent chart windows never count it twice. Each case is a
 /// different builder: the raw metric list, raw metric stats, the raw bucketed read, the
-/// events list and the events count.
+/// events list and count, and the logs list and stats.
 #[test]
 fn translate_metric_and_event_windows_are_half_open() {
     let window = "time:[2026-06-01T00:00:00Z,2026-06-01T01:00:00Z]";
@@ -1989,6 +1989,14 @@ fn translate_metric_and_event_windows_are_half_open() {
         (
             format!("in:security_findings {window} stats:count() as total"),
             "\"ocsf_events\".\"time\" < $",
+        ),
+        (
+            format!("in:logs {window} limit:10"),
+            "COALESCE(observed_timestamp, timestamp) < $2",
+        ),
+        (
+            format!("in:logs {window} stats:count() as total"),
+            "COALESCE(observed_timestamp, timestamp) < $2",
         ),
     ];
 

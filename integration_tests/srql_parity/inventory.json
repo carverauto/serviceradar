@@ -869,6 +869,7 @@
     {"id": "logs.rollup_severity.one_service", "query": "in:logs {window_main} service_name:svc-beta rollup_stats:severity"},
     {"id": "logs.count", "query": "in:logs {window_main} stats:\"count() as total\"", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/stats/query.ex"]},
     {"id": "logs.count.severity_filter", "query": "in:logs {window_main} severity_text:error stats:\"count() as total\""},
+    {"id": "logs.edge.upper_bound", "query": "in:logs {window_edge} stats:\"count() as total\""},
 
     {"id": "events.rollup_anomaly_findings", "query": "in:events {window_main} rollup_stats:anomaly_findings limit:1", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/stats/query.ex", "elixir/web-ng/lib/serviceradar_web_ng_web/live/observability_health_live/index.ex"]},
     {"id": "events.count", "query": "in:events {window_main} stats:\"count() as total\"", "deviation": "cnpg_events_count_column", "cnpg_rename": {"count": "total"}},

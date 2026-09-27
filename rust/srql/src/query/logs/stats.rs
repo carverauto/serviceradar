@@ -86,7 +86,8 @@ pub(super) fn build_stats_query(plan: &QueryPlan) -> Result<Option<LogsStatsSql>
     if let Some(TimeRange { start, end }) = &plan.time_range {
         clauses.push(format!("{} >= ?", effective_timestamp_sql()));
         binds.push(SqlBindValue::Timestamp(*start));
-        clauses.push(format!("{} <= ?", effective_timestamp_sql()));
+        // Half-open, like the list query, the severity rollup and the StarRocks dialect.
+        clauses.push(format!("{} < ?", effective_timestamp_sql()));
         binds.push(SqlBindValue::Timestamp(*end));
     }
 
@@ -467,7 +468,7 @@ mod tests {
         assert!(
             stats_sql
                 .sql
-                .contains("COALESCE(observed_timestamp, timestamp) <= ?"),
+                .contains("COALESCE(observed_timestamp, timestamp) < ?"),
             "time filter should use effective timestamp: {}",
             stats_sql.sql
         );
