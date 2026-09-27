@@ -4,6 +4,7 @@ alias Geolix.Adapter.MMDB2
 alias ServiceRadar.Automation.Ansible.FileCallbackResponsePolicyProvider
 alias ServiceRadar.Automation.CallbackGrants.RuntimeConfig
 alias ServiceRadar.Edge.RemoteAccessSSHCACommandSigner
+alias ServiceRadar.NATS.StateBucketSizing
 alias ServiceRadarWebNG.RemoteDesktopWebRTCConfig
 alias Swoosh.Adapters.Local
 
@@ -578,7 +579,7 @@ plugin_storage_overrides =
   # other non-positive or non-integer value fails boot.
   |> Keyword.put(
     :jetstream_max_bucket_size,
-    ServiceRadar.NATS.StateBucketSizing.bytes_from_env!(
+    StateBucketSizing.bytes_from_env!(
       "PLUGIN_STORAGE_JS_MAX_BUCKET_BYTES",
       ServiceRadarWebNG.Plugins.Storage.default_max_bucket_bytes()
     )
@@ -887,15 +888,6 @@ if plugin_storage_overrides != [] do
   config :serviceradar_web_ng, :plugin_storage, web_plugin_storage_config
 end
 
-# FieldSurvey artifact bucket cap (discard-new state bucket). Unset or blank
-# uses the 1 GiB default; any other non-positive or non-integer value fails boot.
-config :serviceradar_web_ng, :field_survey_artifact_store,
-  jetstream_max_bucket_size:
-    ServiceRadar.NATS.StateBucketSizing.bytes_from_env!(
-      "FIELD_SURVEY_JS_MAX_BUCKET_BYTES",
-      ServiceRadarWebNG.FieldSurveyArtifactStore.default_max_bucket_bytes()
-    )
-
 object_store_retention_defaults =
   Application.get_env(:serviceradar_web_ng, :object_store_retention, [])
 
@@ -922,6 +914,15 @@ object_store_retention_overrides =
     System.get_env("OBJECT_STORE_RETENTION_PLUGIN_ORPHAN_GRACE_SECONDS"),
     to_int
   )
+
+# FieldSurvey artifact bucket cap (discard-new state bucket). Unset or blank
+# uses the 1 GiB default; any other non-positive or non-integer value fails boot.
+config :serviceradar_web_ng, :field_survey_artifact_store,
+  jetstream_max_bucket_size:
+    StateBucketSizing.bytes_from_env!(
+      "FIELD_SURVEY_JS_MAX_BUCKET_BYTES",
+      ServiceRadarWebNG.FieldSurveyArtifactStore.default_max_bucket_bytes()
+    )
 
 if object_store_retention_overrides != [] do
   config :serviceradar_web_ng,
