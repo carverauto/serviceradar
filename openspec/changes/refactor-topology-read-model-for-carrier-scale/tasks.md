@@ -27,13 +27,13 @@ The shared invented million-device/two-million-relation generator passes the [la
 
 ## 3. UI Reliability and Readability
 - [x] 3.1 Bootstrap the layout manifest and visible tiles over HTTP independently of channel timing; retain the last compatible map on failure.
-- [ ] 3.2 Enforce label/readability budgets for map tiles and bounded detail scenes without an unbounded browser layout.
+- [x] 3.2 Bound map labels by the 128-glyph tile limit and label byte limit, and reuse bounded ELK scene label admission; never run a whole-world browser layout.
 - [x] 3.3 Keep detail expansion bounded: one accepted scene, at most one pending replacement, 128 nodes/256 relations/262,144 bytes per scene, and four cached scene pages; overflow uses explicit pages or summaries (`WorldSceneTest`, native details, and browser entry/return).
 - [x] 3.4 After #4749 lands, integrate deck.gl TileLayer with OrthographicView and its existing typed WebGPU sublayers.
 - [x] 3.5 Restrict existing ELK adapters to bounded detail scenes. Audit and reuse the current forest/radial code where useful; its presence does not satisfy persistent world-layout work.
 - [x] 3.6 Keep map and detail coordinate/cache identities separate and restore only compatible accepted scenes after errors.
 - [x] 3.7 Add stable-identity picking and coordinate search, including devices still represented by aggregates at maximum zoom.
-- [ ] 3.8 Make map Fit use the declared world/container extent and detail Fit include the full bounded scene inside the measured safe viewport.
+- [x] 3.8 Make map Fit use the declared world/container extent and detail Fit include the full bounded scene inside the measured safe viewport.
 - [x] 3.9 Render bounded bundles and clipped relation segments with stable picking identity and continuous procedural packet flow; resolve bundle metadata and bounded member scenes through the accepted tile selector with publication-bound continuation.
 - [x] 3.10 Expose recoverable tile, overlay, and detail-layout failures without replacing coherent last-good state.
 - [x] 3.11 Add bounded prefetch/LRU caching, in-flight request deduplication, and cached revisits/detail return with no geometry fetch; swap coherent same-zoom coverage without incompatible parent/child boundary portals.
