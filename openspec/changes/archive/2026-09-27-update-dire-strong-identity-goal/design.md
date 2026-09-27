@@ -81,7 +81,7 @@ without doing both is a defect.
 | Where | Wording | Resolution |
 |---|---|---|
 | `device-inventory` "Restore Soft-Deleted Devices" | discovery restores any tombstone | MODIFIED here (D5, D7). The pending copy in `add-device-delete-guardrails` is updated to match. |
-| `device-identity-reconciliation` "IP Alias Resolution" | a confirmed alias merges unconditionally | Superseded by the guarded version in `refactor-device-identity-reconciliation` (D1). Task 1.2. |
+| `device-identity-reconciliation` "IP Alias Resolution" | a confirmed alias merges unconditionally | Superseded by the guarded version carried in this change (D1), moved from `refactor-device-identity-reconciliation`. Task 1.2. |
 | `docs/docs/dire-identity-model.md` "never merge on ... MAC-only" | forbids MAC-only merges | Contradicts D5 for a globally-unique MAC in environments where it is the only hardware identifier. The doc is corrected. Randomized MACs stay excluded (D4). Task 1.3. |
 | `add-device-identity-fence` enforcement vs observe-only rollout | a stale write is abandoned | Unchanged. Enforcement is the intended end state and landed with #4618 (task 3.10); the `fence_observe_only` switch and its witness are gone. |
 
