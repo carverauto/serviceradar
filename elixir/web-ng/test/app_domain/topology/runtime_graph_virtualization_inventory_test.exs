@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphVirtualizationInventoryTest do
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNG.Topology.RuntimeGraph
 
+  @moduletag :topology_atlas_db
+
   test "virtualization inventory SQL returns hosted topology rows for host and guest devices" do
     unique = System.unique_integer([:positive])
     observed_at = DateTime.truncate(DateTime.utc_now(), :second)
