@@ -196,7 +196,33 @@ async function main() {
       const {profile: result} = await profile.send("Profiler.stop")
       await writeFile(process.env.GOD_VIEW_CPU_PROFILE, JSON.stringify(result))
     }
-    const report = {physical, headless, frameRateLimitDisabled, energySaverOff, adapter, first, metrics, detailRequests, geometryRequests: requests.length, serverFixture: fixture.measurements}
+    // After timing, compare the real producer/decoder output with canonical
+    // integer positions. Wire quantization must not be mistaken for movement.
+    const precision = await page.evaluate(async samples => {
+      const cache = window.__SR_WORLD_TRANSPORT__.renderer.cache
+      const results = []
+      for (const sample of samples) {
+        let checked = 0
+        let maxErrorFraction = 0
+        for (let z = 0; z <= cache.manifest.zmax; z++) {
+          const width = 2 ** (24 - z)
+          const geometry = await cache.get({z, x: Math.floor(sample.x / width), y: Math.floor(sample.y / width)})
+          const node = geometry.nodes.find(node => node.kind === "device" && node.id === sample.device_id)
+          if (!node) continue // Hidden members are represented by aggregates.
+          const x = geometry.positions[node.index * 2] * 32768
+          const y = geometry.positions[node.index * 2 + 1] * 32768
+          maxErrorFraction = Math.max(maxErrorFraction, Math.abs(x - sample.x) / (width / 65535), Math.abs(y - sample.y) / (width / 65535))
+          checked += 1
+        }
+        results.push({device_id: sample.device_id, checked, maxErrorFraction})
+      }
+      return results
+    }, samples.map(({device_id, x, y}) => ({device_id, x, y})))
+    for (const sample of precision) {
+      assert(sample.checked > 1, "coordinate precision must span multiple visible zoom levels")
+      assert(sample.maxErrorFraction < 1, "decoded position exceeds one tile-local UInt16 unit")
+    }
+    const report = {physical, headless, frameRateLimitDisabled, energySaverOff, adapter, first, metrics, precision, detailRequests, geometryRequests: requests.length, serverFixture: fixture.measurements}
     console.log(JSON.stringify(report, null, 2))
     assert.equal(metrics.rendererFailed, false)
     assert(metrics.packetLayers > 0, "packet flow must be on")
