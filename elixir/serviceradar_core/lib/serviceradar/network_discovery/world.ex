@@ -7,7 +7,7 @@ defmodule ServiceRadar.NetworkDiscovery.World do
   generation after all relation and membership changes commit. Geometry tile
   revisions belong to the tile engine and must not include this generation.
 
-  Bootstrap streams bounded batches under a shared head lock. Every publisher
+  Bootstrap streams batches of at most 500 rows under a shared head lock. Every publisher
   locks that same row before changing visible data. Callbacks should only feed
   their native builder; finish the index after `stream_active/2` returns.
   """
@@ -471,6 +471,9 @@ defmodule ServiceRadar.NetworkDiscovery.World do
         rows -> {rows, rows |> List.last() |> Map.fetch!(id_field)}
       end
     end)
+    # Database fetches amortize round trips; native consumers still require
+    # bounded 500-row calls even when one read returns a larger page.
+    |> Stream.flat_map(&Enum.chunk_every(&1, @batch_size))
     |> Enum.reduce_while({:ok, accumulator}, fn rows, {:ok, acc} ->
       case callback.({event, rows}, acc) do
         {:ok, next} -> {:cont, {:ok, next}}
