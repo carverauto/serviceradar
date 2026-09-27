@@ -160,6 +160,22 @@ The tile engine SHALL bundle low-zoom relations by their visible endpoint or agg
 - **AND** procedural packet flow SHALL retain route-distance continuity
 - **AND** clipping proxies SHALL NOT appear as extra devices or inflate aggregate counts
 
+#### Scenario: Shared portals remain independent of tile density
+- **GIVEN** adjacent tiles at the same zoom use different interior generalization
+- **WHEN** a relation crosses their shared boundary
+- **THEN** both SHALL use the same fixed side-midpoint or exact corner portal and stable portal identity
+- **AND** their phase values SHALL agree at that boundary without consulting the other tile's plan
+- **AND** boundary proxies SHALL be limited to eight per tile with zero represented-device membership
+- **AND** bundle identity SHALL derive from stable endpoint representation IDs and layout identity rather than local row indexes
+
+#### Scenario: Owned endpoint contact retains its connector
+- **GIVEN** a canonical endpoint immediately enters or leaves its half-open owning tile at a shared boundary
+- **WHEN** the canonical segment has zero length inside that owner
+- **THEN** the tile SHALL retain its representation-to-portal connector unless its rendered endpoints coincide
+- **AND** phase SHALL reserve half a tile width for that connector independently of local aggregation
+- **AND** an unowned tangential corner contact SHALL NOT create a segment
+- **AND** a genuine self-loop SHALL contribute to the owning representation's internal-relation count
+
 #### Scenario: Low-zoom bundles remain explainable
 - **GIVEN** many admitted relations connect the same visible aggregate pair
 - **WHEN** the overview uses a bundled edge
@@ -218,6 +234,13 @@ The God-View client SHALL use deck.gl TileLayer in OrthographicView with bounded
 - **GIVEN** an unchanged previously visited area remains within the LRU budget
 - **WHEN** the operator pans back to it
 - **THEN** its tiles SHALL render from cache without a network fetch
+
+#### Scenario: Zoom transition preserves compatible shared boundaries
+- **GIVEN** target-zoom tiles arrive at different times
+- **WHEN** the client transitions visible coverage to that zoom
+- **THEN** it SHALL retain compatible previous coverage until the target coverage is ready for a coherent swap
+- **AND** it SHALL NOT render incompatible parent/child portals across a shared boundary
+- **AND** failed or stale target requests SHALL preserve the last compatible coverage
 
 #### Scenario: Detail overflow stays bounded
 - **GIVEN** an attachment group exceeds the configured detail-scene member budget
