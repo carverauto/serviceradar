@@ -41,12 +41,7 @@ CONSTANTS
     NoId, NoIp, NoRec,
     Bugs
 
-KnownBugs == {
-    \* inventory/sync/device_writes.ex resolve_record_active_ip/7: a strong write adopts an
-    \* anchorless provisional seed holding its address even when the written record already
-    \* exists; its identifiers stay on that record, which keeps its stale address (#4705).
-    "seed_adopts_existing"
-}
+KnownBugs == {}
 ASSUME Bugs \subseteq KnownBugs
 
 Bug(b) == b \in Bugs
@@ -208,11 +203,9 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
         others0   == holderAt \ {target0}
         seedHold  == {r \in others0 : IdsHeld(r) = {}}
         \* A strong write creating a new record onto an address held by an anchorless provisional
-        \* seed adopts the seed. The code also adopts it for an existing record
-        \* (seed_adopts_existing): the write lands on the seed while the record it resolved to keeps
-        \* its identifiers, its merges and its old address.
-        adopt     == strong # {} /\ (~created[target0] \/ Bug("seed_adopts_existing"))
-                     /\ seedHold # {}
+        \* seed adopts the seed. An existing record never does (#4705): it takes the address below
+        \* and the seed releases it.
+        adopt     == strong # {} /\ ~created[target0] /\ seedHold # {}
         target    == IF adopt THEN CHOOSE r \in seedHold : TRUE ELSE target0
         \* An existing result whose address is still one of its own keeps it, and this write
         \* claims no address at all.

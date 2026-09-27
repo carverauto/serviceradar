@@ -608,18 +608,22 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
 
     incoming_ip_owners = incoming_ip_owners(records)
 
-    # Registration owners and the holders' source-authoritative identifier
-    # rows for the hostname-agreement adoption below. Loaded once per batch and
-    # only when a strong record actually collides with a different holder;
-    # batches without such collisions pay no extra query.
+    # Registration owners, the holders' source-authoritative identifier rows,
+    # and which colliding records already exist, for the adoption rules below.
+    # Loaded once per batch and only when a strong record actually collides
+    # with a different holder; batches without such collisions pay no extra
+    # query.
+    colliding = Enum.filter(records, &strong_ip_collision?(&1, strong_uids, active_holders))
+
     identity_regs =
-      if Enum.any?(records, &strong_ip_collision?(&1, strong_uids, active_holders)) do
+      if colliding == [] do
+        %{registrations: %{}, source_authoritative: MapSet.new(), existing_uids: MapSet.new()}
+      else
         %{
           registrations: load_identity_registrations(records, existing_by_ip),
-          source_authoritative: load_source_authoritative_holders(existing_by_ip)
+          source_authoritative: load_source_authoritative_holders(existing_by_ip),
+          existing_uids: load_existing_uids(colliding)
         }
-      else
-        %{registrations: %{}, source_authoritative: MapSet.new()}
       end
 
     {remapped_records, {remap, conflicts, _anchors, stale_releases}} =
@@ -783,7 +787,8 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
           # collides with a different active owner (provisional-seed path).
           {anchors, anchored_uids} = ensure_anchored_uids(anchors, existing_by_ip)
 
-          if provisional_ip_seed?(existing, anchored_uids) do
+          if provisional_ip_seed?(existing, anchored_uids) and
+               not MapSet.member?(identity_regs.existing_uids, record.uid) do
             {Map.put(record, :uid, existing_uid),
              {Map.put(remap, record.uid, existing_uid), conflicts, anchors, stale_releases}}
           else
@@ -1018,7 +1023,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     partition = record_partition(record)
 
     cond do
-      Repo.exists?(from(d in Device, where: d.uid == ^record.uid)) ->
+      MapSet.member?(identity_regs.existing_uids, record.uid) ->
         "existing_device"
 
       source_authoritative?(record_identity_pairs(record, partition)) or
@@ -1041,6 +1046,17 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
       true ->
         nil
     end
+  end
+
+  # The colliding records whose uid already names a device row (live or
+  # tombstoned). Such a record is a device, not a sighting looking for one, so
+  # it never adopts the holder of its address.
+  defp load_existing_uids(records) do
+    uids = records |> Enum.map(& &1.uid) |> Enum.uniq()
+
+    from(d in Device, where: d.uid in ^uids, select: d.uid)
+    |> Repo.all()
+    |> MapSet.new()
   end
 
   defp source_authoritative?(pairs) do
@@ -1166,6 +1182,13 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   # uid, so an operator-added "something is at this IP" row survives and gains
   # the discovered identity, which is what lets importing and manual entry
   # coexist.
+  #
+  # Only a record that is not yet a device adopts a seed. An existing device
+  # that moves onto a seeded address keeps its own record: remapping its write
+  # onto the seed would leave its identifiers and its stale address behind on
+  # the real record while the seed took its attributes, on every sync. It takes
+  # the address under `claim_address_from_holder/4` instead, and the seed
+  # releases it and stays live until expiry.
   defp provisional_ip_seed?(%{uid: uid} = holder, anchored_uids) do
     not MapSet.member?(anchored_uids, uid) and
       (declared_provisional?(holder) or
