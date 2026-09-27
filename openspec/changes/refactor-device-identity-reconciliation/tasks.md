@@ -10,7 +10,10 @@
 - [x] 1.6 Make deterministic-UID and identifier resolution consult merge_audit canonical mapping before creating devices (no tombstone resurrection); stop embedding the volatile MAC list in deterministic UID input (`identity_reconciler.ex:416-451`).
 - [x] 1.7 Replace silent `device_id` replace-on-conflict in `bulk_upsert_identifiers` (`sync_ingestor.ex:1286-1305`) and `DeviceIdentifier` upsert (`device_identifier.ex:150-166`) with audited rebind operations.
 - [x] 1.8 Fix demo faker: seed historical MAC generation deterministically per device (`go/cmd/faker/main.go:1408-1480`), fix PVC persistence permission failure (helm volume fsGroup/initContainer), verify `loadFromStorage` restores MAC sets across restarts.
-- [ ] 1.9 (deploy-gated) Verify in demo: no new comma-blob identifiers, no new `ip_alias_conflict` oscillation audits for 48h.
+- [ ] 1.9 (deploy-gated) Verify in demo: no new comma-blob identifiers for 48h.
+      ~~No new `ip_alias_conflict` oscillation audits for 48h.~~ That half is superseded: an IP
+      alias no longer merges devices at all (#4627, #4648; `update-dire-strong-identity-goal`
+      tasks 3.1-3.2), so there is no alias merge left to oscillate.
 
 ## 2. Stable integration identity (before connector resume)
 
@@ -21,12 +24,19 @@
 
 ## 3. Restore the Proxmox connector
 
-- [ ] 3.1 (separate branch in review) Land/verify `fix/bumblebee-gateway-catalog-delivery` so agent config delivery unblocks (currently deadlocks all plugin/config pushes on agent 1.2.99).
+- [x] 3.1 (separate branch in review) Land/verify `fix/bumblebee-gateway-catalog-delivery` so agent config delivery unblocks (currently deadlocks all plugin/config pushes on agent 1.2.99). Landed on staging in merge commit e5dc820ae7 (2026-06-10).
 - [x] 3.2 Add credential-broker grant resolution to the inventory plugin execution path (grants → `api_token`), with resolution audit rows; stop-gap acceptable: policy materialization injects refreshed token material into assignment params. Done core-side at config delivery: `Plugins.CredentialBrokerDelivery` refreshes the embedded grant payload (re-mints on expiry, never delivers expired material) and `SecretRefs.resolve_runtime_params/3` resolves the secret through `SecretBroker.resolve_with_grant` (`audit?: true` → one `credential_secret_resolution_audits` row per resolution); rotating grant payloads are excluded from the config version hash. Needs 3.1 to land before agents actually receive the refreshed config.
 - [x] 3.3 Ensure plugin artifact download tokens refresh with config delivery (fix 24h-TTL HMAC token staleness causing 401s). Core: tokens were already minted per generation but `not_modified` polls never delivered them — a download-token epoch (half the token TTL, floored 5m) now folds into the config version hash so configs re-version before tokens expire. Agent: `PluginManager.ApplyConfig` no longer drops token-only refreshes (fingerprint-unchanged configs update runner/stream download credentials in place without restarts). Needs 3.1 for delivery on the wedged demo agents.
-- [ ] 3.4 (live ops, after 3.1) Issue/verify Proxmox API token for pve01–pve04 (root SSH available) and confirm plugin runs succeed on agent-sr-test-pve04.
-- [ ] 3.5 (live validation; persistence path reworked in 5.4) Diagnose and fix virtualization enrichment persistence (frozen 2026-05-09 despite 318 successful plugin runs on 05-21 — persistence path broken by hypervisor-enrichment refactor).
-- [ ] 3.6 (live, after 3.4) Validate `add-proxmox-guest-network-identity` task 1.7 (guest NIC/IP identity against live demo data).
+- [x] ~~3.4 (live ops, after 3.1) Issue/verify Proxmox API token for pve01–pve04 (root SSH available) and confirm plugin runs succeed on agent-sr-test-pve04.~~
+      **Moved** to `fix-proxmox-inventory-plugin-reliability` task 5.4: Proxmox connector
+      operations, not identity reconciliation.
+- [x] ~~3.5 (live validation; persistence path reworked in 5.4) Diagnose and fix virtualization enrichment persistence (frozen 2026-05-09 despite 318 successful plugin runs on 05-21 — persistence path broken by hypervisor-enrichment refactor).~~
+      **Moved** to `fix-proxmox-inventory-plugin-reliability` task 5.5. The code side is 5.4
+      here, plus 086b96ae86 (streamed hypervisor children link to existing hosts); what remains
+      is live confirmation.
+- [x] ~~3.6 (live, after 3.4) Validate `add-proxmox-guest-network-identity` task 1.7 (guest NIC/IP identity against live demo data).~~
+      **Moved**: this is `add-proxmox-guest-network-identity` task 1.7 itself, which stays open
+      there.
 
 ## 4. Production data remediation (after 1.x guards verified)
 
@@ -43,7 +53,9 @@
 - [x] 5.2 Route `MapperResultsIngestor` device creation through DIRE (`mapper_results_ingestor.ex:479-481,918-920,1060-1062`) and register its identifiers.
 - [x] 5.3 Unify MAC normalization across ingestors (wifi map lowercase-colon variant `wifi_map/batch_ingestor.ex:1394-1395`; hypervisor re-colonized format `proxmox_enrichment_ingestor.ex:591-609`).
 - [x] 5.4 Hypervisor enrichment: resolve hosts via network identity too (not only uid/exact-case name, `hypervisor_enrichment_ingestor.ex:825-864,960-969`); stop pre-setting `device_id` that bypasses reconciliation.
-- [ ] 5.5 (live/perf, after deploy) Benchmark ingest at 50k-device faker scale; verify no throughput regression after fast-path removal.
+- [x] ~~5.5 (live/perf, after deploy) Benchmark ingest at 50k-device faker scale; verify no throughput regression after fast-path removal.~~
+      **Superseded** by `add-hermetic-armis-dire-e2e` task 7.3, which runs the same 50,000-device
+      faker profile through ingest and records runtime baselines. It stays open there.
 
 ## 6. Agent identity first-class
 

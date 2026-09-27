@@ -26,9 +26,10 @@ DHCP moves an address from one device to another, so "same address" can never me
 device". An address-only sighting attaches to the device that currently holds that address.
 A confirmed IP alias is the same kind of evidence: it can resolve an address-only update. It
 cannot merge devices whose strong identities differ, and conflicting alias state is
-invalidated rather than acted on. The guarded `IP Alias Resolution` in
-`refactor-device-identity-reconciliation` already says this. That change is left to own the
-wording, and this design depends on it being archived rather than on a second copy.
+invalidated rather than acted on. Once the alias merge was removed (#4627, #4648) a confirmed
+alias merges nothing at all. This change carries `IP Alias Resolution` and `Merge Stability and
+Oscillation Protection`, moved from `refactor-device-identity-reconciliation`, whose remaining
+tasks are live-demo checks. Moving the blocks keeps a single copy of each.
 
 ### D2. Source-authoritative identifiers win, visibly
 

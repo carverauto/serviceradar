@@ -108,7 +108,8 @@ Target roughly ten pinned paths total; below that the fence is decoration.
 - [ ] 5.3 `event_writer/processors/metrics.ex` -- highest write volume of the set;
       `observe_many/2` emits one telemetry event per pinned device, so measure the emit cost
       before enabling here.
-- [ ] ~~5.4 `core/result_processor.ex`~~ **drop this site.** The module performs ZERO writes
+- [x] ~~5.4 `core/result_processor.ex`~~ **Dropped, not pinned** (still true on staging on
+      2026-09-27). The module performs ZERO writes
       (no Ash create/update/destroy/bulk, no Repo write) and has ZERO production callers --
       only `test/serviceradar/core/result_processor_test.exs` references it. A pin here would
       bracket nothing and report a constant zero, which is worse than no measurement because it
@@ -117,7 +118,7 @@ Target roughly ten pinned paths total; below that the fence is decoration.
 - [ ] 5.5 `inventory/endpoint_inventory_ingestor.ex` — also fix `build_context/5`, which
       prefers the agent's cached uid over the freshly repointed value and so reverses the
       merge's own `EndpointInventoryMoves` work on the next scan.
-- [x] 5.6 `inventory/sync_ingestor.ex`
+- [x] 5.6 `inventory/sync_ingestor.ex` -- enforced, not only observed (#4691, task 4.5).
 - [ ] 5.7 `network_discovery/mapper_results_ingestor.ex`
 - [ ] 5.8 `inventory/device_source_observation_ingestor.ex` -- **blocked as written**: its test
       is `use ExUnit.Case, async: true` with no `DataCase`
@@ -239,12 +240,12 @@ automatic, and the real defect is elsewhere.
       unchanged.
 - [ ] 10.2 Reassigning the full set of device-keyed tables. Larger project, orthogonal to
       fencing, and impossible for hashed identities.
-- [ ] 10.3 A merge-stable device lineage id hashed into `finding_uid`. Conclusion unchanged,
-      reasoning corrected: the uid scheme does not need changing because the edge identity is
+- [x] ~~10.3 A merge-stable device lineage id hashed into `finding_uid`.~~ **Superseded, won't do**
+      (design D7). Conclusion unchanged, reasoning corrected: the uid scheme does not need changing because the edge identity is
       **already** merge-invariant and core re-keys on ingest.
 - [ ] 10.4 Projecting `Agent.device_uid` onto `MetricResource.device_id` so the edge carries a
       canonical, merge-following identity. Independently motivated — the same gap already
       breaks seasonal-baseline delivery for sysmon, since core keys baselines by canonical
       device id while the edge derives `<hostname>|<metric>`, key spaces that cannot match.
-      **Blocked on 3.5**, and note it would make `episode_uid` merge-unstable and only then
+      Its blocker, 3.5, is done. Note it would make `episode_uid` merge-unstable and only then
       create real demand for the successor-uid lineage this proposal removed.

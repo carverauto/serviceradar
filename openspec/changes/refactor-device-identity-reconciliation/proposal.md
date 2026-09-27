@@ -29,6 +29,9 @@ DIRE is failing at its core job in the live demo, and a multi-angle investigatio
 ## Impact
 
 - Affected specs: `device-identity-reconciliation` (major), `device-inventory` (agent badge read model), `wasm-plugin-system` (inventory plugin credential resolution)
+  - The `IP Alias Resolution` and `Merge Stability and Oscillation Protection` blocks moved to
+    `update-dire-strong-identity-goal` on 2026-09-27, where the alias rule is stricter: an alias
+    never merges devices. This change's remaining tasks are live-demo checks.
 - Affected code:
   - `elixir/serviceradar_core/lib/serviceradar/inventory/identity_reconciler.ex`, `device_identifier.ex`, `sync_ingestor.ex`, `hypervisor_enrichment_ingestor.ex`, `proxmox_enrichment_ingestor.ex`, `device_discovery_ingestor.ex`
   - `elixir/serviceradar_core/lib/serviceradar/network_discovery/mapper_results_ingestor.ex`, `wifi_map/batch_ingestor.ex`, `camera/inventory_ingestor.ex`

@@ -41,7 +41,7 @@ already asserted distinct SHALL NOT open a task.
 - **THEN** the action is refused and no device changes
 
 ### Requirement: De-duplication Review Queue
-The web UI SHALL provide a review queue at `/devices/deduplication` that lists de-duplication tasks by status, open tasks first by default, each with its device set, the kind and reason of the decision that opened it, its occurrence count and the time of its latest decision. Reviewing a task SHALL show its devices, including tombstoned ones, and the identity decisions about exactly that device set with their evidence. Any user with `devices.view` SHALL be able to read the queue; only a user allowed to resolve tasks SHALL be offered, and SHALL be able to perform, merge into a chosen survivor, mark distinct, dismiss and reopen. Every queue event SHALL re-check the user's permission, and a resolution SHALL re-read the task rather than trust the submitted form. A task resolved elsewhere SHALL leave the open queue of every session showing it without a reload.
+The web UI SHALL provide a review queue at `/devices/deduplication` that lists de-duplication tasks by status, open tasks first by default, each with its device set, the kind and reason of the decision that opened it, its occurrence count and the time of its latest decision. Reviewing a task SHALL show its devices, including tombstoned ones, and the identity decisions about exactly that device set with their evidence. Any user with `devices.view` SHALL be able to read the queue; only a user allowed to resolve tasks SHALL be offered, and SHALL be able to perform, merge into a chosen survivor, mark distinct, dismiss and reopen. Every queue event SHALL re-check the user's permission, and a resolution SHALL re-read the task rather than trust the submitted form. A task resolved elsewhere SHALL leave the open queue of every session showing it without a reload. Resolution notifications SHALL be sent only after the resolving transaction commits, and a resolution that is refused or rolls back SHALL send none.
 
 #### Scenario: An operator resolves a task from the queue
 - **GIVEN** an open task for two devices
@@ -59,3 +59,9 @@ The web UI SHALL provide a review queue at `/devices/deduplication` that lists d
 - **GIVEN** an operator viewing the open queue
 - **WHEN** another operator dismisses one of the listed tasks
 - **THEN** the task leaves the first operator's open queue without a reload
+
+#### Scenario: A rolled-back resolution sends no notification
+- **GIVEN** an operator viewing the open queue
+- **WHEN** another operator's resolution of a listed task is refused or its transaction rolls back
+- **THEN** no resolution notification is sent
+- **AND** the task stays in the first operator's open queue

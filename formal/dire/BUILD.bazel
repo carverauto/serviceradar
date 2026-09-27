@@ -1,7 +1,7 @@
 load("//build/tla:tlc.bzl", "tlc_test")
 
 # DIRE formal models. See README.md, openspec/specs/dire-formal-model and
-# openspec/changes/update-dire-strong-identity-goal.
+# openspec/specs/device-identity-reconciliation.
 
 # The committed traces, read by the core integration lanes (INTEGRATION_RUNTIME_DATA) so
 # dire_resolution_trace_test.exs and dire_lifecycle_trace_test.exs can compare each recorded

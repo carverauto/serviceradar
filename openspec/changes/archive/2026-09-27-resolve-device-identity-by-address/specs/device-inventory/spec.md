@@ -4,7 +4,9 @@
 The system SHALL expose device identity resolution from an address as a read, without
 probing the device or evaluating any check. It SHALL accept a single address and a batch
 of addresses, and SHALL apply the same resolution rules as the existing internal resolver:
-the IP is authoritative, an optional MAC corroborates it, and no identity is created.
+the address selects the live device that currently holds it, an optional MAC corroborates
+it, and no identity is created. The address is evidence of which device holds it now, not a
+device identity.
 
 #### Scenario: A known address resolves
 - **GIVEN** an address held by exactly one live device in a partition
