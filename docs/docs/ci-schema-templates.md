@@ -99,8 +99,9 @@ workflow and fixture credentials have been materialized through its existing set
    `ServiceRadar.Repo.SchemaBootstrap.sync_migration_ledgers!/1`, and verifies that
    both ledgers record exactly the manifest's `migration_versions`, and that the
    extension versions are as expected. web-ng's migrations gate reads the ash
-   ledger, so a clone without it answers every web-ng route with 503. It stops the Repo, disables connections to the candidate, checks the
-   storage budget, and publishes `ready` using the ownership fence. Its interface
+   ledger, so a clone without it answers every web-ng route with 503. It stops
+   the Repo, disables connections to the candidate, checks the storage budget,
+   and publishes `ready` using the ownership fence. Its interface
    is an ExUnit result, not the Rust preparation JSON protocol. Repeat step 1 after
    success and require `ready` with the same digest before cloning. The preparation
    token is informational; callers must not inject it or assume it stays unchanged.
