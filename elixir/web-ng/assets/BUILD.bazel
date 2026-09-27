@@ -391,9 +391,19 @@ js_binary(
 
 js_run_binary(
     name = "world_gpu_page",
-    srcs = ["god_view_world_gpu_harness.js", "god_view_world_transport_harness.js", ":god_view_scene_test_srcs", ":node_modules", ":css_bundle"],
+    srcs = [
+        "god_view_world_gpu_harness.js",
+        "god_view_world_transport_harness.js",
+        ":css_bundle",
+        ":god_view_scene_test_srcs",
+        ":node_modules",
+    ],
     outs = ["world_gpu_page.html"],
-    args = ["god_view_world_gpu_harness.js", "world_gpu_page.html", "static/assets/css/app.css"],
+    args = [
+        "god_view_world_gpu_harness.js",
+        "world_gpu_page.html",
+        "static/assets/css/app.css",
+    ],
     chdir = package_name(),
     tool = ":world_gpu_bundler",
 )
@@ -402,8 +412,8 @@ js_run_binary(
 # is disposable, never committed, and contains invented fixtures only.
 write_source_files(
     name = "world_gpu_smoke",
-    files = {"world_gpu_smoke.html": ":world_gpu_page"},
     diff_test = False,
+    files = {"world_gpu_smoke.html": ":world_gpu_page"},
 )
 
 js_library(
@@ -529,4 +539,31 @@ phoenix_digest(
     src = ":static_undigested",
     out = "static.tar.gz",
     prefix = "static",
+)
+
+# Production NIF-encoded million-device hierarchy served over real loopback HTTP.
+# Physical-GPU timing uses this same executable with GOD_VIEW_PHYSICAL_GPU=1.
+js_test(
+    name = "million_world_browser_test",
+    size = "large",
+    args = [
+        "$(rootpath //elixir/web-ng:million_world_browser_fixture)",
+        "$(rootpath :world_gpu_page)",
+    ],
+    data = [
+        ":node_modules/@playwright/test",
+        ":world_gpu_page",
+        "//elixir/web-ng:million_world_browser_fixture",
+    ],
+    entry_point = "god_view_million_browser.cjs",
+    env = {"PLAYWRIGHT_BROWSERS_PATH": "/ms-playwright"},
+    exec_properties = {
+        "container-image": "docker://registry.carverauto.dev/serviceradar/playwright-rbe@sha256:d9266ee97f0dbd297618a10afb00b5006ebf2bb19dd38887da3230ed4b7829ea",
+    },
+    tags = [
+        "acceptance_test",
+        "external",
+        "no-local",
+        "no-remote-cache",
+    ],
 )

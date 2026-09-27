@@ -1,4 +1,5 @@
 load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
 load("@rules_rs//rs:rust_library.bzl", "rust_library")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
 
@@ -8,19 +9,49 @@ rust_library(
     crate_name = "serviceradar_topology_atlas",
     crate_root = "src/lib.rs",
     visibility = ["//visibility:public"],
-    deps = all_crate_deps(cargo_only = True, normal = True),
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ),
 )
 
 rust_test(
     name = "layout_test",
-    srcs = ["tests/layout.rs"],
+    srcs = [
+        "fixtures/hierarchy.rs",
+        "tests/layout.rs",
+    ],
     crate_root = "tests/layout.rs",
     deps = [":topology_atlas"],
 )
 
+rust_binary(
+    name = "million_world_fixture_generator",
+    srcs = [
+        "fixtures/export.rs",
+        "fixtures/hierarchy.rs",
+    ],
+    crate_root = "fixtures/export.rs",
+    tags = ["manual"],
+    deps = [":topology_atlas"],
+)
+
+genrule(
+    name = "million_world_fixture",
+    outs = ["million_world.tsv"],
+    cmd = "$(location :million_world_fixture_generator) $@",
+    tags = ["manual"],
+    tools = [":million_world_fixture_generator"],
+    visibility = ["//elixir/web-ng:__pkg__"],
+)
+
 filegroup(
     name = "srcs",
-    srcs = glob(["src/**", "Cargo.toml"]),
+    srcs = glob([
+        "src/**",
+        "fixtures/**",
+        "Cargo.toml",
+    ]),
     visibility = ["//visibility:public"],
 )
 
