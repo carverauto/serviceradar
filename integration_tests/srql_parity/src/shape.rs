@@ -1,10 +1,20 @@
-//! The SHAPE of an SRQL query: what the inventory and the source scan are compared by.
+//! The SHAPE of an SRQL query: what a product query and an inventory entry are compared by.
 //!
 //! Exact text cannot be compared, because a dashboard panel and an inventory entry differ in
 //! filters and windows. A shape is the entity plus the clauses that select a SQL code path in either
 //! dialect -- `bucket`, `agg`, `series`, `value_field`, `stats`, `rollup_stats`, `other` --
 //! and the `sort`/`limit` modifiers. Filters are deliberately NOT part of a shape: a new
 //! filter value does not pick a new aggregate translation, a new `agg:` does.
+//!
+//! This module is the definition of the normalization. It exists a second time, in Elixir, in
+//! `elixir/web-ng/test/support/srql_parity_shape.ex`, because the builder-coverage test drives
+//! the product's Elixir query builders and has to match what they produce. The two cannot drift
+//! silently: `shape_examples.json` holds worked examples (text -> entity, chart?, clauses,
+//! modifiers) and both test suites assert every one of them. Change the rules here, in the
+//! Elixir port, and in the examples together.
+//!
+//! Two parameters are wildcarded because they never pick a translation on their own: the
+//! `bucket:` width, and the prefix length of a `src_cidr:<n>` / `dst_cidr:<n>` group field.
 //!
 //! The three regressions that motivated the harness are each one clause value apart from a
 //! query that worked (`agg:rate` vs `agg:avg`, `series:core_id` vs `series:metric_name`,
@@ -14,6 +24,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 /// The `bucket` clause value: the width never selects a translation on its own.
 pub const WILDCARD: &str = "*";
+
+/// Worked normalization examples shared with the Elixir port (see the module docs).
+pub const SHAPE_EXAMPLES_JSON: &str = include_str!("../shape_examples.json");
 
 /// Clauses whose value picks a translation path. Order is irrelevant; membership is not.
 pub const CLAUSE_KEYS: &[&str] = &[
@@ -201,7 +214,7 @@ pub fn stats_signature(values: &[String]) -> String {
             Some((aggregates, by)) => (aggregates, Some(by)),
             None => (value.as_str(), None),
         };
-        for item in aggregates.split(',') {
+        for item in split_top_level(aggregates) {
             let expr = item.trim();
             let expr = match expr.to_ascii_lowercase().find(" as ") {
                 Some(at) => expr[..at].trim(),
@@ -220,8 +233,9 @@ pub fn stats_signature(values: &[String]) -> String {
         if let Some(by) = by {
             group_by.extend(
                 by.split(',')
-                    .map(|field| field.trim().to_string())
-                    .filter(|field| !field.is_empty()),
+                    .map(str::trim)
+                    .filter(|field| !field.is_empty())
+                    .map(group_field),
             );
         }
     }
@@ -230,6 +244,41 @@ pub fn stats_signature(values: &[String]) -> String {
         functions.join(",")
     } else {
         format!("{}|by:{}", functions.join(","), group_by.join(","))
+    }
+}
+
+/// Splits an aggregate list on the commas between aggregates, not the ones inside an
+/// aggregate's argument list (`wavg(avg_us, received) as latency, count() as traces`).
+fn split_top_level(list: &str) -> Vec<&str> {
+    let mut items = Vec::new();
+    let (mut depth, mut start) = (0usize, 0usize);
+    for (at, ch) in list.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            ',' if depth == 0 => {
+                items.push(&list[start..at]);
+                start = at + 1;
+            }
+            _ => {}
+        }
+    }
+    items.push(&list[start..]);
+    items
+}
+
+/// A group field, with the prefix length of a CIDR grouping wildcarded (`src_cidr:24` ->
+/// `src_cidr:*`): the length is a parameter of one translation, like the bucket width.
+fn group_field(field: &str) -> String {
+    match field.split_once(':') {
+        Some((name, length))
+            if name.ends_with("_cidr")
+                && !length.is_empty()
+                && length.chars().all(|c| c.is_ascii_digit()) =>
+        {
+            format!("{name}:{WILDCARD}")
+        }
+        _ => field.to_string(),
     }
 }
 
@@ -242,6 +291,98 @@ fn split_by(value: &str) -> Option<(&str, &str)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::coverage::warehouse_entity;
+    use serde::Deserialize;
+
+    /// `shape_examples.json`, the worked examples the Elixir port asserts too.
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Examples {
+        #[serde(rename = "_doc")]
+        _doc: String,
+        entities: BTreeMap<String, Option<String>>,
+        shapes: Vec<Example>,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Example {
+        query: String,
+        entity: Option<String>,
+        chart: bool,
+        clauses: BTreeMap<String, String>,
+        modifiers: BTreeSet<String>,
+    }
+
+    #[test]
+    fn the_shared_normalization_examples_hold() {
+        let examples: Examples =
+            serde_json::from_str(SHAPE_EXAMPLES_JSON).expect("shape_examples.json must parse");
+        assert!(!examples.entities.is_empty() && !examples.shapes.is_empty());
+        for (spelling, canonical) in &examples.entities {
+            assert_eq!(
+                warehouse_entity(spelling),
+                canonical.as_deref(),
+                "entity `{spelling}`"
+            );
+        }
+        for example in &examples.shapes {
+            let shape = shape_of(&example.query);
+            let entity = shape.entity.as_deref().and_then(warehouse_entity);
+            assert_eq!(
+                entity,
+                example.entity.as_deref(),
+                "entity of {}",
+                example.query
+            );
+            assert_eq!(
+                shape.is_chart(),
+                example.chart,
+                "chart? of {}",
+                example.query
+            );
+            assert_eq!(
+                shape.clauses, example.clauses,
+                "clauses of {}",
+                example.query
+            );
+            assert_eq!(
+                shape.modifiers, example.modifiers,
+                "modifiers of {}",
+                example.query
+            );
+        }
+    }
+
+    #[test]
+    fn commas_inside_an_aggregate_do_not_split_it() {
+        let shape = shape_of(
+            "in:mtr_hops stats:\"wavg(avg_us, received) as latency, count() as traces by addr\"",
+        );
+        assert_eq!(
+            shape.clauses["stats"],
+            "count(*),wavg(avg_us,received)|by:addr"
+        );
+    }
+
+    #[test]
+    fn a_cidr_prefix_length_is_a_parameter_not_a_shape() {
+        let sixteen = shape_of(
+            r#"in:flows stats:"sum(bytes_total) as b by src_cidr:16, dst_endpoint_port, dst_cidr:16" limit:40"#,
+        );
+        let twenty_four = shape_of(
+            r#"in:flows stats:"sum(bytes_total) as b by src_cidr:24, dst_endpoint_port, dst_cidr:24" limit:40"#,
+        );
+        assert_eq!(sixteen, twenty_four);
+        assert_eq!(
+            sixteen.clauses["stats"],
+            "sum(bytes_total)|by:src_cidr:*,dst_endpoint_port,dst_cidr:*"
+        );
+        let by_ip = shape_of(
+            r#"in:flows stats:"sum(bytes_total) as b by src_endpoint_ip, dst_endpoint_port, dst_cidr:24" limit:40"#,
+        );
+        assert_ne!(by_ip, sixteen);
+    }
 
     #[test]
     fn quoted_and_bare_stats_produce_the_same_signature() {

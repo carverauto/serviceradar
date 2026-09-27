@@ -1,8 +1,12 @@
 //! The checked-in query-shape inventory (`inventory.json`), task 1.5.
 //!
 //! Every entry is a concrete SRQL query the parity runner executes against both backends. Its
-//! SHAPE (`shape::shape_of`) is what the dashboard coverage test compares against, so one entry
-//! accounts for every product query with the same entity and translation-selecting clauses.
+//! SHAPE (`shape::shape_of`) is what the coverage checks compare against, so one entry accounts
+//! for every product query with the same entity and translation-selecting clauses. Two checks
+//! read this file: the dashboard-definition test in `coverage`, and, for the queries the product
+//! assembles in Elixir, `elixir/web-ng/test/phoenix/srql/warehouse_query_inventory_test.exs`,
+//! which drives the product's query builders and matches what they produce against these
+//! entries with the same normalization (pinned by `shape_examples.json`).
 //!
 //! An entry that is not expected to match names a deviation, and every deviation carries its
 //! reason (task 1.6). Nothing is loosened implicitly: the default comparison is exact up to
@@ -30,22 +34,6 @@ pub const INVENTORY_JSON: &str = include_str!("../inventory.json");
 pub struct Inventory {
     pub deviations: BTreeMap<String, Deviation>,
     pub entries: Vec<Entry>,
-    /// SRQL builders in the product's Elixir that the harness cannot call, each group with why.
-    pub unreached_builders: Vec<BuilderGroup>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct BuilderGroup {
-    pub reason: String,
-    pub sites: Vec<BuilderSite>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct BuilderSite {
-    pub file: String,
-    pub function: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -58,6 +46,8 @@ pub struct Deviation {
     /// `unsupported`: the warehouse dialect refuses the shape (fail-closed, task 1.3).
     /// `reference_gap`: the CNPG dialect cannot answer the shape, so there is no reference
     /// result to compare with (a warehouse-only dataset such as flows can outgrow it).
+    /// `catalog_join`: the StarRocks SQL joins the `cnpg_platform` JDBC catalog, which points
+    /// at a live deployment, so the harness compiles both dialects but executes neither.
     pub kind: DeviationKind,
 }
 
@@ -68,6 +58,7 @@ pub enum DeviationKind {
     Defect,
     Unsupported,
     ReferenceGap,
+    CatalogJoin,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
@@ -84,6 +75,12 @@ pub enum Expect {
     /// The CNPG dialect refuses the query; StarRocks must still compile and run it. The runner
     /// fails if CNPG starts to accept it, so the entry becomes a real comparison.
     CnpgRefuses,
+    /// Both dialects compile the query, but the StarRocks SQL joins the `cnpg_platform` JDBC
+    /// catalog (CNPG-owned enrichment: local CIDRs, geo), which points at a live deployment,
+    /// so nothing is executed and nothing is compared. The runner fails if the StarRocks SQL
+    /// stops reading the catalog, so the entry becomes a real comparison. This records that
+    /// the shape is NOT parity-checked; it does not claim the backends agree.
+    StarrocksJoinsCatalog,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -185,28 +182,6 @@ impl Inventory {
                 problems.push(format!("deviation {id}: no entry uses it"));
             }
         }
-        if self.unreached_builders.is_empty() {
-            problems.push("unreached_builders: no builder group".into());
-        }
-        for group in &self.unreached_builders {
-            if group.reason.trim().len() < 20 {
-                problems.push("unreached_builders: a group's reason must say why".into());
-            }
-            if group.sites.is_empty() {
-                problems.push(format!(
-                    "unreached_builders: no sites for `{}`",
-                    group.reason
-                ));
-            }
-            for site in &group.sites {
-                if !site.file.ends_with(".ex") || site.function.is_empty() {
-                    problems.push(format!(
-                        "unreached_builders: `{}` `{}` is not an Elixir file and function",
-                        site.file, site.function
-                    ));
-                }
-            }
-        }
         let mut ids = std::collections::BTreeSet::new();
         for entry in &self.entries {
             if !ids.insert(entry.id.as_str()) {
@@ -266,6 +241,7 @@ impl Inventory {
                 let consistent = match entry.expect {
                     Expect::StarrocksRefuses => deviation.kind == DeviationKind::Unsupported,
                     Expect::CnpgRefuses => deviation.kind == DeviationKind::ReferenceGap,
+                    Expect::StarrocksJoinsCatalog => deviation.kind == DeviationKind::CatalogJoin,
                     Expect::Mismatch => matches!(
                         deviation.kind,
                         DeviationKind::Accepted | DeviationKind::Defect

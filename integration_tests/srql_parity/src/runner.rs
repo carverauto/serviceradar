@@ -517,6 +517,21 @@ async fn run_entry(
                 "recorded as a shape CNPG refuses, and CNPG now compiles it: compare it".into(),
             );
         }
+        (Ok(ok), Expect::StarrocksJoinsCatalog) => {
+            let _ = writeln!(detail, "cnpg SQL:\n{}\nstarrocks SQL:\n{sr_sql}", ok.sql);
+            return if sr_sql.contains(CNPG_CATALOG_REFERENCE) {
+                Outcome::Pass(
+                    "both dialects compile; the StarRocks SQL joins cnpg_platform, not executed"
+                        .into(),
+                )
+            } else {
+                Outcome::Fail(
+                    "recorded as joining the cnpg_platform catalog, and the StarRocks SQL no \
+                     longer does: compare it"
+                        .into(),
+                )
+            };
+        }
         (Ok(ok), _) => ok,
         (Err(err), _) => return Outcome::Fail(format!("CNPG dialect refused: {err}")),
     };
@@ -611,7 +626,9 @@ async fn run_entry(
         (Verdict::Equal, Expect::Mismatch) => Outcome::Fail(format!(
             "recorded as a mismatch ({reason}) but the backends now agree: make it a match"
         )),
-        (_, Expect::StarrocksRefuses | Expect::CnpgRefuses) => unreachable!("handled above"),
+        (_, Expect::StarrocksRefuses | Expect::CnpgRefuses | Expect::StarrocksJoinsCatalog) => {
+            unreachable!("handled above")
+        }
     }
 }
 

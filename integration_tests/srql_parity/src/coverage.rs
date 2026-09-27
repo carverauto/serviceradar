@@ -6,9 +6,10 @@
 //! field, so prose that happens to mention a query is not one. A panel that charts a
 //! warehouse-served entity must be covered by an inventory entry of the same shape.
 //!
-//! Queries the product assembles in Elixir are not scanned: they cannot be reached from here
-//! without lexing source. The inventory names those builders under `unreached_builders`, each
-//! with why, and covers their shapes through the entries' `sources`.
+//! Queries the product assembles in Elixir are checked on the Elixir side, by
+//! `elixir/web-ng/test/phoenix/srql/warehouse_query_inventory_test.exs`: it calls the product's
+//! query builders through their public functions and matches every warehouse query they produce
+//! against this inventory, with the normalization `shape_examples.json` pins for both languages.
 
 use crate::shape::{Shape, shape_of};
 use serde_json::Value;

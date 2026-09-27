@@ -10,9 +10,9 @@ publish = false
 # for StarRocks, which nothing that ships depends on.
 #
 # Everything is library code so `bazel build //...` compiles all of it. The database-free half
-# (inventory model, source scan, synthetic row generator, result comparison) is unit tested in
-# the normal `make test` tier; tests/parity.rs only calls `runner::run()` against live backends
-# and is gated like every other shared-fixture test (see BUILD.bazel).
+# (inventory model, dashboard coverage, synthetic row generator, result comparison) is unit
+# tested in the normal `make test` tier; tests/parity.rs only calls `runner::run()` against live
+# backends and is gated like every other shared-fixture test (see BUILD.bazel).
 
 [dependencies]
 anyhow = { workspace = true }

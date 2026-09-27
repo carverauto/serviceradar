@@ -3,7 +3,8 @@
 //! * `inventory.json` + `inventory`: the checked-in query shapes, each with its expectation and,
 //!   where the backends may differ, a named deviation with its reason.
 //! * `coverage` + `shape`: the dashboard-definition check that fails when a checked-in chart
-//!   query has no inventory entry.
+//!   query has no inventory entry. `shape` is the normalization; `shape_examples.json` pins it
+//!   for the Elixir port that checks the product's query builders the same way.
 //! * `fixture`: the one synthetic row generator both backends are seeded from.
 //! * `schema`: the DDL each throwaway database is built from.
 //! * `compare`: result normalisation and the diff.

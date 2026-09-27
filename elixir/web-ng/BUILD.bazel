@@ -420,6 +420,11 @@ ex_unit_tests(
         # TimezoneMigrationTest asserts on the generated core migration, so its
         # cross-package source must be in runfiles.
         "//elixir/serviceradar_core:migrations",
+        # WarehouseQueryInventoryTest matches the queries the product's SRQL builders produce
+        # against the StarRocks-vs-CNPG parity inventory, with the shape normalization the
+        # shared examples pin for the Rust harness and the Elixir port alike.
+        "//integration_tests/srql_parity:inventory.json",
+        "//integration_tests/srql_parity:shape_examples.json",
     ],
     # web-ng already defines a database-free tier: with ALLOW_DB_FREE_TESTS set and neither
     # CI nor REQUIRE_DB_TESTS, test_helper.exs skips Application.ensure_all_started and runs

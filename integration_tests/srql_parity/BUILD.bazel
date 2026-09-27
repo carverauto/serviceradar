@@ -5,7 +5,8 @@ load("//build:integration_tests.bzl", "requires_shared_fixture")
 
 # SRQL StarRocks-vs-CNPG parity harness: openspec change extend-starrocks-to-all-telemetry,
 # tasks 1.4 (seed both backends with the same synthetic rows, diff result sets), 1.5 (the
-# query-shape inventory, enforced against the checked-in dashboard definitions) and 1.6 (accepted
+# query-shape inventory, enforced against the checked-in dashboard definitions here and against
+# the product's Elixir query builders by the web-ng unit test named below) and 1.6 (accepted
 # deviations, each with its reason and the rows each backend returns, in inventory.json).
 #
 # Two tiers:
@@ -37,6 +38,14 @@ load("//build:integration_tests.bzl", "requires_shared_fixture")
 #     RBE build cannot run on a macOS host; there the same test is
 #     `cargo test -p srql-parity --test parity -- --nocapture` with the same environment.
 
+# The inventory and the shared normalization examples are also read, as data, by the web-ng
+# unit test that drives the product's Elixir query builders
+# (elixir/web-ng/test/phoenix/srql/warehouse_query_inventory_test.exs).
+exports_files([
+    "inventory.json",
+    "shape_examples.json",
+])
+
 PARITY_DATA = [
     "inventory.json",
     "//elixir/serviceradar_core:schema_template_baseline_sql",
@@ -52,7 +61,10 @@ DASHBOARD_DATA = [
 rust_library(
     name = "srql_parity",
     srcs = glob(["src/**/*.rs"]),
-    compile_data = ["inventory.json"],
+    compile_data = [
+        "inventory.json",
+        "shape_examples.json",
+    ],
     crate_name = "srql_parity",
     crate_root = "src/lib.rs",
     edition = "2024",
