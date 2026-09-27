@@ -66,7 +66,8 @@ defmodule ServiceRadar.NATS.StateBucketSizing do
           {:ok, plan() | :exists} | {:error, term()}
   def ensure(request, stream_name, create_config, configured)
       when is_function(request, 2) and is_binary(stream_name) and is_map(create_config) and
-             is_integer(configured) and configured > 0 do
+             is_integer(configured) and
+             configured > 0 do
     create_config = Map.put(create_config, :max_bytes, configured)
 
     if :persistent_term.get(memo_key(stream_name), nil) == configured do
@@ -95,8 +96,7 @@ defmodule ServiceRadar.NATS.StateBucketSizing do
   raises an `ArgumentError` naming `env_name` so boot fails.
   """
   @spec parse_bytes!(String.t() | nil, String.t(), pos_integer()) :: pos_integer()
-  def parse_bytes!(nil, _env_name, default) when is_integer(default) and default > 0,
-    do: default
+  def parse_bytes!(nil, _env_name, default) when is_integer(default) and default > 0, do: default
 
   def parse_bytes!(value, env_name, default)
       when is_binary(value) and is_integer(default) and default > 0 do
