@@ -23,13 +23,24 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
     position_count = 5_003
     positions = Enum.map(1..position_count, &position/1)
     version = Ecto.UUID.generate()
-    metadata = %{source_digest: "synthetic-cold-start", node_count: position_count, relation_count: 0}
+
+    metadata = %{
+      source_digest: "synthetic-cold-start",
+      node_count: position_count,
+      relation_count: 0
+    }
+
     assert :ok = World.stage_candidate(version, metadata, positions, [])
     assert {:error, :not_ready} = World.active_manifest(scope())
     assert {:ok, nil} = World.lookup_device(scope(), version, "sr:host01")
 
     assert {:ok,
-            %{layout_version: ^version, generation: 1, node_count: ^position_count, relation_count: 0}} =
+            %{
+              layout_version: ^version,
+              generation: 1,
+              node_count: ^position_count,
+              relation_count: 0
+            }} =
              World.activate_relayout(0, version)
 
     assert {:ok, %{manifest: %{node_count: ^position_count}, batches: [5_000, 3], ids: ids}} =
