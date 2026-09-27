@@ -2000,9 +2000,12 @@ dependencies = [
  "chrono",
  "dgraph-client",
  "dgraph-migrate",
+ "proto_dgraph",
  "serde",
  "serde_json",
  "tokio",
+ "tokio-stream",
+ "tonic",
 ]
 
 [[package]]

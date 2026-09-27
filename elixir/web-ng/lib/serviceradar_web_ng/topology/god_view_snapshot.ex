@@ -70,6 +70,12 @@ defmodule ServiceRadarWebNG.Topology.GodViewSnapshot do
   @spec schema_version() :: pos_integer()
   def schema_version, do: @schema_version
 
+  @doc "Bitmap dimensions shared by the HTTP headers and legacy channel envelope."
+  def bitmap_metadata(snapshot, key) do
+    metadata = snapshot |> Map.get(:bitmap_metadata, %{}) |> Map.get(key, %{})
+    Map.merge(%{bytes: 0, count: 0}, Map.take(metadata, [:bytes, :count]))
+  end
+
   @spec required_keys() :: [atom()]
   def required_keys, do: @required_keys
 

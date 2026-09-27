@@ -1011,6 +1011,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         "--test_tag_filters=integration_test,-large_ingestion_test,-acceptance_test //..."
     )
     web_db_suite = "bazel test $FLAGS //elixir/web-ng:networks_live_db_test"
+    topology_db_suite = "bazel test $FLAGS //elixir/web-ng:topology_atlas_db_test"
     playwright_acceptance = (
         "bazel test -c opt --config=ci "
         "//elixir/web-ng/test/playwright:god_view_elk_scene_acceptance "
@@ -1605,10 +1606,12 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
                 self.measured_migrate_command,
                 self.ordinary_suite,
                 self.web_db_suite,
+                self.topology_db_suite,
             ),
             commands,
         )
         self.assertLess(action.index(self.ordinary_suite), action.index(self.web_db_suite))
+        self.assertLess(action.index(self.web_db_suite), action.index(self.topology_db_suite))
         self.assertEqual(
             (self.ordinary_suite,),
             tuple(

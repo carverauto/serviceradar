@@ -38,7 +38,7 @@ defmodule ServiceRadarWebNG.Topology.AtlasTest do
 
     for level <- levels do
       assert_bounded(level)
-      assert {:ok, ^level} = Atlas.fetch(index, level.level_id, level.revision)
+      assert {:ok, ^level} = Atlas.fetch(index, level.level_id)
 
       if level.parent_level_id do
         assert {:ok, _parent} = Atlas.fetch(index, level.parent_level_id)
@@ -81,12 +81,12 @@ defmodule ServiceRadarWebNG.Topology.AtlasTest do
     assert unaffected != []
 
     for {id, level} <- affected do
-      current = updated_levels[id].revision
-      assert {:error, {:stale_revision, ^current}} = Atlas.fetch(updated, id, level.revision)
+      assert {:ok, current} = Atlas.fetch(updated, id)
+      refute current.revision == level.revision
     end
 
     for {id, level} <- unaffected do
-      assert {:ok, ^level} = Atlas.fetch(updated, id, level.revision)
+      assert {:ok, ^level} = Atlas.fetch(updated, id)
     end
   end
 
@@ -117,7 +117,7 @@ defmodule ServiceRadarWebNG.Topology.AtlasTest do
       refute first_level.structure_revision == changed_level.structure_revision
 
       assert {:ok, ^second_level} =
-               Atlas.fetch(updated, second.child_level_id, second_level.revision)
+               Atlas.fetch(updated, second.child_level_id)
     end
   end
 

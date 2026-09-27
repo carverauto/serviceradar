@@ -22,7 +22,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
 
   @default_canonical_rebuild_timeout_ms 60_000
   @projection_name "runtime_topology_links"
-  @complete_projection_name "runtime_topology_links_complete"
 
   # Starvation guard (fj #4378): when mapper evidence ingest freezes upstream,
   # every evidence edge eventually ages past the stale cutoff. The upsert then
@@ -95,7 +94,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
         ) :: {:skip, map()} | {:proceed, String.t() | nil}
   def skip_decision(current_fingerprint, stored, heartbeat_ms, now)
 
-  def skip_decision(fingerprint, {stored_hash, %DateTime{} = hashed_at}, heartbeat_ms, %DateTime{} = now)
+  def skip_decision(
+        fingerprint,
+        {stored_hash, %DateTime{} = hashed_at},
+        heartbeat_ms,
+        %DateTime{} = now
+      )
       when is_binary(fingerprint) and stored_hash == fingerprint and is_integer(heartbeat_ms) do
     if heartbeat_elapsed?(hashed_at, heartbeat_ms, now) do
       {:proceed, fingerprint}
@@ -111,7 +115,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
   # negative diff, i.e. "not elapsed" — only reachable when the hash already
   # matches (unchanged topology), so treating it as recent and skipping is safe; a
   # changed fingerprint forces a rebuild via skip_decision regardless of time.
-  defp heartbeat_elapsed?(%DateTime{} = hashed_at, heartbeat_ms, %DateTime{} = now) when is_integer(heartbeat_ms) do
+  defp heartbeat_elapsed?(%DateTime{} = hashed_at, heartbeat_ms, %DateTime{} = now)
+       when is_integer(heartbeat_ms) do
     DateTime.diff(now, hashed_at, :millisecond) >= heartbeat_ms
   end
 
@@ -138,26 +143,11 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
     projection_name = rebuild_projection_name()
 
     query =
-      if Backend.backend() == :dgraph do
-        from(m in "runtime_topology_projection_meta",
-          prefix: "platform",
-          where: m.projection_name == ^projection_name,
-          select: {m.input_hash, type(m.input_hashed_at, :utc_datetime_usec)}
-        )
-      else
-        # A projection written before complete atlas reads must rebuild even when
-        # mapper evidence is unchanged; its cached links may have been truncated.
-        from(m in "runtime_topology_projection_meta",
-          prefix: "platform",
-          where: m.projection_name == ^projection_name,
-          join: c in "runtime_topology_projection_meta",
-          prefix: "platform",
-          on:
-            c.projection_name == ^@complete_projection_name and c.refreshed_at == m.refreshed_at and
-              c.row_count == m.row_count,
-          select: {m.input_hash, type(m.input_hashed_at, :utc_datetime_usec)}
-        )
-      end
+      from(m in "runtime_topology_projection_meta",
+        prefix: "platform",
+        where: m.projection_name == ^projection_name,
+        select: {m.input_hash, type(m.input_hashed_at, :utc_datetime_usec)}
+      )
 
     case Repo.one(query) do
       {hash, hashed_at} when is_binary(hash) ->
@@ -275,7 +265,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
     |> normalize_fraction(@default_canonical_prune_max_fraction)
   end
 
-  defp normalize_fraction(value, _default) when is_number(value) and value > 0 and value <= 1, do: value * 1.0
+  defp normalize_fraction(value, _default) when is_number(value) and value > 0 and value <= 1,
+    do: value * 1.0
 
   defp normalize_fraction(_value, default), do: default
 
@@ -293,11 +284,13 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
   @doc false
   @spec self_heal_needed?(integer(), integer(), integer()) :: boolean()
   def self_heal_needed?(after_prune_edges, mapper_evidence_edges, min_canonical_edges)
-      when is_integer(after_prune_edges) and is_integer(mapper_evidence_edges) and is_integer(min_canonical_edges) do
+      when is_integer(after_prune_edges) and is_integer(mapper_evidence_edges) and
+             is_integer(min_canonical_edges) do
     after_prune_edges < min_canonical_edges and mapper_evidence_edges >= min_canonical_edges
   end
 
-  def self_heal_needed?(_after_prune_edges, _mapper_evidence_edges, _min_canonical_edges), do: false
+  def self_heal_needed?(_after_prune_edges, _mapper_evidence_edges, _min_canonical_edges),
+    do: false
 
   @doc false
   # Pure starvation decision (extracted so it is unit-testable without a DB).
@@ -322,13 +315,15 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
       )
 
   def starvation_check(after_upsert_edges, mapper_evidence_edges, _evidence_max, _cutoff, floor)
-      when is_integer(after_upsert_edges) and is_integer(mapper_evidence_edges) and is_integer(floor) and
+      when is_integer(after_upsert_edges) and is_integer(mapper_evidence_edges) and
+             is_integer(floor) and
              mapper_evidence_edges > 0 and after_upsert_edges <= floor do
     :starved
   end
 
   def starvation_check(_after_upsert_edges, mapper_evidence_edges, evidence_max, cutoff, _floor)
-      when is_integer(mapper_evidence_edges) and mapper_evidence_edges > 0 and is_binary(evidence_max) and
+      when is_integer(mapper_evidence_edges) and mapper_evidence_edges > 0 and
+             is_binary(evidence_max) and
              is_binary(cutoff) and evidence_max < cutoff do
     :starved
   end
@@ -356,7 +351,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
     end
   end
 
-  def prune_guard_check(_candidates, _before_edges, _max_fraction, false), do: {:refuse, :candidate_count_unavailable}
+  def prune_guard_check(_candidates, _before_edges, _max_fraction, false),
+    do: {:refuse, :candidate_count_unavailable}
 
   @doc false
   # Emits the starvation signal: telemetry on every occurrence plus a
@@ -364,7 +360,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
   # ongoing_failure flag on repeats).
   @spec report_starvation(map(), String.t(), String.t() | nil, non_neg_integer(), keyword()) ::
           :ok
-  def report_starvation(counts, stale_cutoff, evidence_max_last_observed_at, floor, opts \\ []) when is_map(counts) do
+  def report_starvation(counts, stale_cutoff, evidence_max_last_observed_at, floor, opts \\ [])
+      when is_map(counts) do
     condition = Keyword.get(opts, :condition, @starvation_condition)
 
     :telemetry.execute(
@@ -431,8 +428,15 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
   # clears the condition and logs the all-clear.
   @spec finalize_self_heal_outcome(integer(), integer(), integer(), integer(), keyword()) ::
           map()
-  def finalize_self_heal_outcome(before_edges, healed_edges, mapper_evidence_edges, min_canonical_edges, opts \\ [])
-      when is_integer(before_edges) and is_integer(healed_edges) and is_integer(mapper_evidence_edges) and
+  def finalize_self_heal_outcome(
+        before_edges,
+        healed_edges,
+        mapper_evidence_edges,
+        min_canonical_edges,
+        opts \\ []
+      )
+      when is_integer(before_edges) and is_integer(healed_edges) and
+             is_integer(mapper_evidence_edges) and
              is_integer(min_canonical_edges) do
     condition = Keyword.get(opts, :condition, @self_heal_condition)
 
@@ -839,8 +843,14 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
     end
   end
 
-  defp maybe_self_heal_zero_canonical(after_prune_edges, mapper_evidence_edges, stale_cutoff, min_canonical_edges)
-       when is_integer(after_prune_edges) and is_integer(mapper_evidence_edges) and is_binary(stale_cutoff) and
+  defp maybe_self_heal_zero_canonical(
+         after_prune_edges,
+         mapper_evidence_edges,
+         stale_cutoff,
+         min_canonical_edges
+       )
+       when is_integer(after_prune_edges) and is_integer(mapper_evidence_edges) and
+              is_binary(stale_cutoff) and
               is_integer(min_canonical_edges) do
     if self_heal_needed?(after_prune_edges, mapper_evidence_edges, min_canonical_edges) do
       Logger.warning(
@@ -865,7 +875,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
         {:error, reason} ->
           Logger.warning("Canonical topology self-heal failed", reason: inspect(reason))
 
-          {after_prune_edges, %{status: :failed, before: after_prune_edges, after: after_prune_edges, reason: reason}}
+          {after_prune_edges,
+           %{status: :failed, before: after_prune_edges, after: after_prune_edges, reason: reason}}
       end
     else
       # Canonical edges are above the threshold (or there is no evidence to

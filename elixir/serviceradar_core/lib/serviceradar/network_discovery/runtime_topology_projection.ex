@@ -3,7 +3,7 @@ defmodule ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection do
   Materialized SQL read-model for God-View runtime topology links.
 
   Apache AGE remains canonical. This module projects the render-ready AGE topology rows into a
-  SQL table after topology rebuilds so web-ng refreshes do not repeatedly traverse AGE.
+  small SQL table after topology rebuilds so web-ng refreshes do not repeatedly traverse AGE.
   """
 
   import Ecto.Query, only: [from: 2]
@@ -15,8 +15,6 @@ defmodule ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection do
   @max_attachment_link_rows 2_000
   @default_read_limit @max_backbone_link_rows + @max_attachment_link_rows
   @projection_name "runtime_topology_links"
-  @complete_projection_name "runtime_topology_links_complete"
-  @insert_batch_size 1_000
 
   @type refresh_result :: {:ok, %{rows: non_neg_integer()}} | {:error, term()}
 
@@ -43,13 +41,10 @@ defmodule ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection do
   end
 
   @doc """
-  AGE query for runtime topology links. The bounded default supports legacy snapshots;
-  `complete: true` reads every relation for the canonical projection and atlas levels.
+  AGE query used to build the SQL projection.
   """
-  @spec graph_projection_query(keyword()) :: String.t()
-  def graph_projection_query(opts \\ []) do
-    complete? = Keyword.get(opts, :complete, false) == true
-
+  @spec graph_projection_query() :: String.t()
+  def graph_projection_query do
     """
     MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)
     WHERE #{canonical_edge_predicate()}
@@ -65,9 +60,8 @@ defmodule ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection do
       coalesce(r.neighbor_if_name, '') ASC,
       coalesce(r.protocol, r.source, 'unknown') ASC,
       coalesce(r.link_key, '') ASC
-    #{if !complete?, do: "LIMIT #{@max_backbone_link_rows}"}
+    LIMIT #{@max_backbone_link_rows}
     RETURN {
-      link_key: coalesce(r.link_key, ''),
       local_device_id: a.id,
       local_device_ip: a.ip,
       local_if_name: coalesce(r.local_if_name, ''),
@@ -142,9 +136,8 @@ defmodule ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection do
       coalesce(r.protocol, r.source, 'unknown') ASC,
       coalesce(ai.id, '') ASC,
       coalesce(bi.id, '') ASC
-    #{if !complete?, do: "LIMIT #{@max_attachment_link_rows}"}
+    LIMIT #{@max_attachment_link_rows}
     RETURN {
-      link_key: coalesce(r.link_key, ''),
       local_device_id: ai.device_id,
       local_device_ip: a.ip,
       local_if_name: coalesce(ai.name, ''),
@@ -204,9 +197,8 @@ defmodule ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection do
       coalesce(r.neighbor_if_name, '') ASC,
       coalesce(r.protocol, r.source, 'unknown') ASC,
       coalesce(r.link_key, '') ASC
-    #{if !complete?, do: "LIMIT #{@max_attachment_link_rows}"}
+    LIMIT #{@max_attachment_link_rows}
     RETURN {
-      link_key: coalesce(r.link_key, ''),
       local_device_id: a.id,
       local_device_ip: a.ip,
       local_if_name: coalesce(r.local_if_name, ''),
@@ -257,14 +249,10 @@ defmodule ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection do
     repo = Keyword.get(opts, :repo, Repo)
     input_hash = Keyword.get(opts, :input_hash, nil)
 
-    with {:ok, graph_rows} <- graph.query(graph_projection_query(complete: true)) do
+    with {:ok, graph_rows} <- graph.query(graph_projection_query()) do
       rows = projection_attrs_from_graph_rows(graph_rows)
 
       transaction = fn ->
-        # Serialize publication before DELETE takes its statement snapshot. Without
-        # this barrier, overlapping refreshes can retain another writer's inserts
-        # while publishing a marker that describes only their own generation.
-        repo.query!("LOCK TABLE platform.runtime_topology_links IN SHARE ROW EXCLUSIVE MODE", [])
         now = DateTime.utc_now()
         delete_query = from(l in "runtime_topology_links", prefix: "platform")
         repo.delete_all(delete_query)
@@ -286,50 +274,16 @@ defmodule ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection do
 
   @doc """
   Reads cached runtime topology rows from the SQL projection.
-
-  `limit: :all` requires a complete projection produced by a current writer. Older
-  bounded projections return `{:error, :projection_incomplete}` so the caller can
-  fall back to a complete canonical read until the next successful rebuild.
   """
   @spec read_cached_links(keyword()) :: {:ok, [map()]} | {:error, term()}
   def read_cached_links(opts \\ []) do
     repo = Keyword.get(opts, :repo, Repo)
 
-    case Keyword.get(opts, :limit, @default_read_limit) do
-      :all -> read_complete_cached_links(repo)
-      limit -> read_bounded_cached_links(repo, normalize_positive_int(limit, @default_read_limit))
-    end
-  rescue
-    error -> {:error, error}
-  end
+    limit =
+      opts
+      |> Keyword.get(:limit, @default_read_limit)
+      |> normalize_positive_int(@default_read_limit)
 
-  defp read_complete_cached_links(repo) do
-    # The marker join and rows share one SQL snapshot. A left join returns one nil
-    # row for a complete empty graph, distinct from a missing or stale marker.
-    query =
-      from(m in "runtime_topology_projection_meta",
-        prefix: "platform",
-        where: m.projection_name == ^@projection_name,
-        join: c in "runtime_topology_projection_meta",
-        prefix: "platform",
-        on:
-          c.projection_name == ^@complete_projection_name and c.refreshed_at == m.refreshed_at and
-            c.row_count == m.row_count,
-        left_join: l in "runtime_topology_links",
-        prefix: "platform",
-        on: true,
-        order_by: [asc: l.id],
-        select: l.row
-      )
-
-    case repo.all(query) do
-      [] -> {:error, :projection_incomplete}
-      [nil] -> {:ok, []}
-      rows -> {:ok, rows}
-    end
-  end
-
-  defp read_bounded_cached_links(repo, limit) do
     query =
       from(l in "runtime_topology_links",
         prefix: "platform",
@@ -364,6 +318,8 @@ defmodule ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection do
       true ->
         {:error, :projection_uninitialized}
     end
+  rescue
+    error -> {:error, error}
   end
 
   @doc false
@@ -414,17 +370,13 @@ defmodule ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection do
   defp insert_projection_rows(_repo, []), do: 0
 
   defp insert_projection_rows(repo, rows) do
-    rows
-    |> Enum.chunk_every(@insert_batch_size)
-    |> Enum.reduce(0, fn batch, total ->
-      {count, _} =
-        repo.insert_all("runtime_topology_links", batch,
-          prefix: "platform",
-          returning: false
-        )
+    {count, _} =
+      repo.insert_all("runtime_topology_links", rows,
+        prefix: "platform",
+        returning: false
+      )
 
-      total + count
-    end)
+    count
   end
 
   # input_hash defaults to nil so other callers keep working; it is the canonical
@@ -452,16 +404,14 @@ defmodule ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection do
         {base, [:refreshed_at, :row_count, :updated_at]}
       end
 
-    Enum.each([@projection_name, @complete_projection_name], fn projection_name ->
-      repo.insert_all(
-        "runtime_topology_projection_meta",
-        [Map.put(attrs, :projection_name, projection_name)],
-        prefix: "platform",
-        conflict_target: [:projection_name],
-        on_conflict: {:replace, replace_fields},
-        returning: false
-      )
-    end)
+    repo.insert_all(
+      "runtime_topology_projection_meta",
+      [attrs],
+      prefix: "platform",
+      conflict_target: [:projection_name],
+      on_conflict: {:replace, replace_fields},
+      returning: false
+    )
   end
 
   defp projection_initialized?(repo) do

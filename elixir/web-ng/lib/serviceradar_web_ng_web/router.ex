@@ -110,6 +110,18 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(ServiceRadarWebNGWeb.Plugs.IgnoreSessionWrites)
   end
 
+  # Topology HTTP clients need JSON auth failures for both binary snapshots and
+  # revision metadata. The controller checks scope and permission after these
+  # session plugs; ordinary browser routes retain their login redirects.
+  pipeline :topology_api do
+    plug(:fetch_session)
+    plug(:put_secure_browser_headers, %{"content-security-policy" => @csp, "cache-control" => "no-store"})
+    plug(SecurityHeaders)
+    plug(GatewayAuth)
+    plug(:fetch_current_scope_for_user)
+    plug(:set_ash_actor)
+  end
+
   pipeline :api do
     plug(:accepts, ["json"])
     plug(SecurityHeaders)
@@ -1082,10 +1094,16 @@ defmodule ServiceRadarWebNGWeb.Router do
 
   ## Authenticated routes
 
+  scope "/topology/snapshot", ServiceRadarWebNGWeb do
+    pipe_through([:topology_api])
+
+    get("/latest", TopologySnapshotController, :show)
+    get("/revisions", TopologySnapshotController, :revisions)
+  end
+
   scope "/", ServiceRadarWebNGWeb do
     pipe_through([:browser_raw_auth])
 
-    get("/topology/snapshot/latest", TopologySnapshotController, :show)
     get("/god_view_exec.wasm", WasmAssetController, :plain)
     get("/god_view_exec-:digest", WasmAssetController, :hashed)
     get("/dashboard-packages/:id/renderer", DashboardPackageAssetController, :show)

@@ -70,16 +70,22 @@ defmodule ServiceRadarWebNG.Topology.Atlas do
 
   def build(_nodes, _edges, _opts), do: {:error, :invalid_graph}
 
-  @spec fetch(index(), String.t(), non_neg_integer() | nil) ::
+  @doc "Validates a level address and returns its canonical cache key."
+  @spec normalize_level_id(term()) :: {:ok, String.t()} | {:error, :invalid_level}
+  def normalize_level_id(id) do
+    with {:ok, address} <- parse_level_id(id) do
+      {:ok, level_id(address)}
+    end
+  end
+
+  @spec fetch(index(), String.t()) ::
           {:ok, level()}
-          | {:error, :not_found | :invalid_level | {:stale_revision, non_neg_integer()}}
-  def fetch(index, level_id \\ "global", revision \\ nil) do
+          | {:error, :not_found | :invalid_level}
+  def fetch(index, level_id \\ "global") do
     with {:ok, address} <- parse_level_id(level_id),
          {:ok, level} <- project(index, address),
-         :ok <- validate_relation_page(level, index.budgets.edges),
-         level = finish_level(index, address, level),
-         :ok <- check_revision(revision, level.revision) do
-      {:ok, level}
+         :ok <- validate_relation_page(level, index.budgets.edges) do
+      {:ok, finish_level(index, address, level)}
     end
   end
 
@@ -680,8 +686,8 @@ defmodule ServiceRadarWebNG.Topology.Atlas do
 
       [kind, scope, page, edge_page] when kind in ["component", "neighborhood", "members"] ->
         case Base.url_decode64(scope, padding: false) do
-          {:ok, decoded} -> parse_address(kind, decoded, page, edge_page)
-          :error -> {:error, :invalid_level}
+          {:ok, decoded} when byte_size(decoded) > 0 -> parse_address(kind, decoded, page, edge_page)
+          _ -> {:error, :invalid_level}
         end
 
       _ ->
@@ -692,17 +698,13 @@ defmodule ServiceRadarWebNG.Topology.Atlas do
   defp parse_level_id(_id), do: {:error, :invalid_level}
 
   defp parse_address(kind, scope, page, edge_page) do
-    with {page, ""} when page >= 0 <- Integer.parse(page),
-         {edge_page, ""} when edge_page >= 0 <- Integer.parse(edge_page) do
-      {:ok, {kind, scope, page, edge_page}}
+    with true <- Regex.match?(~r/\A[0-9]+\z/, page),
+         true <- Regex.match?(~r/\A[0-9]+\z/, edge_page) do
+      {:ok, {kind, scope, String.to_integer(page), String.to_integer(edge_page)}}
     else
       _ -> {:error, :invalid_level}
     end
   end
-
-  defp check_revision(nil, _current), do: :ok
-  defp check_revision(revision, revision), do: :ok
-  defp check_revision(_requested, current), do: {:error, {:stale_revision, current}}
 
   defp validate_relation_page(%{edge_page: 0}, _budget), do: :ok
 

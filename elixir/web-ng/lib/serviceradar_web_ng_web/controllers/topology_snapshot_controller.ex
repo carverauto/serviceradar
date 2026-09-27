@@ -5,15 +5,38 @@ defmodule ServiceRadarWebNGWeb.TopologySnapshotController do
 
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNG.Topology.AtlasReader
+  alias ServiceRadarWebNG.Topology.AtlasRequest
+  alias ServiceRadarWebNG.Topology.GodViewSnapshot
   alias ServiceRadarWebNG.Topology.GodViewStream
   alias ServiceRadarWebNGWeb.FeatureFlags
 
   require Logger
 
-  def show(conn, _params) do
+  def revisions(conn, params) do
+    conn = put_resp_header(conn, "cache-control", "no-store")
+
     if FeatureFlags.god_view_enabled?() do
       with :ok <- require_authenticated(conn),
-           :ok <- require_permission(conn, "analytics.view") do
+           {:ok, conn} <- require_permission(conn, "analytics.view"),
+           {:ok, level_ids} <- AtlasRequest.parse_levels(params),
+           {:ok, revisions} <- AtlasReader.revisions(conn.assigns.current_scope, level_ids) do
+        json(conn, revisions)
+      else
+        %Plug.Conn{} = conn -> conn
+        {:error, reason} -> atlas_error(conn, reason)
+      end
+    else
+      atlas_error(conn, :god_view_disabled)
+    end
+  end
+
+  def show(conn, _params) do
+    conn = put_resp_header(conn, "cache-control", "no-store")
+
+    if FeatureFlags.god_view_enabled?() do
+      with :ok <- require_authenticated(conn),
+           {:ok, conn} <- require_permission(conn, "analytics.view") do
         case GodViewStream.latest_snapshot() do
           {:ok, %{snapshot: snapshot, payload: payload}} ->
             root_meta = bitmap_meta(snapshot, :root_cause)
@@ -152,18 +175,20 @@ defmodule ServiceRadarWebNGWeb.TopologySnapshotController do
   defp require_permission(conn, permission) do
     scope = conn.assigns[:current_scope]
 
-    if RBAC.can?(scope, permission) do
-      :ok
-    else
-      conn |> put_status(:forbidden) |> json(%{error: "forbidden"}) |> halt()
+    case RBAC.authorize_current(scope, [permission]) do
+      {:ok, current_scope} -> {:ok, assign(conn, :current_scope, current_scope)}
+      {:error, _reason} -> conn |> put_status(:forbidden) |> json(%{error: "forbidden"}) |> halt()
     end
   end
 
   defp bitmap_meta(snapshot, key) do
-    snapshot.bitmap_metadata
-    |> Map.get(key, %{bytes: 0, count: 0})
-    |> Map.take([:bytes, :count])
-    |> Map.merge(%{bytes: 0, count: 0})
+    GodViewSnapshot.bitmap_metadata(snapshot, key)
+  end
+
+  defp atlas_error(conn, reason) do
+    {status, body} = AtlasRequest.error_response(reason)
+    conn = if status == 503, do: put_resp_header(conn, "retry-after", "1"), else: conn
+    conn |> put_status(status) |> json(body)
   end
 
   defp pipeline_stats(snapshot) do

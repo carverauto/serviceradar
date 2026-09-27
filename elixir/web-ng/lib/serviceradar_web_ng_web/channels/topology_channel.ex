@@ -2,6 +2,12 @@ defmodule ServiceRadarWebNGWeb.TopologyChannel do
   @moduledoc false
   use Phoenix.Channel
 
+  alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNG.Topology.AtlasReader
+  alias ServiceRadarWebNG.Topology.AtlasRequest
+  alias ServiceRadarWebNG.Topology.AtlasWatch
+  alias ServiceRadarWebNG.Topology.GodViewSnapshot
   alias ServiceRadarWebNG.Topology.GodViewStream
   alias ServiceRadarWebNGWeb.FeatureFlags
 
@@ -11,31 +17,76 @@ defmodule ServiceRadarWebNGWeb.TopologyChannel do
   @binary_magic "GVB1"
 
   @impl true
-  def join("topology:god_view", _payload, socket) do
-    cond do
-      !Map.has_key?(socket.assigns, :current_user) ->
-        {:error, %{reason: "unauthorized"}}
+  def join("topology:god_view", payload, socket) do
+    with {:ok, socket} <- authorize(socket),
+         {:ok, socket} <- initialize_mode(socket, payload) do
+      send(self(), :tick)
 
-      !FeatureFlags.god_view_enabled?() ->
-        {:error, %{reason: "god_view_disabled"}}
+      {:ok,
+       socket
+       |> assign(:last_snapshot_revision, nil)
+       |> assign(:expanded_clusters, [])}
+    else
+      {:error, reason} -> {:error, channel_error(reason)}
+    end
+  end
 
-      true ->
-        send(self(), :tick)
-        {:ok, socket |> assign(:last_snapshot_revision, nil) |> assign(:expanded_clusters, [])}
+  def join(_topic, _payload, _socket), do: {:error, %{reason: "unknown_topic"}}
+
+  @impl true
+  def handle_info(:tick, socket) do
+    case authorize(socket) do
+      {:ok, socket} ->
+        socket =
+          if socket.assigns[:stream_mode] == :levels,
+            do: push_level_invalidations(socket),
+            else: push_latest_snapshot(socket)
+
+        Process.send_after(self(), :tick, @tick_ms)
+        {:noreply, socket}
+
+      {:error, reason} ->
+        push(socket, "topology_error", channel_error(reason))
+        {:stop, :normal, socket}
     end
   end
 
   @impl true
-  def handle_info(:tick, socket) do
-    socket = push_latest_snapshot(socket)
-
-    Process.send_after(self(), :tick, @tick_ms)
-    {:noreply, socket}
+  def handle_in(event, payload, socket) do
+    case authorize(socket) do
+      {:ok, socket} -> handle_authorized_in(event, payload, socket)
+      {:error, reason} -> {:reply, {:error, channel_error(reason)}, socket}
+    end
   end
 
-  @impl true
-  def handle_in("cluster:set_expanded", %{"cluster_id" => cluster_id, "expanded" => expanded}, socket)
-      when is_binary(cluster_id) do
+  defp handle_authorized_in("levels:watch", params, socket) do
+    case AtlasRequest.parse_levels(params) do
+      {:ok, level_ids} ->
+        socket =
+          socket
+          |> assign(:stream_mode, :levels)
+          |> assign(:watched_level_ids, level_ids)
+          |> assign(:last_level_revisions, nil)
+
+        case AtlasReader.revisions(socket.assigns.current_scope, level_ids) do
+          {:ok, revisions} ->
+            {:reply, {:ok, AtlasWatch.acknowledgement(revisions)}, assign(socket, :last_level_revisions, revisions)}
+
+          {:error, reason} ->
+            {:reply, {:error, channel_error(reason)}, socket}
+        end
+
+      {:error, reason} ->
+        {:reply, {:error, channel_error(reason)}, socket}
+    end
+  end
+
+  defp handle_authorized_in(_event, _payload, %{assigns: %{stream_mode: :levels}} = socket) do
+    {:reply, {:error, %{reason: "unsupported_event"}}, socket}
+  end
+
+  defp handle_authorized_in("cluster:set_expanded", %{"cluster_id" => cluster_id, "expanded" => expanded}, socket)
+       when is_binary(cluster_id) do
     expanded_clusters = socket.assigns[:expanded_clusters] || []
     expanded_clusters = next_expanded_clusters(expanded_clusters, cluster_id, expanded)
 
@@ -48,10 +99,9 @@ defmodule ServiceRadarWebNGWeb.TopologyChannel do
     {:reply, {:ok, %{}}, socket}
   end
 
-  def handle_in("cluster:set_expanded", _payload, socket), do: {:reply, {:ok, %{}}, socket}
+  defp handle_authorized_in("cluster:set_expanded", _payload, socket), do: {:reply, {:ok, %{}}, socket}
 
-  @impl true
-  def handle_in("cluster:collapse_all", _payload, socket) do
+  defp handle_authorized_in("cluster:collapse_all", _payload, socket) do
     socket =
       socket
       |> assign(:expanded_clusters, [])
@@ -59,6 +109,63 @@ defmodule ServiceRadarWebNGWeb.TopologyChannel do
       |> push_latest_snapshot()
 
     {:reply, {:ok, %{}}, socket}
+  end
+
+  defp handle_authorized_in(_event, _payload, socket) do
+    {:reply, {:error, %{reason: "unsupported_event"}}, socket}
+  end
+
+  defp initialize_mode(socket, %{"mode" => "levels"} = params) do
+    with {:ok, level_ids} <- AtlasRequest.parse_levels(params) do
+      {:ok,
+       socket
+       |> assign(:stream_mode, :levels)
+       |> assign(:watched_level_ids, level_ids)
+       |> assign(:last_level_revisions, nil)}
+    end
+  end
+
+  defp initialize_mode(_socket, %{"mode" => _mode}), do: {:error, :invalid_mode}
+  defp initialize_mode(socket, _params), do: {:ok, assign(socket, :stream_mode, :legacy)}
+
+  defp authorize(socket) do
+    case socket.assigns[:current_scope] do
+      %Scope{user: user} = scope when not is_nil(user) ->
+        if FeatureFlags.god_view_enabled?() do
+          case RBAC.authorize_current(scope, ["analytics.view"]) do
+            {:ok, current_scope} -> {:ok, assign(socket, :current_scope, current_scope)}
+            {:error, _reason} -> {:error, :forbidden}
+          end
+        else
+          {:error, :god_view_disabled}
+        end
+
+      _ ->
+        {:error, :unauthorized}
+    end
+  end
+
+  defp channel_error(reason) do
+    {_status, body} = AtlasRequest.error_response(reason)
+    body |> Map.delete(:error) |> Map.put(:reason, body.error)
+  end
+
+  defp push_level_invalidations(socket) do
+    case AtlasReader.revisions(socket.assigns.current_scope, socket.assigns.watched_level_ids) do
+      {:ok, revisions} ->
+        previous = socket.assigns.last_level_revisions
+
+        case AtlasWatch.invalidation(previous, revisions) do
+          nil -> :ok
+          payload -> push(socket, "topology_invalidated", payload)
+        end
+
+        assign(socket, :last_level_revisions, revisions)
+
+      {:error, reason} ->
+        push(socket, "topology_error", channel_error(reason))
+        socket
+    end
   end
 
   defp push_latest_snapshot(socket) do
@@ -108,10 +215,7 @@ defmodule ServiceRadarWebNGWeb.TopologyChannel do
   end
 
   defp bitmap_meta(snapshot, key) do
-    snapshot.bitmap_metadata
-    |> Map.get(key, %{bytes: 0, count: 0})
-    |> Map.take([:bytes, :count])
-    |> Map.merge(%{bytes: 0, count: 0})
+    GodViewSnapshot.bitmap_metadata(snapshot, key)
   end
 
   defp pipeline_stats(snapshot) do

@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphConcurrencyTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadarWebNG.Topology.Atlas
+  alias ServiceRadarWebNG.Topology.AtlasReader
   alias ServiceRadarWebNG.Topology.AtlasStore
   alias ServiceRadarWebNG.Topology.RuntimeGraph
   alias ServiceRadarWebNG.Topology.RuntimeSupervisor
@@ -28,7 +29,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphConcurrencyTest do
   describe "reads do not queue behind the refresh handler" do
     test "get_links/0 answers while the owning process is blocked", %{pid: pid} do
       # A suspended process stands in for `handle_info(:refresh, ...)`, which performs the
-      # projection/AGE round trip inline. Routed through `GenServer.call/2` this waits out
+      # Dgraph round trip inline. Routed through `GenServer.call/2` this waits out
       # the default 5s and exits; reading the published reference does not touch the process.
       :sys.suspend(pid)
 
@@ -54,7 +55,18 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphConcurrencyTest do
   test "store loss restarts its producer", %{pid: producer} do
     monitor = Process.monitor(producer)
     store = Process.whereis(AtlasStore)
+    :sys.suspend(store)
+    on_exit(fn -> if Process.alive?(store), do: :sys.resume(store) end)
+
+    requester = self()
+    request = make_ref()
+    {caller, caller_monitor} = spawn_monitor(fn -> send(requester, {request, AtlasReader.fetch(nil)}) end)
+    on_exit(fn -> if Process.alive?(caller), do: Process.exit(caller, :kill) end)
+    await_queued_fetch(store, caller)
     Process.exit(store, :kill)
+
+    assert_receive {^request, {:error, :unavailable}}, 2_000
+    assert_receive {:DOWN, ^caller_monitor, :process, ^caller, :normal}, 2_000
 
     assert_receive {:DOWN, ^monitor, :process, ^producer, :shutdown}, 1_000
 
@@ -78,6 +90,18 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphConcurrencyTest do
     refute children[RuntimeGraph] == producer
     assert children[AtlasStore] == store
     assert {:ok, ^level} = AtlasStore.fetch()
+  end
+
+  defp await_queued_fetch(store, caller, attempts \\ 200) do
+    {:messages, messages} = Process.info(store, :messages)
+
+    if Enum.any?(messages, &match?({:"$gen_call", {^caller, _tag}, {:fetch, "global"}}, &1)) do
+      :ok
+    else
+      if attempts == 0, do: flunk("reader did not queue its fetch before the store failure")
+      Process.sleep(10)
+      await_queued_fetch(store, caller, attempts - 1)
+    end
   end
 
   defp replaced_children(previous, attempts \\ 100) do

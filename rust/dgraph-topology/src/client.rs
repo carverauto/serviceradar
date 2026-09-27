@@ -24,7 +24,8 @@ use serde_json::{Value, json};
 use crate::downstream::{DownstreamFact, looks_like_cidr, reachable_on_canonical};
 use crate::errors::TopologyError;
 use crate::types::{
-    CanonicalEdge, ChangeWrite, DeviceWrite, EdgeWrite, HopWrite, InterfaceWrite, PrefixWrite,
+    CanonicalEdge, CanonicalGraph, ChangeWrite, DeviceWrite, EdgeWrite, HopWrite, InterfaceWrite,
+    PrefixWrite,
 };
 
 /// Topology operations against one Dgraph client.
@@ -579,35 +580,23 @@ impl TopologyClient {
         Ok(parsed.device_ids())
     }
 
+    /// Read every canonical relation with bounded pages in one read-only snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for any failed page or invalid snapshot/cursor response.
     pub async fn query_canonical_edges(&self) -> Result<Vec<CanonicalEdge>, TopologyError> {
-        let query = r#"{
-  edges(func: type(TopologyEdge)) @filter(eq(topo.kind, "CANONICAL_TOPOLOGY") AND NOT eq(topo.stale, true)) {
-    topo.link_key
-    topo.protocol
-    topo.evidence_class
-    topo.confidence_tier
-    topo.flow_pps_ab
-    topo.flow_pps_ba
-    topo.flow_bps_ab
-    topo.flow_bps_ba
-    topo.capacity_bps
-    topo.telemetry_eligible
-    topo.if_index_ab
-    topo.if_index_ba
-    topo.if_name_ab
-    topo.if_name_ba
-    topo.mutation_id
-    topo.pair_support_rank
-    topo.src { device.id }
-    topo.dst { device.id }
-  }
-}"#;
-        let parsed: CanonicalQuery = self.query(query).await?;
-        Ok(parsed
-            .edges
-            .into_iter()
-            .filter_map(CanonicalEdgeRow::into_edge)
-            .collect())
+        crate::canonical_read::edges(&self.client).await
+    }
+
+    /// Read all Device vertices (including isolated ones) and canonical relations
+    /// from the same read-only snapshot. A failed page returns no partial graph.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::query_canonical_edges`].
+    pub async fn query_canonical_graph(&self) -> Result<CanonicalGraph, TopologyError> {
+        crate::canonical_read::graph(&self.client).await
     }
 
     async fn delete_edge_by_link_key(&self, key: &str) -> Result<(), TopologyError> {
@@ -711,7 +700,7 @@ impl EndpointId {
 }
 
 #[derive(Debug, Deserialize, Default)]
-struct CanonicalEdgeRow {
+pub(crate) struct CanonicalEdgeRow {
     #[serde(default, rename = "topo.link_key")]
     link_key: String,
     #[serde(default, rename = "topo.kind")]
@@ -753,7 +742,7 @@ struct CanonicalEdgeRow {
 }
 
 impl CanonicalEdgeRow {
-    fn into_edge(self) -> Option<CanonicalEdge> {
+    pub(crate) fn into_edge(self) -> Option<CanonicalEdge> {
         let source = self.src.first().and_then(EndpointId::id)?.to_string();
         let target = self.dst.first().and_then(EndpointId::id)?.to_string();
         Some(

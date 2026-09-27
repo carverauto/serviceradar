@@ -13,7 +13,6 @@ defmodule ServiceRadarWebNG.Topology.AtlasStore do
   alias ServiceRadarWebNG.Topology.Atlas
 
   @max_watched_levels 64
-  @max_level_id_bytes 2_048
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, nil, Keyword.take(opts, [:name]))
@@ -29,22 +28,17 @@ defmodule ServiceRadarWebNG.Topology.AtlasStore do
   @doc "Publishes an already-built index without doing source IO in the reader process."
   def publish(index, server \\ __MODULE__), do: GenServer.call(server, {:publish, index})
 
-  @doc "Reads one level, optionally requiring its exact content revision."
-  def fetch(level_id \\ "global", revision \\ nil, server \\ __MODULE__) do
-    if valid_level_id?(level_id) do
-      GenServer.call(server, {:fetch, level_id, revision})
-    else
-      {:error, :invalid_level}
+  @doc "Reads one bounded selection; client revision checks belong to AtlasReader after enrichment."
+  def fetch(level_id \\ "global", server \\ __MODULE__) do
+    with {:ok, level_id} <- Atlas.normalize_level_id(level_id) do
+      GenServer.call(server, {:fetch, level_id})
     end
   end
 
-  @doc "Returns current revisions for the bounded set of levels held by one client."
-  def revisions(level_ids, server \\ __MODULE__) do
-    if is_list(level_ids) and length(level_ids) <= @max_watched_levels and
-         Enum.all?(level_ids, &valid_level_id?/1) do
-      GenServer.call(server, {:revisions, Enum.uniq(level_ids)})
-    else
-      {:error, :invalid_levels}
+  @doc "Selects bounded levels atomically from one canonical generation; absent levels are nil."
+  def fetch_many(level_ids, server \\ __MODULE__) do
+    with {:ok, level_ids} <- normalize_level_ids(level_ids) do
+      GenServer.call(server, {:fetch_many, level_ids})
     end
   end
 
@@ -56,26 +50,40 @@ defmodule ServiceRadarWebNG.Topology.AtlasStore do
 
   def handle_call(_request, _from, nil), do: {:reply, {:error, :not_ready}, nil}
 
-  def handle_call({:fetch, level_id, revision}, _from, index) do
-    {:reply, Atlas.fetch(index, level_id, revision), index}
+  def handle_call({:fetch, level_id}, _from, index) do
+    result =
+      with {:ok, level} <- Atlas.fetch(index, level_id) do
+        {:ok, Map.put(level, :canonical_revision, index.revision)}
+      end
+
+    {:reply, result, index}
   end
 
-  def handle_call({:revisions, level_ids}, _from, index) do
-    revisions = Map.new(level_ids, &level_revision(index, &1))
-    {:reply, {:ok, %{canonical_revision: index.revision, levels: revisions}}, index}
+  def handle_call({:fetch_many, level_ids}, _from, index) do
+    levels = Map.new(level_ids, &{&1, selected_level(index, &1)})
+    {:reply, {:ok, %{canonical_revision: index.revision, levels: levels}}, index}
   end
 
-  defp level_revision(index, level_id) do
+  defp selected_level(index, level_id) do
     case Atlas.fetch(index, level_id) do
-      {:ok, level} ->
-        {level_id, %{revision: level.revision, structure_revision: level.structure_revision}}
-
-      {:error, _reason} ->
-        {level_id, nil}
+      {:ok, level} -> Map.put(level, :canonical_revision, index.revision)
+      {:error, :not_found} -> nil
     end
   end
 
-  defp valid_level_id?(level_id) do
-    is_binary(level_id) and byte_size(level_id) > 0 and byte_size(level_id) <= @max_level_id_bytes
+  defp normalize_level_ids(level_ids) when is_list(level_ids) and length(level_ids) <= @max_watched_levels do
+    level_ids
+    |> Enum.reduce_while({:ok, []}, fn id, {:ok, acc} ->
+      case Atlas.normalize_level_id(id) do
+        {:ok, normalized} -> {:cont, {:ok, [normalized | acc]}}
+        {:error, :invalid_level} -> {:halt, {:error, :invalid_levels}}
+      end
+    end)
+    |> case do
+      {:ok, ids} -> {:ok, Enum.uniq(ids)}
+      error -> error
+    end
   end
+
+  defp normalize_level_ids(_level_ids), do: {:error, :invalid_levels}
 end

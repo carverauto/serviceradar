@@ -1,224 +1,239 @@
 ## MODIFIED Requirements
 
 ### Requirement: Versioned Binary Topology Snapshots
-The system SHALL deliver God-View topology using the versioned schema-3 Arrow IPC contract and required metadata for deterministic typed-column decoding. Semantic atlas levels SHALL extend this contract rather than introduce a parallel graph format.
+The system SHALL deliver God-View geometry using the schema-3 Arrow IPC contract from #4749. Overview tiles and bounded detail scenes SHALL extend that contract without introducing a parallel JSON graph format.
 
-Each level SHALL use a single bounded record batch with `row_type` distinguishing node and edge rows. The schema SHALL preserve the typed node position/state/traffic columns, UInt32 `edge_source` and `edge_target` indices, directional edge telemetry columns, and `snapshot_schema_version` and `snapshot_revision` columns. Details SHALL be available through `node_detail_*`, `edge_detail_*`, and `edge_metadata_*` columns; `details_irregular` SHALL be decoded lazily when its details are requested rather than reconstructed for every row on interaction.
+Each payload SHALL contain one bounded record batch with `row_type` distinguishing node and edge rows, typed positions, UInt32 batch-local `edge_source` and `edge_target`, columnar regular details, and lazily decoded `details_irregular`. The schema SHALL retain required schema/revision columns and metadata. Missing required columns, incompatible types, invalid local endpoint references, nonfinite coordinates, or inconsistent identity metadata SHALL reject the payload without replacing the last compatible accepted scene.
 
-The batch schema metadata SHALL include `schema_version`, `revision`, `level_id`, and `parent_level_id`, together with level kind, structural signature, causal bitmap metadata, actual node and edge counts, applicable budgets, and bounded continuation information. A global root SHALL have no parent; every child level SHALL identify its parent. HTTP metadata and batch metadata SHALL agree. Edge endpoint indices and causal bitmap positions SHALL refer to the local returned node set, not the canonical graph.
+Tile metadata SHALL include `payload_kind=tile`, `layout_version`, `z`, `x`, `y`, `tile_revision`, coordinate-space metadata, actual feature counts, and applicable cardinality and encoded-byte budgets. Persisted integer world coordinates in the fixed extent `0..2^24-1` SHALL be authoritative for tiles. Schema-3 `node_x` and `node_y` SHALL retain UInt16 tile-local coordinates with explicit affine world-origin and extent metadata. The coordinate error SHALL remain below one tile width per axis divided by 65535. Adjacent tiles SHALL use a deterministic shared-boundary convention; the browser SHALL NOT recompute overview placement. Persisted integer stability and bounded wire quantization error SHALL be measured separately.
 
-Backend position columns SHALL remain non-authoritative compatibility hints for the ELK scene path. The frontend SHALL derive every accepted visible coordinate and route from the bounded semantic graph through its single selected geometry pipeline.
+Bounded detail metadata SHALL include `payload_kind=detail`, `level_id`, `parent_level_id`, content revision, structural signature, selected layout algorithm, counts, budgets, and bounded continuation. Its coordinates SHALL belong to the selected detail scene; one validated ELK result SHALL author its accepted geometry. Detail coordinates SHALL NOT move persisted map positions. All edge references SHALL resolve inside the returned batch, including explicitly non-owning clipping proxies used by tiles.
 
-#### Scenario: Client accepts supported snapshot schema
-- **GIVEN** the server emits a bounded schema-3 level
-- **WHEN** the God-View client receives the payload
-- **THEN** it SHALL decode node and edge columns into typed memory without reconstructing per-row detail objects
-- **AND** it SHALL render the level identified by the batch metadata
+#### Scenario: Tile positions preserve world authority
+- **GIVEN** a supported schema-3 tile from an accepted layout version
+- **WHEN** the client decodes its typed columns
+- **THEN** it SHALL render the server-authored world positions using the declared coordinate transform
+- **AND** it SHALL NOT invoke ELK for overview tile placement
 
-#### Scenario: Client handles unsupported snapshot schema
-- **GIVEN** the server emits an unsupported schema version
-- **WHEN** the God-View client receives the payload
-- **THEN** it SHALL reject the revision and display a recoverable compatibility error
-- **AND** the previous accepted level SHALL remain active
+#### Scenario: Detail coordinates remain separate
+- **GIVEN** a bounded detail payload is opened from a map device or aggregate
+- **WHEN** the client lays out that detail scene
+- **THEN** one selected ELK pipeline SHALL author its accepted coordinates and routes
+- **AND** neither its output nor its camera SHALL overwrite the map's persisted coordinate space
 
-#### Scenario: Client validates required level metadata
-- **GIVEN** a level response lacks required metadata or disagrees with its HTTP envelope
-- **WHEN** the client validates the response
-- **THEN** it SHALL reject the response rather than cache it under a different level or revision
-- **AND** the previous accepted level SHALL remain active
+#### Scenario: Unsupported or inconsistent payload preserves the last good scene
+- **GIVEN** a payload has an unsupported schema or invalid required columns, endpoints, coordinates, or identity metadata
+- **WHEN** the client validates the payload
+- **THEN** it SHALL reject it and expose a recoverable compatibility or data error
+- **AND** the last compatible accepted scene SHALL remain active
 
-#### Scenario: Client validates required columns for schema version 3
-- **GIVEN** the server emits schema version `3`
-- **WHEN** the client validates the batch
-- **THEN** missing required columns, incompatible typed endpoints, or out-of-range local node references SHALL cause rejection
-- **AND** absent optional details SHALL NOT prevent typed-column decoding
-
-#### Scenario: Lazy details do not replace columnar interaction paths
-- **GIVEN** a level includes details columns and irregular detail content
-- **WHEN** the operator filters, pans, zooms, hovers, or selects
-- **THEN** the client SHALL retain the typed-column interaction path
-- **AND** it SHALL decode only the requested irregular details
-
-#### Scenario: Legacy coordinate hints do not become a second authority
-- **GIVEN** a supported snapshot contains finite node position compatibility hints
-- **WHEN** the selected ELK pipeline lays out the bounded level
-- **THEN** the client SHALL NOT apply those hints as accepted node positions
-- **AND** every accepted coordinate and route SHALL come from that pipeline's validated result
+#### Scenario: Details remain lazy
+- **GIVEN** a tile or detail scene contains regular details columns and irregular detail content
+- **WHEN** the operator pans, zooms, filters, hovers, or selects
+- **THEN** interaction SHALL retain typed-column access
+- **AND** only the requested irregular details SHALL be decoded
 
 ### Requirement: Structural Reshape Contract
-The system SHALL distinguish visual-only filtering, navigation between bounded semantic levels, and changes to canonical topology. Level navigation SHALL request bounded membership from the backend without treating navigation itself as a canonical structural revision.
+The system SHALL distinguish local presentation filters, viewport tile selection, bounded detail navigation, geometry publication, and telemetry overlays. Presentation and navigation SHALL NOT mutate canonical topology or trigger a world relayout.
 
-#### Scenario: Visual-only filter action
-- **WHEN** the operator hides or highlights a class without changing graph structure
-- **THEN** the client SHALL apply the change locally to the accepted bounded level
-- **AND** a managed route SHALL render only when its visible endpoint contract remains satisfied
-- **AND** a valid anchor-to-group trunk MAY remain when the compound-group contract resolves its non-rendered gateway
+#### Scenario: Viewport navigation fetches bounded geometry
+- **WHEN** the operator pans or zooms the overview
+- **THEN** the client SHALL select only visible tiles and a configured bounded prefetch neighborhood
+- **AND** compatible cached tiles SHALL be reused without recomputing world coordinates
 
-#### Scenario: Expansion or collapse navigates bounded levels
-- **WHEN** the operator expands or collapses a summary
-- **THEN** the client SHALL select the corresponding child or parent level at the compatible revision
-- **AND** uncached membership SHALL arrive as one bounded HTTP level response
-- **AND** the frontend SHALL compute accepted coordinates and routes through that level's single selected geometry pipeline
-- **AND** returning to a compatible cached parent SHALL NOT require a fetch or canonical recomputation
+#### Scenario: Visual filters preserve accepted geometry
+- **WHEN** the operator hides or highlights a class in resident geometry
+- **THEN** the client SHALL apply the presentation change locally
+- **AND** rendered relations SHALL continue to satisfy their visible endpoint contract
+- **AND** the filter SHALL NOT cause canonical recomputation or a new layout version
 
-#### Scenario: Canonical topology changes invalidate affected levels
-- **WHEN** canonical membership or semantic relations change
-- **THEN** the backend SHALL recompute affected level memberships and structural signatures
-- **AND** it SHALL publish bounded revision invalidations for affected levels
-- **AND** unrelated cached levels SHALL remain reusable when their signatures match
+#### Scenario: Explicit bounded detail navigation preserves the map
+- **WHEN** the operator opens a device neighborhood or attachment-member page
+- **THEN** the client SHALL fetch only the bounded required detail if it is not cached
+- **AND** it SHALL enter a separate ELK coordinate space while preserving map camera and selection
+- **AND** exiting SHALL restore the compatible map tiles and camera without a geometry refetch
+
+#### Scenario: Geometry publication invalidates affected tiles
+- **WHEN** canonical membership, static geometry content, or relation bindings change
+- **THEN** the backend SHALL publish a complete new generation within the current layout version unless explicit relayout is required
+- **AND** only changed tiles and changed bounded detail identities SHALL be invalidated
+- **AND** unchanged tiles SHALL retain their content revisions
+
+#### Scenario: Telemetry does not reshape topology
+- **WHEN** health, last-seen data, or traffic changes without a geometry change
+- **THEN** the server SHALL deliver a bounded telemetry overlay
+- **AND** layout version, accepted device positions, and geometry tile revisions SHALL remain unchanged
+
+### Requirement: Wasm Arrow Execution Layer
+The system MUST provide a WebAssembly execution layer for Arrow-backed God-View client operations over resident tiles and bounded detail scenes without requiring the browser to materialize the canonical graph.
+
+#### Scenario: Complete resident neighborhood traversal
+- **GIVEN** a bounded detail scene declares complete membership for the requested traversal
+- **WHEN** the operator requests nodes within three hops of its selected device
+- **THEN** traversal SHALL execute over its resident Arrow-backed memory
+- **AND** the resulting selection mask SHALL apply locally without reconstructing per-row objects
+
+#### Scenario: Missing neighborhood membership is fetched explicitly
+- **GIVEN** visible tiles do not contain a complete requested canonical neighborhood
+- **WHEN** the operator requests that neighborhood
+- **THEN** the client SHALL fetch a bounded server-authored detail scene with explicit continuation when necessary
+- **AND** it SHALL NOT present traversal of only loaded tiles as a complete canonical result
+
+#### Scenario: Local multi-column filter computed in Wasm
+- **GIVEN** resident tiles or a bounded detail scene contain the requested attribute columns
+- **WHEN** the operator applies a compound visual filter
+- **THEN** the Wasm layer SHALL scan those columns and emit a visibility or ghosting mask locally
+- **AND** frame rendering SHALL remain within the applicable interaction budget
+
+#### Scenario: Layout interpolation respects the coordinate space
+- **GIVEN** an explicit transition between two accepted coordinate sets requires animation
+- **WHEN** the client computes intermediate positions
+- **THEN** interpolation SHALL use Arrow-backed memory without introducing periodic object-allocation stalls
+- **AND** the result SHALL NOT mutate persisted world coordinates or mix map and detail coordinate spaces
 
 ## ADDED Requirements
 
-### Requirement: Semantic atlas levels are bounded at the server contract
-God-View SHALL expose global, site or transport-component, infrastructure-neighborhood, and paged endpoint-membership levels. The server SHALL bound every response before inventory enrichment and encoding and SHALL NOT instruct the browser to lay out the complete canonical graph.
+### Requirement: Persistent world layout is deterministic and incrementally stable
+God-View SHALL support an invented topology of 1,000,000 devices and at least 2,000,000 relations using server-authored hierarchical world coordinates persisted through platform migrations. A `layout_version` SHALL identify an explicit coordinate space and placement configuration. An ordinary incremental update SHALL preserve existing coordinates; only an explicit full relayout SHALL publish a different coordinate space.
 
-Each level SHALL carry stable `level_id`, `parent_level_id`, and `revision` metadata in the schema-3 Arrow batch. Aggregate identities SHALL derive from semantic membership or anchors rather than input order or telemetry. Local edge endpoints SHALL refer only to nodes present in that batch. The contract SHALL define node, relation, identity-label, member, and encoded-byte budgets; summaries and context count against those budgets.
+Initial placement SHALL use authoritative sites when available, otherwise stable transport components, then infrastructure and attachment groups. Stable identifiers SHALL break ties independently of input row order. Existing placement slots and parent assignments SHALL survive incremental insertion, deletion, component merge/split, and changes to preferred roots unless a new layout version is explicitly published. Deleted slots SHALL NOT cause surviving positions to be renumbered.
 
-#### Scenario: Large canonical graphs remain bounded on the wire
-- **GIVEN** an independently invented canonical graph has at least 200,000 nodes and 400,000 relations
-- **WHEN** the client requests any semantic level
-- **THEN** the response SHALL contain exactly one bounded schema-3 Arrow batch
-- **AND** actual node rows, relation rows, labels, members, and encoded bytes SHALL remain within the level's budgets
-- **AND** the layout input SHALL contain only that bounded level
+#### Scenario: Equivalent fresh input produces equivalent coordinates
+- **GIVEN** identical invented canonical membership, relations, seed, and layout configuration in different input orders
+- **WHEN** a fresh layout is computed
+- **THEN** every device SHALL receive the same world coordinates and stable placement identity
 
-#### Scenario: Global and component overflow remain reachable
-- **GIVEN** the global aggregate count or one transport component exceeds its level budget
-- **WHEN** the server constructs the requested level
-- **THEN** it SHALL summarize, subdivide, or page the excess using bounded continuation metadata
-- **AND** every omitted aggregate or member SHALL remain reachable through level navigation
-- **AND** no summary SHALL embed an unbounded member identity list
+#### Scenario: Incremental additions preserve existing positions
+- **GIVEN** a persisted 1,000,000-device layout
+- **WHEN** an invented 1% addition is applied within the same layout version
+- **THEN** existing persisted integer device coordinates SHALL remain exactly unchanged
+- **AND** the same prior placement and change batch SHALL produce the same new placements
+- **AND** session reloads SHALL recover those persisted coordinates
 
-#### Scenario: Missing site metadata uses transport components
-- **GIVEN** canonical infrastructure has no authoritative site metadata
-- **WHEN** the server builds the global level
-- **THEN** it SHALL group infrastructure by deterministic transport component
-- **AND** equivalent reversed input arrays SHALL produce the same aggregate and level identifiers
+#### Scenario: Schema changes use the migration lifecycle
+- **WHEN** persistent layout, device-coordinate, or relation-binding records are introduced or changed
+- **THEN** the schema change SHALL be an Elixir migration in the platform schema
+- **AND** the configured core migration expected version SHALL be updated
+- **AND** ingestion, rendering, and test helpers SHALL NOT create schema objects
 
-### Requirement: Atlas levels use HTTP and channel invalidations
-The authenticated topology HTTP endpoint SHALL return one schema-3 level for `level_id` and `revision`; the topology channel SHALL carry only bounded invalidations and small deltas, never complete graph or level payloads.
+### Requirement: Geometry generations publish atomically
+The server SHALL distinguish stable `layout_version`, immutable publication `generation`, and per-tile content `tile_revision`. Candidate generations SHALL remain invisible until their positions, relation bindings, spatial summaries, and required low-zoom tiles are coherent. Publication SHALL reject stale writers and retain the last accepted generation on failure.
 
-The existing `GET /topology/snapshot/latest` route SHALL default to the current global level when no level or revision is supplied. A request's `revision` SHALL identify that level's content, independently of its parent's revision and the atlas `canonical_revision`. An explicitly requested unavailable level revision SHALL return HTTP 409 and identify that level's current revision. Invalid parameters, unknown levels or out-of-range pages, and an unready atlas SHALL return HTTP 400, 404, and 503 respectively. A response SHALL NOT be cached under a different revision than its batch metadata.
+#### Scenario: Failed candidate does not replace accepted geometry
+- **GIVEN** an accepted generation is serving requests
+- **WHEN** source acquisition, layout, persistence, or tile validation fails for its replacement
+- **THEN** the accepted generation SHALL remain available
+- **AND** no request SHALL observe a mix of old and candidate memberships or relation bindings
 
-#### Scenario: First paint does not depend on the channel
-- **GIVEN** a global level is available over HTTP and channel delivery is delayed
-- **WHEN** God-View opens
-- **THEN** its first usable frame SHALL come from the HTTP global-level response
-- **AND** no complete graph SHALL be delivered through the channel
+#### Scenario: Unchanged content survives a later generation
+- **GIVEN** a new generation changes one part of the world
+- **WHEN** it is published
+- **THEN** an unchanged tile SHALL retain the same geometry bytes and content revision
+- **AND** publication generation or source-poll identity alone SHALL NOT invalidate its ETag
 
-#### Scenario: Drill-down requests only the selected level
-- **GIVEN** an accepted parent level contains an aggregate with a child reference
-- **WHEN** zoom or selection enters that aggregate without a cached or pending child
-- **THEN** the client SHALL fetch exactly that child level, omitting `revision` on a first visit when its content revision is unknown
-- **AND** it SHALL NOT use the parent's revision as the child's requested revision
-- **AND** unrelated levels SHALL NOT be included in the response
+### Requirement: Quadtree tiles conserve membership within hard budgets
+The server SHALL expose quadtree tiles keyed by `(layout_version, z, x, y)` within a fixed world extent and declared maximum zoom. Every admitted device SHALL have exactly one owning tile and one visible representation at every zoom: an individual device or membership in one stable aggregate. Importance-based `min_zoom` SHALL determine eligibility for individual display without overriding density or byte budgets.
 
-#### Scenario: Stale revision is explicit
-- **GIVEN** the client requests a revision the server no longer serves
-- **WHEN** the level endpoint handles the request
-- **THEN** it SHALL return HTTP 409 with the current revision
-- **AND** the client SHALL retain its last compatible good scene while reconciling the revision
+Each tile SHALL enforce node, relation, label, total-feature, and actual encoded-byte limits during construction. An oversized tile SHALL generalize further; it SHALL NOT silently truncate membership or transmit overflow. Boundary and context proxies SHALL count against feature budgets but contribute zero represented-device membership. Aggregate payloads SHALL contain bounded summaries and navigation references, not complete member lists.
 
-#### Scenario: Invalidation traffic remains bounded
-- **GIVEN** a structural revision changes level membership or summary counts
-- **WHEN** the server publishes `topology_invalidated` on `topology:god_view`
-- **THEN** the message SHALL include `previous_canonical_revision`, `canonical_revision`, and only the affected level identifiers with bounded per-level revision hints
-- **AND** an explicit reset marker SHALL replace an invalidation list that exceeds its configured budget
-- **AND** the message SHALL NOT embed Arrow payloads or canonical node and relation collections
+#### Scenario: Membership is conserved at every zoom
+- **GIVEN** the seeded 1,000,000-device canonical fixture
+- **WHEN** all tiles at any supported zoom are generated
+- **THEN** the visible owned device count plus the sum of aggregate member counts SHALL equal the admitted canonical device count
+- **AND** shared tile boundaries SHALL neither omit nor duplicate a member
+- **AND** every tile SHALL remain within its feature and encoded-byte limits
 
-### Requirement: Level caches preserve compatible geometry and navigation
-The client SHALL cache levels by `(revision, level_id, expansion state)` and SHALL distinguish a per-level content revision, a structural signature, and a canonical source revision. Layout identity SHALL include the level and selected algorithm. Prefetch, navigation, and invalidation SHALL preserve compatible cached geometry and parent camera state.
+#### Scenario: Maximum-zoom density remains reachable
+- **GIVEN** one maximum-zoom tile contains more devices or relations than its budgets permit
+- **WHEN** it is generated
+- **THEN** stable aggregates and bounded detail/member-page references SHALL represent the excess
+- **AND** every admitted device SHALL remain reachable by search and bounded detail navigation
+- **AND** no overflow member list SHALL be embedded in the tile
 
-#### Scenario: Telemetry revisions preserve geometry
-- **GIVEN** an accepted level receives updated traffic counters or local health without a membership change
-- **WHEN** the content revision advances
-- **THEN** level ids, aggregate ids, and structural signatures SHALL remain unchanged
-- **AND** the client SHALL reuse the accepted geometry
+### Requirement: Tile relations preserve identity across bundles and clipping
+The tile engine SHALL bundle low-zoom relations by their visible endpoint or aggregate pair while retaining stable bundle identity and represented-relation counts. Long relations SHALL become visible when their endpoint representations are eligible and SHALL be clipped deterministically across tiles. The spatial index SHALL find a crossing segment even when both endpoints lie outside the requested tile, without scanning all canonical relations for every tile request. Every returned edge endpoint SHALL be local to its batch.
 
-#### Scenario: Structural invalidation preserves unrelated levels
-- **GIVEN** a structural update affects one neighborhood and ancestors whose summaries change
-- **WHEN** the invalidation is applied
-- **THEN** only those affected levels SHALL be invalidated
-- **AND** unaffected cached levels SHALL retain their content revisions and accepted scenes
-- **AND** changed content with an unchanged structural signature SHALL reuse compatible geometry
-- **AND** a response from an older canonical generation SHALL NOT replace a newer accepted level
+#### Scenario: Adjacent tiles share a continuous relation
+- **GIVEN** one admitted relation crosses multiple tiles
+- **WHEN** those tiles are rendered together
+- **THEN** its segments SHALL retain stable relation identity and deterministic boundary ownership
+- **AND** procedural packet flow SHALL retain route-distance continuity
+- **AND** clipping proxies SHALL NOT appear as extra devices or inflate aggregate counts
 
-#### Scenario: Hover prefetch and parent return reuse cached levels
-- **GIVEN** the pointer enters an expandable aggregate
-- **WHEN** its child is not already cached or being fetched
-- **THEN** the client SHALL prefetch that bounded child and deduplicate repeated requests
-- **AND** selecting the aggregate SHALL reuse the result
-- **AND** zooming back out SHALL restore the compatible cached parent scene and camera without an HTTP fetch
+#### Scenario: Low-zoom bundles remain explainable
+- **GIVEN** many admitted relations connect the same visible aggregate pair
+- **WHEN** the overview uses a bundled edge
+- **THEN** its count and identity SHALL describe those represented relations without serializing them all
+- **AND** bounded details SHALL preserve access to the underlying canonical relation identities
 
-### Requirement: Bounded atlas levels satisfy interactive performance budgets
-God-View SHALL preserve the existing first-frame SLO and measure hover, selection, and filtering at the largest permitted level on a real WebGPU device with procedural packet flow enabled.
+### Requirement: Tile HTTP responses are authorized and revision cacheable
+The authenticated `GET /topology/tiles/:layout_version/:z/:x/:y` endpoint SHALL return one bounded schema-3 geometry tile with an ETag derived from layout version and tile content revision. Current authority SHALL be checked before response or HTTP 304. Cache entries SHALL be isolated by effective device visibility when authorization scopes differ; aggregate counts and details SHALL obey that same visibility boundary.
 
-#### Scenario: Carrier-scale navigation remains interactive
-- **GIVEN** an independently invented canonical graph is far larger than every level budget
-- **WHEN** a real WebGPU browser opens the global level and interacts with the largest permitted level
-- **THEN** the first usable frame SHALL arrive within 3 seconds
+The server SHALL provide bounded layout-manifest metadata, coordinate search, identity details, and bounded detail-scene endpoints. A detail request with no revision SHALL resolve the requested level's current content revision; it SHALL NOT use its parent's revision. An unavailable pinned detail revision SHALL return HTTP 409 with its current revision. A valid empty tile SHALL be cacheable. Malformed keys, unknown identities, stale explicit revisions, and absence of an accepted layout SHALL return explicit errors without replacing the client's last compatible scene. Candidate generations SHALL never be served.
+
+#### Scenario: First paint is independent of channel timing
+- **GIVEN** an accepted layout has its low-zoom tiles available
+- **WHEN** an authenticated operator opens God-View before channel delivery
+- **THEN** HTTP manifest and visible-tile requests SHALL produce the first usable frame
+- **AND** no complete canonical graph SHALL be required by the browser
+
+#### Scenario: Authorization revocation defeats a cached validator
+- **GIVEN** an operator previously fetched a tile and its ETag
+- **WHEN** the required authority is revoked before a conditional request
+- **THEN** the request SHALL fail authorization
+- **AND** it SHALL NOT return either cached tile bytes or HTTP 304
+
+#### Scenario: Search locates a device hidden by generalization
+- **GIVEN** an admitted authorized device is represented by a dense aggregate
+- **WHEN** the operator searches for that device
+- **THEN** the server SHALL return its persistent coordinates, a useful target zoom, and bounded detail navigation
+- **AND** the client SHALL fly to that location without fetching unrelated topology
+
+### Requirement: Dirty-tile invalidation and telemetry are separate bounded streams
+The topology channel SHALL send bounded geometry invalidations naming layout version, publication identity, and affected tile keys, never whole graphs. Initial watch acknowledgements and later invalidations SHALL obey the same metadata byte limit and SHALL use an explicit reset/reconcile marker on overflow. Clients SHALL refetch only visible dirty tiles and reconcile publication identity after reconnect.
+
+Telemetry SHALL use a separate bounded overlay keyed by stable node, aggregate, relation, or bundle IDs and the compatible tile geometry identity. Health rollups, last-seen values, and traffic rates SHALL NOT participate in geometry tile revisions. Stale overlays SHALL be discarded; a telemetry sequence gap SHALL reset only the overlay. Metrics SHALL continue through NATS JetStream and the configured telemetry backend.
+
+#### Scenario: Geometry change touches only dependent tiles
+- **WHEN** one device's non-telemetry geometry content changes
+- **THEN** invalidation SHALL be limited to its owning tiles, affected aggregate ancestry, and tiles touched by any changed old or new relation geometry
+- **AND** unrelated tile revisions SHALL remain reusable
+
+#### Scenario: Telemetry animates without geometry fetches
+- **GIVEN** visible tiles are cached and packet flow is enabled
+- **WHEN** local health or traffic rates change
+- **THEN** bounded overlays SHALL update the corresponding visible glyphs and procedural edge flow
+- **AND** the update SHALL trigger zero geometry tile refetches or world-layout operations
+
+#### Scenario: Invalidation overflow is explicit and bounded
+- **GIVEN** a structural publication changes more tile keys than one allowed message can hold
+- **WHEN** the channel publishes its invalidation or watch acknowledgement
+- **THEN** it SHALL send a bounded reset/reconcile marker
+- **AND** it SHALL NOT send a partial key list that implies completeness
+
+### Requirement: Tile navigation preserves bounded detail scenes and cached maps
+The God-View client SHALL use deck.gl TileLayer in OrthographicView with bounded prefetch and an LRU cache, reusing #4749 typed WebGPU sublayers and procedural packet flow. Picking SHALL fetch details by stable identity. ELK SHALL run only on a bounded device-neighborhood or attachment-member detail scene, with explicit entry and exit.
+
+#### Scenario: Panning back reuses cached geometry
+- **GIVEN** an unchanged previously visited area remains within the LRU budget
+- **WHEN** the operator pans back to it
+- **THEN** its tiles SHALL render from cache without a network fetch
+
+#### Scenario: Detail overflow stays bounded
+- **GIVEN** an attachment group exceeds the configured detail-scene member budget
+- **WHEN** the operator opens it
+- **THEN** the client SHALL receive one bounded member page plus bounded context
+- **AND** ELK SHALL never receive the entire canonical graph or the complete unbounded group
+- **AND** returning SHALL restore the compatible cached map camera and tiles
+
+### Requirement: Million-device tile interactions satisfy measured performance budgets
+God-View SHALL meet the tile-engine acceptance budgets on an independently invented seeded fixture of 1,000,000 devices and at least 2,000,000 relations. Measurements SHALL use a real WebGPU device with procedural packet flow enabled and record device limits, selected budgets, payload sizes, fixture seed, and measurement method.
+
+#### Scenario: Real-device navigation meets the acceptance budgets
+- **GIVEN** the accepted synthetic million-device world is available from a local server
+- **WHEN** the operator opens, pans, zooms, hovers, and selects in God-View
+- **THEN** first usable frame SHALL arrive within 3 seconds
+- **AND** pan and zoom SHALL sustain at least 30 frames per second
 - **AND** hover and selection SHALL each complete in less than 100 milliseconds
-- **AND** filtering SHALL complete in less than 300 milliseconds
-- **AND** measured device limits, wire row/byte counts, and timings SHALL be recorded with packet flow enabled
-- **AND** a SwiftShader-only run SHALL NOT satisfy the real-device acceptance gate
-
-### Requirement: God-View overview uses a deterministic radial transport forest
-The God-View overview SHALL construct a deterministic rooted forest from the bounded promotable topology and SHALL pass only that acyclic forest to ELK Radial. Forest roots, selected relations, relation orientation, and node order SHALL remain stable across equivalent input orderings.
-
-#### Scenario: Cyclic topology becomes a stable overview forest
-- **GIVEN** a bounded topology component contains redundant or cyclic semantic relations
-- **WHEN** the overview projection is built
-- **THEN** exactly one load-bearing tree path SHALL connect each non-root node to the component root
-- **AND** excluded semantic relations SHALL remain identified as non-tree cross-links
-- **AND** ELK Radial SHALL receive an acyclic input graph
-
-#### Scenario: Equivalent input order preserves geometry identity
-- **GIVEN** two snapshots contain identical nodes and semantic relations in different array orders
-- **WHEN** their overview forests and layout cache identities are produced
-- **THEN** both SHALL choose the same roots and tree relations
-- **AND** both SHALL produce the same level and algorithm cache identity
-
-### Requirement: Non-tree cross-links use bounded progressive disclosure
-The overview SHALL preserve non-tree relation identity and counts without rendering every cross-link as an always-on route. A bounded focus view MAY reveal cross-links relevant to its selected component, node, or route.
-
-#### Scenario: Overview summarizes redundant links
-- **GIVEN** a component contains semantic relations excluded from its overview forest
-- **WHEN** the overview renders that component
-- **THEN** it SHALL expose the excluded cross-link count through component or selection metadata
-- **AND** it SHALL NOT draw those relations as an always-on edge mesh
-
-#### Scenario: Focus reveals relevant cross-links
-- **GIVEN** an operator selects a bounded infrastructure neighborhood
-- **WHEN** the focus level is requested
-- **THEN** relevant non-tree relations SHALL retain their original semantic relation identifiers and metadata
-- **AND** unrelated tenant-wide cross-links SHALL remain outside that bounded level
-
-### Requirement: Atlas Fit always contains the current bounded level
-Initial view and Fit SHALL contain every rendered glyph and route in the current bounded atlas level inside the measured safe viewport. Fixed-pixel separation constraints SHALL NOT make part of the level unreachable; the renderer SHALL reduce presentation density or change semantic level before applying a conflicting zoom floor.
-
-#### Scenario: Fit shows the complete radial overview
-- **GIVEN** a valid bounded radial overview larger than the current viewport
-- **WHEN** the operator invokes Fit
-- **THEN** every overview glyph and tree route SHALL be inside the safe viewport
-- **AND** the camera SHALL NOT clamp above the scale required to contain that level
-
-#### Scenario: Dense detail reduces membership before clipping
-- **GIVEN** a focused endpoint neighborhood whose full member set cannot fit with self-identifying glyphs
-- **WHEN** the focus level is laid out or fitted
-- **THEN** the level SHALL page, sample, or aggregate members until the accepted visible set fits
-- **AND** it SHALL NOT preserve an unreadable camera floor that hides part of the accepted level
-
-### Requirement: Expanded endpoint groups are bounded focus levels
-Expanding an endpoint summary SHALL enter or update a bounded focus level for that group rather than adding an unbounded member fanout to the global overview.
-
-#### Scenario: Expansion preserves unrelated overview state
-- **GIVEN** a valid overview and one expandable endpoint summary
-- **WHEN** the operator expands that summary
-- **THEN** the focused level SHALL retain the required anchor and transport context plus a bounded member set
-- **AND** unrelated components SHALL NOT be relaid out as part of that expansion
-- **AND** collapse SHALL restore the previous compatible overview scene and camera state
-
-#### Scenario: Repeated expansion remains recoverable
-- **GIVEN** the operator expands, collapses, and expands multiple endpoint groups
-- **WHEN** any newly requested level fails layout or rendering
-- **THEN** the last compatible good level SHALL remain visible
-- **AND** the UI and server diagnostics SHALL identify the failed level, algorithm, and error reason
+- **AND** visible-tile fetch plus decode SHALL be at most 200 milliseconds at p95
+- **AND** a SwiftShader-only run or pure index benchmark SHALL NOT satisfy this real-device gate
