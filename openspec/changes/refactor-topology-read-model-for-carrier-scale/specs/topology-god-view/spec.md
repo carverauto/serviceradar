@@ -7,7 +7,7 @@ Each payload SHALL contain one bounded record batch with `row_type` distinguishi
 
 Tile metadata SHALL include `payload_kind=tile`, `layout_version`, `z`, `x`, `y`, `tile_revision`, coordinate-space metadata, actual feature counts, and applicable cardinality and encoded-byte budgets. Persisted integer world coordinates in the fixed extent `0..2^24-1` SHALL be authoritative for tiles. Schema-3 `node_x` and `node_y` SHALL retain UInt16 tile-local coordinates with explicit affine world-origin and extent metadata. The coordinate error SHALL remain below one tile width per axis divided by 65535. Adjacent tiles SHALL use a deterministic shared-boundary convention; the browser SHALL NOT recompute overview placement. Persisted integer stability and bounded wire quantization error SHALL be measured separately.
 
-Bounded detail metadata SHALL include `payload_kind=detail`, `level_id`, `parent_level_id`, content revision, structural signature, selected layout algorithm, counts, budgets, and bounded continuation. Its coordinates SHALL belong to the selected detail scene; one validated ELK result SHALL author its accepted geometry. Detail coordinates SHALL NOT move persisted map positions. All edge references SHALL resolve inside the returned batch, including explicitly non-owning clipping proxies used by tiles.
+Bounded detail metadata SHALL include `payload_kind=detail`, `level_id`, `parent_level_id`, layout version, publication generation, content revision, structural signature, selected layout algorithm, counts, budgets, and bounded continuation. A continuation SHALL pin the publication and native scope that produced it; it SHALL NOT resume across generations even when geometry is unchanged. Its coordinates SHALL belong to the selected detail scene; one validated ELK result SHALL author its accepted geometry. Detail coordinates SHALL NOT move persisted map positions. All edge references SHALL resolve inside the returned batch, including explicitly non-owning clipping proxies used by tiles.
 
 #### Scenario: Tile positions preserve world authority
 - **GIVEN** a supported schema-3 tile from an accepted layout version
@@ -16,7 +16,7 @@ Bounded detail metadata SHALL include `payload_kind=detail`, `level_id`, `parent
 - **AND** it SHALL NOT invoke ELK for overview tile placement
 
 #### Scenario: Detail coordinates remain separate
-- **GIVEN** a bounded detail payload is opened from a map device or aggregate
+- **GIVEN** a bounded detail payload is opened from a map device, aggregate, or rendered relation bundle
 - **WHEN** the client lays out that detail scene
 - **THEN** one selected ELK pipeline SHALL author its accepted coordinates and routes
 - **AND** neither its output nor its camera SHALL overwrite the map's persisted coordinate space
@@ -180,12 +180,33 @@ The tile engine SHALL bundle low-zoom relations by their visible endpoint or agg
 - **GIVEN** many admitted relations connect the same visible aggregate pair
 - **WHEN** the overview uses a bundled edge
 - **THEN** its count and identity SHALL describe those represented relations without serializing them all
+- **AND** `kind=bundle` picking metadata SHALL resolve the accepted tile selector and return the exact represented relation count and two rendered endpoint glyphs
+- **AND** the metadata SHALL reference a `kind=bundle_members` bounded scene without assuming the rendered bundle ID is a canonical relation ID
 - **AND** bounded details SHALL preserve access to the underlying canonical relation identities
 
 ### Requirement: Tile HTTP responses are authorized and revision cacheable
 The authenticated `GET /topology/tiles/:layout_version/:z/:x/:y` endpoint SHALL return one bounded schema-3 geometry tile with an ETag derived from layout version and tile content revision. Current authority SHALL be checked before response or HTTP 304. Cache entries SHALL be isolated by effective device visibility when authorization scopes differ; aggregate counts and details SHALL obey that same visibility boundary.
 
 The server SHALL provide bounded layout-manifest metadata, coordinate search, identity details, and bounded detail-scene endpoints. A detail request with no revision SHALL resolve the requested level's current content revision; it SHALL NOT use its parent's revision. An unavailable pinned detail revision SHALL return HTTP 409 with its current revision. A valid empty tile SHALL be cacheable. Malformed keys, unknown identities, stale explicit revisions, and absence of an accepted layout SHALL return explicit errors without replacing the client's last compatible scene. Candidate generations SHALL never be served.
+
+Picking metadata SHALL accept `device`, `relation`, `aggregate`, and `bundle` kinds. Detail scenes SHALL accept `neighborhood`, `component_members`, `aggregate_members`, and `bundle_members` kinds. All picks and scenes SHALL pin layout version and publication generation. Aggregate and bundle kinds SHALL additionally pin z/x/y and the encoded geometry tile revision, and SHALL use the corresponding accepted server selector. Detail continuation envelopes SHALL be bounded to 512 bytes and SHALL include that publication identity plus native world/scope revisions and typed UInt32 page fields. Current authority SHALL be checked independently of every cursor.
+
+A bundle-member page SHALL examine at most 4,096 raw spatial candidates and return at most 128 distinct canonical devices and 256 canonical relations before scoped inventory enrichment. It SHALL distinguish exact total relation membership from per-page visible device/relation counts and scanned candidate count. It SHALL NOT claim an exact distinct-device total from the represented relation count. Empty pages with remaining candidates SHALL return an advancing continuation rather than imply completion.
+
+#### Scenario: Bundle details preserve exact membership across bounded pages
+- **GIVEN** a rendered bundle has more relations or distinct endpoints than one detail page permits
+- **WHEN** the operator traverses its `bundle_members` scene under one accepted selector
+- **THEN** each page SHALL preserve the node, relation, and candidate budgets
+- **AND** every represented canonical relation SHALL remain reachable exactly once without preloading its full member list
+- **AND** endpoint devices MAY repeat on later pages while counts remain explicit
+- **AND** an empty filtered page with a continuation SHALL permit another bounded request
+
+#### Scenario: Detail continuation cannot cross publication or tile identity
+- **GIVEN** a detail cursor was produced for one publication and native scope
+- **WHEN** its layout or generation differs from the requested publication, or its tile/profile/scope no longer matches
+- **THEN** the continuation SHALL be rejected without returning mixed-publication content
+- **AND** unchanged native geometry SHALL NOT make an old publication cursor reusable
+- **AND** a publication change during scoped enrichment SHALL reject the completed result
 
 #### Scenario: First paint is independent of channel timing
 - **GIVEN** an accepted layout has its low-zoom tiles available
@@ -251,7 +272,7 @@ Packet attribution SHALL admit only direct physical evidence with no virtual rol
 - **AND** telemetry refresh SHALL NOT refetch geometry or extend a sample's freshness timestamp
 
 ### Requirement: Tile navigation preserves bounded detail scenes and cached maps
-The God-View client SHALL use deck.gl TileLayer in OrthographicView with bounded prefetch and an LRU cache, reusing #4749 typed WebGPU sublayers and procedural packet flow. Picking SHALL fetch details by stable identity. ELK SHALL run only on a bounded device-neighborhood or attachment-member detail scene, with explicit entry and exit.
+The God-View client SHALL use deck.gl TileLayer in OrthographicView with bounded prefetch and an LRU cache, reusing #4749 typed WebGPU sublayers and procedural packet flow. Picking SHALL fetch details by stable identity. ELK SHALL run only on a bounded device-neighborhood, component/aggregate-member, or rendered-bundle-member detail scene, with explicit entry and exit.
 
 #### Scenario: Panning back reuses cached geometry
 - **GIVEN** an unchanged previously visited area remains within the LRU budget

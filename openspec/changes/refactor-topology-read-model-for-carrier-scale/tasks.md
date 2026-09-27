@@ -16,6 +16,8 @@ The integrated server checkpoint `e4a7be0c0c` passed [make test with remote exec
 
 The bounded overlay read model and owner are implemented separately from geometry, with exact-pair SRQL reads, complete-bundle coverage, producer provenance, global interface-degree requirements and generation fences. The final focused remote run passed [330 web tests with zero failures](https://carverauto.buildbuddy.io/invocation/c85c4ae2-0362-4f53-b21a-665e116c5743). A deliberate partial-bundle mutation failed before exact source restoration, and a real PubSub regression reproduced the missing durable-publication handler before its fix. Actual backend rate queries, installed schema-3 cache/overlay delivery and browser behavior remain pending. Tasks 3.12 and 6.9 remain open.
 
+Rendered-bundle picking now has an explicit metadata and bounded member-scene contract, including encoded tile revision and publication-bound cursors. The native bundle checkpoint passed [six engine, five native and 271 core tests](https://carverauto.buildbuddy.io/invocation/a7f796ee-0265-455c-8755-dca5cdeddf90); removing the exact bundle filter failed the opposite-direction assertion before source restoration. Serving integration, installed schema-3 scene delivery and browser acceptance remain open. This contract update does not close task 3.9.
+
 ## 1. Topology Contract
 
 - [ ] 1.1 Implement and round-trip schema-3 tile and bounded detail payloads, including UInt16 local coordinates with affine metadata, local UInt32 endpoints, counts, budgets, and lazy details.
@@ -42,7 +44,7 @@ The bounded overlay read model and owner are implemented separately from geometr
 - [ ] 3.6 Keep map and detail coordinate/cache identities separate and restore only compatible accepted scenes after errors.
 - [ ] 3.7 Add stable-identity picking and coordinate search, including devices still represented by aggregates at maximum zoom.
 - [ ] 3.8 Make map Fit use the declared world/container extent and detail Fit include the full bounded scene inside the measured safe viewport.
-- [ ] 3.9 Render bounded bundles and clipped relation segments with stable picking identity and continuous procedural packet flow.
+- [ ] 3.9 Render bounded bundles and clipped relation segments with stable picking identity and continuous procedural packet flow; resolve bundle metadata and bounded member scenes through the accepted tile selector with publication-bound continuation.
 - [ ] 3.10 Expose recoverable tile, overlay, and detail-layout failures without replacing coherent last-good state.
 - [ ] 3.11 Add bounded prefetch/LRU caching, in-flight request deduplication, and cached revisits/detail return with no geometry fetch; swap coherent same-zoom coverage without incompatible parent/child boundary portals.
 - [ ] 3.12 Apply separate bounded telemetry overlays, reject stale geometry/overlay results, and reconcile sequence gaps without geometry refetch.
