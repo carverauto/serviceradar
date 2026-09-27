@@ -870,8 +870,7 @@ defmodule ServiceRadar.EventWriter.Producer do
   # One ownership tick. Skipped while disconnected: the tracker keeps its
   # first-seen times, so the grace period is measured across the outage.
   def reconcile_stream_ownership(%{owned_streams: owned} = state)
-      when owned == %{} or is_nil(owned),
-      do: state
+      when owned == %{} or is_nil(owned), do: state
 
   def reconcile_stream_ownership(%{connected: true, conn: conn} = state) when not is_nil(conn) do
     request = fn topic, payload -> Util.request(conn, topic, payload) end
@@ -880,9 +879,8 @@ defmodule ServiceRadar.EventWriter.Producer do
 
   def reconcile_stream_ownership(state), do: state
 
-  defp schedule_ownership_reconcile(%{owned_streams: owned})
-       when owned == %{} or is_nil(owned),
-       do: :ok
+  defp schedule_ownership_reconcile(%{owned_streams: owned}) when owned == %{} or is_nil(owned),
+    do: :ok
 
   defp schedule_ownership_reconcile(%{config: config}) do
     interval =

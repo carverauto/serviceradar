@@ -9,12 +9,14 @@ alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
 alias ServiceRadar.EventWriter.Processors.Flows
 alias ServiceRadar.Jobs.AlertsRetentionWorker
 alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
+alias ServiceRadar.NATS.StateBucketSizing
 alias ServiceRadar.Notifications.ContinuationWorker, as: NotificationContinuationWorker
 alias ServiceRadar.Notifications.DeliveryRetentionWorker, as: NotificationRetentionWorker
 alias ServiceRadar.Notifications.DispatchSchedule
 alias ServiceRadar.Notifications.PluginTarget, as: NotificationPluginTarget
 alias ServiceRadar.Notifications.ReceiptWorker, as: NotificationReceiptWorker
 alias ServiceRadar.Notifications.SilenceExpiryWorker, as: NotificationSilenceExpiryWorker
+alias ServiceRadar.Notifications.StreamPublisher
 alias ServiceRadar.Observability.CapacityForecasting.Worker, as: CapacityForecastingWorker
 alias ServiceRadar.Observability.DataRetentionWorker
 alias ServiceRadar.Observability.ProductionSchedule
@@ -519,26 +521,26 @@ config :serviceradar_core, ServiceRadar.WorkloadIdentity,
   skip_guard_enabled: System.get_env("SERVICERADAR_WORKLOAD_IDENTITY_SKIP_GUARD", "1") != "0",
   skip_guard_heartbeat_ms: parse_int_env.("SERVICERADAR_WORKLOAD_IDENTITY_SKIP_GUARD_HEARTBEAT_MS", 1_800_000)
 
+# Notification firehose stream size (a discard-old buffer, reconciled on the
+# first publish per node). Unset or blank means 1 GiB; an invalid value fails boot.
+config :serviceradar_core, StreamPublisher,
+  max_bytes:
+    StateBucketSizing.bytes_from_env!(
+      "SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES",
+      StreamPublisher.default_max_bytes()
+    )
+
 config :serviceradar_core, ThreatIntelRawPayloadStore,
   jetstream_bucket: System.get_env("SERVICERADAR_OTX_RAW_BUCKET", "serviceradar_threat_intel"),
   jetstream_ttl_seconds: parse_int_env.("SERVICERADAR_OTX_RAW_TTL_SECONDS", 0),
   jetstream_max_bucket_size:
-    ServiceRadar.NATS.StateBucketSizing.bytes_from_env!(
+    StateBucketSizing.bytes_from_env!(
       "SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES",
       ThreatIntelRawPayloadStore.default_max_bucket_bytes()
     ),
   jetstream_max_chunk_size: parse_int_env.("SERVICERADAR_OTX_RAW_MAX_CHUNK_BYTES", nil),
   jetstream_replicas: parse_int_env.("SERVICERADAR_OTX_RAW_REPLICAS", 1),
   jetstream_storage: otx_raw_storage
-
-# Notification firehose stream size (a discard-old buffer, reconciled on the
-# first publish per node). Unset or blank means 1 GiB; an invalid value fails boot.
-config :serviceradar_core, ServiceRadar.Notifications.StreamPublisher,
-  max_bytes:
-    ServiceRadar.NATS.StateBucketSizing.bytes_from_env!(
-      "SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES",
-      ServiceRadar.Notifications.StreamPublisher.default_max_bytes()
-    )
 
 config :serviceradar_core, :spiffe,
   mode: spiffe_mode,

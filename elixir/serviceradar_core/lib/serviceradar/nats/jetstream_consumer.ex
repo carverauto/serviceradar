@@ -475,8 +475,7 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
   """
   @spec stream_owner(map()) :: String.t() | nil
   def stream_owner(%{"metadata" => %{@owner_metadata_key => owner}})
-      when is_binary(owner) and owner != "",
-      do: owner
+      when is_binary(owner) and owner != "", do: owner
 
   def stream_owner(_config), do: nil
 
