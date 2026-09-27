@@ -249,6 +249,8 @@ actions:
             elixir/web-ng/assets \
             elixir/web-ng/native/god_view_nif \
             elixir/web-ng/world_fixture.bzl \
+            elixir/web-ng/BUILD.bazel \
+            elixir/web-ng/lib/serviceradar_web_ng/topology \
             elixir/web-ng/test/fixtures/world_browser_encoder.exs \
             elixir/serviceradar_core/native/topology_atlas_nif \
             rust/topology-atlas \
