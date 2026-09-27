@@ -273,6 +273,43 @@ describe("DashboardWasmHost browser-module API", () => {
     expect(allowed.camera.maxSessions).toBe(9)
   })
 
+  test("gates the action and event APIs and routes channel pushes to them", async () => {
+    const pushes = []
+    const channel = {
+      push: vi.fn((event, payload) => {
+        pushes.push({event, payload})
+        const reply = event === "actions:invoke" ? {invocation_id: "inv-1", state: "dispatching"} : {}
+        const push = {receive: (kind, callback) => (kind === "ok" && callback(reply), push)}
+        return push
+      }),
+    }
+    const hook = hookContext({_frameChannel: channel})
+
+    const denied = hook.browserModuleApi(baseHost({permissions: {actions_invoke: true, events_subscribe: true}}))
+    expect(denied.actions.allowed()).toBe(false)
+    expect(() => denied.events.subscribe({}, vi.fn())).toThrow(expect.objectContaining({code: "capability_denied"}))
+
+    const api = hook.browserModuleApi(
+      baseHost({
+        package: {...baseHost().package, capabilities: ["srql.execute", "actions.invoke", "events.subscribe"]},
+        permissions: {actions_invoke: true, events_subscribe: true},
+      })
+    )
+
+    const onEvents = vi.fn()
+    api.events.subscribe({log_provider: "plugin:demo"}, onEvents)
+    hook._eventsApi.handleBatch({subscription_id: "sub-1", events: [{id: "e1"}]})
+    expect(onEvents).toHaveBeenCalledWith([{id: "e1"}])
+
+    const result = api.actions.invoke({actionId: "northbound:1", targets: [{deviceUid: "d1"}]})
+    await Promise.resolve()
+    hook._actionsApi.handleProgress({invocation_id: "inv-1", state: "succeeded"})
+    await expect(result).resolves.toMatchObject({state: "succeeded"})
+
+    await expect(api.refreshFrames()).resolves.toEqual({refreshed: true})
+    expect(pushes.map((push) => push.event)).toEqual(["events:subscribe", "actions:invoke", "frames:refresh"])
+  })
+
   test("closes camera sessions when the dashboard is destroyed", () => {
     globalThis.fetch = vi.fn(() => new Promise(() => {}))
     globalThis.document.addEventListener = vi.fn()

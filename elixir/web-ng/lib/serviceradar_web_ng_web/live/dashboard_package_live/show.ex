@@ -675,10 +675,15 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
     end
   end
 
-  # Host-side hints only; every relay request is authorized again by the API.
+  # Host-side hints only; the relay API and the dashboard channel authorize every
+  # camera, action and event request again.
   defp host_permissions(scope, %DashboardPackage{} = package) do
+    capabilities = package.capabilities || []
+
     %{
-      "camera_stream_view" => "camera.stream.view" in (package.capabilities || []) and RBAC.can?(scope, "devices.view")
+      "camera_stream_view" => "camera.stream.view" in capabilities and RBAC.can?(scope, "devices.view"),
+      "actions_invoke" => "actions.invoke" in capabilities and RBAC.can?(scope, "northbound.actions.launch"),
+      "events_subscribe" => "events.subscribe" in capabilities
     }
   end
 
@@ -706,7 +711,8 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
             instance.route_slug,
             data_frames,
             user_id,
-            active_optional_frame_ids(data_frames, overrides)
+            active_optional_frame_ids(data_frames, overrides),
+            package.capabilities || []
           ),
         "refresh_interval_ms" => 15_000
       },

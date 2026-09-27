@@ -76,6 +76,8 @@ defmodule ServiceRadar.Dashboards.Manifest do
     map.basemap.read
     map.deck.render
     camera.stream.view
+    actions.invoke
+    events.subscribe
   )
   @allowed_encodings ~w(json_rows arrow_ipc)
   @allowed_renderer_kinds ~w(browser_wasm browser_module built_in)

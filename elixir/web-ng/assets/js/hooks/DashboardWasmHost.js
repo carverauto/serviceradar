@@ -1,6 +1,11 @@
 import {Socket} from "phoenix"
 import {builtInDashboardRenderers} from "../dashboards"
 import {createDashboardCameraApi} from "../lib/camera_relay/dashboard_camera"
+import {
+  createDashboardActionsApi,
+  createDashboardEventsApi,
+  createFrameRefresh,
+} from "../lib/dashboard_runtime/channel_apis"
 
 const DEFAULT_LIGHT_STYLE = "mapbox://styles/mapbox/light-v11"
 const DEFAULT_DARK_STYLE = "mapbox://styles/mapbox/dark-v11"
@@ -392,6 +397,9 @@ const DashboardWasmHost = {
     this.disconnectFrameStream()
     this.teardownMap()
     this.closeCameraSessions()
+    this._eventsApi?.clear()
+    this._eventsApi = null
+    this._actionsApi = null
   },
 
   closeCameraSessions() {
@@ -539,6 +547,25 @@ const DashboardWasmHost = {
     this.connectFrameStream(host)
   },
 
+  actionsApiFor(host, capabilityAllowed) {
+    this._actionsApi = createDashboardActionsApi({
+      capabilityAllowed,
+      permitted: host?.permissions?.actions_invoke === true,
+      getChannel: () => this._frameChannel,
+    })
+    return this._actionsApi.publicApi()
+  },
+
+  eventsApiFor(host, capabilityAllowed) {
+    this._eventsApi?.clear()
+    this._eventsApi = createDashboardEventsApi({
+      capabilityAllowed,
+      permitted: host?.permissions?.events_subscribe === true,
+      getChannel: () => this._frameChannel,
+    })
+    return this._eventsApi.publicApi()
+  },
+
   browserModuleApi(host) {
     const capabilities = new Set(Array.isArray(host?.package?.capabilities) ? host.package.capabilities : [])
     const capabilityAllowed = (capability) => capabilities.has(String(capability || ""))
@@ -679,6 +706,9 @@ const DashboardWasmHost = {
       popup: popupApi,
       details: detailsApi,
       camera: this.cameraApiFor(host, capabilityAllowed),
+      actions: this.actionsApiFor(host, capabilityAllowed),
+      events: this.eventsApiFor(host, capabilityAllowed),
+      refreshFrames: createFrameRefresh({capabilityAllowed, getChannel: () => this._frameChannel}),
       onFrameUpdate: (callback) => {
         if (typeof callback !== "function") return () => {}
 
@@ -859,8 +889,12 @@ const DashboardWasmHost = {
     this._frameChannel.on("frames:error", (payload) => {
       console.warn("[DashboardWasmHost] dashboard frame stream error:", payload?.reason || payload)
     })
+    this._frameChannel.on("actions:progress", (payload) => this._actionsApi?.handleProgress(payload))
+    this._frameChannel.on("events:batch", (payload) => this._eventsApi?.handleBatch(payload))
+    this._frameChannel.on("events:error", (payload) => this._eventsApi?.handleError(payload))
 
     this._frameChannel.join()
+      .receive("ok", () => this._eventsApi?.resubscribeAll())
       .receive("error", (reply) => {
         console.warn("[DashboardWasmHost] dashboard frame stream join failed:", reply?.reason || reply)
         this.disconnectFrameStream()
