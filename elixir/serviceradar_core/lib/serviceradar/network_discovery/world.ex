@@ -24,6 +24,10 @@ defmodule ServiceRadar.NetworkDiscovery.World do
   require Ash.Query
 
   @batch_size 500
+  # Initial million-device stages write three million rows without holding the
+  # active head. Leave time within WorldWorker's 15-minute deadline for source
+  # reads and placement; readers and visible publications retain a shorter lease.
+  @staging_timeout to_timeout(minute: 10)
   @publication_timeout to_timeout(minute: 5)
   @resources [WorldHead, WorldLayout, WorldPosition, WorldRelation]
   @manifest_fields [
@@ -91,7 +95,7 @@ defmodule ServiceRadar.NetworkDiscovery.World do
           :ok
         end
       end,
-      timeout: @publication_timeout
+      timeout: @staging_timeout
     )
     |> transaction_result()
   end
