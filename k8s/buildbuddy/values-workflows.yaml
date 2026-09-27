@@ -109,8 +109,9 @@ autoscaler:
 #   kubectl logs -n buildbuddy -l app.kubernetes.io/instance=buildbuddy-workflows --tail=200 \
 #     | grep "Initialized task scheduler"
 #
-# `requests` at 56Gi schedules comfortably: each cp2/cp3 worker has ~168 GiB allocatable and
-# was 13-24% requested when this was set. requests < limits makes this Burstable rather than
+# `requests` schedules comfortably at the value below: each cp2/cp3 worker has ~168 GiB
+# allocatable and was 13-24% requested back when 56Gi was the figure (now 72Gi, not
+# re-measured). requests < limits makes this Burstable rather than
 # Guaranteed QoS: if the kubelet ever evicts the runner under node pressure, raising requests
 # is the fix -- but check node allocatable first, because a request nothing satisfies leaves
 # the pod Pending and the workflow then fails exactly as if the fleet were absent:
