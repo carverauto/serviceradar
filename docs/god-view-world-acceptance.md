@@ -36,11 +36,11 @@ rows and 262,144 encoded bytes per tile; client cache and viewport limits are
 64 tiles and 32 MiB with four concurrent fetches.
 
 The visible Chrome run passed all four SLOs with normal frame scheduling and
-packet flow enabled: 279 ms to usable geometry, 52.5 FPS across the complete
-pan/zoom interval, 1.4 ms p95 picking (20 real picks), and 30.4 ms p95 tile
-fetch/decode (302 samples). It opened zoom 0 with a total of 1,000,000 devices,
+packet flow enabled: 293 ms to usable geometry, 52.3 FPS across the complete
+pan/zoom interval, 1.4 ms p95 picking (20 real picks), and 64.1 ms p95 tile
+fetch/decode (247 timed samples). It opened zoom 0 with a total of 1,000,000 devices,
 entered two detail scenes, and reported no renderer errors or missing tiles.
-Frame p95 was 31.7 ms; the slowest cold-tile frame gap was 185.4 ms. FPS counts
+Frame p95 was 33.3 ms; the slowest cold-tile frame gap was 122.6 ms. FPS counts
 completed WebGPU frames rather than only CPU submissions; it is not a direct
 measurement of physical display presentation.
 
@@ -51,12 +51,11 @@ produced the passing result above. The regular browser profile was untouched.
 The passing run did not disable Chrome's frame-rate limit. An uncapped throughput
 mode remains available as a diagnostic, but is not the acceptance evidence.
 
-A second normal-scheduling run passed at 51.5 FPS with a 271 ms first frame,
-1.3 ms p95 picking and 31.3 ms p95 fetch/decode (268 timed requests). After the
-timed interaction, the same exercise compared decoded positions against the
+After the timed interaction, the same exercise compared decoded positions against the
 canonical integer coordinates for two independently selected devices. Each was
 visible at nine zoom levels; maximum error was half one tile-local UInt16 unit,
-below the one-unit bound. This checks producer-to-decoder wire precision
+below the one-unit bound. These probes made 32 additional geometry requests
+after timing was complete. This checks producer-to-decoder wire precision
 separately from native exact-integer placement stability.
 
 Native fixture measurements on RBE were 1,126 ms for fresh placement, 19,749 ms
