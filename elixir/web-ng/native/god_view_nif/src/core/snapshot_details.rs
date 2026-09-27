@@ -60,6 +60,10 @@ pub(crate) const NODE_DETAIL_FIELDS: &[DetailField] = &[
 
 /// Edge details keys read for every edge (`edge_detail_<key>`).
 pub(crate) const EDGE_DETAIL_FIELDS: &[DetailField] = &[
+    field("id", DetailKind::Text),
+    field("represented_count", DetailKind::Number),
+    field("phase_start", DetailKind::Number),
+    field("phase_end", DetailKind::Number),
     field("source_id", DetailKind::Text),
     field("target_id", DetailKind::Text),
     field("source_interface", DetailKind::Text),
