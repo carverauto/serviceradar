@@ -193,7 +193,7 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumersTest do
     assert sql =~ "sample_rank = 1"
     assert sql =~ "LEAD(value) OVER"
     assert sql =~ "TIMESTAMPDIFF(MILLISECOND, previous_timestamp, `timestamp`) / 1000.0"
-    assert sql =~ "previous_value >= 0"
+    assert sql =~ "previous_value >= 0 AND value >= 0"
     assert sql =~ "counter_width"
 
     shared_rate =

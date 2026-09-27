@@ -6,27 +6,39 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.TelemetryMetricsTest do
 
   @moduletag :integration
 
-  test "topology recovers 32-bit counter wraps and drops resets" do
+  test "topology recovers bounded counter wraps and drops resets" do
     uid = "sr:wrap-#{Ecto.UUID.generate()}"
     now = DateTime.truncate(DateTime.utc_now(), :microsecond)
     previous = DateTime.add(now, -10, :second)
     half_second = DateTime.add(now, -500, :millisecond)
-    modulus = 4_294_967_296.0
+    modulus_32 = 4_294_967_296.0
+    modulus_64 = 18_446_744_073_709_551_616.0
+    ceiling = %{"max_counter_rate_per_second" => "1000000"}
 
+    # {if_index, metric_name, counter_width, metadata, previous_at, previous_value, value}
     samples = [
       # 32-bit wrap: 100 packets after the wrap plus 900 before it, over 10s.
-      {1, "ifInUcastPkts", 32, previous, modulus - 900.0, now, 100.0},
+      {1, "ifInUcastPkts", 32, nil, previous, modulus_32 - 900.0, 100.0},
       # 32-bit decrease inside half a second: a wrap would imply over 2^32 packets/s.
-      {2, "ifInUcastPkts", 32, half_second, 3_000_000.0, now, 40.0},
-      # 64-bit counter decrease with no ceiling and a large previous value: reset.
-      {3, "ifHCInUcastPkts", 64, previous, 9_000_000_000.0, now, 40.0},
+      {2, "ifInUcastPkts", 32, nil, half_second, 3_000_000.0, 40.0},
+      # 64-bit decrease with no producer ceiling: reset, never a 32-bit wrap.
+      {3, "ifHCInUcastPkts", 64, nil, previous, 9_000.0, 5.0},
       # Unknown width, previous value fits in 32 bits: treated as a wrap.
-      {4, "ifInUcastPkts", nil, previous, modulus - 400.0, now, 100.0}
+      {4, "ifInUcastPkts", nil, nil, previous, modulus_32 - 400.0, 100.0},
+      # 32-bit decrease whose wrap would exceed the producer ceiling: reset.
+      {5, "ifInUcastPkts", 32, ceiling, previous, 9_000.0, 5.0},
+      # 64-bit wrap accepted because the producer ceiling bounds the implied rate.
+      {6, "ifHCInUcastPkts", 64, ceiling, previous, modulus_64 - 40_960.0, 40_960.0},
+      # Negative value must not create a rate.
+      {7, "ifInUcastPkts", 32, nil, previous, 100.0, -5.0},
+      # Increase above the producer ceiling is neither a rate nor a wrap.
+      {8, "ifInUcastPkts", 32, %{"max_counter_rate_per_second" => "1000"}, previous, 0.0,
+       100_000_000.0}
     ]
 
     rows =
-      Enum.flat_map(samples, fn {index, name, width, at_a, value_a, at_b, value_b} ->
-        for {timestamp, value} <- [{at_a, value_a}, {at_b, value_b}] do
+      Enum.flat_map(samples, fn {index, name, width, metadata, at, previous_value, value} ->
+        for {timestamp, sample} <- [{at, previous_value}, {now, value}] do
           %{
             timestamp: timestamp,
             gateway_id: "gateway-example",
@@ -37,17 +49,22 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.TelemetryMetricsTest do
             metric_type: "snmp",
             metric_name: name,
             counter_width: width,
-            value: value
+            metadata: metadata,
+            value: sample
           }
         end
       end)
 
     Repo.insert_all("timeseries_metrics", rows, prefix: "platform")
 
-    keys = Enum.map([1, 2, 3, 4], &{uid, &1})
+    keys = Enum.map(1..8, &{uid, &1})
     pps = Metrics.load_packet_pps(keys)
 
-    assert pps == %{{uid, 1} => %{in: 100}, {uid, 4} => %{in: 50}}
+    assert pps == %{
+             {uid, 1} => %{in: 100},
+             {uid, 4} => %{in: 50},
+             {uid, 6} => %{in: 8192}
+           }
   end
 
   test "topology uses the latest per-producer counter interval, not cumulative totals" do

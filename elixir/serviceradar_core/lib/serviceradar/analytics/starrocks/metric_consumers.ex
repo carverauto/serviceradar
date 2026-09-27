@@ -45,26 +45,38 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumers do
   end
 
   @counter_modulus_32 "4294967296"
+  @counter_modulus_64 "18446744073709551616"
 
   @doc """
-  Per-second rate SQL over `value`, `previous_value` and `counter_width` columns.
+  Per-second rate SQL over `value`, `previous_value`, `counter_width` and
+  `max_rate_per_second` (the producer's plausibility ceiling, NULL when absent).
 
-  A decrease is a wrap when adding 2^32 yields a rate a 32-bit counter could
-  produce, and a reset otherwise, which yields NULL. This is the same rule the
-  SRQL rate query applies, and both the CNPG and StarRocks topology readers
-  share it so they cannot diverge.
+  This is the SRQL rate rule (`rust/srql/src/query/downsample/sql.rs`), shared by
+  the CNPG and StarRocks topology readers so they cannot diverge. An increase is
+  a plain delta unless it exceeds the ceiling. A decrease is a wrap only when the
+  implied rate is plausible: a 64-bit counter wraps only under a producer ceiling,
+  a 32-bit counter under the ceiling or 2^32/s, and a counter of unknown width
+  only when the previous value still fit in 32 bits. Any other decrease is a
+  reset and yields NULL.
   """
   @spec counter_rate_sql(String.t()) :: String.t()
   def counter_rate_sql(elapsed_seconds_sql) do
     elapsed = "NULLIF(#{elapsed_seconds_sql}, 0)"
-    wrapped = "(value + #{@counter_modulus_32} - previous_value) / #{elapsed}"
+    wrapped_32 = "(value + #{@counter_modulus_32} - previous_value) / #{elapsed}"
+    wrapped_64 = "(value + #{@counter_modulus_64} - previous_value) / #{elapsed}"
+    ceiling_32 = "COALESCE(max_rate_per_second, #{@counter_modulus_32})"
 
     """
     CASE
-      WHEN value >= previous_value THEN (value - previous_value) / #{elapsed}
-      WHEN counter_width = 32 AND #{wrapped} <= #{@counter_modulus_32} THEN #{wrapped}
-      WHEN previous_value < #{@counter_modulus_32} AND #{wrapped} <= #{@counter_modulus_32}
-        THEN #{wrapped}
+      WHEN value >= previous_value
+        AND (max_rate_per_second IS NULL
+          OR (value - previous_value) / #{elapsed} <= max_rate_per_second)
+        THEN (value - previous_value) / #{elapsed}
+      WHEN counter_width = 64 AND max_rate_per_second IS NOT NULL
+        AND #{wrapped_64} <= max_rate_per_second THEN #{wrapped_64}
+      WHEN counter_width = 32 AND #{wrapped_32} <= #{ceiling_32} THEN #{wrapped_32}
+      WHEN counter_width IS NULL AND previous_value < #{@counter_modulus_32}
+        AND #{wrapped_32} <= #{ceiling_32} THEN #{wrapped_32}
       ELSE NULL
     END
     """
@@ -101,7 +113,7 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumers do
           #{counter_rate_sql(elapsed)} AS rate_value
         FROM (
           SELECT device_id, target_device_ip, if_index, metric_name, value, counter_width,
-            `timestamp`,
+            CAST(NULL AS DOUBLE) AS max_rate_per_second, `timestamp`,
             LEAD(value) OVER #{series} AS previous_value,
             LEAD(`timestamp`) OVER #{series} AS previous_timestamp,
             ROW_NUMBER() OVER #{series} AS sample_rank
@@ -111,7 +123,7 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumers do
             AND split_part(metric_name, '::', 1) IN (#{Enum.join(names, ",")})
             AND `timestamp` > '#{iso(since)}'
         ) samples
-        WHERE sample_rank = 1 AND `timestamp` > previous_timestamp AND previous_value >= 0
+        WHERE sample_rank = 1 AND `timestamp` > previous_timestamp AND previous_value >= 0 AND value >= 0
       ) rated
       WHERE rate_value IS NOT NULL
       """
