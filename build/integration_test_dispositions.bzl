@@ -4,6 +4,7 @@ authoritative for selected-test counts. Static and executable contracts enforce 
 """
 
 ASYNC_INTEGRATION_SRCS = [
+    "test/integration/camera_relay_session_reaper_integration_test.exs",
     "test/integration/credential_broker_grant_lifecycle_integration_test.exs",
     "test/integration/secret_broker_audit_integration_test.exs",
     "test/serviceradar/agent_commands/status_handler_result_gate_db_test.exs",
