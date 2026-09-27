@@ -142,16 +142,15 @@ SRQL routes to multiple logical backends:
 (inventory/graph, security events, field survey/RF, WiFi site map, virtualization, observability/OTel,
 metrics/timeseries, services/dashboards, flows, endpoint SBOM).
 
-Exposed two ways:
+Exposed one way:
 - **In-process Erlang NIF (UI hot path)** — `parse_ast` / `translate` NIFs (`native/srql_nif/src/lib.rs:28,38`).
   web-ng's `ServiceRadarWebNG.SRQL` calls the NIF to get `{sql, params}`, then executes it directly through
   its own Ecto `ServiceRadar.Repo` (`srql.ex:132,148,182`) — no network hop. `elixir/serviceradar_srql`
   is the thin Elixir wrapper over the Rust crate; web-ng depends on it via `mix.exs:63` and adds read-only
   enforcement, statement timeouts, Arrow encoding, telemetry.
-- **Standalone axum HTTP service** — `POST /api/query` (execute), `POST /translate` (SQL+params only),
-  `GET /healthz`, `x-api-key` auth, default port **8480** (`server.rs:48-59,101`; `config.rs:228`). Used by
-  the **Go core** (`SRQLConfig`/`srql.base_url`, `go/pkg/models/config.go:127,214`) and other clients — not
-  the UI.
+
+The former standalone axum HTTP service (`POST /api/query`, `POST /translate`, `GET /healthz`, port 8480)
+and its Go-core client were never deployed and were removed (issue #4873); the crate remains a library.
 
 ---
 
@@ -290,8 +289,8 @@ queries it read-only.
    (gateway↔core↔web-ng) via PubSub/RPC. The UI gets history from CNPG and live changes from PubSub.
 2. **Core is the sole DB writer for telemetry; web-ng is a reader.** Everything funnels through
    `event_writer`'s Broadway pipeline.
-3. **SRQL is embedded, not a service, on the UI path.** The Rust translator runs as an in-process NIF
-   inside web-ng; the port-8480 HTTP service exists mainly for the Go core.
+3. **SRQL is embedded, not a service.** The Rust translator runs as an in-process NIF inside web-ng;
+   the crate's standalone HTTP server was removed (issue #4873).
 
 ---
 

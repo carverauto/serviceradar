@@ -158,7 +158,11 @@ Go, `serviceradar_core_elx`, `serviceradar_agent_gateway`, `datasvc`, `palisade`
 5. **Flows keep CNPG fallbacks** in the dashboard throughput sparkline and the device Flows tab
    probes although flows are warehouse-only, and `DeviceRiskIocExposure` always reads CNPG flows.
 6. **`rust/srql/src/server.rs:51` (`/api/query`) runs every entity on CNPG** and bypasses
-   `Readers`; no chart deploys it, so it may be dead.
+   `Readers`; no chart deploys it, so it may be dead. **Resolved (issue #4873):** the standalone
+   server was dead — no Helm template, Compose service, k8s manifest or Docker image ran it, and
+   `//rust/srql:srql_bin` had no reverse dependencies — so the axum server, its routes and the
+   binary target were removed. The crate remains a library (`translate_request`, `QueryEngine`)
+   for the `serviceradar_srql` NIF and `correlation-engine`.
 7. **Write-path reads** (`AnalyticsSignals`, `EndpointVulnerabilityFindingEmitter`,
    `PluginResultIngestor` / `PluginResultStateWinner`, `MtrMetricsIngestor.stored_trace_ids`)
    read CNPG before writing; they move with the writers in 5.2, not with the readers in 5.4.

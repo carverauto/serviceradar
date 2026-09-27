@@ -98,8 +98,10 @@ aggregates, and cursor pagination.
 | Form | Where | Status | Best for |
 |---|---|---|---|
 | **`rust/srql` crate, embedded** — `EmbeddedSrql::new`, `QueryEngine::execute_query` | Rust library; opens its own CNPG pool | ✅ exists; already a Cargo dep of the SRQL NIF | **A Rust causal service — recommended** |
-| **`rust/srql` standalone HTTP server** — `server.rs`: `POST /api/query`, `/translate`, port 8480, x-api-key | Rust axum binary | ⚠️ built + tested but **not deployed** in any manifest | A hard network boundary, if needed |
 | **web-ng `POST /api/query`** | Phoenix HTTP, documented in `docs/docs/api-reference.md` | ✅ deployed; the production API | UI + scripts; Ash per-actor authz scoping |
+
+The `rust/srql` standalone HTTP server (`server.rs`: `POST /api/query`, `/translate`, port 8480)
+was removed (issue #4873): nothing deployed it, so it is no longer an option here.
 
 Confirmed embeddable — `rust/srql/src/lib.rs`:
 
@@ -126,10 +128,9 @@ JetStream KV + object-store front end — config and blobs, zero telemetry query
 does not exist. Ignore all three.
 
 ➡️ **Recommendation for the data-access layer:** embed the `rust/srql` crate in
-a standalone Rust causal service, pointed at CNPG. One decision for the team:
-depend on `rust/srql` as an internal library (no stability guarantee yet), or
-fund deploying its already-written axum server (port 8480) as a real k8s
-service for a stable network boundary.
+a standalone Rust causal service, pointed at CNPG, as an internal library (no
+stability guarantee yet). The crate's own axum HTTP server was never deployed
+and was removed in issue #4873.
 
 ---
 
@@ -308,8 +309,8 @@ limits explains the chokepoint above.
 
 ## 8. Open questions for the team
 
-1. **SRQL coupling:** depend on the `rust/srql` crate as an internal library,
-   or deploy its axum server (port 8480) as a stable network boundary?
+1. **SRQL coupling:** depend on the `rust/srql` crate as an internal library
+   (its axum server was never deployed and was removed in issue #4873).
 2. **Where does structure live?** Confirm the hybrid: engine carries an
    inferred/declared Context now, ServiceRadar grows real schema (components,
    redundancy, dependency, capacity, multi-state health) over time. Who owns
@@ -336,7 +337,7 @@ limits explains the chokepoint above.
 **SRQL (the uniform API)**
 - `rust/srql/src/lib.rs` — `EmbeddedSrql`, `QueryEngine` (embeddable entry)
 - `rust/srql/src/query/mod.rs` — entity dispatch (what SRQL can query)
-- `rust/srql/src/server.rs`, `config.rs` — standalone HTTP server (port 8480)
+- `rust/srql/src/config.rs` — `AppConfig` (`embedded` + `from_env`)
 - `elixir/serviceradar_srql/` — Rustler NIF (parse/translate only)
 - `elixir/web-ng/lib/serviceradar_web_ng_web/router.ex` — `POST /api/query`
 - `docs/docs/srql-language-reference.md`, `docs/docs/api-reference.md`

@@ -108,7 +108,6 @@ fn has_availability_filter(plan: &QueryPlan, expected: bool) -> bool {
 
 fn test_config() -> AppConfig {
     AppConfig {
-        listen_addr: "127.0.0.1:0".parse().unwrap(),
         database_url: "postgres://example/db".to_string(),
         age_graph_name: "platform_graph".to_string(),
         starrocks_database: "serviceradar".to_string(),
@@ -118,16 +117,11 @@ fn test_config() -> AppConfig {
         database_client_cert_pem: None,
         database_client_key_pem: None,
         database_tls_server_name: None,
-        api_key: None,
-        api_key_kv_key: None,
-        allowed_origins: None,
         cursor_secret: "test-cursor-secret".to_string(),
         max_cursor_offset: 100_000,
         default_limit: 100,
         max_limit: 500,
         request_timeout: StdDuration::from_secs(30),
         db_statement_timeout: StdDuration::from_secs(30),
-        rate_limit_max_requests: 120,
-        rate_limit_window: StdDuration::from_secs(60),
     }
 }

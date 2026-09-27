@@ -1,14 +1,9 @@
 use anyhow::{Context, Result};
 use serde::Deserialize;
-use std::{
-    env,
-    net::{SocketAddr, ToSocketAddrs},
-    time::Duration,
-};
+use std::{env, time::Duration};
 
 #[derive(Debug, Clone)]
 pub struct AppConfig {
-    pub listen_addr: SocketAddr,
     pub database_url: String,
     pub age_graph_name: String,
     /// Warehouse database the StarRocks compiler qualifies tables with. Must match
@@ -25,27 +20,16 @@ pub struct AppConfig {
     /// The name TLS verification is performed against -- `DatabaseConfig.tls_server_name`, not an
     /// environment variable. It reaches the connector, never the DSN.
     pub database_tls_server_name: Option<String>,
-    pub api_key: Option<String>,
-    pub api_key_kv_key: Option<String>,
-    pub allowed_origins: Option<Vec<String>>,
     pub default_limit: i64,
     pub max_limit: i64,
     pub cursor_secret: String,
     pub max_cursor_offset: i64,
     pub request_timeout: Duration,
     pub db_statement_timeout: Duration,
-    pub rate_limit_max_requests: u64,
-    pub rate_limit_window: Duration,
 }
 
 #[derive(Debug, Deserialize)]
 struct RawConfig {
-    #[serde(default)]
-    srql_listen_addr: Option<String>,
-    #[serde(default)]
-    srql_listen_host: Option<String>,
-    #[serde(default)]
-    srql_listen_port: Option<u16>,
     #[serde(default)]
     srql_database_url: Option<String>,
     #[serde(default)]
@@ -56,12 +40,6 @@ struct RawConfig {
     dgraph_url: Option<String>,
     #[serde(default = "default_pool_size")]
     srql_max_pool_size: u32,
-    #[serde(default)]
-    srql_api_key: Option<String>,
-    #[serde(default)]
-    srql_api_key_kv_key: Option<String>,
-    #[serde(default)]
-    srql_allowed_origins: Option<String>,
     #[serde(default = "default_limit")]
     srql_default_limit: i64,
     #[serde(default = "default_max_limit")]
@@ -74,10 +52,6 @@ struct RawConfig {
     srql_request_timeout_secs: u64,
     #[serde(default = "default_db_statement_timeout_secs")]
     srql_db_statement_timeout_secs: u64,
-    #[serde(default = "default_rate_limit_requests")]
-    srql_rate_limit_max: u64,
-    #[serde(default = "default_rate_limit_window_secs")]
-    srql_rate_limit_window_secs: u64,
 }
 
 const fn default_pool_size() -> u32 {
@@ -104,14 +78,6 @@ const fn default_db_statement_timeout_secs() -> u64 {
     30
 }
 
-const fn default_rate_limit_requests() -> u64 {
-    120
-}
-
-const fn default_rate_limit_window_secs() -> u64 {
-    60
-}
-
 impl AppConfig {
     pub fn from_env() -> Result<Self> {
         // Database TLS comes from the environment SERVICERADAR_ENV names: the posture and the
@@ -123,12 +89,6 @@ impl AppConfig {
 
         let raw: RawConfig =
             envy::from_env().context("failed to parse SRQL_* environment variables")?;
-
-        let listen_addr = resolve_addr(
-            raw.srql_listen_addr,
-            raw.srql_listen_host,
-            raw.srql_listen_port,
-        )?;
 
         let database_url = raw
             .srql_database_url
@@ -146,33 +106,12 @@ impl AppConfig {
             .and_then(non_empty_string)
             .or_else(|| env::var("DGRAPH_URL").ok().and_then(non_empty_string));
 
-        let allowed_origins = raw.srql_allowed_origins.and_then(|csv| {
-            let trimmed: Vec<_> = csv
-                .split(',')
-                .filter_map(|part| {
-                    let entry = part.trim();
-                    if entry.is_empty() {
-                        None
-                    } else {
-                        Some(entry.to_string())
-                    }
-                })
-                .collect();
-            if trimmed.is_empty() {
-                None
-            } else {
-                Some(trimmed)
-            }
-        });
-
-        let api_key = raw.srql_api_key.and_then(non_empty_string);
         let cursor_secret = raw
             .srql_cursor_secret
             .and_then(non_empty_string)
             .context("SRQL_CURSOR_SECRET must be set")?;
 
         Ok(Self {
-            listen_addr,
             database_url,
             age_graph_name,
             starrocks_database: starrocks_database_from_env(),
@@ -182,9 +121,6 @@ impl AppConfig {
             database_client_cert_pem: tls.client_cert_pem,
             database_client_key_pem: tls.client_key_pem,
             database_tls_server_name: tls.server_name,
-            api_key,
-            api_key_kv_key: raw.srql_api_key_kv_key,
-            allowed_origins,
             default_limit: raw.srql_default_limit.max(1),
             max_limit: if raw.srql_max_limit <= 0 {
                 0
@@ -195,14 +131,11 @@ impl AppConfig {
             max_cursor_offset: raw.srql_max_cursor_offset.max(0),
             request_timeout: Duration::from_secs(raw.srql_request_timeout_secs.max(1)),
             db_statement_timeout: Duration::from_secs(raw.srql_db_statement_timeout_secs.max(1)),
-            rate_limit_max_requests: raw.srql_rate_limit_max.max(1),
-            rate_limit_window: Duration::from_secs(raw.srql_rate_limit_window_secs.max(1)),
         })
     }
 
     pub fn embedded(database_url: String) -> Self {
         Self {
-            listen_addr: "127.0.0.1:0".parse().expect("valid socket addr"),
             database_url,
             age_graph_name: "platform_graph".to_string(),
             starrocks_database: starrocks_database_from_env(),
@@ -212,17 +145,12 @@ impl AppConfig {
             database_client_cert_pem: None,
             database_client_key_pem: None,
             database_tls_server_name: None,
-            api_key: None,
-            api_key_kv_key: None,
-            allowed_origins: None,
             default_limit: default_limit(),
             max_limit: default_max_limit(),
             cursor_secret: "embedded-srql-cursor-secret".to_string(),
             max_cursor_offset: default_max_cursor_offset(),
             request_timeout: Duration::from_secs(default_timeout_secs()),
             db_statement_timeout: Duration::from_secs(default_db_statement_timeout_secs()),
-            rate_limit_max_requests: default_rate_limit_requests(),
-            rate_limit_window: Duration::from_secs(default_rate_limit_window_secs()),
         }
     }
 }
@@ -241,29 +169,6 @@ fn non_empty_string(value: String) -> Option<String> {
     } else {
         Some(trimmed.to_string())
     }
-}
-
-fn resolve_addr(
-    addr: Option<String>,
-    host: Option<String>,
-    port: Option<u16>,
-) -> Result<SocketAddr> {
-    if let Some(addr) = addr {
-        return addr
-            .to_socket_addrs()
-            .context("invalid SRQL_LISTEN_ADDR value")?
-            .next()
-            .context("SRQL_LISTEN_ADDR resolved to no addresses");
-    }
-
-    let host = host.unwrap_or_else(|| "0.0.0.0".to_string());
-    let port = port.unwrap_or(8480);
-    let combined = format!("{}:{}", host, port);
-    combined
-        .to_socket_addrs()
-        .context("invalid SRQL listen host/port combination")?
-        .next()
-        .context("listen address resolved to no targets")
 }
 
 /// Database TLS material, resolved from the environment rather than from five variables.

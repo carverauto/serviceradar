@@ -13,7 +13,6 @@ async fn srql_api_queries() {
         check_mtr_traces_query_contract(&harness).await;
         check_devices_inventory_query_matches_fixture(&harness).await;
         check_invalid_field_returns_400(&harness).await;
-        check_missing_api_key_returns_401(&harness).await;
         check_device_graph_query_returns_neighborhood(&harness).await;
         check_device_graph_query_rejects_invalid_device_id(&harness).await;
         check_timeseries_metrics_query_returns_rows(&harness).await;
@@ -551,23 +550,6 @@ async fn check_invalid_field_returns_400(harness: &SrqlTestHarness) {
         body["error"],
         serde_json::json!("invalid request: unsupported filter field 'unsupported_field'")
     );
-}
-
-async fn check_missing_api_key_returns_401(harness: &SrqlTestHarness) {
-    let request = QueryRequest {
-        query: "in:devices limit:1".to_string(),
-        limit: None,
-        cursor: None,
-        direction: QueryDirection::Next,
-        mode: None,
-        permitted_signals: None,
-    };
-
-    let response = harness.query_without_api_key(request).await;
-    let (status, body) = read_json(response).await;
-
-    assert_eq!(status, http::StatusCode::UNAUTHORIZED);
-    assert_eq!(body["error"], serde_json::json!("authentication failed"));
 }
 
 async fn check_device_graph_query_returns_neighborhood(harness: &SrqlTestHarness) {
