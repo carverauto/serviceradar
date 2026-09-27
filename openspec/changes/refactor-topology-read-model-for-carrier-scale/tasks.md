@@ -6,7 +6,7 @@ The integrated [scratch database workflow](https://carverauto.buildbuddy.io/invo
 
 The [client regression run](https://carverauto.buildbuddy.io/invocation/2e9b3e25-477e-4bab-bbd0-bba33ea4796b) passed the JavaScript unit suite and three WebGPU browser cases. They cover HTTP recovery, search, actual picking, bounded detail entry/return, scene-cache identity, and conditional refetch of exactly one visible dirty tile. Canvas sizing, duplicate scene fetches across tile levels, and invalidation-triggered extra prefetch were reproduced and repaired.
 
-The shared invented million-device/two-million-relation generator passes the [layout and 1% growth regression](https://carverauto.buildbuddy.io/invocation/ebff9383-0c25-4bcd-961a-9c3e2300131d). Its production NIF/Arrow output is served over loopback HTTP to the real map renderer. Physical GPU results and their limitations are recorded in [the acceptance report](../../../docs/god-view-world-acceptance.md). The final repository gate, no-mistakes delivery, and remaining measurements below are not yet complete.
+The shared invented million-device/two-million-relation generator passes the [layout and 1% growth regression](https://carverauto.buildbuddy.io/invocation/ebff9383-0c25-4bcd-961a-9c3e2300131d). Its production NIF/Arrow output is served over loopback HTTP to the real map renderer. Physical GPU results and their limitations are recorded in [the acceptance report](../../../docs/god-view-world-acceptance.md). The remote repository gate passed 367 targets with two skipped, and all three browser targets passed, at `f795ebe144`. Final-tree validation, no-mistakes delivery, and the persistence measurements below remain pending.
 
 ## 1. Topology Contract
 
@@ -18,17 +18,17 @@ The shared invented million-device/two-million-relation generator passes the [la
 - [x] 1.6 Page canonical Dgraph relations and isolated Device vertices through one read-only transaction and pass actual loopback gRPC regressions for receive limits, raw UID progress, stable timestamps, and later-page atomic failure. Live backend validation remains in 1.8.
 - [x] 1.7 Validate atomic watched-detail selection, bounded scope-authorized enrichment, final content/structure revisions, and HTTP/channel revision metadata with a separate canonical revision.
 - [x] 1.8 Validate canonical isolated vertices through actual Dgraph queries and deliver bounded geometry through the schema-3 encoder.
-- [ ] 1.9 Revalidate the typed paged graph response, AtlasSource adapter, and runtime source-failure/restart retention after integration.
+- [x] 1.9 Revalidate the typed paged graph response, AtlasSource adapter, and runtime source-failure/restart retention after integration (`paging.rs`, `AtlasSourceTest`, and `RuntimeGraphConcurrencyTest` passed in the repository gate).
 
 ## 2. Discovery and Projection Semantics
-- [ ] 2.1 Preserve canonical topology completeness while deriving infrastructure-first importance, stable site/component grouping, and attachment summaries for the tile world.
+- [x] 2.1 Preserve canonical topology completeness while deriving infrastructure-first importance, stable site/component grouping, and attachment summaries for the tile world.
 - [ ] 2.2 Quarantine unresolved sightings, null-neighbor rows, and duplicate identity fragments while preserving diagnostics. This remains outside #4774.
 - [x] 2.3 Preserve every admitted endpoint through correct aggregate membership, coordinate search, and bounded detail/member pages.
 
 ## 3. UI Reliability and Readability
 - [x] 3.1 Bootstrap the layout manifest and visible tiles over HTTP independently of channel timing; retain the last compatible map on failure.
 - [ ] 3.2 Enforce label/readability budgets for map tiles and bounded detail scenes without an unbounded browser layout.
-- [ ] 3.3 Keep all concurrent detail expansions within shared node, relation, member, and byte limits; overflow uses explicit pages or summaries.
+- [x] 3.3 Keep detail expansion bounded: one accepted scene, at most one pending replacement, 128 nodes/256 relations/262,144 bytes per scene, and four cached scene pages; overflow uses explicit pages or summaries (`WorldSceneTest`, native details, and browser entry/return).
 - [x] 3.4 After #4749 lands, integrate deck.gl TileLayer with OrthographicView and its existing typed WebGPU sublayers.
 - [x] 3.5 Restrict existing ELK adapters to bounded detail scenes. Audit and reuse the current forest/radial code where useful; its presence does not satisfy persistent world-layout work.
 - [x] 3.6 Keep map and detail coordinate/cache identities separate and restore only compatible accepted scenes after errors.
@@ -46,12 +46,12 @@ The shared invented million-device/two-million-relation generator passes the [la
 - [ ] 4.3 Add diagnostics for quarantined identities without promoting them into the default backbone. Outside #4774.
 
 ## 5. Verification
-- [ ] 5.1 Add invented regressions for dense fanout, giant components, isolated vertices, tile-boundary ownership, long crossing-only relations, and maximum-zoom overflow.
+- [x] 5.1 Add invented regressions for dense fanout, giant components, isolated vertices, tile-boundary ownership, long crossing-only relations, and maximum-zoom overflow.
 - [ ] 5.2 Integrate an independently invented seeded 1,000,000-device/at-least-2,000,000-relation hierarchy; record placement, persistence, tile-index, candidate-query, memory, and encoded-byte measurements.
 - [x] 5.3 Run strict OpenSpec validation for the carrier change and every touched pending duplicate delta.
-- [ ] 5.4 Verify fresh-layout determinism, session persistence, exact integer stability after 1% additions, tombstone/reappearance, and separate UInt16 wire precision bounds across zooms.
+- [x] 5.4 Verify fresh-layout determinism, session persistence, exact integer stability after 1% additions, tombstone/reappearance, and separate UInt16 wire precision bounds across zooms.
 - [x] 5.5 Verify real WebGPU with packet flow enabled: first frame <=3 seconds, pan/zoom >=30 FPS, hover/select <100 milliseconds, and local tile fetch plus decode p95 <=200 milliseconds. Record GPU limits, fixture seed, budgets, and timing method; SwiftShader alone is insufficient.
-- [ ] 5.6 Verify all-zoom device-count conservation, every tile's actual feature/byte bounds, targeted dirty sets, cache revisits with no fetch, and telemetry updates with zero geometry refetch.
+- [x] 5.6 Verify all-zoom device-count conservation, every tile's actual feature/byte bounds, targeted dirty sets, cache revisits with no fetch, and telemetry updates with zero geometry refetch.
 - [x] 5.7 Round-trip tile/detail metadata, UInt16 affine positions, local endpoints/proxies, and columnar/lazy details through the schema-3 NIF encoder and client decoder.
 - [ ] 5.8 Run make test with --config=remote on the final tree before the PR. Deliver every PR through no-mistakes with the srql-fixtures-only database restriction in the run intent.
 - [x] 5.9 Pass pure semantic Atlas tests using an invented 200,000-device/400,000-relation graph. This historical foundation check does not replace the open million-device tile acceptance above.

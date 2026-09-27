@@ -51,6 +51,14 @@ produced the passing result above. The regular browser profile was untouched.
 The passing run did not disable Chrome's frame-rate limit. An uncapped throughput
 mode remains available as a diagnostic, but is not the acceptance evidence.
 
+A second normal-scheduling run passed at 51.5 FPS with a 271 ms first frame,
+1.3 ms p95 picking and 31.3 ms p95 fetch/decode (268 timed requests). After the
+timed interaction, the same exercise compared decoded positions against the
+canonical integer coordinates for two independently selected devices. Each was
+visible at nine zoom levels; maximum error was half one tile-local UInt16 unit,
+below the one-unit bound. This checks producer-to-decoder wire precision
+separately from native exact-integer placement stability.
+
 Native fixture measurements on RBE were 1,126 ms for fresh placement, 19,749 ms
 for NIF import/index creation, and 14,814 ms for the selected tile encoding set.
 These exclude database persistence and browser work. The real database worker
