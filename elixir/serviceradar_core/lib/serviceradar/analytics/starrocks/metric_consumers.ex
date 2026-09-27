@@ -61,17 +61,29 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumers do
     if devices == [] or indexes == [] or names == [] do
       []
     else
-      sql =
-        "SELECT device_id, target_device_ip, if_index, metric_name, value FROM (" <>
-          "SELECT device_id, target_device_ip, if_index, metric_name, value, " <>
-          "ROW_NUMBER() OVER (PARTITION BY device_id, target_device_ip, if_index, metric_name " <>
-          "ORDER BY `timestamp` DESC) AS sample_rank " <>
-          "FROM #{Env.table("timeseries_metrics")} " <>
-          "WHERE #{scope_predicate(devices, ips)} " <>
-          "AND if_index IN (#{Enum.join(indexes, ",")}) " <>
-          "AND split_part(metric_name, '::', 1) IN (#{Enum.join(names, ",")}) " <>
-          "AND `timestamp` > '#{iso(since)}'" <>
-          ") latest WHERE sample_rank = 1"
+      series = """
+      (PARTITION BY gateway_id, agent_id, series_key,
+        device_id, target_device_ip, if_index, metric_name ORDER BY `timestamp` DESC)
+      """
+
+      sql = """
+      SELECT device_id, target_device_ip, if_index, metric_name,
+        (value - previous_value) /
+          NULLIF(TIMESTAMPDIFF(MILLISECOND, previous_timestamp, `timestamp`) / 1000.0, 0) AS value
+      FROM (
+        SELECT device_id, target_device_ip, if_index, metric_name, value, `timestamp`,
+          LEAD(value) OVER #{series} AS previous_value,
+          LEAD(`timestamp`) OVER #{series} AS previous_timestamp,
+          ROW_NUMBER() OVER #{series} AS sample_rank
+        FROM #{Env.table("timeseries_metrics")}
+        WHERE #{scope_predicate(devices, ips)}
+          AND if_index IN (#{Enum.join(indexes, ",")})
+          AND split_part(metric_name, '::', 1) IN (#{Enum.join(names, ",")})
+          AND `timestamp` > '#{iso(since)}'
+      ) samples
+      WHERE sample_rank = 1 AND `timestamp` > previous_timestamp
+        AND value >= previous_value AND previous_value >= 0
+      """
 
       case query(opts).(sql) do
         {:ok, %{rows: rows}} ->
