@@ -5,6 +5,8 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
   alias ServiceRadar.EventWriter.Processors.Flows
   alias ServiceRadar.Observability.MtrResultPublisher
 
+  @gib 1_073_741_824
+
   describe "enabled?/0" do
     test "returns false by default" do
       # Clear any existing env var
@@ -100,9 +102,27 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
         refute Map.has_key?(stream, :consumer_max_ack_pending)
         assert stream.stream_retention == "limits"
         assert stream.stream_discard == "old"
-        # Must not fall back onto events or thrash collector-owned retention.
+        # Must not fall back onto events. Whether the shape is reconciled is
+        # decided by the `serviceradar.owner` claim, not a fixed flag.
         assert stream.allow_stream_fallback == false
-        assert stream.reconcile_stream_shape == false
+        refute Map.has_key?(stream, :reconcile_stream_shape)
+      end
+    end
+
+    test "load_flow gives every live flow consumer the 1 GiB fallback and the claim" do
+      System.delete_env("EVENT_WRITER_FLOW_DRAIN_EVENTS")
+
+      for stream <- Config.load_flow().streams do
+        if stream.stream_name == "flows" do
+          assert stream.stream_max_bytes == 1_073_741_824
+          assert stream.stream_replicas == 1
+          assert stream.stream_owner_claim == "event-writer"
+          refute Map.has_key?(stream, :reconcile_stream_shape)
+        else
+          # Drain consumers never create or reshape the shared `events` stream.
+          assert stream.ensure_stream == false
+          refute Map.has_key?(stream, :stream_owner_claim)
+        end
       end
     end
 
@@ -888,20 +908,168 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
   end
 
   describe "stream retention guard" do
-    test "the shared events stream has a bounded discard-old retention policy" do
-      events = Enum.find(Config.default_streams(), &(&1.name == "EVENTS"))
+    test "every consumer of the shared events stream carries the bounded fallback" do
+      events_consumers =
+        Enum.filter(default_sized_streams(), &(Config.jetstream_stream_name(&1) == "events"))
 
-      assert events.stream_retention == "limits"
-      assert events.stream_discard == "old"
-      assert is_integer(events.stream_max_bytes) and events.stream_max_bytes > 0
-      assert is_integer(events.stream_max_age) and events.stream_max_age > 0
+      assert Enum.any?(events_consumers, &(&1.name == "EVENTS"))
+
+      for stream <- events_consumers do
+        assert stream.stream_retention == "limits"
+        assert stream.stream_discard == "old"
+        # The EventWriter fallback (2 GiB), never the old hardcoded 8 GiB that
+        # overwrote the log-collector's budgeted size on every start.
+        assert stream.stream_max_bytes == 2 * @gib
+        assert stream.stream_max_age == 86_400_000_000_000
+        assert stream.stream_owner_claim == "event-writer"
+      end
+
+      events = Enum.find(Config.default_streams(), &(&1.name == "EVENTS"))
+      refute Map.has_key?(events, :stream_max_bytes)
     end
 
-    test "ARANCINI_CAUSAL retention is left untouched" do
-      arancini = Enum.find(Config.default_streams(), &(&1.name == "ARANCINI_CAUSAL"))
+    test "ARANCINI_CAUSAL is created with a finite fallback and the event-writer claim" do
+      arancini = Enum.find(default_sized_streams(), &(&1.name == "ARANCINI_CAUSAL"))
 
-      refute Map.has_key?(arancini, :stream_max_bytes)
-      refute Map.has_key?(arancini, :stream_discard)
+      assert arancini.stream_max_bytes == @gib
+      assert arancini.stream_replicas == 1
+      assert arancini.stream_discard == "old"
+      assert arancini.stream_owner_claim == "event-writer"
+    end
+
+    test "trivy_reports is created with a finite max_bytes" do
+      trivy = Enum.find(default_sized_streams(), &(&1.name == "TRIVY"))
+
+      assert trivy.stream_max_bytes == @gib
+      refute Map.has_key?(trivy, :stream_owner_claim)
+    end
+
+    test "Config.load applies the configured JetStream sizes" do
+      previous = Application.get_env(:serviceradar_core, ServiceRadar.EventWriter, [])
+
+      env = %{
+        "SERVICERADAR_JS_TRIVY_REPORTS_MAX_BYTES" => "3000000",
+        "SERVICERADAR_JS_K8S_INVENTORY_MAX_BYTES" => "4000000",
+        "SERVICERADAR_JS_ARANCINI_CAUSAL_FALLBACK_MAX_BYTES" => "5000000",
+        "SERVICERADAR_JS_EVENTS_FALLBACK_REPLICAS" => "3"
+      }
+
+      sizes = sizes_from(env)
+
+      Application.put_env(
+        :serviceradar_core,
+        ServiceRadar.EventWriter,
+        Keyword.merge(previous, streams: Config.default_streams(), jetstream_sizes: sizes)
+      )
+
+      on_exit(fn ->
+        Application.put_env(:serviceradar_core, ServiceRadar.EventWriter, previous)
+      end)
+
+      streams = Map.new(Config.load().streams, &{&1.name, &1})
+
+      assert streams["TRIVY"].stream_max_bytes == 3_000_000
+      assert streams["K8S_INVENTORY"].stream_max_bytes == 4_000_000
+      assert streams["K8S_NODES"].stream_max_bytes == 4_000_000
+      assert streams["ARANCINI_CAUSAL"].stream_max_bytes == 5_000_000
+      assert streams["LOGS"].stream_replicas == 3
+      assert streams["METRICS"].stream_max_bytes == @gib
     end
   end
+
+  describe "jetstream_sizes_from_env!/1" do
+    test "uses the compiled defaults when nothing is set" do
+      assert sizes_from(%{}) == Config.default_jetstream_sizes()
+
+      assert Config.default_jetstream_sizes() == %{
+               max_bytes: %{
+                 "metrics" => @gib,
+                 "k8s_inventory" => @gib,
+                 "analytics_predictions" => @gib,
+                 "mtr_results" => @gib,
+                 "scan_results" => 268_435_456,
+                 "trivy_reports" => @gib
+               },
+               fallbacks: %{
+                 "events" => %{max_bytes: 2 * @gib, replicas: 1},
+                 "flows" => %{max_bytes: @gib, replicas: 1},
+                 "ARANCINI_CAUSAL" => %{max_bytes: @gib, replicas: 1}
+               }
+             }
+    end
+
+    test "reads every EventWriter stream variable" do
+      env = %{
+        "SERVICERADAR_JS_METRICS_MAX_BYTES" => "11",
+        "SERVICERADAR_JS_K8S_INVENTORY_MAX_BYTES" => "12",
+        "SERVICERADAR_JS_ANALYTICS_PREDICTIONS_MAX_BYTES" => "13",
+        "SERVICERADAR_JS_MTR_RESULTS_MAX_BYTES" => "14",
+        "SERVICERADAR_JS_SCAN_RESULTS_MAX_BYTES" => "15",
+        "SERVICERADAR_JS_TRIVY_REPORTS_MAX_BYTES" => "16",
+        "SERVICERADAR_JS_EVENTS_FALLBACK_MAX_BYTES" => "21",
+        "SERVICERADAR_JS_EVENTS_FALLBACK_REPLICAS" => "3",
+        "SERVICERADAR_JS_FLOWS_FALLBACK_MAX_BYTES" => "22",
+        "SERVICERADAR_JS_FLOWS_FALLBACK_REPLICAS" => "2",
+        "SERVICERADAR_JS_ARANCINI_CAUSAL_FALLBACK_MAX_BYTES" => "23",
+        "SERVICERADAR_JS_ARANCINI_CAUSAL_FALLBACK_REPLICAS" => "1"
+      }
+
+      assert sizes_from(env) == %{
+               max_bytes: %{
+                 "metrics" => 11,
+                 "k8s_inventory" => 12,
+                 "analytics_predictions" => 13,
+                 "mtr_results" => 14,
+                 "scan_results" => 15,
+                 "trivy_reports" => 16
+               },
+               fallbacks: %{
+                 "events" => %{max_bytes: 21, replicas: 3},
+                 "flows" => %{max_bytes: 22, replicas: 2},
+                 "ARANCINI_CAUSAL" => %{max_bytes: 23, replicas: 1}
+               }
+             }
+    end
+
+    test "treats an empty or whitespace-only variable as unset" do
+      sizes =
+        sizes_from(%{
+          "SERVICERADAR_JS_TRIVY_REPORTS_MAX_BYTES" => "",
+          "SERVICERADAR_JS_FLOWS_FALLBACK_MAX_BYTES" => "   ",
+          "SERVICERADAR_JS_FLOWS_FALLBACK_REPLICAS" => " "
+        })
+
+      assert sizes == Config.default_jetstream_sizes()
+    end
+
+    test "fails naming the variable for a non-positive or non-integer value" do
+      invalid = [
+        {"SERVICERADAR_JS_TRIVY_REPORTS_MAX_BYTES", "abc"},
+        {"SERVICERADAR_JS_METRICS_MAX_BYTES", "0"},
+        {"SERVICERADAR_JS_EVENTS_FALLBACK_MAX_BYTES", "-5"},
+        {"SERVICERADAR_JS_FLOWS_FALLBACK_MAX_BYTES", "1.5"},
+        {"SERVICERADAR_JS_ARANCINI_CAUSAL_FALLBACK_REPLICAS", "0"},
+        {"SERVICERADAR_JS_EVENTS_FALLBACK_REPLICAS", "three"}
+      ]
+
+      for {name, value} <- invalid do
+        error = assert_raise ArgumentError, fn -> sizes_from(%{name => value}) end
+        assert error.message =~ name
+      end
+    end
+
+    test "names each variable after its JetStream stream" do
+      assert Config.jetstream_env_name("k8s_inventory", "MAX_BYTES") ==
+               "SERVICERADAR_JS_K8S_INVENTORY_MAX_BYTES"
+
+      assert Config.jetstream_env_name("ARANCINI_CAUSAL", "FALLBACK_REPLICAS") ==
+               "SERVICERADAR_JS_ARANCINI_CAUSAL_FALLBACK_REPLICAS"
+    end
+  end
+
+  defp default_sized_streams do
+    Config.apply_jetstream_sizes(Config.default_streams(), Config.default_jetstream_sizes())
+  end
+
+  defp sizes_from(env), do: Config.jetstream_sizes_from_env!(&Map.get(env, &1))
 end

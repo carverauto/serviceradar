@@ -9,12 +9,14 @@ alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
 alias ServiceRadar.EventWriter.Processors.Flows
 alias ServiceRadar.Jobs.AlertsRetentionWorker
 alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
+alias ServiceRadar.NATS.StateBucketSizing
 alias ServiceRadar.Notifications.ContinuationWorker, as: NotificationContinuationWorker
 alias ServiceRadar.Notifications.DeliveryRetentionWorker, as: NotificationRetentionWorker
 alias ServiceRadar.Notifications.DispatchSchedule
 alias ServiceRadar.Notifications.PluginTarget, as: NotificationPluginTarget
 alias ServiceRadar.Notifications.ReceiptWorker, as: NotificationReceiptWorker
 alias ServiceRadar.Notifications.SilenceExpiryWorker, as: NotificationSilenceExpiryWorker
+alias ServiceRadar.Notifications.StreamPublisher
 alias ServiceRadar.Observability.CapacityForecasting.Worker, as: CapacityForecastingWorker
 alias ServiceRadar.Observability.DataRetentionWorker
 alias ServiceRadar.Observability.ProductionSchedule
@@ -519,11 +521,20 @@ config :serviceradar_core, ServiceRadar.WorkloadIdentity,
   skip_guard_enabled: System.get_env("SERVICERADAR_WORKLOAD_IDENTITY_SKIP_GUARD", "1") != "0",
   skip_guard_heartbeat_ms: parse_int_env.("SERVICERADAR_WORKLOAD_IDENTITY_SKIP_GUARD_HEARTBEAT_MS", 1_800_000)
 
+# Notification firehose stream size (a discard-old buffer, reconciled on the
+# first publish per node). Unset or blank means 1 GiB; an invalid value fails boot.
+config :serviceradar_core, StreamPublisher,
+  max_bytes:
+    StateBucketSizing.bytes_from_env!(
+      "SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES",
+      StreamPublisher.default_max_bytes()
+    )
+
 config :serviceradar_core, ThreatIntelRawPayloadStore,
   jetstream_bucket: System.get_env("SERVICERADAR_OTX_RAW_BUCKET", "serviceradar_threat_intel"),
   jetstream_ttl_seconds: parse_int_env.("SERVICERADAR_OTX_RAW_TTL_SECONDS", 0),
   jetstream_max_bucket_size:
-    ServiceRadar.NATS.StateBucketSizing.bytes_from_env!(
+    StateBucketSizing.bytes_from_env!(
       "SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES",
       ThreatIntelRawPayloadStore.default_max_bucket_bytes()
     ),
@@ -1287,6 +1298,13 @@ if config_env() == :prod do
       batch_timeout: String.to_integer(System.get_env("EVENT_WRITER_BATCH_TIMEOUT") || "1000"),
       consumer_name: System.get_env("EVENT_WRITER_CONSUMER_NAME", "serviceradar-event-writer"),
       consumer_pull_batch_size: String.to_integer(System.get_env("EVENT_WRITER_CONSUMER_PULL_BATCH_SIZE") || "16"),
+      # JetStream sizes of every stream EventWriter creates, from
+      # SERVICERADAR_JS_<STREAM>_MAX_BYTES and the SERVICERADAR_JS_{EVENTS,FLOWS,
+      # ARANCINI_CAUSAL}_FALLBACK_{MAX_BYTES,REPLICAS} fallbacks (the Helm chart
+      # renders them from the budget it checked). Unset or blank means the
+      # compiled default; any other non-positive or non-integer value fails boot
+      # naming the variable. Config.load/0 applies them to the streams below.
+      jetstream_sizes: Config.jetstream_sizes_from_env!(),
       streams: [
         %{
           name: "EVENTS",

@@ -7,6 +7,7 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
   """
 
   alias Gnat.Jetstream.API.Util
+  alias ServiceRadar.NATS.StateBucketSizing
 
   require Logger
 
@@ -14,8 +15,13 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
   @default_max_ack_pending 5_000
   @default_max_deliver 10
 
+  # Stream-config metadata key recording which component owns the shape of a
+  # stream more than one component can write (NATS 2.10+ stream metadata).
+  @owner_metadata_key "serviceradar.owner"
+
   # Stream shape options describe the stream a consumer config requested; they
-  # must never be stamped onto a different stream discovery resolved onto.
+  # must never be stamped onto a different stream discovery resolved onto. The
+  # owner claim is part of the shape: it is never recorded on another stream.
   @stream_shape_opts [
     :stream_retention,
     :stream_storage,
@@ -23,8 +29,12 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
     :stream_replicas,
     :stream_max_bytes,
     :stream_max_age,
-    :stream_duplicate_window
+    :stream_duplicate_window,
+    :stream_owner_claim
   ]
+
+  # Stream config fields a shape reconcile can change, in log order.
+  @shape_fields ["max_bytes", "num_replicas", "max_age", "retention", "storage", "discard"]
 
   @type connection_ref :: atom() | pid()
   @type ensure_opts :: keyword()
@@ -246,7 +256,9 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
         num_replicas: Keyword.get(opts, :stream_replicas, 1),
         max_bytes: Keyword.get(opts, :stream_max_bytes),
         max_age: Keyword.get(opts, :stream_max_age),
-        duplicate_window: Keyword.get(opts, :stream_duplicate_window)
+        duplicate_window: Keyword.get(opts, :stream_duplicate_window),
+        # A claim-aware caller records its claim on the stream it creates.
+        metadata: owner_metadata(Keyword.get(opts, :stream_owner_claim))
       }
       |> compact_map()
       |> Jason.encode!()
@@ -279,19 +291,39 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
 
   defp reconcile_stream(connection_ref, stream_name, subject, opts) do
     domain = Keyword.get(opts, :domain)
+    request = fn topic, body -> Util.request(connection_ref, topic, body) end
 
-    with {:ok, config} <- stream_config(connection_ref, stream_name, domain),
+    with {:ok, config, stored} <- stream_info(request, stream_name, domain),
          {:ok, payload} <- reconciled_stream_payload(config, stream_name, subject, opts) do
-      update_stream(connection_ref, stream_name, payload, domain)
+      payload = hold_discard_new_max_bytes(stream_name, config, payload, stored)
+      update_stream_if_changed(request, stream_name, config, payload, stored, domain)
+    else
+      # CREATE just reported the stream exists; it was deleted in between.
+      :absent -> {:error, {:stream_not_found, stream_name}}
+      {:error, _reason} = error -> error
     end
   end
 
-  defp stream_config(connection_ref, stream_name, domain) do
-    topic = "#{js_api(domain)}.STREAM.INFO.#{stream_name}"
+  @doc """
+  Reads `STREAM.INFO` for `stream_name` through `request`, a function performing
+  one JetStream API request the way `Gnat.Jetstream.API.Util.request/3` does.
 
-    case Util.request(connection_ref, topic, "") do
-      {:ok, %{"config" => config}} when is_map(config) ->
-        {:ok, config}
+  Returns the stream config and the bytes it stores, or `:absent` when the
+  stream does not exist.
+  """
+  @spec stream_info(
+          (String.t(), binary() -> {:ok, map()} | {:error, term()}),
+          String.t(),
+          String.t() | nil
+        ) :: {:ok, map(), non_neg_integer()} | :absent | {:error, term()}
+  def stream_info(request, stream_name, domain \\ nil)
+      when is_function(request, 2) and is_binary(stream_name) do
+    case request.("#{js_api(domain)}.STREAM.INFO.#{stream_name}", "") do
+      {:ok, %{"config" => config} = info} when is_map(config) ->
+        {:ok, config, stored_bytes(info)}
+
+      {:ok, %{"error" => %{"code" => 404}}} ->
+        :absent
 
       {:ok, %{"error" => error}} ->
         {:error, error}
@@ -299,20 +331,170 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
       {:ok, other} ->
         {:error, {:unexpected_stream_info_response, other}}
 
+      {:error, %{"code" => 404}} ->
+        :absent
+
       {:error, reason} ->
         {:error, reason}
     end
   end
 
-  defp update_stream(connection_ref, stream_name, payload, domain) do
-    topic = "#{js_api(domain)}.STREAM.UPDATE.#{stream_name}"
+  defp stored_bytes(%{"state" => %{"bytes" => bytes}}) when is_integer(bytes) and bytes >= 0,
+    do: bytes
 
-    case Util.request(connection_ref, topic, Jason.encode!(payload)) do
-      {:ok, %{"error" => error}} -> {:error, error}
-      {:ok, _} -> :ok
-      {:error, reason} -> {:error, reason}
+  defp stored_bytes(_info), do: 0
+
+  @doc """
+  Sends `STREAM.UPDATE` with `payload` when it differs from the stream's current
+  `config`, logging the shape values before and after. A payload equal to the
+  current config is not sent.
+  """
+  @spec update_stream_if_changed(
+          (String.t(), binary() -> {:ok, map()} | {:error, term()}),
+          String.t(),
+          map(),
+          map(),
+          non_neg_integer(),
+          String.t() | nil
+        ) :: :ok | {:error, term()}
+  def update_stream_if_changed(request, stream_name, config, payload, stored, domain \\ nil)
+
+  def update_stream_if_changed(_request, _stream_name, config, config, _stored, _domain), do: :ok
+
+  def update_stream_if_changed(request, stream_name, config, payload, stored, domain) do
+    topic = "#{js_api(domain)}.STREAM.UPDATE.#{stream_name}"
+    change = describe_shape_change(stream_name, config, payload, stored)
+
+    case request.(topic, Jason.encode!(payload)) do
+      {:ok, %{"error" => error}} ->
+        log_rejected_update(change, error)
+        {:error, error}
+
+      {:ok, _} ->
+        if change, do: Logger.info(change)
+        :ok
+
+      {:error, reason} ->
+        log_rejected_update(change, reason)
+        {:error, reason}
     end
   end
+
+  defp log_rejected_update(nil, _reason), do: :ok
+
+  defp log_rejected_update(change, reason) do
+    Logger.warning("Rejected: " <> change <> " (#{inspect(reason)})")
+  end
+
+  @doc """
+  One log line naming each shape value of `stream_name` that `payload` changes
+  from `config`, before and after, or `nil` when the shape and owner claim are
+  unchanged. A lower `max_bytes` on a discard-old stream that holds more than
+  the new cap says that JetStream evicts the oldest messages to fit.
+  """
+  @spec describe_shape_change(String.t(), map(), map(), non_neg_integer()) ::
+          String.t() | nil
+  def describe_shape_change(stream_name, config, payload, stored) do
+    shape =
+      for field <- @shape_fields,
+          Map.get(config, field) != Map.get(payload, field),
+          do: {field, Map.get(config, field), Map.get(payload, field)}
+
+    owner = {@owner_metadata_key, stream_owner(config), stream_owner(payload)}
+
+    changes =
+      Enum.flat_map(shape ++ [owner], fn
+        {_field, same, same} -> []
+        {field, old, new} -> ["#{field} #{describe_value(old)} -> #{describe_value(new)}"]
+      end)
+
+    if changes == [] do
+      nil
+    else
+      "Reconciling JetStream stream #{stream_name} (stored_bytes=#{stored}): " <>
+        Enum.join(changes, ", ") <> eviction_note(payload, stored)
+    end
+  end
+
+  defp eviction_note(payload, stored) do
+    max_bytes = Map.get(payload, "max_bytes")
+
+    if Map.get(payload, "discard", "old") == "old" and is_integer(max_bytes) and
+         max_bytes > 0 and max_bytes < stored do
+      "; discard-old: JetStream evicts the oldest messages to fit"
+    else
+      ""
+    end
+  end
+
+  defp describe_value(nil), do: "unset"
+  defp describe_value(value) when is_binary(value), do: inspect(value)
+  defp describe_value(value), do: to_string(value)
+
+  @doc """
+  Applies the discard-new rule to a reconciled `payload` (design D6).
+
+  A discard-new stream refuses writes once full, so its `max_bytes` is lowered
+  only when the bytes it stores fit strictly below the new cap; otherwise the
+  current `max_bytes` is kept and the configured, stored and current values are
+  logged. A discard-old stream is returned unchanged: it is reconciled to the
+  configured size even when that evicts its oldest messages.
+  """
+  @spec hold_discard_new_max_bytes(String.t(), map(), map(), non_neg_integer()) :: map()
+  def hold_discard_new_max_bytes(stream_name, config, payload, stored) do
+    current = Map.get(config, "max_bytes")
+    configured = Map.get(payload, "max_bytes")
+
+    if Map.get(payload, "discard") == "new" and is_integer(configured) and configured > 0 and
+         configured != current do
+      case StateBucketSizing.plan(current, stored, configured) do
+        {:hold, _reason} ->
+          Logger.warning(
+            "JetStream stream #{stream_name} max_bytes left unchanged: a discard-new " <>
+              "stream is never capped at or below its stored bytes " <>
+              "(configured=#{configured} stored=#{stored} current=#{describe_value(current)})"
+          )
+
+          Map.put(payload, "max_bytes", current)
+
+        _update ->
+          payload
+      end
+    else
+      payload
+    end
+  end
+
+  @doc "The stream-config metadata key that records a stream's owner claim."
+  @spec owner_metadata_key() :: String.t()
+  def owner_metadata_key, do: @owner_metadata_key
+
+  @doc """
+  The owner claim recorded in a stream config's metadata, or `nil` for a stream
+  with no claim (a legacy stream, or one whose claim was removed).
+  """
+  @spec stream_owner(map()) :: String.t() | nil
+  def stream_owner(%{"metadata" => %{@owner_metadata_key => owner}})
+      when is_binary(owner) and owner != "", do: owner
+
+  def stream_owner(_config), do: nil
+
+  @doc "Records `owner` as the claim in a stream config's metadata, keeping other keys."
+  @spec put_stream_owner(map(), String.t()) :: map()
+  def put_stream_owner(config, owner) when is_map(config) and is_binary(owner) do
+    metadata =
+      case Map.get(config, "metadata") do
+        existing when is_map(existing) -> existing
+        _ -> %{}
+      end
+
+    Map.put(config, "metadata", Map.put(metadata, @owner_metadata_key, owner))
+  end
+
+  defp owner_metadata(claim) when is_binary(claim) and claim != "",
+    do: %{@owner_metadata_key => claim}
+
+  defp owner_metadata(_claim), do: nil
 
   @doc false
   def reconciled_stream_payload(config, stream_name, subject, opts)
@@ -322,14 +504,11 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
       |> Map.get("subjects", [])
       |> normalized_subjects(subject)
 
-    # When another component owns retention (flow-collector for `flows`), only
-    # merge subjects — never thrash max_bytes/max_age/replicas on reconcile.
+    # When another component owns retention (a collector claimed the stream, or
+    # reconcile_stream_shape: false), only merge subjects — never thrash
+    # max_bytes/max_age/replicas on reconcile.
     payload =
-      if Keyword.get(opts, :reconcile_stream_shape, true) == false do
-        config
-        |> Map.put("name", Map.get(config, "name", stream_name))
-        |> Map.put("subjects", subjects)
-      else
+      if reconcile_shape?(config, opts) do
         config
         |> Map.put("name", Map.get(config, "name", stream_name))
         |> Map.put("subjects", subjects)
@@ -340,6 +519,10 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
         |> put_configured(opts, :stream_max_bytes, "max_bytes")
         |> put_configured(opts, :stream_max_age, "max_age")
         |> put_configured(opts, :stream_duplicate_window, "duplicate_window")
+      else
+        config
+        |> Map.put("name", Map.get(config, "name", stream_name))
+        |> Map.put("subjects", subjects)
       end
 
     {:ok, payload}
@@ -347,6 +530,17 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
 
   def reconciled_stream_payload(_config, _stream_name, _subject, _opts) do
     {:error, :invalid_stream_config}
+  end
+
+  # A claim-aware caller (`stream_owner_claim`) reconciles the shape only of a
+  # stream that carries its own claim: a stream claimed by another component,
+  # or one with no claim yet, gets its subjects merged and nothing else (D6).
+  # Without a claim, `reconcile_stream_shape` (default true) decides.
+  defp reconcile_shape?(config, opts) do
+    case Keyword.get(opts, :stream_owner_claim) do
+      claim when is_binary(claim) and claim != "" -> stream_owner(config) == claim
+      _ -> Keyword.get(opts, :reconcile_stream_shape, true) != false
+    end
   end
 
   @doc false
