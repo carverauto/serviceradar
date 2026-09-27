@@ -48,6 +48,9 @@ on. It measured 317 ms to first usable frame, 57.2 ms p95 tile fetch/decode and
 above 30 frames/second. This is rendering capacity, not a claim about physical
 display presentation or the normal-window result above. Cold tile creation still
 has shader-assembly pauses; the observed slowest frame gaps were about 104 ms.
+Skipping empty tile sublayers subsequently reduced normal-window tile decode
+p95 to 9.7 ms, with 0.8 ms p95 picking and a 316 ms first usable frame, but the
+normal-window pan/zoom average remained below the SLO at 27.6 FPS.
 
 Native fixture measurements on RBE were 1,126 ms for fresh placement, 19,749 ms
 for NIF import/index creation, and 14,814 ms for the selected tile encoding set.
@@ -71,8 +74,10 @@ bazel test -c opt --config=remote //elixir/web-ng/assets:million_world_browser_t
 The last target uses the pinned SwiftShader executor to check functional browser
 behavior, not the physical GPU SLOs. The same `god_view_million_browser.cjs`
 executable supports `GOD_VIEW_PHYSICAL_GPU=1` with the exported JSON and HTML as
-its two arguments. It launches installed Chrome, reports the adapter and timing
-method, and enforces performance thresholds. `PLAYWRIGHT_MODULE` can point to an
+its two arguments. It launches installed Chrome with normal frame scheduling, reports the adapter
+and timing method, and enforces performance thresholds. `GOD_VIEW_UNCAPPED=1`
+opts into the separate throughput diagnostic; `GOD_VIEW_HEADLESS=1` selects
+headless Chrome while retaining the physical adapter requirement. `PLAYWRIGHT_MODULE` can point to an
 already-installed Playwright module; this browser-only step builds no assets.
 `GOD_VIEW_CPU_PROFILE` optionally records a Chrome CPU profile for this workload.
 
