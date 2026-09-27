@@ -8,9 +8,10 @@ mod spatial;
 mod tiles;
 
 pub use details::{
-    AggregateSelection, DETAIL_EDGE_LIMIT, DETAIL_MEMBER_LIMIT, DETAIL_NODE_LIMIT, DetailCursor,
-    DetailPage, DetailRelation, DetailScope, MAX_SELECTION_BYTES, RELATION_CANDIDATE_LIMIT,
-    RelationCursor, RelationPage, SelectedRelation, TileSelection,
+    AggregateSelection, BundleCursor, BundleInfo, BundlePage, DETAIL_EDGE_LIMIT,
+    DETAIL_MEMBER_LIMIT, DETAIL_NODE_LIMIT, DetailCursor, DetailPage, DetailRelation, DetailScope,
+    MAX_SELECTION_BYTES, RELATION_CANDIDATE_LIMIT, RelationCursor, RelationPage, SelectedRelation,
+    TileSelection,
 };
 pub use health::{
     DeviceIdsCursor, DeviceIdsPage, GlyphHealth, HEALTH_BATCH_LIMIT, HealthApply, HealthCounts,

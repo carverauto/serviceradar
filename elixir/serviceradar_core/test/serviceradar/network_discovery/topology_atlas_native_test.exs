@@ -149,6 +149,64 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
     assert {:error, :stale_revision} = TopologyAtlas.detail(empty_world, {:aggregate_members, selection})
   end
 
+  test "packaged bundle picking resolves rendered IDs and carries typed scene cursors" do
+    a = "sr:bundle-a.example.com" |> position(100, true) |> Map.put(:component_z, 0)
+    b = "sr:bundle-b.example.com" |> position(16_000_000, true) |> Map.merge(%{y: 100, component_z: 0})
+
+    relations =
+      for index <- 1..257 do
+        %{
+          relation_id: "invented-bundle-link-#{index}",
+          source_id: a.device_id,
+          target_id: b.device_id,
+          evidence_class: "direct-physical",
+          role: "backbone"
+        }
+      end
+
+    assert {:ok, builder} = TopologyAtlas.new_builder("invented-bundle-layout", 16)
+    assert :ok = TopologyAtlas.add_positions(builder, [a, b])
+    assert :ok = TopologyAtlas.add_relations(builder, relations)
+    assert {:ok, world} = TopologyAtlas.finish_world(builder)
+    assert {:ok, %{edges: [edge], glyphs: glyphs} = tile} = TopologyAtlas.tile(world, 2, 1, 0)
+    assert {:error, :not_found} = TopologyAtlas.relation(world, edge.id)
+    assert {:ok, info} = TopologyAtlas.bundle_info(world, tile.selection, edge.id)
+    assert info.id == edge.id
+    assert info.relation_count == 257
+    assert info.source == Enum.at(glyphs, edge.source)
+    assert info.target == Enum.at(glyphs, edge.target)
+    assert info.source.kind == :boundary
+    assert info.target.kind == :boundary
+
+    assert {:ok, first} = TopologyAtlas.bundle_detail(world, tile.selection, edge.id)
+    assert first.total_relations == 257
+    assert length(first.relations) == 256
+    assert %{world_revision: world_revision, scope_revision: scope_revision, offset: offset} = first.next_cursor
+    assert byte_size(world_revision) == 64 and byte_size(scope_revision) == 64
+    assert is_integer(offset) and offset > 0
+    assert {:ok, last} = TopologyAtlas.bundle_detail(world, tile.selection, edge.id, first.next_cursor)
+    assert last.next_cursor == nil
+    assert length(last.relations) == 1
+
+    assert MapSet.new(Enum.map(first.relations ++ last.relations, & &1.id)) ==
+             MapSet.new(Enum.map(relations, & &1.relation_id))
+
+    for page <- [first, last], row <- page.relations do
+      assert Enum.at(page.nodes, row.source).device_id == a.device_id
+      assert Enum.at(page.nodes, row.target).device_id == b.device_id
+      assert row.evidence_class == "direct-physical"
+      assert row.role == "backbone"
+    end
+
+    assert {:error, :invalid_cursor} = TopologyAtlas.bundle_detail(world, tile.selection, edge.id, %{offset: 1})
+
+    assert {:error, :invalid_cursor} =
+             TopologyAtlas.bundle_detail(world, tile.selection, edge.id, %{first.next_cursor | offset: 4_294_967_296})
+
+    assert {:error, :not_found} = TopologyAtlas.bundle_info(world, tile.selection, "invented-missing-bundle")
+    assert {:error, :invalid_identity} = TopologyAtlas.bundle_detail(world, tile.selection, nil)
+  end
+
   test "packaged health updates are atomic, revision-bound, and separate from tile geometry" do
     a = position("sr:health-a.example.com", 100, true)
     b = position("sr:health-b.example.com", 200, true)

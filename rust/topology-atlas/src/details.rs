@@ -8,7 +8,7 @@ use std::ops::Range;
 
 use sha2::{Digest, Sha256};
 
-use crate::spatial::Line;
+use crate::spatial::{Clip, Line};
 use crate::tiles::{digest_hex, digest_string};
 use crate::{Cell, Error, Glyph, GlyphKind, Position, Relation, TileEdge, TileProfile, World};
 
@@ -74,6 +74,14 @@ impl TileSelection {
                     && (g.x.to_bits(), g.y.to_bits()) == (point.0.to_bits(), point.1.to_bits())
             })
             .map(|i| i as u32)
+    }
+
+    fn rendered_edge(&self, line: Line, clip: Clip) -> Option<&TileEdge> {
+        let source = self.endpoint(line.source, clip.source)?;
+        let target = self.endpoint(line.target, clip.target)?;
+        self.edges
+            .iter()
+            .find(|edge| edge.source == source && edge.target == target)
     }
 }
 
@@ -164,6 +172,34 @@ pub struct RelationPage {
     pub total_rendered_relations: u64,
     pub candidates: usize,
     pub next: Option<RelationCursor>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct BundleInfo {
+    pub id: String,
+    pub relation_count: u64,
+    pub source: Glyph,
+    pub target: Glyph,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BundleCursor {
+    pub world_revision: String,
+    /// Binds the rendered bundle, tile, budget and profile together.
+    pub scope_revision: String,
+    pub offset: u32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BundlePage {
+    pub world_revision: String,
+    pub scope_revision: String,
+    pub nodes: Vec<Position>,
+    pub relations: Vec<DetailRelation>,
+    /// Exact canonical membership of the clicked rendered edge, not a node count.
+    pub total_relations: u64,
+    pub candidates: usize,
+    pub next: Option<BundleCursor>,
 }
 
 #[derive(Clone, Copy)]
@@ -492,24 +528,16 @@ impl World {
             RELATION_CANDIDATE_LIMIT,
             |i, clip| {
                 let line = self.endpoints[i as usize];
-                let source = selection.endpoint(line.source, clip.source);
-                let target = selection.endpoint(line.target, clip.target);
-                if let (Some(source), Some(target)) = (source, target) {
-                    if let Some(edge) = selection
-                        .edges
-                        .iter()
-                        .find(|e| e.source == source && e.target == target)
-                    {
-                        rows.push(SelectedRelation {
-                            relation_index: i,
-                            relation_id: self.relations[i as usize].id.clone(),
-                            rendered_edge_id: edge.id.clone(),
-                            source_glyph: source,
-                            target_glyph: target,
-                            reversed: edge.source != source,
-                            bundle_members: edge.count,
-                        });
-                    }
+                if let Some(edge) = selection.rendered_edge(line, clip) {
+                    rows.push(SelectedRelation {
+                        relation_index: i,
+                        relation_id: self.relations[i as usize].id.clone(),
+                        rendered_edge_id: edge.id.clone(),
+                        source_glyph: edge.source,
+                        target_glyph: edge.target,
+                        reversed: false,
+                        bundle_members: edge.count,
+                    });
                 }
                 rows.len() < limit
             },
@@ -524,6 +552,100 @@ impl World {
                 offset,
             }),
         })
+    }
+
+    pub fn bundle_info(&self, selection: &TileSelection, id: &str) -> Result<BundleInfo, Error> {
+        let edge = self.bundle_edge(selection, id)?;
+        Ok(BundleInfo {
+            id: edge.id.clone(),
+            relation_count: edge.count,
+            source: selection.glyphs[edge.source as usize].clone(),
+            target: selection.glyphs[edge.target as usize].clone(),
+        })
+    }
+
+    /// Scan one bounded raw spatial page for the exact rendered edge. Empty
+    /// pages can have a continuation; each accepted relation is emitted once.
+    pub fn bundle_detail(
+        &self,
+        selection: &TileSelection,
+        id: &str,
+        cursor: Option<&BundleCursor>,
+    ) -> Result<BundlePage, Error> {
+        let edge = self.bundle_edge(selection, id)?;
+        let mut hash = Sha256::new();
+        digest_string(&mut hash, "bundle");
+        digest_string(&mut hash, &selection.tile_revision);
+        digest_string(&mut hash, id);
+        let scope_revision = digest_hex(hash);
+        let offset = if let Some(cursor) = cursor {
+            self.check_detail_revision(&cursor.world_revision)?;
+            if cursor.scope_revision != scope_revision
+                || cursor.offset as usize >= self.relations.len()
+            {
+                return Err(Error::InvalidDetailCursor);
+            }
+            cursor.offset as usize
+        } else {
+            0
+        };
+        let mut nodes = Vec::new();
+        let mut local = HashMap::new();
+        let mut relations = Vec::new();
+        let (candidates, next) = self.segments.visit_page(
+            selection.cell,
+            offset,
+            RELATION_CANDIDATE_LIMIT,
+            |i, clip| {
+                let line = self.endpoints[i as usize];
+                if selection
+                    .rendered_edge(line, clip)
+                    .is_some_and(|rendered| rendered.id == edge.id)
+                {
+                    let endpoints = [line.source, line.target].map(|node| {
+                        *local.entry(node).or_insert_with(|| {
+                            let index = nodes.len() as u32;
+                            nodes.push(self.positions[node as usize].clone());
+                            index
+                        })
+                    });
+                    relations.push(DetailRelation {
+                        id: self.relations[i as usize].id.clone(),
+                        source: endpoints[0],
+                        target: endpoints[1],
+                    });
+                }
+                // Stop after consuming this row while two new endpoints still
+                // fit before every visit. This never drops a pending relation.
+                nodes.len() < DETAIL_NODE_LIMIT - 1 && relations.len() < DETAIL_EDGE_LIMIT
+            },
+        );
+        Ok(BundlePage {
+            world_revision: self.detail_revision.clone(),
+            scope_revision: scope_revision.clone(),
+            nodes,
+            relations,
+            total_relations: edge.count,
+            candidates,
+            next: next.map(|offset| BundleCursor {
+                world_revision: self.detail_revision.clone(),
+                scope_revision,
+                offset: offset as u32,
+            }),
+        })
+    }
+
+    fn bundle_edge<'a>(
+        &self,
+        selection: &'a TileSelection,
+        id: &str,
+    ) -> Result<&'a TileEdge, Error> {
+        self.check_detail_revision(&selection.world_revision)?;
+        selection
+            .edges
+            .iter()
+            .find(|edge| edge.id == id)
+            .ok_or(Error::DetailNotFound)
     }
 
     fn check_detail_revision(&self, revision: &str) -> Result<(), Error> {

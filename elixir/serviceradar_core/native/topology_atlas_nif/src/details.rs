@@ -1,15 +1,16 @@
 //! Opaque selection resources contain bounded descriptors, never a World Arc.
 //! The serving owner additionally fences these reads by publication generation.
 
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use rustler::{Atom, Encoder, Env, NifMap, NifTaggedEnum, Resource, ResourceArc, Term};
 use serviceradar_topology_atlas::{
-    AggregateSelection, DetailCursor, DetailScope, Error, RelationCursor, TileSelection,
+    AggregateSelection, BundleCursor, DetailCursor, DetailRelation, DetailScope, Error,
+    RelationCursor, TileSelection,
 };
 
 use crate::model::{PositionRow, RelationRow};
-use crate::WorldResource;
+use crate::{WireGlyph, WorldResource};
 
 mod atoms {
     rustler::atoms! {ok, error, not_found, invalid_cursor, invalid_request, stale_revision, unavailable, selection_budget_exceeded}
@@ -100,6 +101,25 @@ struct WireDetailRelation {
     target: u32,
     evidence_class: Option<String>,
     role: Option<String>,
+}
+
+fn detail_relations(
+    world: &WorldResource,
+    relations: Vec<DetailRelation>,
+) -> Result<Vec<WireDetailRelation>, Error> {
+    relations
+        .into_iter()
+        .map(|edge| {
+            let row = relation_row(world, &edge.id)?;
+            Ok(WireDetailRelation {
+                id: edge.id,
+                source: edge.source,
+                target: edge.target,
+                evidence_class: row.evidence_class.clone(),
+                role: row.role.clone(),
+            })
+        })
+        .collect()
 }
 #[derive(NifMap)]
 struct WireDetailPage {
@@ -207,20 +227,7 @@ fn detail<'a>(
                 .map_err(|_| Error::InvalidDetailCursor)?
                 .map(Into::into);
             let page = world.0.geometry.detail(&scope, cursor.as_ref())?;
-            let relations = page
-                .relations
-                .into_iter()
-                .map(|edge| {
-                    let row = relation_row(&world, &edge.id)?;
-                    Ok(WireDetailRelation {
-                        id: edge.id,
-                        source: edge.source,
-                        target: edge.target,
-                        evidence_class: row.evidence_class.clone(),
-                        role: row.role.clone(),
-                    })
-                })
-                .collect::<Result<Vec<_>, Error>>()?;
+            let relations = detail_relations(&world, page.relations)?;
             Ok(WireDetailPage {
                 world_revision: page.world_revision,
                 scope_revision: page.scope_revision,
@@ -233,6 +240,107 @@ fn detail<'a>(
                 total_members: page.total_members,
                 selected_relations: page.selected_relations,
                 incident_relations: page.incident_relations,
+                next_cursor: page.next.map(Into::into),
+            })
+        })
+    })
+}
+
+#[derive(NifMap)]
+struct WireBundleInfo {
+    id: String,
+    relation_count: u64,
+    source: WireGlyph,
+    target: WireGlyph,
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn bundle_info(
+    env: Env<'_>,
+    world: ResourceArc<WorldResource>,
+    selection: ResourceArc<SelectionResource>,
+    id: String,
+) -> Term<'_> {
+    crate::admission::call(env, &crate::admission::BOUNDED_READ, || {
+        read_call(env, || {
+            let info = world.0.geometry.bundle_info(&selection.0, &id)?;
+            Ok(WireBundleInfo {
+                id: info.id,
+                relation_count: info.relation_count,
+                source: info.source.into(),
+                target: info.target.into(),
+            })
+        })
+    })
+}
+
+#[derive(NifMap)]
+struct WireBundleCursor {
+    world_revision: String,
+    scope_revision: String,
+    offset: u32,
+}
+
+impl From<BundleCursor> for WireBundleCursor {
+    fn from(cursor: BundleCursor) -> Self {
+        Self {
+            world_revision: cursor.world_revision,
+            scope_revision: cursor.scope_revision,
+            offset: cursor.offset,
+        }
+    }
+}
+
+impl From<WireBundleCursor> for BundleCursor {
+    fn from(cursor: WireBundleCursor) -> Self {
+        Self {
+            world_revision: cursor.world_revision,
+            scope_revision: cursor.scope_revision,
+            offset: cursor.offset,
+        }
+    }
+}
+
+#[derive(NifMap)]
+struct WireBundlePage {
+    world_revision: String,
+    scope_revision: String,
+    nodes: Vec<PositionRow>,
+    relations: Vec<WireDetailRelation>,
+    total_relations: u64,
+    candidates: usize,
+    next_cursor: Option<WireBundleCursor>,
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn bundle_detail<'a>(
+    env: Env<'a>,
+    world: ResourceArc<WorldResource>,
+    selection: ResourceArc<SelectionResource>,
+    id: String,
+    cursor: Term<'a>,
+) -> Term<'a> {
+    crate::admission::call(env, &crate::admission::BOUNDED_READ, || {
+        read_call(env, || {
+            let cursor: Option<BundleCursor> = cursor
+                .decode::<Option<WireBundleCursor>>()
+                .map_err(|_| Error::InvalidDetailCursor)?
+                .map(Into::into);
+            let page = world
+                .0
+                .geometry
+                .bundle_detail(&selection.0, &id, cursor.as_ref())?;
+            Ok(WireBundlePage {
+                world_revision: page.world_revision,
+                scope_revision: page.scope_revision,
+                nodes: page
+                    .nodes
+                    .into_iter()
+                    .map(|position| PositionRow::from_position(position, true))
+                    .collect(),
+                relations: detail_relations(&world, page.relations)?,
+                total_relations: page.total_relations,
+                candidates: page.candidates,
                 next_cursor: page.next.map(Into::into),
             })
         })
