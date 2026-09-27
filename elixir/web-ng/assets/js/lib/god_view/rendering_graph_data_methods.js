@@ -3,6 +3,10 @@ import {hasManagedTopologyScene, isOverviewScene} from "./topology_layout_mode"
 import {nodeRenderFrame} from "./rendering_node_frame"
 import {copyDetails, detailsHaveSparkline, snapshotDetailsJson} from "./snapshot_columns"
 
+// String.prototype.localeCompare builds a collator per call; one shared default-locale collator
+// orders identically and is what makes pairing tens of thousands of edges affordable.
+const compareText = new Intl.Collator().compare
+
 const INCIDENT_ENDPOINT = 1
 const INCIDENT_NON_ENDPOINT = 2
 
@@ -392,7 +396,7 @@ export const godViewRenderingGraphDataMethods = {
         ? null
         : nodeData.find((node) => node.index === this.state.selectedNodeIndex)
 
-    return {edgeData, edgeLabelData, nodeData, rootPulseNodes, selectedVisibleNode}
+    return {edgeData, edgeLabelData, nodeData, rootPulseNodes, selectedVisibleNode, nodeFrame: frame}
   },
   buildTopologySceneEdgeData(effective, edgeTopologyClass, relationEnabled, routeEnabled) {
     const semanticRoutes = effective?._topologyScene?.routes || []
@@ -662,7 +666,7 @@ export const godViewRenderingGraphDataMethods = {
     const canonicalPair = (edge) => {
       const sourceId = String(edge?.sourceId || "")
       const targetId = String(edge?.targetId || "")
-      return sourceId.localeCompare(targetId) <= 0
+      return compareText(sourceId, targetId) <= 0
         ? {left: sourceId, right: targetId, forward: true}
         : {left: targetId, right: sourceId, forward: false}
     }
@@ -760,7 +764,7 @@ export const godViewRenderingGraphDataMethods = {
     aggregated.sort((left, right) => {
       const leftWeight = Number(left.edgeCount || 0)
       const rightWeight = Number(right.edgeCount || 0)
-      return rightWeight - leftWeight || left.sourceId.localeCompare(right.sourceId) || left.targetId.localeCompare(right.targetId)
+      return rightWeight - leftWeight || compareText(left.sourceId, right.sourceId) || compareText(left.targetId, right.targetId)
     })
 
     return aggregated

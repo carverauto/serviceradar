@@ -999,7 +999,7 @@ describe("lifecycle_dom_setup_methods", () => {
     const previousLabelFallbackIds = ["accepted-label"]
     const previousVisibilityMask = Uint8Array.from([1, 0])
     const previousTraversalMask = Uint8Array.from([1, 1])
-    const previousPacketFlowCache = [{edgeIndex: 0}]
+    const previousGraphLayers = [{id: "accepted-layer"}]
     const state = {
       lastGraph: previousGraph,
       lastRevision: 8,
@@ -1033,8 +1033,7 @@ describe("lifecycle_dom_setup_methods", () => {
       visibilityMaskBuffer: previousVisibilityMask,
       traversalMaskBuffer: previousTraversalMask,
       wasmReady: true,
-      packetFlowCache: previousPacketFlowCache,
-      packetFlowCacheStamp: "accepted-flow",
+      lastGraphLayers: previousGraphLayers,
       layers: {atmosphere: true},
       pushEvent: vi.fn(),
       summary: {textContent: "accepted scene"},
@@ -1068,8 +1067,7 @@ describe("lifecycle_dom_setup_methods", () => {
         state.visibilityMaskBuffer.fill(0)
         state.traversalMaskBuffer.fill(0)
         state.wasmReady = false
-        state.packetFlowCache = [{edgeIndex: 9}]
-        state.packetFlowCacheStamp = "failed-flow"
+        state.lastGraphLayers = [{id: "failed-layer"}]
         state.layers.atmosphere = false
         throw new RangeError("portrait camera infeasible")
       }),
@@ -1109,8 +1107,7 @@ describe("lifecycle_dom_setup_methods", () => {
     expect(state.traversalMaskBuffer).toBe(previousTraversalMask)
     expect(Array.from(state.traversalMaskBuffer)).toEqual([1, 1])
     expect(state.wasmReady).toBe(true)
-    expect(state.packetFlowCache).toBe(previousPacketFlowCache)
-    expect(state.packetFlowCacheStamp).toBe("accepted-flow")
+    expect(state.lastGraphLayers).toBe(previousGraphLayers)
     expect(state.layers.atmosphere).toBe(true)
     expect(state.summary.textContent).toBe("topology render unavailable")
     expect(state.managedTopologyCameraErrorActive).toBe(true)
@@ -1951,9 +1948,11 @@ describe("lifecycle_dom_setup_methods", () => {
         const {ctx, state} = deckContext()
         ctx.ensureDeck()
 
-        expect(state.deck.props.deviceProps).toBe(GOD_VIEW_DEVICE_PROPS)
-        expect(GOD_VIEW_DEVICE_PROPS.type).toBe("webgpu")
-        expect(GOD_VIEW_DEVICE_PROPS.adapters.map((adapter) => adapter.type)).toEqual(["webgpu"])
+        const {deviceProps} = state.deck.props
+        expect(deviceProps).toMatchObject(GOD_VIEW_DEVICE_PROPS)
+        expect(deviceProps.type).toBe("webgpu")
+        expect(deviceProps.featureLevel).toBe("core")
+        expect(deviceProps.adapters.map((adapter) => adapter.type)).toEqual(["webgpu"])
         expect(state.rendererMode).toBe("initializing")
 
         state.deck.props.onDeviceInitialized({type: "webgpu", lost: new Promise(() => {})})
@@ -2001,12 +2000,37 @@ describe("lifecycle_dom_setup_methods", () => {
       })
     })
 
+    it("stops visibly, instead of drawing blank frames, on a WebGPU validation error", async () => {
+      await withGlobals({navigator: {gpu: {requestAdapter: vi.fn()}}, document: fakeDocument()}, () => {
+        const {ctx, state, children} = deckContext()
+        ctx.ensureDeck()
+        const deck = state.deck
+        deck.finalize = vi.fn()
+        deck.props.onDeviceInitialized({type: "webgpu", handle: {lost: new Promise(() => {})}})
+
+        const handled = deck.props.deviceProps.onError(new Error("Vertex buffer count (9) exceeds the maximum number of vertex buffers (8)."))
+
+        expect(handled).toBe(true)
+        expect(deck.finalize).toHaveBeenCalledTimes(1)
+        expect(state.deck).toBeNull()
+        expect(state.rendererMode).toBe("unavailable")
+        expect(overlayText(children)).toContain("Topology renderer stopped")
+        expect(overlayText(children)).toContain("maximum number of vertex buffers")
+        expect(state.pushEvent).toHaveBeenCalledWith("god_view_stream_error", expect.objectContaining({reason: "webgpu_render_error"}))
+      })
+    })
+
     it("shows WebGPU required when the device is lost", async () => {
       await withGlobals({navigator: {gpu: {requestAdapter: vi.fn()}}, document: fakeDocument()}, async () => {
         const {ctx, state, children} = deckContext()
         ctx.ensureDeck()
         let lose
-        state.deck.props.onDeviceInitialized({type: "webgpu", lost: new Promise((resolve) => { lose = resolve })})
+        state.deck.props.onDeviceInitialized({
+          type: "webgpu",
+          // luma's own promise reports every loss as "destroyed"; the GPUDevice's does not.
+          lost: Promise.resolve({reason: "destroyed"}),
+          handle: {lost: new Promise((resolve) => { lose = resolve })},
+        })
         expect(state.rendererMode).toBe("webgpu")
 
         lose({reason: "unknown", message: "GPU process exited"})

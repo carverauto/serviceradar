@@ -145,16 +145,21 @@ describe("snapshot details on the render path", () => {
     // Filter change.
     state.filters = {...state.filters, healthy: false}
     rendering.renderGraph(graph)
-    // Hover change.
+    // Hover change: reuses the render's node records and edge data rather than rebuilding them.
+    const {nodeData: filteredNodes, edgeData: filteredEdges} = state.lastGraphLayerFrame
     const hovered = state.lastGraphLayerFrame.nodeData[0]
     rendering.handleHover({layer: {id: "god-view-nodes"}, object: hovered, index: 0})
+    expect(state.lastGraphLayerFrame.nodeData).toBe(filteredNodes)
+    expect(state.lastGraphLayerFrame.edgeData).toBe(filteredEdges)
     // Camera change.
     rendering.refreshGraphLayersForViewState()
     expect(counts()).toEqual({nodes: 0, edges: 0})
 
-    // Selecting a node opens its details card: that node, and only it, is parsed.
-    state.selectedNodeIndex = hovered.index
-    rendering.renderGraph(graph)
+    // Selecting a node opens its details card: that node, and only it, is parsed. The
+    // selection, too, reuses the frame instead of rendering the graph again.
+    rendering.handlePick({picked: true, layer: {id: "god-view-nodes"}, object: hovered, index: 0})
+    expect(state.selectedNodeIndex).toBe(hovered.index)
+    expect(state.lastGraphLayerFrame.edgeData).toBe(filteredEdges)
     expect(state.details.innerHTML).toContain(graph.nodes[hovered.index].details.ip)
     expect(counts()).toEqual({nodes: 1, edges: 0})
   }, 60_000)

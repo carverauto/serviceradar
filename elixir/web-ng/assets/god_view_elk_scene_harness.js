@@ -66,6 +66,34 @@ function settle() {
 
 // God View renders on WebGPU only. Wait for deck's device so a browser without WebGPU fails
 // here, naming the cause, instead of as a null deck several calls later.
+// A WebGPU validation error arrives asynchronously and ends in the renderer's error state, so
+// every step checks for it after its frames have been submitted.
+function assertRendererHealthy(state) {
+  if (state.rendererMode !== "webgpu") {
+    throw new Error(`God View renderer is ${state.rendererMode}: ${state.rendererError || "no WebGPU device"}`)
+  }
+}
+
+async function settleFrames(count) {
+  for (let frame = 0; frame < count; frame += 1) await settle()
+}
+
+// Topology fixtures carry no telemetry; give every edge traffic so packet flow has particles.
+function withTraffic(graph) {
+  return {
+    ...graph,
+    edges: graph.edges.map((edge, index) => ({
+      ...edge,
+      flowPps: 400 + index * 25,
+      flowPpsAb: 250 + index * 10,
+      flowPpsBa: 150 + index * 15,
+      flowBps: 8_000_000,
+      capacityBps: 1_000_000_000,
+      telemetryEligible: true,
+    })),
+  }
+}
+
 async function rendererReady(state, timeoutMs = 30_000) {
   const deadline = performance.now() + timeoutMs
   while (state.rendererMode === "initializing" && performance.now() < deadline) await settle()
@@ -85,7 +113,6 @@ async function start() {
   lifecycle.initLifecycleState()
   lifecycle.bindLifecycleMethods()
   state.packetFlowEnabled = false
-  state.packetFlowShaderEnabled = false
   state.layers.atmosphere = false
   state.topologyLayers.endpoints = true
   lifecycle.ensureDOM()
@@ -112,10 +139,43 @@ async function start() {
     } catch (error) {
       throw new Error(`${String(error)}; viewport=${state.viewportWidth}x${state.viewportHeight}; safe=${JSON.stringify(state.topologyLabelSafeRect)}`)
     }
+    assertRendererHealthy(state)
     state.deck.redraw(true)
     await settle()
+    assertRendererHealthy(state)
     currentFixture = name
     return {elapsedMs: performance.now() - startedAt, snapshot: window.__SR_GOD_VIEW_GEOMETRY__()}
+  }
+
+  // Draws packet flow (the one custom-shader layer) over a fixture for a few animated frames.
+  // Its pipeline is only created, and so only validated by the device, once it has particles.
+  async function renderPacketFlow(name = "collapsed") {
+    const fixture = fixtures[name]
+    if (!fixture) throw new Error(`unknown fixture: ${name}`)
+    state.layers.atmosphere = true
+    state.packetFlowEnabled = true
+    try {
+      const laidOut = await layout.prepareGraphLayout(withTraffic(fixture()), revision++, `acceptance:packets:${name}`)
+      state.lastGraph = laidOut
+      state.hasAutoFit = false
+      state.userCameraLocked = false
+      rendering.renderGraph(laidOut)
+      // Animate the way the live loop does: advance the clock, not the graph.
+      for (let frame = 0; frame < 6; frame += 1) {
+        state.animationPhase = frame / 10
+        rendering.advanceAnimation()
+        assertRendererHealthy(state)
+        state.deck.redraw(true)
+        await settle()
+      }
+      await settleFrames(4)
+      assertRendererHealthy(state)
+      const particles = (state.deck.props.layers || []).find((layer) => layer.id === "god-view-atmosphere-particles")
+      return {flowEdges: particles?.props?.data?.length || 0, rendererMode: state.rendererMode}
+    } finally {
+      state.layers.atmosphere = false
+      state.packetFlowEnabled = false
+        }
   }
 
   async function fit() {
@@ -146,6 +206,7 @@ async function start() {
 
   window.__SR_GOD_VIEW_HARNESS__ = Object.freeze({
     renderFixture,
+    renderPacketFlow,
     fit,
     focus,
     profile,

@@ -15,13 +15,13 @@ export const godViewRenderingSelectionMethods = {
 
     if (schedule) {
       schedule(() => {
-        if (this.state.lastGraph) this.renderGraph(this.state.lastGraph)
+        if (this.state.lastGraph) this.refreshInteraction()
         this.forceDeckRedraw()
       })
       return
     }
 
-    this.renderGraph(this.state.lastGraph)
+    this.refreshInteraction()
     this.forceDeckRedraw()
   },
   hideSelectionDetails() {
@@ -306,6 +306,7 @@ export const godViewRenderingSelectionMethods = {
     const node = this.state.lastGraph?.nodes?.[idx]
     if (!node) return
 
+    const tierChanged = switchToLocal && (this.state.zoomMode !== "local" || this.state.zoomTier !== "local")
     if (switchToLocal) {
       this.state.zoomMode = "local"
       this.state.zoomTier = "local"
@@ -324,7 +325,9 @@ export const godViewRenderingSelectionMethods = {
       }
     }
 
-    if (this.state.lastGraph) this.renderGraph(this.state.lastGraph)
+    // A new zoom tier reshapes the graph; a selection and camera move alone do not.
+    if (tierChanged && this.state.lastGraph) this.renderGraph(this.state.lastGraph)
+    else if (this.state.lastGraph) this.refreshInteraction()
   },
   handlePick(info) {
     const layerId = info?.layer?.id || ""
@@ -332,7 +335,7 @@ export const godViewRenderingSelectionMethods = {
       const key = typeof info?.object?.interactionKey === "string" ? info.object.interactionKey : null
       if (key) {
         this.state.selectedEdgeKey = this.state.selectedEdgeKey === key ? null : key
-        if (this.state.lastGraph) this.renderGraph(this.state.lastGraph)
+        if (this.state.lastGraph) this.refreshInteraction()
         this.forceDeckRedraw()
         return
       }

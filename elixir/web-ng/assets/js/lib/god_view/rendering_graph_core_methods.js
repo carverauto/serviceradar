@@ -31,8 +31,47 @@ export const godViewRenderingGraphCoreMethods = {
     }
 
     this.state.deck.setProps({layers})
+    this.state.lastGraphLayers = layers
     notifyRenderFrame(this, frame.effective, frame.nodeData, frame.edgeData, layers)
     return true
+  },
+  /**
+   * One animation frame: re-issues only the layers whose look depends on the clock, cloned with
+   * the new phase. Packet flow's clone changes nothing but its `time` uniform; every other layer
+   * is passed back as the same object, so deck neither rebuilds nor re-uploads their data.
+   */
+  advanceAnimation() {
+    const layers = this.state.lastGraphLayers
+    if (!this.state.deck || !Array.isArray(layers) || layers.length === 0) return false
+    let changed = false
+    const next = layers.map((layer) => {
+      const animated = this.animateLayer(layer)
+      if (animated !== layer) changed = true
+      return animated
+    })
+    if (!changed) return false
+    this.state.lastGraphLayers = next
+    this.state.deck.setProps({layers: next})
+    return true
+  },
+  /**
+   * Hover and selection change which few nodes and edges are emphasized, not what is visible.
+   * They reuse the last render's node records and edge data and re-issue the layers, so the
+   * work is the emphasized items plus the label pass, not a rebuild of every edge.
+   */
+  refreshInteraction() {
+    const frame = this.state.lastGraphLayerFrame
+    if (!this.state.deck || !frame || !frame.nodeFrame || frame.graph !== this.state.lastGraph) {
+      if (this.state.lastGraph) this.renderGraph(this.state.lastGraph)
+      return
+    }
+    const {effective, nodeFrame} = frame
+    nodeFrame.selectedNodeIndex = this.state.selectedNodeIndex
+    frame.edgeLabelData = this.selectEdgeLabels(frame.edgeData, effective.shape)
+    const selected = this.state.selectedNodeIndex
+    const record = effective.shape === "local" && Number.isInteger(selected) ? nodeFrame.records[selected] : null
+    this.renderSelectionDetails(record?.visible ? record : null)
+    this.refreshGraphLayersForViewState()
   },
   renderGraph(graph) {
     this.deps.ensureDeck()
@@ -42,9 +81,10 @@ export const godViewRenderingGraphCoreMethods = {
     const effective = this.deps.reshapeGraph(graph)
     if (this.state.packetFlowEnabled) this.state.layers.atmosphere = true
 
-    const {edgeData, edgeLabelData, nodeData, rootPulseNodes, selectedVisibleNode} = this.buildVisibleGraphData(effective)
+    const {edgeData, edgeLabelData, nodeData, rootPulseNodes, selectedVisibleNode, nodeFrame} =
+      this.buildVisibleGraphData(effective)
     this.renderSelectionDetails(selectedVisibleNode)
-    this.state.lastGraphLayerFrame = {effective, nodeData, edgeData, edgeLabelData, rootPulseNodes}
+    this.state.lastGraphLayerFrame = {graph, effective, nodeData, edgeData, edgeLabelData, rootPulseNodes, nodeFrame}
 
     let layers
     try {
@@ -58,6 +98,7 @@ export const godViewRenderingGraphCoreMethods = {
     this.state.deck.setProps({
       layers,
     })
+    this.state.lastGraphLayers = layers
     notifyRenderFrame(this, effective, nodeData, edgeData, layers)
   },
 }

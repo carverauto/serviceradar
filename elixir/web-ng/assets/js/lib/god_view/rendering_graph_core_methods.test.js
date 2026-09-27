@@ -134,4 +134,28 @@ describe("God-View render frame observer seam", () => {
     expect(() => godViewRenderingGraphCoreMethods.renderGraph.call(context, effective)).not.toThrow()
     expect(context.state.deck.setProps).toHaveBeenCalledWith({layers: expect.any(Array)})
   })
+
+  it("advanceAnimation re-issues only the clock-driven layers, with the same data", async () => {
+    const {ScatterplotLayer, TextLayer} = await import("@deck.gl/layers")
+    const {default: PacketFlowLayer} = await import("../deckgl/PacketFlowLayer")
+    const {godViewRenderingGraphLayerTransportMethods} = await import("./rendering_graph_layer_transport_methods")
+    const flowData = {length: 1, attributes: {instanceEndpoints: new Float32Array(4)}}
+    const flow = new PacketFlowLayer({id: "god-view-atmosphere-particles", data: flowData, time: 0})
+    const glyphs = new ScatterplotLayer({id: "god-view-nodes", data: [{position: [0, 0]}]})
+    const labels = new TextLayer({id: "god-view-node-labels", data: []})
+    const setProps = vi.fn()
+    const state = {deck: {setProps}, lastGraphLayers: [glyphs, flow, labels], animationPhase: 2.5, visual: {pulse: [1, 2, 3, 4]}}
+    const ctx = {state, deps: {}}
+    Object.assign(ctx, godViewRenderingGraphCoreMethods, godViewRenderingGraphLayerTransportMethods)
+
+    expect(ctx.advanceAnimation()).toBe(true)
+
+    const [{layers}] = setProps.mock.calls[0]
+    expect(layers[0]).toBe(glyphs)
+    expect(layers[2]).toBe(labels)
+    expect(layers[1]).not.toBe(flow)
+    expect(layers[1].props.data).toBe(flowData)
+    expect(layers[1].props.time).toBe(2.5)
+    expect(state.lastGraphLayers).toBe(layers)
+  }, 30_000)
 })

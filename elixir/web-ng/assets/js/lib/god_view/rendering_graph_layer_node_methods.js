@@ -11,6 +11,9 @@ import {hasExpandedCluster, hasManagedTopologyScene, topologySemanticLevel} from
 import {GOD_VIEW_NO_DEPTH} from "./gpu_parameters"
 
 const labelSelections = new WeakMap()
+// Same order as String.prototype.localeCompare, without building a collator per comparison.
+const compareText = new Intl.Collator().compare
+const labelSelectionBases = new WeakMap()
 
 /**
  * Projects world positions to CSS pixels like `viewport.project(position)`, without the
@@ -173,6 +176,10 @@ export const godViewRenderingGraphLayerNodeMethods = {
   },
   nodeLabelCandidate(node) {
     if (node?.selected === true || this.focusedNodeLabel(node)) return true
+    return this.baseLabelCandidate(node)
+  },
+  /** Whether a node earns a label on its own, before any hover or selection. */
+  baseLabelCandidate(node) {
     const details = node?.details || {}
     const clusterKind = String(details?.cluster_kind || "")
     const expandedEndpointMember = this.expandedEndpointMemberLabel(node)
@@ -193,52 +200,162 @@ export const godViewRenderingGraphLayerNodeMethods = {
    * a priority tuple per comparison: a label pass sorts every visible node.
    */
   compareNodeLabelPriority(left, right) {
-    for (const field of LABEL_PRIORITY_FIELDS) {
+    return this.comparePriorityFields(left, right, 0)
+  },
+  /** `compareNodeLabelPriority` without its first field, attention (hovered or selected). */
+  compareNodeLabelPriorityWithoutAttention(left, right) {
+    return this.comparePriorityFields(left, right, 1)
+  },
+  comparePriorityFields(left, right, firstField) {
+    for (let index = firstField; index < LABEL_PRIORITY_FIELDS.length; index += 1) {
+      const field = LABEL_PRIORITY_FIELDS[index]
       const compare = Number(field(this, right) || 0) - Number(field(this, left) || 0)
       if (compare !== 0) return compare
     }
-    return String(left?.label || left?.id || "").localeCompare(String(right?.label || right?.id || ""))
+    return compareText(String(left?.label || left?.id || ""), String(right?.label || right?.id || ""))
+  },
+  /**
+   * The part of a label selection that does not depend on hover or selection, built once per
+   * node list: every candidate in priority order (attention aside), pre-split into the lists
+   * the selection draws from. A hover or selection adds its one or two attended nodes in front.
+   */
+  labelSelectionBase(nodeData, shape, options = {}) {
+    const key = `${shape}|${options.managedVisualDensity || ""}`
+    const cached = labelSelectionBases.get(nodeData)
+    if (cached && cached.owner === this && cached.key === key) return cached.value
+
+    const byPriority = (left, right) => this.compareNodeLabelPriorityWithoutAttention(left, right)
+    const byIndex = new Map()
+    const position = new Map()
+    nodeData.forEach((node, offset) => {
+      byIndex.set(node?.index, node)
+      position.set(node, offset)
+    })
+    // Render records answer `selected` from the frame; plain node objects may carry it as data.
+    const value = {
+      byIndex,
+      position,
+      staticAttention: nodeData.filter((node) => (
+        node?.focused === true || (Object.hasOwn(node || {}, "selected") && node.selected === true)
+      )),
+    }
+    const prioritized = this.nodesInLabelPriority(nodeData, byPriority)
+    if (options.managedVisualDensity) {
+      value.managedOrder = prioritized.filter((node) => String(node?.id || "") !== "")
+    } else {
+      const ordered = prioritized.filter((node) => this.baseLabelCandidate(node))
+      const labelShape = shape
+      value.labelShape = labelShape
+      value.expandedMembers = ordered.filter((node) => this.expandedEndpointMemberLabel(node))
+      value.unplaced = ordered.filter((node) => this.unplacedNodeLabel(node))
+      value.nonExpandedCount = ordered.length - value.expandedMembers.length
+      value.backbone = ordered.filter((node) => this.backboneLabelCandidate(node))
+      value.endpointSummaries = ordered.filter((node) => {
+        if (!this.endpointSummaryLabel(node)) return false
+        const expanded = node?.details?.cluster_expanded === true || node?.details?.cluster_expanded === "true"
+        return !expanded
+      })
+      value.candidates = new Set(ordered)
+    }
+    labelSelectionBases.set(nodeData, {owner: this, key, value})
+    return value
+  },
+  /**
+   * `nodeData` in attention-free label priority. Render records share one frame per laid-out
+   * graph, so all its records are sorted once and a filter only drops the hidden ones; plain
+   * node lists are sorted directly.
+   */
+  nodesInLabelPriority(nodeData, byPriority) {
+    const frame = nodeData[0]?.frame
+    const records = frame?.records
+    if (!Array.isArray(records) || !nodeData.every((node) => node?.frame === frame)) {
+      return [...nodeData].sort(byPriority)
+    }
+    if (!frame.labelPriorityOrder || frame.labelPriorityOrder.owner !== this) {
+      frame.labelPriorityOrder = {owner: this, nodes: [...records].sort(byPriority)}
+    }
+    const visible = new Set(nodeData)
+    return frame.labelPriorityOrder.nodes.filter((node) => visible.has(node))
+  },
+  /** The nodes that must be labeled because they are hovered, selected or focused. */
+  attendedLabelNodes(base) {
+    const attended = new Set(base.staticAttention)
+    for (const index of [this.state?.selectedNodeIndex, this.state?.hoveredNodeIndex]) {
+      const node = index === null || index === undefined ? null : base.byIndex.get(index)
+      if (node && (node.selected === true || this.focusedNodeLabel(node))) attended.add(node)
+    }
+    return [...attended]
   },
   selectNodeLabels(nodeData, shape, options = {}) {
     if (!Array.isArray(nodeData) || nodeData.length === 0) return []
+    const base = this.labelSelectionBase(nodeData, shape, options)
+    const attendedNodes = this.attendedLabelNodes(base)
+    const attendedSet = new Set(attendedNodes)
+    // In list order where the selection lists attended nodes first; by priority where it sorts.
+    const attendedInOrder = attendedNodes.length > 1
+      ? [...attendedNodes].sort((left, right) => base.position.get(left) - base.position.get(right))
+      : attendedNodes
+    const attended = [...attendedNodes].sort((left, right) => this.compareNodeLabelPriorityWithoutAttention(left, right))
+    // Attention is the most significant priority field, so the full order is the attended nodes
+    // followed by everything else in its attention-free order.
+    const withAttended = (matches, list) => [...attended.filter(matches), ...list.filter((node) => !attendedSet.has(node))]
+
     if (options.managedVisualDensity) {
-      return nodeData
-        .filter((node) => String(node?.id || "") !== "")
-        .sort((left, right) => this.compareNodeLabelPriority(left, right))
+      if (attended.length === 0) return base.managedOrder
+      return withAttended((node) => String(node?.id || "") !== "", base.managedOrder)
     }
-    const attended = nodeData.filter((node) => node?.selected === true || this.focusedNodeLabel(node))
-    const candidates = nodeData.filter((node) => this.nodeLabelCandidate(node))
-    const ordered = [...candidates].sort((left, right) => this.compareNodeLabelPriority(left, right))
-    const labelShape = options.managedVisualDensity
-      ? managedVisualDensityContract(options.managedVisualDensity).labelShape
-      : shape
+
+    const labelShape = base.labelShape
     const memberBudget = this.expandedEndpointMemberLabelBudgetForShape(labelShape)
-    const expandedEndpointMembers = ordered
-      .filter((node) => this.expandedEndpointMemberLabel(node))
-      .slice(0, memberBudget)
-    const unplacedNodes = ordered.filter((node) => this.unplacedNodeLabel(node))
-    const nonExpandedCandidates = ordered.filter((node) => !this.expandedEndpointMemberLabel(node))
-    const budget = this.labelBudgetForShape(labelShape, nonExpandedCandidates.length)
+    const expandedEndpointMembers = []
+    for (const node of attended) {
+      if (expandedEndpointMembers.length >= memberBudget) break
+      if (this.expandedEndpointMemberLabel(node)) expandedEndpointMembers.push(node)
+    }
+    for (const node of base.expandedMembers) {
+      if (expandedEndpointMembers.length >= memberBudget) break
+      if (!attendedSet.has(node)) expandedEndpointMembers.push(node)
+    }
+    const unplacedNodes = attended.length === 0
+      ? base.unplaced
+      : withAttended((node) => this.unplacedNodeLabel(node), base.unplaced)
+    let nonExpandedCount = base.nonExpandedCount
+    for (const node of attended) {
+      const counted = base.candidates.has(node) && !this.expandedEndpointMemberLabel(node)
+      if (!counted && !this.expandedEndpointMemberLabel(node)) nonExpandedCount += 1
+    }
+    const budget = this.labelBudgetForShape(labelShape, nonExpandedCount)
     const endpointSummaryBudget = this.endpointSummaryLabelBudgetForShape(labelShape)
     if (budget <= 0 && attended.length === 0 && expandedEndpointMembers.length === 0 && unplacedNodes.length === 0) return []
-    const orderedBackbone = ordered.filter((node) => this.backboneLabelCandidate(node))
-    const orderedEndpointSummaries = ordered.filter((node) => {
-      if (!this.endpointSummaryLabel(node)) return false
-      const expanded = node?.details?.cluster_expanded === true || node?.details?.cluster_expanded === "true"
-      return !expanded
-    })
+
     const picked = []
     const seen = new Set()
     let endpointSummaryCount = 0
 
-    for (const node of [...attended, ...expandedEndpointMembers, ...unplacedNodes]) {
+    for (const node of [...attendedInOrder, ...expandedEndpointMembers, ...unplacedNodes]) {
       const id = String(node?.id || "")
       if (id === "" || seen.has(id)) continue
       seen.add(id)
       picked.push(node)
     }
 
-    for (const node of [...orderedBackbone, ...orderedEndpointSummaries]) {
+    const limit = budget + expandedEndpointMembers.length + attended.length + unplacedNodes.length
+    const rest = function* rest() {
+      for (const node of attended) {
+        if (this.backboneLabelCandidate(node)) yield node
+      }
+      for (const node of base.backbone) {
+        if (!attendedSet.has(node)) yield node
+      }
+      for (const node of attended) {
+        const expanded = node?.details?.cluster_expanded === true || node?.details?.cluster_expanded === "true"
+        if (this.endpointSummaryLabel(node) && !expanded) yield node
+      }
+      for (const node of base.endpointSummaries) {
+        if (!attendedSet.has(node)) yield node
+      }
+    }.call(this)
+    for (const node of rest) {
       const id = String(node?.id || "")
       if (id === "" || seen.has(id)) continue
       if (this.endpointSummaryLabel(node) && node?.selected !== true) {
@@ -247,7 +364,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
       }
       seen.add(id)
       picked.push(node)
-      if (picked.length >= budget + expandedEndpointMembers.length + attended.length + unplacedNodes.length) break
+      if (picked.length >= limit) break
     }
 
     return picked
@@ -560,8 +677,10 @@ export const godViewRenderingGraphLayerNodeMethods = {
         getLineWidth: (_, {index}) => (glyphNodes[index]?.selected ? 2 : 1),
         getLineColor: (_, {index, target}) => writeNodeColor(target, glyphNodes[index]),
         parameters: GOD_VIEW_NO_DEPTH,
+        // Records are reused across renders, so selection must invalidate what it changes.
         updateTriggers: {
-          getRadius: [this.state.animationPhase, managedVisualDensity],
+          getRadius: [this.state.animationPhase, managedVisualDensity, this.state.selectedNodeIndex],
+          getLineWidth: this.state.selectedNodeIndex,
         },
       }),
       new ScatterplotLayer({

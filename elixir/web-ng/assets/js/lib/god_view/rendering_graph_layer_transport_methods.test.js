@@ -4,6 +4,7 @@ import {ArcLayer, LineLayer, PathLayer} from "@deck.gl/layers"
 import {bindApi, createStateBackedContext} from "./api_helpers"
 import {godViewRenderingGraphLayerTransportMethods} from "./rendering_graph_layer_transport_methods"
 import {GOD_VIEW_ADDITIVE_BLEND} from "./gpu_parameters"
+import {godViewRenderingStyleEdgeParticleMethods} from "./rendering_style_edge_particle_methods"
 
 function topologyScene(overrides = {}) {
   return {
@@ -247,21 +248,12 @@ describe("rendering_graph_layer_transport_methods", () => {
       animationPhase: 1.2,
       layers: {mantle: true, crust: true, atmosphere: true, security: true},
       packetFlowEnabled: true,
-      packetFlowShaderEnabled: true,
       visual: {pulse: [255, 64, 64, 220], particleBlend: GOD_VIEW_ADDITIVE_BLEND},
     }
     const deps = {geoGridData: vi.fn(() => [])}
     const ctx = createStateBackedContext(state, deps)
     Object.assign(ctx, bindApi(ctx, godViewRenderingGraphLayerTransportMethods), {
-      buildPacketFlowInstances: vi.fn(() => [{
-        from: [0, 0],
-        to: [10, 10],
-        seed: 0.2,
-        speed: 1,
-        jitter: 8,
-        size: 2.6,
-        color: [100, 200, 255, 220],
-      }]),
+      buildPacketFlowEdges: godViewRenderingStyleEdgeParticleMethods.buildPacketFlowEdges,
       edgeTelemetryColor: vi.fn(() => [40, 170, 220, 45]),
       edgeTelemetryArcColors: vi.fn(() => ({source: [100, 100, 255, 120], target: [200, 120, 255, 120]})),
       edgeWidthPixels: vi.fn(() => 2.2),
@@ -280,6 +272,10 @@ describe("rendering_graph_layer_transport_methods", () => {
     expect(out.securityLayers).toHaveLength(1)
     expect(out.atmosphereLayers[0].id).toEqual("god-view-atmosphere-particles")
     expect(out.atmosphereLayers[0].props.parameters).toBe(GOD_VIEW_ADDITIVE_BLEND)
+    // One instance per edge, as binary attributes: no particle objects.
+    expect(out.atmosphereLayers[0].props.data.length).toBe(1)
+    expect(Array.from(out.atmosphereLayers[0].props.data.attributes.instanceEndpoints)).toEqual([0, 0, 100, 50])
+    expect(out.atmosphereLayers[0].props.time).toBe(1.2)
     expect(GOD_VIEW_ADDITIVE_BLEND).toMatchObject({blendColorDstFactor: "one", depthWriteEnabled: false})
   })
 
@@ -293,7 +289,7 @@ describe("rendering_graph_layer_transport_methods", () => {
     const deps = {geoGridData: vi.fn(() => [])}
     const ctx = createStateBackedContext(state, deps)
     Object.assign(ctx, bindApi(ctx, godViewRenderingGraphLayerTransportMethods), {
-      buildPacketFlowInstances: vi.fn(() => []),
+      buildPacketFlowEdges: godViewRenderingStyleEdgeParticleMethods.buildPacketFlowEdges,
       edgeTelemetryColor: vi.fn(() => [40, 170, 220, 45]),
       edgeTelemetryArcColors: vi.fn(() => ({source: [100, 100, 255, 120], target: [200, 120, 255, 120]})),
       edgeWidthPixels: vi.fn(() => 2.2),
@@ -314,7 +310,6 @@ describe("rendering_graph_layer_transport_methods", () => {
       animationPhase: 1.2,
       layers: {mantle: true, crust: true, atmosphere: true, security: false},
       packetFlowEnabled: true,
-      packetFlowShaderEnabled: true,
       visual: {
         pulse: [255, 64, 64, 220],
         particleBlend: GOD_VIEW_ADDITIVE_BLEND,
@@ -326,7 +321,7 @@ describe("rendering_graph_layer_transport_methods", () => {
     const deps = {geoGridData: vi.fn(() => [])}
     const ctx = createStateBackedContext(state, deps)
     Object.assign(ctx, bindApi(ctx, godViewRenderingGraphLayerTransportMethods), {
-      buildPacketFlowInstances: vi.fn(() => []),
+      buildPacketFlowEdges: godViewRenderingStyleEdgeParticleMethods.buildPacketFlowEdges,
       edgeTelemetryArcColors: vi.fn(() => ({source: [100, 100, 255, 120], target: [200, 120, 255, 120]})),
       edgeWidthPixels: vi.fn(() => 6),
       edgeIsFocused: vi.fn(() => false),

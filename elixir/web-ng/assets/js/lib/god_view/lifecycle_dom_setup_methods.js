@@ -17,9 +17,14 @@ import {GOD_VIEW_ALPHA_BLEND} from "./gpu_parameters"
 
 // God View renders on WebGPU only. Asking luma for type "webgpu" selects the WebGPU adapter and
 // nothing else: if it cannot create a device, the surface reports that instead of drawing.
-export const GOD_VIEW_DEVICE_PROPS = Object.freeze({type: "webgpu", adapters: [webgpuAdapter]})
+//
+// featureLevel "core" asks for the WebGPU default limits (8 vertex buffers, 16 attributes, ...)
+// rather than whatever the adapter allows, so every pipeline is validated against what any
+// WebGPU device must support -- a software adapter in CI included.
+export const GOD_VIEW_DEVICE_PROPS = Object.freeze({type: "webgpu", featureLevel: "core", adapters: [webgpuAdapter]})
 
 export const WEBGPU_REQUIRED_TITLE = "WebGPU required"
+export const RENDERER_FAILED_TITLE = "Topology renderer stopped"
 
 function webgpuRequestable() {
   const gpu = globalThis.navigator?.gpu
@@ -47,11 +52,7 @@ function webgpuRequestable() {
  * though Deck's next `setProps` re-asserts its own cached size over it.
  */
 function adoptDeckViewportSize(deck, width, height) {
-  const canvasContext = deck?.device?.canvasContext
-  if (canvasContext && typeof canvasContext.getCSSSize === "function" && "cssWidth" in canvasContext) {
-    canvasContext.cssWidth = width
-    canvasContext.cssHeight = height
-  }
+  syncCanvasContextSize(deck?.device?.canvasContext, width, height)
   if (typeof deck?._updateCanvasSize === "function") {
     deck._updateCanvasSize()
     if (Number(deck.width) === width && Number(deck.height) === height) return true
@@ -61,6 +62,26 @@ function adoptDeckViewportSize(deck, width, height) {
     return true
   }
   return false
+}
+
+/**
+ * Applies a new CSS size to luma's canvas context the way its ResizeObserver callback would:
+ * CSS size, device-pixel size and drawing buffer together. Moving the CSS size alone leaves a
+ * drawing buffer at the old size, and deck then derives a viewport larger than the buffer --
+ * which WebGPU rejects ("Viewport bounds ... contains a negative value") where WebGL clipped.
+ */
+function syncCanvasContextSize(canvasContext, width, height) {
+  if (!canvasContext || typeof canvasContext.getCSSSize !== "function" || !("cssWidth" in canvasContext)) return
+  canvasContext.cssWidth = width
+  canvasContext.cssHeight = height
+  if (
+    typeof canvasContext._getDevicePixelSizeFromCSSSize === "function" &&
+    typeof canvasContext._setDevicePixelSize === "function" &&
+    typeof canvasContext._updateDrawingBufferSize === "function"
+  ) {
+    canvasContext._setDevicePixelSize(canvasContext._getDevicePixelSizeFromCSSSize(width, height))
+    canvasContext._updateDrawingBufferSize()
+  }
 }
 
 function safeInsetsChanged(previous, current) {
@@ -111,6 +132,7 @@ function captureTopologyRenderState(state) {
       lastDetailsHtml: state.lastDetailsHtml,
       lastGraph: state.lastGraph,
       lastGraphLayerFrame: state.lastGraphLayerFrame,
+      lastGraphLayers: state.lastGraphLayers,
       lastLayoutKey: state.lastLayoutKey,
       lastVisibleEdgeCount: state.lastVisibleEdgeCount,
       lastVisibleNodeCount: state.lastVisibleNodeCount,
@@ -122,8 +144,6 @@ function captureTopologyRenderState(state) {
       managedTopologySceneMinZoom: state.managedTopologySceneMinZoom,
       managedTopologySceneMinZoomKey: state.managedTopologySceneMinZoomKey,
       managedTopologyVisualDensity: state.managedTopologyVisualDensity,
-      packetFlowCache: state.packetFlowCache,
-      packetFlowCacheStamp: state.packetFlowCacheStamp,
       pendingClusterFocus: state.pendingClusterFocus,
       pendingViewportProfileKey: state.pendingViewportProfileKey,
       selectedEdgeKey: state.selectedEdgeKey,
@@ -344,10 +364,6 @@ export const godViewLifecycleDomSetupMethods = {
     // Update HUD overlays
     if (this.state.summary) this.state.summary.style.cssText = hudStyle
     if (this.state.details) this.state.details.style.cssText = hudStyle
-
-    // Bust the particle cache so colors rebuild with new palette
-    this.state.packetFlowCache = null
-    this.state.packetFlowCacheStamp = null
 
     // Re-render current graph with new colors
     if (this.state.lastGraph) this.deps.renderGraph(this.state.lastGraph)
@@ -594,7 +610,11 @@ export const godViewLifecycleDomSetupMethods = {
       canvas: this.state.canvas,
       width,
       height,
-      deviceProps: GOD_VIEW_DEVICE_PROPS,
+      deviceProps: {
+        ...GOD_VIEW_DEVICE_PROPS,
+        // Uncaptured WebGPU errors land here; deck creates the device lazily, so bind by deck.
+        onError: (error) => this.handleDeviceError(deck, error),
+      },
       onDeviceInitialized: (device) => this.recordDeckDevice(deck, device),
       views: new OrthographicView({id: "god-view-ortho"}),
       // Managed scenes own geometry, not the camera. Gestures are allowed
@@ -724,19 +744,56 @@ export const godViewLifecycleDomSetupMethods = {
       return
     }
     this.state.rendererMode = "webgpu"
-    // A lost device (driver reset, GPU removed) stops rendering for good; say so rather than
-    // leaving a frozen frame. Losing it because we destroyed the deck is not an error.
-    device?.lost?.then?.((info) => {
+    // luma sizes the drawing buffer from a ResizeObserver callback that can land after deck's
+    // first frame; until then the buffer is the canvas default (300x150) while the CSS size is
+    // already the container's, and the frame's viewport overruns the buffer. Size it now.
+    const {width, height} = this.deckSize()
+    syncCanvasContextSize(device?.canvasContext, width, height)
+    // A lost device (driver reset, GPU process crash) stops rendering for good. luma's own
+    // `device.lost` reports every loss as "destroyed", so read the GPUDevice's: only a loss we
+    // caused by destroying the deck says "destroyed" there.
+    const lost = device?.handle?.lost || device?.lost
+    lost?.then?.((info) => {
       if (this.state.deck !== deck || info?.reason === "destroyed") return
-      this.showWebGPURequired(new Error(`WebGPU device lost: ${info?.message || info?.reason || "unknown"}`))
+      this.showRendererFailure(new Error(`WebGPU device lost: ${info?.message || info?.reason || "unknown"}`))
     })
   },
   /**
-   * Replaces the surface with a "WebGPU required" notice. God View has no other renderer, so a
-   * browser without WebGPU, a refused adapter or device, or a lost device all end here.
+   * luma's device error hook: WebGPU validation errors (an invalid pipeline, bind group or
+   * command buffer) and other uncaptured device errors. Each one means frames are being
+   * rejected and the canvas stays blank, so it is the renderer's failure, not a log line.
    */
+  handleDeviceError(deck, error) {
+    if (this.state.deck !== deck) return true
+    this.showRendererFailure(error)
+    return true
+  },
+  /** A browser that cannot provide WebGPU at all. */
   showWebGPURequired(error) {
-    const reason = String(error?.message || error || "WebGPU is not available")
+    this.failRenderer(error, {
+      title: WEBGPU_REQUIRED_TITLE,
+      reason: "webgpu_unavailable",
+      message: (detail) =>
+        `The topology surface renders with WebGPU, which this browser could not provide (${detail}). ` +
+        "Use a current Chrome, Edge or Safari with hardware acceleration enabled.",
+    })
+  },
+  /** A WebGPU device that stopped rendering: a validation error or a lost device. */
+  showRendererFailure(error) {
+    this.failRenderer(error, {
+      title: RENDERER_FAILED_TITLE,
+      reason: "webgpu_render_error",
+      message: (detail) => `The WebGPU renderer stopped (${detail}). Reload the page to try again.`,
+    })
+  },
+  /**
+   * Tears the deck down and replaces the surface with a notice. God View has no other
+   * renderer, so a missing WebGPU, a refused device, a lost device and a device validation
+   * error all end here, visibly, instead of as a blank canvas.
+   */
+  failRenderer(error, {title, reason, message}) {
+    const detail = String(error?.message || error || "unknown error")
+    const alreadyFailed = this.state.rendererMode === "unavailable"
     const failed = this.state.deck
     this.state.deck = null
     try {
@@ -745,13 +802,14 @@ export const godViewLifecycleDomSetupMethods = {
       // The failed deck is discarded either way.
     }
     this.state.rendererMode = "unavailable"
-    this.state.rendererError = reason
-    globalThis.console?.error?.(`[god-view] ${WEBGPU_REQUIRED_TITLE}: ${reason}`, error)
-    if (this.state.summary) this.state.summary.textContent = WEBGPU_REQUIRED_TITLE.toLowerCase()
-    this.renderWebGPURequired(reason)
-    this.state.pushEvent?.("god_view_stream_error", {reason: "webgpu_unavailable", message: reason})
+    if (alreadyFailed) return
+    this.state.rendererError = detail
+    globalThis.console?.error?.(`[god-view] ${title}: ${detail}`, error)
+    if (this.state.summary) this.state.summary.textContent = title.toLowerCase()
+    this.renderRendererError(title, message(detail))
+    this.state.pushEvent?.("god_view_stream_error", {reason, message: detail})
   },
-  renderWebGPURequired(reason) {
+  renderRendererError(titleText, messageText) {
     const el = this.state.el
     if (!el || typeof document === "undefined") return
     let overlay = this.state.rendererErrorOverlay
@@ -765,7 +823,7 @@ export const godViewLifecycleDomSetupMethods = {
       card.className = "max-w-xl rounded-lg border border-error/30 bg-sr-surface/90 px-5 py-4 text-center shadow-lg backdrop-blur-sm"
       const title = document.createElement("div")
       title.className = "text-sm font-semibold text-error"
-      title.textContent = WEBGPU_REQUIRED_TITLE
+      title.setAttribute("data-god-view-renderer-error-title", "")
       const message = document.createElement("div")
       message.className = "mt-1 text-xs text-sr-muted"
       message.setAttribute("data-god-view-renderer-error-message", "")
@@ -774,12 +832,10 @@ export const godViewLifecycleDomSetupMethods = {
       el.appendChild(overlay)
       this.state.rendererErrorOverlay = overlay
     }
+    const title = overlay.querySelector?.("[data-god-view-renderer-error-title]")
+    if (title) title.textContent = titleText
     const message = overlay.querySelector?.("[data-god-view-renderer-error-message]")
-    if (message) {
-      message.textContent =
-        `The topology surface renders with WebGPU, which this browser could not provide (${reason}). ` +
-        "Use a current Chrome, Edge or Safari with hardware acceleration enabled."
-    }
+    if (message) message.textContent = messageText
   },
   ensureDeck() {
     if (this.state.deck || this.state.rendererMode === "unavailable") return

@@ -8,9 +8,11 @@ export const godViewLifecycleDomInteractionMethods = {
     const tick = () => {
       const motionScale = this.state.prefersReducedMotion ? 0.35 : 1
       this.state.animationPhase = (performance.now() / 1000) * motionScale
+      // Advance the clock only: the animated layers are re-issued with the new phase. The graph
+      // is not rendered again -- no edge data, masks or labels are rebuilt per frame.
       if (this.state.deck && this.state.lastGraph && this.state.packetFlowEnabled) {
         try {
-          this.deps.renderGraph(this.state.lastGraph)
+          this.deps.advanceAnimation()
         } catch (error) {
           if (this.state.summary) this.state.summary.textContent = `animation render error: ${String(error)}`
         }

@@ -80,6 +80,24 @@ describe("lifecycle_dom_interaction_methods", () => {
     expect(ctx.state.animationTimer).toEqual(101)
   })
 
+  it("an animation frame advances the clock without rendering the graph again", () => {
+    let tick = null
+    vi.spyOn(globalThis.window, "requestAnimationFrame").mockImplementation((callback) => {
+      tick = callback
+      return 7
+    })
+    const advanceAnimation = vi.fn()
+    const ctx = makeContext({state: {packetFlowEnabled: true}, deps: {advanceAnimation}})
+
+    ctx.startAnimationLoop()
+    tick()
+    tick()
+
+    expect(advanceAnimation).toHaveBeenCalledTimes(2)
+    expect(ctx.deps.renderGraph).not.toHaveBeenCalled()
+    expect(ctx.deps.refreshGraphLayersForViewState).not.toHaveBeenCalled()
+  })
+
   it("startAnimationLoop schedules RAF when reduced motion is disabled", () => {
     const rafSpy = vi.spyOn(globalThis.window, "requestAnimationFrame").mockImplementation(() => 123)
     const cancelSpy = vi.spyOn(globalThis.window, "cancelAnimationFrame").mockImplementation(() => {})

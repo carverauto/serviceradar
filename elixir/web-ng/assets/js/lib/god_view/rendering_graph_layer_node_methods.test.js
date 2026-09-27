@@ -552,8 +552,8 @@ describe("rendering_graph_layer_node_methods", () => {
       expect(layer(overview, id).props.updateTriggers.getRadius).toBe("overview")
       expect(layer(detail, id).props.updateTriggers.getRadius).toBe("detail")
     }
-    expect(layer(overview, "god-view-nodes-ring").props.updateTriggers.getRadius).toEqual([3.25, "overview"])
-    expect(layer(detail, "god-view-nodes-ring").props.updateTriggers.getRadius).toEqual([3.25, "detail"])
+    expect(layer(overview, "god-view-nodes-ring").props.updateTriggers.getRadius).toEqual([3.25, "overview", undefined])
+    expect(layer(detail, "god-view-nodes-ring").props.updateTriggers.getRadius).toEqual([3.25, "detail", undefined])
   })
 
   it.each(["elk-radial-overview", "elk-scene-detail"])(

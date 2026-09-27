@@ -430,7 +430,7 @@ describe("lifecycle_stream_snapshot_methods", () => {
     const previousLabelFallbackIds = ["accepted-label"]
     const previousVisibilityMask = Uint8Array.from([1, 0])
     const previousTraversalMask = Uint8Array.from([1, 1])
-    const previousPacketFlowCache = [{edgeIndex: 0}]
+    const previousGraphLayers = [{id: "accepted-layer"}]
     Object.assign(state, {
       hoveredEdgeKey: "accepted:hovered",
       isProgrammaticViewUpdate: false,
@@ -442,8 +442,7 @@ describe("lifecycle_stream_snapshot_methods", () => {
       managedTopologySceneMinZoom: -1.5,
       managedTopologySceneMinZoomKey: "layout:old-layout",
       managedTopologyVisualDensity: "overview",
-      packetFlowCache: previousPacketFlowCache,
-      packetFlowCacheStamp: "accepted-flow",
+      lastGraphLayers: previousGraphLayers,
       selectedEdgeKey: "accepted:selected",
       topologyLabelDetailsFallbackIds: previousLabelFallbackIds,
       topologyRouteDiagnostics: previousRouteDiagnostics,
@@ -489,8 +488,7 @@ describe("lifecycle_stream_snapshot_methods", () => {
           state.managedTopologySceneMinZoom = 2.5
           state.managedTopologySceneMinZoomKey = "layout:failed-layout"
           state.managedTopologyVisualDensity = "detail"
-          state.packetFlowCache = [{edgeIndex: 9}]
-          state.packetFlowCacheStamp = "failed-flow"
+          state.lastGraphLayers = [{id: "failed-layer"}]
           state.selectedEdgeKey = null
           state.topologyLabelDetailsFallbackIds = ["failed-label"]
           state.topologyRouteDiagnostics = [{routeId: "failed"}]
@@ -535,8 +533,7 @@ describe("lifecycle_stream_snapshot_methods", () => {
     expect(state.managedTopologyVisualDensity).toBe("overview")
     expect(state.managedTopologyDensityConstraintsCache).toBe(previousConstraintsCache)
     expect(state.managedTopologyDensityConstraintsLayoutCache).toBe(previousConstraintsLayoutCache)
-    expect(state.packetFlowCache).toBe(previousPacketFlowCache)
-    expect(state.packetFlowCacheStamp).toBe("accepted-flow")
+    expect(state.lastGraphLayers).toBe(previousGraphLayers)
     expect(state.selectedEdgeKey).toBe("accepted:selected")
     expect(state.topologyLabelDetailsFallbackIds).toBe(previousLabelFallbackIds)
     expect(state.topologyRouteDiagnostics).toBe(previousRouteDiagnostics)

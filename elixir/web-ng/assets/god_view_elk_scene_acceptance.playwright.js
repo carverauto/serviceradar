@@ -434,6 +434,21 @@ test("gates collapsed, expanded, fit, focus, and concurrent roundtrip geometry",
   })
 })
 
+test("draws packet flow on WebGPU without a device validation error", async ({page}) => {
+  await mkdir(OUTPUT_DIR, {recursive: true})
+  const measure = timeline("packet-flow")
+  await preparePage(page, measure)
+
+  const result = await runStep(measure, "render packet flow", () => (
+    page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.renderPacketFlow("collapsed"))
+  ))
+  await runStep(measure, "assert packet flow rendered", () => {
+    expect(result.rendererMode).toBe("webgpu")
+    expect(result.flowEdges).toBeGreaterThan(0)
+  })
+  await capturePhase(page, measure, "packet-flow")
+})
+
 test("gates concurrent portrait geometry", async ({page}) => {
   await mkdir(OUTPUT_DIR, {recursive: true})
   const measure = timeline("portrait-profile")
