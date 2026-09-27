@@ -368,13 +368,15 @@ Prefer Bazel targets when modifying code that already has BUILD files. Always ru
 
 Two registration gates fail **only** under `make test`/BazelCI — never under `mix test`,
 `go test`, `cargo test` or a PR check — so a missing entry looks green all the way to
-trunk:
+trunk unless the no-mistakes pipeline catches it first:
 
 - **Adding or changing a native add-on** (`addons/<name>/` + a Go/Rust binary) must be
   registered in four places, and any change to its source, config or `BUILD.bazel`
   requires bumping `addons/<name>/addon.yaml` `version`.
 - **Adding an `elixir/serviceradar_core` test file** requires a row in
-  `elixir/serviceradar_core/test/INTEGRATION_SOURCE_DISPOSITIONS.tsv`.
+  `elixir/serviceradar_core/test/INTEGRATION_SOURCE_DISPOSITIONS.tsv`. The no-mistakes
+  `test-registration` gate (`.no-mistakes.yaml`) now runs this contract before push, so a
+  missing row is caught there instead of only in BazelCI.
 
 Both procedures, with their local verification commands, are in
 [docs/agent-runbooks.md](docs/agent-runbooks.md).

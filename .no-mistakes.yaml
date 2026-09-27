@@ -29,6 +29,13 @@ test:
     If `.bazelrc.remote` cannot be linked, do not run Bazel locally; report the
     Bazel checks as untested instead.
 gates:
+  # Test-routing contracts that otherwise fail only in BazelCI: every new
+  # serviceradar_core test file needs a row in INTEGRATION_SOURCE_DISPOSITIONS.tsv,
+  # and DB-backed ones must also appear in build/integration_test_dispositions.bzl.
+  # Plain Python, no build; runs in seconds.
+  - name: test-registration
+    after: lint
+    command: python3 -m unittest build/contracts/ci_heavy_gate_contract_test.py
   # Same checks as CI's "Elixir Quality (<project>)" jobs: mix format
   # --check-formatted and mix credo --strict for every linted Elixir project,
   # hermetic on RBE. A failure parks the run for a decision before push.
