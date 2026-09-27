@@ -14,6 +14,10 @@ commands:
   # also what makes `prepare` run, since prepare only precedes a configured
   # command. The test agent still derives and drives its own targeted scenarios.
   test: test -f .bazelrc.remote
+  # Format Elixir on the remote executors before the gate commits its own
+  # fixes, so an agent fix can never introduce a Styler diff. Mix and Hex come
+  # from Bazel; nothing depends on a local deps/ directory.
+  format: bazel run --config=remote //build/elixir_quality:format
 test:
   instructions: |
     Bazel must run on the remote executors, never on this machine. Before any
@@ -24,3 +28,10 @@ test:
     Pass `--config=remote` to every `bazel build`, `bazel test` and `bazel run`.
     If `.bazelrc.remote` cannot be linked, do not run Bazel locally; report the
     Bazel checks as untested instead.
+gates:
+  # Same checks as CI's "Elixir Quality (<project>)" jobs: mix format
+  # --check-formatted and mix credo --strict for every linted Elixir project,
+  # hermetic on RBE. A failure parks the run for a decision before push.
+  - name: elixir-quality
+    after: lint
+    command: bazel test --config=remote //build/elixir_quality:quality_check
