@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNG.Topology.WorldDetails do
   alias ServiceRadarWebNG.Topology.WorldCache
 
   @tasks ServiceRadarWebNG.Topology.WorldDetailTasks
+  @guards ServiceRadarWebNG.Topology.WorldDetailGuards
   @timeout 10_000
   @max_bytes 262_144
 
@@ -28,7 +29,7 @@ defmodule ServiceRadarWebNG.Topology.WorldDetails do
       owner = self()
       token = make_ref()
 
-      case Task.Supervisor.start_child(@tasks, fn -> send(owner, {token, read(mode, scope, request)}) end) do
+      case Task.Supervisor.start_child(@guards, fn -> guard(owner, token, mode, scope, request) end) do
         {:ok, pid} -> await(pid, token)
         {:error, :max_children} -> {:error, :busy}
         {:error, _reason} -> {:error, :unavailable}
@@ -49,10 +50,68 @@ defmodule ServiceRadarWebNG.Topology.WorldDetails do
       {:DOWN, ^ref, :process, ^pid, _reason} ->
         {:error, :unavailable}
     after
-      @timeout ->
-        Process.exit(pid, :kill)
+      @timeout + 1_000 ->
+        # The guard owns cancellation even if this HTTP process disappears.
         Process.demonitor(ref, [:flush])
         {:error, :unavailable}
+    end
+  end
+
+  defp guard(owner, token, mode, scope, request) do
+    Process.flag(:trap_exit, true)
+    owner_ref = Process.monitor(owner)
+    timer = Process.send_after(self(), {:deadline, token}, @timeout)
+    guard = self()
+
+    result =
+      case Task.Supervisor.start_child(@tasks, fn ->
+             # Linking from the reader closes the spawn/link race if its guard
+             # exits unexpectedly before this task starts.
+             Process.link(guard)
+             send(guard, {token, read(mode, scope, request)})
+           end) do
+        {:ok, reader} ->
+          ref = Process.monitor(reader)
+          await_read(reader, ref, owner_ref, token, {:error, :unavailable})
+
+        {:error, :max_children} ->
+          {:error, :busy}
+
+        {:error, _reason} ->
+          {:error, :unavailable}
+      end
+
+    Process.cancel_timer(timer)
+    Process.demonitor(owner_ref, [:flush])
+    send(owner, {token, result})
+  end
+
+  defp await_read(reader, ref, owner_ref, token, result) do
+    receive do
+      {^token, reply} ->
+        await_read(reader, ref, owner_ref, token, reply)
+
+      {:DOWN, ^ref, :process, ^reader, _reason} ->
+        result
+
+      {:DOWN, ^owner_ref, :process, _owner, _reason} ->
+        cancel_read(reader, ref)
+
+      {:deadline, ^token} ->
+        cancel_read(reader, ref)
+
+      {:EXIT, ^reader, _reason} ->
+        await_read(reader, ref, owner_ref, token, result)
+    end
+  end
+
+  defp cancel_read(reader, ref) do
+    Process.exit(reader, :kill)
+
+    # Keep admission until the supervised reader really exits. Native work
+    # additionally retains its process-wide RAII permit through completion.
+    receive do
+      {:DOWN, ^ref, :process, ^reader, _reason} -> {:error, :unavailable}
     end
   end
 
