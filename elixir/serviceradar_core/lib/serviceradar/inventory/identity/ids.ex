@@ -376,9 +376,11 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
   An update with no strong identifier (`has_strong_identifier?/1`) is named by
   its address, so a locally administered MAC alone never seeds the uid: two
   sightings of one randomized MAC at two addresses are two address-only
-  records. Only an update with neither a strong identifier nor an address
-  falls back to that MAC, because a random uid would mint a new record on
-  every sighting.
+  records. An update whose only strong identifier is a MAC is seeded from its
+  first universal MAC, even when a locally administered MAC is listed first.
+  Only an update with neither a strong identifier nor an address falls back to
+  the MAC as given, because a random uid would mint a new record on every
+  sighting.
   """
   @spec generate_deterministic_device_id(strong_identifiers()) :: String.t()
   def generate_deterministic_device_id(ids) do

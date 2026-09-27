@@ -61,7 +61,8 @@ in `SourcePolicy.sufficient_to_create?/1`.
    trusted-checked against the device's bound agent)
 2. Pre-set `sr:` UUID — a hint, re-validated and canonical-followed
 3. Deterministic UID derived from the highest-priority identifiers (a
-   locally-administered MAC alone is not one)
+   locally-administered MAC alone is not one; a MAC-only UID is seeded from
+   the first universal MAC)
 4. IP/alias fallback — only for weak updates
 5. Deterministic (IP-seeded) or random UID
 
