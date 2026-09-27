@@ -7,13 +7,48 @@ import {Geometry, Model} from "@luma.gl/engine"
 // works out which particles could cover the pixel from the edge's flow inputs, the time uniform
 // and a hash of each particle's slot, and draws the soft core-and-glow dot for each. Particles
 // on one lane are spaced in even strata (one per slot, placed randomly inside it) and share the
-// lane's speed, so only the few slots around the pixel can reach it.
+// lane's speed, so only the slots within one dot radius of the pixel can reach it.
+//
+// Zoomed out, hundreds of particles overlap on a short edge and their additive sum is what
+// makes the bright band. The shader visits every slot in reach up to MAX_SLOTS_PER_LANE; past
+// that it visits every n-th slot (the same ones for every pixel, so dots stay whole) and weights
+// each by n, which keeps the band's brightness while bounding the per-pixel work.
 //
 // Nothing per particle exists on the CPU, animation only advances `time`, and the pipeline
 // needs 5 vertex buffers (the quad plus four per-edge attributes) whatever the traffic.
 
-const MAX_PARTICLES_PER_LANE = 1400
-const MIN_PARTICLES_PER_LANE = 18
+export const MAX_PARTICLES_PER_LANE = 1400
+export const MIN_PARTICLES_PER_LANE = 18
+export const MAX_SLOTS_PER_LANE = 48
+
+// The look, carried over number for number from the per-particle layer this replaced: dots
+// 2-5 device pixels across and one in twenty-five a 6-9 pixel "head" (that layer's noise was
+// quantized to hundredths, so "above 0.95" meant 4%); magenta for a share of dots that grows
+// with the link's utilization, cyan for the rest; alpha never below 70/255.
+export const PACKET_FLOW_STYLE = Object.freeze({
+  particleSize: 2,
+  headSize: 6,
+  sizeRange: 3,
+  headThreshold: 0.96,
+  magentaBiasBase: 0.2,
+  magentaBiasPerUtilization: 0.65,
+  magentaBiasMin: 0.15,
+  magentaBiasMax: 0.85,
+  minAlpha: 70 / 255,
+})
+// Largest particle diameter in device pixels at size scale 1: a head with the largest seed.
+export const MAX_PARTICLE_SIZE = PACKET_FLOW_STYLE.headSize + PACKET_FLOW_STYLE.sizeRange
+
+/** Share of an edge's particles drawn magenta, for a utilization in 0..1. */
+export function packetFlowMagentaBias(utilization) {
+  const style = PACKET_FLOW_STYLE
+  const bias = (utilization * style.magentaBiasPerUtilization) + style.magentaBiasBase
+  return Math.max(style.magentaBiasMin, Math.min(style.magentaBiasMax, bias))
+}
+
+function wgslFloat(value) {
+  return Number.isInteger(value) ? `${value}.0` : String(value)
+}
 
 // Bound by name: the uniform variable below is `packetFlow`, matching the module name. The
 // vec4 members come first so the WGSL struct and luma's uniform buffer agree on alignment.
@@ -44,8 +79,17 @@ struct PacketFlowUniforms {
 
 const MAX_PARTICLES_PER_LANE: f32 = ${MAX_PARTICLES_PER_LANE}.0;
 const MIN_PARTICLES_PER_LANE: f32 = ${MIN_PARTICLES_PER_LANE}.0;
-// Largest particle diameter in device pixels at size scale 1 (a "head" particle).
-const MAX_PARTICLE_SIZE: f32 = 9.0;
+const MAX_PARTICLE_SIZE: f32 = ${wgslFloat(MAX_PARTICLE_SIZE)};
+const MAX_SLOTS_PER_LANE: f32 = ${wgslFloat(MAX_SLOTS_PER_LANE)};
+const PARTICLE_SIZE: f32 = ${wgslFloat(PACKET_FLOW_STYLE.particleSize)};
+const HEAD_SIZE: f32 = ${wgslFloat(PACKET_FLOW_STYLE.headSize)};
+const SIZE_RANGE: f32 = ${wgslFloat(PACKET_FLOW_STYLE.sizeRange)};
+const HEAD_THRESHOLD: f32 = ${wgslFloat(PACKET_FLOW_STYLE.headThreshold)};
+const MAGENTA_BIAS_BASE: f32 = ${wgslFloat(PACKET_FLOW_STYLE.magentaBiasBase)};
+const MAGENTA_BIAS_PER_UTILIZATION: f32 = ${wgslFloat(PACKET_FLOW_STYLE.magentaBiasPerUtilization)};
+const MAGENTA_BIAS_MIN: f32 = ${wgslFloat(PACKET_FLOW_STYLE.magentaBiasMin)};
+const MAGENTA_BIAS_MAX: f32 = ${wgslFloat(PACKET_FLOW_STYLE.magentaBiasMax)};
+const MIN_ALPHA: f32 = ${wgslFloat(PACKET_FLOW_STYLE.minAlpha)};
 
 struct Attributes {
   // x: 0 at the source end, 1 at the target end; y: -1 / 1 across the tube.
@@ -109,7 +153,7 @@ fn vertexMain(attributes: Attributes) -> Varyings {
 
   // Wide enough for both lanes, their jitter, and the largest dot plus a pixel.
   let laneExtent = shapeInputs.x + (shapeInputs.y * packetFlow.spreadScale);
-  let dotRadiusPixels = (MAX_PARTICLE_SIZE * attributes.instanceStyle.y) / (2.0 * project.devicePixelRatio);
+  let dotRadiusPixels = max(1.0, MAX_PARTICLE_SIZE * attributes.instanceStyle.y) / (2.0 * project.devicePixelRatio);
   let halfWidth = laneExtent + (dotRadiusPixels + 1.0) / max(pixelsPerWorld, 1e-6);
 
   let direction = (targetPosition - sourcePosition) / max(worldLength, 1e-6);
@@ -152,23 +196,32 @@ fn laneCoverage(
     return result;
   }
   let jitterScale = shape.y * packetFlow.spreadScale;
-  let magentaBias = clamp((shape.z * 0.65) + 0.2, 0.15, 0.85);
+  let magentaBias = clamp((shape.z * MAGENTA_BIAS_PER_UTILIZATION) + MAGENTA_BIAS_BASE, MAGENTA_BIAS_MIN, MAGENTA_BIAS_MAX);
   let edgeSeed = shape.w * 997.0;
-  let baseAlpha = clamp(style.x, 70.0 / 255.0, 1.0) * packetFlow.alphaScale;
-  // Slot whose stratum is under this fragment; the dot may start in the few before it.
+  let baseAlpha = clamp(style.x, MIN_ALPHA, 1.0) * packetFlow.alphaScale;
+  // Slots whose particle can reach this fragment: those within the largest dot radius of it.
   let shift = fract(along - packetFlow.time * speed);
-  let stratum = floor(shift * count);
+  let reachPixels = max(1.0, MAX_PARTICLE_SIZE * style.y) / (2.0 * project.devicePixelRatio);
+  let reach = reachPixels / max(lengthPixels, 1e-3);
+  let firstSlot = floor((shift - reach) * count);
+  let lastSlot = floor((shift + reach) * count);
+  let stride = max(1.0, ceil((lastSlot - firstSlot + 1.0) / MAX_SLOTS_PER_LANE));
+  var candidate = ceil(firstSlot / stride) * stride;
 
-  for (var k = -4; k <= 1; k++) {
-    let slot = ((stratum + f32(k)) % count + count) % count;
+  for (var visited = 0; visited < ${MAX_SLOTS_PER_LANE}; visited++) {
+    if (candidate > lastSlot) {
+      break;
+    }
+    let slot = ((candidate % count) + count) % count;
+    candidate += stride;
     let key = edgeSeed * 1.37 + laneSalt + slot * 0.618;
     let placement = packetFlowHash(key) * 0.8;
     let progress = fract((slot + placement) / count + packetFlow.time * speed);
     let noise = packetFlowHash(key + 17.0);
     let seed = packetFlowHash(key + 31.0);
     let jitter = (packetFlowHash(key + 53.0) - 0.5) * 2.0 * jitterScale;
-    let isHead = noise > 0.95;
-    let sizeDevice = max(1.0, select(2.0 + seed * 3.0, 6.0 + seed * 3.0, isHead) * style.y);
+    let isHead = noise > HEAD_THRESHOLD;
+    let sizeDevice = max(1.0, (select(PARTICLE_SIZE, HEAD_SIZE, isHead) + seed * SIZE_RANGE) * style.y);
     let diameter = sizeDevice / project.devicePixelRatio;
 
     let dx = (along - progress) * lengthPixels;
@@ -180,7 +233,7 @@ fn laneCoverage(
     let core = 1.0 - smoothstep(0.0, 0.2, r);
     let glow = (1.0 - smoothstep(0.2, 0.5, r)) * 0.6;
     let fade = smoothstep(0.0, 0.18, progress) * (1.0 - smoothstep(0.82, 1.0, progress));
-    let alpha = baseAlpha * (core + glow) * fade;
+    let alpha = baseAlpha * (core + glow) * fade * stride;
     let tint = select(packetFlow.cyan.rgb, packetFlow.magenta.rgb, noise < magentaBias);
     result.color += tint * alpha;
     result.alpha += alpha;

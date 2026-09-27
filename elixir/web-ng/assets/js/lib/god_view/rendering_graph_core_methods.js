@@ -55,6 +55,21 @@ export const godViewRenderingGraphCoreMethods = {
     return true
   },
   /**
+   * Rebuilds the layers once something a render had to do without is available. The animation
+   * loop only advances the clock, so nothing else would: the first render after a snapshot can
+   * run before deck has a viewport (labels are then admitted against nothing), and packet flow
+   * is held back for a moment after a renderer error. Returns whether it refreshed.
+   */
+  refreshDeferredLayers() {
+    const now = typeof performance !== "undefined" ? performance.now() : Date.now()
+    const suppressUntil = Number(this.state.atmosphereSuppressUntil || 0)
+    const atmosphereDue = suppressUntil > 0 && now >= suppressUntil
+    const labelsDue = this.state.labelAdmissionAwaitingViewport === true && this.activeTopologyLabelViewport() != null
+    if (!atmosphereDue && !labelsDue) return false
+    if (atmosphereDue) this.state.atmosphereSuppressUntil = 0
+    return this.refreshGraphLayersForViewState()
+  },
+  /**
    * Hover and selection change which few nodes and edges are emphasized, not what is visible.
    * They reuse the last render's node records and edge data and re-issue the layers, so the
    * work is the emphasized items plus the label pass, not a rebuild of every edge.

@@ -158,4 +158,35 @@ describe("God-View render frame observer seam", () => {
     expect(layers[1].props.time).toBe(2.5)
     expect(state.lastGraphLayers).toBe(layers)
   }, 30_000)
+
+  it("refreshDeferredLayers admits labels once deck has a viewport, and not before", () => {
+    const viewport = {project: () => [0, 0]}
+    let viewports = []
+    const state = {deck: {getViewports: () => viewports}, labelAdmissionAwaitingViewport: true, atmosphereSuppressUntil: 0}
+    const ctx = {state, refreshGraphLayersForViewState: vi.fn(() => true)}
+    Object.assign(ctx, {
+      refreshDeferredLayers: godViewRenderingGraphCoreMethods.refreshDeferredLayers,
+      activeTopologyLabelViewport: () => viewports[0] || null,
+    })
+
+    expect(ctx.refreshDeferredLayers()).toBe(false)
+    expect(ctx.refreshGraphLayersForViewState).not.toHaveBeenCalled()
+
+    viewports = [viewport]
+    expect(ctx.refreshDeferredLayers()).toBe(true)
+    expect(ctx.refreshGraphLayersForViewState).toHaveBeenCalledTimes(1)
+  })
+
+  it("refreshDeferredLayers brings packet flow back once its hold expires", () => {
+    const state = {labelAdmissionAwaitingViewport: false, atmosphereSuppressUntil: performance.now() + 60_000}
+    const ctx = {state, refreshGraphLayersForViewState: vi.fn(() => true), activeTopologyLabelViewport: () => null}
+    ctx.refreshDeferredLayers = godViewRenderingGraphCoreMethods.refreshDeferredLayers
+
+    expect(ctx.refreshDeferredLayers()).toBe(false)
+
+    state.atmosphereSuppressUntil = performance.now() - 1
+    expect(ctx.refreshDeferredLayers()).toBe(true)
+    expect(state.atmosphereSuppressUntil).toBe(0)
+    expect(ctx.refreshGraphLayersForViewState).toHaveBeenCalledTimes(1)
+  })
 })

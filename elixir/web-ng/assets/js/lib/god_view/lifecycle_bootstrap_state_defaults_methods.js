@@ -171,6 +171,7 @@ export const godViewLifecycleBootstrapStateDefaultsMethods = {
     this.state.lastPipelineStats = null
     this.state.packetFlowEnabled = true
     this.state.atmosphereSuppressUntil = 0
+    this.state.labelAdmissionAwaitingViewport = false
     this.state.visibilityMaskBuffer = null
     this.state.traversalMaskBuffer = null
     this.state.layoutMode = "auto"

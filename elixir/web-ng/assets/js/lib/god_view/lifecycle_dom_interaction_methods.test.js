@@ -100,6 +100,28 @@ describe("lifecycle_dom_interaction_methods", () => {
     expect(ctx.state.lastAnimationFrameMs).toBeGreaterThanOrEqual(0)
   })
 
+  it("an animation tick rebuilds layers a render had to build without deck's viewport", () => {
+    let tick = null
+    vi.spyOn(globalThis.window, "requestAnimationFrame").mockImplementation((callback) => {
+      tick = callback
+      return 7
+    })
+    const refreshDeferredLayers = vi.fn(() => true)
+    const ctx = makeContext({
+      state: {packetFlowEnabled: false, deck: {}, labelAdmissionAwaitingViewport: false, atmosphereSuppressUntil: 0},
+      deps: {refreshDeferredLayers, advanceAnimation: vi.fn()},
+    })
+
+    ctx.startAnimationLoop()
+    tick()
+    expect(refreshDeferredLayers).not.toHaveBeenCalled()
+
+    ctx.state.labelAdmissionAwaitingViewport = true
+    tick()
+    expect(refreshDeferredLayers).toHaveBeenCalledTimes(1)
+    expect(ctx.deps.renderGraph).not.toHaveBeenCalled()
+  })
+
   it("counts every animation tick, including ones with nothing to animate", () => {
     let tick = null
     vi.spyOn(globalThis.window, "requestAnimationFrame").mockImplementation((callback) => {

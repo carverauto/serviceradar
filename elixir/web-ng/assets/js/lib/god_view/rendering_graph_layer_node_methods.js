@@ -445,6 +445,8 @@ export const godViewRenderingGraphLayerNodeMethods = {
   },
   admitNodeLabelsForViewport(effective, labelCandidates, protectedNodes = labelCandidates, options = {}) {
     const viewport = options.viewport || this.activeTopologyLabelViewport()
+    // Without deck's viewport no label can be placed; remember to admit them once there is one.
+    if (!options.viewport && this.state) this.state.labelAdmissionAwaitingViewport = !viewport
     if (!viewport) {
       const missingRequiredLabelIds = (options.requiredLabelIds || (
         options.managedVisualDensity ? (labelCandidates || []).map((node) => node?.id) : []

@@ -18,6 +18,15 @@ export const godViewLifecycleDomInteractionMethods = {
           if (this.state.summary) this.state.summary.textContent = `animation render error: ${String(error)}`
         }
       }
+      // Layers a render built without something it needed (deck's viewport, or packet flow
+      // while it was held back) are rebuilt once that is available.
+      if (this.state.deck && (this.state.labelAdmissionAwaitingViewport === true || Number(this.state.atmosphereSuppressUntil || 0) > 0)) {
+        try {
+          this.deps.refreshDeferredLayers()
+        } catch (error) {
+          if (this.state.summary) this.state.summary.textContent = `render error: ${String(error)}`
+        }
+      }
       // Every tick is counted and timed, whether or not anything animated, so a stalled loop is
       // distinguishable from an idle one.
       this.state.animationFrames = (this.state.animationFrames || 0) + 1
