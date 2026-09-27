@@ -134,8 +134,10 @@ defmodule ServiceRadar.NATS.StateBucketSizingTest do
 
     test "reconciles once, then only recreates a bucket that disappeared", %{stream: stream} do
       fits = fake_jetstream(info(stream_config(stream, -1), 0))
+
       assert {:ok, {:update, @gib}} =
                StateBucketSizing.ensure(fits, stream, %{name: stream}, @gib)
+
       assert_received {:js, "$JS.API.STREAM.UPDATE." <> _, _}
 
       assert {:ok, :exists} = StateBucketSizing.ensure(fits, stream, %{name: stream}, @gib)
@@ -155,6 +157,7 @@ defmodule ServiceRadar.NATS.StateBucketSizingTest do
                StateBucketSizing.ensure(failing, stream, %{name: stream}, @gib)
 
       fits = fake_jetstream(info(stream_config(stream, -1), 0))
+
       assert {:ok, {:update, @gib}} =
                StateBucketSizing.ensure(fits, stream, %{name: stream}, @gib)
     end
@@ -165,7 +168,7 @@ defmodule ServiceRadar.NATS.StateBucketSizingTest do
         fake_jetstream(info(stream_config(stream, -1), 0),
           update:
             {:error,
-             %{"code" => 500, "err_code" => 10047, "description" => "insufficient resources"}}
+             %{"code" => 500, "err_code" => 10_047, "description" => "insufficient resources"}}
         )
 
       log =
