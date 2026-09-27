@@ -13,7 +13,7 @@ is decided by the strongest class it holds.
 
 | Class | Examples | Role |
 |---|---|---|
-| Source-authoritative | Armis device id, scoped `integration_id`, NetBox id | Governs identity. Two different values are two different devices, whatever other evidence says. |
+| Source-authoritative | Armis device id, NetBox device id | Governs identity. Two different values of one type in one scope (the identifier partition) are two different devices, whatever other evidence says. An `integration_id` is not in this class: providers do not mint it stably per device (a virtualization guest's id can change when the guest moves between hosts), so it governs identity only through the typed provider id it accompanies. |
 | Hardware | chassis/hardware serial, globally-unique MAC | Identifies a device where no source-authoritative id exists. It may merge two records. |
 | Dependent | interface MACs reported for a device's own interfaces | Resolve to their device. They never create a device and never, on their own, merge two devices that already hold different hardware or source-authoritative ids. |
 | Evidence | locally-administered (randomized) MAC, IP address, confirmed IP alias, hostname | Attaches a sighting to a device. Never merges two devices, never overrides a stronger class, and never keeps a device alive by itself. |
@@ -96,7 +96,7 @@ without doing both is a defect.
 | Source-Authoritative Identifiers Govern Identity | `DistinctSourceIdsNeverMerge` (resolution) |
 | One Live Owner Per Strong Identifier | `TypeOK`: `owner` is a function (both) |
 | Interface Identifiers Belong To Their Device | `EvidenceConverges`, `NoFalseInterfaceClaim` (resolution) |
-| Randomized MACs Are Evidence Only | `NoFalseMerge` (resolution, phones environment); `ExpiryKeepsStrongIdentity` (lifecycle, #4603) |
+| Randomized MACs Are Evidence Only | `NoFalseMerge`, `RandomizedMacsNeverIdentify` (resolution, phones environment); `ExpiryKeepsStrongIdentity` (lifecycle, #4603) |
 | Duplicates Converge And Stay Converged | `EvidenceConverges` (resolution); `NoZombieRevival`, `NoPurgedResurrection`, `MergedRedirectsSomewhere`, `MergeGraphAcyclic`, `NoStaleRedirect`, `UnmergeRestoresExactly` (lifecycle) |
 | Identity Decisions Are Never Silent | `NoSilentDecision` (resolution) |
 | Restore Soft-Deleted Devices (MODIFIED) | `RevivalBumpsRevision`, `NoZombieRevival` (lifecycle) |

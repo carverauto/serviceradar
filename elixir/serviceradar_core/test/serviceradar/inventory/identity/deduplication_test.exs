@@ -10,9 +10,12 @@ defmodule ServiceRadar.Inventory.Identity.DeduplicationTest do
 
   use ServiceRadar.DataCase, async: true
 
+  import ExUnit.CaptureLog
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.DeduplicationTask
+  alias ServiceRadar.Inventory.DeduplicationTaskNotifier
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.DistinctDeviceAssertion
@@ -284,6 +287,54 @@ defmodule ServiceRadar.Inventory.Identity.DeduplicationTest do
 
       assert {:error, {:task_not_open, :dismissed}} =
                Deduplication.mark_distinct(dismissed, @operator)
+    end
+  end
+
+  describe "resolution notifications" do
+    test "mark distinct notifies after its transaction commits", %{actor: actor} do
+      [a, b] = devices(actor, 2)
+      policy_block(a, b, actor)
+      [task] = tasks_for(a.uid)
+      :ok = DeduplicationTaskNotifier.subscribe()
+
+      log =
+        capture_log(fn ->
+          assert {:ok, %DeduplicationTask{status: :distinct}} =
+                   Deduplication.mark_distinct(task, @operator)
+        end)
+
+      task_id = task.id
+      assert_receive {:deduplication_task_updated, %{id: ^task_id, status: :distinct}}
+      refute log =~ "Missed"
+    end
+
+    test "a refused mark distinct notifies nothing", %{actor: actor} do
+      [a, b] = devices(actor, 2)
+      policy_block(a, b, actor)
+      [task] = tasks_for(a.uid)
+      :ok = DeduplicationTaskNotifier.subscribe()
+
+      assert {:error, :forbidden} = Deduplication.mark_distinct(task, @viewer)
+      refute_receive {:deduplication_task_updated, _}, 100
+    end
+
+    test "dismiss, reopen and merge notify", %{actor: actor} do
+      [a, b] = devices(actor, 2)
+      policy_block(a, b, actor)
+      [task] = tasks_for(a.uid)
+      task_id = task.id
+      :ok = DeduplicationTaskNotifier.subscribe()
+
+      {:ok, dismissed} = Deduplication.dismiss(task, @operator)
+      assert_receive {:deduplication_task_updated, %{id: ^task_id, status: :dismissed}}
+
+      {:ok, reopened} =
+        dismissed |> Ash.Changeset.for_update(:reopen, %{}, actor: @operator) |> Ash.update()
+
+      assert_receive {:deduplication_task_updated, %{id: ^task_id, status: :open}}
+
+      {:ok, _merged} = Deduplication.merge(reopened, a.uid, @operator)
+      assert_receive {:deduplication_task_updated, %{id: ^task_id, status: :merged}}
     end
   end
 

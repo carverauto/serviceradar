@@ -17,5 +17,9 @@
 ## 2. Follow-up
 
 - [ ] 2.1 web-ng review queue for open tasks with the three operator actions.
-- [ ] 2.2 SRQL entities for tasks and identity decisions, and MCP identity-diagnostics
-      visibility.
+- [x] 2.2 SRQL entities for tasks and identity decisions, and MCP identity-diagnostics
+      visibility: `in:identity_decisions` and `in:deduplication_tasks` (read-only, gated by
+      `devices.view`, catalog and cookbook entries), and both in `trace_device_identity`.
+- [x] 2.3 Resolution notifications: mark distinct returns its notifications from the
+      transaction and sends them after commit; every resolution, dismissal and reopen publishes
+      `{:deduplication_task_updated, %{id, status}}` for the review queue.

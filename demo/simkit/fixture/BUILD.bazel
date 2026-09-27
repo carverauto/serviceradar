@@ -1,0 +1,11 @@
+# gazelle:ignore
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+package(default_visibility = ["//demo:__subpackages__"])
+
+go_library(
+    name = "fixture",
+    srcs = ["fixture.go"],
+    importpath = "github.com/carverauto/serviceradar/demo/simkit/fixture",
+    deps = ["//demo/simkit"],
+)

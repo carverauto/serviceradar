@@ -3220,6 +3220,7 @@ mod tests {
             cursor: None,
             direction: QueryDirection::Next,
             mode: Some("starrocks".into()),
+            permitted_signals: None,
         };
         build_query_plan(&config(), &request, ast).expect("plan")
     }
@@ -3476,6 +3477,7 @@ mod tests {
             cursor: Some(crate::pagination::encode_cursor(2, &config().cursor_secret).unwrap()),
             direction: QueryDirection::Next,
             mode: Some("starrocks".into()),
+            permitted_signals: None,
         };
         let compiled = crate::query::translate_request(&config(), request.clone()).unwrap();
         assert!(

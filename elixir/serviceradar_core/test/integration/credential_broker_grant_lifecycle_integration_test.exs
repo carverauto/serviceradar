@@ -94,6 +94,10 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrantLifecycleIntegrationTest
     assert {:ok, expired_grant} = CredentialBrokerGrant.get_by_id(grant.id, actor: actor)
     assert expired_grant.status == :expired
 
+    # Lifecycle events are published from the grant action's transaction, so
+    # they wait in the publish outbox until it commits; deliver them.
+    Oban.drain_queue(queue: :events)
+
     events = credential_broker_grant_events(actor, grant.id)
     actions = Enum.map(events, &get_in(&1.unmapped || %{}, ["action"]))
 

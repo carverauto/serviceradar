@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -56,8 +57,13 @@ func (c *Config) Validate() error {
 	if c.BucketHistory > math.MaxUint8 {
 		return fmt.Errorf("%w: got %d", errBucketHistoryTooLarge, c.BucketHistory)
 	}
-	if c.JetStreamReplicas < 1 || c.JetStreamReplicas > 5 {
+	if c.JetStreamReplicas < 1 || c.JetStreamReplicas > maxJetStreamReplicas {
 		return fmt.Errorf("%w: got %d", errJetStreamReplicasInvalid, c.JetStreamReplicas)
+	}
+
+	// Environment sizes win over the JSON values and defaults set above.
+	if err := c.applyJetStreamEnvOverrides(os.LookupEnv); err != nil {
+		return err
 	}
 
 	return nil

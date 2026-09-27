@@ -29,8 +29,9 @@ Keep this managed block so 'openspec update' can refresh the instructions.
   This repository's `CLAUDE.md` tabulates the forbidden classes and their
   reserved replacements, and is the authority; it is not repeated here. The
   classes cover hostnames and internal naming schemes, site/facility codes, IPs
-  and CIDRs, MACs with a real vendor OUI, serials and asset tags, deployment
-  build numbers, GPS coordinates, phone numbers, people, namespaces and
+  and CIDRs, MAC addresses observed on a live system (an invented MAC may
+  use a real vendor OUI), serials and asset tags, deployment
+  build numbers, GPS coordinates from customer site records, phone numbers, people, namespaces and
   cluster/tenant/account names, policy/RADIUS/VLAN/SSID names, session and trace
   IDs, verbatim capture slices, and fleet-scale figures.
 
@@ -523,6 +524,13 @@ When you're done executing code, try to compile the code, and check the logs or 
 Tidewave MCP tools are optional and may not always be available. Use them when present for deeper inspection, but proceed without them when unavailable.
 
 ## SRQL Fixture Integration Tests
+
+**Database-backed tests run only against a scratch database on the CNPG in the
+`srql-fixtures` namespace (kube context `carverauto`), never against a local Postgres.**
+Do not install, start, or connect to a workstation Postgres (Homebrew, `/tmp:5432`,
+`localhost:5432`) and do not start the Docker Compose stack to get one, even if a server
+happens to be running: it lacks the TimescaleDB and AGE extensions and is not the fixture.
+This applies to every agent, including review and test agents in a validation pipeline.
 
 Use the `srql-fixtures-db-tests` skill when `elixir/serviceradar_core` integration tests
 need the shared CNPG/AGE fixture. There is deliberately no orchestration script — you

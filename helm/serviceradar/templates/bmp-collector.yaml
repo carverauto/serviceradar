@@ -35,7 +35,7 @@ data:
       "nats_url" (default "nats://serviceradar-nats:4222" $cfg.natsUrl)
       "nats_domain" (($cfg.natsDomain | default "") | empty | ternary nil $cfg.natsDomain)
       "nats_creds_file" (($cfg.natsCredsFile | default "") | empty | ternary nil $cfg.natsCredsFile)
-      "nats_tls_required" (default true $cfg.natsTlsRequired)
+      "nats_tls_required" (include "serviceradar.boolDefaultTrue" (list $cfg "natsTlsRequired") | eq "true")
       "nats_tls_first" (default false $cfg.natsTlsFirst)
       "nats_tls_ca_cert_path" (default "/etc/serviceradar/certs/root.pem" $cfg.natsTlsCaCertPath)
       "nats_tls_client_cert_path" (default "/etc/serviceradar/certs/bmp-collector.pem" $cfg.natsTlsClientCertPath)

@@ -46,9 +46,10 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
   alias ServiceRadar.EventWriter.DeviceCorrelation
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.OCSF
+  alias ServiceRadar.EventWriter.ServiceCatalog
   alias ServiceRadar.Monitoring.AlertGenerator
   alias ServiceRadar.Observability.LogPubSub
-  alias ServiceRadar.Observability.StatefulAlertEngine
+  alias ServiceRadar.Observability.StatefulEvaluationLedger
 
   require Logger
 
@@ -151,19 +152,25 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
            |> Enum.filter(fn entry -> promote_to_event?(entry.severity_id) end)
            |> Enum.map(& &1.event_row))
 
+      promoted_rows = dedupe_rows_by_conflict_key(promoted_rows, &Map.get(&1, :id))
       {event_count, inserted_events} = insert_event_rows(promoted_rows)
 
-      warehouse =
+      # Every promoted row, not only those this delivery inserted: a delivery
+      # redelivered after a failed warehouse load or evaluation finds its rows
+      # already in CNPG, and must still finish both. The warehouse load is
+      # idempotent on the event id, and the ledger evaluates only the events no
+      # earlier delivery finished; an evaluation failure fails the batch so
+      # JetStream redelivers it.
+      stored =
         with {:ok, _} <- Destination.persist_after_cnpg(:logs, log_rows),
-             {:ok, _} <- Destination.persist_after_cnpg(:events, inserted_events) do
-          :ok
+             {:ok, _} <- persist_warehouse_events(promoted_rows) do
+          StatefulEvaluationLedger.evaluate_once(promoted_rows)
         end
 
       alert_count = maybe_create_priority_alerts(inserted_events)
 
       maybe_broadcast_logs(log_count)
       maybe_broadcast_events(event_count)
-      maybe_evaluate_stateful_rules(inserted_events)
 
       :telemetry.execute(
         [:serviceradar, :event_writer, :trivy, :processed],
@@ -177,9 +184,14 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
         %{}
       )
 
-      case warehouse do
-        :ok -> {:ok, log_count}
-        {:error, reason} -> {:error, reason}
+      case stored do
+        :ok ->
+          # Best-effort OTel service catalog upsert; never fails the batch.
+          _ = ServiceCatalog.record(:logs, log_rows)
+          {:ok, log_count}
+
+        {:error, reason} ->
+          {:error, reason}
       end
     end
   rescue
@@ -938,6 +950,30 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
     result
   end
 
+  # A report's event keeps its id across rescans while its time moves forward,
+  # and `insert_event_rows/1` replaces it in CNPG by id. The warehouse keys
+  # events on (id, time), so the same replacement is made there -- delete the
+  # ids, then load -- or every rescan would add a row. It runs under the lock
+  # the CNPG replace takes, so two batches carrying the same report cannot
+  # interleave their deletes and loads and leave both rows behind.
+  defp persist_warehouse_events([]), do: {:ok, :disabled}
+
+  defp persist_warehouse_events(rows) do
+    replace = %{ids: Enum.map(rows, & &1.id), log_provider: "trivy"}
+
+    ServiceRadar.Repo.transaction(
+      fn ->
+        lock_trivy_event_rows()
+
+        case Destination.persist_after_cnpg(:events, rows, replace: replace) do
+          {:ok, result} -> result
+          {:error, reason} -> ServiceRadar.Repo.rollback(reason)
+        end
+      end,
+      timeout: :infinity
+    )
+  end
+
   defp lock_trivy_event_rows do
     ServiceRadar.Repo.query!(
       "SELECT pg_advisory_xact_lock($1::bigint)",
@@ -1039,19 +1075,6 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
 
   defp maybe_broadcast_events(0), do: :ok
   defp maybe_broadcast_events(count), do: EventsPubSub.broadcast_event(%{count: count})
-
-  defp maybe_evaluate_stateful_rules([]), do: :ok
-
-  defp maybe_evaluate_stateful_rules(events) do
-    case StatefulAlertEngine.evaluate_events(events) do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning("Stateful alert evaluation failed for Trivy events: #{inspect(reason)}")
-        :ok
-    end
-  end
 
   defp derive_severity(payload) do
     summary_counts = summary_counts(payload)

@@ -81,7 +81,7 @@ starrocksFESpec:
       mountPath: /opt/starrocks/jdbc
   initContainers:
     - name: postgresql-jdbc
-      image: alpine:3.21.3
+      image: curlimages/curl:8.11.1
       command:
         - sh
         - -c
@@ -93,14 +93,10 @@ starrocksFESpec:
             exit 0
           fi
           url="https://repo1.maven.org/maven2/org/postgresql/postgresql/42.7.13/postgresql-42.7.13.jar"
-          i=0
-          while [ "$i" -lt 5 ]; do
-            if wget -T 30 -O "$dest" "$url"; then
-              break
-            fi
-            i=$((i + 1))
-            sleep 2
-          done
+          # curl falls back to IPv4 when IPv6 is unreachable; busybox wget
+          # does not, and a cluster without IPv6 egress fails every retry.
+          curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors \
+            --connect-timeout 20 -o "$dest" "$url"
           echo "$want  $dest" | sha256sum -c
       volumeMounts:
         - name: jdbc
@@ -152,7 +148,7 @@ starrocksBeSpec:
       mountPath: /opt/starrocks/jdbc
   initContainers:
     - name: postgresql-jdbc
-      image: alpine:3.21.3
+      image: curlimages/curl:8.11.1
       command:
         - sh
         - -c
@@ -164,14 +160,10 @@ starrocksBeSpec:
             exit 0
           fi
           url="https://repo1.maven.org/maven2/org/postgresql/postgresql/42.7.13/postgresql-42.7.13.jar"
-          i=0
-          while [ "$i" -lt 5 ]; do
-            if wget -T 30 -O "$dest" "$url"; then
-              break
-            fi
-            i=$((i + 1))
-            sleep 2
-          done
+          # curl falls back to IPv4 when IPv6 is unreachable; busybox wget
+          # does not, and a cluster without IPv6 egress fails every retry.
+          curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors \
+            --connect-timeout 20 -o "$dest" "$url"
           echo "$want  $dest" | sha256sum -c
       volumeMounts:
         - name: jdbc

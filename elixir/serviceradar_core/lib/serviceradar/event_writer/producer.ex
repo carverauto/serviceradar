@@ -551,6 +551,7 @@ defmodule ServiceRadar.EventWriter.Producer do
           Enum.map(failures, fn {_stream, {:error, reason}} -> reason end)}}
 
       true ->
+        retire_consumers(conn, config.retired_consumers)
         pull_subjects = MapSet.new(consumers, & &1.pull_subject)
         sid_to_pull = Map.new(consumers, fn c -> {c.sid, c.pull_subject} end)
 
@@ -563,6 +564,33 @@ defmodule ServiceRadar.EventWriter.Producer do
            sid_to_pull_subject: sid_to_pull
          }}
     end
+  end
+
+  # Best effort: a retired durable holds no work anyone needs, so failing to
+  # delete it is logged and retried on the next connect, never fatal.
+  defp retire_consumers(conn, retired) do
+    Enum.each(retired, fn %{stream_name: stream_name, consumer_name: consumer_name} ->
+      case JetstreamConsumer.delete_durable(conn, stream_name, consumer_name) do
+        {:ok, :deleted} ->
+          Logger.info(
+            "EventWriter deleted retired JetStream consumer #{stream_name}/#{consumer_name}",
+            stream: stream_name,
+            durable: consumer_name
+          )
+
+        {:ok, :absent} ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning(
+            "EventWriter could not delete retired JetStream consumer " <>
+              "#{stream_name}/#{consumer_name}: #{inspect(reason)}",
+            stream: stream_name,
+            durable: consumer_name,
+            reason: inspect(reason)
+          )
+      end
+    end)
   end
 
   defp log_consumer_setup_failure(classification, config, stream, reason) do

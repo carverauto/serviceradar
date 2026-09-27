@@ -8,6 +8,10 @@ defmodule ServiceRadar.Observability.Log do
   Promotion metadata is stored in `attributes["serviceradar.ingest"]`,
   including NATS subject, received_at, and source_kind.
 
+  Read-only here. EventWriter's `Processors.Logs` is the only writer, after a
+  JetStream hop; core publishes internal logs through
+  `ServiceRadar.Events.InternalLogPublisher`.
+
   ## OpenTelemetry Severity Numbers
 
   - 1-4: TRACE
@@ -23,31 +27,6 @@ defmodule ServiceRadar.Observability.Log do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshJsonApi.Resource]
-
-  @log_fields [
-    :timestamp,
-    :observed_timestamp,
-    :trace_id,
-    :span_id,
-    :trace_flags,
-    :severity_text,
-    :severity_number,
-    :body,
-    :event_name,
-    :source,
-    :source_ip,
-    :service_name,
-    :service_version,
-    :service_instance,
-    :scope_name,
-    :scope_version,
-    :scope_attributes,
-    :attributes,
-    :resource_attributes,
-    :ingest_identity,
-    :ingest_agent_id,
-    :ingest_partition
-  ]
 
   postgres do
     table "logs"
@@ -103,10 +82,6 @@ defmodule ServiceRadar.Observability.Log do
       description "Logs from the last 24 hours"
       filter expr(timestamp > ago(24, :hour))
     end
-
-    create :create do
-      accept @log_fields
-    end
   end
 
   policies do
@@ -114,7 +89,6 @@ defmodule ServiceRadar.Observability.Log do
 
     system_bypass()
     read_viewer_plus()
-    operator_action(:create)
   end
 
   changes do

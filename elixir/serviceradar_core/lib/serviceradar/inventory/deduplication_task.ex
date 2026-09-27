@@ -26,7 +26,8 @@ defmodule ServiceRadar.Inventory.DeduplicationTask do
   use Ash.Resource,
     domain: ServiceRadar.Inventory,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer]
+    authorizers: [Ash.Policy.Authorizer],
+    notifiers: [ServiceRadar.Inventory.DeduplicationTaskNotifier]
 
   alias ServiceRadar.Inventory.Changes.SetResolvedBy
 

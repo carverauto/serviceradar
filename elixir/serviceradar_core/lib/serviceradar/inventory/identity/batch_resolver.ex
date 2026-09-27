@@ -86,7 +86,8 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
               _ -> ip_map
             end
 
-          {[{update, ids, device_id} | acc], ip_map, claim_source_id(claimed, ids, device_id)}
+          {[{update, ids, device_id} | acc], ip_map,
+           SourceAuthorityGuard.claim(claimed, ids, device_id)}
       end)
 
     preloads = %{preloads | source_ids: source_ids}
@@ -130,21 +131,6 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
     _ = SourceAuthorityGuard.record_overrides(Enum.reverse(overrides_rev))
 
     {Enum.reverse(resolved_rev), strong}
-  end
-
-  defp claim_source_id(source_ids, ids, device_id) do
-    case Ids.ids_get(ids, :armis_id) do
-      value when is_binary(value) and value != "" ->
-        Map.update(
-          source_ids,
-          device_id,
-          MapSet.new([{Ids.ids_get_partition(ids), value}]),
-          &MapSet.put(&1, {Ids.ids_get_partition(ids), value})
-        )
-
-      _ ->
-        source_ids
-    end
   end
 
   defp resolve_one(update, ids, ip_map, preloads) do
@@ -310,7 +296,6 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
 
   defp source_overrides(ids, final_id, preloads) do
     for id_type <- Ids.identifier_priority(),
-        id_type != :armis_device_id,
         value <- Ids.get_identifier_values(id_type, ids),
         device_id <- identifier_owners(id_type, value, ids, preloads.identifiers),
         device_id != final_id,
@@ -319,12 +304,7 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
         device_uid: device_id,
         identifier_type: id_type,
         identifier_value: value,
-        source_ids:
-          SourceAuthorityGuard.scoped_source_ids(
-            preloads.source_ids,
-            device_id,
-            Ids.ids_get_partition(ids)
-          )
+        source_ids: SourceAuthorityGuard.scoped_source_ids(preloads.source_ids, device_id, ids)
       }
     end
   end
@@ -602,13 +582,13 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
   def preload_source_ids(updates_with_ids, lookups, actor) do
     updates_with_ids
     |> Enum.flat_map(fn {_update, ids} ->
-      if Ids.ids_get(ids, :armis_id) in [nil, ""] do
-        []
-      else
+      if SourceAuthorityGuard.carries_source_id?(ids) do
         for id_type <- Ids.identifier_priority(),
             value <- Ids.get_identifier_values(id_type, ids),
             device_id <- identifier_owners(id_type, value, ids, lookups.identifiers),
             do: device_id
+      else
+        []
       end
     end)
     |> SourceAuthorityGuard.held_source_ids(actor)

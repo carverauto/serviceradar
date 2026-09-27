@@ -55,6 +55,7 @@ go_test(
         "socket_close_unix_test.go",
         "socket_test.go",
         "tcp_flow_raw_linux_test.go",
+        "tcp_flow_target_test.go",
         "tcp_handshake_test.go",
         "tcp_test.go",
         "tracer_test.go",

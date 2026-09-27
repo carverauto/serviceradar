@@ -364,14 +364,15 @@ config :serviceradar_core,
   event_batcher_enabled: false,
   health_check_runner_enabled: false,
   health_check_registrar_enabled: false,
-  stateful_alert_evaluation_queue:
-    ServiceRadar.TestSupport.SynchronousStatefulAlertEvaluationQueue,
+  # Internal events, logs and signals are stored by EventWriter after a
+  # JetStream hop. There is no NATS here, so each publish is handed straight to
+  # the processor EventWriter would run for its subject.
+  internal_telemetry_publisher: ServiceRadar.TestSupport.InlineEventWriterPublisher,
   service_heartbeat_enabled: false,
   spiffe_cert_monitor_enabled: false,
   status_handler_enabled: false,
   control_repo_enabled: false,
-  seeders_enabled: false,
-  log_promotion_consumer_enabled: false
+  seeders_enabled: false
 
 # Prefix-tag enrichment off by default in tests; enable per-test when needed.
 # Loader stays off so unit tests don't hit CNPG on application start.

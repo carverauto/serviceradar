@@ -12,7 +12,7 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposure do
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
+  alias ServiceRadar.Events.SignalPublisher
   alias ServiceRadar.Inventory.DeviceRiskReducer
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Repo
@@ -326,17 +326,13 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposure do
     "hostile-ioc-vuln:#{hit.device_uid}:#{hit.hostile_ip}:#{hit.cve_id || "unknown"}"
   end
 
-  defp default_emit_event(payload) do
-    message = %{
-      data: Jason.encode!(payload),
-      metadata: %{
-        subject: "signals.analytics.inventory.hostile_ioc_vulnerable_service",
-        received_at: DateTime.utc_now()
-      }
-    }
-
-    AnalyticsSignals.process_batch([message])
-  end
+  # Published to JetStream; EventWriter's AnalyticsSignals stores it.
+  defp default_emit_event(payload),
+    do:
+      SignalPublisher.publish(
+        "signals.analytics.inventory.hostile_ioc_vulnerable_service",
+        payload
+      )
 
   defp default_create_alert(attrs) do
     actor = SystemActor.system(:device_risk_ioc_exposure)

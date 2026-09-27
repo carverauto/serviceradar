@@ -63,6 +63,9 @@ pub enum Entity {
     SnmpMetrics,
     TraceSummaries,
     Traces,
+    /// The OTel `service.name` catalog (`platform.otel_service_catalog`). Not
+    /// `Services`, which is monitored service checks.
+    OtelServices,
     Flows,
     AttributedFlows,
     Alerts,
@@ -78,6 +81,8 @@ pub enum Entity {
     DeviceIdentifiers,
     IdentityReconciliationRuns,
     IdentityEvidenceEdges,
+    IdentityDecisions,
+    DeduplicationTasks,
     VulnerabilityAdvisories,
     AdvisoryCoordinates,
     EndpointVulnerabilityAssessments,

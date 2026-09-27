@@ -21,6 +21,7 @@ fn plan_for(query: &str) -> QueryPlan {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
     build_query_plan(&config, &request, ast).expect("should build plan for docs query")
 }
@@ -80,6 +81,7 @@ fn other_rollup_rejects_non_flow_stats_entities() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let err = build_query_plan(&config, &request, ast)

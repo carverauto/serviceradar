@@ -55,6 +55,8 @@ package(default_visibility = ["//visibility:public"])
 exports_files([
     "assemble_bundle.py",
     "build_wasm_binary.sh",
+    # Read by //demo/fence, which asserts the first-party inventory never names a demo plugin.
+    "plugin_inventory.bzl",
     "publish_plugin.sh",
 ])
 

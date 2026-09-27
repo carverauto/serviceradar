@@ -14,9 +14,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ICMPData do
     {~s(metric_type:icmp !metric_name:["icmp_response_time_ns","icmp_packet_loss","icmp_available"]), :legacy}
   ]
 
+  # A sweep reports a host available when any probe answers, ICMP or TCP.
+  # Reading the ICMP-only gauge marked a host that blocks ping but answers on a
+  # swept TCP port offline in every bucket.
   @availability_sources [
     {"metric_type:icmp metric_name:icmp_available", :status},
-    {"metric_type:sweep metric_name:sweep.host.icmp_available", :status}
+    {"metric_type:sweep metric_name:sweep.host.available", :status}
   ]
 
   def load(srql_module, device_uids, scope, opts) when is_list(device_uids) do

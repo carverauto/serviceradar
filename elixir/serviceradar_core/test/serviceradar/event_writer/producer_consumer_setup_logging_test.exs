@@ -62,6 +62,21 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
         String.contains?(topic, ".CONSUMER.DURABLE.CREATE.") ->
           %{"type" => "io.nats.jetstream.api.v1.consumer_create_response"}
 
+        String.ends_with?(topic, ".CONSUMER.DELETE.events.already-gone") ->
+          %{
+            "error" => %{
+              "code" => 404,
+              "err_code" => 10_014,
+              "description" => "consumer not found"
+            }
+          }
+
+        String.ends_with?(topic, ".CONSUMER.DELETE.events.server-refuses") ->
+          %{"error" => %{"code" => 500, "description" => "jetstream unavailable"}}
+
+        String.contains?(topic, ".CONSUMER.DELETE.") ->
+          %{"type" => "io.nats.jetstream.api.v1.consumer_delete_response", "success" => true}
+
         true ->
           raise "unexpected JetStream request: #{topic}"
       end
@@ -200,6 +215,56 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
     assert_receive {:unsubscribed, 99}
     refute_received {:subscribed, 100, _topic}
     refute Process.alive?(conn)
+  end
+
+  test "retired consumers are deleted once the live consumers are ready, and a failure is not fatal" do
+    config = %Config{
+      consumer_name: "serviceradar-event-writer",
+      consumer_pull_batch_size: 64,
+      streams: [%{name: "NETFLOW_RAW", stream_name: "flows", subject: "flows.raw.netflow"}],
+      retired_consumers: [
+        %{stream_name: "events", consumer_name: "log-promotion"},
+        %{stream_name: "events", consumer_name: "already-gone"},
+        %{stream_name: "events", consumer_name: "server-refuses"}
+      ]
+    }
+
+    conn = start_supervised!({FakeJetStreamConnection, self()})
+
+    log =
+      capture_log(fn ->
+        assert {:ok, %{conn: ^conn, consumers: [_live]}} =
+                 Producer.setup_jetstream_consumers(conn, config)
+      end)
+
+    assert_received {:jetstream_request, "$JS.API.CONSUMER.DELETE.events.log-promotion"}
+    assert_received {:jetstream_request, "$JS.API.CONSUMER.DELETE.events.already-gone"}
+    assert_received {:jetstream_request, "$JS.API.CONSUMER.DELETE.events.server-refuses"}
+
+    # An absent consumer is already retired; only the refused delete is a warning.
+    assert log =~ "could not delete retired JetStream consumer events/server-refuses"
+    refute log =~ "events/already-gone"
+    assert Process.alive?(conn)
+  end
+
+  test "retired consumers are not touched when the live consumers fail to start" do
+    config = %Config{
+      consumer_name: "serviceradar-event-writer",
+      consumer_pull_batch_size: 64,
+      streams: [
+        %{name: "NETFLOW_RAW_REQUIRED", stream_name: "events", subject: "flows.raw.netflow"}
+      ],
+      retired_consumers: [%{stream_name: "events", consumer_name: "log-promotion"}]
+    }
+
+    conn = start_supervised!({FakeJetStreamConnection, self()})
+
+    capture_log(fn ->
+      assert {:error, {:consumer_setup_failed, _}} =
+               Producer.setup_jetstream_consumers(conn, config)
+    end)
+
+    refute_received {:jetstream_request, "$JS.API.CONSUMER.DELETE.events.log-promotion"}
   end
 
   test "an empty stream configuration rejects setup and closes the connection" do

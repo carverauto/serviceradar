@@ -234,6 +234,110 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
     ip_version: 4
   }
 
+  @replace_config %{
+    fe_http: "http://starrocks.example.com:8030",
+    database: "serviceradar",
+    user: "root",
+    password: ""
+  }
+  @report_id "550e8400-e29b-41d4-a716-446655440000"
+  @other_report_id "6ba7b810-9dad-41d1-80b4-00c04fd430c8"
+  @report_event %{
+    id: @report_id,
+    time: ~U[2026-01-15 10:00:00Z],
+    log_name: "trivy.report.vulnerability",
+    log_provider: "trivy"
+  }
+
+  defp recording(parent, reply) do
+    fn sql ->
+      send(parent, {:statement, sql})
+      reply
+    end
+  end
+
+  defp loading(parent) do
+    fn table, rows, _opts ->
+      send(parent, {:statement, {:load, table, length(rows)}})
+      {:ok, %{loaded: length(rows)}}
+    end
+  end
+
+  defp next_message do
+    receive do
+      message -> message
+    after
+      0 -> :none
+    end
+  end
+
+  describe "replacing events by id" do
+    test "the provider's rows with those ids are deleted before the load" do
+      {:ok, raw_other} = Ecto.UUID.dump(@other_report_id)
+
+      assert {:ok, %{missing: []}} =
+               Destination.persist_shadow(:events, [@report_event],
+                 config: @replace_config,
+                 replace: %{ids: [@report_id, raw_other, @report_id], log_provider: "trivy"},
+                 delete: recording(self(), {:ok, %{}}),
+                 persist: loading(self())
+               )
+
+      # In order: the delete, then the load.
+      assert {:statement, sql} = next_message()
+
+      assert sql ==
+               "DELETE FROM serviceradar.events WHERE log_provider = 'trivy' " <>
+                 "AND id IN ('#{@report_id}', '#{@other_report_id}')"
+
+      assert {:statement, {:load, "events", 1}} = next_message()
+    end
+
+    test "a failed delete loads nothing and fails a required load" do
+      assert {:error, {:missing_destinations, %{missing: [:starrocks]}}} =
+               Destination.persist_shadow(:events, [@report_event],
+                 config: @replace_config,
+                 require_all: true,
+                 replace: %{ids: [@report_id], log_provider: "trivy"},
+                 delete: recording(self(), {:error, :connect_failed}),
+                 persist: loading(self())
+               )
+
+      assert_received {:statement, "DELETE FROM " <> _}
+      refute_received {:statement, {:load, _, _}}
+    end
+
+    test "an id that is not a UUID, or an unsafe provider, sends no statement" do
+      for replace <- [
+            %{ids: [@report_id, "x') OR ('1'='1"], log_provider: "trivy"},
+            %{ids: [@report_id], log_provider: "trivy' OR '1'='1"}
+          ] do
+        assert {:error, {:missing_destinations, _}} =
+                 Destination.persist_shadow(:events, [@report_event],
+                   config: @replace_config,
+                   require_all: true,
+                   replace: replace,
+                   delete: recording(self(), {:ok, %{}}),
+                   persist: loading(self())
+                 )
+      end
+
+      refute_received {:statement, _}
+    end
+
+    test "without a replace nothing is deleted" do
+      assert {:ok, %{missing: []}} =
+               Destination.persist_shadow(:events, [@report_event],
+                 config: @replace_config,
+                 delete: recording(self(), {:ok, %{}}),
+                 persist: loading(self())
+               )
+
+      assert_received {:statement, {:load, "events", 1}}
+      refute_received {:statement, "DELETE" <> _}
+    end
+  end
+
   test "a warehouse-only load encodes the dataset and reports what it loaded" do
     persist = fn table, rows, _opts ->
       send(self(), {:loaded, table, rows})

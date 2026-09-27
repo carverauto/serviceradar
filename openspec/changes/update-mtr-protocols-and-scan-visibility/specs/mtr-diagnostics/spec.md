@@ -73,6 +73,11 @@ The system SHALL support policy-driven baseline MTR collection for managed devic
 - **THEN** baseline traces run once per target for each protocol in the set
 - **AND** the recommended minimum baseline interval accounts for the number of protocols
 
+#### Scenario: Automated selection excludes link-local targets
+- **WHEN** automated target selection (baseline dispatch, per-target or bulk, and SRQL-selected bulk) matches a target whose address is link-local (IPv4 `169.254.0.0/16`, IPv6 `fe80::/10`, including the IPv4-mapped form)
+- **THEN** that target is dropped before any selector limit is applied, so it does not consume a limit slot
+- **AND** the scheduler's dispatch summary reports the excluded count as `skipped_link_local`
+
 ## ADDED Requirements
 
 ### Requirement: TCP SYN Probe Flow
@@ -98,6 +103,11 @@ For TCP traces on agents advertising the `mtr_tcp_syn` capability, the agent SHA
 - **THEN** probes target the configured destination port `tcp_port` while a fresh source port per probe is permitted, so this path makes no stable-flow or ECMP path guarantee
 - **AND** reach is detected from the non-blocking connect outcome within the probe timeout, where the connect completing means SYN-ACK and refusal means RST
 - **AND** TCP handshake diagnostics are left empty
+
+#### Scenario: IPv6 link-local TCP target
+- **WHEN** a TCP trace, on either the raw or the connect-based flow, targets an IPv6 link-local address
+- **THEN** the agent rejects the target before opening any socket, with an error stating that a link-local IPv6 target needs an interface zone and is not traceable over TCP
+- **AND** ICMP and UDP traces to the same address are unchanged
 
 ### Requirement: TCP Handshake Diagnostics
 For TCP traces on agents advertising `mtr_tcp_syn`, the agent SHALL run a bounded destination handshake phase and report SYNs sent, SYN-ACKs received, RSTs received, unanswered SYNs, SYN drop percentage, SYN retransmissions, handshakes answered only after retransmission, acknowledgement mismatches, duplicate SYN-ACKs, handshake RTT (min/avg/max), and an estimated server response time; and the agent SHALL report per-hop reply-type counters for every protocol.

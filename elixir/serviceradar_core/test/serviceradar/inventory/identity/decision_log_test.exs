@@ -137,12 +137,50 @@ defmodule ServiceRadar.Inventory.Identity.DecisionLogTest do
       assert map_size(decision.evidence["source_ids"]) == 2
     end
 
+    test "different NetBox ids refuse the merge and record a source block", %{actor: actor} do
+      a = create_device!(actor)
+      b = create_device!(actor)
+      register!(actor, a.uid, :netbox_device_id, "decision-log-netbox:#{unique()}")
+      register!(actor, b.uid, :netbox_device_id, "decision-log-netbox:#{unique()}")
+
+      assert {:error, {:merge_blocked, :source_authority_conflict}} =
+               MergeEngine.merge_devices(a.uid, b.uid,
+                 actor: actor,
+                 reason: "identifier_conflict"
+               )
+
+      assert {:ok, %Device{deleted_at: nil}} = Device.get_by_uid(a.uid, true, actor: actor)
+      assert [decision] = decisions_for(actor, a.uid)
+      assert decision.decision_kind == :source_block
+      assert decision.device_uids == Enum.sort([a.uid, b.uid])
+      assert decision.evidence["identifier_type"] == "netbox_device_id"
+      assert map_size(decision.evidence["source_ids"]) == 2
+    end
+
     test "an administrative merge is not a decision to record", %{actor: actor} do
       a = create_device!(actor)
       b = create_device!(actor)
 
       assert :ok = MergeEngine.merge_devices(a.uid, b.uid, actor: actor, reason: "manual_merge")
       assert decisions_for(actor, a.uid) == []
+    end
+  end
+
+  describe "source-authoritative identifier ownership lock" do
+    for type <- [:armis_device_id, :netbox_device_id] do
+      test "registering a #{type} identifier takes the device ownership lock", %{actor: actor} do
+        device = create_device!(actor)
+        register!(actor, device.uid, unquote(type), "decision-log-lock:#{unique()}")
+
+        assert ownership_lock_held?(device.uid)
+      end
+    end
+
+    test "registering an identifier of another type does not take the lock", %{actor: actor} do
+      device = create_device!(actor)
+      register!(actor, device.uid, :agent_id, "decision-log-agent-#{unique()}")
+
+      refute ownership_lock_held?(device.uid)
     end
   end
 
@@ -202,6 +240,26 @@ defmodule ServiceRadar.Inventory.Identity.DecisionLogTest do
       source: "test"
     })
     |> Ash.create!(actor: actor)
+  end
+
+  defp ownership_lock_held?(uid) do
+    %{rows: [[held?]]} =
+      ServiceRadar.Repo.query!(
+        """
+        SELECT EXISTS (
+          SELECT 1
+          FROM pg_locks
+          WHERE locktype = 'advisory'
+            AND granted
+            AND pid = pg_backend_pid()
+            AND ((classid::bigint << 32) | objid::bigint) =
+                  hashtextextended('serviceradar:armis-identifier-owner:' || $1::text, 0)
+        )
+        """,
+        [uid]
+      )
+
+    held?
   end
 
   defp create_alias_state!(actor, uid, ip) do

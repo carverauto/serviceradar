@@ -1575,6 +1575,8 @@ if config_env() == :prod do
            # Cold-window pruning + manifest/bucket reconciliation (no-op when
            # cold-tier config is absent).
            {"23 4 * * *", ServiceRadar.ColdTier.Pruner, queue: :maintenance},
+           {"37 3 * * *", ServiceRadar.Observability.StatefulEvaluationLedgerPruneWorker,
+            queue: :maintenance},
            {"*/10 * * * *", ServiceRadar.Edge.RemoteAccessRecordingReaperWorker,
             queue: :maintenance},
            {"31 3 * * *", ServiceRadar.Edge.RemoteAccessVersionRetentionWorker,
@@ -1635,9 +1637,6 @@ if config_env() == :prod do
       false
     end
 
-  log_promotion_enabled =
-    System.get_env("LOG_PROMOTION_CONSUMER_ENABLED", "true") in ~w(true 1 yes)
-
   # EventWriter configuration (NATS JetStream → CNPG consumer).
   # Default ON when NATS creds are configured: the helm chart sets
   # EVENT_WRITER_ENABLED and EVENT_WRITER_NATS_CREDS_FILE together, so an UNSET flag
@@ -1657,8 +1656,6 @@ if config_env() == :prod do
     password: {:system, "NATS_PASSWORD"},
     creds_file: nats_creds_file,
     tls: nats_tls_config
-
-  config :serviceradar_core, :log_promotion_consumer_enabled, log_promotion_enabled
 
   if event_writer_enabled do
     event_writer_creds = System.get_env("EVENT_WRITER_NATS_CREDS_FILE")

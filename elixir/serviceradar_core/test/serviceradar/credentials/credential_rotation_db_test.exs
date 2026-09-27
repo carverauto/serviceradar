@@ -257,6 +257,10 @@ defmodule ServiceRadar.Credentials.CredentialRotationDbTest do
         [dumped_id]
       )
 
+    # Lifecycle events are published from the rotation action's transaction, so
+    # they wait in the publish outbox until it commits; deliver them.
+    Oban.drain_queue(queue: :events)
+
     %{rows: [[lifecycle_events, actions]]} =
       SQL.query!(
         Repo,

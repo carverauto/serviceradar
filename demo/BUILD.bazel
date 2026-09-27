@@ -1,0 +1,18 @@
+# gazelle:ignore
+#
+# Showcase demos. Nothing under //demo ships with the product: every target here
+# is visible only inside //demo, and //demo/fence checks the product inventories
+# that refer to artifacts by name. See demo/README.md and
+# openspec/changes/add-showcase-demo-portfolio.
+
+package(default_visibility = ["//demo:__subpackages__"])
+
+package_group(
+    name = "demo_packages",
+    packages = ["//demo/..."],
+)
+
+exports_files(
+    ["README.md"],
+    visibility = ["//demo:__subpackages__"],
+)

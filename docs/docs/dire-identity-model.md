@@ -64,18 +64,23 @@ in `SourcePolicy.sufficient_to_create?/1`.
 4. IP/alias fallback — only for weak updates
 5. Deterministic (IP-seeded) or random UID
 
-A source-authoritative identifier (`armis_device_id`) decides identity. An
-update carrying one never resolves, through a shared MAC or any other
-identifier, onto a record that holds a different one in the same scope (the
-identifier partition, which carries the sync source), whether that id is
-stored or was claimed earlier in the same batch: that record is not a
-match, the update resolves by its own identifier, and the shared identifier
-stays with its owner as evidence. Each override is recorded as an open
+A source-authoritative identifier (`armis_device_id`, `netbox_device_id`)
+decides identity. An update carrying one never resolves, through a shared MAC
+or any other identifier, onto a record that holds a different one of the same
+type in the same scope (the identifier partition; Armis partitions carry the
+sync source, and a NetBox device id carries its source in the value), whether
+that id is stored or was claimed earlier in the same batch: that record is
+not a match, the update resolves by its own identifier, and the shared
+identifier stays with its owner as evidence. Each override is recorded as a
+`source_override` identity decision naming both records, and as an open
 `source_authoritative_override` source-identity conflict on the incoming
 record, naming the overridden records and the identifiers they share, so it
-can be reviewed. A record holding no source-authoritative identifier is still
-a match: that is how an Armis id attaches to the discovered record of the same
-device.
+can be reviewed. A record holding no source-authoritative identifier of that
+type is still a match: that is how an Armis id attaches to the discovered
+record of the same device, and how the Armis and NetBox records of one device
+converge through a shared MAC. An automatic merge of two records holding
+different values of one type in one scope is refused and recorded as a
+`source_block` decision.
 
 An address follows the device observed at it. When a strong-identified write
 that observed the device at its address (Armis, the passive census,
@@ -99,18 +104,36 @@ The holder keeps the address, and the incoming record drops it, in these cases
   `last_seen_time` is missing), so an Armis last-known address of an offline
   device does not displace a live holder;
 - another record in the same batch, the holder's own or a second incoming one,
-  also claims the address: neither observation is fresher.
+  also claims the address: neither observation is fresher;
+- the holder is bound to a different agent that is still live (an agent
+  check-in only; live means not retired and seen within the last 30 minutes):
+  two live agents behind one NAT address each keep their own device and the
+  address does not flap between them. A holder bound to an agent that is
+  gone, or with no agent, such as an Armis device, still releases a stale
+  address to a newer check-in.
 
 Two further cases adopt the holder's uid instead of moving the address: an
-anchorless provisional seed at the address, and a holder whose hostname agrees.
-Hostname agreement never adopts across two different `armis_device_id` or
-`netbox_device_id` values: those records stay separate devices.
+anchorless provisional seed at the address, and a holder whose hostname agrees,
+under narrow conditions. A hostname is evidence, like the address, never
+identity, so hostname agreement adopts the holder only when the incoming
+record is not yet a device and neither side holds a source-authoritative
+identifier (`armis_device_id`, `netbox_device_id`), with no disagreeing
+hardware serial and no third device claiming either side's identity. It never
+merges two existing devices and never adopts across a source-authoritative
+identifier. When the hostnames agree but adoption is refused, the two stay
+separate devices, the address is decided as above, and the pair is recorded as
+a `policy_block` identity decision (reason `hostname_agreement_not_identity`),
+which opens a de-duplication task for an operator to merge, mark distinct or
+dismiss.
 
 An agent check-in never adopts on hostname: `AgentGatewaySync` adopts a holder
 only when it claims no anchor identifier (agent id, Armis id, MAC, serial, ...)
 that the agent does not also claim. An agent's existing device is never
 replaced by the holder; it takes the address under the rule above or keeps its
-own, and either decision is recorded.
+own, and either decision is recorded, with an evidence `reason`: `holder_stale`
+(released), `holder_seen_no_earlier` or `held_by_live_agent` (kept). The holder
+lookup for a new agent device is scoped to that device's partition; a missing or
+blank partition on the check-in is `default`, for the device and the lookup.
 
 Merged-away device IDs are never resurrected: resolution follows the
 `merge_audit` canonical mapping to the survivor (`Identity.Resolver` /
@@ -234,6 +257,9 @@ kind (`policy_block`, `guard_block`, `source_block`, `alias_invalidated`, `ip_co
 evidence, and how often and when it was made. A repeat updates the row rather than adding
 one. Administrative merges are not decisions and are not recorded.
 
+Read them with SRQL `in:identity_decisions` (for one device, `device:<uid>`), or through the
+`trace_device_identity` MCP tool. Both are read-only.
+
 ## De-duplication tasks
 
 Every identity decision that names two or more devices also opens or updates the
@@ -241,6 +267,8 @@ de-duplication task for that device set (`platform.identity_deduplication_tasks`
 `ServiceRadar.Inventory.DeduplicationTask`); the scheduled duplicate sweep records each
 ambiguous component it declines the same way (`component_block`). There is exactly one task per
 device set for its whole life; later decisions update its count, last reason and evidence.
+SRQL `in:deduplication_tasks` lists them (`status:open` for the review queue); the
+`trace_device_identity` MCP tool reports a device's open tasks.
 
 An operator resolves an open task through `ServiceRadar.Inventory.Identity.Deduplication`:
 
@@ -252,6 +280,9 @@ An operator resolves an open task through `ServiceRadar.Inventory.Identity.Dedup
   those pairs (guard `asserted_distinct`), the scheduled backfill included, and later decisions
   about the set open no task.
 - `dismiss/3` closes it without a decision; a dismissed task can be reopened.
+
+Every resolution, dismissal and reopen publishes a refresh pulse so a review queue open in
+another session updates; see `ServiceRadar.Inventory.DeduplicationTaskNotifier`.
 
 ## Release gate
 

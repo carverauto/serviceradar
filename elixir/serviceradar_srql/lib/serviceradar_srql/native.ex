@@ -21,9 +21,24 @@ defmodule ServiceRadarSRQL.Native do
   end
 
   @doc """
-  Translate an SRQL query to SQL and return the result as JSON.
+  Translate an SRQL query to SQL and return the result as JSON, with no
+  permitted-signal set.
+
+  Equivalent to `translate/6` with `nil`, so entities that require a trusted
+  signal set (`in:otel_services`) are rejected as forbidden.
   """
-  def translate(_query, _limit, _cursor, _direction, _mode), do: :erlang.nif_error(:nif_not_loaded)
+  def translate(query, limit, cursor, direction, mode), do: translate(query, limit, cursor, direction, mode, nil)
+
+  @doc """
+  Translate an SRQL query to SQL and return the result as JSON.
+
+  `permitted_signals` is the caller's trusted list of viewable OTel signals
+  (`"logs"`, `"traces"`, `"metrics"`), computed by its access gate and never
+  derived from the query string, or `nil` when no set applies. A query that
+  needs the set and lacks it, or asks for a signal outside it, returns
+  `{:error, "forbidden: " <> reason}`.
+  """
+  def translate(_query, _limit, _cursor, _direction, _mode, _permitted_signals), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
   Parse an SRQL query and return the AST as JSON.

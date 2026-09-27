@@ -119,6 +119,7 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
             Ok(Entity::TraceSummaries)
         }
         "otel_traces" | "traces" | "trace_spans" => Ok(Entity::Traces),
+        "otel_services" => Ok(Entity::OtelServices),
         "threat_intel_matches" | "threat_intel_match" | "ioc_matches" | "ioc_match" => {
             Ok(Entity::ThreatIntelMatches)
         }
@@ -162,6 +163,13 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
         "identity_evidence_edges" | "identity_evidence" | "evidence_edges" => {
             Ok(Entity::IdentityEvidenceEdges)
         }
+        "identity_decisions" | "identity_decision" | "dire_decisions" => {
+            Ok(Entity::IdentityDecisions)
+        }
+        "deduplication_tasks"
+        | "deduplication_task"
+        | "dedup_tasks"
+        | "identity_deduplication_tasks" => Ok(Entity::DeduplicationTasks),
         "vulnerability_advisories" | "vulnerability_advisory" | "advisories" | "cves" => {
             Ok(Entity::VulnerabilityAdvisories)
         }

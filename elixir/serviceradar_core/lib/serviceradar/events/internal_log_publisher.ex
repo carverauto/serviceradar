@@ -1,12 +1,18 @@
 defmodule ServiceRadar.Events.InternalLogPublisher do
   @moduledoc """
-  Persists internal OCSF log activity payloads and optionally publishes them to
-  NATS as `live.logs.internal.*` for live subscribers.
+  Publishes internal OCSF log activity (health, audit, jobs, onboarding,
+  sweep, sync, k8s) to JetStream on `logs.internal.*`, where EventWriter
+  stores and promotes it like any other log, and optionally publishes a
+  `live.logs.internal.*` copy for live subscribers.
+
+  The publish is durable (`ServiceRadar.NATS.DurablePublish`): when NATS is
+  unavailable the log is retried from an Oban job rather than dropped, and its
+  `Nats-Msg-Id` gives it a stable row id so a retry stores it once.
   """
 
-  alias ServiceRadar.EventWriter.Processors.Logs
   alias ServiceRadar.NATS.Channels
   alias ServiceRadar.NATS.Connection
+  alias ServiceRadar.NATS.DurablePublish
 
   require Logger
 
@@ -45,38 +51,24 @@ defmodule ServiceRadar.Events.InternalLogPublisher do
   end
 
   defp persist_log(subject, json, opts) do
-    message = %{
-      data: json,
-      metadata: %{
-        subject: subject,
-        received_at: DateTime.utc_now(),
-        headers: []
-      }
-    }
+    durable_publish = Keyword.get(opts, :durable_publish, &DurablePublish.publish/3)
 
-    case process_logs(log_processor(opts), [message]) do
-      {:ok, _count} ->
+    case durable_publish.(subject, json, msg_id: Ash.UUID.generate()) do
+      :ok ->
+        :ok
+
+      {:ok, :enqueued} ->
         :ok
 
       {:error, reason} ->
         ServiceRadar.Otel.set_error(reason)
 
-        Logger.warning("Failed to persist internal log",
+        Logger.warning("Failed to publish internal log",
           subject: subject,
           reason: inspect(reason)
         )
 
         {:error, reason}
-
-      other ->
-        ServiceRadar.Otel.set_error(other)
-
-        Logger.warning("Unexpected internal log persistence result",
-          subject: subject,
-          result: inspect(other)
-        )
-
-        {:error, other}
     end
   end
 
@@ -105,20 +97,9 @@ defmodule ServiceRadar.Events.InternalLogPublisher do
     end)
   end
 
-  defp log_processor(opts) do
-    Keyword.get(opts, :log_processor, Logs)
-  end
-
   defp publisher(opts) do
     Keyword.get(opts, :publisher, {Connection, :publish, []})
   end
-
-  defp process_logs({mod, fun, extra_args}, messages) do
-    apply(mod, fun, [messages | extra_args])
-  end
-
-  defp process_logs(mod, messages) when is_atom(mod), do: mod.process_batch(messages)
-  defp process_logs(fun, messages) when is_function(fun, 1), do: fun.(messages)
 
   defp publish_to_nats({mod, fun, extra_args}, subject, payload) do
     apply(mod, fun, [subject, payload | extra_args])

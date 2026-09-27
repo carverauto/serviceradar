@@ -33,6 +33,8 @@ defmodule ServiceRadar.DireTrace do
   alias ServiceRadar.Inventory.MergeAudit
   alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
+  alias ServiceRadar.SweepJobs.SweepGroup
+  alias ServiceRadar.SweepJobs.SweepResultsIngestor
 
   require Ash.Query
 
@@ -51,6 +53,7 @@ defmodule ServiceRadar.DireTrace do
     :real,
     :pre_uids,
     :handler,
+    demonstrates: nil,
     ip_at: %{},
     names: %{},
     phys: %{},
@@ -151,8 +154,12 @@ defmodule ServiceRadar.DireTrace do
     })
   end
 
-  @doc "Armis sync of physical device `h`, seen at interface `x`'s address."
-  def armis(trace, h, x) do
+  @doc """
+  Armis sync of physical device `h`, seen at interface `x`'s address. The sync is stamped a
+  minute ahead of now, so it is the newest observation of the address; `seen_offset: seconds`
+  moves the stamp, for a sync that a later observation must outrank.
+  """
+  def armis(trace, h, x, opts \\ []) do
     src = Map.fetch!(trace.world.src_of, h)
     macs = if trace.world.armis_macs, do: macs_of(trace, h), else: []
     ip = real_ip!(trace, x)
@@ -164,7 +171,10 @@ defmodule ServiceRadar.DireTrace do
       "_alias_last_seen_ip" => ip
     }
 
-    seen_at = DateTime.to_iso8601(DateTime.add(DateTime.utc_now(), 60, :second))
+    seen_at =
+      DateTime.to_iso8601(
+        DateTime.add(DateTime.utc_now(), Keyword.get(opts, :seen_offset, 60), :second)
+      )
 
     update =
       maybe_put_macs(
@@ -222,7 +232,13 @@ defmodule ServiceRadar.DireTrace do
     end)
   end
 
-  @doc "ARP-style observation (netprobe census): interface `x`'s MAC and address."
+  @doc """
+  ARP-style observation (netprobe census): interface `x`'s MAC and address. The step's
+  identifiers are the globally-unique MAC only: the code neither looks up nor registers a
+  randomized MAC from a census. A new record's uid is still derived from the MAC, so the MAC
+  names it (`randomized_mac_seeds_uid`; the fix for that switch drops the `[mac]` seeds below,
+  and the record is then named by its address).
+  """
   def arp(trace, h, x) do
     mac = trace.world.ifaces[x].mac
     ip = real_ip!(trace, x)
@@ -248,8 +264,46 @@ defmodule ServiceRadar.DireTrace do
       }
     }
 
-    step(trace, "Arp", h, x, [mac], fn ->
-      assert :ok = SyncIngestor.ingest_updates([update], actor: trace.actor)
+    step(
+      trace,
+      "Arp",
+      h,
+      x,
+      Enum.filter([mac], &(&1 in trace.world.hw_ids)),
+      fn -> assert :ok = SyncIngestor.ingest_updates([update], actor: trace.actor) end,
+      [mac]
+    )
+  end
+
+  @doc """
+  Sweep: interface `x`'s address answered (`SweepResultsIngestor.ingest_results/3`, reported by
+  an authenticated agent for a sweep group). It carries no identifier.
+  """
+  def sweep(trace, h, x) do
+    ip = real_ip!(trace, x)
+    agent_id = "dire-trace-sweeper"
+
+    {:ok, group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(
+        :create,
+        %{name: "DIRE trace #{trace.name} #{ip}", partition: "default", agent_ids: []},
+        actor: trace.actor
+      )
+      |> Ash.create()
+
+    step(trace, "Sweep", h, x, [], fn ->
+      assert {:ok, _stats} =
+               SweepResultsIngestor.ingest_results(
+                 [%{"host_ip" => ip, "available" => true}],
+                 Ash.UUID.generate(),
+                 actor: trace.actor,
+                 sweep_group_id: group.id,
+                 agent_id: agent_id,
+                 authenticated_agent_id: agent_id,
+                 authenticated_partition_id: "default",
+                 config_version: "dire-trace"
+               )
     end)
   end
 
@@ -276,7 +330,10 @@ defmodule ServiceRadar.DireTrace do
   # ---------------------------------------------------------------------------------------
   # Recording
 
-  defp step(trace, name, h, x, ids, fun) do
+  # `ids` are the identifiers the step reports: the ones the code looks up and registers.
+  # `seeds` are the identifiers a new record's uid may be derived from, which name it; a census
+  # derives the uid from a randomized MAC it does not register.
+  defp step(trace, name, h, x, ids, fun, seeds \\ nil) do
     observed_ip = trace.ip_at[x]
     decisions_before = decision_counts(trace)
     audits_before = merge_rows(trace)
@@ -286,7 +343,7 @@ defmodule ServiceRadar.DireTrace do
 
     raw_merges = merge_rows(trace) -- audits_before
 
-    trace = name_new_records(trace, ids)
+    trace = name_new_records(trace, seeds || ids)
 
     new_merges =
       Enum.map(raw_merges, fn {from, to, reason} ->
@@ -773,13 +830,23 @@ defmodule ServiceRadar.DireTrace do
   @doc """
   Compares the trace with the committed files, or writes them with DIRE_TRACE_WRITE=1.
 
+  `demonstrates: switch` also writes `Trace_<name>__knockout.cfg`: the same trace checked with
+  `KnockoutBugs`, `ResolutionBugs` without that switch. `//formal/dire` requires TLC to reject the
+  trace under it, which proves the real code exhibits the defect rather than merely being allowed
+  to. Once the switch leaves `CurrentBugs.tla` the knockout equals the trace, TLC matches it, and
+  its target fails until the knockout is deleted with the switch.
+
   `tamper: true` also emits one self-test variant per model variable, each altering that one
   variable in the final state. `//formal/dire` requires TLC to reject every variant, which is
   the proof that no variable is left unchecked.
   """
   def assert_golden!(trace, opts \\ []) do
     stop(trace)
+    trace = %{trace | demonstrates: Keyword.get(opts, :demonstrates)}
     Golden.golden!(trace.name, to_tla(trace), to_cfg(trace))
+
+    if trace.demonstrates,
+      do: Golden.golden_file!("Trace_#{trace.name}__knockout.cfg", to_cfg(trace, "KnockoutBugs"))
 
     if Keyword.get(opts, :tamper, false) do
       Enum.each(tampered(trace), fn {var, tampered_trace} ->
@@ -832,7 +899,7 @@ defmodule ServiceRadar.DireTrace do
     \\* Regenerate with DIRE_TRACE_WRITE=1; do not edit by hand.
     EXTENDS DireResolutionTrace, CurrentBugs
 
-    #{world_tla(trace.world)}
+    #{world_tla(trace.world)}#{knockout_tla(trace)}
 
     TheLog == <<
     #{states}
@@ -841,7 +908,13 @@ defmodule ServiceRadar.DireTrace do
     """
   end
 
-  def to_cfg(trace) do
+  # The switch set a knockout checks the trace with: today's switches without the demonstrated one.
+  defp knockout_tla(%{demonstrates: nil}), do: ""
+
+  defp knockout_tla(%{demonstrates: switch}),
+    do: "\n\nKnockoutBugs == ResolutionBugs \\ {#{str(switch)}}"
+
+  def to_cfg(trace, bugs \\ "ResolutionBugs") do
     w = trace.world
 
     """
@@ -862,7 +935,7 @@ defmodule ServiceRadar.DireTrace do
       NoId = NoId
       NoIp = NoIp
       NoRec = NoRec
-      Bugs <- ResolutionBugs
+      Bugs <- #{bugs}
       TraceLog <- TheLog
     INIT TraceInit
     NEXT TraceNext

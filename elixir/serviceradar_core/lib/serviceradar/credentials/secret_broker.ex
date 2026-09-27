@@ -213,8 +213,6 @@ defmodule ServiceRadar.Credentials.SecretBroker do
     opts
     |> Keyword.put(:grant, grant)
     |> Keyword.put(:grant_id, string_value(value(grant, :id)))
-    |> Keyword.put(:allow_external_resolution?, true)
-    |> Keyword.put(:trusted_broker_context?, true)
     |> Keyword.put_new(:consumer_kind, value(grant, :consumer_kind))
     |> Keyword.put_new(:consumer_id, value(grant, :consumer_id))
     |> Keyword.put_new(:purpose, value(grant, :purpose))

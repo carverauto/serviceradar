@@ -68,6 +68,7 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetrics do
   alias ServiceRadar.EventWriter.IngestAttribution
   alias ServiceRadar.EventWriter.OtelId
   alias ServiceRadar.EventWriter.OtlpAttributes
+  alias ServiceRadar.EventWriter.ServiceCatalog
   alias ServiceRadar.EventWriter.SignalTelemetry
   alias Serviceradar.Metric.V1.MetricBatch, as: ServiceRadarMetricBatch
   alias ServiceRadar.Observability.OtelPubSub
@@ -96,6 +97,10 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetrics do
     SignalTelemetry.emit(:metric_points, :written, point_count)
 
     OtelPubSub.broadcast_metrics(%{count: sample_count + point_count})
+
+    # Span-derived samples and OTLP points are both the metrics signal. Best-effort
+    # catalog upsert after both inserts are durable; never fails the batch.
+    _ = ServiceCatalog.record(:metrics, span_sample_rows ++ point_rows)
 
     {:ok, sample_count + point_count}
   rescue

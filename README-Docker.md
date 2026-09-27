@@ -221,8 +221,10 @@ The stack automatically handles certificate generation and configuration:
 8. **dgraph-migrate** - Applies the Dgraph topology schema (one-shot)
 9. **core-elx, agent-gateway, web-ng** - Control plane services
 10. **age-to-dgraph** - Rebuilds Dgraph from the AGE graph and checksums the two (one-shot)
-11. **zen, log-promotion** - Bulk ingestion consumers
-12. **agent** - Edge agent (collectors + embedded engines + Wasm plugins)
+11. **agent** - Edge agent (collectors + embedded engines + Wasm plugins)
+
+Zen log normalization and the EventWriter ingestion consumers run inside
+core-elx; they are not separate containers.
 
 ## Test Your Setup
 

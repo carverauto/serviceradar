@@ -100,15 +100,13 @@ defmodule ServiceRadar.Inventory.Identity.Deduplication do
   def mark_distinct(%DeduplicationTask{} = task, actor, opts \\ []) do
     note = Keyword.get(opts, :note)
 
-    with :ok <- ensure_open(task), :ok <- ensure_can(task, :mark_distinct, actor) do
-      Repo.transaction(fn ->
-        with :ok <- assert_pairs(task, actor, note),
-             {:ok, task} <- update(task, :mark_distinct, %{resolution_note: note}, actor) do
-          task
-        else
-          {:error, reason} -> Repo.rollback(reason)
-        end
-      end)
+    with :ok <- ensure_open(task),
+         :ok <- ensure_can(task, :mark_distinct, actor),
+         {:ok, {task, notifications}} <- mark_distinct_in_transaction(task, actor, note) do
+      # Ash cannot send notifications from inside a transaction it did not start; they are
+      # returned and sent once the assertions and the status change have committed.
+      Ash.Notifier.notify(notifications)
+      {:ok, task}
     end
   end
 
@@ -120,6 +118,20 @@ defmodule ServiceRadar.Inventory.Identity.Deduplication do
   end
 
   # ---------------------------------------------------------------------------------------
+
+  defp mark_distinct_in_transaction(task, actor, note) do
+    Repo.transaction(fn ->
+      with :ok <- assert_pairs(task, actor, note),
+           {:ok, task, notifications} <-
+             update(task, :mark_distinct, %{resolution_note: note}, actor,
+               return_notifications?: true
+             ) do
+        {task, notifications}
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
 
   defp taskable?(%{decision_kind: kind, device_uids: uids}) when is_list(uids),
     do: kind in @taskable_kinds and length(DeduplicationTask.normalize_uids(uids)) >= 2
@@ -262,9 +274,9 @@ defmodule ServiceRadar.Inventory.Identity.Deduplication do
     end
   end
 
-  defp update(task, action, params, actor) do
+  defp update(task, action, params, actor, opts \\ []) do
     task
     |> Ash.Changeset.for_update(action, params, actor: actor)
-    |> Ash.update()
+    |> Ash.update(opts)
   end
 end

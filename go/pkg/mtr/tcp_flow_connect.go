@@ -32,6 +32,26 @@ import (
 // connectPollSlice bounds each poll so a closing flow is noticed promptly.
 const connectPollSlice = 100 * time.Millisecond
 
+// errLinkLocalTCPTarget rejects a TCP flow toward an IPv6 link-local address.
+// Such an address is only usable together with an interface zone, and a trace
+// target carries none, so the kernel refuses every socket toward it (the raw
+// flow's route lookup fails with EINVAL, a connect() probe the same way). It is
+// also not a routed path, so there is nothing for a trace to measure.
+var errLinkLocalTCPTarget = errors.New(
+	"link-local IPv6 target needs an interface zone; not traceable over TCP",
+)
+
+// checkTCPFlowTarget rejects destinations no TCP flow can reach, before any
+// socket is opened. Both the raw and the connect() flow call it, so the failure
+// is the same whichever flow the platform selects.
+func checkTCPFlowTarget(dst net.IP) error {
+	if dst.To4() == nil && dst.IsLinkLocalUnicast() {
+		return fmt.Errorf("TCP target %s: %w", dst, errLinkLocalTCPTarget)
+	}
+
+	return nil
+}
+
 // connectTCPFlow probes with kernel connect() attempts. It is the fallback for
 // platforms (or processes) that cannot craft and receive raw TCP segments.
 //
@@ -53,7 +73,13 @@ type connectTCPFlow struct {
 	wg      sync.WaitGroup
 }
 
-func newConnectTCPFlow(dst net.IP, dstPort int, timeout time.Duration, ipv6 bool) *connectTCPFlow {
+func newConnectTCPFlow(
+	dst net.IP, dstPort int, timeout time.Duration, ipv6 bool,
+) (*connectTCPFlow, error) {
+	if err := checkTCPFlowTarget(dst); err != nil {
+		return nil, err
+	}
+
 	if timeout <= 0 {
 		timeout = DefaultTimeout
 	}
@@ -65,7 +91,7 @@ func newConnectTCPFlow(dst net.IP, dstPort int, timeout time.Duration, ipv6 bool
 		timeout: timeout,
 		replies: make(chan *TCPReply, 64), //nolint:mnd
 		closed:  make(chan struct{}),
-	}
+	}, nil
 }
 
 func (f *connectTCPFlow) Crafted() bool { return false }

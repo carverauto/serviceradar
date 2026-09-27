@@ -824,6 +824,7 @@ mod tests {
                 cursor: None,
                 direction: Default::default(),
                 mode: None,
+                permitted_signals: None,
             },
         )
         .expect("translate")
@@ -908,6 +909,7 @@ mod tests {
                 cursor: None,
                 direction: Default::default(),
                 mode: None,
+                permitted_signals: None,
             },
         )
         .unwrap_err();
@@ -925,6 +927,7 @@ mod tests {
                 cursor: None,
                 direction: Default::default(),
                 mode: None,
+                permitted_signals: None,
             },
         )
         .unwrap_err();

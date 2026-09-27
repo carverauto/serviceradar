@@ -228,7 +228,14 @@ func (s *linuxRawSocket) OpenTCPFlow(dst net.IP, dstPort int, timeout time.Durat
 		}
 	}
 
-	return newConnectTCPFlow(dst, dstPort, timeout, s.ipv6), nil
+	// Assigned before returning so a rejected target yields a nil TCPFlow, not
+	// an interface holding a nil *connectTCPFlow.
+	flow, err := newConnectTCPFlow(dst, dstPort, timeout, s.ipv6)
+	if err != nil {
+		return nil, err
+	}
+
+	return flow, nil
 }
 
 func (s *linuxRawSocket) sendRaw(dst net.IP, ttl int, data []byte) error {

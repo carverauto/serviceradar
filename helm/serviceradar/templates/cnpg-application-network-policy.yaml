@@ -11,7 +11,7 @@
 {{- if hasKey $applicationAccess "enabled" -}}
   {{- $applicationAccessEnabled = $applicationAccess.enabled -}}
 {{- end -}}
-{{- if and (default true $cnpg.enabled) $applicationAccessEnabled }}
+{{- if and (include "serviceradar.boolDefaultTrue" (list $cnpg "enabled") | eq "true") $applicationAccessEnabled }}
 {{- $clusterName := include "serviceradar.cnpgClusterName" . -}}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

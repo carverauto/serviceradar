@@ -3,18 +3,17 @@ defmodule ServiceRadar.Events.InternalLogPublisherTest do
 
   alias ServiceRadar.Events.InternalLogPublisher
 
-  test "persists internal logs before publishing the live NATS copy off the persisted stream" do
+  test "publishes internal logs to JetStream before the live NATS copy" do
     assert :ok =
              InternalLogPublisher.publish(
                "audit",
                %{severity_text: "INFO", body: "created"},
-               log_processor: {__MODULE__, :process_logs, [self()]},
+               durable_publish: durable_publish(self()),
                publisher: {__MODULE__, :publish, [self()]}
              )
 
-    assert_receive {:persisted_logs, [%{data: json, metadata: metadata}]}
-    assert metadata.subject == "logs.internal.audit"
-    assert is_struct(metadata.received_at, DateTime)
+    assert_receive {:persisted_logs, "logs.internal.audit", json, [msg_id: msg_id]}
+    assert {:ok, _} = Ecto.UUID.cast(msg_id)
 
     assert {:ok, decoded} = Jason.decode(json)
     assert decoded["body"] == "created"
@@ -41,11 +40,11 @@ defmodule ServiceRadar.Events.InternalLogPublisherTest do
              InternalLogPublisher.publish(
                "health",
                %{severity_text: "INFO", body: "heartbeat"},
-               log_processor: {__MODULE__, :process_logs, [self()]},
+               durable_publish: durable_publish(self()),
                publisher: {__MODULE__, :publish, [self()]}
              )
 
-    assert_receive {:persisted_logs, [%{metadata: %{subject: "logs.internal.health"}}]}
+    assert_receive {:persisted_logs, "logs.internal.health", _json, _opts}
     refute_receive {:published_log, "live.logs.internal.health", _json}
   end
 
@@ -54,20 +53,20 @@ defmodule ServiceRadar.Events.InternalLogPublisherTest do
              InternalLogPublisher.publish(
                "jobs",
                %{severity_text: "ERROR", body: "failed"},
-               log_processor: {__MODULE__, :process_logs, [self()]},
+               durable_publish: durable_publish(self()),
                publisher: {__MODULE__, :publish_fail, [self()]}
              )
 
-    assert_receive {:persisted_logs, [%{metadata: %{subject: "logs.internal.jobs"}}]}
+    assert_receive {:persisted_logs, "logs.internal.jobs", _json, _opts}
     assert_receive {:publish_attempt, "live.logs.internal.jobs", _json}
   end
 
-  test "returns an error when direct persistence fails" do
+  test "returns an error when the log can be neither published nor queued" do
     assert {:error, :db_down} =
              InternalLogPublisher.publish(
                "health",
                %{severity_text: "ERROR", body: "db down"},
-               log_processor: {__MODULE__, :process_logs_fail, [self()]},
+               durable_publish: durable_publish_fail(self()),
                publisher: {__MODULE__, :publish, [self()]}
              )
 
@@ -75,16 +74,18 @@ defmodule ServiceRadar.Events.InternalLogPublisherTest do
     refute_receive {:published_log, _subject, _json}
   end
 
-  def process_logs([%{metadata: %{subject: subject}} = message] = messages, pid) do
-    send(pid, {:persisted_logs, messages})
-    assert subject in ["logs.internal.audit", "logs.internal.jobs", "logs.internal.health"]
-    assert is_binary(message.data)
-    {:ok, 1}
+  defp durable_publish(pid) do
+    fn subject, json, opts ->
+      send(pid, {:persisted_logs, subject, json, opts})
+      :ok
+    end
   end
 
-  def process_logs_fail([%{metadata: %{subject: subject}}], pid) do
-    send(pid, {:persist_attempt, subject})
-    {:error, :db_down}
+  defp durable_publish_fail(pid) do
+    fn subject, _json, _opts ->
+      send(pid, {:persist_attempt, subject})
+      {:error, :db_down}
+    end
   end
 
   def publish(subject, json, pid) do

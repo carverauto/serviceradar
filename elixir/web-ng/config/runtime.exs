@@ -1356,7 +1356,6 @@ if config_env() != :test do
     end
 
   config :serviceradar_core, Oban, oban_config
-  config :serviceradar_core, :log_promotion_consumer_enabled, false
   config :serviceradar_core, :oban_enabled, oban_enabled
   config :serviceradar_core, :start_ash_oban_scheduler, false
 

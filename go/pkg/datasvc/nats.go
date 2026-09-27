@@ -40,25 +40,26 @@ import (
 )
 
 type NATSStore struct {
-	nc                *nats.Conn
-	ctx               context.Context
-	natsURL           string
-	credsFile         string
-	security          *models.SecurityConfig
-	bucket            string
-	defaultDomain     string
-	jetstreamReplicas int
-	bucketHistory     uint32
-	bucketTTL         time.Duration
-	bucketMaxBytes    int64
-	objectMaxBytes    int64
-	objectStoreBytes  int64
-	objectBucket      string
-	jsByDomain        map[string]jetstream.JetStream
-	kvByDomain        map[string]jetstream.KeyValue
-	objectStores      map[string]jetstream.ObjectStore
-	mu                sync.Mutex
-	connectFn         func() (*nats.Conn, error)
+	nc                  *nats.Conn
+	ctx                 context.Context
+	natsURL             string
+	credsFile           string
+	security            *models.SecurityConfig
+	bucket              string
+	defaultDomain       string
+	bucketReplicas      int
+	objectStoreReplicas int
+	bucketHistory       uint32
+	bucketTTL           time.Duration
+	bucketMaxBytes      int64
+	objectMaxBytes      int64
+	objectStoreBytes    int64
+	objectBucket        string
+	jsByDomain          map[string]jetstream.JetStream
+	kvByDomain          map[string]jetstream.KeyValue
+	objectStores        map[string]jetstream.ObjectStore
+	mu                  sync.Mutex
+	connectFn           func() (*nats.Conn, error)
 }
 
 const (
@@ -74,29 +75,27 @@ func NewNATSStore(ctx context.Context, cfg *Config) (*NATSStore, error) {
 	}
 
 	store := &NATSStore{
-		ctx:               ctx,
-		natsURL:           cfg.NATSURL,
-		credsFile:         cfg.NATSCredsFile,
-		security:          cloneSecurityConfig(cfg.NATSSecurity),
-		bucket:            cfg.Bucket,
-		defaultDomain:     cfg.Domain,
-		jetstreamReplicas: cfg.JetStreamReplicas,
-		bucketHistory:     cfg.BucketHistory,
-		bucketTTL:         time.Duration(cfg.BucketTTL),
-		bucketMaxBytes:    cfg.BucketMaxBytes,
-		objectMaxBytes:    cfg.ObjectMaxBytes,
-		objectStoreBytes:  cfg.ObjectStoreBytes,
-		objectBucket:      cfg.ObjectBucket,
-		jsByDomain:        make(map[string]jetstream.JetStream),
-		kvByDomain:        make(map[string]jetstream.KeyValue),
-		objectStores:      make(map[string]jetstream.ObjectStore),
+		ctx:                 ctx,
+		natsURL:             cfg.NATSURL,
+		credsFile:           cfg.NATSCredsFile,
+		security:            cloneSecurityConfig(cfg.NATSSecurity),
+		bucket:              cfg.Bucket,
+		defaultDomain:       cfg.Domain,
+		bucketReplicas:      firstPositive(cfg.BucketReplicas, cfg.JetStreamReplicas, 1),
+		objectStoreReplicas: firstPositive(cfg.ObjectStoreReplicas, cfg.JetStreamReplicas, 1),
+		bucketHistory:       cfg.BucketHistory,
+		bucketTTL:           time.Duration(cfg.BucketTTL),
+		bucketMaxBytes:      cfg.BucketMaxBytes,
+		objectMaxBytes:      cfg.ObjectMaxBytes,
+		objectStoreBytes:    cfg.ObjectStoreBytes,
+		objectBucket:        cfg.ObjectBucket,
+		jsByDomain:          make(map[string]jetstream.JetStream),
+		kvByDomain:          make(map[string]jetstream.KeyValue),
+		objectStores:        make(map[string]jetstream.ObjectStore),
 	}
 
 	if store.bucketHistory == 0 {
 		store.bucketHistory = 1
-	}
-	if store.jetstreamReplicas == 0 {
-		store.jetstreamReplicas = 1
 	}
 	if store.bucketTTL < 0 {
 		store.bucketTTL = 0
@@ -122,6 +121,17 @@ func NewNATSStore(ctx context.Context, cfg *Config) (*NATSStore, error) {
 	}
 
 	return store, nil
+}
+
+// firstPositive returns the first positive value, or 0 when there is none.
+func firstPositive(values ...int) int {
+	for _, v := range values {
+		if v > 0 {
+			return v
+		}
+	}
+
+	return 0
 }
 
 func cloneSecurityConfig(sec *models.SecurityConfig) *models.SecurityConfig {
@@ -948,7 +958,7 @@ func (n *NATSStore) keyValueConfig() jetstream.KeyValueConfig {
 	cfg := jetstream.KeyValueConfig{
 		Bucket:   n.bucket,
 		History:  uint8(n.bucketHistory),
-		Replicas: n.jetstreamReplicas,
+		Replicas: n.bucketReplicas,
 	}
 	if n.bucketTTL > 0 {
 		cfg.TTL = n.bucketTTL
@@ -984,7 +994,7 @@ func (n *NATSStore) objectBucketName() string {
 func (n *NATSStore) objectStoreConfig(bucket string) jetstream.ObjectStoreConfig {
 	cfg := jetstream.ObjectStoreConfig{
 		Bucket:   bucket,
-		Replicas: n.jetstreamReplicas,
+		Replicas: n.objectStoreReplicas,
 	}
 	if n.objectStoreBytes > 0 {
 		cfg.MaxBytes = n.objectStoreBytes
@@ -993,16 +1003,27 @@ func (n *NATSStore) objectStoreConfig(bucket string) jetstream.ObjectStoreConfig
 }
 
 func (n *NATSStore) reconcileKVStreamLocked(ctx context.Context, js jetstream.JetStream) error {
-	return n.reconcileStreamConfigLocked(ctx, js, fmt.Sprintf("KV_%s", n.bucket), n.bucketMaxBytes, nil)
+	return n.reconcileStreamConfigLocked(ctx, js, kvStreamName(n.bucket), n.bucketMaxBytes, n.bucketReplicas, nil)
 }
 
 func (n *NATSStore) reconcileObjectStoreStreamLocked(ctx context.Context, js jetstream.JetStream, bucket string) error {
 	discard := jetstream.DiscardNew
-	return n.reconcileStreamConfigLocked(ctx, js, fmt.Sprintf("OBJ_%s", bucket), n.objectStoreBytes, &discard)
+	return n.reconcileStreamConfigLocked(ctx, js, objectStoreStreamName(bucket), n.objectStoreBytes, n.objectStoreReplicas, &discard)
 }
 
-func (n *NATSStore) reconcileStreamConfigLocked(ctx context.Context, js jetstream.JetStream, streamName string, maxBytes int64, discardPolicy *jetstream.DiscardPolicy) error {
-	if n.jetstreamReplicas <= 0 {
+// reconcileStreamConfigLocked converges an existing discard-new state bucket
+// (the KV bucket or the object store) to the configured replicas, max_bytes and
+// discard policy. max_bytes follows stateBucketMaxBytes: a configured cap below
+// the bytes already stored is not applied, so the bucket keeps accepting writes.
+func (n *NATSStore) reconcileStreamConfigLocked(
+	ctx context.Context,
+	js jetstream.JetStream,
+	streamName string,
+	maxBytes int64,
+	replicas int,
+	discardPolicy *jetstream.DiscardPolicy,
+) error {
+	if replicas <= 0 {
 		return nil
 	}
 
@@ -1018,13 +1039,22 @@ func (n *NATSStore) reconcileStreamConfigLocked(ctx context.Context, js jetstrea
 	needsUpdate := false
 	cfg := info.Config
 
-	if cfg.Replicas != n.jetstreamReplicas {
-		cfg.Replicas = n.jetstreamReplicas
+	if cfg.Replicas != replicas {
+		cfg.Replicas = replicas
 		needsUpdate = true
 	}
 
-	if maxBytes > 0 && cfg.MaxBytes != maxBytes {
-		cfg.MaxBytes = maxBytes
+	targetMaxBytes, held := stateBucketMaxBytes(cfg.MaxBytes, info.State.Bytes, maxBytes)
+	if held {
+		log.Printf(
+			"JetStream stream %q: keeping max_bytes=%d (-1 is unlimited); configured max_bytes=%d is below the %d bytes stored, "+
+				"and this bucket refuses writes when full. It converges once the stored data fits or the configured size is raised.",
+			streamName, cfg.MaxBytes, maxBytes, info.State.Bytes,
+		)
+	}
+	if targetMaxBytes != cfg.MaxBytes {
+		log.Printf("JetStream stream %q: max_bytes %d -> %d (stored %d bytes)", streamName, cfg.MaxBytes, targetMaxBytes, info.State.Bytes)
+		cfg.MaxBytes = targetMaxBytes
 		needsUpdate = true
 	}
 

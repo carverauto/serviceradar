@@ -120,8 +120,8 @@ data:
         "drift": {
           "baseline_devices": {{ default 0 .Values.core.identity.drift.baselineDevices }},
           "tolerance_percent": {{ default 0 .Values.core.identity.drift.tolerancePercent }},
-          "pause_on_drift": {{ default true .Values.core.identity.drift.pauseOnDrift }},
-          "alert_on_drift": {{ default true .Values.core.identity.drift.alertOnDrift }}
+          "pause_on_drift": {{ include "serviceradar.boolDefaultTrue" (list .Values.core.identity.drift "pauseOnDrift") }},
+          "alert_on_drift": {{ include "serviceradar.boolDefaultTrue" (list .Values.core.identity.drift "alertOnDrift") }}
         }
       },
       "alert_threshold": "5m",
@@ -414,7 +414,7 @@ data:
           "ring_readers": {{ .Values.sweep.tcp.ringReaders | default 0 }},
           "ring_poll_timeout_ms": {{ .Values.sweep.tcp.ringPollTimeoutMs | default 0 }}
         },
-        "high_perf_icmp": {{ .Values.sweep.icmp.highPerf | default true }},
+        "high_perf_icmp": {{ include "serviceradar.boolDefaultTrue" (list .Values.sweep.icmp "highPerf") }},
         "icmp_rate_limit": {{ .Values.sweep.icmp.rateLimit | default 5000 }},
         "icmp_settings": {
           "rate_limit": {{ .Values.sweep.icmp.settings.rateLimit | default 1000 }},
@@ -900,7 +900,7 @@ data:
         "simulation": {
           "total_devices": {{ .Values.faker.simulation.totalDevices | default 50000 }},
           "ip_shuffle": {
-            "enabled": {{ .Values.faker.simulation.ipShuffle.enabled | default true }},
+            "enabled": {{ include "serviceradar.boolDefaultTrue" (list .Values.faker.simulation.ipShuffle "enabled") }},
             "interval": "{{ .Values.faker.simulation.ipShuffle.interval | default "10m" }}",
             "percentage": {{ .Values.faker.simulation.ipShuffle.percentage | default 5 }},
             "warmup_cycles": {{ .Values.faker.simulation.ipShuffle.warmupCycles | default 0 }},

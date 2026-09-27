@@ -41,9 +41,9 @@ fresh connection because TimescaleDB refuses to update in a session that has alr
 loaded the old module.
 */ -}}
 {{- $cnpg := default (dict) .Values.cnpg -}}
-{{- $cnpgEnabled := default true $cnpg.enabled -}}
+{{- $cnpgEnabled := include "serviceradar.boolDefaultTrue" (list $cnpg "enabled") | eq "true" -}}
 {{- $extUpdate := default (dict) $cnpg.extensionUpdate -}}
-{{- $extUpdateEnabled := default true $extUpdate.enabled -}}
+{{- $extUpdateEnabled := include "serviceradar.boolDefaultTrue" (list $extUpdate "enabled") | eq "true" -}}
 {{- $managed := list "timescaledb" "postgis" "postgis_raster" "postgis_topology" "age" "vector" -}}
 {{- $extList := default $managed $extUpdate.extensions -}}
 {{- /* Resolve the cluster this job must actually talk to, mirroring the condition that

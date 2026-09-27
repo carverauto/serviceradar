@@ -1,5 +1,5 @@
 {{- $pdb := default (dict) .Values.podDisruptionBudgets -}}
-{{- if default true $pdb.enabled -}}
+{{- if include "serviceradar.boolDefaultTrue" (list $pdb "enabled") | eq "true" -}}
 {{- $minAvailable := default 1 $pdb.minAvailable -}}
 {{- $gateway := default (dict) .Values.agentGateway -}}
 {{- $components := list

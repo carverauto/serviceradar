@@ -24,13 +24,25 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
   retry of the same batch reuses the same labels. The tables are primary-key
   tables, so a retry that regroups rows into different loads upserts rather
   than duplicates.
+
+  ## Replacing rows by id
+
+  The warehouse keys `events` on `(id, time)`. A producer that keeps one row per
+  id and moves its time forward -- Trivy, which replaces a report's event on
+  every rescan -- passes `replace: %{ids: ids, log_provider: provider}`: before
+  loading, the rows with those ids and that `log_provider` are deleted, as the
+  producer deletes them from CNPG. The delete runs only when the load does, and
+  a failed delete fails the call without loading, so a redelivery repeats both.
+  Callers serialise concurrent replaces of the same ids themselves.
   """
 
   alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.Analytics.StarRocks.Attribution
   alias ServiceRadar.Analytics.StarRocks.Env
+  alias ServiceRadar.Analytics.StarRocks.MySQL
   alias ServiceRadar.Analytics.StarRocks.Readers
   alias ServiceRadar.Analytics.StarRocks.Rows
+  alias ServiceRadar.Analytics.StarRocks.Schema
   alias ServiceRadar.Analytics.StarRocks.StreamLoad
 
   require Logger
@@ -217,13 +229,80 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
       chunks = split_loads(encoded, limits)
       emit_batch_telemetry(dataset, table, chunks)
 
-      case chunks do
-        [{rows, body, _bytes}] ->
-          load_chunk(persist, dataset, table, rows, Keyword.put(persist_opts, :body, body))
+      with :ok <- replace_ids(dataset, table, persist_opts[:config], opts) do
+        case chunks do
+          [{rows, body, _bytes}] ->
+            load_chunk(persist, dataset, table, rows, Keyword.put(persist_opts, :body, body))
 
-        chunks ->
-          load_chunks(persist, dataset, table, chunks, persist_opts, limits[:max_in_flight])
+          chunks ->
+            load_chunks(persist, dataset, table, chunks, persist_opts, limits[:max_in_flight])
+        end
       end
+    end
+  end
+
+  @replace_chunk 500
+  @provider_pattern ~r/^[a-z0-9_.-]+$/
+
+  defp replace_ids(dataset, table, config, opts) do
+    case Keyword.get(opts, :replace) do
+      nil ->
+        :ok
+
+      %{ids: ids, log_provider: provider} when dataset == :events ->
+        delete = Keyword.get(opts, :delete, &MySQL.query/1)
+
+        with {:ok, database} <- replace_database(config),
+             {:ok, provider} <- replace_provider(provider),
+             {:ok, ids} <- canonical_ids(ids) do
+          ids
+          |> Enum.chunk_every(@replace_chunk)
+          |> Enum.reduce_while(:ok, fn chunk, :ok ->
+            sql =
+              "DELETE FROM #{database}.#{table} WHERE log_provider = '#{provider}' " <>
+                "AND id IN (#{Enum.map_join(chunk, ", ", &"'#{&1}'")})"
+
+            case delete.(sql) do
+              {:ok, _result} -> {:cont, :ok}
+              {:error, reason} -> {:halt, {:error, {:replace_failed, reason}}}
+            end
+          end)
+        end
+
+      other ->
+        raise ArgumentError, "unsupported replace for #{inspect(dataset)}: #{inspect(other)}"
+    end
+  end
+
+  defp replace_database(%{database: database}) when is_binary(database) do
+    if Schema.valid_database?(database),
+      do: {:ok, database},
+      else: {:error, {:invalid_database, database}}
+  end
+
+  defp replace_database(_config), do: {:error, :no_database}
+
+  defp replace_provider(provider) when is_binary(provider) do
+    if Regex.match?(@provider_pattern, provider),
+      do: {:ok, provider},
+      else: {:error, {:invalid_log_provider, provider}}
+  end
+
+  defp replace_provider(provider), do: {:error, {:invalid_log_provider, provider}}
+
+  # Ids are interpolated into SQL text (the FE client speaks the text protocol),
+  # so each is re-rendered from a cast UUID and nothing else reaches the query.
+  defp canonical_ids(ids) do
+    ids
+    |> Enum.reduce_while({:ok, []}, fn id, {:ok, acc} ->
+      case Ecto.UUID.cast(id) do
+        {:ok, uuid} -> {:cont, {:ok, [uuid | acc]}}
+        :error -> {:halt, {:error, {:invalid_replace_id, id}}}
+      end
+    end)
+    |> case do
+      {:ok, uuids} -> {:ok, uuids |> Enum.reverse() |> Enum.uniq()}
+      error -> error
     end
   end
 

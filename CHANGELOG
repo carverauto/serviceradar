@@ -1,3 +1,48 @@
+# ServiceRadar v1.4.74
+
+A security release. SAML sign-in validates each response against
+the request it answers, rejects replayed assertions and no longer
+depends on samly. Northbound callback secrets stay out of stored
+commands, and the credential redactor covers bare token and secret
+keys. StarRocks writes are batched to configured limits.
+
+## Whats New
+
+**1.4.74**
+- Security: SAML responses must answer a pending request. The
+  request is held server-side under a one-use RelayState, its
+  ID must match InResponseTo, and each assertion ID is accepted
+  once. IdP-initiated responses are rejected unless enabled.
+  The callback accepts the identity provider's cross-site POST,
+  and the sign-in start is rate limited per client. SAML
+  metadata and response parsing reject DTDs and now work end to
+  end. The unused samly dependency is removed, clearing its
+  Hex advisories (PR #4722).
+- Security: northbound action launches keep per-target callback
+  tokens and signing secrets out of the stored command; only the
+  copy sent to the agent carries them (PR #4726, issue #4711).
+- Security: the credential redactor redacts bare token, secret,
+  client_secret, authorization and api_key keys, including
+  header spellings (PR #4716, issue #4674).
+- StarRocks: warehouse Stream Loads are split and flushed by the
+  configured row, byte, age and in-flight limits (PR #4714,
+  issue #4516).
+- Device identity: agent check-in records an address it
+  observes instead of adopting the device holding it, and logs
+  each refused adoption as an identity decision (PR #4715,
+  PR #4724, issue #4664).
+- Dashboards: an authored dashboard exports to the declarative
+  definition format (PR #4723).
+- MTR: hop attribution backfill has database integration tests
+  (PR #4710).
+
+## Upgrade notes
+- Two new migrations create the SAML pending-request and
+  consumed-assertion tables.
+- SAML identity providers may post from a different site. With
+  IdP-initiated SSO, set
+  `config :serviceradar_web_ng, :saml_allow_idp_initiated, true`.
+
 # ServiceRadar v1.4.73
 
 MTR traces run ICMP and TCP from one profile, record handshake

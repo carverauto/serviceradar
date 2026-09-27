@@ -41,7 +41,17 @@ CONSTANTS
     NoId, NoIp, NoRec,
     Bugs
 
-KnownBugs == {}
+KnownBugs == {
+    \* inventory/sync/device_writes.ex resolve_record_active_ip/7: a strong write adopts an
+    \* anchorless provisional seed holding its address even when the written record already
+    \* exists; its identifiers stay on that record, which keeps its stale address (#4705).
+    "seed_adopts_existing",
+    \* inventory/identity/batch_resolver.ex resolve_one/4 (Ids.has_strong_identifier?/1 and
+    \* generate_deterministic_device_id/1): a census's randomized MAC, which is neither looked up
+    \* nor registered, still seeds the record's uid, so later sightings of that MAC follow it
+    \* across addresses and the write takes the strong-identity address branch.
+    "randomized_mac_seeds_uid"
+}
 ASSUME Bugs \subseteq KnownBugs
 
 Bug(b) == b \in Bugs
@@ -146,30 +156,37 @@ Lease(x, p) ==
                addressMerged |-> {}]
     /\ UNCHANGED <<created, into, owner, recIp, alias, phys, ifClaims>>
 
-\* The phys ghost after a step: merged records' devices join the target, and an identity-bearing
-\* observation joins the record it landed on -- the one now owning its identifiers, or, when they
-\* are split across records, the live record holding the observed address.
-PhysAfter(h, S, p, merged, target, owner2, into2, recIp2) ==
+\* The phys ghost after a step: merged records' devices join the record they were merged into
+\* (m1 into t1, m2 into t2), and an identity-bearing observation joins the record it landed on --
+\* the one now owning its identifiers, or, when they are split across records, the live record
+\* holding the observed address. The written record is t2.
+PhysAfter(h, S, p, m1, t1, m2, t2, owner2, into2, recIp2) ==
     LET canon2(r) == CanonIn(into2, r, Cardinality(Recs))
         cands == {canon2(owner2[i]) : i \in {j \in S : owner2[j] # NoRec}}
-        holders == {r \in Recs : (created[r] \/ r = target) /\ into2[r] = NoRec /\ recIp2[r] = p}
+        holders == {r \in Recs : (created[r] \/ r = t2) /\ into2[r] = NoRec /\ recIp2[r] = p}
         landing == IF Cardinality(cands) = 1 THEN CHOOSE r \in cands : TRUE
                    ELSE IF cands # {} /\ holders # {} THEN CHOOSE r \in holders : TRUE
                    ELSE NoRec
-        base == [r \in Recs |-> IF r = target
-                                THEN phys[r] \cup UNION {phys[m] : m \in merged}
-                                ELSE phys[r]]
+        base == [r \in Recs |-> phys[r]
+                                \cup (IF r = t1 THEN UNION {phys[m] : m \in m1} ELSE {})
+                                \cup (IF r = t2 THEN UNION {phys[m] : m \in m2} ELSE {})]
     IN [r \in Recs |-> IF S # {} /\ r = landing THEN base[r] \cup {h} ELSE base[r]]
 
 \* One observation of physical device h at interface x's address, carrying identifiers S,
 \* through the resolver and the device write.
+\*   U: identifiers a new record's uid is derived from although the observation neither looks
+\*      them up nor registers them (a census's randomized MAC under randomized_mac_seeds_uid);
+\*      {} for other observers
 \*   aliasPath: "none" (census), "sync" (Sync.Aliases), "guard" (AliasGuard, Resolver path)
 \*   recordAlias: this update's address is recorded as a (confirmed) alias of the result
 \*   claims: interface MACs the observation registers as the result's own interface table
 \*   keepIps: addresses an existing result keeps instead of moving to this one (the mapper's
 \*            device reports all of its own addresses; other observers pass {})
-Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
+Resolve(h, x, S, U, recordAlias, aliasPath, kind, claims, keepIps) ==
     LET p       == ipAt[x]
+        \* BatchResolver treats any MAC as strong (Ids.has_strong_identifier?/1): the uid is
+        \* derived from it and DeviceWrites takes the strong-identity branch at the address.
+        strong  == S \cup U
         srcS    == S \cap SrcIds
         \* A matched record holding a different source-authoritative identifier than the one
         \* this update carries is not a match: the source-authoritative identifier decides, and
@@ -189,7 +206,7 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
         holderAt == {r \in Recs : Live(r) /\ r \notin step1Merged /\ recIp[r] = p}
         target0 ==
             IF M # {} THEN X
-            ELSE IF S # {} THEN Canon(Seed(S))
+            ELSE IF strong # {} THEN Canon(Seed(strong))
             ELSE LET weak == holderAt \cup {r \in alias[p] : Live(r)}
                  IN IF weak # {} THEN CHOOSE r \in weak : TRUE ELSE Canon(p)
         \* --- The device write and ocsf_devices_unique_active_ip_idx
@@ -197,8 +214,12 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
         \*     polled, MapperResultsIngestor.move_device_address/4) ---
         others0   == holderAt \ {target0}
         seedHold  == {r \in others0 : IdsHeld(r) = {}}
-        \* A strong write onto an address held by an anchorless provisional seed adopts the seed.
-        adopt     == S # {} /\ ~created[target0] /\ seedHold # {}
+        \* A strong write creating a new record onto an address held by an anchorless provisional
+        \* seed adopts the seed. The code also adopts it for an existing record
+        \* (seed_adopts_existing): the write lands on the seed while the record it resolved to keeps
+        \* its identifiers, its merges and its old address.
+        adopt     == strong # {} /\ (~created[target0] \/ Bug("seed_adopts_existing"))
+                     /\ seedHold # {}
         target    == IF adopt THEN CHOOSE r \in seedHold : TRUE ELSE target0
         \* An existing result whose address is still one of its own keeps it, and this write
         \* claims no address at all.
@@ -209,9 +230,9 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
         \* The code releases only for an observation newer than the holder's last_seen_time; the
         \* model has no clock, so every observation here is the newer one.
         holders   == IF keepAddr THEN {} ELSE holderAt \ {target}
-        ipConflict == S # {} /\ holders # {}
+        ipConflict == strong # {} /\ holders # {}
         owner1 == [i \in Ids |->
-                     IF owner[i] \in step1Merged THEN target
+                     IF owner[i] \in step1Merged THEN target0
                      ELSE IF i \in S /\ owner[i] = NoRec THEN target
                      ELSE owner[i]]
         \* --- Step 2: the IP-alias merge ---
@@ -241,12 +262,14 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
             \cup {[kind |-> "alias_invalidated", recs |-> {y, target}] : y \in step2Inval}
             \cup {[kind |-> "source_block", recs |-> {y, target}] : y \in srcRefused}
             \cup (IF allM \ M # {}
-                  THEN {[kind |-> "source_override", recs |-> (allM \ M) \cup {target}]}
+                  THEN {[kind |-> "source_override", recs |-> (allM \ M) \cup {target0}]}
                   ELSE {})
             \cup (IF ipConflict THEN {[kind |-> "ip_conflict", recs |-> {target} \cup holders]} ELSE {})
         \* Every decision leaves a persisted identity decision (DecisionLog.record/4, #4613).
         recorded == decisions
-        into2   == [r \in Recs |-> IF r \in merged THEN target ELSE into[r]]
+        into2   == [r \in Recs |-> IF r \in step1Merged THEN target0
+                               ELSE IF r \in step2Merged THEN target
+                               ELSE into[r]]
         owner2  == [i \in Ids |-> IF owner1[i] \in step2Merged THEN target ELSE owner1[i]]
         recIp2  == [r \in Recs |->
                       IF r = target THEN (IF keepAddr THEN recIp[r] ELSE p)
@@ -259,12 +282,16 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
     /\ recIp' = recIp2
     /\ alias' = [q \in Ips |->
                    LET kept == (alias[q] \ merged) \ (IF q = p THEN step2Inval ELSE {}) IN
-                   (IF alias[q] \cap merged # {} THEN kept \cup {target} ELSE kept)
+                   kept \cup (IF alias[q] \cap step1Merged # {} THEN {target0} ELSE {})
+                        \cup (IF alias[q] \cap step2Merged # {} THEN {target} ELSE {})
                    \cup (IF recordAlias /\ q = p THEN {target} ELSE {})]
-    /\ ifClaims' = [r \in Recs |-> IF r = target
-                                   THEN ifClaims[r] \cup claims \cup UNION {ifClaims[m] : m \in merged}
-                                   ELSE ifClaims[r]]
-    /\ phys' = PhysAfter(h, S, p, merged, target, owner2, into2, recIp2)
+    /\ ifClaims' = [r \in Recs |->
+                      ifClaims[r]
+                      \cup (IF r = target0 THEN UNION {ifClaims[m] : m \in step1Merged} ELSE {})
+                      \cup (IF r = target
+                            THEN claims \cup UNION {ifClaims[m] : m \in step2Merged}
+                            ELSE {})]
+    /\ phys' = PhysAfter(h, S, p, step1Merged, target0, step2Merged, target, owner2, into2, recIp2)
     /\ act' = [name |-> kind, ids |-> S, ip |-> p, decisions |-> decisions,
                recorded |-> recorded, addressMerged |-> step2Merged]
     /\ UNCHANGED ipAt
@@ -274,20 +301,27 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
 ArmisObserve(h, x) ==
     /\ SrcOf[h] # NoId /\ IfPhys[x] = h /\ ipAt[x] # NoIp
     /\ \E ra \in BOOLEAN :
-         Resolve(h, x, {SrcOf[h]} \cup (IF ArmisMacs THEN MacsOf(h) ELSE {}), ra, "sync", "Armis",
-                 {}, {})
+         Resolve(h, x, {SrcOf[h]} \cup (IF ArmisMacs THEN MacsOf(h) ELSE {}), {}, ra, "sync",
+                 "Armis", {}, {})
 
 \* netprobe census: one interface's MAC and address, through SyncIngestor. A census update is an
-\* observer source with no non-MAC identifier, so Sync.Aliases never merges on it.
+\* observer source with no non-MAC identifier, so Sync.Aliases never merges on it. A randomized
+\* MAC from a census is neither looked up nor registered
+\* (SourcePolicy.include_mac_identifier?/1, census_anchorable_mac?/1), so the goal treats that
+\* sighting as address-only. Today the record's uid is still derived from it
+\* (randomized_mac_seeds_uid).
 ArpObserve(h, x) ==
     /\ IfPhys[x] = h /\ ipAt[x] # NoIp /\ IfMac[x] # NoId
-    /\ \E ra \in BOOLEAN : Resolve(h, x, {IfMac[x]}, ra, "none", "Arp", {}, {})
+    /\ \E ra \in BOOLEAN :
+         Resolve(h, x, {IfMac[x]} \cap HwIds,
+                 IF Bug("randomized_mac_seeds_uid") THEN {IfMac[x]} \cap LaaIds ELSE {},
+                 ra, "none", "Arp", {}, {})
 
 \* Agent check-in: AgentGatewaySync.ensure_device_for_agent/2 resolves through the Resolver,
 \* so AliasGuard runs on the strong-match branch.
 AgentObserve(h, x) ==
     /\ AgentOf[h] # NoId /\ IfPhys[x] = h /\ ipAt[x] # NoIp
-    /\ \E ra \in BOOLEAN : Resolve(h, x, {AgentOf[h]} \cup MacsOf(h), ra, "guard", "Agent", {}, {})
+    /\ \E ra \in BOOLEAN : Resolve(h, x, {AgentOf[h]} \cup MacsOf(h), {}, ra, "guard", "Agent", {}, {})
 
 \* Mapper/SNMP discovery polled at interface x's address, reporting every interface MAC and
 \* address (MapperResultsIngestor.resolve_device_ids/2). The reported globally-unique MACs
@@ -302,15 +336,15 @@ MapperObserve(h, x) ==
     LET ids == MacsOf(h) \cap HwIds IN
     /\ IfPhys[x] = h /\ ipAt[x] # NoIp /\ MacsOf(h) # {}
     /\ IF ids # {}
-       THEN \E ra \in BOOLEAN : Resolve(h, x, ids, ra, "guard", "Discovery", ids, OwnIps(h))
-       ELSE Resolve(h, x, {}, FALSE, "none", "Discovery", {}, {})
+       THEN \E ra \in BOOLEAN : Resolve(h, x, ids, {}, ra, "guard", "Discovery", ids, OwnIps(h))
+       ELSE Resolve(h, x, {}, {}, FALSE, "none", "Discovery", {}, {})
 
 \* Sweep: an address answered. SweepResultsIngestor attaches it to the live holder or alias
 \* holder of the address, and otherwise creates a provisional record seeded from the address
 \* (create_available_unknown_devices/5).
 SweepObserve(h, x) ==
     /\ IfPhys[x] = h /\ ipAt[x] # NoIp
-    /\ Resolve(h, x, {}, FALSE, "none", "Sweep", {}, {})
+    /\ Resolve(h, x, {}, {}, FALSE, "none", "Sweep", {}, {})
 
 Next ==
     \/ \E x \in Ifaces, p \in Ips \cup {NoIp} : Lease(x, p)
@@ -360,6 +394,10 @@ ObservedAddressHeld ==
     [][(act'.name \in {"Armis", "Arp", "Agent"} /\ act'.ids # {}) =>
          \E r \in Recs : created'[r] /\ into'[r] = NoRec /\ recIp'[r] = act'.ip
                          /\ act'.ids \cap HeldIn(owner', r, Ids) # {}]_vars
+
+\* Randomized MACs Are Evidence Only: no record is identified by a randomized MAC. A record is
+\* named by the identifier its uid was derived from, so a record named by one is identified by it.
+RandomizedMacsNeverIdentify == \A m \in LaaIds : ~created[m]
 
 \* Identity Decisions Are Never Silent.
 NoSilentDecision == [][act'.decisions \subseteq act'.recorded]_vars

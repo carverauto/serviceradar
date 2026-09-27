@@ -1,12 +1,12 @@
 {{- $np := default (dict) .Values.networkPolicy -}}
 {{- if $np.enabled -}}
 {{- $ingress := default (dict) $np.ingress -}}
-{{- $allowIngressSameNs := default true $ingress.allowSameNamespace -}}
+{{- $allowIngressSameNs := include "serviceradar.boolDefaultTrue" (list $ingress "allowSameNamespace") | eq "true" -}}
 {{- $ingressAllowedNamespaces := default (list) $ingress.allowedNamespaces -}}
 {{- $ingressAllowedCIDRs := default (list) $ingress.allowedCIDRs -}}
 {{- $ingressAllowedPorts := default (list) $ingress.allowedPorts -}}
 {{- $ingressErlangDist := default (dict) $ingress.erts -}}
-{{- $ingressErlangDistEnabled := default true $ingressErlangDist.enabled -}}
+{{- $ingressErlangDistEnabled := include "serviceradar.boolDefaultTrue" (list $ingressErlangDist "enabled") | eq "true" -}}
 {{- $ingressErlangDistSelector := default (dict "matchLabels" (dict "app.kubernetes.io/part-of" "serviceradar")) $ingressErlangDist.podSelector -}}
 {{- $ingressErlangDistPorts := default (list (dict "protocol" "TCP" "port" 4369) (dict "protocol" "TCP" "port" 9100 "endPort" 9155)) $ingressErlangDist.ports -}}
 {{- $agentGatewayExternal := default (dict) $ingress.agentGatewayExternal -}}
@@ -16,29 +16,29 @@
 {{- end -}}
 {{- $agentGatewayExternalCIDRs := default (list "0.0.0.0/0") $agentGatewayExternal.allowedCIDRs -}}
 {{- $flowCollectorExternal := default (dict) $ingress.flowCollectorExternal -}}
-{{- $flowCollectorExternalEnabled := default true $flowCollectorExternal.enabled -}}
+{{- $flowCollectorExternalEnabled := include "serviceradar.boolDefaultTrue" (list $flowCollectorExternal "enabled") | eq "true" -}}
 {{- $flowCollectorExternalCIDRs := default (list "0.0.0.0/0") $flowCollectorExternal.allowedCIDRs -}}
 {{- $logCollectorExternal := default (dict) $ingress.logCollectorExternal -}}
-{{- $logCollectorExternalEnabled := default true $logCollectorExternal.enabled -}}
+{{- $logCollectorExternalEnabled := include "serviceradar.boolDefaultTrue" (list $logCollectorExternal "enabled") | eq "true" -}}
 {{- $logCollectorExternalCIDRs := default (list "0.0.0.0/0") $logCollectorExternal.allowedCIDRs -}}
 {{- $otlpExternal := default (dict) $ingress.otlpExternal -}}
-{{- $otlpExternalEnabled := default true $otlpExternal.enabled -}}
+{{- $otlpExternalEnabled := include "serviceradar.boolDefaultTrue" (list $otlpExternal "enabled") | eq "true" -}}
 {{- $otlpExternalCIDRs := default (list "0.0.0.0/0") $otlpExternal.allowedCIDRs -}}
 {{- $trapdExternal := default (dict) $ingress.trapdExternal -}}
-{{- $trapdExternalEnabled := default true $trapdExternal.enabled -}}
+{{- $trapdExternalEnabled := include "serviceradar.boolDefaultTrue" (list $trapdExternal "enabled") | eq "true" -}}
 {{- $trapdExternalCIDRs := default (list "0.0.0.0/0") $trapdExternal.allowedCIDRs -}}
 {{- $bmpCollectorExternal := default (dict) $ingress.bmpCollectorExternal -}}
-{{- $bmpCollectorExternalEnabled := default true $bmpCollectorExternal.enabled -}}
+{{- $bmpCollectorExternalEnabled := include "serviceradar.boolDefaultTrue" (list $bmpCollectorExternal "enabled") | eq "true" -}}
 {{- $bmpCollectorExternalCIDRs := default (list "0.0.0.0/0") $bmpCollectorExternal.allowedCIDRs -}}
 {{- $gobgpExternal := default (dict) $ingress.gobgpExternal -}}
-{{- $gobgpExternalEnabled := default true $gobgpExternal.enabled -}}
+{{- $gobgpExternalEnabled := include "serviceradar.boolDefaultTrue" (list $gobgpExternal "enabled") | eq "true" -}}
 {{- $gobgpExternalCIDRs := default (list "0.0.0.0/0") $gobgpExternal.allowedCIDRs -}}
 {{- $cnpgOperator := default (dict) $ingress.cnpgOperator -}}
 {{- $cnpgOperatorEnabled := default false $cnpgOperator.enabled -}}
 {{- $cnpgOperatorNamespace := default "cnpg-system" $cnpgOperator.namespace -}}
 {{- $cnpgOperatorPort := default 8000 $cnpgOperator.port -}}
 {{- $cnpgInstanceManager := default (dict) $ingress.cnpgInstanceManager -}}
-{{- $cnpgInstanceManagerEnabled := default true $cnpgInstanceManager.enabled -}}
+{{- $cnpgInstanceManagerEnabled := include "serviceradar.boolDefaultTrue" (list $cnpgInstanceManager "enabled") | eq "true" -}}
 {{- $cnpgInstanceManagerPort := default 8000 $cnpgInstanceManager.port -}}
 {{- $hasIngressNamespaces := gt (len $ingressAllowedNamespaces) 0 -}}
 {{- $hasIngressCIDRs := gt (len $ingressAllowedCIDRs) 0 -}}
@@ -85,10 +85,10 @@
 {{- $flowCollectorSflowPort := default (dict) $flowCollectorServicePorts.sflow -}}
 {{- $flowCollectorIpfixPort := default (dict) $flowCollectorServicePorts.ipfix -}}
 {{- $flowCollectorExternalPorts := list -}}
-{{- if default true $flowCollectorNetflowPort.enabled -}}
+{{- if include "serviceradar.boolDefaultTrue" (list $flowCollectorNetflowPort "enabled") | eq "true" -}}
   {{- $flowCollectorExternalPorts = append $flowCollectorExternalPorts (dict "protocol" (default "UDP" $flowCollectorNetflowPort.protocol) "port" (default 2055 $flowCollectorNetflowPort.port)) -}}
 {{- end -}}
-{{- if default true $flowCollectorSflowPort.enabled -}}
+{{- if include "serviceradar.boolDefaultTrue" (list $flowCollectorSflowPort "enabled") | eq "true" -}}
   {{- $flowCollectorExternalPorts = append $flowCollectorExternalPorts (dict "protocol" (default "UDP" $flowCollectorSflowPort.protocol) "port" (default 6343 $flowCollectorSflowPort.port)) -}}
 {{- end -}}
 {{- if default false $flowCollectorIpfixPort.enabled -}}
@@ -102,7 +102,7 @@
 {{- $logCollectorExternalServicePorts := default (dict) $logCollectorExternalService.ports -}}
 {{- $logCollectorExternalSyslogPort := default (dict) $logCollectorExternalServicePorts.syslog -}}
 {{- $logCollectorExternalPorts := list -}}
-{{- if default true $logCollectorExternalSyslogPort.enabled -}}
+{{- if include "serviceradar.boolDefaultTrue" (list $logCollectorExternalSyslogPort "enabled") | eq "true" -}}
   {{- $logCollectorExternalPorts = append $logCollectorExternalPorts (dict "protocol" (default "UDP" $logCollectorExternalSyslogPort.protocol) "port" (default 514 $logCollectorExternalSyslogPort.port)) -}}
 {{- end -}}
 {{- $logCollectorTcp := default (dict) $logCollector.tcpCollector -}}
@@ -112,7 +112,7 @@
 {{- $logCollectorTcpExternalServicePorts := default (dict) $logCollectorTcpExternalService.ports -}}
 {{- $logCollectorTcpExternalSyslogPort := default (dict) $logCollectorTcpExternalServicePorts.syslog -}}
 {{- $logCollectorTcpExternalPorts := list -}}
-{{- if default true $logCollectorTcpExternalSyslogPort.enabled -}}
+{{- if include "serviceradar.boolDefaultTrue" (list $logCollectorTcpExternalSyslogPort "enabled") | eq "true" -}}
   {{- $logCollectorTcpExternalPorts = append $logCollectorTcpExternalPorts (dict "protocol" (default "TCP" $logCollectorTcpExternalSyslogPort.protocol) "port" (default 514 $logCollectorTcpExternalSyslogPort.port)) -}}
 {{- end -}}
 {{- $hasLogCollectorExternalPorts := gt (len $logCollectorExternalPorts) 0 -}}
@@ -141,7 +141,7 @@
 {{- $trapdExternalServicePorts := default (dict) $trapdExternalService.ports -}}
 {{- $trapdExternalSnmpPort := default (dict) $trapdExternalServicePorts.snmp -}}
 {{- $trapdExternalPorts := list -}}
-{{- if default true $trapdExternalSnmpPort.enabled -}}
+{{- if include "serviceradar.boolDefaultTrue" (list $trapdExternalSnmpPort "enabled") | eq "true" -}}
   {{- $trapdExternalPorts = append $trapdExternalPorts (dict "protocol" (default "UDP" $trapdExternalSnmpPort.protocol) "port" (default 162 $trapdExternalSnmpPort.port)) -}}
 {{- end -}}
 {{- $hasTrapdExternalPorts := gt (len $trapdExternalPorts) 0 -}}
@@ -152,7 +152,7 @@
 {{- $bmpCollectorServicePorts := default (dict) $bmpCollectorService.ports -}}
 {{- $bmpCollectorBmpPort := default (dict) $bmpCollectorServicePorts.bmp -}}
 {{- $bmpCollectorExternalPorts := list -}}
-{{- if default true $bmpCollectorBmpPort.enabled -}}
+{{- if include "serviceradar.boolDefaultTrue" (list $bmpCollectorBmpPort "enabled") | eq "true" -}}
   {{- $bmpCollectorExternalPorts = append $bmpCollectorExternalPorts (dict "protocol" (default "TCP" $bmpCollectorBmpPort.protocol) "port" (default 11019 $bmpCollectorBmpPort.port)) -}}
 {{- end -}}
 {{- $hasBmpCollectorExternalPorts := gt (len $bmpCollectorExternalPorts) 0 -}}

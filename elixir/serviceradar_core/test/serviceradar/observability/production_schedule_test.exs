@@ -5,6 +5,7 @@ defmodule ServiceRadar.Observability.ProductionScheduleTest do
   alias ServiceRadar.Observability.AnomalyAlertLivenessWorker
   alias ServiceRadar.Observability.AnomalyEpisodeStaleCloseWorker
   alias ServiceRadar.Observability.AnomalyIngestSilenceWorker
+  alias ServiceRadar.Observability.OtelServiceCatalogPruneWorker
   alias ServiceRadar.Observability.ProductionSchedule
   alias ServiceRadar.Observability.ResolveStaleAnomaliesWorker
   alias ServiceRadar.Observability.SeasonalBaselineFreshnessWorker
@@ -39,6 +40,22 @@ defmodule ServiceRadar.Observability.ProductionScheduleTest do
 
       assert {"*/30 * * * *", opts} = by_worker[ResolveStaleAnomaliesWorker]
       assert opts[:queue] == :maintenance
+    end
+
+    test "schedules the OTel service catalog prune daily, with a cron override" do
+      assert {"29 3 * * *", opts} =
+               crons_by_worker(ProductionSchedule.cron_entries(fetch(%{})))[
+                 OtelServiceCatalogPruneWorker
+               ]
+
+      assert opts[:queue] == :maintenance
+
+      env = %{"SERVICERADAR_OTEL_SERVICE_CATALOG_PRUNE_CRON" => "5 4 * * *"}
+
+      assert {"5 4 * * *", _opts} =
+               crons_by_worker(ProductionSchedule.cron_entries(fetch(env)))[
+                 OtelServiceCatalogPruneWorker
+               ]
     end
 
     test "schedules the liveness tripwires under default env" do
@@ -278,6 +295,12 @@ defmodule ServiceRadar.Observability.ProductionScheduleTest do
 
       assert config[:anomaly_silence_hours] == 3
       assert config[:seasonal_baseline_freshness_hours] == 50
+    end
+
+    test "returns the operator-set OTel service catalog retention" do
+      env = %{"SERVICERADAR_OTEL_SERVICE_CATALOG_RETENTION_DAYS" => "14"}
+
+      assert ProductionSchedule.app_env(fetch(env)) == [otel_service_catalog_retention_days: 14]
     end
 
     test "returns operator-set episode liveness knobs" do

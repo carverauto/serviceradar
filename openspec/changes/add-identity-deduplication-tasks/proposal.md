@@ -38,11 +38,14 @@ it finds duplicates it cannot reconcile safely it opens a task instead of mergin
 
 ## Impact
 
-- Affected specs: `device-identity-reconciliation` (ADDED "Identity De-duplication Tasks").
+- Affected specs: `device-identity-reconciliation` (ADDED "Identity De-duplication Tasks");
+  `srql` (ADDED "SRQL Identity Decisions Entity" and "SRQL De-duplication Tasks Entity",
+  MODIFIED "Identity Diagnostic Entities Are Permission Gated"); `mcp` (MODIFIED "MCP exposes a
+  device identity trace tool").
 - Affected code: `elixir/serviceradar_core` identity modules, one migration.
 - Depends on `add-identity-decision-log` (#4613).
-- Not in this change (tracked for a follow-up): the web-ng review queue, an SRQL entity for
-  tasks and decisions, and MCP visibility. The resources are readable through Ash by any viewer
-  and resolvable by operators through `Identity.Deduplication`.
+- Follow-up (#4704): the web-ng review queue; the SRQL entities `identity_decisions` and
+  `deduplication_tasks`, which `trace_device_identity` includes; and resolution notifications
+  sent after the resolving transaction commits.
 - The DIRE formal model's `NoSilentDecision` (every resolution goal configuration) is the
   property "no ambiguous or overridden identity decision is silent" that #4604 asks for.
