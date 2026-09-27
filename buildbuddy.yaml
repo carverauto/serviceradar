@@ -59,10 +59,12 @@ actions:
   #          "action_names":["SrqlParity"], "env":{"SRQL_PARITY_ONLY":"<optional id substring>"}}'
   #
   # It creates srql_parity_<stamp>_<pid> on the srql-fixtures CNPG and fills the fixed
-  # database srql_parity_ci on the carverauto StarRocks warehouse, seeds both with the same
-  # synthetic rows, runs every inventory entry through both dialects, then drops the CNPG
-  # database and empties srql_parity_ci. A second dispatch while one is running is refused
-  # (the harness's FIXED_DATABASE_BUSY_MINUTES guard), not interleaved.
+  # database srql_parity_ci on the StarRocks warehouse of whichever cluster's executor
+  # picks up the dispatch (carverauto or farm01; both are provisioned identically -- see
+  # k8s/starrocks/README.md), seeds both with the same synthetic rows, runs every inventory
+  # entry through both dialects, then drops the CNPG database and empties srql_parity_ci.
+  # A second dispatch while one is running is refused (the harness's
+  # FIXED_DATABASE_BUSY_MINUTES guard), not interleaved.
   #
   # Reachability: lab-fe-service is a ClusterIP, admitted by executor.task_allowed_private_ips
   # (//k8s/buildbuddy/values.yaml) and by k8s/starrocks/network-policy.yaml only because the

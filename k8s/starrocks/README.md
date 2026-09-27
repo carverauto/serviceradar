@@ -509,13 +509,22 @@ catalog, and CN reaches object storage on shared-data. Kubelet probes come from
 the node, which most CNIs admit regardless of NetworkPolicy; after applying,
 confirm the StarRocks pods stay Ready on yours.
 
-On the carverauto cluster the `buildbuddy` namespace carries the label too, for
-the `SrqlParity` BuildBuddy action (`//buildbuddy.yaml`), which runs the SRQL
-parity harness against this warehouse. It logs in as `srql_parity` and works
-only in the database `srql_parity_ci`, which it empties before and after each
-run. StarRocks grants a creator nothing on what it creates, and the grant that
+On both clusters (`carverauto` and `farm01`) the `buildbuddy` namespace carries
+the label too, for the `SrqlParity` BuildBuddy action (`//buildbuddy.yaml`),
+which runs the SRQL parity harness against the warehouse of whichever cluster
+runs it. Both clusters run
+BuildBuddy executors in the same `workflows` pool, so a dispatch can land on
+either, and `lab-fe-service.starrocks.svc` resolves to that cluster's own
+warehouse; the CNPG fixture is reached from both (on farm01 through the
+selectorless `srql-fixtures/srql-fixture-rw` Service). Both warehouses must be
+provisioned identically for parity, with the same user, password and grants
+described below. The action prints the runner and the FE addresses it can reach
+before the test, which says which
+cluster ran it. It logs in as `srql_parity` and works only in the database
+`srql_parity_ci`, which it empties before and after each run. StarRocks grants a
+creator nothing on what it creates, and the grant that
 would cover `srql_parity_*` databases covers every database, so the user may not
-create databases; an administrator creates this one once:
+create databases; an administrator creates this one once on each cluster:
 
 ```sql
 CREATE DATABASE IF NOT EXISTS srql_parity_ci;
@@ -525,10 +534,13 @@ GRANT ALL ON ALL MATERIALIZED VIEWS IN DATABASE srql_parity_ci TO USER 'srql_par
 ```
 
 The password lives in the BuildBuddy secret `SRQL_PARITY_STARROCKS_PASSWORD`,
-with a recovery copy in the Secret `starrocks/srql-parity-starrocks`, and
-nowhere in this repository. The label admits every BuildBuddy executor to
-ports 9030/8030/8040; the password is what gates the warehouse, as it does
-for every other admitted namespace.
+with a recovery copy in the Secret `starrocks/srql-parity-starrocks` on each
+cluster, and nowhere in this repository. If a dispatch lands on an unprovisioned
+cluster, missing warehouse reachability (including the namespace label) causes
+StarRocks connect timeouts. Check provisioning on the cluster named by the
+runner diagnostics. The label admits every BuildBuddy executor to ports
+9030/8030/8040; the password is what gates the warehouse, as it does for every
+other admitted namespace.
 
 ## Verify
 
