@@ -160,6 +160,55 @@ impl SegmentIndex {
         }
         (candidates, true)
     }
+
+    /// Page by raw index position, including rejected clips. Both returned rows
+    /// and candidate work are bounded; empty pages still advance or finish.
+    pub(crate) fn visit_page(
+        &self,
+        cell: Cell,
+        offset: usize,
+        candidate_limit: usize,
+        mut visitor: impl FnMut(u32, Clip) -> bool,
+    ) -> (usize, Option<usize>) {
+        if self.branches.is_empty() {
+            return (0, None);
+        }
+        let bounds = Bounds::tile(cell);
+        let mut pending = vec![0];
+        let mut candidates = 0;
+        while let Some(i) = pending.pop() {
+            let branch = &self.branches[i];
+            if branch.range.end <= offset || !branch.bounds.overlaps(bounds) {
+                continue;
+            }
+            if let Some((left, right)) = branch.children {
+                pending.push(right);
+                pending.push(left);
+                continue;
+            }
+            for raw in branch.range.start.max(offset)..branch.range.end {
+                if candidates == candidate_limit {
+                    return (candidates, Some(raw));
+                }
+                candidates += 1;
+                let line_id = self.ordered[raw];
+                let line = self.lines[line_id as usize];
+                if let Some(clipped) = clip(
+                    self.points[line.source as usize],
+                    self.points[line.target as usize],
+                    bounds,
+                ) {
+                    if !visitor(line_id, clipped) {
+                        return (
+                            candidates,
+                            (raw + 1 < self.ordered.len()).then_some(raw + 1),
+                        );
+                    }
+                }
+            }
+        }
+        (candidates, None)
+    }
 }
 
 /// Exact segment parameters keep corner ownership independent of floating-point

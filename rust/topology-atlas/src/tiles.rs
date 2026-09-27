@@ -6,6 +6,7 @@ use std::ops::Range;
 
 use sha2::{Digest, Sha256};
 
+use crate::details::{DetailIndex, MAX_SELECTION_BYTES, TileSelection, detail_revision};
 use crate::layout::morton_index;
 use crate::spatial::{Clip, Line, Point, SegmentIndex};
 use crate::{Cell, Error, Position, Relation, WORLD_EXTENT};
@@ -64,18 +65,22 @@ pub struct Tile {
     pub device_count: u64,
     pub internal_relations: u64,
     pub candidate_relations: usize,
+    /// Bounded native descriptor retained separately from the encoded geometry.
+    pub selection: TileSelection,
 }
 
 pub struct World {
     layout_version: String,
     z_max: u8,
-    positions: Vec<Position>,
+    pub(crate) positions: Vec<Position>,
     codes: Vec<u64>,
-    identities: HashMap<String, u32>,
+    pub(crate) identities: HashMap<String, u32>,
     importance: BTreeMap<u8, Vec<u32>>,
-    relations: Vec<Relation>,
-    endpoints: Vec<Line>,
-    segments: SegmentIndex,
+    pub(crate) relations: Vec<Relation>,
+    pub(crate) endpoints: Vec<Line>,
+    pub(crate) segments: SegmentIndex,
+    pub(crate) details: DetailIndex,
+    pub(crate) detail_revision: String,
 }
 
 #[derive(Clone)]
@@ -146,6 +151,8 @@ impl World {
                 .ok_or_else(|| Error::MissingEndpoint(edge.target.clone()))?;
             endpoints.push(Line { source, target });
         }
+        let details = DetailIndex::new(&positions, &endpoints)?;
+        let detail_revision = detail_revision(&layout_version, &positions, &relations);
         let segments = SegmentIndex::new(points, endpoints.clone());
         Ok(Self {
             layout_version,
@@ -157,6 +164,8 @@ impl World {
             relations,
             endpoints,
             segments,
+            details,
+            detail_revision,
         })
     }
 
@@ -189,6 +198,10 @@ impl World {
             if let Some(mut tile) = result {
                 tile.candidate_relations = candidates;
                 tile.revision = self.revision(&tile);
+                tile.selection.tile_revision = tile.revision.clone();
+                if tile.selection.retained_bytes() > MAX_SELECTION_BYTES {
+                    return Err(Error::InvalidBudget);
+                }
                 return Ok(tile);
             }
             limit = (limit / 2).max(1);
@@ -360,15 +373,28 @@ impl World {
             return (None, candidates);
         }
         let device_count = plan.glyphs.iter().map(|g| g.count).sum();
+        let edges: Vec<_> = bundles.into_values().collect();
+        let mut promoted: Vec<_> = plan.promoted.into_iter().collect();
+        promoted.sort_unstable();
+        let selection = TileSelection {
+            world_revision: self.detail_revision.clone(),
+            tile_revision: String::new(),
+            cell,
+            glyphs: plan.glyphs.clone(),
+            edges: edges.clone(),
+            promoted,
+            groups: plan.groups,
+        };
         (
             Some(Tile {
                 cell,
                 revision: String::new(),
                 glyphs: plan.glyphs,
-                edges: bundles.into_values().collect(),
+                edges,
                 device_count,
                 internal_relations: internal,
                 candidate_relations: 0,
+                selection,
             }),
             candidates,
         )
@@ -456,12 +482,12 @@ fn tile_edge(relation: &Relation, source: u32, target: u32, clip: Clip) -> TileE
     }
 }
 
-fn digest_string(hash: &mut Sha256, value: &str) {
+pub(crate) fn digest_string(hash: &mut Sha256, value: &str) {
     hash.update((value.len() as u64).to_le_bytes());
     hash.update(value.as_bytes());
 }
 
-fn digest_hex(hash: Sha256) -> String {
+pub(crate) fn digest_hex(hash: Sha256) -> String {
     hash.finalize()
         .iter()
         .map(|byte| format!("{byte:02x}"))
