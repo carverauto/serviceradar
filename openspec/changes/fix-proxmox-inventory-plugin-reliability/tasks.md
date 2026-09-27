@@ -36,3 +36,8 @@
       enumerates within the poll window (all running guests, each with an IP).
 - [ ] 5.2 Confirm no IP-less proxmox rows; status matches Proxmox UI.
 - [ ] 5.3 Add regression tests; land via PR; durable build+deploy.
+- [ ] 5.4 Issue or verify the Proxmox API token for each cluster node and confirm plugin runs
+      succeed on the agent that polls it (moved from `refactor-device-identity-reconciliation`
+      task 3.4).
+- [ ] 5.5 Confirm virtualization enrichment persists after successful plugin runs (moved from
+      `refactor-device-identity-reconciliation` task 3.5).

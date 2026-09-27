@@ -1,7 +1,7 @@
 # DIRE formal models
 
 Two TLA+ models check DIRE (the Device Identity and Reconciliation Engine) against the
-requirements in `openspec/changes/update-dire-strong-identity-goal`: one canonical device
+requirements in `openspec/specs/device-identity-reconciliation`: one canonical device
 record per physical device, whatever its address. The verification requirements are
 `openspec/specs/dire-formal-model`; the design is
 `openspec/changes/archive/2026-09-24-add-dire-formal-model/design.md`.
@@ -216,7 +216,7 @@ still describes the code. The switches today's code has are listed once, in `Cur
 - Absorbing a provisional address-only record into an identified device. The goal never merges
   on address evidence, so such a record stays separate; whether it should be absorbed, and how
   that would be recorded, is an open question in
-  `openspec/changes/update-dire-strong-identity-goal/design.md`.
+  `openspec/changes/archive/2026-09-27-update-dire-strong-identity-goal/design.md`.
 - Merge policy details beyond identifier classes. Agent-identity guards and the cooldown are
   in the lifecycle model or left nondeterministic.
 

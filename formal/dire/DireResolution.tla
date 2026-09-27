@@ -1,7 +1,7 @@
 --------------------------- MODULE DireResolution ---------------------------
 (***************************************************************************)
 (* DIRE identity resolution against physical ground truth.                  *)
-(* See openspec/changes/update-dire-strong-identity-goal (the requirements) *)
+(* See openspec/specs/device-identity-reconciliation (the requirements)     *)
 (* and openspec/specs/dire-formal-model (the verification).                 *)
 (*                                                                          *)
 (* The world: physical devices own interfaces; an interface has a true MAC  *)

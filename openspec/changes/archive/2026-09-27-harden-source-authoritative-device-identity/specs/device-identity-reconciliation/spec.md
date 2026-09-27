@@ -1,15 +1,17 @@
 ## ADDED Requirements
 
 ### Requirement: Source-Authoritative Identifier Integrity
-The system SHALL treat typed stable identifiers from source integrations as source-authoritative device identity and SHALL NOT silently reassign them to unrelated device rows because of weak IP evidence.
+The system SHALL treat the typed source-authoritative identifiers, `armis_device_id` and `netbox_device_id`, as device identity and SHALL NOT silently reassign them to unrelated device rows because of weak IP evidence.
+A generic `integration_id` is not source-authoritative. It never vetoes a match that other
+evidence supports, and it governs identity only through the typed provider id it accompanies.
 
-#### Scenario: Generic source-authoritative integration update collides with unrelated active IP owner
-- **GIVEN** an integration sync update contains source-scoped `integration_id = A` and IP `I`
+#### Scenario: NetBox update collides with unrelated active IP owner
+- **GIVEN** a NetBox sync update contains `netbox_device_id = N` and IP `I`
 - **AND** active IP `I` is already owned by device `D2`
-- **AND** `D2` does not already carry integration ID `A` or another allowed non-MAC strong identifier match for the incoming update
+- **AND** `D2` does not already carry NetBox device ID `N` or another allowed non-MAC strong identifier match for the incoming update
 - **WHEN** identity reconciliation processes the update
-- **THEN** the system SHALL NOT reassign integration ID `A` to `D2`
-- **AND** it SHALL preserve the source-authoritative mapping for integration ID `A`
+- **THEN** the system SHALL NOT reassign NetBox device ID `N` to `D2`
+- **AND** it SHALL preserve the source-authoritative mapping for NetBox device ID `N`
 - **AND** it SHALL not use IP evidence alone to merge those devices
 
 #### Scenario: Armis update collides with unrelated active IP owner

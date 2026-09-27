@@ -26,9 +26,10 @@ DHCP moves an address from one device to another, so "same address" can never me
 device". An address-only sighting attaches to the device that currently holds that address.
 A confirmed IP alias is the same kind of evidence: it can resolve an address-only update. It
 cannot merge devices whose strong identities differ, and conflicting alias state is
-invalidated rather than acted on. The guarded `IP Alias Resolution` in
-`refactor-device-identity-reconciliation` already says this. That change is left to own the
-wording, and this design depends on it being archived rather than on a second copy.
+invalidated rather than acted on. Once the alias merge was removed (#4627, #4648) a confirmed
+alias merges nothing at all. This change carries `IP Alias Resolution` and `Merge Stability and
+Oscillation Protection`, moved from `refactor-device-identity-reconciliation`, whose remaining
+tasks are live-demo checks. Moving the blocks keeps a single copy of each.
 
 ### D2. Source-authoritative identifiers win, visibly
 
@@ -80,7 +81,7 @@ without doing both is a defect.
 | Where | Wording | Resolution |
 |---|---|---|
 | `device-inventory` "Restore Soft-Deleted Devices" | discovery restores any tombstone | MODIFIED here (D5, D7). The pending copy in `add-device-delete-guardrails` is updated to match. |
-| `device-identity-reconciliation` "IP Alias Resolution" | a confirmed alias merges unconditionally | Superseded by the guarded version in `refactor-device-identity-reconciliation` (D1). Task 1.2. |
+| `device-identity-reconciliation` "IP Alias Resolution" | a confirmed alias merges unconditionally | Superseded by the guarded version carried in this change (D1), moved from `refactor-device-identity-reconciliation`. Task 1.2. |
 | `docs/docs/dire-identity-model.md` "never merge on ... MAC-only" | forbids MAC-only merges | Contradicts D5 for a globally-unique MAC in environments where it is the only hardware identifier. The doc is corrected. Randomized MACs stay excluded (D4). Task 1.3. |
 | `add-device-identity-fence` enforcement vs observe-only rollout | a stale write is abandoned | Unchanged. Enforcement is the intended end state and landed with #4618 (task 3.10); the `fence_observe_only` switch and its witness are gone. |
 

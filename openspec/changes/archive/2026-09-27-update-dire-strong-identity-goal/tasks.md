@@ -5,11 +5,17 @@
 - [x] 1.1 ADDED goal requirements in `device-identity-reconciliation`; MODIFIED `device-inventory`
       "Restore Soft-Deleted Devices", with the pending copy in `add-device-delete-guardrails`
       updated to match.
-- [ ] 1.2 Archive `refactor-device-identity-reconciliation` so its guarded `IP Alias Resolution`
+- [x] 1.2 ~~Archive `refactor-device-identity-reconciliation` so its guarded `IP Alias Resolution`
       and `Merge Stability and Oscillation Protection` replace the unguarded wording in the
-      living spec (design D1). Check first that no other pending change repeats those blocks.
+      living spec (design D1).~~ Done another way: that change still has live-demo checks open,
+      so both blocks moved into this change's delta and out of that one's. `IP Alias Resolution`
+      now says an alias never merges (3.1-3.2, #4627, #4648). No other pending change repeats
+      either block.
 - [x] 1.3 Correct `docs/docs/dire-identity-model.md`: a globally-unique MAC may merge where it
       is the only hardware identifier; randomized MACs never do (design D4, D5).
+- [x] 1.4 Record the decisions taken while fixing: `integration_id` never vetoes a match (#4754),
+      randomized MACs never seed a uid (#4785), an existing device never adopts a provisional
+      sweep seed (#4786), and hostname agreement is not identity (#4734).
 
 ## 2. Formal model (owned by `add-dire-formal-model`)
 
