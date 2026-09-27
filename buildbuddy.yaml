@@ -498,6 +498,8 @@ actions:
           # selected by the wildcard.
           bazel test $FLAGS //elixir/web-ng:networks_live_db_test
           bazel test $FLAGS //elixir/web-ng:topology_atlas_db_test
+          # Dgraph owns a separate scratch namespace and verifies its deletion.
+          bazel test $FLAGS //rust/dgraph-topology:schema_lifecycle_test
 
       # BENCHMARKS. Run so they cannot rot; NOT gated on a threshold.
       #

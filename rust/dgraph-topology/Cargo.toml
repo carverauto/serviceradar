@@ -41,5 +41,10 @@ tonic = { workspace = true }
 
 [dev-dependencies]
 proto_dgraph = { workspace = true }
+runfiles = { workspace = true }
+serviceradar-config-manager = { path = "../../config/manager_config/rust" }
+serviceradar-config-schema = { path = "../../config/proto_bindings/rust" }
+serviceradar-secret-manager = { path = "../../config/manager_secret/rust" }
 tokio = { workspace = true, features = ["macros", "net", "rt-multi-thread", "sync", "time"] }
 tokio-stream = { workspace = true, features = ["net"] }
+urlencoding = { workspace = true }

@@ -16,9 +16,9 @@
 
 //! Live schema lifecycle against a Dgraph fixture.
 //!
-//! Local default: `DgraphInstance::acquire()` starts `dgraph/standalone:v25.4.0`.
-//! CI: `DGRAPH_TEST_STRATEGY=existing` plus host/port/sslmode/password pointing at
-//! `dgraph-ci`. Never `demo`: product Helm embed is a later task.
+//! Runs on the remote BuildBuddy runner against the typed CI Dgraph fixture.
+//! The CI config is a declared Bazel input; credentials use SecretManager.
+//! Compilation stays on RBE, while TestRunner runs beside the cluster fixture.
 //!
 //! Always uses a fresh Dgraph namespace so `remove` cannot touch another run's
 //! predicates. `drop_all` is never called.
@@ -31,11 +31,15 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use dgraph_client::DgraphClient;
-use dgraph_client::utils_test::fixtures::fetch_ca_bundle;
-use dgraph_client::utils_test::{DEFAULT_GROOT_PASSWORD, DgraphInstance};
 use dgraph_migrate::{Mode, Outcome, run_with_client, verify};
 use dgraph_topology::{DeviceWrite, EdgeWrite, PREDICATES, TYPES, TopologyClient, schema_spec};
+use runfiles::Runfiles;
 use serde::Deserialize;
+use serviceradar_config_manager::{
+    ConfigManager, DGRAPH_ADMIN_PASSWORD, Filesystem, Identity, fetch_ca_bundle,
+};
+use serviceradar_config_schema::DgraphTlsMode;
+use serviceradar_secret_manager::{EnvironmentProvider, Manifest, Secret, SecretManager};
 
 #[tokio::test]
 async fn apply_is_idempotent_remove_is_scoped_and_reapply_restores() {
@@ -209,21 +213,12 @@ where
     F: FnOnce(DgraphClient) -> Fut + Send + 'static,
     Fut: Future<Output = ()> + Send + 'static,
 {
-    let instance = DgraphInstance::acquire().expect("Dgraph fixture");
-    eprintln!("{}", instance.describe());
-    let mut ca_file = FixtureCa::create(&instance);
-    let sslroot = ca_file
-        .0
-        .as_ref()
-        .map(|path| path.to_string_lossy().into_owned());
-    let mut base_params = Vec::new();
-    if let Some(path) = sslroot.as_deref() {
-        base_params.push(("sslrootcert", path));
-    }
-    let password = instance.admin_password().expect("fixture admin credential");
+    let fixture = Fixture::ci();
+    let mut ca_file = FixtureCa::create(&fixture.ca_bundle_url);
+    let ca_path = ca_file.0.as_ref().expect("owned CA file");
+    let admin_target = fixture.connection(0, fixture.admin_password.expose(), ca_path);
     // Upstream connection errors retain only parsed authority/structural
     // details. The migration connector's error also retains the full URL.
-    let admin_target = instance.connection_string_as("groot", &password, &base_params);
     let admin = tokio::time::timeout(
         Duration::from_secs(30),
         DgraphClient::connect(&admin_target),
@@ -239,14 +234,13 @@ where
         namespace, 0,
         "never use the shared admin namespace as scratch"
     );
-    let namespace_id = namespace.to_string();
-    let mut params = base_params;
-    params.push(("namespace", namespace_id.as_str()));
-    let target = instance.connection_string_as("groot", DEFAULT_GROOT_PASSWORD, &params);
-
     // All fallible scratch setup and test assertions are inside the task. A
     // panic still returns control here for namespace deletion and verification.
+    let ca_path = ca_path.clone();
     let mut task = tokio::spawn(async move {
+        // Dgraph initializes each new namespace with this scratch credential.
+        // The shared administrator credential is never changed.
+        let target = fixture.connection(namespace, "password", &ca_path);
         let client = DgraphClient::connect(&target)
             .await
             .expect("connect owned scratch namespace");
@@ -292,18 +286,76 @@ where
     }
 }
 
+struct Fixture {
+    authority: String,
+    ca_bundle_url: String,
+    admin_password: Secret,
+}
+
+impl Fixture {
+    fn ci() -> Self {
+        let identity = Identity::from_env().expect("typed fixture identity");
+        assert_eq!(identity.to_string(), "ci", "only the CI fixture is allowed");
+        let runfiles = Runfiles::create().expect("Bazel fixture runfiles");
+        let path = runfiles
+            .rlocation_from("serviceradar/config/environments/ci.binpb", "")
+            .expect("declared CI config input");
+        let bytes = std::fs::read(path).expect("read declared CI config");
+        let manager = ConfigManager::load(&identity, &[("ci", &bytes)], &Filesystem)
+            .expect("validated CI config");
+        let config = manager.dgraph().expect("CI Dgraph config");
+        assert_eq!(
+            config
+                .tls_mode
+                .and_then(|mode| DgraphTlsMode::try_from(mode).ok()),
+            Some(DgraphTlsMode::VerifyCa),
+            "fixture connections must verify the Dgraph CA"
+        );
+        let host = config.host.as_deref().expect("CI Dgraph host");
+        assert!(!host.contains(['@', '/', '?', '#']), "valid Dgraph host");
+        let port = u16::try_from(config.port.expect("CI Dgraph port")).expect("valid Dgraph port");
+        let authority = if host.parse::<std::net::Ipv6Addr>().is_ok() {
+            format!("[{host}]:{port}")
+        } else {
+            format!("{host}:{port}")
+        };
+        let secrets = SecretManager::new(
+            EnvironmentProvider::for_kind(identity.kind()),
+            Manifest::new([DGRAPH_ADMIN_PASSWORD]),
+        );
+        Self {
+            authority,
+            ca_bundle_url: manager
+                .dgraph_ca_bundle_url()
+                .expect("CI Dgraph CA URL")
+                .to_owned(),
+            admin_password: secrets
+                .resolve(DGRAPH_ADMIN_PASSWORD)
+                .expect("typed CI Dgraph credential"),
+        }
+    }
+
+    fn connection(&self, namespace: u64, password: &str, ca_path: &std::path::Path) -> String {
+        format!(
+            "dgraph://groot:{}@{}?sslmode=verify-ca&namespace={namespace}&sslrootcert={}",
+            urlencoding::encode(password),
+            self.authority,
+            urlencoding::encode(ca_path.to_str().expect("CA path is UTF-8")),
+        )
+    }
+}
+
 struct FixtureCa(Option<PathBuf>);
 
 impl FixtureCa {
-    fn create(instance: &DgraphInstance) -> Self {
-        let Some(url) = instance.ca_bundle_url() else {
-            return Self(None);
-        };
+    fn create(url: &str) -> Self {
         let pem = fetch_ca_bundle(url).expect("fixture CA bundle");
         static SEQUENCE: AtomicU64 = AtomicU64::new(0);
-        let path = std::env::temp_dir().join(format!(
-            "dgraph-ca-{}-{}-{}.crt",
-            instance.run_id().as_str(),
+        let directory = std::env::var_os("TEST_TMPDIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(std::env::temp_dir);
+        let path = directory.join(format!(
+            "dgraph-ca-{}-{}.crt",
             std::process::id(),
             SEQUENCE.fetch_add(1, Ordering::Relaxed),
         ));
@@ -316,13 +368,18 @@ impl FixtureCa {
         }
         let mut file = options.open(&path).expect("create owned CA file");
         let guard = Self(Some(path));
-        file.write_all(pem.as_bytes()).expect("write fixture CA");
+        let written = file.write_all(&pem);
+        drop(file);
+        written.expect("write fixture CA");
         guard
     }
 
     fn remove(&mut self) -> std::io::Result<()> {
         if let Some(path) = &self.0 {
             std::fs::remove_file(path)?;
+            if path.try_exists()? {
+                return Err(std::io::Error::other("owned CA file remains after removal"));
+            }
             self.0 = None;
         }
         Ok(())
