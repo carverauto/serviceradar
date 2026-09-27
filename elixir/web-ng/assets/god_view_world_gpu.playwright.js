@@ -90,6 +90,8 @@ test("HTTP bootstrap recovers and search, picking, detail return and invalidatio
   await page.mouse.click(location.x, location.y)
   await page.getByRole("button", {name: "Open neighborhood"}).click()
   await expect(page.getByRole("button", {name: "Back to map"})).toBeVisible()
+  await page.evaluate(() => window.__SR_WORLD_TRANSPORT__.events.get("god_view:reset_view")({}))
+  await expect(page.getByRole("button", {name: "Back to map"})).toBeVisible()
   const loaded = tileRequests.length
   await page.getByRole("button", {name: "Back to map"}).click()
   await expect.poll(() => page.evaluate(async ({x, y}) => {
@@ -109,6 +111,11 @@ test("HTTP bootstrap recovers and search, picking, detail return and invalidatio
   }]))
   await expect.poll(() => tileRequests.length).toBe(loaded + 1)
   expect(tileRequests.at(-1)).toEqual({id: "2/1/1", conditional: `"${version}:${revision}"`})
+  await page.evaluate(() => window.__SR_WORLD_TRANSPORT__.events.get("god_view:reset_view")({}))
+  await page.waitForFunction(() => {
+    const viewport = window.__SR_WORLD_TRANSPORT__.renderer.deck.getViewports()[0]
+    return viewport.zoom === 0 && viewport.target[0] === 256 && viewport.target[1] === 256
+  })
   expect(errors).toEqual([])
 })
 

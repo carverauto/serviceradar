@@ -96,7 +96,11 @@ export default class WorldMapRenderer {
       adoptDeckViewportSize(this.deck, width, height)
     })
     this.resize.observe(this.el)
-    this.handleEvent("god_view:reset_view", () => {this.returnToMap(); this.setView(this.overviewView())})
+    this.handleEvent("god_view:reset_view", () => {
+      // The mounted detail renderer fits its own coordinate space. Fitting
+      // must not also discard that scene or move the retained map camera.
+      if (!this.detailRenderer) {this.returnToMap(); this.setView(this.overviewView())}
+    })
     this.handleEvent("god_view:set_layers", ({layers}) => {
       this.packetFlow = layers?.atmosphere !== false
       this.links = layers?.mantle !== false
