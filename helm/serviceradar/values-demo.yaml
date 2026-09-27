@@ -229,9 +229,9 @@ cnpg:
 logCollector:
   replicaCount: 3
   # Shared events stream (logs/OTEL/falco) — not used for raw NetFlow.
-  # Sized independently of the dedicated flows stream.
+  # Sized independently of the dedicated flows stream: streamMaxBytes is unset
+  # so nats.jetstream.profile (small) supplies it.
   streamReplicas: 3
-  streamMaxBytes: 2147483648
   # Use the dedicated UDP Service when the collector must record the actual
   # device address. The shared Envoy UDPRoute remains enabled below for
   # compatibility, but Envoy Gateway's UDP forwarding path rewrites the
@@ -819,11 +819,10 @@ remoteAccess:
 datasvc:
   replicaCount: 3
   jetstreamReplicas: 3
-  # Match the live demo JetStream account budget. Keep this in Git so Argo does
-  # not restore the chart's larger production-oriented object-store reservation.
-  bucketMaxBytes: 536870912
+  # bucketMaxBytes and objectStoreBytes are unset so nats.jetstream.profile
+  # (small: 1 GiB KV, 4 GiB objects) supplies them, inside the chart's
+  # render-time JetStream budget.
   objectMaxBytes: 536870912
-  objectStoreBytes: 2147483648
   data:
     # datasvc is safe to run stateless in demo because KV/object state lives in NATS.
     enabled: false
@@ -932,10 +931,8 @@ flowCollector:
   config:
     stream_name: "flows"
     rehome_state_path: "/var/lib/serviceradar/flow-collector-rehome.json"
-    # 8 GiB / 2h / R=3 — dedicated flows budget (design). Demo reduces
-    # datasvc object/KV reservations so this fits 30Gi PVC + maxFileStore.
-    # No volumeClaimTemplate mutation.
-    stream_max_bytes: 8589934592
+    # 2h / R=3. stream_max_bytes is unset so nats.jetstream.profile (small:
+    # 8 GiB) supplies it inside the render-time JetStream budget.
     stream_max_age_secs: 7200
     stream_replicas: 3
   # Persist rehome marker + ready file across Recreate / pod replacement.
@@ -1014,9 +1011,9 @@ bmpCollector:
     - "--curation-snapshot-backend=local"
     - "-vvv"
   config:
-    streamMaxBytes: 1073741824
-    # Pods are HA, but the dedicated ARANCINI_CAUSAL stream still stays at a
-    # single JetStream replica until that budget is sized separately.
+    # streamMaxBytes is unset so nats.jetstream.profile (small: 2 GiB) supplies
+    # it. Pods are HA, but the dedicated ARANCINI_CAUSAL stream stays at a
+    # single JetStream replica, which is how the budget counts it.
     streamReplicas: 1
     natsTlsClientCertPath: "/etc/serviceradar/certs/bmp-collector.pem"
     natsTlsClientKeyPath: "/etc/serviceradar/certs/bmp-collector-key.pem"
@@ -1033,6 +1030,7 @@ nats:
   replicas: 3
   jetstream:
     maxMemoryStore: 1G
-    # Within existing 30Gi PVC. Do not change persistence.size here — STS
-    # volumeClaimTemplates are immutable and block Helm upgrades.
-    maxFileStore: 30G
+    # maxFileStore is unset: the small profile supplies 30G for the existing
+    # 30Gi PVC. Do not change persistence.size here -- STS volumeClaimTemplates
+    # are immutable; see docs/nats-jetstream-profile-runbook.md.
+    profile: small

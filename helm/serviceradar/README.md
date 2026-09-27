@@ -248,10 +248,11 @@ The control-plane and ingest workers above rely on shared JetStream durable cons
 
 | Parameter | Purpose | Default |
 |-----------|---------|---------|
+| `nats.jetstream.profile` | JetStream sizing profile (`small`, `medium`, `large`, `tenant-2g`) supplying `max_file_store` and every stream size below; the chart fails at render time when the reservations exceed 85% of `max_file_store` or `max_file_store` exceeds 94% of `nats.persistence.size`. See [JetStream sizing values](../../docs/docs/helm-configuration.md) and `docs/nats-jetstream-profile-runbook.md` | `small` |
 | `datasvc.jetstreamReplicas` | Replica count for KV/object streams owned by datasvc | `3` |
-| `datasvc.bucketMaxBytes` | Max bytes for `KV_serviceradar-datasvc` | `4294967296` (4 GiB) |
+| `datasvc.bucketMaxBytes` | Max bytes for `KV_serviceradar-datasvc` | unset (`nats.jetstream.profile` supplies it; 1 GiB in `small`) |
 | `datasvc.objectMaxBytes` | Max bytes for a single object upload | `536870912` |
-| `datasvc.objectStoreBytes` | Max bytes exposed to datasvc object-store config | `10737418240` (10 GiB) |
+| `datasvc.objectStoreBytes` | Max bytes exposed to datasvc object-store config | unset (profile supplies it; 4 GiB in `small`) |
 | `bumblebeeCatalogRefresh.enabled` | Runs the daily Bumblebee exposure-catalog refresh on core (first run at boot); off means agents never receive a scannable catalog | `true` |
 | `objectStoreRetention.enabled` | Enables scheduled cleanup for ServiceRadar-owned object-store namespaces | `true` |
 | `objectStoreRetention.dryRun` | Logs retention decisions without deleting eligible objects | `false` |
@@ -261,11 +262,11 @@ The control-plane and ingest workers above rely on shared JetStream durable cons
 | `webNg.nativeAddonImport.syncIntervalSeconds` | Seconds between add-on catalog syncs | `3600` |
 | `webNg.nativeAddonImport.autoApproveAddonIds` | Add-on ids whose imports are approved automatically; approval is the security boundary, so this is empty by default | `[]` |
 | `logCollector.streamReplicas` | Replica count for the shared `events` stream | `3` |
-| `logCollector.streamMaxBytes` | Max bytes for the shared `events` stream | `2147483648` |
+| `logCollector.streamMaxBytes` | Max bytes for the shared `events` stream | unset (profile supplies it; 2 GiB in `small`) |
 | `logCollector.tcpCollector.streamReplicas` | Replica count for TCP syslog writers on `events` | `3` |
 | `trapd.streamReplicas` | Replica count for SNMP trap writers on `events` | `3` |
 | `bmpCollector.config.streamReplicas` | Replica count for the dedicated `ARANCINI_CAUSAL` stream | `1` |
-| `bmpCollector.config.streamMaxBytes` | Max bytes for the dedicated BMP stream | `10737418240` |
+| `bmpCollector.config.streamMaxBytes` | Max bytes for the dedicated BMP stream | unset (profile supplies it; 2 GiB in `small`) |
 
 Dedicated **`flows`** stream (flow-collector owns ensure/reconcile; not the shared `events` bus):
 
@@ -273,7 +274,7 @@ Dedicated **`flows`** stream (flow-collector owns ensure/reconcile; not the shar
 |-----------|---------|---------|
 | `flowCollector.config.stream_name` | JetStream stream name for raw flows | `flows` |
 | `flowCollector.config.stream_replicas` | JetStream replica count for the dedicated `flows` stream | `3` |
-| `flowCollector.config.stream_max_bytes` | Max bytes for the dedicated `flows` stream | `10737418240` (10 GiB) |
+| `flowCollector.config.stream_max_bytes` | Max bytes for the dedicated `flows` stream | unset (profile supplies it; 8 GiB in `small`) |
 | `flowCollector.config.stream_max_age_secs` | Max age for the dedicated `flows` stream | `21600` (6h) |
 
 In `demo`, the shared `events` path runs at `3` replicas with smaller reserved caps so JetStream placement fits within the account budget. Datasvc keeps the KV stream small while leaving object-store headroom for one retained agent release plus a replacement import before retention runs. `bmpCollector` runs with `3` pods in demo, but its dedicated stream is still intentionally left at `1` replica until that stream budget is sized separately.

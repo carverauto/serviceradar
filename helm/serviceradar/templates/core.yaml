@@ -488,6 +488,27 @@ spec:
         # so anomaly findings/alerts surface without per-deployment extraEnv.
         - name: EVENT_WRITER_ENABLED
           value: {{ include "serviceradar.boolDefaultTrue" (list $eventWriter "enabled") | eq "true" | quote }}
+        {{- /* JetStream reservations the chart budget counted (serviceradar.jetstreamBudget):
+             every stream EventWriter creates, the EventWriter fallbacks for the
+             collector-owned events, flows and ARANCINI_CAUSAL streams (used until a
+             collector claims the stream), and core's threat-intel object store. */}}
+        {{- $coreJs := (include "serviceradar.jetstreamBudget" . | fromJson).sizes }}
+        {{- range $id := list "metrics" "k8s_inventory" "analytics_predictions" "mtr_results" "scan_results" "trivy_reports" }}
+        {{- $js := index $coreJs $id }}
+        - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $js.stream "suffix" "MAX_BYTES") }}
+          value: {{ $js.maxBytes | quote }}
+        {{- end }}
+        {{- range $pair := list (list "EVENTS" "events") (list "FLOWS" "flowsFallback") (list "ARANCINI_CAUSAL" "aranciniFallback") }}
+        {{- $js := index $coreJs (index $pair 1) }}
+        - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" (index $pair 0) "suffix" "FALLBACK_MAX_BYTES") }}
+          value: {{ $js.maxBytes | quote }}
+        - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" (index $pair 0) "suffix" "FALLBACK_REPLICAS") }}
+          value: {{ $js.replicas | quote }}
+        {{- end }}
+        - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $coreJs.notifications.stream "suffix" "MAX_BYTES") }}
+          value: {{ $coreJs.notifications.maxBytes | quote }}
+        - name: SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES
+          value: {{ $coreJs.threatIntel.maxBytes | quote }}
 
         {{- /* Exact EventWriter flow consumer subjects: concrete flows.raw.* only. */ -}}
         {{- /* flow.host-slice.* is attribution intermediate (joiner), not ocsf consumers. */ -}}

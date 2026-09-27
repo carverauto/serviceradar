@@ -76,14 +76,18 @@ Optional public endpoint inventory
   `serviceradar-k8s-inventory` image is available for that release tag.
 
 JetStream sizing values
+- `nats.jetstream.profile` selects a sizing profile: `small` (default, `max_file_store` 30G for the default 30Gi PVC), `medium` (100G for a 100Gi PVC) or `large` (500G for a 500Gi PVC), plus `tenant-2g` (2G) for hosted tenant plans. With `nats.replicas` of 1 or 2 the shipped profiles use their single-server size table (the Docker Compose sizes). A profile sets `max_file_store` and the default size of every stream, KV bucket and object store ServiceRadar creates. Every size key below is unset by default so the profile supplies it; an explicit value wins, and so does `nats.jetstream.maxFileStore`. The chart renders `max_file_store` as an exact byte count (NATS reads `G` as 10^9 and `Gi` as 2^30).
+- The chart checks the budget at render time: `helm template` and `helm upgrade` fail, listing every reservation, when the most loaded NATS server would reserve more than 85% of `max_file_store`. `nats.jetstream.allowOvercommit: true` skips that check. `flows` and `ARANCINI_CAUSAL` are always counted at the collector size, even when the collector is disabled.
+- The chart also fails when `max_file_store` exceeds 94% of `nats.persistence.size`, and `allowOvercommit` does not skip it. A profile never resizes the NATS PVC; moving a live install to a larger profile follows the volume-expansion runbook at `docs/nats-jetstream-profile-runbook.md` in the repository.
+- EventWriter streams: `core.eventWriter.streams.<stream>.maxBytes` for `metrics`, `k8s_inventory`, `analytics_predictions`, `mtr_results`, `scan_results`, `trivy_reports` and `notifications` (the `NOTIFICATIONS` stream), and the EventWriter fallbacks for `flows` and `ARANCINI_CAUSAL` (with `.replicas`). Object stores: `webNg.pluginStorage.jetstreamMaxBucketBytes`, `webNg.fieldSurveyArtifactStore.jetstreamMaxBucketBytes` and `core.threatIntelRawPayloadStore.jetstreamMaxBucketBytes`.
 - The shared `events` stream is created and reconciled by multiple services. The important knobs are:
   - `logCollector.streamReplicas`
-  - `logCollector.streamMaxBytes`
+  - `logCollector.streamMaxBytes` (profile default: 2 GiB in `small`)
   - `trapd.streamReplicas`
 - Dedicated **`flows`** stream (owned by flow-collector; isolated from logs/OTEL on `events`):
   - `flowCollector.config.stream_name` (default `flows`)
   - `flowCollector.config.stream_replicas`
-  - `flowCollector.config.stream_max_bytes` (default 10 GiB)
+  - `flowCollector.config.stream_max_bytes` (profile default: 8 GiB in `small`)
   - `flowCollector.config.stream_max_age_secs` (default 6h)
   - EventWriter consumers use concrete `flows.raw.<name>` leaves only; do not put
     ownership wildcards such as `flows.raw.>` / `flows.>` / `*.>` in collector
@@ -91,9 +95,9 @@ JetStream sizing values
     EventWriter flow consumers; attribution joining is out of scope for this chart.
 - Datasvc owns the KV/object streams and now reconciles both replica count and reserved capacity:
   - `datasvc.jetstreamReplicas`
-  - `datasvc.bucketMaxBytes` (default 4 GiB)
+  - `datasvc.bucketMaxBytes` (profile default: 1 GiB in `small`)
   - `datasvc.objectMaxBytes`
-  - `datasvc.objectStoreBytes` (default 10 GiB)
+  - `datasvc.objectStoreBytes` (profile default: 4 GiB in `small`)
 - The example HA profile intentionally shrinks those reserved capacities compared to the generic chart defaults so `events` can run at `3` replicas without exhausting the JetStream account's file-store budget.
 - Agent release object cleanup is enabled by default through `objectStoreRetention`; it keeps the most recently imported release plus any releases still referenced by active rollout state.
 - `bmpCollector` is scaled to `3` pods in the example profile, but its dedicated causal-overlay stream still uses `bmpCollector.config.streamReplicas=1`. That is an explicit sizing choice, not a pod-level HA limitation.

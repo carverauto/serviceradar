@@ -41,11 +41,11 @@
 
 ## 3. Chart budget and profiles (D2, D4, D5, D8)
 
-- [ ] 3.1 Byte-exact `max_file_store` helper with `G`/`Gi` parsing. Make
+- [x] 3.1 Byte-exact `max_file_store` helper with `G`/`Gi` parsing. Make
       `nats.jetstream.maxFileStore` and every stream size key unset by default
       in `values.yaml` and `values-demo.yaml` so the profile supplies them; an
       explicit value wins.
-- [ ] 3.2 Add `nats.jetstream.profile` (`small` default, `medium`, `large`)
+- [x] 3.2 Add `nats.jetstream.profile` (`small` default, `medium`, `large`)
       with the D8 Helm table as chart data, covering `datasvc`, `events`,
       `flows`, plugins, `bmpCollector.config.streamMaxBytes` /
       `streamReplicas` and every `core.eventWriter.streams.<name>.maxBytes`;
@@ -53,14 +53,14 @@
       `nats.jetstream.maxFileStore` / `nats.persistence.size` guidance (lines
       216-219), which points at the runbook instead of "expand PVCs
       out-of-band first".
-- [ ] 3.3 Budget helper and `fail` with itemised message, bucketing each
+- [x] 3.3 Budget helper and `fail` with itemised message, bucketing each
       stream by its own size and replica value against `nats.replicas` (D5),
       including flow-collector and bmp-collector when enabled;
       `nats.jetstream.allowOvercommit` escape hatch for the reservation check.
-- [ ] 3.4 PVC ceiling: `fail` when `max_file_store` exceeds 94% of
+- [x] 3.4 PVC ceiling: `fail` when `max_file_store` exceeds 94% of
       `bytes(nats.persistence.size)` with a message that points at the
       runbook; `allowOvercommit` does not skip it.
-- [ ] 3.5 helm-unittest per profile: with flow-collector, bmp-collector and the
+- [x] 3.5 helm-unittest per profile: with flow-collector, bmp-collector and the
       trivy sidecar all enabled and with them all disabled, `small`,
       `medium` and `large` render (`medium` and `large` with a matching
       `persistence.size`); the v1.4.73 shape fails; overrides fail with the
@@ -198,7 +198,7 @@
 
 ## 6. Runbook (D8)
 
-- [ ] 6.1 Write `docs/nats-jetstream-profile-runbook.md` (repo-root `docs/`,
+- [x] 6.1 Write `docs/nats-jetstream-profile-runbook.md` (repo-root `docs/`,
       ASCII Markdown): confirm `allowVolumeExpansion`, patch each
       `serviceradar-nats` PVC and wait for the resize, delete the StatefulSet
       with `--cascade=orphan`, `helm upgrade` with the raised
@@ -211,7 +211,7 @@
       5 minutes by default and with no grace period; removing the claim starts
       the grace period instead. State that until then the stream keeps the
       collector's reservation and that no core restart is needed.
-- [ ] 6.2 Link the runbook from `docs/agent-runbooks.md` and from the
+- [x] 6.2 Link the runbook from `docs/agent-runbooks.md` and from the
       `values.yaml` comment.
 
 ## 7. Verification

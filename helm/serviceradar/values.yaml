@@ -215,15 +215,49 @@ nats:
   clusterName: "serviceradar"
   jetstream:
     maxMemoryStore: 1G
-    # Decimal G (10^9). 30G ≈ 27.9 GiB usable for JetStream file store on the
-    # default 30Gi PVC (binary). volumeClaimTemplates are immutable — do not
-    # raise persistence.size via Helm on a live StatefulSet; expand PVCs
-    # out-of-band first if you need larger stream reservations.
-    # Capacity-safe R=3 budget (binary GiB): KV 4 + objects 10 + events 2 + flows 10
-    # = 26 GiB < 30G maxFileStore. Raising flows above 10 GiB requires PVC expand.
-    maxFileStore: 30G
+    # JetStream sizing profile: small (default), medium or large. A profile sets
+    # max_file_store and the default max_bytes of every stream, KV bucket and
+    # object store ServiceRadar creates (files/jetstream-profiles.yaml):
+    #   small  -> max_file_store 30G,  for the default 30Gi PVC
+    #   medium -> max_file_store 100G, for a 100Gi PVC
+    #   large  -> max_file_store 500G, for a 500Gi PVC
+    #   tenant-2g -> max_file_store 2G, the hosted-tenant plan (values-tenant.yaml)
+    # With nats.replicas 1 or 2 the shipped profiles use their single-server size
+    # table (the Docker Compose sizes; flows 3 GiB in small), because R3 streams
+    # then land on every server and fewer servers share the R1 streams.
+    # Each size is still overridable at its own value (datasvc.bucketMaxBytes,
+    # datasvc.objectStoreBytes, logCollector.streamMaxBytes,
+    # flowCollector.config.stream_max_bytes, bmpCollector.config.streamMaxBytes,
+    # webNg.pluginStorage.jetstreamMaxBucketBytes,
+    # webNg.fieldSurveyArtifactStore.jetstreamMaxBucketBytes,
+    # core.threatIntelRawPayloadStore.jetstreamMaxBucketBytes and
+    # core.eventWriter.streams.<stream>.maxBytes); an explicit value wins.
+    #
+    # A profile never resizes the NATS PVC. persistence.size feeds the
+    # StatefulSet volumeClaimTemplates, which Kubernetes does not let a Helm
+    # upgrade change, and the chart refuses a max_file_store above 94% of
+    # persistence.size. To move a live install to a larger profile, follow
+    # docs/nats-jetstream-profile-runbook.md (expand the PVCs, orphan-delete the
+    # StatefulSet, then upgrade with the new persistence.size and profile).
+    profile: small
+    # Per-server JetStream file store. Unset: the profile supplies it (small =
+    # 30G). NATS reads G as 10^9 and Gi as 2^30, so 30G is 27.94 GiB, not 30;
+    # the chart renders the exact byte count.
+    # maxFileStore: 30G
+    #
+    # Render-time budget. NATS reserves each stream's full max_bytes on every
+    # server holding a replica and cannot place a stream once no server has that
+    # much left, so the chart fails when the most loaded server's reservation
+    # exceeds 85% of max_file_store (the rest is headroom for streams a later
+    # release adds). The failure lists every stream with its size, replicas and
+    # whether it lands on every server (replicas >= nats.replicas) or is spread.
+    # The small profile needs 22.42 GiB of its 23.75 GiB limit on three servers,
+    # with flow-collector, bmp-collector and the trivy sidecar all counted.
+    # allowOvercommit: true skips that check (not the persistence.size ceiling).
+    allowOvercommit: false
   persistence:
-    # Immutable after first install for this StatefulSet. Keep stable defaults.
+    # Immutable after first install for this StatefulSet: see the runbook above
+    # before changing it on a live install.
     size: 30Gi
     storageClassName: ""
 certs:
@@ -447,6 +481,35 @@ core:
   # and alerts surface; set enabled=false only to disable verdict persistence.
   eventWriter:
     enabled: true
+    # JetStream streams EventWriter creates, one replica each. Every maxBytes is
+    # unset so nats.jetstream.profile supplies it; set one to override. Rendered
+    # into the core environment as SERVICERADAR_JS_<STREAM>_MAX_BYTES.
+    #
+    # flows and ARANCINI_CAUSAL are EventWriter fallbacks: the size and replicas
+    # EventWriter creates the stream with when flow-collector or bmp-collector
+    # has not claimed it (1 GiB, R1 in every profile), rendered as
+    # SERVICERADAR_JS_<STREAM>_FALLBACK_MAX_BYTES / _FALLBACK_REPLICAS. They are
+    # not counted by the budget, which counts both streams at the collector
+    # size, so a fallback may not exceed the collector size. The events
+    # fallback comes from logCollector.streamMaxBytes / streamReplicas.
+    #
+    # notifications is the NOTIFICATIONS stream core's notification publisher
+    # creates (one replica), rendered as SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES.
+    streams:
+      metrics: {}
+      k8s_inventory: {}
+      analytics_predictions: {}
+      mtr_results: {}
+      scan_results: {}
+      trivy_reports: {}
+      notifications: {}
+      flows: {}
+      ARANCINI_CAUSAL: {}
+  # Core's threat-intel raw payload object store (OBJ_serviceradar_threat_intel,
+  # one replica). Unset: the profile supplies the size. Rendered into the core
+  # environment as SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES.
+  threatIntelRawPayloadStore: {}
+  #   jetstreamMaxBucketBytes: 1073741824
   # First-boot defaults for CNPG-backed anomaly detection settings (seed the
   # singleton config row when missing; do not overwrite operator edits).
   anomalyDetectionConfig:
@@ -1356,6 +1419,15 @@ webNg:
     downloadTtlSeconds: 86400
     jetstreamBucket: "serviceradar_plugins"
     jetstreamReplicas: 3
+    # Plugin package object store reservation (OBJ_serviceradar_plugins).
+    # Unset: nats.jetstream.profile supplies it (small = 2 GiB). Rendered into
+    # web-ng as PLUGIN_STORAGE_JS_MAX_BUCKET_BYTES.
+    # jetstreamMaxBucketBytes: 2147483648
+  # FieldSurvey artifact object store (OBJ_serviceradar_fieldsurvey, one
+  # replica). Unset: the profile supplies the size (small = 1 GiB). Rendered
+  # into web-ng as FIELD_SURVEY_JS_MAX_BUCKET_BYTES.
+  fieldSurveyArtifactStore: {}
+  #   jetstreamMaxBucketBytes: 1073741824
 
 # Retention for ServiceRadar-owned artifacts in the datasvc object store
 # (mirrored agent releases and native add-on bundles).
@@ -1495,16 +1567,20 @@ datasvc:
   replicaCount: 3
   # Replica count for datasvc-owned JetStream streams (KV/object metadata).
   jetstreamReplicas: 3
-  # Reserved capacity for the KV bucket stream ($KV.serviceradar-datasvc.>).
-  # 4 GiB — capacity-safe with R=3 flows@10GiB under 30G maxFileStore.
-  bucketMaxBytes: "4294967296"
+  # Reserved capacity for the KV bucket stream (KV_serviceradar-datasvc).
+  # Unset: nats.jetstream.profile supplies it (small = 1 GiB; the KV holds
+  # kilobytes of configuration). Rendered into datasvc.json and as
+  # SERVICERADAR_JS_KV_SERVICERADAR_DATASVC_MAX_BYTES.
+  # bucketMaxBytes: 1073741824
   # Maximum size for one uploaded object payload.
   objectMaxBytes: "536870912"
   # Reserved capacity for the object stream (OBJ_serviceradar-objects).
-  # 10 GiB (down from 16 GiB) so KV+objects+events+flows fit the default
-  # 30Gi PVC / 30G maxFileStore. Expand PVC out-of-band before raising this
-  # back for large multi-arch agent release retention.
-  objectStoreBytes: "10737418240"
+  # Unset: the profile supplies it (small = 4 GiB). The bucket is DiscardNew, so
+  # a full bucket rejects uploads rather than evicting (see objectStoreRetention).
+  # Rendered into datasvc.json and as
+  # SERVICERADAR_JS_OBJ_SERVICERADAR_OBJECTS_MAX_BYTES. Raising it past the
+  # budget needs a larger profile: docs/nats-jetstream-profile-runbook.md.
+  # objectStoreBytes: 4294967296
   data:
     enabled: false
     accessModes:
@@ -1515,8 +1591,11 @@ logCollector:
   replicaCount: 3
   # Shared "events" stream replica count for OTEL/syslog writers.
   streamReplicas: 3
-  # Reserved capacity for the shared "events" stream.
-  streamMaxBytes: 2147483648
+  # Reserved capacity for the shared "events" stream. Unset:
+  # nats.jetstream.profile supplies it (small = 2 GiB). Rendered into the otel
+  # config and as SERVICERADAR_JS_EVENTS_MAX_BYTES / _REPLICAS, and into core as
+  # EventWriter's events fallback (SERVICERADAR_JS_EVENTS_FALLBACK_*).
+  # streamMaxBytes: 2147483648
   data:
     enabled: false
     existingClaim: ""
@@ -1756,10 +1835,13 @@ flowCollector:
     nats_url: "tls://serviceradar-nats:4222"
     nats_creds_file: "/etc/serviceradar/creds/platform.creds"
     stream_name: "flows"
-    # 10 GiB / 6h / R=3 — order-of-magnitude above the historical 1 GiB shared
-    # pin. Fits default 30G maxFileStore with KV 4 + objects 10 + events 2.
-    # Raise further only after out-of-band PVC expand + maxFileStore bump.
-    stream_max_bytes: 10737418240
+    # flows reservation. Unset: nats.jetstream.profile supplies it (small =
+    # 8 GiB). The budget counts flows at this size and stream_replicas even
+    # when flow-collector is disabled, because a collector that claimed the
+    # stream keeps its size. Rendered into flow-collector.json and as
+    # SERVICERADAR_JS_FLOWS_MAX_BYTES / _REPLICAS. Larger flow retention needs
+    # a larger profile: docs/nats-jetstream-profile-runbook.md.
+    # stream_max_bytes: 8589934592
     stream_max_age_secs: 21600
     stream_replicas: 3
     rehome_state_path: "/var/lib/serviceradar/flow-collector-rehome.json"
@@ -1860,8 +1942,11 @@ bmpCollector:
     streamName: "ARANCINI_CAUSAL"
     subjectPrefix: "arancini.updates"
     streamSubjects: []
-    # Dedicated BMP/Arancini stream reservation.
-    streamMaxBytes: 10737418240
+    # Dedicated BMP/Arancini stream reservation. Unset: nats.jetstream.profile
+    # supplies it (small = 2 GiB). Counted by the budget with streamReplicas
+    # even when bmp-collector is disabled. Rendered into the collector config
+    # and as SERVICERADAR_JS_ARANCINI_CAUSAL_MAX_BYTES / _REPLICAS.
+    # streamMaxBytes: 2147483648
     # Replica count for the dedicated ARANCINI_CAUSAL stream.
     streamReplicas: 1
     publishTimeoutMs: 5000

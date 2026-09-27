@@ -1,6 +1,8 @@
 {{- if .Values.bmpCollector.enabled }}
 {{- $data := default (dict) .Values.bmpCollector.data -}}
 {{- $cfg := default (dict) .Values.bmpCollector.config -}}
+{{- /* The ARANCINI_CAUSAL reservation the chart budget counted (serviceradar.jetstreamBudget). */ -}}
+{{- $aranciniJs := (include "serviceradar.jetstreamBudget" . | fromJson).sizes.arancini -}}
 {{- $dataEnabled := ne false (get $data "enabled") -}}
 {{- if and $dataEnabled (not $data.existingClaim) }}
 apiVersion: v1
@@ -43,8 +45,8 @@ data:
       "stream_name" (default "ARANCINI_CAUSAL" $cfg.streamName)
       "subject_prefix" (default "arancini.updates" $cfg.subjectPrefix)
       "stream_subjects" (default (list) $cfg.streamSubjects)
-      "stream_max_bytes" (default 10737418240 $cfg.streamMaxBytes)
-      "stream_replicas" (default 1 $cfg.streamReplicas)
+      "stream_max_bytes" (int64 $aranciniJs.maxBytes)
+      "stream_replicas" (int64 $aranciniJs.replicas)
       "publish_timeout_ms" (default 5000 $cfg.publishTimeoutMs)
       | toPrettyJson | nindent 4 }}
 ---
@@ -94,6 +96,10 @@ spec:
         env:
         - name: RUST_LOG
           value: "info"
+        - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $aranciniJs.stream "suffix" "MAX_BYTES") }}
+          value: {{ $aranciniJs.maxBytes | quote }}
+        - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $aranciniJs.stream "suffix" "REPLICAS") }}
+          value: {{ $aranciniJs.replicas | quote }}
         livenessProbe:
           tcpSocket:
             port: bmp
