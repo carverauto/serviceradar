@@ -178,6 +178,100 @@ async function start() {
         }
   }
 
+  // Runs the product's own animation loop (requestAnimationFrame -> advanceAnimation) over a
+  // fixture with packet flow on, the way a live page does. The caller probes responsiveness from
+  // outside the page while it runs, then stops it and reads the frame statistics.
+  let liveAnimation = null
+
+  async function startLiveAnimation(name = "collapsed", {width = 960, height = 540} = {}) {
+    const fixture = fixtures[name]
+    if (!fixture) throw new Error(`unknown fixture: ${name}`)
+    if (liveAnimation) throw new Error("live animation already running")
+    root.style.width = `${width}px`
+    root.style.height = `${height}px`
+    lifecycle.resizeCanvas()
+    state.layers.atmosphere = true
+    state.packetFlowEnabled = true
+    const laidOut = await layout.prepareGraphLayout(withTraffic(fixture()), revision++, `acceptance:live:${name}`)
+    state.lastGraph = laidOut
+    state.hasAutoFit = false
+    state.userCameraLocked = false
+    rendering.renderGraph(laidOut)
+    assertRendererHealthy(state)
+    const packetFlow = () => (state.deck.props.layers || []).find((layer) => layer.id === "god-view-atmosphere-particles")
+    const flowEdges = packetFlow()?.props?.data?.length || 0
+
+    // Count graph renders from here on: the loop must advance the clock, never re-render.
+    const renderGraph = rendering.renderGraph
+    let renderGraphCalls = 0
+    rendering.renderGraph = (...args) => {
+      renderGraphCalls += 1
+      return renderGraph(...args)
+    }
+    // An independent frame clock, so the frame rate is measured by the browser rather than
+    // by the loop under test.
+    const gaps = []
+    let lastFrameAt = performance.now()
+    let frameClock = 0
+    const onFrame = (now) => {
+      gaps.push(now - lastFrameAt)
+      lastFrameAt = now
+      frameClock = requestAnimationFrame(onFrame)
+    }
+    frameClock = requestAnimationFrame(onFrame)
+
+    lifecycle.startAnimationLoop()
+    // The first frames compile pipelines and upload buffers. Measure the steady state after them.
+    const warmupStartedAt = performance.now()
+    while (gaps.length < 12 && performance.now() - warmupStartedAt < 20_000) await settle()
+    const warmupMs = performance.now() - warmupStartedAt
+    gaps.length = 0
+    lastFrameAt = performance.now()
+
+    const startedAt = performance.now()
+    const startTime = packetFlow()?.props?.time
+    const startFrames = state.animationFrames || 0
+    let slowestTickMs = 0
+    const tickWatch = setInterval(() => {
+      slowestTickMs = Math.max(slowestTickMs, Number(state.lastAnimationFrameMs || 0))
+    }, 50)
+
+    liveAnimation = {
+      async stop() {
+        lifecycle.stopAnimationLoop()
+        cancelAnimationFrame(frameClock)
+        clearInterval(tickWatch)
+        rendering.renderGraph = renderGraph
+        const elapsedMs = performance.now() - startedAt
+        const frames = (state.animationFrames || 0) - startFrames
+        const endTime = packetFlow()?.props?.time
+        state.layers.atmosphere = false
+        state.packetFlowEnabled = false
+        liveAnimation = null
+        return {
+          rendererMode: state.rendererMode,
+          rendererError: state.rendererError ? String(state.rendererError.message || state.rendererError) : null,
+          flowEdges,
+          warmupMs,
+          elapsedMs,
+          animationFrames: frames,
+          animationFps: (frames * 1000) / elapsedMs,
+          browserFps: gaps.length > 0 ? (gaps.length * 1000) / gaps.reduce((sum, gap) => sum + gap, 0) : 0,
+          longestFrameGapMs: gaps.length > 0 ? Math.max(...gaps) : null,
+          slowestTickMs,
+          renderGraphCalls,
+          timeAdvanced: Number.isFinite(startTime) && Number.isFinite(endTime) && endTime !== startTime,
+        }
+      },
+    }
+    return {flowEdges, rendererMode: state.rendererMode}
+  }
+
+  async function stopLiveAnimation() {
+    if (!liveAnimation) throw new Error("live animation is not running")
+    return liveAnimation.stop()
+  }
+
   async function fit() {
     rendering.autoFitViewState(state.lastGraph, {force: true})
     rendering.refreshGraphLayersForViewState()
@@ -207,6 +301,8 @@ async function start() {
   window.__SR_GOD_VIEW_HARNESS__ = Object.freeze({
     renderFixture,
     renderPacketFlow,
+    startLiveAnimation,
+    stopLiveAnimation,
     fit,
     focus,
     profile,

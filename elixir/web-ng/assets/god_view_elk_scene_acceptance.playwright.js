@@ -449,6 +449,56 @@ test("draws packet flow on WebGPU without a device validation error", async ({pa
   await capturePhase(page, measure, "packet-flow")
 })
 
+// The packet-flow test above steps frames by hand. This one runs the product's real loop --
+// requestAnimationFrame calling advanceAnimation -- for several seconds, and checks from outside
+// the page that the main thread keeps answering and frames keep coming.
+const LIVE_ANIMATION_MS = 6_000
+const LIVE_PROBE_INTERVAL_MS = 250
+const MAX_ROUND_TRIP_MS = 200
+const MIN_FRAMES_PER_SECOND = 20
+
+test("keeps the main thread responsive while the live animation loop draws packet flow", async ({page}) => {
+  await mkdir(OUTPUT_DIR, {recursive: true})
+  const measure = timeline("live-animation")
+  await preparePage(page, measure)
+
+  const started = await runStep(measure, "start live animation loop", () => (
+    page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.startLiveAnimation("collapsed"))
+  ))
+  expect(started.rendererMode).toBe("webgpu")
+  expect(started.flowEdges).toBeGreaterThan(0)
+
+  const roundTrips = await runStep(measure, "probe main thread while animating", async () => {
+    const samples = []
+    const deadline = Date.now() + LIVE_ANIMATION_MS
+    while (Date.now() < deadline) {
+      const sentAt = Date.now()
+      await page.evaluate(() => 0)
+      samples.push(Date.now() - sentAt)
+      await new Promise((resolveProbe) => setTimeout(resolveProbe, LIVE_PROBE_INTERVAL_MS))
+    }
+    return samples
+  }, (samples) => ({probes: samples.length, slowestRoundTripMs: Math.max(...samples)}))
+
+  const stats = await runStep(measure, "stop live animation loop", () => (
+    page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.stopLiveAnimation())
+  ), (result) => result)
+
+  const report = JSON.stringify({...stats, slowestRoundTripMs: Math.max(...roundTrips), probes: roundTrips.length})
+  console.log(`[god-view] live animation ${report}`)
+  await runStep(measure, "assert live animation stayed responsive", () => {
+    expect(stats.rendererError).toBeNull()
+    expect(stats.rendererMode).toBe("webgpu")
+    expect(stats.elapsedMs).toBeGreaterThanOrEqual(5_000)
+    expect(Math.max(...roundTrips)).toBeLessThan(MAX_ROUND_TRIP_MS)
+    expect(stats.animationFps).toBeGreaterThanOrEqual(MIN_FRAMES_PER_SECOND)
+    expect(stats.browserFps).toBeGreaterThanOrEqual(MIN_FRAMES_PER_SECOND)
+    // The loop advances the clock only.
+    expect(stats.renderGraphCalls).toBe(0)
+    expect(stats.timeAdvanced).toBe(true)
+  })
+})
+
 test("gates concurrent portrait geometry", async ({page}) => {
   await mkdir(OUTPUT_DIR, {recursive: true})
   const measure = timeline("portrait-profile")

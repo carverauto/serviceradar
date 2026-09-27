@@ -96,6 +96,26 @@ describe("lifecycle_dom_interaction_methods", () => {
     expect(advanceAnimation).toHaveBeenCalledTimes(2)
     expect(ctx.deps.renderGraph).not.toHaveBeenCalled()
     expect(ctx.deps.refreshGraphLayersForViewState).not.toHaveBeenCalled()
+    expect(ctx.state.animationFrames).toEqual(2)
+    expect(ctx.state.lastAnimationFrameMs).toBeGreaterThanOrEqual(0)
+  })
+
+  it("counts every animation tick, including ones with nothing to animate", () => {
+    let tick = null
+    vi.spyOn(globalThis.window, "requestAnimationFrame").mockImplementation((callback) => {
+      tick = callback
+      return 7
+    })
+    const advanceAnimation = vi.fn()
+    const ctx = makeContext({state: {packetFlowEnabled: false}, deps: {advanceAnimation}})
+
+    ctx.startAnimationLoop()
+    tick()
+    tick()
+    tick()
+
+    expect(advanceAnimation).not.toHaveBeenCalled()
+    expect(ctx.state.animationFrames).toEqual(3)
   })
 
   it("startAnimationLoop schedules RAF when reduced motion is disabled", () => {

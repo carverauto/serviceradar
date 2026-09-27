@@ -6,8 +6,9 @@ export const godViewLifecycleDomInteractionMethods = {
   startAnimationLoop() {
     if (this.state.animationTimer) return
     const tick = () => {
+      const startedAt = performance.now()
       const motionScale = this.state.prefersReducedMotion ? 0.35 : 1
-      this.state.animationPhase = (performance.now() / 1000) * motionScale
+      this.state.animationPhase = (startedAt / 1000) * motionScale
       // Advance the clock only: the animated layers are re-issued with the new phase. The graph
       // is not rendered again -- no edge data, masks or labels are rebuilt per frame.
       if (this.state.deck && this.state.lastGraph && this.state.packetFlowEnabled) {
@@ -17,6 +18,10 @@ export const godViewLifecycleDomInteractionMethods = {
           if (this.state.summary) this.state.summary.textContent = `animation render error: ${String(error)}`
         }
       }
+      // Every tick is counted and timed, whether or not anything animated, so a stalled loop is
+      // distinguishable from an idle one.
+      this.state.animationFrames = (this.state.animationFrames || 0) + 1
+      this.state.lastAnimationFrameMs = performance.now() - startedAt
       this.state.animationTimer = window.requestAnimationFrame(tick)
     }
     this.state.animationTimer = window.requestAnimationFrame(tick)
