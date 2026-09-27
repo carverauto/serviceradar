@@ -22,6 +22,30 @@ WebRTC viewer egress and its ICE/TURN servers SHALL be configurable through depl
 - **WHEN** the `demo` deployment sets the WebRTC enable flag and ICE servers in its values
 - **THEN** viewer sessions in `demo` SHALL negotiate WebRTC using those ICE servers
 
+### Requirement: Camera relay sessions abandoned by the media plane are reaped
+The system SHALL periodically close non-terminal camera relay sessions whose lease has lapsed past a grace period, or that never received a lease, using a compare-and-set update so a session renewed between the read and the close is left open.
+
+#### Scenario: Tracker restart drops a session without closing it
+- **WHEN** the media-plane tracker for a relay session restarts and stops renewing the session's lease
+- **THEN** the reaper SHALL close the session once its lease has lapsed past the grace period
+
+#### Scenario: Session renewed between read and close is left alone
+- **WHEN** a relay session's lease is renewed after the reaper reads it as stale but before the close is applied
+- **THEN** the compare-and-set update SHALL skip the session
+- **AND** the session SHALL remain open
+
+### Requirement: Dashboard camera sessions release after a hidden-tab grace period
+Dashboard camera sessions SHALL remain open while their tab is briefly hidden and SHALL release only after the tab has stayed hidden past a fixed grace period, reopening the released sessions when the tab becomes visible again.
+
+#### Scenario: Quick tab switch keeps sessions open
+- **WHEN** a dashboard tab is hidden and becomes visible again before the grace period elapses
+- **THEN** its camera sessions SHALL remain open without releasing
+
+#### Scenario: Extended hidden tab releases and reopens sessions
+- **WHEN** a dashboard tab stays hidden past the grace period
+- **THEN** its camera sessions SHALL be released
+- **AND** returning to the tab SHALL reopen the released sessions
+
 ### Requirement: Analysis results carry multiple detections
 The `camera_analysis_result.v1` contract SHALL accept a list of detections per analysed frame, each with a label, confidence, normalized bounding box and the frame's media timestamp, while continuing to accept the existing single `detection` field.
 
