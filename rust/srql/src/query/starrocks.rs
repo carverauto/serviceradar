@@ -1917,6 +1917,7 @@ fn downsample_sql(
                 crate::parser::DownsampleAgg::Min => format!("MIN({value})"),
                 crate::parser::DownsampleAgg::Max => format!("MAX({value})"),
                 crate::parser::DownsampleAgg::Count => "COUNT(*)".to_string(),
+                crate::parser::DownsampleAgg::Last => format!("MAX_BY({value}, {time})"),
                 // Only flows reach this arm (`is_counter_rate` takes the metric
                 // tables). A flow row is already a delta, so its total is the sum.
                 crate::parser::DownsampleAgg::Rate | crate::parser::DownsampleAgg::RateSum => {
@@ -3396,6 +3397,19 @@ mod tests {
             permitted_signals: None,
         };
         build_query_plan(&config(), &request, ast).expect("plan")
+    }
+
+    #[test]
+    fn downsample_last_uses_max_by_on_the_raw_rows() {
+        let compiled = translate(
+            &plan(
+                "in:timeseries_metrics metric_name:drone.position.lat time:last_2m bucket:2m agg:last series:tags.asset_id",
+            ),
+            "serviceradar",
+        )
+        .unwrap();
+        assert!(compiled.sql.contains("MAX_BY("), "{}", compiled.sql);
+        assert!(!compiled.sql.contains("AVG("), "{}", compiled.sql);
     }
 
     #[test]

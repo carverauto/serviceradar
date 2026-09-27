@@ -66,8 +66,9 @@ pub(super) fn parse_downsample_agg(raw: &str) -> Result<DownsampleAgg> {
         "count" => Ok(DownsampleAgg::Count),
         "rate" => Ok(DownsampleAgg::Rate),
         "rate_sum" => Ok(DownsampleAgg::RateSum),
+        "last" | "latest" => Ok(DownsampleAgg::Last),
         other => Err(ServiceError::InvalidRequest(format!(
-            "unsupported agg '{other}' (use avg|min|max|sum|count|rate|rate_sum)"
+            "unsupported agg '{other}' (use avg|min|max|sum|count|rate|rate_sum|last)"
         ))),
     }
 }

@@ -318,7 +318,7 @@ GROUP BY 1, 2"#,
     let agg_expr = if timeseries_cagg && matches!(downsample.agg, DownsampleAgg::Avg) {
         timeseries_cagg_weighted_avg(&value_col)
     } else {
-        agg_expr(downsample.agg, &value_col)
+        agg_expr(downsample.agg, &value_col, ts_col)
     };
 
     // Use standard PostgreSQL floor-based bucketing instead of TimescaleDB's time_bucket

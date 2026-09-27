@@ -23,6 +23,7 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
       gateways gateway
       interfaces interface discovered_interfaces interface_settings
       public_endpoints public_endpoint k8s_public_endpoints k8s_endpoints vip_inventory
+      camera_sources camera_source cameras camera
       endpoint_inventory_scans endpoint_inventory_scan endpoint_inventory_status
       endpoint_inventory_statuses endpoint_inventory_freshness
       endpoint_packages endpoint_package endpoint_inventory_packages endpoint_inventory packages

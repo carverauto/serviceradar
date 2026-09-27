@@ -253,13 +253,17 @@ For time-series charts, `bucket:` groups rows into fixed time buckets.
 
 - `bucket:<duration>` — bucket width using `s|m|h|d` suffixes (e.g. `bucket:5m`).
 - `agg:<function>` — bucket aggregation: `avg` (default), `min`, `max`, `sum`,
-  `count`, or `rate` (per-second rate of change for counters).
+  `count`, `rate` (per-second rate of change for counters), `rate_sum` (per-second
+  rates summed across the series collapsed into a bucket), or `last` (alias
+  `latest`: the value of the newest sample in the bucket, for gauges such as a
+  position or a battery level).
 - `series:<field>` — splits buckets into one series per distinct value.
 - `value_field:<field>` — which numeric field to aggregate.
 
 ```srql
 in:timeseries_metrics time:last_7d bucket:5m agg:avg series:metric_name
 in:flows time:last_1h bucket:5m agg:sum value_field:bytes_total
+in:timeseries_metrics metric_name:drone.position.lat time:last_2m bucket:2m agg:last series:tags.asset_id
 ```
 
 Buckets are always **returned** oldest-first, because that is what a chart renders.
@@ -289,6 +293,7 @@ fields; using a field that the entity does not support returns an
 | `flows` | `flow`, `network_activity` | NetFlow / network activity records (raw 5-tuples) |
 | `attributed_flows` | `attributed_flow`, `flow_attributions`, `flow_attribution` | Flows joined with host process context (and optional public VIP owner) |
 | `public_endpoints` | — | Kubernetes public VIP / Gateway ownership inventory (current snapshot) |
+| `camera_sources` | `camera_source`, `cameras`, `camera` | Camera inventory with availability and viewable stream profiles. Requires `devices.view`. |
 | `services` | `service` | Observed services and their availability |
 | `gateways` | `gateway` | Gateway/agent operational state |
 | `interfaces` | `interface`, `discovered_interfaces` | Discovered network interfaces (time-series) |
@@ -546,6 +551,36 @@ Examples:
 in:public_endpoints port:22 limit:50
 in:public_endpoints exposure_class:Gateway sort:ip:asc
 in:public_endpoints ip:198.51.100.10
+```
+
+### camera_sources
+
+Camera inventory for relay viewing: each camera's owning device, availability and
+the relay-eligible stream profiles a viewer can open through the dashboard camera
+API. Source URLs and credentials are never returned. Not a time-series entity;
+`time:` filters on `updated_at`.
+
+| Field | Aliases | Description |
+|-------|---------|-------------|
+| `display_name` | `name` | Camera display name |
+| `vendor` | | Camera vendor, e.g. `ubiquiti`, `axis` |
+| `vendor_camera_id` | `camera_id` | Vendor-side camera identifier |
+| `device_uid` | `device_id`, `uid` | Owning device |
+| `availability_status` | `availability`, `status` | e.g. `available`, `unavailable` |
+| `assigned_agent_id` | `agent_id` | Agent that pulls the stream |
+| `assigned_gateway_id` | `gateway_id` | Gateway on the relay path |
+| `last_event_type` | | Type of the camera's last event |
+| `viewable` | `relay_eligible` | `true` for cameras with at least one relay-eligible profile |
+
+Each row carries `stream_profiles`: a list of `{id, profile_name, codec_hint,
+container_hint, rtsp_transport, last_seen_at}` for relay-eligible profiles only.
+
+Examples:
+
+```srql
+in:camera_sources viewable:true sort:display_name:asc
+in:camera_sources availability:available vendor:ubiquiti
+in:cameras device_uid:(dev-a,dev-b)
 ```
 
 ### services

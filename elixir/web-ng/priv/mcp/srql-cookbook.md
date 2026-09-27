@@ -201,6 +201,22 @@ defaults to `time:last_24h` when `time:` is omitted.
 `ip:` / `port:` / `cidr:` / `tag:` match **either** endpoint. Directional forms
 are `src_*` / `dst_*`. `port:22` is “SSH either direction”.
 
+## Cameras
+
+```
+in:camera_sources viewable:true sort:display_name:asc
+in:camera_sources availability:available vendor:ubiquiti
+```
+
+## Latest value per asset
+
+`agg:last` keeps the newest sample in each bucket per series, for gauges such as
+a position or a battery level:
+
+```
+in:timeseries_metrics metric_name:drone.position.lat time:last_2m bucket:2m agg:last series:tags.asset_id
+```
+
 ## Attributed flows and public endpoints
 
 ```
