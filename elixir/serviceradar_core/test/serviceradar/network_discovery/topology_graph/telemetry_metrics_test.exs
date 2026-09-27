@@ -63,7 +63,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.TelemetryMetricsTest do
       {7, "ifOutUcastPkts", "poller-b", now, 900_000.0},
       {7, "ifHCInOctets", "poller-a", previous, 10_000.0},
       {7, "ifHCInOctets", "poller-a", now, 16_000.0},
-      {8, "ifOutUcastPkts", "poller-a", previous, 9000.0},
+      # Reset: the previous value no longer fits a 32-bit counter, so it cannot be a wrap.
+      {8, "ifOutUcastPkts", "poller-a", previous, 9_000_000_000.0},
       {8, "ifOutUcastPkts", "poller-a", now, 5.0},
       {9, "ifOutUcastPkts", "poller-a", now, 500.0}
     ]
