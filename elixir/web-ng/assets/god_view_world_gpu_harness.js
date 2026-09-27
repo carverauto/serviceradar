@@ -5,6 +5,11 @@ import {decodeWorldTile} from "./js/lib/god_view/world_tile_decode"
 import {worldTileIpc, worldTileKey} from "./js/lib/god_view/fixtures/world_tile_ipc"
 import {snapshotIpcBytes} from "./js/lib/god_view/fixtures/snapshot_ipc"
 import GodViewRenderer from "./js/lib/GodViewRenderer"
+import {mountTransportHarness} from "./god_view_world_transport_harness"
+
+if (new URLSearchParams(window.location.search).has("transport")) {
+  mountTransportHarness()
+} else {
 
 // GPU smoke only: invented bounded Arrow tiles. This does not stand in for the
 // million-device server/HTTP/browser acceptance workload.
@@ -108,3 +113,4 @@ document.querySelector("#close-detail").onclick = () => {
 window.addEventListener("resize", () => deck.setProps({width: innerWidth, height: innerHeight - 100}))
 render()
 setTimeout(() => {if (deviceType !== "webgpu" || frames === 0) fail("WebGPU did not render within 30 seconds")}, 30000)
+}

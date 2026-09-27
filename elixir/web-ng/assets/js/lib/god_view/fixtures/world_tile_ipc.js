@@ -19,4 +19,3 @@ export function worldTileIpc({metadata = {}, nodes, edges, ...options} = {}) {
     ...options,
   })
 }
-
