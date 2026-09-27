@@ -4,9 +4,9 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorkerDbTest do
   import Ecto.Query, only: [from: 2]
 
   alias Ecto.Adapters.SQL
+  alias ServiceRadar.Jobs.ReapStalePeriodicJobsWorker
   alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
   alias ServiceRadar.Repo
-  alias ServiceRadar.SweepJobs.ObanSupport
 
   @moduletag :integration
 
@@ -21,6 +21,8 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorkerDbTest do
     # Drain only this test's jobs: the sandbox rolls these deletes back.
     Repo.delete_all(from(job in Oban.Job, where: job.queue == "maintenance"))
     set_watermark!(DateTime.add(DateTime.utc_now(), -300, :second))
+    # No run has committed recently, which is what an orphan looks like.
+    age_watermark_write!(3600)
     :ok
   end
 
@@ -75,8 +77,188 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorkerDbTest do
     assert incomplete_jobs() == []
   end
 
-  defp request_refresh do
-    %{} |> RefreshTraceSummariesWorker.new() |> ObanSupport.safe_insert()
+  describe "orphaned executing refresh" do
+    # A node stopped mid-run: Oban's row is still `executing`, but Postgres rolled the run's
+    # transaction back and released its lock. Every enqueue coalesces into the dead row, so
+    # without a rescue nothing refreshes until the 240-minute age-based rescuers fire.
+    test "is rescued when the refresh lock is free, and the refresh then runs" do
+      trace = insert_span!(DateTime.add(DateTime.utc_now(), -10, :second))
+      orphan = insert_executing!(attempted_seconds_ago: 300, attempt: 1)
+
+      assert {:ok, [%{id: id}]} = RefreshTraceSummariesWorker.rescue_orphaned()
+      assert id == orphan.id
+
+      rescued = Repo.reload!(orphan)
+      assert rescued.state == "available"
+      # The killed attempt is not charged: max_attempts rises like a snooze does.
+      assert rescued.max_attempts == orphan.max_attempts + 1
+      assert [%{"attempt" => 1, "error" => "orphaned: " <> _}] = rescued.errors
+
+      # Still the one incomplete row, so enqueues keep coalescing into it.
+      assert [%Oban.Job{id: ^id}] = incomplete_jobs()
+      assert {:ok, %Oban.Job{conflict?: true, id: ^id}} = request_refresh()
+
+      assert %{success: 1} = Oban.drain_queue(queue: :maintenance)
+      assert summarized?(trace)
+      assert incomplete_jobs() == []
+    end
+
+    test "is not rescued while another connection holds the refresh lock" do
+      orphan = insert_executing!(attempted_seconds_ago: 300, attempt: 1)
+      release = hold_refresh_lock_elsewhere!()
+
+      assert {:ok, []} = RefreshTraceSummariesWorker.rescue_orphaned()
+      assert {:ok, %{rescued_jobs: []}} = ReapStalePeriodicJobsWorker.reap_stale_jobs()
+      assert %Oban.Job{state: "executing"} = Repo.reload!(orphan)
+
+      release.()
+    end
+
+    test "is not rescued within the grace after it was attempted" do
+      orphan = insert_executing!(attempted_seconds_ago: 5, attempt: 1)
+
+      assert {:ok, []} = RefreshTraceSummariesWorker.rescue_orphaned()
+      assert %Oban.Job{state: "executing"} = Repo.reload!(orphan)
+    end
+
+    # A live run releases the lock at commit and then runs its trailing-refresh probe before
+    # Oban records the outcome; the watermark it just wrote is what marks that window.
+    test "is not rescued while the watermark was written within the grace" do
+      orphan = insert_executing!(attempted_seconds_ago: 300, attempt: 1)
+      age_watermark_write!(0)
+
+      assert {:ok, []} = RefreshTraceSummariesWorker.rescue_orphaned()
+      assert %Oban.Job{state: "executing"} = Repo.reload!(orphan)
+    end
+
+    test "on its last attempt is rescued without stranding it unfetchable" do
+      orphan = insert_executing!(attempted_seconds_ago: 300, attempt: 3)
+
+      assert {:ok, [_rescued]} = RefreshTraceSummariesWorker.rescue_orphaned()
+
+      rescued = Repo.reload!(orphan)
+      assert rescued.state == "available"
+      assert rescued.attempt < rescued.max_attempts
+    end
+
+    test "is rescued from the ingest enqueue path when the insert collides with it" do
+      put_worker_env(:orphan_probe_interval_ms, 1)
+      orphan = insert_executing!(attempted_seconds_ago: 300, attempt: 1)
+      Process.sleep(2)
+
+      assert {:ok, %Oban.Job{conflict?: true, id: id}} = request_refresh()
+      assert id == orphan.id
+      assert %Oban.Job{state: "available"} = Repo.reload!(orphan)
+    end
+
+    test "is probed from the ingest path at most once per interval on a node" do
+      put_worker_env(:orphan_probe_interval_ms, 1)
+      first = insert_executing!(attempted_seconds_ago: 300, attempt: 1)
+      Process.sleep(2)
+      assert {:ok, %Oban.Job{id: first_id}} = request_refresh()
+      assert first_id == first.id
+      assert %Oban.Job{state: "available"} = Repo.reload!(first)
+
+      # The probe above started the interval; a second orphan inside it is left for later.
+      put_worker_env(:orphan_probe_interval_ms, to_timeout(hour: 1))
+      Repo.delete!(Repo.reload!(first))
+      second = insert_executing!(attempted_seconds_ago: 300, attempt: 1)
+
+      assert {:ok, %Oban.Job{conflict?: true, id: second_id}} = request_refresh()
+      assert second_id == second.id
+      assert %Oban.Job{state: "executing"} = Repo.reload!(second)
+    end
+
+    test "is rescued by the periodic reaper long before its age threshold" do
+      orphan = insert_executing!(attempted_seconds_ago: 300, attempt: 1)
+      assert ReapStalePeriodicJobsWorker.stale_threshold_minutes() * 60 > 300
+
+      # The sweep derives worker names from every AshOban resource inside its
+      # transaction; a cold test VM loads those modules lazily, which can outlast the
+      # connection's checkout timeout. A release preloads them.
+      _names = ReapStalePeriodicJobsWorker.periodic_worker_names()
+
+      assert {:ok, %{rescued_jobs: rescued, discarded_jobs: []}} =
+               ReapStalePeriodicJobsWorker.reap_stale_jobs()
+
+      assert Enum.map(rescued, & &1.id) == [orphan.id]
+      assert %Oban.Job{state: "available"} = Repo.reload!(orphan)
+    end
+  end
+
+  defp request_refresh, do: RefreshTraceSummariesWorker.enqueue()
+
+  defp insert_executing!(opts) do
+    attempted_at = DateTime.add(DateTime.utc_now(), -Keyword.fetch!(opts, :attempted_seconds_ago))
+
+    %{}
+    |> RefreshTraceSummariesWorker.new()
+    |> Ecto.Changeset.change(
+      state: "executing",
+      attempted_at: attempted_at,
+      attempted_by: ["core@node01.example.com", Ecto.UUID.generate()],
+      attempt: Keyword.fetch!(opts, :attempt)
+    )
+    |> Repo.insert!()
+  end
+
+  # Holds the refresh lock the way a live run's transaction does, on a connection outside
+  # this test's sandbox so it is a different backend from the one the probe uses. Returns the
+  # function that releases it.
+  defp hold_refresh_lock_elsewhere! do
+    config = Keyword.drop(Repo.config(), [:pool, :pool_size, :name])
+    {:ok, conn} = Postgrex.start_link(Keyword.put(config, :pool_size, 1))
+    parent = self()
+
+    holder =
+      spawn(fn ->
+        Postgrex.transaction(conn, fn tx ->
+          Postgrex.query!(tx, "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [
+            RefreshTraceSummariesWorker.watermark_key()
+          ])
+
+          send(parent, {:refresh_lock_held, self()})
+
+          receive do
+            :release -> :ok
+          after
+            30_000 -> :ok
+          end
+        end)
+
+        send(parent, :refresh_lock_released)
+      end)
+
+    assert_receive {:refresh_lock_held, ^holder}, 10_000
+
+    release = fn ->
+      send(holder, :release)
+      assert_receive :refresh_lock_released, 10_000
+      GenServer.stop(conn)
+    end
+
+    on_exit(fn -> if Process.alive?(holder), do: send(holder, :release) end)
+    release
+  end
+
+  defp put_worker_env(key, value) do
+    previous = Application.get_env(:serviceradar_core, RefreshTraceSummariesWorker)
+    config = Keyword.put(previous || [], key, value)
+    Application.put_env(:serviceradar_core, RefreshTraceSummariesWorker, config)
+
+    on_exit(fn ->
+      if previous,
+        do: Application.put_env(:serviceradar_core, RefreshTraceSummariesWorker, previous),
+        else: Application.delete_env(:serviceradar_core, RefreshTraceSummariesWorker)
+    end)
+  end
+
+  defp age_watermark_write!(seconds) do
+    SQL.query!(
+      Repo,
+      "UPDATE observability_watermarks SET updated_at = NOW() - ($2::int * INTERVAL '1 second') WHERE key = $1",
+      [RefreshTraceSummariesWorker.watermark_key(), seconds]
+    )
   end
 
   defp incomplete_jobs do

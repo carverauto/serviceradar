@@ -951,11 +951,23 @@ if config_env() == :prod do
     |> System.get_env(Integer.to_string(to_timeout(minute: 240)))
     |> String.to_integer()
 
+  # How long a stopping node waits for executing jobs before killing them. A job
+  # killed here is left `executing` for a rescuer to find, so this is what keeps
+  # a routine rollout from orphaning in-flight jobs. The chart renders it from
+  # core.obanShutdownGracePeriodSeconds and keeps the pod's
+  # terminationGracePeriodSeconds above it. Mirrors serviceradar_core's
+  # runtime.exs.
+  oban_shutdown_grace_period_ms =
+    "OBAN_SHUTDOWN_GRACE_PERIOD_MS"
+    |> System.get_env(Integer.to_string(to_timeout(minute: 1)))
+    |> String.to_integer()
+
   oban_config = [
     engine: Oban.Engines.Basic,
     repo: ServiceRadar.Repo,
     prefix: "platform",
     notifier: oban_notifier,
+    shutdown_grace_period: oban_shutdown_grace_period_ms,
     queues: [
       default: String.to_integer(System.get_env("OBAN_QUEUE_DEFAULT") || "10"),
       maintenance: String.to_integer(System.get_env("OBAN_QUEUE_MAINTENANCE") || "2"),
@@ -1160,7 +1172,10 @@ if config_env() == :prod do
          DispatchSchedule.silence_expiry_worker_config()
 
   config :serviceradar_core, Oban, if(oban_enabled, do: oban_config, else: false)
-  config :serviceradar_core, RefreshTraceSummariesWorker, retention_days: trace_summary_retention_days
+
+  config :serviceradar_core, RefreshTraceSummariesWorker,
+    retention_days: trace_summary_retention_days,
+    orphan_grace_seconds: "TRACE_SUMMARIES_ORPHAN_GRACE_SECONDS" |> parse_int_env.(60) |> max(1)
 
   config :serviceradar_core,
          SeasonalDispositionWorker,

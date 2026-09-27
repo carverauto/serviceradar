@@ -1254,6 +1254,7 @@ if config_env() == :prod do
 
   config :serviceradar_core, RefreshTraceSummariesWorker,
     retention_days: trace_summary_retention_days,
+    orphan_grace_seconds: "TRACE_SUMMARIES_ORPHAN_GRACE_SECONDS" |> parse_int_env.(60) |> max(1),
     cleanup_batch_size: "TRACE_SUMMARIES_CLEANUP_BATCH_SIZE" |> parse_int_env.(5_000) |> max(1),
     cleanup_time_budget_ms:
       "TRACE_SUMMARIES_CLEANUP_TIME_BUDGET_MS" |> parse_int_env.(10_000) |> max(1),
@@ -1500,6 +1501,16 @@ if config_env() == :prod do
     |> System.get_env(Integer.to_string(to_timeout(minute: 240)))
     |> String.to_integer()
 
+  # How long a stopping node waits for executing jobs before killing them. A job
+  # killed here is left `executing` for a rescuer to find, so this is what keeps
+  # a routine rollout from orphaning in-flight jobs. The pod's
+  # terminationGracePeriodSeconds must exceed it (the chart sets both); keep in
+  # step with serviceradar_core_elx's runtime.exs.
+  oban_shutdown_grace_period_ms =
+    "OBAN_SHUTDOWN_GRACE_PERIOD_MS"
+    |> System.get_env(Integer.to_string(to_timeout(minute: 1)))
+    |> String.to_integer()
+
   config :serviceradar_core, CapacityForecastingWorker,
     enabled: capacity_forecasting_enabled,
     horizon_seconds: capacity_forecasting_horizon_seconds,
@@ -1551,6 +1562,7 @@ if config_env() == :prod do
     repo: ServiceRadar.Repo,
     prefix: System.get_env("OBAN_SCHEMA", "platform"),
     notifier: oban_notifier,
+    shutdown_grace_period: oban_shutdown_grace_period_ms,
     queues: [
       default: String.to_integer(System.get_env("OBAN_QUEUE_DEFAULT") || "10"),
       maintenance: String.to_integer(System.get_env("OBAN_QUEUE_MAINTENANCE") || "2"),

@@ -348,6 +348,15 @@ observability:
 
 core:
   replicas: 3
+  # Graceful shutdown for the core-elx pod, which runs every core Oban queue.
+  # On SIGTERM Oban stops fetching and waits obanShutdownGracePeriodSeconds for
+  # executing jobs; one still running then is killed and left `executing` for a
+  # rescuer (a unique worker such as the trace-summary refresh is blocked until
+  # it is found). The pod must outlive that wait with room for the rest of the
+  # release to stop, so the chart refuses a terminationGracePeriodSeconds less
+  # than 15s above it.
+  obanShutdownGracePeriodSeconds: 60
+  terminationGracePeriodSeconds: 90
   # KV watch/reload is no longer supported for service configuration.
   configWatchEnabled: false
   clusterStrategy: "dns"

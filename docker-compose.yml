@@ -607,6 +607,10 @@ services:
       timeout: 15s
       retries: 10
       start_period: 300s
+    # Outlives Oban's shutdown wait (OBAN_SHUTDOWN_GRACE_PERIOD_MS, 60s by
+    # default) so jobs still running at `docker compose down`/recreate finish
+    # instead of being killed and left `executing`. Compose's default is 10s.
+    stop_grace_period: 90s
     networks:
       - serviceradar-net
     restart: unless-stopped

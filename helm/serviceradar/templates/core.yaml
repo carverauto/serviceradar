@@ -14,6 +14,11 @@
 {{- $cnpgPooler := default (dict) $cnpg.pooler -}}
 {{- $cnpgPoolerRoute := default (dict) $cnpgPooler.route -}}
 {{- $coreVals := default (dict) .Values.core -}}
+{{- $coreObanShutdownGrace := int (default 60 $coreVals.obanShutdownGracePeriodSeconds) -}}
+{{- $coreTerminationGrace := int (default 90 $coreVals.terminationGracePeriodSeconds) -}}
+{{- if lt $coreTerminationGrace (add $coreObanShutdownGrace 15) -}}
+{{- fail (printf "core.terminationGracePeriodSeconds (%d) must be at least 15s above core.obanShutdownGracePeriodSeconds (%d): Kubernetes kills the pod at the termination grace, so a shorter one cuts Oban's shutdown wait short and orphans the jobs it was waiting for" $coreTerminationGrace $coreObanShutdownGrace) -}}
+{{- end -}}
 {{- $migrationVals := default (dict) $coreVals.migrations -}}
 {{- $migrationsEnabled := include "serviceradar.boolDefaultTrue" (list $migrationVals "enabled") | eq "true" -}}
 {{- $webNg := default (dict) .Values.webNg -}}
@@ -168,6 +173,9 @@ spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-core") | nindent 6 }}
       serviceAccountName: {{ $coreSA }}
+      # Outlives OBAN_SHUTDOWN_GRACE_PERIOD_MS so in-flight jobs finish on SIGTERM
+      # instead of being orphaned `executing` (see core.obanShutdownGracePeriodSeconds).
+      terminationGracePeriodSeconds: {{ $coreTerminationGrace }}
       {{- include "serviceradar.elixirReleasePodSecurityContext" . | nindent 6 }}
       containers:
       - name: core-elx
@@ -341,6 +349,8 @@ spec:
           value: {{ coalesce .Values.partitionId (default (dict) .Values.agent).partitionId "default" | quote }}
         - name: SERVICERADAR_CORE_OBAN_ENABLED
           value: "true"
+        - name: OBAN_SHUTDOWN_GRACE_PERIOD_MS
+          value: {{ mul $coreObanShutdownGrace 1000 | quote }}
         - name: SERVICERADAR_ASH_OBAN_SCHEDULER_ENABLED
           value: {{ include "serviceradar.boolDefaultTrue" (list $coreVals "ashObanSchedulerEnabled") | eq "true" | quote }}
         - name: SERVICERADAR_CORE_REPO_ENABLED
