@@ -25,10 +25,11 @@ The God-View overview SHALL render persistent server-authored world coordinates.
 - **AND** it SHALL NOT join incompatible parent and child boundary portals in the rendered frame
 
 #### Scenario: Detail entry preserves map state
-- **WHEN** the operator opens a neighborhood or attachment-member page
+- **WHEN** the operator opens a neighborhood, component/aggregate-member, or rendered-bundle-member page
 - **THEN** the client SHALL enter one bounded ELK coordinate space
 - **AND** returning SHALL restore the map camera and compatible cached tiles
 - **AND** detail layout SHALL NOT move the map's device positions
+- **AND** continuation SHALL retain the displayed publication and tile identity rather than mix detail pages from different generations
 
 ### Requirement: God-View bootstraps visible tiles over HTTP
 The God-View surface SHALL load a bounded layout manifest, visible schema-3 tiles and separate bounded telemetry overlay bodies over HTTP independently of channel timing. The channel SHALL deliver only bounded geometry and overlay invalidation metadata, with explicit reset markers on overflow. Overlay refresh SHALL preserve compatible cached geometry and SHALL retain explicit unknown or partial telemetry coverage.

@@ -7,7 +7,7 @@ Each payload SHALL contain one bounded record batch with `row_type` distinguishi
 
 Tile metadata SHALL include `payload_kind=tile`, `layout_version`, `z`, `x`, `y`, `tile_revision`, coordinate-space metadata, actual feature counts, and applicable cardinality and encoded-byte budgets. Persisted integer world coordinates in the fixed extent `0..2^24-1` SHALL be authoritative for tiles. Schema-3 `node_x` and `node_y` SHALL retain UInt16 tile-local coordinates with explicit affine world-origin and extent metadata. The coordinate error SHALL remain below one tile width per axis divided by 65535. Adjacent tiles SHALL use a deterministic shared-boundary convention; the browser SHALL NOT recompute overview placement. Persisted integer stability and bounded wire quantization error SHALL be measured separately.
 
-Bounded detail metadata SHALL include `payload_kind=detail`, `level_id`, `parent_level_id`, content revision, structural signature, selected layout algorithm, counts, budgets, and bounded continuation. Its coordinates SHALL belong to the selected detail scene; one validated ELK result SHALL author its accepted geometry. Detail coordinates SHALL NOT move persisted map positions. All edge references SHALL resolve inside the returned batch, including explicitly non-owning clipping proxies used by tiles.
+Bounded detail metadata SHALL include `payload_kind=detail`, `level_id`, `parent_level_id`, layout version, publication generation, content revision, structural signature, selected layout algorithm, counts, budgets, and bounded continuation. A continuation SHALL pin the publication and native scope that produced it; it SHALL NOT resume across generations even when geometry is unchanged. Its coordinates SHALL belong to the selected detail scene; one validated ELK result SHALL author its accepted geometry. Detail coordinates SHALL NOT move persisted map positions. All edge references SHALL resolve inside the returned batch, including explicitly non-owning clipping proxies used by tiles.
 
 #### Scenario: Tile positions preserve world authority
 - **GIVEN** a supported schema-3 tile from an accepted layout version
@@ -16,7 +16,7 @@ Bounded detail metadata SHALL include `payload_kind=detail`, `level_id`, `parent
 - **AND** it SHALL NOT invoke ELK for overview tile placement
 
 #### Scenario: Detail coordinates remain separate
-- **GIVEN** a bounded detail payload is opened from a map device or aggregate
+- **GIVEN** a bounded detail payload is opened from a map device, aggregate, or rendered relation bundle
 - **WHEN** the client lays out that detail scene
 - **THEN** one selected ELK pipeline SHALL author its accepted coordinates and routes
 - **AND** neither its output nor its camera SHALL overwrite the map's persisted coordinate space
