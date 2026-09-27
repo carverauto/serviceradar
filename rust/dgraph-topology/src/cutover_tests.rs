@@ -127,6 +127,59 @@ async fn mtr_path_lands_on_a_hop_node_for_an_unresolved_ip() {
     assert_eq!(mtr.len(), 1, "the hop edge must be incident on the device");
 }
 
+#[tokio::test]
+async fn telemetry_refresh_preserves_discovery_freshness_and_cannot_revive_edges() {
+    let client = connected_scratch().await;
+    for id in ["sr:rate-a.example.com", "sr:rate-b.example.com"] {
+        client
+            .upsert_device(&DeviceWrite::new(id))
+            .await
+            .expect("device");
+    }
+    let edge = EdgeWrite::canonical(
+        "sr:rate-a.example.com",
+        "sr:rate-b.example.com",
+        "lldp",
+        "direct-physical",
+    )
+    .with_interfaces("port-a", 7, "port-b", 9)
+    .with_last_seen("2000-01-01T00:00:00Z");
+    client
+        .upsert_canonical_edge(&edge)
+        .await
+        .expect("canonical edge");
+    let telemetry = edge.with_flow(12, 8, 960, 640, 100_000_000, true);
+    client
+        .update_canonical_edge_telemetry(&telemetry)
+        .await
+        .expect("telemetry update");
+    let rows = client.query_canonical_edges().await.expect("read rates");
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].flow_pps(), 20);
+    assert_eq!(rows[0].flow_bps(), 1600);
+    assert!(rows[0].telemetry_eligible());
+    assert_eq!(
+        client
+            .prune_stale("2001-01-01T00:00:00Z", &["CANONICAL_TOPOLOGY".into()])
+            .await
+            .expect("prune stale discovery"),
+        1
+    );
+    assert!(
+        client
+            .update_canonical_edge_telemetry(&telemetry)
+            .await
+            .is_err()
+    );
+    assert!(
+        client
+            .query_canonical_edges()
+            .await
+            .expect("no revival")
+            .is_empty()
+    );
+}
+
 async fn connected_scratch() -> TopologyClient {
     let instance = DgraphInstance::acquire().expect("dgraph fixture");
     eprintln!("{}", instance.describe());

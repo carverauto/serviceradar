@@ -102,6 +102,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/serviceradar/jobs/prune_stale_agents_worker_test.exs",
     "test/serviceradar/jobs/self_scheduling_worker_uniqueness_test.exs",
     "test/serviceradar/network_discovery/mapper_device_creation_test.exs",
+    "test/serviceradar/network_discovery/topology_graph/telemetry_metrics_test.exs",
     "test/serviceradar/notifications/action_redemption_test.exs",
     "test/serviceradar/notifications/delivery_retention_test.exs",
     "test/serviceradar/notifications/dispatcher_delivery_test.exs",

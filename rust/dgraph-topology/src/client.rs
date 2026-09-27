@@ -330,6 +330,40 @@ impl TopologyClient {
         self.upsert_edge(edge).await
     }
 
+    /// Refresh only telemetry on an existing canonical edge. This must not
+    /// advance discovery freshness, revive a pruned edge, or replace evidence.
+    ///
+    /// # Errors
+    /// Returns an error if the edge no longer exists or the mutation fails.
+    pub async fn update_canonical_edge_telemetry(
+        &self,
+        edge: &EdgeWrite,
+    ) -> Result<(), TopologyError> {
+        let key = dql_string(&edge.link_key())?;
+        let query = format!(
+            "{{ edge(func: eq(topo.link_key, {key})) @filter(eq(topo.kind, \"CANONICAL_TOPOLOGY\")) {{ e as uid }} }}"
+        );
+        let node = json!({
+            "uid": "uid(e)",
+            "topo.flow_pps_ab": edge.flow_pps_ab(),
+            "topo.flow_pps_ba": edge.flow_pps_ba(),
+            "topo.flow_bps_ab": edge.flow_bps_ab(),
+            "topo.flow_bps_ba": edge.flow_bps_ba(),
+            "topo.capacity_bps": edge.capacity_bps(),
+            "topo.telemetry_eligible": edge.telemetry_eligible(),
+        });
+        let blocks: NamedUidBlocks = self
+            .upsert(&query, "@if(eq(len(e), 1))", &node, None)
+            .await?;
+        if blocks.edge.len() != 1 {
+            return Err(TopologyError::ConditionSkipped(
+                "edge".to_string(),
+                edge.link_key(),
+            ));
+        }
+        Ok(())
+    }
+
     /// Mapper evidence edge (`CONNECTS_TO` and friends).
     ///
     /// # Errors

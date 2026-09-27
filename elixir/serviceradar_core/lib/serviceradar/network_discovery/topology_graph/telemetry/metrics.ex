@@ -94,35 +94,62 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry.Metrics do
       rows =
         MetricConsumers.fetch(
           cnpg: fn ->
-            Repo.all(
-              from(m in "timeseries_metrics",
-                where:
-                  fragment(
-                    "(? = ANY(?)) OR (? = ANY(?))",
-                    m.device_id,
-                    type(^accepted_metric_ids, {:array, :string}),
-                    m.target_device_ip,
-                    type(^accepted_metric_ips, {:array, :string})
-                  ),
-                where: fragment("? = ANY(?)", m.if_index, type(^if_indexes, {:array, :integer})),
-                where:
-                  fragment(
-                    "split_part(?, '::', 1) = ANY(?)",
-                    m.metric_name,
-                    type(^metric_names, {:array, :string})
-                  ),
-                where: m.timestamp > ago(@telemetry_window_minutes, "minute"),
-                distinct: [m.device_id, m.target_device_ip, m.if_index, m.metric_name],
-                order_by: [
-                  asc: m.device_id,
-                  asc: m.target_device_ip,
-                  asc: m.if_index,
-                  asc: m.metric_name,
-                  desc: m.timestamp
-                ],
-                select: {m.device_id, m.target_device_ip, m.if_index, m.metric_name, m.value}
+            # Rank within the producer series before selecting a rate. Mixing
+            # collectors, or treating a cumulative sample as a rate, creates spikes.
+            sql = """
+            WITH samples AS (
+              SELECT gateway_id, agent_id, series_key,
+                device_id, target_device_ip, if_index, metric_name, value,
+                counter_width,
+                CASE
+                  WHEN metadata->>'max_counter_rate_per_second' ~ '^[0-9]+(\\.[0-9]+){0,1}$'
+                    THEN (metadata->>'max_counter_rate_per_second')::double precision
+                END AS max_rate_per_second,
+                timestamp,
+                lead(value) OVER series AS previous_value,
+                lead(timestamp) OVER series AS previous_timestamp,
+                row_number() OVER series AS sample_rank
+              FROM platform.timeseries_metrics
+              WHERE (device_id = ANY($1::text[]) OR target_device_ip = ANY($2::text[]))
+                AND if_index = ANY($3::int[])
+                AND split_part(metric_name, '::', 1) = ANY($4::text[])
+                AND timestamp > $5
+              WINDOW series AS (
+                PARTITION BY gateway_id, agent_id, series_key,
+                  device_id, target_device_ip, if_index, metric_name
+                ORDER BY timestamp DESC
               )
+            ),
+            latest_producers AS (
+              SELECT *, row_number() OVER (
+                PARTITION BY device_id, target_device_ip, if_index, metric_name
+                ORDER BY timestamp DESC, COALESCE(gateway_id, ''),
+                  COALESCE(agent_id, ''), COALESCE(series_key, '')
+              ) AS producer_rank
+              FROM samples
+              WHERE sample_rank = 1
+            ),
+            rated AS (
+              SELECT device_id, target_device_ip, if_index, metric_name,
+                #{MetricConsumers.counter_rate_sql("extract(epoch FROM timestamp - previous_timestamp)")} AS rate_value
+              FROM latest_producers
+              WHERE producer_rank = 1 AND timestamp > previous_timestamp AND previous_value >= 0 AND value >= 0
             )
+            SELECT device_id, target_device_ip, if_index, metric_name, rate_value
+            FROM rated
+            WHERE rate_value IS NOT NULL
+            """
+
+            sql
+            |> Repo.query!([
+              accepted_metric_ids,
+              accepted_metric_ips,
+              if_indexes,
+              metric_names,
+              since
+            ])
+            |> Map.fetch!(:rows)
+            |> Enum.map(&List.to_tuple/1)
           end,
           starrocks: fn ->
             MetricConsumers.directional_rows(

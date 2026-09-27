@@ -42,6 +42,9 @@ defmodule ServiceRadar.Dgraph.Native do
   @spec upsert_canonical_edge(url(), map()) :: write_result()
   def upsert_canonical_edge(_url, _edge), do: :erlang.nif_error(:nif_not_loaded)
 
+  @spec update_canonical_edge_telemetry(url(), map()) :: write_result()
+  def update_canonical_edge_telemetry(_url, _edge), do: :erlang.nif_error(:nif_not_loaded)
+
   @spec upsert_mtr_path(url(), map()) :: write_result()
   def upsert_mtr_path(_url, _edge), do: :erlang.nif_error(:nif_not_loaded)
 

@@ -123,6 +123,32 @@ Interpretation:
 
 ## Telemetry and Signals
 
+### Link traffic
+
+Link traffic shows packets per second (pps) and bits per second (bps), derived
+from cumulative interface counters. Each interval uses two samples from the
+same collector and metric series within the last 30 minutes; octet rates are
+converted to bits per second. For each device/IP, interface and metric, the
+freshest producer is selected before validating its interval. A reset, negative
+sample, invalid interval or single sample yields no rate; it does not fall back
+to an older collector's traffic.
+
+Both telemetry backends use the shared SRQL-compatible wrap and plausibility
+rule in `ServiceRadar.Analytics.StarRocks.MetricConsumers.counter_rate_sql/1`.
+CNPG supplies the producer's `max_counter_rate_per_second` metadata when present.
+The StarRocks reader has no producer ceiling, so it uses the rule's default
+32-bit wrap bound and rejects 64-bit decreases. A decrease without enough
+metadata to distinguish a plausible 32-bit wrap from a reset can still be
+interpreted as a wrap.
+
+With `graph.backend: dgraph`, telemetry refresh updates only existing canonical
+edges' directional traffic, capacity and telemetry eligibility. It preserves
+discovery evidence, `last_seen` and endpoints, and cannot recreate a pruned edge.
+In `dual` mode, refresh still updates AGE before the canonical rebuild copies
+edges to Dgraph.
+
+### Operational metrics
+
 The Network Topology view emits operational telemetry for:
 
 - Snapshot build latency
