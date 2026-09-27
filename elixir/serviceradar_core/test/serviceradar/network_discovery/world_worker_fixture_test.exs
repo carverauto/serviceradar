@@ -234,7 +234,13 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
   end
 
   defp fixture_relation(["r", id, source, target]) do
-    %{relation_id: id, source_id: source, target_id: target, active: true}
+    %{
+      relation_id: id,
+      source_id: source,
+      target_id: target,
+      evidence_class: "direct-physical",
+      active: true
+    }
   end
 
   defp publish_while_source_changes(job, version, new_id, edges) do
