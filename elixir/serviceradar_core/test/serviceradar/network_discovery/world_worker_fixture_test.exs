@@ -86,7 +86,7 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
       after_positions = placements()
       assert Map.take(after_positions, Map.keys(before)) == before
 
-      {world, relations} = reload_world([504], [503])
+      {world, relations} = reload_world([500, 4], [500, 3])
       assert {:ok, %{node_count: 504, relation_count: 503}} = TopologyAtlas.world_info(world)
       assert {:ok, %{device_id: isolated}} = TopologyAtlas.search(world, Enum.at(ids, 502))
       assert isolated == Enum.at(ids, 502)
@@ -105,7 +105,7 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
       assert_drain_success()
       assert {:ok, %{generation: 3, source_digest: digest}} = World.active_manifest(scope())
       refute digest == manifest.source_digest
-      {updated_world, updated_relations} = reload_world([504], [503])
+      {updated_world, updated_relations} = reload_world([500, 4], [500, 3])
 
       assert %{source_if_index: 23, target_if_index: 9} =
                Enum.find(updated_relations, &(&1.source_if_name == "eth7"))

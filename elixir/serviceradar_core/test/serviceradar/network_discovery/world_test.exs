@@ -43,7 +43,7 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
             }} =
              World.activate_relayout(0, version)
 
-    assert {:ok, %{manifest: %{node_count: ^position_count}, batches: [5_000, 3], ids: ids}} =
+    assert {:ok, %{manifest: %{node_count: ^position_count}, batches: batches, ids: ids}} =
              World.stream_active(%{batches: [], ids: MapSet.new()}, fn
                {:manifest, manifest}, acc ->
                  {:ok, Map.put(acc, :manifest, manifest)}
@@ -60,6 +60,8 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
                  {:ok, acc}
              end)
 
+    assert Enum.sum(batches) == position_count
+    assert Enum.all?(batches, &(&1 in 1..500))
     assert ids == MapSet.new(positions, & &1.device_id)
   end
 
