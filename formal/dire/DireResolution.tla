@@ -45,12 +45,7 @@ KnownBugs == {
     \* inventory/sync/device_writes.ex resolve_record_active_ip/7: a strong write adopts an
     \* anchorless provisional seed holding its address even when the written record already
     \* exists; its identifiers stay on that record, which keeps its stale address (#4705).
-    "seed_adopts_existing",
-    \* inventory/identity/batch_resolver.ex resolve_one/4 (Ids.has_strong_identifier?/1 and
-    \* generate_deterministic_device_id/1): a census's randomized MAC, which is neither looked up
-    \* nor registered, still seeds the record's uid, so later sightings of that MAC follow it
-    \* across addresses and the write takes the strong-identity address branch.
-    "randomized_mac_seeds_uid"
+    "seed_adopts_existing"
 }
 ASSUME Bugs \subseteq KnownBugs
 
@@ -174,19 +169,17 @@ PhysAfter(h, S, p, m1, t1, m2, t2, owner2, into2, recIp2) ==
 
 \* One observation of physical device h at interface x's address, carrying identifiers S,
 \* through the resolver and the device write.
-\*   U: identifiers a new record's uid is derived from although the observation neither looks
-\*      them up nor registers them (a census's randomized MAC under randomized_mac_seeds_uid);
-\*      {} for other observers
 \*   aliasPath: "none" (census), "sync" (Sync.Aliases), "guard" (AliasGuard, Resolver path)
 \*   recordAlias: this update's address is recorded as a (confirmed) alias of the result
 \*   claims: interface MACs the observation registers as the result's own interface table
 \*   keepIps: addresses an existing result keeps instead of moving to this one (the mapper's
 \*            device reports all of its own addresses; other observers pass {})
-Resolve(h, x, S, U, recordAlias, aliasPath, kind, claims, keepIps) ==
+Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
     LET p       == ipAt[x]
-        \* BatchResolver treats any MAC as strong (Ids.has_strong_identifier?/1): the uid is
-        \* derived from it and DeviceWrites takes the strong-identity branch at the address.
-        strong  == S \cup U
+        \* The identifiers the uid is derived from and that make DeviceWrites take the
+        \* strong-identity branch at the address: exactly the ones the observation looks up and
+        \* registers. A randomized MAC is never one (Ids.has_strong_identifier?/1, #4760).
+        strong  == S
         srcS    == S \cap SrcIds
         \* A matched record holding a different source-authoritative identifier than the one
         \* this update carries is not a match: the source-authoritative identifier decides, and
@@ -301,27 +294,23 @@ Resolve(h, x, S, U, recordAlias, aliasPath, kind, claims, keepIps) ==
 ArmisObserve(h, x) ==
     /\ SrcOf[h] # NoId /\ IfPhys[x] = h /\ ipAt[x] # NoIp
     /\ \E ra \in BOOLEAN :
-         Resolve(h, x, {SrcOf[h]} \cup (IF ArmisMacs THEN MacsOf(h) ELSE {}), {}, ra, "sync",
+         Resolve(h, x, {SrcOf[h]} \cup (IF ArmisMacs THEN MacsOf(h) ELSE {}), ra, "sync",
                  "Armis", {}, {})
 
 \* netprobe census: one interface's MAC and address, through SyncIngestor. A census update is an
 \* observer source with no non-MAC identifier, so Sync.Aliases never merges on it. A randomized
 \* MAC from a census is neither looked up nor registered
-\* (SourcePolicy.include_mac_identifier?/1, census_anchorable_mac?/1), so the goal treats that
-\* sighting as address-only. Today the record's uid is still derived from it
-\* (randomized_mac_seeds_uid).
+\* (SourcePolicy.include_mac_identifier?/1, census_anchorable_mac?/1), nor does the record's uid
+\* derive from it (Ids.has_strong_identifier?/1, #4760): that sighting is address-only.
 ArpObserve(h, x) ==
     /\ IfPhys[x] = h /\ ipAt[x] # NoIp /\ IfMac[x] # NoId
-    /\ \E ra \in BOOLEAN :
-         Resolve(h, x, {IfMac[x]} \cap HwIds,
-                 IF Bug("randomized_mac_seeds_uid") THEN {IfMac[x]} \cap LaaIds ELSE {},
-                 ra, "none", "Arp", {}, {})
+    /\ \E ra \in BOOLEAN : Resolve(h, x, {IfMac[x]} \cap HwIds, ra, "none", "Arp", {}, {})
 
 \* Agent check-in: AgentGatewaySync.ensure_device_for_agent/2 resolves through the Resolver,
 \* so AliasGuard runs on the strong-match branch.
 AgentObserve(h, x) ==
     /\ AgentOf[h] # NoId /\ IfPhys[x] = h /\ ipAt[x] # NoIp
-    /\ \E ra \in BOOLEAN : Resolve(h, x, {AgentOf[h]} \cup MacsOf(h), {}, ra, "guard", "Agent", {}, {})
+    /\ \E ra \in BOOLEAN : Resolve(h, x, {AgentOf[h]} \cup MacsOf(h), ra, "guard", "Agent", {}, {})
 
 \* Mapper/SNMP discovery polled at interface x's address, reporting every interface MAC and
 \* address (MapperResultsIngestor.resolve_device_ids/2). The reported globally-unique MACs
@@ -336,15 +325,15 @@ MapperObserve(h, x) ==
     LET ids == MacsOf(h) \cap HwIds IN
     /\ IfPhys[x] = h /\ ipAt[x] # NoIp /\ MacsOf(h) # {}
     /\ IF ids # {}
-       THEN \E ra \in BOOLEAN : Resolve(h, x, ids, {}, ra, "guard", "Discovery", ids, OwnIps(h))
-       ELSE Resolve(h, x, {}, {}, FALSE, "none", "Discovery", {}, {})
+       THEN \E ra \in BOOLEAN : Resolve(h, x, ids, ra, "guard", "Discovery", ids, OwnIps(h))
+       ELSE Resolve(h, x, {}, FALSE, "none", "Discovery", {}, {})
 
 \* Sweep: an address answered. SweepResultsIngestor attaches it to the live holder or alias
 \* holder of the address, and otherwise creates a provisional record seeded from the address
 \* (create_available_unknown_devices/5).
 SweepObserve(h, x) ==
     /\ IfPhys[x] = h /\ ipAt[x] # NoIp
-    /\ Resolve(h, x, {}, {}, FALSE, "none", "Sweep", {}, {})
+    /\ Resolve(h, x, {}, FALSE, "none", "Sweep", {}, {})
 
 Next ==
     \/ \E x \in Ifaces, p \in Ips \cup {NoIp} : Lease(x, p)

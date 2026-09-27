@@ -16,6 +16,7 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
   import Ecto.Query
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.Page
   alias ServiceRadar.Inventory.DeduplicationTask
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
@@ -172,7 +173,7 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
       Device
       |> Ash.Query.filter(ip == ^ip and is_nil(deleted_at))
       |> Ash.read(actor: actor)
-      |> ServiceRadar.Ash.Page.unwrap()
+      |> Page.unwrap()
 
     assert [%Device{uid: uid}] = devices
     assert uid == existing.uid
@@ -1702,6 +1703,64 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
   # address a stale record still holds takes it; the holder releases it and stays live, and the
   # decision is recorded. (A declarative inventory's address does not move: see "IP conflict
   # drops IP from strong-identified record instead of remapping" above.)
+  describe "a randomized MAC seen by the census" do
+    # #4760: a locally administered MAC never identifies a device. The census neither looks it
+    # up nor registers it, and it no longer seeds the uid either, so each sighting is
+    # address-only: one phone sighted at two addresses is two records named by their
+    # addresses, and none carries the uid its MAC would derive.
+    test "sightings at two addresses are two address-only records", %{actor: actor} do
+      mac = local_mac()
+      ip_a = benchmark_ip()
+      ip_b = benchmark_ip()
+
+      assert :ok = SyncIngestor.ingest_updates([census_update(mac, ip_a)], actor: actor)
+      assert :ok = SyncIngestor.ingest_updates([census_update(mac, ip_b)], actor: actor)
+
+      assert [%Device{uid: uid_a}] = live_devices_at(ip_a, actor)
+      assert [%Device{uid: uid_b}] = live_devices_at(ip_b, actor)
+      refute uid_a == uid_b
+
+      assert uid_a == address_uid(ip_a)
+      assert uid_b == address_uid(ip_b)
+
+      mac_seeded =
+        IdentityReconciler.generate_deterministic_device_id(%{mac: mac, partition: "default"})
+
+      refute mac_seeded in [uid_a, uid_b]
+      assert device_for_mac(mac, actor) == nil
+    end
+  end
+
+  defp census_update(mac, ip) do
+    %{
+      "ip" => ip,
+      "mac" => mac,
+      "source" => "netprobe-census",
+      "partition" => "default",
+      "agent_id" => "batch-resolution-observer",
+      "metadata" => %{
+        "mac" => mac,
+        "source" => "netprobe-census",
+        "discovery_source" => "netprobe-census",
+        "identity_source" => "netprobe_census",
+        "agent_id" => "batch-resolution-observer"
+      }
+    }
+  end
+
+  defp live_devices_at(ip, actor) do
+    {:ok, devices} =
+      Device
+      |> Ash.Query.filter(ip == ^ip and is_nil(deleted_at))
+      |> Ash.read(actor: actor)
+      |> Page.unwrap()
+
+    devices
+  end
+
+  defp address_uid(ip),
+    do: IdentityReconciler.generate_deterministic_device_id(%{ip: ip, partition: "default"})
+
   describe "an observed address moves to the device seen at it" do
     test "an Armis sync takes the IP from a stale holder, which stays live", %{actor: actor} do
       n = System.unique_integer([:positive])

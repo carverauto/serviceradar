@@ -14,7 +14,8 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
        identifier is evidence only, and the override is recorded
        (`SourceAuthorityGuard.record_overrides/1`).
     3. pre-set `sr:` device_id — a hint only, canonical-followed
-    4. deterministic UID when strong identifiers exist (canonical-followed)
+    4. deterministic UID when strong identifiers exist (canonical-followed);
+       a locally administered MAC is not one (`Ids.has_strong_identifier?/1`)
     5. IP/alias map fallback ONLY when no strong identifier is present
     6. deterministic (IP-seeded) or random UID
 

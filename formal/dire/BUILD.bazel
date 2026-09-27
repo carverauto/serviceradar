@@ -160,14 +160,6 @@ tlc_test(
     deps = ["DireResolution.tla"],
 )
 
-tlc_test(
-    name = "resolution_witness_randomized_mac_seeds_uid_test",
-    cfg = "resolution_witness_randomized_mac_seeds_uid.cfg",
-    expect = "violation:RandomizedMacsNeverIdentify",
-    spec = "MCDireResolution.tla",
-    deps = ["DireResolution.tla"],
-)
-
 # ---- Traces recorded from the real code (a matched trace reaches its last state) ----
 # A __tamper_<var> variant alters one variable in the final state and must NOT be matched.
 
@@ -555,18 +547,6 @@ tlc_test(
     name = "trace_census_randomized_mac_test",
     cfg = "traces/Trace_census_randomized_mac.cfg",
     expect = "violation:TraceIncomplete",
-    spec = "traces/Trace_census_randomized_mac.tla",
-    deps = [
-        "CurrentBugs.tla",
-        "DireResolution.tla",
-        "DireResolutionTrace.tla",
-    ],
-)
-
-# The same trace without the switch it demonstrates must NOT be matched.
-tlc_test(
-    name = "trace_census_randomized_mac__knockout_test",
-    cfg = "traces/Trace_census_randomized_mac__knockout.cfg",
     spec = "traces/Trace_census_randomized_mac.tla",
     deps = [
         "CurrentBugs.tla",

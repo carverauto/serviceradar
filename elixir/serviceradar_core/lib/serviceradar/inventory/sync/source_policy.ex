@@ -232,13 +232,14 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicy do
   # fresh device on every rotation -- the anchorless-device and IP-squatting
   # failure mode, at far higher volume than any sweep produces.
   #
-  # This is deliberately scoped to the census source rather than applied inside
-  # `Ids.generate_deterministic_device_id/1`. Locally administered MACs are also
-  # how virtualization, Docker and overlay networks address themselves
-  # (`Identity.Mac`), so a global rule would stop existing VM and container
-  # devices re-deriving their UID -- a silent migration hazard well outside this
-  # feature. Here the same address keeps its meaning for those sources and loses
-  # only its anchoring power when it arrives from a passive sighting.
+  # This predicate decides lookup and registration, and only for the census.
+  # The uid is decided in `Ids`: a locally administered MAC is never a strong
+  # identifier (`Ids.has_strong_identifier?/1`), so an update whose only MAC is
+  # one is named by its address (`Ids.generate_deterministic_device_id/1`) on
+  # every path, and a census sighting of a randomized MAC is address-only.
+  # Other sources still register a locally administered MAC (medium
+  # confidence), so an existing VM or container device they already hold keeps
+  # resolving through that identifier row (`BatchResolver`, `Resolver`).
   defp census_anchorable_mac?(metadata) when is_map(metadata) do
     case metadata["mac"] || metadata["identity_mac"] do
       nil -> false

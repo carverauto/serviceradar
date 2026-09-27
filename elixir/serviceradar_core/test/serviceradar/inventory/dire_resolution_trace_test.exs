@@ -228,11 +228,11 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
     |> DireTrace.assert_golden!()
   end
 
-  # #4705 (randomized_mac_seeds_uid, still present): a census of a randomized MAC registers no
-  # identifier, yet the record's uid is derived from that MAC. Steps: a phone (r1) is sighted by
-  # the census at p1; DHCP moves it to p2 and it is sighted again. Today both sightings land on
-  # the one record seeded from r1, which follows the phone to p2 although r1 is owned by none.
-  # Under the goal each sighting is address-only; the knockout proves the code differs.
+  # #4760 (randomized_mac_seeds_uid, fixed): a census of a randomized MAC registers no
+  # identifier and no longer derives the record's uid from that MAC. Steps: a phone (r1) is
+  # sighted by the census at p1; DHCP moves it to p2 and it is sighted again. Each sighting is
+  # address-only: it lands on the record named by its address, and r1 identifies nothing. Before
+  # the fix both sightings landed on one record seeded from r1, which followed the phone to p2.
   test "census_randomized_mac", %{actor: actor} do
     world = %{
       phys: ["h1"],
@@ -252,7 +252,7 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
     |> DireTrace.arp("h1", "x1")
     |> DireTrace.lease("x1", "p2")
     |> DireTrace.arp("h1", "x1")
-    |> DireTrace.assert_golden!(demonstrates: "randomized_mac_seeds_uid")
+    |> DireTrace.assert_golden!()
   end
 
   # #4705 (seed_adopts_existing, still present): an existing identified device moves onto an

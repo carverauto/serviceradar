@@ -309,8 +309,13 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
     result
   end
 
+  # A locally administered MAC is not a strong identifier (`Ids.has_strong_identifier?/1`): it
+  # never derives a uid. A record that registered one still owns that identifier row, so an
+  # update carrying only such MACs still looks them up; registration decides which MACs a
+  # source may claim (the census claims none of them), and `MergePolicy` refuses a merge over
+  # an all-randomized match set.
   defp lookup_strong_identifiers(ids, actor, preferred_device_id, refuse?) do
-    if Ids.has_strong_identifier?(ids) do
+    if Ids.has_strong_identifier?(ids) or Ids.mac_lookup_values(ids) != [] do
       {first_matches, overridden} = lookup_governed_matches(ids, actor, refuse?)
 
       matches =
