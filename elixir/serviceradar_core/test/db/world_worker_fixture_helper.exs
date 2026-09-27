@@ -38,7 +38,9 @@ for app <- [:postgrex, :ecto_sql, :ash_postgres, :oban] do
   {:ok, _} = Application.ensure_all_started(app)
 end
 
-{:ok, repo} = ServiceRadar.Repo.start_link()
+# The dedicated scale case may hold an auto-mode sandbox connection for its
+# full test deadline. Production publication still retains its own shorter timeout.
+{:ok, repo} = ServiceRadar.Repo.start_link(ownership_timeout: 780_000)
 Process.unlink(repo)
 :ok = Ecto.Adapters.SQL.Sandbox.mode(ServiceRadar.Repo, :auto)
 {:ok, oban} = Oban.start_link(Application.fetch_env!(:serviceradar_core, Oban))
