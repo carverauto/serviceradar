@@ -1168,6 +1168,14 @@ webNg:
     integrations: 0
     maintenance: 0
     webMaintenance: 2
+  # Camera relay browser viewers. WebRTC playback (membrane_webrtc) is off by
+  # default; viewers then use the websocket WebCodecs/MSE transports.
+  cameraRelay:
+    webRTC:
+      enabled: false
+      # Public ICE endpoint metadata only. Each entry may contain only urls;
+      # inline usernames and credentials are rejected.
+      iceServers: []
   godView:
     runtimeGraphRefreshMs: 30000
     runtimeGraphAutoRefresh: true

@@ -763,6 +763,29 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
             </div>
 
             <div class="rounded-sr-surface border border-sr-line p-4">
+              <div class="text-sm font-semibold">Capabilities</div>
+              <div :if={(@package.capabilities || []) == []} class="mt-2 text-xs text-sr-muted">
+                No host capabilities requested.
+              </div>
+              <div class="mt-3 flex flex-wrap gap-2">
+                <.ui_badge
+                  :for={capability <- @package.capabilities || []}
+                  size="xs"
+                  variant={capability_badge_variant(capability)}
+                  title={capability_review_note(capability)}
+                >
+                  {capability}
+                </.ui_badge>
+              </div>
+              <p
+                :if={Enum.any?(@package.capabilities || [], &sensitive_capability?/1)}
+                class="mt-2 text-xs text-sr-muted"
+              >
+                This package can open live camera streams for viewers who may already watch them.
+              </p>
+            </div>
+
+            <div class="rounded-sr-surface border border-sr-line p-4">
               <div class="text-sm font-semibold">Routes</div>
               <div :if={@instances == []} class="mt-2 text-xs text-sr-muted">
                 No enabled routes.
@@ -1186,6 +1209,19 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
   defp verification_badge_variant("verified"), do: "success"
   defp verification_badge_variant("failed"), do: "error"
   defp verification_badge_variant(_), do: "ghost"
+
+  @sensitive_capabilities ~w(camera.stream.view)
+
+  defp sensitive_capability?(capability), do: capability in @sensitive_capabilities
+
+  defp capability_badge_variant(capability) do
+    if sensitive_capability?(capability), do: "warning", else: "ghost"
+  end
+
+  defp capability_review_note("camera.stream.view"),
+    do: "Opens camera relay viewer sessions using the viewer's own camera permissions"
+
+  defp capability_review_note(_capability), do: nil
 
   defp format_error({:invalid_settings, errors}) when is_list(errors), do: Enum.join(errors, "; ")
   defp format_error(errors) when is_list(errors), do: Enum.join(errors, "; ")

@@ -259,6 +259,44 @@ vitest_bin.vitest_test(
 )
 
 vitest_bin.vitest_test(
+    name = "camera_relay_test",
+    args = [
+        "run",
+        "js/lib/camera_relay/player.test.js",
+        "js/lib/camera_relay/dashboard_camera.test.js",
+        "js/hooks/CameraRelayStatusStream.test.js",
+    ],
+    chdir = package_name(),
+    data = glob(["js/lib/camera_relay/*.js"]) + [
+        "js/hooks/CameraRelayStatusStream.js",
+        "js/hooks/CameraRelayStatusStream.test.js",
+        ":node_modules",
+    ],
+    tags = ["unit_test"],
+)
+
+vitest_bin.vitest_test(
+    name = "dashboard_host_test",
+    args = [
+        "run",
+        "js/hooks/DashboardWasmHost.test.js",
+    ],
+    chdir = package_name(),
+    data = glob([
+        "js/dashboards/*.js",
+        "js/hooks/__fixtures__/*.js",
+        "js/lib/camera_relay/*.js",
+    ]) + [
+        "js/hooks/DashboardWasmHost.js",
+        "js/hooks/DashboardWasmHost.test.js",
+        "js/utils/dashboard_user_time.js",
+        "js/utils/user_time.js",
+        ":node_modules",
+    ],
+    tags = ["unit_test"],
+)
+
+vitest_bin.vitest_test(
     name = "details_state_test",
     args = [
         "run",

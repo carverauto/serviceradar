@@ -7,6 +7,8 @@
 // shell (manifest + samples URLs + fixtures map + Mapbox token + theme),
 // and `renderer` is the customer's renderer module.
 
+import {createHarnessCameraApi} from "./camera.js"
+
 const ROOT_SELECTOR = "[data-root]"
 const STATUS_SELECTOR = "[data-status]"
 const ERROR_SELECTOR = "[data-error-overlay]"
@@ -76,6 +78,7 @@ function createContext(initialState) {
     },
     async replaceRenderer(nextModule) {
       destroyMounted(mounted)
+      api?.camera?.closeAll()
       mounted = null
       await ctx.mount(nextModule)
     },
@@ -258,6 +261,7 @@ async function createHostApi(state, initialFrames, hooks) {
         onCall(`details ${typeof target === "string" ? target : JSON.stringify(target)}`)
       },
     },
+    camera: createHarnessCameraApi({onCall}),
   }
 }
 
