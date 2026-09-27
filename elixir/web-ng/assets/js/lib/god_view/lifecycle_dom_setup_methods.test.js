@@ -16,7 +16,7 @@ vi.mock("@deck.gl/core", async (importOriginal) => ({
 
 import {bindApi, createStateBackedContext} from "./api_helpers"
 import {godViewLayoutClusterMethods} from "./layout_cluster_methods"
-import {GOD_VIEW_DEVICE_PROPS, godViewLifecycleDomSetupMethods, pickInTopLeftDevicePixels} from "./lifecycle_dom_setup_methods"
+import {GOD_VIEW_DEVICE_PROPS, godViewLifecycleDomSetupMethods} from "./lifecycle_dom_setup_methods"
 import {godViewRenderingGraphCoreMethods} from "./rendering_graph_core_methods"
 import {godViewRenderingGraphLayerNodeMethods} from "./rendering_graph_layer_node_methods"
 import {godViewRenderingGraphViewMethods} from "./rendering_graph_view_methods"
@@ -2043,32 +2043,4 @@ describe("lifecycle_dom_setup_methods", () => {
     })
   })
 
-  it("makes deck's picking read top-left framebuffer rows on the WebGPU canvas", () => {
-    // deck.gl asks for bottom-left (WebGL) rows; WebGPU textures start at the top left.
-    const cssToDevicePixels = vi.fn((pixel, yInvert = true) => ({x: pixel[0], y: yInvert ? 99 - pixel[1] : pixel[1], width: 1, height: 1}))
-    const canvasContext = {cssToDevicePixels}
-
-    expect(pickInTopLeftDevicePixels(canvasContext)).toBe(true)
-    expect(canvasContext.cssToDevicePixels([10, 20], true)).toEqual({x: 10, y: 20, width: 1, height: 1})
-    expect(canvasContext.cssToDevicePixels([10, 20])).toEqual({x: 10, y: 20, width: 1, height: 1})
-    // Idempotent: a second install does not wrap the wrapper.
-    const installed = canvasContext.cssToDevicePixels
-    expect(pickInTopLeftDevicePixels(canvasContext)).toBe(true)
-    expect(canvasContext.cssToDevicePixels).toBe(installed)
-    expect(pickInTopLeftDevicePixels(null)).toBe(false)
-  })
-
-  it("installs top-left picking on the WebGPU device it records", () => {
-    const deck = {}
-    const state = {deck, el: {clientWidth: 800, clientHeight: 600}}
-    const ctx = createStateBackedContext(state, {})
-    Object.assign(ctx, bindApi(ctx, godViewLifecycleDomSetupMethods))
-    const cssToDevicePixels = vi.fn(() => ({x: 0, y: 0, width: 1, height: 1}))
-    const canvasContext = {cssToDevicePixels}
-    ctx.recordDeckDevice(deck, {type: "webgpu", getDefaultCanvasContext: () => canvasContext})
-
-    expect(canvasContext.godViewTopLeftPicking).toBe(true)
-    canvasContext.cssToDevicePixels([3, 4], true)
-    expect(cssToDevicePixels).toHaveBeenLastCalledWith([3, 4], false)
-  })
 })

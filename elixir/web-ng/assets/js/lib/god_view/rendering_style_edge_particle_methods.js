@@ -18,6 +18,7 @@ export const godViewRenderingStyleEdgeParticleMethods = {
     const flow = new Float32Array(edges.length * 4)
     const shape = new Float32Array(edges.length * 4)
     const style = new Float32Array(edges.length * 2)
+    const phase = edges.some(edge => edge.phaseStart !== undefined) ? new Float32Array(edges.length * 2) : null
     let count = 0
     let maxParticleBase = 0
     let particleBaseSum = 0
@@ -67,7 +68,9 @@ export const godViewRenderingStyleEdgeParticleMethods = {
       endpoints.set([Number(src[0]) || 0, Number(src[1]) || 0, Number(dst[0]) || 0, Number(dst[1]) || 0], count * 4)
       flow.set([particleBase, abWeight, baWeight, baseSpeed], count * 4)
       // The edge's index in the list seeds its particles, exactly as the per-particle layer did.
-      shape.set([laneSeparation, jitterBase * spreadFill, utilization, i], count * 4)
+      const unit = edge.worldUnitsPerPixel ?? 1
+      shape.set([laneSeparation * unit, jitterBase * spreadFill * unit, utilization, edge.flowSeed ?? i], count * 4)
+      if (phase) phase.set([edge.phaseStart ?? 0, edge.phaseEnd ?? 1], count * 2)
       style.set([topologyStyle.particleAlphaScale, topologyStyle.particleSizeScale], count * 2)
       count += 1
     }
@@ -82,6 +85,7 @@ export const godViewRenderingStyleEdgeParticleMethods = {
         instanceFlow: flow.subarray(0, count * 4),
         instanceShape: shape.subarray(0, count * 4),
         instanceStyle: style.subarray(0, count * 2),
+        ...(phase ? {instancePhase: phase.subarray(0, count * 2)} : {}),
       },
     }
     flowBlocks.set(edges, {owner: this, block})

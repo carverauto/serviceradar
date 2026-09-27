@@ -895,6 +895,7 @@ npm = use_extension("@aspect_rules_js//npm:extensions.bzl", "npm")
 # switching back; rules_js writes the file and tells you to commit it.
 npm.npm_translate_lock(
     name = "web_ng_npm",
+    data = ["//elixir/web-ng/assets:patches/deck.gl-core-9.4.0.patch"],
     pnpm_lock = "//elixir/web-ng/assets:pnpm-lock.yaml",
     verify_node_modules_ignored = "//:.bazelignore",
 )

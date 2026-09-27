@@ -17,6 +17,7 @@ on assets/** and the HEEx templates, so an .ex-only change is a cache hit.
 """
 
 load("@aspect_bazel_lib//lib:copy_to_directory.bzl", "copy_to_directory")
+load("@aspect_bazel_lib//lib:write_source_files.bzl", "write_source_files")
 load("@aspect_rules_js//js:defs.bzl", "js_binary", "js_library", "js_run_binary", "js_test")
 load("@web_ng_npm//:defs.bzl", "npm_link_all_packages")
 load("@web_ng_npm//elixir/web-ng/assets:@tailwindcss/cli/package_json.bzl", tailwind_bin = "bin")
@@ -27,6 +28,7 @@ package(default_visibility = ["//visibility:public"])
 
 exports_files([
     "package-lock.json",
+    "patches/deck.gl-core-9.4.0.patch",
     "css/app.css",
 ])
 
@@ -381,6 +383,35 @@ js_library(
     srcs = ["js/lib/god_view/acceptance_geometry_assertions.js"],
 )
 
+js_binary(
+    name = "world_gpu_bundler",
+    data = [":node_modules/esbuild"],
+    entry_point = "god_view_world_gpu_bundle.mjs",
+)
+
+js_run_binary(
+    name = "world_gpu_page",
+    srcs = ["god_view_world_gpu_harness.js", ":god_view_scene_test_srcs", ":node_modules"],
+    outs = ["world_gpu_page.html"],
+    args = ["god_view_world_gpu_harness.js", "world_gpu_page.html"],
+    chdir = package_name(),
+    tool = ":world_gpu_bundler",
+)
+
+# A declared write-back interface for a browser-openable RBE build. The HTML
+# is disposable, never committed, and contains invented fixtures only.
+write_source_files(
+    name = "world_gpu_smoke",
+    files = {"world_gpu_smoke.html": ":world_gpu_page"},
+    diff_test = False,
+)
+
+js_library(
+    name = "world_gpu_test_lib",
+    srcs = ["god_view_world_gpu.playwright.js"],
+    deps = [":node_modules/@playwright/test"],
+)
+
 js_library(
     name = "god_view_acceptance_timeline_lib",
     srcs = ["god_view_acceptance_timeline.js"],
@@ -405,6 +436,7 @@ filegroup(
         ["**"],
         exclude = [
             "node_modules/**",
+            "world_gpu_smoke.html",
             "component/node_modules/**",
             "**/target/**",
         ],

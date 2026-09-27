@@ -84,30 +84,6 @@ function syncCanvasContextSize(canvasContext, width, height) {
   }
 }
 
-/**
- * Makes deck.gl's point picking read the framebuffer row under the pointer on WebGPU.
- *
- * deck.gl 9.4 picks by rendering a picking pass and reading back the pixels at
- * `canvasContext.cssToDevicePixels([x, y], true)` -- a bottom-left row, the WebGL convention
- * (@deck.gl/core src/lib/deck-picker.ts, `_pickClosestObjectAsync`). WebGPU textures start at the
- * top left, so every hover and click read the row mirrored about the canvas's horizontal middle
- * and reported the node vertically opposite the pointer. luma.gl's own picking manager already
- * passes `yInvert = device.type !== "webgpu"` for exactly this reason
- * (@luma.gl/engine src/modules/picking/picking-manager.ts, `getPickPosition`).
- *
- * God View only point-picks (deck's onHover / onClick / getTooltip), so the WebGPU canvas
- * context answers in top-left rows whatever deck asks for. Rectangle picking
- * (`pickObjectsAsync`) would get an inverted rectangle from this and is not used here.
- */
-export function pickInTopLeftDevicePixels(canvasContext) {
-  if (!canvasContext || typeof canvasContext.cssToDevicePixels !== "function") return false
-  if (canvasContext.godViewTopLeftPicking === true) return true
-  const cssToDevicePixels = canvasContext.cssToDevicePixels.bind(canvasContext)
-  canvasContext.cssToDevicePixels = (cssPixel) => cssToDevicePixels(cssPixel, false)
-  canvasContext.godViewTopLeftPicking = true
-  return true
-}
-
 function safeInsetsChanged(previous, current) {
   if (!previous) return true
   return ["left", "top", "right", "bottom"].some((edge) => {
@@ -768,7 +744,6 @@ export const godViewLifecycleDomSetupMethods = {
       return
     }
     this.state.rendererMode = "webgpu"
-    pickInTopLeftDevicePixels(device?.getDefaultCanvasContext?.() || device?.canvasContext)
     // luma sizes the drawing buffer from a ResizeObserver callback that can land after deck's
     // first frame; until then the buffer is the canvas default (300x150) while the CSS size is
     // already the container's, and the frame's viewport overruns the buffer. Size it now.

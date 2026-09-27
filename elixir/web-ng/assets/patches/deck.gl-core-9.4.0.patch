@@ -1,0 +1,81 @@
+--- a/src/lib/deck-picker.ts
++++ b/src/lib/deck-picker.ts
+@@ -831,6 +831,14 @@
+     decodePickingColor: PickingColorDecoder | null;
+   }> {
+     const pickingFBO = pickZ ? this.depthFBO : this.pickingFBO;
++    // Picking queries use bottom-left coordinates; WebGPU scissors and texture
++    // copies use top-left coordinates. Keep cullRect in CSS coordinates.
++    if (this.device.type === 'webgpu') {
++      deviceRect = {
++        ...deviceRect,
++        y: (pickingFBO as Framebuffer).height - deviceRect.y - deviceRect.height
++      };
++    }
+     const opts = {
+       layers,
+       layerFilter: this.layerFilter,
+@@ -926,7 +934,8 @@
+       const packed = new ArrayType(width * height * 4);
+ 
+       for (let row = 0; row < height; row++) {
+-        const sourceStart = row * sourceRowLength;
++        const sourceRow = this.device.type === 'webgpu' ? height - 1 - row : row;
++        const sourceStart = sourceRow * sourceRowLength;
+         packed.set(
+           source.subarray(sourceStart, sourceStart + packedRowLength),
+           row * packedRowLength
+--- a/dist/lib/deck-picker.js
++++ b/dist/lib/deck-picker.js
+@@ -543,6 +543,14 @@
+     // Note: Implementation of the overloaded signatures above, TSDoc is on the signatures
+     async _drawAndSampleAsync({ layers, views, viewports, onViewportActive, deviceRect, cullRect, effects, pass, canvasContext }, pickZ = false) {
+         const pickingFBO = pickZ ? this.depthFBO : this.pickingFBO;
++        // Picking queries use bottom-left coordinates; WebGPU scissors and texture
++        // copies use top-left coordinates. Keep cullRect in CSS coordinates.
++        if (this.device.type === 'webgpu') {
++          deviceRect = {
++            ...deviceRect,
++            y: pickingFBO.height - deviceRect.y - deviceRect.height
++          };
++        }
+         const opts = {
+             layers,
+             layerFilter: this.layerFilter,
+@@ -613,7 +621,8 @@
+             }
+             const packed = new ArrayType(width * height * 4);
+             for (let row = 0; row < height; row++) {
+-                const sourceStart = row * sourceRowLength;
++                const sourceRow = this.device.type === 'webgpu' ? height - 1 - row : row;
++                const sourceStart = sourceRow * sourceRowLength;
+                 packed.set(source.subarray(sourceStart, sourceStart + packedRowLength), row * packedRowLength);
+             }
+             return packed;
+--- a/dist/index.cjs
++++ b/dist/index.cjs
+@@ -7226,6 +7226,14 @@
+   async _drawAndSampleAsync({ layers, views, viewports, onViewportActive, deviceRect, cullRect, effects, pass, canvasContext }, pickZ = false) {
+     var _a;
+     const pickingFBO = pickZ ? this.depthFBO : this.pickingFBO;
++    // Picking queries use bottom-left coordinates; WebGPU scissors and texture
++    // copies use top-left coordinates. Keep cullRect in CSS coordinates.
++    if (this.device.type === 'webgpu') {
++      deviceRect = {
++        ...deviceRect,
++        y: pickingFBO.height - deviceRect.y - deviceRect.height
++      };
++    }
+     const opts = {
+       layers,
+       layerFilter: this.layerFilter,
+@@ -7294,7 +7302,8 @@
+       }
+       const packed = new ArrayType(width * height * 4);
+       for (let row = 0; row < height; row++) {
+-        const sourceStart = row * sourceRowLength;
++        const sourceRow = this.device.type === 'webgpu' ? height - 1 - row : row;
++        const sourceStart = sourceRow * sourceRowLength;
+         packed.set(source3.subarray(sourceStart, sourceStart + packedRowLength), row * packedRowLength);
+       }
+       return packed;

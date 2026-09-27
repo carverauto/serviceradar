@@ -19,6 +19,7 @@
   "dependencies": {
     "@deck.gl/aggregation-layers": "^9.4.0",
     "@deck.gl/core": "^9.4.0",
+    "@deck.gl/geo-layers": "9.4.0",
     "@deck.gl/layers": "^9.4.0",
     "@deck.gl/mapbox": "^9.4.0",
     "@deck.gl/mesh-layers": "^9.4.0",
@@ -81,7 +82,23 @@
       "@luma.gl/gpgpu": "9.4.2",
       "@luma.gl/shadertools": "9.4.2",
       "@luma.gl/webgl": "9.4.2",
-      "@luma.gl/webgpu": "9.4.2"
+      "@luma.gl/webgpu": "9.4.2",
+      "@deck.gl/geo-layers": "9.4.0"
+    },
+    "packageExtensions": {
+      "@loaders.gl/terrain@4.5.2": {
+        "dependencies": {
+          "@loaders.gl/schema-utils": "4.5.2"
+        }
+      },
+      "@loaders.gl/geoarrow@4.5.2": {
+        "dependencies": {
+          "@loaders.gl/schema-utils": "4.5.2"
+        }
+      }
+    },
+    "patchedDependencies": {
+      "@deck.gl/core@9.4.0": "patches/deck.gl-core-9.4.0.patch"
     }
   },
   "overrides": {
@@ -106,6 +123,7 @@
     "react-dom": "19.2.8",
     "react-is": "19.2.8",
     "vite": "^7.3.2",
-    "hoist-non-react-statics>react-is": "19.2.8"
+    "hoist-non-react-statics>react-is": "19.2.8",
+    "@deck.gl/geo-layers": "9.4.0"
   }
 }
