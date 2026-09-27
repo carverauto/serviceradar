@@ -8226,6 +8226,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "topology_atlas_nif"
+version = "0.1.0"
+dependencies = [
+ "dgraph-topology",
+ "rustler",
+ "serviceradar-topology-atlas",
+ "sha2 0.11.0",
+ "tokio",
+]
+
+[[package]]
 name = "tower"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

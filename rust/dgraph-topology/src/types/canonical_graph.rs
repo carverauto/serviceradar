@@ -37,6 +37,12 @@ impl CanonicalGraph {
     pub fn edges(&self) -> &[CanonicalEdge] {
         &self.edges
     }
+
+    /// Consume a snapshot without copying the full graph across the native boundary.
+    #[must_use]
+    pub fn into_parts(self) -> (Vec<CanonicalDevice>, Vec<CanonicalEdge>) {
+        (self.nodes, self.edges)
+    }
 }
 
 /// Minimal canonical identity; inventory enrichment happens after level selection.

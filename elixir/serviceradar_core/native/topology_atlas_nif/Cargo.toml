@@ -1,0 +1,15 @@
+[package]
+name = "topology_atlas_nif"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "topology_atlas_nif"
+crate-type = ["cdylib"]
+
+[dependencies]
+dgraph-topology = { path = "../../../../rust/dgraph-topology" }
+rustler = { workspace = true, features = ["nif_version_2_15"] }
+serviceradar-topology-atlas = { path = "../../../../rust/topology-atlas" }
+sha2 = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread"] }
