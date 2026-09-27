@@ -1,3 +1,71 @@
+# ServiceRadar v1.4.75
+
+Internal events, logs and signals now reach storage through
+JetStream and EventWriter, so the StarRocks warehouse sees every
+event and redelivery never duplicates one. OTel panes filter by
+service, and device identity stops merging on hostname alone.
+
+## Whats New
+
+**1.4.75**
+- Events: core publishes every event, log and analytics signal
+  it produces to JetStream instead of writing CNPG directly;
+  EventWriter is the only writer of events and logs. A publish
+  NATS does not acknowledge is retried from a durable job, and
+  one made inside a transaction waits for the commit. Stateful
+  alert rules evaluate every event at least once, recorded in a
+  ledger, so a redelivered batch neither loses nor double-counts
+  an evaluation, and log and promoted-event ids are stable
+  across redelivery (PR #4733).
+- Events: the standalone log promotion consumer is retired.
+  Processed logs matching a rule were promoted twice under
+  different ids; EventWriter now promotes each log once and
+  removes the leftover `log-promotion` durable (PR #4737).
+- StarRocks: Trivy report events replace their row by id in the
+  warehouse as they do in CNPG, and a warehouse migration removes
+  the duplicate rows rescans added. The demo serves events from
+  StarRocks (PR #4743).
+- Observability: a service picker filters the OTel logs, traces
+  and metrics panes, backed by a service catalog and the new SRQL
+  `in:otel_services` entity (PR #4750).
+- Device identity: two existing devices are never merged on
+  hostname agreement, and no device holding an Armis or NetBox id
+  is adopted; each refusal is recorded as an identity decision
+  (PR #4734). Agent check-in keeps one device per agent across
+  address changes, keeps a NAT address held by a live agent and
+  scopes the holder lookup to its partition (PR #4735, PR #4741).
+  Identity decisions and de-duplication tasks are queryable in
+  SRQL and MCP (PR #4747), and task notifications are sent after
+  commit (PR #4753).
+- Security: external-store secrets resolve only through broker
+  grants, including for notification delivery; a non-system
+  actor cannot issue a grant (PR #4736, PR #4745).
+- Devices: the availability timeline reads a host's sweep
+  availability, so a host answering only TCP shows online
+  (PR #4731).
+- MTR: automated target selection skips link-local addresses,
+  and a TCP trace to one fails fast (PR #4761).
+- JetStream: datasvc and the log, flow and BMP collectors claim
+  their streams and honour the SERVICERADAR_JS_* size overrides;
+  a bucket is never shrunk below the bytes it stores (PR #4759).
+- Helm: chart flags that default to true honour an explicit
+  false (PR #4752). The StarRocks JDBC driver is fetched with
+  curl, so IPv4-only clusters create the CNPG catalog (PR #4739).
+- Dashboards: the react-map template clusters sites by screen
+  cell with useScreenLod (PR #4757).
+
+## Upgrade notes
+- Four CNPG migrations: the stateful evaluation ledger, the OTel
+  service catalog and its trace-summaries index, and dropping
+  `platform.starrocks_pending_loads`. That drop refuses to run
+  while the table still holds rows; replay or clear them first.
+- StarRocks migration 0020 deletes duplicate Trivy event rows,
+  keeping each report's latest.
+- The `core.logPromotionConsumerEnabled` Helm value and the
+  LOG_PROMOTION_CONSUMER_* environment variables are removed.
+- Events core wrote straight to CNPG before this release are not
+  copied to StarRocks.
+
 # ServiceRadar v1.4.74
 
 A security release. SAML sign-in validates each response against
