@@ -52,15 +52,49 @@ service, and device identity stops merging on hostname alone.
   false (PR #4752). The StarRocks JDBC driver is fetched with
   curl, so IPv4-only clusters create the CNPG catalog (PR #4739).
 - Dashboards: the react-map template clusters sites by screen
-  cell with useScreenLod (PR #4757).
+  cell with useScreenLod (PR #4757). Dashboards can play camera
+  streams through a host camera API (PR #4765), and an exported
+  dashboard definition imports back unchanged (PR #4730).
+- JetStream: the chart sizes NATS from a profile (small, medium,
+  large) and refuses to render when streams and buckets would
+  reserve more than 85% of the store (PR #4776). Plugin,
+  FieldSurvey and threat-intel object stores get finite caps and
+  are never shrunk below what they hold (PR #4768). EventWriter
+  keeps its healthy consumers running when one stream cannot be
+  set up, and retries that one (PR #4773).
+- Device identity: a NetBox device id is source-authoritative
+  like an Armis id; devices holding different NetBox ids are
+  never merged, enforced by a database lock (PR #4754). The web
+  UI has a de-duplication review queue at /devices/deduplication
+  (PR #4775).
+- Security: refused broker grants are audited and a grant with
+  a missing status or expiry fails closed (PR #4772); a revoked
+  producer-schedule package disables its assignments (PR #4767).
+- Plugins: producer schedule results are recorded instead of
+  staying dispatched, and agents in the cluster can download
+  plugin artifacts over an in-cluster URL (PR #4721).
+- Migrations: the OTel service catalog index resolves the
+  trigram operator class wherever pg_trgm is installed
+  (PR #4771).
 
 ## Upgrade notes
-- Four CNPG migrations: the stateful evaluation ledger, the OTel
-  service catalog and its trace-summaries index, and dropping
-  `platform.starrocks_pending_loads`. That drop refuses to run
-  while the table still holds rows; replay or clear them first.
+- Five CNPG migrations: the stateful evaluation ledger, the OTel
+  service catalog and its trace-summaries index, dropping
+  `platform.starrocks_pending_loads`, and the NetBox identifier
+  ownership lock. The drop refuses to run while the table still
+  holds rows; replay or clear them first. The migration pin is
+  `20260926150000`.
+- The chart now fails to render when JetStream reservations
+  exceed 85% of `nats.jetstream.maxFileStore` per server. Values
+  that set large `datasvc.objectStoreBytes` or
+  `datasvc.bucketMaxBytes` (the 10 GiB / 4 GiB workaround for
+  chart 1.4.30) must drop them for the sizing profile, move to a
+  larger profile, or set `nats.jetstream.allowOvercommit`. See
+  docs/nats-jetstream-profile-runbook.md.
 - StarRocks migration 0020 deletes duplicate Trivy event rows,
-  keeping each report's latest.
+  keeping each report's latest. Core pods still running the
+  previous release during the rolling upgrade can add a few
+  more; each is removed when its report is next rescanned.
 - The `core.logPromotionConsumerEnabled` Helm value and the
   LOG_PROMOTION_CONSUMER_* environment variables are removed.
 - Events core wrote straight to CNPG before this release are not
