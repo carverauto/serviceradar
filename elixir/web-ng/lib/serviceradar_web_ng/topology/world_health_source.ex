@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNG.Topology.WorldHealthSource do
   @moduledoc "Bounded current-state reads for the native topology availability index."
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.Page
   alias ServiceRadar.Inventory.Device
 
   require Ash.Query
@@ -20,7 +21,12 @@ defmodule ServiceRadarWebNG.Topology.WorldHealthSource do
       |> Ash.Query.limit(500)
       |> Ash.Query.timeout(5_000)
 
-    with {:ok, rows} <- Ash.read(query, actor: SystemActor.system(:topology_health), page: false) do
+    # The read action requires pagination. One explicit page covers this
+    # already-bounded set of at most 500 unique primary identities.
+    with {:ok, rows} <-
+           query
+           |> Ash.read(actor: SystemActor.system(:topology_health), page: [limit: 500])
+           |> Page.unwrap() do
       states = Map.new(rows, &{&1.uid, availability(&1.is_available)})
       {:ok, Enum.map(ids, &%{device_id: &1, state: Map.get(states, &1, :unknown)})}
     end
