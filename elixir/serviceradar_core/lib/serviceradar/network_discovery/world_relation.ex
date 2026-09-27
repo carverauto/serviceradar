@@ -33,7 +33,7 @@ defmodule ServiceRadar.NetworkDiscovery.WorldRelation do
   actions do
     read :read do
       primary?(true)
-      pagination(keyset?: true, required?: false, default_limit: 500)
+      pagination(keyset?: true, required?: false, default_limit: 500, max_page_size: 500)
     end
 
     create :upsert do

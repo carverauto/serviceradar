@@ -151,13 +151,9 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorker do
              pages(candidate, :positions),
              pages(candidate, :relations)
            ) do
-      case World.activate_relayout(state.generation, state.layout_version) do
-        {:error, :stale_generation} when state.mode == :initial ->
-          with :ok <- World.discard_stage(state.layout_version), do: {:error, :stale_generation}
-
-        result ->
-          result
-      end
+      # A losing initial build is unpublished. Its terminal job and old stage
+      # become eligible for bounded retention; never delete a full world here.
+      World.activate_relayout(state.generation, state.layout_version)
     end
   end
 

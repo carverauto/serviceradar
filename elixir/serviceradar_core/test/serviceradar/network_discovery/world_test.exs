@@ -7,16 +7,26 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
   alias ServiceRadar.NetworkDiscovery.World
   alias ServiceRadar.NetworkDiscovery.WorldInventory
   alias ServiceRadar.NetworkDiscovery.WorldLayout
+  alias ServiceRadar.NetworkDiscovery.WorldPosition
+  alias ServiceRadar.NetworkDiscovery.WorldRelation
+  alias ServiceRadar.NetworkDiscovery.WorldRetention
+  alias ServiceRadar.NetworkDiscovery.WorldRetentionWorker
   alias ServiceRadar.Repo
+
+  require Ash.Query
 
   @moduletag :integration
 
   test "staging stays invisible and bootstrap follows every bounded page" do
     positions = Enum.map(1..503, &position/1)
-    layout = stage(positions, [])
+    version = Ecto.UUID.generate()
+    metadata = %{source_digest: "synthetic-cold-start", node_count: 503, relation_count: 0}
+    assert :ok = World.stage_candidate(version, metadata, positions, [])
     assert {:error, :not_ready} = World.active_manifest(scope())
-    assert {:ok, nil} = World.lookup_device(scope(), layout.layout_version, "sr:host01")
-    assert {:ok, %{generation: 1, node_count: 503, relation_count: 0}} = World.activate_relayout(0, layout.layout_version)
+    assert {:ok, nil} = World.lookup_device(scope(), version, "sr:host01")
+
+    assert {:ok, %{layout_version: ^version, generation: 1, node_count: 503, relation_count: 0}} =
+             World.activate_relayout(0, version)
 
     assert {:ok, %{manifest: %{node_count: 503}, batches: [500, 3], ids: ids}} =
              World.stream_active(%{batches: [], ids: MapSet.new()}, fn
@@ -290,6 +300,69 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
       send(reader.pid, :continue)
       Task.shutdown(reader, :brutal_kill)
     end
+  end
+
+  test "retention resumes bounded row deletion while preserving active, recent and unfinished layouts" do
+    rows = Enum.map(1..503, &position/1)
+    links = Enum.map(1..503, &relation("synthetic-link-#{&1}", 1, 2))
+    obsolete = stage(rows, links)
+    assert {:ok, %{generation: 1}} = World.activate_relayout(0, obsolete.layout_version)
+    retained = stage([position(1)], [])
+    assert {:ok, %{generation: 2}} = World.activate_relayout(1, retained.layout_version)
+    active = stage([position(2)], [])
+    assert {:ok, %{generation: 3}} = World.activate_relayout(2, active.layout_version)
+    abandoned = stage(rows, [])
+    fresh = stage([position(3)], [])
+    assert {:ok, pending} = World.request_relayout(scope())
+    assert :ok = World.append_stage(pending.layout_version, [position(4)], [])
+
+    Enum.each([obsolete, abandoned, pending], &age_layout(&1.layout_version, ~U[2025-04-01 00:00:00Z]))
+    age_layout(retained.layout_version, ~U[2025-04-02 00:00:00Z])
+    age_layout(active.layout_version, ~U[2025-04-03 00:00:00Z])
+
+    # Choose a deterministic oldest candidate while the other old versions
+    # remain eligible for subsequent passes.
+    age_layout(obsolete.layout_version, ~U[2025-03-01 00:00:00Z])
+    age_layout(pending.layout_version, ~U[2025-03-15 00:00:00Z])
+    assert {:ok, %{deleted_rows: 500, deleted_layout?: false}} = WorldRetention.prune_batch()
+    assert layout_rows(WorldRelation, obsolete.layout_version) == 3
+    assert layout_rows(WorldPosition, obsolete.layout_version) == 503
+    assert Ash.get!(WorldLayout, obsolete.layout_version, actor: scope().actor)
+
+    assert :ok = WorldRetentionWorker.perform(%Oban.Job{})
+    assert {:ok, nil} = Ash.get(WorldLayout, obsolete.layout_version, actor: scope().actor)
+    assert {:ok, nil} = Ash.get(WorldLayout, abandoned.layout_version, actor: scope().actor)
+    assert layout_rows(WorldPosition, obsolete.layout_version) == 0
+    assert layout_rows(WorldRelation, obsolete.layout_version) == 0
+    assert layout_rows(WorldPosition, abandoned.layout_version) == 0
+
+    Enum.each([active, retained, fresh, pending], fn layout ->
+      assert layout_rows(WorldPosition, layout.layout_version) == 1
+      assert Ash.get!(WorldLayout, layout.layout_version, actor: scope().actor)
+    end)
+
+    assert {:ok, %{generation: 3, layout_version: version}} = World.active_manifest(scope())
+    assert version == active.layout_version
+    assert {:ok, :idle} = WorldRetention.prune_batch()
+
+    assert :ok = Oban.cancel_job(pending.job_id)
+    assert :ok = WorldRetentionWorker.perform(%Oban.Job{})
+    assert {:ok, nil} = Ash.get(WorldLayout, pending.layout_version, actor: scope().actor)
+    assert layout_rows(WorldPosition, pending.layout_version) == 0
+    assert {:ok, :idle} = WorldRetention.prune_batch()
+  end
+
+  defp age_layout(version, timestamp) do
+    Repo.query!("UPDATE platform.topology_world_layouts SET updated_at = $1 WHERE layout_version = $2::uuid", [
+      DateTime.to_naive(timestamp),
+      Ecto.UUID.dump!(version)
+    ])
+  end
+
+  defp layout_rows(resource, version) do
+    resource
+    |> Ash.Query.filter(layout_version == ^version)
+    |> Ash.count!(actor: scope().actor)
   end
 
   defp scope, do: %{actor: SystemActor.system(:topology_world_test)}

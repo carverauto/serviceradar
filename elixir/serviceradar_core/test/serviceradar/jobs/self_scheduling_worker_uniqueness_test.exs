@@ -50,6 +50,7 @@ defmodule ServiceRadar.Jobs.SelfSchedulingWorkerUniquenessTest do
     ServiceRadar.Inventory.AdvisoryFeeds.FeedWorker,
     ServiceRadar.Inventory.AdvisoryFeeds.StagingCleanupWorker,
     ServiceRadar.Inventory.InterfaceThresholdWorker,
+    ServiceRadar.NetworkDiscovery.WorldRetentionWorker,
     ServiceRadar.Observability.IpinfoMmdbDownloadWorker,
     ServiceRadar.Observability.StatefulAlertCleanupWorker,
     ServiceRadar.Plugins.AddonProfileReconcileWorker,

@@ -30,7 +30,9 @@ defmodule ServiceRadar.NetworkDiscovery.WorldLayout do
     end
 
     create :initialize_stage do
-      accept([:layout_version, :algorithm_version, :zmax, :source_digest, :node_count, :relation_count])
+      accept([:algorithm_version, :zmax, :source_digest, :node_count, :relation_count])
+      argument(:layout_version, :uuid, allow_nil?: false)
+      change(set_attribute(:layout_version, arg(:layout_version)))
       upsert?(true)
       upsert_fields([])
     end
