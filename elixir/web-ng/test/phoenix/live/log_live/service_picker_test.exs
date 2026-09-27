@@ -9,7 +9,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.ServicePickerTest do
 
   import Phoenix.LiveViewTest
 
+  alias ServiceRadar.Identity.RBAC
+  alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadarWebNG.AccountsFixtures
+  alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNGWeb.LogLive.ServicePickerTest
   alias ServiceRadarWebNGWeb.Observability.ServiceFilter
 
@@ -249,6 +252,79 @@ defmodule ServiceRadarWebNGWeb.LogLive.ServicePickerTest do
       assert has_element?(lv, "#traces-card-errors", "9")
       refute has_element?(lv, ~s(#traces-summary-cards [data-role="all-services"]))
     end
+  end
+
+  describe "service filter controls follow the pane's view permission" do
+    test "a full-permission user sees the trigger and the stat-scope badge on traces and metrics", %{conn: conn} do
+      q = ~s(in:otel_trace_summaries time:last_1h service_name:"svc-0001")
+      {:ok, lv, _html} = live(conn, ~p"/observability/traces?#{%{q: q}}")
+
+      assert has_element?(lv, "#traces-service-filter", "svc-0001")
+      assert has_element?(lv, "#service-stats-scope", "svc-0001")
+
+      q = ~s(in:otel_metrics time:last_1h service_name:"svc-0001")
+      {:ok, lv, _html} = live(conn, ~p"/observability/metrics?#{%{q: q}}")
+
+      assert has_element?(lv, "#metrics-service-filter", "svc-0001")
+      assert has_element?(lv, "#service-stats-scope", "svc-0001")
+    end
+
+    test "a logs-only user sees them on logs but not on traces or metrics" do
+      user =
+        %{role: :viewer}
+        |> AccountsFixtures.user_fixture()
+        |> grant_permissions(["observability.logs.view"])
+
+      conn = log_in_user(build_conn(), user)
+
+      q = ~s(in:logs time:last_1h service_name:"svc-0001")
+      {:ok, lv, _html} = live(conn, ~p"/observability/logs?#{%{q: q}}")
+
+      assert has_element?(lv, "#logs-service-filter", "svc-0001")
+      assert has_element?(lv, "#service-stats-scope", "svc-0001")
+
+      q = ~s(in:otel_trace_summaries time:last_1h service_name:"svc-0001")
+      params = %{q: q, service_filter: "not_carried"}
+      {:ok, lv, _html} = live(conn, ~p"/observability/traces?#{params}")
+
+      refute has_element?(lv, "#traces-service-filter")
+      refute has_element?(lv, "#service-stats-scope")
+      refute has_element?(lv, "#service-filter-not-carried")
+
+      q = ~s(in:otel_metrics time:last_1h service_name:"svc-0001")
+      {:ok, lv, _html} = live(conn, ~p"/observability/metrics?#{%{q: q}}")
+
+      refute has_element?(lv, "#metrics-service-filter")
+      refute has_element?(lv, "#service-stats-scope")
+    end
+  end
+
+  # Replace the user's role with a profile holding exactly `permissions`.
+  defp grant_permissions(user, permissions) do
+    actor = AshTestHelpers.system_actor()
+
+    profile =
+      RoleProfile
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Service picker denial #{System.unique_integer([:positive])}",
+          description: "Exact permissions for service filter visibility coverage",
+          permissions: permissions
+        },
+        actor: actor,
+        context: %{privilege_boundary_owned: true}
+      )
+      |> Ash.create!()
+
+    updated =
+      user
+      |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: profile.id}, actor: actor)
+      |> Ash.update!()
+
+    RBAC.clear_process_cache()
+    RBAC.Cache.put(updated.id, MapSet.new(permissions))
+    updated
   end
 
   defp srql_queries(acc \\ []) do
