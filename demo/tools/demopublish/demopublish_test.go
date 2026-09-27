@@ -233,7 +233,7 @@ func (h *harness) run(extra ...string) (string, error) {
 	return out.String(), err
 }
 
-func bundlePath(t *testing.T) string   { return runfile(t, "DEMO_BUNDLE") }
+func bundlePath(t *testing.T) string    { return runfile(t, "DEMO_BUNDLE") }
 func signatureTool(t *testing.T) string { return runfile(t, "SIGNATURE_TOOL") }
 
 func runfile(t *testing.T, env string) string {

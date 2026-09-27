@@ -21,10 +21,10 @@ plugin inventory and Helm chart never name a demo artifact.
 | `simkit/examples/sample/` | The smallest complete pack; the template for real ones |
 | `simkit/internal/tinygocheck/` | Proves `simkit` compiles for wasip1 with the plugin toolchain |
 | `pluginkit/` | Maps a `simkit.Batch` onto SDK calls: device discovery and OCSF fault events in the result, metric batches through `emit_telemetry` |
-| `third_party/serviceradar-sdk-go/` | The Go SDK (v2.1.0 sources) every demo plugin builds against |
 | `defs.bzl` | `demo_wasm_plugin` (TinyGo build + bundle) and `demo_publish` (signed publish) |
 | `tools/demopublish/` | The publisher behind every `:publish` target |
-| `tools/rulecheck/` | Evaluates a manifest's event alert rules the way the alert engine does, for tests |
+| `pluginkit/rulecheck/` | Evaluates a manifest's event alert rules the way the alert engine does, for tests |
+| `go.work`, `vendor/` | The demo Go workspace and its vendored external modules (the released SDK) |
 | `hello-sim/` | The smallest demo plugin: the sample pack end to end, build to publish |
 | `fence/` | The product fence test |
 
@@ -66,14 +66,17 @@ a change; the `fixtures_drift_*_test` targets fail until it is run.
 
 ## Building and publishing a demo plugin
 
-A demo plugin is a TinyGo module whose `go.mod` `replace`s `simkit`,
-`pluginkit` and the SDK with their directories here, so the Wasm build is
-offline and uses only declared inputs. `demo_wasm_plugin` builds it with the
+A demo plugin is a TinyGo module in the demo Go workspace (`go.work`). Its
+`go.mod` pins the released `serviceradar-sdk-go` tag and `go.sum` records the
+checksum, as for first-party plugins. External modules are vendored once for
+the workspace in `vendor/`, so the Wasm build runs with `-mod=vendor` and needs
+no network; `simkit` and `pluginkit` resolve from their directories and are
+never copied. `demo_wasm_plugin` builds it with the
 first-party TinyGo toolchain and bundles it; `demo_publish` declares the run
 target. Fault events carry `log_name: demo.fault` and the attributes
 `asset_id`, `demo.fault.state` (`open`/`resolved`), `demo.fault.kind` and
 `demo.fault.id`; a plugin's `alert_rules` match on those, and its tests prove
-it with `tools/rulecheck`.
+it with `pluginkit/rulecheck`.
 
 Publishing signs the bundle with the demo-only upload key, stages, uploads and
 approves the package, enables the alert rules it proposes (the platform creates
@@ -95,3 +98,17 @@ bazel run --config=remote --platforms=@io_bazel_rules_go//go/toolchain:darwin_ar
 still does the work; drop it on Linux. Pass `--dry-run` to build, sign and stop
 before contacting the instance. `demo`'s values trust the key id
 `serviceradar-demo-v1` and nothing else does.
+
+## Updating the SDK
+
+Every demo module pins the same SDK tag. To move to a new release, from
+`demo/`:
+
+```
+for m in pluginkit hello-sim; do (cd $m && GOPRIVATE='github.com/carverauto/*' go get github.com/carverauto/serviceradar-sdk-go/v2@<tag>); done
+GOPRIVATE='github.com/carverauto/*' go work vendor
+```
+
+A new demo module is added to `go.work`'s `use` list, then `go work vendor`
+is re-run. Commit the `go.mod`/`go.sum` changes and `vendor/` together and
+never edit vendored files by hand; a build with a stale `vendor/` fails.

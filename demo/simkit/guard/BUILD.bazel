@@ -15,3 +15,10 @@ go_test(
     srcs = ["guard_test.go"],
     embed = [":guard"],
 )
+
+# This package's sources as a TinyGo plugin build sees them through the
+# workspace.
+filegroup(
+    name = "module_srcs",
+    srcs = ["guard.go"],
+)

@@ -1,8 +1,9 @@
 # gazelle:ignore
 #
-# pluginkit maps simkit batches onto SDK calls. It is its own Go module (see
-# go.mod) so TinyGo demo plugins import it through a local replace; rules_go
-# builds it here for the native tests.
+# pluginkit maps simkit batches onto SDK calls. It is its own Go module: go.mod
+# pins the released serviceradar-sdk-go tag and go.sum records its checksum;
+# the SDK is vendored once for all demo modules in demo/vendor (see
+# demo/go.work). simkit is `replace`d with ../simkit.
 load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
 package(default_visibility = ["//demo:__subpackages__"])
@@ -12,8 +13,8 @@ go_library(
     srcs = ["pluginkit.go"],
     importpath = "github.com/carverauto/serviceradar/demo/pluginkit",
     deps = [
+        "//demo:sdk",
         "//demo/simkit",
-        "//demo/third_party/serviceradar-sdk-go:sdk",
     ],
 )
 
@@ -23,15 +24,17 @@ go_test(
     srcs = ["pluginkit_test.go"],
     embed = [":pluginkit"],
     deps = [
+        "//demo:sdk",
         "//demo/simkit",
-        "//demo/third_party/serviceradar-sdk-go:sdk",
     ],
 )
 
+# The module as a TinyGo plugin build sees it through the workspace.
 filegroup(
     name = "module_srcs",
     srcs = [
         "go.mod",
+        "go.sum",
         "pluginkit.go",
     ],
 )

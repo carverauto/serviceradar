@@ -23,7 +23,9 @@ var forbidden = []*regexp.Regexp{
 	// A Bazel label into the demo tree: //demo:x or //demo/pkg, not https://demo.
 	regexp.MustCompile(`(^|[^:A-Za-z0-9_])//demo([/:"'\s]|$)`),
 	// A repository path into the demo tree's artifacts.
-	regexp.MustCompile(`(^|[^A-Za-z0-9_./-])demo/(simkit|fence|pluginkit|tools|third_party)(/|\b)`),
+	regexp.MustCompile(`(^|[^A-Za-z0-9_./-])demo/(simkit|fence|pluginkit|tools)(/|\b)`),
+	// The demo workspace's vendored dependencies (demo/vendor/...).
+	regexp.MustCompile(`(^|[^A-Za-z0-9_./-])demo/([a-z0-9-]+/)?vendor/`),
 	// A demo plugin's build outputs by file name (e.g. hello_sim_bundle.zip).
 	regexp.MustCompile(`(^|[^A-Za-z0-9_./-])demo/[a-z0-9-]+/[a-z0-9_]+_bundle(\.zip|_zip)?\b`),
 	regexp.MustCompile(`(^|[^A-Za-z0-9_./-])demo/[a-z0-9-]+/(plugin|dashboard|scenarios|fixtures|alert-rules)(/|\b)`),
@@ -45,7 +47,8 @@ func TestPatternsAreAnchored(t *testing.T) {
 		`path: demo/simkit/examples`,
 		`file: demo/wifi-campus/plugin/plugin.yaml`,
 		`bundle: demo/hello-sim/hello_sim_bundle.zip`,
-		`"demo/third_party/serviceradar-sdk-go",`,
+		`"demo/vendor/github.com/carverauto/serviceradar-sdk-go/v2/sdk",`,
+		`path: demo/pluginkit/rulecheck`,
 	} {
 		if !matches(bad) {
 			t.Errorf("pattern misses %q", bad)

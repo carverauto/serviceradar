@@ -1,32 +1,30 @@
 # gazelle:ignore
 #
 # The smallest demo plugin, proving the demo build -> bundle -> sign -> publish
-# path. Its Go module (go.mod) replaces every dependency with a directory in
-# this repository, so the TinyGo build is offline and hermetic. The tests run
-# under Bazel only: they use //demo/tools/rulecheck, which is not part of the
-# plugin module.
+# path. go.mod pins the released SDK and go.sum records it; the SDK is vendored
+# in demo/vendor for the whole demo workspace (demo/go.work), and simkit and
+# pluginkit resolve from their directories here (see //demo:defs.bzl).
+# `go test ./...` works here as well as under Bazel.
 #
 #   bazel build //demo/hello-sim:hello_sim_bundle
 #   bazel test  //demo/hello-sim:all
-#   bazel run   //demo/hello-sim:publish -- --agent-uid <agent>   (see //demo:defs.bzl)
+#   bazel run   //demo/hello-sim:publish -- --agent-uid <agent>   (see demo/README.md)
 load("@io_bazel_rules_go//go:def.bzl", "go_test")
-load("//demo:defs.bzl", "DEMO_PLUGIN_MODULE_DEPS", "demo_publish", "demo_wasm_plugin")
+load("//demo:defs.bzl", "demo_publish", "demo_wasm_plugin")
 
 package(default_visibility = ["//demo:__subpackages__"])
 
-exports_files(["plugin.yaml"])
+exports_files([
+    "go.mod",
+    "plugin.yaml",
+])
 
 demo_wasm_plugin(
     name = "hello_sim",
     config_schema = "config.schema.json",
     main = "main.go",
     manifest = "plugin.yaml",
-    module_deps = DEMO_PLUGIN_MODULE_DEPS + [
-        "//demo/simkit/examples/sample:module_srcs",
-        "//demo/simkit/fixture:module_srcs",
-    ],
     srcs = [
-        "go.mod",
         "hellosim.go",
         "main_stub.go",
     ],
@@ -47,11 +45,11 @@ go_test(
     ],
     data = ["plugin.yaml"],
     deps = [
+        "//demo:sdk",
         "//demo/pluginkit",
+        "//demo/pluginkit/rulecheck",
         "//demo/simkit",
         "//demo/simkit/examples/sample",
         "//demo/simkit/guard",
-        "//demo/third_party/serviceradar-sdk-go:sdk",
-        "//demo/tools/rulecheck",
     ],
 )

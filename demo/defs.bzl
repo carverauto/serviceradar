@@ -1,10 +1,13 @@
 """Build, bundle and publish macros for showcase demo plugins.
 
-A demo plugin is a TinyGo module under //demo whose go.mod `replace`s its
-dependencies (simkit, pluginkit, the vendored SDK) with directories in this
-repository. The Wasm build therefore resolves every import from the declared
-inputs below, offline, using the same TinyGo toolchain and build script as
-first-party plugins. Nothing here is referenced by //build/wasm_plugins, the
+A demo plugin is a TinyGo module in the demo Go workspace (demo/go.work).
+Its go.mod pins the released serviceradar-sdk-go tag and go.sum records the
+checksum, as for first-party plugins; the external modules are vendored once
+for the whole workspace (`go work vendor` into demo/vendor), so the build runs
+with -mod=vendor and needs no proxy or network. In-repo modules (simkit,
+pluginkit) resolve from their directories and are never copied. Go refuses a
+vendored build whose vendor/modules.txt disagrees with any go.mod, so a stale
+vendor tree fails the build. Nothing here is referenced by //build/wasm_plugins, the
 Helm chart or release tooling (//demo/fence checks that).
 
 Signing is deliberately NOT a build action: the demo-only private key must
@@ -18,20 +21,12 @@ _WASM_ARTIFACT_TYPE = "application/vnd.serviceradar.wasm-plugin.bundle.v1+zip"
 _BUNDLE_MEDIA_TYPE = "application/zip"
 _UPLOAD_SIGNATURE_MEDIA_TYPE = "application/vnd.serviceradar.wasm-plugin.upload-signature.v1+json"
 
-# Module sources every pluginkit-based demo plugin compiles against.
-DEMO_PLUGIN_MODULE_DEPS = [
-    "//demo/pluginkit:module_srcs",
-    "//demo/simkit:module_srcs",
-    "//demo/third_party/serviceradar-sdk-go:module_srcs",
-]
-
 def demo_wasm_plugin(
         name,
         main,
         srcs,
         manifest,
         config_schema,
-        module_deps = DEMO_PLUGIN_MODULE_DEPS,
         extra_entries = {},
         visibility = None):
     """Builds a demo plugin's Wasm binary and its upload bundle.
@@ -45,10 +40,10 @@ def demo_wasm_plugin(
       name: target prefix.
       main: the file holding the exported entrypoint; its directory is the
         Go module that gets compiled.
-      srcs: the plugin module's other non-test sources, including go.mod.
+      srcs: the plugin module's other non-test sources. go.mod, go.sum and
+        the workspace (//demo:workspace_srcs) are added automatically.
       manifest: plugin.yaml.
       config_schema: config.schema.json.
-      module_deps: filegroups of the replaced modules' sources.
       extra_entries: additional {archive path: label} bundle entries.
       visibility: visibility of the generated targets.
     """
@@ -56,9 +51,12 @@ def demo_wasm_plugin(
 
     native.genrule(
         name = name + "_wasm",
-        srcs = [main] + srcs + module_deps,
+        srcs = [main] + srcs + ["go.mod", "go.sum", "//demo:workspace_srcs"],
         outs = [name + ".wasm"],
         cmd = " ".join([
+            # Workspace mode rejects -mod=mod; the script honours an exported
+            # GOFLAGS over its own per-plugin vendor/ detection.
+            "GOFLAGS=-mod=vendor",
             "$(location //build/wasm_plugins:build_wasm_binary.sh)",
             "--tinygo $(location //build/wasm_plugins:selected_tinygo)",
             "--go-bin $(location //build/wasm_plugins:selected_go)",

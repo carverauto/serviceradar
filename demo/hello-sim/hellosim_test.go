@@ -7,9 +7,9 @@ import (
 
 	"github.com/carverauto/serviceradar-sdk-go/v2/sdk"
 	"github.com/carverauto/serviceradar/demo/pluginkit"
+	"github.com/carverauto/serviceradar/demo/pluginkit/rulecheck"
 	"github.com/carverauto/serviceradar/demo/simkit"
 	"github.com/carverauto/serviceradar/demo/simkit/guard"
-	"github.com/carverauto/serviceradar/demo/tools/rulecheck"
 )
 
 var day0 = time.Date(2026, 9, 26, 0, 0, 0, 0, time.UTC)

@@ -8,10 +8,12 @@ require (
 	github.com/carverauto/serviceradar/demo/simkit v0.0.0
 )
 
-// Every dependency is a directory in this repository, so the TinyGo build
-// resolves offline from declared Bazel inputs (no vendor tree, no proxy).
+require gopkg.in/yaml.v3 v3.0.1 // indirect
+
+// simkit and pluginkit are in this repository; the SDK resolves to its
+// released tag through go.sum and the committed vendor/ tree (see
+// demo/README.md, Updating the SDK).
 replace (
-	github.com/carverauto/serviceradar-sdk-go/v2 => ../third_party/serviceradar-sdk-go
 	github.com/carverauto/serviceradar/demo/pluginkit => ../pluginkit
 	github.com/carverauto/serviceradar/demo/simkit => ../simkit
 )
