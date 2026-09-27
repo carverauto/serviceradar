@@ -11,6 +11,7 @@ members = [
     "elixir/serviceradar_core/native/dgraph_nif",
     "elixir/serviceradar_core/native/network_config_nif",
     "elixir/serviceradar_core/native/prefix_tags_nif",
+    "elixir/serviceradar_core/native/topology_atlas_nif",
     "elixir/serviceradar_core/native/zen_nif",
     "elixir/serviceradar_srql/native/srql_nif",
     "elixir/web-ng/native/god_view_nif",
