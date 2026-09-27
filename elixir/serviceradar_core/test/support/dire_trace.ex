@@ -235,9 +235,8 @@ defmodule ServiceRadar.DireTrace do
   @doc """
   ARP-style observation (netprobe census): interface `x`'s MAC and address. The step's
   identifiers are the globally-unique MAC only: the code neither looks up nor registers a
-  randomized MAC from a census. A new record's uid is still derived from the MAC, so the MAC
-  names it (`randomized_mac_seeds_uid`; the fix for that switch drops the `[mac]` seeds below,
-  and the record is then named by its address).
+  randomized MAC from a census, and does not derive a uid from it, so a sighting of one is
+  address-only and a new record is named by its address.
   """
   def arp(trace, h, x) do
     mac = trace.world.ifaces[x].mac
@@ -270,8 +269,7 @@ defmodule ServiceRadar.DireTrace do
       h,
       x,
       Enum.filter([mac], &(&1 in trace.world.hw_ids)),
-      fn -> assert :ok = SyncIngestor.ingest_updates([update], actor: trace.actor) end,
-      [mac]
+      fn -> assert :ok = SyncIngestor.ingest_updates([update], actor: trace.actor) end
     )
   end
 
@@ -330,10 +328,9 @@ defmodule ServiceRadar.DireTrace do
   # ---------------------------------------------------------------------------------------
   # Recording
 
-  # `ids` are the identifiers the step reports: the ones the code looks up and registers.
-  # `seeds` are the identifiers a new record's uid may be derived from, which name it; a census
-  # derives the uid from a randomized MAC it does not register.
-  defp step(trace, name, h, x, ids, fun, seeds \\ nil) do
+  # `ids` are the identifiers the step reports: the ones the code looks up and registers, and
+  # the ones a new record's uid is derived from, which name it.
+  defp step(trace, name, h, x, ids, fun) do
     observed_ip = trace.ip_at[x]
     decisions_before = decision_counts(trace)
     audits_before = merge_rows(trace)
@@ -343,7 +340,7 @@ defmodule ServiceRadar.DireTrace do
 
     raw_merges = merge_rows(trace) -- audits_before
 
-    trace = name_new_records(trace, seeds || ids)
+    trace = name_new_records(trace, ids)
 
     new_merges =
       Enum.map(raw_merges, fn {from, to, reason} ->

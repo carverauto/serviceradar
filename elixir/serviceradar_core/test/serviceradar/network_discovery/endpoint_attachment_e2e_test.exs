@@ -30,7 +30,7 @@ defmodule ServiceRadar.NetworkDiscovery.EndpointAttachmentE2ETest do
   @moduletag :integration
 
   @switch_uid "sr:e2e-fdb-switch"
-  @endpoint_mac "aa:bb:cc:dd:e2:01"
+  @endpoint_mac "00:00:5e:00:53:e1"
   @endpoint_ip "192.0.2.181"
 
   setup_all do

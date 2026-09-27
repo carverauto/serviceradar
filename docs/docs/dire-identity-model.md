@@ -15,7 +15,7 @@ translators, never identity engines).
 | `armis_device_id` | strong | External platform id |
 | `integration_id` | strong | Versioned + stable per external object; Proxmox admissibility and bridge formats are defined by [`IntegrationIdentity`](https://github.com/carverauto/serviceradar/blob/staging/elixir/serviceradar_core/lib/serviceradar/inventory/integration_identity.ex) |
 | `netbox_device_id` | strong | External platform id |
-| `mac` | strong / medium | Atomic, validated 12-hex values only; locally-administered MACs (IEEE bit) are medium and never merge on their own |
+| `mac` | strong / medium | Atomic, validated 12-hex values only; locally-administered MACs (IEEE bit) are medium, never merge on their own, and never derive a device uid: an update whose only MACs are locally administered is resolved like a weak update |
 | IP | weak | Never an identifier; resolves a device only when **no** strong identifier is present |
 
 Validation happens at every boundary (Go agent `syncsources.NormalizeUpdate`
@@ -60,7 +60,8 @@ in `SourcePolicy.sufficient_to_create?/1`.
 1. Strong-identifier match (priority order above; `agent_id` matches are
    trusted-checked against the device's bound agent)
 2. Pre-set `sr:` UUID — a hint, re-validated and canonical-followed
-3. Deterministic UID derived from the highest-priority identifiers
+3. Deterministic UID derived from the highest-priority identifiers (a
+   locally-administered MAC alone is not one)
 4. IP/alias fallback — only for weak updates
 5. Deterministic (IP-seeded) or random UID
 

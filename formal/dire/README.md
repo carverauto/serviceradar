@@ -59,7 +59,6 @@ either way; the property guards against any change that lets address evidence me
 | Switch | Model | Code path | Witness property |
 |---|---|---|---|
 | `seed_adopts_existing` | resolution | `inventory/sync/device_writes.ex` `resolve_record_active_ip/7` (a strong write adopts the anchorless provisional seed at its address even when the written record already exists; the record keeps its identifiers and its stale address, and nothing is recorded; #4705) | `ObservedAddressHeld` |
-| `randomized_mac_seeds_uid` | resolution | `inventory/identity/batch_resolver.ex` `resolve_one/4` (a census's randomized MAC is neither looked up nor registered, but `Ids.has_strong_identifier?/1` counts it, so the record's uid is derived from it and later sightings follow it across addresses) | `RandomizedMacsNeverIdentify` |
 
 Code paths are relative to `elixir/serviceradar_core/lib/serviceradar/`.
 
@@ -81,6 +80,7 @@ Code paths are relative to `elixir/serviceradar_core/lib/serviceradar/`.
 | `fence_observe_only` | #4618 (`Identity.Fence.fenced_write/3`: `SyncIngestor` and `AgentGatewaySync` lock the pinned device rows, withhold a stale write, re-resolve and retry once, then abandon with telemetry; `CompositeChecks.RefreshWorker` re-resolves a stale pin; `MergeEngine` locks both device rows first) | `NoStaleCommit` in `lifecycle_current`; proven on the real code by `fence_enforcement_test.exs`, since a black-box trace cannot schedule a transition inside the write |
 | `mapper_resolves_by_address` | #4638 (`MapperResultsIngestor.resolve_device_ids/2` resolves a polled device by its interface MACs through the Resolver) | `NoFalseInterfaceClaim` in every `resolution_goal_*` |
 | `mac_only_conflicts_blocked` | #4612 (`MergePolicy.merge_allowed_for_matches?/1` accepts a match set holding a globally-unique MAC; an all-randomized set stays blocked, and a record linked only through a randomized MAC drops out of the merge as a recorded `randomized_mac_link` policy block) | `EvidenceConverges` in every `resolution_goal_*`; traces `router_mac_only`, `agent_mac_split` |
+| `randomized_mac_seeds_uid` | #4760 (`Ids.has_strong_identifier?/1` counts a MAC only when it is universally administered, and `Ids.generate_deterministic_device_id/1` names an update with no strong identifier by its address, so a census sighting of a randomized MAC is address-only) | `RandomizedMacsNeverIdentify` in every `resolution_goal_*`; trace `census_randomized_mac` |
 
 #4664 had no switch. The model already let a write adopt the holder of its address only when that
 holder is an anchorless seed and the write creates a new record, and it never adopts for an
@@ -152,13 +152,15 @@ one-second precision. `DireLifecycleTrace.tla` checks them the same way.
 A trace whose defect is still present is also rejected by the model with that defect switch
 turned off (a knockout, `Trace_<name>__knockout.cfg`, written by the test's
 `assert_golden!(demonstrates: switch)`), which proves the defect on the real code. Every
-lifecycle trace is a regression trace of a fixed defect. Two resolution traces demonstrate a
+lifecycle trace is a regression trace of a fixed defect. One resolution trace demonstrates a
 switch:
 
 - `armis_moves_onto_sweep_seed` (`seed_adopts_existing`): an Armis device synced at a new
   address a sweep has seeded is written onto the seed, twice; it keeps its stale address.
-- `census_randomized_mac` (`randomized_mac_seeds_uid`): two census sightings of one randomized
-  MAC at different addresses land on the record seeded from that MAC, which owns no identifier.
+
+`census_randomized_mac` is a regression trace of `randomized_mac_seeds_uid` (#4760): two census
+sightings of one randomized MAC at different addresses are address-only, each landing on the
+record named by its address.
 
 The lifecycle regression traces:
 

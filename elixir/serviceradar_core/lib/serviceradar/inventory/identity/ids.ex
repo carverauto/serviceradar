@@ -303,6 +303,12 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
 
   @doc """
   Check if any strong identifier is present.
+
+  A MAC is strong only when it is universally administered (globally unique).
+  A locally administered MAC -- a phone's per-network randomized address, a
+  virtual or container NIC -- never identifies a device, so an update whose
+  only MACs are locally administered and that carries no other strong
+  identifier is an address-only sighting.
   """
   @spec has_strong_identifier?(strong_identifiers()) :: boolean()
   def has_strong_identifier?(ids) do
@@ -311,7 +317,17 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
       ids_get(ids, :integration_id) != nil or
       ids_get(ids, :netbox_id) != nil or
       ids_get(ids, :hardware_serial) != nil or
-      ids_get(ids, :mac) != nil
+      universal_mac_present?(ids)
+  end
+
+  defp universal_mac_present?(ids) do
+    macs =
+      case ids_get(ids, :macs) do
+        list when is_list(list) and list != [] -> list
+        _ -> List.wrap(ids_get(ids, :mac))
+      end
+
+    MapSet.size(Mac.universal_macs(macs)) > 0
   end
 
   @doc """
@@ -356,10 +372,18 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
 
   Uses SHA-256 hash of identifiers to create a reproducible UUID.
   Format: `sr:<uuid>`
+
+  An update with no strong identifier (`has_strong_identifier?/1`) is named by
+  its address, so a locally administered MAC alone never seeds the uid: two
+  sightings of one randomized MAC at two addresses are two address-only
+  records. Only an update with neither a strong identifier nor an address
+  falls back to that MAC, because a random uid would mint a new record on
+  every sighting.
   """
   @spec generate_deterministic_device_id(strong_identifiers()) :: String.t()
   def generate_deterministic_device_id(ids) do
     partition = ids_get_partition(ids)
+    ip = ids_get_string(ids, :ip)
 
     # Build seeds from strong identifiers in priority order
     seeds =
@@ -373,13 +397,12 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
 
     hash_input =
       cond do
-        not Enum.empty?(seeds) ->
+        seeds != [] and (has_strong_identifier?(ids) or ip == "") ->
           # Strong identifiers present - deterministic hash
           "serviceradar-device-v3:partition:#{partition}:" <> Enum.join(seeds, "")
 
-        ids_get_string(ids, :ip) != "" ->
-          # IP-only fallback
-          ip = ids_get_string(ids, :ip)
+        ip != "" ->
+          # Address-only: no strong identifier
           "serviceradar-device-v3:partition:#{partition}:ip:#{ip}"
 
         true ->
