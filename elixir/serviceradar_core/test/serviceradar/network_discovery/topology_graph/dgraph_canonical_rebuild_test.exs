@@ -30,7 +30,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphCanonicalRebuildTest
 
   test "rebuild keeps discovery timestamps and existing directional telemetry" do
     current =
-      evidence("sr:switch-b", "sr:switch-a", "port7", "port1")
+      "sr:switch-b"
+      |> evidence("sr:switch-a", "port7", "port1")
       |> Map.merge(%{
         "relation" => "CANONICAL_TOPOLOGY",
         "flow_pps_ab" => 12,
@@ -60,7 +61,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphCanonicalRebuildTest
   test "index-only parallel links have distinct interface names in the typed write contract" do
     rows =
       for index <- [0, 2, 3] do
-        evidence("sr:switch-a", "sr:switch-b", "", "")
+        "sr:switch-a"
+        |> evidence("sr:switch-b", "", "")
         |> Map.merge(%{
           "source" => [%{"id" => "sr:switch-a"}],
           "target" => [%{"id" => "sr:switch-b"}],
@@ -78,7 +80,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphCanonicalRebuildTest
 
   test "starvation retains the old graph without refreshing its last observation" do
     frozen =
-      evidence("sr:switch-a", "sr:switch-b", "port1", "port7")
+      "sr:switch-a"
+      |> evidence("sr:switch-b", "port1", "port7")
       |> Map.put("last_seen", @old)
 
     current = Map.put(frozen, "relation", "CANONICAL_TOPOLOGY")
@@ -90,7 +93,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphCanonicalRebuildTest
 
   test "large stale deletion is refused unless the configured override is set" do
     old =
-      evidence("sr:switch-c", "sr:switch-d", "port1", "port7")
+      "sr:switch-c"
+      |> evidence("sr:switch-d", "port1", "port7")
       |> Map.merge(%{"last_seen" => @old, "relation" => "CANONICAL_TOPOLOGY"})
 
     fresh = evidence("sr:switch-a", "sr:switch-b", "port1", "port7")
@@ -111,7 +115,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphCanonicalRebuildTest
     current_shared = Map.put(shared, "relation", "CANONICAL_TOPOLOGY")
 
     observed =
-      evidence("sr:switch-d", "sr:switch-e", "port1", "port7")
+      "sr:switch-d"
+      |> evidence("sr:switch-e", "port1", "port7")
       |> Map.put("relation", "OBSERVED_TO")
 
     {:ok, inputs} =
@@ -160,7 +165,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphCanonicalRebuildTest
 
   test "malformed graph responses cannot be treated as an empty canonical set" do
     row =
-      evidence("sr:switch-a", "sr:switch-b", "port1", "port7")
+      "sr:switch-a"
+      |> evidence("sr:switch-b", "port1", "port7")
       |> Map.put("relation", "CANONICAL_TOPOLOGY")
 
     assert {:error, :invalid_dgraph_edge_identity} =

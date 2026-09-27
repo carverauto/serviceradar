@@ -47,9 +47,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild.DgraphReb
     }
     """
 
-    with {:ok, %{"edges" => rows}} when is_list(rows) <- Dgraph.query(query) do
-      decode_inputs(rows)
-    else
+    case Dgraph.query(query) do
+      {:ok, %{"edges" => rows}} when is_list(rows) -> decode_inputs(rows)
       {:error, _} = error -> error
       _ -> {:error, :invalid_dgraph_rebuild_response}
     end
@@ -212,7 +211,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild.DgraphReb
 
     edges =
       Enum.map(final, fn {_key, edge} ->
-        edge |> Map.drop([:relation]) |> Map.put(:kind, :canonical_topology)
+        edge |> Map.delete(:relation) |> Map.put(:kind, :canonical_topology)
       end)
 
     {edges,
@@ -243,23 +242,25 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild.DgraphReb
          } = row
        )
        when source != target and is_binary(timestamp) do
-    with {:ok, observed, _} <- DateTime.from_iso8601(timestamp) do
-      edge = Map.new(@fields, &{&1, Map.get(row, Atom.to_string(&1))})
+    case DateTime.from_iso8601(timestamp) do
+      {:ok, observed, _} ->
+        edge = Map.new(@fields, &{&1, Map.get(row, Atom.to_string(&1))})
 
-      edge =
-        edge
-        |> Map.merge(%{
-          source: source,
-          target: target,
-          relation: relation,
-          last_seen: observed |> DateTime.truncate(:second) |> DateTime.to_iso8601()
-        })
-        |> Map.update!(:pair_support_rank, &(&1 || 0))
+        edge =
+          edge
+          |> Map.merge(%{
+            source: source,
+            target: target,
+            relation: relation,
+            last_seen: observed |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+          })
+          |> Map.update!(:pair_support_rank, &(&1 || 0))
 
-      edge = edge |> attribute_interface(:ab, src) |> attribute_interface(:ba, dst)
-      {:ok, normalize_direction(edge)}
-    else
-      _ -> {:error, :invalid_dgraph_edge_timestamp}
+        edge = edge |> attribute_interface(:ab, src) |> attribute_interface(:ba, dst)
+        {:ok, normalize_direction(edge)}
+
+      _ ->
+        {:error, :invalid_dgraph_edge_timestamp}
     end
   end
 
@@ -326,7 +327,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild.DgraphReb
   defp physical?(edge),
     do:
       edge.relation in ["CONNECTS_TO", "CANONICAL_TOPOLOGY"] and
-        edge.evidence_class == "direct-physical" and edge.ingestor == "mapper_topology_v1"
+        edge.evidence_class == "direct-physical" and
+        edge.ingestor == "mapper_topology_v1"
 
   defp conflict_row(edge),
     do: %{
