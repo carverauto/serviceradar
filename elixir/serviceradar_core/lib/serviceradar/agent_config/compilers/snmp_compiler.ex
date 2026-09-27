@@ -57,6 +57,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   # Mirrors maxTargetNameLength in go/pkg/agent/snmp/config.go. A name over the
   # bound is rejected by the agent, so it is enforced here where the name is
   # built rather than discovered at the far end.
+  alias Ash.Error.Invalid
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.Compilers.TargetedProfileResolver
   alias ServiceRadar.Ash.Page
@@ -108,6 +109,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
             {:ok, config}
 
           {:error, reason} ->
+            # A failed target, template, or profile-target read is not an empty
+            # config. ConfigServer caches every {:ok, _}, so returning one here
+            # would make agents poll nothing until the next :snmp invalidation.
             Logger.error("SNMPCompiler: failed to compile profile - #{inspect(reason)}")
             {:error, reason}
         end
@@ -180,10 +184,14 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   @doc """
   Compiles a profile to the agent config format using SRQL-based targeting.
 
-  New flow:
-  1. Execute target_query to find matching devices
-  2. Load OIDs from profile's oid_template_ids
-  3. For each device, build target config with resolved credentials
+  A failed read of profile targets, the target query, or OID templates
+  returns `{:error, reason}` so the caller does not cache an empty config.
+  A zero-row read still compiles a valid config with an empty target list.
+
+  1. Load explicit profile targets
+  2. Execute target_query to find matching devices
+  3. Load OIDs from profile's oid_template_ids
+  4. For each device, build target config with resolved credentials
   """
   @spec compile_profile(SNMPProfile.t(), map(), keyword()) ::
           {:ok, map()} | {:error, term()}
@@ -221,6 +229,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   Handles both interface and device queries:
   - `in:interfaces ...` → Extract unique devices from matching interfaces
   - `in:devices ...` → Use matched devices directly
+
+  A nil or empty query, an unparseable query, and an uncastable filter
+  return `{:ok, []}`. A failed read returns
+  `{:error, {:target_query_failed, reason}}`.
   """
   @spec execute_target_query(String.t() | nil, map()) ::
           {:ok, [Device.t()]} | {:error, term()}
@@ -339,7 +351,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
         {:ok, devices}
 
-      {:error, %Ash.Error.Invalid{} = reason} ->
+      {:error, %Invalid{} = reason} ->
         Logger.warning("SNMPCompiler: invalid target query filter - #{inspect(reason)}")
         {:ok, []}
 
@@ -372,7 +384,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
       {:ok, devices}
     rescue
-      exception in Ash.Error.Invalid ->
+      exception in Invalid ->
         Logger.warning("SNMPCompiler: invalid target query filter - #{inspect(exception)}")
         {:ok, []}
 
@@ -384,6 +396,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
   @doc """
   Load OIDs from the selected OID templates.
+
+  A failed template read returns `{:error, reason}` rather than an empty list.
   """
   @spec load_template_oids([String.t()] | nil, map()) ::
           {:ok, [map()]} | {:error, term()}

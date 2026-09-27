@@ -3065,8 +3065,10 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     end
   end
 
-  # Load SNMP configuration from the AgentConfig system
-  # This uses the ConfigServer which compiles snmp configs from SNMPProfile resources
+  # Load SNMP configuration from the AgentConfig system.
+  # ConfigServer compiles snmp configs from SNMPProfile resources. No profile
+  # is a valid disabled config. A compile or read error raises so generation
+  # fails instead of delivering that disabled config in its place.
   defp load_snmp_config!(partition, agent_id) do
     actor = SystemActor.system(:snmp_config_loader)
     device_uid = resolve_agent_device_uid(agent_id, actor)
