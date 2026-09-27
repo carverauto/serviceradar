@@ -22,12 +22,37 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   representative root, so `root_service_name`/`root_span_name` are populated
   rather than NULL. Error counting uses OTLP STATUS_ERROR (`status_code = 2`)
   only.
+
+  ## Scheduling and the trailing refresh
+
+  The job is enqueued by the `*/2` cron, by the EventWriter `otel_traces`
+  processor after every span batch it writes, and by operators. Uniqueness
+  over `:incomplete` keeps at most one job pending or running, so a burst of
+  ingest enqueues coalesces into that job instead of piling up.
+
+  A running job blocks inserts too, so a batch committed while a run is
+  executing cannot enqueue a refresh of its own. The run schedules it instead:
+  after committing, it looks for spans ingested after the watermark it just
+  wrote and, if there are any, returns `{:snooze, 1}`. Snoozing reschedules
+  this same row, so there is exactly one follow-up and later enqueues keep
+  coalescing into it. The probe compares against the watermark rather than
+  the run's upper bound because `created_at` is stamped before the batch
+  commits, so a late commit can land inside the window the run already
+  scanned. What the probe cannot see (a batch committed between the probe and
+  Oban recording the run as finished, or one stamped behind rows the run
+  already processed) waits for the next enqueue; the cron bounds that delay
+  and the watermark overlap re-scans those rows.
+
+  Oban counts every snooze as an attempt, so `backoff/1` discounts them;
+  otherwise a failure after a long stream of follow-ups would be retried days
+  later, and the retryable job would block every refresh until then.
   """
 
+  @max_attempts 3
   use Oban.Worker,
     queue: :maintenance,
-    max_attempts: 3,
-    unique: [period: :infinity, states: [:available, :scheduled, :retryable]]
+    max_attempts: @max_attempts,
+    unique: [period: :infinity, states: :incomplete]
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Observability.OtelPubSub
@@ -183,6 +208,16 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   WHERE created_at > $1 AND created_at <= $2
   """
 
+  # Spans ingested after the watermark a run just wrote: the run missed them,
+  # so it schedules a trailing refresh (see the moduledoc).
+  @ingested_after_watermark_sql """
+  SELECT EXISTS(
+    SELECT 1
+    FROM otel_traces
+    WHERE created_at > $1 AND trace_id IS NOT NULL
+  )
+  """
+
   @remaining_estimate_sql """
   SELECT count(*) FROM (
     SELECT 1
@@ -200,6 +235,9 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   @watermark_overlap_seconds 120
   # First run: initialize the watermark one hour back.
   @initial_lookback_seconds 3600
+  # Delay before the trailing refresh, so it coalesces the batches that
+  # arrive right behind a run.
+  @trailing_refresh_delay_seconds 1
   @default_cleanup_batch_size 5_000
   @default_cleanup_time_budget_ms 10_000
   @default_retention_days 3
@@ -242,9 +280,14 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
       )
 
     case result do
-      {:ok, changed} ->
+      {:ok, %{changed: changed, watermark: watermark}} ->
         OtelPubSub.broadcast_trace_summaries(%{count: changed})
-        :ok
+
+        if spans_ingested_after?(watermark) do
+          {:snooze, @trailing_refresh_delay_seconds}
+        else
+          :ok
+        end
 
       {:error, :refresh_in_progress} ->
         {:snooze, 1}
@@ -254,13 +297,22 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
     end
   end
 
+  # Oban's documented snooze compensation: each snooze raised `max_attempts`
+  # by one, so subtract them to back off by the real attempt count.
+  @impl Oban.Worker
+  def backoff(%Oban.Job{attempt: attempt, max_attempts: max_attempts} = job) do
+    snoozes = max(max_attempts - @max_attempts, 0)
+
+    Oban.Worker.backoff(%{job | attempt: max(attempt - snoozes, 1), max_attempts: @max_attempts})
+  end
+
   defp refresh_summaries do
     now = DateTime.utc_now()
     watermark = read_watermark(now)
     window_start = DateTime.add(watermark, -@watermark_overlap_seconds, :second)
 
     with {:ok, changed} <- run_chunked_upsert(window_start, now),
-         :ok <- advance_watermark(window_start, now),
+         {:ok, new_watermark} <- advance_watermark(window_start, now),
          :ok <- cleanup_old_summaries() do
       Logger.info(
         "Refreshed otel_trace_summaries (ingest-time watermark)",
@@ -268,7 +320,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
         window_end: DateTime.to_iso8601(now)
       )
 
-      {:ok, changed}
+      {:ok, %{changed: changed, watermark: new_watermark}}
     end
   rescue
     error ->
@@ -365,6 +417,29 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
     end
   end
 
+  defp spans_ingested_after?(watermark) do
+    case SQL.query(ServiceRadar.Repo, @ingested_after_watermark_sql, [watermark],
+           timeout: probe_timeout_ms()
+         ) do
+      {:ok, %{rows: [[true]]}} ->
+        true
+
+      {:ok, _result} ->
+        false
+
+      {:error, %Postgrex.Error{postgres: %{code: :undefined_table}}} ->
+        false
+
+      {:error, error} ->
+        Logger.warning(
+          "Trace summaries trailing-refresh probe failed; the cron will catch up: " <>
+            Exception.message(error)
+        )
+
+        false
+    end
+  end
+
   # Advance the watermark to the max created_at actually processed, falling
   # back to the run's upper bound when the window held no spans.
   defp advance_watermark(window_start, window_end) do
@@ -392,11 +467,11 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
            timeout: watermark_timeout_ms()
          ) do
       {:ok, _result} ->
-        :ok
+        {:ok, new_watermark}
 
       {:error, %Postgrex.Error{postgres: %{code: :undefined_table}}} ->
         Logger.debug("observability_watermarks table missing; watermark not persisted")
-        :ok
+        {:ok, new_watermark}
 
       {:error, error} ->
         Logger.error("Failed to persist trace summaries watermark: #{Exception.message(error)}")

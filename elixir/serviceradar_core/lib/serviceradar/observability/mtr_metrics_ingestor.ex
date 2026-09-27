@@ -38,6 +38,8 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
 
   require Logger
 
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
+
   @default_bulk_create_chunk_size 500
 
   @doc """
