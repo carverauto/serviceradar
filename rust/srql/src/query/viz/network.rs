@@ -215,31 +215,6 @@ pub(super) fn public_endpoints() -> VizMeta {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn threat_intel_matches_exposes_indicator_timestamps() {
-        let meta = threat_intel_matches();
-        let names: Vec<_> = meta
-            .columns
-            .iter()
-            .map(|column| column.name.as_str())
-            .collect();
-        for name in [
-            "indicator_first_seen_at",
-            "indicator_last_seen_at",
-            "indicator_expires_at",
-        ] {
-            assert!(
-                names.contains(&name),
-                "expected {name} in threat_intel_matches viz columns, got {names:?}"
-            );
-        }
-    }
-}
-
 pub(super) fn camera_sources() -> VizMeta {
     VizMeta {
         columns: vec![
@@ -276,5 +251,30 @@ pub(super) fn camera_sources() -> VizMeta {
             y: None,
             series: None,
         }],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn threat_intel_matches_exposes_indicator_timestamps() {
+        let meta = threat_intel_matches();
+        let names: Vec<_> = meta
+            .columns
+            .iter()
+            .map(|column| column.name.as_str())
+            .collect();
+        for name in [
+            "indicator_first_seen_at",
+            "indicator_last_seen_at",
+            "indicator_expires_at",
+        ] {
+            assert!(
+                names.contains(&name),
+                "expected {name} in threat_intel_matches viz columns, got {names:?}"
+            );
+        }
     }
 }
