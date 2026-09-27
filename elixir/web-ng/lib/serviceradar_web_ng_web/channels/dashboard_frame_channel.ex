@@ -9,13 +9,12 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.DashboardFrameChannel.Actions
   alias ServiceRadarWebNGWeb.DashboardFrameChannel.Events
+  alias ServiceRadarWebNGWeb.DashboardFrameChannel.RefreshSchedule
   alias ServiceRadarWebNGWeb.Endpoint
 
   require Logger
 
   @default_refresh_ms 15_000
-  @min_refresh_ms 1_000
-  @max_refresh_ms 60_000
   @stream_salt "dashboard-frame-stream-v1"
   @stream_token_max_age 3_600
   @binary_magic "DFB1"
@@ -44,7 +43,9 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
         |> assign(:last_frames, [])
         |> assign(:initial_frame_sent, false)
         |> assign(:deferred_frame_sent, false)
-        |> assign(:refresh_ms, refresh_ms(payload["refresh_interval_ms"]))
+        |> assign(:default_refresh_ms, refresh_ms(payload["refresh_interval_ms"]))
+        |> assign(:frame_refreshed_at, %{})
+        |> assign_tick_interval()
         |> assign(:last_frame_hash, nil)
         |> assign(:refresh_task_ref, nil)
         |> assign(:refresh_task_kind, nil)
@@ -69,7 +70,7 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
   @impl true
   def handle_info(:dashboard_frame_tick, socket) do
     {kind, data_frames} = tick_data_frames(socket)
-    socket = start_frame_refresh(socket, data_frames, kind)
+    socket = start_due_frame_refresh(socket, data_frames, kind)
 
     Process.send_after(self(), :dashboard_frame_tick, socket.assigns.refresh_ms)
     {:noreply, socket}
@@ -242,6 +243,36 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
     end
   end
 
+  # A periodic refresh re-runs only the frames whose own interval has elapsed
+  # (see RefreshSchedule); the initial and deferred batches always run in full.
+  defp start_due_frame_refresh(socket, data_frames, :refresh) do
+    now = System.monotonic_time(:millisecond)
+    %{frame_refreshed_at: refreshed_at, default_refresh_ms: default} = socket.assigns
+
+    case RefreshSchedule.due(data_frames, refreshed_at, now, default, &frame_id/1) do
+      [] -> socket
+      due -> start_frame_refresh(socket, due, :refresh)
+    end
+  end
+
+  defp start_due_frame_refresh(socket, data_frames, kind), do: start_frame_refresh(socket, data_frames, kind)
+
+  defp assign_tick_interval(socket) do
+    tick_ms = RefreshSchedule.tick_interval(socket.assigns.refresh_data_frames, socket.assigns.default_refresh_ms)
+    assign(socket, :refresh_ms, tick_ms)
+  end
+
+  defp record_frame_refresh(socket, data_frames) do
+    now = System.monotonic_time(:millisecond)
+
+    refreshed_at =
+      Enum.reduce(data_frames, socket.assigns[:frame_refreshed_at] || %{}, fn frame, acc ->
+        Map.put(acc, frame_id(frame), now)
+      end)
+
+    assign(socket, :frame_refreshed_at, refreshed_at)
+  end
+
   defp start_frame_refresh(%{assigns: %{refresh_task_ref: ref}} = socket, _data_frames, _kind) when not is_nil(ref),
     do: socket
 
@@ -256,6 +287,7 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
         socket
         |> assign(:refresh_task_ref, ref)
         |> assign(:refresh_task_kind, kind)
+        |> record_frame_refresh(data_frames)
 
       {:error, reason} ->
         Logger.error(
@@ -571,7 +603,7 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
 
   defp preserve_previous_results_on_error(update, _previous), do: update
 
-  defp refresh_ms(value) when is_integer(value), do: value |> max(@min_refresh_ms) |> min(@max_refresh_ms)
+  defp refresh_ms(value) when is_integer(value), do: RefreshSchedule.clamp(value)
 
   defp refresh_ms(value) when is_binary(value) do
     case Integer.parse(value) do
