@@ -152,10 +152,10 @@ The declared `build/schema_template/policy.json` currently sets these limits:
 
 | Field | Value | Meaning |
 | --- | --- | --- |
-| `max_generations` | 16 | Maximum registered generations during allocation |
-| `max_concurrent_builders` | 1 | Maximum registered `building` generations |
+| `max_generations` | 48 | Maximum registered generations during allocation |
+| `max_concurrent_builders` | 4 | Maximum registered `building` generations |
 | `max_total_bytes` | 21474836480 | 20 GiB aggregate template storage budget |
-| `retention_seconds` | 86400 | Minimum inactivity before cleanup eligibility |
+| `retention_seconds` | 21600 | Minimum inactivity before cleanup eligibility |
 | `lease_seconds` | 7200 | Lease duration after preparation or clone renewal |
 | `lock_timeout_seconds` | 300 | Bounded coordination wait; also used for administrative statements |
 
