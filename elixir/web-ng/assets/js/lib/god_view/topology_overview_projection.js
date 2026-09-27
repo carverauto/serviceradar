@@ -9,6 +9,7 @@ const TRANSPORT_NODE_TYPES = new Set([
   "endpoint_cluster",
   "firewall",
   "hub",
+  "hypervisor",
   "ids",
   "ips",
   "load_balancer",
