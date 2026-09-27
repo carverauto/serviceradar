@@ -9,7 +9,7 @@ Tile metadata SHALL include `payload_kind=tile`, `layout_version`, `z`, `x`, `y`
 
 Bounded detail metadata SHALL include `payload_kind=detail`, `level_id`, `parent_level_id`, layout version, publication generation, content revision, structural signature, selected layout algorithm, counts, budgets, and bounded continuation. A continuation SHALL pin the publication and native scope that produced it; it SHALL NOT resume across generations even when geometry is unchanged. Its coordinates SHALL belong to the selected detail scene; one validated ELK result SHALL author its accepted geometry. Detail coordinates SHALL NOT move persisted map positions. All edge references SHALL resolve inside the returned batch, including explicitly non-owning clipping proxies used by tiles.
 
-#### Scenario: Tile positions preserve world authority
+#### Scenario: Client accepts supported snapshot schema
 - **GIVEN** a supported schema-3 tile from an accepted layout version
 - **WHEN** the client decodes its typed columns
 - **THEN** it SHALL render the server-authored world positions using the declared coordinate transform
@@ -21,11 +21,23 @@ Bounded detail metadata SHALL include `payload_kind=detail`, `level_id`, `parent
 - **THEN** one selected ELK pipeline SHALL author its accepted coordinates and routes
 - **AND** neither its output nor its camera SHALL overwrite the map's persisted coordinate space
 
-#### Scenario: Unsupported or inconsistent payload preserves the last good scene
+#### Scenario: Client handles unsupported snapshot schema
 - **GIVEN** a payload has an unsupported schema or invalid required columns, endpoints, coordinates, or identity metadata
 - **WHEN** the client validates the payload
 - **THEN** it SHALL reject it and expose a recoverable compatibility or data error
 - **AND** the last compatible accepted scene SHALL remain active
+
+#### Scenario: Client validates required metadata envelope fields
+- **GIVEN** a tile or bounded detail payload lacks its required identity, revision, coordinate-space, count, or budget metadata
+- **WHEN** the client validates its envelope
+- **THEN** the payload SHALL be rejected before replacing accepted geometry
+- **AND** the previous compatible scene SHALL remain active
+
+#### Scenario: Client validates required columns for schema version 1
+- **GIVEN** an older server emits schema version `1`
+- **WHEN** the schema-3 tile client validates the payload
+- **THEN** it SHALL reject the unsupported version even if its legacy columns are complete
+- **AND** the UI SHALL expose a recoverable compatibility error while retaining the last compatible scene
 
 #### Scenario: Details remain lazy
 - **GIVEN** a tile or detail scene contains regular details columns and irregular detail content
@@ -41,13 +53,13 @@ The system SHALL distinguish local presentation filters, viewport tile selection
 - **THEN** the client SHALL select only visible tiles and a configured bounded prefetch neighborhood
 - **AND** compatible cached tiles SHALL be reused without recomputing world coordinates
 
-#### Scenario: Visual filters preserve accepted geometry
+#### Scenario: Visual-only filter action
 - **WHEN** the operator hides or highlights a class in resident geometry
 - **THEN** the client SHALL apply the presentation change locally
 - **AND** rendered relations SHALL continue to satisfy their visible endpoint contract
 - **AND** the filter SHALL NOT cause canonical recomputation or a new layout version
 
-#### Scenario: Explicit bounded detail navigation preserves the map
+#### Scenario: Structural reshape action
 - **WHEN** the operator opens a device neighborhood or attachment-member page
 - **THEN** the client SHALL fetch only the bounded required detail if it is not cached
 - **AND** it SHALL enter a separate ELK coordinate space while preserving map camera and selection
@@ -67,7 +79,7 @@ The system SHALL distinguish local presentation filters, viewport tile selection
 ### Requirement: Wasm Arrow Execution Layer
 The system MUST provide a WebAssembly execution layer for Arrow-backed God-View client operations over resident tiles and bounded detail scenes without requiring the browser to materialize the canonical graph.
 
-#### Scenario: Complete resident neighborhood traversal
+#### Scenario: Three-hop traversal computed in Wasm
 - **GIVEN** a bounded detail scene declares complete membership for the requested traversal
 - **WHEN** the operator requests nodes within three hops of its selected device
 - **THEN** traversal SHALL execute over its resident Arrow-backed memory
@@ -85,7 +97,7 @@ The system MUST provide a WebAssembly execution layer for Arrow-backed God-View 
 - **THEN** the Wasm layer SHALL scan those columns and emit a visibility or ghosting mask locally
 - **AND** frame rendering SHALL remain within the applicable interaction budget
 
-#### Scenario: Layout interpolation respects the coordinate space
+#### Scenario: Layout interpolation computed in Wasm
 - **GIVEN** an explicit transition between two accepted coordinate sets requires animation
 - **WHEN** the client computes intermediate positions
 - **THEN** interpolation SHALL use Arrow-backed memory without introducing periodic object-allocation stalls

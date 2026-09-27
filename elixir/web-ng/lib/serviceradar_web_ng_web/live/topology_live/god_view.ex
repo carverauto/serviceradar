@@ -36,6 +36,7 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
           root_cause: true,
           affected: true,
           healthy: true,
+          unavailable: true,
           unknown: true
         })
         |> assign(:visual_layers, %{

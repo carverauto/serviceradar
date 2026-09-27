@@ -8,7 +8,6 @@ defmodule ServiceRadarWebNGWeb.UserSocket do
   channel("dashboards:*", ServiceRadarWebNGWeb.DashboardFrameChannel)
   channel("notifications:*", ServiceRadarWebNGWeb.NotificationFirehoseChannel)
   channel("topology:tiles", ServiceRadarWebNGWeb.TopologyTileChannel)
-  channel("topology:*", ServiceRadarWebNGWeb.TopologyChannel)
 
   @impl true
   def connect(_params, socket, connect_info) do

@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
   alias ServiceRadarWebNG.Topology.WorldCache
   alias ServiceRadarWebNG.Topology.WorldDetails
   alias ServiceRadarWebNG.Topology.WorldOverlay
+  alias ServiceRadarWebNG.Topology.WorldScene
   alias ServiceRadarWebNGWeb.FeatureFlags
 
   plug(:authorize)
@@ -48,20 +49,12 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
       conn =
         conn
         |> generation_headers(%{layout_version: key.layout_version, generation: tile.generation})
-        |> put_resp_header("cache-control", "private, no-cache")
-        |> put_resp_header("etag", etag)
         |> put_resp_header("x-sr-god-view-schema", "3")
         |> put_resp_header("x-sr-topology-origin-x", Integer.to_string(transform.origin_x))
         |> put_resp_header("x-sr-topology-origin-y", Integer.to_string(transform.origin_y))
         |> put_resp_header("x-sr-topology-scale", Float.to_string(transform.scale))
 
-      if matches_etag?(conn, etag) do
-        send_resp(conn, :not_modified, "")
-      else
-        conn
-        |> put_resp_content_type("application/vnd.apache.arrow.stream")
-        |> send_resp(:ok, tile.payload)
-      end
+      conditional_payload(conn, tile.payload, etag, "application/vnd.apache.arrow.file")
     else
       {:error, reason} -> error(conn, reason)
     end
@@ -99,6 +92,28 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
     end
   end
 
+  def scene(conn, params) do
+    with {:ok, scope} <- current_authority(conn),
+         {:ok, level} <- WorldDetails.scene(scope, params),
+         {:ok, encoded} <- WorldScene.encode(level),
+         {:ok, _scope} <- current_authority(conn) do
+      etag = ~s("#{level.layout_version}:#{encoded.revision}")
+
+      conn =
+        conn
+        |> generation_headers(level)
+        |> put_resp_header("x-sr-god-view-schema", "3")
+        |> put_resp_header("x-sr-god-view-revision", Integer.to_string(level.revision))
+        |> put_resp_header("x-sr-god-view-generated-at", DateTime.to_iso8601(DateTime.utc_now()))
+        |> put_resp_header("x-sr-topology-level-id", level.level_id)
+        |> put_resp_header("x-sr-topology-next-cursor", level.next_cursor || "")
+
+      conditional_payload(conn, encoded.payload, etag, "application/vnd.apache.arrow.file")
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
   def overlay(conn, %{"revision" => revision} = params) do
     with {:ok, key} <- TileKey.parse(params),
          {:ok, revision} <- TileKey.content_revision(revision),
@@ -121,15 +136,20 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
   defp json_payload(conn, content, payload, revision) do
     etag = ~s("#{content.layout_version}:#{revision}")
 
+    conn
+    |> generation_headers(content)
+    |> conditional_payload(payload, etag, "application/json")
+  end
+
+  defp conditional_payload(conn, payload, etag, content_type) do
     conn =
       conn
-      |> generation_headers(content)
       |> put_resp_header("cache-control", "private, no-cache")
       |> put_resp_header("etag", etag)
 
     if matches_etag?(conn, etag),
       do: send_resp(conn, :not_modified, ""),
-      else: conn |> put_resp_content_type("application/json") |> send_resp(:ok, payload)
+      else: conn |> put_resp_content_type(content_type) |> send_resp(:ok, payload)
   end
 
   def relayout(conn, _params) do
