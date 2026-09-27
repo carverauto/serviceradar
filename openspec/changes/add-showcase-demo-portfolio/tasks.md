@@ -10,12 +10,12 @@ goes through the no-mistakes gate.
 - [x] 1.3 Build `demo/simkit`: seeded RNG and identity minting, time-derived evaluation, closed-form counters, fine-resolution backfill of the elapsed window, inventory cadence gate.
 - [x] 1.4 Fault scheduler with period/phase/duration/jitter, target selectors, overlays and opening/resolving events; a seven-day coverage test (no gap over 10 min, no same-kind overlap, every fault resolves); schedule published as `demo.fault.next_at` / `demo.fault.active` metrics (D13).
 - [x] 1.5 Source boundary (D17): the `Source` interface, the simulated implementation over `simkit` producing device-native shapes, the shared normalizer to product contracts, and a reusable source contract test.
-- [ ] 1.6 Emitters over `serviceradar-sdk-go`: device discovery, metric batches via `emit_telemetry` (respecting the 256-record batch cap), OCSF events, Wi-Fi map batches, camera descriptors, topology links (after 7.x).
+- [ ] 1.6 Emitters over `serviceradar-sdk-go`: device discovery, metric batches via `emit_telemetry` (respecting the 256-record batch cap), OCSF events (done, `demo/pluginkit`), Wi-Fi map batches, camera descriptors, topology links (pending, after 7.x).
 - [x] 1.7 Demo guard (D6): fail on publicly routable IPs and public DNS names in emitted records; usable from plugin tests and the fixture exporter.
 - [x] 1.8 Native fixture exporter and the `:fixtures` / `:update_fixtures` / `diff_test` target pattern (`write_source_files`).
-- [ ] 1.9 Demo plugin Bazel macro: TinyGo Wasm build, bundle with manifest and config schema, signature with the demo-only upload key.
-- [ ] 1.10 Publish run target: signed plugin bundle and dashboard package via the CLI publish APIs, alert-rule install, assignment to the demo agent; token from the client environment; idempotent re-runs.
-- [ ] 1.11 gitops: trust the demo upload key in `demo` only; demo agent assignment target.
+- [x] 1.9 Demo plugin Bazel macro: TinyGo Wasm build, bundle with manifest and config schema, signature with the demo-only upload key.
+- [x] 1.10 Publish run target: signed plugin bundle and dashboard package via the CLI publish APIs, alert-rule install, assignment to the demo agent; token from the client environment; idempotent re-runs.
+- [ ] 1.11 gitops: trust the demo upload key in `demo` only (done, `values-demo.yaml`); demo agent assignment target (done in `demo_publish`; the gitops side is pending).
 - [ ] 1.12 Shared dashboard pieces: common frame (incident banner, chip/KPI header, visual/detail split, active SRQL chips) and the presenter strip with countdown and per-fault trigger buttons rendered from action descriptors (D13, D14).
 - [ ] 1.13 `simkit` fault injection: the fault-injection and end-fault-early action handlers (opening/resolving events emitted from the action), overlay of active run overrides on every run, guards (maximum duration, one per kind and target, rate limit), schedule on/off per pack.
 

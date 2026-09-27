@@ -7,6 +7,8 @@ load("@bazel_skylib//rules:build_test.bzl", "build_test")
 
 package(default_visibility = ["//demo:__subpackages__"])
 
+exports_files(["go.mod"])
+
 genrule(
     name = "tinygocheck_wasm",
     srcs = [
