@@ -6,7 +6,7 @@ The integrated [scratch database workflow](https://carverauto.buildbuddy.io/invo
 
 The [client regression run](https://carverauto.buildbuddy.io/invocation/2e9b3e25-477e-4bab-bbd0-bba33ea4796b) passed the JavaScript unit suite and three WebGPU browser cases. They cover HTTP recovery, search, actual picking, bounded detail entry/return, scene-cache identity, and conditional refetch of exactly one visible dirty tile. Canvas sizing, duplicate scene fetches across tile levels, and invalidation-triggered extra prefetch were reproduced and repaired.
 
-The shared invented million-device/two-million-relation generator passes the [layout and 1% growth regression](https://carverauto.buildbuddy.io/invocation/ebff9383-0c25-4bcd-961a-9c3e2300131d). Its production NIF/Arrow output is served over loopback HTTP to the real map renderer. Physical GPU results and their limitations are recorded in [the acceptance report](../../../docs/god-view-world-acceptance.md). The remote repository gate passed 367 targets with two skipped, and all three browser targets passed, at `f795ebe144`. Final-tree validation, no-mistakes delivery, and the persistence measurements below remain pending.
+The shared invented million-device/two-million-relation generator passes the [layout and 1% growth regression](https://carverauto.buildbuddy.io/invocation/ebff9383-0c25-4bcd-961a-9c3e2300131d). Its production NIF/Arrow output is served over loopback HTTP to the real map renderer. Physical GPU results and their limitations are recorded in [the acceptance report](../../../docs/god-view-world-acceptance.md). The remote repository gate passed 367 targets with two skipped, and all three browser targets passed, at `f795ebe144`. Scratch persistence of the invented million-device hierarchy passed at `03271edaa312`; the acceptance report records persist 435,753 ms, publish 3,682 ms, reload 58,444 ms, spatial index 7,642 ms, one zoom-16 tile query at 19,010 µs, and peak BEAM resident memory of 2,945,672 KiB. Final-tree validation and no-mistakes delivery remain pending.
 
 ## 1. Topology Contract
 
@@ -47,7 +47,7 @@ The shared invented million-device/two-million-relation generator passes the [la
 
 ## 5. Verification
 - [x] 5.1 Add invented regressions for dense fanout, giant components, isolated vertices, tile-boundary ownership, long crossing-only relations, and maximum-zoom overflow.
-- [ ] 5.2 Integrate an independently invented seeded 1,000,000-device/at-least-2,000,000-relation hierarchy; record placement, persistence, tile-index, candidate-query, memory, and encoded-byte measurements.
+- [x] 5.2 Integrate an independently invented seeded 1,000,000-device/at-least-2,000,000-relation hierarchy; record placement, persistence, tile-index, candidate-query, memory, and encoded-byte measurements.
 - [x] 5.3 Run strict OpenSpec validation for the carrier change and every touched pending duplicate delta.
 - [x] 5.4 Verify fresh-layout determinism, session persistence, exact integer stability after 1% additions, tombstone/reappearance, and separate UInt16 wire precision bounds across zooms.
 - [x] 5.5 Verify real WebGPU with packet flow enabled: first frame <=3 seconds, pan/zoom >=30 FPS, hover/select <100 milliseconds, and local tile fetch plus decode p95 <=200 milliseconds. Record GPU limits, fixture seed, budgets, and timing method; SwiftShader alone is insufficient.
