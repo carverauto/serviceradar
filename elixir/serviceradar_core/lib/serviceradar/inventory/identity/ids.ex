@@ -317,17 +317,17 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
       ids_get(ids, :integration_id) != nil or
       ids_get(ids, :netbox_id) != nil or
       ids_get(ids, :hardware_serial) != nil or
-      universal_mac_present?(ids)
+      first_universal_mac(ids) != nil
   end
 
-  defp universal_mac_present?(ids) do
+  defp first_universal_mac(ids) do
     macs =
       case ids_get(ids, :macs) do
         list when is_list(list) and list != [] -> list
         _ -> List.wrap(ids_get(ids, :mac))
       end
 
-    MapSet.size(Mac.universal_macs(macs)) > 0
+    Enum.find(macs, &(MapSet.size(Mac.universal_macs(&1)) > 0))
   end
 
   @doc """
@@ -393,7 +393,15 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
       |> maybe_add_seed("integration", ids_get(ids, :integration_id))
       |> maybe_add_seed("netbox", ids_get(ids, :netbox_id))
       |> maybe_add_seed("hardware_serial", ids_get(ids, :hardware_serial))
-      |> maybe_add_seed("mac", ids_get(ids, :mac))
+
+    # MAC-only identity uses the first universal MAC. Preserve existing seeds
+    # when another strong identifier is present, and the addressless fallback.
+    mac =
+      if seeds == [],
+        do: first_universal_mac(ids) || ids_get(ids, :mac),
+        else: ids_get(ids, :mac)
+
+    seeds = maybe_add_seed(seeds, "mac", mac)
 
     hash_input =
       cond do

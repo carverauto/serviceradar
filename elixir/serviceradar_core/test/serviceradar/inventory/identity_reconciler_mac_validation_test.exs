@@ -10,6 +10,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMacValidationTest do
 
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.Sync.Lookups
   alias ServiceRadar.Inventory.Sync.Normalize
@@ -222,21 +223,34 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMacValidationTest do
                })
     end
 
-    test "a universally administered MAC among the update's MACs is strong" do
-      base = %{
-        device_id: nil,
+    test "MAC-only identity uses the first universal MAC even after a local MAC" do
+      at_a = %{
         partition: "default",
-        metadata: %{},
-        mac: "02:00:5E:00:53:01,00:00:5E:00:53:01"
+        ip: "192.0.2.10",
+        mac: "02005E005301",
+        macs: ["02005E005301", "00005E005301", "00005E005302"]
       }
 
-      at_a = IdentityReconciler.extract_strong_identifiers(Map.put(base, :ip, "192.0.2.10"))
-      at_b = IdentityReconciler.extract_strong_identifiers(Map.put(base, :ip, "192.0.2.11"))
+      at_b = %{at_a | ip: "192.0.2.11", macs: ["02005E005301", "00005E005302"]}
+      universal_only = %{mac: "00005E005301", partition: "default"}
 
-      assert IdentityReconciler.has_strong_identifier?(at_a)
+      assert Ids.has_strong_identifier?(at_a)
 
-      assert IdentityReconciler.generate_deterministic_device_id(at_a) ==
-               IdentityReconciler.generate_deterministic_device_id(at_b)
+      assert Ids.generate_deterministic_device_id(at_a) ==
+               Ids.generate_deterministic_device_id(universal_only)
+
+      refute Ids.generate_deterministic_device_id(at_a) ==
+               Ids.generate_deterministic_device_id(at_b)
+
+      changed_local = %{
+        at_a
+        | ip: "192.0.2.12",
+          mac: "02005E005303",
+          macs: ["02005E005303", "00005E005301"]
+      }
+
+      assert Ids.generate_deterministic_device_id(at_a) ==
+               Ids.generate_deterministic_device_id(changed_local)
     end
 
     test "different primary MACs produce different UIDs" do
