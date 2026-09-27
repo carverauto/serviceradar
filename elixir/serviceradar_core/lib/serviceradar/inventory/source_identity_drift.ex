@@ -312,8 +312,10 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
   """
   def build_source_override_conflict(%{update: update, ids: ids} = override) do
     metadata = Map.get(update, :metadata) || %{}
+
     {source_type, source_identifier_type, source_value} =
       governing_source(override.claim_type, ids)
+
     device_uid = override.device_uid
     overridden = Enum.sort_by(override.overridden, & &1.device_uid)
     overridden_uids = overridden |> Enum.map(& &1.device_uid) |> Enum.uniq()
