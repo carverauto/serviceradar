@@ -61,6 +61,8 @@ defmodule ServiceRadar.NetworkDiscovery.WorldPosition do
     update :update_display do
       accept([:label, :min_zoom])
     end
+
+    destroy(:discard)
   end
 
   policies do

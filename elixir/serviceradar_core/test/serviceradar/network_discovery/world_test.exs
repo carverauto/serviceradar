@@ -3,7 +3,10 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
 
   alias Ash.Error.Forbidden
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.NetworkDiscovery.World
+  alias ServiceRadar.NetworkDiscovery.WorldInventory
+  alias ServiceRadar.NetworkDiscovery.WorldLayout
   alias ServiceRadar.Repo
 
   @moduletag :integration
@@ -37,7 +40,16 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
 
   test "incremental retirement, return and display updates preserve coordinates and parallel relations" do
     original = [position(1), position(2)]
-    relations = [relation("link-red", 1, 2), relation("link-blue", 1, 2)]
+
+    blue = %{
+      relation("link-blue", 1, 2)
+      | source_if_index: 13,
+        source_if_name: "eth13",
+        target_if_index: 17,
+        target_if_name: "eth17"
+    }
+
+    relations = [relation("link-red", 1, 2), blue]
     layout = activate(original, relations)
     version = layout.layout_version
 
@@ -69,6 +81,7 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
                  %{device_id: "sr:host01", label: "host01-renamed.example.com", min_zoom: 4},
                  %{device_id: "sr:host02", label: "host02-renamed.example.com", min_zoom: 0}
                ],
+               upsert_relations: [%{blue | source_if_index: 21, source_if_name: "eth21"}],
                source_digest: "synthetic-rename",
                node_count: 2,
                relation_count: 2
@@ -78,6 +91,16 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
     geometry = [:device_id, :x, :y, :parent_id, :component_id, :component_z, :component_x, :component_y, :placement_depth]
     assert Enum.map(after_positions, &Map.take(&1, geometry)) == Enum.map(original, &Map.take(&1, geometry))
     assert after_relations |> Enum.map(& &1.relation_id) |> Enum.sort() == ["link-blue", "link-red"]
+
+    assert %{
+             source_if_index: 21,
+             source_if_name: "eth21",
+             target_if_index: 17,
+             target_if_name: "eth17"
+           } =
+             Enum.find(after_relations, &(&1.relation_id == "link-blue"))
+
+    assert %{source_if_index: 7, target_if_index: 9} = Enum.find(after_relations, &(&1.relation_id == "link-red"))
 
     assert {:ok, %{label: "host01-renamed.example.com", min_zoom: 4, x: 100, y: 200}} =
              World.lookup_device(scope(), version, "sr:host01")
@@ -108,6 +131,60 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
     assert {:error, :incomplete_world} = World.activate_relayout(1, staged.layout_version)
     assert {:ok, %{layout_version: active, generation: 1}} = World.active_manifest(scope())
     assert active == layout.layout_version
+
+    metadata = %{source_digest: "synthetic-retry", node_count: 1, relation_count: 0}
+    assert :ok = World.stage_candidate(staged.layout_version, metadata, [position(4)], [])
+    assert {:ok, %{generation: 2}} = World.activate_relayout(1, staged.layout_version)
+    assert {:ok, nil} = World.lookup_device(scope(), staged.layout_version, "sr:host03")
+    assert {:ok, %{x: 400}} = World.lookup_device(scope(), staged.layout_version, "sr:host04")
+    assert {:error, :layout_already_published} = World.stage_candidate(staged.layout_version, metadata, [], [])
+  end
+
+  test "explicit relayout records the authorized stage and its exact job version together" do
+    actor = SystemActor.system(:topology_world_test)
+    denied = %{actor: %{id: "synthetic-reader", role: :viewer, permissions: MapSet.new(["analytics.view"])}}
+
+    authorized = %{
+      actor: %{id: "synthetic-operator", role: :viewer, permissions: MapSet.new(["settings.networks.manage"])}
+    }
+
+    count = Ash.count!(WorldLayout, actor: actor)
+
+    assert {:error, %Forbidden{}} = World.request_relayout(denied)
+    assert Ash.count!(WorldLayout, actor: actor) == count
+
+    assert {:ok, %{layout_version: version, job_id: job_id}} = World.request_relayout(authorized)
+
+    assert %{args: %{"mode" => "relayout", "layout_version" => ^version}} =
+             Repo.get!(Oban.Job, job_id, prefix: "platform")
+
+    assert %{status: :building, node_count: 0} = Ash.get!(WorldLayout, version, actor: actor)
+    assert {:error, :not_ready} = World.active_manifest(scope())
+  end
+
+  test "inventory classification streams every live device in bounded pages" do
+    actor = SystemActor.system(:topology_world_test)
+
+    devices =
+      Enum.map(1..502, fn index ->
+        %{uid: "sr:inventory-#{index}", type_id: 12, hostname: "host#{index}.example.com"}
+      end)
+
+    assert %Ash.BulkResult{status: :success} =
+             Ash.bulk_create(devices, Device, :create, actor: actor, batch_size: 500, return_errors?: true)
+
+    Device
+    |> Ash.get!("sr:inventory-502", actor: actor)
+    |> Ash.Changeset.for_update(:soft_delete, %{})
+    |> Ash.update!(actor: actor)
+
+    assert {:ok, %{sizes: [500, 1], ids: ids}} =
+             WorldInventory.stream(%{sizes: [], ids: MapSet.new()}, fn rows, acc ->
+               assert Enum.all?(rows, &(&1.importance == 0))
+               {:ok, %{sizes: acc.sizes ++ [length(rows)], ids: Enum.reduce(rows, acc.ids, &MapSet.put(&2, &1.id))}}
+             end)
+
+    assert ids == MapSet.new(1..501, &"sr:inventory-#{&1}")
   end
 
   test "stale producers cannot overwrite a newer publication or coordinate system" do
@@ -147,6 +224,12 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
     layout = activate([position(1), position(2)], [relation("first-link", 1, 2)])
     on_exit(fn -> delete_test_layout(layout.layout_version) end)
     parent = self()
+
+    if !Process.whereis(ServiceRadar.PubSub) do
+      start_supervised!({Phoenix.PubSub, name: ServiceRadar.PubSub})
+    end
+
+    Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "topology:world")
 
     reader =
       Task.async(fn ->
@@ -190,12 +273,15 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
       try do
         assert_receive {:writer_backend, backend}, 10_000
         assert_lock_wait(backend, System.monotonic_time(:millisecond) + 10_000)
+        refute_receive {:topology_world_changed, _manifest}
         send(reader.pid, :continue)
 
         assert {:ok, %{manifest: %{generation: 1}, positions: [_first, _second], relations: [_link]}} =
                  Task.await(reader, 10_000)
 
         assert {:ok, %{generation: 2}} = Task.await(writer, 10_000)
+        assert_receive {:topology_world_changed, %{layout_version: version, generation: 2}}, 1_000
+        assert version == layout.layout_version
         assert {:ok, %{positions: [_, _, _], relations: [_, _]}} = collect_world()
       after
         Task.shutdown(writer, :brutal_kill)
@@ -233,7 +319,11 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
       source_id: position(source).device_id,
       target_id: position(target).device_id,
       evidence_class: "direct",
-      role: "backbone",
+      role: nil,
+      source_if_index: 7,
+      source_if_name: "eth7",
+      target_if_index: 9,
+      target_if_name: "eth9",
       active: true
     }
   end

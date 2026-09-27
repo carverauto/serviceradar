@@ -1,3 +1,4 @@
+load("@aspect_bazel_lib//lib:write_source_files.bzl", "write_source_files")
 load("@rules_elixir//:elixir_tests.bzl", "ex_unit_tests")
 load("@rules_elixir//:ex_unit_test.bzl", "ex_unit_test")
 load("@rules_elixir//:mix_app.bzl", "mix_app")
@@ -13,8 +14,34 @@ load(
 load("@serviceradar//build:integration_tests.bzl", "requires_shared_fixture")
 load("@serviceradar//build/schema_template:replay_env.bzl", "SCHEMA_TEMPLATE_REPLAY_ENV")
 load("//build:elixir_quality.bzl", "elixir_quality")
+load("//build:world_snapshots.bzl", "world_snapshots")
 
 package(default_visibility = ["//visibility:public"])
+
+world_snapshots(
+    name = "world_schema_snapshots",
+    outs = [
+        "generated_world_snapshots/head.json",
+        "generated_world_snapshots/layouts.json",
+        "generated_world_snapshots/positions.json",
+        "generated_world_snapshots/relations.json",
+    ],
+    app = ":erlang_app",
+    generator = "//build:world_snapshots.exs",
+    tags = ["manual"],
+)
+
+write_source_files(
+    name = "update_world_schema_snapshots",
+    diff_test = False,
+    files = {
+        "priv/resource_snapshots/repo/platform.topology_world_head/20260927041102.json": ":generated_world_snapshots/head.json",
+        "priv/resource_snapshots/repo/platform.topology_world_layouts/20260927041103.json": ":generated_world_snapshots/layouts.json",
+        "priv/resource_snapshots/repo/platform.topology_world_positions/20260927041104.json": ":generated_world_snapshots/positions.json",
+        "priv/resource_snapshots/repo/platform.topology_world_relations/20260927041105.json": ":generated_world_snapshots/relations.json",
+    },
+    tags = ["manual"],
+)
 
 # Every ExUnit file in the project. test/db/** is excluded because those are the database
 # lifecycle targets (migrate_template), not suite tests -- they are declared individually.
@@ -468,6 +495,7 @@ ex_unit_tests(
         # the Go package that produces them, so the runfiles tree only contains
         # them if they are declared here.
         "//go/pkg/agent/netprobe:discovery_golden_fixtures",
+        "//elixir/serviceradar_core_elx:runtime_config",
         "//go/pkg/agent/netprobe:enrichment_golden_fixtures",
         "//addons/anomaly-addon:anomaly_manifest",
         # Likewise module level: test/serviceradar/plugins/manifest_test.exs globs

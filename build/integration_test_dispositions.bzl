@@ -473,7 +473,7 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/network_discovery/mapper_unifi_controller_test.exs": 2,
     "test/serviceradar/network_discovery/topology_graph/canonical_rebuild_fingerprint_integration_test.exs": 1,
     "test/serviceradar/network_discovery/topology_state_cleanup_test.exs": 3,
-    "test/serviceradar/network_discovery/world_test.exs": 6,
+    "test/serviceradar/network_discovery/world_test.exs": 8,
     "test/serviceradar/notifications/dispatcher_action_links_test.exs": 5,
     "test/serviceradar/notifications/dispatcher_edge_test.exs": 19,
     "test/serviceradar/notifications/dispatcher_routing_test.exs": 21,

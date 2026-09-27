@@ -12,6 +12,8 @@
         "destination_attribute_default": null,
         "destination_attribute_generated": null,
         "index?": false,
+        "index_where": null,
+        "match_tenant?": false,
         "match_type": null,
         "match_with": null,
         "multitenancy": {
@@ -242,6 +244,7 @@
         }
       ],
       "include": null,
+      "include_base_filter?": true,
       "message": null,
       "name": "topology_world_positions_active_idx",
       "nulls_distinct": true,
@@ -254,7 +257,7 @@
   ],
   "custom_statements": [],
   "has_create_action": true,
-  "hash": "C883FD7B9028D69DBA2418DFFBE49EF2A8BA0C20CB308956889F6340F91B5BCE",
+  "hash": "E5E1B1BACED563BA760007E34EA460D2A3E4EA11359645BC9668A247EA3C591E",
   "identities": [],
   "multitenancy": {
     "attribute": null,

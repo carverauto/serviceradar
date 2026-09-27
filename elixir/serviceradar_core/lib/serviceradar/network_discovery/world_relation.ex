@@ -22,6 +22,12 @@ defmodule ServiceRadar.NetworkDiscovery.WorldRelation do
       index([:layout_version, :source_id], where: "active", name: "topology_world_relations_source_idx")
       index([:layout_version, :target_id], where: "active", name: "topology_world_relations_target_idx")
     end
+
+    check_constraints do
+      check_constraint(:source_if_index, "topology_world_relations_interface_indices",
+        check: "(source_if_index IS NULL OR source_if_index > 0) AND (target_if_index IS NULL OR target_if_index > 0)"
+      )
+    end
   end
 
   actions do
@@ -31,14 +37,41 @@ defmodule ServiceRadar.NetworkDiscovery.WorldRelation do
     end
 
     create :upsert do
-      accept([:layout_version, :relation_id, :source_id, :target_id, :evidence_class, :role, :active])
+      accept([
+        :layout_version,
+        :relation_id,
+        :source_id,
+        :target_id,
+        :evidence_class,
+        :role,
+        :source_if_index,
+        :source_if_name,
+        :target_if_index,
+        :target_if_name,
+        :active
+      ])
+
       upsert?(true)
-      upsert_fields([:source_id, :target_id, :evidence_class, :role, :active, :updated_at])
+
+      upsert_fields([
+        :source_id,
+        :target_id,
+        :evidence_class,
+        :role,
+        :source_if_index,
+        :source_if_name,
+        :target_if_index,
+        :target_if_name,
+        :active,
+        :updated_at
+      ])
     end
 
     update :set_active do
       accept([:active])
     end
+
+    destroy(:discard)
   end
 
   policies do
@@ -54,7 +87,11 @@ defmodule ServiceRadar.NetworkDiscovery.WorldRelation do
     attribute(:source_id, :string, allow_nil?: false, public?: true)
     attribute(:target_id, :string, allow_nil?: false, public?: true)
     attribute(:evidence_class, :string, allow_nil?: false, public?: true)
-    attribute(:role, :string, allow_nil?: false, public?: true)
+    attribute(:role, :string, public?: true)
+    attribute(:source_if_index, :integer, public?: true, constraints: [min: 1])
+    attribute(:source_if_name, :string, public?: true)
+    attribute(:target_if_index, :integer, public?: true, constraints: [min: 1])
+    attribute(:target_if_name, :string, public?: true)
     attribute(:active, :boolean, allow_nil?: false, default: true, public?: true)
     create_timestamp(:inserted_at)
     update_timestamp(:updated_at)
