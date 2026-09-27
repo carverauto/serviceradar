@@ -61,7 +61,14 @@ spec:
       - "hostnossl all all all reject"
       - "hostssl all all all scram-sha-256"
     parameters:
-      max_connections: "200"
+      # Sized for concurrent CI. A full integration run (BazelCI, LargeIngestionGate) reserves
+      # 114 pool slots (buildbuddy.yaml --required-pool-slots), and the connection observer
+      # checks each run against this limit alone, not against slots other runs hold. At 200
+      # (197 usable) two overlapping runs would need ~228 and fail with "too many clients".
+      # 600 fits five concurrent full runs with the observer's 10% headroom. Changing it
+      # restarts both instances (CNPG rolling restart with switchover), so apply it when no
+      # CI run holds fixture connections.
+      max_connections: "600"
       shared_buffers: 512MB
 
   # User-provided server TLS from cert-manager (cert-manager.yaml). Distinct
