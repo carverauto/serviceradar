@@ -18,7 +18,7 @@ Links whose endpoints cannot be resolved SHALL be dropped and counted, not store
 - **THEN** the platform SHALL mark the link stale
 
 ### Requirement: Plugin actions can set time-bounded run overrides
-The platform SHALL accept a time-bounded run override in a plugin action result, retain it for the plugin assignment until it expires or is ended by a later action, pass every active override to each run of that assignment, and deliver an expired override marked expired to runs of that assignment until one reports success.
+The platform SHALL accept a time-bounded run override in a plugin action result, retain it for the plugin assignment until it expires or is ended by a later action, pass every active override to each run of that assignment, and deliver an expired override marked expired to runs of that assignment until one reports success, for at most seven days after expiry.
 Overrides SHALL carry an expiry no later than the maximum duration the plugin's action descriptor declares.
 
 #### Scenario: Override reaches later runs
@@ -43,6 +43,10 @@ Overrides SHALL carry an expiry no later than the maximum duration the plugin's 
 #### Scenario: Override ended early
 - **WHEN** a later action ends an active override
 - **THEN** the next run SHALL NOT receive it, expired or otherwise
+
+#### Scenario: Unacknowledged expired override is bounded
+- **WHEN** an expired override is never acknowledged because no run of its assignment succeeds, for example while the assignment is paused
+- **THEN** the platform SHALL stop delivering it seven days after its expiry
 
 ### Requirement: Plugin actions can emit events
 The platform SHALL let a plugin action entrypoint emit OCSF events through the same ingestion path as plugin run results, attributed to the plugin and assignment, so that the events reach the events store and alert engine without waiting for the next run.
