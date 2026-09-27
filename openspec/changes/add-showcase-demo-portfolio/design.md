@@ -274,9 +274,10 @@ All build, fixture, publish and deploy steps are Bazel targets; no scripts.
 dashboard package to the `demo` instance through the existing CLI publish APIs,
 installs the pack's alert rules, and assigns the plugin to the demo agent. The
 operator token is read from the client environment at run time, never as an
-action input. Cluster-side resources (replayer Deployment, WebRTC/TURN
-settings, trust for the demo upload key) are declared in `carverauto/gitops`
-for the `demo` namespace in the `carverauto` context.
+action input. The replayer Deployment is declared in `carverauto/gitops` for
+the `demo` namespace in the `carverauto` context. WebRTC/TURN settings and
+trust for the demo upload key are declared in `helm/serviceradar/values-demo.yaml`
+on `staging`, which Argo CD reads directly.
 
 ### D13. Faults on a timer or on demand, always through the plugin
 
@@ -304,9 +305,9 @@ alerts and the same metric changes.
   they expire; `simkit` overlays them exactly like scheduled faults. Runs are
   stateless, so expiry is signalled by the platform: the first run after an
   override's expiry receives it marked `expired`, and the platform discards it
-  only once a run that received it reports success, so a failed or missed run
-  is retried by the next one. The run that receives it emits the resolving
-  event and does not apply the fault.
+  once a run that received it reports success, so a failed or missed run is
+  retried by the next one, for at most seven days after expiry. The run that
+  receives it emits the resolving event and does not apply the fault.
   Ending early emits the resolving event from the action instead, and the
   override is discarded without an `expired` delivery. This is a generic
   product capability (a real plugin could use it for a maintenance window or a
