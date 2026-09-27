@@ -74,8 +74,15 @@ defmodule ServiceRadar.TopologyAtlas do
 
   def tile(world, z, x, y, %{nodes: nodes, edges: edges} = budget)
       when is_integer(z) and z in 0..24 and is_integer(x) and x in 0..16_777_215 and is_integer(y) and y in 0..16_777_215 and
-             is_integer(nodes) and nodes in 9..128 and is_integer(edges) and edges in 72..256,
-      do: Native.tile(world, z, x, y, budget)
+             is_integer(nodes) and nodes in 9..128 and is_integer(edges) and edges in 72..256 do
+    case Map.get(budget, :profile, :standard) do
+      profile when profile in [:standard, :aggregate_only] ->
+        Native.tile(world, z, x, y, Map.put(budget, :profile, profile))
+
+      _ ->
+        {:error, :invalid_tile}
+    end
+  end
 
   def tile(_world, _z, _x, _y, _budget), do: {:error, :invalid_tile}
 
@@ -98,6 +105,33 @@ defmodule ServiceRadar.TopologyAtlas do
     do: Native.tile_relations(world, selection, cursor, limit)
 
   def tile_relations(_world, _selection, _cursor, _limit), do: {:error, :invalid_page}
+
+  @doc "Create separate last-observed availability state; epochs are emitted as opaque hex identities."
+  def new_health(world, epoch) when is_integer(epoch) and epoch in 1..0xFFFFFFFFFFFFFFFF,
+    do: Native.new_health(world, epoch)
+
+  def new_health(_world, _epoch), do: {:error, :invalid_epoch}
+
+  def rebase_health(old_world, old_health, new_world, epoch) when is_integer(epoch) and epoch in 1..0xFFFFFFFFFFFFFFFF,
+    do: Native.rebase_health(old_world, old_health, new_world, epoch)
+
+  def rebase_health(_old_world, _old_health, _new_world, _epoch), do: {:error, :invalid_epoch}
+
+  def device_ids_page(world, cursor \\ nil, limit \\ 500)
+
+  def device_ids_page(world, cursor, limit) when is_integer(limit) and limit in 1..500,
+    do: Native.device_ids_page(world, cursor, limit)
+
+  def device_ids_page(_world, _cursor, _limit), do: {:error, :invalid_page}
+
+  def apply_health(world, health, sequence, rows)
+      when is_integer(sequence) and sequence in 1..0xFFFFFFFFFFFFFFFF and is_list(rows),
+      do: Native.apply_health(world, health, sequence, rows)
+
+  def apply_health(_world, _health, _sequence, _rows), do: {:error, :invalid_request}
+
+  defdelegate tile_health(world, health, selection), to: Native
+  defdelegate health_info(world, health), to: Native
 
   def positions_page(candidate, cursor, limit \\ 500)
 
