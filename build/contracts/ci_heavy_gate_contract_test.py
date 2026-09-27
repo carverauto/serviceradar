@@ -1667,6 +1667,8 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             "elixir/web-ng/assets/js/lib/god_view/topology_overview_projection.js",
             "elixir/web-ng/native/god_view_nif/src/lib.rs",
             "elixir/web-ng/world_fixture.bzl",
+            "elixir/web-ng/BUILD.bazel",
+            "elixir/web-ng/lib/serviceradar_web_ng/topology/world_tile.ex",
             "elixir/web-ng/test/fixtures/world_browser_encoder.exs",
             "elixir/serviceradar_core/native/topology_atlas_nif/src/lib.rs",
             "rust/topology-atlas/src/tiles.rs",
