@@ -1,4 +1,5 @@
 load("@rules_elixir//:mix_app.bzl", "mix_app")
+load("//build:elixir_quality.bzl", "elixir_quality")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -44,5 +45,22 @@ mix_app(
         "@hexpm//:gun",
         "@hexpm//:protobuf",
         "@rules_elixir//elixir",
+    ],
+)
+
+# `mix format --check-formatted` + `mix credo --strict`, as CI's Elixir Quality job runs them.
+# See //build:elixir_quality.bzl.
+elixir_quality(
+    source_deps = ["@hexpm//:ex_dna"],
+    tool_deps = [
+        "@hexpm//:boundary",
+        "@hexpm//:grpc",
+        "@hexpm//:gun",
+        "@hexpm//:protobuf",
+        "@hexpm//:credo",
+        "@hexpm//:ex_dna",
+        "@hexpm//:ex_slop",
+        "@hexpm//:jump_credo_checks",
+        "@hexpm//:styler",
     ],
 )

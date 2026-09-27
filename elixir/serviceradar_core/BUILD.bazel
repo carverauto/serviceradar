@@ -12,6 +12,7 @@ load(
 )
 load("@serviceradar//build:integration_tests.bzl", "requires_shared_fixture")
 load("@serviceradar//build/schema_template:replay_env.bzl", "SCHEMA_TEMPLATE_REPLAY_ENV")
+load("//build:elixir_quality.bzl", "elixir_quality")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -907,4 +908,31 @@ ex_unit_test(
         "//config/manager_config/elixir:manager",
         "//config/manager_secret/elixir:secret",
     ],
+)
+
+# `mix format --check-formatted` + `mix credo --strict`, as CI's Elixir Quality job runs them.
+# See //build:elixir_quality.bzl.
+elixir_quality(
+    extra_inputs = ["credo/**/*.ex"],
+    formatter_deps = [
+        "@hexpm//:ash",
+        "@hexpm//:ash_json_api",
+        "@hexpm//:ash_oban",
+        "@hexpm//:ash_paper_trail",
+        "@hexpm//:ash_postgres",
+        "@hexpm//:ash_state_machine",
+        "@hexpm//:ecto",
+        "@hexpm//:ecto_sql",
+    ],
+    source_deps = ["@hexpm//:ex_dna"],
+    tool_deps = CORE_DEPS + CORE_DEV_DEPS + [
+        "@hexpm//:jump_credo_checks",
+        "@hexpm//:spark",
+    ],
+)
+
+# The custom Credo checks, which web-ng's .credo.exs `requires:` from here as well.
+filegroup(
+    name = "credo_checks",
+    srcs = glob(["credo/**/*.ex"]),
 )

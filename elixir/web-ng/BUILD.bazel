@@ -9,6 +9,7 @@ load(
     "SHIPPED_ERTS_ROOT_MARKER",
     "elixir_release",
 )
+load("//build:elixir_quality.bzl", "elixir_quality")
 
 # REMOVED FOR NOW: :precommit / :precommit_check, and the two mix_deps cache layers
 # (:deps_cache, :path_deps_cache) that existed only to feed them.
@@ -545,4 +546,18 @@ ex_unit_test(
         "//config/manager_config/elixir:manager",
         "//config/manager_secret/elixir:secret",
     ],
+)
+
+# `mix format --check-formatted` + `mix credo --strict`, as CI's Elixir Quality job runs them.
+# See //build:elixir_quality.bzl.
+elixir_quality(
+    extra_inputs = ["priv/*/seeds.exs"],
+    extra_srcs = ["//elixir/serviceradar_core:credo_checks"],
+    formatter_deps = [
+        "@hexpm//:ecto",
+        "@hexpm//:ecto_sql",
+        "@hexpm//:phoenix",
+    ],
+    source_deps = ["@hexpm//:ex_dna"],
+    tool_deps = ["//elixir/serviceradar_core:erlang_app"] + WEB_NG_DEPS + WEB_NG_DEV_DEPS,
 )
