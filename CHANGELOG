@@ -1,3 +1,75 @@
+# ServiceRadar v1.4.76
+
+EventWriter sizes every stream it creates and claims only the
+streams it owns, so no install reserves more JetStream than it
+has. Docker Compose and packaged installs get the same sizing
+profiles as Helm. Migration ledgers stay in sync, and device
+identity stops merging on randomized MACs and anchorless seeds.
+
+## Whats New
+
+**1.4.76**
+- JetStream: EventWriter reads every stream size from the
+  SERVICERADAR_JS_* settings with finite defaults, claims only
+  the streams it creates through `serviceradar.owner` stream
+  metadata, and merges subjects only on a stream a collector
+  owns. A legacy unclaimed stream is claimed after a 15 minute
+  grace period, re-read just before claiming; a periodic check
+  keeps the claim without restarting consumers. NOTIFICATIONS
+  follows its discard policy, and a failed resize never delays a
+  notification (PR #4805).
+- JetStream: Docker Compose selects small, medium or large with
+  SERVICERADAR_NATS_PROFILE, and every service loads the preset.
+  The Compose NATS account quota is sized from the preset, and
+  existing installs converge through `srctl nats-account-limits`.
+  Packaged installs load `/etc/serviceradar/jetstream-sizes.env`
+  (PR #4782).
+- Migrations: `mix serviceradar.db.migrate` keeps
+  `schema_migrations` and `ash_schema_migrations` in sync in both
+  directions, so an applied migration is never run again
+  (PR #4784, PR #4819).
+- Device identity: a randomized (locally administered) MAC never
+  seeds a device id (PR #4785), an existing device no longer
+  adopts an anchorless seed record (PR #4786), and devices
+  holding different NetBox ids are never merged (PR #4778).
+- Plugins: a plugin run can be overridden for a bounded time; the
+  agent merges the override and acknowledges it (PR #4814).
+- Topology: Dgraph canonical topology reconciliation is restored,
+  counter rates are corrected, hypervisors stay visible in the
+  overview, and God View uploads a columnar snapshot for
+  WebGPU-only clients (PR #4808, PR #4806, PR #4794, PR #4812).
+- SNMP: mapper targets keep their scoped credentials, credential
+  resolution streams every matching seed device, and a bound
+  credential's security level is inferred above no-auth
+  (PR #4809, PR #4821, PR #4781).
+- SRQL: CNPG time windows and rollup averages match StarRocks,
+  checked by a parity harness (PR #4822, PR #4787).
+- Services: availability rollups are restored (PR #4807).
+- Reliability: an orphaned trace summary refresh is rescued and
+  shutdown grace is shorter (PR #4818); abandoned camera relay
+  sessions are reaped and hidden tabs release theirs (PR #4817).
+- Security: the `:stub` secret provider is test-only (PR #4791).
+- Web: service filter controls are hidden on observability panes
+  the user cannot read (PR #4823).
+
+## Upgrade Notes
+
+- Two migrations: plugin run overrides and the services
+  availability 5 minute rollup. `core.migrations.expectedVersion`
+  is `20260927120000`.
+- JetStream streams EventWriter creates now have finite sizes, and
+  EventWriter resizes only streams it owns. With flow-collector
+  disabled, `flows` converges to 1 GiB once EventWriter claims it
+  (15 minutes after upgrade for a stream created before v1.4.75).
+- Docker Compose: set SERVICERADAR_NATS_PROFILE (default small).
+  Upgraded packaged installs must change `max_file_store` in
+  `/etc/nats/nats-server.conf` to
+  `$SERVICERADAR_NATS_MAX_FILE_STORE`; see
+  `docs/nats-jetstream-packaged-upgrade.md`.
+- Helm installs that pin JetStream sizes above the profile budget
+  fail to render since v1.4.75; drop the explicit sizes or set
+  `nats.jetstream.allowOvercommit: true`.
+
 # ServiceRadar v1.4.75
 
 Internal events, logs and signals now reach storage through
