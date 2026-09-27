@@ -51,7 +51,26 @@ async function flush() {
   for (let i = 0; i < 5; i += 1) await Promise.resolve()
 }
 
-function build({allowed = true, permitted = true, fetchImpl, maxSessions} = {}) {
+function fakeTimers() {
+  const pending = new Map()
+  let next = 1
+  return {
+    pending,
+    setTimer: vi.fn((callback, delayMs) => {
+      const id = next++
+      pending.set(id, {callback, delayMs})
+      return id
+    }),
+    clearTimer: vi.fn((id) => pending.delete(id)),
+    fireAll() {
+      const due = [...pending.values()]
+      pending.clear()
+      due.forEach(({callback}) => callback())
+    },
+  }
+}
+
+function build({allowed = true, permitted = true, fetchImpl, maxSessions, hiddenReleaseGraceMs, timers} = {}) {
   const factory = fakeViewerFactory()
   const api = createDashboardCameraApi({
     capabilityAllowed: (capability) => allowed && capability === "camera.stream.view",
@@ -60,6 +79,8 @@ function build({allowed = true, permitted = true, fetchImpl, maxSessions} = {}) 
     fetchImpl: fetchImpl || vi.fn(async (url) => (url.endsWith("/close") ? jsonResponse(200, {}) : jsonResponse(201, {data: relaySession()}))),
     createViewer: factory.createViewer,
     documentRef: fakeDocument(),
+    hiddenReleaseGraceMs,
+    ...(timers ? {setTimer: timers.setTimer, clearTimer: timers.clearTimer} : {}),
   })
   return {api, ...factory}
 }
@@ -239,4 +260,101 @@ describe("dashboard camera API", () => {
     expect(viewers).toHaveLength(2)
     expect(fetchImpl.mock.calls.filter(([url]) => url === "/api/camera-relay-sessions")).toHaveLength(2)
   })
+
+  describe("page visibility", () => {
+    const closeCalls = (fetchImpl) => fetchImpl.mock.calls.filter(([url]) => url.endsWith("/close"))
+    const openCalls = (fetchImpl) => fetchImpl.mock.calls.filter(([url]) => url === "/api/camera-relay-sessions")
+
+    function setup(hiddenReleaseGraceMs) {
+      const fetchImpl = vi.fn(async (url) => (url.endsWith("/close") ? jsonResponse(200, {}) : jsonResponse(201, {data: relaySession()})))
+      const timers = fakeTimers()
+      const built = build({fetchImpl, timers, hiddenReleaseGraceMs})
+      return {fetchImpl, timers, ...built}
+    }
+
+    test("a hidden page keeps its sessions for the default 30 second grace period", async () => {
+      const {api, fetchImpl, timers, viewers} = setup(undefined)
+      const handle = api.open({camera_source_id: SOURCE, stream_profile_id: PROFILE}).attach(fakeContainer())
+      await flush()
+
+      api.pageHidden()
+      await flush()
+
+      expect(timers.setTimer).toHaveBeenCalledWith(expect.any(Function), 30_000)
+      expect(handle.state).not.toBe(CAMERA_HANDLE_STATES.SUSPENDED)
+      expect(viewers[0].close).not.toHaveBeenCalled()
+      expect(closeCalls(fetchImpl)).toHaveLength(0)
+    })
+
+    test("sessions are released once the page stays hidden past the grace period", async () => {
+      const {api, fetchImpl, timers, viewers} = setup(5_000)
+      const handle = api.open({camera_source_id: SOURCE, stream_profile_id: PROFILE}).attach(fakeContainer())
+      await flush()
+
+      api.pageHidden()
+      timers.fireAll()
+      await flush()
+
+      expect(handle.state).toBe(CAMERA_HANDLE_STATES.SUSPENDED)
+      expect(viewers[0].close).toHaveBeenCalled()
+      expect(closeCalls(fetchImpl)).toHaveLength(1)
+    })
+
+    test("becoming visible within the grace period keeps the original session", async () => {
+      const {api, fetchImpl, timers, viewers} = setup(5_000)
+      const handle = api.open({camera_source_id: SOURCE, stream_profile_id: PROFILE}).attach(fakeContainer())
+      await flush()
+
+      api.pageHidden()
+      api.pageVisible()
+      timers.fireAll()
+      await flush()
+
+      expect(timers.clearTimer).toHaveBeenCalled()
+      expect(handle.state).not.toBe(CAMERA_HANDLE_STATES.SUSPENDED)
+      expect(viewers).toHaveLength(1)
+      expect(closeCalls(fetchImpl)).toHaveLength(0)
+      expect(openCalls(fetchImpl)).toHaveLength(1)
+    })
+
+    test("becoming visible after release reopens the sessions", async () => {
+      const {api, fetchImpl, timers, viewers} = setup(5_000)
+      api.open({camera_source_id: SOURCE, stream_profile_id: PROFILE}).attach(fakeContainer())
+      await flush()
+
+      api.pageHidden()
+      timers.fireAll()
+      await flush()
+      api.pageVisible()
+      await flush()
+
+      expect(viewers).toHaveLength(2)
+      expect(openCalls(fetchImpl)).toHaveLength(2)
+    })
+
+    test("a zero grace period releases immediately", async () => {
+      const {api, timers, viewers} = setup(0)
+      const handle = api.open({camera_source_id: SOURCE, stream_profile_id: PROFILE}).attach(fakeContainer())
+      await flush()
+
+      api.pageHidden()
+      await flush()
+
+      expect(timers.setTimer).not.toHaveBeenCalled()
+      expect(handle.state).toBe(CAMERA_HANDLE_STATES.SUSPENDED)
+      expect(viewers[0].close).toHaveBeenCalled()
+    })
+
+    test("closing every session cancels a pending hidden release", async () => {
+      const {api, timers} = setup(5_000)
+      api.open({camera_source_id: SOURCE, stream_profile_id: PROFILE}).attach(fakeContainer())
+      await flush()
+
+      api.pageHidden()
+      api.closeAll()
+
+      expect(timers.pending.size).toBe(0)
+    })
+  })
 })
+

@@ -1597,6 +1597,8 @@ if config_env() == :prod do
             queue: :maintenance},
            {"*/10 * * * *", ServiceRadar.Edge.RemoteAccessRecordingReaperWorker,
             queue: :maintenance},
+           # Kept in step with serviceradar_core_elx's runtime.exs, as below.
+           {"*/2 * * * *", ServiceRadar.Camera.RelaySessionReaperWorker, queue: :maintenance},
            {"31 3 * * *", ServiceRadar.Edge.RemoteAccessVersionRetentionWorker,
             queue: :maintenance},
            # Kept in step with the same entry in serviceradar_core_elx's

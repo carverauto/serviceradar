@@ -515,6 +515,16 @@ webNg:
     integrations: 0
     maintenance: 0
     webMaintenance: 2
+  # Camera relay viewers negotiate WebRTC (membrane_webrtc) in demo so dashboard
+  # multiview tiles can play several streams; a viewer that cannot negotiate
+  # falls back to the websocket transports. The STUN entry is the same public,
+  # credential-free endpoint remote desktop uses below.
+  cameraRelay:
+    webRTC:
+      enabled: true
+      iceServers:
+        - urls:
+            - "stun:stun.cloudflare.com:3478"
   godView:
     runtimeGraphRefreshMs: 30000
     runtimeGraphAutoRefresh: true

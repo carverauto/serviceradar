@@ -293,9 +293,9 @@ const DashboardWasmHost = {
     this._onThemeChange = () => this.applyThemeStyle()
     this._onVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
-        this._cameraApi?.suspendAll()
+        this._cameraApi?.pageHidden()
       } else {
-        this._cameraApi?.resumeAll()
+        this._cameraApi?.pageVisible()
       }
     }
     window.addEventListener("resize", this._onResize)

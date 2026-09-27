@@ -1059,7 +1059,11 @@ if config_env() == :prod do
       # Expired rows of the SAML assertion replay ledger. Rows are only needed
       # until the assertion's NotOnOrAfter (minutes), so an hourly sweep keeps
       # the table small.
-      {"29 * * * *", ServiceRadar.Identity.SAMLAssertionCleanupWorker, queue: :maintenance}
+      {"29 * * * *", ServiceRadar.Identity.SAMLAssertionCleanupWorker, queue: :maintenance},
+      # Camera relay sessions whose edge pull stopped without reporting a close
+      # (tracker restart, lost close) otherwise stay requested/opening/active/
+      # closing forever. Their leases stop renewing, which is what the reaper keys on.
+      {"*/2 * * * *", ServiceRadar.Camera.RelaySessionReaperWorker, queue: :maintenance}
     ] ++
       object_store_retention_crontab ++
       capacity_forecasting_crontab ++

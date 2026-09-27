@@ -12,6 +12,10 @@ import {
 import {CameraRelayViewer, jsonHeaders, playbackMetadataFromSnapshot} from "./viewer"
 
 export const DEFAULT_MAX_CAMERA_SESSIONS = 9
+// A hidden tab keeps its relay sessions this long before releasing them, so a
+// quick tab switch does not tear down and reopen every stream, while a screen
+// left in the background stops holding relay capacity.
+export const DEFAULT_HIDDEN_RELEASE_GRACE_MS = 30_000
 export const CAMERA_STREAM_VIEW_CAPABILITY = "camera.stream.view"
 const RELAY_SESSIONS_PATH = "/api/camera-relay-sessions"
 const RELEASE_REASON = "dashboard viewer closed"
@@ -73,8 +77,21 @@ export function createDashboardCameraApi({
   fetchImpl = (...args) => globalThis.fetch(...args),
   createViewer = (options) => new CameraRelayViewer(options),
   documentRef = globalThis.document,
+  hiddenReleaseGraceMs = DEFAULT_HIDDEN_RELEASE_GRACE_MS,
+  setTimer = (callback, delayMs) => globalThis.setTimeout(callback, delayMs),
+  clearTimer = (timer) => globalThis.clearTimeout(timer),
 } = {}) {
   const handles = new Set()
+  let hiddenReleaseTimer = null
+
+  const cancelHiddenRelease = () => {
+    if (hiddenReleaseTimer === null) return
+    clearTimer(hiddenReleaseTimer)
+    hiddenReleaseTimer = null
+  }
+
+  const suspendAll = () => handles.forEach((handle) => handle.suspend())
+  const resumeAll = () => handles.forEach((handle) => handle.resume())
 
   const releaseSession = (relaySessionId) => {
     if (!relaySessionId) return
@@ -287,9 +304,33 @@ export function createDashboardCameraApi({
     maxSessions,
     open,
     activeCount: () => handles.size,
-    suspendAll: () => handles.forEach((handle) => handle.suspend()),
-    resumeAll: () => handles.forEach((handle) => handle.resume()),
-    closeAll: () => [...handles].forEach((handle) => handle.close()),
+    suspendAll,
+    resumeAll,
+    // Page visibility: release every session once the page has stayed hidden
+    // for the grace period; becoming visible cancels a pending release or
+    // reopens the sessions that were released.
+    pageHidden() {
+      if (hiddenReleaseTimer !== null) return
+      const graceMs = Number(hiddenReleaseGraceMs)
+
+      if (!Number.isFinite(graceMs) || graceMs <= 0) {
+        suspendAll()
+        return
+      }
+
+      hiddenReleaseTimer = setTimer(() => {
+        hiddenReleaseTimer = null
+        suspendAll()
+      }, graceMs)
+    },
+    pageVisible() {
+      cancelHiddenRelease()
+      resumeAll()
+    },
+    closeAll: () => {
+      cancelHiddenRelease()
+      ;[...handles].forEach((handle) => handle.close())
+    },
     // The part handed to dashboard packages.
     publicApi() {
       return {
