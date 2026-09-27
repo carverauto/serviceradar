@@ -27,6 +27,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -579,8 +580,8 @@ func accountWiringProblems(project composeProject) []string {
 	if !ok {
 		return []string{fmt.Sprintf("compose service %s is missing", natsAccountLimitsService)}
 	}
-	if !slicesContains(limits.Command, natsAccountLimitsService) {
-		problems = append(problems, fmt.Sprintf("service %s does not run the %s command: %q", natsAccountLimitsService, natsAccountLimitsService, limits.Command))
+	if len(limits.Command) != 3 || limits.Command[0] != "/bin/sh" || limits.Command[1] != "-c" {
+		problems = append(problems, fmt.Sprintf("service %s must run its command as /bin/sh -c <script>: %q", natsAccountLimitsService, limits.Command))
 	}
 	for _, edge := range [][2]string{
 		{natsAccountLimitsService, natsCredsInitService},
@@ -592,15 +593,6 @@ func accountWiringProblems(project composeProject) []string {
 		}
 	}
 	return problems
-}
-
-func slicesContains(list []string, want string) bool {
-	for _, v := range list {
-		if v == want {
-			return true
-		}
-	}
-	return false
 }
 
 // ---------------------------------------------------------------------------
@@ -886,6 +878,53 @@ func TestComposeAccountLimitsWiring(t *testing.T) {
 	}
 	for _, p := range accountWiringProblems(project) {
 		t.Error(p)
+	}
+}
+
+// The one-shot is ordered before NATS starts, so it must exit 0 whatever the
+// tools image does: a CLI that predates the subcommand, or any failure, keeps
+// the existing account quota instead of stopping NATS.
+func TestComposeAccountLimitsNeverBlocksNATS(t *testing.T) {
+	var project composeProject
+	if err := yaml.Unmarshal(readRepoFile(t, composeFile), &project); err != nil {
+		t.Fatalf("parse %s: %v", composeFile, err)
+	}
+	command := project.Services[natsAccountLimitsService].Command
+	if len(command) != 3 {
+		t.Fatalf("service %s command = %q, want /bin/sh -c <script>", natsAccountLimitsService, command)
+	}
+
+	for name, cli := range map[string]struct {
+		body     string
+		wantArgs string
+	}{
+		"succeeds":         {"exit 0", "nats-account-limits --creds-dir /etc/serviceradar/creds"},
+		"fails":            {"echo boom >&2; exit 1", "nats-account-limits --creds-dir /etc/serviceradar/creds"},
+		"predates command": {"echo 'unknown command' >&2; exit 2", "nats-account-limits --creds-dir /etc/serviceradar/creds"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			argsFile := filepath.Join(dir, "args")
+			fake := "#!/bin/sh\necho \"$*\" > " + argsFile + "\n" + cli.body + "\n"
+			if err := os.WriteFile(filepath.Join(dir, "serviceradar-cli"), []byte(fake), 0o700); err != nil {
+				t.Fatal(err)
+			}
+
+			cmd := exec.Command("/bin/sh", command[1:]...)
+			cmd.Env = []string{"PATH=" + dir + ":/usr/bin:/bin"}
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("command failed, which would stop NATS from starting: %v\n%s", err, out)
+			}
+
+			got, readErr := os.ReadFile(argsFile)
+			if readErr != nil {
+				t.Fatalf("serviceradar-cli was not run: %v", readErr)
+			}
+			if strings.TrimSpace(string(got)) != cli.wantArgs {
+				t.Errorf("serviceradar-cli args = %q, want %q", strings.TrimSpace(string(got)), cli.wantArgs)
+			}
+		})
 	}
 }
 
