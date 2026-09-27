@@ -516,7 +516,11 @@ config :serviceradar_core, ServiceRadar.NetworkDiscovery.TopologyGraph,
 config :serviceradar_core, ServiceRadar.Observability.ThreatIntelRawPayloadStore,
   jetstream_bucket: System.get_env("SERVICERADAR_OTX_RAW_BUCKET", "serviceradar_threat_intel"),
   jetstream_ttl_seconds: parse_int_env.("SERVICERADAR_OTX_RAW_TTL_SECONDS", 0),
-  jetstream_max_bucket_size: parse_int_env.("SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES", nil),
+  jetstream_max_bucket_size:
+    ServiceRadar.NATS.StateBucketSizing.bytes_from_env!(
+      "SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES",
+      ServiceRadar.Observability.ThreatIntelRawPayloadStore.default_max_bucket_bytes()
+    ),
   jetstream_max_chunk_size: parse_int_env.("SERVICERADAR_OTX_RAW_MAX_CHUNK_BYTES", nil),
   jetstream_replicas: parse_int_env.("SERVICERADAR_OTX_RAW_REPLICAS", 1),
   jetstream_storage: otx_raw_storage

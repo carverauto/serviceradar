@@ -573,10 +573,15 @@ plugin_storage_overrides =
   )
   |> maybe_put_env.(:max_upload_bytes, System.get_env("PLUGIN_STORAGE_MAX_UPLOAD_BYTES"), to_int)
   |> maybe_put_env_simple.(:jetstream_bucket, plugin_storage_bucket)
-  |> maybe_put_env.(
+  # Always finite: the plugin bucket is a discard-new state bucket whose size
+  # the NATS JetStream budget counts. Unset or blank uses the 2 GiB default; any
+  # other non-positive or non-integer value fails boot.
+  |> Keyword.put(
     :jetstream_max_bucket_size,
-    System.get_env("PLUGIN_STORAGE_JS_MAX_BUCKET_BYTES"),
-    to_int
+    ServiceRadar.NATS.StateBucketSizing.bytes_from_env!(
+      "PLUGIN_STORAGE_JS_MAX_BUCKET_BYTES",
+      ServiceRadarWebNG.Plugins.Storage.default_max_bucket_bytes()
+    )
   )
   |> maybe_put_env.(
     :jetstream_max_chunk_size,
@@ -881,6 +886,15 @@ if plugin_storage_overrides != [] do
 
   config :serviceradar_web_ng, :plugin_storage, web_plugin_storage_config
 end
+
+# FieldSurvey artifact bucket cap (discard-new state bucket). Unset or blank
+# uses the 1 GiB default; any other non-positive or non-integer value fails boot.
+config :serviceradar_web_ng, :field_survey_artifact_store,
+  jetstream_max_bucket_size:
+    ServiceRadar.NATS.StateBucketSizing.bytes_from_env!(
+      "FIELD_SURVEY_JS_MAX_BUCKET_BYTES",
+      ServiceRadarWebNG.FieldSurveyArtifactStore.default_max_bucket_bytes()
+    )
 
 object_store_retention_defaults =
   Application.get_env(:serviceradar_web_ng, :object_store_retention, [])

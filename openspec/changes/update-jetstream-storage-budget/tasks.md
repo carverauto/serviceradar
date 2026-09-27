@@ -21,9 +21,12 @@
       (`PLUGIN_STORAGE_JS_MAX_BUCKET_BYTES`) and
       `webNg.fieldSurveyArtifactStore.jetstreamMaxBucketBytes`, rendered into
       the web-ng environment; read the fieldsurvey value in web-ng
-      `runtime.exs` into `:field_survey_artifact_store`.
+      `runtime.exs` into `:field_survey_artifact_store`. The Elixir side
+      (`FIELD_SURVEY_JS_MAX_BUCKET_BYTES`, 1 GiB default) is done; the chart
+      values ship with section 3.
 - [ ] 2.5 Expose a `core` value for the threat-intel bucket, rendered as
-      `SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES`.
+      `SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES`. The Elixir side (1 GiB
+      default) is done; the chart value ships with section 3.
 - [ ] 2.6 EventWriter fallback sizes for the shared streams: read
       `SERVICERADAR_JS_EVENTS_FALLBACK_MAX_BYTES` / `_REPLICAS`,
       `SERVICERADAR_JS_FLOWS_FALLBACK_...` and
@@ -78,12 +81,12 @@
       evicts the oldest messages; log before and after.
 - [ ] 4.3 EventWriter `reconcile_stream` (discard-old): same rule for every
       EventWriter-created stream.
-- [ ] 4.4 web-ng plugin bucket (`plugins/storage.ex`): reconcile `max_bytes`
+- [x] 4.4 web-ng plugin bucket (`plugins/storage.ex`): reconcile `max_bytes`
       on startup, create-or-update, discard-new rule; an unlimited bucket
       holding more than the cap stays unlimited and is logged.
-- [ ] 4.5 web-ng fieldsurvey bucket (`field_survey_artifact_store.ex`
+- [x] 4.5 web-ng fieldsurvey bucket (`field_survey_artifact_store.ex`
       `ensure_bucket`): same rule instead of returning `:exists` untouched.
-- [ ] 4.6 core threat-intel bucket (`threat_intel_raw_payload_store.ex`): same
+- [x] 4.6 core threat-intel bucket (`threat_intel_raw_payload_store.ex`): same
       rule.
 - [ ] 4.7 Tests per owner: for discard-new buckets an existing unlimited bucket
       gets the cap when its data fits, and when it does not `max_bytes` is left
