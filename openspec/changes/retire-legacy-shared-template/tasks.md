@@ -53,7 +53,8 @@
       `\b(prepare|reset)_template\b`, `\bmigrate_(template|run)\b`, `\bprovision_(base|db)\b`)
       and account for every remaining hit as one of: protected-name list (kept until 5.x),
       retired-names contract, historical record (`CHANGELOG`, `openspec/changes/archive/`,
-      incident-rationale code comments), or documentation handed to the docs rewrite (2.12).
+      incident-rationale code comments), or documentation covered by task 2.12 (the
+      `docs/ci-schema-generation-lifecycle` PR, or its post-deletion re-check).
 - [ ] 2.10 Reconcile the pending `parallelize-core-integration-tests` delta with its owner so that
       archiving it cannot restore retired names: its scenarios naming `provision_db` and
       `provision_db_large_ingestion` name the generation clone targets instead, and its guard
@@ -63,12 +64,14 @@
 - [ ] 2.11 Tell the owner of `route-bazel-cache-through-shared-edge` that its "Developer selects one
       shard" scenario names `provision_db_s0`..`s7`, which no longer exist, so it is reconciled
       before that change archives.
-- [ ] 2.12 Hand the docs rewrite the list of pages that describe the legacy lifecycle as current:
-      `AGENTS.md` (Hard Rules template bullet and "SRQL Fixture Integration Tests"),
-      `docs/agent-runbooks.md`, `elixir/README.md`, `rust/integration-db/README.md`,
-      `config/README.md`, `k8s/srql-fixtures/README.md`,
-      `.agents/skills/srql-fixtures-db-tests/SKILL.md`, `docs/docs/ci-schema-templates.md`.
-      Do not edit them in this PR.
+- [ ] 2.12 The docs PR on branch `docs/ci-schema-generation-lifecycle` lands before this change's
+      code phase and rewrites `AGENTS.md` (Hard Rules template bullet and "SRQL Fixture
+      Integration Tests"), `docs/agent-runbooks.md`, `elixir/README.md`,
+      `rust/integration-db/README.md` and `.agents/skills/srql-fixtures-db-tests/SKILL.md` to the
+      generation lifecycle; do not edit those five in this PR. After the code deletion, re-check
+      the remaining legacy mentions: confirm `config/README.md` and `k8s/srql-fixtures/README.md`
+      (which that PR leaves untouched as still accurate) and `docs/docs/ci-schema-templates.md`
+      have no stale legacy-lifecycle claim left by this change's deletions.
 - [ ] 2.13 Run `gofmt`/`cargo fmt`/`mix format` as applicable, `cargo clippy` for
       `rust/integration-db` (all targets), `bazel build //rust/... //elixir/serviceradar_core/...`,
       `make lint`, `make test`, and `openspec validate retire-legacy-shared-template --strict`.

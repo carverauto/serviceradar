@@ -26,7 +26,8 @@ Callers were confirmed by searching `buildbuddy.yaml`, `.github/`, `Makefile`, `
   singleton; keep the one-lane developer loop; drop the database only with explicit approval and
   only after nothing can recreate it.
 - Non-Goals: changing generation semantics, registry schema, retention policy, the ordinary
-  teardown/sweep for `sr_core_test_*`, or rewriting docs (owned by the concurrent docs rewrite).
+  teardown/sweep for `sr_core_test_*`, or rewriting docs (owned by the separate docs PR on branch
+  `docs/ci-schema-generation-lifecycle`).
 
 ## Decisions
 

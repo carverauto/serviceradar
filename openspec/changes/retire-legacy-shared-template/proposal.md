@@ -70,10 +70,13 @@ This change deletes the legacy family and then, as a separate approved step, the
   (BUILD, `config/test_database_guard.exs`, `test/db/*`), `build/BUILD.bazel`,
   `build/template_authority.bzl`, `build/contracts/*`, and later `go/pkg/srqlfixture/reaper`,
   `k8s/srql-fixtures/scratch-reaper.{sql,yaml}` plus the gitops CronJob copies.
-- Docs that describe the legacy lifecycle as current are updated by the concurrent docs rewrite,
-  not by this change: `AGENTS.md` (hard rule and SRQL fixture section), `docs/agent-runbooks.md`,
-  `elixir/README.md`, `rust/integration-db/README.md`, `config/README.md`,
-  `k8s/srql-fixtures/README.md`, `.agents/skills/srql-fixtures-db-tests/SKILL.md`.
+- Docs that describe the legacy lifecycle as current are rewritten by the separate docs PR on
+  branch `docs/ci-schema-generation-lifecycle` (lands before this change's code phase), not by
+  this change: `AGENTS.md` (hard rule and SRQL fixture section), `docs/agent-runbooks.md`,
+  `elixir/README.md`, `rust/integration-db/README.md`,
+  `.agents/skills/srql-fixtures-db-tests/SKILL.md`. That PR leaves `config/README.md` and
+  `k8s/srql-fixtures/README.md` untouched as still accurate; task 2.12 re-checks both after the
+  code deletion.
 - Manifest identity: several deleted files are declared schema-template inputs, so the first CI
   run after each code phase cold-builds one new generation. That is expected and bounded by
   `cleanup_generations` retention.
