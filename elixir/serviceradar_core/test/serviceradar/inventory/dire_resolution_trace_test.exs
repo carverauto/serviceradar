@@ -255,11 +255,11 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
     |> DireTrace.assert_golden!()
   end
 
-  # #4705 (seed_adopts_existing, still present): an existing identified device moves onto an
-  # address a sweep seeded. Steps: Armis A (a1, no MAC reported) is synced at p1; DHCP moves A to
-  # p2; a sweep finds p2 answering and creates a provisional record there; A is synced at p2,
-  # twice. Today each sync is written onto the seed: A keeps a1 and its stale address p1, and no
-  # decision is recorded. The goal (#4639) has A take p2 and the seed release it, recorded.
+  # #4705 (fixed, seed_adopts_existing): an existing identified device moves onto an address a
+  # sweep seeded. Steps: Armis A (a1, no MAC reported) is synced at p1; DHCP moves A to p2; a
+  # sweep finds p2 answering and creates a provisional record there; A is synced at p2, twice.
+  # Expected: A takes p2, the seed releases it and stays live, and the conflict is recorded. Each
+  # sync used to be written onto the seed, leaving A at its stale address p1 with no decision.
   test "armis_moves_onto_sweep_seed", %{actor: actor} do
     world = %{
       phys: ["h1"],
@@ -281,7 +281,7 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
     |> DireTrace.sweep("h1", "x1")
     |> DireTrace.armis("h1", "x1")
     |> DireTrace.armis("h1", "x1")
-    |> DireTrace.assert_golden!(demonstrates: "seed_adopts_existing")
+    |> DireTrace.assert_golden!()
   end
 
   # #4638 (fixed): the mapper resolves a polled device by its interface MACs, not by the address

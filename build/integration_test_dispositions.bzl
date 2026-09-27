@@ -446,7 +446,7 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/inventory/sync_ingestor_active_ip_cross_handoff_test.exs": 1,
     "test/serviceradar/inventory/sync_ingestor_concurrency_test.exs": 1,
     "test/serviceradar/inventory/sync_ingestor_deferred_effects_db_test.exs": 3,
-    "test/serviceradar/inventory/sync_ingestor_ip_conflict_test.exs": 20,
+    "test/serviceradar/inventory/sync_ingestor_ip_conflict_test.exs": 21,
     "test/serviceradar/inventory/sync_ingestor_passive_netprobe_identity_test.exs": 9,
     "test/serviceradar/inventory/sync_ingestor_vendor_type_test.exs": 43,
     "test/serviceradar/inventory/virtualization_v3_identity_db_test.exs": 2,

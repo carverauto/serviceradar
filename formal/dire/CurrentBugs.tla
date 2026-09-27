@@ -13,7 +13,7 @@
 (* knockout is deleted.                                                     *)
 (***************************************************************************)
 
-ResolutionBugs == {"seed_adopts_existing"}
+ResolutionBugs == {}
 
 LifecycleBugs == {
 }

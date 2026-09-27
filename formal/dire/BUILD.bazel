@@ -152,14 +152,6 @@ tlc_test(
     deps = ["DireResolution.tla"],
 )
 
-tlc_test(
-    name = "resolution_witness_seed_adopts_existing_test",
-    cfg = "resolution_witness_seed_adopts_existing.cfg",
-    expect = "violation:ObservedAddressHeld",
-    spec = "MCDireResolution.tla",
-    deps = ["DireResolution.tla"],
-)
-
 # ---- Traces recorded from the real code (a matched trace reaches its last state) ----
 # A __tamper_<var> variant alters one variable in the final state and must NOT be matched.
 
@@ -523,18 +515,6 @@ tlc_test(
     name = "trace_armis_moves_onto_sweep_seed_test",
     cfg = "traces/Trace_armis_moves_onto_sweep_seed.cfg",
     expect = "violation:TraceIncomplete",
-    spec = "traces/Trace_armis_moves_onto_sweep_seed.tla",
-    deps = [
-        "CurrentBugs.tla",
-        "DireResolution.tla",
-        "DireResolutionTrace.tla",
-    ],
-)
-
-# The same trace without the switch it demonstrates must NOT be matched.
-tlc_test(
-    name = "trace_armis_moves_onto_sweep_seed__knockout_test",
-    cfg = "traces/Trace_armis_moves_onto_sweep_seed__knockout.cfg",
     spec = "traces/Trace_armis_moves_onto_sweep_seed.tla",
     deps = [
         "CurrentBugs.tla",
