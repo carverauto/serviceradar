@@ -178,6 +178,14 @@ defmodule ServiceRadarWebNGWeb.Topology.AtlasChannelDBTest do
     refute_receive {:socket_push, _, _}
   end
 
+  test "legacy join denies a role granted analytics.view but not devices.view", context do
+    context.profile
+    |> Ash.Changeset.for_update(:update_system, %{permissions: ["analytics.view"]}, scope: context.system_scope)
+    |> Ash.update!()
+
+    assert {:error, %{reason: "forbidden"}} = TopologyChannel.join(@topic, %{}, context.socket)
+  end
+
   test "scoped inventory changes invalidate final revisions without replacing the canonical graph", context do
     device =
       Device

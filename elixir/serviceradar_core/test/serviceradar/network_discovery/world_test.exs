@@ -18,17 +18,21 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
   @moduletag :integration
 
   test "staging stays invisible and bootstrap follows every bounded page" do
-    positions = Enum.map(1..503, &position/1)
+    # 5,003 positions crosses the stream reload page size (5,000) by 3, so the
+    # bootstrap read below must span two pages rather than returning everything at once.
+    position_count = 5_003
+    positions = Enum.map(1..position_count, &position/1)
     version = Ecto.UUID.generate()
-    metadata = %{source_digest: "synthetic-cold-start", node_count: 503, relation_count: 0}
+    metadata = %{source_digest: "synthetic-cold-start", node_count: position_count, relation_count: 0}
     assert :ok = World.stage_candidate(version, metadata, positions, [])
     assert {:error, :not_ready} = World.active_manifest(scope())
     assert {:ok, nil} = World.lookup_device(scope(), version, "sr:host01")
 
-    assert {:ok, %{layout_version: ^version, generation: 1, node_count: 503, relation_count: 0}} =
+    assert {:ok,
+            %{layout_version: ^version, generation: 1, node_count: ^position_count, relation_count: 0}} =
              World.activate_relayout(0, version)
 
-    assert {:ok, %{manifest: %{node_count: 503}, batches: [500, 3], ids: ids}} =
+    assert {:ok, %{manifest: %{node_count: ^position_count}, batches: [5_000, 3], ids: ids}} =
              World.stream_active(%{batches: [], ids: MapSet.new()}, fn
                {:manifest, manifest}, acc ->
                  {:ok, Map.put(acc, :manifest, manifest)}

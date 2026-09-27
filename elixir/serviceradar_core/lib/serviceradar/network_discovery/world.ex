@@ -24,6 +24,11 @@ defmodule ServiceRadar.NetworkDiscovery.World do
   require Ash.Query
 
   @batch_size 500
+  # Reload streams read-only rows under a shared lock, so a page can be far larger than a
+  # write batch without risking a long-held exclusive lock or an oversized upsert statement.
+  # At @batch_size a 2M-relation world reload needs 4,000 sequential round trips inside one
+  # transaction; @stream_batch_size cuts that by 10x within the same @publication_timeout.
+  @stream_batch_size 5_000
   # Initial million-device stages write three million rows without holding the
   # active head. Leave time within WorldWorker's 15-minute deadline for source
   # reads and placement; readers and visible publications retain a shorter lease.
@@ -449,7 +454,7 @@ defmodule ServiceRadar.NetworkDiscovery.World do
       |> Ash.Query.for_read(:read)
       |> Ash.Query.filter(layout_version == ^version)
       |> Ash.Query.sort([{id_field, :asc}])
-      |> Ash.Query.limit(@batch_size)
+      |> Ash.Query.limit(@stream_batch_size)
 
     query = if resource == WorldRelation, do: Ash.Query.filter(query, active), else: query
 

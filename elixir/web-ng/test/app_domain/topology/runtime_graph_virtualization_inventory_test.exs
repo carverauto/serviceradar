@@ -81,4 +81,13 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphVirtualizationInventoryTest do
     assert row["metadata"]["virtualization_provider"] == "proxmox"
     assert row["metadata"]["virtualization_guest_vmid"] == 100
   end
+
+  test "fetch_topology_links_with_virtualization/1 degrades gracefully when the inventory query fails" do
+    primary_rows = [%{local_device_id: "sr:a", neighbor_device_id: "sr:b"}]
+
+    assert {:error, _} = Repo.query("SELECT 1 / 0", [])
+
+    assert {:ok, ^primary_rows} =
+             RuntimeGraph.fetch_topology_links_with_virtualization(primary_rows)
+  end
 end
