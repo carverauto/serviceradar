@@ -262,8 +262,11 @@ de-duplication task for that device set (`platform.identity_deduplication_tasks`
 `ServiceRadar.Inventory.DeduplicationTask`); the scheduled duplicate sweep records each
 ambiguous component it declines the same way (`component_block`). There is exactly one task per
 device set for its whole life; later decisions update its count, last reason and evidence.
-SRQL `in:deduplication_tasks` lists them (`status:open` for the review queue); the
-`trace_device_identity` MCP tool reports a device's open tasks.
+SRQL `in:deduplication_tasks` lists them (`status:open` for open tasks); the
+`trace_device_identity` MCP tool reports a device's open tasks. The web UI review queue is at
+`/devices/deduplication` (the "De-duplication" button on the Devices page): it shows each task's
+devices, including ones merged away since, and the identity decisions about exactly that device
+set. Anyone with `devices.view` can read it; only operators can resolve tasks from it.
 
 An operator resolves an open task through `ServiceRadar.Inventory.Identity.Deduplication`:
 
@@ -274,7 +277,8 @@ An operator resolves an open task through `ServiceRadar.Inventory.Identity.Dedup
   (`platform.identity_distinct_assertions`). `MergeEngine` then refuses every automatic merge of
   those pairs (guard `asserted_distinct`), the scheduled backfill included, and later decisions
   about the set open no task.
-- `dismiss/3` closes it without a decision; a dismissed task can be reopened.
+- `dismiss/3` closes it without a decision; `reopen/2` reopens a dismissed task (a merged or
+  distinct task stays resolved).
 
 Every resolution, dismissal and reopen publishes a refresh pulse so a review queue open in
 another session updates; see `ServiceRadar.Inventory.DeduplicationTaskNotifier`.
