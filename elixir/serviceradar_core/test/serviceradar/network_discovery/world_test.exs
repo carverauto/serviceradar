@@ -212,10 +212,12 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
   test "manifest and inventory permissions remain distinct and invalid grid cells are rejected" do
     layout = activate([position(1)], [])
     analytics = %{actor: %{id: "synthetic-viewer", role: :viewer, permissions: MapSet.new(["analytics.view"])}}
+    inventory = put_in(analytics.actor.permissions, MapSet.new(["analytics.view", "devices.view"]))
 
     assert {:ok, %{generation: 1}} = World.active_manifest(analytics)
-    assert {:error, %Forbidden{}} = World.lookup_device(analytics, layout.layout_version, "sr:host01")
-    assert {:error, %Forbidden{}} = World.active_manifest(nil)
+    assert {:ok, %{device_id: "sr:host01"}} = World.lookup_device(inventory, layout.layout_version, "sr:host01")
+    assert {:ok, nil} = World.lookup_device(analytics, layout.layout_version, "sr:host01")
+    assert {:error, :not_ready} = World.active_manifest(nil)
 
     assert {:error, %Forbidden{}} =
              World.stage_relayout(analytics, %{source_digest: "synthetic-denied", node_count: 0, relation_count: 0})
@@ -330,8 +332,8 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
     assert Ash.get!(WorldLayout, obsolete.layout_version, actor: scope().actor)
 
     assert :ok = WorldRetentionWorker.perform(%Oban.Job{})
-    assert {:ok, nil} = Ash.get(WorldLayout, obsolete.layout_version, actor: scope().actor)
-    assert {:ok, nil} = Ash.get(WorldLayout, abandoned.layout_version, actor: scope().actor)
+    assert layout_rows(WorldLayout, obsolete.layout_version) == 0
+    assert layout_rows(WorldLayout, abandoned.layout_version) == 0
     assert layout_rows(WorldPosition, obsolete.layout_version) == 0
     assert layout_rows(WorldRelation, obsolete.layout_version) == 0
     assert layout_rows(WorldPosition, abandoned.layout_version) == 0
@@ -347,7 +349,7 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
 
     assert :ok = Oban.cancel_job(pending.job_id)
     assert :ok = WorldRetentionWorker.perform(%Oban.Job{})
-    assert {:ok, nil} = Ash.get(WorldLayout, pending.layout_version, actor: scope().actor)
+    assert layout_rows(WorldLayout, pending.layout_version) == 0
     assert layout_rows(WorldPosition, pending.layout_version) == 0
     assert {:ok, :idle} = WorldRetention.prune_batch()
   end
