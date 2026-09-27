@@ -18,6 +18,10 @@ defmodule ServiceRadar.NetworkDiscovery do
     resource ServiceRadar.NetworkDiscovery.MapperMikrotikController
     resource ServiceRadar.NetworkDiscovery.MapperUnifiController
     resource ServiceRadar.NetworkDiscovery.TopologyLink
+    resource ServiceRadar.NetworkDiscovery.WorldHead
+    resource ServiceRadar.NetworkDiscovery.WorldLayout
+    resource ServiceRadar.NetworkDiscovery.WorldPosition
+    resource ServiceRadar.NetworkDiscovery.WorldRelation
   end
 
   authorization do
