@@ -533,9 +533,11 @@ defmodule ServiceRadarWebNGWeb.Stats do
 
   # With the warehouse enabled the spans, their summaries and the rollup all
   # live there (priv/starrocks/0022), and the CNPG relations stop receiving
-  # rows. A relation the warehouse cannot read reads as missing. The marks are
-  # taken over the last day, which the day partitions (and the summary table's
-  # timestamp sort) prune to; a quiet day reads as no raw traces, not a lag.
+  # rows. A probe error (connectivity blip, query timeout) cannot tell a
+  # missing relation apart from an unreachable one, so it reports as unknown
+  # health rather than a missing relation. The marks are taken over the last
+  # day, which the day partitions (and the summary table's timestamp sort)
+  # prune to; a quiet day reads as no raw traces, not a lag.
   defp starrocks_trace_rollup_status(opts) do
     threshold_seconds =
       Keyword.get(opts, :stale_threshold_seconds, trace_rollup_stale_threshold_seconds())
@@ -543,18 +545,23 @@ defmodule ServiceRadarWebNGWeb.Stats do
     query = Keyword.get(opts, :query, &StarRocksQuery.execute/1)
     cutoff = DateTime.utc_now() |> DateTime.add(-86_400, :second) |> warehouse_instant()
 
-    raw = warehouse_latest(query, "otel_traces", "timestamp", cutoff)
-    summary = warehouse_latest(query, "otel_trace_summaries", "timestamp", cutoff)
-    rollup = warehouse_latest(query, "traces_stats_5m", "bucket", cutoff)
-
-    assess_trace_rollup_status(
-      summary_table_present?: summary != :missing,
-      traces_rollup_present?: rollup != :missing,
-      raw_latest_timestamp: present_mark(raw),
-      summary_latest_timestamp: present_mark(summary),
-      rollup_latest_bucket: present_mark(rollup),
-      stale_threshold_seconds: threshold_seconds
-    )
+    with {:ok, raw} <- warehouse_latest(query, "otel_traces", "timestamp", cutoff),
+         {:ok, summary} <- warehouse_latest(query, "otel_trace_summaries", "timestamp", cutoff),
+         {:ok, rollup} <- warehouse_latest(query, "traces_stats_5m", "bucket", cutoff) do
+      assess_trace_rollup_status(
+        backend: :starrocks,
+        summary_table_present?: true,
+        traces_rollup_present?: true,
+        raw_latest_timestamp: raw,
+        summary_latest_timestamp: summary,
+        rollup_latest_bucket: rollup,
+        stale_threshold_seconds: threshold_seconds
+      )
+    else
+      {:error, reason} ->
+        Logger.warning("trace rollup probe failed: #{inspect(reason, limit: 10)}")
+        empty_trace_rollup_status()
+    end
   rescue
     error ->
       Logger.warning("trace rollup health verification failed: #{Exception.message(error)}")
@@ -569,12 +576,9 @@ defmodule ServiceRadarWebNGWeb.Stats do
     case query.(sql) do
       {:ok, %{rows: [[value]]}} -> {:ok, warehouse_datetime(value)}
       {:ok, _result} -> {:ok, nil}
-      {:error, _reason} -> :missing
+      {:error, reason} -> {:error, reason}
     end
   end
-
-  defp present_mark({:ok, value}), do: value
-  defp present_mark(:missing), do: nil
 
   # StarRocks holds naive UTC and evaluates NOW() in the Frontend's zone, so
   # bounds are passed as UTC literals.
@@ -627,6 +631,7 @@ defmodule ServiceRadarWebNGWeb.Stats do
   @doc false
   @spec assess_trace_rollup_status(keyword()) :: trace_rollup_status()
   def assess_trace_rollup_status(opts) do
+    backend = Keyword.get(opts, :backend, :cnpg)
     summary_table_present? = Keyword.get(opts, :summary_table_present?, false)
     traces_rollup_present? = Keyword.get(opts, :traces_rollup_present?, false)
     raw_latest_timestamp = Keyword.get(opts, :raw_latest_timestamp)
@@ -639,14 +644,8 @@ defmodule ServiceRadarWebNGWeb.Stats do
 
     messages =
       []
-      |> maybe_add_message(
-        not summary_table_present?,
-        "Missing trace summary table: platform.otel_trace_summaries."
-      )
-      |> maybe_add_message(
-        not traces_rollup_present?,
-        "Missing trace rollup: platform.traces_stats_5m continuous aggregate."
-      )
+      |> maybe_add_message(not summary_table_present?, missing_summary_table_message(backend))
+      |> maybe_add_message(not traces_rollup_present?, missing_traces_rollup_message(backend))
       |> maybe_add_message(
         raw_latest_timestamp && summary_table_present? && is_nil(summary_latest_timestamp),
         "Trace summaries are empty while raw traces exist."
@@ -676,6 +675,18 @@ defmodule ServiceRadarWebNGWeb.Stats do
       messages: messages
     }
   end
+
+  defp missing_summary_table_message(:starrocks),
+    do: "Missing trace summary table: otel_trace_summaries."
+
+  defp missing_summary_table_message(_backend),
+    do: "Missing trace summary table: platform.otel_trace_summaries."
+
+  defp missing_traces_rollup_message(:starrocks),
+    do: "Missing trace rollup: traces_stats_5m materialized view."
+
+  defp missing_traces_rollup_message(_backend),
+    do: "Missing trace rollup: platform.traces_stats_5m continuous aggregate."
 
   # Re-export empty defaults for convenience
   defdelegate empty_logs_severity(), to: Extract

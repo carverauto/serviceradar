@@ -50,19 +50,34 @@ defmodule ServiceRadarWebNGWeb.StatsTraceRollupStarRocksTest do
     end
   end
 
-  test "reports a lagging summary table, and a relation the warehouse cannot read as missing" do
+  test "reports a lagging summary table when all probes succeed" do
     query =
       warehouse([
         {"otel_traces", {:ok, %{rows: [[~N[2026-01-15 10:00:00]]]}}},
         {"otel_trace_summaries", {:ok, %{rows: [[~N[2026-01-15 08:00:00]]]}}},
-        {"traces_stats_5m", {:error, {:starrocks_mysql, "Unknown table"}}}
+        {"traces_stats_5m", {:ok, %{rows: [[~N[2026-01-15 09:55:00]]]}}}
       ])
 
     status = Stats.trace_rollup_status(query: query, stale_threshold_seconds: 1_800)
 
     refute status.healthy?
-    refute status.traces_rollup_present?
+    assert status.traces_rollup_present?
     assert status.summary_lag_seconds == 7_200
     assert Enum.any?(status.messages, &(&1 =~ "Trace summaries lag raw traces"))
+  end
+
+  test "reports a probe error as unknown health, not a missing relation" do
+    query =
+      warehouse([
+        {"otel_traces", {:ok, %{rows: [[~N[2026-01-15 10:00:00]]]}}},
+        {"otel_trace_summaries", {:ok, %{rows: [[~N[2026-01-15 09:59:30]]]}}},
+        {"traces_stats_5m", {:error, {:starrocks_mysql, "Unknown table"}}}
+      ])
+
+    status = Stats.trace_rollup_status(query: query)
+
+    assert status == Stats.empty_trace_rollup_status()
+    assert status.healthy?
+    assert status.messages == []
   end
 end
