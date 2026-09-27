@@ -73,7 +73,6 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
   alias ServiceRadar.EventWriter.SignalTelemetry
   alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
   alias ServiceRadar.Observability.OtelPubSub
-  alias ServiceRadar.SweepJobs.ObanSupport
 
   require Logger
 
@@ -148,8 +147,10 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
     {:ok, count}
   end
 
+  # Also the prompt path out of an orphaned refresh: enqueue/0 rescues an
+  # executing row whose run is provably dead instead of coalescing into it.
   defp request_summary_refresh do
-    case %{} |> RefreshTraceSummariesWorker.new() |> ObanSupport.safe_insert() do
+    case RefreshTraceSummariesWorker.enqueue() do
       {:ok, _job} ->
         :ok
 

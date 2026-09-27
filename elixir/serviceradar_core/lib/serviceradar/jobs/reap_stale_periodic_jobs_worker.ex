@@ -15,6 +15,15 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorker do
   Jobs older than the configured stale threshold are transitioned back to `available`
   or `discarded`, and the cleanup is emitted via telemetry/logs so operators can see
   which workers and job ids were affected.
+
+  Age is all this sweep can go by, so the threshold has to exceed any legitimate run
+  and an orphan left by an ordinary deploy blocks its worker for hours. A worker that
+  can prove its own executing rows are dead implements `ServiceRadar.Jobs.OrphanRescue`
+  and is listed in `orphan_rescue_workers/0`; each pass calls its `rescue_orphaned/1`
+  first, which rescues provable orphans immediately and leaves a live run alone. The
+  age-based sweep still runs afterwards, for every worker, as the fallback for what
+  that proof cannot cover. Jobs rescued either way are reported together as
+  `rescued_jobs`.
   """
 
   use Oban.Worker,
@@ -66,6 +75,9 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorker do
     "ServiceRadarWebNG.Plugins.BlobRetentionWorker",
     "ServiceRadarWebNG.Plugins.FirstPartySyncWorker"
   ]
+
+  # Workers implementing ServiceRadar.Jobs.OrphanRescue.
+  @orphan_rescue_workers [ServiceRadar.Jobs.RefreshTraceSummariesWorker]
 
   @completed_event [:serviceradar, :jobs, :periodic_cleanup, :completed]
   @failed_event [:serviceradar, :jobs, :periodic_cleanup, :failed]
@@ -125,9 +137,44 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorker do
     end
   end
 
+  @doc """
+  Workers whose orphaned `executing` rows each pass rescues by proof rather than age.
+
+  Each implements `ServiceRadar.Jobs.OrphanRescue`.
+  """
+  @spec orphan_rescue_workers() :: [module()]
+  def orphan_rescue_workers, do: @orphan_rescue_workers
+
   @spec reap_stale_jobs() ::
           {:ok, %{rescued_jobs: [job_ref()], discarded_jobs: [job_ref()]}} | {:error, term()}
   def reap_stale_jobs do
+    orphans_rescued = rescue_provable_orphans()
+
+    with {:ok, %{rescued_jobs: rescued_jobs} = result} <- reap_jobs_past_threshold() do
+      {:ok, %{result | rescued_jobs: orphans_rescued ++ rescued_jobs}}
+    end
+  end
+
+  # One worker's failure is logged and skipped: it must neither stop the others
+  # nor the age-based sweep, which still covers that worker's rows.
+  defp rescue_provable_orphans do
+    Enum.flat_map(orphan_rescue_workers(), fn worker ->
+      case worker.rescue_orphaned([]) do
+        {:ok, rescued} ->
+          rescued
+
+        {:error, reason} ->
+          Logger.warning("Orphan rescue failed; the age-based sweep still covers it",
+            worker: inspect(worker),
+            reason: inspect(reason)
+          )
+
+          []
+      end
+    end)
+  end
+
+  defp reap_jobs_past_threshold do
     now = DateTime.utc_now()
     cutoff = DateTime.add(now, -stale_threshold_minutes() * 60, :second)
 

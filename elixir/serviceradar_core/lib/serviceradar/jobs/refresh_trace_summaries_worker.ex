@@ -46,7 +46,44 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   Oban counts every snooze as an attempt, so `backoff/1` discounts them;
   otherwise a failure after a long stream of follow-ups would be retried days
   later, and the retryable job would block every refresh until then.
+
+  ## Orphaned runs
+
+  A node that stops mid-run (rolling deploy, eviction, drain, OOMKill) leaves
+  this job's row `executing`, and because uniqueness covers `:incomplete` that
+  row blocks every refresh -- ingest enqueues and the cron alike -- until
+  something rescues it. The generic rescuers go by age alone and wait 240
+  minutes, so an ordinary deploy could leave trace summaries hours stale.
+
+  This worker does not have to guess. `perform/1` runs the whole refresh in one
+  transaction that first takes the `trace_summaries` advisory transaction lock,
+  so a killed run is rolled back by Postgres: the lock is released and the
+  watermark does not advance. A row that is `executing` while nobody holds that
+  lock is therefore not running. `rescue_orphaned/1` makes that proof and puts
+  such rows back to `available`; it is called from `enqueue/0` when an ingest
+  insert collides with an executing row (throttled per node), and on every pass
+  of `ServiceRadar.Jobs.ReapStalePeriodicJobsWorker` through the
+  `ServiceRadar.Jobs.OrphanRescue` behaviour.
+
+  A live run can hold the row `executing` without holding the lock at two
+  points, and `orphan_grace_seconds/0` covers both:
+
+    * before `perform/1` acquires the lock (Oban has marked the row executing,
+      the run is still checking out a connection), which `attempted_at` must
+      be older than the grace to rule out; and
+    * after the transaction commits and before Oban records the outcome (the
+      trailing-refresh probe, bounded by `probe_timeout_ms/0`), which the
+      watermark's `updated_at` rules out: a run that committed within the grace
+      may still be finishing, so nothing is rescued until the watermark has been
+      quiet for the whole grace. The grace is never shorter than that probe's
+      timeout.
+
+  A run whose lock is held is never rescued, however old it is. A backend whose
+  client vanished without closing its socket keeps the lock until Postgres
+  notices, so that case still falls back to the age-based rescuers.
   """
+
+  @behaviour ServiceRadar.Jobs.OrphanRescue
 
   @max_attempts 3
   use Oban.Worker,
@@ -54,12 +91,32 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
     max_attempts: @max_attempts,
     unique: [period: :infinity, states: :incomplete]
 
+  import Ecto.Query, only: [from: 2]
+
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Observability.OtelPubSub
+  alias ServiceRadar.Repo
+  alias ServiceRadar.SweepJobs.ObanSupport
 
   require Logger
 
   @watermark_key "trace_summaries"
+  @worker_name inspect(__MODULE__)
+
+  # One refresh at a time. Transaction-scoped, so Postgres releases it when a
+  # run commits, rolls back, or loses its connection -- which is what lets
+  # rescue_orphaned/1 treat a free lock as proof that no run is in flight.
+  @try_refresh_lock_sql "SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0))"
+
+  # A run committed (and wrote the watermark) within the grace: it may still be
+  # finishing its trailing-refresh probe with the lock already released.
+  @watermark_written_within_sql """
+  SELECT EXISTS(
+    SELECT 1
+    FROM observability_watermarks
+    WHERE key = $1 AND updated_at > NOW() - ($2::int * INTERVAL '1 second')
+  )
+  """
 
   # Upsert traces whose spans were ingested within (`$1`, `$2`].
   # For each matching trace_id, aggregates ALL its spans inside the configured
@@ -246,6 +303,12 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   @default_watermark_timeout_ms 30_000
   @default_cleanup_timeout_ms 60_000
   @default_remaining_estimate_timeout_ms 30_000
+  @default_orphan_grace_seconds 60
+  @default_orphan_probe_interval_seconds 30
+  # Slack added to the trailing-probe timeout when flooring the grace.
+  @orphan_grace_probe_margin_seconds 10
+  @orphan_probe_throttle_key {__MODULE__, :orphan_probe_last_ms}
+  @min_signed_64 -0x8000000000000000
 
   def upsert_sql, do: @upsert_sql
   def cleanup_batch_sql, do: @cleanup_batch_sql
@@ -262,16 +325,252 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   def cleanup_timeout_ms,
     do: config_positive_integer(:cleanup_timeout_ms, @default_cleanup_timeout_ms)
 
+  @doc """
+  How long a row must have been executing, and the watermark quiet, before
+  `rescue_orphaned/1` may treat a free refresh lock as proof the run is dead.
+
+  Configured with `:orphan_grace_seconds` (default #{@default_orphan_grace_seconds}),
+  and never shorter than the trailing-refresh probe timeout plus
+  #{@orphan_grace_probe_margin_seconds}s, because a live run spends up to that long
+  after its commit with the lock released (see the moduledoc).
+  """
+  @spec orphan_grace_seconds() :: pos_integer()
+  def orphan_grace_seconds do
+    configured = config_positive_integer(:orphan_grace_seconds, @default_orphan_grace_seconds)
+    probe_floor = div(probe_timeout_ms() + 999, 1000) + @orphan_grace_probe_margin_seconds
+
+    max(configured, probe_floor)
+  end
+
+  @doc """
+  Minimum interval between orphan probes made from `enqueue/0` on one node.
+
+  Configured with `:orphan_probe_interval_ms`; defaults to
+  #{@default_orphan_probe_interval_seconds}s. Every span batch enqueues a refresh, so
+  without it a long live run would be probed once per batch.
+  """
+  @spec orphan_probe_interval_ms() :: pos_integer()
+  def orphan_probe_interval_ms do
+    config_positive_integer(
+      :orphan_probe_interval_ms,
+      to_timeout(second: @default_orphan_probe_interval_seconds)
+    )
+  end
+
+  @doc """
+  Request a refresh, as the EventWriter does after each span batch.
+
+  Uniqueness coalesces the request into any pending or running job. When it
+  collides with a row that has been executing for longer than the grace, that
+  row may be an orphan blocking every refresh, so this also runs
+  `rescue_orphaned/1` -- at most once per `orphan_probe_interval_ms/0` on this
+  node, and never for a row the probe finds live. A rescued row is `available`
+  again and is the refresh this call asked for, so nothing is re-inserted.
+  """
+  @spec enqueue() :: {:ok, Oban.Job.t()} | {:error, term()}
+  def enqueue do
+    with {:ok, job} <- %{} |> new() |> ObanSupport.safe_insert() do
+      maybe_rescue_conflict(job)
+      {:ok, job}
+    end
+  end
+
+  defp maybe_rescue_conflict(%Oban.Job{conflict?: true, state: "executing"} = job) do
+    if executing_past_grace?(job) and orphan_probe_permitted?() do
+      case rescue_orphaned() do
+        {:ok, _rescued} ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning("Trace summaries orphan probe failed: #{inspect(reason)}")
+      end
+    end
+
+    :ok
+  end
+
+  defp maybe_rescue_conflict(_job), do: :ok
+
+  defp executing_past_grace?(%Oban.Job{attempted_at: %DateTime{} = attempted_at}) do
+    DateTime.diff(DateTime.utc_now(), attempted_at, :second) >= orphan_grace_seconds()
+  end
+
+  defp executing_past_grace?(_job), do: false
+
+  # Lock-free per-node throttle shared by every EventWriter process: the caller
+  # whose compare-and-swap advances the timestamp is the one that probes.
+  defp orphan_probe_permitted? do
+    ref = orphan_probe_throttle()
+    now = System.monotonic_time(:millisecond)
+    last = :atomics.get(ref, 1)
+
+    now - last >= orphan_probe_interval_ms() and
+      :atomics.compare_exchange(ref, 1, last, now) == :ok
+  end
+
+  defp orphan_probe_throttle do
+    case :persistent_term.get(@orphan_probe_throttle_key, nil) do
+      nil ->
+        # Created once per node. Starts at the minimum so the first probe is
+        # permitted; monotonic time can be negative, so 0 is not "never".
+        ref = :atomics.new(1, signed: true)
+        :atomics.put(ref, 1, @min_signed_64)
+        :persistent_term.put(@orphan_probe_throttle_key, ref)
+        ref
+
+      ref ->
+        ref
+    end
+  end
+
+  @doc """
+  Put this worker's orphaned `executing` rows back to `available`.
+
+  A row is an orphan when it was attempted more than `orphan_grace_seconds/0`
+  ago, nobody holds the refresh advisory lock, and the watermark has not been
+  written within the grace. The lock is probed with the same
+  `pg_try_advisory_xact_lock` the run takes, inside this function's own short
+  transaction: acquiring it proves no run holds it, and it is released when that
+  transaction commits. A row whose lock is held is never touched.
+
+  Rescue is Lifeline's -- the same row goes back to `available`, so uniqueness
+  keeps coalescing into it and nothing races a fresh insert -- with one change:
+  `max_attempts` is raised by one, exactly as a snooze raises it. A deploy is not
+  the job's failure, so the killed attempt is neither charged against
+  `max_attempts` (which would strand a row on its last attempt, since Oban only
+  fetches rows with `attempt < max_attempts`) nor counted by `backoff/1`, which
+  already discounts every raise as a snooze. The row's `errors` records why.
+
+  Options: `:grace_seconds` overrides the grace, `:now` the clock the row age is
+  measured against. Never raises; a failure is returned as `{:error, reason}`.
+
+  ## Races
+
+    * A run that starts after the probe commits sees the rescued row, or its own
+      row, exactly as any run would: it takes the lock or snoozes on
+      `:refresh_in_progress`. The probe holds the lock only for its own
+      transaction, so a run that starts during it snoozes for a second.
+    * Two probes (two nodes, or the reaper and an ingest enqueue) serialize on
+      the lock: the second fails to acquire it and rescues nothing. Candidate
+      rows are locked `FOR UPDATE SKIP LOCKED` and the update re-checks
+      `state = 'executing'`, so a row Oban finished meanwhile is left alone.
+    * A run that was live after all (it outlasted the grace before reaching the
+      lock) runs a redundant refresh alongside the rescued row. The lock
+      serializes them, the refresh is idempotent, and they share one row, so
+      the last to finish records its outcome and no second job is created.
+  """
+  @impl ServiceRadar.Jobs.OrphanRescue
+  @spec rescue_orphaned(keyword()) ::
+          {:ok, [ServiceRadar.Jobs.ReapStalePeriodicJobsWorker.job_ref()]} | {:error, term()}
+  def rescue_orphaned(opts \\ []) do
+    grace_seconds = Keyword.get_lazy(opts, :grace_seconds, &orphan_grace_seconds/0)
+    now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
+    cutoff = DateTime.add(now, -grace_seconds, :second)
+
+    result =
+      Repo.transact(
+        fn ->
+          case executing_candidates(cutoff) do
+            [] -> {:ok, []}
+            ids -> {:ok, rescue_if_orphaned(ids, grace_seconds)}
+          end
+        end,
+        timeout: probe_timeout_ms()
+      )
+
+    with {:ok, [_ | _] = rescued} <- result do
+      Logger.warning(
+        "Rescued orphaned trace summaries refresh: executing with the refresh lock free",
+        rescued_jobs: rescued,
+        orphan_grace_seconds: grace_seconds
+      )
+    end
+
+    result
+  rescue
+    error -> {:error, error}
+  end
+
+  defp executing_candidates(cutoff) do
+    Repo.all(
+      from(j in Oban.Job,
+        where: j.worker == ^@worker_name,
+        where: j.state == "executing",
+        where: not is_nil(j.attempted_at) and j.attempted_at < ^cutoff,
+        lock: "FOR UPDATE SKIP LOCKED",
+        select: j.id
+      ),
+      prefix: ObanSupport.prefix()
+    )
+  end
+
+  defp rescue_if_orphaned(ids, grace_seconds) do
+    if refresh_lock_free?() and not watermark_written_within?(grace_seconds) do
+      mark_available(ids)
+    else
+      []
+    end
+  end
+
+  defp refresh_lock_free? do
+    %{rows: [[acquired]]} =
+      SQL.query!(Repo, @try_refresh_lock_sql, [@watermark_key], timeout: probe_timeout_ms())
+
+    acquired == true
+  end
+
+  defp watermark_written_within?(grace_seconds) do
+    %{rows: [[written]]} =
+      SQL.query!(Repo, @watermark_written_within_sql, [@watermark_key, grace_seconds],
+        timeout: probe_timeout_ms()
+      )
+
+    written == true
+  end
+
+  defp mark_available(ids) do
+    reason =
+      "orphaned: executing with the #{@watermark_key} refresh lock free; " <>
+        "rescued to available without charging the attempt"
+
+    {_count, rescued} =
+      Repo.update_all(
+        from(j in Oban.Job,
+          where: j.id in ^ids and j.state == "executing",
+          update: [
+            set: [
+              state: "available",
+              max_attempts: fragment("GREATEST(?, ?) + 1", j.max_attempts, j.attempt),
+              errors:
+                fragment(
+                  "? || jsonb_build_object('attempt', ?, 'at', now(), 'error', ?::text)",
+                  j.errors,
+                  j.attempt,
+                  ^reason
+                )
+            ]
+          ],
+          select: %{
+            id: j.id,
+            worker: j.worker,
+            queue: j.queue,
+            attempt: j.attempt,
+            max_attempts: j.max_attempts
+          }
+        ),
+        [],
+        prefix: ObanSupport.prefix()
+      )
+
+    rescued
+  end
+
   @impl Oban.Worker
   def perform(_job) do
     result =
-      ServiceRadar.Repo.transact(
+      Repo.transact(
         fn ->
-          case SQL.query!(
-                 ServiceRadar.Repo,
-                 "SELECT pg_try_advisory_xact_lock(hashtextextended($1, 0))",
-                 [@watermark_key]
-               ) do
+          case SQL.query!(Repo, @try_refresh_lock_sql, [@watermark_key]) do
             %{rows: [[true]]} -> refresh_summaries()
             %{rows: [[false]]} -> {:error, :refresh_in_progress}
           end
@@ -329,9 +628,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   end
 
   defp read_watermark(now) do
-    case SQL.query(ServiceRadar.Repo, @read_watermark_sql, [@watermark_key],
-           timeout: watermark_timeout_ms()
-         ) do
+    case SQL.query(Repo, @read_watermark_sql, [@watermark_key], timeout: watermark_timeout_ms()) do
       {:ok, %{rows: [[%DateTime{} = watermark]]}} ->
         watermark
 
@@ -371,7 +668,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   defp run_upsert(window_start, window_end) do
     if window_has_ingested_spans?(window_start, window_end) do
       case SQL.query(
-             ServiceRadar.Repo,
+             Repo,
              @upsert_sql,
              [window_start, window_end, retention_days()],
              timeout: upsert_timeout_ms()
@@ -407,9 +704,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
     )
     """
 
-    case SQL.query(ServiceRadar.Repo, sql, [window_start, window_end],
-           timeout: probe_timeout_ms()
-         ) do
+    case SQL.query(Repo, sql, [window_start, window_end], timeout: probe_timeout_ms()) do
       {:ok, %{rows: [[true]]}} -> true
       {:ok, _result} -> false
       {:error, %Postgrex.Error{postgres: %{code: :undefined_table}}} -> false
@@ -418,9 +713,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   end
 
   defp spans_ingested_after?(watermark) do
-    case SQL.query(ServiceRadar.Repo, @ingested_after_watermark_sql, [watermark],
-           timeout: probe_timeout_ms()
-         ) do
+    case SQL.query(Repo, @ingested_after_watermark_sql, [watermark], timeout: probe_timeout_ms()) do
       {:ok, %{rows: [[true]]}} ->
         true
 
@@ -445,7 +738,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   defp advance_watermark(window_start, window_end) do
     new_watermark =
       case SQL.query(
-             ServiceRadar.Repo,
+             Repo,
              @max_ingested_at_sql,
              [window_start, window_end],
              timeout: watermark_timeout_ms()
@@ -461,7 +754,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
       end
 
     case SQL.query(
-           ServiceRadar.Repo,
+           Repo,
            @write_watermark_sql,
            [@watermark_key, new_watermark],
            timeout: watermark_timeout_ms()
@@ -490,7 +783,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   end
 
   defp drain_cleanup(batch_size, retention_days, deadline, total_deleted) do
-    case SQL.query(ServiceRadar.Repo, @cleanup_batch_sql, [batch_size, retention_days],
+    case SQL.query(Repo, @cleanup_batch_sql, [batch_size, retention_days],
            timeout: cleanup_timeout_ms()
          ) do
       {:ok, %{num_rows: deleted_rows}} ->
@@ -533,7 +826,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   # out (capped so the estimate query itself stays cheap).
   defp remaining_estimate(retention_days) do
     case SQL.query(
-           ServiceRadar.Repo,
+           Repo,
            @remaining_estimate_sql,
            [retention_days, 50_000],
            timeout: remaining_estimate_timeout_ms()

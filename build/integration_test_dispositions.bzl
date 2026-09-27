@@ -451,7 +451,7 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/inventory/sync_ingestor_passive_netprobe_identity_test.exs": 9,
     "test/serviceradar/inventory/sync_ingestor_vendor_type_test.exs": 43,
     "test/serviceradar/inventory/virtualization_v3_identity_db_test.exs": 2,
-    "test/serviceradar/jobs/refresh_trace_summaries_worker_db_test.exs": 2,
+    "test/serviceradar/jobs/refresh_trace_summaries_worker_db_test.exs": 10,
     "test/serviceradar/jobs/schedule_health_worker_test.exs": 2,
     "test/serviceradar/monitoring/alert_send_notification_db_test.exs": 3,
     "test/serviceradar/monitoring/poll_job_integration_test.exs": 12,
