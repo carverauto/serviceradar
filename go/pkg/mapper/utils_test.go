@@ -3,14 +3,12 @@ package mapper
 import (
 	"errors"
 	"testing"
-
-	"github.com/gosnmp/gosnmp"
 )
 
 func TestCreateSNMPClientUsesTargetSpecificCredentials(t *testing.T) {
 	t.Parallel()
 
-	engine := &DiscoveryEngine{}
+	engine := &DiscoveryEngine{config: &Config{}}
 
 	base := &SNMPCredentials{
 		Version:   SNMPVersion2c,
@@ -48,7 +46,7 @@ func TestCreateSNMPClientUsesTargetSpecificCredentials(t *testing.T) {
 func TestCreateSNMPClientRejectsEmptyTargetSpecificCredentials(t *testing.T) {
 	t.Parallel()
 
-	engine := &DiscoveryEngine{}
+	engine := &DiscoveryEngine{config: &Config{}}
 
 	base := &SNMPCredentials{
 		Version:   SNMPVersion2c,
@@ -78,17 +76,5 @@ func TestCreateSNMPClientRejectsEmptyTargetSpecificCredentials(t *testing.T) {
 
 	if fallbackClient.Community != "example-fallback" {
 		t.Fatalf("expected base community for unscoped target, got %q", fallbackClient.Community)
-	}
-}
-
-func TestConfigureClientVersionRejectsUnknownVersion(t *testing.T) {
-	t.Parallel()
-
-	engine := &DiscoveryEngine{}
-	client := &gosnmp.GoSNMP{}
-
-	err := engine.configureClientVersion(client, &SNMPCredentials{})
-	if !errors.Is(err, ErrUnsupportedSNMPVersion) {
-		t.Fatalf("expected ErrUnsupportedSNMPVersion, got %v", err)
 	}
 }

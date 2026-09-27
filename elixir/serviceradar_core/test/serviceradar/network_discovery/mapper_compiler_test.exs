@@ -553,6 +553,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
     agent_id = "example-agent-#{suffix}"
     good_vendor = "Example Good Vendor #{suffix}"
     bad_vendor = "Example Unresolvable Vendor #{suffix}"
+    collector = create_mapper_collector(suffix, actor)
 
     [good_device, bad_device] =
       Enum.map(
@@ -646,11 +647,14 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
 
     for device <- [good_device, bad_device] do
       MapperSeed
-      |> Ash.Changeset.for_create(:create, %{mapper_job_id: job.id, seed: device.ip}, actor: actor)
+      |> Ash.Changeset.for_create(:create, %{mapper_job_id: job.id, seed: device.ip},
+        actor: actor
+      )
       |> Ash.create!(actor: actor)
     end
 
-    assert {:ok, config} = MapperCompiler.compile(partition, agent_id, actor: actor)
+    assert {:ok, config} =
+             MapperCompiler.compile(partition, agent_id, actor: actor, device_uid: collector.uid)
 
     compiled = compiled_job(config, job.name)
     target_specific = compiled["credentials"]["target_specific"]
@@ -668,6 +672,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
     shared_ip = "192.0.2.70"
     vendor_a = "Example Conflict Vendor A #{suffix}"
     vendor_b = "Example Conflict Vendor B #{suffix}"
+    collector = create_mapper_collector(suffix, actor)
 
     _device_a =
       Device
@@ -758,7 +763,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
     |> Ash.Changeset.for_create(:create, %{mapper_job_id: job.id, seed: shared_ip}, actor: actor)
     |> Ash.create!(actor: actor)
 
-    assert {:ok, config} = MapperCompiler.compile(partition, agent_id, actor: actor)
+    assert {:ok, config} =
+             MapperCompiler.compile(partition, agent_id, actor: actor, device_uid: collector.uid)
 
     compiled = compiled_job(config, job.name)
     assert compiled["credentials"]["target_specific"][shared_ip] == %{}
@@ -771,6 +777,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
     partition = "example-partition-#{suffix}"
     agent_id = "example-agent-#{suffix}"
     vendor = "Example Api Only Vendor #{suffix}"
+    collector = create_mapper_collector(suffix, actor)
 
     device =
       Device
@@ -833,7 +840,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
     |> Ash.Changeset.for_create(:create, %{mapper_job_id: job.id, seed: device.ip}, actor: actor)
     |> Ash.create!(actor: actor)
 
-    assert {:ok, config} = MapperCompiler.compile(partition, agent_id, actor: actor)
+    assert {:ok, config} =
+             MapperCompiler.compile(partition, agent_id, actor: actor, device_uid: collector.uid)
 
     compiled = compiled_job(config, job.name)
     assert compiled["credentials"]["target_specific"] == %{}
@@ -990,6 +998,41 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
 
     assert compiled_job
     refute Map.has_key?(compiled_job["options"], "proxmox_candidate_probe_enabled")
+  end
+
+  defp create_mapper_collector(suffix, actor) do
+    hostname = "collector-#{suffix}.example.com"
+
+    device =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: "sr:" <> Ash.UUID.generate(),
+          hostname: hostname,
+          ip: "192.0.2.10",
+          type_id: 10,
+          created_time: DateTime.utc_now(),
+          modified_time: DateTime.utc_now()
+        },
+        actor: actor
+      )
+      |> Ash.create!(actor: actor)
+
+    SNMPProfile
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        name: "Example collector profile #{suffix}",
+        enabled: true,
+        target_query: ~s(in:devices hostname:"#{hostname}"),
+        community: "example-fallback"
+      },
+      actor: actor
+    )
+    |> Ash.create!(actor: actor)
+
+    device
   end
 
   defp create_proxmox_secret(unique_id, actor) do
