@@ -293,9 +293,9 @@ const DashboardWasmHost = {
     this._onThemeChange = () => this.applyThemeStyle()
     this._onVisibilityChange = () => {
       if (document.visibilityState === "hidden") {
-        this._cameraApi?.suspendAll()
+        this._cameraApi?.pageHidden()
       } else {
-        this._cameraApi?.resumeAll()
+        this._cameraApi?.pageVisible()
       }
     }
     window.addEventListener("resize", this._onResize)
@@ -404,6 +404,7 @@ const DashboardWasmHost = {
     this._cameraApi = createDashboardCameraApi({
       capabilityAllowed,
       permitted: host?.permissions?.camera_stream_view === true,
+      hiddenReleaseGraceMs: host?.camera?.hidden_release_grace_ms,
     })
     return this._cameraApi.publicApi()
   },
