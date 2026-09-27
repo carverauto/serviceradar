@@ -42,6 +42,17 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorkerTest do
     assert RefreshTraceSummariesWorker.cleanup_timeout_ms() == 90_000
   end
 
+  test "backs off by real attempts, not by trailing-refresh snoozes" do
+    # 40 snoozes then a first real failure: Oban has raised max_attempts to 43 and attempt to 41.
+    # The default backoff would clamp that to attempt 19 and wait about six days.
+    after_snoozes = %Oban.Job{attempt: 41, max_attempts: 43}
+    first_failure = %Oban.Job{attempt: 1, max_attempts: 3}
+
+    # 15s padding + 2^1, plus at most 10% jitter.
+    assert RefreshTraceSummariesWorker.backoff(after_snoozes) in 17..18
+    assert RefreshTraceSummariesWorker.backoff(first_failure) in 17..18
+  end
+
   describe "upsert_sql/0" do
     test "populates root namespace and environment from the root span" do
       sql = RefreshTraceSummariesWorker.upsert_sql()
