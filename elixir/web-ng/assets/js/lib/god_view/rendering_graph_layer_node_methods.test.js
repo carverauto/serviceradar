@@ -949,10 +949,16 @@ describe("rendering_graph_layer_node_methods expanded detail label degradation",
       expect(layer.props.data.attributes.getPosition.value).toBe(dataBefore.attributes.getPosition.value)
     }
 
-    // The hidden node draws (and hit-tests) at zero radius; the others are unaffected.
-    expect(ctx.nodeHaloRadiusPixels(frame.records[1], {})).toBe(0)
-    expect(ctx.nodeHaloRadiusPixels(frame.records[0], {})).toBeGreaterThan(0)
-    expect(ctx.nodeHaloRadiusPixels(frame.records[2], {})).toBeGreaterThan(0)
+    // Every node layer draws (and, where pickable, hit-tests) the hidden node at exactly zero
+    // radius through its real `getRadius` accessor -- not just the bound helper method -- and
+    // none of them re-declares a `radiusMinPixels` floor that would clamp that zero back up.
+    for (const id of ["god-view-nodes-halo", "god-view-nodes-ring", "god-view-nodes-hitbox", "god-view-nodes"]) {
+      const layer = after.find((candidate) => candidate.id === id)
+      expect(layer.props.radiusMinPixels || 0).toBe(0)
+      expect(layer.props.getRadius(undefined, {index: 1})).toBe(0)
+      expect(layer.props.getRadius(undefined, {index: 0})).toBeGreaterThan(0)
+      expect(layer.props.getRadius(undefined, {index: 2})).toBeGreaterThan(0)
+    }
 
     // Deck's index into the (still full) data set still resolves to the right node.
     const haloAfter = after.find((layer) => layer.id === "god-view-nodes-halo")

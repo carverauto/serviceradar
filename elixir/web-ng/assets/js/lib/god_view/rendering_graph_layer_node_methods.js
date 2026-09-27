@@ -10,6 +10,9 @@ import {
 import {hasExpandedCluster, hasManagedTopologyScene, topologySemanticLevel} from "./topology_layout_mode"
 import {GOD_VIEW_NO_DEPTH} from "./gpu_parameters"
 
+const NODE_RING_RADIUS_MIN_PIXELS = 5
+const NODE_CORE_RADIUS_MIN_PIXELS = 3
+
 const labelSelections = new WeakMap()
 // Same order as String.prototype.localeCompare, without building a collator per comparison.
 const compareText = new Intl.Collator().compare
@@ -85,16 +88,16 @@ export const godViewRenderingGraphLayerNodeMethods = {
       ((Number.isFinite(phase) ? phase : 0) * 2.0) + (Number.isFinite(index) ? index : 0),
     ) * 2.0
     const radius = baseRadius + breathe
-    if (!options.managedVisualDensity) return radius
+    if (!options.managedVisualDensity) return Math.max(radius, NODE_RING_RADIUS_MIN_PIXELS)
     const outerCap = managedNodeOuterRadiusCap(node, options.managedVisualDensity)
     const halfLineWidth = node?.selected ? 1 : 0.5
-    return Math.min(radius, Math.max(0, outerCap - halfLineWidth))
+    return Math.max(Math.min(radius, Math.max(0, outerCap - halfLineWidth)), NODE_RING_RADIUS_MIN_PIXELS)
   },
   nodeCoreRadiusPixels(node, options = {}) {
     if (node?.visible === false) return 0
     const radius = Math.min(4 + (this.visualClusterCount(node) - 1) * 0.2, 14)
-    if (!options.managedVisualDensity) return radius
-    return Math.min(radius, managedNodeOuterRadiusCap(node, options.managedVisualDensity))
+    if (!options.managedVisualDensity) return Math.max(radius, NODE_CORE_RADIUS_MIN_PIXELS)
+    return Math.max(Math.min(radius, managedNodeOuterRadiusCap(node, options.managedVisualDensity)), NODE_CORE_RADIUS_MIN_PIXELS)
   },
   nodeVisibleOuterRadiusPixels(node, options = {}) {
     const halo = this.nodeHaloRadiusPixels(node, options)
@@ -678,7 +681,6 @@ export const godViewRenderingGraphLayerNodeMethods = {
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
         getRadius: (_, {index}) => this.nodeRingRadiusPixels(glyphNodes[index], densityOptions),
         radiusUnits: "pixels",
-        radiusMinPixels: 5,
         stroked: true,
         filled: false,
         lineWidthUnits: "pixels",
@@ -714,7 +716,6 @@ export const godViewRenderingGraphLayerNodeMethods = {
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
         getRadius: (_, {index}) => this.nodeCoreRadiusPixels(glyphNodes[index], densityOptions),
         radiusUnits: "pixels",
-        radiusMinPixels: 3,
         stroked: false,
         filled: true,
         pickable: true,
