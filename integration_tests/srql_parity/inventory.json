@@ -1,9 +1,5 @@
 {
   "deviations": {
-    "rollup_average_mean_of_means": {
-      "kind": "accepted",
-      "reason": "Averaging a multi-hour bucket from the hourly rollups: CNPG takes AVG(avg_value), the mean of the hourly means; StarRocks weights each hour by sample_count, which is the raw-row average. They agree whenever every hour holds the same number of samples and differ when sampling is uneven, as the ICMP fixture is (every minute in even hours, every ten in odd ones). StarRocks is the one that matches the raw answer."
-    },
     "no_counter_ceiling_in_warehouse": {
       "kind": "accepted",
       "reason": "The producer-supplied max_counter_rate_per_second ceiling lives in timeseries_metrics.metadata, which the warehouse table does not carry (counter_rate_sql documents this). Without a ceiling CNPG never adds the 2^64 modulus either, so they agree wherever it is absent; with one, CNPG recovers the interval across a 64-bit wrap and StarRocks drops it as a reset."
@@ -72,25 +68,7 @@
     {"id": "metrics.timeseries.avg_by_metric_name", "query": "in:timeseries_metrics {window_main} metric_type:icmp device_id:\"sr:parity-dev-b\" bucket:5m agg:avg series:metric_name limit:500", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/event_live/show.ex"]},
     {"id": "metrics.icmp.avg_by_uid", "query": "in:timeseries_metrics {window_main} metric_type:icmp metric_name:icmp.rtt_ms uid:(\"sr:parity-dev-a\",\"sr:parity-dev-b\") bucket:5m agg:avg series:uid sort:timestamp:asc limit:500", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/device_live/icmp_data.ex"]},
     {"id": "metrics.icmp.max_by_uid", "query": "in:timeseries_metrics {window_main} metric_type:icmp metric_name:icmp.loss_pct uid:(\"sr:parity-dev-a\",\"sr:parity-dev-b\") bucket:5m agg:max series:uid sort:timestamp:asc limit:500"},
-    {"id": "metrics.icmp.avg_2h_buckets_long_window", "query": "in:timeseries_metrics {window_long} metric_type:icmp metric_name:icmp.rtt_ms bucket:2h agg:avg series:uid limit:100", "expect": "mismatch", "deviation": "rollup_average_mean_of_means",
-     "recorded": {
-       "cnpg": [
-          {"series": "sr:parity-dev-a", "timestamp": "@+0ms", "value": 22.6875},
-          {"series": "sr:parity-dev-b", "timestamp": "@+0ms", "value": 25.6875},
-          {"series": "sr:parity-dev-a", "timestamp": "@+7200000ms", "value": 24.9375},
-          {"series": "sr:parity-dev-b", "timestamp": "@+7200000ms", "value": 27.9375},
-          {"series": "sr:parity-dev-a", "timestamp": "@+14400000ms", "value": 27.1875},
-          {"series": "sr:parity-dev-b", "timestamp": "@+14400000ms", "value": 30.1875}
-       ],
-       "starrocks": [
-          {"series": "sr:parity-dev-a", "timestamp": "@+0ms", "value": 21.818181818181817},
-          {"series": "sr:parity-dev-b", "timestamp": "@+0ms", "value": 24.818181818181817},
-          {"series": "sr:parity-dev-a", "timestamp": "@+7200000ms", "value": 24.068181818181817},
-          {"series": "sr:parity-dev-b", "timestamp": "@+7200000ms", "value": 27.068181818181817},
-          {"series": "sr:parity-dev-a", "timestamp": "@+14400000ms", "value": 26.318181818181817},
-          {"series": "sr:parity-dev-b", "timestamp": "@+14400000ms", "value": 29.318181818181817}
-       ]
-     }},
+    {"id": "metrics.icmp.avg_2h_buckets_long_window", "query": "in:timeseries_metrics {window_long} metric_type:icmp metric_name:icmp.rtt_ms bucket:2h agg:avg series:uid limit:100"},
     {"id": "metrics.sysmon.avg_newest_n", "query": "in:timeseries_metrics {window_main} metric_type:\"sysmon.cpu\" metric_name:\"cpu.usage_percent\" bucket:5m agg:avg sort:timestamp:desc limit:20", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/device_live/sysmon_metrics/query.ex"]},
     {"id": "metrics.sysmon.max_by_core_newest_n", "query": "in:timeseries_metrics {window_main} metric_type:\"sysmon.cpu\" metric_name:\"cpu.usage_percent\" bucket:5m agg:max series:core_id sort:timestamp:desc limit:50", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/device_live/sysmon_metrics/query.ex (series added via maybe_add_token)"]},
     {"id": "metrics.sysmon.min_by_tag", "query": "in:timeseries_metrics {window_cpu} metric_type:\"sysmon.cpu\" bucket:10m agg:min series:tags.core_id limit:200"},

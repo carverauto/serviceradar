@@ -1289,9 +1289,18 @@ fn translate_device_filtered_hourly_downsample_routes_to_timeseries_cagg() {
         "expected device-filtered hourly downsample to read the CAGG, got: {}",
         response.sql
     );
+    // Each hour weighs by the samples it holds, so the bucket is the average of the raw
+    // rows (as the StarRocks rollup computes it), not the mean of the hourly means.
     assert!(
-        sql.contains("avg(avg_value) as value"),
-        "expected mean-of-means over the CAGG avg column, got: {}",
+        sql.contains(
+            "sum(avg_value * sample_count)::double precision / nullif(sum(sample_count), 0)::double precision as value"
+        ),
+        "expected the sample-weighted average of the CAGG avg column, got: {}",
+        response.sql
+    );
+    assert!(
+        !sql.contains("avg(avg_value)"),
+        "the mean of the hourly means must not come back, got: {}",
         response.sql
     );
     assert!(
