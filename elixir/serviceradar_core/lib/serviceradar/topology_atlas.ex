@@ -82,6 +82,23 @@ defmodule ServiceRadar.TopologyAtlas do
   def search(world, id) when is_binary(id), do: Native.search(world, id)
   def search(_world, _id), do: {:error, :invalid_identity}
 
+  @doc "Select exact members of an aggregate from a server-owned tile descriptor."
+  def aggregate_selection(world, selection, glyph_id) when is_binary(glyph_id),
+    do: Native.aggregate_selection(world, selection, glyph_id)
+
+  def aggregate_selection(_world, _selection, _glyph_id), do: {:error, :invalid_identity}
+
+  @doc "Read a bounded neighborhood or member page; cursors are tied to its immutable native source."
+  def detail(world, scope, cursor \\ nil), do: Native.detail(world, scope, cursor)
+
+  @doc "Read at most 256 canonical bindings for rendered relations, with explicit total coverage."
+  def tile_relations(world, selection, cursor \\ nil, limit \\ 256)
+
+  def tile_relations(world, selection, cursor, limit) when is_integer(limit) and limit in 1..256,
+    do: Native.tile_relations(world, selection, cursor, limit)
+
+  def tile_relations(_world, _selection, _cursor, _limit), do: {:error, :invalid_page}
+
   def positions_page(candidate, cursor, limit \\ 500)
 
   def positions_page(candidate, cursor, limit) when valid_page(cursor, limit),
