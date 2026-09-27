@@ -10,6 +10,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.Compilers.SNMPCompiler
+  alias ServiceRadar.Ash.Page
   alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Credentials.SecretBroker
@@ -319,7 +320,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
       Device
       |> Ash.Query.for_read(:read, %{}, actor: actor)
       |> Ash.Query.filter(ip in ^seeds or hostname in ^seeds or uid in ^seeds)
-      |> Ash.read!()
+      |> Ash.read!(page: [limit: max(length(seeds), 1)])
+      |> Page.unwrap!()
 
     rule_devices =
       partition

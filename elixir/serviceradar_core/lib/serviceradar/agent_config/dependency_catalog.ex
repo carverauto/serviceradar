@@ -16,12 +16,14 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
   alias ServiceRadar.AgentConfig.DependencyResolvers
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Integrations.IntegrationSource
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.VisibilityProfile
   alias ServiceRadar.Monitoring.ServiceCheck
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.SNMPProfiles.SNMPProfile
 
   defmodule Entry do
     @moduledoc "One resource-to-agent-config dependency declaration."
@@ -196,13 +198,13 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
       ),
       config_server_entry(
         :mapper_device_config,
-        ServiceRadar.Inventory.Device,
+        Device,
         :mapper,
         MapperCompiler
       ),
       config_server_entry(
         :mapper_snmp_profile_config,
-        ServiceRadar.SNMPProfiles.SNMPProfile,
+        SNMPProfile,
         :mapper,
         MapperCompiler,
         secret_fields: [:community, :auth_password, :priv_password]
@@ -222,7 +224,7 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
       ),
       config_server_entry(
         :snmp_profile_config,
-        ServiceRadar.SNMPProfiles.SNMPProfile,
+        SNMPProfile,
         :snmp,
         SNMPCompiler,
         action_names: [:create, :update, :destroy, :set_as_default, :unset_default],
@@ -250,7 +252,7 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
       ),
       config_server_entry(
         :device_snmp_config,
-        ServiceRadar.Inventory.Device,
+        Device,
         :snmp,
         SNMPCompiler
       ),
