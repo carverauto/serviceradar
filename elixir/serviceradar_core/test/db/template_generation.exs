@@ -9,8 +9,12 @@ defmodule ServiceRadar.DB.TemplateGeneration do
 
   alias ServiceRadar.DB.FixtureConfig
   alias ServiceRadar.Repo
+  alias ServiceRadar.Repo.SchemaBootstrap
 
   @namespace 1_397_904_460
+  # Both ledgers every lane clone inherits. Core's migrator writes the first; web-ng's
+  # RequireMigrations gate reads the second (its `migration_source`).
+  @ledgers ~w(schema_migrations ash_schema_migrations)
   @extensions ~w(age citext pg_trgm pgcrypto postgis timescaledb vector)
   @hex ~r/\A[0-9a-f]{64}\z/
   @manifest_path "../../build/schema_template/manifest.json"
@@ -419,21 +423,8 @@ defmodule ServiceRadar.DB.TemplateGeneration do
         |> Map.fetch!(:rows)
         |> validate_migration_role!()
 
-        if ledger!(repo) != [],
-          do: raise("partial template replay refused; run prepare_generation to rebuild")
-
         verify_extensions!(repo, extensions)
-
-        Ecto.Migrator.run(repo, :up,
-          all: true,
-          log: false,
-          log_migrations_sql: false,
-          log_migrator_sql: false
-        )
-
-        if ledger!(repo) != manifest["migration_versions"],
-          do: raise("template migration ledger mismatch")
-
+        replay!(repo, manifest["migration_versions"])
         verify_extensions!(repo, extensions)
         :verified
       end)
@@ -570,15 +561,71 @@ defmodule ServiceRadar.DB.TemplateGeneration do
   def backend_drain_step!(_, _remaining),
     do: raise("template backend count could not be verified")
 
-  defp ledger!(repo) do
+  @doc false
+  # Replays every migration into a candidate with no history, then converges and verifies
+  # both ledgers. Public only so a scratch database can exercise it; build! is the caller.
+  #
+  # The ledgers are synced AFTER the migrator only. Every other migrate path also syncs
+  # before it, so the migrator computes pending from the union of both ledgers; here
+  # full_replay requires both to be empty first, so a before-sync is a no-op whenever that
+  # precondition holds. Where it does not hold, a before-sync would copy stray ash versions
+  # into schema_migrations and the migrator would silently skip them -- the partial replay
+  # this builder refuses. The ash ledger therefore joins the precondition instead.
+  def replay!(repo, versions) do
+    validate_no_history!(ledgers!(repo))
+
+    Ecto.Migrator.run(repo, :up,
+      all: true,
+      log: false,
+      log_migrations_sql: false,
+      log_migrator_sql: false
+    )
+
+    SchemaBootstrap.sync_migration_ledgers!(repo)
+    validate_ledgers!(ledgers!(repo), versions)
+  end
+
+  @doc false
+  def validate_no_history!(ledgers) do
+    if !(is_map(ledgers) and Enum.sort(Map.keys(ledgers)) == Enum.sort(@ledgers) and
+           Enum.all?(ledgers, fn {_, versions} -> versions == [] end)),
+       do: raise("partial template replay refused; run prepare_generation to rebuild")
+
+    :ok
+  end
+
+  @doc false
+  # Gate on the ledgers themselves: every lane database is cloned from this state, and
+  # web-ng answers every route with 503 when its ash ledger lacks a migration on disk.
+  def validate_ledgers!(ledgers, versions)
+      when is_map(ledgers) and is_list(versions) and versions != [] do
+    wrong =
+      for name <- @ledgers, Map.get(ledgers, name) != versions do
+        recorded = Map.get(ledgers, name) || []
+
+        "#{name} (#{length(versions -- recorded)} missing, #{length(recorded -- versions)} unexpected)"
+      end
+
+    if !(wrong == [] and map_size(ledgers) == length(@ledgers)),
+      do: raise("template migration ledger mismatch: " <> Enum.join(wrong, ", "))
+
+    :ok
+  end
+
+  def validate_ledgers!(_, _), do: raise("template migration ledger mismatch")
+
+  defp ledgers!(repo), do: Map.new(@ledgers, &{&1, ledger!(repo, &1)})
+
+  # Relnames match exactly, so the other ledger never makes one look ambiguous.
+  defp ledger!(repo, relname) do
     schemas =
       sql!(
         repo,
         """
         SELECT n.nspname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE c.relname = 'schema_migrations' AND c.relkind IN ('r', 'p') ORDER BY n.nspname
+        WHERE c.relname = $1 AND c.relkind IN ('r', 'p') ORDER BY n.nspname
         """,
-        []
+        [relname]
       ).rows
 
     case schemas do
@@ -588,7 +635,7 @@ defmodule ServiceRadar.DB.TemplateGeneration do
       [[schema]] ->
         repo
         |> sql!(
-          "SELECT version FROM #{quote_ident(schema)}.schema_migrations ORDER BY version",
+          "SELECT version FROM #{quote_ident(schema)}.#{quote_ident(relname)} ORDER BY version",
           []
         )
         |> Map.fetch!(:rows)
