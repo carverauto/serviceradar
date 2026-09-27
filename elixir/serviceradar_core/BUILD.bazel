@@ -669,6 +669,12 @@ ex_unit_test(
         "SERVICERADAR_TEST_DB_SHARD": LARGE_INGESTION_DB_SHARD,
         "SERVICERADAR_LARGE_INGESTION_DEVICE_COUNT": "50000",
         "SERVICERADAR_LARGE_INGESTION_CHUNK_SIZE": "1000",
+        # The gate runs `sandbox: :unboxed`, which holds ONE checkout for the whole
+        # 50,000-device run. Without this the DBConnection default of 120 s capped the
+        # entire ingestion, not a single query: a run that finished just under two
+        # minutes passed and one just over failed, so the gate flipped with fixture
+        # load. Match the test's own 30 minute ExUnit timeout.
+        "SERVICERADAR_TEST_DATABASE_OWNERSHIP_TIMEOUT_MS": "1800000",
     },
     tags = [
         "integration_test",

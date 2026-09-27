@@ -2371,6 +2371,10 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         self.assertIn(
             '"SERVICERADAR_LARGE_INGESTION_CHUNK_SIZE": "1000"', release_target
         )
+        self.assertIn(
+            '"SERVICERADAR_TEST_DATABASE_OWNERSHIP_TIMEOUT_MS": "1800000"',
+            release_target,
+        )
         self.assertIn('"integration_test",', release_target)
         self.assertIn('"large_ingestion_test",', release_target)
         self.assertIn("target_compatible_with = requires_shared_fixture()", release_target)
