@@ -12,6 +12,8 @@
         "destination_attribute_default": null,
         "destination_attribute_generated": null,
         "index?": false,
+        "index_where": null,
+        "match_tenant?": false,
         "match_type": null,
         "match_with": null,
         "multitenancy": {
@@ -55,6 +57,8 @@
         "destination_attribute_default": null,
         "destination_attribute_generated": null,
         "index?": false,
+        "index_where": null,
+        "match_tenant?": false,
         "match_type": null,
         "match_with": {
           "layout_version": "layout_version"
@@ -88,6 +92,8 @@
         "destination_attribute_default": null,
         "destination_attribute_generated": null,
         "index?": false,
+        "index_where": null,
+        "match_tenant?": false,
         "match_type": null,
         "match_with": {
           "layout_version": "layout_version"
@@ -122,7 +128,7 @@
       "type": "text"
     },
     {
-      "allow_nil?": false,
+      "allow_nil?": true,
       "default": "nil",
       "generated?": false,
       "precision": null,
@@ -131,6 +137,54 @@
       "scale": null,
       "size": null,
       "source": "role",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "source_if_index",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "source_if_name",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "target_if_index",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "target_if_name",
       "type": "text"
     },
     {
@@ -171,7 +225,16 @@
     }
   ],
   "base_filter": null,
-  "check_constraints": [],
+  "check_constraints": [
+    {
+      "attribute": [
+        "source_if_index"
+      ],
+      "base_filter": null,
+      "check": "(source_if_index IS NULL OR source_if_index > 0) AND (target_if_index IS NULL OR target_if_index > 0)",
+      "name": "topology_world_relations_interface_indices"
+    }
+  ],
   "create_table_options": null,
   "custom_indexes": [
     {
@@ -192,6 +255,7 @@
         }
       ],
       "include": null,
+      "include_base_filter?": true,
       "message": null,
       "name": "topology_world_relations_source_idx",
       "nulls_distinct": true,
@@ -219,6 +283,7 @@
         }
       ],
       "include": null,
+      "include_base_filter?": true,
       "message": null,
       "name": "topology_world_relations_target_idx",
       "nulls_distinct": true,
@@ -231,7 +296,7 @@
   ],
   "custom_statements": [],
   "has_create_action": true,
-  "hash": "8B52C706302EDE2C1943231DBA0E0E1685390C41B08C7A584CF094EB4DE048B7",
+  "hash": "1F172B1B98EB92E3FC90AA7A3C34B6058D18DBD343919E6C3A6A9658283CCD56",
   "identities": [],
   "multitenancy": {
     "attribute": null,

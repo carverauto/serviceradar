@@ -18,6 +18,8 @@ defmodule ServiceRadar.NetworkDiscovery.World do
   alias ServiceRadar.NetworkDiscovery.WorldLayout
   alias ServiceRadar.NetworkDiscovery.WorldPosition
   alias ServiceRadar.NetworkDiscovery.WorldRelation
+  alias ServiceRadar.NetworkDiscovery.WorldWorker
+  alias ServiceRadar.SweepJobs.ObanSupport
 
   require Ash.Query
 
@@ -31,6 +33,66 @@ defmodule ServiceRadar.NetworkDiscovery.World do
     WorldLayout
     |> Ash.Changeset.for_create(:stage, attrs)
     |> Ash.create(scope: scope)
+  end
+
+  @doc "Authorizes and atomically records a new coordinate system and its background build."
+  def request_relayout(scope) do
+    @resources
+    |> Ash.transact(fn ->
+      with {:ok, layout} <-
+             stage_relayout(scope, %{source_digest: "pending", node_count: 0, relation_count: 0}),
+           {:ok, job} <- enqueue_relayout(layout.layout_version) do
+        {:ok, %{layout_version: layout.layout_version, job_id: job.id}}
+      end
+    end)
+    |> transaction_result()
+  end
+
+  @doc "Replaces an unpublished retry stage with bounded candidate streams without locking the active head."
+  def stage_candidate(layout_version, metadata, positions, relations) do
+    attrs =
+      metadata
+      |> Map.take([:algorithm_version, :zmax, :source_digest, :node_count, :relation_count])
+      |> Map.put(:layout_version, layout_version)
+
+    @resources
+    |> Ash.transact(
+      fn ->
+        with {:ok, _layout} <-
+               WorldLayout
+               |> Ash.Changeset.for_create(:initialize_stage, attrs)
+               |> Ash.create(actor: actor()),
+             {:ok, layout} <- locked_layout(layout_version),
+             :ok <- building?(layout),
+             :ok <- clear_stage_rows(WorldRelation, layout_version),
+             :ok <- clear_stage_rows(WorldPosition, layout_version),
+             :ok <- insert_positions(layout_version, positions),
+             :ok <- upsert_relations(layout_version, relations),
+             :ok <- verify_counts(layout, Map.fetch!(metadata, :node_count), Map.fetch!(metadata, :relation_count)),
+             {:ok, _layout} <-
+               update(layout, :publish, Map.take(metadata, [:source_digest, :node_count, :relation_count])) do
+          :ok
+        end
+      end,
+      timeout: @publication_timeout
+    )
+    |> transaction_result()
+  end
+
+  @doc "Removes only an unpublished stage that lost its cold-start publication race."
+  def discard_stage(layout_version) do
+    @resources
+    |> Ash.transact(fn ->
+      with {:ok, layout} <- locked_layout(layout_version),
+           :ok <- building?(layout),
+           :ok <- clear_stage_rows(WorldRelation, layout_version),
+           :ok <- clear_stage_rows(WorldPosition, layout_version) do
+        layout
+        |> Ash.Changeset.for_destroy(:discard)
+        |> Ash.destroy(actor: actor())
+      end
+    end)
+    |> transaction_result()
   end
 
   @doc "Appends a bounded batch to an unpublished layout; positions must precede their relations."
@@ -70,6 +132,7 @@ defmodule ServiceRadar.NetworkDiscovery.World do
         timeout: @publication_timeout
       )
       |> transaction_result()
+      |> notify_publication()
     end
   end
 
@@ -118,6 +181,7 @@ defmodule ServiceRadar.NetworkDiscovery.World do
       timeout: @publication_timeout
     )
     |> transaction_result()
+    |> notify_publication()
   end
 
   @doc "Returns the current publication without exposing device or relation rows."
@@ -173,6 +237,24 @@ defmodule ServiceRadar.NetworkDiscovery.World do
       {:ok, _head} -> :ok
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  defp enqueue_relayout(layout_version) do
+    %{"mode" => "relayout", "layout_version" => layout_version}
+    |> WorldWorker.new(unique: [period: :infinity, keys: [:mode, :layout_version], states: :incomplete])
+    |> ObanSupport.safe_insert()
+    |> case do
+      {:ok, %{id: id} = job} when is_integer(id) -> {:ok, job}
+      _result -> reject(:scheduler_unavailable)
+    end
+  end
+
+  defp clear_stage_rows(resource, layout_version) do
+    resource
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(layout_version == ^layout_version)
+    |> Ash.bulk_destroy(:discard, %{}, bulk_options())
+    |> bulk_result()
   end
 
   defp locked_head(lock, scope \\ :system) do
@@ -366,6 +448,20 @@ defmodule ServiceRadar.NetworkDiscovery.World do
   defp bulk_result(%Ash.BulkResult{errors: errors}), do: {:error, errors}
 
   defp manifest(head, layout), do: layout |> Map.take(@manifest_fields) |> Map.put(:generation, head.generation)
+
+  defp notify_publication({:ok, manifest} = result) do
+    if Process.whereis(ServiceRadar.PubSub) do
+      Phoenix.PubSub.broadcast(
+        ServiceRadar.PubSub,
+        "topology:world",
+        {:topology_world_changed, Map.take(manifest, [:layout_version, :generation])}
+      )
+    end
+
+    result
+  end
+
+  defp notify_publication(result), do: result
 
   defp reject(reason) do
     {:error, InvalidArgument.exception(field: :world, value: reason, message: "topology world validation failed")}

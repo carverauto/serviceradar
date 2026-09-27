@@ -24,6 +24,8 @@
         "destination_attribute_default": null,
         "destination_attribute_generated": null,
         "index?": false,
+        "index_where": null,
+        "match_tenant?": false,
         "match_type": null,
         "match_with": null,
         "multitenancy": {
@@ -83,7 +85,7 @@
   "custom_indexes": [],
   "custom_statements": [],
   "has_create_action": true,
-  "hash": "632042D2F511B11643EBACA43C77C78EFC79A5696C7DDBDF82585AEC49C0AE61",
+  "hash": "16AADB98ABD683EB14CF699D22388C77BDD27BC7BE42BFC81915CCF534938BA1",
   "identities": [],
   "multitenancy": {
     "attribute": null,

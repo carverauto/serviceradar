@@ -29,9 +29,17 @@ defmodule ServiceRadar.NetworkDiscovery.WorldLayout do
       accept([:algorithm_version, :zmax, :source_digest, :node_count, :relation_count])
     end
 
+    create :initialize_stage do
+      accept([:layout_version, :algorithm_version, :zmax, :source_digest, :node_count, :relation_count])
+      upsert?(true)
+      upsert_fields([])
+    end
+
     update :publish do
       accept([:status, :source_digest, :node_count, :relation_count])
     end
+
+    destroy(:discard)
   end
 
   policies do

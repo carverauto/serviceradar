@@ -16,11 +16,22 @@ defmodule ServiceRadar.Repo.Migrations.TopologyWorld do
       add(:source_id, :text, null: false)
       add(:target_id, :text, null: false)
       add(:evidence_class, :text, null: false)
-      add(:role, :text, null: false)
+      add(:role, :text)
+      add(:source_if_index, :bigint)
+      add(:source_if_name, :text)
+      add(:target_if_index, :bigint)
+      add(:target_if_name, :text)
       add(:active, :boolean, null: false, default: true)
       add(:inserted_at, :utc_datetime_usec, null: false, default: fragment("(now() AT TIME ZONE 'utc')"))
       add(:updated_at, :utc_datetime_usec, null: false, default: fragment("(now() AT TIME ZONE 'utc')"))
     end
+
+    create(
+      constraint(:topology_world_relations, :topology_world_relations_interface_indices,
+        prefix: "platform",
+        check: "(source_if_index IS NULL OR source_if_index > 0) AND (target_if_index IS NULL OR target_if_index > 0)"
+      )
+    )
 
     create(
       index(:topology_world_relations, [:layout_version, :target_id],

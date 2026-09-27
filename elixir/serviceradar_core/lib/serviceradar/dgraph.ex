@@ -123,7 +123,14 @@ defmodule ServiceRadar.Dgraph do
   @spec rebuild_canonical([map()]) :: write_result()
   def rebuild_canonical(edges) when is_list(edges) do
     with {:ok, url} <- url() do
-      Native.rebuild_canonical(url, Enum.map(edges, &edge_map/1))
+      case Native.rebuild_canonical(url, Enum.map(edges, &edge_map/1)) do
+        :ok ->
+          _ = ServiceRadar.NetworkDiscovery.WorldWorker.enqueue_reconcile()
+          :ok
+
+        error ->
+          error
+      end
     end
   end
 

@@ -92,6 +92,7 @@ test_suite(
 )
 
 exports_files([
+    "world_snapshots.exs",
     "benchmark_runner.py",
     "elixir_test_config_loader.exs",
     "integration_shards.bzl",
