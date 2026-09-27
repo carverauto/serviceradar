@@ -81,29 +81,37 @@ ignored so provisioning and execution cannot diverge.
 Use the in-cluster BuildBuddy workflow in `buildbuddy.yaml` for the complete sequence:
 
 ```text
-private fixture setup -> sweep -> provision base -> migrate run if pending -> provision lane -> lane test -> teardown
+private fixture setup -> sweep_stale_dbs -> cleanup_generations -> prepare_generation
+  -> migrate_generation (only on needs_migration) -> prepare_generation (must be ready)
+  -> provision_generation -> lane tests -> teardown_db -> release_generation
 ```
 
-The shared `sr_core_template` is written by the trunk lifecycle only (`LargeIngestionGate`, push
-to `staging`). A branch run seeds its own `sr_core_test_<run>` base from that template and applies
-its own migrations there, so one branch's unmerged migrations can never become the schema another
-branch clones. `//elixir/serviceradar_core:migrate_template`,
+Every run clones its lanes from an immutable schema generation, `sr_tpl_<first 48 hex of the
+digest>`, where the digest is `//build/schema_template:manifest`'s hash of the migrations,
+baseline, helpers and construction inputs. A checkout with new migrations gets a new digest and
+its own generation, which `//elixir/serviceradar_core:migrate_generation` builds by full replay;
+a ready generation is never written again, so one branch's unmerged migrations can never become
+the schema another branch clones. Generation count, concurrent builders, storage, retention and
+lease length are bounded by `build/schema_template/policy.json`, and `cleanup_generations`
+reclaims only idle, unleased, unconnected generations. See `docs/docs/ci-schema-templates.md`.
+
+`sr_core_template` is a frozen rollback artifact: no workflow migrates it or clones from it.
+Do not write it. `//elixir/serviceradar_core:migrate_template`,
 `//rust/integration-db:prepare_template` and `//rust/integration-db:reset_template` refuse
-without `--//build:template_authority=true`, which only `LargeIngestionGate` passes -- so
-invoking any of them from a branch or by hand stops rather than ratchets. `reset_template` from
-a trunk checkout is the deliberate recovery if the template has diverged from trunk; do not
-reach for the flag to get past a refusal on a branch.
+without `--//build:template_authority=true`, and the CI contract test fails if any active
+workflow passes that flag -- never reach for it to get past a refusal.
 
 That workflow owns `SERVICERADAR_ENV=ci`, the typed configuration inputs, the private secret
 environment, capacity observer, run ID, and caller-owned cleanup. It keeps secret-bearing test
 actions local to the workflow runner instead of forwarding secrets to remote actions. Do not
 recreate those inputs from `SRQL_FIXTURE_HOST`, NodePort values, a direct DSN, or a new override.
 
-The workflow pairs `provision_db_async` with `integration_tests_async`, and
-`provision_db_serial_0` through `provision_db_serial_6` with identically suffixed serial test
-targets. The async target runs at `max_cases=8`; each serial target runs at `max_cases=1`; every
-lane receives its own disposable `srql-fixtures` clone. Demo and production are never valid
-targets for this lifecycle.
+One `provision_generation` invocation clones a disposable `srql-fixtures` database for every
+ordinary lane -- `integration_tests_async` and `integration_tests_serial_0` through
+`integration_tests_serial_6` -- and the lanes are then selected by tag. The async target runs at
+`max_cases=8`; each serial target runs at `max_cases=1`; every lane receives its own clone. The
+large-ingestion gate uses `provision_generation_large_ingestion` for its dedicated database.
+Demo and production are never valid targets for this lifecycle.
 
 ## Create A Workstation Scratch Database
 

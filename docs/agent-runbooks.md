@@ -644,69 +644,79 @@ The no-mistakes `test-registration` gate runs this same command automatically.
 ## SRQL Fixture Integration Tests
 
 Use the `srql-fixtures-db-tests` skill when `elixir/serviceradar_core` integration tests need
-the shared CNPG/AGE fixture. There is deliberately no orchestration script: invoke the guarded
-Bazel lifecycle in order as the caller:
+the shared CNPG/AGE fixture. The full guarded lifecycle is CI-only: it runs in the in-cluster
+BuildBuddy workflows (`BazelCI`, `LargeIngestionGate`, `IntegrationBenchmark*` in
+`//buildbuddy.yaml`) with typed `SERVICERADAR_ENV=ci` configuration. For a focused workstation
+run, use the skill's scratch-database recipe instead. There is deliberately no orchestration
+script: the caller invokes each step as its own Bazel command, in this order:
 
 ```text
-sweep -> provision base -> migrate run if pending -> provision lanes -> test -> teardown
+bazel test  //rust/integration-db:sweep_stale_dbs
+bazel run   //rust/integration-db:cleanup_generations
+bazel run   //rust/integration-db:prepare_generation         -> ready | needs_migration
+bazel test  //elixir/serviceradar_core:migrate_generation    only on needs_migration
+bazel run   //rust/integration-db:prepare_generation         must now report ready, same digest
+bazel run   //rust/integration-db:provision_generation       (or provision_generation_large_ingestion)
+bazel test  <integration lanes>
+bazel test  //rust/integration-db:teardown_db                always, including after a red lane
+bazel run   //rust/integration-db:release_generation         always, once prepare leased
 ```
 
-**You cannot run `//elixir/serviceradar_core:migrate_template` from a branch, and should not
-try.** `sr_core_template` is shared by every run on the fixture and only ratchets forward, so
-migrating it from a branch checkout writes that branch's unmerged migrations into the schema
-every other branch clones -- and every branch whose checkout lacks them is then refused. That is
-not hypothetical: one branch left seven behind and every other pull request went red on a step
-unrelated to its own diff. The template is advanced by the trunk lifecycle alone
-(`LargeIngestionGate`, push to `staging`).
+**Schemas come from immutable per-digest generations.** `//build/schema_template:manifest`
+hashes every input that decides the schema -- migrations, the baseline pair, helpers,
+construction code and configuration, dependency locks and `policy.json` -- into a SHA-256
+digest. `prepare_generation` reuses `sr_tpl_<first 48 hex of the digest>` when it is ready,
+or registers it as `building` and reports `needs_migration`; `migrate_generation` then replays
+every migration into it and publishes it `ready`. A ready generation is never written again.
+A branch that adds a migration therefore gets a new digest and its own generation, and cannot
+change the schema any other branch clones. `provision_generation` clones one disposable
+`sr_core_test_<run>_<lane>` database per ordinary lane from the pinned generation; there is no
+fallback to the legacy template.
 
-The three targets that write it -- `//elixir/serviceradar_core:migrate_template`,
-`//rust/integration-db:prepare_template` and `//rust/integration-db:reset_template` -- now
-**refuse** without `--//build:template_authority=true`, which is the caller declaring "this
-checkout is trunk". Only `LargeIngestionGate` passes it, and
-`//build/contracts:ci_heavy_gate_contract_test` pins that. Do not pass it to get past a refusal: the flag is a
-statement about the checkout, not a way to unblock a step, and a branch that sets it reproduces
-the original outage exactly. It fails closed -- an absent or empty marker is a refusal -- so
-adding the flag to a target that does not declare `//build:template_authority_file` changes
-nothing.
+Capacity is bounded by `build/schema_template/policy.json` (`max_generations`,
+`max_concurrent_builders`, `max_total_bytes`); at capacity, preparation fails and names the
+recovery. Every prepare or clone renews the run's lease for `lease_seconds`.
+`cleanup_generations` drops a generation only when it has been idle past `retention_seconds`
+and has no live lease, no builder lock and no connections, and it never forces a drop. The
+ordinary scratch sweep never touches the `sr_tpl_` namespace. JSON output formats, the fencing
+protocol and failure recovery are in
+[docs/docs/ci-schema-templates.md](docs/docs/ci-schema-templates.md).
 
-A branch's own migrations go to its **run base**: `//rust/integration-db:provision_base` seeds
-`sr_core_test_<run>` from the template, `//elixir/serviceradar_core:migrate_run` brings that one
-database up to the checkout, and the lane databases are cloned from it. If `provision_base`
-reports the template AHEAD of the checkout it does not fail -- it builds the base from nothing,
-says so, and leaves the shared template alone. `bazel run //rust/integration-db:reset_template`
-is the deliberate recovery when the template has diverged from trunk; the trunk lifecycle runs it
-automatically in that case.
+**`sr_core_template` is a frozen rollback artifact.** No workflow migrates it or clones from it
+any more. Its three writers -- `//elixir/serviceradar_core:migrate_template`,
+`//rust/integration-db:prepare_template` and `//rust/integration-db:reset_template` -- still
+exist and still **refuse** without `--//build:template_authority=true`, and
+`//build/contracts:ci_heavy_gate_contract_test` fails if any active workflow passes that flag
+or names one of those targets. Do not pass it to get past a refusal: the flag is the caller
+declaring "this checkout is trunk", and writing the shared singleton from a branch is exactly
+what once left seven unmerged migrations in it and turned every other pull request red. It
+fails closed -- an absent or empty marker is a refusal -- so adding the flag to a target that
+does not declare `//build:template_authority_file` changes nothing. The run-base targets that
+fed from it (`//rust/integration-db:provision_base`, `//elixir/serviceradar_core:migrate_run`,
+`//rust/integration-db:provision_db*`) also remain in the tree, but no workflow invokes them.
 
-For one shard, pair `//rust/integration-db:provision_db_sN` with
-`//elixir/serviceradar_core:integration_tests_sN`. CI uses the unsuffixed provision target and
-the eight-shard suite. Every test/lifecycle invocation needs
-`--//build:enable_integration_tests --strategy=TestRunner=local --test_tag_filters=`; prepare is
-`bazel run` and needs `--build_tag_filters=`. Always pass `--nocache_test_results` to the mutable
-database tests, and always invoke `teardown_db` after a red shard. Bazel has no cross-invocation
-finalizer; the stale sweep is the backstop for a killed host.
-
-Keep fixture base URLs in `SRQL_TEST_DATABASE_URL` and `SRQL_TEST_ADMIN_URL`, mint ONE run id
-for the whole sequence and pass it to every invocation as `--//build:run_id=<id>` (8-32 chars of
-`[a-z0-9]`; it has no default, because a constant fallback let two runs share one database), and
-leave
-`SERVICERADAR_TEST_DATABASE_URL` unset so each shard derives its disposable database. When using
-a NodePort, export both `PGSSLSERVERNAME` and `SRQL_TEST_DATABASE_SERVER_NAME` with the CNPG
-certificate's DNS name so the Rust and Elixir clients verify the same certificate.
+Every lifecycle invocation passes `-c opt --config=ci --//build:enable_integration_tests`;
+database tests add `--strategy=TestRunner=local --nocache_test_results`. Mint ONE run id for
+the whole sequence and pass it to every invocation as `--//build:run_id=<id>` (8-32 chars of
+`[a-z0-9]`; it has no default, because a constant fallback let two runs share one database).
+The lease, the clones and the teardown are all keyed on the run database it names, so a step
+with a different id is a different run. Leave `SERVICERADAR_TEST_DATABASE_URL` unset so each
+lane derives its disposable database. Bazel has no cross-invocation finalizer: the workflow's
+exit trap runs `teardown_db` and `release_generation`, and the stale sweep plus generation
+cleanup are the backstop for a killed host.
 
 **BazelCI runs the PR head's `buildbuddy.yaml` against the MERGED tree.** It merges
 `origin/staging` into the branch before building, but the workflow steps come from the
 branch's own `buildbuddy.yaml`. So a branch that predates a lifecycle change runs the OLD
-step sequence against NEW `//rust/integration-db` code, and the symptom names neither: a
-`provision_db` failing with `sr_core_test_<run> does not exist; run
-//rust/integration-db:provision_base first` means the branch's `buildbuddy.yaml` has no
-`provision_base` step, not that the fixture is broken. Diff `buildbuddy.yaml` against
+step sequence against NEW `//rust/integration-db` code, and the symptom names neither -- for
+example, a branch cut before the generation cutover still calls `provision_base` and
+`provision_db` instead of the generation targets. Diff `buildbuddy.yaml` against
 `origin/staging` before reading further; the fix is a rebase, not a code change.
 
-With a mode-0600 ignored `.bazelrc.remote` containing the BuildBuddy credential, add
-`--config=cache_only`: compilation artifacts use the public authenticated cache while
-`TestRunner` remains native. Do not use `--config=ci` for a local database test; it selects the
-Linux RBE platform. Never copy or print fixture or BuildBuddy credentials while diagnosing this
-flow. The skill contains the exact command sequence and cleanup check.
+The workflow materializes fixture credentials with `//:buildbuddy_setup_fixture_env` into a
+mode-0600 file and keeps secret-bearing test actions local to the runner. Do not use
+`--config=ci` on a workstation; it selects the cluster executor's cache layout and Linux RBE
+platform. Never copy or print fixture or BuildBuddy credentials while diagnosing this flow.
 
 ## Why the schema baseline cannot be replayed
 
