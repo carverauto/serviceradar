@@ -509,6 +509,15 @@ catalog, and CN reaches object storage on shared-data. Kubelet probes come from
 the node, which most CNIs admit regardless of NetworkPolicy; after applying,
 confirm the StarRocks pods stay Ready on yours.
 
+On the carverauto cluster the `buildbuddy` namespace carries the label too, for
+the `SrqlParity` BuildBuddy action (`//buildbuddy.yaml`), which runs the SRQL
+parity harness against this warehouse. It logs in as `srql_parity`, a user with
+`CREATE DATABASE` on `default_catalog` and nothing else, and only ever creates
+and drops `srql_parity_*` databases. Its password lives in the BuildBuddy secret
+`SRQL_PARITY_STARROCKS_PASSWORD` and nowhere in this repository. The label
+admits every BuildBuddy executor to ports 9030/8030/8040; the password is what
+gates the warehouse, as it does for every other admitted namespace.
+
 ## Verify
 
 ```bash

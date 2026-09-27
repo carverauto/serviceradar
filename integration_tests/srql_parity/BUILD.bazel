@@ -37,6 +37,10 @@ load("//build:integration_tests.bzl", "requires_shared_fixture")
 #     and forces them onto the host, which breaks them -- see //integration_tests/srql.) An
 #     RBE build cannot run on a macOS host; there the same test is
 #     `cargo test -p srql-parity --test parity -- --nocapture` with the same environment.
+#
+#     In CI it is the `SrqlParity` BuildBuddy action (//buildbuddy.yaml), dispatched explicitly
+#     for a branch; that action documents the dispatch call, the credentials and why the
+#     carverauto warehouse is reachable from a workflow runner.
 
 # The inventory and the shared normalization examples are also read, as data, by the web-ng
 # unit test that drives the product's Elixir query builders
