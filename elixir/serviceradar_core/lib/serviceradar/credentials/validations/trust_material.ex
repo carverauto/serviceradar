@@ -12,25 +12,72 @@ defmodule ServiceRadar.Credentials.Validations.TrustMaterial do
   Both are checked here rather than at connection time, because a rule that
   only fails hours later inside a plugin run is exactly the failure mode this
   material exists to remove.
+
+  An atomic update validates the form it is about to write in Elixir. Whether
+  the other form is already set is only known to the row, since an atomic
+  changeset carries no original record, so that half of the exclusivity check
+  runs in the database.
   """
 
   use Ash.Resource.Validation
 
+  alias Ash.Error.Changes.InvalidAttribute
+  alias ServiceRadar.Credentials.Validations.ProposedValue
+
   @fingerprint_format ~r/\Asha256:[0-9a-f]{64}\z/
+  @combined_message "cannot be combined with a CA bundle; supply one form of trust material"
 
   @impl true
-  def atomic(_changeset, _opts, _context), do: :ok
+  def atomic(changeset, _opts, _context) do
+    atomic_material(
+      ProposedValue.fetch(changeset, :ca_bundle_pem),
+      ProposedValue.fetch(changeset, :server_cert_fingerprint)
+    )
+  end
 
   @impl true
   def validate(changeset, _opts, _context) do
-    bundle = trimmed(changeset, :ca_bundle_pem)
-    fingerprint = trimmed(changeset, :server_cert_fingerprint)
+    validate_material(
+      trimmed(changeset, :ca_bundle_pem),
+      trimmed(changeset, :server_cert_fingerprint)
+    )
+  end
 
+  defp atomic_material({:not_atomic, _reason} = not_atomic, _fingerprint), do: not_atomic
+  defp atomic_material(_bundle, {:not_atomic, _reason} = not_atomic), do: not_atomic
+
+  defp atomic_material(bundle, fingerprint) do
+    case {supplied(bundle), supplied(fingerprint)} do
+      {nil, nil} ->
+        :ok
+
+      {bundle, nil} ->
+        bundle |> validate_bundle() |> exclusive_with(:server_cert_fingerprint)
+
+      {nil, fingerprint} ->
+        fingerprint |> validate_fingerprint() |> exclusive_with(:ca_bundle_pem)
+
+      {bundle, fingerprint} ->
+        validate_material(bundle, fingerprint)
+    end
+  end
+
+  # The supplied form is valid; the row must not already hold the other one.
+  # `atomic_ref/1` is the value this update writes when it sets that field, and
+  # the stored value when it does not.
+  defp exclusive_with(:ok, other_field) do
+    message = @combined_message
+
+    {:atomic, [other_field], expr(not is_nil(^atomic_ref(other_field))),
+     expr(error(^InvalidAttribute, %{field: :server_cert_fingerprint, message: ^message}))}
+  end
+
+  defp exclusive_with(error, _other_field), do: error
+
+  defp validate_material(bundle, fingerprint) do
     cond do
       bundle != nil and fingerprint != nil ->
-        {:error,
-         field: :server_cert_fingerprint,
-         message: "cannot be combined with a CA bundle; supply one form of trust material"}
+        {:error, field: :server_cert_fingerprint, message: @combined_message}
 
       bundle != nil ->
         validate_bundle(bundle)
@@ -120,16 +167,21 @@ defmodule ServiceRadar.Credentials.Validations.TrustMaterial do
     end
   end
 
-  defp trimmed(changeset, field) do
-    case Ash.Changeset.get_attribute(changeset, field) do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> nil
-          trimmed -> trimmed
-        end
+  defp supplied({:changed, value}), do: blank_to_nil(value)
+  defp supplied(:unchanged), do: nil
 
-      _ ->
-        nil
+  defp trimmed(changeset, field) do
+    changeset
+    |> Ash.Changeset.get_attribute(field)
+    |> blank_to_nil()
+  end
+
+  defp blank_to_nil(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
     end
   end
+
+  defp blank_to_nil(_value), do: nil
 end
