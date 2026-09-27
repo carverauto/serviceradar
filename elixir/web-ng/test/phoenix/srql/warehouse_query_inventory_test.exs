@@ -45,6 +45,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.WarehouseQueryInventoryTest do
   alias ServiceRadarWebNGWeb.NetflowLive.Visualize.Config, as: VisualizeConfig
   alias ServiceRadarWebNGWeb.NetflowVisualize.Query, as: NFQuery
   alias ServiceRadarWebNGWeb.ObservabilityHealthLive.Index, as: ObservabilityHealth
+  alias ServiceRadarWebNGWeb.SRQL.WarehouseQueryInventoryTest
   alias ServiceRadarWebNGWeb.Stats.Query, as: StatsQuery
 
   @moduletag :db_free
@@ -59,7 +60,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.WarehouseQueryInventoryTest do
     @moduledoc false
     # The web-ng SRQL module contract (`ServiceRadarWebNG.SRQL.query/2`).
     def query(query, _opts) do
-      ServiceRadarWebNGWeb.SRQL.WarehouseQueryInventoryTest.record(query)
+      WarehouseQueryInventoryTest.record(query)
       {:ok, %{"results" => [], "pagination" => %{}}}
     end
   end
@@ -68,12 +69,12 @@ defmodule ServiceRadarWebNGWeb.SRQL.WarehouseQueryInventoryTest do
     @moduledoc false
     # The core runner contract (`ServiceRadar.Observability.SRQLRunner`).
     def query(query, _opts) do
-      ServiceRadarWebNGWeb.SRQL.WarehouseQueryInventoryTest.record(query)
+      WarehouseQueryInventoryTest.record(query)
       {:ok, []}
     end
 
     def query_page(query, _opts) do
-      ServiceRadarWebNGWeb.SRQL.WarehouseQueryInventoryTest.record(query)
+      WarehouseQueryInventoryTest.record(query)
       {:ok, %{rows: [], next_cursor: nil}}
     end
   end
