@@ -16,6 +16,8 @@ defmodule ServiceRadar.TopologyAtlas.Native do
   def world_info(_world), do: :erlang.nif_error(:nif_not_loaded)
   def tile(_world, _z, _x, _y, _budget), do: :erlang.nif_error(:nif_not_loaded)
   def aggregate_selection(_world, _selection, _glyph_id), do: :erlang.nif_error(:nif_not_loaded)
+  def aggregate_info(_aggregate), do: :erlang.nif_error(:nif_not_loaded)
+  def relation(_world, _id), do: :erlang.nif_error(:nif_not_loaded)
   def detail(_world, _scope, _cursor), do: :erlang.nif_error(:nif_not_loaded)
   def tile_relations(_world, _selection, _cursor, _limit), do: :erlang.nif_error(:nif_not_loaded)
   def new_health(_world, _epoch), do: :erlang.nif_error(:nif_not_loaded)

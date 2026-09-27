@@ -65,6 +65,8 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
     assert tile.selection_bytes > 0
     aggregate = Enum.find(tile.glyphs, &(&1.kind == :aggregate))
     assert {:ok, selection} = TopologyAtlas.aggregate_selection(world, tile.selection, aggregate.id)
+    assert {:ok, %{member_count: 1, retained_bytes: bytes}} = TopologyAtlas.aggregate_info(selection)
+    assert bytes > 0
     assert {:ok, %{nodes: [member], next_cursor: nil}} = TopologyAtlas.detail(world, {:aggregate_members, selection})
     refute member.device_id in [a.device_id, b.device_id]
     assert member.device_id in Enum.map(positions, & &1.device_id)
@@ -92,12 +94,21 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
     selected_by_id = Map.new(selected, &{&1.relation_id, &1})
 
     for binding <- bindings do
+      assert {:ok, %{relation: picked, nodes: [source, target]}} = TopologyAtlas.relation(world, binding.relation_id)
+      assert Map.take(picked, Map.keys(binding)) == binding
+      assert source == Enum.find(positions, &(&1.device_id == binding.source_id))
+      assert target == Enum.find(positions, &(&1.device_id == binding.target_id))
+
       row = Map.fetch!(selected_by_id, binding.relation_id)
       assert Map.take(row, Map.keys(binding)) == binding
       assert row.reversed == false
       assert Enum.at(tile.glyphs, row.source_glyph).id == binding.source_id
       assert Enum.any?(tile.edges, &(&1.id == row.rendered_edge_id))
     end
+
+    assert {:error, :not_found} = TopologyAtlas.relation(world, "synthetic-missing-link")
+    assert {:error, :invalid_identity} = TopologyAtlas.relation(world, nil)
+    assert {:error, :invalid_identity} = TopologyAtlas.relation(world, "")
 
     assert {:ok, empty_builder} = TopologyAtlas.new_builder("synthetic-detail-layout", 16)
     assert {:ok, empty_world} = TopologyAtlas.finish_world(empty_builder)

@@ -111,6 +111,59 @@ struct WireDetailPage {
     next_cursor: Option<WireDetailCursor>,
 }
 
+#[derive(NifMap)]
+struct WireAggregateInfo {
+    member_count: usize,
+    retained_bytes: usize,
+}
+
+#[rustler::nif]
+fn aggregate_info(env: Env<'_>, aggregate: ResourceArc<AggregateResource>) -> Term<'_> {
+    crate::admission::call(env, &crate::admission::BOUNDED_READ, || {
+        read_reply(env, || {
+            Ok(WireAggregateInfo {
+                member_count: aggregate.0.member_count(),
+                retained_bytes: aggregate.0.retained_bytes(),
+            })
+        })
+    })
+}
+
+#[derive(NifMap)]
+struct WireRelationDetail {
+    relation: RelationRow,
+    nodes: Vec<PositionRow>,
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn relation(env: Env<'_>, world: ResourceArc<WorldResource>, id: String) -> Term<'_> {
+    crate::admission::call(env, &crate::admission::BOUNDED_READ, || {
+        read_call(env, || {
+            // Both cold-load and reconciliation collect a BTreeMap into this
+            // immutable slice, preserving canonical relation-ID order.
+            let index = world
+                .0
+                .relations
+                .binary_search_by(|row| row.relation_id.as_str().cmp(&id))
+                .map_err(|_| Error::DetailNotFound)?;
+            let row = &world.0.relations[index];
+            let mut nodes = Vec::with_capacity(2);
+            for endpoint in [&row.source_id, &row.target_id] {
+                let position = world
+                    .0
+                    .geometry
+                    .search(endpoint)
+                    .ok_or(Error::StaleDetailRevision)?;
+                nodes.push(PositionRow::from_position(position.clone(), true));
+            }
+            Ok(WireRelationDetail {
+                relation: row.clone(),
+                nodes,
+            })
+        })
+    })
+}
+
 #[rustler::nif(schedule = "DirtyCpu")]
 fn aggregate_selection(
     env: Env<'_>,
