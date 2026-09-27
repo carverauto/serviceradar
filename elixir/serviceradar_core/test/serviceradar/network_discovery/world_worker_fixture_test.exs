@@ -295,7 +295,7 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
     %{
       source: source,
       target: target,
-      kind: "CANONICAL_TOPOLOGY",
+      kind: :canonical_topology,
       protocol: "lldp",
       evidence_class: "direct-physical",
       if_name_ab: "eth1",
@@ -332,12 +332,7 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
       prefix: "platform"
     )
 
-    Enum.each(ids, fn id ->
-      case Ash.get(Device, id, actor: actor()) do
-        {:ok, nil} -> :ok
-        {:ok, device} -> Ash.destroy!(device, actor: actor())
-      end
-    end)
+    Repo.query!("DELETE FROM platform.ocsf_devices WHERE uid = ANY($1::text[])", [ids])
 
     assert %{rows: [[0]]} =
              Repo.query!(
