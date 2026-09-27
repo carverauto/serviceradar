@@ -50,7 +50,7 @@ The shared invented million-device/two-million-relation generator passes the [la
 - [ ] 5.2 Integrate an independently invented seeded 1,000,000-device/at-least-2,000,000-relation hierarchy; record placement, persistence, tile-index, candidate-query, memory, and encoded-byte measurements.
 - [x] 5.3 Run strict OpenSpec validation for the carrier change and every touched pending duplicate delta.
 - [ ] 5.4 Verify fresh-layout determinism, session persistence, exact integer stability after 1% additions, tombstone/reappearance, and separate UInt16 wire precision bounds across zooms.
-- [ ] 5.5 Verify real WebGPU with packet flow enabled: first frame <=3 seconds, pan/zoom >=30 FPS, hover/select <100 milliseconds, and local tile fetch plus decode p95 <=200 milliseconds. Record GPU limits, fixture seed, budgets, and timing method; SwiftShader alone is insufficient.
+- [x] 5.5 Verify real WebGPU with packet flow enabled: first frame <=3 seconds, pan/zoom >=30 FPS, hover/select <100 milliseconds, and local tile fetch plus decode p95 <=200 milliseconds. Record GPU limits, fixture seed, budgets, and timing method; SwiftShader alone is insufficient.
 - [ ] 5.6 Verify all-zoom device-count conservation, every tile's actual feature/byte bounds, targeted dirty sets, cache revisits with no fetch, and telemetry updates with zero geometry refetch.
 - [x] 5.7 Round-trip tile/detail metadata, UInt16 affine positions, local endpoints/proxies, and columnar/lazy details through the schema-3 NIF encoder and client decoder.
 - [ ] 5.8 Run make test with --config=remote on the final tree before the PR. Deliver every PR through no-mistakes with the srql-fixtures-only database restriction in the run intent.

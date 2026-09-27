@@ -1,7 +1,9 @@
 // Browser acceptance over RBE-generated production Arrow bytes. This executable
 // serves invented data on loopback; it does not build assets or contact a database.
 const {strict: assert} = require("node:assert")
-const {readFile, writeFile} = require("node:fs/promises")
+const {mkdtemp, readFile, rm, writeFile} = require("node:fs/promises")
+const {tmpdir} = require("node:os")
+const {join} = require("node:path")
 const {createServer} = require("node:http")
 const {chromium} = require(process.env.PLAYWRIGHT_MODULE || "@playwright/test")
 
@@ -61,14 +63,32 @@ async function main() {
   const physical = process.env.GOD_VIEW_PHYSICAL_GPU === "1"
   const headless = !physical || process.env.GOD_VIEW_HEADLESS === "1"
   const frameRateLimitDisabled = physical && process.env.GOD_VIEW_UNCAPPED === "1"
+  const energySaverOff = physical && process.env.GOD_VIEW_ENERGY_SAVER_OFF === "1"
   let browser
+  let browserProfile
   try {
     // Uncapped throughput is an explicit diagnostic; normal physical validation
     // retains Chrome scheduling and fails if the pan/zoom SLO is not met.
-    browser = await chromium.launch(physical ? {channel: "chrome", headless, args: frameRateLimitDisabled ? ["--disable-frame-rate-limit"] : []} : {headless: true, args: [
-      "--enable-unsafe-webgpu", "--enable-unsafe-swiftshader", "--enable-features=Vulkan", "--use-vulkan=swiftshader", "--use-webgpu-adapter=swiftshader", "--use-angle=swiftshader",
-    ]})
-    const page = await browser.newPage({viewport: {width: 1280, height: 720}, deviceScaleFactor: 1})
+    const viewport = {width: 1280, height: 720}
+    const args = frameRateLimitDisabled ? ["--disable-frame-rate-limit"] : []
+    if (energySaverOff) {
+      // Low-battery Chrome caps even a blank page at 30 FPS. Disable Energy
+      // Saver only in an owned disposable profile, preserving normal vsync.
+      browserProfile = await mkdtemp(join(tmpdir(), "sr4774-physical-gpu-"))
+      browser = await chromium.launchPersistentContext(browserProfile, {channel: "chrome", headless, args, viewport, deviceScaleFactor: 1})
+      const settings = await browser.newPage()
+      await settings.goto("chrome://settings/performance")
+      const toggle = settings.locator("settings-toggle-button").filter({hasText: "Energy Saver"})
+      await toggle.waitFor()
+      if (await toggle.evaluate(node => node.checked)) await toggle.locator("cr-toggle").click()
+      assert.equal(await toggle.evaluate(node => node.checked), false)
+      await settings.close()
+    } else {
+      browser = await chromium.launch(physical ? {channel: "chrome", headless, args} : {headless: true, args: [
+        "--enable-unsafe-webgpu", "--enable-unsafe-swiftshader", "--enable-features=Vulkan", "--use-vulkan=swiftshader", "--use-webgpu-adapter=swiftshader", "--use-angle=swiftshader",
+      ]})
+    }
+    const page = energySaverOff ? await browser.newPage() : await browser.newPage({viewport, deviceScaleFactor: 1})
     const errors = []
     page.on("pageerror", error => errors.push(error.message))
     await page.routeWebSocket("**/socket/websocket**", connection => {
@@ -176,7 +196,7 @@ async function main() {
       const {profile: result} = await profile.send("Profiler.stop")
       await writeFile(process.env.GOD_VIEW_CPU_PROFILE, JSON.stringify(result))
     }
-    const report = {physical, headless, frameRateLimitDisabled, adapter, first, metrics, detailRequests, geometryRequests: requests.length, serverFixture: fixture.measurements}
+    const report = {physical, headless, frameRateLimitDisabled, energySaverOff, adapter, first, metrics, detailRequests, geometryRequests: requests.length, serverFixture: fixture.measurements}
     console.log(JSON.stringify(report, null, 2))
     assert.equal(metrics.rendererFailed, false)
     assert(metrics.packetLayers > 0, "packet flow must be on")
@@ -190,8 +210,10 @@ async function main() {
       assert(metrics.tileP95 <= 200, "tile fetch/decode p95 exceeds 200ms")
     }
   } finally {
-    await browser?.close()
-    await new Promise(resolve => server.close(resolve))
+    try {await browser?.close()} finally {
+      if (browserProfile) await rm(browserProfile, {recursive: true, force: true})
+      await new Promise(resolve => server.close(resolve))
+    }
   }
 }
 main().catch(error => {console.error(error); process.exitCode = 1})
