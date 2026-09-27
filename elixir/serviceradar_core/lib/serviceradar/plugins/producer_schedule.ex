@@ -129,6 +129,7 @@ defmodule ServiceRadar.Plugins.ProducerSchedule do
                ]
 
       validate &validate_schedule/2
+      validate ServiceRadar.Plugins.Validations.ProducerSchedulePackageApproved
       change &set_next_due/2
     end
 
