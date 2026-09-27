@@ -937,9 +937,11 @@ describe("rendering_graph_layer_node_methods expanded detail label degradation",
     expect(dataBefore.length).toBe(3)
     expect(Array.from(dataBefore.attributes.getPosition.value)).toEqual([0, 0, 10, 20, 20, 40])
 
-    // A filter hides node 1: the mask changes in place, but positions are not repacked.
+    // A filter hides node 1, and selects it too: the mask changes in place, but positions
+    // are not repacked.
     frame.mask.set([1, 0, 1])
     frame.maskVersion += 1
+    frame.selectedNodeIndex = 1
     const visibleFiltered = frame.records.filter((_, index) => frame.mask[index] === 1)
 
     const after = ctx.buildNodeAndLabelLayers(effective, visibleFiltered, [], frame)
@@ -959,6 +961,14 @@ describe("rendering_graph_layer_node_methods expanded detail label degradation",
       expect(layer.props.getRadius(undefined, {index: 0})).toBeGreaterThan(0)
       expect(layer.props.getRadius(undefined, {index: 2})).toBeGreaterThan(0)
     }
+
+    // The ring layer's stroke also collapses for a hidden node -- even though it is selected,
+    // which would otherwise widen the stroke -- so no residual dot survives the radius going
+    // to zero.
+    const ringAfter = after.find((layer) => layer.id === "god-view-nodes-ring")
+    expect(ringAfter.props.getLineWidth(undefined, {index: 1})).toBe(0)
+    expect(ringAfter.props.getLineWidth(undefined, {index: 0})).toBeGreaterThan(0)
+    expect(ringAfter.props.getLineWidth(undefined, {index: 2})).toBeGreaterThan(0)
 
     // Deck's index into the (still full) data set still resolves to the right node.
     const haloAfter = after.find((layer) => layer.id === "god-view-nodes-halo")
