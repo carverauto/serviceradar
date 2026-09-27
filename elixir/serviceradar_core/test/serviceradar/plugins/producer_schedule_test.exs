@@ -163,6 +163,47 @@ defmodule ServiceRadar.Plugins.ProducerScheduleTest do
     assert CredentialRedactor.redact(transmit_payload) == transmit_payload
   end
 
+  test "enabling a schedule for a revoked package is rejected and disabling it is not", %{
+    actor: actor,
+    uid: uid
+  } do
+    plugin_id = "revoked-schedule-producer-#{uid}"
+
+    assert {:ok, package} = create_package(actor, plugin_id)
+    assert {:ok, package} = approve_package(actor, package)
+
+    {:ok, schedule} =
+      ProducerSchedule
+      |> Ash.Query.filter(plugin_package_id == ^package.id and schedule_id == "advisory.refresh")
+      |> Ash.read_one(actor: actor)
+
+    assert {:ok, enabled} =
+             schedule
+             |> Ash.Changeset.for_update(:update, %{enabled: true}, actor: actor)
+             |> Ash.update()
+
+    assert {:ok, %PluginPackage{status: :revoked}} =
+             package
+             |> Ash.Changeset.for_update(:revoke, %{denied_reason: "test revocation"},
+               actor: actor
+             )
+             |> Ash.update()
+
+    assert {:ok, disarmed} =
+             enabled
+             |> Ash.Changeset.for_update(:update, %{enabled: false}, actor: actor)
+             |> Ash.update()
+
+    refute disarmed.enabled
+
+    assert {:error, %Ash.Error.Invalid{errors: errors}} =
+             disarmed
+             |> Ash.Changeset.for_update(:update, %{enabled: true}, actor: actor)
+             |> Ash.update()
+
+    assert Enum.any?(errors, &(&1.field == :plugin_package_id))
+  end
+
   test "one credential reference issues exact endpoint grants for token and inventory requests",
        %{
          actor: actor,

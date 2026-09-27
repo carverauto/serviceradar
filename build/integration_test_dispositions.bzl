@@ -524,7 +524,7 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/plugins/plugin_assignment_recovery_test.exs": 18,
     "test/serviceradar/plugins/plugin_assignment_test.exs": 7,
     "test/serviceradar/plugins/policy_owned_assignment_recovery_db_test.exs": 4,
-    "test/serviceradar/plugins/producer_schedule_test.exs": 16,
+    "test/serviceradar/plugins/producer_schedule_test.exs": 17,
     "test/serviceradar/plugins/run_overrides_db_test.exs": 4,
     "test/serviceradar/prefix_tags/external_sources_integration_test.exs": 1,
     "test/serviceradar/prefix_tags/integration_test.exs": 6,

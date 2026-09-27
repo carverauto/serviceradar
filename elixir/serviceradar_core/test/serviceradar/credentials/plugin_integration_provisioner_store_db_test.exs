@@ -77,6 +77,29 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisionerStoreDbTest do
       assert {:ok, %{assignments_disabled: 0, schedules_disabled: 0}} = reconcile(rule, [])
     end
 
+    test "repointing onto a successor package disables the superseded schedule" do
+      %{package: superseded, rule: rule} = provision!("upgrade")
+      assert package_schedule!(superseded).enabled
+
+      assert {:ok, %PluginPackage{status: :revoked}} =
+               superseded
+               |> Ash.Changeset.for_update(:revoke, %{denied_reason: "superseded"},
+                 actor: admin_actor()
+               )
+               |> Ash.update()
+
+      successor =
+        approved_package!(superseded.plugin_id, version: "1.1.0", create_plugin: false)
+
+      assert {:ok, summary} =
+               reconcile(rule, [producer_schedule_profile(successor, rule.provider)])
+
+      assert summary.schedules_disabled == 1
+      refute package_schedule!(superseded).enabled
+      assert package_schedule!(successor).enabled
+      assert to_string(provisioned_assignment!(rule).plugin_package_id) == to_string(successor.id)
+    end
+
     test "an approved package whose profile is absent keeps its assignment and schedule" do
       %{package: package, rule: rule} = provision!("approved")
 
@@ -135,20 +158,23 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisionerStoreDbTest do
     }
   end
 
-  defp approved_package!(plugin_id) do
+  defp approved_package!(plugin_id, opts \\ []) do
     actor = admin_actor()
+    version = Keyword.get(opts, :version, "1.0.0")
 
-    {:ok, _plugin} =
-      Plugin
-      |> Ash.Changeset.for_create(:create, %{plugin_id: plugin_id, name: "Example Inventory"},
-        actor: actor
-      )
-      |> Ash.create()
+    if Keyword.get(opts, :create_plugin, true) do
+      {:ok, _plugin} =
+        Plugin
+        |> Ash.Changeset.for_create(:create, %{plugin_id: plugin_id, name: "Example Inventory"},
+          actor: actor
+        )
+        |> Ash.create()
+    end
 
     manifest = %{
       "id" => plugin_id,
       "name" => "Example Inventory",
-      "version" => "1.0.0",
+      "version" => version,
       "entrypoint" => "run_check",
       "runtime" => "wasi-preview1",
       "capabilities" => ["submit_result", "http_request", "producer-schedule:v1"],
@@ -180,7 +206,7 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisionerStoreDbTest do
         %{
           plugin_id: plugin_id,
           name: "Example Inventory",
-          version: "1.0.0",
+          version: version,
           entrypoint: "run_check",
           runtime: "wasi-preview1",
           outputs: "serviceradar.plugin_result.v1",
@@ -188,7 +214,7 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisionerStoreDbTest do
           producer_schedules: manifest["producer_schedules"],
           config_schema: %{},
           display_contract: %{},
-          content_hash: "sha256:#{plugin_id}",
+          content_hash: "sha256:#{plugin_id}-#{version}",
           signature: %{},
           source_type: :upload
         },

@@ -77,6 +77,13 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
          {:ok, cadence_seconds} <- cadence_seconds(rule, profile),
          {:ok, assignment, assignment_changed?} <-
            upsert_assignment(rule, profile, params, actor, opts),
+         {:ok, schedules_retired} <-
+           retire_superseded_schedules(
+             assignment,
+             profile["plugin_package_id"],
+             actor,
+             opts
+           ),
          {:ok, schedule, schedule_changed?} <-
            bind_schedule(
              rule,
@@ -93,7 +100,8 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
          assignment: assignment,
          schedule: schedule,
          assignment_changed?: assignment_changed?,
-         schedule_changed?: schedule_changed?
+         schedule_changed?: schedule_changed?,
+         schedules_retired: schedules_retired
        }}
     end
   end
@@ -220,7 +228,9 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
                 | rules: summary.rules + 1,
                   assignments_written:
                     summary.assignments_written + bool_count(result.assignment_changed?),
-                  schedules_bound: summary.schedules_bound + bool_count(result.schedule_changed?)
+                  schedules_bound: summary.schedules_bound + bool_count(result.schedule_changed?),
+                  schedules_disabled:
+                    summary.schedules_disabled + Map.get(result, :schedules_retired, 0)
               }}}
 
           {:error, reason} ->
@@ -326,6 +336,44 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
     case store.update_assignment(assignment, %{enabled: false}, actor) do
       {:ok, _updated} -> {:ok, 1}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # An upgrade repoints the assignment at the successor package and binds that
+  # package's schedule. Schedules still armed for an earlier package stay bound
+  # to the same assignment, and the dispatcher would run the old contract
+  # against the new assignment. Disarm every enabled schedule on this assignment
+  # whose package is not the one being bound, before the successor is armed.
+  defp retire_superseded_schedules(_assignment, package_id, _actor, _opts)
+       when package_id in [nil, ""], do: {:ok, 0}
+
+  defp retire_superseded_schedules(assignment, package_id, actor, opts) do
+    store = Keyword.get(opts, :schedule_store, __MODULE__.ScheduleStore)
+    package_id = to_string(package_id)
+
+    with {:ok, schedules} <- store.list_assignment_schedules(assignment.id, actor) do
+      Enum.reduce_while(schedules, {:ok, 0}, fn schedule, {:ok, count} ->
+        if superseded_schedule?(schedule, package_id) do
+          case store.update_schedule(schedule, %{enabled: false}, actor) do
+            {:ok, _updated} -> {:cont, {:ok, count + 1}}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+        else
+          {:cont, {:ok, count}}
+        end
+      end)
+    end
+  end
+
+  defp superseded_schedule?(schedule, package_id) do
+    schedule.enabled == true and schedule_package_id(schedule) not in [nil, package_id]
+  end
+
+  defp schedule_package_id(schedule) do
+    case Map.get(schedule, :plugin_package_id) do
+      nil -> nil
+      "" -> nil
+      id -> to_string(id)
     end
   end
 
