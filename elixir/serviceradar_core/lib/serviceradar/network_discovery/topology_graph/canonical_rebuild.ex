@@ -34,26 +34,15 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
   @self_heal_condition :canonical_self_heal
   @default_canonical_prune_max_fraction 0.5
 
-  # Change-detection: the canonical rebuild rewrites every CANONICAL_TOPOLOGY
-  # edge with unconditional SETs, and it runs on EVERY mapper topology report
-  # (per upsert_links) plus the cleanup worker. For a static topology that means
-  # re-rewriting an unchanged graph indefinitely (observed: tens of millions of
-  # CANONICAL_TOPOLOGY updates on a few hundred edges). We fingerprint the full
-  # mapper-evidence input (every observed edge label's start/end ids plus the
-  # per-edge properties that drive the upsert content_hash) and skip the rebuild
-  # when it is unchanged, with a heartbeat so a long-static graph still rebuilds
-  # periodically (a defence-in-depth backstop, since the fingerprint now covers
-  # property changes the old structural-only hash omitted).
+  # Fingerprint the active backend's mapper evidence to avoid rewriting a static
+  # canonical graph on every report. The heartbeat still forces periodic rebuilds
+  # so the skip guard cannot indefinitely prevent reconciliation or stale pruning.
   @default_canonical_rebuild_heartbeat_ms 3_600_000
 
-  # The skip-guard fingerprint is persisted on the shared
-  # platform.runtime_topology_projection_meta row (input_hash / input_hashed_at)
-  # rather than a process-local :persistent_term. persistent_term is wiped on
-  # every pod restart, so each rollout forced a cold full canonical rebuild on
-  # every replica (the rollout-correlated CNPG CPU burst). The shared meta row
-  # makes the guard durable across restarts and consistent across replicas. A nil
-  # input_hash (fresh deploy, query failure) always fails open into a rebuild, so
-  # the guard can never erroneously skip a needed change.
+  # Shared platform.runtime_topology_projection_meta rows make the skip guard
+  # durable across restarts and replicas. AGE/dual and Dgraph use distinct keys
+  # because their input fingerprints are not interchangeable. Missing hashes
+  # always proceed with reconciliation.
 
   def rebuild_canonical_links_from_current do
     _ = rebuild_canonical_links_from_current_with_stats()
