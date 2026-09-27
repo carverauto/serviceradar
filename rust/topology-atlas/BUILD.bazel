@@ -1,0 +1,32 @@
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+
+rust_library(
+    name = "topology_atlas",
+    srcs = glob(["src/**/*.rs"]),
+    crate_name = "serviceradar_topology_atlas",
+    crate_root = "src/lib.rs",
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(cargo_only = True, normal = True),
+)
+
+rust_test(
+    name = "layout_test",
+    srcs = ["tests/layout.rs"],
+    crate_root = "tests/layout.rs",
+    deps = [":topology_atlas"],
+)
+
+filegroup(
+    name = "srcs",
+    srcs = glob(["src/**", "Cargo.toml"]),
+    visibility = ["//visibility:public"],
+)
+
+rust_test(
+    name = "tiles_test",
+    srcs = ["tests/tiles.rs"],
+    crate_root = "tests/tiles.rs",
+    deps = [":topology_atlas"],
+)
