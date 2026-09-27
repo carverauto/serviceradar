@@ -1438,6 +1438,11 @@ agentGateway:
   partitionId: "default"
   domain: "default"
   publicHostname: ""
+  # inClusterArtifactPublicUrl: when set, overrides the artifact download URL placed in agent
+  # configs for agents that resolve hostnames inside the cluster. Set this to the cluster-internal
+  # service URL (e.g. "https://serviceradar-agent-gateway.<namespace>.svc.cluster.local:50053")
+  # when publicHostname is an external DNS name unreachable from in-cluster agents.
+  inClusterArtifactPublicUrl: ""
   capabilities: "icmp,tcp,http,grpc"
   clusterStrategy: "dns"
   clusterCoreService: "serviceradar-core-elx-headless"

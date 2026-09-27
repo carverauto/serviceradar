@@ -66,6 +66,7 @@ defmodule ServiceRadar.Plugins.ProducerSchedule do
   code_interface do
     define :get_by_id, action: :by_id, args: [:id]
     define :list_due_for_dispatch, action: :due_for_dispatch
+    define :record_run_result, action: :record_run_result
   end
 
   actions do
@@ -143,6 +144,13 @@ defmodule ServiceRadar.Plugins.ProducerSchedule do
       require_atomic? false
 
       change &dispatch_and_record/2
+    end
+
+    update :record_run_result do
+      description "Record the outcome of a dispatched producer schedule command"
+      require_atomic? false
+
+      accept [:last_status, :last_error]
     end
   end
 
