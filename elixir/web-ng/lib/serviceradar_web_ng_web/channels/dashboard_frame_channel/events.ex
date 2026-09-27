@@ -6,12 +6,22 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel.Events do
   EventWriter broadcasts a summary of every persisted event row on
   `ServiceRadar.Events.PubSub.rows_topic/0`. A dashboard channel subscribes to
   that topic once, matches each summary against the renderer's filters, and
-  pushes only matching events. Delivery is authorized against the
-  `ServiceRadar.Monitoring.OcsfEvent` read policy for the viewer on every batch,
-  so a viewer who loses event access stops receiving events.
+  pushes only matching events.
+
+  Delivery is authorized per row: before pushing, the channel reads the matched
+  event ids through the `ServiceRadar.Monitoring.OcsfEvent` read policy as the
+  viewer, and only rows that read returns are delivered. The policy is a filter,
+  so a capability-style `Ash.can?` answers "allowed" for every role (the read
+  merely returns nothing); reading the rows is what applies it.
   """
 
   alias ServiceRadar.Monitoring.OcsfEvent
+
+  require Ash.Query
+
+  # Summaries are broadcast right after insert; bound the id lookup to recent
+  # chunks of the hypertable.
+  @visibility_window_seconds 3_600
 
   @capability "events.subscribe"
   @max_subscriptions 8
@@ -34,7 +44,26 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel.Events do
     end
   end
 
-  def readable?(scope), do: authorize(scope) == :ok
+  @doc """
+  Returns the ids among `events` that the viewer's own read of `ocsf_events`
+  returns.
+  """
+  def visible_ids(%{user: user}, events) when not is_nil(user) and is_list(events) do
+    ids = events |> Enum.map(& &1["id"]) |> Enum.filter(&is_binary/1) |> Enum.uniq()
+    since = DateTime.add(DateTime.utc_now(), -@visibility_window_seconds, :second)
+
+    OcsfEvent
+    |> Ash.Query.for_read(:read, %{}, actor: user)
+    |> Ash.Query.filter(id in ^ids and time >= ^since)
+    |> Ash.Query.select([:id])
+    |> Ash.read()
+    |> case do
+      {:ok, rows} -> MapSet.new(rows, &to_string(&1.id))
+      {:error, _reason} -> MapSet.new()
+    end
+  end
+
+  def visible_ids(_scope, _events), do: MapSet.new()
 
   @doc """
   Returns `[{subscription_id, events}]` for every subscription that matched at
@@ -64,9 +93,9 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel.Events do
     if @capability in List.wrap(capabilities), do: :ok, else: {:error, :capability_not_approved}
   end
 
-  defp authorize(%{user: user}) when not is_nil(user) do
-    if Ash.can?({OcsfEvent, :read}, user), do: :ok, else: {:error, :permission_denied}
-  end
+  # Row visibility is enforced at delivery (visible_ids/2); subscribing only
+  # needs a signed-in viewer.
+  defp authorize(%{user: user}) when not is_nil(user), do: :ok
 
   defp authorize(_scope), do: {:error, :permission_denied}
 

@@ -123,12 +123,7 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
   def handle_info({:ocsf_event_rows, summaries}, socket) when is_list(summaries) do
     case authorize_event_delivery(socket) do
       {:ok, socket} ->
-        socket.assigns.event_subscriptions
-        |> Events.match(summaries)
-        |> Enum.each(fn {id, events} ->
-          push(socket, "events:batch", %{"subscription_id" => id, "events" => events})
-        end)
-
+        push_visible_events(socket, Events.match(socket.assigns.event_subscriptions, summaries))
         {:noreply, socket}
 
       {:error, socket} ->
@@ -367,8 +362,22 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
     :ok
   end
 
-  # Re-checks the viewer's event access at most every @events_reauthorize_ms so a
-  # revoked role stops delivery without a permission lookup per event batch.
+  defp push_visible_events(_socket, []), do: :ok
+
+  defp push_visible_events(socket, matched) do
+    visible = Events.visible_ids(socket.assigns.current_scope, Enum.flat_map(matched, &elem(&1, 1)))
+
+    Enum.each(matched, fn {id, events} ->
+      case Enum.filter(events, &MapSet.member?(visible, &1["id"])) do
+        [] -> :ok
+        events -> push(socket, "events:batch", %{"subscription_id" => id, "events" => events})
+      end
+    end)
+  end
+
+  # Refreshes the viewer (role, status) at most every @events_reauthorize_ms, so
+  # per-row visibility follows role changes and a deactivated viewer's
+  # subscriptions are dropped.
   defp authorize_event_delivery(socket) do
     now = System.monotonic_time(:millisecond)
     checked_at = socket.assigns.events_authorized_at
@@ -376,11 +385,9 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
     if is_integer(checked_at) and now - checked_at < @events_reauthorize_ms do
       {:ok, socket}
     else
-      with {:ok, scope} <- RBAC.authorize_current(socket.assigns.current_scope, []),
-           true <- Events.readable?(scope) do
-        {:ok, socket |> assign(:current_scope, scope) |> assign(:events_authorized_at, now)}
-      else
-        _denied -> {:error, socket}
+      case RBAC.authorize_current(socket.assigns.current_scope, []) do
+        {:ok, scope} -> {:ok, socket |> assign(:current_scope, scope) |> assign(:events_authorized_at, now)}
+        {:error, _reason} -> {:error, socket}
       end
     end
   end

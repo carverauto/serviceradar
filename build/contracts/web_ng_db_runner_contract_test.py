@@ -15,6 +15,7 @@ SHARED_FIXTURE_SOURCES = {
     "test/app_domain/dashboards/system_reports_db_test.exs",
     "test/app_domain/otel_services_access_db_test.exs",
     "test/phoenix/auth/sso_provisioning_test.exs",
+    "test/phoenix/channels/dashboard_frame_channel_live_db_test.exs",
     "test/phoenix/controllers/api/admin_authorization_test.exs",
     "test/phoenix/controllers/api/api_endpoint_integration_test.exs",
     "test/phoenix/controllers/api/api_rate_limit_test.exs",

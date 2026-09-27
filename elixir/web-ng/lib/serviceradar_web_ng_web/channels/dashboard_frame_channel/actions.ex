@@ -17,6 +17,8 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel.Actions do
   alias ServiceRadarWebNG.Northbound.ActionForm
   alias ServiceRadarWebNG.RBAC
 
+  require Ash.Query
+
   @capability "actions.invoke"
   @launch_permission "northbound.actions.launch"
   @scopes ~w(device interface)
@@ -62,9 +64,12 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel.Actions do
   Reads the current state of an invocation with the viewer's scope.
   """
   def progress(scope, invocation_id) when is_binary(invocation_id) do
-    case Ash.get(ActionInvocation, invocation_id, action: :by_id, actor: scope_actor(scope)) do
-      {:ok, invocation} -> {:ok, invocation_payload(invocation)}
-      {:error, _reason} -> {:error, :progress_unavailable}
+    ActionInvocation
+    |> Ash.Query.for_read(:by_id, %{id: invocation_id}, actor: scope_actor(scope))
+    |> Ash.read_one()
+    |> case do
+      {:ok, %ActionInvocation{} = invocation} -> {:ok, invocation_payload(invocation)}
+      _other -> {:error, :progress_unavailable}
     end
   end
 
