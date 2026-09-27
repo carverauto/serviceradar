@@ -15,7 +15,7 @@ actions:
       Arch: "amd64"
       dockerNetwork: "bridge"
     resource_requests:
-      memory: "50GB"
+      memory: "32GB"
       disk: "40GB"
     steps:
       - run: >-
@@ -80,7 +80,7 @@ actions:
     # cpu also accepts an `m` suffix for thousandths of a core ("8000m" = 8 cores).
     # UNITS: `GB` HERE MEANS GiB, NOT 10^9.
     resource_requests:
-      memory: "50GB"
+      memory: "32GB"
       disk: "40GB"
 
     steps:
@@ -458,7 +458,7 @@ actions:
         crons:
           - "0 2 * * *"
     resource_requests:
-      memory: "50GB"
+      memory: "32GB"
       disk: "40GB"
     steps:
       - run: >-
