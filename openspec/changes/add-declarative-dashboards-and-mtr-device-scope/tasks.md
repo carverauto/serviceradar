@@ -185,8 +185,18 @@ the third consumer, so it moves once rather than being copied a third time.
       with no panels; leaves other dashboards untouched. In
       `//elixir/web-ng:networks_live_db_test` against the shared SRQL fixture, as
       a `*_db_test.exs` added to that target's `srcs`.
-- [ ] 8.3 Export/import round trip against the fixture database: export, import
+- [x] 8.3 Export/import round trip against the fixture database: export, import
       into a clean slug, assert equivalence over the fields the format defines.
+      One `@tag :web_ng_shared_fixture_db` test in
+      `test/app_domain/dashboards/dashboard_export_round_trip_db_test.exs`
+      (added to `//elixir/web-ng:networks_live_db_test`). Creates a 3-panel
+      dashboard, exports via `DefinitionSerializer.serialize/1`, validates via
+      `Definition.validate/2`, imports under a new slug via
+      `SystemReports.ensure_dashboard/2`, then asserts all format-defined fields
+      match (title, description, default_time_range, metadata, variables, and
+      per-panel: title, srql_query, visual_type, data_binding, display_config,
+      visual_config, layout, position). Also asserts the import gets its own
+      `id` and `dashboard_ref`.
 - [x] 8.4 SRQL: `target_ip` and `device_id` filters on `mtr_hops`; `stats:` on
       `mtr_traces` grouping by target with reach counts; both dialects; parity
       guard extended.
