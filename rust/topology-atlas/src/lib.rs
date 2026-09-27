@@ -1,10 +1,16 @@
 //! Server-authored topology geometry. Coordinates survive incremental updates;
 //! changing the coordinate space requires a new, explicitly published layout.
 
+mod details;
 mod layout;
 mod spatial;
 mod tiles;
 
+pub use details::{
+    AggregateSelection, DETAIL_EDGE_LIMIT, DETAIL_MEMBER_LIMIT, DETAIL_NODE_LIMIT, DetailCursor,
+    DetailPage, DetailRelation, DetailScope, MAX_SELECTION_BYTES, RELATION_CANDIDATE_LIMIT,
+    RelationCursor, RelationPage, SelectedRelation, TileSelection,
+};
 pub use layout::reconcile;
 pub use tiles::{Budget, Glyph, GlyphKind, Tile, TileEdge, World};
 
@@ -94,6 +100,9 @@ pub enum Error {
     InvalidPosition(String),
     ExhaustedWorld,
     InvalidBudget,
+    DetailNotFound,
+    InvalidDetailCursor,
+    StaleDetailRevision,
 }
 
 impl std::fmt::Display for Error {
