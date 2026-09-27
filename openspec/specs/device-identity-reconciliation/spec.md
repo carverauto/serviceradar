@@ -94,6 +94,7 @@ left alone.
 - **AND** the update IP is a confirmed alias for device Y, which holds no strong identifier
 - **WHEN** DIRE processes the update
 - **THEN** devices X and Y SHALL NOT be merged
+- **AND** the alias state for that IP on device Y SHALL be left unchanged
 
 ### Requirement: IP Alias Sightings and Promotion
 The system SHALL track IP alias sightings for weak identifiers and only promote aliases once they meet a configurable confirmation threshold.
