@@ -282,7 +282,11 @@ export function snapshotDetailsJson(details) {
  * `parsedDetailCounts()` reports how many rows have been parsed.
  */
 export function decodeSnapshotColumns(bytes) {
-  const table = tableFromIPC(bytes)
+  return decodeSnapshotTable(tableFromIPC(bytes))
+}
+
+/** Reuse a parsed table after a transport-specific schema/budget check. */
+export function decodeSnapshotTable(table) {
   const {nodeCount, edgeCount} = rowSplit(table)
   const edgeOffset = nodeCount
 

@@ -33,6 +33,10 @@ const NODE_DETAIL_FIELDS = [
   ["geo_lon", "number"],
 ]
 const EDGE_DETAIL_FIELDS = [
+  ["id", "text"],
+  ["represented_count", "number"],
+  ["phase_start", "number"],
+  ["phase_end", "number"],
   ["source_id", "text"],
   ["target_id", "text"],
   ["source_interface", "text"],
@@ -189,6 +193,7 @@ export function snapshotIpcBytes({
   schemaVersion = 3,
   revision = 1,
   metadata = true,
+  metadataEntries = [],
   detailColumns = true,
   omitColumns = [],
 } = {}) {
@@ -236,6 +241,7 @@ export function snapshotIpcBytes({
       ["schema_version", String(schemaVersion)],
       ["revision", String(revision)],
       ...(metadata ? [["node_count", String(nodeCount)], ["edge_count", String(edgeCount)]] : []),
+      ...metadataEntries,
     ]),
     "file",
   )

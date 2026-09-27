@@ -36,11 +36,34 @@ export default class GodViewRenderer {
     this.lifecycleController.mount()
   }
 
+  async mountScene(payload, headers) {
+    this.context.state.sceneOnly = true
+    this.mount()
+    const lifecycle = this.context.lifecycle
+    lifecycle.ensureDeck()
+    const deadline = performance.now() + 15000
+    while (!this.destroyed && this.context.state.rendererMode === "initializing" && performance.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 16))
+    }
+    if (this.destroyed) throw new Error("Topology detail was closed")
+    // The detail fitter needs Deck's actual viewport when it admits labels.
+    // Wait for asynchronous device creation before accepting the scene.
+    if (this.context.state.rendererMode !== "webgpu") throw new Error("WebGPU is required for topology detail")
+    lifecycle.resizeCanvas()
+    await lifecycle.handleSnapshot(lifecycle.buildSnapshotFrameFromHttpResponse(payload, headers))
+    if (this.destroyed) throw new Error("Topology detail was closed")
+    if (this.context.state.rendererMode !== "webgpu" || this.context.state.lastGraph?._layoutMode !== "elk-scene-detail") {
+      throw new Error("Topology detail could not be rendered")
+    }
+  }
+
   update() {
     if (typeof this.context.state.updated === "function") this.context.state.updated()
   }
 
   destroy() {
+    if (this.destroyed) return
+    this.destroyed = true
     this.lifecycleController.destroy()
   }
 }

@@ -43,5 +43,7 @@ describe("God-View production module graph", () => {
     expect(sourceGraph).not.toContain(ACCEPTANCE_FLAG)
     expect(sourceGraph).not.toContain(GEOMETRY_HOOK)
     expect(inputs.some((input) => input.endsWith("god_view_acceptance_geometry_observer.js"))).toBe(false)
-  })
+  // This bundles the whole application, including ELK and deck.gl. Its timeout
+  // bounds the build operation; browser performance has a separate owner.
+  }, 30000)
 })
