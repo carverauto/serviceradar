@@ -93,14 +93,23 @@ defmodule ServiceRadar.Analytics.StarRocks.EventDocumentsTest do
   test "an OTel metric listing comes back with the booleans CNPG returns" do
     slow = %{"timestamp" => "2026-01-15T10:00:00Z", "span_name" => "GET /cart", "is_slow" => 1}
     fast = %{"timestamp" => "2026-01-15T10:00:01Z", "span_name" => "GET /cart", "is_slow" => 0}
-    unknown = %{"timestamp" => "2026-01-15T10:00:02Z", "span_name" => "GET /cart", "is_slow" => nil}
+
+    unknown = %{
+      "timestamp" => "2026-01-15T10:00:02Z",
+      "span_name" => "GET /cart",
+      "is_slow" => nil
+    }
 
     for entity <- ~w(otel_metrics metrics) do
       assert [%{"is_slow" => true}, %{"is_slow" => false}, %{"is_slow" => nil}] =
                EventDocuments.decode_rows([slow, fast, unknown], entity)
     end
 
-    point = %{"timestamp" => "2026-01-15T10:00:00Z", "metric_name" => "requests", "is_monotonic" => 1}
+    point = %{
+      "timestamp" => "2026-01-15T10:00:00Z",
+      "metric_name" => "requests",
+      "is_monotonic" => 1
+    }
 
     for entity <- ~w(otel_metric_points metric_points) do
       assert [%{"is_monotonic" => true, "metric_name" => "requests"}] =

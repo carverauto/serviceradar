@@ -68,7 +68,11 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetricsTest do
       load = recording_load(%{otel_metrics: {:error, :unavailable}})
 
       assert {:error, :unavailable} =
-               OtelMetrics.store([%{span_name: "a"}], [%{metric_name: "m"}], warehouse(load: load))
+               OtelMetrics.store(
+                 [%{span_name: "a"}],
+                 [%{metric_name: "m"}],
+                 warehouse(load: load)
+               )
 
       assert_received {:load, :otel_metrics, _}
       refute_received {:load, :otel_metric_points, _}
@@ -78,7 +82,11 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetricsTest do
       load = recording_load(%{otel_metric_points: {:error, :unavailable}})
 
       assert {:error, :unavailable} =
-               OtelMetrics.store([%{span_name: "a"}], [%{metric_name: "m"}], warehouse(load: load))
+               OtelMetrics.store(
+                 [%{span_name: "a"}],
+                 [%{metric_name: "m"}],
+                 warehouse(load: load)
+               )
     end
   end
 

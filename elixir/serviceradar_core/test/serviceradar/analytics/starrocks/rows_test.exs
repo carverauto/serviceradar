@@ -308,7 +308,10 @@ defmodule ServiceRadar.Analytics.StarRocks.RowsTest do
     test "a metric point id follows metric name, service and attribute set only" do
       [a] = Rows.encode(:otel_metric_points, [metric_point()])
       [redelivered] = Rows.encode(:otel_metric_points, [metric_point(%{value: 3.0})])
-      [other_attrs] = Rows.encode(:otel_metric_points, [metric_point(%{attributes_hash: "d4e5f6"})])
+
+      [other_attrs] =
+        Rows.encode(:otel_metric_points, [metric_point(%{attributes_hash: "d4e5f6"})])
+
       [other_metric] = Rows.encode(:otel_metric_points, [metric_point(%{metric_name: "x"})])
 
       assert redelivered["id"] == a["id"]

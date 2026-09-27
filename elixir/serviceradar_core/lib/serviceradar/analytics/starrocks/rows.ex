@@ -363,11 +363,10 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
   # differ and nil differs from "".
   defp key_id(parts) do
     parts
-    |> Enum.map(fn
+    |> Enum.map_join(fn
       nil -> "-"
       part -> "+" <> Integer.to_string(byte_size(stringify(part))) <> ":" <> stringify(part)
     end)
-    |> Enum.join()
     |> then(&:crypto.hash(:sha256, &1))
     |> Base.encode16(case: :lower)
   end
