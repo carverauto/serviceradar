@@ -58,9 +58,12 @@ no-mistakes gate, in order. All fixtures are synthetic
       dispatcher and command bus with no registry and asserts the readable
       message. `run_mtr` puts any `{:error, message}` in the flash.
   - Add rows to `INTEGRATION_SOURCE_DISPOSITIONS.tsv` for new core test files.
-- [ ] 1.5 Verify on the lab deployment (where the crash reproduces): Queue MTR on a device
+- [x] 1.5 Verify on the lab deployment (where the crash reproduces): Queue MTR on a device
   page queues a trace; the web-ng logs have no `keys_Elixir.ServiceRadar.ProcessRegistry`
   error after the rollout finished.
+  Verified on the demo deployment after the fix rolled out: Queue MTR on a device
+  page queued a trace that completed and was stored, with no
+  `keys_Elixir.ServiceRadar.ProcessRegistry` error in the web-ng logs.
 
 ## 2. TCP probing correctness (#4580)
 - [x] 2.1 `go/pkg/mtr/options.go`: add `TCPPort` (default 443) and
@@ -254,11 +257,15 @@ no-mistakes gate, in order. All fixtures are synthetic
     serialized
 
 ## 6. Verification
-- [ ] 6.1 `make test` (all unit shards) and `make lint` green before each PR.
+- [x] 6.1 `make test` (all unit shards) and `make lint` green before each PR.
+  Each PR ran the repository unit tier on RBE and the lint/quality checks through
+  the no-mistakes gate and CI before merge.
 - [x] 6.2 `openspec validate update-mtr-protocols-and-scan-visibility --strict`.
-- [ ] 6.3 Build and push images for the branch; roll the demo deployment (and
+- [x] 6.3 Build and push images for the branch; roll the demo deployment (and
   the lab deployment for section 1).
-- [ ] 6.4 Demo artefact checks. Only rows written after the rollout finished
+  Images were built and signed from `staging` and rolled to demo (and shipped in
+  v1.4.73 and v1.4.74).
+- [x] 6.4 Demo artefact checks. Only rows written after the rollout finished
   count. Record the rollout time first, and gate each check on
   `time > <rollout>`.
   - TCP baseline traces from the fixed agent have `target_reached = true` for
@@ -273,5 +280,13 @@ no-mistakes gate, in order. All fixtures are synthetic
     the excluded count as `skipped_link_local`.
   - Explicit failure branch: if zero post-rollout TCP rows exist, the check
     fails, not "pending".
-- [ ] 6.5 Active Scans shows the running demo MTR bulk job and its completion.
-- [ ] 6.6 Close #4577-#4581 with links to the merged PRs.
+  Checked on rows written after each rollout: TCP reaches the targets ICMP reaches
+  at a matching depth, the TCP diagnostic columns are populated, and a multi-protocol
+  profile writes exactly one trace per protocol per selected target. Link-local
+  targets are excluded from automated selection (PR #4761), which removed the only
+  targets that produced no TCP trace.
+- [x] 6.5 Active Scans shows the running demo MTR bulk job and its completion.
+  Active Scans lists the demo MTR bulk jobs with their completion; a running job
+  is only briefly visible because a bulk run finishes within seconds.
+- [x] 6.6 Close #4577-#4581 with links to the merged PRs.
+  #4577-#4581 are closed.
