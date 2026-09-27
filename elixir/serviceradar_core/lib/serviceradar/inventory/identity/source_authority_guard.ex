@@ -241,6 +241,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceAuthorityGuard do
   @doc false
   def conflict_from_rows(rows, device_ids) when is_list(rows) and is_list(device_ids) do
     rows
+    |> Enum.filter(&(&1.identifier_type in @source_identifier_types))
     |> Enum.group_by(fn row ->
       {identifier_type(row.identifier_type), row.partition, source_id(row)}
     end)
