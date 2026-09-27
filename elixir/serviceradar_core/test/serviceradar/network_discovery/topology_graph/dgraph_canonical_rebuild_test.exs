@@ -138,6 +138,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphCanonicalRebuildTest
 
     assert edges |> Enum.map(&{&1.source, &1.target}) |> Enum.sort() ==
              [{"sr:switch-a", "sr:switch-b"}, {"sr:switch-a", "sr:switch-c"}]
+
+    assert Enum.find(edges, &(&1.target == "sr:switch-c")).pair_support_rank == 1
   end
 
   test "fingerprint tracks evidence changes and interface enrichment but buckets heartbeat time" do

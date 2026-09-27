@@ -465,6 +465,7 @@ mod tests {
             last_seen: None,
             mutation_id: None,
             agent_id: None,
+            pair_support_rank: Some(1),
         }
         .into_write();
         assert_eq!(write.kind().as_str(), "CANONICAL_TOPOLOGY");
@@ -474,5 +475,6 @@ mod tests {
             write.link_key(),
             "CANONICAL_TOPOLOGY|sr:host01.example.com|sr:host02.example.com|eth1|eth2"
         );
+        assert_eq!(write.pair_support_rank(), 1);
     }
 }

@@ -476,6 +476,7 @@ impl TopologyClient {
     topo.if_name_ab
     topo.if_name_ba
     topo.mutation_id
+    topo.pair_support_rank
     topo.src {{ device.id hop.ip }}
     topo.dst {{ device.id hop.ip }}
   }}

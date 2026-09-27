@@ -969,7 +969,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
         flow_bps_ab: coalesce(r.flow_bps_ab, 0),
         flow_bps_ba: coalesce(r.flow_bps_ba, 0),
         capacity_bps: coalesce(r.capacity_bps, 0),
-        telemetry_eligible: coalesce(r.telemetry_eligible, false)
+        telemetry_eligible: coalesce(r.telemetry_eligible, false),
+        pair_support_rank: coalesce(r.pair_support_rank, 0)
       } AS row
       """
 

@@ -216,7 +216,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist do
         flow_bps_ab: int_or_nil(row_value(row, :flow_bps_ab)),
         flow_bps_ba: int_or_nil(row_value(row, :flow_bps_ba)),
         capacity_bps: int_or_nil(row_value(row, :capacity_bps)),
-        telemetry_eligible: row_value(row, :telemetry_eligible) == true
+        telemetry_eligible: row_value(row, :telemetry_eligible) == true,
+        pair_support_rank: int_or_nil(row_value(row, :pair_support_rank)) || 0
       }
     end
   end
