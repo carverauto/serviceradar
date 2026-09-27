@@ -376,7 +376,7 @@ tests:
       - failedTemplate:
           errorPattern: 'reserve 23890755584 bytes \(22\.25 GiB\)'
       - failedTemplate:
-          errorPattern: 'flows: 3221225472 bytes \(3\.00 GiB\) x R3, full \[nats\.jetstream\.profile=small single-server\]'
+          errorPattern: 'flows: 3221225472 bytes \(3\.00 GiB\) x R1 \(capped from R3 by nats\.replicas\), full \[nats\.jetstream\.profile=small single-server\]'
 
   # Two servers: R3 streams are full on both, the R1 streams spread over two.
   # Only the single-server table fits: 12 + ceil(10.25 / 2) + 2 = 19.125 GiB,

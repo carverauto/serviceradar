@@ -29,6 +29,12 @@ stream reserves its full size, and on two the R3 streams still land on both
 servers, so the three-server table does not fit. The `tenant-2g` profile is a
 hosted-tenant plan (see "Hosted tenant plans" below).
 
+When the chart deploys NATS itself, every stream replica count it renders is
+capped at `nats.replicas`: a standalone nats-server rejects any stream with
+more than one replica, so on one server the R3 values in `values.yaml` render
+as 1. The budget uses the same capped counts and its message marks each capped
+stream. Against an external NATS the configured replica counts are kept.
+
 The per-stream sizes of each profile are chart data in
 `helm/serviceradar/files/jetstream-profiles.yaml`. Every size is still
 overridable at its own value, and `nats.jetstream.maxFileStore` overrides the

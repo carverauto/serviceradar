@@ -945,6 +945,26 @@ Takes (dict "value" <raw> "what" <value path, for the error>).
 {{- end -}}
 
 {{/*
+The JetStream replica count the chart renders: min(configured, nats.replicas)
+when the chart deploys NATS itself (the same gate as templates/nats.yaml), so a
+standalone server never gets a stream with R>1, which nats-server rejects
+(JSStreamReplicasNotSupportedErr), and a cluster never gets more replicas than
+it has servers. Against an external NATS the configured value is kept: the
+chart does not know its size. Every stream replica count the chart renders goes
+through here, and so does the budget.
+Takes (dict "root" <root context> "value" <raw> "what" <value path, for the error>).
+*/}}
+{{- define "serviceradar.jetstreamEffectiveReplicas" -}}
+{{- $r := int64 (include "serviceradar.jetstreamReplicaCount" (dict "value" .value "what" .what)) -}}
+{{- $nats := default (dict) .root.Values.nats -}}
+{{- if or (not (hasKey $nats "enabled")) $nats.enabled -}}
+{{- $servers := int64 (default 1 $nats.replicas) -}}
+{{- if gt $r $servers -}}{{- $r = $servers -}}{{- end -}}
+{{- end -}}
+{{- $r -}}
+{{- end -}}
+
+{{/*
 SERVICERADAR_JS_<STREAM>_<SUFFIX>, where <STREAM> is the stream name upper-cased
 with every other character replaced by "_" (design D7). This is the name every
 size-owning component reads, e.g. SERVICERADAR_JS_KV_SERVICERADAR_DATASVC_MAX_BYTES.
@@ -1065,7 +1085,12 @@ is about the disk, and nats.jetstream.allowOvercommit does not skip it.
 {{- $rraw = $e.replicaValue -}}
 {{- $rsrc = $e.replicaSource -}}
 {{- end -}}
-{{- $r := int64 (include "serviceradar.jetstreamReplicaCount" (dict "value" $rraw "what" $rsrc)) -}}
+{{- $configuredR := int64 (include "serviceradar.jetstreamReplicaCount" (dict "value" $rraw "what" $rsrc)) -}}
+{{- $r := int64 (include "serviceradar.jetstreamEffectiveReplicas" (dict "root" $ "value" $rraw "what" $rsrc)) -}}
+{{- $capNote := "" -}}
+{{- if ne $r $configuredR -}}
+{{- $capNote = printf " (capped from R%d by nats.replicas)" $configuredR -}}
+{{- end -}}
 {{- $bucket := "not counted" -}}
 {{- if $e.counted -}}
 {{- if ge $r $natsReplicas -}}
@@ -1076,7 +1101,7 @@ is about the disk, and nats.jetstream.allowOvercommit does not skip it.
 {{- if gt $mb $largest -}}{{- $largest = $mb -}}{{- end -}}
 {{- $bucket = "spread" -}}
 {{- end -}}
-{{- $lines = append $lines (printf "%s: %d bytes (%.2f GiB) x R%d, %s [%s]" $e.stream $mb (divf $mb 1073741824) $r $bucket $src) -}}
+{{- $lines = append $lines (printf "%s: %d bytes (%.2f GiB) x R%d%s, %s [%s]" $e.stream $mb (divf $mb 1073741824) $r $capNote $bucket $src) -}}
 {{- end -}}
 {{- $_ := set $sizes $e.id (dict "stream" $e.stream "maxBytes" (printf "%d" $mb) "replicas" (printf "%d" $r) "source" $src "bucket" $bucket) -}}
 {{- end -}}
