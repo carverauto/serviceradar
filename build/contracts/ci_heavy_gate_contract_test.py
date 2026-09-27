@@ -1569,7 +1569,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             'OSFamily: "linux"',
             'Arch: "amd64"',
             'dockerNetwork: "bridge"',
-            'memory: "32GB"',
+            'memory: "36GB"',
             'disk: "40GB"',
         ):
             self.assertIn(required, action)
@@ -1728,7 +1728,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             'OSFamily: "linux"',
             'Arch: "amd64"',
             'dockerNetwork: "bridge"',
-            'memory: "32GB"',
+            'memory: "36GB"',
             'disk: "40GB"',
             "//:buildbuddy_setup_docker_auth",
         ):

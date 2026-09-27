@@ -59,7 +59,19 @@ replicas: 1
 autoscaler:
   enabled: false
 
-# Sized for the runner, with the action in //buildbuddy.yaml requesting 32GB (= 32 GiB).
+# Sized for TWO concurrent runs of the actions in //buildbuddy.yaml (BazelCI and
+# LargeIngestionGate request 36GB each; the unmeasured benchmark actions still request 50GB).
+#
+# 2026-09-27: a run's non-reclaimable memory (cgroup `anon` of this pod, which includes the runner
+# containers) peaked at 31.2 GiB (~33.5 GB) over an hour of BazelCI/LargeIngestionGate runs; the
+# rest is reclaimable page cache. Prometheus/cAdvisor cannot see it (the runner containers sit
+# outside the executor process and it reports ~0.4 GiB). 36GB is ~7% over that peak.
+#
+# MEASURED 2026-09-27, and it contradicts the "minus 10 GB" rule below: at limits 80Gi the
+# startup line reads "Memory: 0 of 85,899,345,920 bytes allocated" -- the FULL limit, no
+# reserve (farm01's 56Gi executors likewise advertise 60,129,542,144). So two 36GB runs fit here,
+# and a 50GB benchmark run still fits alone. requests 72Gi reserves two runs honestly on the node.
+# Re-check the startup line after any chart or image change rather than trusting either rule.
 #
 # THE TWO FIELDS DO DIFFERENT JOBS, AND IT IS `limits` THAT SIZES TASKS.
 #
@@ -106,11 +118,11 @@ autoscaler:
 resources:
   requests:
     cpu: "12"
-    memory: "56Gi"
+    memory: "72Gi"
     ephemeral-storage: "45Gi"
   limits:
     cpu: "16"
-    memory: "64Gi"
+    memory: "80Gi"
     ephemeral-storage: "50Gi"
 
 # k8s-cp3-worker3 is eligible again. Same story as ./values.yaml: the 2026-08-09
@@ -189,7 +201,14 @@ extraInitContainers:
       - name: bazel-cache-volume
         mountPath: /bazel-caches
 
+# Drain instead of killing an in-flight workflow run on rollout, restart or node drain. The
+# default 30s grace SIGKILLs a 10-30 minute run mid-flight (it did, 2026-09-27). The executor
+# stops accepting work on SIGTERM and finishes what it holds; max_shutdown_duration (a top-level
+# BuildBuddy option, NOT under config.executor) must stay a little under the grace period.
+terminationGracePeriodSeconds: 3600
+
 config:
+  max_shutdown_duration: 3570s
   executor:
     # Inert on this fleet, and kept only because it costs nothing while off.
     enable_local_snapshot_sharing: true
