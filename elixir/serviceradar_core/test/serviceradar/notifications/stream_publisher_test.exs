@@ -8,7 +8,11 @@ defmodule ServiceRadar.Notifications.StreamPublisherTest do
 
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
   alias ServiceRadar.Notifications.StreamPublisher
+
+  require Logger
 
   @envelope %{"schema" => "serviceradar.notification_envelope.v1", "alert_id" => "alert-1"}
   @pub_ack {:ok, %{"stream" => "NOTIFICATIONS", "seq" => 7}}
@@ -111,6 +115,7 @@ defmodule ServiceRadar.Notifications.StreamPublisherTest do
 
       assert :ok =
                StreamPublisher.publish("notifications:stream", @envelope,
+                 reconcile_stream: false,
                  request: recording_request(responses)
                )
 
@@ -129,8 +134,36 @@ defmodule ServiceRadar.Notifications.StreamPublisherTest do
 
       assert {:error, {:stream_unavailable, _}} =
                StreamPublisher.publish("notifications:stream", @envelope,
+                 reconcile_stream: false,
                  request: recording_request(responses)
                )
+    end
+
+    test "reconciles the stream size once per node before its first publish" do
+      # A max_bytes no other test uses, so the once-per-node memo is this test's.
+      max_bytes = 734_003_200
+      stream = notifications_stream(1_073_741_824)
+      test = self()
+
+      request = fn subject, payload ->
+        send(test, {:request, subject, payload})
+
+        case subject do
+          "$JS.API.STREAM.INFO.NOTIFICATIONS" -> {:ok, stream}
+          "$JS.API.STREAM.UPDATE.NOTIFICATIONS" -> {:ok, %{"config" => Jason.decode!(payload)}}
+          _publish -> @pub_ack
+        end
+      end
+
+      opts = [max_bytes: max_bytes, request: request]
+      assert :ok = StreamPublisher.publish("notifications:stream", @envelope, opts)
+      assert :ok = StreamPublisher.publish("notifications:stream", @envelope, opts)
+
+      assert_received {:request, "$JS.API.STREAM.UPDATE.NOTIFICATIONS", update}
+      assert Jason.decode!(update)["max_bytes"] == max_bytes
+      refute_received {:request, "$JS.API.STREAM.UPDATE.NOTIFICATIONS", _}
+      assert_received {:request, "$JS.API.STREAM.INFO.NOTIFICATIONS", _}
+      refute_received {:request, "$JS.API.STREAM.INFO.NOTIFICATIONS", _}
     end
 
     test "does not attempt stream creation when the broker is unreachable" do
@@ -231,6 +264,66 @@ defmodule ServiceRadar.Notifications.StreamPublisherTest do
     end
   end
 
+  describe "reconcile_stream/1" do
+    setup do
+      # The before/after line is :info; mix test runs at :warning.
+      Logger.put_process_level(self(), :info)
+      :ok
+    end
+
+    test "shrinks the discard-old firehose to the configured size, logging before and after" do
+      {log, updates} =
+        reconcile(notifications_stream(1_073_741_824, stored: 900_000_000), 536_870_912)
+
+      assert [%{"max_bytes" => 536_870_912, "discard" => "old"} = update] = updates
+      assert update["subjects"] == ["notifications.>"]
+      assert log =~ "max_bytes 1073741824 -> 536870912"
+      assert log =~ "evicts the oldest messages"
+    end
+
+    test "keeps max_bytes of a discard-new stream that holds more than the cap" do
+      stream = notifications_stream(1_073_741_824, stored: 900_000_000, discard: "new")
+      {log, updates} = reconcile(stream, 536_870_912)
+
+      assert updates == []
+      assert log =~ "max_bytes left unchanged"
+      assert log =~ "configured=536870912 stored=900000000 current=1073741824"
+    end
+
+    test "leaves a stream already at the configured size alone" do
+      {_log, updates} = reconcile(notifications_stream(536_870_912), 536_870_912)
+
+      assert updates == []
+    end
+
+    test "creates an absent stream with the configured size" do
+      test = self()
+
+      request = fn subject, payload ->
+        send(test, {:request, subject, payload})
+
+        case subject do
+          "$JS.API.STREAM.INFO." <> _ -> {:error, %{"code" => 404, "err_code" => 10_059}}
+          "$JS.API.STREAM.CREATE." <> _ -> {:ok, %{"did_create" => true}}
+        end
+      end
+
+      assert :ok = StreamPublisher.reconcile_stream(request: request, max_bytes: 268_435_456)
+      assert_received {:request, "$JS.API.STREAM.CREATE.NOTIFICATIONS", payload}
+      assert Jason.decode!(payload)["max_bytes"] == 268_435_456
+    end
+
+    test "refuses a stream of that name that does not capture the firehose subjects" do
+      stream = put_in(notifications_stream(1_073_741_824), ["config", "subjects"], ["other.>"])
+
+      assert {:error, {:stream_config_conflict, _}} =
+               StreamPublisher.reconcile_stream(
+                 request: fn _subject, _payload -> {:ok, stream} end,
+                 max_bytes: 536_870_912
+               )
+    end
+  end
+
   describe "durable_consumer_opts/2" do
     test "names the same stream and subject the publisher writes to" do
       opts = StreamPublisher.durable_consumer_opts("web-ng-firehose")
@@ -245,6 +338,57 @@ defmodule ServiceRadar.Notifications.StreamPublisherTest do
         StreamPublisher.durable_consumer_opts("ops", filter_subject: "notifications.stream.ops")
 
       assert opts[:filter_subject] == "notifications.stream.ops"
+    end
+  end
+
+  # A STREAM.INFO reply for the firehose stream.
+  defp notifications_stream(max_bytes, opts \\ []) do
+    %{
+      "config" => %{
+        "name" => "NOTIFICATIONS",
+        "subjects" => ["notifications.>"],
+        "retention" => "limits",
+        "storage" => "file",
+        "discard" => Keyword.get(opts, :discard, "old"),
+        "num_replicas" => 1,
+        "max_age" => 86_400_000_000_000,
+        "max_bytes" => max_bytes
+      },
+      "state" => %{"bytes" => Keyword.get(opts, :stored, 0)}
+    }
+  end
+
+  # Runs reconcile_stream/1 against `stream`, returning the log and the
+  # STREAM.UPDATE configs it sent.
+  defp reconcile(stream, max_bytes) do
+    test = self()
+
+    request = fn subject, payload ->
+      send(test, {:request, subject, payload})
+
+      case subject do
+        "$JS.API.STREAM.UPDATE." <> _name -> {:ok, %{"config" => Jason.decode!(payload)}}
+        _info -> {:ok, stream}
+      end
+    end
+
+    log =
+      capture_log(fn ->
+        assert :ok = StreamPublisher.reconcile_stream(request: request, max_bytes: max_bytes)
+      end)
+
+    {log, drain_updates([])}
+  end
+
+  defp drain_updates(acc) do
+    receive do
+      {:request, "$JS.API.STREAM.UPDATE.NOTIFICATIONS", payload} ->
+        drain_updates([Jason.decode!(payload) | acc])
+
+      {:request, _subject, _payload} ->
+        drain_updates(acc)
+    after
+      0 -> Enum.reverse(acc)
     end
   end
 end

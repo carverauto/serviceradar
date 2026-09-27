@@ -40,6 +40,18 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
   A connection failure deliberately does not trigger that retry - see
   `retry_after_ensure?/2`.
 
+  ## Size reconcile
+
+  The stream's `max_bytes` comes from `SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES`
+  (1 GiB by default; the Helm chart renders
+  `core.eventWriter.streams.notifications.maxBytes`). Before its first publish
+  each node runs `reconcile_stream/1` once, which classifies the existing stream
+  by its discard policy (design D6 of `update-jetstream-storage-budget`): the
+  firehose is a discard-old buffer, so `max_bytes` is reconciled to the
+  configured size even when that evicts the oldest envelopes, and the values
+  before and after are logged. Were the stream discard-new, a cap at or below
+  the stored bytes would be held back and logged instead.
+
   ## Subjects
 
   Topics are the transport's namespace (`notifications:stream`,
@@ -73,6 +85,9 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
   # come back and replay, and an absent consumer registers no interest.
   @default_max_age_ns 86_400_000_000_000
   @default_max_bytes 1_073_741_824
+
+  # Set once a node has reconciled the stream to the configured `max_bytes`.
+  @reconciled_key {__MODULE__, :reconciled_max_bytes}
 
   # Bounds the JetStream request wait. See `request/3` for why inheriting Gnat's
   # 60_000 ms default would stall a dispatcher queue on a missing stream.
@@ -125,6 +140,8 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
       inject it.
     * `:connection` - `fun()` returning `{:ok, conn} | {:error, reason}`.
     * `:ensure_stream` - set `false` to skip the self-healing retry.
+    * `:reconcile_stream` - set `false` to skip the once-per-node size
+      reconcile (`reconcile_stream/1`) before the first publish.
   """
   @spec publish(String.t(), map() | binary(), seam_opts()) :: :ok | {:error, term()}
   def publish(topic, envelope, opts \\ [])
@@ -138,6 +155,7 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
 
   def publish(topic, payload, opts) when is_binary(topic) and is_binary(payload) do
     subject = subject(topic)
+    ensure_reconciled(opts)
 
     case do_publish(subject, payload, opts) do
       {:error, reason} ->
@@ -185,7 +203,7 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
         discard: "old",
         num_replicas: Keyword.get(opts, :replicas, 1),
         max_age: Keyword.get(opts, :max_age, @default_max_age_ns),
-        max_bytes: Keyword.get(opts, :max_bytes, @default_max_bytes)
+        max_bytes: max_bytes(opts)
       })
 
     case request(opts, js_api(opts) <> ".STREAM.CREATE." <> @stream_name, payload) do
@@ -199,6 +217,91 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
         {:error, reason}
     end
   end
+
+  @doc """
+  Creates the firehose stream when it is absent, or reconciles the `max_bytes`
+  of the existing stream to the configured size by its discard policy.
+
+  The firehose is created discard-old, and a discard-old stream is reconciled to
+  the configured `max_bytes` even when that evicts its oldest envelopes. A
+  discard-new stream keeps its `max_bytes` when the configured cap is at or
+  below the bytes it stores, since it would then refuse every later write. The
+  values before and after are logged. A stream of this name that does not
+  capture `notifications.>` is reported as `{:stream_config_conflict, _}`.
+
+  Takes the same seams as `publish/3`, plus `:max_bytes`.
+  """
+  @spec reconcile_stream(seam_opts()) :: :ok | {:error, term()}
+  def reconcile_stream(opts \\ []) do
+    request = fn subject, payload -> request(opts, subject, payload) end
+    domain = Keyword.get(opts, :domain)
+
+    case JetstreamConsumer.stream_info(request, @stream_name, domain) do
+      {:ok, config, stored} ->
+        reconcile_existing(request, config, stored, opts)
+
+      :absent ->
+        ensure_stream(opts)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp reconcile_existing(request, config, stored, opts) do
+    if @subject_wildcard in List.wrap(Map.get(config, "subjects")) do
+      configured = Map.put(config, "max_bytes", max_bytes(opts))
+      payload =
+        JetstreamConsumer.hold_discard_new_max_bytes(@stream_name, config, configured, stored)
+
+      domain = Keyword.get(opts, :domain)
+
+      JetstreamConsumer.update_stream_if_changed(
+        request,
+        @stream_name,
+        config,
+        payload,
+        stored,
+        domain
+      )
+    else
+      {:error,
+       {:stream_config_conflict,
+        "stream #{@stream_name} does not capture #{@subject_wildcard}: " <>
+          inspect(Map.get(config, "subjects"))}}
+    end
+  end
+
+  defp ensure_reconciled(opts) do
+    configured = max_bytes(opts)
+
+    if Keyword.get(opts, :reconcile_stream, true) != false and
+         :persistent_term.get(@reconciled_key, nil) != configured do
+      case reconcile_stream(opts) do
+        :ok ->
+          :persistent_term.put(@reconciled_key, configured)
+
+        {:error, reason} ->
+          Logger.warning(
+            "notification firehose stream #{@stream_name} not reconciled: #{inspect(reason)}"
+          )
+      end
+    end
+
+    :ok
+  end
+
+  defp max_bytes(opts) do
+    Keyword.get_lazy(opts, :max_bytes, fn ->
+      :serviceradar_core
+      |> Application.get_env(__MODULE__, [])
+      |> Keyword.get(:max_bytes, @default_max_bytes)
+    end)
+  end
+
+  @doc "The `max_bytes` used when `SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES` is unset (1 GiB)."
+  @spec default_max_bytes() :: pos_integer()
+  def default_max_bytes, do: @default_max_bytes
 
   @doc """
   The durable consumer options a firehose subscriber passes to

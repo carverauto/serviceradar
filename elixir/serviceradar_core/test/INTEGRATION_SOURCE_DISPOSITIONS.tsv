@@ -312,6 +312,7 @@ test/serviceradar/event_writer/service_catalog_db_test.exs	ServiceRadar.EventWri
 test/serviceradar/event_writer/service_catalog_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/event_writer/stable_id_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/event_writer/state_change_publisher_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
+test/serviceradar/event_writer/stream_ownership_test.exs	-	not_selected	load_only	not_selected	Database-free async ExUnit cases against an in-memory fake Gnat connection; no app, database, :integration or :requires_app identities; executed by the unit shards.
 test/serviceradar/event_writer/telemetry_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/events/audit_notifier_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/events/audit_writer_test.exs	ServiceRadar.Events.AuditWriterTest	data_case	async	transaction_owner	DataCase :9; test only builds an event synchronously at :24-34.

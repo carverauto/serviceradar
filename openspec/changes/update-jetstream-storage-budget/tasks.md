@@ -9,12 +9,12 @@
 
 ## 2. Finite reservations (D3)
 
-- [ ] 2.1 Give `trivy_reports`, EventWriter-created `ARANCINI_CAUSAL`,
+- [x] 2.1 Give `trivy_reports`, EventWriter-created `ARANCINI_CAUSAL`,
       `OBJ_serviceradar_plugins`, fieldsurvey and threat-intel object stores
       a positive default `max_bytes`.
-- [ ] 2.2 Lower the EventWriter-created `flows` default to 1 GiB (the profile
+- [x] 2.2 Lower the EventWriter-created `flows` default to 1 GiB (the profile
       fallback size, R1).
-- [ ] 2.3 Expose every EventWriter stream size as
+- [x] 2.3 Expose every EventWriter stream size as
       `core.eventWriter.streams.<name>.maxBytes`, rendered into the core
       environment and read in `serviceradar_core_elx/config/runtime.exs`.
 - [ ] 2.4 Expose `webNg.pluginStorage.jetstreamMaxBucketBytes`
@@ -27,7 +27,7 @@
 - [ ] 2.5 Expose a `core` value for the threat-intel bucket, rendered as
       `SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES`. The Elixir side (1 GiB
       default) is done; the chart value ships with section 3.
-- [ ] 2.6 EventWriter fallback sizes for the shared streams: read
+- [x] 2.6 EventWriter fallback sizes for the shared streams: read
       `SERVICERADAR_JS_EVENTS_FALLBACK_MAX_BYTES` / `_REPLICAS`,
       `SERVICERADAR_JS_FLOWS_FALLBACK_...` and
       `SERVICERADAR_JS_ARANCINI_CAUSAL_FALLBACK_...` (used on create and when
@@ -79,7 +79,7 @@
       with `serviceradar.owner` `otel-log-collector` (overriding an
       `event-writer` claim) and reconcile to the configured value even when it
       evicts the oldest messages; log before and after.
-- [ ] 4.3 EventWriter `reconcile_stream` (discard-old): same rule for every
+- [x] 4.3 EventWriter `reconcile_stream` (discard-old): same rule for every
       EventWriter-created stream.
 - [x] 4.4 web-ng plugin bucket (`plugins/storage.ex`): reconcile `max_bytes`
       on startup, create-or-update, discard-new rule; an unlimited bucket
@@ -93,7 +93,7 @@
       unchanged, the values are logged and a later write still succeeds; for
       discard-old streams a full stream shrinks, evicts the oldest messages
       and logs before and after; an absent bucket is created with the cap.
-- [ ] 4.8 Claim protocol in EventWriter (D6): for `events`, `flows` and
+- [x] 4.8 Claim protocol in EventWriter (D6): for `events`, `flows` and
       `ARANCINI_CAUSAL`, read `serviceradar.owner` from the stream metadata
       before deciding; create when absent with `serviceradar.owner:
       event-writer` and the fallback size and replicas; reconcile only a stream
@@ -112,7 +112,7 @@
       collector-claimed stream is left unchanged; the pre-update re-read skips
       a claim that appeared; starting first creates the stream at the fallback
       size, not unlimited.
-- [ ] 4.8a Ownership reconcile timer in `Producer` (D6): a new periodic tick
+- [x] 4.8a Ownership reconcile timer in `Producer` (D6): a new periodic tick
       (5 minutes by default, configurable), separate from the fetch tick, the
       reconnect retry and the D1 failed-consumer retries. It watches every
       multi-owner stream (`events`, `flows`, `ARANCINI_CAUSAL`) the EventWriter
@@ -140,9 +140,9 @@
       `serviceradar.owner` `flow-collector` and reconcile `max_bytes` and
       replicas under the discard-old rule, with a test for `flows` at 10 GiB
       full reconciled to 8 GiB.
-- [ ] 4.11 Classify `NOTIFICATIONS` (created by core notifications) by its
+- [x] 4.11 Classify `NOTIFICATIONS` (created by core notifications) by its
       discard policy and apply the matching D6 rule.
-- [ ] 4.12 Ownership test (ExUnit, in `serviceradar_core`): call the EventWriter
+- [x] 4.12 Ownership test (ExUnit, in `serviceradar_core`): call the EventWriter
       claim decision (4.8), with an injected clock, for each of `events`,
       `flows` and `ARANCINI_CAUSAL` with no claim inside and after the grace
       period, an `event-writer` claim and a collector claim, and assert it

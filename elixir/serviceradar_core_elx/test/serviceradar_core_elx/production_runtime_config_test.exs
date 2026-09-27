@@ -216,6 +216,50 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
              EventWriterConfig.mtr_results_stream()
   end
 
+  test "prod EventWriter reads every stream size from the environment" do
+    with_env("EVENT_WRITER_ENABLED", "true")
+    with_env("SERVICERADAR_JS_TRIVY_REPORTS_MAX_BYTES", "123456789")
+    with_env("SERVICERADAR_JS_ARANCINI_CAUSAL_FALLBACK_MAX_BYTES", "234567890")
+    with_env("SERVICERADAR_JS_EVENTS_FALLBACK_REPLICAS", "3")
+    # Blank means unset: the chart may render an empty string.
+    with_env("SERVICERADAR_JS_FLOWS_FALLBACK_MAX_BYTES", "  ")
+    with_env("SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES", "345678901")
+
+    config = read_prod_config()[:serviceradar_core]
+    sizes = config[ServiceRadar.EventWriter][:jetstream_sizes]
+    defaults = EventWriterConfig.default_jetstream_sizes()
+
+    assert sizes.max_bytes["trivy_reports"] == 123_456_789
+    assert sizes.max_bytes["metrics"] == defaults.max_bytes["metrics"]
+    assert sizes.fallbacks["ARANCINI_CAUSAL"].max_bytes == 234_567_890
+    assert sizes.fallbacks["events"].replicas == 3
+    assert sizes.fallbacks["flows"] == defaults.fallbacks["flows"]
+
+    assert config[ServiceRadar.Notifications.StreamPublisher][:max_bytes] == 345_678_901
+
+    # The shared `events` stream carries no hardcoded size in the release list;
+    # its fallback comes from SERVICERADAR_JS_EVENTS_FALLBACK_* instead.
+    events = Enum.find(config[ServiceRadar.EventWriter][:streams], &(&1.name == "EVENTS"))
+    refute Map.has_key?(events, :stream_max_bytes)
+  end
+
+  test "prod boot fails naming an invalid EventWriter stream size variable" do
+    with_env("EVENT_WRITER_ENABLED", "true")
+
+    invalid = [
+      {"SERVICERADAR_JS_METRICS_MAX_BYTES", "abc"},
+      {"SERVICERADAR_JS_FLOWS_FALLBACK_REPLICAS", "0"},
+      {"SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES", "-1"}
+    ]
+
+    for {name, value} <- invalid do
+      with_env(name, value)
+      error = catch_error(read_prod_config())
+      assert Exception.message(error) =~ name
+      with_env(name, nil)
+    end
+  end
+
   test "prod EventWriter Falco consumer targets the provisioned events stream" do
     falco = Enum.find(read_prod_event_writer_streams(), &(&1.name == "FALCO"))
 

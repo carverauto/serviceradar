@@ -41,8 +41,10 @@ defmodule ServiceRadar.EventWriter.Producer do
   use GenStage
 
   alias Gnat.Jetstream.API.Consumer, as: JetstreamConsumerApi
+  alias Gnat.Jetstream.API.Util
   alias ServiceRadar.EventWriter.Config
   alias ServiceRadar.EventWriter.JetStreamAck
+  alias ServiceRadar.EventWriter.StreamOwnership
   alias ServiceRadar.EventWriter.Telemetry, as: EventWriterTelemetry
   alias ServiceRadar.NATS.JetstreamConsumer
 
@@ -90,7 +92,9 @@ defmodule ServiceRadar.EventWriter.Producer do
     :failed_streams,
     :degraded_streams,
     :setup_failures,
-    :stream_health
+    :stream_health,
+    :ownership,
+    :owned_streams
   ]
 
   # Client API
@@ -133,11 +137,16 @@ defmodule ServiceRadar.EventWriter.Producer do
           :serviceradar_core,
           :event_writer_stream_health,
           ServiceRadar.EventWriter.StreamHealth
-        )
+        ),
+      # First-seen-unclaimed times live here, so a restart starts the grace
+      # period again: that delays a claim and never makes one early.
+      ownership: StreamOwnership.new(grace_period_ms: config.ownership_grace_period_ms),
+      owned_streams: StreamOwnership.watched_streams(config.streams)
     }
 
     # Start connection asynchronously
     send(self(), :connect)
+    schedule_ownership_reconcile(state)
 
     {:producer, state}
   end
@@ -256,6 +265,17 @@ defmodule ServiceRadar.EventWriter.Producer do
   end
 
   def handle_info({:retry_consumer, _stale_conn, _name}, state), do: {:noreply, [], state}
+
+  # The ownership reconcile timer (design D6): a periodic tick, separate from
+  # the fetch tick, the reconnect retry and the failed-consumer retries, that
+  # re-reads every multi-owner stream this producer consumes and applies the
+  # claim rule. It only issues STREAM.INFO / STREAM.UPDATE on the existing
+  # connection and never tears down or resubscribes a consumer.
+  def handle_info(:ownership_reconcile, state) do
+    state = reconcile_stream_ownership(state)
+    schedule_ownership_reconcile(state)
+    {:noreply, [], state}
+  end
 
   def handle_info({:fetch, now_ms}, state) when is_integer(now_ms) do
     state = expire_stale_pulls(state, now_ms)
@@ -846,6 +866,31 @@ defmodule ServiceRadar.EventWriter.Producer do
     }
   end
 
+  @doc false
+  # One ownership tick. Skipped while disconnected: the tracker keeps its
+  # first-seen times, so the grace period is measured across the outage.
+  def reconcile_stream_ownership(%{owned_streams: owned} = state)
+      when owned == %{} or is_nil(owned),
+      do: state
+
+  def reconcile_stream_ownership(%{connected: true, conn: conn} = state) when not is_nil(conn) do
+    request = fn topic, payload -> Util.request(conn, topic, payload) end
+    %{state | ownership: StreamOwnership.reconcile(state.ownership, request, state.owned_streams)}
+  end
+
+  def reconcile_stream_ownership(state), do: state
+
+  defp schedule_ownership_reconcile(%{owned_streams: owned})
+       when owned == %{} or is_nil(owned),
+       do: :ok
+
+  defp schedule_ownership_reconcile(%{config: config}) do
+    interval =
+      config.ownership_reconcile_interval_ms || Config.default_ownership_reconcile_interval_ms()
+
+    Process.send_after(self(), :ownership_reconcile, interval)
+  end
+
   defp schedule_consumer_retry(conn, name, attempt) do
     Process.send_after(self(), {:retry_consumer, conn, name}, consumer_retry_delay(attempt))
   end
@@ -1103,7 +1148,11 @@ defmodule ServiceRadar.EventWriter.Producer do
       stream_duplicate_window: Map.get(stream, :stream_duplicate_window),
       # Flow path: never fall back onto `events` (strands durables after rehome).
       allow_stream_fallback: Map.get(stream, :allow_stream_fallback, not flow?),
-      # Flow-collector owns `flows` retention; EventWriter only merges subjects.
+      # A stream a collector may own carries the `event-writer` claim: it is
+      # created with that claim, and its shape is reconciled only while the
+      # claim is EventWriter's (design D6). Without a claim, a flow stream only
+      # merges subjects, as before.
+      stream_owner_claim: Map.get(stream, :stream_owner_claim),
       reconcile_stream_shape: Map.get(stream, :reconcile_stream_shape, not flow?),
       # Legacy events drain consumers must not create/reshape the shared stream.
       ensure_stream: Map.get(stream, :ensure_stream, true)

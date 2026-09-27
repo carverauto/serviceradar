@@ -1173,6 +1173,16 @@ if config_env() == :prod do
     jetstream_replicas: parse_int_env.("SERVICERADAR_OTX_RAW_REPLICAS", 1),
     jetstream_storage: otx_raw_storage
 
+  # Notification firehose stream size (a discard-old buffer, reconciled on the
+  # first publish per node). Unset or blank means 1 GiB; an invalid value fails
+  # boot naming the variable.
+  config :serviceradar_core, ServiceRadar.Notifications.StreamPublisher,
+    max_bytes:
+      ServiceRadar.NATS.StateBucketSizing.bytes_from_env!(
+        "SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES",
+        ServiceRadar.Notifications.StreamPublisher.default_max_bytes()
+      )
+
   config :serviceradar_core, :age_graph_name, age_graph_name
   config :serviceradar_core, :platform_sync_component_id, platform_sync_component_id
 
@@ -1717,20 +1727,21 @@ if config_env() == :prod do
         String.to_integer(System.get_env("EVENT_WRITER_ACK_WAIT_SECONDS") || "120") *
           1_000_000_000,
       max_deliver: String.to_integer(System.get_env("EVENT_WRITER_MAX_DELIVER") || "5"),
+      # JetStream sizes of every stream EventWriter creates, from
+      # SERVICERADAR_JS_<STREAM>_MAX_BYTES and the SERVICERADAR_JS_{EVENTS,FLOWS,
+      # ARANCINI_CAUSAL}_FALLBACK_{MAX_BYTES,REPLICAS} fallbacks. Unset or blank
+      # means the compiled default; any other non-positive or non-integer value
+      # fails boot naming the variable. Config.load/0 applies them below; the
+      # `events` fallback shape replaces the old hardcoded 8 GiB.
+      jetstream_sizes: Config.jetstream_sizes_from_env!(),
       streams: [
         %{
           name: "EVENTS",
+          stream_name: "events",
           subject: "events.>",
           processor: ServiceRadar.EventWriter.Processors.Events,
           batch_size: 100,
-          batch_timeout: 1_000,
-          # Retention guard: drop oldest if the consumer falls behind instead of
-          # growing the shared `events` stream until core OOMs (8 GiB / 24h).
-          stream_retention: "limits",
-          stream_storage: "file",
-          stream_discard: "old",
-          stream_max_bytes: 8_589_934_592,
-          stream_max_age: 86_400_000_000_000
+          batch_timeout: 1_000
         },
         %{
           name: "PDNS_OCSF",
@@ -1773,6 +1784,7 @@ if config_env() == :prod do
         Config.k8s_nodes_stream(),
         %{
           name: "OTEL_METRICS",
+          stream_name: "events",
           subject: "otel.metrics.>",
           processor: ServiceRadar.EventWriter.Processors.OtelMetrics,
           batch_size: 100,
@@ -1780,6 +1792,7 @@ if config_env() == :prod do
         },
         %{
           name: "OTEL_TRACES",
+          stream_name: "events",
           subject: "otel.traces.>",
           processor: ServiceRadar.EventWriter.Processors.OtelTraces,
           batch_size: 100,
@@ -1815,6 +1828,7 @@ if config_env() == :prod do
         Config.mtr_results_stream(),
         %{
           name: "BMP_CAUSAL",
+          stream_name: "events",
           subject: "bmp.events.>",
           processor: AnalyticsSignals,
           batch_size: 100,
@@ -1822,6 +1836,7 @@ if config_env() == :prod do
         },
         %{
           name: "ARANCINI_CAUSAL",
+          stream_name: "ARANCINI_CAUSAL",
           subject: "arancini.updates.>",
           processor: AnalyticsSignals,
           batch_size: 100,
@@ -1829,6 +1844,7 @@ if config_env() == :prod do
         },
         %{
           name: "SIEM_CAUSAL",
+          stream_name: "events",
           subject: "siem.events.>",
           processor: AnalyticsSignals,
           batch_size: 100,

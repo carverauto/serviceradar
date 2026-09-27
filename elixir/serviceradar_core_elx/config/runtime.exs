@@ -531,6 +531,15 @@ config :serviceradar_core, ThreatIntelRawPayloadStore,
   jetstream_replicas: parse_int_env.("SERVICERADAR_OTX_RAW_REPLICAS", 1),
   jetstream_storage: otx_raw_storage
 
+# Notification firehose stream size (a discard-old buffer, reconciled on the
+# first publish per node). Unset or blank means 1 GiB; an invalid value fails boot.
+config :serviceradar_core, ServiceRadar.Notifications.StreamPublisher,
+  max_bytes:
+    ServiceRadar.NATS.StateBucketSizing.bytes_from_env!(
+      "SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES",
+      ServiceRadar.Notifications.StreamPublisher.default_max_bytes()
+    )
+
 config :serviceradar_core, :spiffe,
   mode: spiffe_mode,
   trust_domain: System.get_env("SPIFFE_TRUST_DOMAIN", "serviceradar.local"),
@@ -1287,6 +1296,13 @@ if config_env() == :prod do
       batch_timeout: String.to_integer(System.get_env("EVENT_WRITER_BATCH_TIMEOUT") || "1000"),
       consumer_name: System.get_env("EVENT_WRITER_CONSUMER_NAME", "serviceradar-event-writer"),
       consumer_pull_batch_size: String.to_integer(System.get_env("EVENT_WRITER_CONSUMER_PULL_BATCH_SIZE") || "16"),
+      # JetStream sizes of every stream EventWriter creates, from
+      # SERVICERADAR_JS_<STREAM>_MAX_BYTES and the SERVICERADAR_JS_{EVENTS,FLOWS,
+      # ARANCINI_CAUSAL}_FALLBACK_{MAX_BYTES,REPLICAS} fallbacks (the Helm chart
+      # renders them from the budget it checked). Unset or blank means the
+      # compiled default; any other non-positive or non-integer value fails boot
+      # naming the variable. Config.load/0 applies them to the streams below.
+      jetstream_sizes: Config.jetstream_sizes_from_env!(),
       streams: [
         %{
           name: "EVENTS",
