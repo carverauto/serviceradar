@@ -191,6 +191,7 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
         :invalid_tile -> {400, "invalid_tile"}
         :invalid_search -> {400, "invalid_search"}
         :invalid_detail -> {400, "invalid_detail"}
+        :invalid_cursor -> {400, "invalid_cursor"}
         :stale_revision -> {409, "stale_revision"}
         :payload_too_large -> {413, "topology_budget_exceeded"}
         :not_found -> {404, "topology_item_not_found"}

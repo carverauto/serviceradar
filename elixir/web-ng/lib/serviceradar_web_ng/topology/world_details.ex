@@ -123,7 +123,7 @@ defmodule ServiceRadarWebNG.Topology.WorldDetails do
          {:ok, version} <- TileKey.layout_version(version),
          {:ok, generation} <- generation(generation),
          {:ok, tile} <- tile_request(kind, params),
-         {:ok, cursor} <- cursor(Map.get(params, "cursor")) do
+         {:ok, cursor} <- cursor(Map.get(params, "cursor"), kind, version, generation) do
       {:ok, %{kind: kind, id: id, layout_version: version, generation: generation, tile: tile, cursor: cursor}}
     else
       _ -> {:error, :invalid_detail}
@@ -132,8 +132,10 @@ defmodule ServiceRadarWebNG.Topology.WorldDetails do
 
   defp request(_mode, _params), do: {:error, :invalid_detail}
 
-  defp allowed_kind?(:metadata, kind), do: kind in ["device", "relation", "aggregate"]
-  defp allowed_kind?(:scene, kind), do: kind in ["neighborhood", "component_members", "aggregate_members"]
+  defp allowed_kind?(:metadata, kind), do: kind in ["device", "relation", "aggregate", "bundle"]
+
+  defp allowed_kind?(:scene, kind),
+    do: kind in ["neighborhood", "component_members", "aggregate_members", "bundle_members"]
 
   defp generation(value) when is_integer(value) and value > 0 and value <= 9_007_199_254_740_991, do: {:ok, value}
 
@@ -149,7 +151,8 @@ defmodule ServiceRadarWebNG.Topology.WorldDetails do
   defp tile_request(kind, _params) when kind in ["device", "relation", "neighborhood", "component_members"],
     do: {:ok, nil}
 
-  defp tile_request(kind, %{"tile_revision" => revision} = params) when kind in ["aggregate", "aggregate_members"] do
+  defp tile_request(kind, %{"tile_revision" => revision} = params)
+       when kind in ["aggregate", "aggregate_members", "bundle", "bundle_members"] do
     with {:ok, revision} <- TileKey.content_revision(revision),
          {:ok, key} <- TileKey.parse(params) do
       {:ok, %{key: key, revision: revision}}
@@ -158,26 +161,41 @@ defmodule ServiceRadarWebNG.Topology.WorldDetails do
 
   defp tile_request(_kind, _params), do: {:error, :invalid_tile}
 
-  defp cursor(nil), do: {:ok, nil}
+  defp cursor(nil, _kind, _version, _generation), do: {:ok, nil}
 
-  defp cursor(encoded) when is_binary(encoded) and byte_size(encoded) <= 512 do
+  defp cursor(encoded, kind, version, generation) when is_binary(encoded) and byte_size(encoded) <= 512 do
     with {:ok, json} <- Base.url_decode64(encoded, padding: false),
-         {:ok, %{"world_revision" => world, "scope_revision" => scope, "node_page" => node, "edge_page" => edge}} <-
-           Jason.decode(json),
+         {:ok, %{"layout_version" => ^version, "generation" => ^generation} = values} <- Jason.decode(json),
+         %{"world_revision" => world, "scope_revision" => scope} <- values,
          {:ok, world} <- TileKey.content_revision(world),
          {:ok, scope} <- TileKey.content_revision(scope),
-         true <- is_integer(node) and node in 0..4_294_967_295,
-         true <- is_integer(edge) and edge in 0..4_294_967_295 do
-      {:ok, %{world_revision: world, scope_revision: scope, node_page: node, edge_page: edge}}
+         {:ok, page} <- cursor_page(kind, values) do
+      {:ok, Map.merge(page, %{world_revision: world, scope_revision: scope})}
     else
       _ -> {:error, :invalid_cursor}
     end
   end
 
-  defp cursor(_encoded), do: {:error, :invalid_cursor}
+  defp cursor(_encoded, _kind, _version, _generation), do: {:error, :invalid_cursor}
 
-  defp encode_cursor(nil), do: nil
-  defp encode_cursor(cursor), do: cursor |> Jason.encode!() |> Base.url_encode64(padding: false)
+  defp cursor_page("bundle_members", %{"offset" => offset}) when is_integer(offset) and offset in 0..4_294_967_295,
+    do: {:ok, %{offset: offset}}
+
+  defp cursor_page(kind, %{"node_page" => node, "edge_page" => edge})
+       when kind in ["neighborhood", "component_members", "aggregate_members"] and is_integer(node) and
+              node in 0..4_294_967_295 and is_integer(edge) and edge in 0..4_294_967_295,
+       do: {:ok, %{node_page: node, edge_page: edge}}
+
+  defp cursor_page(_kind, _values), do: {:error, :invalid_cursor}
+
+  defp encode_cursor(nil, _request), do: nil
+
+  defp encode_cursor(cursor, request) do
+    cursor
+    |> Map.merge(Map.take(request, [:layout_version, :generation]))
+    |> Jason.encode!()
+    |> Base.url_encode64(padding: false)
+  end
 
   defp read(mode, scope, request) do
     with {:ok, %{world: world, manifest: manifest}} <- WorldCache.world(),
@@ -254,12 +272,40 @@ defmodule ServiceRadarWebNG.Topology.WorldDetails do
     end
   end
 
+  defp select(:metadata, _scope, world, %{kind: "bundle", id: id, tile: expected} = request) do
+    with {:ok, selection} <- tile_selection(request),
+         {:ok, info} <- TopologyAtlas.bundle_info(world, selection, id) do
+      {:ok,
+       %{
+         bundle: info,
+         tile_revision: expected.revision,
+         scene: %{
+           kind: "bundle_members",
+           id: id,
+           z: expected.key.z,
+           x: expected.key.x,
+           y: expected.key.y,
+           tile_revision: expected.revision
+         }
+       }}
+    end
+  end
+
   defp select(:scene, scope, world, request) do
-    with {:ok, native_scope} <- scene_scope(world, request),
-         {:ok, page} <- TopologyAtlas.detail(world, native_scope, request.cursor),
+    with {:ok, page} <- scene_page(world, request),
          {:ok, devices} <- GodViewStream.fetch_devices_for_scope(scope, Enum.map(page.nodes, & &1.device_id)) do
       page |> level(request) |> AtlasLevel.enrich(Map.new(devices, &{&1.uid, &1}))
     end
+  end
+
+  defp scene_page(world, %{kind: "bundle_members"} = request) do
+    with {:ok, selection} <- tile_selection(request) do
+      TopologyAtlas.bundle_detail(world, selection, request.id, request.cursor)
+    end
+  end
+
+  defp scene_page(world, request) do
+    with {:ok, native_scope} <- scene_scope(world, request), do: TopologyAtlas.detail(world, native_scope, request.cursor)
   end
 
   defp scene_scope(_world, %{kind: "neighborhood", id: id}), do: {:ok, {:neighborhood, id}}
@@ -269,11 +315,14 @@ defmodule ServiceRadarWebNG.Topology.WorldDetails do
     with {:ok, selection} <- aggregate(world, request), do: {:ok, {:aggregate_members, selection}}
   end
 
-  defp aggregate(world, %{id: id, tile: expected, generation: generation}) do
+  defp aggregate(world, %{id: id} = request) do
+    with {:ok, selection} <- tile_selection(request), do: TopologyAtlas.aggregate_selection(world, selection, id)
+  end
+
+  defp tile_selection(%{tile: expected, generation: generation}) do
     with {:ok, tile} <- WorldCache.fetch(expected.key),
-         true <- tile.generation == generation and tile.revision == expected.revision,
-         {:ok, aggregate} <- TopologyAtlas.aggregate_selection(world, tile.selection, id) do
-      {:ok, aggregate}
+         true <- tile.generation == generation and tile.revision == expected.revision do
+      {:ok, tile.selection}
     else
       false -> {:error, :stale_revision}
       {:error, _reason} = error -> error
@@ -301,17 +350,28 @@ defmodule ServiceRadarWebNG.Topology.WorldDetails do
       kind: request.kind,
       nodes: nodes,
       edges: edges,
-      next_cursor: encode_cursor(page.next_cursor),
-      counts: %{
-        members: page.total_members,
-        selected_relations: page.selected_relations,
-        incident_relations: page.incident_relations,
-        visible_nodes: length(nodes),
-        visible_relations: length(page.relations)
-      },
-      budgets: %{nodes: 128, edges: 256, members: if(request.kind == "neighborhood", do: 127, else: 64)}
+      next_cursor: encode_cursor(page.next_cursor, request),
+      counts:
+        Map.merge(scene_counts(page), %{
+          visible_nodes: length(nodes),
+          visible_relations: length(page.relations)
+        }),
+      budgets: scene_budgets(request.kind)
     }
   end
+
+  defp scene_counts(%{total_relations: total, candidates: candidates}),
+    do: %{total_relations: total, scanned_candidates: candidates}
+
+  defp scene_counts(page),
+    do: %{
+      members: page.total_members,
+      selected_relations: page.selected_relations,
+      incident_relations: page.incident_relations
+    }
+
+  defp scene_budgets("bundle_members"), do: %{nodes: 128, edges: 256, candidates: 4096}
+  defp scene_budgets(kind), do: %{nodes: 128, edges: 256, members: if(kind == "neighborhood", do: 127, else: 64)}
 
   defp scene_id(request) do
     digest =
