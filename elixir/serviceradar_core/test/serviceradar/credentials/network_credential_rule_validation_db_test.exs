@@ -92,6 +92,21 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleValidationDbTest do
       assert persisted.server_cert_fingerprint == @fingerprint
       assert persisted.ca_bundle_pem == nil
     end
+
+    test "an atomic bulk update cannot add a fingerprint to a rule holding a CA bundle" do
+      bundle = ca_bundle_pem()
+      rule = rule_fixture(%{ca_bundle_pem: bundle})
+
+      result = bulk_update(rule, %{server_cert_fingerprint: @fingerprint})
+
+      assert result.status == :error
+      assert messages(result) =~ "cannot be combined with a CA bundle"
+      assert messages(result) =~ "for ca_bundle_pem"
+
+      persisted = stored(rule)
+      assert persisted.server_cert_fingerprint == nil
+      assert String.trim(persisted.ca_bundle_pem) == String.trim(bundle)
+    end
   end
 
   test "valid updates still run on both paths" do

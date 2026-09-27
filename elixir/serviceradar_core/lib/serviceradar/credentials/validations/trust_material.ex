@@ -69,7 +69,7 @@ defmodule ServiceRadar.Credentials.Validations.TrustMaterial do
     message = @combined_message
 
     {:atomic, [other_field], expr(not is_nil(^atomic_ref(other_field))),
-     expr(error(^InvalidAttribute, %{field: :server_cert_fingerprint, message: ^message}))}
+     expr(error(^InvalidAttribute, %{field: ^other_field, message: ^message}))}
   end
 
   defp exclusive_with(error, _other_field), do: error
