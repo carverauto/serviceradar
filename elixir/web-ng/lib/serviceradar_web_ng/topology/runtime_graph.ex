@@ -12,6 +12,10 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   alias ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection
   alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Graph, as: AgeGraph
+  alias ServiceRadarWebNG.Topology.Atlas
+  alias ServiceRadarWebNG.Topology.AtlasSource
+  alias ServiceRadarWebNG.Topology.AtlasStore
+  alias ServiceRadarWebNG.Topology.GodViewStream
   alias ServiceRadarWebNG.Topology.Native
 
   require Logger
@@ -27,7 +31,6 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   @max_backbone_link_rows 5_000
   @max_attachment_link_rows 2_000
   @max_inferred_segment_link_rows 2_000
-  @max_virtualization_link_rows 5_000
 
   @type state :: %{
           graph_ref: term(),
@@ -193,18 +196,12 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   def refresh_due?(_state, _now_ms), do: true
 
   defp do_refresh_state(state) do
-    case fetch_topology_links_from_graph() do
+    source = graph_source()
+
+    case fetch_topology_links_from_graph(elem(source, 0)) do
       {:ok, rows} when is_list(rows) ->
         normalized_rows = normalize_runtime_rows(rows)
-        ingested = Native.runtime_graph_ingest_rows(state.graph_ref, normalized_rows)
-        backbone_rows = Enum.count(normalized_rows, &backbone_runtime_row?/1)
-        attachment_rows = Enum.count(normalized_rows, &attachment_runtime_row?/1)
-
-        Logger.info(
-          "runtime_graph_refresh fetched=#{length(rows)} normalized=#{length(normalized_rows)} dropped=#{max(length(rows) - length(normalized_rows), 0)} ingested=#{ingested} backbone=#{backbone_rows} attachment=#{attachment_rows}"
-        )
-
-        %{state | last_refresh_at: DateTime.utc_now()}
+        publish_runtime_rows(state, rows, normalized_rows, source)
 
       {:error, reason} ->
         Logger.warning("runtime_graph_refresh_failed reason=#{inspect(reason)}")
@@ -212,21 +209,54 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
     end
   end
 
-  defp fetch_topology_links_from_graph do
-    if ServiceRadar.NetworkDiscovery.TopologyGraph.Backend.read_dgraph?() do
-      fetch_topology_links_from_dgraph()
+  defp publish_runtime_rows(state, rows, normalized_rows, source) do
+    edges = normalized_rows |> decode_runtime_rows() |> GodViewStream.runtime_links_to_edges()
+
+    with {:ok, nodes} <- AtlasSource.fetch_nodes(edges, source),
+         {:ok, atlas} <- Atlas.build(nodes, edges),
+         :ok <- AtlasStore.publish(atlas) do
+      # The schema-2 compatibility reader remains bounded until the schema-3
+      # client replaces it. Atlas receives the complete canonical source above.
+      legacy_rows = prioritize_runtime_rows(normalized_rows)
+      ingested = Native.runtime_graph_ingest_rows(state.graph_ref, legacy_rows)
+
+      Logger.info(
+        "runtime_graph_refresh fetched=#{length(rows)} normalized=#{length(normalized_rows)} dropped=#{max(length(rows) - length(normalized_rows), 0)} ingested=#{ingested} atlas_nodes=#{length(nodes)} atlas_edges=#{length(edges)}"
+      )
+
+      %{state | last_refresh_at: DateTime.utc_now()}
     else
-      case projection_read_action(fetch_projected_topology_links()) do
-        {:projected, rows} ->
-          fetch_topology_links_with_virtualization(rows)
+      {:error, reason} ->
+        Logger.warning("runtime_graph_atlas_failed reason=#{inspect(reason)}")
+        state
+    end
+  end
 
-        :fallback_uninitialized ->
-          fetch_topology_links_from_age()
+  defp graph_source do
+    if ServiceRadar.NetworkDiscovery.TopologyGraph.Backend.read_dgraph?() do
+      {:dgraph, &ServiceRadar.Dgraph.query/1}
+    else
+      {:age, &AgeGraph.query/1}
+    end
+  end
 
-        {:fallback_error, reason} ->
-          Logger.warning("runtime_graph_projection_read_failed reason=#{inspect(reason)}")
-          fetch_topology_links_from_age()
-      end
+  defp fetch_topology_links_from_graph(:dgraph) do
+    fetch_topology_links_from_dgraph()
+  rescue
+    error -> {:error, error}
+  end
+
+  defp fetch_topology_links_from_graph(:age) do
+    case projection_read_action(fetch_projected_topology_links()) do
+      {:projected, rows} ->
+        fetch_topology_links_with_virtualization(rows)
+
+      :fallback_uninitialized ->
+        fetch_topology_links_from_age()
+
+      {:fallback_error, reason} ->
+        Logger.warning("runtime_graph_projection_read_failed reason=#{inspect(reason)}")
+        fetch_topology_links_from_age()
     end
   rescue
     error -> {:error, error}
@@ -289,12 +319,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   end
 
   defp fetch_projected_topology_links do
-    RuntimeTopologyProjection.read_cached_links(
-      repo: Repo,
-      limit:
-        @max_backbone_link_rows + @max_attachment_link_rows +
-          @max_inferred_segment_link_rows
-    )
+    RuntimeTopologyProjection.read_cached_links(repo: Repo, limit: :all)
   end
 
   @doc false
@@ -302,10 +327,11 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
           {:projected, list()} | :fallback_uninitialized | {:fallback_error, term()}
   def projection_read_action({:ok, rows}) when is_list(rows), do: {:projected, rows}
   def projection_read_action({:error, :projection_uninitialized}), do: :fallback_uninitialized
+  def projection_read_action({:error, :projection_incomplete}), do: :fallback_uninitialized
   def projection_read_action({:error, reason}), do: {:fallback_error, reason}
 
   defp fetch_topology_links_from_age do
-    case AgeGraph.query(topology_links_query()) do
+    case AgeGraph.query(topology_links_query(complete: true)) do
       {:ok, graph_rows} when is_list(graph_rows) ->
         fetch_topology_links_with_virtualization(graph_rows)
 
@@ -321,14 +347,14 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
 
       {:error, reason} ->
         Logger.warning("runtime_graph_virtualization_inventory_failed reason=#{inspect(reason)}")
-        {:ok, rows}
+        {:error, {:virtualization_inventory, reason}}
     end
   end
 
   @doc false
-  @spec topology_links_query() :: String.t()
-  def topology_links_query do
-    RuntimeTopologyProjection.graph_projection_query()
+  @spec topology_links_query(keyword()) :: String.t()
+  def topology_links_query(opts \\ []) do
+    RuntimeTopologyProjection.graph_projection_query(opts)
   end
 
   @doc false
@@ -453,7 +479,9 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
 
   @sobelow_skip ["SQL.Query"]
   defp fetch_virtualization_links_from_inventory do
-    case Repo.query(virtualization_inventory_links_query(), [@max_virtualization_link_rows]) do
+    # PostgreSQL LIMIT NULL means ALL. Limit membership in Atlas levels, not in
+    # the canonical source, or guests beyond the old cap can never be reached.
+    case Repo.query(virtualization_inventory_links_query(), [nil]) do
       {:ok, %{rows: rows}} when is_list(rows) ->
         {:ok, Enum.map(rows, &first_column/1)}
 
@@ -472,7 +500,6 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
     |> Enum.map(&normalize_runtime_row/1)
     |> Enum.reject(&is_nil/1)
     |> Enum.filter(&canonical_runtime_row?/1)
-    |> prioritize_runtime_rows()
   end
 
   @doc false
@@ -515,7 +542,9 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   defp canonical_runtime_row_key(row), do: {"", "", "", "", -1, "", -1, "", "", inspect(row)}
 
   defp runtime_sort_text(value) when is_binary(value), do: value |> String.trim() |> String.downcase()
+
   defp runtime_sort_text(value) when is_atom(value), do: value |> Atom.to_string() |> runtime_sort_text()
+
   defp runtime_sort_text(_value), do: ""
 
   defp runtime_sort_ifindex(value) when is_integer(value), do: value
@@ -550,7 +579,8 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
     evidence_class = runtime_evidence_class(row)
 
     relation_type in ["CONNECTS_TO", "LOGICAL_PEER", "HOSTED_ON"] or
-      (relation_type == "" and evidence_class in ["direct", "direct-physical", "direct-logical", "hosted-virtual"])
+      (relation_type == "" and
+         evidence_class in ["direct", "direct-physical", "direct-logical", "hosted-virtual"])
   end
 
   def backbone_runtime_row?(_row), do: false
@@ -681,6 +711,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
       end
 
     %{
+      link_key: blank_to_nil(map_fetch(row, :link_key)),
       local_device_id: blank_to_nil(local_device_id),
       local_device_ip: blank_to_nil(local_device_ip),
       local_if_name: blank_to_nil(local_if_name),

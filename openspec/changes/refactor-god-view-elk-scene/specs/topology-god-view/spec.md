@@ -1,9 +1,9 @@
 ## MODIFIED Requirements
 
 ### Requirement: Versioned Binary Topology Snapshots
-The system SHALL stream topology snapshots for God-View using a versioned Arrow IPC payload contract and a required metadata envelope for deterministic client decoding.
+The system SHALL deliver God-View topology using the versioned schema-3 Arrow IPC contract and required metadata for deterministic typed-column decoding. Semantic atlas levels SHALL extend this contract rather than introduce a parallel graph format.
 
-The snapshot schema version `3` MUST use one record batch in which node rows come first and edge rows follow, with `node_count` and `edge_count` recorded in the Arrow schema metadata. Every numeric column is therefore dense over rows `0..node_count` for nodes and `node_count..node_count + edge_count` for edges, and a decoder MUST be able to slice positions, states and endpoints without branching on `row_type` or parsing JSON.
+Each level (including a global full-graph read) SHALL use one bounded record batch of schema version `3`, in which node rows come first and edge rows follow, with `node_count` and `edge_count` recorded in the Arrow schema metadata. Every numeric column is therefore dense over rows `0..node_count` for nodes and `node_count..node_count + edge_count` for edges, and a decoder MUST be able to slice positions, states and endpoints without branching on `row_type` or parsing JSON.
 - Node columns:
   - `node_x`, `node_y` (`u16`, quantized layout coordinates; compatibility hints, non-authoritative for ELK scene geometry)
   - `node_state` (`u16`, enum-mapped causal class)
@@ -18,44 +18,42 @@ The snapshot schema version `3` MUST use one record batch in which node rows com
   - `edge_telemetry_eligible` (`u8`)
   - `edge_label`, `edge_topology_class`, `edge_protocol`, `edge_evidence_class` (`utf8`)
   - `edge_details` (`utf8`, JSON)
-- Details columns: every details key read for every row by rendering, filtering, clustering, labeling or layout MUST also be emitted as a typed column named `node_detail_<key>`, `edge_detail_<key>` or `edge_metadata_<key>` (text `utf8`, number `f64`, flag `u8`). These are derived from the same JSON the row ships, so a column never disagrees with its row. `edge_has_metadata`, `edge_has_sparkline` and `details_irregular` (`u8`) accompany them; `details_irregular` marks a row with a value a column cannot carry exactly.
+- Details columns: every details key read for every row by rendering, filtering, clustering, labeling or layout MUST also be emitted as a typed column named `node_detail_<key>`, `edge_detail_<key>` or `edge_metadata_<key>` (text `utf8`, number `f64`, flag `u8`). These are derived from the same JSON the row ships, so a column never disagrees with its row. `edge_has_metadata`, `edge_has_sparkline` and `details_irregular` (`u8`) accompany them; `details_irregular` marks a row with a value a column cannot carry exactly, and that row's irregular detail SHALL be decoded lazily on request rather than reconstructed for every row on interaction.
 - `row_type` (`i8`), `snapshot_schema_version` (`u32`) and `snapshot_revision` (`u64`) are present on every row.
 
-The metadata envelope MUST be included with each snapshot revision and MUST include:
-- `schema_version` (integer, required)
-- `snapshot_revision` (monotonic integer, required)
-- `generated_at` (RFC3339 timestamp, required)
-- `graph_id` (string, required)
-- `node_count` and `edge_count` (integer, required)
-- `bitmap_version` (integer, required)
-- `bitmap_offsets` (object/map, required)
-- `flags` (object/map, optional; includes renderer/runtime hints)
+The batch schema metadata SHALL include `schema_version`, `revision`, `level_id`, and `parent_level_id`, together with level kind, structural signature, causal bitmap metadata, actual node and edge counts, applicable budgets, and bounded continuation information. A global root SHALL have no parent; every child level SHALL identify its parent. HTTP metadata and batch metadata SHALL agree. Edge endpoint indices and causal bitmap positions SHALL refer to the local returned node set, not the canonical graph.
 
-Backend `x`, `y`, or equivalent coordinate fields SHALL NOT be authoritative for the ELK scene path. The frontend SHALL derive every accepted visible coordinate and route from the bounded semantic graph through its single ELK geometry authority.
+Backend position columns SHALL remain non-authoritative compatibility hints for the ELK scene path. The frontend SHALL derive every accepted visible coordinate and route from the bounded semantic graph through its single selected geometry pipeline.
 
 #### Scenario: Client accepts supported snapshot schema
-- **GIVEN** the server emits a topology snapshot with a supported schema version
+- **GIVEN** the server emits a bounded schema-3 level
 - **WHEN** the God-View client receives the payload
 - **THEN** the client decodes nodes and edges into typed columns without parsing details JSON
-- **AND** the client renders the decoded snapshot revision
+- **AND** the client renders the level identified by the batch metadata at the decoded snapshot revision
 
 #### Scenario: Client handles unsupported snapshot schema
-- **GIVEN** the server emits a topology snapshot with an unsupported schema version
+- **GIVEN** the server emits an unsupported schema version
 - **WHEN** the God-View client receives the payload
-- **THEN** the client rejects that snapshot revision
-- **AND** the UI displays a recoverable compatibility error state
+- **THEN** it SHALL reject the revision and display a recoverable compatibility error
+- **AND** the previous accepted level SHALL remain active
 
-#### Scenario: Client validates required metadata envelope fields
-- **GIVEN** the server emits a snapshot revision
-- **WHEN** the client validates envelope metadata
-- **THEN** missing required fields cause the revision to be rejected
-- **AND** the previous accepted revision remains active
+#### Scenario: Client validates required level metadata
+- **GIVEN** a level response lacks required metadata or disagrees with its HTTP envelope
+- **WHEN** the client validates the response
+- **THEN** it SHALL reject the response rather than cache it under a different level or revision
+- **AND** the previous accepted level SHALL remain active
 
 #### Scenario: Client validates required columns for schema version 3
 - **GIVEN** the server emits schema version `3`
 - **WHEN** the client validates the record batch columns
-- **THEN** missing required node or edge columns cause the revision to be rejected
-- **AND** absent details columns fall back to parsing that row's details JSON
+- **THEN** missing required columns, incompatible typed endpoints, or out-of-range local node references SHALL cause the revision to be rejected
+- **AND** absent details columns fall back to parsing that row's details JSON rather than blocking typed-column decoding
+
+#### Scenario: Lazy details do not replace columnar interaction paths
+- **GIVEN** a level includes details columns and irregular detail content
+- **WHEN** the operator filters, pans, zooms, hovers, or selects
+- **THEN** the client SHALL retain the typed-column interaction path
+- **AND** it SHALL decode only the requested irregular details
 
 #### Scenario: Endpoint indexes above 65535 round-trip
 - **GIVEN** a snapshot with more than 65535 nodes and edges whose endpoints index nodes above 65535
@@ -65,24 +63,31 @@ Backend `x`, `y`, or equivalent coordinate fields SHALL NOT be authoritative for
 
 #### Scenario: Legacy coordinate hints do not become a second authority
 - **GIVEN** a supported snapshot contains finite `node_x` and `node_y` compatibility hints
-- **WHEN** the ELK scene path lays out the bounded visible graph
+- **WHEN** the ELK scene path lays out the bounded level
 - **THEN** the client SHALL NOT apply those hints as accepted node positions
-- **AND** all accepted coordinates and routes SHALL come from the decoded ELK result
+- **AND** every accepted coordinate and route SHALL come from that pipeline's validated result
 
 ### Requirement: Structural Reshape Contract
-The system SHALL distinguish visual-only filter toggles from structural reshape actions, and SHALL require backend recomputation of bounded topology membership and relationships for reshape operations that change the visible topology.
+The system SHALL distinguish visual-only filtering, navigation between bounded semantic levels, and changes to canonical topology. Level navigation SHALL request bounded membership from the backend without treating navigation itself as a canonical structural revision.
 
 #### Scenario: Visual-only filter action
-- **WHEN** the operator hides or highlights a class of nodes without changing graph structure
-- **THEN** the client applies the change locally from loaded snapshot data
-- **AND** a managed route SHALL render only when both rendered endpoints remain visible
-- **AND** the intentional anchor-to-group trunk MAY remain while its expanded gateway is non-rendered when the visible anchor and compound-group contract still resolve it
+- **WHEN** the operator hides or highlights a class without changing graph structure
+- **THEN** the client SHALL apply the change locally to the accepted bounded level
+- **AND** a managed route SHALL render only when its visible endpoint contract remains satisfied
+- **AND** a valid anchor-to-group trunk MAY remain when the compound-group contract resolves its non-rendered gateway
 
-#### Scenario: Structural reshape action
-- **WHEN** the operator triggers a collapse or expand operation that changes graph membership
-- **THEN** the backend SHALL recompute the bounded visible node and relationship membership
-- **AND** the server SHALL emit a new snapshot revision
-- **AND** the frontend SHALL compute all accepted coordinates and routes through the single ELK scene path
+#### Scenario: Expansion or collapse navigates bounded levels
+- **WHEN** the operator expands or collapses a summary
+- **THEN** the client SHALL select the corresponding child or parent level at the compatible revision
+- **AND** uncached membership SHALL arrive as one bounded HTTP level response
+- **AND** the frontend SHALL compute accepted coordinates and routes through that level's single selected geometry pipeline
+- **AND** returning to a compatible cached parent SHALL NOT require a fetch or canonical recomputation
+
+#### Scenario: Canonical topology changes invalidate affected levels
+- **WHEN** canonical membership or semantic relations change
+- **THEN** the backend SHALL recompute affected level memberships and structural signatures
+- **AND** it SHALL publish bounded revision invalidations for affected levels
+- **AND** unrelated cached levels SHALL remain reusable when their signatures match
 
 ## ADDED Requirements
 
@@ -384,7 +389,7 @@ Managed views SHALL prefer the detail presentation when it is feasible. When det
 - **THEN** node, group, semantic-route, and manifold geometry SHALL return to the same scene within the configured numeric tolerance
 
 ### Requirement: Dense-layout fixtures enforce semantic and geometric invariants
-The God-View test suite SHALL include sanitized paired collapsed and expanded fixtures representative of the farm01 regression. Each fixture SHALL declare expected decoded graph counts, semantic relation-class counts, rendered-glyph counts, semantic `scene.routes` counts, visibility policy, aggregation policy, and expansion membership, then validate those semantics together with the complete physical geometry, including manifold rails and trunks.
+The God-View test suite SHALL include independently invented paired collapsed and expanded fixtures that exercise dense transport and endpoint attachment behavior. Fixtures SHALL NOT derive their values or shape from a live deployment, including captures with names replaced. Each fixture SHALL declare expected decoded graph counts, semantic relation-class counts, rendered-glyph counts, semantic `scene.routes` counts, visibility policy, aggregation policy, and expansion membership, then validate those semantics together with the complete physical geometry, including manifold rails and trunks.
 
 #### Scenario: Endpoint expansion preserves the route-collapse invariant
 - **GIVEN** a collapsed fixture and its paired bounded expansion fixture

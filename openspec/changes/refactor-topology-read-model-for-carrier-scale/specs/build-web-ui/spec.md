@@ -30,27 +30,28 @@ The God-View frontend SHALL be the only authority for visible topology geometry.
 - **AND** it SHALL NOT move those nodes through an additional competing node-placement pass after the selected layout completes
 
 ### Requirement: God-View bootstraps from HTTP snapshot before streaming
-The God-View surface SHALL support reliable first paint by loading the latest HTTP snapshot before or while joining streaming updates.
+The God-View surface SHALL support reliable first paint by loading the current global atlas level over HTTP before or while joining channel invalidations. Child levels and member pages SHALL also arrive over HTTP; channel traffic SHALL be limited to bounded invalidations and small deltas.
 
 #### Scenario: First load succeeds without waiting for a stream snapshot
-- **GIVEN** the page exposes a latest-snapshot HTTP endpoint and a topology stream channel
+- **GIVEN** the page exposes a latest-level HTTP endpoint and a topology invalidation channel
 - **WHEN** an operator opens the topology page
-- **THEN** the UI SHALL request the latest HTTP snapshot for initial paint
-- **AND** it SHALL render that snapshot even if no stream snapshot has arrived yet
+- **THEN** the UI SHALL request the current global level for initial paint
+- **AND** it SHALL render that level without waiting for a channel event
 
 #### Scenario: Stream disruption preserves the last good topology view
 - **GIVEN** the topology page has already rendered a valid snapshot
 - **WHEN** the stream disconnects or channel join fails
 - **THEN** the UI SHALL preserve the last good snapshot on screen
 - **AND** it SHALL retry streaming updates without blanking the surface
+- **AND** revision reconciliation SHALL fetch only the required bounded level over HTTP
 
 ### Requirement: God-View enforces label and neighborhood density budgets
-The God-View renderer SHALL enforce zoom-tier label budgets, suppress edge labels by default, and bound expanded endpoint neighborhoods so readability does not collapse under fanout.
+The God-View server SHALL enforce visible-node, relation, identity-label, member, and encoded-byte budgets for each semantic level before delivery. The renderer SHALL preserve those bounds, suppress edge labels by default, and reduce visible membership further when required for readability.
 
 #### Scenario: Zoomed-out view suppresses dense labels
 - **GIVEN** a topology view with many visible nodes
 - **WHEN** the operator is at a low or mid zoom tier
-- **THEN** the renderer SHALL limit node labels to the configured priority budget
+- **THEN** the visible level SHALL aggregate or page nodes to fit the configured identity-label budget
 - **AND** it SHALL suppress edge labels unless the view is sufficiently focused
 
 #### Scenario: Rendered glyphs remain self-identifying

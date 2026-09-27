@@ -4,7 +4,10 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphConcurrencyTest do
   # graph while it is held.
   use ExUnit.Case, async: false
 
+  alias ServiceRadarWebNG.Topology.Atlas
+  alias ServiceRadarWebNG.Topology.AtlasStore
   alias ServiceRadarWebNG.Topology.RuntimeGraph
+  alias ServiceRadarWebNG.Topology.RuntimeSupervisor
 
   @moduletag :db_free
 
@@ -14,11 +17,8 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphConcurrencyTest do
   # up wherever the app IS running, and a bare `whereis` skips the whole point wherever it
   # is not.
   setup do
-    pid =
-      case Process.whereis(RuntimeGraph) do
-        nil -> start_supervised!(RuntimeGraph)
-        pid when is_pid(pid) -> pid
-      end
+    if is_nil(Process.whereis(RuntimeSupervisor)), do: start_supervised!(RuntimeSupervisor)
+    pid = Process.whereis(RuntimeGraph)
 
     on_exit(fn -> if Process.alive?(pid), do: :sys.resume(pid) end)
 
@@ -48,6 +48,50 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphConcurrencyTest do
       %{graph_ref: owned} = :sys.get_state(pid)
 
       assert published === owned
+    end
+  end
+
+  test "store loss restarts its producer", %{pid: producer} do
+    monitor = Process.monitor(producer)
+    store = Process.whereis(AtlasStore)
+    Process.exit(store, :kill)
+
+    assert_receive {:DOWN, ^monitor, :process, ^producer, :shutdown}, 1_000
+
+    children = replaced_children(%{RuntimeGraph => producer, AtlasStore => store})
+    assert is_pid(children[RuntimeGraph])
+    assert is_pid(children[AtlasStore])
+    refute children[RuntimeGraph] == producer
+    refute children[AtlasStore] == store
+  end
+
+  test "producer loss retains the last published level", %{pid: producer} do
+    {:ok, atlas} = Atlas.build([%{id: "host01.example.com"}], [])
+    :ok = AtlasStore.publish(atlas)
+    {:ok, level} = AtlasStore.fetch()
+    store = Process.whereis(AtlasStore)
+    monitor = Process.monitor(producer)
+    Process.exit(producer, :kill)
+
+    assert_receive {:DOWN, ^monitor, :process, ^producer, :killed}, 1_000
+    children = replaced_children(%{RuntimeGraph => producer})
+    refute children[RuntimeGraph] == producer
+    assert children[AtlasStore] == store
+    assert {:ok, ^level} = AtlasStore.fetch()
+  end
+
+  defp replaced_children(previous, attempts \\ 100) do
+    children =
+      RuntimeSupervisor
+      |> Supervisor.which_children()
+      |> Map.new(fn {id, pid, _type, _modules} -> {id, pid} end)
+
+    if Enum.all?(previous, fn {id, pid} -> is_pid(children[id]) and children[id] != pid end) do
+      children
+    else
+      if attempts == 0, do: flunk("supervisor did not replace the expected children")
+      Process.sleep(10)
+      replaced_children(previous, attempts - 1)
     end
   end
 end
