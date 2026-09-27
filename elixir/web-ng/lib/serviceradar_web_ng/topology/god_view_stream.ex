@@ -591,6 +591,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     capacity_bps = normalize_u64(Map.get(link, :capacity_bps, 0))
 
     %{
+      link_key: normalize_id(Map.get(link, :link_key)),
       source: source,
       target: target,
       kind: "topology",

@@ -28,6 +28,14 @@ The topology discovery and projection pipeline SHALL preserve endpoint attachmen
 - **WHEN** an operator requests attachment drill-down for that anchor
 - **THEN** the pipeline SHALL provide a bounded endpoint neighborhood payload for that anchor
 - **AND** that payload SHALL retain enough identity and evidence metadata for diagnostics
+- **AND** it SHALL select only the requested stable member page before inventory enrichment and encoding
+- **AND** continuation metadata SHALL keep every omitted member reachable without embedding the full member list
+
+#### Scenario: Attachment telemetry does not change level identity
+- **GIVEN** attachment membership remains unchanged while telemetry values change
+- **WHEN** the read model refreshes its content revision
+- **THEN** the attachment summary, member level, and parent identifiers SHALL remain stable
+- **AND** the structural signature SHALL remain unchanged
 
 ### Requirement: Topology quality regressions are surfaced explicitly
 The topology discovery and projection pipeline SHALL emit explicit quality counters for conditions that would otherwise pollute topology readability or trust.
