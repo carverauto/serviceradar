@@ -594,7 +594,9 @@ Every test source selected by
 `test_integration_disposition_inventory_is_exhaustive_and_concrete` fails.
 This check runs in **`make test` / BazelCI**, but not in `mix test` or the
 Elixir Quality GitHub Action. A new test file can therefore look completely green
-through normal local iteration and PR checks, then fail BazelCI alone.
+through normal local iteration and PR checks, then fail BazelCI alone — unless the
+no-mistakes `test-registration` gate (`.no-mistakes.yaml`, after `lint`) runs this
+same command first and catches it before push.
 `build/integration_selection_equivalence_test.exs` fails downstream of the
 same gap, since the pruned/all-source test selection it compares is derived
 from this same inventory.
@@ -637,6 +639,7 @@ Two dispositions cover almost everything:
 
 Verify locally before pushing (no Bazel/Docker required):
 `python3 -m unittest build/contracts/ci_heavy_gate_contract_test.py` from the repo root.
+The no-mistakes `test-registration` gate runs this same command automatically.
 
 ## SRQL Fixture Integration Tests
 
