@@ -118,13 +118,15 @@ fn aggregate_selection(
     selection: ResourceArc<SelectionResource>,
     glyph_id: String,
 ) -> Term<'_> {
-    read_call(env, || {
-        Ok(ResourceArc::new(AggregateResource(
-            world
-                .0
-                .geometry
-                .aggregate_selection(&selection.0, &glyph_id)?,
-        )))
+    crate::admission::call(env, &crate::admission::BOUNDED_READ, || {
+        read_call(env, || {
+            Ok(ResourceArc::new(AggregateResource(
+                world
+                    .0
+                    .geometry
+                    .aggregate_selection(&selection.0, &glyph_id)?,
+            )))
+        })
     })
 }
 
@@ -135,37 +137,39 @@ fn detail<'a>(
     scope: Term<'a>,
     cursor: Term<'a>,
 ) -> Term<'a> {
-    read_call(env, || {
-        let scope = scope
-            .decode::<Scope>()
-            .map_err(|_| Error::InvalidIdentity)?
-            .owned();
-        let cursor: Option<DetailCursor> = cursor
-            .decode::<Option<WireDetailCursor>>()
-            .map_err(|_| Error::InvalidDetailCursor)?
-            .map(Into::into);
-        let page = world.0.geometry.detail(&scope, cursor.as_ref())?;
-        Ok(WireDetailPage {
-            world_revision: page.world_revision,
-            scope_revision: page.scope_revision,
-            nodes: page
-                .nodes
-                .into_iter()
-                .map(|p| PositionRow::from_position(p, true))
-                .collect(),
-            relations: page
-                .relations
-                .into_iter()
-                .map(|e| WireDetailRelation {
-                    id: e.id,
-                    source: e.source,
-                    target: e.target,
-                })
-                .collect(),
-            total_members: page.total_members,
-            selected_relations: page.selected_relations,
-            incident_relations: page.incident_relations,
-            next_cursor: page.next.map(Into::into),
+    crate::admission::call(env, &crate::admission::BOUNDED_READ, || {
+        read_call(env, || {
+            let scope = scope
+                .decode::<Scope>()
+                .map_err(|_| Error::InvalidIdentity)?
+                .owned();
+            let cursor: Option<DetailCursor> = cursor
+                .decode::<Option<WireDetailCursor>>()
+                .map_err(|_| Error::InvalidDetailCursor)?
+                .map(Into::into);
+            let page = world.0.geometry.detail(&scope, cursor.as_ref())?;
+            Ok(WireDetailPage {
+                world_revision: page.world_revision,
+                scope_revision: page.scope_revision,
+                nodes: page
+                    .nodes
+                    .into_iter()
+                    .map(|p| PositionRow::from_position(p, true))
+                    .collect(),
+                relations: page
+                    .relations
+                    .into_iter()
+                    .map(|e| WireDetailRelation {
+                        id: e.id,
+                        source: e.source,
+                        target: e.target,
+                    })
+                    .collect(),
+                total_members: page.total_members,
+                selected_relations: page.selected_relations,
+                incident_relations: page.incident_relations,
+                next_cursor: page.next.map(Into::into),
+            })
         })
     })
 }
@@ -250,32 +254,34 @@ fn tile_relations<'a>(
     cursor: Term<'a>,
     limit: usize,
 ) -> Term<'a> {
-    read_call(env, || {
-        let cursor: Option<RelationCursor> = cursor
-            .decode::<Option<WireRelationCursor>>()
-            .map_err(|_| Error::InvalidDetailCursor)?
-            .map(Into::into);
-        let page = world
-            .0
-            .geometry
-            .tile_relations(&selection.0, cursor.as_ref(), limit)?;
-        let mut relations = Vec::with_capacity(page.relations.len());
-        for selected in page.relations {
-            let row = world
+    crate::admission::call(env, &crate::admission::BOUNDED_READ, || {
+        read_call(env, || {
+            let cursor: Option<RelationCursor> = cursor
+                .decode::<Option<WireRelationCursor>>()
+                .map_err(|_| Error::InvalidDetailCursor)?
+                .map(Into::into);
+            let page = world
                 .0
-                .relations
-                .get(selected.relation_index as usize)
-                .ok_or(Error::StaleDetailRevision)?;
-            if row.relation_id != selected.relation_id {
-                return Err(Error::StaleDetailRevision);
+                .geometry
+                .tile_relations(&selection.0, cursor.as_ref(), limit)?;
+            let mut relations = Vec::with_capacity(page.relations.len());
+            for selected in page.relations {
+                let row = world
+                    .0
+                    .relations
+                    .get(selected.relation_index as usize)
+                    .ok_or(Error::StaleDetailRevision)?;
+                if row.relation_id != selected.relation_id {
+                    return Err(Error::StaleDetailRevision);
+                }
+                relations.push(WireSelectedRelation::new(row, selected));
             }
-            relations.push(WireSelectedRelation::new(row, selected));
-        }
-        Ok(WireRelationPage {
-            relations,
-            total_rendered_relations: page.total_rendered_relations,
-            candidates: page.candidates,
-            next_cursor: page.next.map(Into::into),
+            Ok(WireRelationPage {
+                relations,
+                total_rendered_relations: page.total_rendered_relations,
+                candidates: page.candidates,
+                next_cursor: page.next.map(Into::into),
+            })
         })
     })
 }

@@ -1,6 +1,7 @@
 //! Bounded Rustler boundary for persisted topology worlds. Builders and source
 //! snapshots are single-use; candidates and installed worlds are immutable.
 
+mod admission;
 mod details;
 mod health;
 mod model;
@@ -129,15 +130,17 @@ fn take<T>(resource: &Mutex<Option<T>>) -> Result<T> {
 
 #[rustler::nif(schedule = "DirtyIo")]
 fn new_builder(env: Env<'_>, layout_version: String, zmax: u8) -> Term<'_> {
-    reply(
-        env,
-        isolate(|| {
-            runtime()?;
-            Ok(ResourceArc::new(BuilderResource(Mutex::new(Some(
-                Builder::new(layout_version, zmax)?,
-            )))))
-        }),
-    )
+    crate::admission::call(env, &crate::admission::BOUNDED_READ, || {
+        reply(
+            env,
+            isolate(|| {
+                runtime()?;
+                Ok(ResourceArc::new(BuilderResource(Mutex::new(Some(
+                    Builder::new(layout_version, zmax)?,
+                )))))
+            }),
+        )
+    })
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
@@ -146,19 +149,21 @@ fn add_positions<'a>(
     builder: ResourceArc<BuilderResource>,
     input: Term<'a>,
 ) -> Term<'a> {
-    ack(
-        env,
-        isolate(|| {
-            let rows = rows::<PositionRow>(input)?;
-            builder
-                .0
-                .lock()
-                .map_err(|_| "resource unavailable")?
-                .as_mut()
-                .ok_or("resource already consumed")?
-                .add_positions(rows)
-        }),
-    )
+    crate::admission::call(env, &crate::admission::BOUNDED_READ, || {
+        ack(
+            env,
+            isolate(|| {
+                let rows = rows::<PositionRow>(input)?;
+                builder
+                    .0
+                    .lock()
+                    .map_err(|_| "resource unavailable")?
+                    .as_mut()
+                    .ok_or("resource already consumed")?
+                    .add_positions(rows)
+            }),
+        )
+    })
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
@@ -167,19 +172,21 @@ fn add_relations<'a>(
     builder: ResourceArc<BuilderResource>,
     input: Term<'a>,
 ) -> Term<'a> {
-    ack(
-        env,
-        isolate(|| {
-            let rows = rows::<RelationRow>(input)?;
-            builder
-                .0
-                .lock()
-                .map_err(|_| "resource unavailable")?
-                .as_mut()
-                .ok_or("resource already consumed")?
-                .add_relations(rows)
-        }),
-    )
+    crate::admission::call(env, &crate::admission::BOUNDED_READ, || {
+        ack(
+            env,
+            isolate(|| {
+                let rows = rows::<RelationRow>(input)?;
+                builder
+                    .0
+                    .lock()
+                    .map_err(|_| "resource unavailable")?
+                    .as_mut()
+                    .ok_or("resource already consumed")?
+                    .add_relations(rows)
+            }),
+        )
+    })
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
@@ -188,27 +195,31 @@ fn add_inventory<'a>(
     builder: ResourceArc<BuilderResource>,
     input: Term<'a>,
 ) -> Term<'a> {
-    ack(
-        env,
-        isolate(|| {
-            let rows = rows::<InventoryRow>(input)?;
-            builder
-                .0
-                .lock()
-                .map_err(|_| "resource unavailable")?
-                .as_mut()
-                .ok_or("resource already consumed")?
-                .add_inventory(rows)
-        }),
-    )
+    crate::admission::call(env, &crate::admission::BOUNDED_READ, || {
+        ack(
+            env,
+            isolate(|| {
+                let rows = rows::<InventoryRow>(input)?;
+                builder
+                    .0
+                    .lock()
+                    .map_err(|_| "resource unavailable")?
+                    .as_mut()
+                    .ok_or("resource already consumed")?
+                    .add_inventory(rows)
+            }),
+        )
+    })
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
 fn finish_world(env: Env<'_>, builder: ResourceArc<BuilderResource>) -> Term<'_> {
-    reply(
-        env,
-        isolate(|| Ok(ResourceArc::new(WorldResource(take(&builder.0)?.finish()?)))),
-    )
+    crate::admission::call(env, &crate::admission::WORLD_BUILD, || {
+        reply(
+            env,
+            isolate(|| Ok(ResourceArc::new(WorldResource(take(&builder.0)?.finish()?)))),
+        )
+    })
 }
 
 static RUNTIME: OnceLock<Runtime> = OnceLock::new();
@@ -232,21 +243,23 @@ fn runtime() -> Result<&'static Runtime> {
 
 #[rustler::nif(schedule = "DirtyIo")]
 fn read_graph(env: Env<'_>, url: String) -> Term<'_> {
-    reply(
-        env,
-        isolate(|| {
-            if url.trim().is_empty() {
-                return Err("dgraph url is not configured".into());
-            }
-            let graph = runtime()?
-                .block_on(async {
-                    let client = TopologyClient::connect(&url).await?;
-                    client.query_canonical_graph().await
-                })
-                .map_err(|_| "canonical graph read failed")?;
-            Ok(ResourceArc::new(GraphResource(Mutex::new(Some(graph)))))
-        }),
-    )
+    crate::admission::call(env, &crate::admission::GRAPH_READ, || {
+        reply(
+            env,
+            isolate(|| {
+                if url.trim().is_empty() {
+                    return Err("dgraph url is not configured".into());
+                }
+                let graph = runtime()?
+                    .block_on(async {
+                        let client = TopologyClient::connect(&url).await?;
+                        client.query_canonical_graph().await
+                    })
+                    .map_err(|_| "canonical graph read failed")?;
+                Ok(ResourceArc::new(GraphResource(Mutex::new(Some(graph)))))
+            }),
+        )
+    })
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
@@ -255,16 +268,18 @@ fn reconcile(
     builder: ResourceArc<BuilderResource>,
     graph: ResourceArc<GraphResource>,
 ) -> Term<'_> {
-    reply(
-        env,
-        isolate(|| {
-            let builder = take(&builder.0)?;
-            let source = SourceGraph::from_canonical(take(&graph.0)?)?;
-            Ok(ResourceArc::new(CandidateResource(
-                builder.reconcile(source)?,
-            )))
-        }),
-    )
+    crate::admission::call(env, &crate::admission::WORLD_BUILD, || {
+        reply(
+            env,
+            isolate(|| {
+                let builder = take(&builder.0)?;
+                let source = SourceGraph::from_canonical(take(&graph.0)?)?;
+                Ok(ResourceArc::new(CandidateResource(
+                    builder.reconcile(source)?,
+                )))
+            }),
+        )
+    })
 }
 
 #[derive(NifMap)]
@@ -281,25 +296,29 @@ struct CandidateInfo {
 
 #[rustler::nif]
 fn candidate_info(env: Env<'_>, candidate: ResourceArc<CandidateResource>) -> Term<'_> {
-    let info = &candidate.0.world.info;
-    reply(
-        env,
-        Ok(CandidateInfo {
-            world: ResourceArc::new(WorldResource(candidate.0.world.clone())),
-            source_digest: candidate.0.source_digest.clone(),
-            layout_version: info.layout_version.clone(),
-            zmax: info.zmax,
-            algorithm_version: info.algorithm_version.clone(),
-            extent: info.extent,
-            node_count: info.node_count,
-            relation_count: info.relation_count,
-        }),
-    )
+    crate::admission::call(env, &crate::admission::BOUNDED_READ, || {
+        let info = &candidate.0.world.info;
+        reply(
+            env,
+            Ok(CandidateInfo {
+                world: ResourceArc::new(WorldResource(candidate.0.world.clone())),
+                source_digest: candidate.0.source_digest.clone(),
+                layout_version: info.layout_version.clone(),
+                zmax: info.zmax,
+                algorithm_version: info.algorithm_version.clone(),
+                extent: info.extent,
+                node_count: info.node_count,
+                relation_count: info.relation_count,
+            }),
+        )
+    })
 }
 
 #[rustler::nif]
 fn world_info(env: Env<'_>, world: ResourceArc<WorldResource>) -> Term<'_> {
-    reply::<Info>(env, Ok(world.0.info.clone()))
+    crate::admission::call(env, &crate::admission::BOUNDED_READ, || {
+        reply::<Info>(env, Ok(world.0.info.clone()))
+    })
 }
 
 #[derive(NifUnitEnum)]
@@ -412,44 +431,48 @@ fn tile(
     y: u32,
     budget: TileBudget,
 ) -> Term<'_> {
-    details::read_reply(env, || {
-        // Callers may reduce a budget, but cannot request unbounded ABI output.
-        if budget.nodes > 128 || budget.edges > 256 {
-            return Err(details::engine_error(
-                serviceradar_topology_atlas::Error::InvalidBudget,
-            ));
-        }
-        let cell = Cell::new(z, x, y).map_err(details::engine_error)?;
-        let profile = match budget.profile {
-            WireTileProfile::Standard => TileProfile::Standard,
-            WireTileProfile::AggregateOnly => TileProfile::AggregateOnly,
-        };
-        let tile = world
-            .0
-            .geometry
-            .tile_with_profile(
-                cell,
-                Budget {
-                    nodes: budget.nodes,
-                    edges: budget.edges,
-                },
-                profile,
-            )
-            .map_err(details::engine_error)?;
-        Ok(WireTile::from(tile))
+    crate::admission::call(env, &crate::admission::TILE_READ, || {
+        details::read_reply(env, || {
+            // Callers may reduce a budget, but cannot request unbounded ABI output.
+            if budget.nodes > 128 || budget.edges > 256 {
+                return Err(details::engine_error(
+                    serviceradar_topology_atlas::Error::InvalidBudget,
+                ));
+            }
+            let cell = Cell::new(z, x, y).map_err(details::engine_error)?;
+            let profile = match budget.profile {
+                WireTileProfile::Standard => TileProfile::Standard,
+                WireTileProfile::AggregateOnly => TileProfile::AggregateOnly,
+            };
+            let tile = world
+                .0
+                .geometry
+                .tile_with_profile(
+                    cell,
+                    Budget {
+                        nodes: budget.nodes,
+                        edges: budget.edges,
+                    },
+                    profile,
+                )
+                .map_err(details::engine_error)?;
+            Ok(WireTile::from(tile))
+        })
     })
 }
 
 #[rustler::nif]
 fn search(env: Env<'_>, world: ResourceArc<WorldResource>, id: String) -> Term<'_> {
-    match world.0.geometry.search(&id) {
-        Some(position) => (
-            atoms::ok(),
-            PositionRow::from_position(position.clone(), true),
-        )
-            .encode(env),
-        None => (atoms::error(), atoms::not_found()).encode(env),
-    }
+    crate::admission::call(env, &crate::admission::BOUNDED_READ, || {
+        match world.0.geometry.search(&id) {
+            Some(position) => (
+                atoms::ok(),
+                PositionRow::from_position(position.clone(), true),
+            )
+                .encode(env),
+            None => (atoms::error(), atoms::not_found()).encode(env),
+        }
+    })
 }
 
 fn page<'a, T: Encoder>(
@@ -493,10 +516,12 @@ fn positions_page(
     cursor: usize,
     limit: usize,
 ) -> Term<'_> {
-    reply(
-        env,
-        isolate(|| page(env, &candidate.0.positions, cursor, limit)),
-    )
+    crate::admission::call(env, &crate::admission::BOUNDED_READ, || {
+        reply(
+            env,
+            isolate(|| page(env, &candidate.0.positions, cursor, limit)),
+        )
+    })
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
@@ -506,10 +531,12 @@ fn relations_page(
     cursor: usize,
     limit: usize,
 ) -> Term<'_> {
-    reply(
-        env,
-        isolate(|| page(env, &candidate.0.relations, cursor, limit)),
-    )
+    crate::admission::call(env, &crate::admission::BOUNDED_READ, || {
+        reply(
+            env,
+            isolate(|| page(env, &candidate.0.relations, cursor, limit)),
+        )
+    })
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]
@@ -520,28 +547,30 @@ fn delta_page(
     cursor: usize,
     limit: usize,
 ) -> Term<'_> {
-    reply(
-        env,
-        isolate(|| {
-            let c = &candidate.0;
-            let d = &c.deltas;
-            if operation == atoms::insert_positions() {
-                indexed_page(env, &c.positions, &d.insert_positions, cursor, limit)
-            } else if operation == atoms::update_positions() {
-                page(env, &d.update_positions, cursor, limit)
-            } else if operation == atoms::activate_device_ids() {
-                page(env, &d.activate_device_ids, cursor, limit)
-            } else if operation == atoms::deactivate_device_ids() {
-                page(env, &d.deactivate_device_ids, cursor, limit)
-            } else if operation == atoms::upsert_relations() {
-                indexed_page(env, &c.relations, &d.upsert_relations, cursor, limit)
-            } else if operation == atoms::deactivate_relation_ids() {
-                page(env, &d.deactivate_relation_ids, cursor, limit)
-            } else {
-                Err("invalid delta operation".into())
-            }
-        }),
-    )
+    crate::admission::call(env, &crate::admission::BOUNDED_READ, || {
+        reply(
+            env,
+            isolate(|| {
+                let c = &candidate.0;
+                let d = &c.deltas;
+                if operation == atoms::insert_positions() {
+                    indexed_page(env, &c.positions, &d.insert_positions, cursor, limit)
+                } else if operation == atoms::update_positions() {
+                    page(env, &d.update_positions, cursor, limit)
+                } else if operation == atoms::activate_device_ids() {
+                    page(env, &d.activate_device_ids, cursor, limit)
+                } else if operation == atoms::deactivate_device_ids() {
+                    page(env, &d.deactivate_device_ids, cursor, limit)
+                } else if operation == atoms::upsert_relations() {
+                    indexed_page(env, &c.relations, &d.upsert_relations, cursor, limit)
+                } else if operation == atoms::deactivate_relation_ids() {
+                    page(env, &d.deactivate_relation_ids, cursor, limit)
+                } else {
+                    Err("invalid delta operation".into())
+                }
+            }),
+        )
+    })
 }
 
 rustler::init!("Elixir.ServiceRadar.TopologyAtlas.Native");

@@ -12,6 +12,10 @@ defmodule ServiceRadar.TopologyAtlas do
   inventory projector. Tile budgets are at most 128 glyphs and 256 relations.
   Cursors start at zero, and `next_cursor: nil` ends a publication stream.
   Resources must never be serialized into jobs or persisted as database values.
+
+  Process-wide native admission returns `{:error, :busy}` without consuming
+  builders or graph snapshots. Capacity remains occupied until native work
+  returns, even if its BEAM caller terminates; callers should retry with backoff.
   """
 
   alias ServiceRadar.Dgraph
