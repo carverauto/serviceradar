@@ -698,6 +698,10 @@ test_suite(
 
 # --- template migration -----------------------------------------------------------------
 #
+# `sr_core_template` is a frozen rollback artifact: no active workflow calls this target or
+# :migrate_run below any more (see :migrate_generation above). Both remain in the tree as the
+# legacy path documented in docs/docs/ci-schema-templates.md.
+#
 # The only part of the database lifecycle that must run on the BEAM: the 368 migrations are
 # `use Ecto.Migration` modules, so only Ecto.Migrator can apply them. Creating databases,
 # extensions, AGE graphs, the stale sweep and the teardown are all //rust/integration-db,
@@ -752,8 +756,10 @@ ex_unit_test(
     deps = [":erlang_app"],
 )
 
-# Ordered, opt-in lifecycle step. Keep the singleton target below available
-# until the keyed lifecycle and reaper protections are qualified in-cluster.
+# Ordered lifecycle step. Every active workflow (BazelCI, LargeIngestionGate,
+# IntegrationBenchmark*) builds schema generations through this target; the singleton
+# targets below (:migrate_template, :migrate_run) are kept only as a frozen rollback path
+# that no workflow invokes. See docs/docs/ci-schema-templates.md.
 ex_unit_test(
     name = "migrate_generation",
     size = "enormous",
