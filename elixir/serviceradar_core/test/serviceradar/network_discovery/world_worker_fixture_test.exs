@@ -136,6 +136,8 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
     relations = fixture_rows(path, "r", &fixture_relation/1)
     samples = positions |> Enum.take(3) |> Map.new(&{&1.device_id, {&1.x, &1.y}})
 
+    IO.puts("WORLD_SCALE_PHASE persist")
+
     {persist_us, result} =
       :timer.tc(fn -> World.stage_candidate(version, metadata, positions, relations) end)
 
@@ -153,6 +155,8 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
                  [Ecto.UUID.dump!(version)]
                )
     end
+
+    IO.puts("WORLD_SCALE_PHASE reload persist_ms=#{div(persist_us, 1000)}")
 
     {reload_us, result} =
       :timer.tc(fn ->
@@ -181,7 +185,11 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
       assert {:ok, %{x: ^x, y: ^y}} = TopologyAtlas.search(world, id)
     end
 
-    {query_us, result} = :timer.tc(fn -> TopologyAtlas.tile(world, 16, 0, 0) end)
+    {_id, {x, y}} = Enum.at(samples, 0)
+
+    {query_us, result} =
+      :timer.tc(fn -> TopologyAtlas.tile(world, 16, div(x, 256), div(y, 256)) end)
+
     assert {:ok, _tile} = result
     [_, peak_kib] = Regex.run(~r/^VmHWM:\s+(\d+) kB$/m, File.read!("/proc/self/status"))
 

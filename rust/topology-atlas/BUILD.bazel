@@ -42,7 +42,10 @@ genrule(
     cmd = "$(location :million_world_fixture_generator) $@",
     tags = ["manual"],
     tools = [":million_world_fixture_generator"],
-    visibility = ["//elixir/web-ng:__pkg__"],
+    visibility = [
+        "//elixir/serviceradar_core:__pkg__",
+        "//elixir/web-ng:__pkg__",
+    ],
 )
 
 filegroup(
