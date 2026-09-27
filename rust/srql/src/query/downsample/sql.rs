@@ -146,8 +146,26 @@ pub(super) fn build_sql(plan: &QueryPlan) -> Result<String> {
     let rate_partition_expr = rate_partition_expr(plan, &series_expr);
     let bucket_secs = downsample.bucket_seconds;
 
+    // StarRocks scores a whole-hour-multiple bucket on the hourly rollup regardless of which
+    // table this builder ends up reading (`hourly_rollup` in the StarRocks dialect widens for
+    // any agg its rollup can serve -- SUM/AVG/MIN/MAX/COUNT -- not only the Avg/Min/Max set
+    // `use_hourly_cagg` routes to CNPG's own CAGG). Without matching that widening here, a
+    // sample stamped exactly on `end` falls into the hour bucket starting at `end` on
+    // StarRocks but is dropped by CNPG's plain half-open bound, so the two disagree on a chart
+    // window's last bucket. Rate/RateSum are excluded because StarRocks's rollup cannot serve
+    // them either, so it never widens for those.
+    let hour_grained = !use_hourly_cagg
+        && matches!(
+            plan.entity,
+            Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics
+        )
+        && bucket_secs >= 3600
+        && bucket_secs % 3600 == 0
+        && !is_rate_agg(downsample.agg)
+        && timeseries_cagg_safe_shape(plan);
+
     let mut clauses = Vec::new();
-    if use_hourly_cagg {
+    if use_hourly_cagg || hour_grained {
         clauses.push(super::super::hourly_cagg_lower_bound_clause(ts_col));
         clauses.push(super::super::hourly_cagg_upper_bound_clause(ts_col));
     } else {

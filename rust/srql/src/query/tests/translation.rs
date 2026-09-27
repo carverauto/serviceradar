@@ -2033,3 +2033,39 @@ fn translate_metric_and_event_windows_are_half_open() {
         );
     }
 }
+
+/// A whole-hour-multiple bucket is scored on the hourly rollup on both dialects, even when
+/// the aggregate (here SUM) is one CNPG's own hourly CAGG cannot serve and the raw table
+/// answers instead. The StarRocks dialect widens such a query's window to the full hour
+/// holding `end` regardless of which table it reads (`hourly_rollup`/`time_predicate` in
+/// `starrocks.rs`), so a sample stamped exactly on `end` lands in the hour bucket starting at
+/// `end`. A plain half-open bound on CNPG's raw read would drop that sample instead, so the
+/// raw downsample builder must widen the same way whenever the shape qualifies.
+#[test]
+fn translate_hourly_bucket_sum_widens_like_the_starrocks_rollup() {
+    let config = test_config();
+    let query = "in:timeseries_metrics time:[2026-06-01T07:00:00Z,2026-06-01T08:00:00Z] metric_type:\"parity.edge\" bucket:1h agg:sum limit:10".to_string();
+    let request = QueryRequest {
+        query: query.clone(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+        permitted_signals: None,
+    };
+
+    let response = crate::query::translate::translate_request(&config, request)
+        .unwrap_or_else(|err| panic!("{query}: should translate: {err}"));
+    let sql = response.sql.to_lowercase();
+
+    assert!(
+        sql.contains("timestamp >= time_bucket('1 hour', $1::timestamptz)"),
+        "expected the widened hourly lower bound, got: {}",
+        response.sql
+    );
+    assert!(
+        sql.contains("timestamp < time_bucket('1 hour', $2::timestamptz) + interval '1 hour'"),
+        "expected the widened hourly upper bound, got: {}",
+        response.sql
+    );
+}
