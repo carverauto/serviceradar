@@ -232,6 +232,22 @@ const (
 	pluginStatusUnknown  = "UNKNOWN"
 )
 
+func pluginPayloadSucceeded(payload []byte) bool {
+	var result struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(payload, &result); err != nil {
+		return false
+	}
+
+	switch normalizePluginStatus(result.Status) {
+	case pluginStatusOK, pluginStatusWarning:
+		return true
+	default:
+		return false
+	}
+}
+
 func isValidPluginStatus(status string) bool {
 	switch status {
 	case pluginStatusOK, pluginStatusWarning, pluginStatusCritical, pluginStatusUnknown:

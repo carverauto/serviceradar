@@ -91,7 +91,7 @@ defmodule ServiceRadar.Plugins.RunOverridesDbTest do
     assert DateTime.diff(expires_at, now) == 300
   end
 
-  test "ending an override stops delivery and a later set does not revive it", %{
+  test "ending an override stops delivery until the same id is set again", %{
     system: system,
     assignment_id: assignment_id
   } do
@@ -121,6 +121,48 @@ defmodule ServiceRadar.Plugins.RunOverridesDbTest do
              )
 
     assert RunOverrides.deliverable_by_assignment([assignment_id], actor: system) == %{}
+
+    assert {:ok, 1} =
+             RunOverrides.apply_action_result(%{"run_overrides" => [set]}, context,
+               actor: system,
+               max_override_duration_seconds: 600
+             )
+
+    assert %{^assignment_id => [%{"id" => "fault-1"}]} =
+             RunOverrides.deliverable_by_assignment([assignment_id], actor: system)
+  end
+
+  test "setting an acknowledged override id again delivers it again", %{
+    system: system,
+    assignment_id: assignment_id
+  } do
+    context = %{plugin_assignment_id: assignment_id}
+    set = %{"op" => "set", "id" => "fault-1", "kind" => "jam", "duration_seconds" => 60}
+    now = DateTime.utc_now()
+
+    assert {:ok, _} =
+             PluginRunOverride.record(
+               %{
+                 plugin_assignment_id: assignment_id,
+                 override_id: "fault-1",
+                 kind: "jam",
+                 starts_at: DateTime.add(now, -600),
+                 expires_at: DateTime.add(now, -60)
+               },
+               actor: system
+             )
+
+    assert :ok = RunOverrides.acknowledge(assignment_id, ["fault-1"], actor: system)
+    assert RunOverrides.deliverable_by_assignment([assignment_id], actor: system) == %{}
+
+    assert {:ok, 1} =
+             RunOverrides.apply_action_result(%{"run_overrides" => [set]}, context,
+               actor: system,
+               max_override_duration_seconds: 600
+             )
+
+    assert %{^assignment_id => [%{"id" => "fault-1"}]} =
+             RunOverrides.deliverable_by_assignment([assignment_id], actor: system)
   end
 
   test "only expired overrides are acknowledged", %{

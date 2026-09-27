@@ -264,13 +264,18 @@ func (e *pluginExecution) hostSubmitResult(ctx context.Context, mod api.Module, 
 }
 
 func (e *pluginExecution) submitScheduledResult(ctx context.Context, payload []byte) int32 {
+	var acknowledged []string
+	if pluginPayloadSucceeded(payload) {
+		acknowledged = e.expiredRunOverrides
+	}
+
 	err := e.manager.enqueueResult(ctx, PluginResult{
 		AssignmentID:             e.assignment.AssignmentID,
 		PluginID:                 e.assignment.PluginID,
 		PluginName:               e.assignment.Name,
 		Payload:                  payload,
 		ObservedAt:               time.Now().UTC(),
-		AcknowledgedRunOverrides: e.expiredRunOverrides,
+		AcknowledgedRunOverrides: acknowledged,
 	})
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -279,9 +284,10 @@ func (e *pluginExecution) submitScheduledResult(ctx context.Context, payload []b
 		return pluginErrInternal
 	}
 
-	// The run that received these expired overrides has reported: stop
+	// The run that received these expired overrides reported success: stop
 	// delivering them here; core stops once it ingests the acknowledgement.
-	e.manager.runOverrides.acknowledge(e.assignment.AssignmentID, e.expiredRunOverrides)
+	// A failed run leaves them to be delivered again.
+	e.manager.runOverrides.acknowledge(e.assignment.AssignmentID, acknowledged)
 	e.expiredRunOverrides = nil
 	e.markSubmitted()
 

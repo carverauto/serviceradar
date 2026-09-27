@@ -304,3 +304,20 @@ func TestActionModeCanEmitOCSFEventTelemetry(t *testing.T) {
 		t.Fatal("action-mode emission did not reach the telemetry path")
 	}
 }
+
+func TestPluginPayloadSucceededGatesAcknowledgement(t *testing.T) {
+	cases := map[string]bool{
+		`{"status":"OK"}`:         true,
+		`{"status":"warning"}`:    true,
+		`{"status":"CRITICAL"}`:   false,
+		`{"status":"UNKNOWN"}`:    false,
+		`{"status":"error"}`:      false,
+		`{"summary":"no status"}`: false,
+		`not json`:                false,
+	}
+	for payload, want := range cases {
+		if got := pluginPayloadSucceeded([]byte(payload)); got != want {
+			t.Errorf("pluginPayloadSucceeded(%s) = %v, want %v", payload, got, want)
+		}
+	}
+}

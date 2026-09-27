@@ -11,7 +11,7 @@ defmodule ServiceRadar.Plugins.PluginRunOverride do
     * while `now < expires_at` the run receives it active;
     * after expiry the run receives it marked expired, so the plugin can emit
       its resolving event, until the agent reports that such a run succeeded
-      (`acknowledged_at`);
+      (`acknowledged_at`); setting the same id again starts a new override;
     * a later action may end it early (`ended_at`), after which it is not
       delivered at all.
 
@@ -64,8 +64,8 @@ defmodule ServiceRadar.Plugins.PluginRunOverride do
     create :record do
       upsert? true
       upsert_identity :unique_assignment_override
-      # A re-recorded id refreshes its window but never revives an override
-      # that was already ended or acknowledged.
+      # A re-recorded id starts a new override: it refreshes the window and
+      # clears any earlier end or acknowledgement.
       upsert_fields [
         :kind,
         :target,
@@ -73,8 +73,13 @@ defmodule ServiceRadar.Plugins.PluginRunOverride do
         :starts_at,
         :expires_at,
         :invocation_id,
+        :ended_at,
+        :acknowledged_at,
         :updated_at
       ]
+
+      change set_attribute(:ended_at, nil)
+      change set_attribute(:acknowledged_at, nil)
 
       accept [
         :plugin_assignment_id,
