@@ -24,15 +24,28 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
       assert :ok = Dgraph.upsert_device(%{id: id, hostname: "node.example.com"})
     end)
 
-    inventory = Enum.map(Enum.take(ids, 503), &%{uid: &1, hostname: "inventory.example.com", type_id: 12})
+    inventory =
+      Enum.map(Enum.take(ids, 503), &%{uid: &1, hostname: "inventory.example.com", type_id: 12})
 
     assert %Ash.BulkResult{status: :success} =
-             Ash.bulk_create(inventory, Device, :create, actor: actor(), batch_size: 500, return_errors?: true)
+             Ash.bulk_create(inventory, Device, :create,
+               actor: actor(),
+               batch_size: 500,
+               return_errors?: true
+             )
 
-    edges = Enum.map(0..501, fn index -> edge(Enum.at(ids, index), Enum.at(ids, rem(index + 1, 502))) end)
+    edges =
+      Enum.map(0..501, fn index ->
+        edge(Enum.at(ids, index), Enum.at(ids, rem(index + 1, 502)))
+      end)
 
     parallel =
-      Map.merge(edge(hd(ids), Enum.at(ids, 1)), %{if_name_ab: "eth7", if_name_ba: "eth9", if_index_ab: 7, if_index_ba: 9})
+      Map.merge(edge(hd(ids), Enum.at(ids, 1)), %{
+        if_name_ab: "eth7",
+        if_name_ba: "eth9",
+        if_index_ab: 7,
+        if_index_ba: 9
+      })
 
     edges = [parallel | edges]
     assert :ok = Dgraph.rebuild_canonical(edges)
@@ -50,7 +63,10 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
       |> Ash.create!(actor: actor())
 
       publish_while_source_changes(job, version, List.last(ids), edges)
-      assert {:ok, %{generation: 1, node_count: 503, relation_count: 503}} = World.active_manifest(scope())
+
+      assert {:ok, %{generation: 1, node_count: 503, relation_count: 503}} =
+               World.active_manifest(scope())
+
       assert {:ok, nil} = World.lookup_device(scope(), version, List.last(ids))
       before = placements()
       assert map_size(before) == 503
@@ -63,7 +79,10 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
       assert followup.id != job.id
       assert DateTime.diff(followup.scheduled_at, DateTime.utc_now(), :second) <= 1
       assert_drain_success()
-      assert {:ok, %{generation: 2, node_count: 504, relation_count: 503} = manifest} = World.active_manifest(scope())
+
+      assert {:ok, %{generation: 2, node_count: 504, relation_count: 503} = manifest} =
+               World.active_manifest(scope())
+
       after_positions = placements()
       assert Map.take(after_positions, Map.keys(before)) == before
 
@@ -71,8 +90,13 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
       assert {:ok, %{node_count: 504, relation_count: 503}} = TopologyAtlas.world_info(world)
       assert {:ok, %{device_id: isolated}} = TopologyAtlas.search(world, Enum.at(ids, 502))
       assert isolated == Enum.at(ids, 502)
-      assert Enum.count(relations, &(&1.source_id == hd(ids) and &1.target_id == Enum.at(ids, 1))) == 2
-      assert %{source_if_index: 7, target_if_index: 9} = Enum.find(relations, &(&1.source_if_name == "eth7"))
+
+      assert Enum.count(relations, &(&1.source_id == hd(ids) and &1.target_id == Enum.at(ids, 1))) ==
+               2
+
+      assert %{source_if_index: 7, target_if_index: 9} =
+               Enum.find(relations, &(&1.source_if_name == "eth7"))
+
       assert {:ok, tile} = TopologyAtlas.tile(world, 0, 0, 0)
 
       # Interface identity is persisted across a cold cache reload, while an
@@ -82,7 +106,10 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
       assert {:ok, %{generation: 3, source_digest: digest}} = World.active_manifest(scope())
       refute digest == manifest.source_digest
       {updated_world, updated_relations} = reload_world([500, 4], [500, 3])
-      assert %{source_if_index: 23, target_if_index: 9} = Enum.find(updated_relations, &(&1.source_if_name == "eth7"))
+
+      assert %{source_if_index: 23, target_if_index: 9} =
+               Enum.find(updated_relations, &(&1.source_if_name == "eth7"))
+
       assert {:ok, updated_tile} = TopologyAtlas.tile(updated_world, 0, 0, 0)
       assert updated_tile.revision == tile.revision
     after
@@ -133,7 +160,13 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
 
       try do
         assert_receive {:worker_backend, worker_backend}, 10_000
-        assert_blocked(worker_backend, locker_backend, System.monotonic_time(:millisecond) + 60_000)
+
+        assert_blocked(
+          worker_backend,
+          locker_backend,
+          System.monotonic_time(:millisecond) + 60_000
+        )
+
         executing = Repo.get!(Oban.Job, job.id, prefix: "platform")
         assert executing.state == "executing"
         assert executing.args["observed_request"] == job.meta["request_id"]
@@ -142,7 +175,9 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
         assert reconcile_job!().id == job.id
         send(locker.pid, :release)
         assert {:ok, :ok} = Task.await(locker, 10_000)
-        assert %{success: 1, failure: 0, snoozed: 0, discard: 0, cancelled: 0} = Task.await(worker, 120_000)
+
+        assert %{success: 1, failure: 0, snoozed: 0, discard: 0, cancelled: 0} =
+                 Task.await(worker, 120_000)
       after
         send(locker.pid, :release)
         Task.shutdown(worker, :brutal_kill)
@@ -175,7 +210,11 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
 
   defp assert_drain_success do
     assert %{success: 1, failure: 0, snoozed: 0, discard: 0, cancelled: 0} =
-             Oban.drain_queue(queue: :topology_world, with_limit: 1, with_scheduled: DateTime.utc_now())
+             Oban.drain_queue(
+               queue: :topology_world,
+               with_limit: 1,
+               with_scheduled: DateTime.utc_now()
+             )
   end
 
   defp reconcile_job! do
@@ -226,7 +265,9 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
     assert {:ok, state} =
              World.stream_active(%{position_sizes: [], relation_sizes: [], relations: []}, fn
                {:manifest, manifest}, acc ->
-                 assert {:ok, builder} = TopologyAtlas.new_builder(manifest.layout_version, manifest.zmax)
+                 assert {:ok, builder} =
+                          TopologyAtlas.new_builder(manifest.layout_version, manifest.zmax)
+
                  {:ok, Map.put(acc, :builder, builder)}
 
                {:positions, rows}, acc ->
@@ -235,7 +276,13 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
 
                {:relations, rows}, acc ->
                  assert :ok = TopologyAtlas.add_relations(acc.builder, rows)
-                 {:ok, %{acc | relation_sizes: acc.relation_sizes ++ [length(rows)], relations: acc.relations ++ rows}}
+
+                 {:ok,
+                  %{
+                    acc
+                    | relation_sizes: acc.relation_sizes ++ [length(rows)],
+                      relations: acc.relations ++ rows
+                  }}
              end)
 
     assert state.position_sizes == position_sizes
@@ -259,9 +306,12 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
   end
 
   defp cleanup(version, ids, first_job_id) do
-    Repo.query!("DELETE FROM platform.topology_world_head WHERE active_layout_version = $1::uuid", [
-      Ecto.UUID.dump!(version)
-    ])
+    Repo.query!(
+      "DELETE FROM platform.topology_world_head WHERE active_layout_version = $1::uuid",
+      [
+        Ecto.UUID.dump!(version)
+      ]
+    )
 
     Repo.query!("DELETE FROM platform.topology_world_relations WHERE layout_version = $1::uuid", [
       Ecto.UUID.dump!(version)
@@ -271,10 +321,14 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
       Ecto.UUID.dump!(version)
     ])
 
-    Repo.query!("DELETE FROM platform.topology_world_layouts WHERE layout_version = $1::uuid", [Ecto.UUID.dump!(version)])
+    Repo.query!("DELETE FROM platform.topology_world_layouts WHERE layout_version = $1::uuid", [
+      Ecto.UUID.dump!(version)
+    ])
 
     Repo.delete_all(
-      from(job in Oban.Job, where: job.worker == ^Oban.Worker.to_string(WorldWorker) and job.id >= ^first_job_id),
+      from(job in Oban.Job,
+        where: job.worker == ^Oban.Worker.to_string(WorldWorker) and job.id >= ^first_job_id
+      ),
       prefix: "platform"
     )
 
@@ -286,14 +340,24 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
     end)
 
     assert %{rows: [[0]]} =
-             Repo.query!("SELECT count(*) FROM platform.topology_world_layouts WHERE layout_version = $1::uuid", [
-               Ecto.UUID.dump!(version)
-             ])
+             Repo.query!(
+               "SELECT count(*) FROM platform.topology_world_layouts WHERE layout_version = $1::uuid",
+               [
+                 Ecto.UUID.dump!(version)
+               ]
+             )
 
-    assert %{rows: [[0]]} = Repo.query!("SELECT count(*) FROM platform.ocsf_devices WHERE uid = ANY($1::text[])", [ids])
+    assert %{rows: [[0]]} =
+             Repo.query!(
+               "SELECT count(*) FROM platform.ocsf_devices WHERE uid = ANY($1::text[])",
+               [ids]
+             )
 
     refute Repo.exists?(
-             from(job in Oban.Job, where: job.worker == ^Oban.Worker.to_string(WorldWorker) and job.id >= ^first_job_id),
+             from(job in Oban.Job,
+               where:
+                 job.worker == ^Oban.Worker.to_string(WorldWorker) and job.id >= ^first_job_id
+             ),
              prefix: "platform"
            )
 

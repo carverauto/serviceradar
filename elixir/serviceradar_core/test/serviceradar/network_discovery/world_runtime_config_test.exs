@@ -26,8 +26,16 @@ defmodule ServiceRadar.NetworkDiscovery.WorldRuntimeConfigTest do
     end)
 
     config = Config.Reader.read!(@runtime_config, env: :prod)
-    queues = Map.new(config[:serviceradar_core][Oban][:queues], fn {name, limit} -> {Atom.to_string(name), limit} end)
-    job = Ecto.Changeset.apply_changes(WorldWorker.new(%{"mode" => "reconcile", "layout_version" => Ash.UUID.generate()}))
+
+    queues =
+      Map.new(config[:serviceradar_core][Oban][:queues], fn {name, limit} ->
+        {Atom.to_string(name), limit}
+      end)
+
+    job =
+      Ecto.Changeset.apply_changes(
+        WorldWorker.new(%{"mode" => "reconcile", "layout_version" => Ash.UUID.generate()})
+      )
 
     assert queues[job.queue] == 1
     assert queues["maintenance"] == 7

@@ -26,7 +26,15 @@ defmodule ServiceRadar.NetworkDiscovery.World do
   @batch_size 500
   @publication_timeout to_timeout(minute: 5)
   @resources [WorldHead, WorldLayout, WorldPosition, WorldRelation]
-  @manifest_fields [:layout_version, :extent, :algorithm_version, :zmax, :source_digest, :node_count, :relation_count]
+  @manifest_fields [
+    :layout_version,
+    :extent,
+    :algorithm_version,
+    :zmax,
+    :source_digest,
+    :node_count,
+    :relation_count
+  ]
 
   @doc "Stages a new coordinate system without changing the active world."
   def stage_relayout(scope, attrs) do
@@ -68,9 +76,18 @@ defmodule ServiceRadar.NetworkDiscovery.World do
              :ok <- clear_stage_rows(WorldPosition, layout_version),
              :ok <- insert_positions(layout_version, positions),
              :ok <- upsert_relations(layout_version, relations),
-             :ok <- verify_counts(layout, Map.fetch!(metadata, :node_count), Map.fetch!(metadata, :relation_count)),
+             :ok <-
+               verify_counts(
+                 layout,
+                 Map.fetch!(metadata, :node_count),
+                 Map.fetch!(metadata, :relation_count)
+               ),
              {:ok, _layout} <-
-               update(layout, :publish, Map.take(metadata, [:source_digest, :node_count, :relation_count])) do
+               update(
+                 layout,
+                 :publish,
+                 Map.take(metadata, [:source_digest, :node_count, :relation_count])
+               ) do
           :ok
         end
       end,
@@ -155,9 +172,20 @@ defmodule ServiceRadar.NetworkDiscovery.World do
                  false
                ),
              :ok <- upsert_relations(layout.layout_version, Map.get(delta, :upsert_relations, [])),
-             :ok <- retire_positions(layout.layout_version, Map.get(delta, :deactivate_device_ids, [])),
-             :ok <- verify_counts(layout, Map.fetch!(delta, :node_count), Map.fetch!(delta, :relation_count)),
-             {:ok, layout} <- update(layout, :publish, Map.take(delta, [:source_digest, :node_count, :relation_count])),
+             :ok <-
+               retire_positions(layout.layout_version, Map.get(delta, :deactivate_device_ids, [])),
+             :ok <-
+               verify_counts(
+                 layout,
+                 Map.fetch!(delta, :node_count),
+                 Map.fetch!(delta, :relation_count)
+               ),
+             {:ok, layout} <-
+               update(
+                 layout,
+                 :publish,
+                 Map.take(delta, [:source_digest, :node_count, :relation_count])
+               ),
              {:ok, head} <- publish_head(head, layout.layout_version) do
           {:ok, manifest(head, layout)}
         end
@@ -195,7 +223,14 @@ defmodule ServiceRadar.NetworkDiscovery.World do
         with {:ok, head} <- locked_head("FOR SHARE"),
              {:ok, layout} <- active_layout(head),
              {:ok, accumulator} <- callback.({:manifest, manifest(head, layout)}, accumulator),
-             {:ok, accumulator} <- stream_rows(WorldPosition, layout.layout_version, :positions, accumulator, callback) do
+             {:ok, accumulator} <-
+               stream_rows(
+                 WorldPosition,
+                 layout.layout_version,
+                 :positions,
+                 accumulator,
+                 callback
+               ) do
           stream_rows(WorldRelation, layout.layout_version, :relations, accumulator, callback)
         end
       end,
@@ -225,7 +260,9 @@ defmodule ServiceRadar.NetworkDiscovery.World do
 
   defp enqueue_relayout(layout_version) do
     %{"mode" => "relayout", "layout_version" => layout_version}
-    |> WorldWorker.new(unique: [period: :infinity, keys: [:mode, :layout_version], states: :incomplete])
+    |> WorldWorker.new(
+      unique: [period: :infinity, keys: [:mode, :layout_version], states: :incomplete]
+    )
     |> ObanSupport.safe_insert()
     |> case do
       {:ok, %{id: id} = job} when is_integer(id) -> {:ok, job}
@@ -288,7 +325,10 @@ defmodule ServiceRadar.NetworkDiscovery.World do
   end
 
   defp publish_head(head, layout_version) do
-    update(head, :publish, %{active_layout_version: layout_version, generation: head.generation + 1})
+    update(head, :publish, %{
+      active_layout_version: layout_version,
+      generation: head.generation + 1
+    })
   end
 
   defp update(record, action, attrs) do
@@ -369,7 +409,10 @@ defmodule ServiceRadar.NetworkDiscovery.World do
            {:ok, count} <-
              WorldRelation
              |> Ash.Query.for_read(:read)
-             |> Ash.Query.filter(layout_version == ^version and active and (source_id in ^batch or target_id in ^batch))
+             |> Ash.Query.filter(
+               layout_version == ^version and active and
+                 (source_id in ^batch or target_id in ^batch)
+             )
              |> Ash.count(actor: actor()) do
         if count == 0, do: :ok, else: reject(:active_relation_to_retired_device)
       end
@@ -425,13 +468,20 @@ defmodule ServiceRadar.NetworkDiscovery.World do
   end
 
   defp bulk_options do
-    [actor: actor(), return_errors?: true, return_records?: false, stop_on_error?: true, batch_size: @batch_size]
+    [
+      actor: actor(),
+      return_errors?: true,
+      return_records?: false,
+      stop_on_error?: true,
+      batch_size: @batch_size
+    ]
   end
 
   defp bulk_result(%Ash.BulkResult{status: :success}), do: :ok
   defp bulk_result(%Ash.BulkResult{errors: errors}), do: {:error, errors}
 
-  defp manifest(head, layout), do: layout |> Map.take(@manifest_fields) |> Map.put(:generation, head.generation)
+  defp manifest(head, layout),
+    do: layout |> Map.take(@manifest_fields) |> Map.put(:generation, head.generation)
 
   defp notify_publication({:ok, manifest} = result) do
     if Process.whereis(ServiceRadar.PubSub) do
@@ -448,15 +498,23 @@ defmodule ServiceRadar.NetworkDiscovery.World do
   defp notify_publication(result), do: result
 
   defp reject(reason) do
-    {:error, InvalidArgument.exception(field: :world, value: reason, message: "topology world validation failed")}
+    {:error,
+     InvalidArgument.exception(
+       field: :world,
+       value: reason,
+       message: "topology world validation failed"
+     )}
   end
 
   defp transaction_result({:ok, result}), do: result
 
-  defp transaction_result({:error, %InvalidArgument{field: :world, value: reason}}), do: {:error, reason}
-
-  defp transaction_result({:error, %Ash.Error.Invalid{errors: [%InvalidArgument{field: :world, value: reason}]}}),
+  defp transaction_result({:error, %InvalidArgument{field: :world, value: reason}}),
     do: {:error, reason}
+
+  defp transaction_result(
+         {:error, %Ash.Error.Invalid{errors: [%InvalidArgument{field: :world, value: reason}]}}
+       ),
+       do: {:error, reason}
 
   defp transaction_result({:error, _reason} = error), do: error
   defp read_options(:system), do: [actor: actor(), timeout: @publication_timeout]

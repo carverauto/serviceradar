@@ -38,7 +38,8 @@ defmodule ServiceRadar.Observability.SRQLRunner do
   """
   def interface_rates(pairs, since, until, opts \\ [])
 
-  def interface_rates(pairs, %DateTime{} = since, %DateTime{} = until, opts) when is_list(pairs) do
+  def interface_rates(pairs, %DateTime{} = since, %DateTime{} = until, opts)
+      when is_list(pairs) do
     with {:ok, request} <- interface_rate_request(pairs, since, until, opts),
          {:ok, mode} <- backend_mode("in:snmp_metrics"),
          {:ok, json} <- ServiceRadarSRQL.Native.translate_interface_rates(request, mode),
@@ -53,14 +54,17 @@ defmodule ServiceRadar.Observability.SRQLRunner do
     end
   end
 
-  def interface_rates(_pairs, _since, _until, _opts), do: {:error, :invalid_interface_rate_request}
+  def interface_rates(_pairs, _since, _until, _opts),
+    do: {:error, :invalid_interface_rate_request}
 
   defp normalize_interface_rate_rows(rows) do
-    Enum.reduce_while(rows, {:ok, []}, fn row, {:ok, acc} ->
+    rows
+    |> Enum.reduce_while({:ok, []}, fn row, {:ok, acc} ->
       with %{"observed_at" => observed, "previous_observed_at" => previous} <- row,
            {:ok, observed} <- rate_datetime(observed),
            {:ok, previous} <- rate_datetime(previous) do
-        {:cont, {:ok, [%{row | "observed_at" => observed, "previous_observed_at" => previous} | acc]}}
+        {:cont,
+         {:ok, [%{row | "observed_at" => observed, "previous_observed_at" => previous} | acc]}}
       else
         _ -> {:halt, {:error, :invalid_interface_rate_timestamp}}
       end
@@ -86,7 +90,8 @@ defmodule ServiceRadar.Observability.SRQLRunner do
              {id, index} -> is_binary(id) and is_integer(index)
              _ -> false
            end),
-         true <- Enum.reduce(bounded, 0, fn {id, _}, bytes -> bytes + byte_size(id) end) <= 1_048_576,
+         true <-
+           Enum.reduce(bounded, 0, fn {id, _}, bytes -> bytes + byte_size(id) end) <= 1_048_576,
          {:ok, request} <-
            Jason.encode(%{
              pairs: Enum.map(bounded, fn {id, index} -> %{device_id: id, if_index: index} end),
@@ -275,7 +280,9 @@ defmodule ServiceRadar.Observability.SRQLRunner do
   end
 
   defp default_query_fn(_mode, timeout) do
-    fn sql, params -> Ecto.Adapters.SQL.query(Repo, sql, params, timeout: timeout || @default_query_timeout_ms) end
+    fn sql, params ->
+      Ecto.Adapters.SQL.query(Repo, sql, params, timeout: timeout || @default_query_timeout_ms)
+    end
   end
 
   defp next_cursor(translation, %Postgrex.Result{rows: rows}) do

@@ -98,9 +98,26 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
              })
 
     assert {:ok, %{positions: after_positions, relations: after_relations}} = collect_world()
-    geometry = [:device_id, :x, :y, :parent_id, :component_id, :component_z, :component_x, :component_y, :placement_depth]
-    assert Enum.map(after_positions, &Map.take(&1, geometry)) == Enum.map(original, &Map.take(&1, geometry))
-    assert after_relations |> Enum.map(& &1.relation_id) |> Enum.sort() == ["link-blue", "link-red"]
+
+    geometry = [
+      :device_id,
+      :x,
+      :y,
+      :parent_id,
+      :component_id,
+      :component_z,
+      :component_x,
+      :component_y,
+      :placement_depth
+    ]
+
+    assert Enum.map(after_positions, &Map.take(&1, geometry)) ==
+             Enum.map(original, &Map.take(&1, geometry))
+
+    assert after_relations |> Enum.map(& &1.relation_id) |> Enum.sort() == [
+             "link-blue",
+             "link-red"
+           ]
 
     assert %{
              source_if_index: 21,
@@ -110,7 +127,8 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
            } =
              Enum.find(after_relations, &(&1.relation_id == "link-blue"))
 
-    assert %{source_if_index: 7, target_if_index: 9} = Enum.find(after_relations, &(&1.relation_id == "link-red"))
+    assert %{source_if_index: 7, target_if_index: 9} =
+             Enum.find(after_relations, &(&1.relation_id == "link-red"))
 
     assert {:ok, %{label: "host01-renamed.example.com", min_zoom: 4, x: 100, y: 200}} =
              World.lookup_device(scope(), version, "sr:host01")
@@ -135,7 +153,11 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
     assert {:ok, nil} = World.lookup_device(scope(), layout.layout_version, "sr:host02")
 
     assert {:ok, staged} =
-             World.stage_relayout(scope(), %{source_digest: "synthetic-incomplete", node_count: 2, relation_count: 0})
+             World.stage_relayout(scope(), %{
+               source_digest: "synthetic-incomplete",
+               node_count: 2,
+               relation_count: 0
+             })
 
     assert :ok = World.append_stage(staged.layout_version, [position(3)], [])
     assert {:error, :incomplete_world} = World.activate_relayout(1, staged.layout_version)
@@ -147,15 +169,24 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
     assert {:ok, %{generation: 2}} = World.activate_relayout(1, staged.layout_version)
     assert {:ok, nil} = World.lookup_device(scope(), staged.layout_version, "sr:host03")
     assert {:ok, %{x: 400}} = World.lookup_device(scope(), staged.layout_version, "sr:host04")
-    assert {:error, :layout_already_published} = World.stage_candidate(staged.layout_version, metadata, [], [])
+
+    assert {:error, :layout_already_published} =
+             World.stage_candidate(staged.layout_version, metadata, [], [])
   end
 
   test "explicit relayout records the authorized stage and its exact job version together" do
     actor = SystemActor.system(:topology_world_test)
-    denied = %{actor: %{id: "synthetic-reader", role: :viewer, permissions: MapSet.new(["analytics.view"])}}
+
+    denied = %{
+      actor: %{id: "synthetic-reader", role: :viewer, permissions: MapSet.new(["analytics.view"])}
+    }
 
     authorized = %{
-      actor: %{id: "synthetic-operator", role: :viewer, permissions: MapSet.new(["settings.networks.manage"])}
+      actor: %{
+        id: "synthetic-operator",
+        role: :viewer,
+        permissions: MapSet.new(["settings.networks.manage"])
+      }
     }
 
     count = Ash.count!(WorldLayout, actor: actor)
@@ -181,7 +212,11 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
       end)
 
     assert %Ash.BulkResult{status: :success} =
-             Ash.bulk_create(devices, Device, :create, actor: actor, batch_size: 500, return_errors?: true)
+             Ash.bulk_create(devices, Device, :create,
+               actor: actor,
+               batch_size: 500,
+               return_errors?: true
+             )
 
     Device
     |> Ash.get!("sr:inventory-502", actor: actor)
@@ -191,7 +226,12 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
     assert {:ok, %{sizes: [500, 1], ids: ids}} =
              WorldInventory.stream(%{sizes: [], ids: MapSet.new()}, fn rows, acc ->
                assert Enum.all?(rows, &(&1.importance == 0))
-               {:ok, %{sizes: acc.sizes ++ [length(rows)], ids: Enum.reduce(rows, acc.ids, &MapSet.put(&2, &1.id))}}
+
+               {:ok,
+                %{
+                  sizes: acc.sizes ++ [length(rows)],
+                  ids: Enum.reduce(rows, acc.ids, &MapSet.put(&2, &1.id))
+                }}
              end)
 
     assert ids == MapSet.new(1..501, &"sr:inventory-#{&1}")
@@ -205,28 +245,51 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
     assert {:error, :stale_generation} = World.activate_relayout(1, original.layout_version)
     assert {:ok, %{layout_version: version, generation: 2}} = World.active_manifest(scope())
     assert version == replacement.layout_version
-    assert {:error, :layout_already_published} = World.append_stage(original.layout_version, [position(2)], [])
+
+    assert {:error, :layout_already_published} =
+             World.append_stage(original.layout_version, [position(2)], [])
+
     assert {:ok, %{x: 800, y: 900}} = World.lookup_device(scope(), version, "sr:host01")
   end
 
   test "manifest and inventory permissions remain distinct and invalid grid cells are rejected" do
     layout = activate([position(1)], [])
-    analytics = %{actor: %{id: "synthetic-viewer", role: :viewer, permissions: MapSet.new(["analytics.view"])}}
-    inventory = put_in(analytics.actor.permissions, MapSet.new(["analytics.view", "devices.view"]))
+
+    analytics = %{
+      actor: %{id: "synthetic-viewer", role: :viewer, permissions: MapSet.new(["analytics.view"])}
+    }
+
+    inventory =
+      put_in(analytics.actor.permissions, MapSet.new(["analytics.view", "devices.view"]))
 
     assert {:ok, %{generation: 1}} = World.active_manifest(analytics)
-    assert {:ok, %{device_id: "sr:host01"}} = World.lookup_device(inventory, layout.layout_version, "sr:host01")
+
+    assert {:ok, %{device_id: "sr:host01"}} =
+             World.lookup_device(inventory, layout.layout_version, "sr:host01")
+
     assert {:ok, nil} = World.lookup_device(analytics, layout.layout_version, "sr:host01")
     assert {:error, :not_ready} = World.active_manifest(nil)
 
     assert {:error, %Forbidden{}} =
-             World.stage_relayout(analytics, %{source_digest: "synthetic-denied", node_count: 0, relation_count: 0})
+             World.stage_relayout(analytics, %{
+               source_digest: "synthetic-denied",
+               node_count: 0,
+               relation_count: 0
+             })
 
     assert {:ok, staged} =
-             World.stage_relayout(scope(), %{source_digest: "synthetic-invalid-cell", node_count: 1, relation_count: 0})
+             World.stage_relayout(scope(), %{
+               source_digest: "synthetic-invalid-cell",
+               node_count: 1,
+               relation_count: 0
+             })
 
     assert {:error, _constraint_error} =
-             World.append_stage(staged.layout_version, [%{position(2) | component_z: 1, component_x: 2}], [])
+             World.append_stage(
+               staged.layout_version,
+               [%{position(2) | component_z: 1, component_x: 2}],
+               []
+             )
 
     assert {:error, :incomplete_world} = World.activate_relayout(1, staged.layout_version)
   end
@@ -288,7 +351,8 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
         refute_receive {:topology_world_changed, _manifest}
         send(reader.pid, :continue)
 
-        assert {:ok, %{manifest: %{generation: 1}, positions: [_first, _second], relations: [_link]}} =
+        assert {:ok,
+                %{manifest: %{generation: 1}, positions: [_first, _second], relations: [_link]}} =
                  Task.await(reader, 10_000)
 
         assert {:ok, %{generation: 2}} = Task.await(writer, 10_000)
@@ -318,7 +382,11 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
     assert {:ok, pending} = World.request_relayout(scope())
     assert :ok = World.append_stage(pending.layout_version, [position(4)], [])
 
-    Enum.each([obsolete, abandoned, pending], &age_layout(&1.layout_version, ~U[2025-04-01 00:00:00Z]))
+    Enum.each(
+      [obsolete, abandoned, pending],
+      &age_layout(&1.layout_version, ~U[2025-04-01 00:00:00Z])
+    )
+
     age_layout(retained.layout_version, ~U[2025-04-02 00:00:00Z])
     age_layout(active.layout_version, ~U[2025-04-03 00:00:00Z])
 
@@ -355,10 +423,13 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
   end
 
   defp age_layout(version, timestamp) do
-    Repo.query!("UPDATE platform.topology_world_layouts SET updated_at = $1 WHERE layout_version = $2::uuid", [
-      DateTime.to_naive(timestamp),
-      Ecto.UUID.dump!(version)
-    ])
+    Repo.query!(
+      "UPDATE platform.topology_world_layouts SET updated_at = $1 WHERE layout_version = $2::uuid",
+      [
+        DateTime.to_naive(timestamp),
+        Ecto.UUID.dump!(version)
+      ]
+    )
   end
 
   defp layout_rows(resource, version) do
@@ -442,7 +513,9 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
         :ok
 
       _ ->
-        assert System.monotonic_time(:millisecond) < deadline, "publication never waited for the bootstrap lock"
+        assert System.monotonic_time(:millisecond) < deadline,
+               "publication never waited for the bootstrap lock"
+
         Process.sleep(10)
         assert_lock_wait(backend, deadline)
     end
@@ -450,12 +523,19 @@ defmodule ServiceRadar.NetworkDiscovery.WorldTest do
 
   defp delete_test_layout(version) do
     uuid = Ecto.UUID.dump!(version)
-    Repo.query!("DELETE FROM platform.topology_world_head WHERE active_layout_version = $1", [uuid])
+
+    Repo.query!("DELETE FROM platform.topology_world_head WHERE active_layout_version = $1", [
+      uuid
+    ])
+
     Repo.query!("DELETE FROM platform.topology_world_relations WHERE layout_version = $1", [uuid])
     Repo.query!("DELETE FROM platform.topology_world_positions WHERE layout_version = $1", [uuid])
     Repo.query!("DELETE FROM platform.topology_world_layouts WHERE layout_version = $1", [uuid])
 
     assert %{rows: [[0]]} =
-             Repo.query!("SELECT count(*) FROM platform.topology_world_layouts WHERE layout_version = $1", [uuid])
+             Repo.query!(
+               "SELECT count(*) FROM platform.topology_world_layouts WHERE layout_version = $1",
+               [uuid]
+             )
   end
 end

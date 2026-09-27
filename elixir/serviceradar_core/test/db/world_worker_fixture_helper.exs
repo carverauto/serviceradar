@@ -7,7 +7,10 @@ Code.require_file("../../config/test_database_guard.exs", __DIR__)
 
 {:ok, %{kind: "ci"} = identity} = Identity.from_env()
 config_path = Path.join(System.fetch_env!("TEST_TMPDIR"), "config/environments/ci.binpb")
-{:ok, manager} = Manager.load(identity, %{"ci" => File.read!(config_path)}, fn _ -> {:error, :no_mount} end)
+
+{:ok, manager} =
+  Manager.load(identity, %{"ci" => File.read!(config_path)}, fn _ -> {:error, :no_mount} end)
+
 dgraph = Manager.dgraph(manager)
 target = "DGRAPH_URL" |> System.fetch_env!() |> URI.parse()
 query = URI.decode_query(target.query || "")
@@ -27,7 +30,8 @@ true = Keyword.fetch!(ssl_options, :verify) == :verify_peer
 ServiceRadar.DB.TestDatabaseGuard.validate!(Keyword.fetch!(repo_options, :url),
   tls_server_name: Keyword.fetch!(ssl_options, :server_name_indication),
   ssl_mode: "verify-full",
-  ca_configured?: Keyword.has_key?(ssl_options, :cacerts) or Keyword.has_key?(ssl_options, :cacertfile)
+  ca_configured?:
+    Keyword.has_key?(ssl_options, :cacerts) or Keyword.has_key?(ssl_options, :cacertfile)
 )
 
 for app <- [:postgrex, :ecto_sql, :ash_postgres, :oban] do
@@ -48,7 +52,11 @@ ExUnit.after_suite(fn %{total: total, excluded: excluded, skipped: skipped} ->
   selected = total - excluded - skipped
 
   if selected != 1 do
-    IO.puts(:stderr, "FAILED: world worker fixture executed #{selected} tests; expected exactly 1")
+    IO.puts(
+      :stderr,
+      "FAILED: world worker fixture executed #{selected} tests; expected exactly 1"
+    )
+
     System.at_exit(fn _ -> System.halt(1) end)
   end
 end)

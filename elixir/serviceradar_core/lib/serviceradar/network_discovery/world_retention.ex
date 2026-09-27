@@ -150,7 +150,8 @@ defmodule ServiceRadar.NetworkDiscovery.WorldRetention do
       case positions do
         [] ->
           with :ok <- Ash.destroy(layout, action: :discard, actor: actor()) do
-            {:ok, %{layout_version: layout.layout_version, deleted_rows: 0, deleted_layout?: true}}
+            {:ok,
+             %{layout_version: layout.layout_version, deleted_rows: 0, deleted_layout?: true}}
           end
 
         rows ->
