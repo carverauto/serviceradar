@@ -484,10 +484,7 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
       community: map_value(payload, "community"),
       username:
         map_value(payload, "username") || Map.get(record, :username) || Map.get(secret, :username),
-      security_level:
-        normalize_security_level(
-          map_value(payload, "security_level") || Map.get(record, :security_level)
-        ),
+      security_level: broker_security_level(payload, record),
       auth_protocol:
         normalize_auth_protocol(
           map_value(payload, "auth_protocol") || Map.get(record, :auth_protocol)
@@ -501,6 +498,22 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolver do
         ),
       priv_password: map_value(payload, "priv_password") || map_value(payload, "privacy_password")
     }
+  end
+
+  defp broker_security_level(payload, record) do
+    # A bound secret can omit its level and infer it from its passwords. The
+    # consumer's no-auth default must not suppress that inference; an explicit
+    # level in the secret still wins, including an intentional noAuthNoPriv.
+    case normalize_security_level(map_value(payload, "security_level")) do
+      nil ->
+        case normalize_security_level(Map.get(record, :security_level)) do
+          :no_auth_no_priv -> nil
+          level -> level
+        end
+
+      level ->
+        level
+    end
   end
 
   defp broker_raw_credential("", _record, _secret), do: nil
