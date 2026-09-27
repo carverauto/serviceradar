@@ -244,7 +244,8 @@ fn dataset_sql(
 
     let joins = catalog_joins(plan, dataset)?;
     let direction = plan_mentions(plan, &["direction"]);
-    let derived = direction || filters_on_flow_cidr(plan);
+    let cidr_groups = flow_cidr_groups(plan)?;
+    let derived = direction || filters_on_flow_cidr(plan) || !cidr_groups.is_empty();
     let hour_grained = if joins.is_empty() && !derived {
         hourly_rollup(plan, dataset)
     } else {
@@ -265,6 +266,7 @@ fn dataset_sql(
         } else {
             ip_hex_source(&qualified)
         };
+        let base = cidr_label_source(base, &cidr_groups);
         if joins.is_empty() {
             format!("{base} AS f")
         } else {
@@ -1462,11 +1464,8 @@ fn stats_select(plan: &QueryPlan, dataset: Dataset) -> Result<(String, String)> 
 
 fn group_alias(col: &str) -> String {
     let trimmed = col.trim();
-    if let Some(rest) = trimmed.strip_prefix("src_cidr:") {
-        return format!("src_cidr_{rest}");
-    }
-    if let Some(rest) = trimmed.strip_prefix("dst_cidr:") {
-        return format!("dst_cidr_{rest}");
+    if let Some(Ok((endpoint, prefix))) = flow_cidr_group(trimmed) {
+        return cidr_label_column(endpoint, prefix);
     }
     match trimmed {
         "dst_port" => "dst_endpoint_port".to_string(),
@@ -1478,21 +1477,6 @@ fn group_alias(col: &str) -> String {
         "partition" => "flow_partition".to_string(),
         other if other.starts_with("time:") => "bucket".to_string(),
         other => other.to_string(),
-    }
-}
-
-fn ipv4_prefix_sql(column: &str, prefix: &str) -> String {
-    match prefix {
-        "8" => format!("CONCAT(SPLIT_PART({column}, '.', 1), '.0.0.0')"),
-        "16" => {
-            format!(
-                "CONCAT(SPLIT_PART({column}, '.', 1), '.', SPLIT_PART({column}, '.', 2), '.0.0')"
-            )
-        }
-        "24" => format!(
-            "CONCAT(SPLIT_PART({column}, '.', 1), '.', SPLIT_PART({column}, '.', 2), '.', SPLIT_PART({column}, '.', 3), '.0')"
-        ),
-        _ => column.to_string(),
     }
 }
 
@@ -2272,6 +2256,7 @@ fn field_sql(plan: &QueryPlan, field: &str) -> Result<String> {
     let qualified = flow
         && (plan_mentions(plan, &["direction"])
             || filters_on_flow_cidr(plan)
+            || !flow_cidr_groups(plan)?.is_empty()
             || !catalog_joins(plan, dataset)?.is_empty());
     let column = |name: &str| {
         if qualified {
@@ -2341,18 +2326,11 @@ fn field_sql(plan: &QueryPlan, field: &str) -> Result<String> {
             }
             _ => {}
         }
-        for (prefix, name) in [
-            ("src_cidr:", "src_endpoint_ip"),
-            ("dst_cidr:", "dst_endpoint_ip"),
-        ] {
-            if let Some(bits) = field.strip_prefix(prefix) {
-                if matches!(bits, "8" | "16" | "24") {
-                    return Ok(ipv4_prefix_sql(&column(name), bits));
-                }
-                return Err(ServiceError::InvalidRequest(
-                    "unsupported CIDR grouping".into(),
-                ));
-            }
+        // Computed once per row by `cidr_label_source`, which every grouping on one is
+        // compiled over.
+        if let Some(group) = flow_cidr_group(field) {
+            let (endpoint, prefix) = group?;
+            return Ok(column(&cidr_label_column(endpoint, prefix)));
         }
     }
     if dataset.raw_table == "timeseries_metrics"
@@ -2524,6 +2502,177 @@ fn filters_on_flow_cidr(plan: &QueryPlan) -> bool {
             .filters
             .iter()
             .any(|filter| matches!(filter.field.as_str(), "src_cidr" | "dst_cidr"))
+}
+
+/// A `src_cidr:<n>` / `dst_cidr:<n>` grouping field: the endpoint it groups and the
+/// prefix length, validated as CNPG's `FlowGroupSpec::parse` validates it. `None` for any
+/// other field.
+fn flow_cidr_group(field: &str) -> Option<Result<(&'static str, u8)>> {
+    let field = field.trim();
+    let (endpoint, bits) = if let Some(bits) = field.strip_prefix("src_cidr:") {
+        ("src", bits)
+    } else {
+        let bits = field.strip_prefix("dst_cidr:")?;
+        ("dst", bits)
+    };
+    let prefix = match bits.trim().parse::<u8>() {
+        Ok(prefix) if prefix <= 128 => Ok((endpoint, prefix)),
+        Ok(prefix) => Err(ServiceError::InvalidRequest(format!(
+            "CIDR prefix length must be <= 128 (got {prefix})"
+        ))),
+        Err(_) => Err(ServiceError::InvalidRequest(format!(
+            "invalid CIDR prefix length in group-by: '{field}'"
+        ))),
+    };
+    Some(prefix)
+}
+
+fn cidr_label_column(endpoint: &str, prefix: u8) -> String {
+    format!("{endpoint}_cidr_{prefix}")
+}
+
+/// Every distinct CIDR grouping a flow query asks for, as a stats group or a chart series.
+fn flow_cidr_groups(plan: &QueryPlan) -> Result<Vec<(&'static str, u8)>> {
+    if !matches!(plan.entity, Entity::Flows | Entity::AttributedFlows) {
+        return Ok(Vec::new());
+    }
+    let mut fields: Vec<String> = stats_group_by(plan.stats.as_ref())
+        .map(|cols| cols.split(',').map(|col| col.trim().to_string()).collect())
+        .unwrap_or_default();
+    if let Some(series) = plan.downsample.as_ref().and_then(|d| d.series.clone()) {
+        fields.push(series);
+    }
+    let mut groups = Vec::new();
+    for field in &fields {
+        if let Some(group) = flow_cidr_group(field) {
+            let group = group?;
+            if !groups.contains(&group) {
+                groups.push(group);
+            }
+        }
+    }
+    Ok(groups)
+}
+
+// The flow source with each requested subnet label as a column, so that the grouping, the
+// select list and the `other:true` tie-break all name one computed value.
+fn cidr_label_source(base: String, groups: &[(&str, u8)]) -> String {
+    if groups.is_empty() {
+        return base;
+    }
+    let labels = groups
+        .iter()
+        .map(|(endpoint, prefix)| {
+            format!(
+                "{} AS {}",
+                cidr_label_sql(&format!("labeled.{endpoint}_ip_hex"), *prefix),
+                cidr_label_column(endpoint, *prefix)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("(SELECT labeled.*, {labels} FROM {base} labeled)")
+}
+
+// The subnet an endpoint falls in, byte for byte as CNPG prints
+// `network(set_masklen(ip, n))::text`: the network address with its length, host bits
+// cleared, `192.0.2.0/24` or `2001:db8::/48`. An IPv4 address is masked at no more than its
+// 32 bits, so a `/48` groups IPv4 flows by host, as CNPG's `cidr_group_expr` does. An
+// address with no `ip_hex_source` encoding is `Unknown`, CNPG's label for one `try_inet`
+// cannot parse.
+//
+// It works on the fixed-width hex, one field at a time: an octet or a 16-bit word the prefix
+// covers is kept, one it does not is '0', and the one it cuts is masked with `bitand`. IPv4
+// is then four decimal octets. IPv6 is eight lowercase words without leading zeros,
+// `:w0:w1:...:w7:`, handed to `ipv6_text_sql`.
+//
+// Each lambda names its input once. The hex is a large expression that StarRocks inlines at
+// every reference, and a label built from it directly references it once per field, past
+// the analyzer's expression limit (see `flow_cidr_filter_sql`).
+fn cidr_label_sql(hex: &str, prefix: u8) -> String {
+    let v4 = prefix.min(32);
+    let octets = (0..4u8)
+        .map(|i| hex_field_sql("h", i * 2 + 1, 8, v4.saturating_sub(i * 8).min(8), 10))
+        .collect::<Vec<_>>()
+        .join(", '.', ");
+    let words = (0..8u8)
+        .map(|j| {
+            hex_field_sql(
+                "h",
+                j * 4 + 1,
+                16,
+                prefix.saturating_sub(j * 16).min(16),
+                16,
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ':', ");
+    format!(
+        "array_map(s -> CASE WHEN s IS NULL THEN 'Unknown' WHEN SUBSTRING(s, 1, 1) <> ':' THEN s ELSE CONCAT({}, '/{prefix}') END, array_map(h -> CASE LENGTH(h) WHEN 8 THEN CONCAT({octets}, '/{v4}') WHEN 32 THEN CONCAT(':', {words}, ':') END, [{hex}]))[1]",
+        ipv6_text_sql("s")
+    )
+}
+
+// One `bits`-wide field of the hex in `var`, starting at the 1-based digit `start`, with
+// only its top `keep` bits, as text in `base` (10 for an octet, 16 for a word: lowercase, no
+// leading zeros).
+fn hex_field_sql(var: &str, start: u8, bits: u8, keep: u8, base: u8) -> String {
+    let digits = format!("SUBSTRING({var}, {start}, {})", bits / 4);
+    let text = |value: String| {
+        if base == 16 {
+            format!("LOWER({value})")
+        } else {
+            value
+        }
+    };
+    match keep {
+        0 => "'0'".to_string(),
+        keep if keep == bits => text(format!("CONV({digits}, 16, {base})")),
+        keep => {
+            let field = (1u32 << bits) - 1;
+            let mask = field & !((1u32 << (bits - keep)) - 1);
+            text(format!(
+                "CONV(bitand(CAST(CONV({digits}, 16, 10) AS BIGINT), {mask}), 10, {base})"
+            ))
+        }
+    }
+}
+
+// An IPv6 network as Postgres prints it (`pg_inet_net_ntop`), from its eight words as
+// `:w0:w1:...:w7:`: the first of the longest runs of two or more zero words becomes `::`
+// (RFC 5952), and an address in `::/96` or `::ffff:0:0/96` whose run is exactly its leading
+// zeros ends in dotted decimal (`::ffff:192.0.2.0`), as Postgres writes a compatible or
+// mapped IPv4 address.
+//
+// The runs are tried longest first, so the first match is the run Postgres picks. It is
+// replaced by a marker, the delimiting colons are dropped, and the marker becomes `::`, which
+// covers a run at the start, in the middle and at the end alike.
+fn ipv6_text_sql(s: &str) -> String {
+    // `SUBSTRING` of the padded word: its high byte at 1, its low byte at 3.
+    let byte = |part: u8, at: u8| {
+        format!("CONV(SUBSTRING(LPAD(SPLIT_PART({s}, ':', {part}), 4, '0'), {at}, 2), 16, 10)")
+    };
+    let dotted = format!(
+        "CONCAT({}, '.', {}, '.', {}, '.', {})",
+        byte(8, 1),
+        byte(8, 3),
+        byte(9, 1),
+        byte(9, 3)
+    );
+    let runs = (2..=8usize)
+        .rev()
+        .map(|zeros| {
+            let run = format!(":{}", "0:".repeat(zeros));
+            format!(
+                "WHEN LOCATE('{run}', {s}) > 0 THEN CONCAT(SUBSTRING({s}, 1, LOCATE('{run}', {s}) - 1), '|', SUBSTRING({s}, LOCATE('{run}', {s}) + {}))",
+                run.len()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    format!(
+        "CASE WHEN {s} LIKE ':0:0:0:0:0:ffff:%' THEN CONCAT('::ffff:', {dotted}) WHEN {s} LIKE ':0:0:0:0:0:0:%' AND {s} NOT LIKE ':0:0:0:0:0:0:0:%' THEN CONCAT('::', {dotted}) ELSE REPLACE(REGEXP_REPLACE(CASE {runs} ELSE {s} END, '^:|:$', ''), '|', '::') END"
+    )
 }
 
 // CNPG asks `try_inet(ip) <<= cidr`, or `<<= ANY(cidr[])` for a list. Here each
@@ -5032,13 +5181,138 @@ mod tests {
     }
 
     #[test]
-    fn cidr_prefix_grouping_does_not_pay_for_the_hex_source() {
+    fn cidr_grouping_labels_the_network_of_either_family_with_its_length() {
         let compiled = translate(
             &plan(r#"in:flows time:last_1h stats:"count(*) as flows by src_cidr:24""#),
             "serviceradar",
         )
         .expect("prefix grouping");
-        assert!(!compiled.sql.contains("ip_hex"), "{}", compiled.sql);
+        let sql = &compiled.sql;
+        // Both families come from the fixed-width hex the CIDR filters compare against. An
+        // IPv4 address keeps three octets; an IPv6 address keeps its first word and the top
+        // byte of its second, and every word past the prefix is zero.
+        let v4 = "CONCAT(CONV(SUBSTRING(h, 1, 2), 16, 10), '.', CONV(SUBSTRING(h, 3, 2), 16, 10), '.', CONV(SUBSTRING(h, 5, 2), 16, 10), '.', '0', '/24')";
+        let v6 = "CONCAT(':', LOWER(CONV(SUBSTRING(h, 1, 4), 16, 16)), ':', LOWER(CONV(bitand(CAST(CONV(SUBSTRING(h, 5, 4), 16, 10) AS BIGINT), 65280), 10, 16)), ':', '0', ':', '0', ':', '0', ':', '0', ':', '0', ':', '0', ':')";
+        assert!(
+            sql.contains(&format!(
+                "array_map(h -> CASE LENGTH(h) WHEN 8 THEN {v4} WHEN 32 THEN {v6} END, [labeled.src_ip_hex]))[1] AS src_cidr_24 FROM (SELECT normalized.*"
+            )),
+            "{sql}"
+        );
+        assert!(
+            sql.starts_with(
+                "SELECT COUNT(*) AS flows, f.src_cidr_24 AS src_cidr_24 FROM (SELECT labeled.*, array_map(s -> CASE WHEN s IS NULL THEN 'Unknown' WHEN SUBSTRING(s, 1, 1) <> ':' THEN s ELSE CONCAT(CASE WHEN s LIKE ':0:0:0:0:0:ffff:%'"
+            ),
+            "{sql}"
+        );
+        assert!(
+            sql.contains("'|', '::') END, '/24') END, array_map(h -> "),
+            "{sql}"
+        );
+        assert!(sql.contains(" GROUP BY f.src_cidr_24"), "{sql}");
+        // The longest run of zero words is tried first, so the first match is the run
+        // Postgres compresses.
+        let longest = sql
+            .find("WHEN LOCATE(':0:0:0:0:0:0:0:0:', s) > 0")
+            .expect("8 zeros");
+        let shortest = sql.find("WHEN LOCATE(':0:0:', s) > 0").expect("2 zeros");
+        assert!(longest < shortest, "{sql}");
+        assert!(
+            sql.contains(
+                "WHEN LOCATE(':0:0:', s) > 0 THEN CONCAT(SUBSTRING(s, 1, LOCATE(':0:0:', s) - 1), '|', SUBSTRING(s, LOCATE(':0:0:', s) + 5)) ELSE s END, '^:|:$', '')"
+            ),
+            "{sql}"
+        );
+    }
+
+    #[test]
+    fn a_cidr_prefix_masks_mid_field_and_never_widens_ipv4_past_32_bits() {
+        let compiled = translate(
+            &plan(
+                r#"in:flows time:last_1h stats:"sum(bytes_total) as bytes by src_cidr:20, dst_cidr:48" sort:bytes:desc"#,
+            ),
+            "serviceradar",
+        )
+        .expect("two prefixes");
+        let sql = &compiled.sql;
+        // /20 cuts the third octet: its top four bits survive.
+        assert!(
+            sql.contains(
+                "CONV(bitand(CAST(CONV(SUBSTRING(h, 5, 2), 16, 10) AS BIGINT), 240), 10, 10), '.', '0', '/20')"
+            ),
+            "{sql}"
+        );
+        // /48 is three whole IPv6 words; an IPv4 destination keeps all 32 bits.
+        assert!(
+            sql.contains(
+                "CONCAT(CONV(SUBSTRING(h, 1, 2), 16, 10), '.', CONV(SUBSTRING(h, 3, 2), 16, 10), '.', CONV(SUBSTRING(h, 5, 2), 16, 10), '.', CONV(SUBSTRING(h, 7, 2), 16, 10), '/32')"
+            ),
+            "{sql}"
+        );
+        assert!(
+            sql.contains(
+                "LOWER(CONV(SUBSTRING(h, 9, 4), 16, 16)), ':', '0', ':', '0', ':', '0', ':', '0', ':', '0', ':')"
+            ),
+            "{sql}"
+        );
+        assert!(sql.contains("'/48') END, array_map(h -> "), "{sql}");
+        assert!(
+            sql.contains("[labeled.dst_ip_hex]))[1] AS dst_cidr_48"),
+            "{sql}"
+        );
+        assert!(
+            sql.contains(" GROUP BY f.src_cidr_20, f.dst_cidr_48"),
+            "{sql}"
+        );
+    }
+
+    #[test]
+    fn cidr_grouping_and_a_cidr_filter_share_one_hex_source() {
+        let compiled = translate(
+            &plan(
+                r#"in:flows time:last_1h src_cidr:192.0.2.0/24 stats:"sum(bytes_total) as bytes by src_cidr:24, dst_endpoint_port" sort:bytes:desc limit:5 other:true"#,
+            ),
+            "serviceradar",
+        )
+        .expect("filtered grouping");
+        let sql = &compiled.sql;
+        assert_eq!(sql.matches("AS src_ip_hex").count(), 1, "{sql}");
+        assert!(
+            sql.contains("BETWEEN 'c0000200' AND 'c00002ff'), [f.src_ip_hex])"),
+            "{sql}"
+        );
+        // The `other:true` tie-break orders by the label, as CNPG's does.
+        assert!(
+            sql.contains("ORDER BY bytes DESC, src_cidr_24 ASC, dst_endpoint_port ASC"),
+            "{sql}"
+        );
+    }
+
+    #[test]
+    fn cidr_grouping_prefix_lengths_are_validated() {
+        for (group, message) in [
+            (
+                "src_cidr:129",
+                "CIDR prefix length must be <= 128 (got 129)",
+            ),
+            (
+                "dst_cidr:abc",
+                "invalid CIDR prefix length in group-by: 'dst_cidr:abc'",
+            ),
+        ] {
+            let err = translate(
+                &plan(&format!(
+                    r#"in:flows time:last_1h stats:"count(*) as flows by {group}""#
+                )),
+                "serviceradar",
+            )
+            .expect_err(group);
+            assert!(
+                matches!(err, ServiceError::InvalidRequest(_)),
+                "{group}: {err}"
+            );
+            assert!(err.to_string().contains(message), "{group}: {err}");
+        }
     }
 
     #[test]

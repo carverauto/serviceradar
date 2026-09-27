@@ -861,6 +861,40 @@ mod tests {
     }
 
     #[test]
+    fn grouped_subnets_hold_several_hosts_of_each_family() {
+        // A CIDR grouping that kept the host bits would still agree across backends unless
+        // hosts share a subnet, so each family needs a subnet holding more than one host in
+        // the main window, at the prefixes the inventory groups by.
+        let end = anchor().at(5 * 3600 - 30);
+        let main: Vec<FlowRow> = flows(anchor())
+            .into_iter()
+            .filter(|row| row.time <= end)
+            .collect();
+        let crowded = |addresses: Vec<&'static str>, v4_prefix: u32, v6_prefix: u32| {
+            let mut hosts: std::collections::BTreeMap<(bool, u128), BTreeSet<&str>> =
+                std::collections::BTreeMap::new();
+            for address in addresses {
+                let network = match address.parse::<std::net::IpAddr>().expect("an address") {
+                    std::net::IpAddr::V4(v4) => {
+                        (false, u128::from(u32::from(v4) >> (32 - v4_prefix)))
+                    }
+                    std::net::IpAddr::V6(v6) => (true, u128::from(v6) >> (128 - v6_prefix)),
+                };
+                hosts.entry(network).or_default().insert(address);
+            }
+            [false, true].map(|v6| {
+                hosts
+                    .iter()
+                    .any(|((family, _), members)| *family == v6 && members.len() > 1)
+            })
+        };
+        let sources = main.iter().map(|row| row.src_endpoint_ip).collect();
+        let destinations = main.iter().map(|row| row.dst_endpoint_ip).collect();
+        assert_eq!(crowded(sources, 24, 48), [true, true]);
+        assert_eq!(crowded(destinations, 24, 64), [true, true]);
+    }
+
+    #[test]
     fn tcp_flag_labels_follow_the_writer() {
         assert_eq!(tcp_flag_labels(Some(18)), vec!["ACK", "SYN"]);
         assert!(tcp_flag_labels(Some(0)).is_empty());

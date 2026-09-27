@@ -57,7 +57,7 @@ fn parse_stats_expr_supports_cidr_group_by() {
     let spec = parse_stats_expr(expr).unwrap();
     assert_eq!(spec.group_by.len(), 1);
     assert_eq!(spec.group_by[0], FlowGroupSpec::SrcCidr { prefix: 24 });
-    assert_eq!(spec.group_by[0].response_key(), "src_cidr");
+    assert_eq!(spec.group_by[0].response_key(), "src_cidr_24");
 }
 
 #[test]
