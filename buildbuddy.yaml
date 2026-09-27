@@ -47,6 +47,92 @@ actions:
              $SERVICERADAR_TEST_ENV_FLAGS"
           bazel test $FLAGS //rust/integration-db:generation_lifecycle_test
 
+  # SRQL StarRocks-vs-CNPG parity harness, database tier
+  # (//integration_tests/srql_parity:parity_test; openspec change
+  # extend-starrocks-to-all-telemetry, tasks 1.4-1.6).
+  #
+  # Explicit API dispatch only, for a branch that changes an SRQL dialect or the inventory:
+  #
+  #   curl -fsS https://carverauto.buildbuddy.io/api/v1/ExecuteWorkflow \
+  #     -H "x-buildbuddy-api-key: <org API key>" -H 'Content-Type: application/json' \
+  #     -d '{"repo_url":"https://github.com/carverauto/serviceradar","branch":"<branch>",
+  #          "action_names":["SrqlParity"], "env":{"SRQL_PARITY_ONLY":"<optional id substring>"}}'
+  #
+  # It creates srql_parity_<stamp>_<pid> on the srql-fixtures CNPG and fills the fixed
+  # database srql_parity_ci on the carverauto StarRocks warehouse, seeds both with the same
+  # synthetic rows, runs every inventory entry through both dialects, then drops the CNPG
+  # database and empties srql_parity_ci. A second dispatch while one is running is refused
+  # (the harness's FIXED_DATABASE_BUSY_MINUTES guard), not interleaved.
+  #
+  # Reachability: lab-fe-service is a ClusterIP, admitted by executor.task_allowed_private_ips
+  # (//k8s/buildbuddy/values.yaml) and by k8s/starrocks/network-policy.yaml only because the
+  # buildbuddy namespace carries serviceradar.carverauto.dev/starrocks-client=true (see
+  # k8s/starrocks/README.md, "Network policy").
+  #
+  # Credentials: the CNPG side is the ordinary fixture identity from
+  # //:buildbuddy_setup_fixture_env. The StarRocks side is the `srql_parity` user, which holds
+  # every privilege on srql_parity_ci and its tables and materialized views and nothing else --
+  # not CREATE DATABASE, because StarRocks grants a creator nothing on what it creates and the
+  # grant that would is warehouse-wide. Its password is the BuildBuddy secret
+  # SRQL_PARITY_STARROCKS_PASSWORD. `--strategy=TestRunner=local` keeps both credentials on
+  # this runner: a remote action ships its environment to the executor.
+  - name: "SrqlParity"
+    triggers: {}
+    env:
+      SRQL_FIXTURE_CA_URL: "https://srql-fixture-ca.carverauto.dev/ca.crt"
+    self_hosted: true
+    pool: "workflows"
+    container_image: "docker://registry.carverauto.dev/serviceradar/buildbuddy-workflow-runner:v1.0.24.3"
+    platform_properties:
+      OSFamily: "linux"
+      Arch: "amd64"
+      dockerNetwork: "bridge"
+    resource_requests:
+      memory: "32GB"
+      disk: "40GB"
+    steps:
+      - run: >-
+          bazel run -c opt --config=ci //build/ci:verify_git_metadata --
+          --expected-commit "$(git rev-parse HEAD)"
+      - run: |
+          set -euo pipefail
+          umask 077
+          export SERVICERADAR_ENV=ci
+          export BAZEL_PROFILE=ci
+          if [ -z "${SRQL_PARITY_STARROCKS_PASSWORD:-}" ]; then
+            echo "the BuildBuddy secret SRQL_PARITY_STARROCKS_PASSWORD is not set" >&2
+            exit 1
+          fi
+          RUN_ID="$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')"
+          export RUN_ID
+          SERVICERADAR_FIXTURE_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/serviceradar-srql-parity.XXXXXX")"
+          export SERVICERADAR_FIXTURE_ENV_FILE
+          trap 'rm -f "$SERVICERADAR_FIXTURE_ENV_FILE"' EXIT
+          bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //:buildbuddy_setup_fixture_env
+          set -a; . "$SERVICERADAR_FIXTURE_ENV_FILE"; set +a
+          export SRQL_PARITY_CNPG_ADMIN_URL="$SRQL_TEST_ADMIN_URL"
+          # Read the multiline PEM at shell runtime; the bb CLI expands $VAR before parsing YAML.
+          export SRQL_PARITY_CNPG_CA_PEM="$(printenv SRQL_TEST_DATABASE_CA_CERT)"
+          export SRQL_PARITY_CNPG_SERVER_NAME="$SRQL_TEST_DATABASE_SERVER_NAME"
+          export SRQL_PARITY_STARROCKS_HOST="lab-fe-service.starrocks.svc.cluster.local"
+          export SRQL_PARITY_STARROCKS_PORT=9030
+          export SRQL_PARITY_STARROCKS_USER=srql_parity
+          export SRQL_PARITY_STARROCKS_DATABASE=srql_parity_ci
+          echo "SRQL parity run: $RUN_ID"
+          FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
+             --//build:run_id=$RUN_ID --test_tag_filters= --flaky_test_attempts=1
+             --test_output=all --nocache_test_results --noremote_upload_local_results
+             --test_env=SRQL_PARITY_CNPG_ADMIN_URL --test_env=SRQL_PARITY_CNPG_CA_PEM
+             --test_env=SRQL_PARITY_CNPG_SERVER_NAME --test_env=SRQL_PARITY_STARROCKS_HOST
+             --test_env=SRQL_PARITY_STARROCKS_PORT --test_env=SRQL_PARITY_STARROCKS_USER
+             --test_env=SRQL_PARITY_STARROCKS_PASSWORD --test_env=SRQL_PARITY_STARROCKS_DATABASE"
+          # Optional: an entry-id substring, to run one family of entries.
+          if [ -n "${SRQL_PARITY_ONLY:-}" ]; then
+            export SRQL_PARITY_ONLY
+            FLAGS="$FLAGS --test_env=SRQL_PARITY_ONLY"
+          fi
+          bazel test $FLAGS //integration_tests/srql_parity:parity_test
+
   - name: "BazelCI"
     env:
       OCI_REGISTRY: "registry.carverauto.dev"

@@ -23,6 +23,16 @@
 //! | `SRQL_PARITY_STARROCKS_HOST` / `_PORT` / `_USER` / `_PASSWORD` | the StarRocks FE MySQL endpoint |
 //! | `SRQL_PARITY_ONLY` | optional: run only entries whose id contains this text |
 //! | `SRQL_PARITY_KEEP` | optional: `1` keeps both databases for inspection (the sweep drops them later) |
+//! | `SRQL_PARITY_STARROCKS_DATABASE` | optional: run in this existing StarRocks database instead of creating one |
+//!
+//! `SRQL_PARITY_STARROCKS_DATABASE` exists for a shared warehouse, where the harness's user must
+//! not hold `CREATE DATABASE`: StarRocks grants a creator nothing on what it creates, and the only
+//! grant that would cover `srql_parity_*` databases covers every database, the product's too. The
+//! named database is created once by an administrator, with every privilege on it and on the
+//! tables and materialized views in it granted to the harness's user and nothing else. It must be
+//! named `srql_parity_<something>` that is not a run-database name, so it can never be the
+//! product's database nor a sweep candidate. The run empties it before and after, and refuses to
+//! start while it holds an object created within `FIXED_DATABASE_BUSY_MINUTES` -- another run.
 
 use crate::compare::{self, Row, Tolerance, Verdict};
 use crate::fixture::{self, Anchor, Backend};
@@ -41,6 +51,8 @@ use tokio_postgres::types::{ToSql, Type};
 
 pub const DATABASE_PREFIX: &str = "srql_parity_";
 pub const STALE_AFTER_HOURS: i64 = 6;
+/// A fixed StarRocks database holding an object this recent is taken to be in use by another run.
+pub const FIXED_DATABASE_BUSY_MINUTES: i64 = 90;
 /// The JDBC catalog the StarRocks dialect joins for CNPG-owned inventory; see module docs.
 const CNPG_CATALOG_REFERENCE: &str = "cnpg_platform.";
 
@@ -51,6 +63,7 @@ struct Settings {
     starrocks: mysql_async::Opts,
     only: Option<String>,
     keep: bool,
+    starrocks_database: Option<String>,
 }
 
 fn required(name: &str) -> Result<String> {
@@ -91,6 +104,14 @@ impl Settings {
             starrocks,
             only: optional("SRQL_PARITY_ONLY"),
             keep: optional("SRQL_PARITY_KEEP").as_deref() == Some("1"),
+            starrocks_database: match optional("SRQL_PARITY_STARROCKS_DATABASE") {
+                Some(name) if fixed_database_allowed(name.trim()) => Some(name.trim().to_string()),
+                Some(_) => bail!(
+                    "SRQL_PARITY_STARROCKS_DATABASE must be {DATABASE_PREFIX}<name>, not a \
+                     run-database name; see integration_tests/srql_parity/src/runner.rs"
+                ),
+                None => None,
+            },
         })
     }
 }
@@ -98,6 +119,15 @@ impl Settings {
 /// `srql_parity_<yyyymmddHHMMSS>_<pid>`, the only names this harness creates or drops.
 pub fn run_database_name(now: DateTime<Utc>, pid: u32) -> String {
     format!("{DATABASE_PREFIX}{}_{pid}", now.format("%Y%m%d%H%M%S"))
+}
+
+/// Whether `name` may be used as a fixed StarRocks database: `srql_parity_<name>`, a valid
+/// identifier, and never a run-database name (which the sweep would drop).
+pub fn fixed_database_allowed(name: &str) -> bool {
+    name.len() > DATABASE_PREFIX.len()
+        && name.starts_with(DATABASE_PREFIX)
+        && schema::valid_database_name(name)
+        && run_database_created(name).is_none()
 }
 
 /// The creation time of a database this harness named, or `None` for any other name.
@@ -357,9 +387,82 @@ async fn sr_sweep(conn: &mut mysql_async::Conn, now: DateTime<Utc>) -> Result<Ve
     Ok(dropped)
 }
 
-async fn sr_create(conn: &mut mysql_async::Conn, database: &str, ddl_dir: &Path) -> Result<()> {
-    assert!(run_database_created(database).is_some());
-    sr_exec(conn, &format!("CREATE DATABASE {database}")).await?;
+/// The tables and materialized views in `database`, materialized views first (they read the
+/// tables, so they are dropped before them).
+async fn sr_objects(conn: &mut mysql_async::Conn, database: &str) -> Result<Vec<(String, bool)>> {
+    assert!(schema::valid_database_name(database));
+    let rows: Vec<(String, String)> = conn
+        .query(format!(
+            "SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.tables \
+             WHERE TABLE_SCHEMA = '{database}'"
+        ))
+        .await?;
+    let mut objects: Vec<(String, bool)> = rows
+        .into_iter()
+        .map(|(name, kind)| (name, kind != "BASE TABLE"))
+        .collect();
+    objects.sort_by_key(|(name, is_view)| (!is_view, name.clone()));
+    Ok(objects)
+}
+
+/// Empties a fixed StarRocks database and re-lists it to prove it. Only ever called with a name
+/// `fixed_database_allowed` accepted.
+async fn sr_clear(conn: &mut mysql_async::Conn, database: &str) -> Result<()> {
+    assert!(fixed_database_allowed(database));
+    for (name, is_view) in sr_objects(conn, database).await? {
+        if is_view {
+            sr_exec(
+                conn,
+                &format!("DROP MATERIALIZED VIEW IF EXISTS {database}.{name}"),
+            )
+            .await?;
+        } else {
+            sr_exec(
+                conn,
+                &format!("DROP TABLE IF EXISTS {database}.{name} FORCE"),
+            )
+            .await?;
+        }
+    }
+    let left = sr_objects(conn, database).await?;
+    if !left.is_empty() {
+        bail!("{database} still holds {left:?} after emptying it");
+    }
+    Ok(())
+}
+
+/// Refuses a fixed StarRocks database another run appears to be using.
+async fn sr_refuse_busy(conn: &mut mysql_async::Conn, database: &str) -> Result<()> {
+    assert!(fixed_database_allowed(database));
+    let recent: Option<i64> = conn
+        .query_first(format!(
+            "SELECT COUNT(*) FROM information_schema.tables WHERE TABLE_SCHEMA = '{database}' \
+             AND CREATE_TIME > NOW() - INTERVAL {FIXED_DATABASE_BUSY_MINUTES} MINUTE"
+        ))
+        .await?;
+    if recent.unwrap_or(0) > 0 {
+        bail!(
+            "{database} holds objects created within {FIXED_DATABASE_BUSY_MINUTES} minutes: \
+             another parity run is probably using it. Retry later, or drop them if that run died."
+        );
+    }
+    Ok(())
+}
+
+/// Creates the StarRocks schema in `database`: a new run database, or (`fixed`) an existing
+/// database the harness's user may not recreate, whose own CREATE DATABASE is then skipped.
+async fn sr_create(
+    conn: &mut mysql_async::Conn,
+    database: &str,
+    ddl_dir: &Path,
+    fixed: bool,
+) -> Result<()> {
+    if fixed {
+        assert!(fixed_database_allowed(database));
+    } else {
+        assert!(run_database_created(database).is_some());
+        sr_exec(conn, &format!("CREATE DATABASE {database}")).await?;
+    }
     let mut files: Vec<_> = std::fs::read_dir(ddl_dir)
         .with_context(|| format!("reading {}", ddl_dir.display()))?
         .flatten()
@@ -374,6 +477,14 @@ async fn sr_create(conn: &mut mysql_async::Conn, database: &str, ddl_dir: &Path)
         let sql = std::fs::read_to_string(&file)?;
         for statement in schema::starrocks_statements(&sql) {
             let statement = schema::starrocks_retarget(&statement, database, 1);
+            if fixed
+                && statement
+                    .trim_start()
+                    .to_ascii_uppercase()
+                    .starts_with("CREATE DATABASE")
+            {
+                continue;
+            }
             if let Some((table, column)) = schema::starrocks_add_column(&statement) {
                 let exists: Option<i64> = conn
                     .query_first(format!(
@@ -757,8 +868,13 @@ pub async fn run() -> Result<Vec<(String, Outcome)>> {
     let now = Utc::now();
     let anchor = Anchor::for_run(now);
     let database = run_database_name(now, std::process::id());
+    let fixed = settings.starrocks_database.is_some();
+    let sr_database = settings
+        .starrocks_database
+        .clone()
+        .unwrap_or_else(|| database.clone());
     println!(
-        "srql-parity: run database {database}, fixture anchor {}",
+        "srql-parity: run database {database} (StarRocks {sr_database}), fixture anchor {}",
         anchor.0
     );
 
@@ -777,11 +893,15 @@ pub async fn run() -> Result<Vec<(String, Outcome)>> {
     }
 
     let result = async {
-        sr_create(&mut sr, &database, &ddl_dir).await?;
+        if fixed {
+            sr_refuse_busy(&mut sr, &sr_database).await?;
+            sr_clear(&mut sr, &sr_database).await?;
+        }
+        sr_create(&mut sr, &sr_database, &ddl_dir, fixed).await?;
         let client = cnpg.create(&database, &baseline).await?;
         let zone: String = client.query_one("SHOW TimeZone", &[]).await?.get(0);
         println!("srql-parity: CNPG session TimeZone {zone}");
-        seed(anchor, &database, &client, &mut sr).await?;
+        seed(anchor, &sr_database, &client, &mut sr).await?;
 
         let mut detail = String::new();
         let mut outcomes = Vec::new();
@@ -795,7 +915,7 @@ pub async fn run() -> Result<Vec<(String, Outcome)>> {
                 &inventory,
                 entry,
                 anchor,
-                &database,
+                &sr_database,
                 &client,
                 &mut sr,
                 &mut detail,
@@ -810,13 +930,19 @@ pub async fn run() -> Result<Vec<(String, Outcome)>> {
     .await;
 
     if settings.keep {
-        println!("srql-parity: SRQL_PARITY_KEEP=1, leaving {database} on both backends");
+        println!(
+            "srql-parity: SRQL_PARITY_KEEP=1, leaving {database} on CNPG and {sr_database} on StarRocks"
+        );
     } else {
-        let sr_drop = sr_exec(
-            &mut sr,
-            &format!("DROP DATABASE IF EXISTS {database} FORCE"),
-        )
-        .await;
+        let sr_drop = if fixed {
+            sr_clear(&mut sr, &sr_database).await
+        } else {
+            sr_exec(
+                &mut sr,
+                &format!("DROP DATABASE IF EXISTS {database} FORCE"),
+            )
+            .await
+        };
         let pg_drop = cnpg.drop(&database).await;
         // A DROP that returned OK is not evidence the database is gone: list both again.
         let verified = async {
@@ -828,7 +954,7 @@ pub async fn run() -> Result<Vec<(String, Outcome)>> {
                 .await?
                 .query("SELECT 1 FROM pg_database WHERE datname = $1", &[&database])
                 .await?;
-            if sr_left.contains(&database) || !pg_left.is_empty() {
+            if (!fixed && sr_left.contains(&database)) || !pg_left.is_empty() {
                 bail!("{database} is still listed after its DROP");
             }
             Ok::<_, anyhow::Error>(())
@@ -867,6 +993,22 @@ fn write_detail(detail: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_fixed_starrocks_database_is_never_the_product_or_a_run_database() {
+        assert!(fixed_database_allowed("srql_parity_ci"));
+        for name in [
+            "serviceradar",
+            "srql_parity_",
+            "srql_parity_20300304151617_4242",
+            "srql_parity_ci; DROP DATABASE serviceradar",
+            "srql_parity_ci.x",
+            "xsrql_parity_ci",
+            "",
+        ] {
+            assert!(!fixed_database_allowed(name), "{name}");
+        }
+    }
 
     #[test]
     fn only_run_database_names_are_ever_candidates_for_a_drop() {
