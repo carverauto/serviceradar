@@ -66,7 +66,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
     device_uid = opts[:device_uid]
 
     # Resolve the profile for this agent/device
-    case fetch_profile(device_uid, actor) do
+    case fetch_profile(device_uid, actor, opts) do
       {:ok, nil} ->
         # Return disabled config if no profile found
         {:ok, disabled_config()}
@@ -110,15 +110,15 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
   """
   @spec resolve_profile(String.t() | nil, map()) :: SysmonProfile.t() | nil
   def resolve_profile(device_uid, actor) do
-    case fetch_profile(device_uid, actor) do
+    case fetch_profile(device_uid, actor, []) do
       {:ok, profile} -> profile
       {:error, _reason} -> nil
     end
   end
 
-  defp fetch_profile(device_uid, actor) do
+  defp fetch_profile(device_uid, actor, opts) do
     TargetedProfileResolver.resolve(device_uid, actor,
-      resolver: &SrqlTargetResolver.resolve_for_device/2,
+      resolver: Keyword.get(opts, :profile_resolver, &SrqlTargetResolver.resolve_for_device/2),
       log_prefix: "SysmonCompiler"
     )
   end
