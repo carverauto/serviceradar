@@ -1,7 +1,10 @@
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
-use serviceradar_topology_atlas::{Budget, Cell, Device, Relation, WORLD_EXTENT, World, reconcile};
+use serviceradar_topology_atlas::{
+    Budget, Cell, Device, HealthIndex, HealthObservation, HealthState, Relation, WORLD_EXTENT,
+    World, reconcile,
+};
 
 fn device(id: &str, importance: u8) -> Device {
     Device {
@@ -211,5 +214,120 @@ fn invented_million_device_hierarchy_and_one_percent_growth() {
         latency.last().unwrap(),
         candidates[candidates.len() * 95 / 100],
         candidates.last().unwrap()
+    );
+
+    // Availability uses the same million-device owner fixture and native index.
+    // Measurements are emitted evidence, not platform-dependent timing gates.
+    let started = Instant::now();
+    let mut health = HealthIndex::new(&indexed, 1).unwrap();
+    eprintln!(
+        "synthetic health allocation: elapsed_us={} retained_bytes={}",
+        started.elapsed().as_micros(),
+        health.retained_bytes()
+    );
+    assert!(health.retained_bytes() < COUNT * 22);
+    let started = Instant::now();
+    let mut cursor = None;
+    let mut sequence = 0;
+    let mut seeded = 0;
+    loop {
+        let page = indexed.device_ids_page(cursor.as_ref(), 500).unwrap();
+        let rows: Vec<_> = page
+            .ids
+            .into_iter()
+            .map(|device_id| HealthObservation {
+                device_id,
+                state: HealthState::Healthy,
+            })
+            .collect();
+        sequence += 1;
+        seeded += health.apply(&indexed, sequence, &rows).unwrap().applied;
+        cursor = page.next;
+        if cursor.is_none() {
+            break;
+        }
+    }
+    assert_eq!(seeded, COUNT);
+    eprintln!(
+        "synthetic health full seed: elapsed_ms={}",
+        started.elapsed().as_millis()
+    );
+    let rows: Vec<_> = indexed
+        .device_ids_page(None, 500)
+        .unwrap()
+        .ids
+        .into_iter()
+        .map(|device_id| HealthObservation {
+            device_id,
+            state: HealthState::Unavailable,
+        })
+        .collect();
+    let started = Instant::now();
+    assert_eq!(
+        health.apply(&indexed, sequence + 1, &rows).unwrap().applied,
+        500
+    );
+    eprintln!(
+        "synthetic health update500: elapsed_us={}",
+        started.elapsed().as_micros()
+    );
+    let mut summary_latency = Vec::new();
+    for _ in 0..64 {
+        let started = Instant::now();
+        let summary = health.tile_health(&indexed, &overview.selection).unwrap();
+        summary_latency.push(started.elapsed().as_micros());
+        assert_eq!(
+            summary.glyphs.iter().map(|g| g.counts.healthy).sum::<u64>(),
+            COUNT as u64 - 500
+        );
+        assert_eq!(
+            summary
+                .glyphs
+                .iter()
+                .map(|g| g.counts.unavailable)
+                .sum::<u64>(),
+            500
+        );
+        assert_eq!(
+            summary
+                .glyphs
+                .iter()
+                .map(|g| g.counts.observed)
+                .sum::<u64>(),
+            COUNT as u64
+        );
+    }
+    summary_latency.sort_unstable();
+    eprintln!(
+        "synthetic health overview64: p95_us={} max_us={}",
+        summary_latency[summary_latency.len() * 95 / 100],
+        summary_latency.last().unwrap()
+    );
+    let started = Instant::now();
+    let snapshot = health.snapshot();
+    eprintln!(
+        "synthetic health snapshot: elapsed_us={} retained_bytes={}",
+        started.elapsed().as_micros(),
+        snapshot.retained_bytes()
+    );
+    assert!(snapshot.retained_bytes() < COUNT * 10);
+    let started = Instant::now();
+    // Fully retained membership measures the full UID-remap path without
+    // constructing a second million-node graph merely for availability tests.
+    let rebased = HealthIndex::rebase(&indexed, &snapshot, &indexed, 2).unwrap();
+    eprintln!(
+        "synthetic health rebase1M: elapsed_ms={} retained_bytes={}",
+        started.elapsed().as_millis(),
+        rebased.retained_bytes()
+    );
+    assert_eq!(
+        rebased
+            .tile_health(&indexed, &overview.selection)
+            .unwrap()
+            .glyphs,
+        health
+            .tile_health(&indexed, &overview.selection)
+            .unwrap()
+            .glyphs
     );
 }
