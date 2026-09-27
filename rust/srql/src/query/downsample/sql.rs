@@ -120,13 +120,15 @@ pub(super) fn build_sql(plan: &QueryPlan) -> Result<String> {
 
     // The timeseries CAGG materializes avg/min/max separately. For MIN/MAX chart aggs we must
     // read the matching pre-aggregated column so MIN(min_value)/MAX(max_value) stays exact over
-    // multi-hour buckets (min-of-mins / max-of-maxes). AVG keeps avg_value (mean-of-means, the
-    // CAGG's existing resolution). `resolve_value_column` defaults to avg_value for this CAGG.
-    let value_col = if use_hourly_cagg
+    // multi-hour buckets (min-of-mins / max-of-maxes). AVG reads avg_value and weights it by
+    // sample_count below (`timeseries_cagg_weighted_avg`). `resolve_value_column` defaults to
+    // avg_value for this CAGG.
+    let timeseries_cagg = use_hourly_cagg
         && matches!(
             plan.entity,
             Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics
-        ) {
+        );
+    let value_col = if timeseries_cagg {
         match downsample.agg {
             DownsampleAgg::Min => "min_value".to_string(),
             DownsampleAgg::Max => "max_value".to_string(),
@@ -144,13 +146,36 @@ pub(super) fn build_sql(plan: &QueryPlan) -> Result<String> {
     let rate_partition_expr = rate_partition_expr(plan, &series_expr);
     let bucket_secs = downsample.bucket_seconds;
 
+    // StarRocks scores a whole-hour-multiple bucket on the hourly rollup regardless of which
+    // table this builder ends up reading (`hourly_rollup` in the StarRocks dialect widens for
+    // any agg its rollup can serve -- SUM/AVG/MIN/MAX/COUNT -- not only the Avg/Min/Max set
+    // `use_hourly_cagg` routes to CNPG's own CAGG). Without matching that widening here, a
+    // sample stamped exactly on `end` falls into the hour bucket starting at `end` on
+    // StarRocks but is dropped by CNPG's plain half-open bound, so the two disagree on a chart
+    // window's last bucket. Rate/RateSum are excluded because StarRocks's rollup cannot serve
+    // them either, so it never widens for those.
+    let hour_grained = !use_hourly_cagg
+        && matches!(
+            plan.entity,
+            Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics
+        )
+        && bucket_secs >= 3600
+        && bucket_secs % 3600 == 0
+        && !is_rate_agg(downsample.agg)
+        && timeseries_cagg_safe_shape(plan);
+
     let mut clauses = Vec::new();
-    if use_hourly_cagg {
+    if use_hourly_cagg || hour_grained {
         clauses.push(super::super::hourly_cagg_lower_bound_clause(ts_col));
         clauses.push(super::super::hourly_cagg_upper_bound_clause(ts_col));
     } else {
+        // Half-open, like the StarRocks dialect and the CNPG flow stats builder: a sample
+        // exactly on `end` belongs to the next window, so adjacent chart windows never count
+        // it twice. Every raw entity this builder reads (timeseries/snmp/rperf, the sysmon
+        // tables, raw flows) shares the bound; the hourly CAGG bounds above are half-open
+        // already.
         clauses.push(format!("{ts_col} >= ?"));
-        clauses.push(format!("{ts_col} <= ?"));
+        clauses.push(format!("{ts_col} < ?"));
     }
 
     if let Some(metric_type) = forced_metric_type {
@@ -290,7 +315,11 @@ GROUP BY 1, 2"#,
 
     // Standard aggregation (non-rate). Flow CAGG aggregation (including COUNT(*) ->
     // SUM(flow_count)) is handled by the dedicated `build_flow_cagg_union_sql` path above.
-    let agg_expr = agg_expr(downsample.agg, &value_col);
+    let agg_expr = if timeseries_cagg && matches!(downsample.agg, DownsampleAgg::Avg) {
+        timeseries_cagg_weighted_avg(&value_col)
+    } else {
+        agg_expr(downsample.agg, &value_col)
+    };
 
     // Use standard PostgreSQL floor-based bucketing instead of TimescaleDB's time_bucket
     // This floors the timestamp to the nearest bucket boundary
@@ -302,6 +331,21 @@ GROUP BY 1, 2"#,
 
     let _ = time_range;
     Ok(finalize_downsample_sql(sql, downsample_keeps_newest(plan)))
+}
+
+/// Average of a multi-hour bucket read from `timeseries_metrics_hourly`: each hour's
+/// `avg_value` weighted by its `sample_count`, which is the average of the raw rows the hours
+/// hold. `AVG(avg_value)` (the mean of the hourly means) differs from it whenever sampling is
+/// uneven across the hours, and the StarRocks dialect's rollup already weights this way.
+///
+/// Exact only because `timeseries_metrics.value` is NOT NULL, so `sample_count` (`count(*)`)
+/// is the number of values `avg_value` averaged. The sysmon CAGGs (cpu/memory/disk/process)
+/// average nullable columns while counting every row, so weighting them by `sample_count`
+/// would skew the result; they keep `AVG` of the hourly means.
+fn timeseries_cagg_weighted_avg(avg_col: &str) -> String {
+    format!(
+        "SUM({avg_col} * sample_count)::double precision / NULLIF(SUM(sample_count), 0)::double precision"
+    )
 }
 
 fn rate_partition_expr(plan: &QueryPlan, display_series_expr: &str) -> String {

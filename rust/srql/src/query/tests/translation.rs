@@ -267,7 +267,7 @@ fn translate_logs_without_time_gets_default_window() {
     assert!(
         response
             .sql
-            .contains("COALESCE(observed_timestamp, timestamp) <= $2"),
+            .contains("COALESCE(observed_timestamp, timestamp) < $2"),
         "logs list query should be upper-bounded by default, got: {}",
         response.sql
     );
@@ -299,7 +299,7 @@ fn translate_logs_stats_without_time_gets_default_window() {
             .contains("COALESCE(observed_timestamp, timestamp) >= $1")
             && response
                 .sql
-                .contains("COALESCE(observed_timestamp, timestamp) <= $2"),
+                .contains("COALESCE(observed_timestamp, timestamp) < $2"),
         "logs stats query should be time-bounded by default, got: {}",
         response.sql
     );
@@ -1289,9 +1289,18 @@ fn translate_device_filtered_hourly_downsample_routes_to_timeseries_cagg() {
         "expected device-filtered hourly downsample to read the CAGG, got: {}",
         response.sql
     );
+    // Each hour weighs by the samples it holds, so the bucket is the average of the raw
+    // rows (as the StarRocks rollup computes it), not the mean of the hourly means.
     assert!(
-        sql.contains("avg(avg_value) as value"),
-        "expected mean-of-means over the CAGG avg column, got: {}",
+        sql.contains(
+            "sum(avg_value * sample_count)::double precision / nullif(sum(sample_count), 0)::double precision as value"
+        ),
+        "expected the sample-weighted average of the CAGG avg column, got: {}",
+        response.sql
+    );
+    assert!(
+        !sql.contains("avg(avg_value)"),
+        "the mean of the hourly means must not come back, got: {}",
         response.sql
     );
     assert!(
@@ -1948,5 +1957,115 @@ fn translate_rejects_unknown_agg_and_names_rate_sum() {
     assert!(
         err.to_string().contains("rate_sum"),
         "the error should advertise the new agg: {err}"
+    );
+}
+
+/// The CNPG metric and event builders close the window half-open, like the StarRocks
+/// dialect and the CNPG flow and MTR builders: a sample stamped exactly on `end` belongs
+/// to the next window, so two adjacent chart windows never count it twice. Each case is a
+/// different builder: the raw metric list, raw metric stats, the raw bucketed read, the
+/// events list and count, and the logs list and stats.
+#[test]
+fn translate_metric_and_event_windows_are_half_open() {
+    let window = "time:[2026-06-01T00:00:00Z,2026-06-01T01:00:00Z]";
+    let end = "2026-06-01T01:00:00+00:00";
+    let cases = [
+        (
+            format!("in:timeseries_metrics {window} limit:10"),
+            "\"timeseries_metrics\".\"timestamp\" < $",
+        ),
+        (
+            format!("in:timeseries_metrics {window} stats:sum(value) as total by device_id"),
+            "timestamp >= $1 AND timestamp < $2",
+        ),
+        (
+            format!("in:timeseries_metrics {window} bucket:5m agg:sum limit:20"),
+            "timestamp >= $1 AND timestamp < $2",
+        ),
+        (
+            format!("in:events {window} limit:10"),
+            "\"ocsf_events\".\"time\" < $",
+        ),
+        (
+            format!("in:security_findings {window} stats:count() as total"),
+            "\"ocsf_events\".\"time\" < $",
+        ),
+        (
+            format!("in:logs {window} limit:10"),
+            "COALESCE(observed_timestamp, timestamp) < $2",
+        ),
+        (
+            format!("in:logs {window} stats:count() as total"),
+            "COALESCE(observed_timestamp, timestamp) < $2",
+        ),
+    ];
+
+    for (query, upper_bound) in cases {
+        let config = test_config();
+        let request = QueryRequest {
+            query: query.clone(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+            permitted_signals: None,
+        };
+        let response = crate::query::translate::translate_request(&config, request)
+            .unwrap_or_else(|err| panic!("{query}: should translate: {err}"));
+
+        assert!(
+            response.sql.contains(upper_bound),
+            "{query}: expected the half-open bound `{upper_bound}`, got: {}",
+            response.sql
+        );
+        assert!(
+            !response.sql.contains("<= $"),
+            "{query}: the window must not be closed at its end, got: {}",
+            response.sql
+        );
+        assert!(
+            response
+                .params
+                .iter()
+                .any(|param| matches!(param, BindParam::Timestamptz(value) if value == end)),
+            "{query}: the window end must be bound, got: {:?}",
+            response.params
+        );
+    }
+}
+
+/// A whole-hour-multiple bucket is scored on the hourly rollup on both dialects, even when
+/// the aggregate (here SUM) is one CNPG's own hourly CAGG cannot serve and the raw table
+/// answers instead. The StarRocks dialect widens such a query's window to the full hour
+/// holding `end` regardless of which table it reads (`hourly_rollup`/`time_predicate` in
+/// `starrocks.rs`), so a sample stamped exactly on `end` lands in the hour bucket starting at
+/// `end`. A plain half-open bound on CNPG's raw read would drop that sample instead, so the
+/// raw downsample builder must widen the same way whenever the shape qualifies.
+#[test]
+fn translate_hourly_bucket_sum_widens_like_the_starrocks_rollup() {
+    let config = test_config();
+    let query = "in:timeseries_metrics time:[2026-06-01T07:00:00Z,2026-06-01T08:00:00Z] metric_type:\"parity.edge\" bucket:1h agg:sum limit:10".to_string();
+    let request = QueryRequest {
+        query: query.clone(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+        permitted_signals: None,
+    };
+
+    let response = crate::query::translate::translate_request(&config, request)
+        .unwrap_or_else(|err| panic!("{query}: should translate: {err}"));
+    let sql = response.sql.to_lowercase();
+
+    assert!(
+        sql.contains("timestamp >= time_bucket('1 hour', $1::timestamptz)"),
+        "expected the widened hourly lower bound, got: {}",
+        response.sql
+    );
+    assert!(
+        sql.contains("timestamp < time_bucket('1 hour', $2::timestamptz) + interval '1 hour'"),
+        "expected the widened hourly upper bound, got: {}",
+        response.sql
     );
 }

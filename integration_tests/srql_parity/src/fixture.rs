@@ -318,7 +318,7 @@ pub fn metrics(anchor: Anchor) -> Vec<MetricRow> {
 
     // 9. ICMP round-trip and loss with UNEVEN sampling: every minute in even hours, every ten
     //    minutes in odd hours. A multi-hour average weighted by sample count then differs from
-    //    a mean of hourly means, which is the documented rollup deviation.
+    //    a mean of hourly means, so a backend that averages the hourly rollup unweighted fails.
     for (device, gateway, agent) in [
         (DEVICE_A, GATEWAY_1, AGENT_1),
         (DEVICE_B, GATEWAY_2, AGENT_2),

@@ -211,10 +211,12 @@ fn build_query(plan: &QueryPlan) -> Result<LogsQuery<'static>> {
     let mut query = logs.into_boxed::<Pg>();
 
     if let Some(TimeRange { start, end }) = &plan.time_range {
+        // Half-open, matching the StarRocks dialect and the severity rollup: a line on `end`
+        // belongs to the next window, so adjacent windows never count it twice.
         query = query.filter(
             effective_timestamp_expr()
                 .ge(*start)
-                .and(effective_timestamp_expr().le(*end)),
+                .and(effective_timestamp_expr().lt(*end)),
         );
     }
 
