@@ -149,8 +149,13 @@ pub(super) fn build_sql(plan: &QueryPlan) -> Result<String> {
         clauses.push(super::super::hourly_cagg_lower_bound_clause(ts_col));
         clauses.push(super::super::hourly_cagg_upper_bound_clause(ts_col));
     } else {
+        // Half-open, like the StarRocks dialect and the CNPG flow stats builder: a sample
+        // exactly on `end` belongs to the next window, so adjacent chart windows never count
+        // it twice. Every raw entity this builder reads (timeseries/snmp/rperf, the sysmon
+        // tables, raw flows) shares the bound; the hourly CAGG bounds above are half-open
+        // already.
         clauses.push(format!("{ts_col} >= ?"));
-        clauses.push(format!("{ts_col} <= ?"));
+        clauses.push(format!("{ts_col} < ?"));
     }
 
     if let Some(metric_type) = forced_metric_type {

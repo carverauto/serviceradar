@@ -1,9 +1,5 @@
 {
   "deviations": {
-    "upper_bound_inclusive_on_cnpg": {
-      "kind": "accepted",
-      "reason": "The CNPG metric and event builders close the window at its upper bound (timestamp <= end); the StarRocks dialect, and the CNPG flow and MTR builders, keep it half-open (< end), so a sample exactly on the bound is counted by CNPG alone. Half-open is the correct reading for adjacent chart windows (a sample is never counted twice); a bucketed query over whole hours reads the hourly rollup, whose end StarRocks widens to the next hour, so it agrees (metrics.edge.upper_bound)."
-    },
     "rollup_average_mean_of_means": {
       "kind": "accepted",
       "reason": "Averaging a multi-hour bucket from the hourly rollups: CNPG takes AVG(avg_value), the mean of the hourly means; StarRocks weights each hour by sample_count, which is the raw-row average. They agree whenever every hour holds the same number of samples and differ when sampling is uneven, as the ICMP fixture is (every minute in even hours, every ten in odd ones). StarRocks is the one that matches the raw answer."
@@ -101,24 +97,7 @@
     {"id": "metrics.capacity.avg_1h_by_uid_long_window", "query": "in:timeseries_metrics {window_long} metric_type:\"sysmon.cpu\" metric_name:\"cpu.usage_percent\" bucket:1h agg:avg series:uid sort:timestamp:desc window_scan:true limit:500", "sources": ["elixir/serviceradar_core/lib/serviceradar/observability/capacity_forecasting/source.ex"]},
     {"id": "metrics.profile.hour_of_week_peak", "query": "in:timeseries_metrics {window_long} metric_type:\"sysmon.cpu\" metric_name:\"cpu.usage_percent\" bucket:1h agg:avg series:uid stats:profile_hour_of_week_peak(value) timezone:\"UTC\" sort:dow:asc,hod:asc limit:500", "sources": ["elixir/serviceradar_core/lib/serviceradar/observability/anomaly_disposition/peak_profile.ex"]},
     {"id": "metrics.profile.hour_of_week", "query": "in:timeseries_metrics {window_long} metric_type:\"sysmon.cpu\" metric_name:\"cpu.usage_percent\" bucket:1h agg:avg series:uid stats:profile_hour_of_week(value) timezone:\"UTC\" sort:dow:asc,hod:asc window_scan:true limit:500", "sources": ["elixir/serviceradar_core/lib/serviceradar/observability/seasonal_disposition/source.ex"]},
-    {"id": "metrics.edge.upper_bound_raw_route", "query": "in:timeseries_metrics {window_edge} metric_type:parity.edge bucket:5m agg:sum limit:20", "expect": "mismatch", "deviation": "upper_bound_inclusive_on_cnpg",
-     "recorded": {
-       "cnpg": [
-          {"series": null, "timestamp": "@+25800000ms", "value": 1.0},
-          {"series": null, "timestamp": "@+26400000ms", "value": 2.0},
-          {"series": null, "timestamp": "@+27000000ms", "value": 3.0},
-          {"series": null, "timestamp": "@+27600000ms", "value": 4.0},
-          {"series": null, "timestamp": "@+28200000ms", "value": 5.0},
-          {"series": null, "timestamp": "@+28800000ms", "value": 100.0}
-       ],
-       "starrocks": [
-          {"series": null, "timestamp": "@+25800000ms", "value": 1.0},
-          {"series": null, "timestamp": "@+26400000ms", "value": 2.0},
-          {"series": null, "timestamp": "@+27000000ms", "value": 3.0},
-          {"series": null, "timestamp": "@+27600000ms", "value": 4.0},
-          {"series": null, "timestamp": "@+28200000ms", "value": 5.0}
-       ]
-     }},
+    {"id": "metrics.edge.upper_bound_raw_route", "query": "in:timeseries_metrics {window_edge} metric_type:parity.edge bucket:5m agg:sum limit:20"},
     {"id": "metrics.edge.upper_bound", "query": "in:timeseries_metrics {window_edge} metric_type:parity.edge bucket:1h agg:sum limit:10"},
     {"id": "metrics.rperf.avg_by_metric_name", "query": "in:rperf_metrics {window_main} bucket:10m agg:avg series:metric_name limit:500"},
 

@@ -724,7 +724,8 @@ fn build_query(plan: &QueryPlan, scope: MetricScope<'static>) -> Result<Timeseri
     }
 
     if let Some(TimeRange { start, end }) = &plan.time_range {
-        query = query.filter(col_timestamp.ge(*start).and(col_timestamp.le(*end)));
+        // Half-open, matching the StarRocks dialect: a sample on `end` is the next window's.
+        query = query.filter(col_timestamp.ge(*start).and(col_timestamp.lt(*end)));
     }
 
     for filter in &plan.filters {
@@ -1507,7 +1508,8 @@ fn build_stats_query_with_source(
         clauses.push(if cagg_mode {
             super::hourly_cagg_upper_bound_clause(time_col)
         } else {
-            format!("{time_col} <= ?")
+            // Half-open, like the StarRocks dialect and the CAGG bound above.
+            format!("{time_col} < ?")
         });
         binds.push(SqlBindValue::Timestamp(*end));
     }

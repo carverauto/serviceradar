@@ -34,7 +34,9 @@ fn build_filtered_query(plan: &QueryPlan) -> Result<EventsQuery<'static>> {
     };
 
     if let Some(TimeRange { start, end }) = &plan.time_range {
-        query = query.filter(col_time.ge(*start).and(col_time.le(*end)));
+        // Half-open, matching the StarRocks dialect and the events rollup builder: an event
+        // on `end` belongs to the next window, so adjacent windows never count it twice.
+        query = query.filter(col_time.ge(*start).and(col_time.lt(*end)));
     }
 
     for filter in &plan.filters {

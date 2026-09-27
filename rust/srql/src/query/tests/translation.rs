@@ -1950,3 +1950,69 @@ fn translate_rejects_unknown_agg_and_names_rate_sum() {
         "the error should advertise the new agg: {err}"
     );
 }
+
+/// The CNPG metric and event builders close the window half-open, like the StarRocks
+/// dialect and the CNPG flow and MTR builders: a sample stamped exactly on `end` belongs
+/// to the next window, so two adjacent chart windows never count it twice. Each case is a
+/// different builder: the raw metric list, raw metric stats, the raw bucketed read, the
+/// events list and the events count.
+#[test]
+fn translate_metric_and_event_windows_are_half_open() {
+    let window = "time:[2026-06-01T00:00:00Z,2026-06-01T01:00:00Z]";
+    let end = "2026-06-01T01:00:00+00:00";
+    let cases = [
+        (
+            format!("in:timeseries_metrics {window} limit:10"),
+            "\"timeseries_metrics\".\"timestamp\" < $",
+        ),
+        (
+            format!("in:timeseries_metrics {window} stats:sum(value) as total by device_id"),
+            "timestamp >= $1 AND timestamp < $2",
+        ),
+        (
+            format!("in:timeseries_metrics {window} bucket:5m agg:sum limit:20"),
+            "timestamp >= $1 AND timestamp < $2",
+        ),
+        (
+            format!("in:events {window} limit:10"),
+            "\"ocsf_events\".\"time\" < $",
+        ),
+        (
+            format!("in:security_findings {window} stats:count() as total"),
+            "\"ocsf_events\".\"time\" < $",
+        ),
+    ];
+
+    for (query, upper_bound) in cases {
+        let config = test_config();
+        let request = QueryRequest {
+            query: query.clone(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+            permitted_signals: None,
+        };
+        let response = crate::query::translate::translate_request(&config, request)
+            .unwrap_or_else(|err| panic!("{query}: should translate: {err}"));
+
+        assert!(
+            response.sql.contains(upper_bound),
+            "{query}: expected the half-open bound `{upper_bound}`, got: {}",
+            response.sql
+        );
+        assert!(
+            !response.sql.contains("<= $"),
+            "{query}: the window must not be closed at its end, got: {}",
+            response.sql
+        );
+        assert!(
+            response
+                .params
+                .iter()
+                .any(|param| matches!(param, BindParam::Timestamptz(value) if value == end)),
+            "{query}: the window end must be bound, got: {:?}",
+            response.params
+        );
+    }
+}
