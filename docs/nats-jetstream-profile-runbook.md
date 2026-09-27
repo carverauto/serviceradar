@@ -22,6 +22,13 @@ reservation ServiceRadar creates and checks them at render time:
 | `medium` | 100G (93.13 GiB) | 100Gi |
 | `large` | 500G (465.66 GiB) | 500Gi |
 
+With `nats.replicas` of 1 or 2, `small`, `medium` and `large` use their
+single-server size table, the same sizes the Docker Compose presets ship (for
+example `flows` is 3 GiB instead of 8 GiB in `small`). On one server every
+stream reserves its full size, and on two the R3 streams still land on both
+servers, so the three-server table does not fit. The `tenant-2g` profile is a
+hosted-tenant plan (see "Hosted tenant plans" below).
+
 The per-stream sizes of each profile are chart data in
 `helm/serviceradar/files/jetstream-profiles.yaml`. Every size is still
 overridable at its own value, and `nats.jetstream.maxFileStore` overrides the
@@ -162,6 +169,48 @@ place. It needs a new install (or a new NATS StatefulSet on larger volumes)
 followed by a data migration of the streams you need to keep. The chart does
 not automate this. Until then, stay on the current profile and keep sizes
 within its budget.
+
+## Hosted tenant plans
+
+A hosted tenant runtime (`helm/serviceradar/values-tenant.yaml`) is sized by its
+plan, not by a PVC. The plan entitlement `nats_limits.js_disk_storage` is the
+tenant's per-server JetStream file store, and the hosted control plane turns it
+into a profile name when it renders the tenant's values:
+
+| Plan `js_disk_storage` | `nats.jetstream.profile` |
+| --- | --- |
+| `2G` | `tenant-2g` |
+| `30G` | `small` |
+| `100G` | `medium` |
+| `500G` | `large` |
+
+Rules for the mapping (the control-plane change itself lives in the
+serviceradar-control repository):
+
+- Map by exact value. The profile's `max_file_store` must equal the plan's
+  `js_disk_storage`; do not pick the nearest profile, and do not pass the plan
+  value as `nats.jetstream.maxFileStore` next to a profile sized for a different
+  store.
+- A plan value with no profile needs a new profile in
+  `helm/serviceradar/files/jetstream-profiles.yaml`, sized so the chart's budget
+  passes with the tenant's replica counts, rather than per-stream overrides in
+  the control plane. The chart rejects an unknown profile name at render time.
+- Keep `nats.persistence.size` at or above `max_file_store / 0.94` (the chart's
+  disk ceiling). The tenant overlay leaves it at the chart default, 30Gi, which
+  covers `tenant-2g`.
+- Per-stream overrides remain allowed on top of a profile and are checked by
+  the same budget.
+
+`tenant-2g` is sized for three NATS servers and the replica counts
+`values-tenant.yaml` sets (KV, objects, `events`, plugins and `ARANCINI_CAUSAL`
+at R3, `flows` and the EventWriter streams at R1): the most loaded server needs
+1.40 GiB against a 1.58 GiB limit.
+
+The chart checks the per-server limit only. If the control plane also enforces
+`js_disk_storage` as a JetStream account limit, NATS counts a stream with more
+than one replica at `max_bytes * replicas` against an un-tiered account limit,
+so the same streams need about 3.4 GiB of account storage, not 2G. An account
+limit for these plans must be at least that sum, or tiered per replica count.
 
 ## Reclaiming a stream after disabling a collector
 

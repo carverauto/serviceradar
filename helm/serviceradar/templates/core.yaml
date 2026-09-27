@@ -505,6 +505,8 @@ spec:
         - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" (index $pair 0) "suffix" "FALLBACK_REPLICAS") }}
           value: {{ $js.replicas | quote }}
         {{- end }}
+        - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $coreJs.notifications.stream "suffix" "MAX_BYTES") }}
+          value: {{ $coreJs.notifications.maxBytes | quote }}
         - name: SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES
           value: {{ $coreJs.threatIntel.maxBytes | quote }}
 

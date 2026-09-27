@@ -164,6 +164,7 @@ filegroup(
         "values.yaml",
         "values-demo.yaml",
         "values-ha.yaml",
+        "values-tenant.yaml",
     ] + glob([
         "charts/**",
         "crds/**",

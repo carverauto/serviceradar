@@ -82,7 +82,7 @@ tests:
     template: templates/nats.yaml
     asserts:
       - failedTemplate:
-          errorPattern: 'nats\.jetstream\.profile "huge" is not a JetStream sizing profile; use one of: large, medium, small'
+          errorPattern: 'nats\.jetstream\.profile "huge" is not a JetStream sizing profile; use one of: large, medium, small, tenant-2g'
 
   # --- every profile renders, with and without the optional producers (D8) --
   - it: small renders with flow-collector, bmp-collector and the trivy sidecar enabled
@@ -320,3 +320,115 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: 'exceeds 94% of nats\.persistence\.size 30Gi .*nats\.jetstream\.allowOvercommit does not skip this check'
+
+  # --- single-server and two-server NATS --------------------------------------
+  # With nats.replicas below 3 every shipped profile uses its single-server
+  # table (the Compose sizes). On one server every stream counts in full, so the
+  # three-server small table (27.25 GiB) and medium table (80.5 GiB) would fail.
+  - it: small renders on a single NATS server with defaults
+    set:
+      nats.replicas: 1
+    template: templates/nats.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: "max_file_store: 30000000000\n"
+
+  - it: medium renders on a single NATS server with a 100Gi PVC
+    set:
+      nats.replicas: 1
+      nats.jetstream.profile: medium
+      nats.persistence.size: 100Gi
+    template: templates/nats.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: "max_file_store: 100000000000\n"
+
+  - it: large renders on a single NATS server with a 500Gi PVC
+    set:
+      nats.replicas: 1
+      nats.jetstream.profile: large
+      nats.persistence.size: 500Gi
+    template: templates/nats.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: "max_file_store: 500000000000\n"
+
+  # 22.25 GiB is the plain sum of the single-server table; 28G puts the limit
+  # (23.8e9 bytes) just below it, so the message shows the table in use.
+  - it: counts every stream in full on one server, from the single-server table
+    set:
+      nats.replicas: 1
+      nats.jetstream.maxFileStore: 28G
+    template: templates/nats.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: 'reserve 23890755584 bytes \(22\.25 GiB\)'
+      - failedTemplate:
+          errorPattern: 'flows: 3221225472 bytes \(3\.00 GiB\) x R3, full \[nats\.jetstream\.profile=small single-server\]'
+
+  # Two servers: R3 streams are full on both, the R1 streams spread over two.
+  # Only the single-server table fits: 12 + ceil(10.25 / 2) + 2 = 19.125 GiB,
+  # where the three-server table would need 24.125 GiB.
+  - it: small renders on two NATS servers
+    set:
+      nats.replicas: 2
+    template: templates/nats.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 2
+
+  # --- hosted tenant plan -----------------------------------------------------
+  - it: values-tenant.yaml renders with the tenant-2g profile
+    values:
+      - ../values-tenant.yaml
+    template: templates/nats.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: "max_file_store: 2000000000\n"
+
+  # need = 928 MiB full + ceil(736 MiB / 3) + 256 MiB = 1498764630 bytes, under
+  # the 1.7e9-byte limit of 2G; a 1700M store puts the limit below it.
+  - it: pins the tenant-2g reservation against the values-tenant.yaml replicas
+    values:
+      - ../values-tenant.yaml
+    set:
+      nats.jetstream.maxFileStore: 1700M
+    template: templates/nats.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: 'reserve 1498764630 bytes \(1\.40 GiB\)'
+      - failedTemplate:
+          errorPattern: 'flows: 268435456 bytes \(0\.25 GiB\) x R1, spread \[nats\.jetstream\.profile=tenant-2g\]'
+
+  - it: tenant-2g still renders on a larger maxFileStore
+    set:
+      nats.jetstream.profile: tenant-2g
+      nats.jetstream.maxFileStore: 4G
+    template: templates/nats.yaml
+    documentSelector:
+      path: kind
+      value: StatefulSet
+    asserts:
+      - matchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: "max_file_store: 4000000000\n"

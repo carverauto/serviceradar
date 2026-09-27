@@ -59,11 +59,6 @@ tests:
     set:
       nats:
         replicas: 1
-        # One server holds every stream's full reservation, which the
-        # three-server sizing profiles overcommit; this suite checks ACLs, not
-        # the JetStream budget.
-        jetstream:
-          allowOvercommit: true
     documentSelector:
       path: kind
       value: StatefulSet

@@ -139,7 +139,12 @@ nats:
   replicas: 3
   jetstream:
     maxMemoryStore: 256M
-    maxFileStore: 2G
+    # Plan-sized JetStream profile matching nats_limits.js_disk_storage (2G):
+    # max_file_store 2G and every stream sized to fit it on three servers
+    # (helm/serviceradar/files/jetstream-profiles.yaml). The control plane maps
+    # a plan's js_disk_storage to a profile name; see
+    # docs/nats-jetstream-profile-runbook.md.
+    profile: tenant-2g
 
 webNg:
   replicas: 3
@@ -248,10 +253,10 @@ flowCollector:
   replicaCount: 1
   # stream_replicas is the value the collector ConfigMap serializes (R=1 under 2G file store).
   config:
-    # Dedicated flows stream; size under tenant nats.jetstream.maxFileStore (2G).
+    # Dedicated flows stream; stream_max_bytes is unset so the tenant-2g
+    # profile supplies it (256 MiB).
     stream_name: "flows"
     rehome_state_path: "/var/lib/serviceradar/flow-collector-rehome.json"
-    stream_max_bytes: 268435456
     stream_max_age_secs: 3600
     stream_replicas: 1
   service:

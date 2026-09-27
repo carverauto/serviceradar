@@ -987,10 +987,21 @@ is about the disk, and nats.jetstream.allowOvercommit does not skip it.
 {{- fail (printf "nats.jetstream.profile %q is not a JetStream sizing profile; use one of: %s" $profileName (keys $profiles | sortAlpha | join ", ")) -}}
 {{- end -}}
 {{- $profile := index $profiles $profileName -}}
+{{- $natsReplicas := int64 (default 1 $nats.replicas) -}}
+{{- /* A one- or two-server NATS takes the profile's single-server table (the
+     Compose sizes): with R3 streams on every server and fewer servers to spread
+     the R1 streams over, the three-server table does not fit. */ -}}
 {{- $profileSizes := default (dict) $profile.sizes -}}
+{{- $sizeTable := "sizes" -}}
+{{- if and (lt $natsReplicas 3) $profile.singleServerSizes -}}
+{{- $profileSizes = $profile.singleServerSizes -}}
+{{- $sizeTable = "singleServerSizes" -}}
+{{- end -}}
 {{- $profileReplicas := default (dict) $data.replicas -}}
 {{- $profileSource := printf "nats.jetstream.profile=%s" $profileName -}}
-{{- $natsReplicas := int64 (default 1 $nats.replicas) -}}
+{{- if eq $sizeTable "singleServerSizes" -}}
+{{- $profileSource = printf "nats.jetstream.profile=%s single-server" $profileName -}}
+{{- end -}}
 {{- $mfsRaw := $profile.maxFileStore -}}
 {{- $mfsSource := $profileSource -}}
 {{- if and (not (kindIs "invalid" $js.maxFileStore)) (ne (toString $js.maxFileStore) "") -}}
@@ -1026,8 +1037,9 @@ is about the disk, and nats.jetstream.allowOvercommit does not skip it.
 {{- end -}}
 {{- $ewFlows := default (dict) (index $ewStreams "flows") -}}
 {{- $ewArancini := default (dict) (index $ewStreams "ARANCINI_CAUSAL") -}}
+{{- $ewNotifications := default (dict) (index $ewStreams "notifications") -}}
 {{- $entries = concat $entries (list
-  (dict "id" "notifications" "stream" "NOTIFICATIONS" "source" "" "value" nil "replicaSource" "" "replicaValue" nil "counted" true)
+  (dict "id" "notifications" "stream" "NOTIFICATIONS" "source" "core.eventWriter.streams.notifications.maxBytes" "value" $ewNotifications.maxBytes "replicaSource" "" "replicaValue" nil "counted" true)
   (dict "id" "fieldsurvey" "stream" (printf "OBJ_%s" (default "serviceradar_fieldsurvey" $fieldSurvey.jetstreamBucket)) "source" "webNg.fieldSurveyArtifactStore.jetstreamMaxBucketBytes" "value" $fieldSurvey.jetstreamMaxBucketBytes "replicaSource" "" "replicaValue" nil "counted" true)
   (dict "id" "threatIntel" "stream" "OBJ_serviceradar_threat_intel" "source" "core.threatIntelRawPayloadStore.jetstreamMaxBucketBytes" "value" $threatIntel.jetstreamMaxBucketBytes "replicaSource" "" "replicaValue" nil "counted" true)
   (dict "id" "flowsFallback" "stream" "flows" "source" "core.eventWriter.streams.flows.maxBytes" "value" $ewFlows.maxBytes "replicaSource" "core.eventWriter.streams.flows.replicas" "replicaValue" $ewFlows.replicas "counted" false)
@@ -1091,7 +1103,7 @@ is about the disk, and nats.jetstream.allowOvercommit does not skip it.
 {{- if gt (mul $maxFileStore 100) (mul $pvcBytes 94) -}}
 {{- $diskMessage = printf "NATS max_file_store %d bytes (%.2f GiB, from %s) exceeds 94%% of nats.persistence.size %s (%d bytes), so NATS could promise more space than the volume holds. The StatefulSet volumeClaimTemplates are immutable: moving to a larger profile means expanding every serviceradar-nats PVC first and then raising nats.persistence.size, as docs/nats-jetstream-profile-runbook.md describes. nats.jetstream.allowOvercommit does not skip this check." $maxFileStore (divf $maxFileStore 1073741824) $mfsSource $pvcSize $pvcBytes -}}
 {{- end -}}
-{{- dict "profile" $profileName "maxFileStore" (printf "%d" $maxFileStore) "natsReplicas" (printf "%d" $natsReplicas) "need" (printf "%d" $need) "limit" (printf "%d" $limit) "sizes" $sizes "budgetMessage" $budgetMessage "diskMessage" $diskMessage | toJson -}}
+{{- dict "profile" $profileName "sizeTable" $sizeTable "maxFileStore" (printf "%d" $maxFileStore) "natsReplicas" (printf "%d" $natsReplicas) "need" (printf "%d" $need) "limit" (printf "%d" $limit) "sizes" $sizes "budgetMessage" $budgetMessage "diskMessage" $diskMessage | toJson -}}
 {{- end -}}
 
 {{/*

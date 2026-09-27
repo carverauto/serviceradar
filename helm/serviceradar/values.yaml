@@ -221,6 +221,10 @@ nats:
     #   small  -> max_file_store 30G,  for the default 30Gi PVC
     #   medium -> max_file_store 100G, for a 100Gi PVC
     #   large  -> max_file_store 500G, for a 500Gi PVC
+    #   tenant-2g -> max_file_store 2G, the hosted-tenant plan (values-tenant.yaml)
+    # With nats.replicas 1 or 2 the shipped profiles use their single-server size
+    # table (the Docker Compose sizes; flows 3 GiB in small), because R3 streams
+    # then land on every server and fewer servers share the R1 streams.
     # Each size is still overridable at its own value (datasvc.bucketMaxBytes,
     # datasvc.objectStoreBytes, logCollector.streamMaxBytes,
     # flowCollector.config.stream_max_bytes, bmpCollector.config.streamMaxBytes,
@@ -488,6 +492,9 @@ core:
     # not counted by the budget, which counts both streams at the collector
     # size, so a fallback may not exceed the collector size. The events
     # fallback comes from logCollector.streamMaxBytes / streamReplicas.
+    #
+    # notifications is the NOTIFICATIONS stream core's notification publisher
+    # creates (one replica), rendered as SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES.
     streams:
       metrics: {}
       k8s_inventory: {}
@@ -495,6 +502,7 @@ core:
       mtr_results: {}
       scan_results: {}
       trivy_reports: {}
+      notifications: {}
       flows: {}
       ARANCINI_CAUSAL: {}
   # Core's threat-intel raw payload object store (OBJ_serviceradar_threat_intel,

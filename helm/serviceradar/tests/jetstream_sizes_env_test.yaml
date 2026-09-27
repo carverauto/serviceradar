@@ -61,6 +61,34 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].env
           content: {name: SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES, value: "1073741824"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES, value: "1073741824"}
+
+  - it: renders an explicit NOTIFICATIONS size into core
+    set:
+      core.eventWriter.streams.notifications.maxBytes: 512Mi
+    template: templates/core.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES, value: "536870912"}
+
+  - it: gives a single-server install the single-server flows size
+    set:
+      nats.replicas: 1
+      flowCollector.enabled: true
+    template: templates/flow-collector.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_FLOWS_MAX_BYTES, value: "3221225472"}
 
   - it: an explicit EventWriter size wins over the profile
     set:

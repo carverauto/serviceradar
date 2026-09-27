@@ -1,6 +1,7 @@
 # JetStream sizing profiles (openspec change update-jetstream-storage-budget,
 # design D8). Chart data, not values: select one with nats.jetstream.profile and
-# override any single size through its own value (the `source` below).
+# override any single size through its own value (the `source` a budget failure
+# names).
 #
 # Sizes use the NATS quantity grammar: a bare number is bytes, G is 10^9 and
 # Gi is 2^30. `persistenceSize` is the NATS PVC each profile targets; the chart
@@ -8,14 +9,30 @@
 # max_file_store above 94% of nats.persistence.size. Moving a live install to a
 # larger profile follows docs/nats-jetstream-profile-runbook.md.
 #
-# Every profile passes the render-time budget (need <= 85% of max_file_store on
-# three NATS servers) with flow-collector, bmp-collector and the trivy sidecar
+# Two size tables per shipped profile, selected by nats.replicas:
+#
+# - `sizes` (nats.replicas >= 3): the D8 Helm table. R3 streams cost their size
+#   on every server and the R1 streams spread, so flows can be larger.
+# - `singleServerSizes` (nats.replicas 1 or 2): the D8 Compose table, the same
+#   figures the Compose presets ship. On one server every stream counts in full,
+#   so the budget is the plain sum. On two servers the R3 streams still land on
+#   both servers, and only this table passes for `small` (need 19.125 GiB against
+#   23.75; the three-server table would need 24.125).
+#
+# A profile without `singleServerSizes` uses `sizes` for every server count.
+#
+# Every shipped profile passes the render-time budget (need <= 85% of
+# max_file_store) with flow-collector, bmp-collector and the trivy sidecar
 # enabled; flows and ARANCINI_CAUSAL are always counted at the collector size.
 #
-#   profile  full  spread (sum, largest)  need    limit
-#   small    17    10.25, 2               22.42   23.75 GiB
-#   medium   53    27.5, 12               74.17   79.16 GiB
-#   large    266   124, 64                371.33  395.81 GiB
+#   profile  servers  need (GiB)                     limit (GiB)
+#   small    3        17 + 10.25/3 + 2 = 22.42       23.75
+#   small    1        22.25                          23.75
+#   medium   3        53 + 27.5/3 + 12 = 74.17       79.16
+#   medium   1        72.5                           79.16
+#   large    3        266 + 124/3 + 64 = 371.33      395.81
+#   large    1        358                            395.81
+#   tenant-2g 3       0.91 + 0.24 + 0.25 = 1.40      1.58
 profiles:
   small:
     maxFileStore: 30G
@@ -25,6 +42,24 @@ profiles:
       datasvcObjects: 4Gi
       events: 2Gi
       flows: 8Gi
+      plugins: 2Gi
+      arancini: 2Gi
+      metrics: 1Gi
+      k8s_inventory: 1Gi
+      analytics_predictions: 1Gi
+      mtr_results: 1Gi
+      scan_results: 256Mi
+      notifications: 1Gi
+      trivy_reports: 1Gi
+      fieldsurvey: 1Gi
+      threatIntel: 1Gi
+      flowsFallback: 1Gi
+      aranciniFallback: 1Gi
+    singleServerSizes:
+      datasvcKV: 1Gi
+      datasvcObjects: 4Gi
+      events: 2Gi
+      flows: 3Gi
       plugins: 2Gi
       arancini: 2Gi
       metrics: 1Gi
@@ -59,6 +94,24 @@ profiles:
       threatIntel: 2Gi
       flowsFallback: 1Gi
       aranciniFallback: 1Gi
+    singleServerSizes:
+      datasvcKV: 1Gi
+      datasvcObjects: 8Gi
+      events: 8Gi
+      flows: 24Gi
+      plugins: 4Gi
+      arancini: 12Gi
+      metrics: 2Gi
+      k8s_inventory: 2Gi
+      analytics_predictions: 2Gi
+      mtr_results: 2Gi
+      scan_results: 512Mi
+      notifications: 1Gi
+      trivy_reports: 2Gi
+      fieldsurvey: 2Gi
+      threatIntel: 2Gi
+      flowsFallback: 1Gi
+      aranciniFallback: 1Gi
   large:
     maxFileStore: 500G
     persistenceSize: 500Gi
@@ -80,6 +133,54 @@ profiles:
       threatIntel: 8Gi
       flowsFallback: 1Gi
       aranciniFallback: 1Gi
+    singleServerSizes:
+      datasvcKV: 2Gi
+      datasvcObjects: 32Gi
+      events: 32Gi
+      flows: 160Gi
+      plugins: 8Gi
+      arancini: 64Gi
+      metrics: 8Gi
+      k8s_inventory: 8Gi
+      analytics_predictions: 8Gi
+      mtr_results: 8Gi
+      scan_results: 2Gi
+      notifications: 2Gi
+      trivy_reports: 8Gi
+      fieldsurvey: 8Gi
+      threatIntel: 8Gi
+      flowsFallback: 1Gi
+      aranciniFallback: 1Gi
+  # Hosted tenant plan with a 2G JetStream disk entitlement (limit 85% of
+  # 2000000000 bytes = 1.58 GiB), sized for three NATS servers and the replica
+  # counts values-tenant.yaml sets: KV, objects, events, plugins and
+  # ARANCINI_CAUSAL at R3 (full on every server), flows and every EventWriter
+  # stream at R1 (spread). Every fallback stays at or below its collector size.
+  #   full   = 32 + 384 + 256 + 128 + 128 MiB             = 928 MiB
+  #   spread = 256 + 64 + 32 + 64 + 64 + 32 + 32 + 64 + 64 + 64 MiB = 736 MiB,
+  #            largest 256 MiB (flows)
+  #   need   = 928 + ceil(736 / 3) + 256 ~= 1429.3 MiB (1.40 GiB)
+  tenant-2g:
+    maxFileStore: 2G
+    persistenceSize: 3Gi
+    sizes:
+      datasvcKV: 32Mi
+      datasvcObjects: 384Mi
+      events: 256Mi
+      flows: 256Mi
+      plugins: 128Mi
+      arancini: 128Mi
+      metrics: 64Mi
+      k8s_inventory: 32Mi
+      analytics_predictions: 64Mi
+      mtr_results: 64Mi
+      scan_results: 32Mi
+      notifications: 32Mi
+      trivy_reports: 64Mi
+      fieldsurvey: 64Mi
+      threatIntel: 64Mi
+      flowsFallback: 64Mi
+      aranciniFallback: 64Mi
 
 # Replica count used when a stream's own replica value is unset. The same in
 # every profile: a profile changes sizes, not the replication topology.
