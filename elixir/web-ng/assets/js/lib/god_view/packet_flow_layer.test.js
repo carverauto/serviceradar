@@ -20,7 +20,7 @@ vi.mock("@luma.gl/engine", () => ({
   },
 }))
 
-import PacketFlowLayer, {PACKET_FLOW_WGSL, packetFlowParticleBound} from "../deckgl/PacketFlowLayer"
+import PacketFlowLayer, {packetFlowParticleBound} from "../deckgl/PacketFlowLayer"
 
 // No GPU is available under vitest: these tests assemble and parse the layer's WGSL and inspect
 // what it asks luma and deck for. They cannot show that it renders; the WebGPU acceptance run
@@ -86,11 +86,17 @@ describe("PacketFlowLayer on WebGPU", () => {
   })
 
   it("draws each edge as one instance of six numbered vertices per particle", () => {
-    const {model} = initializedLayer()
+    const {layer, model} = initializedLayer()
 
     expect(model.props.isInstanced).toBe(true)
     expect(model.props.topology).toBe("triangle-list")
-    expect(PACKET_FLOW_WGSL).toContain("@builtin(vertex_index) vertexIndex: u32")
+
+    const reflected = new WgslReflect(assembledWGSL(layer).source)
+    const vertexEntry = reflected.entry.vertex.find((entry) => entry.name === "vertexMain")
+    const vertexIndexInput = vertexEntry.inputs.find((input) => input.name === "vertexIndex")
+    expect(vertexIndexInput.locationType).toBe("builtin")
+    expect(vertexIndexInput.location).toBe("vertex_index")
+    expect(vertexIndexInput.type.name).toBe("u32")
   })
 
   it("issues enough particles per edge for the busiest edge at the current zoom", () => {

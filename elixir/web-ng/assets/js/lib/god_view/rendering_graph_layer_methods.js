@@ -2,7 +2,7 @@ import {godViewRenderingGraphLayerTransportMethods} from "./rendering_graph_laye
 import {godViewRenderingGraphLayerNodeMethods} from "./rendering_graph_layer_node_methods"
 
 const godViewRenderingGraphLayerCoreMethods = {
-  buildGraphLayers(effective, nodeData, edgeData, edgeLabelData, rootPulseNodes) {
+  buildGraphLayers(effective, nodeData, edgeData, edgeLabelData, rootPulseNodes, nodeFrame = null) {
     const {
       baseLayers,
       mantleLayers,
@@ -17,7 +17,7 @@ const godViewRenderingGraphLayerCoreMethods = {
       ...mantleLayers,
       ...crustLayers,
       ...(mtrPathLayers || []),
-      ...this.buildNodeAndLabelLayers(effective, nodeData, edgeLabelData),
+      ...this.buildNodeAndLabelLayers(effective, nodeData, edgeLabelData, nodeFrame),
       ...securityLayers,
       ...atmosphereLayers,
     ]

@@ -71,11 +71,13 @@ export const godViewRenderingGraphLayerNodeMethods = {
     return 1
   },
   nodeHaloRadiusPixels(node, options = {}) {
+    if (node?.visible === false) return 0
     const radius = Math.min(8 + (this.visualClusterCount(node) - 1) * 0.45, 26) * 2.5
     if (!options.managedVisualDensity) return radius
     return Math.min(radius, managedNodeOuterRadiusCap(node, options.managedVisualDensity))
   },
   nodeRingRadiusPixels(node, options = {}) {
+    if (node?.visible === false) return 0
     const baseRadius = Math.min(12 + (this.visualClusterCount(node) - 1) * 0.45, 32)
     const phase = Number(this.state?.animationPhase)
     const index = Number(node?.index)
@@ -89,6 +91,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
     return Math.min(radius, Math.max(0, outerCap - halfLineWidth))
   },
   nodeCoreRadiusPixels(node, options = {}) {
+    if (node?.visible === false) return 0
     const radius = Math.min(4 + (this.visualClusterCount(node) - 1) * 0.2, 14)
     if (!options.managedVisualDensity) return radius
     return Math.min(radius, managedNodeOuterRadiusCap(node, options.managedVisualDensity))
@@ -563,7 +566,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
       measureText,
     })
   },
-  buildNodeAndLabelLayers(effective, nodeData, edgeLabelData) {
+  buildNodeAndLabelLayers(effective, nodeData, edgeLabelData, nodeFrame = null) {
     const managedTopologyScene = hasManagedTopologyScene(effective)
     const managedVisualDensity = managedTopologyScene
       ? normalizeManagedVisualDensity(this.state.managedTopologyVisualDensity)
@@ -620,10 +623,14 @@ export const godViewRenderingGraphLayerNodeMethods = {
     this.state.topologyLabelDetailsFallbackIds = [...labelAdmission.detailsFallbackIds]
 
     // Glyph layers take deck.gl binary data: `length` plus the packed `getPosition` column.
+    // With a frame, positions are packed once for the whole accepted layout and reused as
+    // the same `Float32Array` across filter/hover/select/camera changes; only `frame.mask`
+    // says which of those nodes a render should actually draw (via a zero radius below).
     // The remaining accessors read the node by index and write colors into deck's reusable
     // `target`, so rebuilding these attributes allocates nothing per node.
-    const glyphData = nodeGlyphLayerData(nodeData)
+    const glyphData = nodeGlyphLayerData(nodeData, nodeFrame)
     const glyphNodes = glyphData.nodes
+    const maskVersion = nodeFrame?.maskVersion
     const security = this.state.layers.security
     const writeNodeColor = (target, node, alpha) => {
       const color = security ? this.nodeColor(node?.state) : this.nodeNeutralColor(node?.operUp)
@@ -662,7 +669,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
         getFillColor: (_, {index, target}) => writeNodeColor(target, glyphNodes[index], 15),
         parameters: this.state.visual.particleBlend,
         updateTriggers: {
-          getRadius: managedVisualDensity,
+          getRadius: [managedVisualDensity, maskVersion],
         },
       }),
       new ScatterplotLayer({
@@ -681,7 +688,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
         parameters: GOD_VIEW_NO_DEPTH,
         // Records are reused across renders, so selection must invalidate what it changes.
         updateTriggers: {
-          getRadius: [this.state.animationPhase, managedVisualDensity, this.state.selectedNodeIndex],
+          getRadius: [this.state.animationPhase, managedVisualDensity, this.state.selectedNodeIndex, maskVersion],
           getLineWidth: this.state.selectedNodeIndex,
         },
       }),
@@ -698,7 +705,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
         getFillColor: [0, 0, 0, 1],
         parameters: GOD_VIEW_NO_DEPTH,
         updateTriggers: {
-          getRadius: managedVisualDensity,
+          getRadius: [managedVisualDensity, maskVersion],
         },
       }),
       new ScatterplotLayer({
@@ -714,7 +721,7 @@ export const godViewRenderingGraphLayerNodeMethods = {
         getFillColor: this.state.visual.nodeFill,
         parameters: GOD_VIEW_NO_DEPTH,
         updateTriggers: {
-          getRadius: managedVisualDensity,
+          getRadius: [managedVisualDensity, maskVersion],
         },
       }),
       ...(managedTopologyScene || (

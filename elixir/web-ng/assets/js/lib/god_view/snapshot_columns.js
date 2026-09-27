@@ -1,12 +1,5 @@
 import {tableFromIPC} from "apache-arrow"
 
-/**
- * Snapshot schema this decoder reads. Version 3 widened `edge_source` / `edge_target` to
- * UInt32 (a frame can exceed 65535 nodes) and added dense columns for every details key the
- * client reads on each row.
- */
-export const GOD_VIEW_SNAPSHOT_SCHEMA_VERSION = 3
-
 const NODE_DETAIL_PREFIX = "node_detail_"
 const EDGE_DETAIL_PREFIX = "edge_detail_"
 const EDGE_METADATA_PREFIX = "edge_metadata_"
@@ -277,10 +270,10 @@ export function snapshotDetailsJson(details) {
 /**
  * Decodes a God View snapshot into typed columns without building a per-row object.
  *
- * Positions, node state, oper status, pps and both edge endpoints come out as typed arrays
- * sliced from the Arrow column buffers. `positions` is the UInt16 layout space packed once
- * into an interleaved `Float32Array` (`[x0, y0, x1, y1, ...]`), which is the shape deck.gl
- * uploads as a binary `getPosition` attribute.
+ * `nodeX`/`nodeY` (the quantized UInt16 layout space) and node state, oper status, pps and
+ * both edge endpoints come out as typed arrays sliced from the Arrow column buffers. The ELK
+ * layout the render path draws from packs its own laid-out positions into one `Float32Array`
+ * once the layout is accepted (see `rendering_node_frame.js`); this decoder does not.
  *
  * `nodeDetails(i)` / `edgeDetails(i)` return the row's details object. For a key the
  * encoder wrote a column for (`node_detail_<key>`, `edge_detail_<key>`,
@@ -295,11 +288,6 @@ export function decodeSnapshotColumns(bytes) {
 
   const nodeX = packInto(Uint16Array, numericColumn(table, "node_x"), 0, nodeCount)
   const nodeY = packInto(Uint16Array, numericColumn(table, "node_y"), 0, nodeCount)
-  const positions = new Float32Array(nodeCount * 2)
-  for (let i = 0; i < nodeCount; i += 1) {
-    positions[i * 2] = nodeX[i]
-    positions[i * 2 + 1] = nodeY[i]
-  }
 
   const irregular = numericColumn(table, "details_irregular")
   const nodeSource = detailsSource(table, {
@@ -338,7 +326,6 @@ export function decodeSnapshotColumns(bytes) {
     edgeCount,
     nodeX,
     nodeY,
-    positions,
     nodeState: packInto(Uint8Array, numericColumn(table, "node_state"), 0, nodeCount, 3),
     nodeOperUp: packInto(Uint8Array, numericColumn(table, "node_oper_up"), 0, nodeCount),
     nodePps: packInto(Float64Array, numericColumn(table, "node_pps"), 0, nodeCount),

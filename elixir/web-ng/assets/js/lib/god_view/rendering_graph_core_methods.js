@@ -17,6 +17,7 @@ export const godViewRenderingGraphCoreMethods = {
         frame.edgeData,
         frame.edgeLabelData,
         frame.rootPulseNodes,
+        frame.nodeFrame,
       )
     } catch (error) {
       this.state.layers.atmosphere = false
@@ -26,6 +27,7 @@ export const godViewRenderingGraphCoreMethods = {
         frame.edgeData,
         frame.edgeLabelData,
         frame.rootPulseNodes,
+        frame.nodeFrame,
       )
       if (this.state.summary) this.state.summary.textContent = `render fallback: ${String(error)}`
     }
@@ -103,10 +105,10 @@ export const godViewRenderingGraphCoreMethods = {
 
     let layers
     try {
-      layers = this.buildGraphLayers(effective, nodeData, edgeData, edgeLabelData, rootPulseNodes)
+      layers = this.buildGraphLayers(effective, nodeData, edgeData, edgeLabelData, rootPulseNodes, nodeFrame)
     } catch (error) {
       this.state.layers.atmosphere = false
-      layers = this.buildGraphLayers(effective, nodeData, edgeData, edgeLabelData, rootPulseNodes)
+      layers = this.buildGraphLayers(effective, nodeData, edgeData, edgeLabelData, rootPulseNodes, nodeFrame)
       if (this.state.summary) this.state.summary.textContent = `render fallback: ${String(error)}`
     }
 

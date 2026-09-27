@@ -270,6 +270,7 @@ export const godViewRenderingGraphDataMethods = {
 
       mask[i] = stateVisible && endpointLayerVisible && managedSceneVisible ? 1 : 0
     }
+    frame.maskVersion = (frame.maskVersion || 0) + 1
 
     frame.selectedNodeIndex = this.state.selectedNodeIndex
     const visibleNodes = records

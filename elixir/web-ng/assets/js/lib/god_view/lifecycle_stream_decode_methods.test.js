@@ -141,7 +141,7 @@ describe("lifecycle_stream_decode_methods", () => {
     expect(Number.isNaN(decoded.nodes[0].geoLon)).toEqual(true)
   })
 
-  it("names edge endpoints above 65535 and exposes positions as one packed Float32Array", () => {
+  it("names edge endpoints above 65535 and exposes quantized layout coordinates per node", () => {
     const count = 70_000
     const decoded = decoder().decodeArrowGraph(largeRingSnapshotIpcBytes(count))
 
@@ -153,11 +153,12 @@ describe("lifecycle_stream_decode_methods", () => {
     expect(decoded.edgeTargetIndex[65_535]).toEqual(65_536)
     expect(decoded.edges[65_536]).toMatchObject({source: 65_536, target: 65_537})
     expect(decoded.nodes[65_537].id).toEqual("n-65537")
+    expect([decoded.nodes[65_537].x, decoded.nodes[65_537].y]).toEqual([1, (65_537 * 7) % 65536])
 
-    const {positions, nodeState} = decoded.columns
-    expect(positions).toBeInstanceOf(Float32Array)
-    expect(positions).toHaveLength(count * 2)
-    expect([positions[65_537 * 2], positions[65_537 * 2 + 1]]).toEqual([1, (65_537 * 7) % 65536])
+    const {nodeX, nodeY, nodeState} = decoded.columns
+    expect(nodeX).toBeInstanceOf(Uint16Array)
+    expect(nodeY).toBeInstanceOf(Uint16Array)
+    expect([nodeX[65_537], nodeY[65_537]]).toEqual([1, (65_537 * 7) % 65536])
     expect(nodeState).toBeInstanceOf(Uint8Array)
     expect(nodeState[65_538]).toEqual(65_538 % 4)
   }, 30_000)

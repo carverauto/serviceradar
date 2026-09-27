@@ -2,7 +2,7 @@ import {describe, expect, it, vi} from "vitest"
 
 import {bindApi, createStateBackedContext} from "./api_helpers"
 import {godViewRenderingGraphLayerNodeMethods} from "./rendering_graph_layer_node_methods"
-import {pickedNodeObject} from "./rendering_node_frame"
+import {nodeRenderFrame, pickedNodeObject} from "./rendering_node_frame"
 import {GOD_VIEW_ALPHA_BLEND} from "./gpu_parameters"
 
 function topologyScene(overrides = {}) {
@@ -549,11 +549,14 @@ describe("rendering_graph_layer_node_methods", () => {
       // Same binary glyph data both times: only the update trigger may re-run the accessor.
       expect(layer(overview, id).props.data.nodes).toBe(nodeData)
       expect(layer(detail, id).props.data).toBe(layer(overview, id).props.data)
-      expect(layer(overview, id).props.updateTriggers.getRadius).toBe("overview")
-      expect(layer(detail, id).props.updateTriggers.getRadius).toBe("detail")
+      // Without a frame there is no mask version to key on; the trigger's last slot stays undefined.
+      expect(layer(overview, id).props.updateTriggers.getRadius).toEqual(["overview", undefined])
+      expect(layer(detail, id).props.updateTriggers.getRadius).toEqual(["detail", undefined])
     }
-    expect(layer(overview, "god-view-nodes-ring").props.updateTriggers.getRadius).toEqual([3.25, "overview", undefined])
-    expect(layer(detail, "god-view-nodes-ring").props.updateTriggers.getRadius).toEqual([3.25, "detail", undefined])
+    expect(layer(overview, "god-view-nodes-ring").props.updateTriggers.getRadius)
+      .toEqual([3.25, "overview", undefined, undefined])
+    expect(layer(detail, "god-view-nodes-ring").props.updateTriggers.getRadius)
+      .toEqual([3.25, "detail", undefined, undefined])
   })
 
   it.each(["elk-radial-overview", "elk-scene-detail"])(
@@ -893,5 +896,67 @@ describe("rendering_graph_layer_node_methods expanded detail label degradation",
     // Deck reports only an index for binary data; the pick resolves back to the node.
     const pick = pickedNodeObject({index: 1, layer: glyphs})
     expect(pick.object).toBe(nodeData[1])
+  })
+
+  it("packs a frame's glyph positions once and reuses them, unchanged, across a filter change", () => {
+    const state = {
+      animationPhase: 0,
+      layers: {mantle: false, crust: true, atmosphere: false, security: true},
+      visual: {label: [255, 255, 255, 255], edgeLabel: [200, 200, 200, 255], nodeFill: [1, 2, 3, 255]},
+      canvas: {getBoundingClientRect: () => ({width: 400, height: 300})},
+      deck: {getViewports: () => [{width: 400, height: 300, project: ([x, y]) => [x, y]}]},
+    }
+    const ctx = createStateBackedContext(state, {})
+    Object.assign(ctx, bindApi(ctx, godViewRenderingGraphLayerNodeMethods), {
+      nodeColor: (value) => [value, 0, 0, 255],
+      nodeNeutralColor: () => [128, 128, 128, 255],
+      normalizeDisplayLabel: (label, fallback) => String(label || fallback),
+      nodeMetricText: () => "metric",
+      nodeStatusIcon: () => "●",
+    })
+
+    const nodes = Array.from({length: 3}, (_, index) => ({
+      id: `n-${index}`,
+      label: `N${index}`,
+      x: 10 * index,
+      y: 20 * index,
+      state: index,
+      operUp: 1,
+      clusterCount: 1,
+      details: {},
+    }))
+    const frame = nodeRenderFrame(ctx, nodes, "local")
+    frame.mask.set([1, 1, 1])
+    frame.maskVersion = 1
+    const effective = {shape: "local"}
+    const visibleAll = frame.records.filter((_, index) => frame.mask[index] === 1)
+
+    const before = ctx.buildNodeAndLabelLayers(effective, visibleAll, [], frame)
+    const haloBefore = before.find((layer) => layer.id === "god-view-nodes-halo")
+    const dataBefore = haloBefore.props.data
+    expect(dataBefore.length).toBe(3)
+    expect(Array.from(dataBefore.attributes.getPosition.value)).toEqual([0, 0, 10, 20, 20, 40])
+
+    // A filter hides node 1: the mask changes in place, but positions are not repacked.
+    frame.mask.set([1, 0, 1])
+    frame.maskVersion += 1
+    const visibleFiltered = frame.records.filter((_, index) => frame.mask[index] === 1)
+
+    const after = ctx.buildNodeAndLabelLayers(effective, visibleFiltered, [], frame)
+    for (const id of ["god-view-nodes-halo", "god-view-nodes-ring", "god-view-nodes-hitbox", "god-view-nodes"]) {
+      const layer = after.find((candidate) => candidate.id === id)
+      expect(layer.props.data).toBe(dataBefore)
+      expect(layer.props.data.attributes.getPosition.value).toBe(dataBefore.attributes.getPosition.value)
+    }
+
+    // The hidden node draws (and hit-tests) at zero radius; the others are unaffected.
+    expect(ctx.nodeHaloRadiusPixels(frame.records[1], {})).toBe(0)
+    expect(ctx.nodeHaloRadiusPixels(frame.records[0], {})).toBeGreaterThan(0)
+    expect(ctx.nodeHaloRadiusPixels(frame.records[2], {})).toBeGreaterThan(0)
+
+    // Deck's index into the (still full) data set still resolves to the right node.
+    const haloAfter = after.find((layer) => layer.id === "god-view-nodes-halo")
+    const pick = pickedNodeObject({index: 1, layer: haloAfter})
+    expect(pick.object).toBe(frame.records[1])
   })
 })

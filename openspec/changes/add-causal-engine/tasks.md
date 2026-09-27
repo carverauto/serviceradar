@@ -84,7 +84,7 @@ Automation-first ordering: the engine exists to turn events into alerts and stat
 - [ ] 1.10.3 (deploy-gated) Drop `deep_causality` and `ultragraph` from the NIF crate (currently `ultragraph = "0.8"`).
 - [ ] 1.10.4 (deploy-gated) Rejoin the NIF crate to the workspace by populating the empty `[workspace]` block (sibling `srql_nif` too); re-run `bazel build` for the NIF targets.
 - [ ] 1.10.5 (deploy-gated, do FIRST) SHADOW mode: engine verdicts vs NIF verdicts computed in parallel and diffed, no UI cutover, until parity.
-- [ ] 1.10.6 (deploy-gated) CUTOVER: God-View render consumes engine `signals.causal.predictions` -> `ocsf_events` -> `GodViewSnapshot` 4 buckets (`@schema_version 2`); retire the NIF reasoning path.
+- [ ] 1.10.6 (deploy-gated) CUTOVER: God-View render consumes engine `signals.causal.predictions` -> `ocsf_events` -> `GodViewSnapshot` 4 buckets (`@schema_version` unchanged); retire the NIF reasoning path.
 
 ## 2. Phase 2 — Gap A service-flow-bridge (months)
 

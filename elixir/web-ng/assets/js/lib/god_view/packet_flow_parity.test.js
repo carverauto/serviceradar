@@ -10,7 +10,6 @@ import {
   MAX_PARTICLE_SIZE,
   MIN_PARTICLES_PER_LANE,
   PACKET_FLOW_STYLE,
-  PACKET_FLOW_WGSL,
   PACKET_FLOW_PARTICLE_BUDGET,
   packetFlowDensity,
   packetFlowMagentaBias,
@@ -162,19 +161,6 @@ function branchLayer(zoom) {
 const ZOOMS = [-5, -3.5, -1, 0.5]
 
 describe("packet flow parity with the per-particle layer it replaced", () => {
-  it("builds its constants into the shader", () => {
-    for (const [name, value] of [
-      ["PARTICLE_SIZE", PACKET_FLOW_STYLE.particleSize],
-      ["HEAD_SIZE", PACKET_FLOW_STYLE.headSize],
-      ["SIZE_RANGE", PACKET_FLOW_STYLE.sizeRange],
-      ["HEAD_THRESHOLD", PACKET_FLOW_STYLE.headThreshold],
-      ["MAGENTA_BIAS_PER_UTILIZATION", PACKET_FLOW_STYLE.magentaBiasPerUtilization],
-      ["MIN_ALPHA", PACKET_FLOW_STYLE.minAlpha],
-    ]) {
-      expect(PACKET_FLOW_WGSL).toMatch(new RegExp(`const ${name}: f32 = ${String(value).replace(".", "\\.")}(\\.0)?;`))
-    }
-  })
-
   it.each(ZOOMS)("passes the same camera scales and colors as uniforms at zoom %s", (zoom) => {
     const {props} = branchLayer(zoom)
     const scales = cameraScales(zoom)

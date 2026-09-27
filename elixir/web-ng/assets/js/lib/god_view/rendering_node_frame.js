@@ -57,6 +57,8 @@ function buildFrame(context, nodes, shape) {
     records: new Array(count),
     states: new Uint8Array(count),
     mask: new Uint8Array(count),
+    maskVersion: 0,
+    glyphData: null,
     incidentFlags: new Uint8Array(count),
     byId: new Map(),
     byNormalizedId: new Map(),
@@ -105,29 +107,43 @@ export function nodeRenderFrame(context, nodes, shape) {
   return frame
 }
 
-/**
- * Deck.gl binary data for the node glyph layers: `data.length` plus a packed `getPosition`
- * attribute, so luma uploads the Float32Array as-is instead of walking objects.
- *
- * Cached per `nodeData` array, so a camera refresh that reuses the frame's node list hands
- * deck the same data object and nothing is re-packed or re-uploaded.
- */
-export function nodeGlyphLayerData(nodeData) {
-  const nodes = Array.isArray(nodeData) ? nodeData : []
-  const cached = nodeLayerData.get(nodes)
-  if (cached) return cached
-
+function packGlyphData(nodes) {
   const positions = new Float32Array(nodes.length * 2)
   for (let i = 0; i < nodes.length; i += 1) {
     const position = nodes[i]?.position
     positions[i * 2] = Number(position?.[0])
     positions[i * 2 + 1] = Number(position?.[1])
   }
-  const data = {
+  return {
     length: nodes.length,
     attributes: {getPosition: {value: positions, size: 2}},
     nodes,
   }
+}
+
+/**
+ * Deck.gl binary data for the node glyph layers: `data.length` plus a packed `getPosition`
+ * attribute, so luma uploads the Float32Array as-is instead of walking objects.
+ *
+ * When `nodeFrame` is given (the real render path), positions are packed once for every
+ * node the accepted layout produced and cached on the frame itself, so a filter, hover,
+ * selection or camera change reuses the exact same `Float32Array` -- only `frame.mask`
+ * (rewritten in place) says which glyphs a render should actually draw. Without a frame
+ * (direct calls, e.g. in tests, with a plain node array) positions are packed for just the
+ * given nodes and cached per that array, so a camera refresh that reuses the same node list
+ * still hands deck the same data object.
+ */
+export function nodeGlyphLayerData(nodeData, nodeFrame = null) {
+  if (nodeFrame) {
+    if (!nodeFrame.glyphData) nodeFrame.glyphData = packGlyphData(nodeFrame.records)
+    return nodeFrame.glyphData
+  }
+
+  const nodes = Array.isArray(nodeData) ? nodeData : []
+  const cached = nodeLayerData.get(nodes)
+  if (cached) return cached
+
+  const data = packGlyphData(nodes)
   nodeLayerData.set(nodes, data)
   return data
 }
