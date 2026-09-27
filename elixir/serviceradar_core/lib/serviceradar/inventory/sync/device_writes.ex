@@ -18,6 +18,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   alias ServiceRadar.Inventory.Identity.DecisionLog
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.Identity.Resolver
+  alias ServiceRadar.Inventory.Identity.SourceAuthorityGuard
   alias ServiceRadar.Inventory.SourceIdentityDrift
   alias ServiceRadar.Inventory.Sync.DeviceRecords
   alias ServiceRadar.Inventory.Sync.SourcePolicy
@@ -39,9 +40,10 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     :mac
   ]
 
-  # Source-authoritative identifier types. A record or holder carrying one is
-  # never adopted on hostname agreement: that identifier decides its identity.
-  @source_authoritative_types [:armis_device_id, :netbox_device_id]
+  # Source-authoritative identifier types, one list shared with resolution and
+  # merging (`SourceAuthorityGuard`). A record or holder carrying one is never
+  # adopted on hostname agreement: that identifier decides its identity.
+  @source_authoritative_types SourceAuthorityGuard.source_identifier_types()
 
   # DB connection's search_path determines the schema
   def bulk_upsert_devices(records, strong_uids \\ MapSet.new(), resolved_updates \\ nil) do

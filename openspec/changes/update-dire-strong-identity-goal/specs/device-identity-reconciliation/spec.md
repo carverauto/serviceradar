@@ -24,7 +24,9 @@ addresses between devices, so "same address" never implies "same device".
 - **AND** no device SHALL be created or merged because of it
 
 ### Requirement: Source-Authoritative Identifiers Govern Identity
-The system SHALL treat a source-authoritative identifier (for example an Armis device id or a scoped `integration_id`) as governing a record's identity: two records holding different values of the same source-authoritative identifier type SHALL NOT be merged, whatever MAC or address evidence they share.
+The system SHALL treat a source-authoritative identifier (the Armis device id and the NetBox device id) as governing a record's identity: two records holding different values of the same source-authoritative identifier type in one scope SHALL NOT be merged, whatever MAC or address evidence they share.
+An `integration_id` is not source-authoritative on its own, because providers do not mint it
+stably per device; it governs identity only through the typed provider id it accompanies.
 When such a record reports a MAC or address that a different device holds, the
 source-authoritative identifier decides the record's identity, and the MAC or address is
 evidence only.
@@ -34,6 +36,17 @@ evidence only.
 - **WHEN** an update for device Y reports a MAC that device X holds
 - **THEN** devices X and Y SHALL NOT be merged
 - **AND** the conflict SHALL be recorded as an identity decision
+
+#### Scenario: Different NetBox device ids with a shared MAC stay separate
+- **GIVEN** device X holds NetBox device id 1 and device Y holds NetBox device id 2
+- **WHEN** an update for device Y reports a MAC that device X holds
+- **THEN** devices X and Y SHALL NOT be merged
+- **AND** the conflict SHALL be recorded as an identity decision
+
+#### Scenario: A changed integration id re-attaches through the device's MAC
+- **GIVEN** a device holds integration id G1 and a globally-unique MAC M
+- **WHEN** the same source reports integration id G2 with MAC M
+- **THEN** the update SHALL resolve to that device
 
 ### Requirement: One Live Owner Per Strong Identifier
 The system SHALL ensure that each strong identifier, within its partition, is held by at most one live device record.
