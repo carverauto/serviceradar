@@ -11,7 +11,11 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
   every generation.
   """
 
-  use ServiceRadar.DataCase, async: true
+  # Serial: the registered control session makes this agent a push target for
+  # every other test's config dispatch, and those pushes regenerate its config
+  # under their own sandbox into the application-wide ConfigCache, which the
+  # version-stability assertions below then read.
+  use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.Compiler
