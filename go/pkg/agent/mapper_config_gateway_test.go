@@ -8,6 +8,37 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 )
 
+func TestGatewayMapperConfigPreservesTargetCredentials(t *testing.T) {
+	raw := []byte(`{"mapper":{"scheduled_jobs":[{
+		"name":"inventory-example","enabled":true,"type":"full","discovery_mode":"snmp_api",
+		"credentials":{"version":"v2c","community":"example-community","vlan_community_indexing":true,
+			"target_specific":{"192.0.2.40":{"version":"v3","username":"example-user",
+				"security_level":"authPriv","auth_protocol":"SHA","auth_password":"example-auth",
+				"privacy_protocol":"AES","privacy_password":"example-privacy"}}}
+	}]}}`)
+	cfg, err := parseGatewayMapperConfig(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine, err := buildMapperEngineConfig(cfg, &ServerConfig{AgentID: "agent-example", Partition: "default"}, logger.NewTestLogger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	creds := engine.ScheduledJobs[0].Credentials
+	if creds.Version != "v2c" || creds.Community != "example-community" || !creds.VLANCommunityIndexing {
+		t.Fatal("target credentials must preserve the fallback configuration")
+	}
+	target := creds.TargetSpecific["192.0.2.40"]
+	if target == nil {
+		t.Fatal("gateway config dropped the target credential")
+	}
+	if target.Version != "v3" || target.Username != "example-user" || target.SecurityLevel != "authPriv" ||
+		target.AuthProtocol != "SHA" || target.AuthPassword != "example-auth" ||
+		target.PrivacyProtocol != "AES" || target.PrivacyPassword != "example-privacy" {
+		t.Fatal("target authentication material changed during config conversion")
+	}
+}
+
 func TestParseGatewayMapperConfigPreservesMikroTikEndpoints(t *testing.T) {
 	raw := []byte(`{
 		"mapper": {

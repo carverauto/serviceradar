@@ -24,6 +24,136 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
   end
 
   @tag :integration
+  test "compiles scoped switch credentials alongside the agent v2c fallback" do
+    actor = SystemActor.system(:test)
+    suffix = System.unique_integer([:positive])
+    partition = "example-partition-#{suffix}"
+    agent_id = "example-agent-#{suffix}"
+    agent_hostname = "collector-#{suffix}.example.com"
+    switch_vendor = "Example Switch Vendor #{suffix}"
+
+    [agent_device | _] =
+      Enum.map(
+        [
+          {agent_hostname, "192.0.2.10", "Example Collector"},
+          {"switch-a-#{suffix}.example.com", "192.0.2.40", switch_vendor},
+          {"switch-b-#{suffix}.example.com", "192.0.2.41", switch_vendor},
+          {"legacy-#{suffix}.example.com", "192.0.2.42", "Example Legacy Vendor"}
+        ],
+        fn {hostname, ip, vendor} ->
+          Device
+          |> Ash.Changeset.for_create(
+            :create,
+            %{
+              uid: "sr:" <> Ash.UUID.generate(),
+              hostname: hostname,
+              ip: ip,
+              vendor_name: vendor,
+              type_id: 10,
+              created_time: DateTime.utc_now(),
+              modified_time: DateTime.utc_now()
+            },
+            actor: actor
+          )
+          |> Ash.create!(actor: actor)
+        end
+      )
+
+    SNMPProfile
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        name: "Example collector profile #{suffix}",
+        enabled: true,
+        target_query: ~s(in:devices hostname:"#{agent_hostname}"),
+        community: "example-fallback"
+      },
+      actor: actor
+    )
+    |> Ash.create!(actor: actor)
+
+    {:ok, secret} =
+      create_mapper_secret(
+        "snmp",
+        "Example switch credential #{suffix}",
+        Jason.encode!(%{
+          "username" => "example-reader",
+          "security_level" => "authPriv",
+          "auth_protocol" => "SHA",
+          "auth_password" => "example-auth-password",
+          "priv_protocol" => "AES",
+          "priv_password" => "example-privacy-password"
+        }),
+        actor
+      )
+
+    NetworkCredentialRule
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        name: "Example switches #{suffix}",
+        provider: "snmp",
+        auth_method: :v3,
+        purpose: "snmp_monitoring",
+        target_query: ~s(in:devices vendor_name:"#{switch_vendor}"),
+        scope_type: :agent,
+        scope_value: agent_id,
+        secret_id: secret.id
+      },
+      actor: actor
+    )
+    |> Ash.create!(actor: actor)
+
+    job =
+      MapperJob
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Example mixed discovery #{suffix}",
+          partition: partition,
+          discovery_mode: :snmp_api,
+          discovery_type: :full
+        },
+        actor: actor
+      )
+      |> Ash.create!(actor: actor)
+
+    for ip <- ["192.0.2.40", "192.0.2.42"] do
+      MapperSeed
+      |> Ash.Changeset.for_create(:create, %{mapper_job_id: job.id, seed: ip}, actor: actor)
+      |> Ash.create!(actor: actor)
+    end
+
+    {:ok, config} =
+      MapperCompiler.compile(partition, agent_id, actor: actor, device_uid: agent_device.uid)
+
+    compiled = compiled_job(config, job.name)
+    assert compiled["discovery_mode"] == "snmp_api"
+    assert compiled["credentials"]["version"] == "v2c"
+    assert compiled["credentials"]["community"] == "example-fallback"
+
+    # Both the seed and a known neighbour discovered later need the scoped rule.
+    for ip <- ["192.0.2.40", "192.0.2.41"] do
+      target = compiled["credentials"]["target_specific"][ip]
+      assert target["version"] == "v3"
+      assert target["username"] == "example-reader"
+      assert target["security_level"] == "authPriv"
+      assert target["auth_password"] == "example-auth-password"
+      assert target["privacy_password"] == "example-privacy-password"
+    end
+
+    {:ok, other_config} =
+      MapperCompiler.compile(partition, "other-#{agent_id}",
+        actor: actor,
+        device_uid: agent_device.uid
+      )
+
+    other_targets = compiled_job(other_config, job.name)["credentials"]["target_specific"]
+    refute get_in(other_targets, ["192.0.2.40", "version"]) == "v3"
+    refute Map.has_key?(other_targets, "192.0.2.41")
+  end
+
+  @tag :integration
   test "uses profile credentials for mapper discovery jobs" do
     actor = SystemActor.system(:test)
     unique_id = System.unique_integer([:positive])
@@ -416,6 +546,308 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
   end
 
   @tag :integration
+  test "suppresses SNMP for a target whose credential fails to resolve without failing the compile" do
+    actor = SystemActor.system(:test)
+    suffix = System.unique_integer([:positive])
+    partition = "example-partition-#{suffix}"
+    agent_id = "example-agent-#{suffix}"
+    good_vendor = "Example Good Vendor #{suffix}"
+    bad_vendor = "Example Unresolvable Vendor #{suffix}"
+    collector = create_mapper_collector(suffix, actor)
+
+    [good_device, bad_device] =
+      Enum.map(
+        [
+          {"good-#{suffix}.example.com", "192.0.2.50", good_vendor},
+          {"bad-#{suffix}.example.com", "192.0.2.51", bad_vendor}
+        ],
+        fn {hostname, ip, vendor} ->
+          Device
+          |> Ash.Changeset.for_create(
+            :create,
+            %{
+              uid: "sr:" <> Ash.UUID.generate(),
+              hostname: hostname,
+              ip: ip,
+              vendor_name: vendor,
+              type_id: 10,
+              created_time: DateTime.utc_now(),
+              modified_time: DateTime.utc_now()
+            },
+            actor: actor
+          )
+          |> Ash.create!(actor: actor)
+        end
+      )
+
+    {:ok, good_secret} =
+      create_mapper_secret(
+        "snmp",
+        "Example good credential #{suffix}",
+        Jason.encode!(%{"community" => "example-good"}),
+        actor
+      )
+
+    {:ok, bad_secret} =
+      create_external_mapper_secret(
+        "snmp",
+        "Example unresolvable credential #{suffix}",
+        "secret/data/snmp/#{suffix}",
+        "unused",
+        actor
+      )
+
+    NetworkCredentialRule
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        name: "Example good rule #{suffix}",
+        provider: "snmp",
+        auth_method: :community,
+        purpose: "snmp_monitoring",
+        target_query: ~s(in:devices vendor_name:"#{good_vendor}"),
+        scope_type: :agent,
+        scope_value: agent_id,
+        secret_id: good_secret.id
+      },
+      actor: actor
+    )
+    |> Ash.create!(actor: actor)
+
+    NetworkCredentialRule
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        name: "Example bad rule #{suffix}",
+        provider: "snmp",
+        auth_method: :community,
+        purpose: "snmp_monitoring",
+        target_query: ~s(in:devices vendor_name:"#{bad_vendor}"),
+        scope_type: :agent,
+        scope_value: agent_id,
+        secret_id: bad_secret.id
+      },
+      actor: actor
+    )
+    |> Ash.create!(actor: actor)
+
+    job =
+      MapperJob
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Example failure isolation discovery #{suffix}",
+          partition: partition,
+          discovery_mode: :snmp_api,
+          discovery_type: :full
+        },
+        actor: actor
+      )
+      |> Ash.create!(actor: actor)
+
+    for device <- [good_device, bad_device] do
+      MapperSeed
+      |> Ash.Changeset.for_create(:create, %{mapper_job_id: job.id, seed: device.ip},
+        actor: actor
+      )
+      |> Ash.create!(actor: actor)
+    end
+
+    assert {:ok, config} =
+             MapperCompiler.compile(partition, agent_id, actor: actor, device_uid: collector.uid)
+
+    compiled = compiled_job(config, job.name)
+    target_specific = compiled["credentials"]["target_specific"]
+
+    assert target_specific["192.0.2.50"]["community"] == "example-good"
+    assert target_specific["192.0.2.51"] == %{}
+  end
+
+  @tag :integration
+  test "suppresses SNMP for a target address with conflicting credentials from different devices" do
+    actor = SystemActor.system(:test)
+    suffix = System.unique_integer([:positive])
+    partition = "example-partition-#{suffix}"
+    agent_id = "example-agent-#{suffix}"
+    shared_ip = "192.0.2.70"
+    vendor_a = "Example Conflict Vendor A #{suffix}"
+    vendor_b = "Example Conflict Vendor B #{suffix}"
+    collector = create_mapper_collector(suffix, actor)
+
+    _device_a =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: "sr:" <> Ash.UUID.generate(),
+          hostname: "conflict-a-#{suffix}.example.com",
+          ip: shared_ip,
+          partition: partition,
+          vendor_name: vendor_a,
+          type_id: 10,
+          created_time: DateTime.utc_now(),
+          modified_time: DateTime.utc_now()
+        },
+        actor: actor
+      )
+      |> Ash.create!(actor: actor)
+
+    _device_b =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: "sr:" <> Ash.UUID.generate(),
+          hostname: "conflict-b-#{suffix}.example.com",
+          ip: shared_ip,
+          partition: "example-other-partition-#{suffix}",
+          vendor_name: vendor_b,
+          type_id: 10,
+          created_time: DateTime.utc_now(),
+          modified_time: DateTime.utc_now()
+        },
+        actor: actor
+      )
+      |> Ash.create!(actor: actor)
+
+    {:ok, secret_a} =
+      create_mapper_secret(
+        "snmp",
+        "Example conflict credential A #{suffix}",
+        Jason.encode!(%{"community" => "example-conflict-a"}),
+        actor
+      )
+
+    {:ok, secret_b} =
+      create_mapper_secret(
+        "snmp",
+        "Example conflict credential B #{suffix}",
+        Jason.encode!(%{"community" => "example-conflict-b"}),
+        actor
+      )
+
+    for {vendor, secret} <- [{vendor_a, secret_a}, {vendor_b, secret_b}] do
+      NetworkCredentialRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Example conflict rule #{vendor}",
+          provider: "snmp",
+          auth_method: :community,
+          purpose: "snmp_monitoring",
+          target_query: ~s(in:devices vendor_name:"#{vendor}"),
+          scope_type: :agent,
+          scope_value: agent_id,
+          secret_id: secret.id
+        },
+        actor: actor
+      )
+      |> Ash.create!(actor: actor)
+    end
+
+    job =
+      MapperJob
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Example conflict discovery #{suffix}",
+          partition: partition,
+          discovery_mode: :snmp_api,
+          discovery_type: :full
+        },
+        actor: actor
+      )
+      |> Ash.create!(actor: actor)
+
+    MapperSeed
+    |> Ash.Changeset.for_create(:create, %{mapper_job_id: job.id, seed: shared_ip}, actor: actor)
+    |> Ash.create!(actor: actor)
+
+    assert {:ok, config} =
+             MapperCompiler.compile(partition, agent_id, actor: actor, device_uid: collector.uid)
+
+    compiled = compiled_job(config, job.name)
+    assert compiled["credentials"]["target_specific"][shared_ip] == %{}
+  end
+
+  @tag :integration
+  test "skips target-specific SNMP credential resolution when no selected job performs SNMP discovery" do
+    actor = SystemActor.system(:test)
+    suffix = System.unique_integer([:positive])
+    partition = "example-partition-#{suffix}"
+    agent_id = "example-agent-#{suffix}"
+    vendor = "Example Api Only Vendor #{suffix}"
+    collector = create_mapper_collector(suffix, actor)
+
+    device =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: "sr:" <> Ash.UUID.generate(),
+          hostname: "api-only-#{suffix}.example.com",
+          ip: "192.0.2.80",
+          vendor_name: vendor,
+          type_id: 10,
+          created_time: DateTime.utc_now(),
+          modified_time: DateTime.utc_now()
+        },
+        actor: actor
+      )
+      |> Ash.create!(actor: actor)
+
+    {:ok, bad_secret} =
+      create_external_mapper_secret(
+        "snmp",
+        "Example api-only unresolvable credential #{suffix}",
+        "secret/data/snmp/#{suffix}",
+        "unused",
+        actor
+      )
+
+    NetworkCredentialRule
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        name: "Example api-only rule #{suffix}",
+        provider: "snmp",
+        auth_method: :community,
+        purpose: "snmp_monitoring",
+        target_query: ~s(in:devices vendor_name:"#{vendor}"),
+        scope_type: :agent,
+        scope_value: agent_id,
+        secret_id: bad_secret.id
+      },
+      actor: actor
+    )
+    |> Ash.create!(actor: actor)
+
+    job =
+      MapperJob
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Example api-only discovery #{suffix}",
+          partition: partition,
+          discovery_mode: :api,
+          discovery_type: :full
+        },
+        actor: actor
+      )
+      |> Ash.create!(actor: actor)
+
+    MapperSeed
+    |> Ash.Changeset.for_create(:create, %{mapper_job_id: job.id, seed: device.ip}, actor: actor)
+    |> Ash.create!(actor: actor)
+
+    assert {:ok, config} =
+             MapperCompiler.compile(partition, agent_id, actor: actor, device_uid: collector.uid)
+
+    compiled = compiled_job(config, job.name)
+    assert compiled["credentials"]["target_specific"] == %{}
+  end
+
+  @tag :integration
   test "enables Proxmox candidate probing on API mapper jobs when scoped credential rule opts in" do
     actor = SystemActor.system(:test)
     unique_id = System.unique_integer([:positive])
@@ -566,6 +998,41 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
 
     assert compiled_job
     refute Map.has_key?(compiled_job["options"], "proxmox_candidate_probe_enabled")
+  end
+
+  defp create_mapper_collector(suffix, actor) do
+    hostname = "collector-#{suffix}.example.com"
+
+    device =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: "sr:" <> Ash.UUID.generate(),
+          hostname: hostname,
+          ip: "192.0.2.10",
+          type_id: 10,
+          created_time: DateTime.utc_now(),
+          modified_time: DateTime.utc_now()
+        },
+        actor: actor
+      )
+      |> Ash.create!(actor: actor)
+
+    SNMPProfile
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        name: "Example collector profile #{suffix}",
+        enabled: true,
+        target_query: ~s(in:devices hostname:"#{hostname}"),
+        community: "example-fallback"
+      },
+      actor: actor
+    )
+    |> Ash.create!(actor: actor)
+
+    device
   end
 
   defp create_proxmox_secret(unique_id, actor) do

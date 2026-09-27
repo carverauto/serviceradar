@@ -104,6 +104,7 @@ go_test(
         "ubnt_poller_test.go",
         "usm_test.go",
         "utils_cidr_test.go",
+        "utils_test.go",
     ],
     data = glob(["testdata/**"]),
     embed = [":mapper"],
