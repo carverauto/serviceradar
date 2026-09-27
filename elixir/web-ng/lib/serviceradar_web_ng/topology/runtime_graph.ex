@@ -292,14 +292,16 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
     end
   end
 
-  defp fetch_topology_links_with_virtualization(rows) when is_list(rows) do
+  @doc false
+  @spec fetch_topology_links_with_virtualization([map()]) :: {:ok, [map()]}
+  def fetch_topology_links_with_virtualization(rows) when is_list(rows) do
     case fetch_virtualization_links_from_inventory() do
       {:ok, virtualization_rows} when is_list(virtualization_rows) ->
         {:ok, rows ++ virtualization_rows}
 
       {:error, reason} ->
         Logger.warning("runtime_graph_virtualization_inventory_failed reason=#{inspect(reason)}")
-        {:error, {:virtualization_inventory, reason}}
+        {:ok, rows}
     end
   end
 

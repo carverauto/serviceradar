@@ -132,7 +132,7 @@ defmodule ServiceRadarWebNGWeb.TopologyChannel do
     case socket.assigns[:current_scope] do
       %Scope{user: user} = scope when not is_nil(user) ->
         if FeatureFlags.god_view_enabled?() do
-          case RBAC.authorize_current(scope, ["analytics.view"]) do
+          case RBAC.authorize_current(scope, ["analytics.view", "devices.view"]) do
             {:ok, current_scope} -> {:ok, assign(socket, :current_scope, current_scope)}
             {:error, _reason} -> {:error, :forbidden}
           end
