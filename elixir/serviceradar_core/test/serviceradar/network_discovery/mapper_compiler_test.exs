@@ -24,6 +24,136 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
   end
 
   @tag :integration
+  test "compiles scoped switch credentials alongside the agent v2c fallback" do
+    actor = SystemActor.system(:test)
+    suffix = System.unique_integer([:positive])
+    partition = "example-partition-#{suffix}"
+    agent_id = "example-agent-#{suffix}"
+    agent_hostname = "collector-#{suffix}.example.com"
+    switch_vendor = "Example Switch Vendor #{suffix}"
+
+    [agent_device | _] =
+      Enum.map(
+        [
+          {agent_hostname, "192.0.2.10", "Example Collector"},
+          {"switch-a-#{suffix}.example.com", "192.0.2.40", switch_vendor},
+          {"switch-b-#{suffix}.example.com", "192.0.2.41", switch_vendor},
+          {"legacy-#{suffix}.example.com", "192.0.2.42", "Example Legacy Vendor"}
+        ],
+        fn {hostname, ip, vendor} ->
+          Device
+          |> Ash.Changeset.for_create(
+            :create,
+            %{
+              uid: "sr:" <> Ash.UUID.generate(),
+              hostname: hostname,
+              ip: ip,
+              vendor_name: vendor,
+              type_id: 10,
+              created_time: DateTime.utc_now(),
+              modified_time: DateTime.utc_now()
+            },
+            actor: actor
+          )
+          |> Ash.create!(actor: actor)
+        end
+      )
+
+    SNMPProfile
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        name: "Example collector profile #{suffix}",
+        enabled: true,
+        target_query: ~s(in:devices hostname:"#{agent_hostname}"),
+        community: "example-fallback"
+      },
+      actor: actor
+    )
+    |> Ash.create!(actor: actor)
+
+    {:ok, secret} =
+      create_mapper_secret(
+        "snmp",
+        "Example switch credential #{suffix}",
+        Jason.encode!(%{
+          "username" => "example-reader",
+          "security_level" => "authPriv",
+          "auth_protocol" => "SHA",
+          "auth_password" => "example-auth-password",
+          "priv_protocol" => "AES",
+          "priv_password" => "example-privacy-password"
+        }),
+        actor
+      )
+
+    NetworkCredentialRule
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        name: "Example switches #{suffix}",
+        provider: "snmp",
+        auth_method: :v3,
+        purpose: "snmp_monitoring",
+        target_query: ~s(in:devices vendor_name:"#{switch_vendor}"),
+        scope_type: :agent,
+        scope_value: agent_id,
+        secret_id: secret.id
+      },
+      actor: actor
+    )
+    |> Ash.create!(actor: actor)
+
+    job =
+      MapperJob
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Example mixed discovery #{suffix}",
+          partition: partition,
+          discovery_mode: :snmp_api,
+          discovery_type: :full
+        },
+        actor: actor
+      )
+      |> Ash.create!(actor: actor)
+
+    for ip <- ["192.0.2.40", "192.0.2.42"] do
+      MapperSeed
+      |> Ash.Changeset.for_create(:create, %{mapper_job_id: job.id, seed: ip}, actor: actor)
+      |> Ash.create!(actor: actor)
+    end
+
+    {:ok, config} =
+      MapperCompiler.compile(partition, agent_id, actor: actor, device_uid: agent_device.uid)
+
+    compiled = compiled_job(config, job.name)
+    assert compiled["discovery_mode"] == "snmp_api"
+    assert compiled["credentials"]["version"] == "v2c"
+    assert compiled["credentials"]["community"] == "example-fallback"
+
+    # Both the seed and a known neighbour discovered later need the scoped rule.
+    for ip <- ["192.0.2.40", "192.0.2.41"] do
+      target = compiled["credentials"]["target_specific"][ip]
+      assert target["version"] == "v3"
+      assert target["username"] == "example-reader"
+      assert target["security_level"] == "authPriv"
+      assert target["auth_password"] == "example-auth-password"
+      assert target["privacy_password"] == "example-privacy-password"
+    end
+
+    {:ok, other_config} =
+      MapperCompiler.compile(partition, "other-#{agent_id}",
+        actor: actor,
+        device_uid: agent_device.uid
+      )
+
+    other_targets = compiled_job(other_config, job.name)["credentials"]["target_specific"]
+    refute get_in(other_targets, ["192.0.2.40", "version"]) == "v3"
+    refute Map.has_key?(other_targets, "192.0.2.41")
+  end
+
+  @tag :integration
   test "uses profile credentials for mapper discovery jobs" do
     actor = SystemActor.system(:test)
     unique_id = System.unique_integer([:positive])

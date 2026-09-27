@@ -9,14 +9,18 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
   @behaviour ServiceRadar.AgentConfig.Compiler
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.AgentConfig.Compilers.SNMPCompiler
   alias ServiceRadar.Credentials.NetworkCredentialRule
+  alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Credentials.SecretBroker
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.NetworkDiscovery.MapperMikrotikController
   alias ServiceRadar.NetworkDiscovery.MapperSeed
   alias ServiceRadar.NetworkDiscovery.MapperUnifiController
   alias ServiceRadar.Plugins.ValueUtils
   alias ServiceRadar.SNMPProfiles.CredentialResolver
+  alias ServiceRadar.SNMPProfiles.SNMPProfile
 
   require Ash.Query
   require Logger
@@ -34,7 +38,16 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
 
   @impl true
   def source_resources do
-    [MapperJob, MapperSeed, MapperUnifiController, MapperMikrotikController]
+    [
+      MapperJob,
+      MapperSeed,
+      MapperUnifiController,
+      MapperMikrotikController,
+      Device,
+      SNMPProfile,
+      NetworkCredentialRule,
+      NetworkCredentialSecret
+    ]
   end
 
   @impl true
@@ -46,6 +59,14 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
     mikrotik_controllers = load_mikrotik_controllers(jobs, actor)
     unifi_controllers = load_unifi_controllers(jobs, actor)
     credentials = resolve_credentials(device_uid, actor, agent_id: agent_id, partition: partition)
+
+    credentials =
+      Map.put(
+        credentials,
+        "target_specific",
+        target_credentials(jobs, partition, agent_id, actor)
+      )
+
     proxmox_candidate_probe? = proxmox_candidate_probe_enabled?(partition, agent_id, actor)
 
     config = %{
@@ -222,6 +243,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
       "enabled" => job.enabled,
       "seeds" => Enum.map(seeds, & &1.seed),
       "type" => Atom.to_string(job.discovery_type),
+      "discovery_mode" => Atom.to_string(job.discovery_mode),
       "credentials" => credentials,
       "concurrency" => job.concurrency,
       "timeout" => job.timeout,
@@ -283,9 +305,58 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
     end
   end
 
+  # Rules describe monitored devices, not the device hosting the mapper. Include
+  # known matching targets so API/LLDP-discovered neighbours get the same scoped
+  # credentials as explicitly configured seeds, without changing the fallback.
+  defp target_credentials(jobs, partition, agent_id, actor) do
+    seeds = Enum.flat_map(jobs, fn job -> Enum.map(job.seeds || [], & &1.seed) end)
+
+    seed_devices =
+      Device
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(ip in ^seeds or hostname in ^seeds or uid in ^seeds)
+      |> Ash.read!()
+
+    rule_devices =
+      partition
+      |> credential_rule_scopes(agent_id)
+      |> Enum.flat_map(fn {type, value} ->
+        NetworkCredentialRule.list_enabled_for_scope!("snmp", type, value, actor: actor)
+      end)
+      |> Enum.filter(&(&1.purpose in [nil, "", "snmp_monitoring"]))
+      |> Enum.flat_map(&SNMPCompiler.execute_target_query(&1.target_query, actor))
+
+    (seed_devices ++ rule_devices)
+    |> Enum.uniq_by(& &1.uid)
+    |> Enum.reject(&(is_nil(&1.ip) or &1.ip == "" or not is_nil(&1.deleted_at)))
+    |> Enum.reduce(%{}, fn device, targets ->
+      case CredentialResolver.resolve_for_device(device.uid, actor,
+             agent_id: agent_id,
+             partition: partition
+           ) do
+        {:ok, %{credential: nil}} ->
+          targets
+
+        {:ok, %{credential: credential}} ->
+          encoded = CredentialResolver.to_mapper_credentials(credential)
+
+          Map.update(targets, device.ip, encoded, fn existing ->
+            if existing == encoded do
+              existing
+            else
+              raise "Conflicting SNMP credentials for a shared mapper target address"
+            end
+          end)
+
+        {:error, _reason} ->
+          raise "Failed to resolve SNMP credentials for a mapper target"
+      end
+    end)
+  end
+
   defp proxmox_candidate_probe_enabled?(partition, agent_id, actor) do
     partition
-    |> proxmox_rule_scopes(agent_id)
+    |> credential_rule_scopes(agent_id)
     |> Enum.any?(fn {scope_type, scope_value} ->
       case NetworkCredentialRule.list_enabled_for_scope(
              @proxmox_provider,
@@ -306,7 +377,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
     end)
   end
 
-  defp proxmox_rule_scopes(partition, agent_id) do
+  defp credential_rule_scopes(partition, agent_id) do
     [
       {:agent, agent_id},
       {:partition, partition}

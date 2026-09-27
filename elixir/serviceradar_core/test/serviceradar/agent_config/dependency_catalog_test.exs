@@ -294,15 +294,17 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalogTest do
       assert diagnostic.result == :ok
     end
 
-    test "SNMP default profile actions match the catalog" do
+    test "SNMP default profile actions include both polling and mapper consumers" do
       notification = %Notification{
         resource: SNMPProfile,
         action: %{type: :update, name: :set_as_default},
         data: %{}
       }
 
-      assert [entry] = DependencyCatalog.for_notification(notification)
-      assert entry.config_type == :snmp
+      config_types =
+        notification |> DependencyCatalog.for_notification() |> Enum.map(& &1.config_type)
+
+      assert Enum.sort(config_types) == [:mapper, :snmp]
     end
   end
 

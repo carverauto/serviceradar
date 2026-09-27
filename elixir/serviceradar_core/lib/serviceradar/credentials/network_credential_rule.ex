@@ -8,6 +8,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRule do
 
   use Ash.Resource,
     domain: ServiceRadar.Credentials,
+    notifiers: [ServiceRadar.AgentConfig.DependencyNotifier],
     data_layer: AshPostgres.DataLayer,
     extensions: [AshPaperTrail.Resource],
     authorizers: [Ash.Policy.Authorizer]

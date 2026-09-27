@@ -195,6 +195,32 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
         secret_fields: [:password, "password"]
       ),
       config_server_entry(
+        :mapper_device_config,
+        ServiceRadar.Inventory.Device,
+        :mapper,
+        MapperCompiler
+      ),
+      config_server_entry(
+        :mapper_snmp_profile_config,
+        ServiceRadar.SNMPProfiles.SNMPProfile,
+        :mapper,
+        MapperCompiler,
+        secret_fields: [:community, :auth_password, :priv_password]
+      ),
+      config_server_entry(
+        :mapper_credential_rule_config,
+        ServiceRadar.Credentials.NetworkCredentialRule,
+        :mapper,
+        MapperCompiler
+      ),
+      config_server_entry(
+        :mapper_credential_secret_config,
+        ServiceRadar.Credentials.NetworkCredentialSecret,
+        :mapper,
+        MapperCompiler,
+        secret_fields: [:secret_payload]
+      ),
+      config_server_entry(
         :snmp_profile_config,
         ServiceRadar.SNMPProfiles.SNMPProfile,
         :snmp,
