@@ -49,18 +49,15 @@ defmodule ServiceRadar.Credentials.SecretBroker do
   @doc """
   Resolves a reusable network credential secret by ID.
 
-  External references require a validated broker grant and a matching
-  resolution location. Internal credentials continue to decrypt through
-  AshCloak/Cloak-managed storage.
+  External references resolve only through `resolve_with_grant/2`, which
+  validates the grant and then calls this load path. A `:grant` passed here
+  is discarded before the secret is loaded. Internal credentials decrypt
+  through AshCloak/Cloak-managed storage.
   """
   @spec resolve_network_credential_secret(String.t(), keyword()) ::
           {:ok, resolved_secret()} | {:error, atom() | {atom(), term()}}
   def resolve_network_credential_secret(secret_id, opts \\ []) when is_binary(secret_id) do
-    actor = Keyword.get(opts, :actor, SystemActor.system(:credential_secret_broker))
-
-    with {:ok, secret} <- NetworkCredentialSecret.get_secret_by_id(secret_id, actor: actor) do
-      resolve_loaded_secret(secret, opts)
-    end
+    do_resolve_network_credential_secret(secret_id, Keyword.delete(opts, :grant))
   end
 
   @doc """
@@ -81,7 +78,7 @@ defmodule ServiceRadar.Credentials.SecretBroker do
   def resolve_with_grant(grant, opts \\ []) when is_map(grant) do
     case authorize_grant(grant, opts) do
       {:ok, secret_id} ->
-        resolve_network_credential_secret(secret_id, grant_resolution_opts(grant, opts))
+        do_resolve_network_credential_secret(secret_id, grant_resolution_opts(grant, opts))
 
       {:error, reason} = error ->
         audit_grant_denial(grant, reason, opts)
@@ -91,10 +88,25 @@ defmodule ServiceRadar.Credentials.SecretBroker do
 
   @doc """
   Resolves an already-loaded credential secret.
+
+  External references resolve only through `resolve_with_grant/2`. A `:grant`
+  passed here is discarded, so it cannot authorize an external reference.
   """
   @spec resolve_loaded_secret(map() | struct(), keyword()) ::
           {:ok, resolved_secret()} | {:error, atom() | {atom(), term()}}
   def resolve_loaded_secret(secret, opts \\ []) when is_map(secret) do
+    do_resolve_loaded_secret(secret, Keyword.delete(opts, :grant))
+  end
+
+  defp do_resolve_network_credential_secret(secret_id, opts) do
+    actor = Keyword.get(opts, :actor, SystemActor.system(:credential_secret_broker))
+
+    with {:ok, secret} <- NetworkCredentialSecret.get_secret_by_id(secret_id, actor: actor) do
+      do_resolve_loaded_secret(secret, opts)
+    end
+  end
+
+  defp do_resolve_loaded_secret(secret, opts) when is_map(secret) do
     case source_type(secret) do
       :internal_encrypted ->
         resolve_internal(secret, opts)
@@ -298,6 +310,7 @@ defmodule ServiceRadar.Credentials.SecretBroker do
 
   defp grant_resolution_opts(grant, opts) do
     opts
+    |> Keyword.delete(:grant)
     |> Keyword.put(:grant, grant)
     |> Keyword.put(:grant_id, string_value(value(grant, :id)))
     |> Keyword.put_new(:consumer_kind, value(grant, :consumer_kind))

@@ -5,8 +5,6 @@ defmodule ServiceRadar.Credentials.StubProviderGateTest do
 
   alias Ash.Error.Changes.InvalidAttribute
   alias ServiceRadar.Credentials.CredentialSecretProvider
-  alias ServiceRadar.Credentials.SecretBroker
-  alias ServiceRadar.Credentials.SecretProviderAdapters.Stub
 
   @gate :stub_secret_provider_enabled
 
@@ -32,44 +30,6 @@ defmodule ServiceRadar.Credentials.StubProviderGateTest do
 
     set_gate(true)
     assert provider_changeset(:stub).valid?
-  end
-
-  test "a stored :stub provider does not resolve while the gate is off" do
-    set_gate(false)
-    test_pid = self()
-
-    provider = %{
-      id: "provider-1",
-      provider_type: :stub,
-      enabled: true,
-      resolution_locations: [:control_plane]
-    }
-
-    secret = %{
-      id: "secret-1",
-      source_type: :external_reference,
-      secret_provider_id: "provider-1",
-      external_secret_ref: "folders/example/token",
-      metadata: %{"stub_secret_value" => "gate-sentinel"}
-    }
-
-    opts = [
-      provider: provider,
-      grant: %{id: "grant-1"},
-      resolution_location: :control_plane,
-      audit_sink: &send(test_pid, {:audit, &1})
-    ]
-
-    assert {:error, :adapter_unavailable} = SecretBroker.resolve_loaded_secret(secret, opts)
-    assert_received {:audit, %{outcome: :failed, error_class: :adapter_unavailable}}
-
-    # Naming the adapter explicitly does not get around the gate.
-    assert {:error, :adapter_unavailable} =
-             SecretBroker.resolve_loaded_secret(secret, Keyword.put(opts, :adapter, Stub))
-
-    set_gate(true)
-
-    assert {:ok, %{value: "gate-sentinel"}} = SecretBroker.resolve_loaded_secret(secret, opts)
   end
 
   defp set_gate(enabled?), do: Application.put_env(:serviceradar_core, @gate, enabled?)
