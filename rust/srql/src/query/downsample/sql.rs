@@ -217,51 +217,18 @@ pub(super) fn build_sql(plan: &QueryPlan) -> Result<String> {
 
         let (counter_width_select, rate_case) = if has_counter_width {
             (
-                r#",
-    counter_width,
-    CASE
-      WHEN metadata->>'max_counter_rate_per_second' ~ '^[0-9]+(\.[0-9]+){0,1}$'
-        THEN (metadata->>'max_counter_rate_per_second')::double precision
-      ELSE NULL
-    END AS max_rate_per_second"#
-                    .to_string(),
                 format!(
-                    r#"CASE
-      -- Monotonic increase (the common case): plain delta / elapsed seconds.
-      WHEN {value_col} >= prev_value
-        AND (
-          max_rate_per_second IS NULL
-          OR ({value_col} - prev_value) / {time_delta} <= max_rate_per_second
-        )
-        THEN ({value_col} - prev_value) / {time_delta}
-      -- Decrease on a 64-bit (HC) counter: add the 2^64 modulus only when a
-      -- producer-supplied plausibility ceiling rules it in.
-      WHEN counter_width = 64
-        AND max_rate_per_second IS NOT NULL
-        AND ({value_col} + 18446744073709551616 - prev_value) / {time_delta} <= max_rate_per_second
-        THEN ({value_col} + 18446744073709551616 - prev_value) / {time_delta}
-      -- Decrease on an explicit 32-bit counter: add the 2^32 modulus, bounded
-      -- by a producer-supplied ceiling when present and 2^32/s otherwise.
-      WHEN counter_width = 32
-        AND ({value_col} + 4294967296 - prev_value) / {time_delta} <= COALESCE(max_rate_per_second, 4294967296)
-        THEN ({value_col} + 4294967296 - prev_value) / {time_delta}
-      -- Unknown width (legacy rows): assume a 32-bit wrap only when the previous value
-      -- still fit in 32 bits, otherwise treat the decrease as a genuine reset and drop it.
-      WHEN prev_value < 4294967296
-        AND ({value_col} + 4294967296 - prev_value) / {time_delta} <= COALESCE(max_rate_per_second, 4294967296)
-        THEN ({value_col} + 4294967296 - prev_value) / {time_delta}
-      ELSE NULL
-    END"#
+                    ",\n    counter_width,\n    {} AS max_rate_per_second",
+                    super::super::counter_rate::postgres_ceiling("metadata")
                 ),
+                super::super::counter_rate::postgres(&value_col, "prev_value", &time_delta),
             )
         } else {
             (
                 String::new(),
                 format!(
                     r#"CASE
-      -- Skip counter wraps/resets (when current < previous, counter wrapped or reset)
       WHEN {value_col} < prev_value THEN NULL
-      -- Calculate rate: delta_value / delta_time_seconds
       ELSE ({value_col} - prev_value) / {time_delta}
     END"#
                 ),

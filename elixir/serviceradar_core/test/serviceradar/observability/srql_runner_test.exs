@@ -6,6 +6,52 @@ defmodule ServiceRadar.Observability.SRQLRunnerTest do
   alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.Observability.SRQLRunner
 
+  test "typed rate reads reject an oversized request before SQL and propagate execution failure" do
+    since = ~U[2001-02-03 04:05:00Z]
+    until = DateTime.add(since, 60, :second)
+    fresh_after = DateTime.add(since, 30, :second)
+    put_cutover([])
+
+    assert {:error, :invalid_interface_rate_request} =
+             SRQLRunner.interface_rates([{String.duplicate("x", 1_048_576), 7}], since, until,
+               fresh_after: fresh_after,
+               query_fn: fn _, _ -> flunk("oversized request reached SQL") end
+             )
+
+    assert {:error, :synthetic_backend_failure} =
+             SRQLRunner.interface_rates([{"sr:rate-boundary", 7}], since, until,
+               fresh_after: fresh_after,
+               query_fn: fn _sql, _params -> {:error, :synthetic_backend_failure} end
+             )
+  end
+
+  test "typed rate reads route to warehouse and normalize actual sample times" do
+    since = ~U[2001-02-03 04:05:00Z]
+    until = DateTime.add(since, 60, :second)
+    put_cutover([:metrics])
+
+    put_mysql(fn _sql ->
+      send(self(), :typed_warehouse_read)
+
+      {:ok,
+       %Postgrex.Result{
+         columns: ["observed_at", "previous_observed_at"],
+         rows: List.duplicate([~N[2001-02-03 04:05:47], ~N[2001-02-03 04:05:37]], 8)
+       }}
+    end)
+
+    assert {:ok, rows} =
+             SRQLRunner.interface_rates([{"sr:rate-warehouse", 7}], since, until,
+               fresh_after: DateTime.add(since, 30, :second)
+             )
+
+    assert_received :typed_warehouse_read
+
+    assert Enum.all?(rows, fn row ->
+             row == %{"observed_at" => ~U[2001-02-03 04:05:47Z], "previous_observed_at" => ~U[2001-02-03 04:05:37Z]}
+           end)
+  end
+
   defp put_cutover(datasets) do
     previous = Application.get_env(:serviceradar_core, StarRocks, [])
 

@@ -83,6 +83,38 @@ fn translate(
     }
 }
 
+/// Compile exact interface pairs without expanding them to a device/index cross
+/// product. The owner enforces the complete request budget before JSON decode.
+#[rustler::nif(schedule = "DirtyCpu")]
+fn translate_interface_rates<'a>(
+    env: Env<'a>,
+    request: Binary<'a>,
+    mode: Option<String>,
+) -> Term<'a> {
+    use srql::query::interface_rates::{
+        translate_interface_rates, InterfaceRateRequest, MAX_REQUEST_BYTES,
+    };
+    if request.len() > MAX_REQUEST_BYTES {
+        return (atoms::error(), "interface-rate request exceeds byte budget").encode(env);
+    }
+    let request: InterfaceRateRequest = match serde_json::from_slice(request.as_slice()) {
+        Ok(request) => request,
+        Err(_) => return (atoms::error(), "invalid interface-rate request").encode(env),
+    };
+    let config = srql::config::AppConfig::embedded("postgres://unused/db".to_string());
+    match translate_interface_rates(&config, request, mode.as_deref()) {
+        Ok(response) => match serde_json::to_string(&response) {
+            Ok(json) => (atoms::ok(), json).encode(env),
+            Err(_) => (
+                atoms::error(),
+                "failed to encode interface-rate translation",
+            )
+                .encode(env),
+        },
+        Err(error) => (atoms::error(), error.to_string()).encode(env),
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ColumnKind {
     Bool,
