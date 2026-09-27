@@ -23,12 +23,21 @@ let mapDependenciesPromise = null
 async function loadMapDependencies() {
   mapDependenciesPromise ||= Promise.all([
     import("mapbox-gl"),
+    import("@deck.gl/core"),
     import("@deck.gl/layers"),
     import("@deck.gl/mapbox"),
-  ]).then(([mapboxModule, layerModule, mapboxDeckModule]) => ({
+  ]).then(([mapboxModule, coreModule, layerModule, mapboxDeckModule]) => ({
     mapboxgl: mapboxModule.default || mapboxModule,
+    // Deck + OrthographicView back the SDK's plan-view canvas (floorplans and
+    // schematics with no basemap).
+    Deck: coreModule.Deck,
+    OrthographicView: coreModule.OrthographicView,
     ArcLayer: layerModule.ArcLayer,
+    BitmapLayer: layerModule.BitmapLayer,
+    IconLayer: layerModule.IconLayer,
     LineLayer: layerModule.LineLayer,
+    PathLayer: layerModule.PathLayer,
+    PolygonLayer: layerModule.PolygonLayer,
     ScatterplotLayer: layerModule.ScatterplotLayer,
     TextLayer: layerModule.TextLayer,
     MapboxOverlay: mapboxDeckModule.MapboxOverlay,
