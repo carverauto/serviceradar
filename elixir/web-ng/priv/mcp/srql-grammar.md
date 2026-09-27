@@ -121,7 +121,7 @@ large. Missing JSON keys count as `Unknown`.
 For time-series charts:
 
 - `bucket:5m` (suffixes `s|m|h|d`)
-- `agg:avg|min|max|sum|count|rate` (`avg` default)
+- `agg:avg|min|max|sum|count|rate|rate_sum|last` (`latest` aliases `last`; `avg` is the default)
 - `value_field:<numeric field>`
 - `series:<field>` splits one series per distinct value
 

@@ -215,6 +215,45 @@ pub(super) fn public_endpoints() -> VizMeta {
     }
 }
 
+pub(super) fn camera_sources() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col(
+                "display_name",
+                ColumnType::Text,
+                Some(ColumnSemantic::Label),
+            ),
+            col("device_uid", ColumnType::Text, None),
+            col("vendor", ColumnType::Text, None),
+            col("vendor_camera_id", ColumnType::Text, None),
+            col(
+                "availability_status",
+                ColumnType::Text,
+                Some(ColumnSemantic::Label),
+            ),
+            col("availability_reason", ColumnType::Text, None),
+            col("assigned_agent_id", ColumnType::Text, None),
+            col("assigned_gateway_id", ColumnType::Text, None),
+            col("last_activity_at", ColumnType::Timestamptz, None),
+            col("last_event_at", ColumnType::Timestamptz, None),
+            col("last_event_type", ColumnType::Text, None),
+            col(
+                "updated_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+            col("stream_profiles", ColumnType::Jsonb, None),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

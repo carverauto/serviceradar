@@ -129,6 +129,12 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccessTest do
     assert {:ok, "observability.netflow.view"} =
              EntityAccess.permission_for_entity("threat_intel_matches")
 
+    # Camera inventory is gated like the /cameras page; an unmapped alias would
+    # pass through to the SRQL compiler ungated.
+    for alias <- ~w(camera_sources camera_source cameras camera) do
+      assert {:ok, "devices.view"} = EntityAccess.permission_for_entity(alias)
+    end
+
     assert {:ok, "observability.logs.view"} = EntityAccess.permission_for_entity("logs")
     assert {:ok, "services.view"} = EntityAccess.permission_for_entity("services")
     assert :passthrough = EntityAccess.permission_for_entity("dashboards")

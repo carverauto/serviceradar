@@ -201,6 +201,27 @@ defaults to `time:last_24h` when `time:` is omitted.
 `ip:` / `port:` / `cidr:` / `tag:` match **either** endpoint. Directional forms
 are `src_*` / `dst_*`. `port:22` is “SSH either direction”.
 
+## Cameras
+
+Requires `devices.view`. Rows never include `source_url`, per-profile
+`source_url_override`, or `metadata`. Field list:
+[SRQL reference](https://docs.serviceradar.cloud/docs/srql-language-reference#camera_sources).
+
+```
+in:camera_sources viewable:true sort:display_name:asc
+in:camera_sources availability:available vendor:ubiquiti
+```
+
+## Latest value per asset
+
+`agg:last` (alias `agg:latest`) keeps the newest raw sample in each bucket per
+series, for gauges such as a position or a battery level. It is never read from
+hourly rollups.
+
+```
+in:timeseries_metrics metric_name:drone.position.lat time:last_2m bucket:2m agg:last series:tags.asset_id
+```
+
 ## Attributed flows and public endpoints
 
 ```

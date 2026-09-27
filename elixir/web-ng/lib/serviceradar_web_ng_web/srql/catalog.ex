@@ -1623,6 +1623,30 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       ],
       downsample: false
     },
+    %{
+      id: "camera_sources",
+      label: "Cameras",
+      route: "/cameras",
+      default_time: "",
+      default_sort_field: "display_name",
+      default_sort_dir: "asc",
+      default_filter_field: "display_name",
+      filter_fields: [
+        "display_name",
+        "vendor",
+        "device_uid",
+        "availability_status",
+        "assigned_agent_id",
+        "assigned_gateway_id",
+        "vendor_camera_id",
+        "last_event_type",
+        "viewable"
+      ],
+      known_values: %{
+        "viewable" => ["true", "false"]
+      },
+      downsample: false
+    },
     # Kubernetes public VIP / Gateway ownership inventory (cluster-plane).
     %{
       id: "public_endpoints",

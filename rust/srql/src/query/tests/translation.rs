@@ -2143,3 +2143,43 @@ fn translate_hourly_bucket_sum_widens_like_the_starrocks_rollup() {
         response.sql
     );
 }
+
+/// `agg:last` returns the newest sample per series and bucket, so a map can
+/// place each asset where it is now rather than at the average of its track.
+/// It has no pre-aggregated column, so it must never be routed to a rollup.
+#[test]
+fn downsample_last_takes_the_newest_sample_per_series() {
+    let config = test_config();
+    for query in [
+        "in:timeseries_metrics metric_name:drone.position.lat time:last_2m bucket:2m agg:last series:tags.asset_id",
+        "in:timeseries_metrics metric_name:drone.position.lat time:last_30d bucket:1h agg:latest series:tags.asset_id",
+    ] {
+        let request = QueryRequest {
+            query: query.to_string(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+            permitted_signals: None,
+        };
+        let response = translate_request(&config, request).expect("translation should succeed");
+        assert!(
+            response
+                .sql
+                .contains("(array_agg(value ORDER BY timestamp DESC))[1] AS value"),
+            "{}",
+            response.sql
+        );
+        assert!(
+            !response.sql.contains("timeseries_metrics_hourly"),
+            "agg:last must stay on the raw table: {}",
+            response.sql
+        );
+    }
+}
+
+#[test]
+fn downsample_rejects_unknown_aggregates_with_the_full_list() {
+    let err = parser::parse("in:timeseries_metrics bucket:5m agg:median").unwrap_err();
+    assert!(err.to_string().contains("rate_sum|last"), "{err}");
+}
