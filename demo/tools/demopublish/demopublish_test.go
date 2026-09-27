@@ -31,6 +31,7 @@ type fakeInstance struct {
 	mutations   []string
 	lastStage   map[string]any
 	nextID      int
+	failBlob    bool
 }
 
 func newFake() *fakeInstance {
@@ -86,17 +87,25 @@ func (f *fakeInstance) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		writeJSON(w, f.packages[id])
 	case r.Method == http.MethodPost && len(parts) == 5 && parts[4] == "upload-url":
+		f.packages[parts[3]]["wasm_object_key"] = "plugins/" + parts[3]
 		writeJSON(w, map[string]any{"upload_url": "/api/plugin-packages/" + parts[3] + "/blob", "upload_token": "blob-token-" + parts[3]})
 	case r.Method == http.MethodPut && len(parts) == 4 && parts[3] == "blob":
 		if r.Header.Get("x-serviceradar-plugin-token") != "blob-token-"+parts[2] {
 			http.Error(w, `{"error":"bad token"}`, http.StatusUnauthorized)
 			return
 		}
+		if f.failBlob {
+			http.Error(w, `{"error":"storage unavailable"}`, http.StatusServiceUnavailable)
+			return
+		}
 		f.blobs[parts[2]] = body
-		f.packages[parts[2]]["wasm_object_key"] = "plugins/" + parts[2]
 		writeJSON(w, map[string]any{"ok": true})
 	case r.Method == http.MethodPost && len(parts) == 5 && parts[4] == "approve":
 		p := f.packages[parts[3]]
+		if _, ok := f.blobs[parts[3]]; !ok {
+			http.Error(w, `{"error":"no blob"}`, http.StatusConflict)
+			return
+		}
 		p["status"] = "approved"
 		manifest, _ := p["manifest"].(map[string]any)
 		rules, _ := manifest["alert_rules"].([]any)
@@ -351,6 +360,28 @@ func TestRepublishChangesNothing(t *testing.T) {
 	if !strings.Contains(out, "already approved") || !strings.Contains(out, "already enabled") ||
 		!strings.Contains(out, "already current") || !strings.Contains(out, "idempotent_noop") {
 		t.Fatalf("second publish output does not report no-ops:\n%s", out)
+	}
+}
+
+func TestRerunAfterInterruptedUploadStoresBlob(t *testing.T) {
+	h := newHarness(t)
+	h.exportSigningEnv()
+	args := []string{"--agent-uid", "agent-demo-1"}
+	h.fake.failBlob = true
+	if out, err := h.run(args...); err == nil {
+		t.Fatalf("publish succeeded with failing blob upload:\n%s", out)
+	}
+	h.fake.failBlob = false
+	if out, err := h.run(args...); err != nil {
+		t.Fatalf("rerun: %v\n%s", err, out)
+	}
+	if len(h.fake.packages) != 1 {
+		t.Fatalf("packages = %d", len(h.fake.packages))
+	}
+	for id, p := range h.fake.packages {
+		if len(h.fake.blobs[id]) == 0 || p["status"] != "approved" {
+			t.Fatalf("package %s status=%v blob=%d bytes", id, p["status"], len(h.fake.blobs[id]))
+		}
 	}
 }
 

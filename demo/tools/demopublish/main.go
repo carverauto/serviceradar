@@ -360,12 +360,11 @@ type publisher struct {
 }
 
 type remotePackage struct {
-	ID            string `json:"id"`
-	PluginID      string `json:"plugin_id"`
-	Version       string `json:"version"`
-	ContentHash   string `json:"content_hash"`
-	Status        string `json:"status"`
-	WasmObjectKey string `json:"wasm_object_key"`
+	ID          string `json:"id"`
+	PluginID    string `json:"plugin_id"`
+	Version     string `json:"version"`
+	ContentHash string `json:"content_hash"`
+	Status      string `json:"status"`
 }
 
 // ensurePackage leaves the bundle's version approved on the instance and
@@ -417,14 +416,11 @@ func (p *publisher) ensurePackage(b *bundleFiles, signature map[string]any) (str
 		fmt.Fprintf(p.out, "staged   %s\n", pkg.ID)
 	}
 
-	if pkg.WasmObjectKey == "" {
+	if pkg.Status != "approved" {
 		if err := p.uploadWasm(pkg.ID, b.wasm); err != nil {
 			return "", err
 		}
 		fmt.Fprintf(p.out, "uploaded %d bytes\n", len(b.wasm))
-	}
-
-	if pkg.Status != "approved" {
 		body := map[string]any{
 			"approved_capabilities": b.manifest["capabilities"],
 			"approved_permissions":  b.manifest["permissions"],
