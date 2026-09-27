@@ -320,6 +320,11 @@ config :serviceradar_core,
        # break capture_log assertions. Flip to `:debug` locally when a test needs the SQL.
        |> Keyword.put(:log, false)
 
+# The :stub external secret provider returns plaintext from unencrypted
+# metadata. It is a test fixture only; every other environment leaves this
+# unset, which refuses :stub providers at write time and at resolution.
+config :serviceradar_core, :stub_secret_provider_enabled, true
+
 # Configure Ash domains (needed for validation)
 config :serviceradar_core,
   ash_domains: [

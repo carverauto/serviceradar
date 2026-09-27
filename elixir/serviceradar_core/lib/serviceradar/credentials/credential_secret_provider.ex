@@ -13,6 +13,7 @@ defmodule ServiceRadar.Credentials.CredentialSecretProvider do
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.Credentials.Changes.WriteProviderLifecycleEvent
+  alias ServiceRadar.Credentials.Validations.StubProviderGate
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @credential_manage_check {ActorHasPermission, permission: "settings.credentials.manage"}
@@ -95,14 +96,17 @@ defmodule ServiceRadar.Credentials.CredentialSecretProvider do
 
     create :create do
       accept @fields
+      validate StubProviderGate
     end
 
     update :update do
       accept @fields
+      validate StubProviderGate
     end
 
     update :enable do
       accept []
+      validate StubProviderGate
       change transition_state(:active)
       change set_attribute(:enabled, true)
       change {WriteProviderLifecycleEvent, action: :enable}

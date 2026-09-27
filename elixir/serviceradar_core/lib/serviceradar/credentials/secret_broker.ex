@@ -16,6 +16,7 @@ defmodule ServiceRadar.Credentials.SecretBroker do
   alias ServiceRadar.Credentials.CredentialSecretResolutionAudit
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Credentials.SecretProviderAdapters.OpenBao
+  alias ServiceRadar.Credentials.SecretProviderAdapters.Stub
   alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadar.Vault
 
@@ -439,7 +440,12 @@ defmodule ServiceRadar.Credentials.SecretBroker do
     end
   end
 
-  defp built_in_adapter(:stub), do: ServiceRadar.Credentials.SecretProviderAdapters.Stub
+  # The stub adapter returns plaintext from unencrypted metadata; outside tests a
+  # :stub provider row must resolve to no adapter at all.
+  defp built_in_adapter(:stub) do
+    if Stub.enabled?(), do: Stub
+  end
+
   defp built_in_adapter(:openbao), do: OpenBao
   defp built_in_adapter(:vault), do: OpenBao
   defp built_in_adapter(_provider_type), do: nil
