@@ -30,7 +30,9 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
   @doc """
   Resolve a device update to a canonical ServiceRadar device ID.
 
-  Returns the resolved device ID (either existing or newly generated).
+  Returns the resolved device ID (either existing or newly generated), or
+  `{:error, {:identifier_lookup_failed, reason}}` when an identifier lookup could not be
+  answered: an unanswered lookup is never read as "no device holds this identifier".
   """
   @spec resolve_device_id(Ids.device_update(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def resolve_device_id(update, opts \\ []) do
@@ -94,6 +96,9 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
 
           {{:ok, device_id}, refused}
 
+        {:error, _reason} = error ->
+          {error, []}
+
         _ ->
           case lookup_hardware_mac_sibling_device(ids, update, actor, refuse?) do
             {device_id, refused} when is_binary(device_id) ->
@@ -102,6 +107,9 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
 
             {nil, refused} ->
               {resolve_fallback_device_id(update, ids, actor), refused}
+
+            {:error, _reason} = error ->
+              {error, []}
           end
       end
 
@@ -314,31 +322,47 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
   # update carrying only such MACs still looks them up; registration decides which MACs a
   # source may claim (the census claims none of them), and `MergePolicy` refuses a merge over
   # an all-randomized match set.
+  #
+  # A lookup that fails is not a miss. Reading "the identifier store could not answer" as "no
+  # device holds this identifier" sends the update to its deterministic uid and mints a second
+  # device beside the one that holds the identifier -- under database pressure an agent split off
+  # the device carrying its agent_id this way. The failure is returned instead, so the caller
+  # retries on its next check-in rather than acting on an answer it never got.
   defp lookup_strong_identifiers(ids, actor, preferred_device_id, refuse?) do
     if Ids.has_strong_identifier?(ids) or Ids.mac_lookup_values(ids) != [] do
-      {first_matches, overridden} = lookup_governed_matches(ids, actor, refuse?)
+      case lookup_governed_matches(ids, actor, refuse?) do
+        {:ok, first_matches, overridden} ->
+          {resolve_strong_matches(ids, first_matches, actor, preferred_device_id, refuse?),
+           overridden}
 
-      matches =
-        Enum.to_list(first_matches) ++
-          hardware_mac_owner_matches(ids, first_matches, actor, refuse?)
+        {:error, reason} ->
+          Logger.warning(
+            "Identity resolution refused: strong identifier lookup failed: #{inspect(reason)}"
+          )
 
-      result =
-        case match_device_ids(matches) do
-          [] ->
-            {:ok, nil}
-
-          [device_id] ->
-            {:ok, device_id}
-
-          device_ids ->
-            canonical_id = select_canonical_device_id(preferred_device_id, matches, actor)
-            _ = MergeEngine.merge_conflicting_devices(canonical_id, device_ids, matches, actor)
-            {:ok, canonical_id}
-        end
-
-      {result, overridden}
+          {{:error, {:identifier_lookup_failed, reason}}, []}
+      end
     else
       {{:ok, nil}, []}
+    end
+  end
+
+  defp resolve_strong_matches(ids, first_matches, actor, preferred_device_id, refuse?) do
+    matches =
+      Enum.to_list(first_matches) ++
+        hardware_mac_owner_matches(ids, first_matches, actor, refuse?)
+
+    case match_device_ids(matches) do
+      [] ->
+        {:ok, nil}
+
+      [device_id] ->
+        {:ok, device_id}
+
+      device_ids ->
+        canonical_id = select_canonical_device_id(preferred_device_id, matches, actor)
+        _ = MergeEngine.merge_conflicting_devices(canonical_id, device_ids, matches, actor)
+        {:ok, canonical_id}
     end
   end
 
@@ -418,7 +442,7 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
   rescue
     e ->
       Logger.warning("Failed to lookup device identifier: #{inspect(e)}")
-      {:ok, nil}
+      {:error, e}
   end
 
   @doc """
@@ -539,13 +563,20 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
     Ash.Query.filter(query, partition == ^partition)
   end
 
+  @doc """
+  The update's identifier matches as `%{identifier_type => %{value: _, device_id: _}}`. When
+  the identifier store cannot be read the result is empty: no match, so nothing is merged.
+  """
   def lookup_identifier_matches(ids, actor) do
-    ids
-    |> lookup_governed_matches(actor, source_refusal(ids, actor))
-    |> elem(0)
+    case lookup_governed_matches(ids, actor, source_refusal(ids, actor)) do
+      {:ok, matches, _overridden} -> matches
+      {:error, _reason} -> %{}
+    end
   end
 
-  defp lookup_governed_matches(ids, actor, nil), do: {lookup_all_matches(ids, actor), []}
+  defp lookup_governed_matches(ids, actor, nil) do
+    with {:ok, matches} <- lookup_all_matches(ids, actor), do: {:ok, matches, []}
+  end
 
   # Every value of every type is looked up, so each record the source-authoritative
   # identifier overrides is reported, not only the first one met; the first
@@ -553,61 +584,82 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
   defp lookup_governed_matches(ids, actor, refuse?) do
     partition = Ids.ids_get_partition(ids)
 
-    {matches, overridden} =
+    pairs =
       for id_type <- Ids.identifier_priority(),
           id_value <- Ids.get_identifier_values(id_type, ids),
-          device_id = trusted_match(id_type, id_value, partition, actor),
-          is_binary(device_id),
-          reduce: {%{}, []} do
-        {matches, overridden} ->
-          case refuse?.(id_type, device_id) do
-            :accept ->
-              {Map.put_new(matches, id_type, %{value: id_value, device_id: device_id}),
-               overridden}
+          do: {id_type, id_value}
 
-            {:refuse, source_ids} ->
-              refused = %{
-                device_uid: device_id,
-                identifier_type: id_type,
-                identifier_value: id_value,
-                source_ids: source_ids
-              }
+    pairs
+    |> Enum.reduce_while({:ok, %{}, []}, fn {id_type, id_value}, {:ok, matches, overridden} ->
+      case trusted_match(id_type, id_value, partition, actor) do
+        {:ok, nil} ->
+          {:cont, {:ok, matches, overridden}}
 
-              {matches, [refused | overridden]}
-          end
+        {:ok, device_id} ->
+          {:cont, govern_match(refuse?, id_type, id_value, device_id, matches, overridden)}
+
+        {:error, _reason} = error ->
+          {:halt, error}
       end
-
-    {matches, Enum.reverse(overridden)}
+    end)
+    |> case do
+      {:ok, matches, overridden} -> {:ok, matches, Enum.reverse(overridden)}
+      {:error, _reason} = error -> error
+    end
   end
 
+  defp govern_match(refuse?, id_type, id_value, device_id, matches, overridden) do
+    case refuse?.(id_type, device_id) do
+      :accept ->
+        {:ok, Map.put_new(matches, id_type, %{value: id_value, device_id: device_id}), overridden}
+
+      {:refuse, source_ids} ->
+        refused = %{
+          device_uid: device_id,
+          identifier_type: id_type,
+          identifier_value: id_value,
+          source_ids: source_ids
+        }
+
+        {:ok, matches, [refused | overridden]}
+    end
+  end
+
+  # `{:ok, device_id}` for a trusted holder, `{:ok, nil}` when no record holds the value (or the
+  # holder is not trusted with it), `{:error, reason}` when the lookup itself failed.
   defp trusted_match(id_type, id_value, partition, actor) do
-    with {:ok, device_id} when is_binary(device_id) and device_id != "" <-
-           lookup_device_identifier(id_type, id_value, partition, actor),
-         true <- trusted_identifier_match?(id_type, id_value, device_id, actor) do
-      device_id
-    else
-      _ -> nil
+    case lookup_device_identifier(id_type, id_value, partition, actor) do
+      {:ok, device_id} when is_binary(device_id) and device_id != "" ->
+        if trusted_identifier_match?(id_type, id_value, device_id, actor),
+          do: {:ok, device_id},
+          else: {:ok, nil}
+
+      {:ok, _none} ->
+        {:ok, nil}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
   defp lookup_all_matches(ids, actor) do
     partition = Ids.ids_get_partition(ids)
 
-    Enum.reduce(Ids.identifier_priority(), %{}, fn id_type, acc ->
-      id_type
-      |> Ids.get_identifier_values(ids)
-      |> Enum.find_value(fn id_value ->
-        with {:ok, device_id} when is_binary(device_id) and device_id != "" <-
-               lookup_device_identifier(id_type, id_value, partition, actor),
-             true <- trusted_identifier_match?(id_type, id_value, device_id, actor) do
-          %{value: id_value, device_id: device_id}
-        else
-          _ -> nil
-        end
-      end)
-      |> case do
-        nil -> acc
-        match -> Map.put(acc, id_type, match)
+    Enum.reduce_while(Ids.identifier_priority(), {:ok, %{}}, fn id_type, {:ok, acc} ->
+      case first_trusted_match(id_type, Ids.get_identifier_values(id_type, ids), partition, actor) do
+        {:ok, nil} -> {:cont, {:ok, acc}}
+        {:ok, match} -> {:cont, {:ok, Map.put(acc, id_type, match)}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp first_trusted_match(id_type, id_values, partition, actor) do
+    Enum.reduce_while(id_values, {:ok, nil}, fn id_value, acc ->
+      case trusted_match(id_type, id_value, partition, actor) do
+        {:ok, nil} -> {:cont, acc}
+        {:ok, device_id} -> {:halt, {:ok, %{value: id_value, device_id: device_id}}}
+        {:error, _reason} = error -> {:halt, error}
       end
     end)
   end
@@ -657,37 +709,61 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
     end)
   end
 
+  # `{device_id | nil, refused}`, or `{:error, reason}` when a sibling lookup failed: a failed
+  # lookup is not a miss (see `lookup_strong_identifiers/4`).
   defp lookup_hardware_mac_sibling_device(ids, update, actor, refuse?) do
     partition = Ids.ids_get_partition(ids)
     refuse? = refuse? || fn _id_type, _device_id -> :accept end
 
-    {device_id, refused} =
-      ids
-      |> sibling_mac_candidates(update)
-      |> Enum.reduce({nil, []}, fn mac, {found, refused} ->
-        with sibling when is_binary(sibling) <- Mac.hardware_mac_sibling(mac),
-             {:ok, device_id} when is_binary(device_id) and device_id != "" <-
-               lookup_device_identifier(:mac, sibling, partition, actor) do
-          case refuse?.(:mac, device_id) do
-            :accept ->
-              {found || device_id, refused}
+    ids
+    |> sibling_mac_candidates(update)
+    |> Enum.reduce_while({nil, []}, fn mac, {found, refused} = acc ->
+      case sibling_mac_owner(mac, partition, actor) do
+        {:ok, nil} ->
+          {:cont, acc}
 
-            {:refuse, source_ids} ->
-              refusal = %{
-                device_uid: device_id,
-                identifier_type: :mac,
-                identifier_value: mac,
-                source_ids: source_ids
-              }
+        {:ok, device_id} ->
+          {:cont, govern_sibling(refuse?, mac, device_id, found, refused)}
 
-              {found, [refusal | refused]}
-          end
-        else
-          _ -> {found, refused}
+        {:error, reason} ->
+          {:halt, {:error, {:identifier_lookup_failed, reason}}}
+      end
+    end)
+    |> case do
+      {:error, _reason} = error -> error
+      {device_id, refused} -> {device_id, Enum.reverse(refused)}
+    end
+  end
+
+  defp sibling_mac_owner(mac, partition, actor) do
+    case Mac.hardware_mac_sibling(mac) do
+      sibling when is_binary(sibling) ->
+        case lookup_device_identifier(:mac, sibling, partition, actor) do
+          {:ok, device_id} when is_binary(device_id) and device_id != "" -> {:ok, device_id}
+          {:ok, _none} -> {:ok, nil}
+          {:error, _reason} = error -> error
         end
-      end)
 
-    {device_id, Enum.reverse(refused)}
+      _no_sibling ->
+        {:ok, nil}
+    end
+  end
+
+  defp govern_sibling(refuse?, mac, device_id, found, refused) do
+    case refuse?.(:mac, device_id) do
+      :accept ->
+        {found || device_id, refused}
+
+      {:refuse, source_ids} ->
+        refusal = %{
+          device_uid: device_id,
+          identifier_type: :mac,
+          identifier_value: mac,
+          source_ids: source_ids
+        }
+
+        {found, [refusal | refused]}
+    end
   end
 
   # Prefer the universally-administered MAC as the survivor so a UniFi WAN
