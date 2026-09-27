@@ -126,13 +126,13 @@ func TestRunOverrideLocalOverlayFromSucceededActionOnly(t *testing.T) {
 	store.applyConfig([]*pluginAssignment{{AssignmentID: "a1"}}, overrideTestNow)
 
 	failed := []byte(`{"status":"failed","run_overrides":[{"op":"set","id":"f1","kind":"jam","duration_seconds":60}]}`)
-	store.recordActionResult("a1", failed, overrideTestNow)
+	store.recordActionResult("a1", failed, overrideTestNow, 3600)
 	if delivered, _ := store.deliver("a1", overrideTestNow); len(delivered) != 0 {
 		t.Fatalf("failed action set an override: %+v", delivered)
 	}
 
 	succeeded := []byte(`{"status":"succeeded","run_overrides":[{"op":"set","id":"f1","kind":"jam","target":"conveyor-7","duration_seconds":60}]}`)
-	store.recordActionResult("a1", succeeded, overrideTestNow)
+	store.recordActionResult("a1", succeeded, overrideTestNow, 3600)
 	delivered, _ := store.deliver("a1", overrideTestNow.Add(time.Second))
 	if len(delivered) != 1 || delivered[0].Target != "conveyor-7" || delivered[0].Expired {
 		t.Fatalf("local override not delivered: %+v", delivered)
@@ -144,12 +144,38 @@ func TestRunOverrideLocalOverlayFromSucceededActionOnly(t *testing.T) {
 	}
 }
 
+func TestRunOverrideLocalOverlayRejectsSetWithoutDescriptorMaximum(t *testing.T) {
+	store := newRunOverrideStore()
+	store.applyConfig([]*pluginAssignment{{AssignmentID: "a1"}}, overrideTestNow)
+
+	succeeded := []byte(`{"status":"succeeded","run_overrides":[{"op":"set","id":"f1","kind":"jam","duration_seconds":60}]}`)
+	store.recordActionResult("a1", succeeded, overrideTestNow, 0)
+	if delivered, _ := store.deliver("a1", overrideTestNow); len(delivered) != 0 {
+		t.Fatalf("descriptor without a maximum must not be able to set a local override: %+v", delivered)
+	}
+}
+
+func TestRunOverrideLocalOverlayClampsToDescriptorMaximum(t *testing.T) {
+	store := newRunOverrideStore()
+	store.applyConfig([]*pluginAssignment{{AssignmentID: "a1"}}, overrideTestNow)
+
+	succeeded := []byte(`{"status":"succeeded","run_overrides":[{"op":"set","id":"f1","kind":"jam","duration_seconds":3600}]}`)
+	store.recordActionResult("a1", succeeded, overrideTestNow, 60)
+	delivered, _ := store.deliver("a1", overrideTestNow)
+	if len(delivered) != 1 {
+		t.Fatalf("clamped override not delivered: %+v", delivered)
+	}
+	if want := overrideTestNow.Add(60 * time.Second); !delivered[0].ExpiresAt.Equal(want) {
+		t.Fatalf("override not clamped to descriptor maximum: got %v want %v", delivered[0].ExpiresAt, want)
+	}
+}
+
 func TestRunOverrideConfigSupersedesLocalAndEndIsHonoured(t *testing.T) {
 	store := newRunOverrideStore()
 	store.applyConfig([]*pluginAssignment{{AssignmentID: "a1"}}, overrideTestNow)
 	store.recordActionResult("a1",
 		[]byte(`{"status":"succeeded","run_overrides":[{"op":"set","id":"f1","kind":"jam","duration_seconds":3600}]}`),
-		overrideTestNow)
+		overrideTestNow, 3600)
 
 	// Core clamped the override to 5 minutes; its copy wins.
 	clamped := overrideAt("f1", overrideTestNow, overrideTestNow.Add(5*time.Minute))
@@ -159,7 +185,7 @@ func TestRunOverrideConfigSupersedesLocalAndEndIsHonoured(t *testing.T) {
 		t.Fatalf("config did not supersede the local override: %+v", delivered)
 	}
 
-	store.recordActionResult("a1", []byte(`{"status":"succeeded","run_overrides":[{"op":"end","id":"f1"}]}`), overrideTestNow)
+	store.recordActionResult("a1", []byte(`{"status":"succeeded","run_overrides":[{"op":"end","id":"f1"}]}`), overrideTestNow, 3600)
 	if delivered, _ := store.deliver("a1", overrideTestNow); len(delivered) != 0 {
 		t.Fatalf("ended override still delivered before the config caught up: %+v", delivered)
 	}

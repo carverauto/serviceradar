@@ -1285,7 +1285,8 @@ func (m *PluginManager) RunAction(ctx context.Context, assignmentID string, invo
 	if err == nil {
 		// Let the next scheduled run see overrides this action set or ended,
 		// without waiting for the control plane's copy to arrive by config poll.
-		m.runOverrides.recordActionResult(assignment.AssignmentID, result, time.Now())
+		maxOverrideDurationSeconds := actionInvocationMaxOverrideDurationSeconds(invocationPayload)
+		m.runOverrides.recordActionResult(assignment.AssignmentID, result, time.Now(), maxOverrideDurationSeconds)
 	}
 	if err == nil && assignment.ingestsActionResults() {
 		result, err = m.enqueueActionResult(runCtx, assignment, result)

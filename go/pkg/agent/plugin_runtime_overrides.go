@@ -197,9 +197,30 @@ func pruneRunOverrideLocalState(state *assignmentRunOverrides, now time.Time) {
 	}
 }
 
+// actionInvocationMaxOverrideDurationSeconds extracts the invoking action
+// descriptor's max_override_duration_seconds from the action_invocation
+// envelope core sends alongside the command, so the agent's local overlay
+// can mirror core's gate: a descriptor without a maximum may not set overrides.
+func actionInvocationMaxOverrideDurationSeconds(invocationPayload json.RawMessage) int64 {
+	if len(bytes.TrimSpace(invocationPayload)) == 0 {
+		return 0
+	}
+
+	var payload struct {
+		MaxOverrideDurationSeconds int64 `json:"max_override_duration_seconds"`
+	}
+	if err := json.Unmarshal(invocationPayload, &payload); err != nil {
+		return 0
+	}
+	return payload.MaxOverrideDurationSeconds
+}
+
 // recordActionResult applies the run_overrides operations of an action result
-// the agent just captured, as a short-lived local overlay.
-func (s *runOverrideStore) recordActionResult(assignmentID string, result []byte, now time.Time) {
+// the agent just captured, as a short-lived local overlay. maxOverrideDurationSeconds
+// is the invoking action descriptor's max_override_duration_seconds; mirroring core,
+// a "set" op is dropped entirely when it is not a positive value, since a descriptor
+// without a maximum may not grant override capability at all.
+func (s *runOverrideStore) recordActionResult(assignmentID string, result []byte, now time.Time, maxOverrideDurationSeconds int64) {
 	if s == nil || strings.TrimSpace(assignmentID) == "" || len(result) == 0 {
 		return
 	}
@@ -245,6 +266,9 @@ func (s *runOverrideStore) recordActionResult(assignmentID string, result []byte
 			delete(state.local, id)
 			state.ended[id] = now
 		case runOverrideOperationSet:
+			if maxOverrideDurationSeconds <= 0 {
+				continue
+			}
 			override := pluginRunOverride{
 				ID:       id,
 				Kind:     strings.TrimSpace(op.Kind),
@@ -262,6 +286,9 @@ func (s *runOverrideStore) recordActionResult(assignmentID string, result []byte
 				override.ExpiresAt = override.StartsAt.Add(time.Duration(op.DurationSeconds) * time.Second)
 			default:
 				override.ExpiresAt = override.StartsAt.Add(runOverrideDefaultExpiry)
+			}
+			if maxExpiresAt := override.StartsAt.Add(time.Duration(maxOverrideDurationSeconds) * time.Second); override.ExpiresAt.After(maxExpiresAt) {
+				override.ExpiresAt = maxExpiresAt
 			}
 			if !validRunOverride(override) {
 				continue
