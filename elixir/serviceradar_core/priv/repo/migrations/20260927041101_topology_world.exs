@@ -70,7 +70,7 @@ defmodule ServiceRadar.Repo.Migrations.TopologyWorld do
     end
 
     create(
-      index(:topology_world_positions, [:layout_version],
+      index(:topology_world_positions, [:layout_version, :device_id],
         name: "topology_world_positions_active_idx",
         where: "active",
         prefix: "platform"
@@ -261,7 +261,10 @@ defmodule ServiceRadar.Repo.Migrations.TopologyWorld do
     drop(table(:topology_world_layouts, prefix: "platform"))
 
     drop_if_exists(
-      index(:topology_world_positions, [:layout_version], name: "topology_world_positions_active_idx", prefix: "platform")
+      index(:topology_world_positions, [:layout_version, :device_id],
+        name: "topology_world_positions_active_idx",
+        prefix: "platform"
+      )
     )
 
     drop(table(:topology_world_positions, prefix: "platform"))
