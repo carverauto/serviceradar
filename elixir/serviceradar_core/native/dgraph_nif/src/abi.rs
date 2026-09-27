@@ -7,8 +7,8 @@
 //! rustler-free. Writes convert into the kernel builders; DQL is read-only.
 
 use dgraph_topology::{
-    CanonicalEdge, ChangeWrite, DeviceWrite, EdgeKind, EdgeWrite, HopWrite, InterfaceWrite,
-    NeighbourhoodEdge, PrefixWrite,
+    CanonicalDevice, CanonicalEdge, CanonicalGraph, ChangeWrite, DeviceWrite, EdgeKind, EdgeWrite,
+    HopWrite, InterfaceWrite, NeighbourhoodEdge, PrefixWrite,
 };
 use rustler::{NifMap, NifTaggedEnum, NifUnitEnum};
 
@@ -38,6 +38,45 @@ pub enum JsonResult {
 pub enum CanonicalEdgesResult {
     Ok(Vec<NifCanonicalEdge>),
     Error(String),
+}
+
+/// Elixir `{:ok, %{nodes: [device], edges: [edge]}}` / `{:error, reason}`.
+#[derive(Clone, Debug, NifTaggedEnum)]
+pub enum CanonicalGraphResult {
+    Ok(NifCanonicalGraph),
+    Error(String),
+}
+
+#[derive(Clone, Debug, NifMap)]
+pub struct NifCanonicalGraph {
+    pub nodes: Vec<NifCanonicalDevice>,
+    pub edges: Vec<NifCanonicalEdge>,
+}
+
+impl From<&CanonicalGraph> for NifCanonicalGraph {
+    fn from(graph: &CanonicalGraph) -> Self {
+        Self {
+            nodes: graph.nodes().iter().map(NifCanonicalDevice::from).collect(),
+            edges: graph.edges().iter().map(NifCanonicalEdge::from).collect(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, NifMap)]
+pub struct NifCanonicalDevice {
+    pub id: String,
+    pub hostname: Option<String>,
+    pub ip: Option<String>,
+}
+
+impl From<&CanonicalDevice> for NifCanonicalDevice {
+    fn from(device: &CanonicalDevice) -> Self {
+        Self {
+            id: device.id().to_string(),
+            hostname: device.hostname().map(str::to_string),
+            ip: device.ip().map(str::to_string),
+        }
+    }
 }
 
 /// Elixir `{:ok, [edge]}` / `{:error, reason}`.

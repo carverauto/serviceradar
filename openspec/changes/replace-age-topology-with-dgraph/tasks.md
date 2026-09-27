@@ -179,7 +179,7 @@
 - [x] 12.1 New plugin action on `opentext-nom` (or a sibling package) that
       retrieves running-config for a device and submits it as an artifact.
       Do not parse inside Wasm. Do not fold this into `list device`.
-- [x] 12.2 Core ingest path: artifact → `network_config_revisions` →
+- [x] 12.2 Core ingest path: artifact -> `network_config_revisions` ->
       downparser job. Credentials stay on the unified credential rule;
       nothing new in Helm/env for the NA password.
 
@@ -202,3 +202,44 @@
       return different neighbourhoods; dry-run scratch differs from live
       on a prefix change; GC of scratch does not touch live; no DQL
       spans two namespaces.
+
+## 14. Remaining AGE retirement
+
+The completed cutover retained AGE for compatibility under task 8.5. Retirement
+is tracked here as follow-up work. Disabling or dropping the extension is gated
+on migrating active consumers and verifying their replacement behavior; a
+Dgraph-only God View reader does not establish that the extension is unused.
+
+- [ ] 14.1 Move SRQL `in:device_graph` off
+      `public.age_device_neighborhood`, and retire or explicitly migrate the
+      `in:graph_cypher` API. Audit saved queries and dashboards before removing
+      either public query surface; keep `in:graph` / `in:graph_dql` as the
+      Dgraph paths.
+- [ ] 14.2 Move dashboard MTR overlay/count queries in
+      `DashboardLive.Data.Mtr` to Dgraph and verify overlays with invented
+      MTR paths. Remove the direct `ServiceRadarWebNG.Graph` queries so an
+      unavailable AGE graph cannot silently appear as an empty overlay.
+- [ ] 14.3 Move canonical-edge telemetry reads and refresh writes in
+      `TopologyGraph.Telemetry.Edges` and `TopologyGraph.Telemetry.Refresh`
+      to the typed Dgraph path. Verify directional packet flow, capacity,
+      stale-edge behavior, and refresh failure handling before retiring their
+      AGE queries and relationship-update locking.
+- [ ] 14.4 Make application, runtime, Helm, Compose, and correlation-hydrator
+      defaults consistent with Dgraph authority. Remove implicit AGE fallback
+      for missing or invalid backend flags, and report unresolved Dgraph
+      configuration explicitly. Audit remaining graph writers and diagnostic
+      tasks, including `graph.ready`, for compatibility-only AGE behavior.
+- [ ] 14.5 Audit schema/bootstrap and migration dependencies before disabling
+      AGE: CNPG extension creation, `shared_preload_libraries`, startup graph
+      ownership/catalog checks, database search paths, neighborhood functions,
+      and the retained historical migrations. Define a migrations-only
+      retirement path that preserves relational evidence and unrelated data;
+      do not rewrite historical migrations or use an unreviewed cascade drop.
+- [ ] 14.6 After active consumers are migrated, update the CNPG image and
+      extension ABI/build checks, Helm/bootstrap tests, and Compose startup
+      configuration to remove the AGE runtime dependency. Verify fresh install
+      and upgrade behavior before removing the extension from deployed images.
+- [ ] 14.7 Run focused replacement-path and retirement integration tests with
+      independently invented data, verify the Dgraph scratch namespace and
+      database cleanup, and run the complete required repository gate. Record
+      which compatibility consumers remain before marking retirement complete.

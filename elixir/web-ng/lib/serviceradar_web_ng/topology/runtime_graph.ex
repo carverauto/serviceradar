@@ -2,16 +2,15 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   @moduledoc """
   Runtime topology graph cache for God-View.
 
-  Snapshot Arrow encoding is unchanged. The fetch source is AGE (or the SQL
-  projection) when `GRAPH_READ` is `age`, and Dgraph canonical edges when
-  `GRAPH_READ` is `dgraph`.
+  Dgraph owns canonical topology. Its complete vertex and edge sets are paged
+  within one read transaction; current inventory separately adds virtualization
+  relationships. Failed reads preserve the last published graph rather than
+  falling back to retired stores.
   """
 
   use GenServer
 
-  alias ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection
   alias ServiceRadar.Repo
-  alias ServiceRadarWebNG.Graph, as: AgeGraph
   alias ServiceRadarWebNG.Topology.Atlas
   alias ServiceRadarWebNG.Topology.AtlasSource
   alias ServiceRadarWebNG.Topology.AtlasStore
@@ -24,7 +23,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
 
   # Published once per process lifetime in `init/1` so readers never have to enter this
   # GenServer. Reads are the hot path (every God-View snapshot build); the refresh handler
-  # holds the process for the whole projection/AGE round trip.
+  # holds the process for the whole Dgraph round trip.
   @graph_ref_key {__MODULE__, :graph_ref}
 
   @default_refresh_ms 30_000
@@ -54,7 +53,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   whole vector under a write lock held for the assignment alone -- so a reader observes
   either the previous or the next snapshot, never a partial one. Going through the
   process instead would queue every reader behind `handle_info(:refresh, ...)`, which
-  performs the projection/AGE round trip inline; with `GenServer.call/2`'s default 5s
+  performs the Dgraph round trip inline; with `GenServer.call/2`'s default 5s
   that surfaced as a timeout on the God-View snapshot path.
 
   Falls back to the process only when no reference has been published yet.
@@ -196,12 +195,10 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   def refresh_due?(_state, _now_ms), do: true
 
   defp do_refresh_state(state) do
-    source = graph_source()
-
-    case fetch_topology_links_from_graph(elem(source, 0)) do
-      {:ok, rows} when is_list(rows) ->
+    case fetch_topology_from_dgraph() do
+      {:ok, rows, vertices} ->
         normalized_rows = normalize_runtime_rows(rows)
-        publish_runtime_rows(state, rows, normalized_rows, source)
+        publish_runtime_rows(state, rows, normalized_rows, vertices)
 
       {:error, reason} ->
         Logger.warning("runtime_graph_refresh_failed reason=#{inspect(reason)}")
@@ -209,10 +206,10 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
     end
   end
 
-  defp publish_runtime_rows(state, rows, normalized_rows, source) do
+  defp publish_runtime_rows(state, rows, normalized_rows, vertices) do
     edges = normalized_rows |> decode_runtime_rows() |> GodViewStream.runtime_links_to_edges()
 
-    with {:ok, nodes} <- AtlasSource.fetch_nodes(edges, source),
+    with {:ok, nodes} <- AtlasSource.decode_nodes(vertices, edges),
          {:ok, atlas} <- Atlas.build(nodes, edges),
          :ok <- AtlasStore.publish(atlas) do
       # The schema-2 compatibility reader remains bounded until the schema-3
@@ -232,45 +229,23 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
     end
   end
 
-  defp graph_source do
-    if ServiceRadar.NetworkDiscovery.TopologyGraph.Backend.read_dgraph?() do
-      {:dgraph, &ServiceRadar.Dgraph.query/1}
-    else
-      {:age, &AgeGraph.query/1}
-    end
-  end
-
-  defp fetch_topology_links_from_graph(:dgraph) do
-    fetch_topology_links_from_dgraph()
-  rescue
-    error -> {:error, error}
-  end
-
-  defp fetch_topology_links_from_graph(:age) do
-    case projection_read_action(fetch_projected_topology_links()) do
-      {:projected, rows} ->
-        fetch_topology_links_with_virtualization(rows)
-
-      :fallback_uninitialized ->
-        fetch_topology_links_from_age()
-
-      {:fallback_error, reason} ->
-        Logger.warning("runtime_graph_projection_read_failed reason=#{inspect(reason)}")
-        fetch_topology_links_from_age()
-    end
-  rescue
-    error -> {:error, error}
-  end
-
-  defp fetch_topology_links_from_dgraph do
-    case ServiceRadar.Dgraph.query_canonical_edges() do
-      {:ok, edges} when is_list(edges) ->
+  defp fetch_topology_from_dgraph do
+    case ServiceRadar.Dgraph.query_canonical_graph() do
+      {:ok, %{nodes: vertices, edges: edges}} when is_list(vertices) and is_list(edges) ->
         rows = Enum.map(edges, &canonical_edge_to_runtime_row/1)
-        fetch_topology_links_with_virtualization(rows)
+
+        with {:ok, rows} <- fetch_topology_links_with_virtualization(rows) do
+          {:ok, rows, vertices}
+        end
+
+      {:ok, _invalid} ->
+        {:error, :invalid_canonical_graph}
 
       {:error, reason} ->
         {:error, reason}
     end
+  rescue
+    error -> {:error, error}
   end
 
   @doc false
@@ -310,33 +285,10 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
       "hosted-virtual" -> "HOSTED_ON"
       "endpoint-attachment" -> "ATTACHED_TO"
       "observed-only" -> "OBSERVED_TO"
-      # AGE stores inferred segments on the attachment plane as ATTACHED_TO and
-      # distinguishes them by evidence_class; INFERRED_TO would be filtered out
-      # of the runtime rows entirely.
+      # Inferred segments belong to the attachment plane. Preserve the evidence
+      # class so downstream readers distinguish them from confirmed relations.
       "inferred-segment" -> "ATTACHED_TO"
       _ -> ""
-    end
-  end
-
-  defp fetch_projected_topology_links do
-    RuntimeTopologyProjection.read_cached_links(repo: Repo, limit: :all)
-  end
-
-  @doc false
-  @spec projection_read_action({:ok, list()} | {:error, term()}) ::
-          {:projected, list()} | :fallback_uninitialized | {:fallback_error, term()}
-  def projection_read_action({:ok, rows}) when is_list(rows), do: {:projected, rows}
-  def projection_read_action({:error, :projection_uninitialized}), do: :fallback_uninitialized
-  def projection_read_action({:error, :projection_incomplete}), do: :fallback_uninitialized
-  def projection_read_action({:error, reason}), do: {:fallback_error, reason}
-
-  defp fetch_topology_links_from_age do
-    case AgeGraph.query(topology_links_query(complete: true)) do
-      {:ok, graph_rows} when is_list(graph_rows) ->
-        fetch_topology_links_with_virtualization(graph_rows)
-
-      {:error, reason} ->
-        {:error, reason}
     end
   end
 
@@ -349,64 +301,6 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
         Logger.warning("runtime_graph_virtualization_inventory_failed reason=#{inspect(reason)}")
         {:error, {:virtualization_inventory, reason}}
     end
-  end
-
-  @doc false
-  @spec topology_links_query(keyword()) :: String.t()
-  def topology_links_query(opts \\ []) do
-    RuntimeTopologyProjection.graph_projection_query(opts)
-  end
-
-  @doc false
-  @spec topology_diagnostics_query() :: String.t()
-  def topology_diagnostics_query do
-    """
-    MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)
-    RETURN {
-      canonical_edges: count(r),
-      backbone_candidates: sum(CASE
-        WHEN toUpper(coalesce(r.relation_type, '')) IN ['CONNECTS_TO', 'LOGICAL_PEER', 'HOSTED_ON'] THEN 1
-        WHEN coalesce(r.relation_type, '') = ''
-          AND toLower(coalesce(r.evidence_class, '')) IN ['direct', 'direct-physical', 'direct-logical', 'hosted-virtual'] THEN 1
-        ELSE 0
-      END),
-      attachment_candidates: sum(CASE
-        WHEN toUpper(coalesce(r.relation_type, '')) IN ['ATTACHED_TO', 'OBSERVED_TO'] THEN 1
-        WHEN coalesce(r.relation_type, '') = ''
-          AND toLower(coalesce(r.evidence_class, '')) IN ['endpoint-attachment', 'observed-only'] THEN 1
-        ELSE 0
-      END),
-      missing_relation_type: sum(CASE WHEN coalesce(r.relation_type, '') = '' THEN 1 ELSE 0 END),
-      missing_evidence_class: sum(CASE WHEN coalesce(r.evidence_class, '') = '' THEN 1 ELSE 0 END),
-      missing_endpoint_ids: sum(CASE WHEN a.id IS NULL OR b.id IS NULL THEN 1 ELSE 0 END),
-      non_canonical_endpoint_ids: sum(CASE
-        WHEN a.id IS NULL OR b.id IS NULL THEN 0
-        WHEN NOT a.id STARTS WITH 'sr:' OR NOT b.id STARTS WITH 'sr:' THEN 1
-        ELSE 0
-      END),
-      missing_observed_at: sum(CASE
-        WHEN r.last_observed_at IS NULL AND r.observed_at IS NULL THEN 1
-        ELSE 0
-      END)
-    } AS diagnostics
-    """
-  end
-
-  @doc false
-  @spec diagnostics() :: {:ok, map()} | {:error, term()}
-  def diagnostics do
-    case AgeGraph.query(topology_diagnostics_query()) do
-      {:ok, [%{} = row | _]} ->
-        {:ok, row |> unwrap_single_map_value() |> atomize_diagnostics()}
-
-      {:ok, []} ->
-        {:ok, %{}}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  rescue
-    error -> {:error, error}
   end
 
   @doc false
@@ -618,22 +512,6 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
     else
       map
     end
-  end
-
-  defp atomize_diagnostics(%{} = map) do
-    Map.new(
-      [
-        :canonical_edges,
-        :backbone_candidates,
-        :attachment_candidates,
-        :missing_relation_type,
-        :missing_evidence_class,
-        :missing_endpoint_ids,
-        :non_canonical_endpoint_ids,
-        :missing_observed_at
-      ],
-      fn key -> {key, parse_non_negative_int(map_fetch(map, key))} end
-    )
   end
 
   defp maybe_string_key(%{} = map, k1, k2, k3) do

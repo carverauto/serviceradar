@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.TopologyChannelTest do
 
   import Phoenix.ChannelTest
 
+  alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
   alias ServiceRadarWebNGWeb.TopologyChannel
   alias ServiceRadarWebNGWeb.UserSocket
@@ -26,7 +27,7 @@ defmodule ServiceRadarWebNGWeb.TopologyChannelTest do
 
     assert {:error, %{reason: "god_view_disabled"}} =
              UserSocket
-             |> socket("user-id", %{current_user: user})
+             |> socket("user-id", %{current_user: user, current_scope: Scope.for_user(user)})
              |> subscribe_and_join(TopologyChannel, @channel, %{})
   end
 
@@ -35,10 +36,10 @@ defmodule ServiceRadarWebNGWeb.TopologyChannelTest do
 
     assert {:ok, _reply, _socket} =
              UserSocket
-             |> socket("user-id", %{current_user: user})
+             |> socket("user-id", %{current_user: user, current_scope: Scope.for_user(user)})
              |> subscribe_and_join(TopologyChannel, @channel, %{})
 
-    assert_push "snapshot", {:binary, frame}, 2_000
+    assert_push("snapshot", {:binary, frame}, 2_000)
 
     assert <<magic::binary-size(4), schema::unsigned-integer-size(8), revision::unsigned-integer-size(64),
              generated_at_ms::signed-integer-size(64), root_bytes::unsigned-integer-size(32),
@@ -65,10 +66,10 @@ defmodule ServiceRadarWebNGWeb.TopologyChannelTest do
 
     assert {:ok, _reply, _socket} =
              UserSocket
-             |> socket("user-id", %{current_user: user})
+             |> socket("user-id", %{current_user: user, current_scope: Scope.for_user(user)})
              |> subscribe_and_join(TopologyChannel, @channel, %{})
 
-    assert_push "snapshot_meta", %{pipeline_stats: pipeline_stats}, 2_000
+    assert_push("snapshot_meta", %{pipeline_stats: pipeline_stats}, 2_000)
 
     assert is_integer(Map.get(pipeline_stats, :backbone_edge_count))
     assert is_integer(Map.get(pipeline_stats, :edge_class_backbone))
@@ -84,16 +85,16 @@ defmodule ServiceRadarWebNGWeb.TopologyChannelTest do
 
     assert {:ok, _reply, socket} =
              UserSocket
-             |> socket("user-id", %{current_user: user})
+             |> socket("user-id", %{current_user: user, current_scope: Scope.for_user(user)})
              |> subscribe_and_join(TopologyChannel, @channel, %{})
 
-    assert_push "snapshot", {:binary, _frame}, 2_000
-    assert_push "snapshot_meta", _meta, 2_000
+    assert_push("snapshot", {:binary, _frame}, 2_000)
+    assert_push("snapshot_meta", _meta, 2_000)
 
     send(socket.channel_pid, :tick)
 
-    refute_push "snapshot", _duplicate_frame, 500
-    refute_push "snapshot_meta", _duplicate_meta, 500
+    refute_push("snapshot", _duplicate_frame, 500)
+    refute_push("snapshot_meta", _duplicate_meta, 500)
   end
 
   test "channel still emits snapshot when build exceeds real-time budget", %{user: user} do
@@ -112,12 +113,12 @@ defmodule ServiceRadarWebNGWeb.TopologyChannelTest do
 
     assert {:ok, _reply, _socket} =
              UserSocket
-             |> socket("user-id", %{current_user: user})
+             |> socket("user-id", %{current_user: user, current_scope: Scope.for_user(user)})
              |> subscribe_and_join(TopologyChannel, @channel, %{})
 
-    assert_push "snapshot", {:binary, _frame}, 2_000
-    assert_push "snapshot_meta", _meta, 2_000
-    refute_push "snapshot_error", _payload, 500
+    assert_push("snapshot", {:binary, _frame}, 2_000)
+    assert_push("snapshot_meta", _meta, 2_000)
+    refute_push("snapshot_error", _payload, 500)
   end
 
   test "next_expanded_clusters allows concurrent expansions without clearing existing ones" do

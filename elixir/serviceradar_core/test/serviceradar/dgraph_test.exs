@@ -107,27 +107,16 @@ defmodule ServiceRadar.DgraphTest do
     assert Dgraph.mutation?("MUTATION{\n  set { _:x <dgraph.type> \"Device\" }\n}")
   end
 
-  test "native query_dql refuses mutations when the nif is loaded" do
-    result =
-      try do
-        Native.query_dql(
-          "dgraph://unused:9080",
-          "mutation { set { _:x <dgraph.type> \"Device\" } }"
-        )
-      rescue
-        ErlangError -> :nif_not_loaded
-      end
+  test "native reads reject mutations and unconfigured graph requests without connecting" do
+    assert {:error, mutation_reason} =
+             Native.query_dql(
+               "dgraph://unused:9080",
+               "mutation { set { _:x <dgraph.type> \"Device\" } }"
+             )
 
-    case result do
-      {:error, reason} ->
-        assert reason =~ "refuses mutations"
-
-      :nif_not_loaded ->
-        :ok
-
-      other ->
-        flunk("expected mutation refusal or nif_not_loaded, got #{inspect(other)}")
-    end
+    assert mutation_reason =~ "refuses mutations"
+    assert {:error, graph_reason} = Native.query_canonical_graph("")
+    assert graph_reason =~ "not configured"
   end
 
   @tag :dgraph

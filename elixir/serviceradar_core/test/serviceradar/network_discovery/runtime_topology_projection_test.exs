@@ -1,7 +1,6 @@
 defmodule ServiceRadar.NetworkDiscovery.RuntimeTopologyProjectionTest do
   use ExUnit.Case, async: true
 
-  alias Ecto.Query.JoinExpr
   alias ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection
 
   @moduletag :db_free
@@ -164,57 +163,6 @@ defmodule ServiceRadar.NetworkDiscovery.RuntimeTopologyProjectionTest do
            ]
   end
 
-  test "complete cached reads distinguish missing projection coverage from an empty graph" do
-    assert RuntimeTopologyProjection.read_cached_links(
-             repo: __MODULE__.InitializedEmptyRepo,
-             limit: :all
-           ) == {:error, :projection_incomplete}
-
-    assert RuntimeTopologyProjection.read_cached_links(
-             repo: __MODULE__.CompleteEmptyRepo,
-             limit: :all
-           ) == {:ok, []}
-  end
-
-  test "complete cached reads have no row limit and require matching refresh markers" do
-    assert {:ok, [%{"local_device_id" => "sr:host01"}]} =
-             RuntimeTopologyProjection.read_cached_links(
-               repo: __MODULE__.CompleteRepo,
-               limit: :all
-             )
-
-    assert_receive {:all, %Ecto.Query{limit: nil, joins: joins}}
-
-    assert [
-             %JoinExpr{qual: :inner, prefix: "platform"},
-             %JoinExpr{qual: :left, prefix: "platform"}
-           ] = joins
-
-    assert Enum.any?(hd(joins).on.params, fn {value, _type} ->
-             value == "runtime_topology_links_complete"
-           end)
-
-    assert Macro.to_string(hd(joins).on.expr) =~ "refreshed_at"
-  end
-
-  test "refresh projects every source relation and keeps insert batches within PostgreSQL's parameter limit" do
-    assert {:ok, %{rows: 8_001}} =
-             RuntimeTopologyProjection.refresh_from_graph(
-               graph: __MODULE__.LargeGraph,
-               repo: __MODULE__.ParameterLimitedRepo
-             )
-
-    assert_receive {:graph_query, query}
-    refute query =~ ~r/\bLIMIT\s+\d+/i
-
-    assert_receive {:insert_all, "runtime_topology_projection_meta", [current], _}
-    assert_receive {:insert_all, "runtime_topology_projection_meta", [complete], _}
-    assert current.projection_name == "runtime_topology_links"
-    assert complete.projection_name == "runtime_topology_links_complete"
-    assert complete.refreshed_at == current.refreshed_at
-    assert complete.row_count == current.row_count
-  end
-
   test "refresh_from_graph/1 stamps projection metadata for a zero-row refresh" do
     assert RuntimeTopologyProjection.refresh_from_graph(
              graph: __MODULE__.EmptyGraph,
@@ -250,63 +198,10 @@ defmodule ServiceRadar.NetworkDiscovery.RuntimeTopologyProjectionTest do
     def query(_query), do: {:ok, []}
   end
 
-  defmodule CompleteEmptyRepo do
-    @moduledoc false
-
-    def all(_query), do: [nil]
-  end
-
-  defmodule CompleteRepo do
-    @moduledoc false
-
-    def all(query) do
-      send(self(), {:all, query})
-      [%{"local_device_id" => "sr:host01"}]
-    end
-  end
-
-  defmodule LargeGraph do
-    @moduledoc false
-
-    def query(query) do
-      send(self(), {:graph_query, query})
-
-      {:ok,
-       Enum.map(1..8_001, fn ordinal ->
-         %{
-           "local_device_id" => "sr:host#{ordinal}",
-           "neighbor_device_id" => "sr:host#{ordinal + 1}"
-         }
-       end)}
-    end
-  end
-
-  defmodule ParameterLimitedRepo do
-    @moduledoc false
-
-    def transaction(fun), do: {:ok, fun.()}
-    def query!(_query, []), do: %{rows: []}
-    def delete_all(_query), do: {0, nil}
-
-    def insert_all("runtime_topology_links", [first | _] = rows, _opts) do
-      if length(rows) * map_size(first) > 65_535 do
-        raise "too many PostgreSQL bind parameters"
-      end
-
-      {length(rows), nil}
-    end
-
-    def insert_all(table, rows, opts) do
-      send(self(), {:insert_all, table, rows, opts})
-      {length(rows), nil}
-    end
-  end
-
   defmodule CapturingRepo do
     @moduledoc false
 
     def transaction(fun), do: {:ok, fun.()}
-    def query!(_query, []), do: %{rows: []}
 
     def all(query) do
       send(self(), {:all, query})

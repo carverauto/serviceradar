@@ -6,27 +6,13 @@ defmodule ServiceRadarWebNG.Topology.AtlasSourceTest do
 
   @moduletag :db_free
 
-  test "AGE and Dgraph retain isolated canonical vertices and union missing relation endpoints" do
+  test "Dgraph retains isolated canonical vertices and unions missing relation endpoints" do
     edges = [%{source: "sr:host01.example.com", target: "sr:host02.example.com"}]
 
-    sources = [
-      {:age,
-       [
-         %{"id" => "sr:host01.example.com", "label" => "host01.example.com"},
-         %{"id" => "sr:host03.example.com", "label" => "host03.example.com"},
-         %{"id" => "legacy:host04.example.com", "label" => "host04.example.com"}
-       ]},
-      {:dgraph,
-       %{
-         "nodes" => [
-           %{"device.id" => "sr:host01.example.com", "device.hostname" => "host01.example.com"},
-           %{"device.id" => "sr:host03.example.com", "device.hostname" => "host03.example.com"},
-           %{
-             "device.id" => "legacy:host04.example.com",
-             "device.hostname" => "host04.example.com"
-           }
-         ]
-       }}
+    vertices = [
+      %{id: "sr:host01.example.com", hostname: "host01.example.com", ip: nil},
+      %{id: "sr:host03.example.com", hostname: "host03.example.com", ip: nil},
+      %{id: "legacy:host04.example.com", hostname: "host04.example.com", ip: nil}
     ]
 
     expected = [
@@ -35,25 +21,20 @@ defmodule ServiceRadarWebNG.Topology.AtlasSourceTest do
       %{id: "sr:host03.example.com", label: "host03.example.com"}
     ]
 
-    for {backend, response} <- sources do
-      query = fn _statement -> {:ok, response} end
-
-      assert {:ok, ^expected} = AtlasSource.fetch_nodes(edges, {backend, query})
-      assert {:ok, index} = Atlas.build(expected, edges)
-      assert {:ok, %{counts: %{members: 3, aggregates: 2}}} = Atlas.fetch(index)
-    end
+    assert {:ok, ^expected} = AtlasSource.decode_nodes(vertices, edges)
+    assert {:ok, index} = Atlas.build(expected, edges)
+    assert {:ok, %{counts: %{members: 3, aggregates: 2}}} = Atlas.fetch(index)
   end
 
   test "vertex response parsing is deterministic and retains useful labels without a source cap" do
     rows =
       for number <- 1..10_001 do
-        %{"device.id" => "sr:host#{number}.example.com", "device.hostname" => ""}
+        %{id: "sr:host#{number}.example.com", hostname: "", ip: nil}
       end
 
-    rows = [%{"device.id" => "sr:host1.example.com", "device.ip" => "192.0.2.1"} | rows]
-    source = fn rows -> {:dgraph, fn _statement -> {:ok, %{"nodes" => rows}} end} end
-    assert {:ok, forward} = AtlasSource.fetch_nodes([], source.(rows))
-    assert {:ok, ^forward} = AtlasSource.fetch_nodes([], source.(Enum.reverse(rows)))
+    rows = [%{id: "sr:host1.example.com", hostname: nil, ip: "192.0.2.1"} | rows]
+    assert {:ok, forward} = AtlasSource.decode_nodes(rows, [])
+    assert {:ok, ^forward} = AtlasSource.decode_nodes(Enum.reverse(rows), [])
     assert length(forward) == 10_001
     assert %{label: "192.0.2.1"} = Enum.find(forward, &(&1.id == "sr:host1.example.com"))
 
@@ -61,35 +42,25 @@ defmodule ServiceRadarWebNG.Topology.AtlasSourceTest do
              Enum.find(forward, &(&1.id == "sr:host10001.example.com"))
   end
 
-  test "query failures and malformed response envelopes fail instead of publishing an empty graph" do
-    for {backend, response} <- [
-          {:age, %{}},
-          {:age, [:invalid]},
-          {:age, [%{}]},
-          {:dgraph, %{}},
-          {:dgraph, %{"nodes" => nil}},
-          {:dgraph, %{"nodes" => [%{}]}}
+  test "malformed Dgraph responses and endpoints fail instead of publishing an empty graph" do
+    for vertices <- [
+          %{},
+          nil,
+          [:invalid],
+          [%{}],
+          [%{id: nil, hostname: nil, ip: nil}],
+          [%{id: "", hostname: nil, ip: nil}],
+          [%{id: "sr:host01.example.com", hostname: %{}, ip: nil}],
+          [%{id: "sr:host01.example.com", hostname: nil, ip: []}],
+          [%{id: "sr:host01.example.com", hostname: "host01.example.com", ip: nil}, %{}]
         ] do
-      assert {:error, :invalid_vertex_response} =
-               AtlasSource.fetch_nodes([], {backend, fn _statement -> {:ok, response} end})
+      assert {:error, :invalid_vertex_response} = AtlasSource.decode_nodes(vertices, [])
     end
 
-    assert {:error, :unavailable} =
-             AtlasSource.fetch_nodes([], {:age, fn _ -> {:error, :unavailable} end})
-
-    assert {:error, :invalid_vertex_response} =
-             AtlasSource.fetch_nodes([], {:age, fn _ -> :ok end})
-
-    assert {:error, {:vertex_read_exit, :timeout}} =
-             AtlasSource.fetch_nodes([], {:age, fn _ -> exit(:timeout) end})
-
-    assert {:error, {:vertex_read_failed, %RuntimeError{}}} =
-             AtlasSource.fetch_nodes([], {:age, fn _ -> raise "unavailable" end})
-
     assert {:error, :invalid_edge_endpoint} =
-             AtlasSource.fetch_nodes(
-               [%{source: "legacy", target: "sr:host01.example.com"}],
-               {:age, fn _ -> {:ok, []} end}
+             AtlasSource.decode_nodes(
+               [],
+               [%{source: "legacy", target: "sr:host01.example.com"}]
              )
   end
 end

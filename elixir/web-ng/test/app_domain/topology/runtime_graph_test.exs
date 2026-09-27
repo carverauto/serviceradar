@@ -6,78 +6,6 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
 
   @moduletag :db_free
 
-  test "topology_links_query/0 reads canonical layered backbone plus mapper attachment evidence" do
-    query = RuntimeGraph.topology_links_query()
-
-    assert query =~ "MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)"
-    assert query =~ "MATCH (ai:Interface)-[r]->(bi:Interface)"
-    assert query =~ "a.id STARTS WITH 'sr:'"
-    assert query =~ "b.id STARTS WITH 'sr:'"
-    assert query =~ "toUpper(coalesce(r.relation_type, '')) IN ['CONNECTS_TO', 'LOGICAL_PEER', 'HOSTED_ON']"
-    assert query =~ "type(r) IN ['ATTACHED_TO', 'OBSERVED_TO']"
-    assert query =~ "MATCH (a:Device {id: ai.device_id})"
-    assert query =~ "MATCH (b:Device {id: bi.device_id})"
-    assert query =~ "observed_at: coalesce(r.last_observed_at, r.observed_at, '')"
-
-    assert query =~
-             "coalesce(r.relation_type, '') = '' AND toLower(coalesce(r.evidence_class, '')) IN ['direct', 'direct-physical', 'direct-logical', 'hosted-virtual']"
-  end
-
-  test "topology_links_query/0 stays on the canonical-plus-mapper read model even if legacy flag is set false" do
-    original = Application.get_env(:serviceradar_web_ng, :god_view_backend_authoritative_topology)
-
-    try do
-      Application.put_env(:serviceradar_web_ng, :god_view_backend_authoritative_topology, false)
-      query = RuntimeGraph.topology_links_query()
-      assert query =~ "MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)"
-      assert query =~ "MATCH (ai:Interface)-[r]->(bi:Interface)"
-    after
-      if is_nil(original) do
-        Application.delete_env(:serviceradar_web_ng, :god_view_backend_authoritative_topology)
-      else
-        Application.put_env(
-          :serviceradar_web_ng,
-          :god_view_backend_authoritative_topology,
-          original
-        )
-      end
-    end
-  end
-
-  test "topology_links_query/0 returns relation metadata and interface attribution" do
-    query = RuntimeGraph.topology_links_query()
-
-    assert query =~ "relation_type: coalesce(r.relation_type, type(r))"
-    assert query =~ "WHEN toUpper(coalesce(r.relation_type, '')) = 'LOGICAL_PEER' THEN 'logical'"
-    assert query =~ "WHEN toUpper(coalesce(r.relation_type, '')) = 'HOSTED_ON' THEN 'hosted'"
-    assert query =~ "topology_plane: 'attachment'"
-    assert query =~ "local_if_name: coalesce(r.local_if_name, '')"
-    assert query =~ "local_if_index: r.local_if_index"
-    assert query =~ "local_if_name_ab: coalesce(r.local_if_name_ab, r.local_if_name, '')"
-    assert query =~ "local_if_index_ab: coalesce(r.local_if_index_ab, r.local_if_index)"
-    assert query =~ "local_if_name_ba: coalesce(r.local_if_name_ba, r.neighbor_if_name, '')"
-    assert query =~ "local_if_index_ba: coalesce(r.local_if_index_ba, r.neighbor_if_index)"
-    assert query =~ "neighbor_if_name: coalesce(r.neighbor_if_name, '')"
-    assert query =~ "neighbor_if_index: r.neighbor_if_index"
-    assert query =~ "confidence_reason: coalesce(r.confidence_reason, '')"
-    assert query =~ "flow_pps_ab: coalesce(r.flow_pps_ab, 0)"
-    assert query =~ "flow_bps_ab: coalesce(r.flow_bps_ab, 0)"
-    assert query =~ "telemetry_eligible: coalesce("
-    assert query =~ "telemetry_source: coalesce(r.telemetry_source, 'none')"
-    assert query =~ "telemetry_eligible: false"
-    assert query =~ "telemetry_source: 'none'"
-    assert query =~ "evidence_class: coalesce(r.evidence_class, 'endpoint-attachment')"
-  end
-
-  test "projection read action trusts initialized empty projections" do
-    assert RuntimeGraph.projection_read_action({:ok, []}) == {:projected, []}
-
-    assert RuntimeGraph.projection_read_action({:error, :projection_uninitialized}) ==
-             :fallback_uninitialized
-
-    assert RuntimeGraph.projection_read_action({:error, :boom}) == {:fallback_error, :boom}
-  end
-
   test "canonical_edge_to_runtime_row/1 maps Dgraph edges onto the God View row contract" do
     row =
       RuntimeGraph.canonical_edge_to_runtime_row(%{
@@ -148,20 +76,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraphTest do
     refute RuntimeGraph.backbone_runtime_row?(row)
 
     refute RuntimeGraph.canonical_runtime_row?(row),
-           "AGE excludes an inferred canonical edge; the Dgraph read must match"
-  end
-
-  test "topology_diagnostics_query/0 exposes canonical edge health counters" do
-    query = RuntimeGraph.topology_diagnostics_query()
-
-    assert query =~ "canonical_edges"
-    assert query =~ "backbone_candidates"
-    assert query =~ "attachment_candidates"
-    assert query =~ "missing_relation_type"
-    assert query =~ "missing_evidence_class"
-    assert query =~ "missing_endpoint_ids"
-    assert query =~ "non_canonical_endpoint_ids"
-    assert query =~ "missing_observed_at"
+           "unclassified evidence must not enter the canonical display graph"
   end
 
   test "virtualization_inventory_links_query/0 projects host-to-guest inventory as hosted topology" do

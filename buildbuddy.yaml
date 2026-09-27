@@ -497,6 +497,7 @@ actions:
           # Reuse the now-quiescent serial_0 database before cleanup; the manual target cannot be
           # selected by the wildcard.
           bazel test $FLAGS //elixir/web-ng:networks_live_db_test
+          bazel test $FLAGS //elixir/web-ng:topology_atlas_db_test
 
       # BENCHMARKS. Run so they cannot rot; NOT gated on a threshold.
       #

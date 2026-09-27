@@ -1,70 +1,59 @@
 ## ADDED Requirements
-### Requirement: God-View default topology is a bounded backbone projection
-The God-View default topology canvas SHALL render a bounded, infrastructure-first backbone projection rather than an unbounded graph of every discovered relation.
 
-#### Scenario: Dense endpoint environments remain bounded
-- **GIVEN** topology source data contains infrastructure devices plus many endpoint attachments
-- **WHEN** an operator opens the default God-View surface
-- **THEN** the surface SHALL render the transport backbone and anchored endpoint summary affordances
-- **AND** it SHALL NOT attempt to render every endpoint attachment as a first-class default graph node
+### Requirement: God-View default topology is a bounded tile overview
+The God-View overview SHALL show infrastructure-first quadtree tiles with stable aggregates for hidden endpoint membership, using bounded feature and encoded-byte budgets independently of total inventory size.
 
-#### Scenario: Unresolved topology sightings do not appear as backbone peers
-- **GIVEN** the topology source includes unresolved `sr:*` identities, null-neighbor rows, or duplicate identity fragments
-- **WHEN** the default God-View backbone snapshot is rendered
-- **THEN** those identities SHALL NOT appear as first-class infrastructure peers in the default graph
-- **AND** the surface SHALL instead expose them through diagnostics or attachment-detail workflows
+#### Scenario: Dense inventory remains represented
+- **GIVEN** the invented million-device hierarchy is available
+- **WHEN** an operator opens God-View at zoom zero
+- **THEN** the overview SHALL render bounded server-positioned infrastructure and aggregate glyphs
+- **AND** aggregate counts plus individually represented devices SHALL account for all admitted membership
+- **AND** search and bounded detail navigation SHALL keep every admitted device reachable
 
-### Requirement: God-View geometry has a single frontend authority
-The God-View frontend SHALL be the only authority for visible topology geometry. Each bounded atlas level SHALL select exactly one frontend layout pipeline, and the system SHALL NOT combine backend-authored layout with competing frontend node-placement passes inside the same accepted scene.
+### Requirement: God-View map and detail geometry have explicit authorities
+The God-View overview SHALL render persistent server-authored world coordinates. Browser ELK SHALL own only a bounded detail scene entered explicitly from the map; the client SHALL NOT mix map and detail placement or perform a second layout pass over accepted geometry.
 
-#### Scenario: Backbone geometry is computed once in the frontend
-- **GIVEN** a God-View snapshot includes bounded backbone topology and the metadata required for layout
-- **WHEN** the frontend renders that snapshot
-- **THEN** it SHALL compute backbone geometry through the configured frontend layout path
-- **AND** the system SHALL NOT apply any backend-authored backbone coordinates to that same visible graph
+#### Scenario: Tile geometry remains stable across navigation
+- **WHEN** the operator pans, zooms, or reloads the map
+- **THEN** the accepted layout version SHALL provide the same world coordinates
+- **AND** the client SHALL apply only the declared UInt16 tile-local affine transform and camera transform
 
-#### Scenario: Expanded neighborhoods enter one bounded focus layout
-- **GIVEN** an operator expands an endpoint summary or attachment neighborhood
-- **WHEN** the expanded detail view is rendered
-- **THEN** the frontend SHALL enter a bounded focus level and select exactly one layout pipeline for that visible set
-- **AND** it SHALL NOT move those nodes through an additional competing node-placement pass after the selected layout completes
+#### Scenario: Detail entry preserves map state
+- **WHEN** the operator opens a neighborhood or attachment-member page
+- **THEN** the client SHALL enter one bounded ELK coordinate space
+- **AND** returning SHALL restore the map camera and compatible cached tiles
+- **AND** detail layout SHALL NOT move the map's device positions
 
-### Requirement: God-View bootstraps from HTTP snapshot before streaming
-The God-View surface SHALL support reliable first paint by loading the current global atlas level over HTTP before or while joining channel invalidations. Child levels and member pages SHALL also arrive over HTTP; channel traffic SHALL be limited to bounded invalidations and small deltas.
+### Requirement: God-View bootstraps visible tiles over HTTP
+The God-View surface SHALL load a bounded layout manifest and visible schema-3 tiles over HTTP independently of channel timing. The channel SHALL deliver only bounded invalidations and separate telemetry overlays, with explicit reset markers on overflow.
 
-#### Scenario: First load succeeds without waiting for a stream snapshot
-- **GIVEN** the page exposes a latest-level HTTP endpoint and a topology invalidation channel
-- **WHEN** an operator opens the topology page
-- **THEN** the UI SHALL request the current global level for initial paint
-- **AND** it SHALL render that level without waiting for a channel event
+#### Scenario: First load does not wait for a stream snapshot
+- **GIVEN** an accepted layout has low-zoom tiles available
+- **WHEN** the operator opens God-View before channel delivery
+- **THEN** the UI SHALL request and render the visible HTTP tiles
+- **AND** it SHALL NOT wait for a channel graph payload
 
-#### Scenario: Stream disruption preserves the last good topology view
-- **GIVEN** the topology page has already rendered a valid snapshot
-- **WHEN** the stream disconnects or channel join fails
-- **THEN** the UI SHALL preserve the last good snapshot on screen
-- **AND** it SHALL retry streaming updates without blanking the surface
-- **AND** revision reconciliation SHALL fetch only the required bounded level over HTTP
+#### Scenario: Stream disruption preserves cached geometry
+- **GIVEN** a valid map has rendered
+- **WHEN** its channel disconnects
+- **THEN** the UI SHALL retain compatible geometry
+- **AND** reconnect SHALL reconcile publication and overlay identities
+- **AND** only required visible dirty tiles SHALL be refetched
 
-### Requirement: God-View enforces label and neighborhood density budgets
-The God-View server SHALL enforce visible-node, relation, identity-label, member, and encoded-byte budgets for each semantic level before delivery. The renderer SHALL preserve those bounds, suppress edge labels by default, and reduce visible membership further when required for readability.
+### Requirement: God-View enforces tile and detail density budgets
+The server SHALL enforce separate node, relation, label, member, total-feature, and encoded-byte budgets before delivering tiles or bounded details. Tile overflow SHALL generalize with conserved membership; detail overflow SHALL use bounded pages or summaries. Labels and edge details SHALL remain readable within the selected presentation density.
 
-#### Scenario: Zoomed-out view suppresses dense labels
-- **GIVEN** a topology view with many visible nodes
-- **WHEN** the operator is at a low or mid zoom tier
-- **THEN** the visible level SHALL aggregate or page nodes to fit the configured identity-label budget
-- **AND** it SHALL suppress edge labels unless the view is sufficiently focused
+#### Scenario: Maximum-zoom overflow remains discoverable
+- **GIVEN** a tile remains denser than its budgets at maximum zoom
+- **WHEN** it is generated
+- **THEN** bounded aggregates SHALL retain correct counts and detail references
+- **AND** the tile SHALL NOT transmit an oversized member list or silently drop members
 
-#### Scenario: Rendered glyphs remain self-identifying
-- **GIVEN** an atlas level has admitted a node or aggregate glyph into its bounded visible set
-- **WHEN** the renderer applies that level's label budget
-- **THEN** the glyph SHALL retain a non-colliding identity label without requiring hover
-- **AND** the renderer SHALL reduce, aggregate, or page the visible set rather than leave anonymous admitted glyphs
-
-#### Scenario: Endpoint expansion exceeds visible budget
-- **GIVEN** an anchor has more endpoint members than the configured visible neighborhood budget
-- **WHEN** the operator expands that endpoint group
-- **THEN** the UI SHALL render a bounded visible subset or a paged/summary drill-down
-- **AND** it SHALL NOT draw an unbounded overlapping fan-out on the shared canvas
+#### Scenario: Detail expansion cannot grow the world graph
+- **GIVEN** an attachment group exceeds its bounded detail budget
+- **WHEN** it is expanded
+- **THEN** only one bounded member page and required context SHALL enter ELK
+- **AND** the map SHALL retain its original persistent coordinates and bounded tiles
 
 ### Requirement: God-View distinguishes local health from evidence-backed impact
 The God-View surface SHALL render `Affected` or equivalent impact states only when supported by qualifying causal evidence, and SHALL NOT infer a blast radius solely from graph proximity to an unhealthy node.

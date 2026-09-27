@@ -16,6 +16,7 @@ defmodule ServiceRadar.Dgraph do
   @type count_result :: {:ok, non_neg_integer()} | {:error, String.t()}
   @type query_result :: {:ok, term()} | {:error, String.t()}
   @type edges_result :: {:ok, [map()]} | {:error, String.t()}
+  @type graph_result :: {:ok, %{nodes: [map()], edges: [map()]}} | {:error, String.t()}
 
   @doc """
   Resolve the `dgraph://` URL.
@@ -130,6 +131,14 @@ defmodule ServiceRadar.Dgraph do
   def query_canonical_edges do
     with {:ok, url} <- url() do
       Native.query_canonical_edges(url)
+    end
+  end
+
+  @doc "Reads all canonical vertices and edges through bounded pages from one Dgraph snapshot."
+  @spec query_canonical_graph() :: graph_result()
+  def query_canonical_graph do
+    with {:ok, url} <- url() do
+      Native.query_canonical_graph(url)
     end
   end
 

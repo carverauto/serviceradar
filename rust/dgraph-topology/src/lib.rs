@@ -22,6 +22,7 @@
 //! Schema apply/verify/remove goes through `dgraph-migrate`; this crate owns
 //! the schema string and the typed mutations.
 
+mod canonical_read;
 mod client;
 mod downstream;
 mod errors;
@@ -39,6 +40,6 @@ pub use crate::schema::{
     schema_spec,
 };
 pub use crate::types::{
-    CanonicalEdge, ChangeWrite, DeviceWrite, EdgeKind, EdgeWrite, HopWrite, InterfaceWrite,
-    NeighbourhoodEdge, PrefixWrite, link_key,
+    CanonicalDevice, CanonicalEdge, CanonicalGraph, ChangeWrite, DeviceWrite, EdgeKind, EdgeWrite,
+    HopWrite, InterfaceWrite, NeighbourhoodEdge, PrefixWrite, link_key,
 };

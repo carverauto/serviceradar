@@ -1,3 +1,6 @@
+## Carrier-scale scope amendment
+The confirmed #4774 tile-engine contract gives the overview persistent server-authored world coordinates. The ELK geometry, routing, collision, and camera contracts below now apply only to explicitly entered bounded detail scenes. Map and detail coordinates remain separate; the tile overview does not run ELK. The carrier-scale change owns world layout, z/x/y tiles, dirty-tile invalidation, separate telemetry, and map caches. Earlier observations below remain historical rationale, not million-device tile acceptance evidence.
+
 ## Context
 God-View currently has several geometry authorities:
 

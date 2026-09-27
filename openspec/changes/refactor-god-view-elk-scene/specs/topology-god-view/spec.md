@@ -1,98 +1,76 @@
 ## MODIFIED Requirements
 
 ### Requirement: Versioned Binary Topology Snapshots
-The system SHALL deliver God-View topology using the versioned schema-3 Arrow IPC contract and required metadata for deterministic typed-column decoding. Semantic atlas levels SHALL extend this contract rather than introduce a parallel graph format.
+The system SHALL deliver God-View geometry using the schema-3 Arrow IPC contract from #4749. Overview tiles and bounded detail scenes SHALL extend that contract without introducing a parallel JSON graph format.
 
-Each level (including a global full-graph read) SHALL use one bounded record batch of schema version `3`, in which node rows come first and edge rows follow, with `node_count` and `edge_count` recorded in the Arrow schema metadata. Every numeric column is therefore dense over rows `0..node_count` for nodes and `node_count..node_count + edge_count` for edges, and a decoder MUST be able to slice positions, states and endpoints without branching on `row_type` or parsing JSON.
-- Node columns:
-  - `node_x`, `node_y` (`u16`, quantized layout coordinates; compatibility hints, non-authoritative for ELK scene geometry)
-  - `node_state` (`u16`, enum-mapped causal class)
-  - `node_label` (`utf8`)
-  - `node_pps` (`u32`)
-  - `node_oper_up` (`u8`)
-  - `node_details` (`utf8`, JSON)
-- Edge columns:
-  - `edge_source`, `edge_target` (`u32`, required for edge rows; node row indexes, so snapshots above 65535 nodes can name both endpoints)
-  - `edge_pps`, `edge_pps_ab`, `edge_pps_ba` (`u32`)
-  - `edge_flow_bps`, `edge_flow_bps_ab`, `edge_flow_bps_ba`, `edge_capacity_bps` (`u64`)
-  - `edge_telemetry_eligible` (`u8`)
-  - `edge_label`, `edge_topology_class`, `edge_protocol`, `edge_evidence_class` (`utf8`)
-  - `edge_details` (`utf8`, JSON)
-- Details columns: every details key read for every row by rendering, filtering, clustering, labeling or layout MUST also be emitted as a typed column named `node_detail_<key>`, `edge_detail_<key>` or `edge_metadata_<key>` (text `utf8`, number `f64`, flag `u8`). These are derived from the same JSON the row ships, so a column never disagrees with its row. `edge_has_metadata`, `edge_has_sparkline` and `details_irregular` (`u8`) accompany them; `details_irregular` marks a row with a value a column cannot carry exactly, and that row's irregular detail SHALL be decoded lazily on request rather than reconstructed for every row on interaction.
-- `row_type` (`i8`), `snapshot_schema_version` (`u32`) and `snapshot_revision` (`u64`) are present on every row.
+Each payload SHALL contain one bounded record batch with `row_type` distinguishing node and edge rows, typed positions, UInt32 batch-local `edge_source` and `edge_target`, columnar regular details, and lazily decoded `details_irregular`. The schema SHALL retain required schema/revision columns and metadata. Missing required columns, incompatible types, invalid local endpoint references, nonfinite coordinates, or inconsistent identity metadata SHALL reject the payload without replacing the last compatible accepted scene.
 
-The batch schema metadata SHALL include `schema_version`, `revision`, `level_id`, and `parent_level_id`, together with level kind, structural signature, causal bitmap metadata, actual node and edge counts, applicable budgets, and bounded continuation information. A global root SHALL have no parent; every child level SHALL identify its parent. HTTP metadata and batch metadata SHALL agree. Edge endpoint indices and causal bitmap positions SHALL refer to the local returned node set, not the canonical graph.
+Tile metadata SHALL include `payload_kind=tile`, `layout_version`, `z`, `x`, `y`, `tile_revision`, coordinate-space metadata, actual feature counts, and applicable cardinality and encoded-byte budgets. Persisted integer world coordinates in the fixed extent `0..2^24-1` SHALL be authoritative for tiles. Schema-3 `node_x` and `node_y` SHALL retain UInt16 tile-local coordinates with explicit affine world-origin and extent metadata. The coordinate error SHALL remain below one tile width per axis divided by 65535. Adjacent tiles SHALL use a deterministic shared-boundary convention; the browser SHALL NOT recompute overview placement. Persisted integer stability and bounded wire quantization error SHALL be measured separately.
 
-Backend position columns SHALL remain non-authoritative compatibility hints for the ELK scene path. The frontend SHALL derive every accepted visible coordinate and route from the bounded semantic graph through its single selected geometry pipeline.
+Bounded detail metadata SHALL include `payload_kind=detail`, `level_id`, `parent_level_id`, content revision, structural signature, selected layout algorithm, counts, budgets, and bounded continuation. Its coordinates SHALL belong to the selected detail scene; one validated ELK result SHALL author its accepted geometry. Detail coordinates SHALL NOT move persisted map positions. All edge references SHALL resolve inside the returned batch, including explicitly non-owning clipping proxies used by tiles.
 
-#### Scenario: Client accepts supported snapshot schema
-- **GIVEN** the server emits a bounded schema-3 level
-- **WHEN** the God-View client receives the payload
-- **THEN** the client decodes nodes and edges into typed columns without parsing details JSON
-- **AND** the client renders the level identified by the batch metadata at the decoded snapshot revision
+#### Scenario: Tile positions preserve world authority
+- **GIVEN** a supported schema-3 tile from an accepted layout version
+- **WHEN** the client decodes its typed columns
+- **THEN** it SHALL render the server-authored world positions using the declared coordinate transform
+- **AND** it SHALL NOT invoke ELK for overview tile placement
 
-#### Scenario: Client handles unsupported snapshot schema
-- **GIVEN** the server emits an unsupported schema version
-- **WHEN** the God-View client receives the payload
-- **THEN** it SHALL reject the revision and display a recoverable compatibility error
-- **AND** the previous accepted level SHALL remain active
+#### Scenario: Detail coordinates remain separate
+- **GIVEN** a bounded detail payload is opened from a map device or aggregate
+- **WHEN** the client lays out that detail scene
+- **THEN** one selected ELK pipeline SHALL author its accepted coordinates and routes
+- **AND** neither its output nor its camera SHALL overwrite the map's persisted coordinate space
 
-#### Scenario: Client validates required level metadata
-- **GIVEN** a level response lacks required metadata or disagrees with its HTTP envelope
-- **WHEN** the client validates the response
-- **THEN** it SHALL reject the response rather than cache it under a different level or revision
-- **AND** the previous accepted level SHALL remain active
+#### Scenario: Unsupported or inconsistent payload preserves the last good scene
+- **GIVEN** a payload has an unsupported schema or invalid required columns, endpoints, coordinates, or identity metadata
+- **WHEN** the client validates the payload
+- **THEN** it SHALL reject it and expose a recoverable compatibility or data error
+- **AND** the last compatible accepted scene SHALL remain active
 
-#### Scenario: Client validates required columns for schema version 3
-- **GIVEN** the server emits schema version `3`
-- **WHEN** the client validates the record batch columns
-- **THEN** missing required columns, incompatible typed endpoints, or out-of-range local node references SHALL cause the revision to be rejected
-- **AND** absent details columns fall back to parsing that row's details JSON rather than blocking typed-column decoding
-
-#### Scenario: Lazy details do not replace columnar interaction paths
-- **GIVEN** a level includes details columns and irregular detail content
-- **WHEN** the operator filters, pans, zooms, hovers, or selects
-- **THEN** the client SHALL retain the typed-column interaction path
-- **AND** it SHALL decode only the requested irregular details
-
-#### Scenario: Endpoint indexes above 65535 round-trip
-- **GIVEN** a snapshot with more than 65535 nodes and edges whose endpoints index nodes above 65535
-- **WHEN** the snapshot is encoded by the server and decoded by the client
-- **THEN** every edge resolves to the node rows it names
-- **AND** the decoded position column has length twice the node count
-
-#### Scenario: Legacy coordinate hints do not become a second authority
-- **GIVEN** a supported snapshot contains finite `node_x` and `node_y` compatibility hints
-- **WHEN** the ELK scene path lays out the bounded level
-- **THEN** the client SHALL NOT apply those hints as accepted node positions
-- **AND** every accepted coordinate and route SHALL come from that pipeline's validated result
+#### Scenario: Details remain lazy
+- **GIVEN** a tile or detail scene contains regular details columns and irregular detail content
+- **WHEN** the operator pans, zooms, filters, hovers, or selects
+- **THEN** interaction SHALL retain typed-column access
+- **AND** only the requested irregular details SHALL be decoded
 
 ### Requirement: Structural Reshape Contract
-The system SHALL distinguish visual-only filtering, navigation between bounded semantic levels, and changes to canonical topology. Level navigation SHALL request bounded membership from the backend without treating navigation itself as a canonical structural revision.
+The system SHALL distinguish local presentation filters, viewport tile selection, bounded detail navigation, geometry publication, and telemetry overlays. Presentation and navigation SHALL NOT mutate canonical topology or trigger a world relayout.
 
-#### Scenario: Visual-only filter action
-- **WHEN** the operator hides or highlights a class without changing graph structure
-- **THEN** the client SHALL apply the change locally to the accepted bounded level
-- **AND** a managed route SHALL render only when its visible endpoint contract remains satisfied
-- **AND** a valid anchor-to-group trunk MAY remain when the compound-group contract resolves its non-rendered gateway
+#### Scenario: Viewport navigation fetches bounded geometry
+- **WHEN** the operator pans or zooms the overview
+- **THEN** the client SHALL select only visible tiles and a configured bounded prefetch neighborhood
+- **AND** compatible cached tiles SHALL be reused without recomputing world coordinates
 
-#### Scenario: Expansion or collapse navigates bounded levels
-- **WHEN** the operator expands or collapses a summary
-- **THEN** the client SHALL select the corresponding child or parent level at the compatible revision
-- **AND** uncached membership SHALL arrive as one bounded HTTP level response
-- **AND** the frontend SHALL compute accepted coordinates and routes through that level's single selected geometry pipeline
-- **AND** returning to a compatible cached parent SHALL NOT require a fetch or canonical recomputation
+#### Scenario: Visual filters preserve accepted geometry
+- **WHEN** the operator hides or highlights a class in resident geometry
+- **THEN** the client SHALL apply the presentation change locally
+- **AND** rendered relations SHALL continue to satisfy their visible endpoint contract
+- **AND** the filter SHALL NOT cause canonical recomputation or a new layout version
 
-#### Scenario: Canonical topology changes invalidate affected levels
-- **WHEN** canonical membership or semantic relations change
-- **THEN** the backend SHALL recompute affected level memberships and structural signatures
-- **AND** it SHALL publish bounded revision invalidations for affected levels
-- **AND** unrelated cached levels SHALL remain reusable when their signatures match
+#### Scenario: Explicit bounded detail navigation preserves the map
+- **WHEN** the operator opens a device neighborhood or attachment-member page
+- **THEN** the client SHALL fetch only the bounded required detail if it is not cached
+- **AND** it SHALL enter a separate ELK coordinate space while preserving map camera and selection
+- **AND** exiting SHALL restore the compatible map tiles and camera without a geometry refetch
+
+#### Scenario: Geometry publication invalidates affected tiles
+- **WHEN** canonical membership, static geometry content, or relation bindings change
+- **THEN** the backend SHALL publish a complete new generation within the current layout version unless explicit relayout is required
+- **AND** only changed tiles and changed bounded detail identities SHALL be invalidated
+- **AND** unchanged tiles SHALL retain their content revisions
+
+#### Scenario: Telemetry does not reshape topology
+- **WHEN** health, last-seen data, or traffic changes without a geometry change
+- **THEN** the server SHALL deliver a bounded telemetry overlay
+- **AND** layout version, accepted device positions, and geometry tile revisions SHALL remain unchanged
 
 ## ADDED Requirements
 
-### Requirement: ELK is the single visible topology geometry authority
-The God-View client SHALL produce the complete bounded visible topology scene through one compound ELK layout invocation. It SHALL NOT apply a second backbone, satellite, endpoint-cluster, route, fallback, or backend-coordinate projection pass to the accepted result.
+The requirements below apply to bounded ELK detail scenes. Server-authored overview tiles are governed by the carrier-scale tile contract and do not invoke ELK or inherit detail-scene geometry constants.
+
+
+### Requirement: ELK is the single bounded detail geometry authority
+The God-View client SHALL produce each bounded ELK detail scene through one compound ELK layout invocation. The tile overview SHALL instead use server-authored persistent world coordinates under the carrier-scale tile contract; these coordinate spaces SHALL be entered and left explicitly. It SHALL NOT apply a second backbone, satellite, endpoint-cluster, route, fallback, or backend-coordinate projection pass to the accepted result.
 
 Managed visual density SHALL remain presentation-only state. It MAY change fixed-pixel glyph radii, rendered path widths, and label candidate budgets, but it SHALL NOT change the semantic graph, ELK input geometry, accepted node/group coordinates, semantic branch points, or manifold rail/trunk points.
 
@@ -134,7 +112,7 @@ Managed visual density SHALL remain presentation-only state. It MAY change fixed
 - **AND** the client SHALL NOT invoke ELK or a post-layout packing pass solely for the density change
 
 ### Requirement: Expanded endpoint clusters are compound layout groups
-The God-View client SHALL represent each expanded endpoint cluster as a compound layout group allocated together with the rest of the bounded graph. Every member SHALL be contained by its group, and non-nested node and group boxes SHALL NOT overlap.
+Within a bounded ELK detail scene, the God-View client SHALL represent each expanded endpoint cluster as a compound layout group allocated together with the rest of that bounded detail graph. Every member SHALL be contained by its group, and non-nested node and group boxes SHALL NOT overlap.
 
 A visible collapsed summary SHALL keep a conservative `448x448` world-unit minimum ELK glyph envelope. The expanded non-rendered gateway SHALL keep a `112x112` minimum, each expanded member SHALL keep a `96x96` minimum, and each ordinary or anchor glyph SHALL keep a `112x112` minimum. Relation degree SHALL NOT inflate any of these real glyph envelopes.
 
@@ -196,7 +174,7 @@ Each rendered or layout-only relation SHALL be owned by the lowest common ELK co
 - **AND** relations crossing group boundaries SHALL remain root-owned
 
 ### Requirement: Rendered relations are canonicalized before ELK
-The God-View client SHALL collapse semantic relations into stable semantic `scene.routes` entities before building the ELK graph. Each entity SHALL have one canonical direction, one stable ELK edge identifier, and a sorted list of contributing semantic relation identifiers. Direction SHALL be decided from the complete aggregate: attachment evidence SHALL orient a pair from infrastructure to its sole attachment satellite, while every other pair SHALL use lexical endpoint order.
+For a bounded ELK detail scene, the God-View client SHALL collapse its admitted semantic relations into stable semantic `scene.routes` entities before building the ELK graph. Each entity SHALL have one canonical direction, one stable ELK edge identifier, and a sorted list of contributing semantic relation identifiers. Direction SHALL be decided from the complete aggregate: attachment evidence SHALL orient a pair from infrastructure to its sole attachment satellite, while every other pair SHALL use lexical endpoint order.
 
 Load-bearing inferred-segment evidence SHALL preserve connectivity through a deterministic spanning forest selected after device lookup. A retained forest bridge SHALL bypass endpoint-attachment collapse, use normalized transport semantics, retain its raw relation/evidence provenance, and remain protected from downstream attachment promotion. Redundant inferred-segment rows, explicit shared attachments, and direct single-identifier attachment candidates SHALL NOT seed that forest.
 
@@ -321,7 +299,7 @@ After applying configured zoom-tier candidate budgets, the God-View renderer SHA
 - **AND** it SHALL NOT invoke ELK solely because the camera moved
 
 ### Requirement: Managed camera operations use complete visual bounds
-God-View initial view and Fit SHALL contain the complete visual scene inside the measured safe viewport. Focus SHALL contain the selected neighborhood's complete visual bounds. Both SHALL account for relevant nodes, compound groups, every semantic branch and manifold rail/trunk, glyph extents, admitted labels, and interface safe areas through one coordinate convention.
+God-View initial view and Fit for a bounded ELK detail scene SHALL contain that complete detail scene inside the measured safe viewport. Overview map Fit SHALL use the server world or selected container extent without loading or laying out every device. Focus SHALL contain the selected neighborhood's complete visual bounds. Both SHALL account for relevant nodes, compound groups, every semantic branch and manifold rail/trunk, glyph extents, admitted labels, and interface safe areas through one coordinate convention.
 
 Managed views SHALL prefer the detail presentation when it is feasible. When detail is infeasible but overview is feasible, overview SHALL cap ordinary and expanded-member outer radii at `10` CSS pixels, collapsed-summary outer radii at `20` CSS pixels, endpoint-anchor outer radii at `12` CSS pixels, and every semantic/manifold path width at `10` CSS pixels. Detail physical-path widths SHALL be capped at `12` CSS pixels.
 
@@ -389,7 +367,7 @@ Managed views SHALL prefer the detail presentation when it is feasible. When det
 - **THEN** node, group, semantic-route, and manifold geometry SHALL return to the same scene within the configured numeric tolerance
 
 ### Requirement: Dense-layout fixtures enforce semantic and geometric invariants
-The God-View test suite SHALL include independently invented paired collapsed and expanded fixtures that exercise dense transport and endpoint attachment behavior. Fixtures SHALL NOT derive their values or shape from a live deployment, including captures with names replaced. Each fixture SHALL declare expected decoded graph counts, semantic relation-class counts, rendered-glyph counts, semantic `scene.routes` counts, visibility policy, aggregation policy, and expansion membership, then validate those semantics together with the complete physical geometry, including manifold rails and trunks.
+The God-View bounded ELK detail test suite SHALL include independently invented paired collapsed and expanded fixtures that exercise dense transport and endpoint attachment behavior. Fixtures SHALL NOT derive their values or shape from a live deployment, including captures with names replaced. Each fixture SHALL declare expected decoded graph counts, semantic relation-class counts, rendered-glyph counts, semantic `scene.routes` counts, visibility policy, aggregation policy, and expansion membership, then validate those semantics together with the complete physical geometry, including manifold rails and trunks.
 
 #### Scenario: Endpoint expansion preserves the route-collapse invariant
 - **GIVEN** a collapsed fixture and its paired bounded expansion fixture

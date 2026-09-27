@@ -161,6 +161,7 @@ prometheus = { version = "0.14", features = ["protobuf"]}
 prost = "0.14"
 prost-build = "0.14"
 prost-types = "0.14"
+proto_dgraph = { git = "https://github.com/marvin-hansen/dgraph-rs.git", branch = "main" }
 # protoc plugins, not library deps: nothing links them, protoc execs them. They are declared
 # here, and consumed by //rust/protoc-plugins, because rules_rs resolves //:Cargo.lock and
 # nothing else -- a crate reaches the build graph only as a real dependency of a real

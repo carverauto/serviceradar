@@ -3,6 +3,16 @@ defmodule ServiceRadarWebNG.Topology.GodViewSnapshotTest do
 
   alias ServiceRadarWebNG.Topology.GodViewSnapshot
 
+  @moduletag :db_free
+
+  test "transport bitmap metadata preserves populated dimensions and defaults missing classes" do
+    snapshot = %{bitmap_metadata: %{healthy: %{bytes: 24, count: 3}, affected: %{bytes: 8}}}
+
+    assert GodViewSnapshot.bitmap_metadata(snapshot, :healthy) == %{bytes: 24, count: 3}
+    assert GodViewSnapshot.bitmap_metadata(snapshot, :affected) == %{bytes: 8, count: 0}
+    assert GodViewSnapshot.bitmap_metadata(snapshot, :unknown) == %{bytes: 0, count: 0}
+  end
+
   test "snapshot contract required key lists are locked" do
     assert GodViewSnapshot.required_keys() == [
              :schema_version,

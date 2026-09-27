@@ -445,7 +445,6 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuildTest do
     @moduledoc false
 
     def transaction(fun), do: {:ok, fun.()}
-    def query!(_query, []), do: %{rows: []}
 
     def delete_all(query) do
       send(self(), {:delete_all, query})
