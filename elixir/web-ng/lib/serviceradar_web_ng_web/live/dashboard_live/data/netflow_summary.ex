@@ -1,13 +1,18 @@
 defmodule ServiceRadarWebNGWeb.DashboardLive.Data.NetflowSummary do
   @moduledoc false
 
+  @doc "The dashboard NetFlow summary card's query for a resolved dashboard window."
+  @spec srql_query(map()) :: String.t()
+  def srql_query(%{} = window) do
+    time = ServiceRadarWebNGWeb.DashboardLive.Window.query_time(window)
+
+    ~s|in:flows #{time} stats:"sum(bytes_total) as bytes_total, sum(packets_total) as packets_total, count(*) as flow_count, min(time) as first_seen, max(time) as last_seen" limit:1|
+  end
+
   defmacro __using__(_opts) do
     quote do
       defp flow_summary(%{start: _, end: _, seconds: _seconds} = window, scope, srql_module) do
-        time = ServiceRadarWebNGWeb.DashboardLive.Window.query_time(window)
-
-        query =
-          ~s|in:flows #{time} stats:"sum(bytes_total) as bytes_total, sum(packets_total) as packets_total, count(*) as flow_count, min(time) as first_seen, max(time) as last_seen" limit:1|
+        query = ServiceRadarWebNGWeb.DashboardLive.Data.NetflowSummary.srql_query(window)
 
         case srql_module.query(query, %{scope: scope}) do
           {:ok, %{"results" => [%{} = row]}} ->

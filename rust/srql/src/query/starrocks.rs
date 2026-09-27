@@ -1937,14 +1937,27 @@ fn downsample_sql(
             }
         }
     };
-    let series = match downsample.series.as_deref() {
-        Some(field) => format!("CAST({} AS STRING)", field_sql(plan, field)?),
-        None => "'all'".to_string(),
-    };
+    let series = downsample_series_sql(plan, downsample)?;
     let body = format!(
         "SELECT time_slice({time}, INTERVAL {bucket} SECOND) AS timestamp, {series} AS series, {agg} AS value FROM {from}{where_sql} GROUP BY 1, 2"
     );
     Ok(finalize_downsample(plan, "", &body))
+}
+
+/// A chart's `series` column, as CNPG's `downsample/fields.rs` `series_expr` writes it: the
+/// field as text with NULL folded to `''`, or a NULL series when the chart is not split. The
+/// parity harness (//integration_tests/srql_parity) found this dialect labelling the unsplit
+/// series `'all'` and a NULL dimension (an SNMP scalar with no ifIndex, a CPU sample with no
+/// core tag) NULL, where CNPG returns NULL and `''` -- so the same chart grew a differently
+/// named series, or lost one, depending on the backend.
+fn downsample_series_sql(
+    plan: &QueryPlan,
+    downsample: &crate::parser::DownsampleSpec,
+) -> Result<String> {
+    Ok(match downsample.series.as_deref() {
+        Some(field) => format!("COALESCE(CAST({} AS STRING), '')", field_sql(plan, field)?),
+        None => "CAST(NULL AS STRING)".to_string(),
+    })
 }
 
 /// Orders and limits a downsample. `body` is the bucketing `SELECT`, ending
@@ -2018,10 +2031,7 @@ fn counter_rate_sql(
         plan,
         downsample.value_field.as_deref().unwrap_or(default_field),
     )?;
-    let series = match downsample.series.as_deref() {
-        Some(field) => format!("CAST({} AS STRING)", field_sql(plan, field)?),
-        None => "'all'".to_string(),
-    };
+    let series = downsample_series_sql(plan, downsample)?;
     let combine = match downsample.agg {
         crate::parser::DownsampleAgg::RateSum => "SUM",
         _ => "AVG",
@@ -2885,7 +2895,9 @@ mod tests {
         assert!(compiled.sql.contains("avg_value"), "{}", compiled.sql);
         assert!(!compiled.sql.contains("bytes_total"), "{}", compiled.sql);
         assert!(
-            compiled.sql.contains("CAST(device_id AS STRING) AS series"),
+            compiled
+                .sql
+                .contains("COALESCE(CAST(device_id AS STRING), '') AS series"),
             "{}",
             compiled.sql
         );
@@ -3801,9 +3813,9 @@ mod tests {
         )
         .expect("per-core chart");
         assert!(
-            chart
-                .sql
-                .contains(r#"CAST(get_json_string(tags, '$."core_id"') AS STRING) AS series"#),
+            chart.sql.contains(
+                r#"COALESCE(CAST(get_json_string(tags, '$."core_id"') AS STRING), '') AS series"#
+            ),
             "{}",
             chart.sql
         );
@@ -3820,6 +3832,28 @@ mod tests {
             "a hyphen is part of the key, not an operator: {}",
             by_tag.sql
         );
+    }
+
+    /// CNPG's `series_expr`: an unsplit chart has a NULL series, a split one folds a NULL
+    /// dimension to `''`. Both the plain and the counter-rate downsample share the rule.
+    #[test]
+    fn chart_series_follow_the_cnpg_null_and_empty_conventions() {
+        for query in [
+            "in:flows time:last_1h bucket:5m agg:sum value_field:bytes_total",
+            "in:snmp_metrics time:last_1h bucket:5m agg:rate",
+        ] {
+            let sql = translate(&plan(query), "serviceradar").unwrap().sql;
+            assert!(sql.contains("CAST(NULL AS STRING) AS series"), "{sql}");
+            assert!(!sql.contains("'all'"), "{sql}");
+        }
+        for query in [
+            "in:snmp_metrics time:last_1h bucket:5m agg:max series:if_index",
+            "in:snmp_metrics time:last_1h bucket:5m agg:rate series:if_index",
+        ] {
+            let sql = translate(&plan(query), "serviceradar").unwrap().sql;
+            assert!(sql.contains("COALESCE(CAST("), "{sql}");
+            assert!(sql.contains(" AS STRING), '') AS series"), "{sql}");
+        }
     }
 
     /// The key reaches a SQL string, so it goes through CNPG's validator first.

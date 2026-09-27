@@ -241,12 +241,7 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
          expires_at,
          limit
        ) do
-    time_token = window_seconds_to_token(window_seconds)
-
-    q =
-      ~s|in:flows time:#{time_token} stats:"count_distinct(dst_endpoint_port) as unique_ports by src_endpoint_ip" sort:unique_ports:desc limit:#{limit}|
-
-    rows = q |> SRQLRunner.query() |> unwrap_rows()
+    rows = window_seconds |> port_scan_query(limit) |> SRQLRunner.query() |> unwrap_rows()
 
     Enum.each(rows, fn row ->
       src_ip = Map.get(row, "src_endpoint_ip") || Map.get(row, :src_endpoint_ip)
@@ -283,14 +278,8 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
          expires_at,
          limit
        ) do
-    baseline_token = window_seconds_to_token(baseline_seconds, fallback: "last_7d")
-    window_token = window_seconds_to_token(window_seconds)
-
-    current_q =
-      ~s|in:flows time:#{window_token} stats:"sum(bytes_total) as current_bytes by dst_endpoint_port" sort:current_bytes:desc limit:#{limit}|
-
-    baseline_q =
-      ~s|in:flows time:#{baseline_token} stats:"sum(bytes_total) as baseline_bytes_total by dst_endpoint_port" sort:baseline_bytes_total:desc limit:#{limit}|
+    %{current: current_q, baseline: baseline_q} =
+      port_anomaly_queries(baseline_seconds, window_seconds, limit)
 
     current = srql_query_to_int_map(current_q, "dst_endpoint_port", "current_bytes")
 
@@ -316,6 +305,39 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
   end
 
   defp maybe_refresh_anomalies(_settings, _actor, _now, _expires_at, _limit), do: :skip
+
+  @doc """
+  The port-scan query: distinct destination ports per source over the scan window.
+
+  Public so the query this worker sends can be checked against the StarRocks-vs-CNPG parity
+  inventory without a database (web-ng `WarehouseQueryInventoryTest`).
+  """
+  @spec port_scan_query(pos_integer(), pos_integer()) :: String.t()
+  def port_scan_query(window_seconds, limit) do
+    time_token = window_seconds_to_token(window_seconds)
+
+    ~s|in:flows time:#{time_token} stats:"count_distinct(dst_endpoint_port) as unique_ports by src_endpoint_ip" sort:unique_ports:desc limit:#{limit}|
+  end
+
+  @doc """
+  The port-anomaly queries: bytes per destination port over the scan window (`:current`) and
+  over the baseline window (`:baseline`). Public for the same reason as `port_scan_query/2`.
+  """
+  @spec port_anomaly_queries(pos_integer(), pos_integer(), pos_integer()) :: %{
+          current: String.t(),
+          baseline: String.t()
+        }
+  def port_anomaly_queries(baseline_seconds, window_seconds, limit) do
+    baseline_token = window_seconds_to_token(baseline_seconds, fallback: "last_7d")
+    window_token = window_seconds_to_token(window_seconds)
+
+    %{
+      current:
+        ~s|in:flows time:#{window_token} stats:"sum(bytes_total) as current_bytes by dst_endpoint_port" sort:current_bytes:desc limit:#{limit}|,
+      baseline:
+        ~s|in:flows time:#{baseline_token} stats:"sum(bytes_total) as baseline_bytes_total by dst_endpoint_port" sort:baseline_bytes_total:desc limit:#{limit}|
+    }
+  end
 
   defp unwrap_rows({:ok, rows}) when is_list(rows), do: rows
   defp unwrap_rows(_), do: []

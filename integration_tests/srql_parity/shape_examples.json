@@ -1,0 +1,155 @@
+{
+  "_doc": "Worked examples of the SRQL shape normalization defined in src/shape.rs (and warehouse_entity in src/coverage.rs). Asserted by the Rust unit tier (shape::tests::the_shared_normalization_examples_hold) AND by the Elixir port in elixir/web-ng/test/support/srql_parity_shape.ex (warehouse_query_inventory_test.exs), so the two implementations cannot drift. `entities` maps a spelling to its canonical warehouse entity, or null when the warehouse does not serve it; the Elixir test also checks each against ServiceRadar.Analytics.StarRocks.Readers.dataset_for_entity/1. In `shapes`, `entity` is the canonical warehouse entity (null when not warehouse-served), `chart` is whether the query is a chart/aggregate query, and `clauses`/`modifiers` are the normalized shape. Every query here is invented.",
+  "entities": {
+    "flows": "flows",
+    "flow": "flows",
+    "network_activity": "flows",
+    "attributed_flows": "attributed_flows",
+    "flow_attributions": "attributed_flows",
+    "timeseries_metrics": "timeseries_metrics",
+    "timeseries": "timeseries_metrics",
+    "snmp_metrics": "snmp_metrics",
+    "snmp": "snmp_metrics",
+    "rperf_metrics": "rperf_metrics",
+    "rperf": "rperf_metrics",
+    "logs": "logs",
+    "events": "events",
+    "activity": "events",
+    "security_findings": "security_findings",
+    "findings": "security_findings",
+    "scan_activity": "scan_activity",
+    "security_scans": "scan_activity",
+    "dns_activity": "dns_activity",
+    "pdns": "dns_activity",
+    "mtr_traces": "mtr_traces",
+    "mtr_hops": "mtr_hops",
+    "mtr_hop_stats": "mtr_hops",
+    "devices": null,
+    "interfaces": null,
+    "cpu_metrics": null,
+    "otel_traces": null,
+    "timeseries_metric_interface_hourly": null,
+    "timeseries_metric_disk_hourly": null
+  },
+  "shapes": [
+    {
+      "query": "in:flows time:last_1h stats:\"sum(bytes_total) as b by src_endpoint_ip, dst_endpoint_ip\" sort:b:desc limit:10",
+      "entity": "flows",
+      "chart": true,
+      "clauses": {"stats": "sum(bytes_total)|by:src_endpoint_ip,dst_endpoint_ip"},
+      "modifiers": ["limit", "sort"]
+    },
+    {
+      "query": "in:flows time:last_1h stats:sum(bytes_total) as b by src_endpoint_ip,dst_endpoint_ip sort:b:desc limit:10",
+      "entity": "flows",
+      "chart": true,
+      "clauses": {"stats": "sum(bytes_total)|by:src_endpoint_ip,dst_endpoint_ip"},
+      "modifiers": ["limit", "sort"]
+    },
+    {
+      "query": "in:flows stats:sum(bytes_total) as bytes_total stats:sum(packets_total) as packets_total by src_endpoint_ip sort:bytes_total:desc limit:5",
+      "entity": "flows",
+      "chart": true,
+      "clauses": {"stats": "sum(bytes_total),sum(packets_total)|by:src_endpoint_ip"},
+      "modifiers": ["limit", "sort"]
+    },
+    {
+      "query": "in:\"Flows\" device_addr:[\"192.0.2.10\",\"198.51.100.7\"] time:last_24h stats:\"count(*) as flows, count_distinct(src_endpoint_ip) as talkers\"",
+      "entity": "flows",
+      "chart": true,
+      "clauses": {"stats": "count(*),count_distinct(src_endpoint_ip)"},
+      "modifiers": []
+    },
+    {
+      "query": "in:flows time:last_1h stats:\"sum(bytes_total) as total_bytes by src_cidr:24, dst_endpoint_port, dst_cidr:24\" sort:total_bytes:desc limit:40 other:true",
+      "entity": "flows",
+      "chart": true,
+      "clauses": {"stats": "sum(bytes_total)|by:src_cidr:*,dst_endpoint_port,dst_cidr:*", "other": "true"},
+      "modifiers": ["limit", "sort"]
+    },
+    {
+      "query": "in:flows time:last_6h bucket:15m agg:sum value_field:bytes_total series:protocol_group limit:2000",
+      "entity": "flows",
+      "chart": true,
+      "clauses": {"agg": "sum", "bucket": "*", "series": "protocol_group", "value_field": "bytes_total"},
+      "modifiers": ["limit"]
+    },
+    {
+      "query": "in:flows time:last_24h sort:time:desc limit:50",
+      "entity": "flows",
+      "chart": false,
+      "clauses": {},
+      "modifiers": ["limit", "sort"]
+    },
+    {
+      "query": "in:snmp device_id:\"sr:host-01\" if_index:3 metric_name:[\"ifHCInOctets\",\"ifHCOutOctets\"] time:last_24h bucket:1m agg:rate series:metric_name limit:3600",
+      "entity": "snmp_metrics",
+      "chart": true,
+      "clauses": {"agg": "rate", "bucket": "*", "series": "metric_name"},
+      "modifiers": ["limit"]
+    },
+    {
+      "query": "in:timeseries_metrics metric_type:icmp !metric_name:[\"icmp_response_time_ns\",\"icmp_available\"] uid:(\"sr:host-01\",\"sr:host-02\") time:last_1h bucket:5m agg:avg series:uid sort:timestamp:asc limit:40",
+      "entity": "timeseries_metrics",
+      "chart": true,
+      "clauses": {"agg": "avg", "bucket": "*", "series": "uid"},
+      "modifiers": ["limit", "sort"]
+    },
+    {
+      "query": "in:timeseries_metrics metric_type:\"sysmon.cpu\" metric_name:\"cpu.usage_percent\" time:180d bucket:1h agg:avg series:uid stats:profile_hour_of_week_peak(value) timezone:\"Etc/UTC\" sort:dow:asc,hod:asc limit:4000",
+      "entity": "timeseries_metrics",
+      "chart": true,
+      "clauses": {"agg": "avg", "bucket": "*", "series": "uid", "stats": "profile_hour_of_week_peak(value)"},
+      "modifiers": ["limit", "sort"]
+    },
+    {
+      "query": "in:logs time:last_24h rollup_stats:severity service_name:(\"svc-alpha\",\"svc-beta\")",
+      "entity": "logs",
+      "chart": true,
+      "clauses": {"rollup_stats": "severity"},
+      "modifiers": []
+    },
+    {
+      "query": "in:logs time:last_1h severity_text:(error,err) stats:\"count() as total\"",
+      "entity": "logs",
+      "chart": true,
+      "clauses": {"stats": "count(*)"},
+      "modifiers": []
+    },
+    {
+      "query": "in:mtr_hops time:last_24h stats:loss_ratio(sent, received) as loss by addr,time:1h sort:loss:asc limit:50",
+      "entity": "mtr_hops",
+      "chart": true,
+      "clauses": {"stats": "loss_ratio(sent,received)|by:addr,time:1h"},
+      "modifiers": ["limit", "sort"]
+    },
+    {
+      "query": "in:mtr_hop_stats stats:\"wavg(avg_us, received) as latency, count() as traces by addr\" sort:latency:desc limit:20",
+      "entity": "mtr_hops",
+      "chart": true,
+      "clauses": {"stats": "count(*),wavg(avg_us,received)|by:addr"},
+      "modifiers": ["limit", "sort"]
+    },
+    {
+      "query": "in:devices in:security_findings time:last_7d stats:\"count() as total\"",
+      "entity": "security_findings",
+      "chart": true,
+      "clauses": {"stats": "count(*)"},
+      "modifiers": []
+    },
+    {
+      "query": "in:devices sort:first_seen:desc limit:5 stats:\"count() as total\"",
+      "entity": null,
+      "chart": true,
+      "clauses": {"stats": "count(*)"},
+      "modifiers": ["limit", "sort"]
+    },
+    {
+      "query": "in:cpu_metrics uid:(\"sr:host-01\") time:last_24h bucket:24h agg:count series:uid limit:3",
+      "entity": null,
+      "chart": true,
+      "clauses": {"agg": "count", "bucket": "*", "series": "uid"},
+      "modifiers": ["limit"]
+    }
+  ]
+}

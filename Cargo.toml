@@ -36,6 +36,7 @@ members = [
     "rust/flow-collector",
     "rust/srql",
     "integration_tests/srql",
+    "integration_tests/srql_parity",
     "rust/correlation-engine",
     "rust/metric-proto",
     "rust/fieldsurvey-sidekick",
@@ -124,6 +125,12 @@ lazy_static = "1.4"
 libc = "0.2"
 log = "0.4"
 may = { version = "~0.3", default-features = false }
+# Test-only: the MySQL-protocol client the SRQL dialect parity harness
+# (//integration_tests/srql_parity) uses to reach a StarRocks FE. "minimal-rust" is the
+# pure-Rust flate2 backend and NO TLS provider: the dropped defaults are zlib (a C build)
+# and derive macros, neither of which is a runtime backend the harness needs. A fixture that
+# requires TLS would need "rustls-tls" + "ring" added here -- it fails at connect, loudly.
+mysql_async = { version = "0.37", default-features = false, features = ["minimal-rust"] }
 netflow_parser = { version = "1.0", default-features = false }
 nix = "0.31"
 notify = { version = "8", default-features = false }

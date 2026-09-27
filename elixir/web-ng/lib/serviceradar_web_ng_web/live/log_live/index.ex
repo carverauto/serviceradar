@@ -29,6 +29,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadarWebNGWeb.Components.PrefixTagChips
   alias ServiceRadarWebNGWeb.Components.ServicePicker
   alias ServiceRadarWebNGWeb.LogLive.EventSummary
+  alias ServiceRadarWebNGWeb.LogLive.NetflowPanelQueries
   alias ServiceRadarWebNGWeb.LogLive.NetflowRuntime
   alias ServiceRadarWebNGWeb.LogLive.NetflowSankey
   alias ServiceRadarWebNGWeb.LogLive.NetflowSummary
@@ -9134,8 +9135,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     # SRQL group-by expressions like src_cidr:24 are not consistently supported
     # across backends; always group by raw src IP and collapse to CIDR in Elixir.
-    query =
-      ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by src_endpoint_ip" sort:total_bytes:desc limit:1000|
+    query = NetflowPanelQueries.query(:bytes_by_src_ip, base_query, limit: 1000)
 
     rows =
       srql_module
@@ -9187,8 +9187,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> netflow_base_query()
       |> sanitize_srql_for_stats()
 
-    query =
-      ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by dst_endpoint_port" sort:total_bytes:desc limit:#{limit}|
+    query = NetflowPanelQueries.query(:bytes_by_dst_port, base_query, limit: limit)
 
     srql_module
     |> apply(:query, [query, %{scope: scope}])
@@ -9343,8 +9342,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     bucket = bucket_seconds_to_srql(bucket_seconds)
 
-    query =
-      ~s|#{base_query} bucket:#{bucket} agg:sum value_field:bytes_total limit:120|
+    query = NetflowPanelQueries.query(:bytes_series, base_query, bucket: bucket, limit: 120)
 
     rows =
       case srql_module.query(query, %{scope: scope}) do
@@ -9442,7 +9440,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         scope,
         bucket_seconds,
         total_points,
-        "protocol_group",
+        :bytes_by_protocol_group_series,
         keys
       )
 
@@ -9465,10 +9463,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     # Find top apps by bytes for this window, then downsample only those.
     keys =
       srql_module
-      |> apply(:query, [
-        ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by app" sort:total_bytes:desc limit:8|,
-        %{scope: scope}
-      ])
+      |> apply(:query, [NetflowPanelQueries.query(:bytes_by_app, base_query, limit: 8), %{scope: scope}])
       |> extract_stats_rows()
       |> Enum.map(&Map.get(&1, "app"))
       |> Enum.filter(&is_binary/1)
@@ -9486,7 +9481,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         scope,
         bucket_seconds,
         total_points,
-        "app",
+        :bytes_by_app_series,
         keys
       )
 
@@ -9505,8 +9500,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> netflow_base_query()
       |> sanitize_srql_for_stats()
 
-    query =
-      ~s|#{base_query} stats:"sum(packets_total) as total_packets by src_endpoint_ip" sort:total_packets:desc limit:#{limit}|
+    query = NetflowPanelQueries.query(:packets_by_src_ip, base_query, limit: limit)
 
     srql_module
     |> apply(:query, [query, %{scope: scope}])
@@ -9529,8 +9523,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> netflow_base_query()
       |> sanitize_srql_for_stats()
 
-    query =
-      ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by src_endpoint_ip" sort:total_bytes:desc limit:#{limit}|
+    query = NetflowPanelQueries.query(:bytes_by_src_ip, base_query, limit: limit)
 
     srql_module
     |> apply(:query, [query, %{scope: scope}])
@@ -9553,10 +9546,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
          scope,
          bucket_seconds,
          total_points,
-         series_field,
+         panel,
          keys
        )
-       when is_integer(bucket_seconds) and is_list(total_points) and is_binary(series_field) do
+       when is_integer(bucket_seconds) and is_list(total_points) and is_atom(panel) do
     base_query =
       current_query
       |> netflow_base_query()
@@ -9566,10 +9559,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     query =
       base_query
-      |> maybe_limit_series(series_field, keys)
-      |> then(fn q ->
-        ~s|#{q} bucket:#{bucket} agg:sum value_field:bytes_total series:#{series_field} limit:2000|
-      end)
+      |> maybe_limit_series(NetflowPanelQueries.group_field(panel), keys)
+      |> then(&NetflowPanelQueries.query(panel, &1, bucket: bucket, limit: 2000))
 
     rows =
       case srql_module.query(query, %{scope: scope}) do
@@ -9675,8 +9666,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> netflow_base_query()
       |> sanitize_srql_for_stats()
 
-    query =
-      ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by src_endpoint_ip" sort:total_bytes:desc limit:#{limit}|
+    query = NetflowPanelQueries.query(:bytes_by_src_ip, base_query, limit: limit)
 
     srql_module
     |> apply(:query, [query, %{scope: scope}])
@@ -9713,7 +9703,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> Enum.take(8)
 
     maps =
-      load_netflow_keyed_series_maps(srql_module, scope, base_query, bucket, "src_endpoint_ip", keys)
+      load_netflow_keyed_series_maps(srql_module, scope, base_query, bucket, :bytes_by_src_ip_series, keys)
 
     {keys, maps}
   end
@@ -9746,7 +9736,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         scope,
         base_query,
         bucket,
-        "dst_endpoint_port",
+        :bytes_by_dst_port_series,
         Enum.map(labeled, &to_string(&1.port))
       )
 
@@ -9758,16 +9748,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   # Every key's series in one round trip: `series:` groups by the field and the
   # filter keeps it to the keys being charted. One query per key made the
   # stacked chart cost nine round trips where it needs one.
-  defp load_netflow_keyed_series_maps(_srql_module, _scope, _base_query, _bucket, _field, []), do: %{}
+  defp load_netflow_keyed_series_maps(_srql_module, _scope, _base_query, _bucket, _panel, []), do: %{}
 
-  defp load_netflow_keyed_series_maps(srql_module, scope, base_query, bucket, field, values)
-       when is_binary(base_query) and is_binary(bucket) and is_binary(field) and is_list(values) do
+  defp load_netflow_keyed_series_maps(srql_module, scope, base_query, bucket, panel, values)
+       when is_binary(base_query) and is_binary(bucket) and is_atom(panel) and is_list(values) do
     query =
       base_query
-      |> upsert_query_filter(field, "(" <> Enum.join(values, ",") <> ")")
-      |> then(fn q ->
-        ~s|#{q} bucket:#{bucket} agg:sum value_field:bytes_total series:#{field} limit:#{length(values) * 120}|
-      end)
+      |> upsert_query_filter(NetflowPanelQueries.group_field(panel), "(" <> Enum.join(values, ",") <> ")")
+      |> then(&NetflowPanelQueries.query(panel, &1, bucket: bucket, limit: length(values) * 120))
 
     rows =
       case srql_module.query(query, %{scope: scope}) do
@@ -9822,8 +9810,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         compare_query = upsert_query_filter(base_query, "time", compare_time)
         bucket = bucket_seconds_to_srql(bucket_seconds)
 
-        query =
-          ~s|#{compare_query} bucket:#{bucket} agg:sum value_field:bytes_total limit:120|
+        query = NetflowPanelQueries.query(:bytes_series, compare_query, bucket: bucket, limit: 120)
 
         rows =
           case srql_module.query(query, %{scope: scope}) do
@@ -9873,14 +9860,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> netflow_base_query()
       |> sanitize_srql_for_stats()
 
-    field =
+    panel =
       case geo_side do
-        "src" -> "src_country_iso2"
-        _ -> "dst_country_iso2"
+        "src" -> :bytes_by_src_country
+        _ -> :bytes_by_dst_country
       end
 
-    query =
-      ~s|#{base_query} stats:"sum(bytes_total) as total_bytes by #{field}" sort:total_bytes:desc limit:64|
+    field = NetflowPanelQueries.group_field(panel)
+    query = NetflowPanelQueries.query(panel, base_query, limit: 64)
 
     srql_module
     |> apply(:query, [query, %{scope: scope}])
