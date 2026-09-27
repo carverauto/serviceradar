@@ -100,15 +100,20 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     # the listed agents resolve it; everyone else falls through to disabled
     # config below. When agent_ids is empty, behavior is unchanged (legacy
     # target_query + is_default fallback).
-    profile = resolve_profile(device_uid, agent_id, actor)
+    case fetch_profile(device_uid, agent_id, actor) do
+      {:ok, %{enabled: true} = profile} ->
+        config = compile_profile(profile, actor, agent_id: agent_id, partition: partition)
+        publish_duplicate_polling_warning(profile, config)
+        {:ok, config}
 
-    if profile && profile.enabled do
-      config = compile_profile(profile, actor, agent_id: agent_id, partition: partition)
-      publish_duplicate_polling_warning(profile, config)
-      {:ok, config}
-    else
-      # Return disabled config if no profile found or profile is disabled
-      {:ok, disabled_config()}
+      {:ok, _no_enabled_profile} ->
+        # Return disabled config if no profile found or profile is disabled
+        {:ok, disabled_config()}
+
+      # A failed profile read is not "no profile": returning the disabled
+      # config here would be cached by ConfigServer as this agent's SNMP config.
+      {:error, reason} ->
+        {:error, {:profile_resolution_failed, reason}}
     end
   rescue
     e ->
@@ -137,7 +142,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   1. SRQL targeting profiles (ordered by priority, highest first)
   2. Default profile
 
-  Returns the matching SNMPProfile or nil if no profile matches.
+  Returns the matching SNMPProfile, or nil when no profile matches or the
+  profiles could not be read (`compile/3` treats the latter as an error).
 
   `agent_id` gates which profiles apply: a profile that pins `agent_ids` is only
   a candidate for the listed agents. An empty `agent_ids` keeps legacy behavior
@@ -145,6 +151,17 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   """
   @spec resolve_profile(String.t() | nil, String.t() | nil, map()) :: SNMPProfile.t() | nil
   def resolve_profile(device_uid, agent_id, actor) do
+    case fetch_profile(device_uid, agent_id, actor) do
+      {:ok, profile} ->
+        profile
+
+      {:error, reason} ->
+        Logger.warning("SNMPCompiler: profile resolution failed - #{inspect(reason)}")
+        nil
+    end
+  end
+
+  defp fetch_profile(device_uid, agent_id, actor) do
     TargetedProfileResolver.resolve(device_uid, actor,
       resolver: fn device_uid, actor ->
         SrqlTargetResolver.resolve_for_device(device_uid, agent_id, actor)
@@ -1092,10 +1109,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
     case Ash.read_one(query, actor: actor) do
       {:ok, profile} ->
-        if profile_applies_to_agent?(profile, agent_id), do: profile
+        {:ok, if(profile_applies_to_agent?(profile, agent_id), do: profile)}
 
-      {:error, _} ->
-        nil
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
