@@ -2,6 +2,7 @@
 //! snapshots are single-use; candidates and installed worlds are immutable.
 
 mod details;
+mod health;
 mod model;
 #[cfg(test)]
 mod tests;
@@ -12,9 +13,10 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use dgraph_topology::{CanonicalGraph, TopologyClient};
 use rustler::{
-    types::list::ListIterator, Atom, Decoder, Encoder, Env, NifMap, Resource, ResourceArc, Term,
+    types::list::ListIterator, Atom, Decoder, Encoder, Env, NifMap, NifUnitEnum, Resource,
+    ResourceArc, Term,
 };
-use serviceradar_topology_atlas::{Budget, Cell, GlyphKind, Tile};
+use serviceradar_topology_atlas::{Budget, Cell, GlyphKind, Tile, TileProfile};
 use tokio::runtime::Runtime;
 
 use model::{
@@ -300,8 +302,15 @@ fn world_info(env: Env<'_>, world: ResourceArc<WorldResource>) -> Term<'_> {
     reply::<Info>(env, Ok(world.0.info.clone()))
 }
 
+#[derive(NifUnitEnum)]
+enum WireTileProfile {
+    Standard,
+    AggregateOnly,
+}
+
 #[derive(NifMap)]
 struct TileBudget {
+    profile: WireTileProfile,
     nodes: usize,
     edges: usize,
 }
@@ -331,6 +340,7 @@ struct WireEdge {
 }
 #[derive(NifMap)]
 struct WireTile {
+    profile: WireTileProfile,
     cell: WireCell,
     revision: String,
     glyphs: Vec<WireGlyph>,
@@ -346,6 +356,10 @@ impl From<Tile> for WireTile {
     fn from(tile: Tile) -> Self {
         let selection_bytes = tile.selection.retained_bytes();
         Self {
+            profile: match tile.profile {
+                TileProfile::Standard => WireTileProfile::Standard,
+                TileProfile::AggregateOnly => WireTileProfile::AggregateOnly,
+            },
             selection: ResourceArc::new(details::SelectionResource(tile.selection)),
             selection_bytes,
             cell: WireCell {
@@ -398,28 +412,32 @@ fn tile(
     y: u32,
     budget: TileBudget,
 ) -> Term<'_> {
-    reply(
-        env,
-        isolate(|| {
-            // Callers may reduce a budget, but cannot request unbounded ABI output.
-            if budget.nodes > 128 || budget.edges > 256 {
-                return Err("invalid tile budget".into());
-            }
-            let cell = Cell::new(z, x, y).map_err(|_| "invalid tile")?;
-            let tile = world
-                .0
-                .geometry
-                .tile(
-                    cell,
-                    Budget {
-                        nodes: budget.nodes,
-                        edges: budget.edges,
-                    },
-                )
-                .map_err(|_| "invalid tile or budget")?;
-            Ok(WireTile::from(tile))
-        }),
-    )
+    details::read_reply(env, || {
+        // Callers may reduce a budget, but cannot request unbounded ABI output.
+        if budget.nodes > 128 || budget.edges > 256 {
+            return Err(details::engine_error(
+                serviceradar_topology_atlas::Error::InvalidBudget,
+            ));
+        }
+        let cell = Cell::new(z, x, y).map_err(details::engine_error)?;
+        let profile = match budget.profile {
+            WireTileProfile::Standard => TileProfile::Standard,
+            WireTileProfile::AggregateOnly => TileProfile::AggregateOnly,
+        };
+        let tile = world
+            .0
+            .geometry
+            .tile_with_profile(
+                cell,
+                Budget {
+                    nodes: budget.nodes,
+                    edges: budget.edges,
+                },
+                profile,
+            )
+            .map_err(details::engine_error)?;
+        Ok(WireTile::from(tile))
+    })
 }
 
 #[rustler::nif]

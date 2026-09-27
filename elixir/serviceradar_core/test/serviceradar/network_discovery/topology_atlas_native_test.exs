@@ -66,7 +66,7 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
     aggregate = Enum.find(tile.glyphs, &(&1.kind == :aggregate))
     assert {:ok, selection} = TopologyAtlas.aggregate_selection(world, tile.selection, aggregate.id)
     assert {:ok, %{nodes: [member], next_cursor: nil}} = TopologyAtlas.detail(world, {:aggregate_members, selection})
-    assert member.device_id not in [a.device_id, b.device_id]
+    refute member.device_id in [a.device_id, b.device_id]
     assert member.device_id in Enum.map(positions, & &1.device_id)
     scope = {:component_members, "synthetic-component"}
     assert {:ok, first} = TopologyAtlas.detail(world, scope)
@@ -103,6 +103,77 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
     assert {:ok, empty_world} = TopologyAtlas.finish_world(empty_builder)
     assert {:error, :stale_revision} = TopologyAtlas.tile_relations(empty_world, tile.selection)
     assert {:error, :stale_revision} = TopologyAtlas.detail(empty_world, {:aggregate_members, selection})
+  end
+
+  test "packaged health updates are atomic, revision-bound, and separate from tile geometry" do
+    a = position("sr:health-a.example.com", 100, true)
+    b = position("sr:health-b.example.com", 200, true)
+    c = position("sr:health-c.example.com", 300, true)
+    world = cold_world([a, b])
+    epoch = 0xFEDCBA9876543210
+    assert {:ok, health} = TopologyAtlas.new_health(world, epoch)
+
+    assert {:ok, %{epoch: "fedcba9876543210", observed: 0, total: 2, retained_bytes: bytes}} =
+             TopologyAtlas.health_info(world, health)
+
+    assert bytes > 0
+    assert {:ok, %{ids: [id], next_cursor: cursor}} = TopologyAtlas.device_ids_page(world, nil, 1)
+    assert {:ok, %{ids: [other], next_cursor: nil}} = TopologyAtlas.device_ids_page(world, cursor, 1)
+    assert MapSet.new([id, other]) == MapSet.new([a.device_id, b.device_id])
+    assert {:ok, tile} = TopologyAtlas.tile(world, 0, 0, 0)
+
+    assert {:ok, %{applied: 2, revision: 1}} =
+             TopologyAtlas.apply_health(world, health, 9, [
+               %{device_id: a.device_id, state: :unavailable},
+               %{device_id: b.device_id, state: :healthy}
+             ])
+
+    assert {:error, :invalid_request} =
+             TopologyAtlas.apply_health(world, health, 10, [
+               %{device_id: a.device_id, state: :healthy},
+               %{device_id: b.device_id, state: :invalid}
+             ])
+
+    assert {:ok, status} = TopologyAtlas.tile_health(world, health, tile.selection)
+    assert status.epoch == "fedcba9876543210"
+    assert status.revision == 1
+    assert status.observation_sequence == 9
+    assert status.tile_revision == tile.revision
+    by_id = Map.new(status.glyphs, &{&1.id, &1.counts})
+    assert by_id[a.device_id] == %{healthy: 0, unavailable: 1, unknown: 0, observed: 1, total: 1}
+    assert by_id[b.device_id] == %{healthy: 1, unavailable: 0, unknown: 0, observed: 1, total: 1}
+    assert {:ok, %{revision: same_revision}} = TopologyAtlas.tile(world, 0, 0, 0)
+    assert same_revision == tile.revision
+
+    replacement = cold_world([a, c])
+    assert {:error, :stale_revision} = TopologyAtlas.health_info(replacement, health)
+    assert {:error, :stale_revision} = TopologyAtlas.device_ids_page(replacement, cursor, 1)
+    assert {:ok, rebased} = TopologyAtlas.rebase_health(world, health, replacement, epoch)
+    assert {:ok, %{epoch: "fedcba9876543210", observed: 1, total: 2}} = TopologyAtlas.health_info(replacement, rebased)
+    assert {:ok, replacement_tile} = TopologyAtlas.tile(replacement, 0, 0, 0)
+    assert {:ok, replacement_health} = TopologyAtlas.tile_health(replacement, rebased, replacement_tile.selection)
+    replacement_by_id = Map.new(replacement_health.glyphs, &{&1.id, &1.counts})
+    assert replacement_by_id[a.device_id].unavailable == 1
+    assert replacement_by_id[c.device_id] == %{healthy: 0, unavailable: 0, unknown: 1, observed: 0, total: 1}
+  end
+
+  test "packaged aggregate profile recovers a descriptor budget failure without truncating identity" do
+    id = "sr:" <> String.duplicate("x", 1_048_576)
+    world = cold_world([position(id, 100, true)])
+    assert {:error, :selection_budget_exceeded} = TopologyAtlas.tile(world, 0, 0, 0)
+
+    assert {:ok, %{profile: :aggregate_only, glyphs: [%{kind: :aggregate, count: 1}]} = tile} =
+             TopologyAtlas.tile(world, 0, 0, 0, %{nodes: 128, edges: 256, profile: :aggregate_only})
+
+    assert tile.selection_bytes < 4096
+    assert {:ok, %{device_id: ^id}} = TopologyAtlas.search(world, id)
+  end
+
+  defp cold_world(positions) do
+    assert {:ok, builder} = TopologyAtlas.new_builder("synthetic-health-layout", 16)
+    assert :ok = TopologyAtlas.add_positions(builder, positions)
+    assert {:ok, world} = TopologyAtlas.finish_world(builder)
+    world
   end
 
   defp position(id, coordinate, active) do

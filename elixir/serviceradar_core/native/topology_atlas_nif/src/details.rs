@@ -3,7 +3,7 @@
 
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
-use rustler::{Encoder, Env, NifMap, NifTaggedEnum, Resource, ResourceArc, Term};
+use rustler::{Atom, Encoder, Env, NifMap, NifTaggedEnum, Resource, ResourceArc, Term};
 use serviceradar_topology_atlas::{
     AggregateSelection, DetailCursor, DetailScope, Error, RelationCursor, TileSelection,
 };
@@ -12,7 +12,7 @@ use crate::model::{PositionRow, RelationRow};
 use crate::WorldResource;
 
 mod atoms {
-    rustler::atoms! {ok, error, not_found, invalid_cursor, invalid_request, stale_revision, unavailable}
+    rustler::atoms! {ok, error, not_found, invalid_cursor, invalid_request, stale_revision, unavailable, selection_budget_exceeded}
 }
 
 pub(crate) struct SelectionResource(pub TileSelection);
@@ -22,20 +22,29 @@ impl Resource for SelectionResource {}
 #[rustler::resource_impl]
 impl Resource for AggregateResource {}
 
-fn read_call<'a, T: Encoder>(env: Env<'a>, call: impl FnOnce() -> Result<T, Error>) -> Term<'a> {
+pub(crate) fn engine_error(error: Error) -> Atom {
+    match error {
+        Error::SelectionBudgetExceeded => atoms::selection_budget_exceeded(),
+        Error::DetailNotFound => atoms::not_found(),
+        Error::InvalidDetailCursor => atoms::invalid_cursor(),
+        Error::StaleDetailRevision => atoms::stale_revision(),
+        _ => atoms::invalid_request(),
+    }
+}
+
+pub(crate) fn read_reply<'a, T: Encoder>(
+    env: Env<'a>,
+    call: impl FnOnce() -> Result<T, Atom>,
+) -> Term<'a> {
     match catch_unwind(AssertUnwindSafe(call)) {
         Ok(Ok(value)) => (atoms::ok(), value).encode(env),
-        Ok(Err(error)) => {
-            let reason = match error {
-                Error::DetailNotFound => atoms::not_found(),
-                Error::InvalidDetailCursor => atoms::invalid_cursor(),
-                Error::StaleDetailRevision => atoms::stale_revision(),
-                _ => atoms::invalid_request(),
-            };
-            (atoms::error(), reason).encode(env)
-        }
+        Ok(Err(reason)) => (atoms::error(), reason).encode(env),
         Err(_) => (atoms::error(), atoms::unavailable()).encode(env),
     }
+}
+
+fn read_call<'a, T: Encoder>(env: Env<'a>, call: impl FnOnce() -> Result<T, Error>) -> Term<'a> {
+    read_reply(env, || call().map_err(engine_error))
 }
 
 #[derive(NifTaggedEnum)]
