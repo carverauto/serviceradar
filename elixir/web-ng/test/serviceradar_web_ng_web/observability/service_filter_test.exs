@@ -41,7 +41,13 @@ defmodule ServiceRadarWebNGWeb.Observability.ServiceFilterTest do
             ["svc with spaces"],
             [~s(quote"inside)],
             ["back\\slash"],
-            ["checkout", "pay%", ~s(a"b\\c)]
+            ["checkout", "pay%", ~s(a"b\\c)],
+            ["checkout", ~s(quote"inside)],
+            ["checkout", "back\\slash"],
+            [~s(ends")],
+            [~s("starts)],
+            ["trailing\\"],
+            ["checkout", ~s(ends"), ~s("starts), "trailing\\", "a,b", "(p)", "it's"]
           ] do
         query = ServiceFilter.put("in:logs time:last_1h", names)
         assert exact_names(query) == names, "#{inspect(names)} -> #{query}"
@@ -94,8 +100,13 @@ defmodule ServiceRadarWebNGWeb.Observability.ServiceFilterTest do
     end
 
     test "round-trips every emitted token" do
-      names = ["checkout", "pay%", ~s(a"b\\c)]
-      assert ServiceFilter.parse(ServiceFilter.put("in:logs", names)) == {:exact, names}
+      for names <- [
+            ["checkout", "pay%", ~s(a"b\\c)],
+            [~s(ends")],
+            ["checkout", ~s(ends"), ~s("starts), "trailing\\", "a,b", "(p)", "it's"]
+          ] do
+        assert ServiceFilter.parse(ServiceFilter.put("in:logs", names)) == {:exact, names}
+      end
     end
   end
 

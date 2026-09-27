@@ -950,3 +950,156 @@ fn rejects_empty_rollup_stats() {
     let err = parse("in:logs rollup_stats:").unwrap_err();
     assert!(matches!(err, ServiceError::InvalidRequest(_)));
 }
+
+// -- quoting and escapes (#4798) ----------------------------------------------
+//
+// A backslash inside a quoted span escapes the next character, and that escape
+// is applied exactly once whether the value is a scalar or a list item. Only
+// one matching outer quote pair is removed.
+
+/// The one filter of `in:logs <token>`.
+fn only_filter(token: &str) -> Filter {
+    let ast = parse(&format!("in:logs {token}")).unwrap();
+    assert_eq!(ast.filters.len(), 1, "{token}");
+    ast.filters.into_iter().next().unwrap()
+}
+
+fn scalar_of(token: &str) -> String {
+    only_filter(token).value.as_scalar().unwrap().to_string()
+}
+
+fn list_of(token: &str) -> Vec<String> {
+    only_filter(token).value.as_list().unwrap().to_vec()
+}
+
+/// Encode `value` as the inside of a double-quoted SRQL string: one escape pass.
+fn escape_once(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+#[test]
+fn escaped_double_quote_is_unescaped_once_in_scalars_and_lists() {
+    assert_eq!(scalar_of(r#"service_name:"a\"b""#), r#"a"b"#);
+    assert_eq!(list_of(r#"service_name:("a\"b")"#), vec![r#"a"b"#]);
+    assert_eq!(list_of(r#"service_name:["a\"b"]"#), vec![r#"a"b"#]);
+}
+
+#[test]
+fn escaped_single_quote_is_unescaped_once_in_scalars_and_lists() {
+    assert_eq!(scalar_of(r"service_name:'it\'s'"), "it's");
+    assert_eq!(list_of(r"service_name:('it\'s','x')"), vec!["it's", "x"]);
+}
+
+#[test]
+fn escaped_backslash_is_unescaped_once_in_scalars_and_lists() {
+    assert_eq!(scalar_of(r#"service_name:"back\\slash""#), r"back\slash");
+    assert_eq!(
+        list_of(r#"service_name:("back\\slash")"#),
+        vec![r"back\slash"]
+    );
+    assert_eq!(scalar_of(r#"service_name:"trailing\\""#), r"trailing\");
+    assert_eq!(
+        list_of(r#"service_name:("trailing\\","x")"#),
+        vec![r"trailing\", "x"]
+    );
+}
+
+#[test]
+fn commas_parens_and_escaped_quotes_stay_inside_quoted_list_items() {
+    assert_eq!(
+        list_of(r#"service_name:("a,b","(c)","d)e","f]g")"#),
+        vec!["a,b", "(c)", "d)e", "f]g"]
+    );
+    assert_eq!(
+        list_of(r#"service_name:("x\",y","z")"#),
+        vec![r#"x",y"#, "z"]
+    );
+    assert_eq!(
+        list_of(r#"service_name:("p \"(q, r)\" s",t)"#),
+        vec![r#"p "(q, r)" s"#, "t"]
+    );
+}
+
+#[test]
+fn a_value_beginning_or_ending_in_a_quote_keeps_it() {
+    assert_eq!(scalar_of(r#"service_name:"ends\"""#), r#"ends""#);
+    assert_eq!(scalar_of(r#"service_name:"\"starts""#), r#""starts"#);
+    assert_eq!(scalar_of(r#"service_name:"\"both\"""#), r#""both""#);
+    assert_eq!(scalar_of(r#"service_name:"it'""#), "it'");
+    assert_eq!(scalar_of(r#"service_name:'say "hi"'"#), r#"say "hi""#);
+    assert_eq!(
+        list_of(r#"service_name:("ends\"","\"starts","it'")"#),
+        vec![r#"ends""#, r#""starts"#, "it'"]
+    );
+}
+
+#[test]
+fn scalar_and_list_decode_the_same_encoding_to_the_same_value() {
+    for value in [
+        "plain",
+        "with space",
+        r#"quote"inside"#,
+        r"back\slash",
+        r#"a"b\c"#,
+        r#""leading"#,
+        r#"trailing""#,
+        r"trailing\",
+        "comma,inside",
+        "(parens)",
+        "it's",
+    ] {
+        let encoded = escape_once(value);
+        assert_eq!(
+            scalar_of(&format!(r#"service_name:"{encoded}""#)),
+            value,
+            "scalar {encoded}"
+        );
+        assert_eq!(
+            list_of(&format!(r#"service_name:("{encoded}")"#)),
+            vec![value],
+            "list {encoded}"
+        );
+        assert_eq!(
+            list_of(&format!(r#"service_name:("{encoded}","{encoded}")"#)),
+            vec![value, value],
+            "two-item list {encoded}"
+        );
+    }
+}
+
+#[test]
+fn a_percent_makes_a_scalar_a_like_but_a_list_item_stays_exact() {
+    let scalar = only_filter(r#"service_name:"pay\"%""#);
+    assert!(matches!(scalar.op, FilterOp::Like));
+    assert_eq!(scalar.value.as_scalar().unwrap(), r#"pay"%"#);
+
+    let negated = only_filter(r#"!service_name:"pay\"%""#);
+    assert!(matches!(negated.op, FilterOp::NotLike));
+
+    let list = only_filter(r#"service_name:("pay\"%")"#);
+    assert!(matches!(list.op, FilterOp::In));
+    assert_eq!(list.value.as_list().unwrap(), [r#"pay"%"#]);
+
+    let negated_list = only_filter(r#"!service_name:("a\"b","c")"#);
+    assert!(matches!(negated_list.op, FilterOp::NotIn));
+    assert_eq!(negated_list.value.as_list().unwrap(), [r#"a"b"#, "c"]);
+}
+
+#[test]
+fn unquoted_values_keep_backslashes_and_backtick_values_keep_their_backticks() {
+    assert_eq!(scalar_of(r"service_name:a\b"), r"a\b");
+    assert_eq!(list_of(r"service_name:(a\b,c)"), vec![r"a\b", "c"]);
+    assert_eq!(scalar_of("service_name:`a b`"), "`a b`");
+    assert_eq!(list_of("service_name:(`a,b`,c)"), vec!["`a,b`", "c"]);
+}
+
+#[test]
+fn an_escaped_quote_does_not_end_the_token() {
+    let ast = parse(r#"in:logs service_name:"a\" severity_text:b" limit:5"#).unwrap();
+    assert_eq!(ast.filters.len(), 1);
+    assert_eq!(
+        ast.filters[0].value.as_scalar().unwrap(),
+        r#"a" severity_text:b"#
+    );
+    assert_eq!(ast.limit, Some(5));
+}
