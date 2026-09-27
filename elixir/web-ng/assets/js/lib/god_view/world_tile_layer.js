@@ -118,7 +118,7 @@ export default class WorldTileLayer extends TileLayer {
     const node = ({index}) => frame.nodes[index]
     const flow = overlay && this.props.packetFlow !== false ? flowFrame(geometry, overlay) : null
     return [
-      new LineLayer(props, common, {
+      frame.lines.length > 0 && new LineLayer(props, common, {
         id: `${props.id}-edges`, data: frame.lines, pickable: true,
         visible: this.props.links !== false,
         getColor: [92, 132, 160, 150], getWidth: 1.5, widthUnits: "pixels",
@@ -129,7 +129,7 @@ export default class WorldTileLayer extends TileLayer {
         // Across at most 64 tiles, bound particles globally as well as per edge.
         zoomDensity: 1 / 64,
       }),
-      new ScatterplotLayer(props, common, {
+      frame.glyphs.length > 0 && new ScatterplotLayer(props, common, {
         id: `${props.id}-nodes`, data: frame.glyphs, pickable: true,
         radiusUnits: "pixels", stroked: true, lineWidthUnits: "pixels", getLineWidth: 1,
         getRadius: (_, info) => shown(node(info)) ? (node(info).kind === "aggregate" ? 9 : 4) : 0,
@@ -141,7 +141,7 @@ export default class WorldTileLayer extends TileLayer {
         getLineColor: [210, 226, 240, 230],
         updateTriggers: {getFillColor: overlay, getRadius: [overlay, filters]},
       }),
-      new TextLayer(props, common, {
+      frame.nodes.length > 0 && new TextLayer(props, common, {
         id: `${props.id}-labels`, data: frame.nodes, pickable: false,
         getPosition: item => item.position,
         getText: item => shown(item) ? (item.kind === "aggregate" ? item.count.toLocaleString() : item.label) : "",
