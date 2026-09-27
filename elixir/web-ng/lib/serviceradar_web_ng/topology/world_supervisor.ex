@@ -22,6 +22,7 @@ defmodule ServiceRadarWebNG.Topology.WorldSupervisor do
     watch_tasks = ServiceRadarWebNG.Topology.TileWatchTasks
     health_tasks = ServiceRadarWebNG.Topology.WorldHealthTasks
     detail_tasks = ServiceRadarWebNG.Topology.WorldDetailTasks
+    detail_guards = ServiceRadarWebNG.Topology.WorldDetailGuards
     overlay_tasks = ServiceRadarWebNG.Topology.WorldOverlayTasks
 
     # Each owner and its task supervisors share a restart boundary. Otherwise
@@ -30,6 +31,7 @@ defmodule ServiceRadarWebNG.Topology.WorldSupervisor do
       Supervisor.child_spec({Task.Supervisor, name: tile_tasks, max_children: 4}, id: tile_tasks),
       Supervisor.child_spec({Task.Supervisor, name: watch_tasks, max_children: 64}, id: watch_tasks),
       Supervisor.child_spec({Task.Supervisor, name: detail_tasks, max_children: 16}, id: detail_tasks),
+      Supervisor.child_spec({Task.Supervisor, name: detail_guards, max_children: 16}, id: detail_guards),
       {WorldCache, task_supervisor: tile_tasks, pubsub: ServiceRadar.PubSub}
     ]
 
