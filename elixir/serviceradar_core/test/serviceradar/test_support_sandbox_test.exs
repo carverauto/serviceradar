@@ -128,6 +128,10 @@ defmodule ServiceRadar.TestSupportSandboxTest do
   # holder already uses for "the connection was genuinely never released".
   @db_wait_ms 5_000
 
+  # A pool default the ownership timer reliably fires within, and a query that outlasts it.
+  @short_ownership_timeout_ms 200
+  @outlasting_query_s 1.0
+
   setup_all do
     TestSupport.start_core!(sandbox_owner?: false)
 
@@ -393,6 +397,33 @@ defmodule ServiceRadar.TestSupportSandboxTest do
     assert is_nil(TestSupport.sandbox_ownership_timeout(%{}))
   end
 
+  # The pool's ownership timer counts from checkout and disconnects whatever query is in
+  # flight when it fires. These two tests run a query outlasting a deliberately short pool
+  # default, against a private Repo instance so the application pool is untouched.
+  test "a short unboxed test keeps the pool's default ownership timeout" do
+    with_short_ownership_repo(fn ->
+      TestSupport.checkout_repo!(%{sandbox: :unboxed})
+
+      assert {:error, %DBConnection.ConnectionError{message: message}} =
+               Repo.query("SELECT pg_sleep($1::float8)", [@outlasting_query_s])
+
+      assert message =~ "ownership_timeout"
+    end)
+  end
+
+  test "a long unboxed test owns its connection for the tag-derived ownership timeout" do
+    with_short_ownership_repo(fn ->
+      TestSupport.checkout_repo!(%{sandbox: :unboxed, timeout: 1_800_000})
+
+      assert %{rows: [[1]]} =
+               Repo.query!("SELECT 1 FROM pg_sleep($1::float8)", [@outlasting_query_s])
+
+      # Unboxed means no wrapping transaction, so each statement is its own transaction and
+      # commits like production code. Inside a sandbox BEGIN, now() would predate the statement.
+      assert %{rows: [[true]]} = Repo.query!("SELECT now() = statement_timestamp()")
+    end)
+  end
+
   test "repository owner teardown drains shards started by log promotion" do
     previous_shards = Application.get_env(:serviceradar_core, :stateful_alert_engine_shards)
     Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, 1)
@@ -461,6 +492,20 @@ defmodule ServiceRadar.TestSupportSandboxTest do
       Sandbox.mode(Repo, :auto)
       Repo.query!("DROP TABLE IF EXISTS #{qualified_table}")
       Sandbox.mode(Repo, :manual)
+    end
+  end
+
+  defp with_short_ownership_repo(fun) do
+    {:ok, repo} =
+      Repo.start_link(name: nil, pool_size: 1, ownership_timeout: @short_ownership_timeout_ms)
+
+    previous = Repo.put_dynamic_repo(repo)
+
+    try do
+      fun.()
+    after
+      Repo.put_dynamic_repo(previous)
+      Supervisor.stop(repo)
     end
   end
 

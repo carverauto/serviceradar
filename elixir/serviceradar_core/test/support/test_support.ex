@@ -67,7 +67,9 @@ defmodule ServiceRadar.TestSupport do
 
       context[:sandbox] == :unboxed ->
         Sandbox.mode(ServiceRadar.Repo, :auto)
+        checkout_unboxed_connection!(context)
 
+        # A mode change checks in every lent connection, including the one checked out above.
         ExUnit.Callbacks.on_exit(fn ->
           Sandbox.mode(ServiceRadar.Repo, :manual)
         end)
@@ -86,6 +88,23 @@ defmodule ServiceRadar.TestSupport do
         configure_async_sandbox_transaction!(context)
 
         {:ok, sandbox_owner: owner}
+    end
+  end
+
+  # In :auto mode the test process's first query checks a connection out implicitly with
+  # the pool's default ownership timeout. That timer measures ownership, not idleness: it
+  # fires once that much time has passed since the checkout, however busy the connection
+  # is, and disconnects whatever query is in flight. A long unboxed test therefore loses
+  # its connection every two minutes. Checking out explicitly carries the tag-derived
+  # timeout. `sandbox: false` keeps the no-transaction semantics unboxed tests exist for,
+  # and it must follow `mode/2`, which checks in every connection the pool has lent out.
+  defp checkout_unboxed_connection!(context) do
+    case sandbox_ownership_timeout(context) do
+      nil ->
+        :ok
+
+      timeout ->
+        :ok = Sandbox.checkout(ServiceRadar.Repo, sandbox: false, ownership_timeout: timeout)
     end
   end
 
