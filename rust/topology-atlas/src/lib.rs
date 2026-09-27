@@ -14,10 +14,10 @@ pub use details::{
 };
 pub use health::{
     DeviceIdsCursor, DeviceIdsPage, GlyphHealth, HEALTH_BATCH_LIMIT, HealthApply, HealthCounts,
-    HealthIndex, HealthObservation, HealthSnapshot, HealthState, TileHealth,
+    HealthIndex, HealthInfo, HealthObservation, HealthSnapshot, HealthState, TileHealth,
 };
 pub use layout::reconcile;
-pub use tiles::{Budget, Glyph, GlyphKind, Tile, TileEdge, World};
+pub use tiles::{Budget, Glyph, GlyphKind, Tile, TileEdge, TileProfile, World};
 
 /// Integers in this extent are exactly representable by Float32.
 pub const WORLD_EXTENT: u32 = 1 << 24;
@@ -109,6 +109,7 @@ pub enum Error {
     InvalidDetailCursor,
     StaleDetailRevision,
     InvalidHealthUpdate,
+    SelectionBudgetExceeded,
 }
 
 impl std::fmt::Display for Error {

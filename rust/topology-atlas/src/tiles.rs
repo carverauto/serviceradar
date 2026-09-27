@@ -8,7 +8,7 @@ use sha2::{Digest, Sha256};
 
 use crate::details::{DetailIndex, MAX_SELECTION_BYTES, TileSelection, detail_revision};
 use crate::layout::morton_index;
-use crate::spatial::{Clip, Line, Point, SegmentIndex};
+use crate::spatial::{Line, Point, SegmentIndex};
 use crate::{Cell, Error, Position, Relation, WORLD_EXTENT};
 
 #[derive(Clone, Copy, Debug)]
@@ -24,6 +24,16 @@ impl Default for Budget {
             edges: 256,
         }
     }
+}
+
+/// AggregateOnly bounds identifiers independently of canonical identity length.
+/// The encoder still owns the final serialized byte budget.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u8)]
+pub enum TileProfile {
+    #[default]
+    Standard,
+    AggregateOnly,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -45,7 +55,7 @@ pub struct Glyph {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct TileEdge {
-    /// A canonical identity when this is one relation, otherwise a bundle id.
+    /// A canonical identity for one Standard relation, otherwise a bundle id.
     pub id: String,
     pub source: u32,
     pub target: u32,
@@ -59,6 +69,7 @@ pub struct TileEdge {
 #[derive(Clone, Debug)]
 pub struct Tile {
     pub cell: Cell,
+    pub profile: TileProfile,
     pub revision: String,
     pub glyphs: Vec<Glyph>,
     pub edges: Vec<TileEdge>,
@@ -180,6 +191,15 @@ impl World {
     }
 
     pub fn tile(&self, cell: Cell, budget: Budget) -> Result<Tile, Error> {
+        self.tile_with_profile(cell, budget, TileProfile::Standard)
+    }
+
+    pub fn tile_with_profile(
+        &self,
+        cell: Cell,
+        budget: Budget,
+        profile: TileProfile,
+    ) -> Result<Tile, Error> {
         Cell::new(cell.z, cell.x, cell.y)?;
         if cell.z > self.z_max {
             return Err(Error::InvalidCell);
@@ -192,15 +212,15 @@ impl World {
         let mut limit = budget.nodes;
         let mut candidates = 0;
         loop {
-            let plan = self.plan(cell, limit);
-            let (result, examined) = self.edges(cell, plan, budget);
+            let plan = self.plan(cell, limit, profile);
+            let (result, examined) = self.edges(cell, plan, budget, profile);
             candidates += examined;
             if let Some(mut tile) = result {
                 tile.candidate_relations = candidates;
                 tile.revision = self.revision(&tile);
                 tile.selection.tile_revision = tile.revision.clone();
                 if tile.selection.retained_bytes() > MAX_SELECTION_BYTES {
-                    return Err(Error::InvalidBudget);
+                    return Err(Error::SelectionBudgetExceeded);
                 }
                 return Ok(tile);
             }
@@ -215,19 +235,21 @@ impl World {
         self.codes.partition_point(|&c| c < start)..self.codes.partition_point(|&c| c < end)
     }
 
-    fn plan(&self, cell: Cell, limit: usize) -> Plan {
+    fn plan(&self, cell: Cell, limit: usize, profile: TileProfile) -> Plan {
         let range = self.range(cell);
         let mut selected = Vec::new();
-        for (_, indexes) in self.importance.range(..=cell.z) {
-            let start = indexes.partition_point(|&i| (i as usize) < range.start);
-            for &i in &indexes[start..] {
-                if i as usize >= range.end || selected.len() == limit {
+        if profile == TileProfile::Standard {
+            for (_, indexes) in self.importance.range(..=cell.z) {
+                let start = indexes.partition_point(|&i| (i as usize) < range.start);
+                for &i in &indexes[start..] {
+                    if i as usize >= range.end || selected.len() == limit {
+                        break;
+                    }
+                    selected.push(i);
+                }
+                if selected.len() == limit {
                     break;
                 }
-                selected.push(i);
-            }
-            if selected.len() == limit {
-                break;
             }
         }
         if selected.len() < range.len() {
@@ -324,7 +346,13 @@ impl World {
         }
     }
 
-    fn edges(&self, cell: Cell, mut plan: Plan, budget: Budget) -> (Option<Tile>, usize) {
+    fn edges(
+        &self,
+        cell: Cell,
+        mut plan: Plan,
+        budget: Budget,
+        profile: TileProfile,
+    ) -> (Option<Tile>, usize) {
         let mut proxies = BTreeMap::new();
         let mut bundles = BTreeMap::<(u32, u32), TileEdge>::new();
         let mut internal = 0;
@@ -353,18 +381,23 @@ impl World {
                     .entry((source, target))
                     .and_modify(|edge| {
                         if edge.count == 1 {
-                            let mut hash = Sha256::new();
-                            digest_string(&mut hash, &self.layout_version);
-                            digest_string(&mut hash, &plan.glyphs[source as usize].id);
-                            digest_string(&mut hash, &plan.glyphs[target as usize].id);
-                            edge.id = format!("bundle:{}", digest_hex(hash));
+                            edge.id = self.bundle_id(&from.id, &to.id);
                         }
                         edge.count += 1;
                         edge.start = 0.0;
                         edge.end = 1.0;
                     })
-                    .or_insert_with(|| {
-                        tile_edge(&self.relations[i as usize], source, target, clipped)
+                    .or_insert_with(|| TileEdge {
+                        id: if profile == TileProfile::AggregateOnly {
+                            self.bundle_id(&from.id, &to.id)
+                        } else {
+                            self.relations[i as usize].id.clone()
+                        },
+                        source,
+                        target,
+                        count: 1,
+                        start: clipped.start,
+                        end: clipped.end,
                     });
             }
             plan.glyphs.len() <= budget.nodes && bundles.len() <= budget.edges
@@ -380,6 +413,7 @@ impl World {
             world_revision: self.detail_revision.clone(),
             tile_revision: String::new(),
             cell,
+            profile,
             glyphs: plan.glyphs.clone(),
             edges: edges.clone(),
             promoted,
@@ -388,6 +422,7 @@ impl World {
         (
             Some(Tile {
                 cell,
+                profile,
                 revision: String::new(),
                 glyphs: plan.glyphs,
                 edges,
@@ -403,6 +438,7 @@ impl World {
     fn revision(&self, tile: &Tile) -> String {
         let mut hash = Sha256::new();
         digest_string(&mut hash, &self.layout_version);
+        hash.update([tile.profile as u8]);
         hash.update([tile.cell.z]);
         hash.update(tile.cell.x.to_le_bytes());
         hash.update(tile.cell.y.to_le_bytes());
@@ -426,6 +462,14 @@ impl World {
             hash.update(edge.end.to_le_bytes());
         }
         digest_hex(hash)
+    }
+
+    fn bundle_id(&self, source: &str, target: &str) -> String {
+        let mut hash = Sha256::new();
+        digest_string(&mut hash, &self.layout_version);
+        digest_string(&mut hash, source);
+        digest_string(&mut hash, target);
+        format!("bundle:{}", digest_hex(hash))
     }
 }
 
@@ -468,17 +512,6 @@ impl Plan {
                 });
                 index
             })
-    }
-}
-
-fn tile_edge(relation: &Relation, source: u32, target: u32, clip: Clip) -> TileEdge {
-    TileEdge {
-        id: relation.id.clone(),
-        source,
-        target,
-        count: 1,
-        start: clip.start,
-        end: clip.end,
     }
 }
 
