@@ -1623,7 +1623,6 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       ],
       downsample: false
     },
-    # Kubernetes public VIP / Gateway ownership inventory (cluster-plane).
     %{
       id: "camera_sources",
       label: "Cameras",
@@ -1648,6 +1647,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       },
       downsample: false
     },
+    # Kubernetes public VIP / Gateway ownership inventory (cluster-plane).
     %{
       id: "public_endpoints",
       label: "Public Endpoints",

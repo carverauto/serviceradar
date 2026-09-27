@@ -150,8 +150,9 @@ in:events time:[,2026-01-02T00:00:00Z]      # open start
 ### Limits
 
 Most queries are capped at a 90-day time range. Aggregated metric queries (a metric
-entity combined with `stats:` or `bucket:`) may span a longer window because they
-are served from pre-computed hourly rollups.
+entity combined with `stats:` or `bucket:`) may span a longer window. Hourly rollups
+serve the aggregates that have a stored column. `agg:last` does not use them; see
+[Downsampling with `bucket`](#downsampling-with-bucket).
 
 ## Sorting and pagination
 
@@ -256,7 +257,9 @@ For time-series charts, `bucket:` groups rows into fixed time buckets.
   `count`, `rate` (per-second rate of change for counters), `rate_sum` (per-second
   rates summed across the series collapsed into a bucket), or `last` (alias
   `latest`: the value of the newest sample in the bucket, for gauges such as a
-  position or a battery level).
+  position or a battery level). `agg:last` reads raw samples on CNPG and on
+  StarRocks. Hourly rollups have no newest-sample column, so this aggregate is
+  never served from them.
 - `series:<field>` — splits buckets into one series per distinct value.
 - `value_field:<field>` — which numeric field to aggregate.
 
@@ -557,8 +560,10 @@ in:public_endpoints ip:198.51.100.10
 
 Camera inventory for relay viewing: each camera's owning device, availability and
 the relay-eligible stream profiles a viewer can open through the dashboard camera
-API. Source URLs and credentials are never returned. Not a time-series entity;
-`time:` filters on `updated_at`.
+API. `source_url`, per-profile `source_url_override`, and `metadata` are never
+returned. RTSP URLs often embed credentials, and the relay opens the upstream
+stream on the agent, so a viewer never needs them. Filtering or sorting on those
+fields is rejected. Not a time-series entity; `time:` filters on `updated_at`.
 
 | Field | Aliases | Description |
 |-------|---------|-------------|
@@ -570,10 +575,11 @@ API. Source URLs and credentials are never returned. Not a time-series entity;
 | `assigned_agent_id` | `agent_id` | Agent that pulls the stream |
 | `assigned_gateway_id` | `gateway_id` | Gateway on the relay path |
 | `last_event_type` | | Type of the camera's last event |
-| `viewable` | `relay_eligible` | `true` for cameras with at least one relay-eligible profile |
+| `viewable` | `relay_eligible`, `has_viewable_profile` | `true` for cameras with at least one relay-eligible profile |
 
-Each row carries `stream_profiles`: a list of `{id, profile_name, codec_hint,
-container_hint, rtsp_transport, last_seen_at}` for relay-eligible profiles only.
+Each row carries `stream_profiles`: a list of `{id, profile_name, vendor_profile_id,
+codec_hint, container_hint, rtsp_transport, last_seen_at}` for relay-eligible
+profiles only.
 
 Examples:
 
