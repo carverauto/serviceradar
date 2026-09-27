@@ -42,22 +42,17 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
 
   ## Size reconcile
 
-  The stream's `max_bytes` comes from `SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES`
-  (1 GiB by default; the Helm chart renders
-  `core.eventWriter.streams.notifications.maxBytes`). Before its first publish
-  each node runs `reconcile_stream/1` once, which classifies the existing stream
-  by its discard policy (design D6 of `update-jetstream-storage-budget`): the
-  firehose is a discard-old buffer, so `max_bytes` is reconciled to the
-  configured size even when that evicts the oldest envelopes, and the values
-  before and after are logged. Were the stream discard-new, a cap at or below
-  the stored bytes would be held back and logged instead.
+  See `docs/docs/notifications.md`, "The notification firehose", for operator
+  configuration and retention implications, and `reconcile_stream/1` for the
+  discard-policy contract.
 
-  A reconcile that fails - a persistent `stream_config_conflict`, or the NATS
-  connection being down - never blocks or fails the publish it precedes: the
-  failure is logged and memoized with a retry-after time (`:reconcile_retry_ms`,
-  5 minutes by default), so the node retries the reconcile at most once per
-  interval instead of repeating the STREAM.INFO/STREAM.UPDATE round trip on
-  every publish.
+  Before publishing, each node attempts `reconcile_stream/1` unless it has
+  cached success for the configured size or a failure whose retry window has
+  not expired. Reconciliation is synchronous, so that attempt can add request
+  latency. An error is logged and cached with a retry-after time
+  (`:reconcile_retry_ms`, 5 minutes by default); the publish attempt proceeds
+  regardless. A later publish after the window expires retries reconciliation.
+  A cached success lasts until the configured size changes or the node restarts.
 
   ## Subjects
 
@@ -93,10 +88,8 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
   @default_max_age_ns 86_400_000_000_000
   @default_max_bytes 1_073_741_824
 
-  # Memoizes the outcome of the once-per-node size reconcile: `{:ok,
-  # configured}` on success, or `{:error, configured, retry_at}` when
-  # `reconcile_stream/1` failed, so publish/3 fails open and retries at most
-  # once per `@default_reconcile_retry_ms` per node instead of blocking.
+  # Cache entries include the configured size so a changed cap invalidates
+  # either outcome: `{:ok, configured}` or `{:error, configured, retry_at}`.
   @reconciled_key {__MODULE__, :reconciled_max_bytes}
   @default_reconcile_retry_ms 300_000
 
@@ -151,8 +144,8 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
       inject it.
     * `:connection` - `fun()` returning `{:ok, conn} | {:error, reason}`.
     * `:ensure_stream` - set `false` to skip the self-healing retry.
-    * `:reconcile_stream` - set `false` to skip the once-per-node size
-      reconcile (`reconcile_stream/1`) before the first publish.
+    * `:reconcile_stream` - set `false` to skip size reconciliation, including
+      retries after a cached failure (see "Size reconcile" above).
     * `:reconcile_retry_ms` - how long a failed reconcile is memoized before
       the next publish retries it (5 minutes by default).
     * `:clock` - `fun()` returning the current time in milliseconds
@@ -266,6 +259,7 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
   defp reconcile_existing(request, config, stored, opts) do
     if @subject_wildcard in List.wrap(Map.get(config, "subjects")) do
       configured = Map.put(config, "max_bytes", max_bytes(opts))
+
       payload =
         JetstreamConsumer.hold_discard_new_max_bytes(@stream_name, config, configured, stored)
 

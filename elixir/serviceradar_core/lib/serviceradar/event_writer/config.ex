@@ -206,7 +206,7 @@ defmodule ServiceRadar.EventWriter.Config do
 
   @typedoc """
   JetStream sizes for the streams EventWriter creates: `max_bytes` for the
-  streams only EventWriter writes, and the fallback size and replicas for the
+  streams only EventWriter creates, and the fallback size and replicas for the
   streams a collector may own. Keys are JetStream stream names.
   """
   @type jetstream_sizes :: %{
@@ -555,7 +555,7 @@ defmodule ServiceRadar.EventWriter.Config do
   @doc """
   Applies JetStream sizes to stream configs, by the JetStream stream each binds.
 
-  A stream only EventWriter writes gets its `max_bytes`. Every consumer of a
+  A stream only EventWriter creates gets its `max_bytes`. Every consumer of a
   stream a collector may own (`events`, `flows`, `ARANCINI_CAUSAL`) gets the
   EventWriter fallback shape (discard-old, the fallback size and replicas) and
   the `event-writer` claim, which replaces `reconcile_stream_shape`: EventWriter
