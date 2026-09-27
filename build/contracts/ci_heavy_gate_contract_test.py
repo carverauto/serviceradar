@@ -1017,6 +1017,8 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
     playwright_acceptance = (
         "bazel test -c opt --config=ci "
         "//elixir/web-ng/test/playwright:god_view_elk_scene_acceptance "
+        "//elixir/web-ng/test/playwright:world_gpu_test "
+        "//elixir/web-ng/assets:million_world_browser_test "
         "--test_output=errors --nocache_test_results --flaky_test_attempts=1"
     )
     # The same command as a stub `bazel` on PATH records it: argv without argv[0].
@@ -1664,6 +1666,10 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             "elixir/web-ng/test/playwright/god_view_elk_scene.playwright.js",
             "elixir/web-ng/assets/js/lib/god_view/topology_overview_projection.js",
             "elixir/web-ng/native/god_view_nif/src/lib.rs",
+            "elixir/web-ng/world_fixture.bzl",
+            "elixir/web-ng/test/fixtures/world_browser_encoder.exs",
+            "elixir/serviceradar_core/native/topology_atlas_nif/src/lib.rs",
+            "rust/topology-atlas/src/tiles.rs",
             "buildbuddy.yaml",
         ):
             with self.subTest(changed=changed):
