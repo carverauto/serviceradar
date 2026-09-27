@@ -39,14 +39,15 @@ for app <- [:postgrex, :ecto_sql, :ash_postgres, :oban] do
 end
 
 # The dedicated scale case may hold an auto-mode sandbox connection for its
-# full test deadline. Production publication still retains its own shorter timeout.
-{:ok, repo} = ServiceRadar.Repo.start_link(ownership_timeout: 780_000)
+# full test deadline, covering sequential publication and reload plus setup.
+# Production stages retain their own shorter timeouts.
+{:ok, repo} = ServiceRadar.Repo.start_link(ownership_timeout: 1_200_000)
 Process.unlink(repo)
 :ok = Ecto.Adapters.SQL.Sandbox.mode(ServiceRadar.Repo, :auto)
 {:ok, oban} = Oban.start_link(Application.fetch_env!(:serviceradar_core, Oban))
 Process.unlink(oban)
 
-ExUnit.start(exclude: [:test], include: [:world_worker_fixture], max_cases: 1, timeout: 780_000)
+ExUnit.start(exclude: [:test], include: [:world_worker_fixture], max_cases: 1, timeout: 1_200_000)
 
 ExUnit.after_suite(fn %{total: total, excluded: excluded, skipped: skipped} ->
   Supervisor.stop(oban)

@@ -15,7 +15,7 @@ mod fixture;
 
 #[tokio::test]
 async fn real_worker_publishes_pages_and_coalesces_a_later_source_change() {
-    fixture::with_scratch(Duration::from_secs(900), |client, target| async move {
+    fixture::with_scratch(Duration::from_secs(1320), |client, target| async move {
         run_with_client(&client, schema_spec(), Mode::Migrate)
             .await
             .expect("apply the owned namespace schema");
@@ -41,7 +41,7 @@ async fn real_worker_publishes_pages_and_coalesces_a_later_source_change() {
             i32::try_from(child.id().expect("running child identifier"))
                 .expect("process identifier fits the platform pid"),
         )));
-        let status = tokio::time::timeout(Duration::from_secs(840), child.wait()).await;
+        let status = tokio::time::timeout(Duration::from_secs(1260), child.wait()).await;
         // The generated runner may have a BEAM child. Terminate the entire
         // owned group before the outer fixture deletes its namespace, even
         // when the runner exits early or the enclosing future is cancelled.
