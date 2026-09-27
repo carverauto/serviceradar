@@ -298,6 +298,7 @@ impl TopologyClient {
             "topo.if_index_ba": edge.if_index_ba(),
             "topo.if_name_ab": edge.if_name_ab(),
             "topo.if_name_ba": edge.if_name_ba(),
+            "topo.pair_support_rank": edge.pair_support_rank(),
             "topo.stale": false,
         });
         // Always present: an edge without `topo.last_seen` never matches the
@@ -509,6 +510,7 @@ impl TopologyClient {
     topo.if_name_ab
     topo.if_name_ba
     topo.mutation_id
+    topo.pair_support_rank
     topo.src {{ device.id hop.ip }}
     topo.dst {{ device.id hop.ip }}
   }}
@@ -595,6 +597,7 @@ impl TopologyClient {
     topo.if_name_ab
     topo.if_name_ba
     topo.mutation_id
+    topo.pair_support_rank
     topo.src { device.id }
     topo.dst { device.id }
   }
@@ -741,6 +744,8 @@ struct CanonicalEdgeRow {
     if_name_ba: String,
     #[serde(default, rename = "topo.mutation_id")]
     mutation_id: String,
+    #[serde(default, rename = "topo.pair_support_rank")]
+    pair_support_rank: i64,
     #[serde(default, rename = "topo.src")]
     src: Vec<EndpointId>,
     #[serde(default, rename = "topo.dst")]
@@ -751,25 +756,28 @@ impl CanonicalEdgeRow {
     fn into_edge(self) -> Option<CanonicalEdge> {
         let source = self.src.first().and_then(EndpointId::id)?.to_string();
         let target = self.dst.first().and_then(EndpointId::id)?.to_string();
-        Some(CanonicalEdge::new(
-            source,
-            target,
-            self.flow_pps_ab,
-            self.flow_pps_ba,
-            self.flow_bps_ab,
-            self.flow_bps_ba,
-            self.capacity_bps,
-            self.telemetry_eligible,
-            self.protocol,
-            self.evidence_class,
-            self.confidence_tier,
-            self.if_index_ab,
-            self.if_name_ab,
-            self.if_index_ba,
-            self.if_name_ba,
-            self.link_key,
-            self.mutation_id,
-        ))
+        Some(
+            CanonicalEdge::new(
+                source,
+                target,
+                self.flow_pps_ab,
+                self.flow_pps_ba,
+                self.flow_bps_ab,
+                self.flow_bps_ba,
+                self.capacity_bps,
+                self.telemetry_eligible,
+                self.protocol,
+                self.evidence_class,
+                self.confidence_tier,
+                self.if_index_ab,
+                self.if_name_ab,
+                self.if_index_ba,
+                self.if_name_ba,
+                self.link_key,
+                self.mutation_id,
+            )
+            .with_pair_support_rank(self.pair_support_rank),
+        )
     }
 
     fn into_neighbourhood(self) -> Option<crate::types::NeighbourhoodEdge> {

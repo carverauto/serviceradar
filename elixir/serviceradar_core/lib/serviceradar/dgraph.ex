@@ -309,7 +309,8 @@ defmodule ServiceRadar.Dgraph do
       telemetry_eligible: attr(attrs, :telemetry_eligible),
       last_seen: attr(attrs, :last_seen),
       mutation_id: attr(attrs, :mutation_id),
-      agent_id: attr(attrs, :agent_id)
+      agent_id: attr(attrs, :agent_id),
+      pair_support_rank: attr(attrs, :pair_support_rank) || 0
     }
   end
 end

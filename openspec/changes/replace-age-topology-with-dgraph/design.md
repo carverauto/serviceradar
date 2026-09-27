@@ -256,16 +256,10 @@ the existing Elixir/Rust logic. Only the persist/query adapter changes.
 
 ### D7. Rebuild-from-evidence is the data migration; AGE dump is the checksum
 
-AGE is not the system of record. The migrator binary therefore has two modes:
-
-1. **Rebuild** (default, operator-safe): run the existing canonical rebuild
-   against Dgraph from current mapper evidence. This is the same function as
-   `rebuild_canonical_links_from_current/0` with a Dgraph adapter. It is
-   idempotent and is how a polluted graph is recovered after cutover too.
-2. **Checksum**: walk AGE `platform_graph`, walk Dgraph, compare node/edge
-   counts and a canonical-edge content hash. Fail the Job if they disagree
-   beyond a documented tolerance (unresolved endpoints, stale inferred edges
-   that the rebuild would drop anyway).
+AGE is not the system of record. The migration binary and core's ongoing
+canonical reconciliation are separate paths. Their sources, cutover controls,
+and recovery boundaries are documented in
+[Network Topology](../../../docs/docs/network-topology.md#dgraph-topology-store).
 
 An AGE **dump-and-load** path exists as a bootstrap for lab graphs that have
 no evidence tables, and as a debug aid. It is not the production cutover.

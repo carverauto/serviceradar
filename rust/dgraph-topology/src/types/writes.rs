@@ -373,6 +373,7 @@ pub struct EdgeWrite {
     last_seen: String,
     mutation_id: String,
     agent_id: Option<String>,
+    pair_support_rank: i64,
 }
 
 impl EdgeWrite {
@@ -406,6 +407,7 @@ impl EdgeWrite {
             last_seen: String::new(),
             mutation_id: String::new(),
             agent_id: None,
+            pair_support_rank: 0,
         }
     }
 
@@ -533,6 +535,12 @@ impl EdgeWrite {
     }
 
     #[must_use]
+    pub fn with_pair_support_rank(mut self, rank: i64) -> Self {
+        self.pair_support_rank = rank;
+        self
+    }
+
+    #[must_use]
     pub fn link_key(&self) -> String {
         link_key(
             self.kind.as_str(),
@@ -641,5 +649,10 @@ impl EdgeWrite {
     #[must_use]
     pub fn agent_id(&self) -> Option<&str> {
         self.agent_id.as_deref()
+    }
+
+    #[must_use]
+    pub fn pair_support_rank(&self) -> i64 {
+        self.pair_support_rank
     }
 }
