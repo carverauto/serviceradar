@@ -93,6 +93,45 @@ defmodule ServiceRadar.Repo.SchemaBootstrap do
   end
 
   @doc """
+  Record every version in `platform.schema_migrations` in `platform.ash_schema_migrations`.
+
+  The two ledgers are read by different processes. Core migrates through the repo's default
+  `:migration_source`, so its migrator writes `platform.schema_migrations`. web-ng configures the
+  same repo with `migration_source: "ash_schema_migrations"`, and its `RequireMigrations` gate
+  asks `Ecto.Migrator` what is pending against THAT ledger -- so every version core applied has
+  to be copied across, or web-ng answers every route with 503 although nothing is pending.
+
+  Every path that brings a database up to date must call this once its migrations finish:
+  `ServiceRadar.Cluster.StartupMigrations` and `mix serviceradar.db.migrate` both do. It only
+  inserts versions that are missing, so it is safe to run on every start.
+
+  Returns the number of versions it added.
+  """
+  @spec sync_ash_schema_migrations!(module()) :: non_neg_integer()
+  def sync_ash_schema_migrations!(repo) do
+    repo.query!("""
+    CREATE TABLE IF NOT EXISTS platform.ash_schema_migrations (
+      version bigint NOT NULL PRIMARY KEY,
+      inserted_at timestamp(0) without time zone
+    )
+    """)
+
+    # platform.schema_migrations does not exist before the first migration has run.
+    if table_exists?(repo, "platform.schema_migrations") do
+      %{num_rows: added} =
+        repo.query!("""
+        INSERT INTO platform.ash_schema_migrations (version, inserted_at)
+        SELECT version, inserted_at FROM platform.schema_migrations
+        ON CONFLICT (version) DO NOTHING
+        """)
+
+      added
+    else
+      0
+    end
+  end
+
+  @doc """
   Versions recorded in any of the ledgers this deployment may have used.
 
   Three locations are read because a database can legitimately hold more than one: the ledger's
