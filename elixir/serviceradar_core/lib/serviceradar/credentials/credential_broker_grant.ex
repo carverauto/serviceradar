@@ -426,7 +426,13 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
     |> compact_map()
   end
 
-  @doc "Validate an already-loaded grant against broker call context."
+  @doc """
+  Validate an already-loaded grant against broker call context.
+
+  A grant without an `:issued`/`:active` status is refused with
+  `{:grant_not_active, status}` (including a missing status), and a grant
+  without a `DateTime` `expires_at` is refused with `:grant_expiry_invalid`.
+  """
   def validate_loaded_grant(grant, opts \\ []) when is_map(grant) do
     with :ok <- validate_status(grant),
          :ok <- validate_expiration(grant, Keyword.get(opts, :now, DateTime.utc_now())),
@@ -452,8 +458,10 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
     end
   end
 
+  # Fails closed: a grant row always carries a status and a DateTime expiry, so
+  # a grant missing either was not loaded from one and cannot be proven live.
   defp validate_status(grant) do
-    case normalize_atom(value(grant, :status) || :issued) do
+    case normalize_atom(value(grant, :status)) do
       status when status in [:issued, :active] -> :ok
       status -> {:error, {:grant_not_active, status}}
     end
@@ -464,8 +472,8 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrant do
       %DateTime{} = expires_at ->
         if DateTime.after?(expires_at, now), do: :ok, else: {:error, :grant_expired}
 
-      _ ->
-        :ok
+      _missing_or_invalid ->
+        {:error, :grant_expiry_invalid}
     end
   end
 

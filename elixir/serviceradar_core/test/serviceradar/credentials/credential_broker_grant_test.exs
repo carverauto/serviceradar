@@ -227,4 +227,28 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrantTest do
     assert {:error, :grant_expired} =
              CredentialBrokerGrant.validate_loaded_grant(grant, now: ~U[2026-05-21 12:06:00Z])
   end
+
+  # A grant row always carries a status and a DateTime expiry; a grant missing
+  # either cannot be proven live, so it is refused rather than treated as issued
+  # or unexpiring.
+  test "grant validation fails closed on a missing status or expiry" do
+    grant = %{
+      id: "grant-1",
+      secret_id: @secret_id,
+      status: :active,
+      expires_at: ~U[2026-05-21 12:05:00Z]
+    }
+
+    now = ~U[2026-05-21 12:00:00Z]
+    assert CredentialBrokerGrant.validate_loaded_grant(grant, now: now) == :ok
+
+    for {malformed, expected} <- [
+          {Map.delete(grant, :status), {:grant_not_active, nil}},
+          {Map.delete(grant, :expires_at), :grant_expiry_invalid},
+          {%{grant | expires_at: "2026-05-21T12:05:00Z"}, :grant_expiry_invalid}
+        ] do
+      result = CredentialBrokerGrant.validate_loaded_grant(malformed, now: now)
+      assert result == {:error, expected}, inspect(malformed)
+    end
+  end
 end

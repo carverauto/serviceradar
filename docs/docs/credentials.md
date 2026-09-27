@@ -87,6 +87,15 @@ Grant history remains recorded separately through AshPaperTrail in
 stored events. The `credential_resolution_audit_success_events` setting controls
 secret-resolution events, not broker grant lifecycle logging.
 
+A grant the broker refuses (scope mismatch, not active, expired, missing or
+invalid expiry, or no resolvable secret) always writes a secret-resolution audit
+row with outcome `denied`, the grant ID, the requested consumer, target and
+location, and the denial reason. This happens even when routine success auditing
+is off. If the audit row itself is rejected, the resolution is not failed:
+core logs a redacted warning (identifying fields and rejected field names only,
+never metadata or values) and emits the
+`[:serviceradar, :credentials, :resolution_audit, :write_failed]` telemetry event.
+
 ## Providers come from packages, not from the UI
 
 The provider list, the auth methods, the credential fields, the purposes, and the

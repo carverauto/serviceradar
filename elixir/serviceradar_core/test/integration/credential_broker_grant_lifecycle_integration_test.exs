@@ -3,6 +3,7 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrantLifecycleIntegrationTest
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.CredentialBrokerGrant
+  alias ServiceRadar.Credentials.CredentialSecretResolutionAudit
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Credentials.SecretBroker
   alias ServiceRadar.Edge.AgentGatewaySync
@@ -136,7 +137,7 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrantLifecycleIntegrationTest
     assert resolved.value == "token-from-ref-#{unique}"
   end
 
-  test "resolve_with_grant refuses scope mismatch and inactive grants" do
+  test "resolve_with_grant refuses scope mismatch and inactive grants and audits each denial" do
     actor = SystemActor.system(:credential_broker_grant_lifecycle_test)
     unique = System.unique_integer([:positive])
 
@@ -175,6 +176,29 @@ defmodule ServiceRadar.Credentials.CredentialBrokerGrantLifecycleIntegrationTest
                actor: actor,
                target_id: grant.target_id
              )
+
+    # Neither call asked for audit?: a refused grant is audited regardless, with
+    # the scope the caller requested and the reason it was refused.
+    assert {:ok, audits} =
+             CredentialSecretResolutionAudit.list_for_secret(secret.id, actor: actor)
+
+    denials = Enum.filter(audits, &(&1.outcome == :denied))
+    assert length(denials) == 2
+
+    mismatch = Enum.find(denials, &(&1.metadata["denial_reason"] == "grant_scope_mismatch"))
+    assert mismatch.grant_id == grant.id
+    assert mismatch.error_class == :provider_policy_denied
+    assert mismatch.metadata["denied_field"] == "target_id"
+    assert mismatch.consumer_kind == :device_task
+    assert mismatch.consumer_id == grant.consumer_id
+    assert mismatch.target_id == "device-other-#{unique}"
+    assert mismatch.resolution_location == :agent
+
+    inactive = Enum.find(denials, &(&1.metadata["denial_reason"] == "grant_not_active"))
+    assert inactive.grant_id == grant.id
+    assert inactive.error_class == :provider_policy_denied
+    assert inactive.metadata["grant_status"] == "revoked"
+    assert inactive.target_id == grant.target_id
   end
 
   defp credential_broker_grant_events(actor, grant_id) do

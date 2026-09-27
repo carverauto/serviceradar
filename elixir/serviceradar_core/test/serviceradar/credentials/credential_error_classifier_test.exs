@@ -5,8 +5,9 @@ defmodule ServiceRadar.Credentials.CredentialErrorClassifierTest do
   alias ServiceRadar.Credentials.CredentialErrorClassifier
   alias ServiceRadar.Credentials.CredentialSecretResolutionAudit
 
-  # SecretBroker drops an audit row silently when create_audit rejects it, so a
-  # class outside the audit resource's constraint loses the row without a trace.
+  # create_audit rejects a class outside the audit resource's constraint, so the
+  # row is lost (SecretBroker only logs and measures the rejection). Grant
+  # denials are classified here too: each writes a :denied row.
   test "every broker and adapter failure reason classifies into its accepted audit class" do
     accepted =
       CredentialSecretResolutionAudit
@@ -36,6 +37,10 @@ defmodule ServiceRadar.Credentials.CredentialErrorClassifierTest do
           {{:unreachable, :transport_error}, :unreachable},
           {{:resolution_location_not_allowed, :agent}, :provider_policy_denied},
           {{:grant_scope_mismatch, :target_id}, :provider_policy_denied},
+          {{:grant_not_active, :revoked}, :provider_policy_denied},
+          {:grant_expired, :provider_policy_denied},
+          {:grant_expiry_invalid, :provider_policy_denied},
+          {:grant_missing_secret_id, :invalid_reference},
           {:unrecognized_failure, :internal_error}
         ] do
       assert CredentialErrorClassifier.audit_error_class(reason) == expected, inspect(reason)

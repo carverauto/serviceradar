@@ -1,6 +1,8 @@
 defmodule ServiceRadar.Credentials.SecretBrokerAuditIntegrationTest do
   use ServiceRadar.DataCase, async: true
 
+  import ExUnit.CaptureLog
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.CredentialSecretProvider
   alias ServiceRadar.Credentials.CredentialSecretResolutionAudit
@@ -69,5 +71,37 @@ defmodule ServiceRadar.Credentials.SecretBrokerAuditIntegrationTest do
     assert audit.resolution_location == :agent
     assert audit.outcome == :failed
     assert audit.error_class == :provider_policy_denied
+  end
+
+  # Availability wins over the audit row (the caller still gets :ok), but a row
+  # the resource rejects must leave a redacted warning and a telemetry event.
+  test "an audit row the resource rejects is logged, never dropped silently" do
+    actor = SystemActor.system(:secret_broker_audit_integration_test)
+    unique = System.unique_integer([:positive])
+    grant_id = "grant-rejected-audit-#{unique}"
+    secret_id = Ecto.UUID.generate()
+
+    log =
+      capture_log(fn ->
+        assert :ok =
+                 SecretBroker.write_audit(%{
+                   secret_id: secret_id,
+                   grant_id: grant_id,
+                   consumer_kind: :plugin,
+                   resolution_location: :control_plane,
+                   outcome: :denied,
+                   error_class: :not_an_audit_error_class,
+                   metadata: %{"password" => "sentinel-#{unique}"}
+                 })
+      end)
+
+    # Logged, not telemetry-attached: an async module may not attach a global
+    # handler (build/contracts/ci_heavy_gate_contract_test.py).
+    assert log =~ "audit row was not written"
+    assert log =~ grant_id
+    assert log =~ ~s(rejected_fields=["error_class"])
+    refute log =~ "sentinel-#{unique}"
+
+    assert {:ok, []} = CredentialSecretResolutionAudit.list_for_secret(secret_id, actor: actor)
   end
 end
