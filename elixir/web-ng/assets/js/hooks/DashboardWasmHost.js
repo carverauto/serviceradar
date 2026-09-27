@@ -404,7 +404,6 @@ const DashboardWasmHost = {
     this._cameraApi = createDashboardCameraApi({
       capabilityAllowed,
       permitted: host?.permissions?.camera_stream_view === true,
-      hiddenReleaseGraceMs: host?.camera?.hidden_release_grace_ms,
     })
     return this._cameraApi.publicApi()
   },

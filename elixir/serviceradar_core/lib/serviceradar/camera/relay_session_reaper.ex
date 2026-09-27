@@ -32,7 +32,6 @@ defmodule ServiceRadar.Camera.RelaySessionReaper do
   @default_unleased_grace_seconds 600
   @default_batch_size 200
   @lease_expired_reason "relay lease expired"
-  @live_statuses [:requested, :opening, :active]
 
   @type result :: %{
           closed: non_neg_integer(),
@@ -55,43 +54,17 @@ defmodule ServiceRadar.Camera.RelaySessionReaper do
 
     actor = Keyword.get(opts, :actor, SystemActor.system(@actor_component))
     lister = Keyword.get(opts, :lister, &list_stale/4)
-    closer = Keyword.get(opts, :closer, &close_stale/4)
     batch_size = Keyword.get(opts, :batch_size, @default_batch_size)
 
     with {:ok, sessions} <- lister.(lease_cutoff, unleased_cutoff, batch_size, actor) do
       result =
-        sessions
-        |> Enum.filter(&stale?(&1, lease_cutoff, unleased_cutoff))
-        |> Enum.reduce(%{closed: 0, skipped: 0, failed: 0}, fn session, acc ->
+        Enum.reduce(sessions, %{closed: 0, skipped: 0, failed: 0}, fn session, acc ->
           session
-          |> closer.(close_attrs(session), lease_cutoff, actor)
+          |> close_stale(close_attrs(session), lease_cutoff, actor)
           |> tally(session, acc)
         end)
 
       {:ok, result}
-    end
-  end
-
-  @doc """
-  True when a session is non-terminal and its lease lapsed before `lease_cutoff`,
-  or it never received a lease and was created before `unleased_cutoff`.
-  """
-  @spec stale?(map(), DateTime.t(), DateTime.t()) :: boolean()
-  def stale?(session, lease_cutoff, unleased_cutoff) do
-    status_reapable?(Map.get(session, :status)) and
-      case Map.get(session, :lease_expires_at) do
-        %DateTime{} = expires_at -> DateTime.before?(expires_at, lease_cutoff)
-        nil -> inserted_before?(session, unleased_cutoff)
-        _other -> false
-      end
-  end
-
-  defp status_reapable?(status), do: status in [:closing | @live_statuses]
-
-  defp inserted_before?(session, cutoff) do
-    case Map.get(session, :inserted_at) do
-      %DateTime{} = inserted_at -> DateTime.before?(inserted_at, cutoff)
-      _other -> false
     end
   end
 
