@@ -56,7 +56,14 @@ defmodule ServiceRadar.Plugins.RunOverrides do
         operations
         |> Enum.take(@max_operations_per_result)
         |> Enum.reduce({:ok, 0}, fn operation, {:ok, count} ->
-          case apply_operation(operation, assignment_id, invocation_id, max_seconds, now, actor) do
+          case apply_operation(
+                 operation,
+                 assignment_id,
+                 invocation_id,
+                 max_seconds,
+                 now,
+                 actor
+               ) do
             :ok ->
               {:ok, count + 1}
 

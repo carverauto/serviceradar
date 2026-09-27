@@ -40,10 +40,14 @@ import (
 //     very next run see a new fault without waiting for a config poll. A local
 //     entry lives only until the config names the same id, or for
 //     runOverrideLocalTTL, so an override core rejected cannot outlive a poll.
+//     Mirroring core's gate, a local "set" is dropped unless the invoking
+//     action's descriptor declares a positive max_override_duration_seconds,
+//     and is clamped to it.
 //
 // An override is delivered active until expires_at, then marked expired until
-// a run that received it submits a result. The agent then reports the id in the
-// result's host-authored run_overrides_acknowledged list and stops delivering it.
+// a run that received it reports success. Only then does the agent report the
+// id in the result's host-authored run_overrides_acknowledged list and stop
+// delivering it; a failed or unknown-status run leaves it to be redelivered.
 const (
 	runOverridesConfigKey    = "_serviceradar_run_overrides"
 	runOverridesSchema       = "serviceradar.plugin_run_overrides.v1"
@@ -243,7 +247,7 @@ func (s *runOverrideStore) recordActionResult(assignmentID string, result []byte
 	}
 	// Mirror core: only a succeeded action may change later runs.
 	switch strings.ToLower(strings.TrimSpace(payload.Status)) {
-	case "succeeded", "success", "completed":
+	case commandStatusSucceeded, "success", "completed":
 	default:
 		return
 	}

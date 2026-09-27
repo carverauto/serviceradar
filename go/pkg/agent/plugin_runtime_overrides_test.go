@@ -26,6 +26,7 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 )
 
+//nolint:gochecknoglobals // fixed reference time shared by every test case in this file
 var overrideTestNow = time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
 
 func overrideConfigJSON(t *testing.T, overrides ...pluginRunOverride) []byte {
@@ -41,13 +42,13 @@ func overrideAt(id string, start, end time.Time) pluginRunOverride {
 	return pluginRunOverride{ID: id, Kind: "channel_saturation", Target: "ap-1", StartsAt: start, ExpiresAt: end}
 }
 
-func assignmentWithOverrides(t *testing.T, id string, overrides ...pluginRunOverride) *pluginAssignment {
+func assignmentWithOverrides(t *testing.T, overrides ...pluginRunOverride) *pluginAssignment {
 	t.Helper()
 	parsed, err := parseRunOverridesConfig(overrideConfigJSON(t, overrides...))
 	if err != nil {
 		t.Fatalf("parse overrides: %v", err)
 	}
-	return &pluginAssignment{AssignmentID: id, runOverrides: parsed}
+	return &pluginAssignment{AssignmentID: "a1", runOverrides: parsed}
 }
 
 func deliveredIDs(overrides []pluginRunOverride) map[string]bool {
@@ -80,7 +81,7 @@ func TestParseRunOverridesConfigRejectsWrongSchemaAndInvalidEntries(t *testing.T
 func TestRunOverrideDeliveryMarksExpiredUntilAcknowledged(t *testing.T) {
 	store := newRunOverrideStore()
 	start := overrideTestNow.Add(-5 * time.Minute)
-	store.applyConfig([]*pluginAssignment{assignmentWithOverrides(t, "a1",
+	store.applyConfig([]*pluginAssignment{assignmentWithOverrides(t,
 		overrideAt("active", start, overrideTestNow.Add(time.Minute)),
 		overrideAt("expired", start, overrideTestNow.Add(-time.Second)),
 		overrideAt("future", overrideTestNow.Add(time.Hour), overrideTestNow.Add(2*time.Hour)),
@@ -113,7 +114,7 @@ func TestRunOverrideDeliveryMarksExpiredUntilAcknowledged(t *testing.T) {
 	}
 
 	// Core forgets the acknowledged override; so does the agent's suppression.
-	store.applyConfig([]*pluginAssignment{assignmentWithOverrides(t, "a1",
+	store.applyConfig([]*pluginAssignment{assignmentWithOverrides(t,
 		overrideAt("active", start, overrideTestNow.Add(time.Minute)),
 	)}, overrideTestNow)
 	if _, ok := store.assignments["a1"].acked["expired"]; ok {
@@ -179,7 +180,7 @@ func TestRunOverrideConfigSupersedesLocalAndEndIsHonoured(t *testing.T) {
 
 	// Core clamped the override to 5 minutes; its copy wins.
 	clamped := overrideAt("f1", overrideTestNow, overrideTestNow.Add(5*time.Minute))
-	store.applyConfig([]*pluginAssignment{assignmentWithOverrides(t, "a1", clamped)}, overrideTestNow)
+	store.applyConfig([]*pluginAssignment{assignmentWithOverrides(t, clamped)}, overrideTestNow)
 	delivered, _ := store.deliver("a1", overrideTestNow)
 	if len(delivered) != 1 || !delivered[0].ExpiresAt.Equal(clamped.ExpiresAt) {
 		t.Fatalf("config did not supersede the local override: %+v", delivered)
@@ -193,7 +194,7 @@ func TestRunOverrideConfigSupersedesLocalAndEndIsHonoured(t *testing.T) {
 
 func TestRunOverrideStoreForgetsRemovedAssignments(t *testing.T) {
 	store := newRunOverrideStore()
-	store.applyConfig([]*pluginAssignment{assignmentWithOverrides(t, "a1",
+	store.applyConfig([]*pluginAssignment{assignmentWithOverrides(t,
 		overrideAt("x", overrideTestNow, overrideTestNow.Add(time.Minute)))}, overrideTestNow)
 	store.applyConfig(nil, overrideTestNow)
 	if delivered, _ := store.deliver("a1", overrideTestNow); len(delivered) != 0 {

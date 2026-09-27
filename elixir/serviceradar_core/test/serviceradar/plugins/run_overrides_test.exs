@@ -66,7 +66,9 @@ defmodule ServiceRadar.Plugins.RunOverridesTest do
   end
 
   test "encode_list/1 wraps overrides in the agent wire envelope" do
-    assert %{"schema" => "serviceradar.plugin_run_overrides.v1", "overrides" => [%{"id" => "x"}]} =
-             RunOverrides.encode_list([%{"id" => "x"}])
+    assert %{
+             "schema" => "serviceradar.plugin_run_overrides.v1",
+             "overrides" => [%{"id" => "x"}]
+           } = RunOverrides.encode_list([%{"id" => "x"}])
   end
 end
