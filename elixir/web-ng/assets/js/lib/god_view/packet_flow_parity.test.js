@@ -11,7 +11,10 @@ import {
   MIN_PARTICLES_PER_LANE,
   PACKET_FLOW_STYLE,
   PACKET_FLOW_WGSL,
+  PACKET_FLOW_PARTICLE_BUDGET,
+  packetFlowDensity,
   packetFlowMagentaBias,
+  packetFlowParticleBound,
 } from "../deckgl/PacketFlowLayer"
 
 // Packet flow used to be one instance per dot, built on the CPU; the WebGPU layer computes the
@@ -166,7 +169,7 @@ describe("packet flow parity with the per-particle layer it replaced", () => {
       ["SIZE_RANGE", PACKET_FLOW_STYLE.sizeRange],
       ["HEAD_THRESHOLD", PACKET_FLOW_STYLE.headThreshold],
       ["MAGENTA_BIAS_PER_UTILIZATION", PACKET_FLOW_STYLE.magentaBiasPerUtilization],
-      ["MAX_PARTICLE_SIZE", MAX_PARTICLE_SIZE],
+      ["MIN_ALPHA", PACKET_FLOW_STYLE.minAlpha],
     ]) {
       expect(PACKET_FLOW_WGSL).toMatch(new RegExp(`const ${name}: f32 = ${String(value).replace(".", "\\.")}(\\.0)?;`))
     }
@@ -218,8 +221,8 @@ describe("packet flow parity with the per-particle layer it replaced", () => {
       expect(Math.max(...body)).toBeGreaterThan((style.particleSize + style.sizeRange * 0.95) * sizeScale)
       expect(Math.min(...heads)).toBeGreaterThanOrEqual(style.headSize * sizeScale - 1e-9)
       expect(Math.max(...heads)).toBeLessThanOrEqual(MAX_PARTICLE_SIZE * sizeScale + 1e-9)
-      // One dot in 25 is a head.
-      expect(Math.abs((heads.length / particles.length) - (1 - style.headThreshold))).toBeLessThan(0.01)
+      // Noise is quantized to hundredths, so "above 0.95" makes one dot in 25 a head.
+      expect(Math.abs((heads.length / particles.length) - 0.04)).toBeLessThan(0.01)
     })
   })
 
@@ -237,6 +240,27 @@ describe("packet flow parity with the per-particle layer it replaced", () => {
         expect(laneSeparation).toBeCloseTo(reference[i].ba.particles[0].laneOffset, 5)
       }
     })
+  })
+
+  it.each(ZOOMS)("numbers each edge's particles as the old layer did, and issues all of them, at zoom %s", (zoom) => {
+    const {props, edges} = branchLayer(zoom)
+    const reference = referenceParticles(EDGES, zoom, edgeWidthPixels)
+    // Particle seeds, speeds and colors come from the edge's index in the list and the
+    // particle's number on its lane, so the index must be the list index, unmodified.
+    edges.forEach((edge, i) => expect(edge.shape[3]).toBe(i))
+    const maxParticleBase = Math.max(...edges.map((edge) => edge.flow[0]))
+    expect(props.data.maxParticleBase).toBeCloseTo(maxParticleBase, 3)
+    const bound = packetFlowParticleBound(props.data.maxParticleBase, props.zoomDensity)
+    for (const lanes of reference) expect(lanes.ab.count + lanes.ba.count).toBeLessThanOrEqual(bound)
+  })
+
+  it("scales every edge's density alike only past the frame's particle budget", () => {
+    const zoomDensity = cameraScales(-3.5).zoomDensity
+    // Under the budget the density is the old layer's, untouched.
+    expect(packetFlowDensity(zoomDensity, 10_000)).toBe(zoomDensity)
+    // Past it, the particles drawn come back to the budget.
+    const sum = (PACKET_FLOW_PARTICLE_BUDGET * 8) / zoomDensity
+    expect(packetFlowDensity(zoomDensity, sum) * sum).toBeCloseTo(PACKET_FLOW_PARTICLE_BUDGET, 0)
   })
 
   it("draws the same share of dots magenta for a given utilization", () => {
@@ -259,7 +283,8 @@ describe("packet flow parity with the per-particle layer it replaced", () => {
     const {props, edges} = branchLayer(zoom)
     const reference = referenceParticles(EDGES, zoom, edgeWidthPixels)
     edges.forEach((edge, i) => {
-      const shaderAlpha = Math.max(PACKET_FLOW_STYLE.minAlpha, Math.min(1, edge.style[0])) * props.alphaScale
+      const styleAlpha = Math.max(PACKET_FLOW_STYLE.minAlpha, Math.min(255, Math.round(255 * edge.style[0])))
+      const shaderAlpha = Math.round(styleAlpha * props.alphaScale) / 255
       expect(Math.abs(shaderAlpha - reference[i].ab.particles[0].alpha)).toBeLessThanOrEqual(1 / 255)
     })
   })

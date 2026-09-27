@@ -19,6 +19,8 @@ export const godViewRenderingStyleEdgeParticleMethods = {
     const shape = new Float32Array(edges.length * 4)
     const style = new Float32Array(edges.length * 2)
     let count = 0
+    let maxParticleBase = 0
+    let particleBaseSum = 0
 
     for (let i = 0; i < edges.length; i += 1) {
       const edge = edges[i]
@@ -60,15 +62,21 @@ export const godViewRenderingStyleEdgeParticleMethods = {
       // Particles per edge before the camera's density scale, which the shader applies.
       const particleBase = (95 + (intensity * 85)) * (0.78 + (tubeWidth * 0.16)) * topologyStyle.particleDensityScale
 
+      if (particleBase > maxParticleBase) maxParticleBase = particleBase
+      particleBaseSum += particleBase
       endpoints.set([Number(src[0]) || 0, Number(src[1]) || 0, Number(dst[0]) || 0, Number(dst[1]) || 0], count * 4)
       flow.set([particleBase, abWeight, baWeight, baseSpeed], count * 4)
-      shape.set([laneSeparation, jitterBase * spreadFill, utilization, ((i % 997) + 1) / 997], count * 4)
+      // The edge's index in the list seeds its particles, exactly as the per-particle layer did.
+      shape.set([laneSeparation, jitterBase * spreadFill, utilization, i], count * 4)
       style.set([topologyStyle.particleAlphaScale, topologyStyle.particleSizeScale], count * 2)
       count += 1
     }
 
     const block = {
       length: count,
+      // Sizes the draw: the busiest edge decides how many particles each instance issues.
+      maxParticleBase,
+      particleBaseSum,
       attributes: {
         instanceEndpoints: endpoints.subarray(0, count * 4),
         instanceFlow: flow.subarray(0, count * 4),

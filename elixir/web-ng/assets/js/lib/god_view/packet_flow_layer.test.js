@@ -20,7 +20,7 @@ vi.mock("@luma.gl/engine", () => ({
   },
 }))
 
-import PacketFlowLayer from "../deckgl/PacketFlowLayer"
+import PacketFlowLayer, {PACKET_FLOW_WGSL, packetFlowParticleBound} from "../deckgl/PacketFlowLayer"
 
 // No GPU is available under vitest: these tests assemble and parse the layer's WGSL and inspect
 // what it asks luma and deck for. They cannot show that it renders; the WebGPU acceptance run
@@ -62,7 +62,6 @@ describe("PacketFlowLayer on WebGPU", () => {
     expect(reflected.entry.vertex.map((entry) => entry.name)).toEqual(["vertexMain"])
     expect(reflected.entry.fragment.map((entry) => entry.name)).toEqual(["fragmentMain"])
     expect(assembled.shaderLayout.attributes.map((attribute) => attribute.name)).toEqual([
-      "positions",
       "instanceEndpoints",
       "instanceFlow",
       "instanceShape",
@@ -77,26 +76,32 @@ describe("PacketFlowLayer on WebGPU", () => {
     // asked for 9 and every frame on a real GPU was rejected.
     const {layer, model} = initializedLayer()
 
-    const geometryBuffers = Object.keys(model.props.geometry.props.attributes).length
-    const vertexBuffers = model.props.bufferLayout.length + geometryBuffers
-    expect(vertexBuffers).toBeLessThanOrEqual(5)
+    expect(model.props.geometry).toBeUndefined()
+    expect(model.props.bufferLayout.length).toBeLessThanOrEqual(5)
 
     // Every attribute the shader reads is fed by exactly one of those buffers.
     const shaderInputs = assembledWGSL(layer).shaderLayout.attributes.map((attribute) => attribute.name)
-    const fed = [
-      ...Object.keys(model.props.geometry.props.attributes),
-      ...model.props.bufferLayout.flatMap((layout) => (layout.attributes || [layout]).map((entry) => entry.attribute || entry.name)),
-    ]
+    const fed = model.props.bufferLayout.flatMap((layout) => (layout.attributes || [layout]).map((entry) => entry.attribute || entry.name))
     expect(fed.sort()).toEqual([...shaderInputs].sort())
   })
 
-  it("draws each edge as one instanced tube quad", () => {
+  it("draws each edge as one instance of six numbered vertices per particle", () => {
     const {model} = initializedLayer()
-    const geometry = model.props.geometry.props
 
     expect(model.props.isInstanced).toBe(true)
-    expect(geometry.topology).toBe("triangle-strip")
-    expect(Array.from(geometry.attributes.positions.value)).toEqual([0, -1, 0, 1, -1, 0, 0, 1, 0, 1, 1, 0])
+    expect(model.props.topology).toBe("triangle-list")
+    expect(PACKET_FLOW_WGSL).toContain("@builtin(vertex_index) vertexIndex: u32")
+  })
+
+  it("issues enough particles per edge for the busiest edge at the current zoom", () => {
+    const layer = layerOnWebGPU()
+    layer.props = {...layer.props, data: {length: 3, attributes: {}, maxParticleBase: 900}, zoomDensity: 0.55}
+    // floor(900 * 0.55) = 495 before the lane split; both lanes together stay under 1.1x that.
+    expect(layer.vertexCount()).toBe(6 * packetFlowParticleBound(900, 0.55))
+    expect(packetFlowParticleBound(900, 0.55)).toBeGreaterThanOrEqual(Math.ceil(495 * 1.1))
+    // Clamped to the per-lane range like the shader.
+    expect(packetFlowParticleBound(0, 1)).toBe(Math.ceil(18 * 1.1) + 2)
+    expect(packetFlowParticleBound(1e9, 1)).toBe(Math.ceil(1400 * 1.1) + 2)
   })
 
   it("passes the clock and camera scales to the shader as uniforms", () => {
@@ -112,7 +117,8 @@ describe("PacketFlowLayer on WebGPU", () => {
       cyan: [255, 0, 0, 255],
       magenta: [0, 0, 255, 255],
     }
-    layer.state = {model: {shaderInputs: {setProps}, draw}}
+    const setVertexCount = vi.fn()
+    layer.state = {model: {shaderInputs: {setProps}, draw, setVertexCount}}
 
     layer.draw({renderPass: "pass"})
 
@@ -127,5 +133,6 @@ describe("PacketFlowLayer on WebGPU", () => {
       },
     })
     expect(draw).toHaveBeenCalledWith("pass")
+    expect(setVertexCount).toHaveBeenCalledWith(layer.vertexCount())
   })
 })

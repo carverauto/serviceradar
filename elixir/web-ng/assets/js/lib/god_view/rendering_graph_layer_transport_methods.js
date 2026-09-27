@@ -1,6 +1,6 @@
 import {COORDINATE_SYSTEM} from "@deck.gl/core"
 import {ArcLayer, LineLayer, PathLayer, ScatterplotLayer} from "@deck.gl/layers"
-import PacketFlowLayer from "../deckgl/PacketFlowLayer"
+import PacketFlowLayer, {packetFlowDensity} from "../deckgl/PacketFlowLayer"
 import {hasManagedTopologySceneRoutes} from "./rendering_graph_data_methods"
 import {managedVisualDensityContract, normalizeManagedVisualDensity} from "./rendering_managed_visual_density"
 import {edgeTopologyVisualStyleValue} from "./rendering_style_edge_topology_methods"
@@ -206,7 +206,7 @@ export const godViewRenderingGraphLayerTransportMethods = {
             coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
             pickable: false,
             time: this.state.animationPhase,
-            zoomDensity,
+            zoomDensity: packetFlowDensity(zoomDensity, packetFlowData.particleBaseSum),
             spreadScale: zoomSpreadScale,
             alphaScale: zoomParticleAlphaScale,
             cyan: this.state.visual.particleCyan,
