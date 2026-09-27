@@ -123,6 +123,17 @@ actions:
           export SRQL_PARITY_STARROCKS_USER=srql_parity
           export SRQL_PARITY_STARROCKS_DATABASE=srql_parity_ci
           echo "SRQL parity run: $RUN_ID"
+          # Pre-flight, informational: which runner this is and which StarRocks FE endpoints it can
+          # open TCP 9030 to. A lost handshake shows up as a timeout much later in the harness;
+          # this names the runner and the endpoint when it happens.
+          echo "SRQL parity runner: $(hostname)"
+          for target in lab-fe-service.starrocks.svc.cluster.local $(getent ahostsv4 lab-fe-search.starrocks.svc.cluster.local | awk '{print $1}' | sort -u); do
+            if timeout 5 bash -c "exec 3<>/dev/tcp/${target}/9030" 2>/dev/null; then
+              echo "  ${target}:9030 reachable"
+            else
+              echo "  ${target}:9030 NOT reachable"
+            fi
+          done
           FLAGS="-c opt --config=ci --strategy=TestRunner=local --//build:enable_integration_tests
              --//build:run_id=$RUN_ID --test_tag_filters= --flaky_test_attempts=1
              --test_output=all --test_arg=--nocapture --nocache_test_results

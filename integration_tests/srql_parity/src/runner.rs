@@ -862,6 +862,50 @@ async fn seed(
     Ok(())
 }
 
+/// Attempts `sr_connect` makes before giving up, and how long each may take.
+const SR_CONNECT_ATTEMPTS: u32 = 6;
+const SR_CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// Connects to the StarRocks FE, bounding each attempt and retrying.
+///
+/// An unanswered TCP handshake otherwise waits out the kernel's SYN retries (about two
+/// minutes) and fails the whole run on one lost connection. Each retry opens a new
+/// connection, which the FE Service may send to a different FE. Every failed attempt is
+/// reported, so a path that never answers is visible in the log rather than only its last
+/// error.
+async fn sr_connect(pool: &mysql_async::Pool) -> Result<mysql_async::Conn> {
+    let mut last = None;
+    for attempt in 1..=SR_CONNECT_ATTEMPTS {
+        match tokio::time::timeout(SR_CONNECT_TIMEOUT, pool.get_conn()).await {
+            Ok(Ok(conn)) => {
+                if attempt > 1 {
+                    println!("srql-parity: connected to StarRocks on attempt {attempt}");
+                }
+                return Ok(conn);
+            }
+            Ok(Err(err)) => {
+                println!("srql-parity: StarRocks connect attempt {attempt} failed: {err}");
+                last = Some(anyhow::Error::new(err));
+            }
+            Err(_) => {
+                println!(
+                    "srql-parity: StarRocks connect attempt {attempt} timed out after {}s",
+                    SR_CONNECT_TIMEOUT.as_secs()
+                );
+                last = Some(anyhow!("timed out after {}s", SR_CONNECT_TIMEOUT.as_secs()));
+            }
+        }
+        if attempt < SR_CONNECT_ATTEMPTS {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        }
+    }
+    Err(last
+        .unwrap_or_else(|| anyhow!("no attempt made"))
+        .context(format!(
+            "connecting to StarRocks ({SR_CONNECT_ATTEMPTS} attempts)"
+        )))
+}
+
 /// Runs the whole harness. Returns the per-entry report; an `Err` is a setup failure.
 pub async fn run() -> Result<Vec<(String, Outcome)>> {
     let settings = Settings::from_env()?;
@@ -887,7 +931,7 @@ pub async fn run() -> Result<Vec<(String, Outcome)>> {
     );
 
     let pool = mysql_async::Pool::new(settings.starrocks.clone());
-    let mut sr = pool.get_conn().await.context("connecting to StarRocks")?;
+    let mut sr = sr_connect(&pool).await?;
     let version: Option<String> = sr.query_first("SELECT current_version()").await?;
     let zone: Option<(String, String)> = sr.query_first("SHOW VARIABLES LIKE 'time_zone'").await?;
     println!("srql-parity: StarRocks {version:?}, session {zone:?}");
