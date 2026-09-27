@@ -1,15 +1,12 @@
-// Server-renders the kit with React from web-ng's Bazel-managed node_modules
-// (paths passed in by //demo/dashboard-kit:kit_test) and stand-in SDK hooks.
+// Server-renders the kit with React and stand-in SDK hooks. `react` resolves
+// from the linked node_modules under Bazel (//demo/dashboard-kit:kit_tests)
+// and from the project install under plain `node --test`.
 import assert from "node:assert/strict"
-import {createRequire} from "node:module"
-import {resolve} from "node:path"
 import test from "node:test"
+import React from "react"
+import {renderToStaticMarkup} from "react-dom/server"
 
 import {createDemoKit} from "./kit.js"
-
-const require = createRequire(import.meta.url)
-const React = require(resolve(process.env.DEMO_KIT_REACT_DIR))
-const {renderToStaticMarkup} = require(resolve(process.env.DEMO_KIT_REACT_DOM_DIR, "server.node.js"))
 
 const faultAction = {
   id: "act-fault",
