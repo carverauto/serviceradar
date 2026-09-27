@@ -3,7 +3,8 @@ load("@io_bazel_rules_go//go:def.bzl", "go_test")
 # Checks the JetStream sizing shipped for single-server installs (Docker
 # Compose presets and the deb/rpm sizes file) against the NATS configuration
 # that reads it, and that every size-owning Compose service and systemd unit
-# loads it. Only configuration files are inputs; no component source is read.
+# loads it, and that the platform account quota bootstrap issues holds each
+# preset. Only configuration files are data inputs; no component source is read.
 go_test(
     name = "jetstreambudget_test",
     size = "small",
@@ -25,6 +26,8 @@ go_test(
         "//docker/compose:profiles/small.env",
     ],
     deps = [
+        "//go/pkg/nats/accounts",
+        "@com_github_nats_io_jwt_v2//:jwt",
         "@com_github_nats_io_nats_server_v2//conf",
         "@in_gopkg_yaml_v3//:yaml_v3",
         "@io_bazel_rules_go//go/runfiles",

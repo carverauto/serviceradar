@@ -93,7 +93,10 @@ the `nats-data` volume. To change one size, set its variable in that service's
 `environment` (for example in a `docker-compose.override.yml`); keep the total
 within 85% of `max_file_store`, the budget
 `//go/pkg/nats/jetstreambudget:jetstreambudget_test` enforces for the shipped
-profiles.
+profiles. The platform NATS account's JetStream quota follows the same
+`max_file_store`: `nats-creds-init` issues it on a fresh stack, and the
+one-shot `nats-account-limits` service re-issues an existing account JWT (same
+account key, so credentials stay valid) before NATS starts.
 
 ## Optional profiles: StarRocks warehouse and NetFlow collector
 

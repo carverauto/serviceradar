@@ -36,8 +36,11 @@ import (
 	"testing"
 
 	"github.com/bazelbuild/rules_go/go/runfiles"
+	"github.com/nats-io/jwt/v2"
 	"github.com/nats-io/nats-server/v2/conf"
 	"gopkg.in/yaml.v3"
+
+	"github.com/carverauto/serviceradar/go/pkg/nats/accounts"
 )
 
 const (
@@ -59,7 +62,10 @@ const (
 	packagedSizesFile  = "build/packaging/nats/config/jetstream-sizes.env"
 	installedSizesPath = "/etc/serviceradar/jetstream-sizes.env"
 
-	natsService = "nats"
+	natsService              = "nats"
+	natsCredsInitService     = "nats-creds-init"
+	natsAccountLimitsService = "nats-account-limits"
+	natsConfigInitService    = "nats-config-init"
 )
 
 var (
@@ -358,6 +364,62 @@ type composeProject struct {
 type composeService struct {
 	EnvFile     envFileList        `yaml:"env_file"`
 	Environment composeEnvironment `yaml:"environment"`
+	DependsOn   composeDependsOn   `yaml:"depends_on"`
+	Command     composeCommand     `yaml:"command"`
+}
+
+// composeDependsOn maps a dependency to its condition; the list form means
+// service_started.
+type composeDependsOn map[string]string
+
+func (d *composeDependsOn) UnmarshalYAML(node *yaml.Node) error {
+	out := composeDependsOn{}
+	switch node.Kind {
+	case yaml.SequenceNode:
+		for _, item := range node.Content {
+			out[item.Value] = "service_started"
+		}
+	case yaml.MappingNode:
+		for i := 0; i+1 < len(node.Content); i += 2 {
+			var dep struct {
+				Condition string `yaml:"condition"`
+			}
+			if err := node.Content[i+1].Decode(&dep); err != nil {
+				return err
+			}
+			if dep.Condition == "" {
+				dep.Condition = "service_started"
+			}
+			out[node.Content[i].Value] = dep.Condition
+		}
+	case yaml.DocumentNode, yaml.ScalarNode, yaml.AliasNode:
+		return fmt.Errorf("line %d: %w: depends_on must be a list or a mapping", node.Line, errComposeSyntax)
+	default:
+		return fmt.Errorf("line %d: %w: depends_on must be a list or a mapping", node.Line, errComposeSyntax)
+	}
+	*d = out
+	return nil
+}
+
+// composeCommand is a command in either string or exec (list) form.
+type composeCommand []string
+
+func (c *composeCommand) UnmarshalYAML(node *yaml.Node) error {
+	switch node.Kind {
+	case yaml.ScalarNode:
+		*c = strings.Fields(node.Value)
+	case yaml.SequenceNode:
+		var args []string
+		if err := node.Decode(&args); err != nil {
+			return err
+		}
+		*c = args
+	case yaml.DocumentNode, yaml.MappingNode, yaml.AliasNode:
+		return fmt.Errorf("line %d: %w: command must be a string or a list", node.Line, errComposeSyntax)
+	default:
+		return fmt.Errorf("line %d: %w: command must be a string or a list", node.Line, errComposeSyntax)
+	}
+	return nil
 }
 
 type envFileEntry struct {
@@ -463,12 +525,19 @@ func interpolate(s string, env map[string]string) (string, error) {
 	return out, err
 }
 
-// composeProblems checks that every size-owning service loads the preset the
-// profile variable selects, and does not pin a size in its own environment.
+// presetLoadingServices is every Compose service that must load the preset:
+// the size-owning services, plus the two that issue the platform account's
+// JetStream quota from max_file_store.
+func presetLoadingServices() []string {
+	return append(sizeOwningServices(), natsCredsInitService, natsAccountLimitsService)
+}
+
+// composeProblems checks that every preset-loading service loads the preset
+// the profile variable selects, and does not pin a size in its own environment.
 func composeProblems(project composeProject, profileEnv map[string]string, wantPreset string) []string {
 	var problems []string
 	known := knownKeys()
-	for _, name := range sizeOwningServices() {
+	for _, name := range presetLoadingServices() {
 		svc, ok := project.Services[name]
 		if !ok {
 			problems = append(problems, fmt.Sprintf("compose service %s is missing", name))
@@ -496,6 +565,98 @@ func composeProblems(project composeProject, profileEnv map[string]string, wantP
 				problems = append(problems, fmt.Sprintf("service %s sets %s in environment, overriding the preset the budget checks", name, key))
 			}
 		}
+	}
+	return problems
+}
+
+// accountWiringProblems checks the order that lets an existing install
+// converge: nats-account-limits runs after nats-creds-init and before
+// nats-config-init copies the account JWTs into the resolver directory that
+// NATS loads.
+func accountWiringProblems(project composeProject) []string {
+	var problems []string
+	limits, ok := project.Services[natsAccountLimitsService]
+	if !ok {
+		return []string{fmt.Sprintf("compose service %s is missing", natsAccountLimitsService)}
+	}
+	if !slicesContains(limits.Command, natsAccountLimitsService) {
+		problems = append(problems, fmt.Sprintf("service %s does not run the %s command: %q", natsAccountLimitsService, natsAccountLimitsService, limits.Command))
+	}
+	for _, edge := range [][2]string{
+		{natsAccountLimitsService, natsCredsInitService},
+		{natsConfigInitService, natsAccountLimitsService},
+		{natsService, natsConfigInitService},
+	} {
+		if cond := project.Services[edge[0]].DependsOn[edge[1]]; cond != "service_completed_successfully" {
+			problems = append(problems, fmt.Sprintf("service %s must depend on %s with condition service_completed_successfully, has %q", edge[0], edge[1], cond))
+		}
+	}
+	return problems
+}
+
+func slicesContains(list []string, want string) bool {
+	for _, v := range list {
+		if v == want {
+			return true
+		}
+	}
+	return false
+}
+
+// ---------------------------------------------------------------------------
+// Platform account JetStream quota, as nats-bootstrap / nats-account-limits
+// issue it. In operator mode (Compose) every stream is created in the
+// platform account, so the account quota bounds reservations as well as
+// max_file_store does.
+
+// issuedPlatformQuota signs a platform account the way the bootstrap does with
+// env loaded, and returns its JetStream limits.
+func issuedPlatformQuota(t *testing.T, env map[string]string) jwt.JetStreamLimits {
+	t.Helper()
+	jsSizing, err := accounts.JetStreamSizingFromEnv(func(k string) (string, bool) {
+		v, ok := env[k]
+		return v, ok
+	})
+	if err != nil {
+		t.Fatalf("sizing from %s: %v", maxFileStoreKey, err)
+	}
+	seed, _, err := accounts.GenerateOperatorKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	op, err := accounts.NewOperator(&accounts.OperatorConfig{Name: "budget-test", OperatorSeed: seed})
+	if err != nil {
+		t.Fatal(err)
+	}
+	account, err := accounts.NewAccountSigner(op).WithJetStreamSizing(jsSizing).CreateAccount("platform", nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims, err := jwt.DecodeAccountClaims(account.AccountJWT)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return claims.Limits.JetStreamLimits
+}
+
+// accountQuotaProblems checks that the account can hold every counted stream:
+// the sum of max_bytes times replicas within DiskStorage, each stream within
+// DiskMaxStreamBytes, and max_bytes still required.
+func accountQuotaProblems(s sizing, quota jwt.JetStreamLimits) []string {
+	var problems []string
+	if !quota.MaxBytesRequired {
+		problems = append(problems, "the platform account does not require max_bytes, so an unlimited stream could be created")
+	}
+	var total int64
+	for _, r := range s.Counted {
+		total += r.MaxBytes * int64(r.Replicas)
+		if quota.DiskMaxStreamBytes > 0 && r.MaxBytes > quota.DiskMaxStreamBytes {
+			problems = append(problems, fmt.Sprintf("stream %s max_bytes=%d exceeds the account per-stream cap %d", r.Stream, r.MaxBytes, quota.DiskMaxStreamBytes))
+		}
+	}
+	if quota.DiskStorage >= 0 && total > quota.DiskStorage {
+		problems = append(problems, fmt.Sprintf("streams reserve %s, over the platform account JetStream quota %s (%d bytes)",
+			gibString(new(big.Rat).SetInt64(total)), gibString(new(big.Rat).SetInt64(quota.DiskStorage)), quota.DiskStorage))
 	}
 	return problems
 }
@@ -718,6 +879,62 @@ func TestComposeServicesLoadSelectedPreset(t *testing.T) {
 	}
 }
 
+func TestComposeAccountLimitsWiring(t *testing.T) {
+	var project composeProject
+	if err := yaml.Unmarshal(readRepoFile(t, composeFile), &project); err != nil {
+		t.Fatalf("parse %s: %v", composeFile, err)
+	}
+	for _, p := range accountWiringProblems(project) {
+		t.Error(p)
+	}
+}
+
+// Compose runs NATS in operator mode, so every stream lands in the platform
+// account and its JetStream quota must hold what the preset reserves.
+func TestComposePresetsFitIssuedAccountQuota(t *testing.T) {
+	for _, profile := range profiles() {
+		t.Run(profile, func(t *testing.T) {
+			env := loadAssignments(t, presetPath(profile))
+			parsed, problems := parseSizing(env)
+			if len(problems) > 0 {
+				t.Fatalf("preset does not parse: %q", problems)
+			}
+			quota := issuedPlatformQuota(t, env)
+			for _, p := range accountQuotaProblems(parsed, quota) {
+				t.Errorf("%s: %s", presetPath(profile), p)
+			}
+			t.Logf("%s: platform account DiskStorage=%d DiskMaxStreamBytes=%d MaxBytesRequired=%v",
+				profile, quota.DiskStorage, quota.DiskMaxStreamBytes, quota.MaxBytesRequired)
+		})
+	}
+}
+
+// The quota bootstrap issued before sizing profiles (8 GiB per account, 5 GiB
+// per stream) cannot hold the presets: this is the vector the convergence
+// step exists for.
+func TestOldFixedAccountQuotaFailsPresets(t *testing.T) {
+	old := issuedPlatformQuota(t, map[string]string{})
+	if old.DiskStorage != 8*gib || old.DiskMaxStreamBytes != 5*gib {
+		t.Fatalf("default quota = %+v, want the fixed 8 GiB / 5 GiB this vector describes", old)
+	}
+
+	small, _ := parseSizing(loadAssignments(t, presetPath("small")))
+	if problems := accountQuotaProblems(small, old); !containsProblem(problems, "over the platform account JetStream quota 8.00 GiB") {
+		t.Errorf("small preset fit the old 8 GiB quota: %q", problems)
+	}
+
+	medium, _ := parseSizing(loadAssignments(t, presetPath("medium")))
+	if problems := accountQuotaProblems(medium, old); !containsProblem(problems, "stream flows max_bytes=25769803776 exceeds the account per-stream cap 5368709120") {
+		t.Errorf("medium preset fit the old 5 GiB per-stream cap: %q", problems)
+	}
+
+	unbounded := old
+	unbounded.MaxBytesRequired = false
+	if problems := accountQuotaProblems(small, unbounded); !containsProblem(problems, "does not require max_bytes") {
+		t.Errorf("an account without MaxBytesRequired passed: %q", problems)
+	}
+}
+
 func TestPackagedUnitsLoadSizesFile(t *testing.T) {
 	for _, service := range sizeOwningServices() {
 		rel, ok := packagedUnits()[service]
@@ -918,6 +1135,28 @@ func TestComposeAndUnitChecksFail(t *testing.T) {
 	dropped.Services["flow-collector"] = flow
 	if problems := composeProblems(dropped, map[string]string{}, want); !containsProblem(problems, "service flow-collector does not load the selected preset") {
 		t.Errorf("a service without env_file passed: %q", problems)
+	}
+
+	bootstrap := dropped.Services[natsCredsInitService]
+	bootstrap.EnvFile = nil
+	dropped.Services[natsCredsInitService] = bootstrap
+	if problems := composeProblems(dropped, map[string]string{}, want); !containsProblem(problems, "service nats-creds-init does not load the selected preset") {
+		t.Errorf("nats-creds-init without the preset passed: %q", problems)
+	}
+
+	unordered := composeProject{Services: map[string]composeService{}}
+	for name, svc := range project.Services {
+		unordered.Services[name] = svc
+	}
+	configInit := unordered.Services[natsConfigInitService]
+	configInit.DependsOn = composeDependsOn{natsCredsInitService: "service_completed_successfully"}
+	unordered.Services[natsConfigInitService] = configInit
+	if problems := accountWiringProblems(unordered); !containsProblem(problems, "service nats-config-init must depend on nats-account-limits") {
+		t.Errorf("nats-config-init copying JWTs before the quota is re-issued passed: %q", problems)
+	}
+	delete(unordered.Services, natsAccountLimitsService)
+	if problems := accountWiringProblems(unordered); !containsProblem(problems, "compose service nats-account-limits is missing") {
+		t.Errorf("a stack without nats-account-limits passed: %q", problems)
 	}
 
 	pinned := composeProject{Services: map[string]composeService{}}
