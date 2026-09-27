@@ -775,7 +775,7 @@ Resolved credentials are delivered by target IP. If resolution fails for a
 target, or different device records resolve to the same IP with conflicting
 credentials, Mapper suppresses SNMP for that address before connecting or
 authenticating. It does not retry that address with the collector fallback.
-Other targets and API discovery remain available. Agent logs identify the
+Other targets and API discovery remain available. Mapper configuration compiler logs identify the
 resolution failure or credential conflict.
 
 When no selected job performs SNMP discovery, Mapper skips per-target SNMP
