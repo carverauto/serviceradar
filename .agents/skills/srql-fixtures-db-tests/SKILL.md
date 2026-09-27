@@ -172,7 +172,7 @@ MIX_ENV=test mix compile --warnings-as-errors
   `host=$TLS_SERVER_NAME`, or set `SRQL_TEST_DATABASE_SERVER_NAME` for Elixir.
 - `No route to host` for the LoadBalancer IP: try the NodePort on a routeable node IP such as `192.168.10.31`.
 - `connection refused` on a NodePort: rerun host discovery; the selected node may not be reachable from the workstation.
-- `column ... does not exist`: the database is stale; create a scratch database and run `mix ecto.migrate`.
+- `column ... does not exist`: the database is stale; create a scratch database and run `mix serviceradar.db.migrate` with the same pool and queue settings as the migrate step above.
 - `Postgrex expected %Postgrex.INET{}` for string parameters: cast through text in SQL, for example `($1::text)::cidr` or `($2::text)::inet`, or pass the project native CIDR type.
 - If no NodePort route works, fallback to `kubectl port-forward -n srql-fixtures svc/srql-fixture-rw 15436:5432`, set `DB_HOST=127.0.0.1 DB_PORT=15436`, and reuse the same commands. Expect possible dropped forwards during long migrations.
 
