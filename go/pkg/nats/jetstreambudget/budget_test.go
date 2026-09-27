@@ -910,7 +910,7 @@ func TestComposeAccountLimitsNeverBlocksNATS(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			cmd := exec.Command("/bin/sh", command[1:]...)
+			cmd := exec.CommandContext(t.Context(), "/bin/sh", command[1:]...)
 			cmd.Env = []string{"PATH=" + dir + ":/usr/bin:/bin"}
 			out, err := cmd.CombinedOutput()
 			if err != nil {
