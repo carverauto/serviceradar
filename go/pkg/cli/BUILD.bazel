@@ -13,6 +13,7 @@ go_library(
         "flags.go",
         "help.go",
         "jwt_keys.go",
+        "nats_account_limits.go",
         "nats_bootstrap.go",
         "spire.go",
         "tls.go",
@@ -28,6 +29,7 @@ go_library(
         "@com_github_charmbracelet_bubbles//textinput",
         "@com_github_charmbracelet_bubbletea//:bubbletea",
         "@com_github_charmbracelet_lipgloss//:lipgloss",
+        "@com_github_nats_io_jwt_v2//:jwt",
         "@org_golang_x_crypto//bcrypt",
     ],
 )
@@ -38,6 +40,7 @@ go_test(
         "auth_test.go",
         "cli_tls_test.go",
         "enroll_paths_test.go",
+        "nats_account_limits_test.go",
         "nats_bootstrap_acl_integration_test.go",
         "nats_bootstrap_acl_test.go",
     ],

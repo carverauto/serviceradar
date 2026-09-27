@@ -7,6 +7,7 @@ exports_files([
     "config/flowgger.toml",
     "config/log-collector.toml",
     "config/otel.toml",
+    "systemd/serviceradar-log-collector.service",
 ])
 
 serviceradar_package_from_config(

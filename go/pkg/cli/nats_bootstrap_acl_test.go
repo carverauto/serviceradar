@@ -132,6 +132,7 @@ func TestGeneratePlatformAccount_AllowsPluginObjectStoreSubjects(t *testing.T) {
 		defaultPlatformAccount,
 		result.SystemAccountPublicKey,
 		defaultPlatformUser,
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("generatePlatformAccount: %v", err)

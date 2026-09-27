@@ -87,6 +87,10 @@ type AccountSigner struct {
 	// Default subject mappings applied to all accounts.
 	defaultSubjectMappings []SubjectMapping
 	defaultStreamExports   []StreamExport
+
+	// jetStreamSizing, when set, replaces the default disk limits of every
+	// account this signer issues (see WithJetStreamSizing).
+	jetStreamSizing *JetStreamSizing
 }
 
 // NewAccountSigner creates a new AccountSigner with the given operator.
@@ -227,6 +231,9 @@ func (s *AccountSigner) signAccountJWT(
 	}
 
 	ensureJetStreamEnabled(claims)
+	if s.jetStreamSizing != nil {
+		s.jetStreamSizing.apply(&claims.Limits.JetStreamLimits)
+	}
 
 	// Apply revocations
 	if len(revokedUserKeys) > 0 {

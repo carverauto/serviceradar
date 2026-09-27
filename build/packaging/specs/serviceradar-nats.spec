@@ -18,15 +18,18 @@ mkdir -p %{buildroot}/lib/systemd/system
 mkdir -p %{buildroot}/var/lib/nats/jetstream
 mkdir -p %{buildroot}/var/log/nats
 mkdir -p %{buildroot}/etc/nats
+mkdir -p %{buildroot}/etc/serviceradar
 
 # Install files into the buildroot
 install -m 755 %{_builddir}/nats-server %{buildroot}/usr/bin/nats-server
 install -m 644 %{_sourcedir}/build/packaging/nats/systemd/serviceradar-nats.service %{buildroot}/lib/systemd/system/serviceradar-nats.service
 install -m 644 %{_sourcedir}/build/packaging/nats/config/nats-server.conf %{buildroot}/etc/nats/nats-server.conf
+install -m 644 %{_sourcedir}/build/packaging/nats/config/jetstream-sizes.env %{buildroot}/etc/serviceradar/jetstream-sizes.env
 
 %files
 %attr(0755, nats, nats) /usr/bin/nats-server
 %config(noreplace) %attr(0644, nats, nats) /etc/nats/nats-server.conf
+%config(noreplace) %attr(0644, root, root) /etc/serviceradar/jetstream-sizes.env
 %attr(0644, root, root) /lib/systemd/system/serviceradar-nats.service
 %dir %attr(0755, nats, nats) /var/lib/nats
 %dir %attr(0755, nats, nats) /var/lib/nats/jetstream

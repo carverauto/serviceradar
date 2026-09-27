@@ -3,6 +3,12 @@ load("//build/packaging:packages.bzl", "PACKAGES")
 
 package(default_visibility = ["//visibility:public"])
 
+exports_files([
+    "config/jetstream-sizes.env",
+    "config/nats-server.conf",
+    "systemd/serviceradar-nats.service",
+])
+
 serviceradar_package_from_config(
     name = "nats",
     config = PACKAGES["nats"],

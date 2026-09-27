@@ -4,6 +4,9 @@ After=network-online.target
 
 [Service]
 Type=simple
+# JetStream stream sizes (shipped by serviceradar-nats). Optional so the
+# service still starts on a host without the NATS package.
+EnvironmentFile=-/etc/serviceradar/jetstream-sizes.env
 Environment="RUST_LOG=info"
 ExecStart=/usr/local/bin/serviceradar-flow-collector --config /etc/serviceradar/flow-collector.json
 ExecReload=/bin/kill -s HUP $MAINPID

@@ -75,6 +75,8 @@ func dispatchCommand(cfg *cli.CmdConfig) error {
 		return cli.RunEdgeCommand(cfg)
 	case "nats-bootstrap":
 		return cli.RunNatsBootstrap(cfg)
+	case "nats-account-limits":
+		return cli.RunNatsAccountLimits(cfg)
 	case "admin":
 		return dispatchAdminCommand(cfg)
 	case "auth":

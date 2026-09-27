@@ -419,6 +419,9 @@ services:
   core-elx:
     image: registry.carverauto.dev/serviceradar/serviceradar-core-elx:${APP_TAG:-latest}
     container_name: serviceradar-core-elx-mtls
+    env_file:
+      # JetStream sizing profile (small, medium or large); see docker/compose/profiles.
+      - ./docker/compose/profiles/${SERVICERADAR_NATS_PROFILE:-small}.env
     hostname: core-elx
     environment:
       - CLUSTER_ENABLED=true
@@ -617,11 +620,44 @@ services:
       - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds
       - ${NATS_CREDS_SEED_DIR:-./docker/compose/creds}:/seed/creds:ro
       - ./docker/compose/init-nats-creds.sh:/init-nats-creds.sh:ro
+    env_file:
+      # A fresh bootstrap sizes the platform account's JetStream quota from
+      # SERVICERADAR_NATS_MAX_FILE_STORE in the selected profile.
+      - ./docker/compose/profiles/${SERVICERADAR_NATS_PROFILE:-small}.env
     environment:
       - NATS_OPERATOR_NAME=${NATS_OPERATOR_NAME:-serviceradar-dev}
       - NATS_OPERATOR_SEED=${NATS_OPERATOR_SEED:-}
       - NATS_SYSTEM_ACCOUNT_PUBLIC_KEY=${NATS_SYSTEM_ACCOUNT_PUBLIC_KEY:-}
     command: bash /init-nats-creds.sh
+    restart: "no"
+    networks:
+      - serviceradar-net
+
+  # Re-issue the platform account JWT with the JetStream quota of the selected
+  # sizing profile (max_file_store). nats-creds-init skips an existing creds
+  # volume, so this is how an install bootstrapped with the old fixed quota
+  # converges; it is a no-op once the account carries the quota. The account
+  # key does not change, so every issued credential stays valid. It never
+  # blocks NATS startup: a tools image that predates the subcommand, or any
+  # failure, leaves the existing quota in place.
+  nats-account-limits:
+    image: registry.carverauto.dev/serviceradar/serviceradar-tools:${APP_TAG:-latest}
+    container_name: serviceradar-nats-account-limits
+    user: "0:0"
+    volumes:
+      - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds
+    env_file:
+      - ./docker/compose/profiles/${SERVICERADAR_NATS_PROFILE:-small}.env
+    environment:
+      - NATS_OPERATOR_SEED=${NATS_OPERATOR_SEED:-}
+    depends_on:
+      nats-creds-init:
+        condition: service_completed_successfully
+    command:
+      - /bin/sh
+      - -c
+      - |
+          serviceradar-cli nats-account-limits --creds-dir /etc/serviceradar/creds || echo "nats-account-limits: skipped, existing platform account quota kept" >&2
     restart: "no"
     networks:
       - serviceradar-net
@@ -635,6 +671,8 @@ services:
       - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds:ro
     depends_on:
       nats-creds-init:
+        condition: service_completed_successfully
+      nats-account-limits:
         condition: service_completed_successfully
     command:
       - sh
@@ -662,6 +700,9 @@ services:
     image: nats:2.14.0-alpine
     platform: linux/amd64
     container_name: serviceradar-nats-mtls
+    env_file:
+      # JetStream sizing profile (small, medium or large); see docker/compose/profiles.
+      - ./docker/compose/profiles/${SERVICERADAR_NATS_PROFILE:-small}.env
     ports:
       - "4222:4222"
       - "${NATS_MONITORING_BIND:-127.0.0.1}:${NATS_MONITORING_PORT:-8222}:8222"
@@ -689,6 +730,9 @@ services:
   datasvc:
     image: registry.carverauto.dev/serviceradar/serviceradar-datasvc:${APP_TAG:-latest}
     container_name: serviceradar-datasvc-mtls
+    env_file:
+      # JetStream sizing profile (small, medium or large); see docker/compose/profiles.
+      - ./docker/compose/profiles/${SERVICERADAR_NATS_PROFILE:-small}.env
     cpus: "2.0"
     ports:
       - "50057:50057"
@@ -815,6 +859,9 @@ services:
   log-collector:
     image: registry.carverauto.dev/serviceradar/serviceradar-log-collector:${APP_TAG:-latest}
     container_name: serviceradar-log-collector-mtls
+    env_file:
+      # JetStream sizing profile (small, medium or large); see docker/compose/profiles.
+      - ./docker/compose/profiles/${SERVICERADAR_NATS_PROFILE:-small}.env
     build:
       context: .
       dockerfile: docker/compose/Dockerfile.log-collector
@@ -968,6 +1015,9 @@ services:
   flow-collector:
     image: registry.carverauto.dev/serviceradar/serviceradar-flow-collector:${APP_TAG:-latest}
     container_name: serviceradar-flow-collector-mtls
+    env_file:
+      # JetStream sizing profile (small, medium or large); see docker/compose/profiles.
+      - ./docker/compose/profiles/${SERVICERADAR_NATS_PROFILE:-small}.env
     profiles:
       - network-ingest
       - flows
@@ -1002,6 +1052,9 @@ services:
   bmp-collector:
     image: registry.carverauto.dev/serviceradar/arancini:${ARANCINI_TAG:-latest}
     container_name: serviceradar-bmp-collector-mtls
+    env_file:
+      # JetStream sizing profile (small, medium or large); see docker/compose/profiles.
+      - ./docker/compose/profiles/${SERVICERADAR_NATS_PROFILE:-small}.env
     profiles:
       - network-ingest
       - bmp
@@ -1162,6 +1215,9 @@ services:
   web-ng:
     image: registry.carverauto.dev/serviceradar/serviceradar-web-ng:${APP_TAG:-latest}
     container_name: serviceradar-web-ng-mtls
+    env_file:
+      # JetStream sizing profile (small, medium or large); see docker/compose/profiles.
+      - ./docker/compose/profiles/${SERVICERADAR_NATS_PROFILE:-small}.env
     environment:
       - PORT=4000
       - PHX_SERVER=true

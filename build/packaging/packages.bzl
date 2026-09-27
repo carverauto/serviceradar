@@ -443,6 +443,16 @@ PACKAGES = {
                 "rpm_filetag": "config(noreplace)",
             },
             {
+                # JetStream stream sizes (small profile). nats-server.conf reads
+                # max_file_store from it, and the NATS, datasvc, log-collector,
+                # flow-collector, bmp-collector, core-elx and web-ng units load
+                # it with EnvironmentFile=.
+                "src": "config/jetstream-sizes.env",
+                "dest": "/etc/serviceradar/jetstream-sizes.env",
+                "mode": "0644",
+                "rpm_filetag": "config(noreplace)",
+            },
+            {
                 "src": "config/nats-cloud.conf",
                 "dest": "/etc/nats/templates/nats-cloud.conf",
                 "mode": "0644",
@@ -467,6 +477,7 @@ PACKAGES = {
         "prerm": "scripts/preremove.sh",
         "conffiles": [
             "/etc/nats/nats-server.conf",
+            "/etc/serviceradar/jetstream-sizes.env",
         ],
     },
     "rperf": {

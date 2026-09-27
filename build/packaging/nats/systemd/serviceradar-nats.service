@@ -4,6 +4,8 @@ After=network-online.target ntp.service
 
 [Service]
 Type=simple
+# JetStream sizes; nats-server.conf reads max_file_store from it.
+EnvironmentFile=/etc/serviceradar/jetstream-sizes.env
 ExecStart=/usr/bin/nats-server -c /etc/nats/nats-server.conf
 ExecReload=/bin/kill -s HUP $MAINPID
 ExecStop=/bin/kill -s SIGINT $MAINPID
