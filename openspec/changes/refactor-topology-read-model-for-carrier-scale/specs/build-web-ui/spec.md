@@ -18,6 +18,12 @@ The God-View overview SHALL render persistent server-authored world coordinates.
 - **THEN** the accepted layout version SHALL provide the same world coordinates
 - **AND** the client SHALL apply only the declared UInt16 tile-local affine transform and camera transform
 
+#### Scenario: Partial zoom loading preserves coherent coverage
+- **GIVEN** some visible target-zoom tiles are still unavailable
+- **WHEN** the client prepares a zoom-level transition
+- **THEN** it SHALL retain compatible same-zoom coverage until the target coverage is ready
+- **AND** it SHALL NOT join incompatible parent and child boundary portals in the rendered frame
+
 #### Scenario: Detail entry preserves map state
 - **WHEN** the operator opens a neighborhood or attachment-member page
 - **THEN** the client SHALL enter one bounded ELK coordinate space
