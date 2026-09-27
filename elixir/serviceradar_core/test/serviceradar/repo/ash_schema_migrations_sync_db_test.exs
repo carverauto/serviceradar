@@ -88,6 +88,9 @@ defmodule ServiceRadar.Repo.AshSchemaMigrationsSyncDbTest do
     use_web_ng_migration_source!()
 
     # web-ng's migrator never writes core's ledger, so a database it alone migrated has none.
+    # Seed the ash ledger explicitly rather than relying on it already being complete: the
+    # shared fixture template only ever guarantees the core ledger matches disk.
+    seed_ledger!(@ash_ledger)
     Repo.query!("DROP TABLE IF EXISTS #{@core_ledger}")
 
     assert :ok = MigrateTask.run([])
@@ -155,23 +158,7 @@ defmodule ServiceRadar.Repo.AshSchemaMigrationsSyncDbTest do
   # //rust/integration-db checked its schema matches this checkout exactly. Plain SQL rather
   # than the sync under test, so the setup cannot share a bug with what it sets up.
   defp lag_ledger!(ledger) do
-    for table <- [@core_ledger, @ash_ledger] do
-      Repo.query!("""
-      CREATE TABLE IF NOT EXISTS #{table} (
-        version bigint NOT NULL PRIMARY KEY,
-        inserted_at timestamp(0) without time zone
-      )
-      """)
-
-      Repo.query!(
-        """
-        INSERT INTO #{table} (version, inserted_at)
-        SELECT unnest($1::bigint[]), now()
-        ON CONFLICT (version) DO NOTHING
-        """,
-        [on_disk_versions()]
-      )
-    end
+    for table <- [@core_ledger, @ash_ledger], do: seed_ledger!(table)
 
     assert_ledgers_complete!()
 
@@ -179,6 +166,26 @@ defmodule ServiceRadar.Repo.AshSchemaMigrationsSyncDbTest do
     Repo.query!("DELETE FROM #{ledger} WHERE version = ANY($1::bigint[])", [lagging])
 
     assert unrecorded(ledger) == lagging
+  end
+
+  # Creates `ledger` if missing and records every migration on disk as applied, regardless of
+  # what the shared fixture template already put there.
+  defp seed_ledger!(ledger) do
+    Repo.query!("""
+    CREATE TABLE IF NOT EXISTS #{ledger} (
+      version bigint NOT NULL PRIMARY KEY,
+      inserted_at timestamp(0) without time zone
+    )
+    """)
+
+    Repo.query!(
+      """
+      INSERT INTO #{ledger} (version, inserted_at)
+      SELECT unnest($1::bigint[]), now()
+      ON CONFLICT (version) DO NOTHING
+      """,
+      [on_disk_versions()]
+    )
   end
 
   defp assert_ledgers_complete! do
