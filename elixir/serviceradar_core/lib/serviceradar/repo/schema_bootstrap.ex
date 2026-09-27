@@ -115,8 +115,9 @@ defmodule ServiceRadar.Repo.SchemaBootstrap do
 
   `ServiceRadar.Cluster.StartupMigrations`, `mix serviceradar.db.migrate` and the fixture
   lifecycle's migrate step all call it in both places (startup's before-call sits on its
-  existing-history path, since a database it has just baselined has one ledger). A version is only ever added, never
-  removed, which is safe because migrations here are append-only and nothing rolls one back.
+  existing-history path, since a database it has just baselined has one ledger). A version is
+  only ever added, never removed, which is safe because migrations here are append-only and
+  nothing rolls one back.
 
   Nothing is created on a database with neither ledger, where there is nothing to copy and the
   schema a ledger lives in may not exist yet; the migrator creates its own ledger on its first
