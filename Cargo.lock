@@ -2001,11 +2001,16 @@ dependencies = [
  "dgraph-client",
  "dgraph-migrate",
  "proto_dgraph",
+ "runfiles",
  "serde",
  "serde_json",
+ "serviceradar-config-manager",
+ "serviceradar-config-schema",
+ "serviceradar-secret-manager",
  "tokio",
  "tokio-stream",
  "tonic",
+ "urlencoding",
 ]
 
 [[package]]
