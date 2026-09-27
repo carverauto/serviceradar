@@ -119,6 +119,47 @@ defmodule ServiceRadar.SNMPProfiles.CredentialResolverTest do
     end
 
     @tag :integration
+    test "bound credentials infer security without inheriting the profile no-auth default" do
+      actor = SystemActor.system(:test)
+
+      for {payload, record_level, expected_level} <- [
+            {%{"auth_password" => "invented-auth-secret", "priv_protocol" => "aes"},
+             :no_auth_no_priv, :auth_priv},
+            {%{"auth_password" => "invented-auth-secret"}, :no_auth_no_priv, :auth_no_priv},
+            {%{}, :no_auth_no_priv, :no_auth_no_priv},
+            {%{"security_level" => "noAuthNoPriv", "auth_password" => "unused-secret"},
+             :auth_priv, :no_auth_no_priv},
+            {%{"auth_password" => "invented-auth-secret", "priv_protocol" => "aes"},
+             :auth_no_priv, :auth_no_priv}
+          ] do
+        {:ok, secret} =
+          NetworkCredentialSecret
+          |> Ash.Changeset.for_create(
+            :create,
+            %{
+              name: "synthetic-snmp-#{System.unique_integer([:positive])}",
+              provider: "snmp",
+              credential_kind: :snmp,
+              secret_payload:
+                Jason.encode!(
+                  Map.merge(%{"username" => "test-reader", "auth_protocol" => "sha"}, payload)
+                )
+            },
+            actor: actor
+          )
+          |> Ash.create(actor: actor)
+
+        credential =
+          CredentialResolver.build_credential(
+            %{version: :v3, security_level: record_level, credential_secret_id: secret.id},
+            actor
+          )
+
+        assert %{version: :v3, security_level: ^expected_level} = credential
+      end
+    end
+
+    @tag :integration
     test "credential rule wins over a profile-bound secret" do
       actor = SystemActor.system(:test)
       unique = System.unique_integer([:positive])
