@@ -343,6 +343,7 @@ fn both_backends_accept_the_same_queries() {
             "in:otel_trace_summaries stats:\"count() as n, sum(if(status_code=2,1,0)) as e\"",
             "in:otel_trace_summaries stats:\"sum(if(status_code>2,1,0)) as e\"",
             "in:otel_trace_summaries stats:\"sum(if(duration_ms<5,1,0)) as e\"",
+            "in:otel_trace_summaries stats:\"sum(if(duration_ms>inf,1,0)) as e\"",
             "in:otel_trace_summaries stats:\"avg(duration_ms) as e\"",
             "in:otel_trace_summaries stats:\"count()\"",
             "in:otel_trace_summaries stats:\"count() as a-b\"",

@@ -399,6 +399,20 @@ defmodule ServiceRadar.Analytics.StarRocks.RowsTest do
     test "encoded spans survive the Stream Load JSON encoding" do
       assert {:ok, _json} = Jason.encode(Rows.encode(:otel_traces, [span()]))
     end
+
+    test "an oversized attributes value is truncated to its column limit and still encodes" do
+      # 1_048_576 is the StarRocks otel_traces.attributes VARCHAR limit
+      # (priv/starrocks/0022); a multi-byte filler proves the cut lands on a
+      # UTF-8 boundary rather than mid-codepoint.
+      attributes = String.duplicate("é", 600_000)
+
+      assert [%{"attributes" => truncated} = row] =
+               Rows.encode(:otel_traces, [span(%{attributes: attributes})])
+
+      assert byte_size(truncated) <= 1_048_576
+      assert String.valid?(truncated)
+      assert {:ok, _json} = Jason.encode(row)
+    end
   end
 
   # The column list of the shipped CREATE, so an encoder that misses or

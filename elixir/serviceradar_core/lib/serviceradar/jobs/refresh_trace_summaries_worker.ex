@@ -322,6 +322,8 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   # Slack added to the trailing-probe timeout when flooring the grace.
   @orphan_grace_probe_margin_seconds 10
   @orphan_probe_throttle_key {__MODULE__, :orphan_probe_last_ms}
+  @warehouse_prune_throttle_key {__MODULE__, :warehouse_prune_last_ms}
+  @warehouse_prune_interval_ms 3_600_000
   @min_signed_64 -0x8000000000000000
 
   def upsert_sql, do: @upsert_sql
@@ -593,10 +595,10 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
       )
 
     case result do
-      {:ok, %{changed: changed, watermark: watermark}} ->
+      {:ok, %{changed: changed, watermark: watermark, window_end: window_end}} ->
         OtelPubSub.broadcast_trace_summaries(%{count: changed})
 
-        if spans_ingested_after?(watermark) do
+        if spans_ingested_after?(watermark, window_end) do
           {:snooze, @trailing_refresh_delay_seconds}
         else
           :ok
@@ -633,7 +635,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
         window_end: DateTime.to_iso8601(now)
       )
 
-      {:ok, %{changed: changed, watermark: new_watermark}}
+      {:ok, %{changed: changed, watermark: new_watermark, window_end: now}}
     end
   rescue
     error ->
@@ -754,14 +756,14 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
     end
   end
 
-  defp spans_ingested_after?(watermark) do
+  defp spans_ingested_after?(watermark, window_end) do
     if warehouse?(),
-      do: warehouse_spans_ingested_after?(watermark),
+      do: warehouse_spans_ingested_after?(watermark, window_end),
       else: cnpg_spans_ingested_after?(watermark)
   end
 
-  defp warehouse_spans_ingested_after?(watermark) do
-    case WarehouseSummaries.ingested_after?(watermark, timeout: probe_timeout_ms()) do
+  defp warehouse_spans_ingested_after?(watermark, window_end) do
+    case WarehouseSummaries.ingested_after?(watermark, window_end, timeout: probe_timeout_ms()) do
       {:ok, ingested?} ->
         ingested?
 
@@ -852,18 +854,47 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   end
 
   # The warehouse summary table is not partitioned (a trace's timestamp moves
-  # as late spans arrive), so it is pruned here, to the traces retention.
+  # as late spans arrive), so its DELETE scans the whole table unlike the
+  # CNPG path's bounded/batched cleanup below; throttled to at most once per
+  # hour per node, and a failure here does not fail the refresh or block the
+  # watermark from advancing since the upsert already committed independently.
   defp prune_warehouse_summaries do
-    retention_days = warehouse_retention_days()
+    if warehouse_prune_permitted?() do
+      retention_days = warehouse_retention_days()
 
-    case WarehouseSummaries.prune(retention_days, timeout: cleanup_timeout_ms()) do
-      {:ok, deleted} ->
-        log_cleanup(deleted, retention_days, 0)
-        :ok
+      case WarehouseSummaries.prune(retention_days, timeout: cleanup_timeout_ms()) do
+        {:ok, deleted} ->
+          log_cleanup(deleted, retention_days, 0)
 
-      {:error, reason} = error ->
-        Logger.error("Failed to prune warehouse otel_trace_summaries: #{inspect(reason)}")
-        error
+        {:error, reason} ->
+          Logger.warning("Failed to prune warehouse otel_trace_summaries: #{inspect(reason)}")
+      end
+    end
+
+    :ok
+  end
+
+  # Lock-free per-node throttle: the caller whose compare-and-swap advances
+  # the timestamp is the one that prunes.
+  defp warehouse_prune_permitted? do
+    ref = warehouse_prune_throttle()
+    now = System.monotonic_time(:millisecond)
+    last = :atomics.get(ref, 1)
+
+    now - last >= @warehouse_prune_interval_ms and
+      :atomics.compare_exchange(ref, 1, last, now) == :ok
+  end
+
+  defp warehouse_prune_throttle do
+    case :persistent_term.get(@warehouse_prune_throttle_key, nil) do
+      nil ->
+        ref = :atomics.new(1, signed: true)
+        :atomics.put(ref, 1, @min_signed_64)
+        :persistent_term.put(@warehouse_prune_throttle_key, ref)
+        ref
+
+      ref ->
+        ref
     end
   end
 

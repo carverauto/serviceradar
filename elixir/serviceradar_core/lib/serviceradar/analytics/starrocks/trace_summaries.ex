@@ -50,12 +50,20 @@ defmodule ServiceRadar.Analytics.StarRocks.TraceSummaries do
     with {:ok, %{rows: rows}} <- run(sql, opts), do: {:ok, rows != []}
   end
 
-  @doc "Whether any span was ingested after `watermark` (the trailing-refresh probe)."
-  @spec ingested_after?(DateTime.t(), keyword()) :: {:ok, boolean()} | {:error, term()}
-  def ingested_after?(watermark, opts \\ []) do
+  @doc """
+  Whether any span was ingested after `watermark` (the trailing-refresh probe).
+
+  The floor is anchored to `to` (the run's window end), the same anchor
+  `any_ingested?/3` and `max_ingested_at/3` use to decide whether the
+  watermark can advance, so this probe cannot disagree with them about a span
+  that sits right at the day-old floor.
+  """
+  @spec ingested_after?(DateTime.t(), DateTime.t(), keyword()) ::
+          {:ok, boolean()} | {:error, term()}
+  def ingested_after?(watermark, to, opts \\ []) do
     sql = """
     SELECT 1 FROM #{spans()}
-    WHERE created_at > #{literal(watermark)} AND `timestamp` >= #{literal(floor(watermark))}
+    WHERE created_at > #{literal(watermark)} AND `timestamp` >= #{literal(floor(to))}
     LIMIT 1
     """
 

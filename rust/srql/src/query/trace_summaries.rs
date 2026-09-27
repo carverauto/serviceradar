@@ -809,11 +809,15 @@ fn parse_condition(raw: &str) -> Result<StatsExprKind> {
                     })
                 }
                 "duration_ms" => {
-                    let parsed = value.parse::<f64>().map_err(|_| {
-                        ServiceError::InvalidRequest(
-                            "duration_ms comparison requires a numeric value".into(),
-                        )
-                    })?;
+                    let parsed = value
+                        .parse::<f64>()
+                        .ok()
+                        .filter(|value| value.is_finite())
+                        .ok_or_else(|| {
+                            ServiceError::InvalidRequest(
+                                "duration_ms comparison requires a numeric value".into(),
+                            )
+                        })?;
                     // `>=` used to compile as `>`, dropping every trace exactly
                     // at the threshold.
                     let comparator = match *op {

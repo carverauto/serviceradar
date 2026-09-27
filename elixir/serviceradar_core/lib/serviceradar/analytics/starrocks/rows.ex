@@ -3,6 +3,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
   Maps EventWriter-decoded rows onto StarRocks Stream Load JSON documents.
   """
 
+  require Logger
+
   alias ServiceRadar.Analytics.StarRocks.Identity
 
   @type dataset ::
@@ -62,6 +64,36 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
 
   @otel_span_values ~w(kind start_time_unix_nano end_time_unix_nano status_code
                        dropped_attributes_count dropped_events_count dropped_links_count)a
+
+  # priv/starrocks/0022 column widths. A span's attributes/events/links are
+  # producer-controlled and unbounded on CNPG, so a large payload (big HTTP
+  # bodies, wide exception stacks) can exceed these VARCHARs; StarRocks FILTERS
+  # an over-wide row out of the Stream Load rather than truncating it, which
+  # silently drops the whole span. Truncate here (UTF-8-safe) so the span
+  # always lands, and report the truncation rather than leaving a silent drop.
+  @otel_span_limits %{
+    trace_id: 32,
+    span_id: 16,
+    parent_span_id: 16,
+    trace_state: 65_533,
+    name: 65_533,
+    status_message: 65_533,
+    service_name: 1024,
+    service_version: 1024,
+    service_instance: 1024,
+    service_namespace: 1024,
+    deployment_environment: 1024,
+    scope_name: 1024,
+    scope_version: 1024,
+    ingest_identity: 1024,
+    ingest_agent_id: 256,
+    ingest_partition: 128,
+    scope_attributes: 1_048_576,
+    attributes: 1_048_576,
+    resource_attributes: 1_048_576,
+    events: 1_048_576,
+    links: 1_048_576
+  }
 
   @spec encode(dataset(), [map()]) :: [map()]
   def encode(dataset, rows) when is_list(rows) do
@@ -230,6 +262,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
   defp encode_row(:otel_traces, row) do
     row
     |> mtr_columns(@otel_span_text, @otel_span_values)
+    |> truncate_otel_span_columns(row)
     |> Map.merge(%{
       "timestamp" => datetime(value(row, :timestamp)),
       "created_at" => created_at(row)
@@ -382,6 +415,40 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
     text = Map.new(text_columns, &{Atom.to_string(&1), stringify(value(row, &1))})
     values = Map.new(value_columns, &{Atom.to_string(&1), value(row, &1)})
     Map.merge(text, values)
+  end
+
+  defp truncate_otel_span_columns(encoded, row) do
+    trace_id = value(row, :trace_id)
+    span_id = value(row, :span_id)
+
+    Enum.reduce(@otel_span_limits, encoded, fn {column, max}, acc ->
+      key = Atom.to_string(column)
+
+      case Map.get(acc, key) do
+        text when is_binary(text) and byte_size(text) > max ->
+          otel_span_truncated(column, byte_size(text), max, trace_id, span_id)
+          Map.put(acc, key, truncate_binary(text, max))
+
+        _ ->
+          acc
+      end
+    end)
+  end
+
+  defp otel_span_truncated(column, bytes, max, trace_id, span_id) do
+    Logger.warning("StarRocks otel_traces column truncated",
+      column: Atom.to_string(column),
+      bytes: bytes,
+      max_bytes: max,
+      trace_id: trace_id,
+      span_id: span_id
+    )
+
+    :telemetry.execute(
+      [:serviceradar, :starrocks, :otel_traces, :truncated],
+      %{bytes: bytes, max_bytes: max},
+      %{field: Atom.to_string(column), trace_id: trace_id, span_id: span_id}
+    )
   end
 
   # SHA-256 over the key parts, length-prefixed so ("ab", "c") and ("a", "bc")

@@ -178,7 +178,24 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorkerTest do
                TraceSummaries.any_ingested?(@from, @to, query: capture({:ok, %{rows: []}}))
 
       assert {:error, :down} =
-               TraceSummaries.ingested_after?(@to, query: capture({:error, :down}))
+               TraceSummaries.ingested_after?(@to, @to, query: capture({:error, :down}))
+    end
+
+    test "the trailing-refresh probe floors on the run's window end, not the watermark" do
+      # A watermark far older than the window end must not loosen the floor:
+      # any_ingested?/max_ingested_at, which decide whether the watermark can
+      # advance, floor on `to`, so this probe has to agree with them.
+      old_watermark = ~U[2026-01-10 00:00:00Z]
+
+      assert {:ok, false} =
+               TraceSummaries.ingested_after?(old_watermark, @to,
+                 query: capture({:ok, %{rows: []}})
+               )
+
+      assert_received {:sql, sql}
+      assert sql =~ "created_at > '2026-01-10 00:00:00.000000'"
+      assert sql =~ "`timestamp` >= '2026-01-14 10:05:00.250000'"
+      refute sql =~ "'2026-01-09 00:00:00.000000'"
     end
 
     test "the newest ingest time comes back as UTC, and an empty window as nil" do
