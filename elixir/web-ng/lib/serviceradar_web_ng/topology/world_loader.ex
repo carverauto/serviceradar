@@ -82,8 +82,8 @@ defmodule ServiceRadarWebNG.Topology.WorldLoader do
   end
 
   def handle_info({:world_load_timeout, token}, %{active: %{token: token, pid: pid, timed_out: false}} = state) do
-    # Do not start another world while a dirty NIF still owns the old load.
-    # Process termination is asynchronous; DOWN releases the single load slot.
+    # Cancel without blocking the owner. DOWN releases BEAM bookkeeping;
+    # the native gate retains its permit until any dirty computation returns.
     Process.exit(pid, :kill)
     {:noreply, %{state | active: %{state.active | timed_out: true}}}
   end
