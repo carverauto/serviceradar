@@ -442,16 +442,30 @@ defmodule ServiceRadar.NetworkDiscovery.World do
   end
 
   defp stream_rows(resource, version, event, accumulator, callback) do
+    id_field = if resource == WorldPosition, do: :device_id, else: :relation_id
+
     query =
       resource
       |> Ash.Query.for_read(:read)
       |> Ash.Query.filter(layout_version == ^version)
+      |> Ash.Query.sort([{id_field, :asc}])
+      |> Ash.Query.limit(@batch_size)
 
     query = if resource == WorldRelation, do: Ash.Query.filter(query, active), else: query
 
-    query
-    |> ServiceRadar.Ash.Page.stream!(actor: actor(), batch_size: @batch_size)
-    |> Stream.chunk_every(@batch_size)
+    # The held head lock fixes the layout, so the row ID is a complete cursor.
+    # Ash's composite primary-key cursor adds an OR over layout_version; generic
+    # PostgreSQL plans then rescan preceding rows on every page of a large world.
+    nil
+    |> Stream.unfold(fn cursor ->
+      page =
+        if cursor, do: Ash.Query.filter(query, ^[{id_field, [greater_than: cursor]}]), else: query
+
+      case Ash.read!(page, actor: actor(), page: false) do
+        [] -> nil
+        rows -> {rows, rows |> List.last() |> Map.fetch!(id_field)}
+      end
+    end)
     |> Enum.reduce_while({:ok, accumulator}, fn rows, {:ok, acc} ->
       case callback.({event, rows}, acc) do
         {:ok, next} -> {:cont, {:ok, next}}
