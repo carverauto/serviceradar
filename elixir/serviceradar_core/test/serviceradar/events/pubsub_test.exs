@@ -1,8 +1,8 @@
 defmodule ServiceRadar.Events.PubSubTest do
   use ExUnit.Case, async: true
 
-  alias ServiceRadar.EventWriter.Processors.Events
   alias ServiceRadar.Events.PubSub, as: EventsPubSub
+  alias ServiceRadar.EventWriter.Processors.Events
 
   @row %{
     id: "3f1b8a52-6c1e-4f5d-9d3b-2b8e4d7a9c10",
