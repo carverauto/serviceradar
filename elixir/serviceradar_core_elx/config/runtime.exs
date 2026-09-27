@@ -19,6 +19,7 @@ alias ServiceRadar.Observability.CapacityForecasting.Worker, as: CapacityForecas
 alias ServiceRadar.Observability.DataRetentionWorker
 alias ServiceRadar.Observability.ProductionSchedule
 alias ServiceRadar.Observability.SeasonalDisposition.Worker, as: SeasonalDispositionWorker
+alias ServiceRadar.Observability.ThreatIntelRawPayloadStore
 
 callback_deployment =
   RuntimeConfig.callback_deployment_config!(%{
@@ -513,22 +514,22 @@ config :serviceradar_core, ServiceRadar.NetworkDiscovery.TopologyGraph,
       "on"
     ]
 
-config :serviceradar_core, ServiceRadar.Observability.ThreatIntelRawPayloadStore,
+# Workload-identity snapshot skip guard.
+config :serviceradar_core, ServiceRadar.WorkloadIdentity,
+  skip_guard_enabled: System.get_env("SERVICERADAR_WORKLOAD_IDENTITY_SKIP_GUARD", "1") != "0",
+  skip_guard_heartbeat_ms: parse_int_env.("SERVICERADAR_WORKLOAD_IDENTITY_SKIP_GUARD_HEARTBEAT_MS", 1_800_000)
+
+config :serviceradar_core, ThreatIntelRawPayloadStore,
   jetstream_bucket: System.get_env("SERVICERADAR_OTX_RAW_BUCKET", "serviceradar_threat_intel"),
   jetstream_ttl_seconds: parse_int_env.("SERVICERADAR_OTX_RAW_TTL_SECONDS", 0),
   jetstream_max_bucket_size:
     ServiceRadar.NATS.StateBucketSizing.bytes_from_env!(
       "SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES",
-      ServiceRadar.Observability.ThreatIntelRawPayloadStore.default_max_bucket_bytes()
+      ThreatIntelRawPayloadStore.default_max_bucket_bytes()
     ),
   jetstream_max_chunk_size: parse_int_env.("SERVICERADAR_OTX_RAW_MAX_CHUNK_BYTES", nil),
   jetstream_replicas: parse_int_env.("SERVICERADAR_OTX_RAW_REPLICAS", 1),
   jetstream_storage: otx_raw_storage
-
-# Workload-identity snapshot skip guard.
-config :serviceradar_core, ServiceRadar.WorkloadIdentity,
-  skip_guard_enabled: System.get_env("SERVICERADAR_WORKLOAD_IDENTITY_SKIP_GUARD", "1") != "0",
-  skip_guard_heartbeat_ms: parse_int_env.("SERVICERADAR_WORKLOAD_IDENTITY_SKIP_GUARD_HEARTBEAT_MS", 1_800_000)
 
 config :serviceradar_core, :spiffe,
   mode: spiffe_mode,
