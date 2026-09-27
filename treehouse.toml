@@ -1,0 +1,8 @@
+max_trees = 24
+root = ""
+
+# Worktree root directory (relative to repo root or absolute path).
+# Worktrees are placed under {root}/.treehouse/. Default: $HOME
+# Override per-command with the --root flag or the TREEHOUSE_ROOT env var.
+# Use "." to keep the pool in-project at <repo>/.treehouse/, next to the
+# code and removed with the project. Example: root = "."
