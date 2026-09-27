@@ -214,13 +214,12 @@ fn build_grouped_stats_query(
         .collect::<Result<Vec<_>>>()?;
 
     let outer_sql = if !spec.group_by.is_empty() {
-        let mut seen: std::collections::HashSet<&'static str> = std::collections::HashSet::new();
-        let mut group_keys: Vec<&'static str> = Vec::with_capacity(spec.group_by.len());
+        let mut group_keys: Vec<String> = Vec::with_capacity(spec.group_by.len());
         let mut group_exprs: Vec<String> = Vec::with_capacity(spec.group_by.len());
 
         for g in &spec.group_by {
             let key = g.response_key();
-            if !seen.insert(key) {
+            if group_keys.contains(&key) {
                 return Err(ServiceError::InvalidRequest(format!(
                     "duplicate group-by key for flows stats: '{key}'"
                 )));
@@ -228,6 +227,7 @@ fn build_grouped_stats_query(
             group_keys.push(key);
             group_exprs.push(g.group_expr());
         }
+        let group_keys: Vec<&str> = group_keys.iter().map(String::as_str).collect();
 
         let select_groups = group_exprs
             .iter()

@@ -1691,6 +1691,80 @@ fn translate_flows_cidr_works_on_stats_and_downsample_paths() {
     }
 }
 
+/// `src_cidr:<n>` groups by the subnet, not the host: CNPG clears the host bits with
+/// `network()`, which `set_masklen` alone keeps, and both dialects name the column with its
+/// prefix length. Past 32 bits an IPv4 address is masked at its own width.
+#[test]
+fn translate_flows_cidr_grouping_names_one_subnet_column_on_both_dialects() {
+    let config = test_config();
+    let sql_for = |query: &str, mode: Option<&str>| {
+        translate_request(
+            &config,
+            QueryRequest {
+                query: query.to_string(),
+                limit: None,
+                cursor: None,
+                direction: QueryDirection::Next,
+                mode: mode.map(str::to_string),
+                permitted_signals: None,
+            },
+        )
+        .unwrap_or_else(|err| panic!("{query} ({mode:?}): {err:?}"))
+        .sql
+    };
+    let query = r#"in:flows time:last_1h stats:"sum(bytes_total) as total_bytes by src_cidr:24, dst_cidr:48" sort:total_bytes:desc"#;
+
+    let cnpg = sql_for(query, None);
+    assert!(
+        cnpg.contains(
+            "COALESCE(network(set_masklen(try_inet(NULLIF(src_endpoint_ip, '')), 24))::text, 'Unknown') AS group_value_0"
+        ),
+        "{cnpg}"
+    );
+    assert!(
+        cnpg.contains(
+            "COALESCE(network(set_masklen(try_inet(NULLIF(dst_endpoint_ip, '')), CASE WHEN family(try_inet(NULLIF(dst_endpoint_ip, ''))) = 4 THEN 32 ELSE 48 END))::text, 'Unknown') AS group_value_1"
+        ),
+        "{cnpg}"
+    );
+    assert!(
+        cnpg.contains("'src_cidr_24', group_value_0, 'dst_cidr_48', group_value_1"),
+        "{cnpg}"
+    );
+
+    let starrocks = sql_for(query, Some("starrocks"));
+    assert!(
+        starrocks.contains("f.src_cidr_24 AS src_cidr_24, f.dst_cidr_48 AS dst_cidr_48"),
+        "{starrocks}"
+    );
+    assert!(
+        starrocks.contains("'/24') END, array_map(h -> ")
+            && starrocks.contains("'/48') END, array_map(h -> "),
+        "{starrocks}"
+    );
+
+    for mode in [None, Some("starrocks")] {
+        let err = translate_request(
+            &config,
+            QueryRequest {
+                query: r#"in:flows time:last_1h stats:"count(*) as flows by src_cidr:129""#
+                    .to_string(),
+                limit: None,
+                cursor: None,
+                direction: QueryDirection::Next,
+                mode: mode.map(str::to_string),
+                permitted_signals: None,
+            },
+        )
+        .expect_err("a prefix longer than an IPv6 address");
+        assert!(
+            err.to_string()
+                .contains("CIDR prefix length must be <= 128 (got 129)"),
+            "{mode:?}: {err}"
+        );
+    }
+}
+
 /// Helper: translate a query string end-to-end, as a client would.
 fn translate_query(query: &str) -> std::result::Result<String, crate::error::ServiceError> {
     let config = test_config();
