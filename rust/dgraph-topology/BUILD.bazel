@@ -2,6 +2,7 @@ load("@crates//:defs.bzl", "all_crate_deps")
 load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
 load("@rules_rs//rs:rust_library.bzl", "rust_library")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
+load("//build:integration_tests.bzl", "requires_shared_fixture")
 
 rust_library(
     name = "dgraph_topology",
@@ -48,7 +49,11 @@ rust_test(
     name = "lib_tests",
     srcs = glob(
         ["tests/**/*.rs"],
-        exclude = ["tests/schema_lifecycle.rs"],
+        exclude = [
+            "tests/schema_lifecycle.rs",
+            "tests/world_worker.rs",
+            "tests/support/**",
+        ],
     ),
     crate_root = "tests/lib_tests.rs",
     edition = "2024",
@@ -68,7 +73,10 @@ rust_test(
 rust_test(
     name = "schema_lifecycle_test",
     timeout = "long",
-    srcs = ["tests/schema_lifecycle.rs"],
+    srcs = [
+        "tests/schema_lifecycle.rs",
+        "tests/support/fixture.rs",
+    ],
     crate_root = "tests/schema_lifecycle.rs",
     data = ["//config/environments:ci_binpb"],
     edition = "2024",
@@ -77,6 +85,41 @@ rust_test(
         "integration_test",
         "manual",
     ],
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+        normal_dev = True,
+    ) + [
+        ":dgraph_topology",
+        "//config/manager_config/rust:manager",
+        "//config/manager_secret/rust:secret_manager",
+        "//config/proto_bindings/rust:config_schema",
+        "//rust/dgraph-migrate:dgraph_migrate",
+    ],
+)
+
+# Compilation runs on RBE; the guarded CI workflow executes beside both owned
+# fixtures. The child process receives the namespace allocated by this owner.
+rust_test(
+    name = "world_worker_test",
+    # Outer deadline must leave time for bounded child shutdown and namespace cleanup.
+    timeout = "eternal",
+    srcs = [
+        "tests/support/fixture.rs",
+        "tests/world_worker.rs",
+    ],
+    crate_root = "tests/world_worker.rs",
+    data = [
+        "//config/environments:ci_binpb",
+        "//elixir/serviceradar_core:world_worker_fixture_runner",
+    ],
+    edition = "2024",
+    tags = [
+        "external",
+        "integration_test",
+        "manual",
+    ],
+    target_compatible_with = requires_shared_fixture(),
     deps = all_crate_deps(
         cargo_only = True,
         normal = True,

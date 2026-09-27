@@ -2000,6 +2000,7 @@ dependencies = [
  "chrono",
  "dgraph-client",
  "dgraph-migrate",
+ "nix 0.31.3",
  "proto_dgraph",
  "runfiles",
  "serde",
