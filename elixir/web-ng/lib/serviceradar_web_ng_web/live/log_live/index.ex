@@ -9540,15 +9540,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       []
   end
 
-  defp load_netflow_timeseries_series_maps(
-         srql_module,
-         current_query,
-         scope,
-         bucket_seconds,
-         total_points,
-         panel,
-         keys
-       )
+  defp load_netflow_timeseries_series_maps(srql_module, current_query, scope, bucket_seconds, total_points, panel, keys)
        when is_integer(bucket_seconds) and is_list(total_points) and is_atom(panel) do
     base_query =
       current_query
