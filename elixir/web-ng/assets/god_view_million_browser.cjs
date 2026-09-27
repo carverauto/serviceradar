@@ -59,11 +59,13 @@ async function main() {
   })
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve))
   const physical = process.env.GOD_VIEW_PHYSICAL_GPU === "1"
+  const headless = !physical || process.env.GOD_VIEW_HEADLESS === "1"
+  const frameRateLimitDisabled = physical && process.env.GOD_VIEW_UNCAPPED === "1"
   let browser
   try {
-    // Measure renderer throughput independently of display refresh. The physical
-    // validation host caps even an empty page at 30 Hz with normal vsync.
-    browser = await chromium.launch(physical ? {channel: "chrome", headless: false, args: ["--disable-frame-rate-limit"]} : {headless: true, args: [
+    // Uncapped throughput is an explicit diagnostic; normal physical validation
+    // retains Chrome scheduling and fails if the pan/zoom SLO is not met.
+    browser = await chromium.launch(physical ? {channel: "chrome", headless, args: frameRateLimitDisabled ? ["--disable-frame-rate-limit"] : []} : {headless: true, args: [
       "--enable-unsafe-webgpu", "--enable-unsafe-swiftshader", "--enable-features=Vulkan", "--use-vulkan=swiftshader", "--use-webgpu-adapter=swiftshader", "--use-angle=swiftshader",
     ]})
     const page = await browser.newPage({viewport: {width: 1280, height: 720}, deviceScaleFactor: 1})
@@ -174,13 +176,13 @@ async function main() {
       const {profile: result} = await profile.send("Profiler.stop")
       await writeFile(process.env.GOD_VIEW_CPU_PROFILE, JSON.stringify(result))
     }
+    const report = {physical, headless, frameRateLimitDisabled, adapter, first, metrics, detailRequests, geometryRequests: requests.length, serverFixture: fixture.measurements}
+    console.log(JSON.stringify(report, null, 2))
     assert.equal(metrics.rendererFailed, false)
     assert(metrics.packetLayers > 0, "packet flow must be on")
     assert(metrics.picked > 0, "performance samples must include real selections")
     assert.deepEqual(errors, [])
     assert.deepEqual(missing, [], "fixture must cover every requested tile")
-    const report = {physical, frameRateLimitDisabled: physical, adapter, first, metrics, detailRequests, geometryRequests: requests.length, serverFixture: fixture.measurements}
-    console.log(JSON.stringify(report, null, 2))
     if (physical) {
       assert(first.milliseconds <= 3000, "first usable frame exceeds 3s")
       assert(metrics.fps >= 30, "pan/zoom below 30 FPS")

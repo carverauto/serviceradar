@@ -722,7 +722,7 @@ ex_unit_test(
     name = "world_worker_fixture_runner",
     size = "enormous",
     srcs = ["test/serviceradar/network_discovery/world_worker_fixture_test.exs"],
-    data = INTEGRATION_RUNTIME_DATA,
+    data = INTEGRATION_RUNTIME_DATA + ["//rust/topology-atlas:million_world_fixture"],
     elixir_opts = [
         "-r",
         "test/db/integration_env.exs",

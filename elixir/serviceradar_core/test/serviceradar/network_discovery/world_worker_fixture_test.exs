@@ -115,6 +115,118 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
     after
       cleanup(version, ids, job.id)
     end
+
+    verify_million_device_persistence()
+  end
+
+  # The native hierarchy is a declared Bazel input, shared with the browser
+  # acceptance. Persist and reload it through the production publication API;
+  # counting generated rows alone would not prove the database path at scale.
+  defp verify_million_device_persistence do
+    path = Path.join(System.fetch_env!("TEST_TMPDIR"), "rust/topology-atlas/million_world.tsv")
+    version = Ash.UUID.generate()
+
+    metadata = %{
+      source_digest: "invented-million-hierarchy",
+      node_count: 1_000_000,
+      relation_count: 2_000_000
+    }
+
+    positions = fixture_rows(path, "p", &fixture_position/1)
+    relations = fixture_rows(path, "r", &fixture_relation/1)
+    samples = positions |> Enum.take(3) |> Map.new(&{&1.device_id, {&1.x, &1.y}})
+
+    {persist_us, result} =
+      :timer.tc(fn -> World.stage_candidate(version, metadata, positions, relations) end)
+
+    assert :ok = result
+    {publish_us, result} = :timer.tc(fn -> World.activate_relayout(0, version) end)
+    assert {:ok, %{node_count: 1_000_000, relation_count: 2_000_000}} = result
+
+    for {table, expected} <- [
+          {"topology_world_positions", 1_000_000},
+          {"topology_world_relations", 2_000_000}
+        ] do
+      assert %{rows: [[^expected]]} =
+               Repo.query!(
+                 "SELECT count(*) FROM platform.#{table} WHERE layout_version = $1::uuid AND active",
+                 [Ecto.UUID.dump!(version)]
+               )
+    end
+
+    {reload_us, result} =
+      :timer.tc(fn ->
+        World.stream_active(nil, fn
+          {:manifest, manifest}, nil ->
+            TopologyAtlas.new_builder(manifest.layout_version, manifest.zmax)
+
+          {:positions, rows}, builder ->
+            :ok = TopologyAtlas.add_positions(builder, rows)
+            {:ok, builder}
+
+          {:relations, rows}, builder ->
+            :ok = TopologyAtlas.add_relations(builder, rows)
+            {:ok, builder}
+        end)
+      end)
+
+    assert {:ok, builder} = result
+    {index_us, result} = :timer.tc(fn -> TopologyAtlas.finish_world(builder) end)
+    assert {:ok, world} = result
+
+    assert {:ok, %{node_count: 1_000_000, relation_count: 2_000_000}} =
+             TopologyAtlas.world_info(world)
+
+    for {id, {x, y}} <- samples do
+      assert {:ok, %{x: ^x, y: ^y}} = TopologyAtlas.search(world, id)
+    end
+
+    {query_us, result} = :timer.tc(fn -> TopologyAtlas.tile(world, 16, 0, 0) end)
+    assert {:ok, _tile} = result
+    [_, peak_kib] = Regex.run(~r/^VmHWM:\s+(\d+) kB$/m, File.read!("/proc/self/status"))
+
+    IO.puts(
+      "WORLD_SCALE_MEASUREMENTS " <>
+        Jason.encode!(%{
+          persist_ms: div(persist_us, 1000),
+          publish_ms: div(publish_us, 1000),
+          reload_ms: div(reload_us, 1000),
+          index_ms: div(index_us, 1000),
+          high_zoom_query_us: query_us,
+          beam_peak_resident_kib: String.to_integer(peak_kib)
+        })
+    )
+
+    # The guarded lifecycle owns and drops this entire scratch database after
+    # this final case. Do not spend another full write pass deleting its rows.
+  end
+
+  defp fixture_rows(path, kind, decoder) do
+    path
+    |> File.stream!()
+    |> Stream.filter(&String.starts_with?(&1, kind <> "\t"))
+    |> Stream.map(&(&1 |> String.trim_trailing("\n") |> String.split("\t") |> decoder.()))
+  end
+
+  defp fixture_position(["p", id, label, x, y, zoom, parent, component, z, cx, cy, depth]) do
+    %{
+      device_id: id,
+      label: label,
+      x: String.to_integer(x),
+      y: String.to_integer(y),
+      min_zoom: String.to_integer(zoom),
+      parent_id: if(parent == "", do: nil, else: parent),
+      component_id: component,
+      component_z: String.to_integer(z),
+      component_x: String.to_integer(cx),
+      component_y: String.to_integer(cy),
+      placement_depth: String.to_integer(depth),
+      active: true
+    }
+  end
+
+  defp fixture_relation(["r", id, source, target]) do
+    %{relation_id: id, source_id: source, target_id: target, active: true}
   end
 
   defp publish_while_source_changes(job, version, new_id, edges) do
