@@ -137,15 +137,20 @@ func checkString(path, key, owner, s string, out *[]Violation) {
 		}
 		return
 	}
-	if !isMetricName(key, owner) && looksLikeHostname(host) && !SafeHost(host) {
+	if !isIdentifier(key, owner) && looksLikeHostname(host) && !SafeHost(host) {
 		*out = append(*out, Violation{path, s, "public DNS name"})
 	}
 }
 
-// isMetricName reports whether a string field names a metric, which is a dotted
-// identifier and never a host.
-func isMetricName(key, owner string) bool {
-	return key == "metric" || (key == "name" && owner == "metrics")
+// isIdentifier reports whether a string field holds a dotted identifier that
+// nothing ever resolves or probes: a metric name, or an OCSF event's log name
+// or log provider (for example "demo.fault").
+func isIdentifier(key, owner string) bool {
+	switch key {
+	case "metric", "log_name", "log_provider":
+		return true
+	}
+	return key == "name" && owner == "metrics"
 }
 
 // looksLikeHostname reports whether s has the shape of a dotted DNS name: LDH

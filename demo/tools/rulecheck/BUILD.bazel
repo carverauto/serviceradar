@@ -1,0 +1,18 @@
+# gazelle:ignore
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+package(default_visibility = ["//demo:__subpackages__"])
+
+go_library(
+    name = "rulecheck",
+    srcs = ["rulecheck.go"],
+    importpath = "github.com/carverauto/serviceradar/demo/tools/rulecheck",
+    deps = ["@in_gopkg_yaml_v3//:go_default_library"],
+)
+
+go_test(
+    name = "rulecheck_test",
+    size = "small",
+    srcs = ["rulecheck_test.go"],
+    embed = [":rulecheck"],
+)

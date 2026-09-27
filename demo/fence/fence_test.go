@@ -23,7 +23,9 @@ var forbidden = []*regexp.Regexp{
 	// A Bazel label into the demo tree: //demo:x or //demo/pkg, not https://demo.
 	regexp.MustCompile(`(^|[^:A-Za-z0-9_])//demo([/:"'\s]|$)`),
 	// A repository path into the demo tree's artifacts.
-	regexp.MustCompile(`(^|[^A-Za-z0-9_./-])demo/(simkit|fence)(/|\b)`),
+	regexp.MustCompile(`(^|[^A-Za-z0-9_./-])demo/(simkit|fence|pluginkit|tools|third_party)(/|\b)`),
+	// A demo plugin's build outputs by file name (e.g. hello_sim_bundle.zip).
+	regexp.MustCompile(`(^|[^A-Za-z0-9_./-])demo/[a-z0-9-]+/[a-z0-9_]+_bundle(\.zip|_zip)?\b`),
 	regexp.MustCompile(`(^|[^A-Za-z0-9_./-])demo/[a-z0-9-]+/(plugin|dashboard|scenarios|fixtures|alert-rules)(/|\b)`),
 }
 
@@ -42,6 +44,8 @@ func TestPatternsAreAnchored(t *testing.T) {
 		`srcs = ["//demo:README.md"]`,
 		`path: demo/simkit/examples`,
 		`file: demo/wifi-campus/plugin/plugin.yaml`,
+		`bundle: demo/hello-sim/hello_sim_bundle.zip`,
+		`"demo/third_party/serviceradar-sdk-go",`,
 	} {
 		if !matches(bad) {
 			t.Errorf("pattern misses %q", bad)
@@ -53,6 +57,7 @@ func TestPatternsAreAnchored(t *testing.T) {
 		`namespace: demo/serviceradar`,
 		`{{- if eq .Release.Namespace "demo" }}`,
 		`values-demo.yaml`,
+		`PLUGIN_TRUSTED_UPLOAD_SIGNING_KEYS: "serviceradar-demo-v1=abc="`,
 	} {
 		if matches(ok) {
 			t.Errorf("pattern over-matches %q", ok)

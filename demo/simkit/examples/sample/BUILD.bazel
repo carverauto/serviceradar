@@ -30,6 +30,16 @@ go_library(
     ],
 )
 
+# This package's sources as a TinyGo plugin's build sees them through the
+# simkit module replace (used by //demo/hello-sim).
+filegroup(
+    name = "module_srcs",
+    srcs = [
+        "fixtures.go",
+        "sample.go",
+    ],
+)
+
 go_test(
     name = "sample_test",
     size = "small",

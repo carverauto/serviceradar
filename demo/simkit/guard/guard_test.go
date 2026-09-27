@@ -18,7 +18,8 @@ func TestCheckJSON(t *testing.T) {
 	  "peer": "dns.google",
 	  "endpoint": "dns.google:443",
 	  "note": "github.com",
-	  "metrics": [{"name": "demo.fault.active", "value": 1}]
+	  "metrics": [{"name": "demo.fault.active", "value": 1}],
+	  "events": [{"log_name": "demo.fault", "log_provider": "demo.hello-sim", "message": "see status.example-vendor.io"}]
 	}`
 	vs, err := CheckJSON([]byte(doc))
 	if err != nil {

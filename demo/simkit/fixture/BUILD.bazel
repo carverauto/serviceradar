@@ -9,3 +9,10 @@ go_library(
     importpath = "github.com/carverauto/serviceradar/demo/simkit/fixture",
     deps = ["//demo/simkit"],
 )
+
+# This package's sources as a TinyGo plugin's build sees them through the
+# simkit module replace.
+filegroup(
+    name = "module_srcs",
+    srcs = ["fixture.go"],
+)

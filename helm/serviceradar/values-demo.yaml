@@ -553,8 +553,11 @@ webNg:
     GEOLITE_CITY_ENABLED: "true"
     # FQDN allowlist; pair with networkPolicy.egress.allowedNamespaces egress.
     SERVICERADAR_EGRESS_PROXY: "http://smokescreen.egress.svc.cluster.local:4750"
-    # Trust first-party Wasm upload signatures published by the release pipeline.
-    PLUGIN_TRUSTED_UPLOAD_SIGNING_KEYS: "serviceradar-first-party-v1=L+H5fG0eEraBsWAd2aKMzK7I+AMhbnSxlOKny5/+dLo=,serviceradar-first-party-v2=2KMsaqvof357MV3RQl4/0DNXfF6+eIMQ+qjDJfL/N8I="
+    # Trust first-party Wasm upload signatures published by the release pipeline,
+    # plus serviceradar-demo-v1: the demo-only key that signs the showcase demo
+    # plugins. Only this values file trusts it; its private key is held outside
+    # the repository.
+    PLUGIN_TRUSTED_UPLOAD_SIGNING_KEYS: "serviceradar-first-party-v1=L+H5fG0eEraBsWAd2aKMzK7I+AMhbnSxlOKny5/+dLo=,serviceradar-first-party-v2=2KMsaqvof357MV3RQl4/0DNXfF6+eIMQ+qjDJfL/N8I=,serviceradar-demo-v1=KVPgZ+sTeTgFjsyNtMqoL3awEf0OcL0NDqsODepLaPM="
   resources:
     limits:
       cpu: "2"

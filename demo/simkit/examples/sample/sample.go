@@ -128,6 +128,10 @@ func (n Normalizer) Normalize(ctx simkit.ObserveContext, obs []simkit.Observatio
 	return b, nil
 }
 
+// Inventory returns the pack's devices, the same records the normalizer
+// emits on its inventory cadence.
+func (s *Sim) Inventory() []simkit.Device { return s.inventory() }
+
 func (s *Sim) inventory() []simkit.Device {
 	out := make([]simkit.Device, 0, len(s.assets))
 	for i, id := range s.assets {
