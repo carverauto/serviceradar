@@ -526,9 +526,9 @@ GRANT ALL ON ALL MATERIALIZED VIEWS IN DATABASE srql_parity_ci TO USER 'srql_par
 
 The password lives in the BuildBuddy secret `SRQL_PARITY_STARROCKS_PASSWORD`,
 with a recovery copy in the Secret `starrocks/srql-parity-starrocks`, and
-nowhere in this repository. The label
-admits every BuildBuddy executor to ports 9030/8030/8040; the password is what
-gates the warehouse, as it does for every other admitted namespace.
+nowhere in this repository. The label admits every BuildBuddy executor to
+ports 9030/8030/8040; the password is what gates the warehouse, as it does
+for every other admitted namespace.
 
 ## Verify
 
