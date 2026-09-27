@@ -15,7 +15,7 @@ actions:
       Arch: "amd64"
       dockerNetwork: "bridge"
     resource_requests:
-      memory: "32GB"
+      memory: "50GB"
       disk: "40GB"
     steps:
       - run: >-
