@@ -6,6 +6,50 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.TelemetryMetricsTest do
 
   @moduletag :integration
 
+  test "topology recovers 32-bit counter wraps and drops resets" do
+    uid = "sr:wrap-#{Ecto.UUID.generate()}"
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+    previous = DateTime.add(now, -10, :second)
+    half_second = DateTime.add(now, -500, :millisecond)
+    modulus = 4_294_967_296.0
+
+    samples = [
+      # 32-bit wrap: 100 packets after the wrap plus 900 before it, over 10s.
+      {1, "ifInUcastPkts", 32, previous, modulus - 900.0, now, 100.0},
+      # 32-bit decrease inside half a second: a wrap would imply over 2^32 packets/s.
+      {2, "ifInUcastPkts", 32, half_second, 3_000_000.0, now, 40.0},
+      # 64-bit counter decrease with no ceiling and a large previous value: reset.
+      {3, "ifHCInUcastPkts", 64, previous, 9_000_000_000.0, now, 40.0},
+      # Unknown width, previous value fits in 32 bits: treated as a wrap.
+      {4, "ifInUcastPkts", nil, previous, modulus - 400.0, now, 100.0}
+    ]
+
+    rows =
+      Enum.flat_map(samples, fn {index, name, width, at_a, value_a, at_b, value_b} ->
+        for {timestamp, value} <- [{at_a, value_a}, {at_b, value_b}] do
+          %{
+            timestamp: timestamp,
+            gateway_id: "gateway-example",
+            agent_id: "poller-a",
+            series_key: "#{uid}/#{index}/#{name}",
+            device_id: uid,
+            if_index: index,
+            metric_type: "snmp",
+            metric_name: name,
+            counter_width: width,
+            value: value
+          }
+        end
+      end)
+
+    Repo.insert_all("timeseries_metrics", rows, prefix: "platform")
+
+    keys = Enum.map([1, 2, 3, 4], &{uid, &1})
+    pps = Metrics.load_packet_pps(keys)
+
+    assert pps == %{{uid, 1} => %{in: 100}, {uid, 4} => %{in: 50}}
+  end
+
   test "topology uses the latest per-producer counter interval, not cumulative totals" do
     uid = "sr:rate-#{Ecto.UUID.generate()}"
     now = DateTime.truncate(DateTime.utc_now(), :microsecond)

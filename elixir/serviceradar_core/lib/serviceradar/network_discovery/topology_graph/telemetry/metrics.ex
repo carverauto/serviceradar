@@ -99,7 +99,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry.Metrics do
             sql = """
             WITH samples AS (
               SELECT device_id, target_device_ip, if_index, metric_name, value,
-                timestamp,
+                counter_width, timestamp,
                 lead(value) OVER series AS previous_value,
                 lead(timestamp) OVER series AS previous_timestamp,
                 row_number() OVER series AS sample_rank
@@ -113,12 +113,16 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry.Metrics do
                   device_id, target_device_ip, if_index, metric_name
                 ORDER BY timestamp DESC
               )
+            ),
+            rated AS (
+              SELECT device_id, target_device_ip, if_index, metric_name,
+                #{MetricConsumers.counter_rate_sql("extract(epoch FROM timestamp - previous_timestamp)")} AS rate_value
+              FROM samples
+              WHERE sample_rank = 1 AND timestamp > previous_timestamp AND previous_value >= 0
             )
-            SELECT device_id, target_device_ip, if_index, metric_name,
-              (value - previous_value) / extract(epoch FROM timestamp - previous_timestamp)
-            FROM samples
-            WHERE sample_rank = 1 AND timestamp > previous_timestamp
-              AND value >= previous_value AND previous_value >= 0
+            SELECT device_id, target_device_ip, if_index, metric_name, rate_value
+            FROM rated
+            WHERE rate_value IS NOT NULL
             """
 
             sql

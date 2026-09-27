@@ -44,6 +44,32 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumers do
     end
   end
 
+  @counter_modulus_32 "4294967296"
+
+  @doc """
+  Per-second rate SQL over `value`, `previous_value` and `counter_width` columns.
+
+  A decrease is a wrap when adding 2^32 yields a rate a 32-bit counter could
+  produce, and a reset otherwise, which yields NULL. This is the same rule the
+  SRQL rate query applies, and both the CNPG and StarRocks topology readers
+  share it so they cannot diverge.
+  """
+  @spec counter_rate_sql(String.t()) :: String.t()
+  def counter_rate_sql(elapsed_seconds_sql) do
+    elapsed = "NULLIF(#{elapsed_seconds_sql}, 0)"
+    wrapped = "(value + #{@counter_modulus_32} - previous_value) / #{elapsed}"
+
+    """
+    CASE
+      WHEN value >= previous_value THEN (value - previous_value) / #{elapsed}
+      WHEN counter_width = 32 AND #{wrapped} <= #{@counter_modulus_32} THEN #{wrapped}
+      WHEN previous_value < #{@counter_modulus_32} AND #{wrapped} <= #{@counter_modulus_32}
+        THEN #{wrapped}
+      ELSE NULL
+    END
+    """
+  end
+
   @spec directional_rows(
           [String.t()],
           [String.t()],
@@ -66,23 +92,28 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumers do
         device_id, target_device_ip, if_index, metric_name ORDER BY `timestamp` DESC)
       """
 
+      elapsed = "TIMESTAMPDIFF(MILLISECOND, previous_timestamp, `timestamp`) / 1000.0"
+
       sql = """
-      SELECT device_id, target_device_ip, if_index, metric_name,
-        (value - previous_value) /
-          NULLIF(TIMESTAMPDIFF(MILLISECOND, previous_timestamp, `timestamp`) / 1000.0, 0) AS value
+      SELECT device_id, target_device_ip, if_index, metric_name, rate_value AS value
       FROM (
-        SELECT device_id, target_device_ip, if_index, metric_name, value, `timestamp`,
-          LEAD(value) OVER #{series} AS previous_value,
-          LEAD(`timestamp`) OVER #{series} AS previous_timestamp,
-          ROW_NUMBER() OVER #{series} AS sample_rank
-        FROM #{Env.table("timeseries_metrics")}
-        WHERE #{scope_predicate(devices, ips)}
-          AND if_index IN (#{Enum.join(indexes, ",")})
-          AND split_part(metric_name, '::', 1) IN (#{Enum.join(names, ",")})
-          AND `timestamp` > '#{iso(since)}'
-      ) samples
-      WHERE sample_rank = 1 AND `timestamp` > previous_timestamp
-        AND value >= previous_value AND previous_value >= 0
+        SELECT device_id, target_device_ip, if_index, metric_name,
+          #{counter_rate_sql(elapsed)} AS rate_value
+        FROM (
+          SELECT device_id, target_device_ip, if_index, metric_name, value, counter_width,
+            `timestamp`,
+            LEAD(value) OVER #{series} AS previous_value,
+            LEAD(`timestamp`) OVER #{series} AS previous_timestamp,
+            ROW_NUMBER() OVER #{series} AS sample_rank
+          FROM #{Env.table("timeseries_metrics")}
+          WHERE #{scope_predicate(devices, ips)}
+            AND if_index IN (#{Enum.join(indexes, ",")})
+            AND split_part(metric_name, '::', 1) IN (#{Enum.join(names, ",")})
+            AND `timestamp` > '#{iso(since)}'
+        ) samples
+        WHERE sample_rank = 1 AND `timestamp` > previous_timestamp AND previous_value >= 0
+      ) rated
+      WHERE rate_value IS NOT NULL
       """
 
       case query(opts).(sql) do

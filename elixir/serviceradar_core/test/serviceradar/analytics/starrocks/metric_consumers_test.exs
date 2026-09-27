@@ -193,7 +193,16 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumersTest do
     assert sql =~ "sample_rank = 1"
     assert sql =~ "LEAD(value) OVER"
     assert sql =~ "TIMESTAMPDIFF(MILLISECOND, previous_timestamp, `timestamp`) / 1000.0"
-    assert sql =~ "value >= previous_value AND previous_value >= 0"
+    assert sql =~ "previous_value >= 0"
+    assert sql =~ "counter_width"
+
+    shared_rate =
+      "TIMESTAMPDIFF(MILLISECOND, previous_timestamp, `timestamp`) / 1000.0"
+      |> MetricConsumers.counter_rate_sql()
+      |> String.replace(~r/\s+/, " ")
+      |> String.trim()
+
+    assert sql =~ shared_rate
 
     # Suffixed series such as ifHCInOctets::ifIndex must still match.
     assert sql =~ "split_part(metric_name, '::', 1) IN ('ifHCInOctets','ifHCOutOctets')"
