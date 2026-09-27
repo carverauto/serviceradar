@@ -762,6 +762,27 @@ credential source left. Migrate it by creating the equivalent SNMP credential
 above, binding it to the profile that covers those targets, and then removing the
 credentials from the file. Do not add new deployments to this path.
 
+#### Mapper target credentials
+
+Mapper uses the shared SNMP resolver for known inventory devices named by job
+seeds (IP, hostname, or device UID) and known devices matching enabled SNMP rules
+in the compiling agent's agent or partition scope. This includes known neighbors
+that discovery may encounter later; unknown addresses retain the collector's
+fallback credentials. A collector can therefore keep a v2c fallback while
+matching switches use scoped v3 credentials.
+
+Resolved credentials are delivered by target IP. If resolution fails for a
+target, or different device records resolve to the same IP with conflicting
+credentials, Mapper suppresses SNMP for that address before connecting or
+authenticating. It does not retry that address with the collector fallback.
+Other targets and API discovery remain available. Agent logs identify the
+resolution failure or credential conflict.
+
+When no selected job performs SNMP discovery, Mapper skips per-target SNMP
+credential resolution. Device, SNMP profile, credential rule, and credential
+secret changes invalidate the compiled Mapper configuration so agents can
+receive refreshed credentials.
+
 ## Troubleshooting
 
 ### UniFi Protect reports "0 cameras, 0 streams"
