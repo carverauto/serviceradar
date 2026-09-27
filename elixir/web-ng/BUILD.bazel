@@ -565,11 +565,14 @@ elixir_quality(
 
 # The topology control lane uses only the Repo, and runs after the other web-ng
 # database lane on its migrated, quiescent serial_0 scratch clone. Its helper
-# enforces the exact four real authorization/inventory cases.
+# enforces the exact six real authorization/inventory/health cases.
 ex_unit_test(
     name = "topology_atlas_db_test",
     size = "enormous",
-    srcs = ["test/phoenix/topology/atlas_channel_db_test.exs"],
+    srcs = [
+        "test/phoenix/topology/atlas_channel_db_test.exs",
+        "test/phoenix/topology/world_health_source_db_test.exs",
+    ],
     data = glob(
         [
             "config/**",
