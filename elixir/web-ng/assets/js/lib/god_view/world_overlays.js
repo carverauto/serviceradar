@@ -18,7 +18,9 @@ export class WorldOverlays {
 
   setVisible(geometries) {
     if (geometries.length > 64) throw new Error("Topology overlay viewport exceeds budget")
-    this.visible = new Map(geometries.map(geometry => [tileId(geometry.key), geometry]))
+    const visible = new Map(geometries.map(geometry => [tileId(geometry.key), geometry]))
+    if (visible.size === this.visible.size && [...visible].every(([id, geometry]) => this.visible.get(id) === geometry)) return
+    this.visible = visible
     for (const [id, overlay] of this.entries) {
       const geometry = this.visible.get(id)
       if (!geometry || !matches(overlay, geometry)) this.entries.delete(id)
@@ -29,16 +31,29 @@ export class WorldOverlays {
   }
 
   poll() {
-    if (this.polling) return this.polling
-    const queue = [...this.visible.values()]
-    const run = async () => {
-      while (queue.length > 0) {
-        const geometry = queue.shift()
-        if (this.visible.get(tileId(geometry.key)) === geometry) await this.load(geometry)
-      }
+    if (this.polling) {
+      if (this.visible !== this.pollingVisible) this.pollAgain = true
+      return this.polling
     }
-    this.polling = Promise.all(Array.from({length: Math.min(4, queue.length)}, run)).finally(() => {this.polling = null})
+    this.polling = this.pollVisible().finally(() => {this.polling = null})
     return this.polling
+  }
+
+  async pollVisible() {
+    do {
+      this.pollAgain = false
+      this.pollingVisible = this.visible
+      const queue = [...this.visible.values()]
+      const run = async () => {
+        while (queue.length > 0) {
+          const geometry = queue.shift()
+          if (this.visible.get(tileId(geometry.key)) === geometry) await this.load(geometry)
+        }
+      }
+      await Promise.all(Array.from({length: Math.min(4, queue.length)}, run))
+      // A viewport change may have cancelled this round. A caller waiting for
+      // the current viewport must receive its overlays without a polling gap.
+    } while (this.pollAgain && this.visible.size > 0)
   }
 
   async load(geometry) {

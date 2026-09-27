@@ -27,6 +27,25 @@ describe("world telemetry polling", () => {
     ))
   })
 
+  it("loads the new viewport before a poll requested during an old viewport fetch resolves", async () => {
+    let finish
+    const next = {...geometry, key: {...worldTileKey, x: 0}}
+    const nextSample = {...sample(1), tile_id: "1/0/0"}
+    const fetcher = vi.fn().mockImplementationOnce(() => new Promise(resolve => {finish = resolve}))
+      .mockResolvedValueOnce(Response.json(nextSample))
+    vi.stubGlobal("fetch", fetcher)
+    const overlays = store()
+    overlays.setVisible([geometry])
+    const oldPoll = overlays.poll()
+    overlays.setVisible([next])
+    const currentPoll = overlays.poll()
+    finish(Response.json(sample(1)))
+    await Promise.all([oldPoll, currentPoll])
+    expect(fetcher).toHaveBeenCalledTimes(2)
+    expect(overlays.entries.has("1/1/0")).toBe(false)
+    expect(overlays.entries.get("1/0/0")).toEqual(nextSample)
+  })
+
   it("rejects a late sample when the visible geometry publication changes", async () => {
     let finish
     vi.stubGlobal("fetch", vi.fn(() => new Promise(resolve => {finish = resolve})))
