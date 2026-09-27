@@ -56,6 +56,25 @@ serviceradar-cli auth login --instance https://serviceradar.example.com
 serviceradar-cli dashboard publish --instance https://serviceradar.example.com --route my-dashboard
 ```
 
+### Harness fixtures for actions and live events
+
+A fixture file is either a frame array or an object. The object form can also
+drive `api.actions` and `api.events` offline:
+
+```json
+{
+  "frames": [{"id": "sites", "encoding": "json_rows", "results": []}],
+  "actions": [{"id": "northbound:jam", "label": "Inject jam", "emits": [{"id": "evt-2", "log_provider": "plugin:demo"}]}],
+  "events": [{"at_ms": 2000, "event": {"id": "evt-1", "log_provider": "plugin:demo", "severity_id": 4}}]
+}
+```
+
+`events` replay on a timeline from the moment the fixture loads. A successful
+invocation walks `dispatching`, `running`, `succeeded` and then delivers the
+action's `emits` events. Subscriptions filter on the same keys as the production
+host: `log_provider`, `log_name`, `class_uid`, `device_uid`, `min_severity_id`
+and `metadata`.
+
 ## Auth
 
 `serviceradar-cli auth login --instance <url>` runs the OAuth 2.0 Device
@@ -205,6 +224,8 @@ js/cli/
 │   ├── index.html                   # legacy form-field harness (preserved at /?advanced)
 │   ├── harness.js
 │   ├── dev.js                       # HMR runtime
+│   ├── camera.js                    # offline camera API mock
+│   ├── runtime.js                   # offline action / event / refresh mocks
 │   └── dev.css
 ├── schemas/
 │   └── dashboard-config.schema.json # ajv-validated dashboard config schema

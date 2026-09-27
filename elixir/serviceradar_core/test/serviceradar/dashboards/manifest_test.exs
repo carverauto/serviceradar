@@ -74,6 +74,19 @@ defmodule ServiceRadar.Dashboards.ManifestTest do
     assert "camera.stream.view" in parsed.capabilities
   end
 
+  test "accepts the action and event capabilities" do
+    manifest =
+      put_in(valid_manifest(), ["capabilities"], [
+        "srql.execute",
+        "actions.invoke",
+        "events.subscribe"
+      ])
+
+    assert {:ok, parsed} = Manifest.from_map(manifest)
+    assert "actions.invoke" in parsed.capabilities
+    assert "events.subscribe" in parsed.capabilities
+  end
+
   test "rejects unsupported renderer capabilities and mutable package shape" do
     manifest = valid_manifest()
 

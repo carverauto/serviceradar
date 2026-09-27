@@ -781,7 +781,8 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
                 :if={Enum.any?(@package.capabilities || [], &sensitive_capability?/1)}
                 class="mt-2 text-xs text-sr-muted"
               >
-                This package can open live camera streams for viewers who may already watch them.
+                This package can open live camera streams or launch plugin actions, always
+                with the viewer's own permissions.
               </p>
             </div>
 
@@ -1210,7 +1211,7 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
   defp verification_badge_variant("failed"), do: "error"
   defp verification_badge_variant(_), do: "ghost"
 
-  @sensitive_capabilities ~w(camera.stream.view)
+  @sensitive_capabilities ~w(camera.stream.view actions.invoke)
 
   defp sensitive_capability?(capability), do: capability in @sensitive_capabilities
 
@@ -1220,6 +1221,11 @@ defmodule ServiceRadarWebNGWeb.Admin.DashboardPackageLive.Index do
 
   defp capability_review_note("camera.stream.view"),
     do: "Opens camera relay viewer sessions using the viewer's own camera permissions"
+
+  defp capability_review_note("actions.invoke"),
+    do: "Launches plugin actions on devices using the viewer's own action permissions"
+
+  defp capability_review_note("events.subscribe"), do: "Receives live events the viewer is allowed to read"
 
   defp capability_review_note(_capability), do: nil
 

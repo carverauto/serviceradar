@@ -95,7 +95,10 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
         returning: false
       )
 
-    if count > 0, do: EventsPubSub.broadcast_event(%{count: count})
+    if count > 0 do
+      EventsPubSub.broadcast_event(%{count: count})
+      EventsPubSub.broadcast_event_rows(rows)
+    end
 
     # Stateful evaluation runs once per event (the ledger), synchronously, and
     # a failure fails the batch so JetStream redelivers it. The insert and the

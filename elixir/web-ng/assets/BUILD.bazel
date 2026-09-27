@@ -280,12 +280,14 @@ vitest_bin.vitest_test(
     args = [
         "run",
         "js/hooks/DashboardWasmHost.test.js",
+        "js/lib/dashboard_runtime/channel_apis.test.js",
     ],
     chdir = package_name(),
     data = glob([
         "js/dashboards/*.js",
         "js/hooks/__fixtures__/*.js",
         "js/lib/camera_relay/*.js",
+        "js/lib/dashboard_runtime/*.js",
     ]) + [
         "js/hooks/DashboardWasmHost.js",
         "js/hooks/DashboardWasmHost.test.js",

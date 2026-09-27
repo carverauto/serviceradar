@@ -3,9 +3,12 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
   use Phoenix.Channel
 
   alias ServiceRadar.Dashboards.DashboardInstance
+  alias ServiceRadar.Events.PubSub, as: EventsPubSub
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNG.Dashboards.FrameRunner
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.DashboardFrameChannel.Actions
+  alias ServiceRadarWebNGWeb.DashboardFrameChannel.Events
   alias ServiceRadarWebNGWeb.Endpoint
 
   require Logger
@@ -16,6 +19,9 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
   @stream_salt "dashboard-frame-stream-v1"
   @stream_token_max_age 3_600
   @binary_magic "DFB1"
+  @action_poll_ms 1_000
+  @action_poll_grace_ms 30_000
+  @events_reauthorize_ms 30_000
 
   @impl true
   def join("dashboards:" <> route_slug, %{"token" => token} = payload, socket) when is_binary(route_slug) do
@@ -42,6 +48,9 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
         |> assign(:last_frame_hash, nil)
         |> assign(:refresh_task_ref, nil)
         |> assign(:refresh_task_kind, nil)
+        |> assign(:capabilities, stream_capabilities(stream))
+        |> assign(:event_subscriptions, %{})
+        |> assign(:events_authorized_at, nil)
 
       send(self(), :dashboard_frame_tick)
       {:ok, %{"refresh_interval_ms" => socket.assigns.refresh_ms}, socket}
@@ -98,6 +107,36 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
 
   def handle_info({:dashboard_frame_result, _ref, _result}, socket), do: {:noreply, socket}
 
+  def handle_info({:dashboard_action_poll, invocation_id, deadline}, socket) do
+    case Actions.progress(socket.assigns.current_scope, invocation_id) do
+      {:ok, payload} ->
+        push(socket, "actions:progress", payload)
+        maybe_poll_action(invocation_id, deadline, Actions.terminal?(payload))
+
+      {:error, :progress_unavailable} ->
+        push(socket, "actions:progress", %{"invocation_id" => invocation_id, "state" => "unknown"})
+    end
+
+    {:noreply, socket}
+  end
+
+  def handle_info({:ocsf_event_rows, summaries}, socket) when is_list(summaries) do
+    case authorize_event_delivery(socket) do
+      {:ok, socket} ->
+        socket.assigns.event_subscriptions
+        |> Events.match(summaries)
+        |> Enum.each(fn {id, events} ->
+          push(socket, "events:batch", %{"subscription_id" => id, "events" => events})
+        end)
+
+        {:noreply, socket}
+
+      {:error, socket} ->
+        push(socket, "events:error", %{"reason" => Events.format_error(:permission_denied)})
+        {:noreply, drop_event_subscriptions(socket)}
+    end
+  end
+
   @impl true
   def handle_in("frames:refresh", _payload, socket) do
     # Two defects previously lived here. It cleared `frame_cursors`, so forcing a
@@ -116,6 +155,57 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
 
       {:reply, {:ok, %{}}, socket}
     end
+  end
+
+  def handle_in("actions:list", payload, socket) when is_map(payload) do
+    case Actions.list(socket.assigns.current_scope, socket.assigns.capabilities, payload) do
+      {:ok, actions} -> {:reply, {:ok, %{"actions" => actions}}, socket}
+      {:error, reason} -> {:reply, {:error, %{"reason" => Actions.format_error(reason)}}, socket}
+    end
+  end
+
+  def handle_in("actions:invoke", payload, socket) when is_map(payload) do
+    payload = Map.put(payload, "route_slug", socket.assigns.route_slug)
+
+    case Actions.invoke(socket.assigns.current_scope, socket.assigns.capabilities, payload) do
+      {:ok, invocation, timeout_ms} ->
+        deadline = System.monotonic_time(:millisecond) + timeout_ms + @action_poll_grace_ms
+        maybe_poll_action(invocation["invocation_id"], deadline, Actions.terminal?(invocation))
+        {:reply, {:ok, invocation}, socket}
+
+      {:error, reason} ->
+        {:reply, {:error, %{"reason" => Actions.format_error(reason)}}, socket}
+    end
+  end
+
+  def handle_in("events:subscribe", payload, socket) when is_map(payload) do
+    %{current_scope: scope, capabilities: capabilities, event_subscriptions: subscriptions} = socket.assigns
+
+    case Events.subscribe(scope, capabilities, subscriptions, payload) do
+      {:ok, id, filter} ->
+        if subscriptions == %{}, do: Phoenix.PubSub.subscribe(ServiceRadar.PubSub, EventsPubSub.rows_topic())
+
+        socket =
+          socket
+          |> assign(:event_subscriptions, Map.put(subscriptions, id, filter))
+          |> assign(:events_authorized_at, System.monotonic_time(:millisecond))
+
+        {:reply, {:ok, %{"subscription_id" => id}}, socket}
+
+      {:error, reason} ->
+        {:reply, {:error, %{"reason" => Events.format_error(reason)}}, socket}
+    end
+  end
+
+  def handle_in("events:unsubscribe", %{"id" => id}, socket) when is_binary(id) do
+    subscriptions = Map.delete(socket.assigns.event_subscriptions, id)
+    if subscriptions == %{}, do: Phoenix.PubSub.unsubscribe(ServiceRadar.PubSub, EventsPubSub.rows_topic())
+    {:reply, {:ok, %{}}, assign(socket, :event_subscriptions, subscriptions)}
+  end
+
+  def handle_in(event, _payload, socket)
+      when event in ["actions:list", "actions:invoke", "events:subscribe", "events:unsubscribe"] do
+    {:reply, {:error, %{"reason" => "invalid_request"}}, socket}
   end
 
   def handle_in("frames:page", payload, socket) do
@@ -247,14 +337,57 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
       socket
   end
 
-  def stream_token(route_slug, data_frames, user_id, active_frame_ids \\ [])
+  # `capabilities` is the package's approved capability list; the token is
+  # server-signed, so the channel trusts it the way it trusts `data_frames`.
+  def stream_token(route_slug, data_frames, user_id, active_frame_ids \\ [], capabilities \\ [])
       when is_binary(route_slug) and is_list(data_frames) and not is_nil(user_id) do
     Phoenix.Token.sign(Endpoint, @stream_salt, %{
       "route_slug" => route_slug,
       "user_id" => to_string(user_id),
       "data_frames" => data_frames,
-      "active_frame_ids" => normalize_frame_ids(active_frame_ids)
+      "active_frame_ids" => normalize_frame_ids(active_frame_ids),
+      "capabilities" => Enum.map(List.wrap(capabilities), &to_string/1)
     })
+  end
+
+  defp stream_capabilities(stream) do
+    case stream["capabilities"] || stream[:capabilities] do
+      capabilities when is_list(capabilities) -> Enum.map(capabilities, &to_string/1)
+      _other -> []
+    end
+  end
+
+  defp maybe_poll_action(_invocation_id, _deadline, true), do: :ok
+
+  defp maybe_poll_action(invocation_id, deadline, false) do
+    if System.monotonic_time(:millisecond) < deadline do
+      Process.send_after(self(), {:dashboard_action_poll, invocation_id, deadline}, @action_poll_ms)
+    end
+
+    :ok
+  end
+
+  # Re-checks the viewer's event access at most every @events_reauthorize_ms so a
+  # revoked role stops delivery without a permission lookup per event batch.
+  defp authorize_event_delivery(socket) do
+    now = System.monotonic_time(:millisecond)
+    checked_at = socket.assigns.events_authorized_at
+
+    if is_integer(checked_at) and now - checked_at < @events_reauthorize_ms do
+      {:ok, socket}
+    else
+      with {:ok, scope} <- RBAC.authorize_current(socket.assigns.current_scope, []),
+           true <- Events.readable?(scope) do
+        {:ok, socket |> assign(:current_scope, scope) |> assign(:events_authorized_at, now)}
+      else
+        _denied -> {:error, socket}
+      end
+    end
+  end
+
+  defp drop_event_subscriptions(socket) do
+    Phoenix.PubSub.unsubscribe(ServiceRadar.PubSub, EventsPubSub.rows_topic())
+    assign(socket, :event_subscriptions, %{})
   end
 
   defp verify_stream_token(token) when is_binary(token) do
