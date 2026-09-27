@@ -23,7 +23,10 @@ defmodule ServiceRadar.TopologyAtlas.Native do
   def bundle_detail(_world, _selection, _id, _cursor), do: :erlang.nif_error(:nif_not_loaded)
   def tile_relations(_world, _selection, _cursor, _limit), do: :erlang.nif_error(:nif_not_loaded)
   def new_health(_world, _epoch), do: :erlang.nif_error(:nif_not_loaded)
-  def rebase_health(_old_world, _old_health, _new_world, _epoch), do: :erlang.nif_error(:nif_not_loaded)
+
+  def rebase_health(_old_world, _old_health, _new_world, _epoch),
+    do: :erlang.nif_error(:nif_not_loaded)
+
   def device_ids_page(_world, _cursor, _limit), do: :erlang.nif_error(:nif_not_loaded)
   def apply_health(_world, _health, _sequence, _rows), do: :erlang.nif_error(:nif_not_loaded)
   def tile_health(_world, _health, _selection), do: :erlang.nif_error(:nif_not_loaded)

@@ -88,7 +88,9 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorker do
   def perform(_job), do: {:cancel, :invalid_world_job}
 
   defp record_request(%Oban.Job{args: %{"mode" => "reconcile"}} = job) do
-    Oban.update_job(job.id, %{args: Map.put(job.args, "observed_request", Map.get(job.meta, "request_id"))})
+    Oban.update_job(job.id, %{
+      args: Map.put(job.args, "observed_request", Map.get(job.meta, "request_id"))
+    })
   end
 
   defp record_request(job), do: {:ok, job}
@@ -117,7 +119,8 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorker do
 
   defp load_previous({:manifest, manifest}, state) do
     with {:ok, builder} <- TopologyAtlas.new_builder(manifest.layout_version, manifest.zmax) do
-      {:ok, Map.merge(state, %{builder: builder, manifest: manifest, generation: manifest.generation})}
+      {:ok,
+       Map.merge(state, %{builder: builder, manifest: manifest, generation: manifest.generation})}
     end
   end
 
@@ -174,9 +177,14 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorker do
     )
   end
 
-  defp page(candidate, :positions, cursor), do: TopologyAtlas.positions_page(candidate, cursor, @batch_size)
-  defp page(candidate, :relations, cursor), do: TopologyAtlas.relations_page(candidate, cursor, @batch_size)
-  defp page(candidate, operation, cursor), do: TopologyAtlas.delta_page(candidate, operation, cursor, @batch_size)
+  defp page(candidate, :positions, cursor),
+    do: TopologyAtlas.positions_page(candidate, cursor, @batch_size)
+
+  defp page(candidate, :relations, cursor),
+    do: TopologyAtlas.relations_page(candidate, cursor, @batch_size)
+
+  defp page(candidate, operation, cursor),
+    do: TopologyAtlas.delta_page(candidate, operation, cursor, @batch_size)
 
   defp job_result(:ok), do: :ok
   defp job_result({:ok, _manifest}), do: :ok
@@ -205,7 +213,10 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorker do
         if pending_request?(job) do
           0
         else
-          max(@reconcile_seconds - DateTime.diff(DateTime.utc_now(), job.completed_at, :second), 0)
+          max(
+            @reconcile_seconds - DateTime.diff(DateTime.utc_now(), job.completed_at, :second),
+            0
+          )
         end
     end
   end
@@ -224,7 +235,9 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorker do
   end
 
   defp pending_request?(nil), do: false
-  defp pending_request?(job), do: Map.get(job.meta, "request_id") != Map.get(job.args, "observed_request")
+
+  defp pending_request?(job),
+    do: Map.get(job.meta, "request_id") != Map.get(job.args, "observed_request")
 
   defp scope, do: %{actor: SystemActor.system(:topology_world)}
 end

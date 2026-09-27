@@ -39,14 +39,22 @@ defmodule ServiceRadar.NetworkDiscovery.WorldInventoryTest do
     id = "sr:" <> String.duplicate("x", 270)
 
     assert %{id: ^id, label: label} =
-             WorldInventory.project(%{uid: id, name: String.duplicate("é", 127) <> "界", hostname: "host01.example.com"})
+             WorldInventory.project(%{
+               uid: id,
+               name: String.duplicate("é", 127) <> "界",
+               hostname: "host01.example.com"
+             })
 
     assert label == String.duplicate("é", 127)
     assert String.valid?(label)
     assert byte_size(label) == 254
 
     assert %{label: "host02.example.com"} =
-             WorldInventory.project(%{uid: "sr:device02", name: "  ", hostname: "host02.example.com"})
+             WorldInventory.project(%{
+               uid: "sr:device02",
+               name: "  ",
+               hostname: "host02.example.com"
+             })
 
     assert %{id: ^id, label: fallback} = WorldInventory.project(%{uid: id})
     assert fallback == "sr:" <> String.duplicate("x", 253)

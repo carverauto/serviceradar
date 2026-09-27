@@ -15,11 +15,21 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
     assert :ok = TopologyAtlas.add_positions(builder, [a, b])
     assert {:ok, world} = TopologyAtlas.finish_world(builder)
     assert {:error, _} = TopologyAtlas.finish_world(builder)
-    assert {:ok, %{node_count: 1, relation_count: 0, extent: 16_777_216}} = TopologyAtlas.world_info(world)
-    assert {:ok, %{device_id: "sr:host0001.example.com", x: 100, y: 100}} = TopologyAtlas.search(world, a.device_id)
+
+    assert {:ok, %{node_count: 1, relation_count: 0, extent: 16_777_216}} =
+             TopologyAtlas.world_info(world)
+
+    assert {:ok, %{device_id: "sr:host0001.example.com", x: 100, y: 100}} =
+             TopologyAtlas.search(world, a.device_id)
+
     assert {:error, :not_found} = TopologyAtlas.search(world, b.device_id)
 
-    assert {:ok, %{device_count: 1, glyphs: [%{id: "sr:host0001.example.com", count: 1, kind: :device}], edges: []}} =
+    assert {:ok,
+            %{
+              device_count: 1,
+              glyphs: [%{id: "sr:host0001.example.com", count: 1, kind: :device}],
+              edges: []
+            }} =
              TopologyAtlas.tile(world, 0, 0, 0)
 
     assert {:error, :invalid_tile} = TopologyAtlas.tile(world, 0, 0, 0, %{nodes: 129, edges: 256})
@@ -77,17 +87,28 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
     assert is_reference(tile.selection)
     assert tile.selection_bytes > 0
     aggregate = Enum.find(tile.glyphs, &(&1.kind == :aggregate))
-    assert {:ok, selection} = TopologyAtlas.aggregate_selection(world, tile.selection, aggregate.id)
-    assert {:ok, %{member_count: 1, retained_bytes: bytes}} = TopologyAtlas.aggregate_info(selection)
+
+    assert {:ok, selection} =
+             TopologyAtlas.aggregate_selection(world, tile.selection, aggregate.id)
+
+    assert {:ok, %{member_count: 1, retained_bytes: bytes}} =
+             TopologyAtlas.aggregate_info(selection)
+
     assert bytes > 0
-    assert {:ok, %{nodes: [member], next_cursor: nil}} = TopologyAtlas.detail(world, {:aggregate_members, selection})
+
+    assert {:ok, %{nodes: [member], next_cursor: nil}} =
+             TopologyAtlas.detail(world, {:aggregate_members, selection})
+
     refute member.device_id in [a.device_id, b.device_id]
     assert member.device_id in Enum.map(positions, & &1.device_id)
     scope = {:component_members, "synthetic-component"}
     assert {:ok, first} = TopologyAtlas.detail(world, scope)
     assert length(first.nodes) == 64
     assert is_map(first.next_cursor)
-    assert {:ok, %{nodes: remaining, next_cursor: nil}} = TopologyAtlas.detail(world, scope, first.next_cursor)
+
+    assert {:ok, %{nodes: remaining, next_cursor: nil}} =
+             TopologyAtlas.detail(world, scope, first.next_cursor)
+
     assert length(remaining) == 3
 
     assert MapSet.new(Enum.map(first.nodes ++ remaining, & &1.device_id)) ==
@@ -100,7 +121,10 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
     assert Enum.at(neighbors, relation.target).device_id == b.device_id
     assert relation.evidence_class == "direct-physical"
     assert relation.role == "backbone"
-    assert {:error, :invalid_cursor} = TopologyAtlas.detail(world, {:neighborhood, a.device_id}, %{})
+
+    assert {:error, :invalid_cursor} =
+             TopologyAtlas.detail(world, {:neighborhood, a.device_id}, %{})
+
     assert {:error, :invalid_request} = TopologyAtlas.detail(world, {:unsupported, a.device_id})
 
     assert {:ok, %{relations: [first_binding], total_rendered_relations: 2, next_cursor: next}} =
@@ -112,7 +136,8 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
              TopologyAtlas.tile_relations(world, tile.selection, next, 1)
 
     if tail do
-      assert {:ok, %{relations: [], next_cursor: nil}} = TopologyAtlas.tile_relations(world, tile.selection, tail, 1)
+      assert {:ok, %{relations: [], next_cursor: nil}} =
+               TopologyAtlas.tile_relations(world, tile.selection, tail, 1)
     end
 
     # Degrees include the other page and the non-rendered self-relation. The
@@ -126,7 +151,9 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
     assert selected_by_id["synthetic-link-a"].target_interface_degree == 2
 
     for binding <- bindings do
-      assert {:ok, %{relation: picked, nodes: [source, target]}} = TopologyAtlas.relation(world, binding.relation_id)
+      assert {:ok, %{relation: picked, nodes: [source, target]}} =
+               TopologyAtlas.relation(world, binding.relation_id)
+
       assert Map.take(picked, Map.keys(binding)) == binding
       assert source == Enum.find(positions, &(&1.device_id == binding.source_id))
       assert target == Enum.find(positions, &(&1.device_id == binding.target_id))
@@ -146,12 +173,18 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
     assert {:ok, empty_builder} = TopologyAtlas.new_builder("synthetic-detail-layout", 16)
     assert {:ok, empty_world} = TopologyAtlas.finish_world(empty_builder)
     assert {:error, :stale_revision} = TopologyAtlas.tile_relations(empty_world, tile.selection)
-    assert {:error, :stale_revision} = TopologyAtlas.detail(empty_world, {:aggregate_members, selection})
+
+    assert {:error, :stale_revision} =
+             TopologyAtlas.detail(empty_world, {:aggregate_members, selection})
   end
 
   test "packaged bundle picking resolves rendered IDs and carries typed scene cursors" do
     a = "sr:bundle-a.example.com" |> position(100, true) |> Map.put(:component_z, 0)
-    b = "sr:bundle-b.example.com" |> position(16_000_000, true) |> Map.merge(%{y: 100, component_z: 0})
+
+    b =
+      "sr:bundle-b.example.com"
+      |> position(16_000_000, true)
+      |> Map.merge(%{y: 100, component_z: 0})
 
     relations =
       for index <- 1..257 do
@@ -181,10 +214,16 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
     assert {:ok, first} = TopologyAtlas.bundle_detail(world, tile.selection, edge.id)
     assert first.total_relations == 257
     assert length(first.relations) == 256
-    assert %{world_revision: world_revision, scope_revision: scope_revision, offset: offset} = first.next_cursor
+
+    assert %{world_revision: world_revision, scope_revision: scope_revision, offset: offset} =
+             first.next_cursor
+
     assert byte_size(world_revision) == 64 and byte_size(scope_revision) == 64
     assert is_integer(offset) and offset > 0
-    assert {:ok, last} = TopologyAtlas.bundle_detail(world, tile.selection, edge.id, first.next_cursor)
+
+    assert {:ok, last} =
+             TopologyAtlas.bundle_detail(world, tile.selection, edge.id, first.next_cursor)
+
     assert last.next_cursor == nil
     assert length(last.relations) == 1
 
@@ -198,12 +237,18 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
       assert row.role == "backbone"
     end
 
-    assert {:error, :invalid_cursor} = TopologyAtlas.bundle_detail(world, tile.selection, edge.id, %{offset: 1})
+    assert {:error, :invalid_cursor} =
+             TopologyAtlas.bundle_detail(world, tile.selection, edge.id, %{offset: 1})
 
     assert {:error, :invalid_cursor} =
-             TopologyAtlas.bundle_detail(world, tile.selection, edge.id, %{first.next_cursor | offset: 4_294_967_296})
+             TopologyAtlas.bundle_detail(world, tile.selection, edge.id, %{
+               first.next_cursor
+               | offset: 4_294_967_296
+             })
 
-    assert {:error, :not_found} = TopologyAtlas.bundle_info(world, tile.selection, "invented-missing-bundle")
+    assert {:error, :not_found} =
+             TopologyAtlas.bundle_info(world, tile.selection, "invented-missing-bundle")
+
     assert {:error, :invalid_identity} = TopologyAtlas.bundle_detail(world, tile.selection, nil)
   end
 
@@ -220,7 +265,10 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
 
     assert bytes > 0
     assert {:ok, %{ids: [id], next_cursor: cursor}} = TopologyAtlas.device_ids_page(world, nil, 1)
-    assert {:ok, %{ids: [other], next_cursor: nil}} = TopologyAtlas.device_ids_page(world, cursor, 1)
+
+    assert {:ok, %{ids: [other], next_cursor: nil}} =
+             TopologyAtlas.device_ids_page(world, cursor, 1)
+
     assert MapSet.new([id, other]) == MapSet.new([a.device_id, b.device_id])
     assert {:ok, tile} = TopologyAtlas.tile(world, 0, 0, 0)
 
@@ -251,12 +299,25 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
     assert {:error, :stale_revision} = TopologyAtlas.health_info(replacement, health)
     assert {:error, :stale_revision} = TopologyAtlas.device_ids_page(replacement, cursor, 1)
     assert {:ok, rebased} = TopologyAtlas.rebase_health(world, health, replacement, epoch)
-    assert {:ok, %{epoch: "fedcba9876543210", observed: 1, total: 2}} = TopologyAtlas.health_info(replacement, rebased)
+
+    assert {:ok, %{epoch: "fedcba9876543210", observed: 1, total: 2}} =
+             TopologyAtlas.health_info(replacement, rebased)
+
     assert {:ok, replacement_tile} = TopologyAtlas.tile(replacement, 0, 0, 0)
-    assert {:ok, replacement_health} = TopologyAtlas.tile_health(replacement, rebased, replacement_tile.selection)
+
+    assert {:ok, replacement_health} =
+             TopologyAtlas.tile_health(replacement, rebased, replacement_tile.selection)
+
     replacement_by_id = Map.new(replacement_health.glyphs, &{&1.id, &1.counts})
     assert replacement_by_id[a.device_id].unavailable == 1
-    assert replacement_by_id[c.device_id] == %{healthy: 0, unavailable: 0, unknown: 1, observed: 0, total: 1}
+
+    assert replacement_by_id[c.device_id] == %{
+             healthy: 0,
+             unavailable: 0,
+             unknown: 1,
+             observed: 0,
+             total: 1
+           }
   end
 
   test "packaged aggregate profile recovers a descriptor budget failure without truncating identity" do
@@ -265,7 +326,11 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
     assert {:error, :selection_budget_exceeded} = TopologyAtlas.tile(world, 0, 0, 0)
 
     assert {:ok, %{profile: :aggregate_only, glyphs: [%{kind: :aggregate, count: 1}]} = tile} =
-             TopologyAtlas.tile(world, 0, 0, 0, %{nodes: 128, edges: 256, profile: :aggregate_only})
+             TopologyAtlas.tile(world, 0, 0, 0, %{
+               nodes: 128,
+               edges: 256,
+               profile: :aggregate_only
+             })
 
     assert tile.selection_bytes < 4096
     assert {:ok, %{device_id: ^id}} = TopologyAtlas.search(world, id)

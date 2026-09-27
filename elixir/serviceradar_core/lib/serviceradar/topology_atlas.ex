@@ -40,10 +40,12 @@ defmodule ServiceRadar.TopologyAtlas do
   ]
 
   defguardp valid_page(cursor, limit)
-            when is_integer(cursor) and cursor in 0..4_294_967_295 and is_integer(limit) and limit in 1..500
+            when is_integer(cursor) and cursor in 0..4_294_967_295 and is_integer(limit) and
+                   limit in 1..500
 
-  def new_builder(layout_version, zmax) when is_binary(layout_version) and is_integer(zmax) and zmax in 0..24,
-    do: Native.new_builder(layout_version, zmax)
+  def new_builder(layout_version, zmax)
+      when is_binary(layout_version) and is_integer(zmax) and zmax in 0..24,
+      do: Native.new_builder(layout_version, zmax)
 
   def new_builder(_layout_version, _zmax), do: {:error, :invalid_layout}
 
@@ -77,7 +79,8 @@ defmodule ServiceRadar.TopologyAtlas do
   def tile(world, z, x, y, budget \\ %{nodes: 128, edges: 256})
 
   def tile(world, z, x, y, %{nodes: nodes, edges: edges} = budget)
-      when is_integer(z) and z in 0..24 and is_integer(x) and x in 0..16_777_215 and is_integer(y) and y in 0..16_777_215 and
+      when is_integer(z) and z in 0..24 and is_integer(x) and x in 0..16_777_215 and is_integer(y) and
+             y in 0..16_777_215 and
              is_integer(nodes) and nodes in 9..128 and is_integer(edges) and edges in 72..256 do
     case Map.get(budget, :profile, :standard) do
       profile when profile in [:standard, :aggregate_only] ->
@@ -147,8 +150,9 @@ defmodule ServiceRadar.TopologyAtlas do
 
   def new_health(_world, _epoch), do: {:error, :invalid_epoch}
 
-  def rebase_health(old_world, old_health, new_world, epoch) when is_integer(epoch) and epoch in 1..0xFFFFFFFFFFFFFFFF,
-    do: Native.rebase_health(old_world, old_health, new_world, epoch)
+  def rebase_health(old_world, old_health, new_world, epoch)
+      when is_integer(epoch) and epoch in 1..0xFFFFFFFFFFFFFFFF,
+      do: Native.rebase_health(old_world, old_health, new_world, epoch)
 
   def rebase_health(_old_world, _old_health, _new_world, _epoch), do: {:error, :invalid_epoch}
 
@@ -184,8 +188,9 @@ defmodule ServiceRadar.TopologyAtlas do
 
   def delta_page(candidate, operation, cursor, limit \\ 500)
 
-  def delta_page(candidate, operation, cursor, limit) when operation in @operations and valid_page(cursor, limit),
-    do: Native.delta_page(candidate, operation, cursor, limit)
+  def delta_page(candidate, operation, cursor, limit)
+      when operation in @operations and valid_page(cursor, limit),
+      do: Native.delta_page(candidate, operation, cursor, limit)
 
   def delta_page(_candidate, _operation, _cursor, _limit), do: {:error, :invalid_page}
 end

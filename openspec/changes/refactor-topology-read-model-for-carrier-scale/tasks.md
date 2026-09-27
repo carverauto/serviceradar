@@ -24,6 +24,8 @@ The [guarded scratch-database run](https://carverauto.buildbuddy.io/invocation/f
 
 The integrated bundle/overlay server source passed [make test with remote execution](https://carverauto.buildbuddy.io/invocation/fff23f41-73cb-4dde-a0da-7e8cbf5bcc46): 356 targets passed and two were skipped. Current staging has since been merged, preserving the bounded canonical reader while adding its new relation-ranking field; the merged tree requires fresh validation. Issue #4749 is implemented by [PR #4812](https://github.com/carverauto/serviceradar/pull/4812), which was still open with its no-mistakes CI fix in progress at this checkpoint. The schema-3 tile producer and client integration remain gated on that dependency.
 
+After merging staging, [make test](https://carverauto.buildbuddy.io/invocation/60e5d9dd-1b74-4900-acc2-a054a91efdd5) completed with 364 passing targets, two skipped targets and two failing quality checks. The new remote formatter fixed core formatting; two web long lines and the topology-to-RBAC Boundary declaration were corrected. Both [quality checks then passed on RBE](https://carverauto.buildbuddy.io/invocation/61d19712-cb67-4a93-bf92-600644e914ea). This is full-suite evidence before formatting plus a focused positive quality recheck, not a final-tree full-suite claim. Compiler actions used RBE; existing add-on bundle rules forced their packaging actions local despite the remote profile. The final PR still requires a complete successful repository gate and the open runtime/browser acceptance below.
+
 ## 1. Topology Contract
 
 - [ ] 1.1 Implement and round-trip schema-3 tile and bounded detail payloads, including UInt16 local coordinates with affine metadata, local UInt32 endpoints, counts, budgets, and lazy details.

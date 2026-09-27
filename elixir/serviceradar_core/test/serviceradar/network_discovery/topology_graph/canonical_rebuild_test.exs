@@ -293,7 +293,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuildTest do
 
       assert log =~ "Canonical topology rebuild starved"
 
-      assert_receive {:telemetry, [:serviceradar, :topology, :canonical_rebuild, :starved], measurements, metadata}
+      assert_receive {:telemetry, [:serviceradar, :topology, :canonical_rebuild, :starved],
+                      measurements, metadata}
 
       assert measurements.before_edges == 5
       assert measurements.mapper_evidence_edges == 11
@@ -343,7 +344,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuildTest do
 
       assert log =~ "Canonical topology stale prune refused"
 
-      assert_receive {:telemetry, [:serviceradar, :topology, :canonical_rebuild, :prune_refused], measurements, metadata}
+      assert_receive {:telemetry, [:serviceradar, :topology, :canonical_rebuild, :prune_refused],
+                      measurements, metadata}
 
       assert measurements.prune_candidates == 3
       assert measurements.before_edges == 8
@@ -370,8 +372,9 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuildTest do
 
       assert log =~ "Canonical topology self-heal FAILED"
 
-      assert_receive {:telemetry, [:serviceradar, :topology, :canonical_rebuild, :self_heal_failed], measurements,
-                      metadata}
+      assert_receive {:telemetry,
+                      [:serviceradar, :topology, :canonical_rebuild, :self_heal_failed],
+                      measurements, metadata}
 
       assert measurements.after_edges == 0
       assert measurements.mapper_evidence_edges == 5

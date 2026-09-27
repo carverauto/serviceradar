@@ -48,7 +48,10 @@ defmodule ServiceRadar.Observability.SRQLRunnerTest do
     assert_received :typed_warehouse_read
 
     assert Enum.all?(rows, fn row ->
-             row == %{"observed_at" => ~U[2001-02-03 04:05:47Z], "previous_observed_at" => ~U[2001-02-03 04:05:37Z]}
+             row == %{
+               "observed_at" => ~U[2001-02-03 04:05:47Z],
+               "previous_observed_at" => ~U[2001-02-03 04:05:37Z]
+             }
            end)
   end
 

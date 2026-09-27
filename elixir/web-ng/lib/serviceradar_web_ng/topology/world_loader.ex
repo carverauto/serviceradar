@@ -68,7 +68,8 @@ defmodule ServiceRadarWebNG.Topology.WorldLoader do
       {:ok, %{world: world, manifest: manifest, tiles: tiles}} ->
         case WorldCache.install(world, manifest, tiles, state.cache) do
           result when result == :ok or result == {:ok, :unchanged} ->
-            state = %{state | installed_generation: max(state.installed_generation, manifest.generation), backoff: 1_000}
+            generation = max(state.installed_generation, manifest.generation)
+            state = %{state | installed_generation: generation, backoff: 1_000}
             {:noreply, schedule_next(state)}
 
           {:error, _reason} ->

@@ -70,7 +70,7 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
   def search(conn, %{"device_id" => id}) when is_binary(id) and byte_size(id) > 0 do
     with {:ok, %{world: world, manifest: manifest}} <- WorldCache.world(),
          {:ok, position} <- TopologyAtlas.search(world, id),
-         {:ok, %{} = _authorized_position} <- World.lookup_device(conn.assigns.current_scope, manifest.layout_version, id),
+         {:ok, %{} = _position} <- World.lookup_device(conn.assigns.current_scope, manifest.layout_version, id),
          {:ok, _scope} <- current_authority(conn) do
       conn
       |> generation_headers(manifest)

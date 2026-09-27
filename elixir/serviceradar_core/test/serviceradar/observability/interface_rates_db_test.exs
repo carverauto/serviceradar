@@ -14,7 +14,13 @@ defmodule ServiceRadar.Observability.InterfaceRatesDbTest do
 
   setup do
     previous = Application.get_env(:serviceradar_core, StarRocks, [])
-    Application.put_env(:serviceradar_core, StarRocks, Keyword.put(previous, :cutover_datasets, []))
+
+    Application.put_env(
+      :serviceradar_core,
+      StarRocks,
+      Keyword.put(previous, :cutover_datasets, [])
+    )
+
     on_exit(fn -> Application.put_env(:serviceradar_core, StarRocks, previous) end)
     :ok
   end
@@ -31,9 +37,16 @@ defmodule ServiceRadar.Observability.InterfaceRatesDbTest do
     counter({elem(pair_b, 0), 7}, "ifHCInOctets", 64, [0, 70_000])
 
     rows = rates([pair_a, pair_b, missing])
-    assert MapSet.new(rows, &{&1["device_id"], &1["if_index"]}) == MapSet.new([pair_a, pair_b, missing])
-    assert %{"status" => "measured", "rate" => 10.0, "metric_name" => "ifHCInOctets"} = row(rows, pair_a)
-    assert %{"status" => "measured", "rate" => 0.0, "metric_name" => "ifInOctets"} = row(rows, pair_b)
+
+    assert MapSet.new(rows, &{&1["device_id"], &1["if_index"]}) ==
+             MapSet.new([pair_a, pair_b, missing])
+
+    assert %{"status" => "measured", "rate" => 10.0, "metric_name" => "ifHCInOctets"} =
+             row(rows, pair_a)
+
+    assert %{"status" => "measured", "rate" => 0.0, "metric_name" => "ifInOctets"} =
+             row(rows, pair_b)
+
     assert %{"status" => "unknown", "rate" => nil, "observed_at" => nil} = row(rows, missing)
     assert DateTime.compare(row(rows, pair_a)["observed_at"], at(47)) == :eq
     assert DateTime.compare(row(rows, pair_a)["previous_observed_at"], at(37)) == :eq
@@ -68,8 +81,12 @@ defmodule ServiceRadar.Observability.InterfaceRatesDbTest do
     counter(duplicate, "ifHCInOctets", 64, [0, 900], producer: "two")
 
     rows = rates([isolated, duplicate])
-    assert %{"status" => "unknown", "rate" => nil, "eligible_producers" => 0} = row(rows, isolated)
-    assert %{"status" => "ambiguous", "rate" => nil, "eligible_producers" => 2} = row(rows, duplicate)
+
+    assert %{"status" => "unknown", "rate" => nil, "eligible_producers" => 0} =
+             row(rows, isolated)
+
+    assert %{"status" => "ambiguous", "rate" => nil, "eligible_producers" => 2} =
+             row(rows, duplicate)
   end
 
   test "stale HC does not mask fresh legacy and stale samples are unknown" do
@@ -80,7 +97,10 @@ defmodule ServiceRadar.Observability.InterfaceRatesDbTest do
     counter(stale, "ifHCInOctets", 64, [0, 500], seconds: [10, 20])
 
     rows = rates([fallback, stale])
-    assert %{"status" => "measured", "rate" => 3.0, "metric_name" => "ifInOctets"} = row(rows, fallback)
+
+    assert %{"status" => "measured", "rate" => 3.0, "metric_name" => "ifInOctets"} =
+             row(rows, fallback)
+
     assert %{"status" => "unknown", "rate" => nil} = row(rows, stale)
     assert DateTime.compare(row(rows, stale)["observed_at"], at(20)) == :eq
   end
@@ -100,7 +120,9 @@ defmodule ServiceRadar.Observability.InterfaceRatesDbTest do
   end
 
   defp counter(pair, metric, width, values, opts \\ []) do
-    Enum.zip(Keyword.get(opts, :seconds, [37, 47]), values)
+    opts
+    |> Keyword.get(:seconds, [37, 47])
+    |> Enum.zip(values)
     |> Enum.each(fn {second, value} -> sample(pair, metric, width, second, value, opts) end)
   end
 
