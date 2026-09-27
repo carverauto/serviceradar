@@ -119,16 +119,27 @@ PGPASSWORD="$ADMIN_PASS" psql \
   -c "CREATE DATABASE $DB"
 ```
 
-Run current branch migrations:
+Run current branch migrations with `mix serviceradar.db.migrate`, not `mix ecto.migrate`
+(see AGENTS.md): on an empty database it applies the committed baseline instead of replaying
+every migration, and it records the applied versions in `platform.ash_schema_migrations` as well,
+so web-ng's migrations gate accepts the database. It needs a pool of at least 2, because the
+migration lock holds one connection while the migrator uses another; the queue settings keep it
+from timing out when the workstation or the fixture is under load:
 
 ```bash
 cd elixir/serviceradar_core
 SERVICERADAR_TEST_DATABASE_URL="postgres://${ADMIN_USER}:${ADMIN_PASS_ENC}@${DB_HOST}:${DB_PORT}/${DB}?sslmode=verify-full" \
 SRQL_TEST_DATABASE_SERVER_NAME="$TLS_SERVER_NAME" \
 SRQL_TEST_DATABASE_CA_CERT_FILE="$CA_FILE" \
-SERVICERADAR_TEST_DATABASE_POOL_SIZE=1 \
-MIX_ENV=test mix ecto.migrate
+SERVICERADAR_TEST_DATABASE_POOL_SIZE=2 \
+SERVICERADAR_TEST_DATABASE_QUEUE_TARGET_MS=10000 \
+SERVICERADAR_TEST_DATABASE_QUEUE_INTERVAL_MS=10000 \
+MIX_ENV=test mix serviceradar.db.migrate
 ```
+
+The test configuration (`config/test_database_guard.exs`) refuses any database whose name does
+not match `codex_[a-z0-9_]+` (lowercase only; `sr_core_test_*` is reserved for CI lanes), so keep
+the prefix from the `CREATE DATABASE` step above.
 
 ## Run Focused Tests
 
@@ -161,7 +172,7 @@ MIX_ENV=test mix compile --warnings-as-errors
   `host=$TLS_SERVER_NAME`, or set `SRQL_TEST_DATABASE_SERVER_NAME` for Elixir.
 - `No route to host` for the LoadBalancer IP: try the NodePort on a routeable node IP such as `192.168.10.31`.
 - `connection refused` on a NodePort: rerun host discovery; the selected node may not be reachable from the workstation.
-- `column ... does not exist`: the database is stale; create a scratch database and run `mix ecto.migrate`.
+- `column ... does not exist`: the database is stale; create a scratch database and run `mix serviceradar.db.migrate` with the same pool and queue settings as the migrate step above.
 - `Postgrex expected %Postgrex.INET{}` for string parameters: cast through text in SQL, for example `($1::text)::cidr` or `($2::text)::inet`, or pass the project native CIDR type.
 - If no NodePort route works, fallback to `kubectl port-forward -n srql-fixtures svc/srql-fixture-rw 15436:5432`, set `DB_HOST=127.0.0.1 DB_PORT=15436`, and reuse the same commands. Expect possible dropped forwards during long migrations.
 
