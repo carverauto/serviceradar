@@ -72,6 +72,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.TelemetryMetricsTest do
     now = DateTime.truncate(DateTime.utc_now(), :microsecond)
     previous = DateTime.add(now, -30, :second)
     older = DateTime.add(now, -60, :second)
+    retired_previous = DateTime.add(now, -21 * 60, :second)
+    retired_latest = DateTime.add(now, -20 * 60, :second)
 
     samples = [
       {7, "ifOutUcastPkts", "poller-a", older, 100.0},
@@ -83,7 +85,21 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.TelemetryMetricsTest do
       # Reset: the previous value no longer fits a 32-bit counter, so it cannot be a wrap.
       {8, "ifOutUcastPkts", "poller-a", previous, 9_000_000_000.0},
       {8, "ifOutUcastPkts", "poller-a", now, 5.0},
-      {9, "ifOutUcastPkts", "poller-a", now, 500.0}
+      {9, "ifOutUcastPkts", "poller-a", now, 500.0},
+      # A retired collector's higher rate must not override the active collector.
+      {10, "ifOutUcastPkts", "poller-a", retired_previous, 0.0},
+      {10, "ifOutUcastPkts", "poller-a", retired_latest, 600_000.0},
+      {10, "ifOutUcastPkts", "poller-b", previous, 100.0},
+      {10, "ifOutUcastPkts", "poller-b", now, 160.0},
+      # The newest producer has no interval: do not reuse the retired rate.
+      {11, "ifOutUcastPkts", "poller-a", retired_previous, 0.0},
+      {11, "ifOutUcastPkts", "poller-a", retired_latest, 600_000.0},
+      {11, "ifOutUcastPkts", "poller-b", now, 160.0},
+      # A reset on the active producer must not revive the retired rate either.
+      {12, "ifOutUcastPkts", "poller-a", retired_previous, 0.0},
+      {12, "ifOutUcastPkts", "poller-a", retired_latest, 600_000.0},
+      {12, "ifOutUcastPkts", "poller-b", previous, 9_000_000_000.0},
+      {12, "ifOutUcastPkts", "poller-b", now, 5.0}
     ]
 
     rows =
@@ -103,8 +119,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.TelemetryMetricsTest do
 
     Repo.insert_all("timeseries_metrics", rows, prefix: "platform")
 
-    keys = Enum.map([7, 8, 9], &{uid, &1})
-    assert Metrics.load_packet_pps(keys) == %{{uid, 7} => %{out: 4}}
+    keys = Enum.map(7..12, &{uid, &1})
+    assert Metrics.load_packet_pps(keys) == %{{uid, 7} => %{out: 4}, {uid, 10} => %{out: 2}}
     assert Metrics.load_octet_bps(keys) == %{{uid, 7} => %{in: 1600}}
   end
 end

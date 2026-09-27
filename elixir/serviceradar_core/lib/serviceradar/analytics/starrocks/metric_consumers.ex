@@ -112,18 +112,27 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumers do
         SELECT device_id, target_device_ip, if_index, metric_name,
           #{counter_rate_sql(elapsed)} AS rate_value
         FROM (
-          SELECT device_id, target_device_ip, if_index, metric_name, value, counter_width,
-            CAST(NULL AS DOUBLE) AS max_rate_per_second, `timestamp`,
-            LEAD(value) OVER #{series} AS previous_value,
-            LEAD(`timestamp`) OVER #{series} AS previous_timestamp,
-            ROW_NUMBER() OVER #{series} AS sample_rank
-          FROM #{Env.table("timeseries_metrics")}
-          WHERE #{scope_predicate(devices, ips)}
-            AND if_index IN (#{Enum.join(indexes, ",")})
-            AND split_part(metric_name, '::', 1) IN (#{Enum.join(names, ",")})
-            AND `timestamp` > '#{iso(since)}'
-        ) samples
-        WHERE sample_rank = 1 AND `timestamp` > previous_timestamp AND previous_value >= 0 AND value >= 0
+          SELECT *, ROW_NUMBER() OVER (
+            PARTITION BY device_id, target_device_ip, if_index, metric_name
+            ORDER BY `timestamp` DESC, COALESCE(gateway_id, ''),
+              COALESCE(agent_id, ''), COALESCE(series_key, '')
+          ) AS producer_rank
+          FROM (
+            SELECT gateway_id, agent_id, series_key,
+              device_id, target_device_ip, if_index, metric_name, value, counter_width,
+              CAST(NULL AS DOUBLE) AS max_rate_per_second, `timestamp`,
+              LEAD(value) OVER #{series} AS previous_value,
+              LEAD(`timestamp`) OVER #{series} AS previous_timestamp,
+              ROW_NUMBER() OVER #{series} AS sample_rank
+            FROM #{Env.table("timeseries_metrics")}
+            WHERE #{scope_predicate(devices, ips)}
+              AND if_index IN (#{Enum.join(indexes, ",")})
+              AND split_part(metric_name, '::', 1) IN (#{Enum.join(names, ",")})
+              AND `timestamp` > '#{iso(since)}'
+          ) samples
+          WHERE sample_rank = 1
+        ) latest_producers
+        WHERE producer_rank = 1 AND `timestamp` > previous_timestamp AND previous_value >= 0 AND value >= 0
       ) rated
       WHERE rate_value IS NOT NULL
       """

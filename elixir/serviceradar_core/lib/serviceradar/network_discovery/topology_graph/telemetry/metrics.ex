@@ -98,7 +98,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry.Metrics do
             # collectors, or treating a cumulative sample as a rate, creates spikes.
             sql = """
             WITH samples AS (
-              SELECT device_id, target_device_ip, if_index, metric_name, value,
+              SELECT gateway_id, agent_id, series_key,
+                device_id, target_device_ip, if_index, metric_name, value,
                 counter_width,
                 CASE
                   WHEN metadata->>'max_counter_rate_per_second' ~ '^[0-9]+(\\.[0-9]+){0,1}$'
@@ -119,11 +120,20 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry.Metrics do
                 ORDER BY timestamp DESC
               )
             ),
+            latest_producers AS (
+              SELECT *, row_number() OVER (
+                PARTITION BY device_id, target_device_ip, if_index, metric_name
+                ORDER BY timestamp DESC, COALESCE(gateway_id, ''),
+                  COALESCE(agent_id, ''), COALESCE(series_key, '')
+              ) AS producer_rank
+              FROM samples
+              WHERE sample_rank = 1
+            ),
             rated AS (
               SELECT device_id, target_device_ip, if_index, metric_name,
                 #{MetricConsumers.counter_rate_sql("extract(epoch FROM timestamp - previous_timestamp)")} AS rate_value
-              FROM samples
-              WHERE sample_rank = 1 AND timestamp > previous_timestamp AND previous_value >= 0 AND value >= 0
+              FROM latest_producers
+              WHERE producer_rank = 1 AND timestamp > previous_timestamp AND previous_value >= 0 AND value >= 0
             )
             SELECT device_id, target_device_ip, if_index, metric_name, rate_value
             FROM rated
