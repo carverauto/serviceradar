@@ -111,7 +111,8 @@ actions:
           bazel run -c opt --config=ci --//build:enable_integration_tests --//build:run_id=$RUN_ID //:buildbuddy_setup_fixture_env
           set -a; . "$SERVICERADAR_FIXTURE_ENV_FILE"; set +a
           export SRQL_PARITY_CNPG_ADMIN_URL="$SRQL_TEST_ADMIN_URL"
-          export SRQL_PARITY_CNPG_CA_PEM="$SRQL_TEST_DATABASE_CA_CERT"
+          # Read the multiline PEM at shell runtime; the bb CLI expands $VAR before parsing YAML.
+          export SRQL_PARITY_CNPG_CA_PEM="$(printenv SRQL_TEST_DATABASE_CA_CERT)"
           export SRQL_PARITY_CNPG_SERVER_NAME="$SRQL_TEST_DATABASE_SERVER_NAME"
           export SRQL_PARITY_STARROCKS_HOST="lab-fe-service.starrocks.svc.cluster.local"
           export SRQL_PARITY_STARROCKS_PORT=9030
