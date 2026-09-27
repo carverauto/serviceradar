@@ -1,7 +1,12 @@
 # mtr-diagnostics Specification
 
 ## Purpose
-TBD - created by archiving change add-bulk-queued-mtr-diagnostics. Update Purpose after archive.
+MTR diagnostics trace the network path from an agent to a target and record per-hop
+latency, loss and reply detail. Traces run on demand from a device page, in bulk jobs
+over many targets, and on a schedule from MTR policies. ICMP, UDP and TCP probes are
+supported, and a policy can trace each target with several protocols. Results reach
+storage through JetStream and are read back for the device MTR tab, the diagnostics
+pages and the MTR path analytics dashboard.
 
 ## Requirements
 
@@ -83,13 +88,14 @@ The system SHALL measure execution duration and throughput for bulk MTR jobs and
 - **AND** the UI presents a recommended minimum recurring interval derived from the measured run characteristics
 
 ### Requirement: MTR Trace Execution
-The agent SHALL execute MTR (My Traceroute) path analysis to a configured target, sending probes with incrementing TTL values from 1 to maxHops, collecting ICMP Time Exceeded and Echo Reply responses to build a hop-by-hop view of the network path. Both IPv4 and IPv6 targets SHALL be supported from day one.
+The agent SHALL execute MTR (My Traceroute) path analysis to a configured target, sending probes with incrementing TTL values from 1 to maxHops, collecting ICMP Time Exceeded and Echo Reply responses (and, for TCP, SYN-ACK and RST segments from the target) to build a hop-by-hop view of the network path. Both IPv4 and IPv6 targets SHALL be supported from day one. Each trace SHALL report, alongside the recorded hops, the depth actually probed (`probed_hops`) and the highest TTL that received any reply (`last_responding_hop`), so that an unreached trace's length is never mistaken for the path length.
 
 #### Scenario: Successful trace to reachable target
-- **WHEN** an MTR check is configured with target "10.0.0.1" and max_hops 30
+- **WHEN** an MTR check is configured with target "192.0.2.10" and max_hops 30
 - **THEN** the agent sends probes with TTL 1 through N until the target responds
 - **AND** each responding hop is recorded with its IP address and round-trip time
 - **AND** the trace terminates when the target is reached or max_hops is exceeded
+- **AND** `total_hops` and `last_responding_hop` both equal the TTL at which the target answered
 
 #### Scenario: Trace with non-responding hops
 - **WHEN** intermediate routers do not respond to probes (stealth hops)
@@ -100,7 +106,13 @@ The agent SHALL execute MTR (My Traceroute) path analysis to a configured target
 - **WHEN** the target host is unreachable
 - **THEN** the trace records all responding intermediate hops
 - **AND** the result indicates the target was not reached
-- **AND** the final hop status reflects the ICMP Destination Unreachable code
+- **AND** the hop that returned ICMP Destination Unreachable records the unreachable type and code
+- **AND** `last_responding_hop` identifies the last hop that replied while `probed_hops` records how deep probing went
+
+#### Scenario: No probe could be sent
+- **WHEN** every probe send fails (for example an IPv6 link-local target without a zone, or a missing raw socket)
+- **THEN** the trace result carries an error describing the last send failure
+- **AND** the trace is not reported as a successful zero-hop trace
 
 #### Scenario: IPv6 target trace
 - **WHEN** the target resolves to an IPv6 address
@@ -108,7 +120,7 @@ The agent SHALL execute MTR (My Traceroute) path analysis to a configured target
 - **AND** hop-by-hop behavior is identical to IPv4 traces
 
 ### Requirement: Multi-Protocol Probing
-The agent SHALL support ICMP, UDP, and TCP probe protocols for MTR traces, allowing operators to diagnose path behavior under different protocol handling by intermediate routers and firewalls.
+The agent SHALL support ICMP, UDP, and TCP probe protocols for MTR traces, allowing operators to diagnose path behavior under different protocol handling by intermediate routers and firewalls, and every trace SHALL record the protocol (and for TCP the destination port) it used.
 
 #### Scenario: ICMP probe mode
 - **WHEN** protocol is set to "icmp"
@@ -122,8 +134,14 @@ The agent SHALL support ICMP, UDP, and TCP probe protocols for MTR traces, allow
 
 #### Scenario: TCP probe mode
 - **WHEN** protocol is set to "tcp"
-- **THEN** the agent initiates TCP SYN connections with controlled TTL values
-- **AND** target reached is detected via SYN-ACK or RST from the target address
+- **THEN** the agent sends TCP SYN segments with controlled TTL values to the configured TCP destination port (default 443)
+- **AND** target reached is detected via SYN-ACK or RST from the target address, observed by the agent
+- **AND** the hop at the TTL where the target answered records the target address
+
+#### Scenario: TCP target answers only with TCP
+- **WHEN** a TCP trace targets a host that answers SYNs with SYN-ACK or RST and never emits ICMP
+- **THEN** the trace is marked `target_reached`
+- **AND** no hops beyond the answering TTL are recorded
 
 ### Requirement: Per-Hop Statistics
 The agent SHALL calculate and report running statistics for each hop, including packet loss percentage, minimum/average/maximum/standard deviation of round-trip time, and jitter metrics.
@@ -304,7 +322,7 @@ The web UI SHALL include an MTR tab on the device detail page showing all traces
 - **AND** results are displayed inline when the trace completes
 
 ### Requirement: Managed Device Baseline Traces
-The system SHALL support policy-driven baseline MTR collection for managed devices, where baseline protocol defaults to ICMP and execution cadence is bounded to avoid probe storms.
+The system SHALL support policy-driven baseline MTR collection for managed devices, where the baseline protocol set defaults to ICMP only and execution cadence is bounded to avoid probe storms.
 
 #### Scenario: Baseline policy targets managed devices
 - **WHEN** a baseline MTR policy is enabled for managed devices
@@ -312,9 +330,18 @@ The system SHALL support policy-driven baseline MTR collection for managed devic
 - **AND** baseline traces are written to `mtr_traces` and `mtr_hops` with `device_id`/`device_uid` linkage
 
 #### Scenario: Baseline defaults to ICMP
-- **WHEN** no protocol override is specified by policy
-- **THEN** baseline traces run with ICMP protocol
-- **AND** UDP/TCP are not auto-executed in baseline mode
+- **WHEN** no protocol set is specified by policy
+- **THEN** baseline traces run with ICMP protocol only
+
+#### Scenario: Baseline runs the policy protocol set
+- **WHEN** a baseline policy's protocol set includes UDP or TCP
+- **THEN** baseline traces run once per target for each protocol in the set
+- **AND** the recommended minimum baseline interval accounts for the number of protocols
+
+#### Scenario: Automated selection excludes link-local targets
+- **WHEN** automated target selection (baseline dispatch, per-target or bulk, and SRQL-selected bulk) matches a target whose address is link-local (IPv4 `169.254.0.0/16`, IPv6 `fe80::/10`, including the IPv4-mapped form)
+- **THEN** that target is dropped before any selector limit is applied, so it does not consume a limit slot
+- **AND** the scheduler's dispatch summary reports the excluded count as `skipped_link_local`
 
 ### Requirement: State-Change Triggered MTR Capture
 The system SHALL support event-driven MTR captures when tracked entities transition to degraded or unavailable states, with per-entity cooldown and deduplication.
@@ -404,3 +431,104 @@ Loss panels SHALL use `stats:loss_ratio(sent, received) by <dimension>` and late
 #### Scenario: Empty data renders informative state
 - **WHEN** no MTR hops exist for the selected time window
 - **THEN** each panel renders an empty-state message rather than an error or blank space
+
+### Requirement: TCP SYN Probe Flow
+For TCP traces on agents advertising the `mtr_tcp_syn` capability, the agent SHALL send all TCP probes of one trace on a single stable flow -- one source port reserved for the trace and one destination port -- varying only TTL and TCP sequence number, and SHALL identify each probe by its TCP sequence number in both quoted ICMP errors and SYN-ACK/RST acknowledgement numbers.
+
+#### Scenario: ECMP-stable TCP path
+- **WHEN** a TCP trace on an agent advertising `mtr_tcp_syn` probes TTL 1 through N
+- **THEN** every probe shares the same source address, source port, destination address and destination port
+- **AND** probes differ only in TTL and TCP sequence number
+
+#### Scenario: Reply matched by acknowledgement number
+- **WHEN** a TCP trace on an agent advertising `mtr_tcp_syn` receives a SYN-ACK whose acknowledgement number is one greater than an in-flight probe's sequence number
+- **THEN** that probe is credited with the reply at its TTL
+- **AND** a reply whose acknowledgement matches no in-flight probe is counted as an acknowledgement mismatch and credited to no hop
+
+#### Scenario: Reserved source port is never listening
+- **WHEN** an agent advertising `mtr_tcp_syn` reserves the trace's TCP source port
+- **THEN** the reservation socket is bound but never placed in listen or connect state
+- **AND** the host kernel answers target SYN-ACKs with RST, tearing down the target's half-open connection
+
+#### Scenario: Platform without raw TCP receive
+- **WHEN** a TCP trace runs on an agent that cannot receive raw TCP segments and therefore does not advertise `mtr_tcp_syn`
+- **THEN** probes target the configured destination port `tcp_port` while a fresh source port per probe is permitted, so this path makes no stable-flow or ECMP path guarantee
+- **AND** reach is detected from the non-blocking connect outcome within the probe timeout, where the connect completing means SYN-ACK and refusal means RST
+- **AND** TCP handshake diagnostics are left empty
+
+#### Scenario: IPv6 link-local TCP target
+- **WHEN** a TCP trace, on either the raw or the connect-based flow, targets an IPv6 link-local address
+- **THEN** the agent rejects the target before opening any socket, with an error stating that a link-local IPv6 target needs an interface zone and is not traceable over TCP
+- **AND** ICMP and UDP traces to the same address are unchanged
+
+### Requirement: TCP Handshake Diagnostics
+For TCP traces on agents advertising `mtr_tcp_syn`, the agent SHALL run a bounded destination handshake phase and report SYNs sent, SYN-ACKs received, RSTs received, unanswered SYNs, SYN drop percentage, SYN retransmissions, handshakes answered only after retransmission, acknowledgement mismatches, duplicate SYN-ACKs, handshake RTT (min/avg/max), and an estimated server response time; and the agent SHALL report per-hop reply-type counters for every protocol.
+
+#### Scenario: Destination handshake summary
+- **WHEN** a TCP trace completes path probing
+- **THEN** the agent sends `probes_per_hop` SYNs at the target TTL (or max_hops if unreached) with up to `tcp_syn_retries` retransmissions per SYN
+- **AND** the trace reports each handshake counter and the SYN drop percentage as unanswered handshakes over attempted handshakes
+
+#### Scenario: Server response time estimate
+- **WHEN** the target and at least one transit hop both answered
+- **THEN** the trace reports server response time as the destination handshake RTT average minus the last transit hop's RTT average, floored at zero
+
+#### Scenario: Closed port
+- **WHEN** the target answers every SYN with RST
+- **THEN** the trace is reached and reports RSTs received equal to handshakes attempted and zero SYN-ACKs
+
+#### Scenario: Per-hop reply types
+- **WHEN** any trace records a hop reply
+- **THEN** the hop counts replies by kind: Time Exceeded, Destination Unreachable, SYN-ACK and RST
+
+#### Scenario: Agent without handshake capability
+- **WHEN** a TCP trace comes from an agent without `mtr_tcp_syn`
+- **THEN** the handshake fields are stored as null, not zero
+- **AND** the UI labels the handshake panel as unavailable for that agent
+
+#### Scenario: Handshake data is queryable
+- **WHEN** an operator queries `in:mtr_traces` or `in:mtr_hops` in SRQL
+- **THEN** the handshake and reply-type fields are available for filtering and `stats:` aggregation
+
+### Requirement: Multi-Protocol MTR Profiles
+An MTR profile (policy) SHALL carry a non-empty set of probe protocols drawn from ICMP, UDP and TCP, plus a TCP destination port, and the system SHALL produce one trace per target per protocol in the set for every baseline dispatch of that profile, while incident and recovery captures, which feed per-agent consensus, SHALL trace only the first protocol of the set.
+
+#### Scenario: Profile with ICMP and TCP
+- **WHEN** an operator saves a profile with protocols ICMP and TCP and TCP port 443
+- **THEN** each baseline run records one ICMP trace and one TCP trace per target
+- **AND** each trace records its protocol, and the TCP trace records destination port 443
+
+#### Scenario: Empty protocol set rejected
+- **WHEN** an operator attempts to save a profile with no protocols selected
+- **THEN** the profile is not saved and the form reports that at least one protocol is required
+
+#### Scenario: Existing single-protocol profiles migrate
+- **WHEN** the migration runs against profiles that carry a single baseline protocol
+- **THEN** each profile's protocol set contains exactly that protocol
+
+#### Scenario: Agent without protocol-set support
+- **WHEN** a multi-protocol bulk run targets an agent that does not advertise `mtr_protocol_set`
+- **THEN** core dispatches a single-protocol bulk job carrying the first protocol of the set, because such an agent runs one bulk job at a time and rejects a concurrent one
+- **AND** core logs that the rest of the set was skipped for that agent
+
+#### Scenario: Incident capture uses one protocol per agent
+- **WHEN** a device with an ICMP+TCP profile transitions to degraded and an incident capture is dispatched
+- **THEN** each selected agent receives one ICMP trace for the target
+- **AND** the cohort consensus compares one outcome per agent
+
+#### Scenario: Per-protocol comparison on the device page
+- **WHEN** a device has recent traces for more than one protocol
+- **THEN** the device MTR tab shows the latest trace for each protocol side by side
+
+### Requirement: Web-Tier MTR Dispatch
+The system SHALL allow MTR dispatch -- including policy-based dispatch from the device page -- from any cluster node, including nodes that are not members of the process registry, and a dispatch failure SHALL be reported to the operator without terminating the page.
+
+#### Scenario: Queue MTR from web-ng with an enabled policy
+- **WHEN** an operator clicks Queue MTR on a device page served by a web node that does not host the process registry, and an MTR policy is enabled
+- **THEN** candidate agents are resolved through the cluster-aware agent session listing
+- **AND** the trace is queued on a connected MTR-capable agent
+
+#### Scenario: Dispatch failure is shown, not crashed
+- **WHEN** MTR dispatch fails for any reason, including an unexpected exception
+- **THEN** the device page shows an error message describing the failure
+- **AND** the LiveView process keeps running with its state intact
