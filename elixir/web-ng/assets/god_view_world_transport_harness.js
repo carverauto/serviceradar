@@ -11,7 +11,12 @@ export function mountTransportHarness() {
   root.style.cssText = "position:relative;width:100vw;height:100vh"
   document.body.append(root)
   const events = new Map()
-  const renderer = new WorldMapRenderer(root, () => {}, (name, callback) => events.set(name, callback))
+  const renderer = new WorldMapRenderer(root, () => {}, (name, callback) => {
+    // LiveView delivers an event to every registered callback, including the
+    // overview owner and the currently mounted detail renderer.
+    const previous = events.get(name)
+    events.set(name, payload => {previous?.(payload); callback(payload)})
+  })
   const measurements = {loads: [], frames: [], firstFrame: null}
   const load = renderer.cache.load.bind(renderer.cache)
   renderer.cache.load = async job => {
