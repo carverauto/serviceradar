@@ -89,9 +89,8 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
 
     run_bootstrap_or_migrations!(app_user)
 
-    # Sync to ash_schema_migrations after migrations complete.
-    # Ash Framework uses this table to track migrations via Repo config.
-    sync_ash_schema_migrations!()
+    # web-ng's migrations gate reads ash_schema_migrations; see the function's docs.
+    SchemaBootstrap.sync_ash_schema_migrations!(ServiceRadar.Repo)
 
     ensure_managed_database_ownership!(app_user)
     ensure_ag_catalog_privileges!(app_user)
@@ -1077,26 +1076,6 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
             "ON CONFLICT (version) DO NOTHING"
         )
       end
-    end
-  end
-
-  defp sync_ash_schema_migrations! do
-    # Create ash_schema_migrations if it doesn't exist
-    ServiceRadar.Repo.query!("""
-    CREATE TABLE IF NOT EXISTS platform.ash_schema_migrations (
-      version bigint NOT NULL PRIMARY KEY,
-      inserted_at timestamp(0) without time zone
-    )
-    """)
-
-    # Sync any migrations from schema_migrations that aren't in ash_schema_migrations.
-    # Only sync if platform.schema_migrations exists (it won't on fresh installs before migrations run).
-    if table_exists?("platform.schema_migrations") do
-      ServiceRadar.Repo.query!("""
-      INSERT INTO platform.ash_schema_migrations (version, inserted_at)
-      SELECT version, inserted_at FROM platform.schema_migrations
-      ON CONFLICT (version) DO NOTHING
-      """)
     end
   end
 

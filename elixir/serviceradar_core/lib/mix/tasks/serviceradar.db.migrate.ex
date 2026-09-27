@@ -16,6 +16,11 @@ defmodule Mix.Tasks.Serviceradar.Db.Migrate do
   outright -- see issue #4151. `ServiceRadar.Cluster.StartupMigrations` has always baselined
   instead; this task gives the same behaviour to a developer at a shell.
 
+  Like startup, it finishes by copying every applied version into
+  `platform.ash_schema_migrations` (`ServiceRadar.Repo.SchemaBootstrap.sync_ash_schema_migrations!/1`).
+  web-ng's migrations gate reads that ledger, so without the copy web-ng answers every route
+  with 503 against a database this task has brought fully up to date.
+
   Options:
 
     * `--no-baseline` - never apply the baseline; replay migrations even on an empty database.
@@ -51,6 +56,11 @@ defmodule Mix.Tasks.Serviceradar.Db.Migrate do
 
         applied = Ecto.Migrator.run(repo, :up, all: true)
         Mix.shell().info("applied #{length(applied)} migration(s)")
+
+        # Runs on every path, the baseline one included: the baseline records its versions
+        # as applied without running them, so they reach web-ng's ledger only through here.
+        synced = SchemaBootstrap.sync_ash_schema_migrations!(repo)
+        Mix.shell().info("recorded #{synced} version(s) in platform.ash_schema_migrations")
       end)
 
     :ok
