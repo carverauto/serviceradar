@@ -210,6 +210,10 @@ The topology channel SHALL send bounded geometry invalidations naming layout ver
 
 Telemetry SHALL use a separate bounded overlay keyed by stable node, aggregate, relation, or bundle IDs and the compatible tile geometry identity. Health rollups, last-seen values, and traffic rates SHALL NOT participate in geometry tile revisions. Stale overlays SHALL be discarded; a telemetry sequence gap SHALL reset only the overlay. Metrics SHALL continue through NATS JetStream and the configured telemetry backend.
 
+Overlay bodies SHALL use authenticated HTTP with a separate ETag and a 256 KiB encoded JSON limit; channel control metadata SHALL remain within 16 KiB. Each overlay SHALL pin the installed generation and encoded geometry revision, using a compatible native selector and health index. Telemetry SQL waits SHALL retain only bounded plain selected data, not native world handles. Rate queries SHALL select at most 512 exact interface pairs from at most 256 selected relations and obey a separate 1 MiB request budget without truncating identities.
+
+Packet attribution SHALL admit only direct physical evidence with no virtual role; only a globally exclusive endpoint interface SHALL supply a relation measurement. A packet total SHALL require all three measured packet families from one identified producer at one endpoint. Ambiguous or absent producer identity, excluded evidence and incomplete measurements SHALL remain unknown. A bundle direction SHALL animate only when its observed relation count equals its rendered membership in that frame; sampled rates SHALL NOT be extrapolated or accumulated across pages as a complete current measurement. Health SHALL distinguish healthy, unavailable and unknown counts, with explicit seed/source freshness metadata.
+
 #### Scenario: Geometry change touches only dependent tiles
 - **WHEN** one device's non-telemetry geometry content changes
 - **THEN** invalidation SHALL be limited to its owning tiles, affected aggregate ancestry, and tiles touched by any changed old or new relation geometry
@@ -226,6 +230,25 @@ Telemetry SHALL use a separate bounded overlay keyed by stable node, aggregate, 
 - **WHEN** the channel publishes its invalidation or watch acknowledgement
 - **THEN** it SHALL send a bounded reset/reconcile marker
 - **AND** it SHALL NOT send a partial key list that implies completeness
+
+#### Scenario: Shared interfaces and partial bundles do not invent packet flow
+- **GIVEN** a rendered bundle includes unselected relations or an endpoint interface shared by another canonical relation outside the selected page
+- **WHEN** the server computes its current overlay
+- **THEN** the response SHALL report observed and total membership separately
+- **AND** a shared interface SHALL NOT be attributed to an individual relation unless a unique opposite endpoint supplies the measurement
+- **AND** an incompletely measured bundle SHALL have unknown flow and no packet animation
+
+#### Scenario: Measured zero and missing producer provenance remain distinct
+- **GIVEN** a single physical relation has three fresh measured packet families from one identified producer
+- **WHEN** all three rates are zero
+- **THEN** its overlay SHALL report measured zero without animation
+- **AND** absent producer identities SHALL NOT establish matching packet-family provenance
+
+#### Scenario: Publication during telemetry IO cannot replace current overlays
+- **GIVEN** a telemetry query started for an installed generation and encoded tile revision
+- **WHEN** a newer generation is installed before it completes
+- **THEN** the stale result SHALL be discarded without replacing current overlay state
+- **AND** telemetry refresh SHALL NOT refetch geometry or extend a sample's freshness timestamp
 
 ### Requirement: Tile navigation preserves bounded detail scenes and cached maps
 The God-View client SHALL use deck.gl TileLayer in OrthographicView with bounded prefetch and an LRU cache, reusing #4749 typed WebGPU sublayers and procedural packet flow. Picking SHALL fetch details by stable identity. ELK SHALL run only on a bounded device-neighborhood or attachment-member detail scene, with explicit entry and exit.

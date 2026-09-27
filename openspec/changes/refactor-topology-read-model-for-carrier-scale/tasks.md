@@ -14,7 +14,10 @@ The native detail/health bridges and process-wide admission guards are implement
 
 The integrated server checkpoint `e4a7be0c0c` passed [make test with remote execution](https://carverauto.buildbuddy.io/invocation/6377c40d-2b7b-455f-97ab-9095b336e75c): 356 targets passed and two were skipped. This includes bounded retention and typed exact-pair rate compilation; it excludes database integration tests. The native picking bridge passed [five native and 270 core tests](https://carverauto.buildbuddy.io/invocation/cc44fef4-51fe-4dae-82af-0c0c7a61221c). Picking HTTP and bounded-scene enrichment then compiled with [324 web tests passing](https://carverauto.buildbuddy.io/invocation/24de240a-8866-4e73-a3de-e238ed0a3c22). Actual installed-cache picking/scene delivery remains pending; no synthetic cache receipt is used as a substitute for the real schema-3 producer.
 
+The bounded overlay read model and owner are implemented separately from geometry, with exact-pair SRQL reads, complete-bundle coverage, producer provenance, global interface-degree requirements and generation fences. The final focused remote run passed [330 web tests with zero failures](https://carverauto.buildbuddy.io/invocation/c85c4ae2-0362-4f53-b21a-665e116c5743). A deliberate partial-bundle mutation failed before exact source restoration, and a real PubSub regression reproduced the missing durable-publication handler before its fix. Actual backend rate queries, installed schema-3 cache/overlay delivery and browser behavior remain pending. Tasks 3.12 and 6.9 remain open.
+
 ## 1. Topology Contract
+
 - [ ] 1.1 Implement and round-trip schema-3 tile and bounded detail payloads, including UInt16 local coordinates with affine metadata, local UInt32 endpoints, counts, budgets, and lazy details.
 - [ ] 1.2 Integrate server world-coordinate authority for the overview and explicit bounded ELK detail coordinate spaces; preserve map state on detail entry/exit.
 - [x] 1.3 Specify separate layout version, immutable publication generation, tile content revision, and telemetry overlay identity, with scope-safe caching and targeted invalidation.

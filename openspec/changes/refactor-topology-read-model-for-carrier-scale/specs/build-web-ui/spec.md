@@ -31,7 +31,7 @@ The God-View overview SHALL render persistent server-authored world coordinates.
 - **AND** detail layout SHALL NOT move the map's device positions
 
 ### Requirement: God-View bootstraps visible tiles over HTTP
-The God-View surface SHALL load a bounded layout manifest and visible schema-3 tiles over HTTP independently of channel timing. The channel SHALL deliver only bounded invalidations and separate telemetry overlays, with explicit reset markers on overflow.
+The God-View surface SHALL load a bounded layout manifest, visible schema-3 tiles and separate bounded telemetry overlay bodies over HTTP independently of channel timing. The channel SHALL deliver only bounded geometry and overlay invalidation metadata, with explicit reset markers on overflow. Overlay refresh SHALL preserve compatible cached geometry and SHALL retain explicit unknown or partial telemetry coverage.
 
 #### Scenario: First load does not wait for a stream snapshot
 - **GIVEN** an accepted layout has low-zoom tiles available
