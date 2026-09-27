@@ -235,6 +235,10 @@ impl Inventory {
                         ));
                     }
                 }
+                (None, Expect::Mismatch) => problems.push(format!(
+                    "{}: an `expect: mismatch` entry needs `recorded` rows",
+                    entry.id
+                )),
                 (None, _) => {}
             }
             if let Some(deviation) = entry.deviation(self) {
@@ -286,6 +290,34 @@ mod tests {
     fn the_checked_in_inventory_is_valid() {
         let inventory = Inventory::load();
         assert!(!inventory.entries.is_empty());
+    }
+
+    #[test]
+    fn a_mismatch_entry_without_recorded_rows_is_rejected() {
+        let inventory: Inventory = serde_json::from_value(serde_json::json!({
+            "deviations": {
+                "known": {
+                    "kind": "accepted",
+                    "reason": "the backends differ here on purpose, for a documented reason"
+                }
+            },
+            "entries": [{
+                "id": "flows.unpinned_mismatch",
+                "query": "in:flows {window_main} stats:sum(bytes_total) as total",
+                "expect": "mismatch",
+                "deviation": "known"
+            }]
+        }))
+        .expect("inventory parses");
+        let problems = inventory
+            .validate()
+            .expect_err("an unpinned mismatch is invalid");
+        assert!(
+            problems.contains(
+                "flows.unpinned_mismatch: an `expect: mismatch` entry needs `recorded` rows"
+            ),
+            "{problems}"
+        );
     }
 
     #[test]
