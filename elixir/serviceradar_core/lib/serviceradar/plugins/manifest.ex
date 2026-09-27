@@ -2109,6 +2109,9 @@ defmodule ServiceRadar.Plugins.Manifest do
     {timeout_seconds, errors} =
       optional_action_positive_int(action, :timeout_seconds, index, errors)
 
+    {max_override_duration_seconds, errors} =
+      optional_action_positive_int(action, :max_override_duration_seconds, index, errors)
+
     {safety_classification, errors} = optional_action_safety(action, index, errors)
 
     {credential_requirements, errors} =
@@ -2116,28 +2119,38 @@ defmodule ServiceRadar.Plugins.Manifest do
 
     if errors == [] do
       {:ok,
-       %{
-         action_id: action_id,
-         version: version || "1.0.0",
-         label: label,
-         description: description,
-         scopes: scopes,
-         required_context: required_context,
-         input_schema: input_schema,
-         timeout_seconds: timeout_seconds || 60,
-         safety_classification: safety_classification || "standard",
-         requires_confirmation: truthy?(fetch(action, :requires_confirmation)),
-         credential_requirements: credential_requirements,
-         result_schema_version:
-           normalize_string(fetch(action, :result_schema_version)) ||
-             "serviceradar.northbound_action_result.v1"
-       }}
+       maybe_put_max_override_duration(
+         %{
+           action_id: action_id,
+           version: version || "1.0.0",
+           label: label,
+           description: description,
+           scopes: scopes,
+           required_context: required_context,
+           input_schema: input_schema,
+           timeout_seconds: timeout_seconds || 60,
+           safety_classification: safety_classification || "standard",
+           requires_confirmation: truthy?(fetch(action, :requires_confirmation)),
+           credential_requirements: credential_requirements,
+           result_schema_version:
+             normalize_string(fetch(action, :result_schema_version)) ||
+               "serviceradar.northbound_action_result.v1"
+         },
+         max_override_duration_seconds
+       )}
     else
       {:error, errors}
     end
   end
 
   defp validate_action(_action, index), do: {:error, ["actions[#{index}] must be a map"]}
+
+  # Only present when declared, so descriptors of actions that do not set run
+  # overrides keep their existing descriptor hash.
+  defp maybe_put_max_override_duration(action, nil), do: action
+
+  defp maybe_put_max_override_duration(action, seconds),
+    do: Map.put(action, :max_override_duration_seconds, seconds)
 
   defp forbidden_ui_contract_errors(action, index) do
     forbidden = ~w(html raw_html javascript js component component_ref live_view react ui_code)

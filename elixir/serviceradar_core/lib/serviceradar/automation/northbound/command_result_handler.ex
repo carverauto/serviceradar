@@ -4,6 +4,7 @@ defmodule ServiceRadar.Automation.Northbound.CommandResultHandler do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Automation.Northbound.ActionDescriptor
   alias ServiceRadar.Automation.Northbound.ActionInvocation
   alias ServiceRadar.Automation.Northbound.ActionInvocationTarget
   alias ServiceRadar.Automation.Northbound.PollWorker
@@ -11,6 +12,7 @@ defmodule ServiceRadar.Automation.Northbound.CommandResultHandler do
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Edge.Crypto
   alias ServiceRadar.Plugins.ProducerSchedule
+  alias ServiceRadar.Plugins.RunOverrides
 
   require Logger
 
@@ -115,9 +117,43 @@ defmodule ServiceRadar.Automation.Northbound.CommandResultHandler do
         record_invocation_result(invocation, data, payload, terminal_status, actor)
       end
 
+      if terminal_status == :succeeded do
+        apply_run_overrides(invocation, payload, context, actor)
+      end
+
       consume_command_credential_grants(context, actor)
     end
   end
+
+  # A succeeded plugin action may leave time-bounded run overrides for its
+  # assignment. Only a succeeded action may change later runs; the descriptor's
+  # max_override_duration_seconds bounds them.
+  defp apply_run_overrides(invocation, payload, context, actor) do
+    case RunOverrides.apply_action_result(payload, context,
+           actor: actor,
+           invocation_id: invocation.id,
+           max_override_duration_seconds: descriptor_max_override_duration(invocation, actor)
+         ) do
+      {:ok, _count} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Northbound action run overrides ignored",
+          invocation_id: invocation.id,
+          reason: inspect(reason)
+        )
+    end
+  end
+
+  defp descriptor_max_override_duration(%{descriptor_id: descriptor_id}, actor)
+       when is_binary(descriptor_id) do
+    case ActionDescriptor.get_by_id(descriptor_id, actor: actor) do
+      {:ok, %{max_override_duration_seconds: seconds}} -> seconds
+      _ -> nil
+    end
+  end
+
+  defp descriptor_max_override_duration(_invocation, _actor), do: nil
 
   defp context_producer_schedule_id(context) when is_map(context) do
     case map_get(context, :producer_schedule_id, nil) do

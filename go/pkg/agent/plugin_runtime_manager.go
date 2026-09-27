@@ -118,6 +118,7 @@ func NewPluginManager(ctx context.Context, cfg PluginManagerConfig) *PluginManag
 		results:                       make(chan PluginResult, 1024),
 		signals:                       make(chan PluginSignalTelemetry, 1024),
 		conditions:                    newPluginConditionDebouncer(time.Now),
+		runOverrides:                  newRunOverrideStore(),
 		states:                        make(map[string]*assignmentState),
 		stateNow:                      time.Now,
 	}
@@ -181,6 +182,10 @@ func (m *PluginManager) ApplyConfig(cfg *proto.PluginConfig) {
 			assignments = append(assignments, newPluginAssignment(assignment, m.logger))
 		}
 	}
+
+	// Run overrides are refreshed in place on every config, changed or not:
+	// they are excluded from the fingerprint so they never restart runners.
+	m.runOverrides.applyConfig(assignments, time.Now())
 
 	configHash := buildPluginConfigHash(limits, assignments)
 	if m.configUnchanged(configHash) {
@@ -1277,6 +1282,12 @@ func (m *PluginManager) RunAction(ctx context.Context, assignmentID string, invo
 
 	entrypoint := notificationActionEntrypoint(assignment, invocationPayload)
 	result, err := m.executeActionWithWasm(runCtx, assignment, entrypoint, wasm, configJSON, credentialGrants, nil, nil)
+	if err == nil {
+		// Let the next scheduled run see overrides this action set or ended,
+		// without waiting for the control plane's copy to arrive by config poll.
+		maxOverrideDurationSeconds := actionInvocationMaxOverrideDurationSeconds(invocationPayload)
+		m.runOverrides.recordActionResult(assignment.AssignmentID, result, time.Now(), maxOverrideDurationSeconds)
+	}
 	if err == nil && assignment.ingestsActionResults() {
 		result, err = m.enqueueActionResult(runCtx, assignment, result)
 	}

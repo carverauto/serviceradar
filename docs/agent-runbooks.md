@@ -623,7 +623,17 @@ Two dispositions cover almost everything:
   ownership (`data_case`/`async`/`transaction_owner`, or `serial` with a
   specific reason from `SERIAL_REASONS`) — read a few neighboring rows for an
   analogous test and match their reasoning style; the `evidence` column must
-  describe the actual file, not just repeat the reason.
+  describe the actual file, not just repeat the reason. Unlike the
+  database-free case, a `serial` disposition **does** need a change to
+  `build/integration_test_dispositions.bzl`: add the source's module count to
+  `SERIAL_INTEGRATION_MODULE_COUNTS` (normally `1`) and its selected-test
+  count (the number of `test`/`property` cases the module runs) to
+  `SERIAL_INTEGRATION_SELECTED_TEST_COUNTS`, so
+  `test_starlark_lane_projection_exactly_matches_the_inventory` and
+  `build/integration_selection_equivalence_test.exs` agree with the TSV. This
+  step is easy to miss because the earlier database-free case explicitly says
+  no Starlark change is needed, and a missing entry only fails BazelCI, not
+  `mix test`.
 
 Verify locally before pushing (no Bazel/Docker required):
 `python3 -m unittest build/contracts/ci_heavy_gate_contract_test.py` from the repo root.

@@ -888,6 +888,7 @@ defmodule Monitoring.PluginAssignmentConfig do
   field :download_url, 21, type: :string, json_name: "downloadUrl"
   field :download_token, 22, type: :string, json_name: "downloadToken"
   field :host_params_json, 23, type: :bytes, json_name: "hostParamsJson"
+  field :run_overrides_json, 24, type: :bytes, json_name: "runOverridesJson"
 end
 
 defmodule Monitoring.BumblebeeConfig do

@@ -195,6 +195,7 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionSync do
       safety_classification: safety_classification(action.safety_classification),
       requires_confirmation: action.requires_confirmation,
       timeout_seconds: action.timeout_seconds,
+      max_override_duration_seconds: Map.get(action, :max_override_duration_seconds),
       credential_requirements: action.credential_requirements,
       result_schema_version: action.result_schema_version,
       descriptor_hash: descriptor_hash(action),
