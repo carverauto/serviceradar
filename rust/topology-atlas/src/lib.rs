@@ -2,6 +2,7 @@
 //! changing the coordinate space requires a new, explicitly published layout.
 
 mod details;
+mod health;
 mod layout;
 mod spatial;
 mod tiles;
@@ -10,6 +11,10 @@ pub use details::{
     AggregateSelection, DETAIL_EDGE_LIMIT, DETAIL_MEMBER_LIMIT, DETAIL_NODE_LIMIT, DetailCursor,
     DetailPage, DetailRelation, DetailScope, MAX_SELECTION_BYTES, RELATION_CANDIDATE_LIMIT,
     RelationCursor, RelationPage, SelectedRelation, TileSelection,
+};
+pub use health::{
+    DeviceIdsCursor, DeviceIdsPage, GlyphHealth, HEALTH_BATCH_LIMIT, HealthApply, HealthCounts,
+    HealthIndex, HealthObservation, HealthSnapshot, HealthState, TileHealth,
 };
 pub use layout::reconcile;
 pub use tiles::{Budget, Glyph, GlyphKind, Tile, TileEdge, World};
@@ -103,6 +108,7 @@ pub enum Error {
     DetailNotFound,
     InvalidDetailCursor,
     StaleDetailRevision,
+    InvalidHealthUpdate,
 }
 
 impl std::fmt::Display for Error {

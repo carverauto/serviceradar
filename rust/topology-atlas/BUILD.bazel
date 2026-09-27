@@ -37,3 +37,10 @@ rust_test(
     crate_root = "tests/details.rs",
     deps = [":topology_atlas"],
 )
+
+rust_test(
+    name = "health_test",
+    srcs = ["tests/health.rs"],
+    crate_root = "tests/health.rs",
+    deps = [":topology_atlas"],
+)
