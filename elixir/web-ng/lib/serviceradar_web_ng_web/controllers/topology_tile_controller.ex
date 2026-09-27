@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNG.Topology.TileKey
   alias ServiceRadarWebNG.Topology.WorldCache
+  alias ServiceRadarWebNG.Topology.WorldDetails
   alias ServiceRadarWebNGWeb.FeatureFlags
 
   plug(:authorize)
@@ -87,6 +88,26 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
 
   def search(conn, _params), do: error(conn, :invalid_search)
 
+  def details(conn, params) do
+    case WorldDetails.fetch(conn.assigns.current_scope, params) do
+      {:ok, result} ->
+        etag = ~s("#{result.content.layout_version}:#{result.revision}")
+
+        conn =
+          conn
+          |> generation_headers(result.content)
+          |> put_resp_header("cache-control", "private, no-cache")
+          |> put_resp_header("etag", etag)
+
+        if matches_etag?(conn, etag),
+          do: send_resp(conn, :not_modified, ""),
+          else: conn |> put_resp_content_type("application/json") |> send_resp(:ok, result.payload)
+
+      {:error, reason} ->
+        error(conn, reason)
+    end
+  end
+
   def relayout(conn, _params) do
     with {:ok, scope} <- authorize_relayout(conn.assigns.current_scope),
          {:ok, operation} <- World.request_relayout(scope) do
@@ -138,6 +159,9 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
         :god_view_disabled -> {404, "god_view_disabled"}
         :invalid_tile -> {400, "invalid_tile"}
         :invalid_search -> {400, "invalid_search"}
+        :invalid_detail -> {400, "invalid_detail"}
+        :stale_revision -> {409, "stale_revision"}
+        :payload_too_large -> {413, "detail_budget_exceeded"}
         :not_found -> {404, "device_not_found"}
         :layout_changed -> {409, "layout_changed"}
         :busy -> {503, "tile_busy"}

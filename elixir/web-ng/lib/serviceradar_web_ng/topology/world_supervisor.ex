@@ -20,12 +20,14 @@ defmodule ServiceRadarWebNG.Topology.WorldSupervisor do
     load_tasks = ServiceRadarWebNG.Topology.WorldLoadTasks
     watch_tasks = ServiceRadarWebNG.Topology.TileWatchTasks
     health_tasks = ServiceRadarWebNG.Topology.WorldHealthTasks
+    detail_tasks = ServiceRadarWebNG.Topology.WorldDetailTasks
 
     # Each owner and its task supervisors share a restart boundary. Otherwise
     # an owner crash loses its timeout while an orphan still occupies the pool.
     cache_children = [
       Supervisor.child_spec({Task.Supervisor, name: tile_tasks, max_children: 4}, id: tile_tasks),
       Supervisor.child_spec({Task.Supervisor, name: watch_tasks, max_children: 64}, id: watch_tasks),
+      Supervisor.child_spec({Task.Supervisor, name: detail_tasks, max_children: 16}, id: detail_tasks),
       {WorldCache, task_supervisor: tile_tasks, pubsub: ServiceRadar.PubSub}
     ]
 
