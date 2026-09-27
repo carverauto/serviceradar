@@ -60,11 +60,11 @@ impl SeverityTopNQuery {
 
 /// Build an index-friendly top-N query for timestamp-sorted, multi-severity logs.
 ///
-/// PostgreSQL cannot preserve effective-timestamp ordering across multiple values
+/// PostgreSQL cannot preserve event-timestamp ordering across multiple values
 /// of the leading `lower(severity_text)` index key. The ordinary `= ANY($n)`
 /// plan therefore favors the timestamp-only index and filters millions of rows.
 /// Each scalar text or numeric-fallback branch can use its corresponding
-/// severity/effective-timestamp index in order; merging the bounded, disjoint
+/// severity/timestamp index in order; merging the bounded, disjoint
 /// branch heads preserves the exact global top-N result.
 pub(super) fn build(plan: &QueryPlan) -> Result<Option<SeverityTopNQuery>> {
     if !has_supported_timestamp_order(plan) {
@@ -387,7 +387,7 @@ fn outer_order_sql(plan: &QueryPlan) -> String {
         .map(|clause| {
             let expression = match clause.field.as_str() {
                 "timestamp" => {
-                    format!("COALESCE({TOPN_ALIAS}.observed_timestamp, {TOPN_ALIAS}.\"timestamp\")")
+                    format!("{TOPN_ALIAS}.\"timestamp\"")
                 }
                 "severity_number" => format!("{TOPN_ALIAS}.severity_number"),
                 _ => unreachable!("top-N eligibility rejects unsupported ordering"),
@@ -452,9 +452,7 @@ mod tests {
         );
         assert!(!sql.contains(" = ANY("), "{sql}");
         assert!(
-            sql.contains(
-                "ORDER BY COALESCE(severity_topn.observed_timestamp, severity_topn.\"timestamp\") DESC, severity_topn.id DESC"
-            ),
+            sql.contains("ORDER BY severity_topn.\"timestamp\" DESC, severity_topn.id DESC"),
             "{sql}"
         );
         assert_eq!(
@@ -518,7 +516,7 @@ mod tests {
             let (sql, _) = build(&plan).unwrap().unwrap().into_parts();
             assert!(
                 sql.contains(&format!(
-                    "ORDER BY COALESCE(severity_topn.observed_timestamp, severity_topn.\"timestamp\") {expected}, severity_topn.id {expected}"
+                    "ORDER BY severity_topn.\"timestamp\" {expected}, severity_topn.id {expected}"
                 )),
                 "{sql}"
             );

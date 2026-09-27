@@ -11,7 +11,7 @@ use self::{
     filters::{apply_filter, collect_filter_params},
     rollup::build_rollup_stats_query,
     stats::{LogsStatsPayload, bind_param_from_stats, build_stats_query, rewrite_placeholders},
-    time::{apply_ordering, effective_timestamp_expr},
+    time::{apply_ordering, log_timestamp_expr},
 };
 use super::{BindParam, QueryPlan};
 use crate::{
@@ -214,9 +214,9 @@ fn build_query(plan: &QueryPlan) -> Result<LogsQuery<'static>> {
         // Half-open, matching the StarRocks dialect and the severity rollup: a line on `end`
         // belongs to the next window, so adjacent windows never count it twice.
         query = query.filter(
-            effective_timestamp_expr()
+            log_timestamp_expr()
                 .ge(*start)
-                .and(effective_timestamp_expr().lt(*end)),
+                .and(log_timestamp_expr().lt(*end)),
         );
     }
 

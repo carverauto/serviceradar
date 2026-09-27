@@ -31,6 +31,10 @@
     "cnpg_events_count_column": {
       "kind": "accepted",
       "reason": "The CNPG events builder accepts only `count() as total` and returns the column unaliased, as `count`; the StarRocks dialect honours the alias. The values are compared after renaming the CNPG column."
+    },
+    "logs_list_ignores_cnpg_only_columns": {
+      "kind": "accepted",
+      "reason": "The CNPG logs table carries columns the warehouse table does not (service_instance, scope_name, scope_version, scope_attributes, attributes, resource_attributes, created_at, trace_flags). A raw list comparison ignores those so the shared columns, including the window/ordering column timestamp, are compared exactly."
     }
   },
   "entries": [
@@ -597,6 +601,8 @@
     {"id": "logs.count", "query": "in:logs {window_main} stats:\"count() as total\"", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/stats/query.ex"]},
     {"id": "logs.count.severity_filter", "query": "in:logs {window_main} severity_text:error stats:\"count() as total\""},
     {"id": "logs.edge.upper_bound", "query": "in:logs {window_edge} stats:\"count() as total\""},
+    {"id": "logs.skew.count", "query": "in:logs {window_skew} stats:\"count() as total\""},
+    {"id": "logs.skew.order", "query": "in:logs {window_skew} sort:timestamp:asc limit:10", "deviation": "logs_list_ignores_cnpg_only_columns", "ignore_columns": ["attributes", "created_at", "resource_attributes", "scope_attributes", "scope_name", "scope_version", "service_instance", "trace_flags"]},
 
     {"id": "events.rollup_anomaly_findings", "query": "in:events {window_main} rollup_stats:anomaly_findings limit:1", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/stats/query.ex", "elixir/web-ng/lib/serviceradar_web_ng_web/live/observability_health_live/index.ex"]},
     {"id": "events.count", "query": "in:events {window_main} stats:\"count() as total\"", "deviation": "cnpg_events_count_column", "cnpg_rename": {"count": "total"}},

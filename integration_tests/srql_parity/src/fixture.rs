@@ -74,6 +74,7 @@ impl Anchor {
             ("{window_cpu}", range(0, 2)),
             ("{window_edge}", range(7, 8)),
             ("{window_halves}", range(9, 10)),
+            ("{window_skew}", range(11, 12)),
         ]
     }
 
