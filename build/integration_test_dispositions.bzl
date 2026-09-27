@@ -127,6 +127,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/serviceradar/observability/rule_seeder_test.exs",
     "test/serviceradar/observability/seasonal_disposition/chronological_state_migration_db_test.exs",
     "test/serviceradar/observability/seasonal_disposition/verdict_emitter_test.exs",
+    "test/serviceradar/observability/services_availability_cagg_test.exs",
     "test/serviceradar/observability/stateful_alert_rule_events_test.exs",
     "test/serviceradar/observability/stateful_alert_rule_policy_test.exs",
     "test/serviceradar/observability/sync_log_writer_test.exs",
