@@ -97,3 +97,9 @@ committed. The [remote repository gate](https://carverauto.buildbuddy.io/invocat
 passed `make test` (367 targets passed, two skipped), followed by all three
 WebGPU/browser acceptance targets at commit `f795ebe144`. Subsequent changes
 require final validation; no-mistakes remains required before a PR.
+
+The [Fit navigation regression](https://carverauto.buildbuddy.io/invocation/dd7a6350-7c14-4e9a-bf56-1e8c3c17a350)
+passed all three WebGPU cases after first reproducing the failure: Fit in an open
+detail scene used to discard that scene because the overview also handled the
+reset event. The overview now leaves fitting to the active detail renderer; Fit
+on the map restores the fixed world extent.
