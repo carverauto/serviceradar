@@ -115,7 +115,10 @@ export function createDemoKit({React, sdk}) {
     const onEvents = useCallback(
       (events) => {
         setOpen((previous) => foldIncidents(previous, events))
-        refreshFrames()
+        // The host resolves {refreshed: false} when a query is already in
+        // flight; only a transport failure rejects, and nothing is left to
+        // catch it here.
+        refreshFrames().catch(() => {})
       },
       [refreshFrames],
     )

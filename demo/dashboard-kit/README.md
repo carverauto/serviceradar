@@ -20,11 +20,12 @@ Shared frame + presenter strip for showcase demo dashboards
   `resolve.js` fixture resolver that maps scenario chips to fixtures.
 - `dashboard.config.mjs` + `src/main.jsx` + `package.json` — runnable
   offline example: `npm install` then `npm run dev`, no live ServiceRadar.
-
-The example needs an SDK that exports the `live` subpath
-(`useDashboardActions`, `useDashboardEvents`, `useFrameRefresh`); until that
-is released, install it from the SDK checkout:
-`npm install <path-to-serviceradar-sdk-dashboard>`.
+  Two prerequisites, both temporary while the branch stack lands:
+  `serviceradar-cli` on `PATH` must be built from this branch (only it
+  accepts `fixtureResolver`), and the SDK must export the `live` subpath
+  (`useDashboardActions`, `useDashboardEvents`, `useFrameRefresh`) — until
+  that is released, `npm install <path-to-serviceradar-sdk-dashboard>`
+  from the `feat/plan-view` checkout.
 
 ## Tests
 

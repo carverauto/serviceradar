@@ -57,7 +57,9 @@ export function Dashboard() {
           <PresenterStrip
             pluginId={PLUGIN_ID}
             scope="device"
-            targets={[]}
+            // The fixture asset every fault targets; the host (and the
+            // production actions API) rejects an invocation with no targets.
+            targets={[{device_uid: "sensor-a"}]}
             scheduleRows={rows}
             incident={headline}
           />
