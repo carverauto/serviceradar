@@ -27,6 +27,14 @@ defmodule ServiceRadar.DB.MigrateTest do
   //rust/integration-db:prepare_template and :provision_base evaluate to decide whether to
   invoke this target at all.
 
+  It keeps `platform.ash_schema_migrations` in step with that ledger through the same
+  `ServiceRadar.Repo.SchemaBootstrap.sync_migration_ledgers!/1` startup and
+  `mix serviceradar.db.migrate` call, before the migrator and after it, and then refuses to
+  pass unless both ledgers record every migration on disk. web-ng's `RequireMigrations` gate
+  reads the ash ledger, so a database this step left without it answers every web-ng route with
+  503 although nothing is pending. Only the database this target already writes is touched, and
+  only by adding versions; which target may write `sr_core_template` is unchanged.
+
   Ordering is the workflow's job -- Bazel gives no guarantee between targets or between
   tests within one -- and it runs after //rust/integration-db:provision_base (or
   :prepare_template, on trunk) and before //rust/integration-db:provision_db.
@@ -98,12 +106,24 @@ defmodule ServiceRadar.DB.MigrateTest do
             """)
         end
 
-        Ecto.Migrator.run(repo, :up, all: true)
+        # Pending is then computed from every version either ledger records.
+        report_sync("before migrating", SchemaBootstrap.sync_migration_ledgers!(repo))
+
+        applied = Ecto.Migrator.run(repo, :up, all: true)
+
+        report_sync("after migrating", SchemaBootstrap.sync_migration_ledgers!(repo))
+
+        {applied, unrecorded_versions(repo)}
       end)
 
     case result do
-      {:ok, applied, _started_apps} ->
+      {:ok, {applied, unrecorded}, _started_apps} ->
         IO.puts("applied #{length(applied)} migration(s)")
+
+        # Gate on the ledgers themselves, not on the calls above having returned: this is the
+        # state every lane database is cloned from.
+        assert unrecorded == %{schema_migrations: [], ash_schema_migrations: []},
+               "migrations on disk missing from a migration ledger: #{inspect(unrecorded)}"
 
       {:error, reason} ->
         flunk("""
@@ -113,5 +133,29 @@ defmodule ServiceRadar.DB.MigrateTest do
         #{:serviceradar_core |> Application.get_env(Repo) |> Keyword.drop([:password, :url]) |> inspect()}
         """)
     end
+  end
+
+  defp report_sync(stage, %{schema_migrations: core, ash_schema_migrations: ash}) do
+    IO.puts(
+      "ledger sync #{stage}: recorded #{core} version(s) in platform.schema_migrations, " <>
+        "#{ash} in platform.ash_schema_migrations"
+    )
+  end
+
+  # The migrations on disk each ledger does not record. Empty for both is what web-ng's gate
+  # and core's migrator each need to see nothing pending.
+  defp unrecorded_versions(repo) do
+    on_disk =
+      :serviceradar_core
+      |> Application.app_dir("priv/repo/migrations/*.exs")
+      |> Path.wildcard()
+      |> Enum.map(&SchemaBootstrap.migration_version_from_file/1)
+      |> Enum.sort()
+
+    Map.new([:schema_migrations, :ash_schema_migrations], fn ledger ->
+      %{rows: rows} = repo.query!("SELECT version FROM platform.#{ledger}")
+      recorded = MapSet.new(rows, fn [version] -> version end)
+      {ledger, Enum.reject(on_disk, &MapSet.member?(recorded, &1))}
+    end)
   end
 end
