@@ -157,6 +157,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      |> stream(:events, [])
      |> assign(:service_stats_scope, nil)
      |> assign(:service_filter_notice?, false)
+     |> assign(:service_filter_allowed?, false)
      |> ServicePicker.init()
      |> SRQLPage.init("logs", default_limit: @default_limit)}
   end
@@ -320,6 +321,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:alert_selection, MapSet.new())
       |> assign(:alert_bulk_result, nil)
       |> assign(:service_filter_notice?, ObservabilityPaths.service_filter_not_carried?(params))
+      |> assign(:service_filter_allowed?, ServicePicker.authorized?(socket.assigns[:current_scope], tab))
 
     socket =
       if connected?(socket) do
@@ -1550,7 +1552,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           />
 
           <div
-            :if={@service_filter_notice? and @active_tab in ServiceFilter.signal_tabs()}
+            :if={
+              @service_filter_allowed? and @service_filter_notice? and
+                @active_tab in ServiceFilter.signal_tabs()
+            }
             id="service-filter-not-carried"
             role="status"
             class={ui_alert_class("info")}
@@ -1584,7 +1589,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           </div>
 
           <ServicePicker.stat_scope_badge
-            :if={@active_tab in ServiceFilter.signal_tabs()}
+            :if={@service_filter_allowed? and @active_tab in ServiceFilter.signal_tabs()}
             id="service-stats-scope"
             scope={@service_stats_scope}
           />
@@ -1659,12 +1664,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 srql={@srql}
                 limit={@limit}
                 live?={@logs_live?}
+                service_filter?={@service_filter_allowed?}
               />
               <.traces_panel_controls
                 :if={@active_tab == "traces"}
                 srql={@srql}
                 limit={@limit}
                 live?={@traces_live?}
+                service_filter?={@service_filter_allowed?}
               />
               <.metrics_panel_controls
                 :if={@active_tab == "metrics"}
@@ -1672,6 +1679,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 srql={@srql}
                 limit={@limit}
                 live?={@metrics_live?}
+                service_filter?={@service_filter_allowed?}
               />
               <.events_panel_controls :if={@active_tab == "events"} live?={@events_live?} />
               <.alerts_panel_controls :if={@active_tab == "alerts"} live?={@alerts_live?} />
@@ -3734,6 +3742,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   attr(:srql, :map, required: true)
   attr(:limit, :integer, required: true)
+  attr(:service_filter?, :boolean, default: false)
 
   defp log_source_filters(assigns) do
     query = Map.get(assigns.srql, :query) || ""
@@ -3757,7 +3766,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     ~H"""
     <div class="flex items-center gap-2">
-      <ServicePicker.service_picker_trigger id="logs-service-filter" query={@query} />
+      <ServicePicker.service_picker_trigger
+        :if={@service_filter?}
+        id="logs-service-filter"
+        query={@query}
+      />
       <div class="hidden sm:flex items-center gap-2">
         <span class="text-[10px] uppercase tracking-wider text-sr-muted">Source</span>
         <div class="flex flex-wrap gap-1">
@@ -3801,6 +3814,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:srql, :map, required: true)
   attr(:limit, :integer, required: true)
   attr(:live?, :boolean, default: false)
+  attr(:service_filter?, :boolean, default: false)
 
   defp log_panel_controls(assigns) do
     assigns =
@@ -3826,7 +3840,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         </.ui_badge>
       </.ui_button>
 
-      <.log_source_filters srql={@srql} limit={@limit} />
+      <.log_source_filters srql={@srql} limit={@limit} service_filter?={@service_filter?} />
     </div>
     """
   end
@@ -4721,6 +4735,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:limit, :integer, required: true)
 
   attr(:live?, :boolean, default: false)
+  attr(:service_filter?, :boolean, default: false)
 
   defp traces_panel_controls(assigns) do
     query = Map.get(assigns.srql, :query) || ""
@@ -4740,6 +4755,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         pause_title="Pause live trace streaming"
       />
       <ServicePicker.service_picker_trigger
+        :if={@service_filter?}
         id="traces-service-filter"
         query={Map.get(@srql, :query) || ""}
       />
@@ -4968,6 +4984,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:srql, :map, required: true)
   attr(:limit, :integer, required: true)
   attr(:live?, :boolean, default: false)
+  attr(:service_filter?, :boolean, default: false)
 
   # Toggle between the legacy span-sample exemplars and real OTLP metric
   # points (in:otel_metric_points). Patch links keep the toggle URL-driven,
@@ -4983,6 +5000,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         pause_title="Pause live metric streaming"
       />
       <ServicePicker.service_picker_trigger
+        :if={@service_filter?}
         id="metrics-service-filter"
         query={Map.get(@srql, :query) || ""}
       />

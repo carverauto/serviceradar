@@ -23,7 +23,9 @@ defmodule ServiceRadarWebNGWeb.Components.ServicePicker do
   ## Authorization
 
   Every event re-checks that the scope may view the pane's signal before it
-  touches the catalog. SRQL gates `in:otel_services` again on its own.
+  touches the catalog. SRQL gates `in:otel_services` again on its own. The
+  host renders none of the filter's controls (trigger, stat-scope badge,
+  not-carried notice) on a pane `authorized?/2` refuses.
   """
 
   use ServiceRadarWebNGWeb, :html
