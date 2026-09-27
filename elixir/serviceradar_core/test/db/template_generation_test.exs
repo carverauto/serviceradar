@@ -55,6 +55,67 @@ defmodule ServiceRadar.DB.TemplateGenerationTest do
     end
   end
 
+  test "publication requires both migration ledgers to record exactly the manifest versions" do
+    versions = [1, 2, 3]
+
+    assert :ok =
+             TemplateGeneration.validate_ledgers!(
+               %{"schema_migrations" => versions, "ash_schema_migrations" => versions},
+               versions
+             )
+
+    # The first ledger is what a generation built by the pre-sync builder held: the ash ledger
+    # web-ng's migrations gate reads was never created, so it reads as empty.
+    for ledgers <- [
+          %{"schema_migrations" => versions, "ash_schema_migrations" => []},
+          %{"schema_migrations" => versions},
+          %{"schema_migrations" => versions, "ash_schema_migrations" => [1, 2]},
+          %{"schema_migrations" => versions, "ash_schema_migrations" => [1, 2, 3, 4]},
+          %{"schema_migrations" => [1, 2], "ash_schema_migrations" => versions},
+          %{"schema_migrations" => [], "ash_schema_migrations" => []},
+          %{
+            "schema_migrations" => versions,
+            "ash_schema_migrations" => versions,
+            "other" => versions
+          },
+          nil
+        ] do
+      assert_raise RuntimeError, ~r/ledger mismatch/, fn ->
+        TemplateGeneration.validate_ledgers!(ledgers, versions)
+      end
+    end
+
+    error =
+      assert_raise RuntimeError, fn ->
+        TemplateGeneration.validate_ledgers!(
+          %{"schema_migrations" => versions, "ash_schema_migrations" => [1]},
+          versions
+        )
+      end
+
+    assert Exception.message(error) =~ "ash_schema_migrations (2 missing, 0 unexpected)"
+    refute Exception.message(error) =~ ~r/[:,] schema_migrations \(/
+  end
+
+  test "replay refuses a candidate holding history in either ledger" do
+    assert :ok =
+             TemplateGeneration.validate_no_history!(%{
+               "schema_migrations" => [],
+               "ash_schema_migrations" => []
+             })
+
+    for ledgers <- [
+          %{"schema_migrations" => [1], "ash_schema_migrations" => []},
+          %{"schema_migrations" => [], "ash_schema_migrations" => [1]},
+          %{"schema_migrations" => []},
+          nil
+        ] do
+      assert_raise RuntimeError, ~r/partial template replay refused/, fn ->
+        TemplateGeneration.validate_no_history!(ledgers)
+      end
+    end
+  end
+
   test "backend draining retries transient sessions within the remaining deadline" do
     assert {:wait, 250} = TemplateGeneration.backend_drain_step!([[2]], 1_000)
     assert {:wait, 40} = TemplateGeneration.backend_drain_step!([[1]], 40)
