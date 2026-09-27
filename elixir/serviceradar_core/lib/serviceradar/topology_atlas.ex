@@ -99,6 +99,13 @@ defmodule ServiceRadar.TopologyAtlas do
 
   def aggregate_selection(_world, _selection, _glyph_id), do: {:error, :invalid_identity}
 
+  @doc "Returns the exact member count and retained bytes without retaining or reading a world."
+  def aggregate_info(aggregate), do: Native.aggregate_info(aggregate)
+
+  @doc "Reads one canonical binding and its source/target positions in order, including both copies for a self-link."
+  def relation(world, id) when is_binary(id) and byte_size(id) > 0, do: Native.relation(world, id)
+  def relation(_world, _id), do: {:error, :invalid_identity}
+
   @doc "Read a bounded neighborhood or member page; cursors are tied to its immutable native source."
   def detail(world, scope, cursor \\ nil), do: Native.detail(world, scope, cursor)
 
