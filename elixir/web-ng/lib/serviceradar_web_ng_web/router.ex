@@ -122,6 +122,10 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(:set_ash_actor)
   end
 
+  pipeline :topology_mutation do
+    plug(:protect_from_forgery)
+  end
+
   pipeline :api do
     plug(:accepts, ["json"])
     plug(SecurityHeaders)
@@ -1099,6 +1103,20 @@ defmodule ServiceRadarWebNGWeb.Router do
 
     get("/latest", TopologySnapshotController, :show)
     get("/revisions", TopologySnapshotController, :revisions)
+  end
+
+  scope "/topology/tiles", ServiceRadarWebNGWeb do
+    pipe_through([:topology_api])
+
+    get("/manifest", TopologyTileController, :manifest)
+    get("/search", TopologyTileController, :search)
+    get("/:layout_version/:z/:x/:y", TopologyTileController, :show)
+  end
+
+  scope "/topology/tiles", ServiceRadarWebNGWeb do
+    pipe_through([:topology_api, :topology_mutation])
+
+    post("/relayout", TopologyTileController, :relayout)
   end
 
   scope "/", ServiceRadarWebNGWeb do

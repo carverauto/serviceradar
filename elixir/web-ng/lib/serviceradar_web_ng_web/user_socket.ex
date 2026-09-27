@@ -5,9 +5,10 @@ defmodule ServiceRadarWebNGWeb.UserSocket do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Auth.Guardian
 
-  channel "dashboards:*", ServiceRadarWebNGWeb.DashboardFrameChannel
-  channel "notifications:*", ServiceRadarWebNGWeb.NotificationFirehoseChannel
-  channel "topology:*", ServiceRadarWebNGWeb.TopologyChannel
+  channel("dashboards:*", ServiceRadarWebNGWeb.DashboardFrameChannel)
+  channel("notifications:*", ServiceRadarWebNGWeb.NotificationFirehoseChannel)
+  channel("topology:tiles", ServiceRadarWebNGWeb.TopologyTileChannel)
+  channel("topology:*", ServiceRadarWebNGWeb.TopologyChannel)
 
   @impl true
   def connect(_params, socket, connect_info) do
