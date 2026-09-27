@@ -664,7 +664,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
   end
 
   @tag :integration
-  test "suppresses SNMP for a target address with conflicting credentials from different devices" do
+  test "suppresses SNMP when one seed matches devices with conflicting profile credentials" do
     actor = SystemActor.system(:test)
     suffix = System.unique_integer([:positive])
     partition = "example-partition-#{suffix}"
@@ -710,35 +710,19 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompilerTest do
       )
       |> Ash.create!(actor: actor)
 
-    {:ok, secret_a} =
-      create_mapper_secret(
-        "snmp",
-        "Example conflict credential A #{suffix}",
-        Jason.encode!(%{"community" => "example-conflict-a"}),
-        actor
-      )
-
-    {:ok, secret_b} =
-      create_mapper_secret(
-        "snmp",
-        "Example conflict credential B #{suffix}",
-        Jason.encode!(%{"community" => "example-conflict-b"}),
-        actor
-      )
-
-    for {vendor, secret} <- [{vendor_a, secret_a}, {vendor_b, secret_b}] do
-      NetworkCredentialRule
+    # Profile-only credentials keep discovery dependent on every seed match.
+    for {vendor, community} <- [
+          {vendor_a, "example-conflict-a"},
+          {vendor_b, "example-conflict-b"}
+        ] do
+      SNMPProfile
       |> Ash.Changeset.for_create(
         :create,
         %{
-          name: "Example conflict rule #{vendor}",
-          provider: "snmp",
-          auth_method: :community,
-          purpose: "snmp_monitoring",
+          name: "Example conflict profile #{vendor}",
+          enabled: true,
           target_query: ~s(in:devices vendor_name:"#{vendor}"),
-          scope_type: :agent,
-          scope_value: agent_id,
-          secret_id: secret.id
+          community: community
         },
         actor: actor
       )

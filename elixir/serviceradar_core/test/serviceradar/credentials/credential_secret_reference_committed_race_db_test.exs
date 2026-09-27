@@ -136,11 +136,12 @@ defmodule ServiceRadar.Credentials.CredentialSecretReferenceCommittedRaceDbTest 
          {:error,
           %Postgrex.Error{
             postgres: %{
-              code: :foreign_key_violation,
+              code: code,
               constraint: "network_credential_secret_bindings_secret_id_fkey"
             }
           }}
-       ),
+       )
+       when code in [:foreign_key_violation, :restrict_violation],
        do: :foreign_key_restrict_lost
 
   defp race_outcome(

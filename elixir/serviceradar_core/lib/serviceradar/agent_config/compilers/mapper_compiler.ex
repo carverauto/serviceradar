@@ -320,8 +320,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
       Device
       |> Ash.Query.for_read(:read, %{}, actor: actor)
       |> Ash.Query.filter(ip in ^seeds or hostname in ^seeds or uid in ^seeds)
-      |> Ash.read!(page: [limit: max(length(seeds), 1)])
-      |> Page.unwrap!()
+      |> Page.stream!()
+      |> Enum.to_list()
 
     rule_devices =
       partition
