@@ -121,6 +121,25 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphCanonicalRebuildTest
              DgraphRebuild.plan(inputs, @cutoff)
   end
 
+  test "a retained canonical edge keeps its stored support rank with no fresh evidence this round" do
+    uplink = evidence("sr:switch-a", "sr:switch-b", "port1", "port7")
+    support = Map.put(uplink, "relation", "ATTACHED_TO")
+
+    shared = evidence("sr:switch-a", "sr:switch-c", "port1", "port7")
+
+    current_shared =
+      shared
+      |> Map.put("relation", "CANONICAL_TOPOLOGY")
+      |> Map.put("pair_support_rank", 1)
+
+    {:ok, inputs} = DgraphRebuild.decode_inputs([uplink, support, current_shared])
+
+    assert {edges, %{same_port_demotions: {:ok, 0}}} = DgraphRebuild.plan(inputs, @cutoff)
+
+    assert edges |> Enum.map(&{&1.source, &1.target}) |> Enum.sort() ==
+             [{"sr:switch-a", "sr:switch-b"}, {"sr:switch-a", "sr:switch-c"}]
+  end
+
   test "fingerprint tracks evidence changes and interface enrichment but buckets heartbeat time" do
     row = evidence("sr:switch-a", "sr:switch-b", "port1", "port7")
     {:ok, original} = DgraphRebuild.decode_inputs([row])

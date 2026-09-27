@@ -589,6 +589,15 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
   # reacquires this lock only around its AGE writes. Returns {:ok,
   # structural_stats} (telemetry_refresh / runtime_projection_refresh are merged
   # in later) or {:error, reason, stats}.
+  # For the dgraph backend, DgraphRebuild.rebuild/1 performs its Dgraph reads and
+  # writes over the network while this lock's advisory-lock transaction still
+  # holds a pooled CNPG connection, since pg_try_advisory_xact_lock only
+  # releases at transaction end. This is a known latency/connection-hold cost,
+  # accepted rather than worked around: the lock is the only existing mutation
+  # serialization for canonical rebuilds, and there is no narrower reusable
+  # session-scoped lock in this codebase (CoordinatorManager's advisory lock is
+  # a standalone leader-election primitive held for a process lifetime, not a
+  # per-call lock, and adapting it here would be new coordinator machinery).
   defp do_rebuild_canonical_device_links do
     if Backend.backend() == :dgraph do
       case DgraphRebuild.rebuild(Utils.stale_cutoff_iso8601()) do

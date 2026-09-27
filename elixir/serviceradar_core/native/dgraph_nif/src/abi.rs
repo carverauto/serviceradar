@@ -219,6 +219,7 @@ pub struct NifEdgeWrite {
     pub last_seen: Option<String>,
     pub mutation_id: Option<String>,
     pub agent_id: Option<String>,
+    pub pair_support_rank: Option<i64>,
 }
 
 impl NifEdgeWrite {
@@ -257,6 +258,7 @@ impl NifEdgeWrite {
         if let Some(agent_id) = nonempty(self.agent_id) {
             write = write.with_agent_id(agent_id);
         }
+        write = write.with_pair_support_rank(self.pair_support_rank.unwrap_or(0));
         write
     }
 }
@@ -282,6 +284,7 @@ pub struct NifCanonicalEdge {
     pub if_name_ba: String,
     pub link_key: String,
     pub mutation_id: String,
+    pub pair_support_rank: i64,
 }
 
 impl From<&CanonicalEdge> for NifCanonicalEdge {
@@ -306,6 +309,7 @@ impl From<&CanonicalEdge> for NifCanonicalEdge {
             if_name_ba: edge.local_if_name_ba().to_string(),
             link_key: edge.link_key().to_string(),
             mutation_id: edge.mutation_id().to_string(),
+            pair_support_rank: edge.pair_support_rank(),
         }
     }
 }

@@ -20,7 +20,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild.DgraphReb
   @confidence_rank %{"high" => 3, "medium" => 2, "low" => 1}
   @fields ~w(protocol evidence_class ingestor confidence_tier if_name_ab if_name_ba
              if_index_ab if_index_ba flow_pps_ab flow_pps_ba flow_bps_ab flow_bps_ba
-             capacity_bps telemetry_eligible last_seen mutation_id agent_id)a
+             capacity_bps telemetry_eligible last_seen mutation_id agent_id
+             pair_support_rank)a
   @directional_fields ~w(if_name if_index flow_pps flow_bps)a
 
   # Both sets come from one Dgraph read. Evidence has already passed Projection's
@@ -211,7 +212,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild.DgraphReb
 
     edges =
       Enum.map(final, fn {_key, edge} ->
-        edge |> Map.drop([:relation, :pair_support_rank]) |> Map.put(:kind, :canonical_topology)
+        edge |> Map.drop([:relation]) |> Map.put(:kind, :canonical_topology)
       end)
 
     {edges,
@@ -253,6 +254,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild.DgraphReb
           relation: relation,
           last_seen: observed |> DateTime.truncate(:second) |> DateTime.to_iso8601()
         })
+        |> Map.update!(:pair_support_rank, &(&1 || 0))
 
       edge = edge |> attribute_interface(:ab, src) |> attribute_interface(:ba, dst)
       {:ok, normalize_direction(edge)}
