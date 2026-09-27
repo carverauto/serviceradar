@@ -64,7 +64,7 @@ direct-to-DB metric writes.
 |---|---|---|
 | `serviceradar-agent` | Go (`go/cmd/agent`) | Single edge runtime. Built-in collectors/checkers (SNMP `go/pkg/agent/snmp`, sysmon `go/pkg/sysmon`, sweeper `go/pkg/sweeper`) + sandboxed wazero Wasm plugins. Streams results outbound over mTLS gRPC. |
 | `agent-gateway` | Elixir (`elixir/serviceradar_agent_gateway`) | Edge ingress. gRPC server terminating agent connections (`AgentGatewayService`); `StatusProcessor` turns agent status into NATS JetStream publishes. Part of the ERTS cluster. |
-| `core` / `serviceradar_core` | Elixir (`elixir/serviceradar_core`, run via `serviceradar_core_elx`) | Control plane + bulk ingestion. Hosts the `event_writer` Broadway pipeline (JetStream pull consumers), Zen normalization, `log-promotion` consumer, and all telemetry DB writes. |
+| `core` / `serviceradar_core` | Elixir (`elixir/serviceradar_core`, run via `serviceradar_core_elx`) | Control plane + bulk ingestion. Hosts the `event_writer` Broadway pipeline (JetStream pull consumers), Zen normalization, log promotion (inside the EventWriter logs consumer), and all telemetry DB writes. |
 | `web-ng` | Elixir/Phoenix LiveView (`elixir/web-ng`) | UI + HTTP API. Embeds SRQL via Rustler NIF. Reads CNPG for display; gets live status via PubSub. |
 | `serviceradar_srql` | Elixir + Rust NIF (`elixir/serviceradar_srql`, `rust/srql`) | SRQL query engine (parse/translate only), Rustler-loaded. |
 | `datasvc` | Elixir/Go (`elixir/datasvc`, `go/pkg/datasvc`) | gRPC service (port 50057) fronting NATS KV + object store. Not on the telemetry hot path. |
