@@ -35,22 +35,21 @@ The validation device reports Apple Metal 3, a non-fallback WebGPU adapter,
 rows and 262,144 encoded bytes per tile; client cache and viewport limits are
 64 tiles and 32 MiB with four concurrent fetches.
 
-The normal visible Chrome run measured 409 ms to usable geometry, 119 ms p95
-tile fetch/decode, and 1.1 ms p95 picking. Combined pan/zoom averaged 27.2 FPS.
-A separate empty-page animation-frame measurement on the same host was 30.0 FPS.
-The ordinary-window run therefore does not establish the >=30 FPS acceptance.
+The visible Chrome run passed all four SLOs with normal frame scheduling and
+packet flow enabled: 279 ms to usable geometry, 52.5 FPS across the complete
+pan/zoom interval, 1.4 ms p95 picking (20 real picks), and 30.4 ms p95 tile
+fetch/decode (302 samples). It opened zoom 0 with a total of 1,000,000 devices,
+entered two detail scenes, and reported no renderer errors or missing tiles.
+Frame p95 was 31.7 ms; the slowest cold-tile frame gap was 185.4 ms. FPS counts
+completed WebGPU frames rather than only CPU submissions; it is not a direct
+measurement of physical display presentation.
 
-A throughput run disables Chrome's frame-rate limit. It waits for WebGPU queue
-completion rather than counting only CPU submissions, records the complete
-pan/zoom interval without retaining only its fast tail, and keeps packet flow
-on. It measured 317 ms to first usable frame, 57.2 ms p95 tile fetch/decode and
-5.5 ms p95 picking over 207 geometry requests. The GPU-completion throughput was
-above 30 frames/second. This is rendering capacity, not a claim about physical
-display presentation or the normal-window result above. Cold tile creation still
-has shader-assembly pauses; the observed slowest frame gaps were about 104 ms.
-Skipping empty tile sublayers subsequently reduced normal-window tile decode
-p95 to 9.7 ms, with 0.8 ms p95 picking and a 316 ms first usable frame, but the
-normal-window pan/zoom average remained below the SLO at 27.6 FPS.
+Chrome Energy Saver initially capped an empty page at 30 FPS while this laptop
+was at 7% battery, and the map averaged 27.6 FPS. Disabling Energy Saver in an
+owned disposable browser profile restored the empty-page baseline to 60 FPS and
+produced the passing result above. The regular browser profile was untouched.
+The passing run did not disable Chrome's frame-rate limit. An uncapped throughput
+mode remains available as a diagnostic, but is not the acceptance evidence.
 
 Native fixture measurements on RBE were 1,126 ms for fresh placement, 19,749 ms
 for NIF import/index creation, and 14,814 ms for the selected tile encoding set.
@@ -75,11 +74,18 @@ The last target uses the pinned SwiftShader executor to check functional browser
 behavior, not the physical GPU SLOs. The same `god_view_million_browser.cjs`
 executable supports `GOD_VIEW_PHYSICAL_GPU=1` with the exported JSON and HTML as
 its two arguments. It launches installed Chrome with normal frame scheduling, reports the adapter
-and timing method, and enforces performance thresholds. `GOD_VIEW_UNCAPPED=1`
+and timing method, and enforces performance thresholds. Set
+`GOD_VIEW_ENERGY_SAVER_OFF=1` for the measured full-performance condition: the
+executable disables Energy Saver through Chrome settings in its own temporary
+profile, then deletes that profile on exit. Normal frame scheduling is retained.
+`GOD_VIEW_UNCAPPED=1`
 opts into the separate throughput diagnostic; `GOD_VIEW_HEADLESS=1` selects
 headless Chrome while retaining the physical adapter requirement. `PLAYWRIGHT_MODULE` can point to an
 already-installed Playwright module; this browser-only step builds no assets.
 `GOD_VIEW_CPU_PROFILE` optionally records a Chrome CPU profile for this workload.
 
 The exported JSON/HTML and CPU profiles are disposable artifacts and must not be
-committed. Full `make test` and no-mistakes remain required before a PR.
+committed. The [remote repository gate](https://carverauto.buildbuddy.io/invocation/f7274971-4a46-4a06-9172-e264f2f4b735)
+passed `make test` (367 targets passed, two skipped), followed by all three
+WebGPU/browser acceptance targets at commit `f795ebe144`. Subsequent changes
+require final validation; no-mistakes remains required before a PR.
