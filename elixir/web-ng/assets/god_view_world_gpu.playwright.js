@@ -3,6 +3,115 @@ import {resolve} from "node:path"
 
 const html = resolve(process.env.TEST_SRCDIR, process.env.TEST_WORKSPACE, process.env.GOD_VIEW_WORLD_GPU_PAGE)
 
+test("HTTP bootstrap recovers and search, picking, detail return and invalidation share retained tiles", async ({page}) => {
+  const version = "00000000-0000-4000-8000-000000000478"
+  const revision = "a".repeat(64)
+  const errors = []
+  const tileRequests = []
+  let manifestRequests = 0
+  let detailRequests = 0
+  let watchId = 0
+  let socket
+  let joinRef
+  page.on("pageerror", error => errors.push(error.message))
+  await page.routeWebSocket("**/socket/websocket**", connection => {
+    socket = connection
+    connection.onMessage(raw => {
+      const [join, ref, topic, event] = JSON.parse(raw)
+      if (event === "phx_join") {
+        joinRef = join
+        connection.send(JSON.stringify([join, ref, topic, "phx_reply", {status: "ok", response: {layout_version: version, generation: 1}}]))
+      } else if (event === "tiles:watch") {
+        watchId += 1
+        connection.send(JSON.stringify([join, ref, topic, "phx_reply", {status: "ok", response: {watch_id: watchId}}]))
+      } else if (event === "heartbeat") {
+        connection.send(JSON.stringify([join, ref, topic, "phx_reply", {status: "ok", response: {}}]))
+      }
+    })
+  })
+  await page.route("http://localhost:4774/**", async route => {
+    const url = new URL(route.request().url())
+    const headers = {"x-sr-topology-layout-version": version, "x-sr-topology-generation": "1"}
+    if (url.pathname === "/") return route.fulfill({path: html, contentType: "text/html"})
+    if (url.pathname === "/topology/tiles/manifest") {
+      manifestRequests += 1
+      if (manifestRequests === 1) return route.fulfill({status: 503, json: {error: "not_ready"}})
+      return route.fulfill({json: {layout_version: version, generation: 1, zmax: 16, extent: 2 ** 24, node_count: 2, relation_count: 1}})
+    }
+    if (url.pathname === "/topology/tiles/search") {
+      expect(url.searchParams.get("device_id")).toBe("invented-device-a")
+      return route.fulfill({json: {layout_version: version, generation: 1, device_id: "invented-device-a", x: 192 * 32768, y: 192 * 32768, zoom: 2}})
+    }
+    const tile = url.pathname.match(/\/topology\/tiles\/[^/]+\/(\d+)\/(\d+)\/(\d+)$/)
+    if (tile) {
+      const [, z, x, y] = tile.map(Number)
+      const etag = `"${version}:${revision}"`
+      const conditional = route.request().headers()["if-none-match"]
+      tileRequests.push({id: `${z}/${x}/${y}`, conditional})
+      if (conditional === etag) return route.fulfill({status: 304, headers: {...headers, etag}})
+      const bytes = await page.evaluate(index => window.__SR_WORLD_TRANSPORT__.tile(index), {z, x, y})
+      return route.fulfill({body: Buffer.from(bytes), contentType: "application/vnd.apache.arrow.file", headers: {...headers, etag}})
+    }
+    if (url.pathname.startsWith("/topology/overlays/")) {
+      const tileId = url.pathname.split("/").slice(-3).join("/")
+      return route.fulfill({json: {layout_version: version, generation: 1, revision, tile_id: tileId,
+        health: {glyphs: []}, flow: {edges: [{id: "invented-link", total_relations: 1, selected_relations: 1,
+          forward: {status: "measured", animate: true, packets_per_second: 120, octets_per_second: 12000}, reverse: {status: "unknown", animate: false}}]}}})
+    }
+    if (url.pathname === "/topology/details") {
+      expect(url.searchParams.get("id")).toBe("invented-device-a")
+      expect(url.searchParams.get("kind")).toBe("device")
+      return route.fulfill({json: {details: {device: {id: "invented-device-a", label: "Synthetic access"}, scene: {kind: "neighborhood", id: "invented-device-a"}}}})
+    }
+    if (url.pathname === "/topology/snapshot/latest") {
+      detailRequests += 1
+      const bytes = await page.evaluate(() => window.__SR_WORLD_TRANSPORT__.detail())
+      return route.fulfill({body: Buffer.from(bytes), contentType: "application/vnd.apache.arrow.file", headers: {...headers,
+        "x-sr-god-view-schema": "3", "x-sr-god-view-revision": "1", "x-sr-god-view-generated-at": "2026-01-01T00:00:00Z"}})
+    }
+    return route.fulfill({status: 404})
+  })
+  await page.goto("http://localhost:4774/?transport=1")
+  await expect(page.getByRole("status")).toContainText("HTTP 503")
+  await expect(page.getByRole("status")).toContainText("2 devices", {timeout: 15000})
+  await page.getByRole("textbox", {name: "Find device by ID"}).fill("invented-device-a")
+  await page.getByRole("button", {name: "Find", exact: true}).click()
+  await expect(page.getByRole("button", {name: "Open neighborhood"})).toBeVisible()
+  await page.waitForFunction(() => {
+    const viewport = window.__SR_WORLD_TRANSPORT__.renderer.deck.getViewports()[0]
+    return viewport.zoom === 2 && viewport.target[0] === 192 && viewport.target[1] === 192
+  })
+  await page.waitForFunction(() => window.__SR_WORLD_TRANSPORT__.renderer.overlays.entries.size > 0)
+  const location = await page.evaluate(() => {
+    const renderer = window.__SR_WORLD_TRANSPORT__.renderer
+    const [x, y] = renderer.deck.getViewports()[0].project([192, 192, 0])
+    return {x, y, camera: renderer.viewState.target}
+  })
+  await page.mouse.click(location.x, location.y)
+  await page.getByRole("button", {name: "Open neighborhood"}).click()
+  await expect(page.getByRole("button", {name: "Back to map"})).toBeVisible()
+  const loaded = tileRequests.length
+  await page.getByRole("button", {name: "Back to map"}).click()
+  await expect.poll(() => page.evaluate(async ({x, y}) => {
+    const renderer = window.__SR_WORLD_TRANSPORT__.renderer
+    return (await renderer.deck.pickObjectAsync({x, y, radius: 6}))?.object?.id
+  }, location)).toBe("invented-device-a")
+  await page.mouse.click(location.x, location.y)
+  await page.getByRole("button", {name: "Open neighborhood"}).click()
+  await expect(page.getByRole("button", {name: "Back to map"})).toBeVisible()
+  expect(detailRequests).toBe(1)
+  await page.getByRole("button", {name: "Back to map"}).click()
+  await page.waitForFunction(() => window.__SR_WORLD_TRANSPORT__.renderer.cache.watch?.id > 0)
+  expect(await page.evaluate(() => window.__SR_WORLD_TRANSPORT__.renderer.viewState.target)).toEqual(location.camera)
+  expect(tileRequests.length).toBe(loaded)
+  socket.send(JSON.stringify([joinRef, null, "topology:tiles", "topology_invalidated", {
+    layout_version: version, generation: 1, watch_id: watchId, dirty_tiles: ["2/1/1"], reset: false,
+  }]))
+  await expect.poll(() => tileRequests.length).toBe(loaded + 1)
+  expect(tileRequests.at(-1)).toEqual({id: "2/1/1", conditional: `"${version}:${revision}"`})
+  expect(errors).toEqual([])
+})
+
 // Real rendering/picking contract. RBE uses WebGPU on SwiftShader; the same
 // RBE-built page is also checked on a physical GPU for the performance contract.
 for (const deviceScaleFactor of [1, 2]) {

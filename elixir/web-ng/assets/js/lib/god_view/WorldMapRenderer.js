@@ -3,6 +3,7 @@ import {Socket} from "phoenix"
 import GodViewRenderer from "../GodViewRenderer"
 import {GOD_VIEW_DEVICE_PROPS} from "./lifecycle_dom_setup_methods"
 import {GOD_VIEW_ALPHA_BLEND} from "./gpu_parameters"
+import {adoptDeckViewportSize, syncCanvasContextSize} from "./deck_canvas_size"
 import {WorldTileCache} from "./world_tile_cache"
 import {WorldOverlays} from "./world_overlays"
 import WorldTileLayer from "./world_tile_layer"
@@ -68,7 +69,10 @@ export default class WorldMapRenderer {
       deviceProps: {...GOD_VIEW_DEVICE_PROPS, onError: error => this.failRenderer(error)},
       onDeviceInitialized: device => {
         if (device.info.type !== "webgpu") this.failRenderer(new Error("WebGPU is required for topology"))
-        else this.deviceType = "webgpu"
+        else {
+          this.deviceType = "webgpu"
+          syncCanvasContextSize(device.canvasContext, this.el.clientWidth, this.el.clientHeight)
+        }
         const lost = device.handle?.lost || device.lost
         lost?.then(info => {
           if (!this.destroyed && info?.reason !== "destroyed") this.failRenderer(new Error(`WebGPU device lost: ${info?.message || info?.reason || "unknown"}`))
@@ -85,7 +89,12 @@ export default class WorldMapRenderer {
       onClick: info => {if (info.object) void this.pick(info)},
       getTooltip: info => info.object ? {text: info.object.label || `${info.object.count.toLocaleString()} relations`} : null,
     })
-    this.resize = new ResizeObserver(() => this.deck?.setProps({width: this.el.clientWidth, height: this.el.clientHeight}))
+    this.resize = new ResizeObserver(() => {
+      const width = this.el.clientWidth
+      const height = this.el.clientHeight
+      this.deck?.setProps({width, height})
+      adoptDeckViewportSize(this.deck, width, height)
+    })
     this.resize.observe(this.el)
     this.handleEvent("god_view:reset_view", () => {this.returnToMap(); this.setView(this.overviewView())})
     this.handleEvent("god_view:set_layers", ({layers}) => {
@@ -197,7 +206,11 @@ export default class WorldMapRenderer {
     this.overlays.setVisible(geometries)
     void this.overlays.poll()
     this.scheduleWatch()
-    this.cache.prefetch()
+    const prefetchViewport = `${this.cache.manifest.layout_version}:${tiles.map(tile => `${tile.index.z}/${tile.index.x}/${tile.index.y}`).sort().join(",")}`
+    if (prefetchViewport !== this.prefetchViewport) {
+      this.prefetchViewport = prefetchViewport
+      this.cache.prefetch()
+    }
     const manifest = this.cache.manifest
     this.status(`${manifest.node_count.toLocaleString()} devices · ${tiles.length} visible tiles`)
     this.pushEvent("god_view_stream_stats", {
@@ -238,19 +251,25 @@ export default class WorldMapRenderer {
       this.returnToMap()
       this.setView({target: [result.x, result.y, 0].map(value => value * WORLD_TILE_SIZE / WORLD_EXTENT), zoom: result.zoom,
         transitionDuration: 500, transitionInterpolator: new LinearInterpolator(["target", "zoom"])})
+      await this.showSelection({kind: "device", id, label: id}, {
+        layout_version: result.layout_version, generation: result.generation, kind: "device", id,
+      })
     } catch (error) {if (!this.destroyed && !request.signal.aborted) this.status(error.message)}
   }
 
   async pick(info) {
     const geometry = info.sourceTile?.content
     if (!geometry) return
+    const object = info.object
+    return this.showSelection(object, {...geometry.key, generation: geometry.generation, tile_revision: geometry.revision, kind: object.kind, id: object.id})
+  }
+
+  async showSelection(object, params) {
     this.selection?.abort()
     const selection = new globalThis.AbortController()
     this.selection = selection
-    const object = info.object
     this.panel.replaceChildren(element("div", "font-semibold", object.label || `${object.count.toLocaleString()} relations`))
     this.panel.hidden = false
-    const params = {...geometry.key, generation: geometry.generation, tile_revision: geometry.revision, kind: object.kind, id: object.id}
     try {
       const result = await worldJson(`/topology/details?${new URLSearchParams(params)}`, selection.signal)
       if (selection.signal.aborted || this.destroyed) return
@@ -258,7 +277,10 @@ export default class WorldMapRenderer {
       const text = details.members ? `${details.members.toLocaleString()} devices` : details.device?.label || details.device?.id || "Selected topology connection"
       this.panel.append(element("p", "mt-2 text-sr-muted", text))
       const open = element("button", "btn btn-sm mt-3", object.kind === "device" ? "Open neighborhood" : "Show members")
-      open.addEventListener("click", () => void this.openScene({...params, ...details.scene}))
+      // Scene identity comes from the server. A device neighborhood is the
+      // same scene when picked from a parent tile, child tile, or search.
+      const scene = {layout_version: params.layout_version, generation: params.generation, ...details.scene}
+      open.addEventListener("click", () => void this.openScene(scene))
       this.panel.append(open)
     } catch (error) {if (!selection.signal.aborted && !this.destroyed) this.panel.append(element("p", "mt-2", error.message))}
   }
@@ -347,6 +369,7 @@ export default class WorldMapRenderer {
   status(message) {if (this.summary) this.summary.textContent = message}
 
   failRenderer(error) {
+    if (this.rendererFailed) return
     this.rendererFailed = true
     this.deck?.setProps({_animate: false, layers: []})
     this.status(`Topology renderer stopped: ${error.message}. Reload to try again.`)

@@ -391,9 +391,9 @@ js_binary(
 
 js_run_binary(
     name = "world_gpu_page",
-    srcs = ["god_view_world_gpu_harness.js", ":god_view_scene_test_srcs", ":node_modules"],
+    srcs = ["god_view_world_gpu_harness.js", "god_view_world_transport_harness.js", ":god_view_scene_test_srcs", ":node_modules", ":css_bundle"],
     outs = ["world_gpu_page.html"],
-    args = ["god_view_world_gpu_harness.js", "world_gpu_page.html"],
+    args = ["god_view_world_gpu_harness.js", "world_gpu_page.html", "static/assets/css/app.css"],
     chdir = package_name(),
     tool = ":world_gpu_bundler",
 )
