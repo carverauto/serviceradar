@@ -141,8 +141,7 @@ defmodule ServiceRadar.Credentials.CredentialSecretReferenceCommittedRaceDbTest 
             }
           }}
        )
-       when code in [:foreign_key_violation, :restrict_violation],
-       do: :foreign_key_restrict_lost
+       when code in [:foreign_key_violation, :restrict_violation], do: :foreign_key_restrict_lost
 
   defp race_outcome(
          :bind,
