@@ -65,7 +65,7 @@ defmodule ServiceRadar.Events.PubSub do
   """
   def event_summary(row) when is_map(row) do
     base = %{
-      "id" => to_string(Map.get(row, :id)),
+      "id" => format_id(Map.get(row, :id)),
       "time" => format_time(Map.get(row, :time)),
       "device" => device_summary(Map.get(row, :device)),
       "metadata" => map_or_empty(Map.get(row, :metadata))
@@ -75,6 +75,9 @@ defmodule ServiceRadar.Events.PubSub do
       Map.put(acc, Atom.to_string(field), Map.get(row, field))
     end)
   end
+
+  defp format_id(<<_::128>> = raw_uuid), do: Ecto.UUID.load!(raw_uuid)
+  defp format_id(id), do: to_string(id)
 
   defp device_summary(%{} = device) do
     device

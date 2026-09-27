@@ -1,6 +1,7 @@
 defmodule ServiceRadar.Events.PubSubTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.EventWriter.Processors.Events
   alias ServiceRadar.Events.PubSub, as: EventsPubSub
 
   @row %{
@@ -51,6 +52,32 @@ defmodule ServiceRadar.Events.PubSubTest do
     assert summary["device"] == %{}
     assert summary["metadata"] == %{}
     assert summary["time"] == nil
+  end
+
+  test "summaries of parsed EventWriter rows carry a JSON-safe UUID string id" do
+    uuid = "3f1b8a52-6c1e-4f5d-9d3b-2b8e4d7a9c10"
+
+    for id <- [uuid, "plugin-1700000000-1"] do
+      payload =
+        Jason.encode!(%{
+          "id" => id,
+          "class_uid" => 1008,
+          "category_uid" => 1,
+          "type_uid" => 100_801,
+          "activity_id" => 1,
+          "message" => "Conveyor jam on belt 7"
+        })
+
+      row = Events.parse_message(%{data: payload, metadata: %{subject: "events.demo"}})
+      summary = EventsPubSub.event_summary(row)
+
+      assert {:ok, _uuid} = Ecto.UUID.cast(summary["id"])
+      assert {:ok, json} = Jason.encode(summary)
+      assert %{"id" => decoded_id} = Jason.decode!(json)
+      assert decoded_id == summary["id"]
+
+      if id == uuid, do: assert(decoded_id == uuid)
+    end
   end
 
   test "an empty row list broadcasts nothing" do
