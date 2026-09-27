@@ -1,6 +1,7 @@
 //! Bounded Rustler boundary for persisted topology worlds. Builders and source
 //! snapshots are single-use; candidates and installed worlds are immutable.
 
+mod details;
 mod model;
 #[cfg(test)]
 mod tests;
@@ -337,11 +338,16 @@ struct WireTile {
     device_count: u64,
     internal_relations: u64,
     candidate_relations: usize,
+    selection: ResourceArc<details::SelectionResource>,
+    selection_bytes: usize,
 }
 
 impl From<Tile> for WireTile {
     fn from(tile: Tile) -> Self {
+        let selection_bytes = tile.selection.retained_bytes();
         Self {
+            selection: ResourceArc::new(details::SelectionResource(tile.selection)),
+            selection_bytes,
             cell: WireCell {
                 z: tile.cell.z,
                 x: tile.cell.x,
