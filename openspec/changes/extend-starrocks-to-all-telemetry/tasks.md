@@ -63,6 +63,40 @@
   - [ ] 3.1.5 JSON:API `/otel_metrics` and `/otel_metric_points` still read CNPG (as `/api/v2/logs`
     does for logs); route or retire them with the other JSON:API telemetry readers in 5.4.
 - [ ] 3.2 OTel traces/spans with RED and summary rollups as MVs; trace-by-id lookup.
+  - [x] 3.2.1 Warehouse DDL `priv/starrocks/0022_otel_traces.sql`: `otel_traces` keyed by the CNPG
+    primary key (trace_id, span_id, timestamp), day partitions, hash-bucketed and sorted by
+    trace_id so the detail page's unbounded trace-by-id lookup reads one tablet per day by short
+    key; `otel_trace_summaries` keyed by trace_id and NOT partitioned (a summary's timestamp moves
+    as late spans arrive), sorted by timestamp; `traces_stats_5m` and `spans_red_1h` as async MVs
+    partitioned by day with the CNPG aggregates' definitions. One retention dataset `traces`
+    (default 365, `SERVICERADAR_STARROCKS_RETENTION_DAYS_TRACES`, Helm `retentionDays.traces`,
+    Compose `STARROCKS_RETENTION_DAYS_TRACES`).
+  - [x] 3.2.2 EventWriter `OtelTraces.store/2` writes spans to the warehouse only when StarRocks is
+    enabled, to CNPG only otherwise. A span with no trace or span id is rejected on both paths
+    (CNPG's NOT NULL columns used to fail the whole batch on it).
+  - [x] 3.2.3 `RefreshTraceSummariesWorker` derives summaries in the backend that holds the spans:
+    with StarRocks enabled every span read and summary write goes through
+    `Analytics.StarRocks.TraceSummaries` (same root/orphan/service-set/error semantics, checked on
+    a StarRocks Frontend); the watermark and advisory lock stay in CNPG; the warehouse summary
+    table is pruned to the traces retention. `RootSpanRatioWorker` counts spans in the warehouse
+    when it is enabled.
+  - [x] 3.2.4 SRQL `in:traces` (`otel_traces`, `trace_spans`) and `in:otel_trace_summaries`
+    (`trace_summaries`, `traces_summaries`) have a StarRocks dialect
+    (`rust/srql/src/query/starrocks/traces.rs`) routed on `enabled?/0`: listings with the CNPG
+    select lists, filters and NULL handling, `service_name` as service-set membership,
+    `rollup_stats:summary`/`red` over the MVs behind `RollupFreshness` with a raw-span fallback
+    that returns the same numbers, and summary `stats:` through the CNPG parser.
+    `Stats.trace_rollup_status` reads the warehouse marks when it is enabled.
+    - CNPG fixes so the backends agree: unknown row sort fields (spans and summaries) and
+      `stats:`/`bucket:` on spans, `rollup_stats:` on summaries and a sort on a rollup were
+      silently ignored and are now refused; summary `stats:` `duration_ms>=X` compiled as `>`; an
+      empty stats list returned `{}`.
+  - [ ] 3.2.5 Run the parity database tier for the `traces.*` inventory entries against the
+    traces fixture (`src/fixture/traces.rs`), then verify the logs page traces tab, trace detail,
+    dashboard and Analytics trace cards and the rollup health banner after a rollout.
+  - [ ] 3.2.6 JSON:API `/otel_traces` and `/otel_trace_summaries` still read CNPG; route or retire
+    them with the other JSON:API telemetry readers in 5.4. `OtelServiceCatalogBackfillWorker`
+    reads CNPG `spans_red_1h` once, for history written before the switch, and needs no change.
 - [ ] 3.3 Sysmon CPU/memory/disk/process: table(s), destination, routing, hourly rollups.
 - [ ] 3.4 MTR traces and hops (spec: "MTR traces and hops reach the warehouse through JetStream").
   Scalar MTR metrics already travel on `metrics.mtr` (gateway `MtrMetricsPublisher` -> EventWriter

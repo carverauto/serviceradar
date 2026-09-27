@@ -337,6 +337,16 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessTest do
     assert RollupFreshness.dataset_for_sql("SELECT bucket FROM #{Env.table("events_hourly")}") ==
              :events
 
+    assert RollupFreshness.dataset_for_sql("SELECT bucket FROM #{Env.table("traces_stats_5m")}") ==
+             :traces_stats
+
+    assert RollupFreshness.dataset_for_sql("SELECT bucket FROM #{Env.table("spans_red_1h")}") ==
+             :traces_red
+
+    # The raw-span fallback names no rollup, so it is never gated.
+    assert RollupFreshness.dataset_for_sql("SELECT `timestamp` FROM #{Env.table("otel_traces")}") ==
+             nil
+
     assert RollupFreshness.dataset_for_sql(
              "SELECT `time` FROM #{Env.table("ocsf_network_activity")}"
            ) == nil

@@ -11,7 +11,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Retention do
   `analytics.starrocks.retentionDays.<dataset>`, Compose
   `STARROCKS_RETENTION_DAYS_<DATASET>`). MTR is one dataset over two tables,
   `mtr_traces` and `mtr_hops`, so a trace and its hops expire together; OTel
-  metrics likewise covers `otel_metrics` and `otel_metric_points`.
+  metrics likewise covers `otel_metrics` and `otel_metric_points`. OTel traces
+  (`traces`) is `otel_traces`; the unpartitioned `otel_trace_summaries` is
+  pruned to the same window by `RefreshTraceSummariesWorker`.
 
   A warehouse Frontend is routinely slower to answer than core is to boot, and
   a value that never lands means partitions are dropped on the DDL default
@@ -33,7 +35,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Retention do
     mtr: "mtr_traces",
     mtr: "mtr_hops",
     otel: "otel_metrics",
-    otel: "otel_metric_points"
+    otel: "otel_metric_points",
+    traces: "otel_traces"
   ]
 
   @initial_delay_ms 5_000

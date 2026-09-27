@@ -82,16 +82,16 @@ Excluded as control plane: `stateful_alert_rule_histories`, `otel_service_catalo
 | `DeviceRiskIocExposure.query_flow_page_sql` `C/inventory/device_risk_ioc_exposure.ex:406` | ocsf_network_activity | Oban (device risk) |
 | Dashboard `traffic_sparklines.ex:69`; device `flow_data.ex:578`, `:605` | flow caggs / raw | go through `Readers`, but fall back to CNPG when flows are not cut over, although flows are warehouse-only |
 
-### OTel traces and metrics (metrics SRQL routed by 3.1; traces not yet)
+### OTel traces and metrics (metrics SRQL routed by 3.1; traces by 3.2)
 
 | Reader | Reads | Surface |
 |---|---|---|
-| SRQL `traces`, `trace_summaries` | all trace objects | SRQL CNPG (`otel_metrics`, `otel_metric_points` routed by 3.1) |
-| `Stats.traces_summary` `W/stats.ex:339`, `metrics_summary` `:371`, `trace_summary_counts` `:414` | traces_stats_5m, spans_red_1h, otel_trace_summaries | dashboard trace card, Analytics, logs page |
-| `Stats.trace_rollup_status` `W/stats.ex:522` | raw, summaries, traces_stats_5m | Analytics, logs page |
+| SRQL `traces`, `trace_summaries`, `otel_metrics`, `otel_metric_points` | all trace and OTel metric objects | routed by 3.1 (metrics) and 3.2 (traces) |
+| `Stats.traces_summary` `W/stats.ex:339`, `metrics_summary` `:371`, `trace_summary_counts` `:414` | traces_stats_5m, spans_red_1h, otel_trace_summaries | dashboard trace card, Analytics, logs page (SRQL; routed by 3.2) |
+| `Stats.trace_rollup_status` `W/stats.ex:522` | raw, summaries, traces_stats_5m | Analytics, logs page (reads the warehouse when enabled, 3.2) |
 | LogLive traces/metrics tabs, `TraceLive.Show`, `MetricLive.Show`, Analytics slow spans, onboarding | traces, summaries, otel_metrics, points | SRQL CNPG |
 | LogLive `load_sparklines` `W/live/log_live/index.ex:10155` | otel_metrics | logs page OTel sparklines (direct); removed by 3.1, it queried columns `otel_metrics` does not have |
-| `RefreshTraceSummariesWorker` `C/jobs/refresh_trace_summaries_worker.ex:266`; `RootSpanRatioWorker` `C/jobs/root_span_ratio_worker.ex:57` | otel_traces | Oban |
+| `RefreshTraceSummariesWorker` `C/jobs/refresh_trace_summaries_worker.ex:266`; `RootSpanRatioWorker` `C/jobs/root_span_ratio_worker.ex:57` | otel_traces | Oban (read and write the warehouse when enabled, 3.2) |
 | JSON:API `/otel_traces`, `/otel_trace_summaries`, `/otel_metrics`, `/otel_metric_points` | raw | API |
 
 ### Sysmon tables, BMP / BGP, service status

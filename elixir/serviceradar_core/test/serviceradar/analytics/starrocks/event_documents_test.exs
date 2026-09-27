@@ -122,6 +122,21 @@ defmodule ServiceRadar.Analytics.StarRocks.EventDocumentsTest do
     assert EventDocuments.decode_rows(rows, "otel_metrics") == rows
   end
 
+  test "a trace summary listing comes back with the service set CNPG returns" do
+    summary = %{"trace_id" => "trace-alpha-0001", "service_set" => ~s(["svc-a","svc-b"])}
+    empty = %{"trace_id" => "trace-alpha-0002", "service_set" => nil}
+
+    for entity <- ~w(otel_trace_summaries trace_summaries) do
+      assert [%{"service_set" => ["svc-a", "svc-b"]}, %{"service_set" => nil}] =
+               EventDocuments.decode_rows([summary, empty], entity)
+    end
+  end
+
+  test "a trace summary count is returned unchanged, even under the set's name" do
+    rows = [%{"service_set" => 3}]
+    assert EventDocuments.decode_rows(rows, "otel_trace_summaries") == rows
+  end
+
   test "another dataset's rows are untouched, even with a column of the same name" do
     text = ~s({"site":"SITE01"})
 

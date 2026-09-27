@@ -6,7 +6,12 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
   alias ServiceRadar.Analytics.StarRocks.Identity
 
   @type dataset ::
-          Identity.dataset() | :mtr_traces | :mtr_hops | :otel_metrics | :otel_metric_points
+          Identity.dataset()
+          | :mtr_traces
+          | :mtr_hops
+          | :otel_metrics
+          | :otel_metric_points
+          | :otel_traces
 
   # priv/starrocks/0019: every column of platform.mtr_traces / platform.mtr_hops
   # under the same name. Scalars are carried as built by
@@ -46,6 +51,17 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
                       ingest_partition)a
 
   @otel_point_values ~w(is_monotonic value count sum start_time_unix_nano)a
+
+  # priv/starrocks/0022: every column of platform.otel_traces under the same
+  # name, as built by the OtelTraces processor. Its key is the CNPG primary key.
+  @otel_span_text ~w(trace_id span_id parent_span_id trace_state name service_name
+                     service_version service_instance service_namespace
+                     deployment_environment scope_name scope_version scope_attributes
+                     status_message attributes resource_attributes events links
+                     ingest_identity ingest_agent_id ingest_partition)a
+
+  @otel_span_values ~w(kind start_time_unix_nano end_time_unix_nano status_code
+                       dropped_attributes_count dropped_events_count dropped_links_count)a
 
   @spec encode(dataset(), [map()]) :: [map()]
   def encode(dataset, rows) when is_list(rows) do
@@ -206,6 +222,15 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
           value(row, :service_name),
           value(row, :attributes_hash)
         ]),
+      "timestamp" => datetime(value(row, :timestamp)),
+      "created_at" => created_at(row)
+    })
+  end
+
+  defp encode_row(:otel_traces, row) do
+    row
+    |> mtr_columns(@otel_span_text, @otel_span_values)
+    |> Map.merge(%{
       "timestamp" => datetime(value(row, :timestamp)),
       "created_at" => created_at(row)
     })

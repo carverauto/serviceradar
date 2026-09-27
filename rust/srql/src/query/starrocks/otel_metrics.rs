@@ -29,7 +29,7 @@
 use super::super::otel_metric_points::{self, PointsGroupField};
 use super::super::otel_metrics::{self, MetricsGroupField};
 use super::super::{PaginationMeta, QueryPlan, TranslateResponse, types::BindParam};
-use super::{literal_list, pg_order_sql, sql_literal};
+use super::{pg_order_sql, sql_literal, text_predicate};
 use crate::{
     error::{Result, ServiceError},
     parser::{Entity, Filter, FilterOp, OrderClause, OrderDirection},
@@ -305,54 +305,6 @@ fn unsupported_filter(table: Table, field: &str, stats: bool) -> ServiceError {
         "unsupported filter field for {}{path}: '{field}'",
         table.name()
     ))
-}
-
-/// A text filter as the CNPG builders write it. `ILIKE` is
-/// `LOWER(column) LIKE LOWER(pattern)`. An empty list filters nothing on
-/// either path. The row path (`apply_text_filter!`) keeps NULL rows under a
-/// negation; the stats path (`build_text_clause`) drops them.
-fn text_predicate(column: &str, filter: &Filter, keep_null: bool) -> Result<Option<String>> {
-    let column = quoted(column);
-    let negation = |predicate: String| {
-        if keep_null {
-            format!("({column} IS NULL OR {predicate})")
-        } else {
-            predicate
-        }
-    };
-    let like = |value: &str| {
-        format!(
-            "LOWER({column}) LIKE {}",
-            sql_literal(&value.to_lowercase())
-        )
-    };
-    Ok(Some(match filter.op {
-        FilterOp::Eq => format!("{column} = {}", sql_literal(filter.value.as_scalar()?)),
-        FilterOp::NotEq => negation(format!(
-            "{column} <> {}",
-            sql_literal(filter.value.as_scalar()?)
-        )),
-        FilterOp::Like => like(filter.value.as_scalar()?),
-        FilterOp::NotLike => negation(format!("NOT {}", like(filter.value.as_scalar()?))),
-        FilterOp::In | FilterOp::NotIn => {
-            let values = filter.value.as_list()?;
-            if values.is_empty() {
-                return Ok(None);
-            }
-            let list = literal_list(values.iter().map(String::as_str));
-            if matches!(filter.op, FilterOp::In) {
-                format!("{column} IN ({list})")
-            } else {
-                negation(format!("{column} NOT IN ({list})"))
-            }
-        }
-        _ => {
-            return Err(ServiceError::InvalidRequest(format!(
-                "unsupported operator for text filter: {:?}",
-                filter.op
-            )));
-        }
-    }))
 }
 
 /// `is_slow` / `is_monotonic`: equality only. On the row path a negation is

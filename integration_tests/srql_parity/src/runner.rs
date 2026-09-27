@@ -786,6 +786,8 @@ async fn seed(
     let (traces, hops) = fixture::mtr::traces_and_hops(anchor);
     let samples = fixture::otel::samples(anchor);
     let points = fixture::otel::points(anchor);
+    let spans = fixture::traces::spans(anchor);
+    let trace_summaries = fixture::traces::summaries(&spans);
 
     let cnpg_statements = [
         fixture::metric_inserts(&metrics, Backend::Cnpg, "platform"),
@@ -796,6 +798,8 @@ async fn seed(
         fixture::mtr::hop_inserts(&hops, Backend::Cnpg, "platform"),
         fixture::otel::sample_inserts(&samples, Backend::Cnpg, "platform"),
         fixture::otel::point_inserts(&points, Backend::Cnpg, "platform"),
+        fixture::traces::span_inserts(&spans, Backend::Cnpg, "platform"),
+        fixture::traces::summary_inserts(&trace_summaries, Backend::Cnpg, "platform"),
     ];
     for statement in cnpg_statements.iter().flatten() {
         cnpg.batch_execute(statement)
@@ -819,6 +823,8 @@ async fn seed(
         fixture::mtr::hop_inserts(&hops, Backend::StarRocks, database),
         fixture::otel::sample_inserts(&samples, Backend::StarRocks, database),
         fixture::otel::point_inserts(&points, Backend::StarRocks, database),
+        fixture::traces::span_inserts(&spans, Backend::StarRocks, database),
+        fixture::traces::summary_inserts(&trace_summaries, Backend::StarRocks, database),
     ];
     for statement in sr_statements.iter().flatten() {
         sr_exec(sr, statement).await?;
@@ -845,6 +851,12 @@ async fn seed(
         ("mtr_hops", "mtr_hops", hops.len()),
         ("otel_metrics", "otel_metrics", samples.len()),
         ("otel_metric_points", "otel_metric_points", points.len()),
+        ("otel_traces", "otel_traces", spans.len()),
+        (
+            "otel_trace_summaries",
+            "otel_trace_summaries",
+            trace_summaries.len(),
+        ),
     ] {
         let sr_count: Option<i64> = sr
             .query_first(format!("SELECT COUNT(*) FROM {database}.{table}"))

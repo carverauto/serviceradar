@@ -30,7 +30,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
     logs: 365,
     events: 365,
     mtr: 365,
-    otel: 365
+    otel: 365,
+    traces: 365
   ]
 
   # How far an hourly materialized view may lag its source table before a

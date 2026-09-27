@@ -34,7 +34,9 @@ defmodule ServiceRadarWebNGWeb.Stats do
   import Ecto.Query
 
   alias Ecto.Adapters.SQL
+  alias ServiceRadar.Analytics.StarRocks.Env, as: StarRocksEnv
   alias ServiceRadar.Analytics.StarRocks.LogEventConsumers
+  alias ServiceRadar.Analytics.StarRocks.Query, as: StarRocksQuery
   alias ServiceRadar.Analytics.StarRocks.Readers
   alias ServiceRadar.Repo, as: CoreRepo
   alias ServiceRadarWebNG.Repo
@@ -520,12 +522,74 @@ defmodule ServiceRadarWebNGWeb.Stats do
   """
   @spec trace_rollup_status(keyword()) :: trace_rollup_status()
   def trace_rollup_status(opts \\ []) do
-    if repo_started?() do
-      do_trace_rollup_status(opts)
-    else
-      empty_trace_rollup_status()
+    case Readers.backend(:otel_traces) do
+      :starrocks ->
+        starrocks_trace_rollup_status(opts)
+
+      :cnpg ->
+        if repo_started?(), do: do_trace_rollup_status(opts), else: empty_trace_rollup_status()
     end
   end
+
+  # With the warehouse enabled the spans, their summaries and the rollup all
+  # live there (priv/starrocks/0022), and the CNPG relations stop receiving
+  # rows. A relation the warehouse cannot read reads as missing. The marks are
+  # taken over the last day, which the day partitions (and the summary table's
+  # timestamp sort) prune to; a quiet day reads as no raw traces, not a lag.
+  defp starrocks_trace_rollup_status(opts) do
+    threshold_seconds =
+      Keyword.get(opts, :stale_threshold_seconds, trace_rollup_stale_threshold_seconds())
+
+    query = Keyword.get(opts, :query, &StarRocksQuery.execute/1)
+    cutoff = DateTime.utc_now() |> DateTime.add(-86_400, :second) |> warehouse_instant()
+
+    raw = warehouse_latest(query, "otel_traces", "timestamp", cutoff)
+    summary = warehouse_latest(query, "otel_trace_summaries", "timestamp", cutoff)
+    rollup = warehouse_latest(query, "traces_stats_5m", "bucket", cutoff)
+
+    assess_trace_rollup_status(
+      summary_table_present?: summary != :missing,
+      traces_rollup_present?: rollup != :missing,
+      raw_latest_timestamp: present_mark(raw),
+      summary_latest_timestamp: present_mark(summary),
+      rollup_latest_bucket: present_mark(rollup),
+      stale_threshold_seconds: threshold_seconds
+    )
+  rescue
+    error ->
+      Logger.warning("trace rollup health verification failed: #{Exception.message(error)}")
+
+      empty_trace_rollup_status()
+  end
+
+  defp warehouse_latest(query, table, column, cutoff) do
+    sql =
+      "SELECT MAX(`#{column}`) FROM #{StarRocksEnv.table(table)} WHERE `#{column}` >= '#{cutoff}'"
+
+    case query.(sql) do
+      {:ok, %{rows: [[value]]}} -> {:ok, warehouse_datetime(value)}
+      {:ok, _result} -> {:ok, nil}
+      {:error, _reason} -> :missing
+    end
+  end
+
+  defp present_mark({:ok, value}), do: value
+  defp present_mark(:missing), do: nil
+
+  # StarRocks holds naive UTC and evaluates NOW() in the Frontend's zone, so
+  # bounds are passed as UTC literals.
+  defp warehouse_instant(%DateTime{} = instant) do
+    instant |> DateTime.to_naive() |> NaiveDateTime.truncate(:second) |> NaiveDateTime.to_string()
+  end
+
+  defp warehouse_datetime(value) when is_binary(value) do
+    case NaiveDateTime.from_iso8601(value) do
+      {:ok, naive} -> DateTime.from_naive!(naive, "Etc/UTC")
+      _ -> nil
+    end
+  end
+
+  defp warehouse_datetime(value), do: normalize_datetime(value)
 
   defp do_trace_rollup_status(opts) do
     threshold_seconds =

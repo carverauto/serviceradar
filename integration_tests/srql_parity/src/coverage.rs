@@ -55,6 +55,8 @@ pub fn warehouse_entity(entity: &str) -> Option<&'static str> {
         "mtr_hops" | "mtr_hop_stats" => "mtr_hops",
         "otel_metrics" | "metrics" => "otel_metrics",
         "otel_metric_points" | "metric_points" => "otel_metric_points",
+        "otel_traces" | "traces" | "trace_spans" => "traces",
+        "otel_trace_summaries" | "trace_summaries" | "traces_summaries" => "otel_trace_summaries",
         _ => return None,
     })
 }
