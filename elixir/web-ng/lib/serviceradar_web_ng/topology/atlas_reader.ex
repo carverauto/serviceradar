@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNG.Topology.AtlasReader do
   publication cannot publish a result prepared from a retired selection.
   """
 
+  alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNG.Topology.AtlasLevel
   alias ServiceRadarWebNG.Topology.AtlasStore
   alias ServiceRadarWebNG.Topology.GodViewStream
@@ -46,14 +47,22 @@ defmodule ServiceRadarWebNG.Topology.AtlasReader do
       |> Enum.uniq()
       |> Enum.sort()
 
-    if length(ids) <= @max_devices do
-      case GodViewStream.fetch_devices_for_scope(scope, ids) do
-        {:ok, devices} -> {:ok, Map.new(devices, &{&1.uid, &1})}
-        {:error, %Ash.Error.Forbidden{}} -> {:error, :forbidden}
-        {:error, _reason} = error -> error
-      end
-    else
-      {:error, :invalid_levels}
+    cond do
+      ids == [] ->
+        {:ok, %{}}
+
+      length(ids) > @max_devices ->
+        {:error, :invalid_levels}
+
+      true ->
+        with {:ok, current_scope} <- RBAC.authorize_current(scope, ["devices.view"]),
+             {:ok, devices} <- GodViewStream.fetch_devices_for_scope(current_scope, ids) do
+          {:ok, Map.new(devices, &{&1.uid, &1})}
+        else
+          {:error, :permission_revoked} -> {:error, :forbidden}
+          {:error, %Ash.Error.Forbidden{}} -> {:error, :forbidden}
+          {:error, _reason} = error -> error
+        end
     end
   end
 
