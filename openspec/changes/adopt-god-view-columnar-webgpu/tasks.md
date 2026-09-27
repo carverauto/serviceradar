@@ -15,6 +15,7 @@
 - [x] 3.2 Remove the WebGL fallback Deck. Show the WebGPU-required and renderer-stopped states on an unsupported client, a failed device request, device loss or an uncaptured device error.
 - [x] 3.3 Use device-neutral GPU parameters for every God-View layer.
 - [x] 3.4 Run the ELK scene acceptance suite on WebGPU at default device limits with packet flow on, including a live-animation responsiveness test.
+- [x] 3.5 Fix WebGPU picking so hover/click resolve the node under the pointer, not its vertically mirrored counterpart, with a test covering the top, bottom, left, right and middle glyphs.
 
 ## 4. GPU packet flow
 - [x] 4.1 Port the packet-flow layer to WGSL, drawn from per-edge instances within the default vertex-buffer limit.
