@@ -8,7 +8,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use arrow_array::{
-    cast::AsArray, Array, Int8Array, RecordBatch, StringArray, UInt16Array, UInt32Array,
+    cast::AsArray, Array, ArrayRef, Int8Array, RecordBatch, StringArray, UInt16Array, UInt32Array,
     UInt64Array, UInt8Array,
 };
 use arrow_ipc::writer::FileWriter;
@@ -17,6 +17,7 @@ use roaring::RoaringBitmap;
 use rustler::{Binary, Env, OwnedBinary};
 
 use crate::core::layout::{build_hypergraph_from_projection, build_hypergraph_projection};
+use crate::core::snapshot_details::DetailColumns;
 use crate::types::fieldsurvey::{
     FieldSurveyPoseSampleRow, FieldSurveyRfObservationRow, FieldSurveySpectrumObservationRow,
 };
@@ -31,6 +32,21 @@ pub(crate) fn encode_snapshot_impl(
     env: Env,
     payload: EncodeSnapshotPayload,
 ) -> Result<Binary, rustler::Error> {
+    let bytes = encode_snapshot_ipc(payload)?;
+    vec_into_binary(env, bytes)
+}
+
+/// Writes a snapshot frame as one Arrow IPC file.
+///
+/// Node rows come first, in `nodes` order, and edge rows follow. The schema
+/// metadata carries `node_count` and `edge_count`, so every numeric column is
+/// dense over rows `0..node_count` for nodes and `node_count..node_count +
+/// edge_count` for edges. A decoder can slice positions, states and endpoints
+/// straight out of the column buffers without branching on `row_type` or
+/// parsing the `node_details` / `edge_details` JSON.
+pub(crate) fn encode_snapshot_ipc(
+    payload: EncodeSnapshotPayload,
+) -> Result<Vec<u8>, rustler::Error> {
     let EncodeSnapshotPayload {
         schema_version,
         revision,
@@ -45,7 +61,9 @@ pub(crate) fn encode_snapshot_impl(
         unknown_bitmap_bytes,
     } = payload;
 
-    let total_rows = nodes.len() + edges.len();
+    let node_count = nodes.len();
+    let edge_count = edges.len();
+    let total_rows = node_count + edge_count;
     let hypergraph_projection = build_hypergraph_projection(nodes.len(), &edges);
     let hypergraph = build_hypergraph_from_projection(&hypergraph_projection);
 
@@ -57,8 +75,9 @@ pub(crate) fn encode_snapshot_impl(
     let mut node_pps = Vec::<Option<u32>>::with_capacity(total_rows);
     let mut node_oper_up = Vec::<Option<u8>>::with_capacity(total_rows);
     let mut node_details = Vec::<Option<String>>::with_capacity(total_rows);
-    let mut edge_source = Vec::<Option<u16>>::with_capacity(total_rows);
-    let mut edge_target = Vec::<Option<u16>>::with_capacity(total_rows);
+    let mut details = DetailColumns::with_capacity(total_rows);
+    let mut edge_source = Vec::<Option<u32>>::with_capacity(total_rows);
+    let mut edge_target = Vec::<Option<u32>>::with_capacity(total_rows);
     let mut edge_pps = Vec::<Option<u32>>::with_capacity(total_rows);
     let mut edge_pps_ab = Vec::<Option<u32>>::with_capacity(total_rows);
     let mut edge_pps_ba = Vec::<Option<u32>>::with_capacity(total_rows);
@@ -73,15 +92,16 @@ pub(crate) fn encode_snapshot_impl(
     let mut edge_evidence_class = Vec::<Option<String>>::with_capacity(total_rows);
     let mut edge_details_json = Vec::<Option<String>>::with_capacity(total_rows);
 
-    for (x, y, state, label, pps, oper_up, details) in nodes {
+    for (x, y, state, label, pps, oper_up, node_details_json) in nodes {
         row_type.push(0);
+        details.push_node(&node_details_json);
         node_x.push(Some(x));
         node_y.push(Some(y));
         node_state.push(Some(u16::from(state)));
         node_label.push(Some(label));
         node_pps.push(Some(pps));
         node_oper_up.push(Some(oper_up));
-        node_details.push(Some(details));
+        node_details.push(Some(node_details_json));
         edge_source.push(None);
         edge_target.push(None);
         edge_pps.push(None);
@@ -112,7 +132,7 @@ pub(crate) fn encode_snapshot_impl(
                     "unknown".to_string(),
                 )
             });
-        let details = edge_details
+        let edge_details_row = edge_details
             .get(idx)
             .cloned()
             .unwrap_or_else(|| "{}".to_string());
@@ -125,6 +145,7 @@ pub(crate) fn encode_snapshot_impl(
         node_pps.push(None);
         node_oper_up.push(None);
         node_details.push(None);
+        details.push_edge(&edge_details_row);
         edge_source.push(Some(source));
         edge_target.push(Some(target));
         edge_pps.push(Some(pps));
@@ -139,12 +160,14 @@ pub(crate) fn encode_snapshot_impl(
         edge_topology_class.push(Some(topology_class));
         edge_protocol.push(Some(protocol));
         edge_evidence_class.push(Some(evidence_class));
-        edge_details_json.push(Some(details));
+        edge_details_json.push(Some(edge_details_row));
     }
 
     let mut metadata = HashMap::new();
     metadata.insert("schema_version".to_string(), schema_version.to_string());
     metadata.insert("revision".to_string(), revision.to_string());
+    metadata.insert("node_count".to_string(), node_count.to_string());
+    metadata.insert("edge_count".to_string(), edge_count.to_string());
     metadata.insert(
         "root_bitmap_bytes".to_string(),
         root_bitmap_bytes.to_string(),
@@ -178,6 +201,9 @@ pub(crate) fn encode_snapshot_impl(
         if hypergraph.is_some() { "1" } else { "0" }.to_string(),
     );
 
+    let (detail_fields, detail_arrays): (Vec<Field>, Vec<ArrayRef>) =
+        details.into_fields_and_arrays().into_iter().unzip();
+
     let schema = Arc::new(Schema::new_with_metadata(
         vec![
             Field::new("row_type", DataType::Int8, false),
@@ -188,8 +214,8 @@ pub(crate) fn encode_snapshot_impl(
             Field::new("node_pps", DataType::UInt32, true),
             Field::new("node_oper_up", DataType::UInt8, true),
             Field::new("node_details", DataType::Utf8, true),
-            Field::new("edge_source", DataType::UInt16, true),
-            Field::new("edge_target", DataType::UInt16, true),
+            Field::new("edge_source", DataType::UInt32, true),
+            Field::new("edge_target", DataType::UInt32, true),
             Field::new("edge_pps", DataType::UInt32, true),
             Field::new("edge_pps_ab", DataType::UInt32, true),
             Field::new("edge_pps_ba", DataType::UInt32, true),
@@ -205,7 +231,10 @@ pub(crate) fn encode_snapshot_impl(
             Field::new("edge_details", DataType::Utf8, true),
             Field::new("snapshot_schema_version", DataType::UInt32, false),
             Field::new("snapshot_revision", DataType::UInt64, false),
-        ],
+        ]
+        .into_iter()
+        .chain(detail_fields)
+        .collect::<Vec<_>>(),
         metadata,
     ));
 
@@ -215,7 +244,7 @@ pub(crate) fn encode_snapshot_impl(
     let batch = RecordBatch::try_new(
         Arc::clone(&schema),
         vec![
-            Arc::new(Int8Array::from(row_type)),
+            Arc::new(Int8Array::from(row_type)) as ArrayRef,
             Arc::new(UInt16Array::from(node_x)),
             Arc::new(UInt16Array::from(node_y)),
             Arc::new(UInt16Array::from(node_state)),
@@ -223,8 +252,8 @@ pub(crate) fn encode_snapshot_impl(
             Arc::new(UInt32Array::from(node_pps)),
             Arc::new(UInt8Array::from(node_oper_up)),
             Arc::new(StringArray::from(node_details)),
-            Arc::new(UInt16Array::from(edge_source)),
-            Arc::new(UInt16Array::from(edge_target)),
+            Arc::new(UInt32Array::from(edge_source)),
+            Arc::new(UInt32Array::from(edge_target)),
             Arc::new(UInt32Array::from(edge_pps)),
             Arc::new(UInt32Array::from(edge_pps_ab)),
             Arc::new(UInt32Array::from(edge_pps_ba)),
@@ -239,8 +268,11 @@ pub(crate) fn encode_snapshot_impl(
             Arc::new(StringArray::from(edge_evidence_class)),
             Arc::new(StringArray::from(edge_details_json)),
             Arc::new(UInt32Array::from(schema_version_col)),
-            Arc::new(UInt64Array::from(revision_col)),
-        ],
+            Arc::new(UInt64Array::from(revision_col)) as ArrayRef,
+        ]
+        .into_iter()
+        .chain(detail_arrays)
+        .collect(),
     )
     .map_err(|_| rustler::Error::BadArg)?;
 
@@ -252,9 +284,7 @@ pub(crate) fn encode_snapshot_impl(
         writer.finish().map_err(|_| rustler::Error::BadArg)?;
     }
 
-    let mut out = OwnedBinary::new(payload.len()).ok_or(rustler::Error::BadArg)?;
-    out.as_mut_slice().copy_from_slice(&payload);
-    Ok(Binary::from_owned(out, env))
+    Ok(payload)
 }
 
 /// Serializes a sparse `RoaringBitmap` directly into byte chunks for Erlang interop.
@@ -870,4 +900,197 @@ fn optional_f64_value(
             Some(array.value(index))
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::encode_snapshot_ipc;
+    use crate::types::snapshot::EncodeSnapshotPayload;
+    use arrow_array::{
+        Array, Float64Array, RecordBatch, StringArray, UInt16Array, UInt32Array, UInt8Array,
+    };
+    use arrow_ipc::reader::FileReader;
+    use arrow_schema::DataType;
+
+    type NodeRow = (u16, u16, u8, String, u32, u8, String);
+    type EdgeRow = (u32, u32, u32, u64, u64, String, u8);
+
+    fn encode(nodes: Vec<NodeRow>, edges: Vec<EdgeRow>, edge_details: Vec<String>) -> RecordBatch {
+        let bytes = encode_snapshot_ipc(EncodeSnapshotPayload {
+            schema_version: 3,
+            revision: 9,
+            nodes,
+            edges,
+            edge_meta: Vec::new(),
+            edge_directional: Vec::new(),
+            edge_details,
+            root_bitmap_bytes: 0,
+            affected_bitmap_bytes: 0,
+            healthy_bitmap_bytes: 0,
+            unknown_bitmap_bytes: 0,
+        })
+        .unwrap();
+        let reader = FileReader::try_new(std::io::Cursor::new(bytes), None).unwrap();
+        let batches: Vec<RecordBatch> = reader.map(|batch| batch.unwrap()).collect();
+        assert_eq!(batches.len(), 1);
+        batches.into_iter().next().unwrap()
+    }
+
+    fn column<'a, T: 'static>(batch: &'a RecordBatch, name: &str) -> &'a T {
+        batch
+            .column_by_name(name)
+            .unwrap_or_else(|| panic!("missing column {name}"))
+            .as_any()
+            .downcast_ref::<T>()
+            .unwrap_or_else(|| panic!("column {name} has an unexpected type"))
+    }
+
+    fn node(details: &str) -> NodeRow {
+        (0, 0, 2, "n".to_string(), 0, 1, details.to_string())
+    }
+
+    #[test]
+    fn snapshot_endpoints_above_u16_round_trip() {
+        let node_count: u32 = 70_000;
+        let nodes = (0..node_count)
+            .map(|idx| {
+                (
+                    (idx % 65_536) as u16,
+                    (idx / 2 % 65_536) as u16,
+                    (idx % 4) as u8,
+                    format!("node-{idx}"),
+                    idx,
+                    1u8,
+                    format!(r#"{{"id":"sr:test-{idx}"}}"#),
+                )
+            })
+            .collect();
+        let edges = vec![
+            (0u32, 65_535u32, 1u32, 2u64, 3u64, "a".to_string(), 1u8),
+            (65_536, 69_999, 4, 5, 6, "b".to_string(), 1),
+            (69_998, 1, 7, 8, 9, "c".to_string(), 0),
+        ];
+
+        let batch = encode(nodes, edges, Vec::new());
+
+        let edge_offset = node_count as usize;
+        assert_eq!(batch.num_rows(), edge_offset + 3);
+        let metadata = batch.schema().metadata().clone();
+        let meta = |key: &str| metadata.get(key).map(String::as_str);
+        assert_eq!(meta("node_count"), Some("70000"));
+        assert_eq!(meta("edge_count"), Some("3"));
+        assert_eq!(meta("schema_version"), Some("3"));
+        assert_eq!(meta("topology_hypergraph_dropped_edges"), Some("0"));
+
+        let sources: &UInt32Array = column(&batch, "edge_source");
+        let targets: &UInt32Array = column(&batch, "edge_target");
+        assert_eq!(sources.data_type(), &DataType::UInt32);
+        let endpoints: Vec<(u32, u32)> = (edge_offset..edge_offset + 3)
+            .map(|row| (sources.value(row), targets.value(row)))
+            .collect();
+        assert_eq!(endpoints, vec![(0, 65_535), (65_536, 69_999), (69_998, 1)]);
+        assert!(sources.is_null(0) && targets.is_null(edge_offset - 1));
+
+        // Layout coordinates stay in the 16-bit quantized space.
+        let xs: &UInt16Array = column(&batch, "node_x");
+        let ys: &UInt16Array = column(&batch, "node_y");
+        assert_eq!((xs.value(65_537), ys.value(65_537)), (1, 32_768));
+        assert!(xs.is_null(edge_offset));
+
+        // Node ids come from each row's own details JSON.
+        let ids: &StringArray = column(&batch, "node_detail_id");
+        assert_eq!(ids.value(69_999), "sr:test-69999");
+        assert!(ids.is_null(edge_offset));
+    }
+
+    #[test]
+    fn details_keys_read_for_every_row_are_dense_columns() {
+        let nodes = vec![
+            node(
+                r#"{"id":"sr:a","type":"switch","cluster_kind":"endpoint-summary","cluster_id":"c1",
+                    "cluster_anchor_id":"sr:b","cluster_expanded":true,"topology_unplaced":false,
+                    "cluster_member_count":12,"geo_lat":1.5,"geo_lon":null,"ip":"192.0.2.1"}"#,
+            ),
+            node("not json"),
+        ];
+        let edges = vec![(0u32, 1u32, 0u32, 0u64, 0u64, String::new(), 1u8)];
+        let edge_details = vec![
+            r#"{"source_id":"sr:a","target_id":"sr:b","source_if_index":7,
+            "source_interface":"ge-0/0/1","telemetry_observed_at":"2026-01-01T00:00:00Z",
+            "interface_sparkline":[{"value":1}],
+            "metadata":{"relation_type":"CONNECTS_TO","topology_plane":"physical",
+                        "connectivity_forest_bridge":false}}"#
+                .to_string(),
+        ];
+
+        let batch = encode(nodes, edges, edge_details);
+
+        let text = |name: &str, row: usize| {
+            let values: &StringArray = column(&batch, name);
+            (!values.is_null(row)).then(|| values.value(row).to_string())
+        };
+        let flag = |name: &str, row: usize| column::<UInt8Array>(&batch, name).value(row);
+        let number = |name: &str, row: usize| column::<Float64Array>(&batch, name).value(row);
+
+        assert_eq!(
+            text("node_detail_cluster_kind", 0).as_deref(),
+            Some("endpoint-summary")
+        );
+        assert_eq!(
+            text("node_detail_cluster_anchor_id", 0).as_deref(),
+            Some("sr:b")
+        );
+        assert_eq!(text("node_detail_cluster_panel_side", 0), None);
+        assert_eq!(flag("node_detail_cluster_expanded", 0), 2);
+        assert_eq!(flag("node_detail_topology_unplaced", 0), 1);
+        assert_eq!(number("node_detail_cluster_member_count", 0), 12.0);
+        assert_eq!(number("node_detail_geo_lat", 0), 1.5);
+        assert!(number("node_detail_geo_lon", 0).is_nan());
+        // Invalid JSON decodes to {} on the client; every column says "absent".
+        assert_eq!(text("node_detail_id", 1), None);
+        assert_eq!(flag("node_detail_cluster_expanded", 1), 0);
+
+        assert_eq!(text("edge_detail_source_id", 2).as_deref(), Some("sr:a"));
+        assert_eq!(number("edge_detail_source_if_index", 2), 7.0);
+        assert!(number("edge_detail_target_if_index", 2).is_nan());
+        assert_eq!(flag("edge_has_metadata", 2), 1);
+        assert_eq!(flag("edge_has_sparkline", 2), 1);
+        assert_eq!(
+            text("edge_metadata_relation_type", 2).as_deref(),
+            Some("CONNECTS_TO")
+        );
+        assert_eq!(flag("edge_metadata_connectivity_forest_bridge", 2), 1);
+        assert_eq!(text("edge_detail_source_id", 0), None);
+
+        let irregular: &UInt8Array = column(&batch, "details_irregular");
+        assert_eq!(
+            (irregular.value(0), irregular.value(1), irregular.value(2)),
+            (0, 0, 0)
+        );
+    }
+
+    #[test]
+    fn a_value_the_column_cannot_carry_marks_the_row_irregular() {
+        let nodes = vec![
+            node(r#"{"cluster_expanded":"true"}"#),
+            node(r#"{"cluster_member_count":"12"}"#),
+            node(r#"{"cluster_kind":"endpoint-member"}"#),
+        ];
+        let edges = vec![
+            (0u32, 1u32, 0u32, 0u64, 0u64, String::new(), 1u8),
+            (1, 2, 0, 0, 0, String::new(), 1),
+        ];
+        let edge_details = vec![
+            r#"{"metadata":{"relation-type":"CONNECTS_TO"}}"#.to_string(),
+            r#"{"metadata":"physical"}"#.to_string(),
+        ];
+
+        let batch = encode(nodes, edges, edge_details);
+
+        let irregular: &UInt8Array = column(&batch, "details_irregular");
+        let values: Vec<u8> = (0..batch.num_rows())
+            .map(|row| irregular.value(row))
+            .collect();
+        assert_eq!(values, vec![1, 1, 0, 1, 1]);
+    }
 }

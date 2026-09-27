@@ -25,7 +25,7 @@ describe("lifecycle_bootstrap_channel_methods", () => {
     const frame = ctx.buildSnapshotFrameFromHttpResponse(
       Uint8Array.from([7, 8, 9]).buffer,
       buildHeaders({
-        "x-sr-god-view-schema": "2",
+        "x-sr-god-view-schema": "3",
         "x-sr-god-view-revision": "42",
         "x-sr-god-view-generated-at": "2023-11-14T22:13:20.000Z",
         "x-sr-god-view-bitmap-root-bytes": "11",
@@ -40,7 +40,7 @@ describe("lifecycle_bootstrap_channel_methods", () => {
     )
 
     const parsed = ctx.parseBinarySnapshotFrame(frame)
-    expect(parsed.schemaVersion).toEqual(2)
+    expect(parsed.schemaVersion).toEqual(3)
     expect(parsed.revision).toEqual(42)
     expect(parsed.bitmapMetadata.root_cause.bytes).toEqual(11)
     expect(Array.from(parsed.payload)).toEqual([7, 8, 9])
@@ -52,7 +52,7 @@ describe("lifecycle_bootstrap_channel_methods", () => {
       ok: true,
       status: 200,
       headers: buildHeaders({
-        "x-sr-god-view-schema": "2",
+        "x-sr-god-view-schema": "3",
         "x-sr-god-view-revision": "42",
         "x-sr-god-view-generated-at": "2023-11-14T22:13:20.000Z",
         "x-sr-god-view-bitmap-root-bytes": "11",
@@ -115,7 +115,7 @@ describe("lifecycle_bootstrap_channel_methods", () => {
       ok: true,
       status: 200,
       headers: buildHeaders({
-        "x-sr-god-view-schema": "2",
+        "x-sr-god-view-schema": "3",
         "x-sr-god-view-revision": "42",
         "x-sr-god-view-generated-at": "2023-11-14T22:13:20.000Z",
         "x-sr-god-view-pipeline-raw-links": "99",

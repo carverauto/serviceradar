@@ -19,6 +19,7 @@ function buildContext() {
     nodeReferenceAction: () => "",
     escapeHtml: (value) => String(value == null ? "" : value),
     renderGraph: () => {},
+    refreshInteraction: () => {},
     edgeLayerId: godViewRenderingTooltipMethods.edgeLayerId,
     nodeLayerId: godViewRenderingTooltipMethods.nodeLayerId,
     displayNodeLabel: godViewRenderingTooltipMethods.displayNodeLabel,

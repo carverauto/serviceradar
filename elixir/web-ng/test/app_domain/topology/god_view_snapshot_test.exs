@@ -137,6 +137,25 @@ defmodule ServiceRadarWebNG.Topology.GodViewSnapshotTest do
     assert {:error, {:unsupported_schema, 999}} = GodViewSnapshot.validate(snapshot)
   end
 
+  test "schema 3 is the only accepted snapshot version" do
+    assert GodViewSnapshot.schema_version() == 3
+    assert GodViewSnapshot.supported_schema?(3)
+    refute GodViewSnapshot.supported_schema?(2)
+
+    snapshot = %{
+      schema_version: 2,
+      revision: 1,
+      generated_at: DateTime.utc_now(),
+      nodes: [],
+      edges: [],
+      causal_bitmaps: %{healthy: <<1>>},
+      bitmap_metadata: %{}
+    }
+
+    assert {:error, {:unsupported_schema, 2}} = GodViewSnapshot.validate(snapshot)
+    assert :ok = GodViewSnapshot.validate(%{snapshot | schema_version: 3})
+  end
+
   test "validate/1 rejects missing required keys" do
     snapshot = %{
       schema_version: GodViewSnapshot.schema_version(),

@@ -18,7 +18,7 @@ pub(crate) const MAX_BETWEENNESS_NODES: usize = 4_096;
 /// Returns a projection containing bounds stats and incidence mappings.
 pub(crate) fn build_hypergraph_projection(
     num_nodes: usize,
-    edges: &[(u16, u16, u32, u64, u64, String, u8)],
+    edges: &[(u32, u32, u32, u64, u64, String, u8)],
 ) -> HypergraphProjection {
     let mut projection = HypergraphProjection {
         num_nodes,
@@ -32,8 +32,8 @@ pub(crate) fn build_hypergraph_projection(
     projection.incidence_triplets.reserve(edges.len() * 2);
 
     for (source, target, _, _, _, _, _) in edges {
-        let src = usize::from(*source);
-        let dst = usize::from(*target);
+        let src = *source as usize;
+        let dst = *target as usize;
 
         if src >= num_nodes || dst >= num_nodes {
             projection.dropped_edges += 1;

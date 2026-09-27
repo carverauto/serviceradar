@@ -16,7 +16,7 @@ vi.mock("@deck.gl/core", async (importOriginal) => ({
 
 import {bindApi, createStateBackedContext} from "./api_helpers"
 import {godViewLayoutClusterMethods} from "./layout_cluster_methods"
-import {godViewLifecycleDomSetupMethods} from "./lifecycle_dom_setup_methods"
+import {GOD_VIEW_DEVICE_PROPS, godViewLifecycleDomSetupMethods, pickInTopLeftDevicePixels} from "./lifecycle_dom_setup_methods"
 import {godViewRenderingGraphCoreMethods} from "./rendering_graph_core_methods"
 import {godViewRenderingGraphLayerNodeMethods} from "./rendering_graph_layer_node_methods"
 import {godViewRenderingGraphViewMethods} from "./rendering_graph_view_methods"
@@ -327,6 +327,46 @@ describe("lifecycle_dom_setup_methods", () => {
     expect([deck.viewportWidth, deck.viewportHeight]).toEqual([800, 1000])
     expect(deck._updateCanvasSize.mock.invocationCallOrder[0])
       .toBeLessThan(deck.redraw.mock.invocationCallOrder[0])
+  })
+
+  it("tells luma's canvas context the new size before deck 9.4 reads it back", () => {
+    // @deck.gl/core 9.4: _updateCanvasSize reads canvasContext.getCSSSize(), which luma only
+    // refreshes from a ResizeObserver callback a frame later. Without the new size there, the
+    // refresh adopts nothing and the frame is drawn -- and labels admitted -- at the old size.
+    const canvasContext = {
+      cssWidth: 1920,
+      cssHeight: 1080,
+      getCSSSize() {
+        return [this.cssWidth, this.cssHeight]
+      },
+    }
+    const deck = {
+      width: 1920,
+      height: 1080,
+      device: {canvasContext},
+      setProps: vi.fn(),
+      _updateCanvasSize: vi.fn(() => {
+        ;[deck.width, deck.height] = canvasContext.getCSSSize()
+      }),
+      redraw: vi.fn(),
+    }
+    const state = {
+      el: {
+        clientWidth: 1080,
+        clientHeight: 1920,
+        getBoundingClientRect: () => ({left: 0, top: 0, width: 1080, height: 1920, right: 1080, bottom: 1920}),
+      },
+      canvas: {style: {}},
+      deck,
+      viewportWidth: 1920,
+      viewportHeight: 1080,
+    }
+    const ctx = createStateBackedContext(state, {})
+    Object.assign(ctx, bindApi(ctx, godViewLifecycleDomSetupMethods))
+
+    ctx.resizeCanvas()
+
+    expect([deck.width, deck.height]).toEqual([1080, 1920])
   })
 
   it("falls back to the Deck view manager when the canvas-size refresh is unavailable", () => {
@@ -959,7 +999,7 @@ describe("lifecycle_dom_setup_methods", () => {
     const previousLabelFallbackIds = ["accepted-label"]
     const previousVisibilityMask = Uint8Array.from([1, 0])
     const previousTraversalMask = Uint8Array.from([1, 1])
-    const previousPacketFlowCache = [{edgeIndex: 0}]
+    const previousGraphLayers = [{id: "accepted-layer"}]
     const state = {
       lastGraph: previousGraph,
       lastRevision: 8,
@@ -993,8 +1033,7 @@ describe("lifecycle_dom_setup_methods", () => {
       visibilityMaskBuffer: previousVisibilityMask,
       traversalMaskBuffer: previousTraversalMask,
       wasmReady: true,
-      packetFlowCache: previousPacketFlowCache,
-      packetFlowCacheStamp: "accepted-flow",
+      lastGraphLayers: previousGraphLayers,
       layers: {atmosphere: true},
       pushEvent: vi.fn(),
       summary: {textContent: "accepted scene"},
@@ -1028,8 +1067,7 @@ describe("lifecycle_dom_setup_methods", () => {
         state.visibilityMaskBuffer.fill(0)
         state.traversalMaskBuffer.fill(0)
         state.wasmReady = false
-        state.packetFlowCache = [{edgeIndex: 9}]
-        state.packetFlowCacheStamp = "failed-flow"
+        state.lastGraphLayers = [{id: "failed-layer"}]
         state.layers.atmosphere = false
         throw new RangeError("portrait camera infeasible")
       }),
@@ -1069,8 +1107,7 @@ describe("lifecycle_dom_setup_methods", () => {
     expect(state.traversalMaskBuffer).toBe(previousTraversalMask)
     expect(Array.from(state.traversalMaskBuffer)).toEqual([1, 1])
     expect(state.wasmReady).toBe(true)
-    expect(state.packetFlowCache).toBe(previousPacketFlowCache)
-    expect(state.packetFlowCacheStamp).toBe("accepted-flow")
+    expect(state.lastGraphLayers).toBe(previousGraphLayers)
     expect(state.layers.atmosphere).toBe(true)
     expect(state.summary.textContent).toBe("topology render unavailable")
     expect(state.managedTopologyCameraErrorActive).toBe(true)
@@ -1839,5 +1876,199 @@ describe("lifecycle_dom_setup_methods", () => {
     expect(event.stopPropagation).toHaveBeenCalledTimes(1)
     expect(ctx.navigateToHref).toHaveBeenCalledWith("/devices/sr%3Atest-02")
     expect(deps.focusNodeByIndex).not.toHaveBeenCalled()
+  })
+
+  describe("renderer device", () => {
+    function deckContext() {
+      const children = []
+      const state = {
+        el: {clientWidth: 800, clientHeight: 600, appendChild: (child) => children.push(child)},
+        canvas: {},
+        summary: {textContent: ""},
+        visual: {bg: [10, 10, 10, 255]},
+        viewState: {zoom: 1},
+        lastGraph: {nodes: [], edges: []},
+        rendererMode: "initializing",
+        rendererDeviceType: null,
+        pushEvent: vi.fn(),
+      }
+      const ctx = createStateBackedContext(state, {renderGraph: vi.fn()})
+      Object.assign(ctx, bindApi(ctx, godViewLifecycleDomSetupMethods))
+      return {ctx, state, children}
+    }
+
+    async function withGlobals(globals, run) {
+      const error = vi.spyOn(console, "error").mockImplementation(() => {})
+      for (const [name, value] of Object.entries(globals)) vi.stubGlobal(name, value)
+      try {
+        return await run(error)
+      } finally {
+        vi.unstubAllGlobals()
+        error.mockRestore()
+      }
+    }
+
+    function fakeDocument() {
+      const element = () => {
+        const node = {
+          className: "",
+          textContent: "",
+          attributes: {},
+          children: [],
+          setAttribute(name, value) {
+            node.attributes[name] = value
+          },
+          append(...nodes) {
+            node.children.push(...nodes)
+          },
+          querySelector(selector) {
+            const name = selector.replace(/^\[|\]$/g, "")
+            const stack = [...node.children]
+            while (stack.length > 0) {
+              const next = stack.shift()
+              if (name in next.attributes) return next
+              stack.push(...next.children)
+            }
+            return null
+          },
+        }
+        return node
+      }
+      return {createElement: element}
+    }
+
+    function overlayText(children) {
+      const overlay = children.find((child) => child.attributes?.["data-god-view-renderer-error"] === "webgpu")
+      const collect = (node) => [node.textContent, ...node.children.flatMap(collect)]
+      return overlay ? collect(overlay).join(" ") : null
+    }
+
+    it("asks deck for a WebGPU device only and reports webgpu once deck has created one", async () => {
+      await withGlobals({navigator: {gpu: {requestAdapter: vi.fn()}}}, () => {
+        const {ctx, state} = deckContext()
+        ctx.ensureDeck()
+
+        const {deviceProps} = state.deck.props
+        expect(deviceProps).toMatchObject(GOD_VIEW_DEVICE_PROPS)
+        expect(deviceProps.type).toBe("webgpu")
+        expect(deviceProps.featureLevel).toBe("core")
+        expect(deviceProps.adapters.map((adapter) => adapter.type)).toEqual(["webgpu"])
+        expect(state.rendererMode).toBe("initializing")
+
+        state.deck.props.onDeviceInitialized({type: "webgpu", lost: new Promise(() => {})})
+        expect(state.rendererMode).toBe("webgpu")
+        expect(state.rendererDeviceType).toBe("webgpu")
+      })
+    })
+
+    it("shows WebGPU required and builds no deck when the browser has no WebGPU", async () => {
+      await withGlobals({navigator: {}, document: fakeDocument()}, (consoleError) => {
+        const {ctx, state, children} = deckContext()
+        ctx.ensureDeck()
+
+        expect(state.deck).toBeNull()
+        expect(state.rendererMode).toBe("unavailable")
+        expect(overlayText(children)).toContain("WebGPU required")
+        expect(consoleError).toHaveBeenCalled()
+        expect(state.pushEvent).toHaveBeenCalledWith("god_view_stream_error", {
+          reason: "webgpu_unavailable",
+          message: "navigator.gpu is not available",
+        })
+
+        // Later renders do not try again.
+        ctx.ensureDeck()
+        expect(state.deck).toBeNull()
+      })
+    })
+
+    it("shows WebGPU required, and builds no other deck, when device creation fails", async () => {
+      await withGlobals({navigator: {gpu: {requestAdapter: vi.fn()}}, document: fakeDocument()}, () => {
+        const {ctx, state, children} = deckContext()
+        ctx.ensureDeck()
+        const webgpuDeck = state.deck
+        webgpuDeck.finalize = vi.fn()
+
+        webgpuDeck.props.onError(new Error("no compatible GPU adapter"))
+
+        expect(webgpuDeck.finalize).toHaveBeenCalledTimes(1)
+        expect(state.deck).toBeNull()
+        expect(state.rendererMode).toBe("unavailable")
+        expect(state.rendererError).toBe("no compatible GPU adapter")
+        expect(overlayText(children)).toContain("no compatible GPU adapter")
+        ctx.ensureDeck()
+        expect(state.deck).toBeNull()
+      })
+    })
+
+    it("stops visibly, instead of drawing blank frames, on a WebGPU validation error", async () => {
+      await withGlobals({navigator: {gpu: {requestAdapter: vi.fn()}}, document: fakeDocument()}, () => {
+        const {ctx, state, children} = deckContext()
+        ctx.ensureDeck()
+        const deck = state.deck
+        deck.finalize = vi.fn()
+        deck.props.onDeviceInitialized({type: "webgpu", handle: {lost: new Promise(() => {})}})
+
+        const handled = deck.props.deviceProps.onError(new Error("Vertex buffer count (9) exceeds the maximum number of vertex buffers (8)."))
+
+        expect(handled).toBe(true)
+        expect(deck.finalize).toHaveBeenCalledTimes(1)
+        expect(state.deck).toBeNull()
+        expect(state.rendererMode).toBe("unavailable")
+        expect(overlayText(children)).toContain("Topology renderer stopped")
+        expect(overlayText(children)).toContain("maximum number of vertex buffers")
+        expect(state.pushEvent).toHaveBeenCalledWith("god_view_stream_error", expect.objectContaining({reason: "webgpu_render_error"}))
+      })
+    })
+
+    it("shows WebGPU required when the device is lost", async () => {
+      await withGlobals({navigator: {gpu: {requestAdapter: vi.fn()}}, document: fakeDocument()}, async () => {
+        const {ctx, state, children} = deckContext()
+        ctx.ensureDeck()
+        let lose
+        state.deck.props.onDeviceInitialized({
+          type: "webgpu",
+          // luma's own promise reports every loss as "destroyed"; the GPUDevice's does not.
+          lost: Promise.resolve({reason: "destroyed"}),
+          handle: {lost: new Promise((resolve) => { lose = resolve })},
+        })
+        expect(state.rendererMode).toBe("webgpu")
+
+        lose({reason: "unknown", message: "GPU process exited"})
+        await Promise.resolve()
+
+        expect(state.deck).toBeNull()
+        expect(state.rendererMode).toBe("unavailable")
+        expect(overlayText(children)).toContain("GPU process exited")
+      })
+    })
+  })
+
+  it("makes deck's picking read top-left framebuffer rows on the WebGPU canvas", () => {
+    // deck.gl asks for bottom-left (WebGL) rows; WebGPU textures start at the top left.
+    const cssToDevicePixels = vi.fn((pixel, yInvert = true) => ({x: pixel[0], y: yInvert ? 99 - pixel[1] : pixel[1], width: 1, height: 1}))
+    const canvasContext = {cssToDevicePixels}
+
+    expect(pickInTopLeftDevicePixels(canvasContext)).toBe(true)
+    expect(canvasContext.cssToDevicePixels([10, 20], true)).toEqual({x: 10, y: 20, width: 1, height: 1})
+    expect(canvasContext.cssToDevicePixels([10, 20])).toEqual({x: 10, y: 20, width: 1, height: 1})
+    // Idempotent: a second install does not wrap the wrapper.
+    const installed = canvasContext.cssToDevicePixels
+    expect(pickInTopLeftDevicePixels(canvasContext)).toBe(true)
+    expect(canvasContext.cssToDevicePixels).toBe(installed)
+    expect(pickInTopLeftDevicePixels(null)).toBe(false)
+  })
+
+  it("installs top-left picking on the WebGPU device it records", () => {
+    const deck = {}
+    const state = {deck, el: {clientWidth: 800, clientHeight: 600}}
+    const ctx = createStateBackedContext(state, {})
+    Object.assign(ctx, bindApi(ctx, godViewLifecycleDomSetupMethods))
+    const cssToDevicePixels = vi.fn(() => ({x: 0, y: 0, width: 1, height: 1}))
+    const canvasContext = {cssToDevicePixels}
+    ctx.recordDeckDevice(deck, {type: "webgpu", getDefaultCanvasContext: () => canvasContext})
+
+    expect(canvasContext.godViewTopLeftPicking).toBe(true)
+    canvasContext.cssToDevicePixels([3, 4], true)
+    expect(cssToDevicePixels).toHaveBeenLastCalledWith([3, 4], false)
   })
 })

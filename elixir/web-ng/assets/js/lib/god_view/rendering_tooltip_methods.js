@@ -209,7 +209,7 @@ export const godViewRenderingTooltipMethods = {
     if (this.state.canvas && !this.state.dragState && !this.state.pendingDragState) {
       this.state.canvas.style.cursor = nextKey || nextNodeIndex !== null ? "pointer" : "grab"
     }
-    if (this.state.lastGraph) this.renderGraph(this.state.lastGraph)
+    if (this.state.lastGraph) this.refreshInteraction()
   },
   edgeIsFocused(edge) {
     if (!edge) return false
