@@ -449,6 +449,39 @@ test("draws packet flow on WebGPU without a device validation error", async ({pa
   await capturePhase(page, measure, "packet-flow")
 })
 
+test("picks the node under the pointer, at the top and bottom of the view as well as the middle", async ({page}) => {
+  await mkdir(OUTPUT_DIR, {recursive: true})
+  const measure = timeline("picking")
+  await preparePage(page, measure)
+  await renderFixture(page, measure, "collapsed")
+
+  const {targets, viewportHeight} = await runStep(measure, "choose pick targets", () => (
+    page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.pickTargets())
+  ))
+  const top = targets.find((target) => target.where === "top")
+  const bottom = targets.find((target) => target.where === "bottom")
+  // The check only means something if the targets are far from the middle: a pick mirrored
+  // about the middle lands on the node itself there.
+  expect(top.y).toBeLessThan(viewportHeight * 0.35)
+  expect(bottom.y).toBeGreaterThan(viewportHeight * 0.65)
+
+  for (const target of targets) {
+    await runStep(measure, `pick ${target.where} node`, async () => {
+      const picked = await page.evaluate(({x, y}) => window.__SR_GOD_VIEW_HARNESS__.pickNodeAt(x, y), target)
+      expect(picked, `${target.where} glyph ${target.id} at (${Math.round(target.x)}, ${Math.round(target.y)})`).toBe(target.id)
+    })
+    // The real pointer path: deck's own hover picking, then God View's handler.
+    await runStep(measure, `hover ${target.where} node`, async () => {
+      await page.mouse.move(target.pageX - 40, target.pageY - 40)
+      await page.mouse.move(target.pageX, target.pageY)
+      await expect.poll(
+        () => page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.hoveredNodeId()),
+        {message: `hovering ${target.where} glyph ${target.id}`, timeout: 10_000},
+      ).toBe(target.id)
+    })
+  }
+})
+
 // The packet-flow test above steps frames by hand. This one runs the product's real loop --
 // requestAnimationFrame calling advanceAnimation -- for several seconds, and checks from outside
 // the page that the main thread keeps answering and frames keep coming.

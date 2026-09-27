@@ -272,6 +272,55 @@ async function start() {
     return liveAnimation.stop()
   }
 
+  // Picking checks: visible node glyphs at the top, bottom, left and right edges of the view
+  // and one near the middle, with their positions in page (CSS) pixels. A pick at a glyph's own
+  // position must return that glyph -- WebGPU reads the picking framebuffer top-down, and a
+  // bottom-up row returns the node mirrored about the middle of the view instead.
+  function pickTargets() {
+    const viewport = state.deck.getViewports()[0]
+    const rect = state.deck.getCanvas().getBoundingClientRect()
+    const margin = 8
+    const onScreen = (state.lastGraphLayerFrame?.nodeData || [])
+      .map((node) => ({node, at: viewport.project(node.position)}))
+      .filter(({at}) => at[0] > margin && at[0] < viewport.width - margin && at[1] > margin && at[1] < viewport.height - margin)
+    if (onScreen.length < 5) throw new Error(`only ${onScreen.length} node glyphs on screen`)
+    const by = (score) => onScreen.reduce((best, entry) => (score(entry) < score(best) ? entry : best))
+    const middle = by(({at}) => Math.hypot(at[0] - viewport.width / 2, at[1] - viewport.height / 2))
+    const chosen = [
+      ["top", by(({at}) => at[1])],
+      ["bottom", by(({at}) => -at[1])],
+      ["left", by(({at}) => at[0])],
+      ["right", by(({at}) => -at[0])],
+      ["middle", middle],
+    ]
+    return {
+      viewportHeight: viewport.height,
+      targets: chosen.map(([where, {node, at}]) => ({
+        where,
+        id: String(node.id),
+        index: node.index,
+        x: at[0],
+        y: at[1],
+        pageX: rect.left + at[0],
+        pageY: rect.top + at[1],
+      })),
+    }
+  }
+
+  async function pickNodeAt(x, y) {
+    const info = await state.deck.pickObjectAsync({x, y, radius: 0, layerIds: ["god-view-nodes"]})
+    const resolve = info?.layer?.props?.data?.resolve
+    const node = info?.object || (Number.isInteger(info?.index) && info.index >= 0 && typeof resolve === "function" ? resolve(info.index) : null)
+    return node ? String(node.id) : null
+  }
+
+  function hoveredNodeId() {
+    const index = state.hoveredNodeIndex
+    if (!Number.isInteger(index)) return null
+    const node = (state.lastGraphLayerFrame?.nodeData || []).find((record) => record.index === index)
+    return node ? String(node.id) : `unknown index ${index}`
+  }
+
   async function fit() {
     rendering.autoFitViewState(state.lastGraph, {force: true})
     rendering.refreshGraphLayersForViewState()
@@ -302,6 +351,9 @@ async function start() {
     renderFixture,
     renderPacketFlow,
     startLiveAnimation,
+    pickTargets,
+    pickNodeAt,
+    hoveredNodeId,
     stopLiveAnimation,
     fit,
     focus,
