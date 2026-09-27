@@ -49,11 +49,15 @@ export function mountTransportHarness() {
   }
   void renderer.mount().then(() => {
     renderer.deck.setProps({onAfterRender: () => {
-      if (renderer.cache.entries.size > 0 && renderer.deck.props.layers[0]?.isLoaded) {
-        measurements.firstFrame ??= performance.now()
-      }
-      measurements.frames.push(performance.now())
-      if (measurements.frames.length > 1000) measurements.frames.shift()
+      const usable = renderer.cache.entries.size > 0 && renderer.deck.props.layers[0]?.isLoaded
+      const recording = measurements.recordFrames
+      if ((!usable || measurements.firstFrame != null) && !recording) return
+      // GPU completion, not merely CPU submission. Retained frames still count
+      // while finer tiles load; first-frame admission requires usable geometry.
+      renderer.deck.device.handle.queue.onSubmittedWorkDone().then(() => {
+        if (usable) measurements.firstFrame ??= performance.now()
+        if (recording && measurements.recordFrames) measurements.frames.push(performance.now())
+      }).catch(error => renderer.failRenderer(error))
     }})
   })
 }
