@@ -32,6 +32,12 @@ defmodule ServiceRadarWebNG.Topology.TileKey do
 
   def layout_version(_version), do: {:error, :invalid_layout_version}
 
+  def content_revision(revision) when is_binary(revision) and byte_size(revision) == 64 do
+    if String.match?(revision, ~r/\A[0-9a-f]{64}\z/), do: {:ok, revision}, else: {:error, :invalid_revision}
+  end
+
+  def content_revision(_revision), do: {:error, :invalid_revision}
+
   def watch(%{"layout_version" => version, "tiles" => tiles})
       when is_list(tiles) and length(tiles) <= @max_watched_tiles do
     with {:ok, version} <- layout_version(version) do
@@ -75,11 +81,7 @@ defmodule ServiceRadarWebNG.Topology.TileKey do
 
   defp confirmed_revision(%{"revision" => nil}), do: {:ok, nil}
 
-  defp confirmed_revision(%{"revision" => revision}) when is_binary(revision) and byte_size(revision) == 64 do
-    if String.match?(revision, ~r/\A[0-9a-f]{64}\z/), do: {:ok, revision}, else: {:error, :invalid_revision}
-  end
-
-  defp confirmed_revision(%{"revision" => _revision}), do: {:error, :invalid_revision}
+  defp confirmed_revision(%{"revision" => revision}), do: content_revision(revision)
   defp confirmed_revision(_tile), do: {:ok, nil}
 
   defp coordinate(value) when is_integer(value) and value >= 0 and value < 16_777_216, do: {:ok, value}

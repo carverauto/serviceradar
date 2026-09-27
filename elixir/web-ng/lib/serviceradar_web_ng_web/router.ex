@@ -1105,6 +1105,12 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/revisions", TopologySnapshotController, :revisions)
   end
 
+  scope "/topology", ServiceRadarWebNGWeb do
+    pipe_through([:topology_api])
+
+    get("/details", TopologyTileController, :details)
+  end
+
   scope "/topology/tiles", ServiceRadarWebNGWeb do
     pipe_through([:topology_api])
 
