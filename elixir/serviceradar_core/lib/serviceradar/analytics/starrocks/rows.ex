@@ -3,9 +3,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
   Maps EventWriter-decoded rows onto StarRocks Stream Load JSON documents.
   """
 
-  require Logger
-
   alias ServiceRadar.Analytics.StarRocks.Identity
+
+  require Logger
 
   @type dataset ::
           Identity.dataset()
