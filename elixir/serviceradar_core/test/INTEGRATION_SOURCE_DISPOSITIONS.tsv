@@ -142,6 +142,7 @@ test/serviceradar/camera/relay_health_event_router_test.exs	-	not_selected	load_
 test/serviceradar/camera/relay_playback_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/camera/relay_session_lifecycle_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/camera/relay_session_manager_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
+test/serviceradar/camera/relay_session_reaper_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/camera/relay_source_resolver_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/camera/relay_termination_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/camera/source_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
