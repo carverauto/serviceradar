@@ -49,7 +49,7 @@ export function mountTransportHarness() {
   }
   void renderer.mount().then(() => {
     renderer.deck.setProps({onAfterRender: () => {
-      if (!renderer.cache.entries.has("0/0/0") || !renderer.deck.props.layers[0]?.isLoaded) return
+      if (renderer.cache.entries.size === 0 || !renderer.deck.props.layers[0]?.isLoaded) return
       measurements.firstFrame ??= performance.now()
       measurements.frames.push(performance.now())
       if (measurements.frames.length > 1000) measurements.frames.shift()
