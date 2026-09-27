@@ -98,7 +98,8 @@ parity with Go.
     (`dashboards/manifest.ex`); camera relay controllers; SRQL (`rust/srql`) for
     the camera-source entity; a topology-link ingestor beside
     `observability/plugin_result_ingestor.ex`; dashboard CLI harness
-    (`js/cli/src/dashboard/`).
+    (`js/cli/src/dashboard/`); `helm/serviceradar/values-demo.yaml` (WebRTC/TURN
+    settings, trust for the demo upload key).
     Camera analysis: the `camera_analysis_result.v1` contract and
     `Camera.AnalysisResultIngestor` (core), relay analysis branches and
     dispatch (`serviceradar_core_elx/.../camera_relay/`), and a new inference
@@ -108,8 +109,7 @@ parity with Go.
   - `carverauto/serviceradar-sdk-go`: topology-link emitter.
   - `carverauto/serviceradar-sdk-rust`: parity work and conformance suite.
   - `carverauto/gitops`: `demo` namespace resources (RTSP replayer, inference
-    worker, WebRTC/TURN
-    settings, demo plugin signing key trust).
+    worker).
 - Depends on: `restore-unifi-protect-camera-streams` (a working relay in
   `demo`), `fix-dashboard-frame-staleness`, `add-northbound-action-integrations`
   (plugin action descriptors and invocation, used for fault triggers). Coordinates with

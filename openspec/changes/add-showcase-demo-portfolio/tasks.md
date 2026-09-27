@@ -15,7 +15,7 @@ goes through the no-mistakes gate.
 - [x] 1.8 Native fixture exporter and the `:fixtures` / `:update_fixtures` / `diff_test` target pattern (`write_source_files`).
 - [x] 1.9 Demo plugin Bazel macro: TinyGo Wasm build, bundle with manifest and config schema, signature with the demo-only upload key.
 - [x] 1.10 Publish run target: signed plugin bundle and dashboard package via the CLI publish APIs, alert-rule install, assignment to the demo agent; token from the client environment; idempotent re-runs.
-- [ ] 1.11 gitops: trust the demo upload key in `demo` only (done, `values-demo.yaml`); demo agent assignment target (done in `demo_publish`; the gitops side is pending).
+- [x] 1.11 Trust the demo upload key in `demo` only (`helm/serviceradar/values-demo.yaml`, which Argo CD reads from `staging`); demo agent assignment through `demo_publish`.
 - [ ] 1.12 Shared dashboard pieces: common frame (incident banner, chip/KPI header, visual/detail split, active SRQL chips) and the presenter strip with countdown and per-fault trigger buttons rendered from action descriptors (D13, D14).
 - [ ] 1.13 `simkit` fault injection: the fault-injection and end-fault-early action handlers (opening/resolving events emitted from the action), overlay of active run overrides on every run, guards (maximum duration, one per kind and target, rate limit), schedule on/off per pack.
 
@@ -25,14 +25,14 @@ goes through the no-mistakes gate.
 - [x] 2.3 Host `api.camera.open/attach/close/onState` in `DashboardWasmHost.js`, RBAC-checked, per-renderer session cap (default 9), close-all on destroy and on hidden tab.
 - [ ] 2.4 SRQL camera-source entity (sources, owning device, availability, viewable stream profiles) with RBAC filtering, plus any migration it needs.
 - [x] 2.5 CSP: add `blob:` and `mediastream:` to `media-src` only.
-- [ ] 2.6 Wire `camera_relay_webrtc_enabled` and ICE/TURN servers into `runtime.exs` and Helm values (done); set them for `demo` in gitops (pending).
-- [ ] 2.7 SDK: `useCameraStream`, `<CameraTile>`, `<CameraGrid>`, TypeScript types, README section; harness mock camera API.
+- [x] 2.6 Wire `camera_relay_webrtc_enabled` and ICE/TURN servers into `runtime.exs` and Helm values; enable them for `demo` in `helm/serviceradar/values-demo.yaml` (public STUN, no TURN).
+- [x] 2.7 SDK: `useCameraStream`, `<CameraTile>`, `<CameraGrid>`, TypeScript types, README section; harness mock camera API.
 - [ ] 2.8 `demo/camera-wall` test dashboard; confirm two or more UniFi Protect streams play concurrently in `demo` and sessions close on navigation (check relay session counts after close, not just the UI).
-- [ ] 2.9 Tests: host capability and permission rejection, session cap, close-on-destroy; SDK component tests; harness mock.
+- [x] 2.9 Tests: host capability and permission rejection, session cap, close-on-destroy; SDK component tests; harness mock.
 - [x] 2.10 Close relay sessions whose edge pull stopped without reporting a close: a periodic reaper closes non-terminal sessions whose lease lapsed past a grace period (or that never got a lease), and dashboards release camera sessions after a hidden-tab grace period instead of holding them.
 
 ## 3. On-demand actions and event-driven dashboards (D13; depends on `add-northbound-action-integrations`)
-- [ ] 3.1 Time-bounded run overrides and event emission from actions: accept overrides in plugin action results, add a maximum-override-duration field to the action descriptor extension, retain per assignment with expiry clamped to that maximum, pass active overrides to every run, deliver an expired override marked `expired` to runs after expiry until one reports success, end early on a later action; add a host call letting an action entrypoint emit plugin OCSF events through the run-result event path; Go and Rust SDK support and conformance transcripts.
+- [x] 3.1 Time-bounded run overrides and event emission from actions: accept overrides in plugin action results, add a maximum-override-duration field to the action descriptor extension, retain per assignment with expiry clamped to that maximum, pass active overrides to every run, deliver an expired override marked `expired` to runs after expiry until one reports success, end early on a later action; add a host call letting an action entrypoint emit plugin OCSF events through the run-result event path; Go and Rust SDK support and conformance transcripts.
 - [x] 3.2 Dashboard `actions.invoke` capability: list actions for targets, invoke through the northbound action model with RBAC, audit and history, report progress and result to the dashboard.
 - [x] 3.3 Live event subscription for dashboards (OCSF events by filter, RBAC-scoped) and on-demand frame refresh; SDK hooks and types; harness replays fixture events on a timeline.
 - [ ] 3.4 Measure trigger-to-screen latency in `demo` (button, action, opening event persisted, dashboard updated) and keep it within a few seconds.
