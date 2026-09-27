@@ -16,10 +16,13 @@ defmodule Mix.Tasks.Serviceradar.Db.Migrate do
   outright -- see issue #4151. `ServiceRadar.Cluster.StartupMigrations` has always baselined
   instead; this task gives the same behaviour to a developer at a shell.
 
-  Like startup, it finishes by copying every applied version into
-  `platform.ash_schema_migrations` (`ServiceRadar.Repo.SchemaBootstrap.sync_ash_schema_migrations!/1`).
-  web-ng's migrations gate reads that ledger, so without the copy web-ng answers every route
-  with 503 against a database this task has brought fully up to date.
+  Like startup, it keeps `platform.schema_migrations` and `platform.ash_schema_migrations` in
+  step (`ServiceRadar.Repo.SchemaBootstrap.sync_migration_ledgers!/1`), both before the migrator
+  and after it. Which of the two the migrator writes depends on the config it runs under: core's
+  leaves the repo's `:migration_source` unset, web-ng's sets it to `ash_schema_migrations`.
+  Without the copy before, a run under one config replays what a run under the other applied;
+  without the copy after, web-ng's migrations gate answers every route with 503, or core's
+  startup finds migrations pending, against a database this task brought fully up to date.
 
   Options:
 
@@ -54,16 +57,26 @@ defmodule Mix.Tasks.Serviceradar.Db.Migrate do
           Mix.shell().info("--no-baseline: replaying every migration on disk")
         end
 
+        # So the migrator computes pending from every version either ledger records, not only
+        # from the one this config names.
+        report_sync("before migrating", SchemaBootstrap.sync_migration_ledgers!(repo))
+
         applied = Ecto.Migrator.run(repo, :up, all: true)
         Mix.shell().info("applied #{length(applied)} migration(s)")
 
         # Runs on every path, the baseline one included: the baseline records its versions
-        # as applied without running them, so they reach web-ng's ledger only through here.
-        synced = SchemaBootstrap.sync_ash_schema_migrations!(repo)
-        Mix.shell().info("recorded #{synced} version(s) in platform.ash_schema_migrations")
+        # as applied without running them, so they reach the other ledger only through here.
+        report_sync("after migrating", SchemaBootstrap.sync_migration_ledgers!(repo))
       end)
 
     :ok
+  end
+
+  defp report_sync(stage, %{schema_migrations: core, ash_schema_migrations: ash}) do
+    Mix.shell().info(
+      "ledger sync #{stage}: recorded #{core} version(s) in platform.schema_migrations, " <>
+        "#{ash} in platform.ash_schema_migrations"
+    )
   end
 
   defp bootstrap!(repo, migrations_path) do

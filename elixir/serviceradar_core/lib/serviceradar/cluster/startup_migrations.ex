@@ -89,8 +89,9 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
 
     run_bootstrap_or_migrations!(app_user)
 
-    # web-ng's migrations gate reads ash_schema_migrations; see the function's docs.
-    SchemaBootstrap.sync_ash_schema_migrations!(ServiceRadar.Repo)
+    # Carry what was just applied into the ledger the migrator did not write -- web-ng's gate
+    # reads ash_schema_migrations. See the function's docs.
+    SchemaBootstrap.sync_migration_ledgers!(ServiceRadar.Repo)
 
     ensure_managed_database_ownership!(app_user)
     ensure_ag_catalog_privileges!(app_user)
@@ -1103,6 +1104,10 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
 
         ensure_platform_schema!(app_user)
         sync_legacy_public_schema_migrations!()
+        # A migrator run under web-ng's config recorded its versions only in
+        # ash_schema_migrations. Without this, pending would be computed from the ledger it
+        # did not write, and those migrations would run a second time.
+        SchemaBootstrap.sync_migration_ledgers!(ServiceRadar.Repo)
         do_run_migrations_with_repair!(migrations_path, @max_migration_repair_attempts)
 
       {:ambiguous, details} ->
