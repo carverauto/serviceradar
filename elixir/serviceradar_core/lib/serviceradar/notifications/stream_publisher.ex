@@ -52,6 +52,13 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
   before and after are logged. Were the stream discard-new, a cap at or below
   the stored bytes would be held back and logged instead.
 
+  A reconcile that fails - a persistent `stream_config_conflict`, or the NATS
+  connection being down - never blocks or fails the publish it precedes: the
+  failure is logged and memoized with a retry-after time (`:reconcile_retry_ms`,
+  5 minutes by default), so the node retries the reconcile at most once per
+  interval instead of repeating the STREAM.INFO/STREAM.UPDATE round trip on
+  every publish.
+
   ## Subjects
 
   Topics are the transport's namespace (`notifications:stream`,
@@ -86,8 +93,12 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
   @default_max_age_ns 86_400_000_000_000
   @default_max_bytes 1_073_741_824
 
-  # Set once a node has reconciled the stream to the configured `max_bytes`.
+  # Memoizes the outcome of the once-per-node size reconcile: `{:ok,
+  # configured}` on success, or `{:error, configured, retry_at}` when
+  # `reconcile_stream/1` failed, so publish/3 fails open and retries at most
+  # once per `@default_reconcile_retry_ms` per node instead of blocking.
   @reconciled_key {__MODULE__, :reconciled_max_bytes}
+  @default_reconcile_retry_ms 300_000
 
   # Bounds the JetStream request wait. See `request/3` for why inheriting Gnat's
   # 60_000 ms default would stall a dispatcher queue on a missing stream.
@@ -142,6 +153,10 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
     * `:ensure_stream` - set `false` to skip the self-healing retry.
     * `:reconcile_stream` - set `false` to skip the once-per-node size
       reconcile (`reconcile_stream/1`) before the first publish.
+    * `:reconcile_retry_ms` - how long a failed reconcile is memoized before
+      the next publish retries it (5 minutes by default).
+    * `:clock` - `fun()` returning the current time in milliseconds
+      (monotonic by default). Tests inject it to control the retry window.
   """
   @spec publish(String.t(), map() | binary(), seam_opts()) :: :ok | {:error, term()}
   def publish(topic, envelope, opts \\ [])
@@ -276,20 +291,42 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
     configured = max_bytes(opts)
 
     if Keyword.get(opts, :reconcile_stream, true) != false and
-         :persistent_term.get(@reconciled_key, nil) != configured do
+         not reconciled?(:persistent_term.get(@reconciled_key, nil), configured, opts) do
       case reconcile_stream(opts) do
         :ok ->
-          :persistent_term.put(@reconciled_key, configured)
+          :persistent_term.put(@reconciled_key, {:ok, configured})
 
         {:error, reason} ->
           Logger.warning(
             "notification firehose stream #{@stream_name} not reconciled: #{inspect(reason)}"
           )
+
+          retry_at = clock(opts).() + reconcile_retry_ms(opts)
+          :persistent_term.put(@reconciled_key, {:error, configured, retry_at})
       end
     end
 
     :ok
   end
+
+  # A prior success at the same configured size never needs another reconcile.
+  defp reconciled?({:ok, configured}, configured, _opts), do: true
+
+  # A prior failure at the same configured size fails open until the
+  # retry-after time - the reconcile is skipped, not repeated on every
+  # publish, and the publish itself proceeds regardless.
+  defp reconciled?({:error, configured, retry_at}, configured, opts) do
+    clock(opts).() < retry_at
+  end
+
+  defp reconciled?(_memo, _configured, _opts), do: false
+
+  defp clock(opts), do: Keyword.get(opts, :clock) || (&monotonic_ms/0)
+
+  defp reconcile_retry_ms(opts),
+    do: Keyword.get(opts, :reconcile_retry_ms, @default_reconcile_retry_ms)
+
+  defp monotonic_ms, do: System.monotonic_time(:millisecond)
 
   defp max_bytes(opts) do
     Keyword.get_lazy(opts, :max_bytes, fn ->

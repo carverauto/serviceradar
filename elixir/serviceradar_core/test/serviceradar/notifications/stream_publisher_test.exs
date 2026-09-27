@@ -166,6 +166,63 @@ defmodule ServiceRadar.Notifications.StreamPublisherTest do
       refute_received {:request, "$JS.API.STREAM.INFO.NOTIFICATIONS", _}
     end
 
+    test "fails open on a reconcile failure and does not repeat it within the retry interval" do
+      # A max_bytes no other test uses, so the once-per-node memo is this test's.
+      max_bytes = 314_159_265
+      test = self()
+      clock = :counters.new(1, [])
+
+      request = fn subject, payload ->
+        send(test, {:request, subject, payload})
+
+        case subject do
+          "$JS.API.STREAM.INFO.NOTIFICATIONS" -> {:error, :timeout}
+          _publish -> @pub_ack
+        end
+      end
+
+      opts = [
+        max_bytes: max_bytes,
+        request: request,
+        clock: fn -> :counters.get(clock, 1) end
+      ]
+
+      log1 =
+        capture_log(fn ->
+          assert :ok = StreamPublisher.publish("notifications:stream", @envelope, opts)
+        end)
+
+      assert log1 =~ "not reconciled"
+      assert_received {:request, "$JS.API.STREAM.INFO.NOTIFICATIONS", _}
+      assert_received {:request, "notifications.stream", _}
+
+      # Still inside the 5-minute retry window: the reconcile is not repeated,
+      # and the publish itself still succeeds.
+      :counters.add(clock, 1, 60_000)
+
+      log2 =
+        capture_log(fn ->
+          assert :ok = StreamPublisher.publish("notifications:stream", @envelope, opts)
+        end)
+
+      refute log2 =~ "not reconciled"
+      refute_received {:request, "$JS.API.STREAM.INFO.NOTIFICATIONS", _}
+      assert_received {:request, "notifications.stream", _}
+
+      # Past the retry window: the reconcile is retried once, and the publish
+      # still succeeds.
+      :counters.add(clock, 1, 300_000)
+
+      log3 =
+        capture_log(fn ->
+          assert :ok = StreamPublisher.publish("notifications:stream", @envelope, opts)
+        end)
+
+      assert log3 =~ "not reconciled"
+      assert_received {:request, "$JS.API.STREAM.INFO.NOTIFICATIONS", _}
+      assert_received {:request, "notifications.stream", _}
+    end
+
     test "does not attempt stream creation when the broker is unreachable" do
       # Retrying a connection error would call ensure_stream/1 over the same dead
       # connection and report :stream_unavailable, burying the real cause.
