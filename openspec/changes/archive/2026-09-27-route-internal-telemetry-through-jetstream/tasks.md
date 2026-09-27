@@ -107,5 +107,11 @@
 - [x] 5.5 Trivy replaces its event by id in the warehouse (decision 9): `Destination`
   `replace:` deletes before the load, under the Trivy advisory lock; StarRocks migration 0020
   removes existing duplicates. Demo lists `events` in `cutoverDatasets`.
-- [ ] 5.3 Verify on a deployment, after the rollout completes: every internal event family
+- [x] 5.3 Verify on a deployment, after the rollout completes: every internal event family
   appears in both CNPG and StarRocks for the same window, with equal counts per `log_name`.
+  Demo, v1.4.75 rolled out 2026-09-27 03:20:39Z: over 03:21-03:44Z both stores held the same
+  7 `log_name` families with equal counts, including internal families that never reached
+  the warehouse before (`serviceradar.oban`, `alert.health.causal_prediction`,
+  `camera.relay.session.viewer_idle`). The `log-promotion` durable was gone and Trivy held
+  one row per report id. On farm01, 43 of 1,282 Trivy ids kept a second row written by
+  previous-release pods during the rolling upgrade; each clears on the report's next rescan.
