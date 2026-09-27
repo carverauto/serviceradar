@@ -8176,7 +8176,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp to_int(_), do: 0
 
-
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
   end

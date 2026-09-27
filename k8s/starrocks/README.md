@@ -607,6 +607,16 @@ forward, so the `(id, time)` key kept every rescan; EventWriter now deletes the
 id before loading (`Destination` `replace:`), and `0020` clears what accumulated
 earlier. Only `log_provider = 'trivy'` rows are touched, and a rerun is a no-op.
 
+`0021` creates `otel_metrics` and `otel_metric_points`, with the column names
+of the CNPG tables of the same name, partitioned by day from the start. Each
+table's key is `(id, timestamp)`, where `id` is derived from the rest of the
+CNPG primary key, so a redelivered message upserts the rows it already loaded.
+OTel metrics are not shadowed: while `analytics.starrocks.enabled` is true,
+EventWriter writes samples and points to these two tables only, and a failed
+load is redelivered from JetStream rather than written to CNPG. Their
+retention is `analytics.starrocks.retentionDays.otel` (default 365), applied
+to both tables.
+
 `cutoverDatasets` defaults to empty, so metric, log and event panels stay on
 CNPG throughout; the NetFlow panel does not fall back -- it is refused with a
 warehouse-required error until `flows` is cut over to a populated warehouse.
