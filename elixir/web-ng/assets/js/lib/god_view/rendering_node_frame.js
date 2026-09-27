@@ -58,7 +58,11 @@ function buildFrame(context, nodes, shape) {
     states: new Uint8Array(count),
     mask: new Uint8Array(count),
     maskVersion: 0,
+    positions: new Float32Array(count * 2),
+    visibleIndexMap: new Uint32Array(count),
+    visibleCount: 0,
     glyphData: null,
+    glyphDataVersion: null,
     incidentFlags: new Uint8Array(count),
     byId: new Map(),
     byNormalizedId: new Map(),
@@ -117,27 +121,59 @@ function packGlyphData(nodes) {
   return {
     length: nodes.length,
     attributes: {getPosition: {value: positions, size: 2}},
-    nodes,
+    resolve: (index) => nodes[index],
   }
+}
+
+/**
+ * Compacts a frame's positions to the front of its preallocated `positions` buffer, in place:
+ * one entry per node the current mask marks visible, in original order, with `visibleIndexMap`
+ * recording which original record each compacted slot came from. Neither typed array is ever
+ * reallocated for the frame's lifetime. A hidden node is simply outside `[0, visibleCount)`, so
+ * no node layer draws or picks it -- there is no radius, line width or shader value that has to
+ * remember to hide it.
+ *
+ * Returns a fresh wrapper object every time the mask has actually changed since the last call
+ * (tracked by `maskVersion`), so a filter change hands deck.gl a new `data` reference and it
+ * re-uploads the mutated buffer instead of assuming nothing changed. A render that reuses the
+ * same mask (camera, hover, selection) gets back the same wrapper, so nothing is recompacted.
+ */
+function compactGlyphData(frame) {
+  if (frame.glyphData && frame.glyphDataVersion === frame.maskVersion) return frame.glyphData
+
+  const {records, mask, positions, visibleIndexMap} = frame
+  let visibleCount = 0
+  for (let index = 0; index < records.length; index += 1) {
+    if (mask[index] !== 1) continue
+    const position = records[index]?.position
+    positions[visibleCount * 2] = Number(position?.[0])
+    positions[visibleCount * 2 + 1] = Number(position?.[1])
+    visibleIndexMap[visibleCount] = index
+    visibleCount += 1
+  }
+
+  frame.visibleCount = visibleCount
+  frame.glyphDataVersion = frame.maskVersion
+  frame.glyphData = {
+    length: visibleCount,
+    attributes: {getPosition: {value: positions, size: 2}},
+    resolve: (compactIndex) => frame.records[frame.visibleIndexMap[compactIndex]],
+  }
+  return frame.glyphData
 }
 
 /**
  * Deck.gl binary data for the node glyph layers: `data.length` plus a packed `getPosition`
  * attribute, so luma uploads the Float32Array as-is instead of walking objects.
  *
- * When `nodeFrame` is given (the real render path), positions are packed once for every
- * node the accepted layout produced and cached on the frame itself, so a filter, hover,
- * selection or camera change reuses the exact same `Float32Array` -- only `frame.mask`
- * (rewritten in place) says which glyphs a render should actually draw. Without a frame
- * (direct calls, e.g. in tests, with a plain node array) positions are packed for just the
- * given nodes and cached per that array, so a camera refresh that reuses the same node list
- * still hands deck the same data object.
+ * When `nodeFrame` is given (the real render path), the frame's own preallocated position
+ * buffer is compacted to just the currently visible nodes -- see `compactGlyphData`. Without a
+ * frame (direct calls, e.g. in tests, with a plain node array) positions are packed for just
+ * the given nodes and cached per that array, so a camera refresh that reuses the same node
+ * list still hands deck the same data object.
  */
 export function nodeGlyphLayerData(nodeData, nodeFrame = null) {
-  if (nodeFrame) {
-    if (!nodeFrame.glyphData) nodeFrame.glyphData = packGlyphData(nodeFrame.records)
-    return nodeFrame.glyphData
-  }
+  if (nodeFrame) return compactGlyphData(nodeFrame)
 
   const nodes = Array.isArray(nodeData) ? nodeData : []
   const cached = nodeLayerData.get(nodes)
@@ -151,7 +187,7 @@ export function nodeGlyphLayerData(nodeData, nodeFrame = null) {
 /** Resolves the node a binary node layer picked, since deck only reports its index. */
 export function pickedNodeObject(info) {
   if (!info || info.object || !Number.isInteger(info.index) || info.index < 0) return info
-  const nodes = info.layer?.props?.data?.nodes
-  const object = Array.isArray(nodes) ? nodes[info.index] : undefined
+  const resolve = info.layer?.props?.data?.resolve
+  const object = typeof resolve === "function" ? resolve(info.index) : undefined
   return object ? {...info, object} : info
 }

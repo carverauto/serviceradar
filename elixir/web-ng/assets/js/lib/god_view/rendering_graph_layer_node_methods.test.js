@@ -547,7 +547,7 @@ describe("rendering_graph_layer_node_methods", () => {
 
     for (const id of ["god-view-nodes-halo", "god-view-nodes-hitbox", "god-view-nodes"]) {
       // Same binary glyph data both times: only the update trigger may re-run the accessor.
-      expect(layer(overview, id).props.data.nodes).toBe(nodeData)
+      expect(layer(overview, id).props.data.resolve(0)).toBe(nodeData[0])
       expect(layer(detail, id).props.data).toBe(layer(overview, id).props.data)
       // Without a frame there is no mask version to key on; the trigger's last slot stays undefined.
       expect(layer(overview, id).props.updateTriggers.getRadius).toEqual(["overview", undefined])
@@ -656,7 +656,8 @@ describe("rendering_graph_layer_node_methods", () => {
     }
 
     const layers = ctx.buildNodeAndLabelLayers(effective, nodeData, [])
-    const glyphIds = layers.find((layer) => layer.id === "god-view-nodes").props.data.nodes.map((node) => node.id).sort()
+    const glyphData = layers.find((layer) => layer.id === "god-view-nodes").props.data
+    const glyphIds = Array.from({length: glyphData.length}, (_, index) => glyphData.resolve(index).id).sort()
     const labelLayer = layers.find((layer) => layer.id === "god-view-node-labels")
     const labelIds = labelLayer?.props.data.map((node) => node.id).sort() || []
 
@@ -898,7 +899,7 @@ describe("rendering_graph_layer_node_methods expanded detail label degradation",
     expect(pick.object).toBe(nodeData[1])
   })
 
-  it("packs a frame's glyph positions once and reuses them, unchanged, across a filter change", () => {
+  it("compacts a frame's glyph data to the visible nodes in place, keeping the position buffer's identity", () => {
     const state = {
       animationPhase: 0,
       layers: {mantle: false, crust: true, atmosphere: false, security: true},
@@ -934,45 +935,44 @@ describe("rendering_graph_layer_node_methods expanded detail label degradation",
     const before = ctx.buildNodeAndLabelLayers(effective, visibleAll, [], frame)
     const haloBefore = before.find((layer) => layer.id === "god-view-nodes-halo")
     const dataBefore = haloBefore.props.data
+    const positionsBuffer = dataBefore.attributes.getPosition.value
     expect(dataBefore.length).toBe(3)
-    expect(Array.from(dataBefore.attributes.getPosition.value)).toEqual([0, 0, 10, 20, 20, 40])
+    expect(Array.from(positionsBuffer)).toEqual([0, 0, 10, 20, 20, 40])
 
-    // A filter hides node 1, and selects it too: the mask changes in place, but positions
-    // are not repacked.
+    // A filter hides node 1: the mask changes in place.
     frame.mask.set([1, 0, 1])
     frame.maskVersion += 1
-    frame.selectedNodeIndex = 1
     const visibleFiltered = frame.records.filter((_, index) => frame.mask[index] === 1)
 
     const after = ctx.buildNodeAndLabelLayers(effective, visibleFiltered, [], frame)
     for (const id of ["god-view-nodes-halo", "god-view-nodes-ring", "god-view-nodes-hitbox", "god-view-nodes"]) {
       const layer = after.find((candidate) => candidate.id === id)
-      expect(layer.props.data).toBe(dataBefore)
-      expect(layer.props.data.attributes.getPosition.value).toBe(dataBefore.attributes.getPosition.value)
+      // The hidden node is outside the instance range: only the two survivors are drawn.
+      expect(layer.props.data.length).toBe(2)
+      // Same Float32Array, mutated in place -- never reallocated.
+      expect(layer.props.data.attributes.getPosition.value).toBe(positionsBuffer)
     }
+    // The uploaded buffer's contents are compacted to the front: the survivors' positions,
+    // in order.
+    expect(Array.from(positionsBuffer.subarray(0, 4))).toEqual([0, 0, 20, 40])
 
-    // Every node layer draws (and, where pickable, hit-tests) the hidden node at exactly zero
-    // radius through its real `getRadius` accessor -- not just the bound helper method -- and
-    // none of them re-declares a `radiusMinPixels` floor that would clamp that zero back up.
-    for (const id of ["god-view-nodes-halo", "god-view-nodes-ring", "god-view-nodes-hitbox", "god-view-nodes"]) {
-      const layer = after.find((candidate) => candidate.id === id)
-      expect(layer.props.radiusMinPixels || 0).toBe(0)
-      expect(layer.props.getRadius(undefined, {index: 1})).toBe(0)
-      expect(layer.props.getRadius(undefined, {index: 0})).toBeGreaterThan(0)
-      expect(layer.props.getRadius(undefined, {index: 2})).toBeGreaterThan(0)
-    }
-
-    // The ring layer's stroke also collapses for a hidden node -- even though it is selected,
-    // which would otherwise widen the stroke -- so no residual dot survives the radius going
-    // to zero.
-    const ringAfter = after.find((layer) => layer.id === "god-view-nodes-ring")
-    expect(ringAfter.props.getLineWidth(undefined, {index: 1})).toBe(0)
-    expect(ringAfter.props.getLineWidth(undefined, {index: 0})).toBeGreaterThan(0)
-    expect(ringAfter.props.getLineWidth(undefined, {index: 2})).toBeGreaterThan(0)
-
-    // Deck's index into the (still full) data set still resolves to the right node.
+    // No instance index in the compacted range resolves to the hidden node, so it cannot be
+    // picked on any node layer; the survivors still resolve correctly.
     const haloAfter = after.find((layer) => layer.id === "god-view-nodes-halo")
-    const pick = pickedNodeObject({index: 1, layer: haloAfter})
-    expect(pick.object).toBe(frame.records[1])
+    for (let index = 0; index < haloAfter.props.data.length; index += 1) {
+      expect(pickedNodeObject({index, layer: haloAfter}).object).not.toBe(frame.records[1])
+    }
+    expect(pickedNodeObject({index: 0, layer: haloAfter}).object).toBe(frame.records[0])
+    expect(pickedNodeObject({index: 1, layer: haloAfter}).object).toBe(frame.records[2])
+
+    // Unfiltering restores every node, from the same buffer.
+    frame.mask.set([1, 1, 1])
+    frame.maskVersion += 1
+    const visibleRestored = frame.records.filter((_, index) => frame.mask[index] === 1)
+    const restored = ctx.buildNodeAndLabelLayers(effective, visibleRestored, [], frame)
+    const haloRestored = restored.find((layer) => layer.id === "god-view-nodes-halo")
+    expect(haloRestored.props.data.length).toBe(3)
+    expect(haloRestored.props.data.attributes.getPosition.value).toBe(positionsBuffer)
+    expect(Array.from(positionsBuffer.subarray(0, 6))).toEqual([0, 0, 10, 20, 20, 40])
   })
 })

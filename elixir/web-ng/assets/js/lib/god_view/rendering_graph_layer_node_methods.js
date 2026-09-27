@@ -10,17 +10,6 @@ import {
 import {hasExpandedCluster, hasManagedTopologyScene, topologySemanticLevel} from "./topology_layout_mode"
 import {GOD_VIEW_NO_DEPTH} from "./gpu_parameters"
 
-const NODE_RING_RADIUS_MIN_PIXELS = 5
-const NODE_CORE_RADIUS_MIN_PIXELS = 3
-
-/** A glyph layer's per-instance size accessor: zero for a hidden node, `compute(node)` otherwise. */
-function glyphNodeMetric(glyphNodes, compute) {
-  return (_, {index}) => {
-    const node = glyphNodes[index]
-    return node?.visible === false ? 0 : compute(node)
-  }
-}
-
 const labelSelections = new WeakMap()
 // Same order as String.prototype.localeCompare, without building a collator per comparison.
 const compareText = new Intl.Collator().compare
@@ -94,15 +83,15 @@ export const godViewRenderingGraphLayerNodeMethods = {
       ((Number.isFinite(phase) ? phase : 0) * 2.0) + (Number.isFinite(index) ? index : 0),
     ) * 2.0
     const radius = baseRadius + breathe
-    if (!options.managedVisualDensity) return Math.max(radius, NODE_RING_RADIUS_MIN_PIXELS)
+    if (!options.managedVisualDensity) return radius
     const outerCap = managedNodeOuterRadiusCap(node, options.managedVisualDensity)
     const halfLineWidth = node?.selected ? 1 : 0.5
-    return Math.max(Math.min(radius, Math.max(0, outerCap - halfLineWidth)), NODE_RING_RADIUS_MIN_PIXELS)
+    return Math.min(radius, Math.max(0, outerCap - halfLineWidth))
   },
   nodeCoreRadiusPixels(node, options = {}) {
     const radius = Math.min(4 + (this.visualClusterCount(node) - 1) * 0.2, 14)
-    if (!options.managedVisualDensity) return Math.max(radius, NODE_CORE_RADIUS_MIN_PIXELS)
-    return Math.max(Math.min(radius, managedNodeOuterRadiusCap(node, options.managedVisualDensity)), NODE_CORE_RADIUS_MIN_PIXELS)
+    if (!options.managedVisualDensity) return radius
+    return Math.min(radius, managedNodeOuterRadiusCap(node, options.managedVisualDensity))
   },
   nodeVisibleOuterRadiusPixels(node, options = {}) {
     const halo = this.nodeHaloRadiusPixels(node, options)
@@ -631,13 +620,12 @@ export const godViewRenderingGraphLayerNodeMethods = {
     this.state.topologyLabelDetailsFallbackIds = [...labelAdmission.detailsFallbackIds]
 
     // Glyph layers take deck.gl binary data: `length` plus the packed `getPosition` column.
-    // With a frame, positions are packed once for the whole accepted layout and reused as
-    // the same `Float32Array` across filter/hover/select/camera changes; only `frame.mask`
-    // says which of those nodes a render should actually draw (via a zero radius below).
-    // The remaining accessors read the node by index and write colors into deck's reusable
-    // `target`, so rebuilding these attributes allocates nothing per node.
+    // With a frame, `data` is compacted to just the currently visible nodes, so a hidden node
+    // is outside every layer's instance range instead of being drawn at some hidden size.
+    // The remaining accessors resolve the node an instance index stands for and write colors
+    // into deck's reusable `target`, so rebuilding these attributes allocates nothing per node.
     const glyphData = nodeGlyphLayerData(nodeData, nodeFrame)
-    const glyphNodes = glyphData.nodes
+    const resolveGlyphNode = glyphData.resolve
     const maskVersion = nodeFrame?.maskVersion
     const security = this.state.layers.security
     const writeNodeColor = (target, node, alpha) => {
@@ -669,12 +657,12 @@ export const godViewRenderingGraphLayerNodeMethods = {
         id: "god-view-nodes-halo",
         data: glyphData,
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
-        getRadius: glyphNodeMetric(glyphNodes, (node) => this.nodeHaloRadiusPixels(node, densityOptions)),
+        getRadius: (_, {index}) => this.nodeHaloRadiusPixels(resolveGlyphNode(index), densityOptions),
         radiusUnits: "pixels",
         filled: true,
         stroked: false,
         pickable: true,
-        getFillColor: (_, {index, target}) => writeNodeColor(target, glyphNodes[index], 15),
+        getFillColor: (_, {index, target}) => writeNodeColor(target, resolveGlyphNode(index), 15),
         parameters: this.state.visual.particleBlend,
         updateTriggers: {
           getRadius: [managedVisualDensity, maskVersion],
@@ -684,26 +672,27 @@ export const godViewRenderingGraphLayerNodeMethods = {
         id: "god-view-nodes-ring",
         data: glyphData,
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
-        getRadius: glyphNodeMetric(glyphNodes, (node) => this.nodeRingRadiusPixels(node, densityOptions)),
+        getRadius: (_, {index}) => this.nodeRingRadiusPixels(resolveGlyphNode(index), densityOptions),
         radiusUnits: "pixels",
+        radiusMinPixels: 5,
         stroked: true,
         filled: false,
         lineWidthUnits: "pixels",
         pickable: false,
-        getLineWidth: glyphNodeMetric(glyphNodes, (node) => (node?.selected ? 2 : 1)),
-        getLineColor: (_, {index, target}) => writeNodeColor(target, glyphNodes[index]),
+        getLineWidth: (_, {index}) => (resolveGlyphNode(index)?.selected ? 2 : 1),
+        getLineColor: (_, {index, target}) => writeNodeColor(target, resolveGlyphNode(index)),
         parameters: GOD_VIEW_NO_DEPTH,
         // Records are reused across renders, so selection must invalidate what it changes.
         updateTriggers: {
           getRadius: [this.state.animationPhase, managedVisualDensity, this.state.selectedNodeIndex, maskVersion],
-          getLineWidth: [this.state.selectedNodeIndex, maskVersion],
+          getLineWidth: this.state.selectedNodeIndex,
         },
       }),
       new ScatterplotLayer({
         id: "god-view-nodes-hitbox",
         data: glyphData,
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
-        getRadius: glyphNodeMetric(glyphNodes, (node) => this.nodeHaloRadiusPixels(node, densityOptions)),
+        getRadius: (_, {index}) => this.nodeHaloRadiusPixels(resolveGlyphNode(index), densityOptions),
         radiusUnits: "pixels",
         stroked: false,
         filled: true,
@@ -719,8 +708,9 @@ export const godViewRenderingGraphLayerNodeMethods = {
         id: "god-view-nodes",
         data: glyphData,
         coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
-        getRadius: glyphNodeMetric(glyphNodes, (node) => this.nodeCoreRadiusPixels(node, densityOptions)),
+        getRadius: (_, {index}) => this.nodeCoreRadiusPixels(resolveGlyphNode(index), densityOptions),
         radiusUnits: "pixels",
+        radiusMinPixels: 3,
         stroked: false,
         filled: true,
         pickable: true,
