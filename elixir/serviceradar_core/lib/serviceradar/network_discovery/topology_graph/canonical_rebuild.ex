@@ -527,18 +527,18 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
   end
 
   def canonical_edge_count do
-    if Backend.backend() == :dgraph do
-      dgraph_input_count(:canonical)
-    else
-      edge_count_from_query(Queries.canonical_edge_count_query())
-    end
+    backend_edge_count(:canonical, Queries.canonical_edge_count_query())
   end
 
   def mapper_evidence_edge_count do
+    backend_edge_count(:evidence, Queries.mapper_evidence_edge_count_query())
+  end
+
+  defp backend_edge_count(kind, cypher) do
     if Backend.backend() == :dgraph do
-      dgraph_input_count(:evidence)
+      dgraph_input_count(kind)
     else
-      edge_count_from_query(Queries.mapper_evidence_edge_count_query())
+      edge_count_from_query(cypher)
     end
   end
 
