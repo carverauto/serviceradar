@@ -87,15 +87,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   @impl true
   def handle_info({:producer_schedule_updated, updated_schedule}, socket) do
     updated_schedules =
-      socket.assigns.integration_schedules
-      |> Enum.map(fn {rule_id, schedule} ->
+      Map.new(socket.assigns.integration_schedules, fn {rule_id, schedule} ->
         if schedule.id == updated_schedule.id do
           {rule_id, updated_schedule}
         else
           {rule_id, schedule}
         end
       end)
-      |> Map.new()
 
     {:noreply, assign(socket, :integration_schedules, updated_schedules)}
   end
@@ -179,8 +177,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
           target_limit: 50
         )
 
-      {:noreply,
-       assign(socket, :rule_preview, %{rule: rule, preview: preview, effective: effective})}
+      {:noreply, assign(socket, :rule_preview, %{rule: rule, preview: preview, effective: effective})}
     else
       nil ->
         {:noreply, put_flash(socket, :error, "Credential rule not found")}
@@ -209,8 +206,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
            |> assign(:rule_consumers, consumers)}
 
         {:error, reason} ->
-          {:noreply,
-           put_flash(socket, :error, "Failed to load consumers: #{format_error(reason)}")}
+          {:noreply, put_flash(socket, :error, "Failed to load consumers: #{format_error(reason)}")}
       end
     end
   end
@@ -1440,11 +1436,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   defp credential_details_form(params), do: to_form(params, as: :credential_details)
 
-  defp credential_rotation_form(id),
-    do: to_form(%{"id" => to_string(id)}, as: :credential_rotation)
+  defp credential_rotation_form(id), do: to_form(%{"id" => to_string(id)}, as: :credential_rotation)
 
-  defp credential_delete_form(id),
-    do: to_form(%{"id" => to_string(id), "confirmation_id" => ""}, as: :credential_delete)
+  defp credential_delete_form(id), do: to_form(%{"id" => to_string(id), "confirmation_id" => ""}, as: :credential_delete)
 
   defp save_credential_rotation(socket, id, submitted_values) do
     case CredentialManagement.rotate(
@@ -1482,25 +1476,21 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     Map.get(private, :credential_management_opts, [])
   end
 
-  defp credential_open_error(:credential_rotation_not_supported),
-    do: "This credential cannot be rotated"
+  defp credential_open_error(:credential_rotation_not_supported), do: "This credential cannot be rotated"
 
   defp credential_open_error(:credential_descriptor_unavailable),
     do: "The approved credential descriptor is no longer available"
 
   defp credential_open_error(_reason), do: "Credential action could not be opened"
 
-  defp credential_rotation_error({:missing_credential_field, field}),
-    do: "#{credential_field_label(field)} is required"
+  defp credential_rotation_error({:missing_credential_field, field}), do: "#{credential_field_label(field)} is required"
 
-  defp credential_rotation_error({:invalid_credential_field, field}),
-    do: "#{credential_field_label(field)} is invalid"
+  defp credential_rotation_error({:invalid_credential_field, field}), do: "#{credential_field_label(field)} is invalid"
 
   defp credential_rotation_error(:credential_descriptor_unavailable),
     do: "The approved credential descriptor is no longer available"
 
-  defp credential_rotation_error(:credential_rotation_not_supported),
-    do: "This credential cannot be rotated"
+  defp credential_rotation_error(:credential_rotation_not_supported), do: "This credential cannot be rotated"
 
   defp credential_rotation_error(_reason), do: "Credential rotation failed"
 
@@ -1592,10 +1582,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     end
   end
 
-  defp save_rule(
-         %{assigns: %{form_mode: :edit, editing_rule: %NetworkCredentialRule{} = rule}} = socket,
-         attrs
-       ) do
+  defp save_rule(%{assigns: %{form_mode: :edit, editing_rule: %NetworkCredentialRule{} = rule}} = socket, attrs) do
     attrs = merge_rule_metadata(rule, attrs)
 
     case rule
@@ -1647,8 +1634,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
          |> maybe_select_rule_secret(secret)}
 
       {:error, reason} ->
-        {:noreply,
-         put_flash(socket, :error, "Failed to save credential secret: #{format_error(reason)}")}
+        {:noreply, put_flash(socket, :error, "Failed to save credential secret: #{format_error(reason)}")}
     end
   end
 
@@ -1899,8 +1885,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     ArgumentError -> {:error, "Required credential fields are missing"}
   end
 
-  defp normalize_secret_params(_params, _integration_profiles),
-    do: {:error, "Credential descriptor is required"}
+  defp normalize_secret_params(_params, _integration_profiles), do: {:error, "Credential descriptor is required"}
 
   defp descriptor_secret_values(raw_values, fields) when is_map(raw_values) and is_list(fields) do
     values = Map.new(raw_values, fn {key, value} -> {to_string(key), to_string(value)} end)
@@ -1933,8 +1918,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     end
   end
 
-  defp descriptor_secret_values(_raw_values, _fields),
-    do: {:error, "Required credential fields are missing"}
+  defp descriptor_secret_values(_raw_values, _fields), do: {:error, "Required credential fields are missing"}
 
   defp default_rule_params(params \\ %{}, integration_profiles \\ %{})
 
@@ -2079,8 +2063,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     |> clear_unsupported_profile_fields(profile)
   end
 
-  defp normalize_rule_form_params(_, integration_profiles),
-    do: default_rule_params(%{}, integration_profiles)
+  defp normalize_rule_form_params(_, integration_profiles), do: default_rule_params(%{}, integration_profiles)
 
   defp rule_form(params), do: to_form(params, as: :credential_rule)
 
@@ -2306,8 +2289,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   defp maybe_put_policy_selectors(policy, _key, []), do: policy
   defp maybe_put_policy_selectors(policy, key, selectors), do: Map.put(policy, key, selectors)
 
-  defp rule_metadata(params, _provider, purposes, profile, credential_use_policy)
-       when is_map(profile) do
+  defp rule_metadata(params, _provider, purposes, profile, credential_use_policy) when is_map(profile) do
     if scheduled_integration_profile?(profile) do
       scheduled_rule_metadata(params, purposes, profile, credential_use_policy)
     else
@@ -2648,8 +2630,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   # only provider-specific text available, so it names the host and everything else
   # stays provider-neutral; per-provider guidance belongs in the profile banner and
   # the integration's docs page.
-  defp controller_host_label(%{"label" => label}) when is_binary(label) and label != "",
-    do: "#{label} controller host"
+  defp controller_host_label(%{"label" => label}) when is_binary(label) and label != "", do: "#{label} controller host"
 
   defp controller_host_label(_profile), do: "Controller host"
 
@@ -2767,13 +2748,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   defp form_plugin_config(_form), do: %{}
 
-  defp secret_options_for(
-         secrets,
-         provider,
-         auth_method,
-         selected_secret_id,
-         integration_profiles
-       ) do
+  defp secret_options_for(secrets, provider, auth_method, selected_secret_id, integration_profiles) do
     descriptor = credential_method(integration_profiles, provider, auth_method)
 
     secrets
@@ -3017,8 +2992,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   defp format_error(%Ash.Error.Forbidden{} = error), do: Exception.message(error)
   defp format_error({field, reason}), do: "#{field}: #{inspect(reason)}"
 
-  defp format_error(reason) when is_atom(reason),
-    do: reason |> to_string() |> String.replace("_", " ")
+  defp format_error(reason) when is_atom(reason), do: reason |> to_string() |> String.replace("_", " ")
 
   defp format_error(reason), do: inspect(reason)
 end
