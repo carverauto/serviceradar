@@ -5,7 +5,9 @@ defmodule ServiceRadar.Repo.Migrations.CreateOtelServiceCatalog do
 
   The picker searches it by substring (`service_name ILIKE '%x%'`), served by the
   trigram index, and orders by recency, served by the `last_seen_at DESC` btree.
-  pg_trgm is installed in `platform`, so the operator class is `platform.gin_trgm_ops`.
+  The operator class is written unqualified, like every earlier trigram index:
+  pg_trgm lives in `platform` on some installs and in `public` on others, and the
+  migration search path resolves it in either.
 
   The table is new and empty here, so both indexes are built inside the migration
   transaction.
@@ -39,7 +41,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateOtelServiceCatalog do
 
     execute("""
     CREATE INDEX otel_service_catalog_service_name_trgm_idx
-      ON #{@prefix}.otel_service_catalog USING gin (service_name #{@prefix}.gin_trgm_ops)
+      ON #{@prefix}.otel_service_catalog USING gin (service_name gin_trgm_ops)
     """)
 
     execute("""
