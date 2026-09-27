@@ -115,6 +115,13 @@ fn bounded_seed_pages_conserve_counts_and_exclude_promoted_devices() {
     assert_eq!(counts.epoch, 1);
     assert_eq!(counts.observation_sequence, 3);
     assert_eq!(counts.revision, 3);
+    let info = health.info(&world).unwrap();
+    assert_eq!(
+        (info.epoch, info.revision, info.observation_sequence),
+        (1, 3, 3)
+    );
+    assert_eq!((info.observed, info.total), (1025, 1025));
+    assert!(info.retained_bytes > 1025 * 21 && info.retained_bytes < 1025 * 22);
     assert_eq!(
         summary(&counts),
         HealthCounts {
@@ -320,6 +327,7 @@ fn detached_rebase_preserves_uid_state_and_rejects_old_world_resources() {
         health.tile_health(&new_world, &new_tile.selection),
         Err(Error::StaleDetailRevision)
     );
+    assert_eq!(health.info(&new_world), Err(Error::StaleDetailRevision));
     assert_eq!(
         rebased.tile_health(&new_world, &old_tile.selection),
         Err(Error::StaleDetailRevision)

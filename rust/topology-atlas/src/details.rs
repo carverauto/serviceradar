@@ -10,7 +10,7 @@ use sha2::{Digest, Sha256};
 
 use crate::spatial::Line;
 use crate::tiles::{digest_hex, digest_string};
-use crate::{Cell, Error, Glyph, GlyphKind, Position, Relation, TileEdge, World};
+use crate::{Cell, Error, Glyph, GlyphKind, Position, Relation, TileEdge, TileProfile, World};
 
 pub const DETAIL_NODE_LIMIT: usize = 128;
 pub const DETAIL_EDGE_LIMIT: usize = 256;
@@ -24,6 +24,7 @@ pub struct TileSelection {
     pub(crate) world_revision: String,
     pub(crate) tile_revision: String,
     pub(crate) cell: Cell,
+    pub(crate) profile: TileProfile,
     pub(crate) glyphs: Vec<Glyph>,
     pub(crate) edges: Vec<TileEdge>,
     pub(crate) promoted: Vec<(u32, u32)>,
@@ -31,6 +32,10 @@ pub struct TileSelection {
 }
 
 impl TileSelection {
+    pub fn profile(&self) -> TileProfile {
+        self.profile
+    }
+
     pub fn retained_bytes(&self) -> usize {
         size_of::<Self>()
             + self.world_revision.capacity()

@@ -1,7 +1,8 @@
 use std::collections::BTreeSet;
 
 use serviceradar_topology_atlas::{
-    Budget, Cell, GlyphKind, Position, Relation, WORLD_EXTENT, World,
+    Budget, Cell, DetailScope, Error, GlyphKind, Position, Relation, RelationCursor, TileProfile,
+    WORLD_EXTENT, World,
 };
 
 fn position(i: u32, x: u32, y: u32, min_zoom: u8) -> Position {
@@ -24,6 +25,121 @@ fn edge(a: &Position, b: &Position) -> Relation {
         source: a.id.clone(),
         target: b.id.clone(),
     }
+}
+
+#[test]
+fn aggregate_profile_bounds_identity_bytes_without_losing_singletons_or_clipped_flow() {
+    let mut points = vec![
+        position(1, 1, 5_000_000, 0),
+        position(2, 16_000_000, 5_000_000, 0),
+    ];
+    for point in &mut points {
+        point.id.push_str(&"x".repeat(1800));
+    }
+    let mut relation = edge(&points[0], &points[1]);
+    // Deliberately oversized invented identity exercises the descriptor budget
+    // before serialization, independently of the Arrow encoder's wire-byte test.
+    relation.id = "synthetic-relation-".to_owned() + &"r".repeat(1_100_000);
+    let world = World::new(
+        "compact-identities".into(),
+        16,
+        points.clone(),
+        vec![relation.clone()],
+    )
+    .unwrap();
+    let root = Cell::new(0, 0, 0).unwrap();
+    assert!(matches!(
+        world.tile(root, Budget::default()),
+        Err(Error::SelectionBudgetExceeded)
+    ));
+    assert!(matches!(
+        world.tile_with_profile(
+            root,
+            Budget {
+                nodes: 8,
+                edges: 72
+            },
+            TileProfile::AggregateOnly
+        ),
+        Err(Error::InvalidBudget)
+    ));
+    let compact = world
+        .tile_with_profile(root, Budget::default(), TileProfile::AggregateOnly)
+        .unwrap();
+    assert_eq!(compact.profile, TileProfile::AggregateOnly);
+    assert_eq!(compact.selection.profile(), TileProfile::AggregateOnly);
+    assert_eq!(compact.device_count, 2);
+    assert_eq!(compact.glyphs.len(), 2);
+    assert!(compact.glyphs.iter().all(|g| g.kind == GlyphKind::Aggregate
+        && g.count == 1
+        && g.id.len() < 256
+        && g.label.len() < 32));
+    assert_eq!(compact.edges.len(), 1);
+    assert_eq!(compact.edges[0].count, 1);
+    assert!(compact.edges[0].id.len() < 128);
+    assert!(compact.selection.retained_bytes() < 4096);
+    let mut members = BTreeSet::new();
+    for glyph in &compact.glyphs {
+        let selection = world
+            .aggregate_selection(&compact.selection, &glyph.id)
+            .unwrap();
+        let page = world
+            .detail(&DetailScope::AggregateMembers(selection), None)
+            .unwrap();
+        assert_eq!(page.total_members, 1);
+        members.insert(page.nodes[0].id.clone());
+    }
+    assert_eq!(members, points.iter().map(|p| p.id.clone()).collect());
+    let selected = world.tile_relations(&compact.selection, None, 256).unwrap();
+    assert_eq!(selected.total_rendered_relations, 1);
+    assert_eq!(selected.relations[0].relation_id, relation.id);
+    assert_eq!(selected.relations[0].rendered_edge_id, compact.edges[0].id);
+    assert_eq!(selected.relations[0].bundle_members, 1);
+
+    // Replacing a singleton's canonical identity changes membership, but the
+    // compact geometry and stable rendered bundle identity remain unchanged.
+    relation.id = "replacement-synthetic-relation".into();
+    let changed = World::new("compact-identities".into(), 16, points, vec![relation]).unwrap();
+    let replacement = changed
+        .tile_with_profile(root, Budget::default(), TileProfile::AggregateOnly)
+        .unwrap();
+    assert_eq!(compact.revision, replacement.revision);
+    let standard = changed.tile(root, Budget::default()).unwrap();
+    assert_eq!(standard.profile, TileProfile::Standard);
+    assert!(standard.glyphs.iter().all(|g| g.kind == GlyphKind::Device));
+    assert_ne!(standard.revision, replacement.revision);
+    let cursor = RelationCursor {
+        world_revision: changed.detail_revision().into(),
+        tile_revision: standard.revision,
+        offset: 0,
+    };
+    assert_eq!(
+        changed.tile_relations(&replacement.selection, Some(&cursor), 1),
+        Err(Error::InvalidDetailCursor)
+    );
+
+    let left_cell = Cell::new(2, 1, 1).unwrap();
+    let right_cell = Cell::new(2, 2, 1).unwrap();
+    let left = changed
+        .tile_with_profile(left_cell, Budget::default(), TileProfile::AggregateOnly)
+        .unwrap();
+    let right = changed
+        .tile_with_profile(right_cell, Budget::default(), TileProfile::AggregateOnly)
+        .unwrap();
+    assert_eq!(left.device_count + right.device_count, 0);
+    assert_eq!(left.edges[0].end, right.edges[0].start);
+    assert!(left.edges[0].start < left.edges[0].end && right.edges[0].start < right.edges[0].end);
+    let left_portal = &left.glyphs[left.edges[0].target as usize];
+    let right_portal = &right.glyphs[right.edges[0].source as usize];
+    assert_eq!(
+        (&left_portal.id, left_portal.x, left_portal.y),
+        (&right_portal.id, right_portal.x, right_portal.y)
+    );
+    let original_phase = changed.tile(left_cell, Budget::default()).unwrap();
+    assert_eq!(
+        (left.edges[0].start, left.edges[0].end),
+        (original_phase.edges[0].start, original_phase.edges[0].end)
+    );
 }
 
 #[test]

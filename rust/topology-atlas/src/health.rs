@@ -93,6 +93,16 @@ pub struct HealthApply {
     pub revision: u64,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HealthInfo {
+    pub epoch: u64,
+    pub revision: u64,
+    pub observation_sequence: u64,
+    pub observed: u64,
+    pub total: u64,
+    pub retained_bytes: usize,
+}
+
 /// Copy while holding the old resource lock, then release it before remapping.
 /// No UID map or World reference is retained by this temporary snapshot.
 pub struct HealthSnapshot {
@@ -124,6 +134,18 @@ pub struct HealthIndex {
 }
 
 impl HealthIndex {
+    pub fn info(&self, world: &World) -> Result<HealthInfo, Error> {
+        self.check_world(world)?;
+        Ok(HealthInfo {
+            epoch: self.epoch,
+            revision: self.revision,
+            observation_sequence: self.observation_sequence,
+            observed: u64::from(self.prefix(self.states.len())[2]),
+            total: self.states.len() as u64,
+            retained_bytes: self.retained_bytes(),
+        })
+    }
+
     pub fn new(world: &World, epoch: u64) -> Result<Self, Error> {
         if epoch == 0 {
             return Err(Error::InvalidHealthUpdate);
