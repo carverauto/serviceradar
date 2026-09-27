@@ -19,6 +19,7 @@ members = [
     "rust/dgraph-migrate",
     "rust/network-config-downparser",
     "rust/dgraph-topology",
+    "rust/topology-atlas",
     "rust/edge-onboarding",
     "rust/bmp-collector",
     "rust/flowgger",
