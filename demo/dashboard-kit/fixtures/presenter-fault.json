@@ -1,0 +1,109 @@
+{
+  "frames": [
+    {
+      "id": "schedule",
+      "query": "in:timeseries_metrics metric_name:(demo.fault.active,demo.fault.next_at) latest:true",
+      "encoding": "json_rows",
+      "status": "ok",
+      "results": [
+        {
+          "metric_name": "demo.fault.active",
+          "value": 1,
+          "timestamp": "2026-01-01T00:00:00Z"
+        },
+        {
+          "metric_name": "demo.fault.next_at",
+          "value": 1767226500,
+          "timestamp": "2026-01-01T00:00:00Z",
+          "tags": {
+            "kind": "overheat",
+            "target": "sensor-a"
+          }
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "id": "demo-fault-inject",
+      "label": "Inject fault",
+      "provider_type": "wasm_plugin",
+      "plugin_id": "demo-hello-sim",
+      "scope": "device",
+      "requires_confirmation": false,
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "fault_kind": {
+            "type": "string",
+            "enum": [
+              "overheat"
+            ],
+            "x-enum-labels": [
+              "Overheat"
+            ]
+          },
+          "duration_seconds": {
+            "type": "integer",
+            "maximum": 900
+          }
+        }
+      },
+      "emits": [
+        {
+          "id": "evt-open-2",
+          "log_provider": "plugin:demo-hello-sim",
+          "log_name": "demo.fault",
+          "class_uid": 1008,
+          "severity_id": 4,
+          "time": "2026-01-01T00:02:00Z",
+          "message": "Overheat on sensor-a",
+          "metadata": {
+            "demo.fault.state": "open",
+            "demo.fault.kind": "overheat",
+            "demo.fault.id": "overheat@sensor-a#manual",
+            "asset_id": "sensor-a"
+          }
+        }
+      ]
+    }
+  ],
+  "events": [
+    {
+      "at_ms": 1500,
+      "event": {
+        "id": "evt-open-1",
+        "log_provider": "plugin:demo-hello-sim",
+        "log_name": "demo.fault",
+        "class_uid": 1008,
+        "severity_id": 4,
+        "time": "2026-01-01T00:00:10Z",
+        "message": "Overheat on sensor-a",
+        "metadata": {
+          "demo.fault.state": "open",
+          "demo.fault.kind": "overheat",
+          "demo.fault.id": "overheat@sensor-a#1",
+          "asset_id": "sensor-a"
+        }
+      }
+    },
+    {
+      "at_ms": 20000,
+      "event": {
+        "id": "evt-resolved-1",
+        "log_provider": "plugin:demo-hello-sim",
+        "log_name": "demo.fault",
+        "class_uid": 1008,
+        "severity_id": 1,
+        "time": "2026-01-01T00:03:10Z",
+        "message": "Overheat resolved on sensor-a",
+        "metadata": {
+          "demo.fault.state": "resolved",
+          "demo.fault.kind": "overheat",
+          "demo.fault.id": "overheat@sensor-a#1",
+          "asset_id": "sensor-a"
+        }
+      }
+    }
+  ]
+}

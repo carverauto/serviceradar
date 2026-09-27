@@ -81,6 +81,13 @@ func TestFaultTransitionsBecomeMatchableEvents(t *testing.T) {
 	if c.Unmapped[AttrFaultState] != FaultStateResolved || c.Unmapped[AttrFaultID] != o.Unmapped[AttrFaultID] {
 		t.Fatalf("resolving attributes = %+v", c.Unmapped)
 	}
+	for _, ev := range []sdk.OCSFEvent{o, c} {
+		for _, key := range []string{AttrAssetID, AttrFaultState, AttrFaultKind, AttrFaultID} {
+			if ev.Metadata[key] != ev.Unmapped[key] {
+				t.Fatalf("metadata[%s] = %v, want %v (live event summaries read metadata)", key, ev.Metadata[key], ev.Unmapped[key])
+			}
+		}
+	}
 }
 
 func TestMetricsGroupPerSeriesAndChunk(t *testing.T) {

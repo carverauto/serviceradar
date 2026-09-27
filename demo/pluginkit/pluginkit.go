@@ -206,6 +206,14 @@ func faultEvent(ev simkit.Event, opts Options) sdk.OCSFEvent {
 		attrs[k] = v
 	}
 	out.Unmapped = attrs
+	// Live dashboard event summaries carry metadata but not unmapped fields, so
+	// the fault's identity and state are mirrored there for presenter strips.
+	if out.Metadata == nil {
+		out.Metadata = map[string]any{}
+	}
+	for _, key := range []string{AttrAssetID, AttrFaultState, AttrFaultKind, AttrFaultID} {
+		out.Metadata[key] = attrs[key]
+	}
 	return out
 }
 
