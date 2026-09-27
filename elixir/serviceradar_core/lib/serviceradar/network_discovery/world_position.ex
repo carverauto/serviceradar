@@ -14,7 +14,9 @@ defmodule ServiceRadar.NetworkDiscovery.WorldPosition do
     custom_indexes do
       # Endpoint admission probes a bounded ID batch in a newly populated layout,
       # before autovacuum can collect statistics. Keep both predicates indexed.
-      index [:layout_version, :device_id], where: "active", name: "topology_world_positions_active_idx"
+      index [:layout_version, :device_id],
+        where: "active",
+        name: "topology_world_positions_active_idx"
     end
 
     check_constraints do
