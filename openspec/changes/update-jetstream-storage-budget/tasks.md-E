@@ -1,10 +1,10 @@
 ## 1. EventWriter isolation (D1)
 
-- [x] 1.1 Change `Producer.finalize_consumer_setup/3` to keep successful
+- [ ] 1.1 Change `Producer.finalize_consumer_setup/3` to keep successful
       consumers and schedule per-stream retries with backoff capped at 60 s.
-- [x] 1.2 Emit `[:serviceradar, :event_writer, :consumer_setup, :failed]`
+- [ ] 1.2 Emit `[:serviceradar, :event_writer, :consumer_setup, :failed]`
       telemetry and a health event naming the stream and NATS error code.
-- [x] 1.3 Regression test: a stream rejected with err 10005 leaves the other
+- [ ] 1.3 Regression test: a stream rejected with err 10005 leaves the other
       consumers subscribed; the test fails on the current tear-down code.
 
 ## 2. Finite reservations (D3)
