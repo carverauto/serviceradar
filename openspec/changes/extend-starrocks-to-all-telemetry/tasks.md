@@ -118,12 +118,13 @@
 
 ## 5. Warehouse-only telemetry when StarRocks is enabled
 
-- [ ] 5.1 Inventory every CNPG telemetry reader, UI and non-UI, by searching for each table and
+- [x] 5.1 Inventory every CNPG telemetry reader, UI and non-UI, by searching for each table and
   its continuous aggregates rather than for known modules; record the list in this change. It
   includes readers that bypass `Readers` today: the dashboard MTR, event and service cards, the
   logs page OTel sparklines, `Stats` events and trace summaries, the analytics page, God View
   BMP and OCSF event fetches, device risk IOC exposure, `DeviceCorrelation`, the log severity and
   trace summary refresh workers, and the service state registry queries.
+  Recorded in `reader-inventory.md`, with eight findings for the 5.2-5.4 work.
 - [ ] 5.2 Remove the dual-write (after 3.4 and the readers in 5.4 it would otherwise darken): with StarRocks enabled, `Destination` writes each dataset to the
   warehouse only and a warehouse failure fails the acknowledgement; every EventWriter processor
   and non-broker producer that inserts CNPG telemetry (flows, metrics, logs, events, Falco,
