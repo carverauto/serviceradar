@@ -52,9 +52,11 @@ impl From<Observation> for HealthObservation {
 
 #[rustler::nif(schedule = "DirtyCpu")]
 fn new_health(env: Env<'_>, world: ResourceArc<WorldResource>, epoch: u64) -> Term<'_> {
-    read_reply(env, || {
-        let health = HealthIndex::new(&world.0.geometry, epoch).map_err(engine_error)?;
-        Ok(ResourceArc::new(HealthResource(Mutex::new(health))))
+    crate::admission::call(env, &crate::admission::HEALTH_BUILD, || {
+        read_reply(env, || {
+            let health = HealthIndex::new(&world.0.geometry, epoch).map_err(engine_error)?;
+            Ok(ResourceArc::new(HealthResource(Mutex::new(health))))
+        })
     })
 }
 
@@ -66,19 +68,21 @@ fn rebase_health(
     new_world: ResourceArc<WorldResource>,
     epoch: u64,
 ) -> Term<'_> {
-    read_reply(env, || {
-        let snapshot = {
-            let health = old_health.0.lock().map_err(|_| atoms::unavailable())?;
-            health.snapshot()
-        };
-        let rebased = HealthIndex::rebase(
-            &old_world.0.geometry,
-            &snapshot,
-            &new_world.0.geometry,
-            epoch,
-        )
-        .map_err(engine_error)?;
-        Ok(ResourceArc::new(HealthResource(Mutex::new(rebased))))
+    crate::admission::call(env, &crate::admission::HEALTH_BUILD, || {
+        read_reply(env, || {
+            let snapshot = {
+                let health = old_health.0.lock().map_err(|_| atoms::unavailable())?;
+                health.snapshot()
+            };
+            let rebased = HealthIndex::rebase(
+                &old_world.0.geometry,
+                &snapshot,
+                &new_world.0.geometry,
+                epoch,
+            )
+            .map_err(engine_error)?;
+            Ok(ResourceArc::new(HealthResource(Mutex::new(rebased))))
+        })
     })
 }
 
@@ -101,25 +105,27 @@ fn device_ids_page<'a>(
     cursor: Term<'a>,
     limit: usize,
 ) -> Term<'a> {
-    read_reply(env, || {
-        let cursor = cursor
-            .decode::<Option<WireIdsCursor>>()
-            .map_err(|_| atoms::invalid_cursor())?
-            .map(|c| DeviceIdsCursor {
-                world_revision: c.world_revision,
-                offset: c.offset,
-            });
-        let page = world
-            .0
-            .geometry
-            .device_ids_page(cursor.as_ref(), limit)
-            .map_err(engine_error)?;
-        Ok(WireIdsPage {
-            ids: page.ids,
-            next_cursor: page.next.map(|c| WireIdsCursor {
-                world_revision: c.world_revision,
-                offset: c.offset,
-            }),
+    crate::admission::call(env, &crate::admission::BOUNDED_READ, || {
+        read_reply(env, || {
+            let cursor = cursor
+                .decode::<Option<WireIdsCursor>>()
+                .map_err(|_| atoms::invalid_cursor())?
+                .map(|c| DeviceIdsCursor {
+                    world_revision: c.world_revision,
+                    offset: c.offset,
+                });
+            let page = world
+                .0
+                .geometry
+                .device_ids_page(cursor.as_ref(), limit)
+                .map_err(engine_error)?;
+            Ok(WireIdsPage {
+                ids: page.ids,
+                next_cursor: page.next.map(|c| WireIdsCursor {
+                    world_revision: c.world_revision,
+                    offset: c.offset,
+                }),
+            })
         })
     })
 }
@@ -141,25 +147,27 @@ fn apply_health<'a>(
     sequence: u64,
     rows: Term<'a>,
 ) -> Term<'a> {
-    read_reply(env, || {
-        // Validate and bound the BEAM list before acquiring the mutable index.
-        let observations: Vec<_> = crate::rows::<Observation>(rows)
-            .map_err(|_| atoms::invalid_request())?
-            .into_iter()
-            .map(Into::into)
-            .collect();
-        let result = health
-            .0
-            .lock()
-            .map_err(|_| atoms::unavailable())?
-            .apply(&world.0.geometry, sequence, &observations)
-            .map_err(engine_error)?;
-        Ok(WireApply {
-            applied: result.applied,
-            unchanged: result.unchanged,
-            stale: result.stale,
-            unknown_ids: result.unknown_ids,
-            revision: result.revision,
+    crate::admission::call(env, &crate::admission::BOUNDED_READ, || {
+        read_reply(env, || {
+            // Validate and bound the BEAM list before acquiring the mutable index.
+            let observations: Vec<_> = crate::rows::<Observation>(rows)
+                .map_err(|_| atoms::invalid_request())?
+                .into_iter()
+                .map(Into::into)
+                .collect();
+            let result = health
+                .0
+                .lock()
+                .map_err(|_| atoms::unavailable())?
+                .apply(&world.0.geometry, sequence, &observations)
+                .map_err(engine_error)?;
+            Ok(WireApply {
+                applied: result.applied,
+                unchanged: result.unchanged,
+                stale: result.stale,
+                unknown_ids: result.unknown_ids,
+                revision: result.revision,
+            })
         })
     })
 }
@@ -208,28 +216,30 @@ fn tile_health(
     health: ResourceArc<HealthResource>,
     selection: ResourceArc<SelectionResource>,
 ) -> Term<'_> {
-    read_reply(env, || {
-        let result = health
-            .0
-            .lock()
-            .map_err(|_| atoms::unavailable())?
-            .tile_health(&world.0.geometry, &selection.0)
-            .map_err(engine_error)?;
-        Ok(WireTileHealth {
-            world_revision: result.world_revision,
-            tile_revision: result.tile_revision,
-            // Epoch is an opaque identity; JSON numbers cannot preserve every u64.
-            epoch: format!("{:016x}", result.epoch),
-            revision: result.revision,
-            observation_sequence: result.observation_sequence,
-            glyphs: result
-                .glyphs
-                .into_iter()
-                .map(|g| WireGlyphHealth {
-                    id: g.id,
-                    counts: g.counts.into(),
-                })
-                .collect(),
+    crate::admission::call(env, &crate::admission::BOUNDED_READ, || {
+        read_reply(env, || {
+            let result = health
+                .0
+                .lock()
+                .map_err(|_| atoms::unavailable())?
+                .tile_health(&world.0.geometry, &selection.0)
+                .map_err(engine_error)?;
+            Ok(WireTileHealth {
+                world_revision: result.world_revision,
+                tile_revision: result.tile_revision,
+                // Epoch is an opaque identity; JSON numbers cannot preserve every u64.
+                epoch: format!("{:016x}", result.epoch),
+                revision: result.revision,
+                observation_sequence: result.observation_sequence,
+                glyphs: result
+                    .glyphs
+                    .into_iter()
+                    .map(|g| WireGlyphHealth {
+                        id: g.id,
+                        counts: g.counts.into(),
+                    })
+                    .collect(),
+            })
         })
     })
 }
@@ -250,20 +260,22 @@ fn health_info(
     world: ResourceArc<WorldResource>,
     health: ResourceArc<HealthResource>,
 ) -> Term<'_> {
-    read_reply(env, || {
-        let info = health
-            .0
-            .lock()
-            .map_err(|_| atoms::unavailable())?
-            .info(&world.0.geometry)
-            .map_err(engine_error)?;
-        Ok(WireHealthInfo {
-            epoch: format!("{:016x}", info.epoch),
-            revision: info.revision,
-            observation_sequence: info.observation_sequence,
-            observed: info.observed,
-            total: info.total,
-            retained_bytes: info.retained_bytes,
+    crate::admission::call(env, &crate::admission::BOUNDED_READ, || {
+        read_reply(env, || {
+            let info = health
+                .0
+                .lock()
+                .map_err(|_| atoms::unavailable())?
+                .info(&world.0.geometry)
+                .map_err(engine_error)?;
+            Ok(WireHealthInfo {
+                epoch: format!("{:016x}", info.epoch),
+                revision: info.revision,
+                observation_sequence: info.observation_sequence,
+                observed: info.observed,
+                total: info.total,
+                retained_bytes: info.retained_bytes,
+            })
         })
     })
 }
