@@ -137,10 +137,12 @@ Go, `serviceradar_core_elx`, `serviceradar_agent_gateway`, `datasvc`, `palisade`
 
 ## Findings
 
-1. **`services_availability_5m` does not exist.** No migration or baseline creates it, so the
+1. **`services_availability_5m` did not exist.** No migration or baseline created it (its
+   original definition used `COUNT(DISTINCT ...)`, which a continuous aggregate refuses), so the
    dashboard service card (`Stats.services_availability`), the service health sparkline and SRQL
-   `rollup_stats:availability` return nothing today. Decide whether it becomes a CNPG cagg as well
-   as a warehouse view, or the readers are removed.
+   `rollup_stats:availability` returned nothing. Resolved for CNPG by migration
+   `20260927120000_ensure_services_availability_5m_cagg`; it still needs a warehouse
+   counterpart when service status moves in 5.4.
 2. **The dedicated sysmon tables have no writer.** `cpu_metrics`, `memory_metrics`,
    `disk_metrics`, `process_metrics` and `cpu_cluster_metrics` have Ash resources, retention and
    readers but no insert anywhere; device sysmon data lives in `timeseries_metrics` as

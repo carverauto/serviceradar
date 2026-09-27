@@ -195,7 +195,8 @@ The system SHALL create a TimescaleDB continuous aggregate (`traces_stats_5m`) w
 - **THEN** the CAGG includes `avg_duration_ms` and `p95_duration_ms` columns computed from span duration.
 
 ### Requirement: Services availability continuous aggregate
-The system SHALL create a TimescaleDB continuous aggregate (`services_availability_5m`) with 5-minute buckets that pre-computes service availability counts from the `services` hypertable.
+The system SHALL create a TimescaleDB continuous aggregate (`services_availability_5m`) with 5-minute buckets that pre-computes service availability counts from the `service_status` hypertable.
+A continuous aggregate cannot count distinct values, so it keeps one row per bucket and service instance and readers sum the per-instance counts.
 
 #### Scenario: CAGG counts unique service instances
 - **GIVEN** multiple status reports for the same service within a bucket
