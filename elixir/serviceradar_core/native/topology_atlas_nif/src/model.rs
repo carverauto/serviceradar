@@ -164,6 +164,7 @@ pub struct WorldState {
     pub geometry: World,
     pub info: Info,
     pub relations: Arc<[RelationRow]>,
+    pub interface_degrees: Vec<[u32; 2]>,
 }
 
 pub struct Builder {
@@ -330,11 +331,45 @@ fn build_world<'a>(
         relations.iter().map(RelationRow::geometry).collect(),
     )
     .map_err(|_| "invalid persisted world")?;
+    let interface_degrees = interface_degrees(&relations);
     Ok(Arc::new(WorldState {
         geometry,
         info,
         relations,
+        interface_degrees,
     }))
+}
+
+fn interface_degrees(relations: &[RelationRow]) -> Vec<[u32; 2]> {
+    let mut counts = HashMap::<(&str, i32), u32>::new();
+    for row in relations {
+        let source = row
+            .source_if_index
+            .map(|index| (row.source_id.as_str(), index));
+        let target = row
+            .target_if_index
+            .map(|index| (row.target_id.as_str(), index));
+        if let Some(binding) = source {
+            *counts.entry(binding).or_default() += 1;
+        }
+        // One canonical relation cannot make its own identical endpoint binding
+        // ambiguous. All evidence classes count; no traffic policy lives here.
+        if let Some(binding) = target.filter(|binding| source != Some(*binding)) {
+            *counts.entry(binding).or_default() += 1;
+        }
+    }
+    relations
+        .iter()
+        .map(|row| {
+            let ids = [row.source_id.as_str(), row.target_id.as_str()];
+            let interfaces = [row.source_if_index, row.target_if_index];
+            std::array::from_fn(|side| {
+                interfaces[side]
+                    .and_then(|index| counts.get(&(ids[side], index)).copied())
+                    .unwrap_or(0)
+            })
+        })
+        .collect()
 }
 
 /// Typed graph conversion is a production boundary shared by the reader and reconciler.

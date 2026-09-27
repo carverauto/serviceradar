@@ -40,6 +40,8 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
         relation_id: "synthetic-link-b",
         source_id: a.device_id,
         target_id: b.device_id,
+        evidence_class: "direct-physical",
+        role: "backbone",
         source_if_index: 17,
         source_if_name: "port17",
         target_if_index: 29,
@@ -49,16 +51,27 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
         relation_id: "synthetic-link-a",
         source_id: b.device_id,
         target_id: c.device_id,
-        source_if_index: 31,
-        source_if_name: "port31",
+        evidence_class: "hosted",
+        role: "attachment",
+        source_if_index: 29,
+        source_if_name: "port29",
         target_if_index: 47,
         target_if_name: "port47"
       }
     ]
 
+    loop_binding = %{
+      relation_id: "synthetic-loop",
+      source_id: c.device_id,
+      target_id: c.device_id,
+      source_if_index: 47,
+      target_if_index: 47,
+      evidence_class: "observed"
+    }
+
     assert {:ok, builder} = TopologyAtlas.new_builder("synthetic-detail-layout", 16)
     assert :ok = TopologyAtlas.add_positions(builder, positions)
-    assert :ok = TopologyAtlas.add_relations(builder, bindings)
+    assert :ok = TopologyAtlas.add_relations(builder, bindings ++ [loop_binding])
     assert {:ok, world} = TopologyAtlas.finish_world(builder)
     assert {:ok, tile} = TopologyAtlas.tile(world, 0, 0, 0)
     assert is_reference(tile.selection)
@@ -85,13 +98,32 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
 
     assert Enum.at(neighbors, relation.source).device_id == a.device_id
     assert Enum.at(neighbors, relation.target).device_id == b.device_id
+    assert relation.evidence_class == "direct-physical"
+    assert relation.role == "backbone"
     assert {:error, :invalid_cursor} = TopologyAtlas.detail(world, {:neighborhood, a.device_id}, %{})
     assert {:error, :invalid_request} = TopologyAtlas.detail(world, {:unsupported, a.device_id})
 
-    assert {:ok, %{relations: selected, total_rendered_relations: 2, next_cursor: nil}} =
-             TopologyAtlas.tile_relations(world, tile.selection)
+    assert {:ok, %{relations: [first_binding], total_rendered_relations: 2, next_cursor: next}} =
+             TopologyAtlas.tile_relations(world, tile.selection, nil, 1)
+
+    assert is_map(next)
+
+    assert {:ok, %{relations: [second_binding], total_rendered_relations: 2, next_cursor: tail}} =
+             TopologyAtlas.tile_relations(world, tile.selection, next, 1)
+
+    if tail do
+      assert {:ok, %{relations: [], next_cursor: nil}} = TopologyAtlas.tile_relations(world, tile.selection, tail, 1)
+    end
+
+    # Degrees include the other page and the non-rendered self-relation. The
+    # latter contributes once even though both ends name the same interface.
+    selected = [first_binding, second_binding]
 
     selected_by_id = Map.new(selected, &{&1.relation_id, &1})
+    assert selected_by_id["synthetic-link-b"].source_interface_degree == 1
+    assert selected_by_id["synthetic-link-b"].target_interface_degree == 2
+    assert selected_by_id["synthetic-link-a"].source_interface_degree == 2
+    assert selected_by_id["synthetic-link-a"].target_interface_degree == 2
 
     for binding <- bindings do
       assert {:ok, %{relation: picked, nodes: [source, target]}} = TopologyAtlas.relation(world, binding.relation_id)
@@ -107,6 +139,7 @@ defmodule ServiceRadar.TopologyAtlasNativeTest do
     end
 
     assert {:error, :not_found} = TopologyAtlas.relation(world, "synthetic-missing-link")
+    assert {:ok, %{nodes: [^c, ^c]}} = TopologyAtlas.relation(world, loop_binding.relation_id)
     assert {:error, :invalid_identity} = TopologyAtlas.relation(world, nil)
     assert {:error, :invalid_identity} = TopologyAtlas.relation(world, "")
 

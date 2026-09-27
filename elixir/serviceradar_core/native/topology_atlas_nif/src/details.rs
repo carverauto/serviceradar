@@ -98,6 +98,8 @@ struct WireDetailRelation {
     id: String,
     source: u32,
     target: u32,
+    evidence_class: Option<String>,
+    role: Option<String>,
 }
 #[derive(NifMap)]
 struct WireDetailPage {
@@ -135,18 +137,22 @@ struct WireRelationDetail {
     nodes: Vec<PositionRow>,
 }
 
+fn relation_row<'a>(world: &'a WorldResource, id: &str) -> Result<&'a RelationRow, Error> {
+    // Both cold-load and reconciliation collect a BTreeMap into this immutable
+    // slice, preserving canonical relation-ID order.
+    world
+        .0
+        .relations
+        .binary_search_by(|row| row.relation_id.as_str().cmp(id))
+        .map(|index| &world.0.relations[index])
+        .map_err(|_| Error::DetailNotFound)
+}
+
 #[rustler::nif(schedule = "DirtyCpu")]
 fn relation(env: Env<'_>, world: ResourceArc<WorldResource>, id: String) -> Term<'_> {
     crate::admission::call(env, &crate::admission::BOUNDED_READ, || {
         read_call(env, || {
-            // Both cold-load and reconciliation collect a BTreeMap into this
-            // immutable slice, preserving canonical relation-ID order.
-            let index = world
-                .0
-                .relations
-                .binary_search_by(|row| row.relation_id.as_str().cmp(&id))
-                .map_err(|_| Error::DetailNotFound)?;
-            let row = &world.0.relations[index];
+            let row = relation_row(&world, &id)?;
             let mut nodes = Vec::with_capacity(2);
             for endpoint in [&row.source_id, &row.target_id] {
                 let position = world
@@ -201,6 +207,20 @@ fn detail<'a>(
                 .map_err(|_| Error::InvalidDetailCursor)?
                 .map(Into::into);
             let page = world.0.geometry.detail(&scope, cursor.as_ref())?;
+            let relations = page
+                .relations
+                .into_iter()
+                .map(|edge| {
+                    let row = relation_row(&world, &edge.id)?;
+                    Ok(WireDetailRelation {
+                        id: edge.id,
+                        source: edge.source,
+                        target: edge.target,
+                        evidence_class: row.evidence_class.clone(),
+                        role: row.role.clone(),
+                    })
+                })
+                .collect::<Result<Vec<_>, Error>>()?;
             Ok(WireDetailPage {
                 world_revision: page.world_revision,
                 scope_revision: page.scope_revision,
@@ -209,15 +229,7 @@ fn detail<'a>(
                     .into_iter()
                     .map(|p| PositionRow::from_position(p, true))
                     .collect(),
-                relations: page
-                    .relations
-                    .into_iter()
-                    .map(|e| WireDetailRelation {
-                        id: e.id,
-                        source: e.source,
-                        target: e.target,
-                    })
-                    .collect(),
+                relations,
                 total_members: page.total_members,
                 selected_relations: page.selected_relations,
                 incident_relations: page.incident_relations,
@@ -263,6 +275,8 @@ struct WireSelectedRelation {
     source_if_name: Option<String>,
     target_if_index: Option<i32>,
     target_if_name: Option<String>,
+    source_interface_degree: u32,
+    target_interface_degree: u32,
     rendered_edge_id: String,
     source_glyph: u32,
     target_glyph: u32,
@@ -271,7 +285,11 @@ struct WireSelectedRelation {
 }
 
 impl WireSelectedRelation {
-    fn new(row: &RelationRow, selected: serviceradar_topology_atlas::SelectedRelation) -> Self {
+    fn new(
+        row: &RelationRow,
+        degrees: [u32; 2],
+        selected: serviceradar_topology_atlas::SelectedRelation,
+    ) -> Self {
         Self {
             relation_id: row.relation_id.clone(),
             source_id: row.source_id.clone(),
@@ -282,6 +300,8 @@ impl WireSelectedRelation {
             source_if_name: row.source_if_name.clone(),
             target_if_index: row.target_if_index,
             target_if_name: row.target_if_name.clone(),
+            source_interface_degree: degrees[0],
+            target_interface_degree: degrees[1],
             rendered_edge_id: selected.rendered_edge_id,
             source_glyph: selected.source_glyph,
             target_glyph: selected.target_glyph,
@@ -327,7 +347,13 @@ fn tile_relations<'a>(
                 if row.relation_id != selected.relation_id {
                     return Err(Error::StaleDetailRevision);
                 }
-                relations.push(WireSelectedRelation::new(row, selected));
+                let degrees = world
+                    .0
+                    .interface_degrees
+                    .get(selected.relation_index as usize)
+                    .copied()
+                    .ok_or(Error::StaleDetailRevision)?;
+                relations.push(WireSelectedRelation::new(row, degrees, selected));
             }
             Ok(WireRelationPage {
                 relations,

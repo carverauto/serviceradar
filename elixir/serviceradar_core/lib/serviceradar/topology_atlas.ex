@@ -109,7 +109,11 @@ defmodule ServiceRadar.TopologyAtlas do
   @doc "Read a bounded neighborhood or member page; cursors are tied to its immutable native source."
   def detail(world, scope, cursor \\ nil), do: Native.detail(world, scope, cursor)
 
-  @doc "Read at most 256 canonical bindings for rendered relations, with explicit total coverage."
+  @doc """
+  Reads at most 256 canonical bindings with explicit total rendered coverage.
+  Interface degrees count distinct active world relations across all pages and
+  evidence classes; missing interface indices have degree zero.
+  """
   def tile_relations(world, selection, cursor \\ nil, limit \\ 256)
 
   def tile_relations(world, selection, cursor, limit) when is_integer(limit) and limit in 1..256,
