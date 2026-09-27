@@ -1012,6 +1012,8 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
     )
     web_db_suite = "bazel test $FLAGS //elixir/web-ng:networks_live_db_test"
     topology_db_suite = "bazel test $FLAGS //elixir/web-ng:topology_atlas_db_test"
+    dgraph_schema_suite = "bazel test $FLAGS //rust/dgraph-topology:schema_lifecycle_test"
+    world_worker_suite = "bazel test $FLAGS //rust/dgraph-topology:world_worker_test"
     playwright_acceptance = (
         "bazel test -c opt --config=ci "
         "//elixir/web-ng/test/playwright:god_view_elk_scene_acceptance "
@@ -1607,11 +1609,15 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
                 self.ordinary_suite,
                 self.web_db_suite,
                 self.topology_db_suite,
+                self.dgraph_schema_suite,
+                self.world_worker_suite,
             ),
             commands,
         )
         self.assertLess(action.index(self.ordinary_suite), action.index(self.web_db_suite))
         self.assertLess(action.index(self.web_db_suite), action.index(self.topology_db_suite))
+        self.assertLess(action.index(self.topology_db_suite), action.index(self.dgraph_schema_suite))
+        self.assertLess(action.index(self.dgraph_schema_suite), action.index(self.world_worker_suite))
         self.assertEqual(
             (self.ordinary_suite,),
             tuple(
