@@ -2,7 +2,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
-  import Ecto.Query
   import ServiceRadarWebNGWeb.MetricWindowComponents, only: [metric_window_controls: 1]
   import ServiceRadarWebNGWeb.UIComponents
 
@@ -123,7 +122,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      |> assign(:netflow_graph_mode, "stacked")
      |> assign(:netflow_view, "overview")
      |> assign(:netflow_auto_open, false)
-     |> assign(:sparklines, %{})
      |> assign(:summary, %{total: 0, fatal: 0, error: 0, warning: 0, info: 0, debug: 0})
      |> assign(:event_summary, empty_event_summary())
      |> assign(:alert_summary, empty_alert_summary())
@@ -1725,7 +1723,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               <.metrics_table
                 id="metrics"
                 metrics={@metrics}
-                sparklines={@sparklines}
                 query={Map.get(@srql, :query) || ""}
                 timezone={@current_scope.user.timezone}
               />
@@ -4824,7 +4821,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   attr(:id, :string, required: true)
   attr(:metrics, :list, default: [])
-  attr(:sparklines, :map, default: %{})
   attr(:query, :string, default: "")
   attr(:timezone, :string, required: true)
 
@@ -4950,7 +4946,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 </span>
               </td>
               <td class="whitespace-nowrap text-xs">
-                <.metric_viz metric={metric} sparklines={@sparklines} />
+                <.metric_viz metric={metric} />
               </td>
               <td class="whitespace-nowrap text-xs text-right">
                 <.ui_icon_button
@@ -7416,30 +7412,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp format_netflow_number(num) when is_integer(num), do: Integer.to_string(num)
 
   attr(:metric, :map, required: true)
-  attr(:sparklines, :map, default: %{})
 
   defp metric_viz(assigns) do
     metric_type = normalize_string(Map.get(assigns.metric, "metric_type")) || ""
-    metric_name = Map.get(assigns.metric, "metric_name")
-
-    # Get sparkline data for this metric
-    sparkline_data = Map.get(assigns.sparklines, metric_name, [])
-
-    assigns =
-      assigns
-      |> assign(:metric_type, metric_type)
-      |> assign(:sparkline_data, sparkline_data)
+    assigns = assign(assigns, :metric_type, metric_type)
 
     ~H"""
     <%= case @metric_type do %>
       <% "histogram" -> %>
         <.histogram_viz metric={@metric} />
-      <% type when type in ["gauge", "counter"] -> %>
-        <%= if length(@sparkline_data) >= 3 do %>
-          <.sparkline data={@sparkline_data} />
-        <% else %>
-          <span class="text-sr-ink/30">—</span>
-        <% end %>
       <% "span" -> %>
         <.span_duration_viz metric={@metric} />
       <% _ -> %>
@@ -8213,10 +8194,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp to_int(_), do: 0
 
-  defp numeric_to_float(%Decimal{} = value), do: Decimal.to_float(value)
-  defp numeric_to_float(value) when is_number(value), do: value * 1.0
-  defp numeric_to_float(_), do: 0.0
-
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
   end
@@ -8383,12 +8360,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     scope = Map.get(socket.assigns, :current_scope)
     service_scope = service_stats_scope(socket)
     metrics_stats = build_metrics_stats(srql_module, scope, service_scope)
-    sparklines = load_sparklines(socket.assigns.metrics, scope)
 
     socket
     |> assign(:service_stats_scope, service_scope)
     |> assign(:metrics_stats, metrics_stats)
-    |> assign(:sparklines, sparklines)
     |> assign(:trace_stats, empty_trace_stats())
     |> assign(:trace_latency, empty_trace_latency())
     |> apply_otlp_points_assigns(srql_module, scope)
@@ -10159,58 +10134,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp format_bucket(seconds) when is_integer(seconds) and rem(seconds, 60) == 0, do: "#{div(seconds, 60)}m"
 
   defp format_bucket(seconds) when is_integer(seconds), do: "#{seconds}s"
-
-  # Load sparkline data for gauge/counter metrics
-  # Returns a map of metric_name -> list of {bucket, avg_value} tuples
-  defp load_sparklines(metrics, scope) when is_list(metrics) do
-    metric_names = sparkline_metric_names(metrics)
-
-    if metric_names == [] do
-      %{}
-    else
-      fetch_sparklines(metric_names, scope)
-    end
-  rescue
-    e ->
-      # Log error but don't crash - sparklines are nice-to-have
-      require Logger
-
-      Logger.warning("Failed to load sparklines: #{inspect(e)}")
-      %{}
-  end
-
-  defp load_sparklines(_, _), do: %{}
-
-  defp sparkline_metric_names(metrics) do
-    metrics
-    |> Enum.filter(fn metric ->
-      type = normalize_string(Map.get(metric, "metric_type"))
-      type in ["gauge", "counter"]
-    end)
-    |> Enum.map(&Map.get(&1, "metric_name"))
-    |> Enum.filter(&is_binary/1)
-    |> Enum.uniq()
-  end
-
-  defp fetch_sparklines(metric_names, _scope) do
-    cutoff = DateTime.add(DateTime.utc_now(), -2, :hour)
-
-    query =
-      from(m in "otel_metrics",
-        where: m.metric_name in ^metric_names and m.timestamp >= ^cutoff,
-        group_by: [m.metric_name, fragment("time_bucket('5 minutes', ?)", m.timestamp)],
-        order_by: [m.metric_name, fragment("time_bucket('5 minutes', ?)", m.timestamp)],
-        select: %{
-          metric_name: m.metric_name,
-          bucket: fragment("time_bucket('5 minutes', ?)", m.timestamp),
-          avg_value: avg(m.value)
-        }
-      )
-
-    query
-    |> Repo.all()
-    |> Enum.group_by(& &1.metric_name, fn row -> numeric_to_float(row.avg_value) end)
-  end
 
   defp format_pct(value) when is_float(value), do: :erlang.float_to_binary(value, decimals: 1)
   defp format_pct(value) when is_integer(value), do: Integer.to_string(value)

@@ -793,7 +793,8 @@ in:timeseries_metric_disk_hourly metric_name:"disk.used_percent" device_id:"sr:h
 | `grpc_status_code` | | gRPC status code |
 | `is_slow` | | Slow-request flag (`true`/`false`) |
 
-Sortable fields: `timestamp`, `service_name` / `service`, `metric_type` / `type`.
+Sortable fields: `timestamp`, `service_name` / `service`, `metric_type` / `type`,
+`duration_ms`.
 
 ### traces
 

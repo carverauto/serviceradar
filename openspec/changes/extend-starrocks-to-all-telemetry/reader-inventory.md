@@ -82,15 +82,15 @@ Excluded as control plane: `stateful_alert_rule_histories`, `otel_service_catalo
 | `DeviceRiskIocExposure.query_flow_page_sql` `C/inventory/device_risk_ioc_exposure.ex:406` | ocsf_network_activity | Oban (device risk) |
 | Dashboard `traffic_sparklines.ex:69`; device `flow_data.ex:578`, `:605` | flow caggs / raw | go through `Readers`, but fall back to CNPG when flows are not cut over, although flows are warehouse-only |
 
-### OTel traces and metrics (nothing routed yet)
+### OTel traces and metrics (metrics SRQL routed by 3.1; traces not yet)
 
 | Reader | Reads | Surface |
 |---|---|---|
-| SRQL `traces`, `trace_summaries`, `otel_metrics`, `otel_metric_points` | all trace and OTel metric objects | SRQL CNPG |
+| SRQL `traces`, `trace_summaries` | all trace objects | SRQL CNPG (`otel_metrics`, `otel_metric_points` routed by 3.1) |
 | `Stats.traces_summary` `W/stats.ex:339`, `metrics_summary` `:371`, `trace_summary_counts` `:414` | traces_stats_5m, spans_red_1h, otel_trace_summaries | dashboard trace card, Analytics, logs page |
 | `Stats.trace_rollup_status` `W/stats.ex:522` | raw, summaries, traces_stats_5m | Analytics, logs page |
 | LogLive traces/metrics tabs, `TraceLive.Show`, `MetricLive.Show`, Analytics slow spans, onboarding | traces, summaries, otel_metrics, points | SRQL CNPG |
-| LogLive `load_sparklines` `W/live/log_live/index.ex:10155` | otel_metrics | logs page OTel sparklines (direct) |
+| LogLive `load_sparklines` `W/live/log_live/index.ex:10155` | otel_metrics | logs page OTel sparklines (direct); removed by 3.1, it queried columns `otel_metrics` does not have |
 | `RefreshTraceSummariesWorker` `C/jobs/refresh_trace_summaries_worker.ex:266`; `RootSpanRatioWorker` `C/jobs/root_span_ratio_worker.ex:57` | otel_traces | Oban |
 | JSON:API `/otel_traces`, `/otel_trace_summaries`, `/otel_metrics`, `/otel_metric_points` | raw | API |
 
@@ -130,7 +130,9 @@ dashboard interface sparklines, device sysmon and ICMP views, `PeakProfile`, the
 `CapacityForecasting.Source` and `SeasonalDisposition.Source`. Flows: SRQL flows and every flow
 page, `FlowAttribution.Correlation`, the netflow, retrohunt, exporter cache, IP enrichment and
 endpoint scan workers. MTR: SRQL MTR, `MtrData`, dashboard MTR card and sparkline, `MtrTrace`,
-`MtrCompare`.
+`MtrCompare`. OTel metrics (3.1): SRQL `otel_metrics`/`otel_metric_points` and every page using
+them (logs page metrics tab and OTLP view, `MetricLive.Show`, Analytics slowest spans,
+onboarding), routed on `enabled?/0` like MTR.
 
 Go, `serviceradar_core_elx`, `serviceradar_agent_gateway`, `datasvc`, `palisade` and
 `serviceradar_srql` read no telemetry.

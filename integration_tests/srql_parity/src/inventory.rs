@@ -333,6 +333,8 @@ mod tests {
             "security_findings",
             "mtr_hops",
             "mtr_traces",
+            "otel_metrics",
+            "otel_metric_points",
         ] {
             assert!(
                 inventory.entries.iter().any(|e| e.entity() == Some(entity)),

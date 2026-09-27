@@ -207,6 +207,8 @@ pub const CNPG_BASELINE_TABLES: &[&str] = &[
     "ocsf_events",
     "mtr_traces",
     "mtr_hops",
+    "otel_metrics",
+    "otel_metric_points",
     // Read by the CNPG flow `app` classifier; left empty, so both dialects fall back to the
     // same port-based labels.
     "netflow_app_classification_rules",

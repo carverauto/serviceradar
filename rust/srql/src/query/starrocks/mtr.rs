@@ -34,7 +34,9 @@ use super::super::mtr_hops::{
 };
 use super::super::mtr_traces::{self, ParsedTraceAgg, TraceAggKind, TraceGroupDim};
 use super::super::{PaginationMeta, QueryPlan, TranslateResponse, types::BindParam};
-use super::{loss_ratio_sql, rollup_stats_kind, sql_literal, text_filter_sql, wavg_sql};
+use super::{
+    loss_ratio_sql, pg_order_sql, rollup_stats_kind, sql_literal, text_filter_sql, wavg_sql,
+};
 use crate::{
     error::{Result, ServiceError},
     parser::{Entity, Filter, FilterOp, OrderClause, OrderDirection},
@@ -477,14 +479,6 @@ fn trace_stats_filter(filter: &Filter) -> Result<String> {
     }
 }
 
-/// Postgres's NULL placement, which is the opposite of StarRocks's default.
-fn direction_sql(direction: OrderDirection) -> &'static str {
-    match direction {
-        OrderDirection::Asc => "ASC NULLS LAST",
-        OrderDirection::Desc => "DESC NULLS FIRST",
-    }
-}
-
 /// `apply_ordering` of the CNPG row builders: the requested terms, then `time`
 /// (unless requested) and `id`, both in the direction of the time term or, when
 /// there is none, of the first term. With no sort, newest first.
@@ -502,8 +496,8 @@ fn rows_sql(
     let is_time = |clause: &OrderClause| matches!(clause.field.as_str(), "time" | "timestamp");
     let order = if plan.order.is_empty() {
         vec![
-            format!("`time` {}", direction_sql(OrderDirection::Desc)),
-            format!("`id` {}", direction_sql(OrderDirection::Desc)),
+            format!("`time` {}", pg_order_sql(OrderDirection::Desc)),
+            format!("`id` {}", pg_order_sql(OrderDirection::Desc)),
         ]
     } else {
         let mut terms = Vec::with_capacity(plan.order.len() + 2);
@@ -522,7 +516,7 @@ fn rows_sql(
             terms.push(format!(
                 "{} {}",
                 quoted(column),
-                direction_sql(clause.direction)
+                pg_order_sql(clause.direction)
             ));
         }
         let tie = plan
@@ -531,9 +525,9 @@ fn rows_sql(
             .find(|clause| is_time(clause))
             .map_or(plan.order[0].direction, |clause| clause.direction);
         if !plan.order.iter().any(is_time) {
-            terms.push(format!("`time` {}", direction_sql(tie)));
+            terms.push(format!("`time` {}", pg_order_sql(tie)));
         }
-        terms.push(format!("`id` {}", direction_sql(tie)));
+        terms.push(format!("`id` {}", pg_order_sql(tie)));
         terms
     };
     let select = columns
@@ -706,7 +700,7 @@ fn stats_sql(
                     ))
                 })?,
         };
-        terms.push(format!("{expr} {}", direction_sql(direction)));
+        terms.push(format!("{expr} {}", pg_order_sql(direction)));
     }
     let order = if terms.is_empty() {
         String::new()

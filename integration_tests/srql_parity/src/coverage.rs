@@ -27,7 +27,8 @@ const QUERY_FIELDS: &[&str] = &["srql_query", "query"];
 
 /// Canonical SRQL entity for every spelling `ServiceRadar.Analytics.StarRocks.Readers.
 /// dataset_for_entity/1` routes to the warehouse, restricted to the entities the StarRocks
-/// dialect (`rust/srql/src/query/starrocks.rs` `dataset_for`, `starrocks/mtr.rs`) compiles.
+/// dialect (`rust/srql/src/query/starrocks.rs` `dataset_for`, `starrocks/mtr.rs`,
+/// `starrocks/otel_metrics.rs`) compiles.
 /// `None` for anything else: a query SRQL never sends to StarRocks has no parity question.
 pub fn warehouse_entity(entity: &str) -> Option<&'static str> {
     let entity = entity
@@ -52,6 +53,8 @@ pub fn warehouse_entity(entity: &str) -> Option<&'static str> {
         }
         "mtr_traces" => "mtr_traces",
         "mtr_hops" | "mtr_hop_stats" => "mtr_hops",
+        "otel_metrics" | "metrics" => "otel_metrics",
+        "otel_metric_points" | "metric_points" => "otel_metric_points",
         _ => return None,
     })
 }

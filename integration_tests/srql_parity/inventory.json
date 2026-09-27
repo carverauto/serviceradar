@@ -886,6 +886,19 @@
     {"id": "mtr.hops.loss_by_hop_number", "query": "in:mtr_hops {window_main} stats:\"loss_ratio(sent, received) as loss, count() as samples by hop_number\" sort:hop_number:asc limit:40", "sources": ["elixir/web-ng/priv/dashboards/mtr-path-analytics.json"]},
     {"id": "mtr.hops.loss_and_traces_by_addr", "query": "in:mtr_hops {window_main} stats:\"loss_ratio(sent, received) as loss, count() as traces by addr\" sort:loss:desc limit:20", "sources": ["elixir/web-ng/priv/dashboards/mtr-path-analytics.json"]},
     {"id": "mtr.hops.latency_and_traces_by_addr", "query": "in:mtr_hops {window_main} stats:\"wavg(avg_us, received) as latency, count() as traces by addr\" sort:latency:desc limit:20", "sources": ["elixir/web-ng/priv/dashboards/mtr-path-analytics.json"]},
-    {"id": "mtr.traces.reach_rate_by_target", "query": "in:mtr_traces {window_main} stats:\"count() as traces, avg(target_reached) as reach_rate by target_ip\" sort:reach_rate:asc limit:25", "sources": ["elixir/web-ng/priv/dashboards/mtr-path-analytics.json"]}
+    {"id": "mtr.traces.reach_rate_by_target", "query": "in:mtr_traces {window_main} stats:\"count() as traces, avg(target_reached) as reach_rate by target_ip\" sort:reach_rate:asc limit:25", "sources": ["elixir/web-ng/priv/dashboards/mtr-path-analytics.json"]},
+
+    {"id": "otel.metrics.recent", "query": "in:otel_metrics {window_main} sort:timestamp:desc limit:100", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/log_live/index.ex", "elixir/web-ng/lib/serviceradar_web_ng_web/observability/service_filter.ex"]},
+    {"id": "otel.metrics.slowest_spans", "query": "in:otel_metrics {window_main} is_slow:true sort:duration_ms:desc limit:25", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/analytics_live/index.ex"]},
+    {"id": "otel.metrics.one_service", "query": "in:otel_metrics {window_main} service_name:svc-beta span_name:\"POST /checkout\" metric_type:http sort:timestamp:desc limit:50", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/metric_live/show.ex"]},
+    {"id": "otel.metrics.not_slow.rows", "query": "in:otel_metrics {window_main} !is_slow:true sort:timestamp:asc limit:200"},
+    {"id": "otel.metrics.not_slow.count", "query": "in:otel_metrics {window_main} !is_slow:true stats:\"count() as n\""},
+    {"id": "otel.metrics.count_by_service", "query": "in:otel_metrics {window_main} !service_name:svc-alpha stats:\"count() as samples by service_name\""},
+    {"id": "otel.points.metric_names", "query": "in:otel_metric_points {window_main} stats:\"count() as points by metric_name\" sort:points:desc limit:100", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/log_live/index.ex"]},
+    {"id": "otel.points.recent", "query": "in:otel_metric_points {window_main} sort:timestamp:desc limit:250", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/log_live/index.ex"]},
+    {"id": "otel.points.one_metric", "query": "in:otel_metric_points {window_main} metric_name:\"http.server.requests\" sort:timestamp:desc limit:500", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/log_live/index.ex"]},
+    {"id": "otel.points.one_service", "query": "in:otel_metric_points {window_main} service_name:svc-beta limit:1", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/settings/telemetry_onboarding_live.ex"], "ordered": false},
+    {"id": "otel.points.attributes.rows", "query": "in:otel_metric_points {window_main} !attributes:checkout sort:value:desc limit:100"},
+    {"id": "otel.points.attributes.count", "query": "in:otel_metric_points {window_main} !attributes:checkout stats:\"count() as n by service_name\""}
   ]
 }

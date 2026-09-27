@@ -126,20 +126,6 @@ defmodule ServiceRadar.Analytics.StarRocks.RowsTest do
       built
     end
 
-    # The column list of the shipped CREATE, so an encoder that misses or
-    # misspells a column fails here rather than loading NULL into it.
-    defp ddl_columns(table) do
-      create =
-        Schema.migrations()
-        |> Enum.flat_map(& &1.statements)
-        |> Enum.find(&(&1 =~ ~r/^CREATE TABLE IF NOT EXISTS serviceradar\.#{table} \(/))
-
-      ~r/^\s+`?(\w+)`? [A-Z]/m
-      |> Regex.scan(create)
-      |> Enum.map(&List.last/1)
-      |> Enum.sort()
-    end
-
     test "a trace row carries exactly the warehouse columns" do
       [trace] = Rows.encode(:mtr_traces, mtr_rows().traces)
 
@@ -216,5 +202,157 @@ defmodule ServiceRadar.Analytics.StarRocks.RowsTest do
       assert {:ok, _json} = Jason.encode(Rows.encode(:mtr_traces, built.traces))
       assert {:ok, _json} = Jason.encode(Rows.encode(:mtr_hops, built.hops))
     end
+  end
+
+  describe "OTel metrics" do
+    defp span_sample(overrides \\ %{}) do
+      Map.merge(
+        %{
+          timestamp: ~U[2026-01-15 10:00:00.123456Z],
+          trace_id: "0123456789abcdef0123456789abcdef",
+          span_id: "0123456789abcdef",
+          service_name: "checkout",
+          span_name: "GET /cart",
+          span_kind: "SERVER",
+          duration_ms: 150.5,
+          duration_seconds: 0.1505,
+          metric_type: "http",
+          http_method: "GET",
+          http_route: "/cart",
+          http_status_code: "200",
+          grpc_service: nil,
+          grpc_method: nil,
+          grpc_status_code: nil,
+          is_slow: false,
+          component: "api",
+          level: "info",
+          unit: "ms",
+          ingest_identity: "",
+          ingest_agent_id: "agent-01",
+          ingest_partition: "default"
+        },
+        overrides
+      )
+    end
+
+    defp metric_point(overrides \\ %{}) do
+      Map.merge(
+        %{
+          timestamp: ~U[2026-01-15 10:00:00Z],
+          metric_name: "http.server.request.count",
+          metric_type: "sum",
+          unit: "1",
+          temporality: "cumulative",
+          is_monotonic: true,
+          service_name: "checkout",
+          attributes: ~s({"http.route":"/cart"}),
+          attributes_hash: "a1b2c3",
+          value: 0.0,
+          count: 0,
+          sum: nil,
+          bucket_counts: nil,
+          explicit_bounds: nil,
+          start_time_unix_nano: 1_768_471_200_000_000_000,
+          scope_name: "example.meter",
+          service_instance_id: "instance-01",
+          ingest_identity: "",
+          ingest_agent_id: "agent-01",
+          ingest_partition: "default"
+        },
+        overrides
+      )
+    end
+
+    test "a span sample carries exactly the warehouse columns" do
+      [row] = Rows.encode(:otel_metrics, [span_sample()])
+
+      assert row |> Map.keys() |> Enum.sort() == ddl_columns("otel_metrics")
+      assert row["timestamp"] == "2026-01-15T10:00:00.123456Z"
+      assert row["service_name"] == "checkout"
+      assert row["http_route"] == "/cart"
+      assert row["duration_ms"] == 150.5
+      # A fast span is a measured `false`, not an unknown.
+      assert row["is_slow"] == false
+      assert row["grpc_service"] == nil
+      assert is_binary(row["created_at"])
+    end
+
+    test "a metric point carries exactly the warehouse columns" do
+      [row] = Rows.encode(:otel_metric_points, [metric_point()])
+
+      assert row |> Map.keys() |> Enum.sort() == ddl_columns("otel_metric_points")
+      assert row["metric_name"] == "http.server.request.count"
+      assert row["is_monotonic"] == true
+      # Zero is a measurement.
+      assert row["value"] == 0.0
+      assert row["count"] == 0
+      assert row["sum"] == nil
+      assert row["start_time_unix_nano"] == 1_768_471_200_000_000_000
+      assert row["attributes"] == ~s({"http.route":"/cart"})
+    end
+
+    # The id stands for the rest of the CNPG primary key, so a redelivered row
+    # upserts in place and two rows CNPG keeps apart stay apart.
+    test "a span sample id follows span name, service and span id only" do
+      [a] = Rows.encode(:otel_metrics, [span_sample()])
+      [redelivered] = Rows.encode(:otel_metrics, [span_sample(%{duration_ms: 99.0})])
+      [other_span] = Rows.encode(:otel_metrics, [span_sample(%{span_id: "fedcba9876543210"})])
+      [other_service] = Rows.encode(:otel_metrics, [span_sample(%{service_name: "cart"})])
+
+      assert a["id"] =~ ~r/^[0-9a-f]{64}$/
+      assert redelivered["id"] == a["id"]
+      assert other_span["id"] != a["id"]
+      assert other_service["id"] != a["id"]
+    end
+
+    test "a metric point id follows metric name, service and attribute set only" do
+      [a] = Rows.encode(:otel_metric_points, [metric_point()])
+      [redelivered] = Rows.encode(:otel_metric_points, [metric_point(%{value: 3.0})])
+
+      [other_attrs] =
+        Rows.encode(:otel_metric_points, [metric_point(%{attributes_hash: "d4e5f6"})])
+
+      [other_metric] = Rows.encode(:otel_metric_points, [metric_point(%{metric_name: "x"})])
+
+      assert redelivered["id"] == a["id"]
+      assert other_attrs["id"] != a["id"]
+      assert other_metric["id"] != a["id"]
+    end
+
+    test "key parts cannot run together, and an absent part differs from an empty one" do
+      parts = [
+        %{span_name: "ab", service_name: "c"},
+        %{span_name: "a", service_name: "bc"},
+        %{span_name: "a", service_name: nil},
+        %{span_name: "a", service_name: ""}
+      ]
+
+      ids =
+        for overrides <- parts do
+          [row] = Rows.encode(:otel_metrics, [span_sample(overrides)])
+          row["id"]
+        end
+
+      assert ids |> Enum.uniq() |> length() == 4
+    end
+
+    test "encoded rows survive the Stream Load JSON encoding" do
+      assert {:ok, _json} = Jason.encode(Rows.encode(:otel_metrics, [span_sample()]))
+      assert {:ok, _json} = Jason.encode(Rows.encode(:otel_metric_points, [metric_point()]))
+    end
+  end
+
+  # The column list of the shipped CREATE, so an encoder that misses or
+  # misspells a column fails here rather than loading NULL into it.
+  defp ddl_columns(table) do
+    create =
+      Schema.migrations()
+      |> Enum.flat_map(& &1.statements)
+      |> Enum.find(&(&1 =~ ~r/^CREATE TABLE IF NOT EXISTS serviceradar\.#{table} \(/))
+
+    ~r/^\s+`?(\w+)`? [A-Z]/m
+    |> Regex.scan(create)
+    |> Enum.map(&List.last/1)
+    |> Enum.sort()
   end
 end

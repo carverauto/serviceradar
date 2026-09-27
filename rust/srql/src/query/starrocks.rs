@@ -2,11 +2,12 @@ use super::flows::normalize_cidr_literal;
 use super::{PaginationMeta, QueryPlan, TranslateResponse, types::BindParam};
 use crate::{
     error::{Result, ServiceError},
-    parser::{Entity, Filter},
+    parser::{Entity, Filter, OrderDirection},
 };
 use chrono::{SecondsFormat, Timelike, Utc};
 
 mod mtr;
+mod otel_metrics;
 
 /// Compile an authorized SRQL plan to StarRocks SQL.
 ///
@@ -35,6 +36,11 @@ fn translate_inner(
     // by them and rendered by `mtr`, not the generic stats compiler below.
     if matches!(plan.entity, Entity::MtrHops | Entity::MtrTraces) {
         return mtr::translate(plan, database);
+    }
+    // OTel metrics likewise have no rollup and answer the CNPG builders' own
+    // count-only stats grammar.
+    if matches!(plan.entity, Entity::OtelMetrics | Entity::OtelMetricPoints) {
+        return otel_metrics::translate(plan, database);
     }
     match dataset_for(&plan.entity) {
         Some(dataset) => {
@@ -1779,8 +1785,6 @@ LIMIT {limit} OFFSET {offset}"#,
 /// The profile-row identity is appended last because OFFSET pagination without
 /// it can overlap or skip rows.
 fn profile_order_sql(plan: &QueryPlan, bucket_count_alias: &str) -> String {
-    use crate::parser::OrderDirection;
-
     let mut parts = Vec::new();
     for clause in &plan.order {
         let column = match clause.field.as_str() {
@@ -2714,6 +2718,14 @@ fn direction_value(value: &str) -> &str {
         "outbound" => "egress",
         "external" => "unknown",
         _ => value,
+    }
+}
+
+/// A sort direction with Postgres's NULL placement, which is the opposite of StarRocks's default.
+pub(super) fn pg_order_sql(direction: OrderDirection) -> &'static str {
+    match direction {
+        OrderDirection::Asc => "ASC NULLS LAST",
+        OrderDirection::Desc => "DESC NULLS FIRST",
     }
 }
 

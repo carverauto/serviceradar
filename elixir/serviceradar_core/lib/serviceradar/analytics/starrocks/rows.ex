@@ -5,7 +5,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
 
   alias ServiceRadar.Analytics.StarRocks.Identity
 
-  @type dataset :: Identity.dataset() | :mtr_traces | :mtr_hops
+  @type dataset ::
+          Identity.dataset() | :mtr_traces | :mtr_hops | :otel_metrics | :otel_metric_points
 
   # priv/starrocks/0019: every column of platform.mtr_traces / platform.mtr_hops
   # under the same name. Scalars are carried as built by
@@ -28,6 +29,23 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
                      stddev_us jitter_us jitter_worst_us jitter_interarrival_us
                      unreachable_code reply_time_exceeded reply_unreachable reply_synack
                      reply_rst)a
+
+  # priv/starrocks/0021: every column of platform.otel_metrics /
+  # platform.otel_metric_points under the same name, as built by the
+  # OtelMetrics processor for its CNPG insert.
+  @otel_metric_text ~w(trace_id span_id service_name span_name span_kind metric_type
+                       http_method http_route http_status_code grpc_service grpc_method
+                       grpc_status_code component level unit ingest_identity
+                       ingest_agent_id ingest_partition)a
+
+  @otel_metric_values ~w(duration_ms duration_seconds is_slow)a
+
+  @otel_point_text ~w(metric_name metric_type unit temporality service_name attributes
+                      attributes_hash bucket_counts explicit_bounds scope_name
+                      service_instance_id ingest_identity ingest_agent_id
+                      ingest_partition)a
+
+  @otel_point_values ~w(is_monotonic value count sum start_time_unix_nano)a
 
   @spec encode(dataset(), [map()]) :: [map()]
   def encode(dataset, rows) when is_list(rows) do
@@ -164,6 +182,33 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
       "device" => document(row, :device),
       "observables" => document(row, :observables)
     }
+  end
+
+  # The id stands for the rest of the CNPG primary key; with `timestamp` it is
+  # the warehouse key, so the pair enforces the uniqueness CNPG does.
+  defp encode_row(:otel_metrics, row) do
+    row
+    |> mtr_columns(@otel_metric_text, @otel_metric_values)
+    |> Map.merge(%{
+      "id" => key_id([value(row, :span_name), value(row, :service_name), value(row, :span_id)]),
+      "timestamp" => datetime(value(row, :timestamp)),
+      "created_at" => created_at(row)
+    })
+  end
+
+  defp encode_row(:otel_metric_points, row) do
+    row
+    |> mtr_columns(@otel_point_text, @otel_point_values)
+    |> Map.merge(%{
+      "id" =>
+        key_id([
+          value(row, :metric_name),
+          value(row, :service_name),
+          value(row, :attributes_hash)
+        ]),
+      "timestamp" => datetime(value(row, :timestamp)),
+      "created_at" => created_at(row)
+    })
   end
 
   defp encode_row(:mtr_traces, row) do
@@ -312,6 +357,18 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
     text = Map.new(text_columns, &{Atom.to_string(&1), stringify(value(row, &1))})
     values = Map.new(value_columns, &{Atom.to_string(&1), value(row, &1)})
     Map.merge(text, values)
+  end
+
+  # SHA-256 over the key parts, length-prefixed so ("ab", "c") and ("a", "bc")
+  # differ and nil differs from "".
+  defp key_id(parts) do
+    parts
+    |> Enum.map_join(fn
+      nil -> "-"
+      part -> "+" <> Integer.to_string(byte_size(stringify(part))) <> ":" <> stringify(part)
+    end)
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
   end
 
   defp uuid_text(id) when is_binary(id) and byte_size(id) == 16 do

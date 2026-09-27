@@ -108,7 +108,9 @@ pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindPar
 
 fn ensure_entity(plan: &QueryPlan) -> Result<()> {
     match plan.entity {
-        Entity::OtelMetricPoints => Ok(()),
+        Entity::OtelMetricPoints => {
+            super::otel_metrics::refuse_unsupported_clauses(plan, "otel_metric_points")
+        }
         _ => Err(ServiceError::InvalidRequest(
             "entity not supported by otel_metric_points query".into(),
         )),
@@ -126,8 +128,7 @@ fn build_query(plan: &QueryPlan) -> Result<PointsQuery<'static>> {
         query = apply_filter(query, filter)?;
     }
 
-    query = apply_ordering(query, &plan.order);
-    Ok(query)
+    apply_ordering(query, &plan.order)
 }
 
 fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
@@ -186,7 +187,7 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
 
 /// Substring match over the JSON attributes text: bare values are wrapped in
 /// `%...%`; values that already contain SQL wildcards are passed through.
-fn attributes_pattern(filter: &Filter) -> Result<String> {
+pub(super) fn attributes_pattern(filter: &Filter) -> Result<String> {
     let raw = filter.value.as_scalar()?;
     if raw.is_empty() {
         return Err(ServiceError::InvalidRequest(
@@ -286,45 +287,48 @@ fn apply_filter<'a>(mut query: PointsQuery<'a>, filter: &Filter) -> Result<Point
     Ok(query)
 }
 
-fn apply_ordering<'a>(mut query: PointsQuery<'a>, order: &[OrderClause]) -> PointsQuery<'a> {
-    let mut applied = false;
-    for clause in order {
-        query = if !applied {
-            applied = true;
-            match clause.field.as_str() {
-                "timestamp" => match clause.direction {
-                    OrderDirection::Asc => query.order(col_timestamp.asc()),
-                    OrderDirection::Desc => query.order(col_timestamp.desc()),
-                },
-                "value" => match clause.direction {
-                    OrderDirection::Asc => query.order(col_value.asc()),
-                    OrderDirection::Desc => query.order(col_value.desc()),
-                },
-                _ => query,
-            }
-        } else {
-            match clause.field.as_str() {
-                "timestamp" => match clause.direction {
-                    OrderDirection::Asc => query.then_order_by(col_timestamp.asc()),
-                    OrderDirection::Desc => query.then_order_by(col_timestamp.desc()),
-                },
-                "value" => match clause.direction {
-                    OrderDirection::Asc => query.then_order_by(col_value.asc()),
-                    OrderDirection::Desc => query.then_order_by(col_value.desc()),
-                },
-                _ => query,
-            }
+/// Row sort fields both dialects accept. Any other field is refused rather
+/// than dropped, which returned rows in no order.
+pub(super) const ROW_SORT_FIELDS: &[&str] = &["timestamp", "value"];
+
+pub(super) fn row_sort_column(field: &str) -> Result<&'static str> {
+    ROW_SORT_FIELDS
+        .iter()
+        .find(|name| **name == field)
+        .copied()
+        .ok_or_else(|| {
+            ServiceError::InvalidRequest(format!(
+                "unsupported sort field for otel_metric_points: '{field}'"
+            ))
+        })
+}
+
+fn apply_ordering<'a>(
+    mut query: PointsQuery<'a>,
+    order: &[OrderClause],
+) -> Result<PointsQuery<'a>> {
+    for (index, clause) in order.iter().enumerate() {
+        let first = index == 0;
+        query = match (row_sort_column(clause.field.as_str())?, clause.direction) {
+            ("timestamp", OrderDirection::Asc) if first => query.order(col_timestamp.asc()),
+            ("timestamp", OrderDirection::Desc) if first => query.order(col_timestamp.desc()),
+            ("timestamp", OrderDirection::Asc) => query.then_order_by(col_timestamp.asc()),
+            ("timestamp", OrderDirection::Desc) => query.then_order_by(col_timestamp.desc()),
+            (_, OrderDirection::Asc) if first => query.order(col_value.asc()),
+            (_, OrderDirection::Desc) if first => query.order(col_value.desc()),
+            (_, OrderDirection::Asc) => query.then_order_by(col_value.asc()),
+            (_, OrderDirection::Desc) => query.then_order_by(col_value.desc()),
         };
     }
 
-    if !applied {
+    if order.is_empty() {
         query = query.order(col_timestamp.desc());
     }
 
-    query
+    Ok(query)
 }
 
-fn parse_bool(raw: &str) -> Result<bool> {
+pub(super) fn parse_bool(raw: &str) -> Result<bool> {
     match raw.to_lowercase().as_str() {
         "true" | "1" | "yes" => Ok(true),
         "false" | "0" | "no" => Ok(false),
@@ -334,9 +338,11 @@ fn parse_bool(raw: &str) -> Result<bool> {
     }
 }
 
-fn parse_f64(raw: &str) -> Result<f64> {
+pub(super) fn parse_f64(raw: &str) -> Result<f64> {
     raw.parse::<f64>()
-        .map_err(|_| ServiceError::InvalidRequest("value must be numeric".into()))
+        .ok()
+        .filter(|value| value.is_finite())
+        .ok_or_else(|| ServiceError::InvalidRequest("value must be a finite number".into()))
 }
 
 #[derive(Debug, Clone)]
@@ -394,19 +400,19 @@ struct PointsStatsPayload {
 }
 
 #[derive(Debug, Clone)]
-struct PointsStatsSpec {
-    alias: String,
-    group_field: Option<PointsGroupField>,
+pub(super) struct PointsStatsSpec {
+    pub(super) alias: String,
+    pub(super) group_field: Option<PointsGroupField>,
 }
 
 #[derive(Debug, Clone, Copy)]
-enum PointsGroupField {
+pub(super) enum PointsGroupField {
     MetricName,
     ServiceName,
 }
 
 impl PointsGroupField {
-    fn column(&self) -> &'static str {
+    pub(super) fn column(&self) -> &'static str {
         match self {
             PointsGroupField::MetricName => "metric_name",
             PointsGroupField::ServiceName => "service_name",
@@ -420,7 +426,7 @@ impl PointsGroupField {
         }
     }
 
-    fn matches_order_field(&self, field: &str) -> bool {
+    pub(super) fn matches_order_field(&self, field: &str) -> bool {
         match self {
             PointsGroupField::MetricName => matches!(field, "metric_name" | "name"),
             PointsGroupField::ServiceName => matches!(field, "service_name" | "service"),
@@ -638,7 +644,7 @@ fn build_text_clause(
     }
 }
 
-fn parse_stats_spec(raw: &str) -> Result<PointsStatsSpec> {
+pub(super) fn parse_stats_spec(raw: &str) -> Result<PointsStatsSpec> {
     let tokens: Vec<&str> = raw.split_whitespace().collect();
     if tokens.len() < 3 {
         return Err(ServiceError::InvalidRequest(
@@ -656,11 +662,7 @@ fn parse_stats_spec(raw: &str) -> Result<PointsStatsSpec> {
         .trim_matches('"')
         .trim_matches('\'')
         .to_lowercase();
-    if alias.is_empty() {
-        return Err(ServiceError::InvalidRequest(
-            "stats alias cannot be empty".into(),
-        ));
-    }
+    super::validate_stats_alias(&alias)?;
 
     let mut group_field = None;
     if tokens.len() >= 5 {

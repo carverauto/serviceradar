@@ -30,6 +30,38 @@
 ## 3. Extend the warehouse to the remaining telemetry
 
 - [ ] 3.1 OTel metric points and metric definitions: table, EventWriter destination, SRQL dataset routing, parity.
+  - [x] 3.1.1 Warehouse DDL `priv/starrocks/0021_otel_metrics.sql`: `otel_metrics` (span-derived
+    samples) and `otel_metric_points` (OTLP sum/gauge/histogram points) with every CNPG column
+    under the same name, a key `id` derived from the rest of the CNPG primary key, day partitions
+    and retention. A metric's definition (type, unit, temporality, monotonicity) travels on each
+    point, as on CNPG; there is no separate definitions table to move.
+    - Load datasets `:otel_metrics` and `:otel_metric_points`, one retention dataset `otel`
+      (default 365 days, `SERVICERADAR_STARROCKS_RETENTION_DAYS_OTEL`, Helm
+      `retentionDays.otel`, Compose `STARROCKS_RETENTION_DAYS_OTEL`) applied to both tables. Not
+      in the shadow/cutover dataset lists.
+  - [x] 3.1.2 EventWriter `OtelMetrics.store/3` writes samples then points to the warehouse only
+    when StarRocks is enabled (`Destination.enabled?/0`), to CNPG only otherwise. A failed load
+    fails the batch, JetStream redelivers, and the primary-key tables upsert the same keys.
+  - [x] 3.1.3 SRQL `in:otel_metrics`/`in:metrics` and `in:otel_metric_points`/`in:metric_points`
+    have a StarRocks dialect (`rust/srql/src/query/starrocks/otel_metrics.rs`), and
+    `Readers.mode_for/1` sends them to it whenever StarRocks is enabled, to CNPG otherwise. It
+    uses the CNPG builders' own `count() as <alias> [by <field>]` parse and sort-field lists, so
+    both backends accept the same queries; `bucket:`, `rollup_stats:` and `other:true` are refused
+    on both. Warehouse rows carry the CNPG select list, with `is_slow`/`is_monotonic` decoded to
+    booleans in `EventDocuments`.
+    - CNPG fixes so the backends agree: `sort:duration_ms` was dropped, so the Analytics slowest
+      spans came back unsorted; an unknown row sort field is now refused rather than dropped; the
+      stats alias was written into a SQL string literal unvalidated and must now be an
+      identifier; `rollup_stats:`/`other:` were ignored.
+    - LogLive `load_sparklines` is removed, not ported: it read `otel_metrics.metric_name` and
+      `value`, which that table does not have, for `gauge`/`counter` rows, which span samples
+      never are, so it could never return data.
+  - [ ] 3.1.4 Run the parity database tier (`//integration_tests/srql_parity:parity_test`) for the
+    `otel.*` inventory entries against the OTel fixture (`src/fixture/otel.rs`), then verify the
+    logs page metrics tab, OTLP view, metric detail and Analytics slowest spans on a deployment
+    after the rollout completes.
+  - [ ] 3.1.5 JSON:API `/otel_metrics` and `/otel_metric_points` still read CNPG (as `/api/v2/logs`
+    does for logs); route or retire them with the other JSON:API telemetry readers in 5.4.
 - [ ] 3.2 OTel traces/spans with RED and summary rollups as MVs; trace-by-id lookup.
 - [ ] 3.3 Sysmon CPU/memory/disk/process: table(s), destination, routing, hourly rollups.
 - [ ] 3.4 MTR traces and hops (spec: "MTR traces and hops reach the warehouse through JetStream").
