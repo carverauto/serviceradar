@@ -454,7 +454,7 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/monitoring/poll_job_integration_test.exs": 12,
     "test/serviceradar/network_discovery/endpoint_attachment_binding_e2e_test.exs": 4,
     "test/serviceradar/network_discovery/endpoint_attachment_e2e_test.exs": 1,
-    "test/serviceradar/network_discovery/mapper_compiler_test.exs": 10,
+    "test/serviceradar/network_discovery/mapper_compiler_test.exs": 13,
     "test/serviceradar/network_discovery/mapper_graph_ingestion_test.exs": 22,
     "test/serviceradar/network_discovery/mapper_job_run_now_test.exs": 2,
     "test/serviceradar/network_discovery/mapper_job_validation_test.exs": 4,

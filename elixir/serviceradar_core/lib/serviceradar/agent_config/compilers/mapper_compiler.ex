@@ -64,7 +64,11 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
       Map.put(
         credentials,
         "target_specific",
-        target_credentials(jobs, partition, agent_id, actor)
+        if snmp_discovery_jobs?(jobs) do
+          target_credentials(jobs, partition, agent_id, actor)
+        else
+          %{}
+        end
       )
 
     proxmox_candidate_probe? = proxmox_candidate_probe_enabled?(partition, agent_id, actor)
@@ -339,20 +343,45 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
 
         {:ok, %{credential: credential}} ->
           encoded = CredentialResolver.to_mapper_credentials(credential)
+          put_target_credential(targets, device.ip, {:ok, encoded})
 
-          Map.update(targets, device.ip, encoded, fn existing ->
-            if existing == encoded do
-              existing
-            else
-              raise "Conflicting SNMP credentials for a shared mapper target address"
-            end
-          end)
+        {:error, reason} ->
+          Logger.warning(
+            "MapperCompiler: failed to resolve SNMP credentials for mapper target #{device.ip} - #{inspect(reason)}; suppressing SNMP for this address"
+          )
 
-        {:error, _reason} ->
-          raise "Failed to resolve SNMP credentials for a mapper target"
+          put_target_credential(targets, device.ip, :suppressed)
       end
     end)
+    |> Map.new(fn
+      {ip, :suppressed} -> {ip, %{}}
+      {ip, {:ok, encoded}} -> {ip, encoded}
+    end)
   end
+
+  defp put_target_credential(targets, ip, :suppressed), do: Map.put(targets, ip, :suppressed)
+
+  defp put_target_credential(targets, ip, {:ok, encoded} = value) do
+    case Map.get(targets, ip) do
+      nil ->
+        Map.put(targets, ip, value)
+
+      :suppressed ->
+        targets
+
+      {:ok, ^encoded} ->
+        targets
+
+      {:ok, _different} ->
+        Logger.warning(
+          "MapperCompiler: conflicting SNMP credentials for shared mapper target #{ip}; suppressing SNMP for this address"
+        )
+
+        Map.put(targets, ip, :suppressed)
+    end
+  end
+
+  defp snmp_discovery_jobs?(jobs), do: Enum.any?(jobs, &(&1.discovery_mode in [:snmp, :snmp_api]))
 
   defp proxmox_candidate_probe_enabled?(partition, agent_id, actor) do
     partition
