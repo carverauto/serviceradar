@@ -8,21 +8,21 @@ mod model;
 #[cfg(test)]
 mod tests;
 
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use dgraph_topology::{CanonicalGraph, TopologyClient};
 use rustler::{
-    types::list::ListIterator, Atom, Decoder, Encoder, Env, NifMap, NifUnitEnum, Resource,
-    ResourceArc, Term,
+    Atom, Decoder, Encoder, Env, NifMap, NifUnitEnum, Resource, ResourceArc, Term,
+    types::list::ListIterator,
 };
-use serviceradar_topology_atlas::{Budget, Cell, GlyphKind, Tile, TileProfile};
+use serviceradar_topology_atlas::{Budget, Cell, Glyph, GlyphKind, Tile, TileProfile};
 use tokio::runtime::Runtime;
 
 use model::{
-    Builder, Candidate, Info, InventoryRow, PositionRow, RelationRow, Result, SourceGraph,
-    WorldState, PAGE_LIMIT,
+    Builder, Candidate, Info, InventoryRow, PAGE_LIMIT, PositionRow, RelationRow, Result,
+    SourceGraph, WorldState,
 };
 
 mod atoms {
@@ -348,6 +348,22 @@ struct WireGlyph {
     count: u64,
     kind: Atom,
 }
+impl From<Glyph> for WireGlyph {
+    fn from(glyph: Glyph) -> Self {
+        Self {
+            id: glyph.id,
+            label: glyph.label,
+            x: glyph.x,
+            y: glyph.y,
+            count: glyph.count,
+            kind: match glyph.kind {
+                GlyphKind::Device => atoms::device(),
+                GlyphKind::Aggregate => atoms::aggregate(),
+                GlyphKind::Boundary => atoms::boundary(),
+            },
+        }
+    }
+}
 #[derive(NifMap)]
 struct WireEdge {
     id: String,
@@ -387,22 +403,7 @@ impl From<Tile> for WireTile {
                 y: tile.cell.y,
             },
             revision: tile.revision,
-            glyphs: tile
-                .glyphs
-                .into_iter()
-                .map(|g| WireGlyph {
-                    id: g.id,
-                    label: g.label,
-                    x: g.x,
-                    y: g.y,
-                    count: g.count,
-                    kind: match g.kind {
-                        GlyphKind::Device => atoms::device(),
-                        GlyphKind::Aggregate => atoms::aggregate(),
-                        GlyphKind::Boundary => atoms::boundary(),
-                    },
-                })
-                .collect(),
+            glyphs: tile.glyphs.into_iter().map(Into::into).collect(),
             edges: tile
                 .edges
                 .into_iter()

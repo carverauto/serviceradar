@@ -109,6 +109,26 @@ defmodule ServiceRadar.TopologyAtlas do
   @doc "Read a bounded neighborhood or member page; cursors are tied to its immutable native source."
   def detail(world, scope, cursor \\ nil), do: Native.detail(world, scope, cursor)
 
+  @doc "Reads a rendered edge's exact relation count and endpoint glyphs from the accepted tile selection."
+  def bundle_info(world, selection, id) when is_binary(id) and byte_size(id) > 0,
+    do: Native.bundle_info(world, selection, id)
+
+  def bundle_info(_world, _selection, _id), do: {:error, :invalid_identity}
+
+  @doc """
+  Reads one exact rendered bundle in at most 4096 spatial candidates, returning
+  at most 128 distinct devices and 256 relations. Cursors pin the native world,
+  tile/profile and rendered bundle; the serving layer also pins publication.
+  Empty pages may have an advancing cursor. Total relations are exact; a total
+  distinct device count is deliberately absent because it would require a scan.
+  """
+  def bundle_detail(world, selection, id, cursor \\ nil)
+
+  def bundle_detail(world, selection, id, cursor) when is_binary(id) and byte_size(id) > 0,
+    do: Native.bundle_detail(world, selection, id, cursor)
+
+  def bundle_detail(_world, _selection, _id, _cursor), do: {:error, :invalid_identity}
+
   @doc """
   Reads at most 256 canonical bindings with explicit total rendered coverage.
   Interface degrees count distinct active world relations across all pages and

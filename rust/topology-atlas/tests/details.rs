@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serviceradar_topology_atlas::{
     Budget, Cell, DETAIL_EDGE_LIMIT, DETAIL_MEMBER_LIMIT, DETAIL_NODE_LIMIT, DetailCursor,
     DetailScope, Error, GlyphKind, MAX_SELECTION_BYTES, Position, RELATION_CANDIDATE_LIMIT,
-    Relation, World,
+    Relation, TileProfile, World,
 };
 
 fn point(index: u32, x: u32, y: u32, min_zoom: u8) -> Position {
@@ -280,11 +280,79 @@ fn clipped_bundle_selection_preserves_ids_direction_and_exact_coverage() {
         }
     }
     assert_eq!(seen, expected);
+    let mut bundle_cursor = None;
+    for edge in &tile.edges {
+        let info = world.bundle_info(&tile.selection, &edge.id).unwrap();
+        let increasing = info.source.x < info.target.x;
+        let expected_count = if increasing { 321 } else { 192 };
+        assert_eq!(info.relation_count, expected_count);
+        let mut cursor = None;
+        let mut selected = BTreeSet::new();
+        loop {
+            let page = world
+                .bundle_detail(&tile.selection, &edge.id, cursor.as_ref())
+                .unwrap();
+            assert_eq!(page.total_relations, expected_count);
+            assert!(page.nodes.len() <= DETAIL_NODE_LIMIT);
+            assert!(page.relations.len() <= DETAIL_EDGE_LIMIT);
+            for row in page.relations {
+                assert!(selected.insert(row.id.clone()));
+                let source = &page.nodes[row.source as usize];
+                let target = &page.nodes[row.target as usize];
+                assert_eq!(source.x < target.x, increasing);
+            }
+            cursor = page.next;
+            if increasing {
+                bundle_cursor = bundle_cursor.or_else(|| cursor.clone());
+            }
+            if cursor.is_none() {
+                break;
+            }
+        }
+        assert_eq!(selected.len() as u64, expected_count);
+    }
+    let cursor = bundle_cursor.unwrap();
+    let reverse = tile
+        .edges
+        .iter()
+        .find(|edge| tile.glyphs[edge.source as usize].x > tile.glyphs[edge.target as usize].x)
+        .unwrap();
+    assert_eq!(
+        world.bundle_detail(&tile.selection, &reverse.id, Some(&cursor)),
+        Err(Error::InvalidDetailCursor)
+    );
+    assert_eq!(
+        world.bundle_info(&tile.selection, "invented-missing-bundle"),
+        Err(Error::DetailNotFound)
+    );
     let other = world
         .tile(Cell::new(2, 2, 1).unwrap(), Budget::default())
         .unwrap();
     assert_eq!(
         world.tile_relations(&other.selection, first_cursor.as_ref(), 256),
+        Err(Error::InvalidDetailCursor)
+    );
+    let other_forward = other
+        .edges
+        .iter()
+        .find(|edge| other.glyphs[edge.source as usize].x < other.glyphs[edge.target as usize].x)
+        .unwrap();
+    assert_eq!(
+        world.bundle_detail(&other.selection, &other_forward.id, Some(&cursor)),
+        Err(Error::InvalidDetailCursor)
+    );
+    let compact = world
+        .tile_with_profile(tile.cell, Budget::default(), TileProfile::AggregateOnly)
+        .unwrap();
+    let compact_forward = compact
+        .edges
+        .iter()
+        .find(|edge| {
+            compact.glyphs[edge.source as usize].x < compact.glyphs[edge.target as usize].x
+        })
+        .unwrap();
+    assert_eq!(
+        world.bundle_detail(&compact.selection, &compact_forward.id, Some(&cursor)),
         Err(Error::InvalidDetailCursor)
     );
     let changed = World::new(
@@ -296,6 +364,10 @@ fn clipped_bundle_selection_preserves_ids_direction_and_exact_coverage() {
     .unwrap();
     assert_eq!(
         changed.tile_relations(&tile.selection, None, 256),
+        Err(Error::StaleDetailRevision)
+    );
+    assert_eq!(
+        changed.bundle_detail(&tile.selection, &tile.edges[0].id, None),
         Err(Error::StaleDetailRevision)
     );
     assert_eq!(
@@ -341,4 +413,79 @@ fn filtered_candidate_pages_advance_without_scanning_the_whole_world() {
     assert!(empty_continuations >= 2);
     assert_eq!(seen, ["visible"]);
     assert_eq!(total_candidates, RELATION_CANDIDATE_LIMIT * 2 + 2);
+
+    let mut cursor = None;
+    let mut empty_continuations = 0;
+    let mut seen = Vec::new();
+    loop {
+        let page = world
+            .bundle_detail(&tile.selection, &tile.edges[0].id, cursor.as_ref())
+            .unwrap();
+        assert!(page.candidates <= RELATION_CANDIDATE_LIMIT);
+        assert_eq!(page.total_relations, 1);
+        if let Some(next) = &page.next {
+            assert!(next.offset > cursor.as_ref().map_or(0, |previous| previous.offset));
+            if page.relations.is_empty() {
+                empty_continuations += 1;
+            }
+        }
+        seen.extend(page.relations.into_iter().map(|row| row.id));
+        cursor = page.next;
+        if cursor.is_none() {
+            break;
+        }
+    }
+    assert!(empty_continuations >= 2);
+    assert_eq!(seen, ["visible"]);
+}
+
+#[test]
+fn bundle_pages_preserve_every_relation_when_distinct_endpoints_fill_the_page() {
+    let nodes: Vec<_> = (0..520)
+        .map(|i| {
+            point(
+                i,
+                if i < 260 { i + 1 } else { 16_000_000 + i },
+                5_000_000,
+                8,
+            )
+        })
+        .collect();
+    let relations: Vec<_> = (0..260)
+        .map(|i| relation(format!("disjoint-{i:04}"), &nodes[i], &nodes[i + 260]))
+        .collect();
+    let expected: BTreeSet<_> = relations.iter().map(|row| row.id.clone()).collect();
+    let world = World::new("invented-bundle-pages".into(), 16, nodes, relations).unwrap();
+    let tile = world
+        .tile(Cell::new(2, 1, 1).unwrap(), Budget::default())
+        .unwrap();
+    assert_eq!(tile.edges.len(), 1);
+    assert_eq!(tile.edges[0].count, 260);
+    let mut cursor = None;
+    let mut seen = BTreeSet::new();
+    let mut pages = 0;
+    loop {
+        let page = world
+            .bundle_detail(&tile.selection, &tile.edges[0].id, cursor.as_ref())
+            .unwrap();
+        pages += 1;
+        assert!(pages <= 6, "bounded endpoint pages must terminate");
+        assert!(page.nodes.len() <= DETAIL_NODE_LIMIT);
+        assert!(page.relations.len() <= DETAIL_EDGE_LIMIT);
+        assert!(page.candidates <= RELATION_CANDIDATE_LIMIT);
+        assert_eq!(page.total_relations, 260);
+        if pages == 1 {
+            assert_eq!(page.nodes.len(), 128);
+            assert_eq!(page.relations.len(), 64);
+        }
+        for row in page.relations {
+            assert!(seen.insert(row.id));
+            assert!(page.nodes[row.source as usize].x < page.nodes[row.target as usize].x);
+        }
+        cursor = page.next;
+        if cursor.is_none() {
+            break;
+        }
+    }
+    assert_eq!(seen, expected);
 }
