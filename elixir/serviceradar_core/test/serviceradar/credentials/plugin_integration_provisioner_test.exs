@@ -48,6 +48,45 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisionerTest do
     def list_assignment_schedules(_assignment_id, _actor), do: {:ok, []}
   end
 
+  defmodule RevokedPackageAssignmentStore do
+    @moduledoc false
+
+    def list_policy_assignments("network-credential-rule:" <> rest = policy_id, _actor) do
+      [rule_id | _suffix] = String.split(rest, ":")
+
+      {:ok,
+       [
+         %{
+           id: "assignment-#{rule_id}",
+           agent_uid: "agent-k8s",
+           enabled: true,
+           plugin_package_id: "package-#{rule_id}",
+           policy_id: policy_id
+         }
+       ]}
+    end
+
+    def approved_package_ids(_package_ids, _actor),
+      do: {:ok, MapSet.new(["package-rule-approved"])}
+
+    def update_assignment(assignment, attrs, _actor) do
+      send(self(), {:update_assignment, assignment.id, attrs})
+      {:ok, Map.merge(assignment, attrs)}
+    end
+  end
+
+  defmodule RevokedPackageScheduleStore do
+    @moduledoc false
+
+    def list_assignment_schedules(assignment_id, _actor),
+      do: {:ok, [%{id: "schedule-#{assignment_id}", enabled: true}]}
+
+    def update_schedule(schedule, attrs, _actor) do
+      send(self(), {:update_schedule, schedule.id, attrs})
+      {:ok, Map.merge(schedule, attrs)}
+    end
+  end
+
   test "provisions package-owned config and binds its declared credential requirement" do
     rule = integration_rule()
 
@@ -267,6 +306,34 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisionerTest do
       assert summary.rules == 1
       assert_receive {:create_assignment, assignment}
       assert assignment.agent_uid == "agent-k8s"
+    end
+  end
+
+  describe "a producer-schedule package that is no longer approved" do
+    # Revoking a package drops its profile from the catalog, so these rules
+    # arrive with no profile at all. The package status of the provisioner's own
+    # assignment decides; the missing profile does not.
+    test "disables the assignment and schedule of a revoked package, not of an approved one" do
+      rules = [
+        integration_rule(%{id: "rule-revoked", provider: "revoked-inventory"}),
+        integration_rule(%{id: "rule-approved", provider: "unlisted-inventory"})
+      ]
+
+      assert {:ok, summary} =
+               PluginIntegrationProvisioner.reconcile_rules(rules, [],
+                 actor: %{id: "system"},
+                 assignment_store: RevokedPackageAssignmentStore,
+                 schedule_store: RevokedPackageScheduleStore
+               )
+
+      assert_receive {:update_assignment, "assignment-rule-revoked", %{enabled: false}}
+      assert_receive {:update_schedule, "schedule-assignment-rule-revoked", %{enabled: false}}
+      refute_received {:update_assignment, "assignment-rule-approved", _attrs}
+      refute_received {:update_schedule, "schedule-assignment-rule-approved", _attrs}
+
+      assert summary.rules == 1
+      assert summary.assignments_disabled == 1
+      assert summary.schedules_disabled == 1
     end
   end
 
