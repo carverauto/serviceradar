@@ -12,3 +12,7 @@ sha2 = { workspace = true }
 [lib]
 name = "serviceradar_topology_atlas"
 path = "src/lib.rs"
+
+[[bin]]
+name = "million-world-fixture"
+path = "fixtures/export.rs"
