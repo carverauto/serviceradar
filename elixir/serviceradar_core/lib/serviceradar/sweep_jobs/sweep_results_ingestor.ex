@@ -1309,6 +1309,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           availability_policy
         )
 
+      # These SQL writes have committed independently. Publish the returned
+      # identities even when optional availability-event logging is disabled.
+      (recovered_rows ++ down_rows)
+      |> Stream.map(fn [uid | _state] -> uid end)
+      |> ServiceRadar.Inventory.DevicePubSub.broadcast_invalidated()
+
       maybe_emit_availability_events(
         recovered_rows ++ down_rows,
         reporter_context.group,

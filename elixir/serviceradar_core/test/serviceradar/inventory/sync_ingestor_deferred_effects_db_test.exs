@@ -5,6 +5,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorDeferredEffectsDbTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.IdentityCache
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
@@ -24,6 +25,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorDeferredEffectsDbTest do
 
   test "rolling back real device ingestion leaves its cache and device state unchanged" do
     {device, update, cached} = fixture("192.0.2.31")
+    Phoenix.PubSub.subscribe(ServiceRadar.PubSub, DevicePubSub.invalidation_topic())
 
     assert {:error, :synthetic_membership_failure} =
              Repo.transaction(fn ->
@@ -41,10 +43,12 @@ defmodule ServiceRadar.Inventory.SyncIngestorDeferredEffectsDbTest do
 
     assert IdentityCache.get(device.ip) == cached
     assert Device.get_by_uid!(device.uid, false, actor: @actor).hostname == device.hostname
+    refute_received {:devices_invalidated, _ids}
   end
 
   test "committed device ingestion invalidates cache only when its collected effects are emitted" do
     {device, update, cached} = fixture("192.0.2.32")
+    Phoenix.PubSub.subscribe(ServiceRadar.PubSub, DevicePubSub.invalidation_topic())
 
     assert {:ok, effects} =
              Repo.transaction(fn ->
@@ -61,16 +65,22 @@ defmodule ServiceRadar.Inventory.SyncIngestorDeferredEffectsDbTest do
 
     assert IdentityCache.get(device.ip) == cached
     assert Device.get_by_uid!(device.uid, false, actor: @actor).hostname == update["hostname"]
+    refute_received {:devices_invalidated, _ids}
     assert :ok = SyncIngestor.emit_committed_state_events(effects)
     assert IdentityCache.get(device.ip) == nil
+    uid = device.uid
+    assert_receive {:devices_invalidated, [^uid]}
   end
 
   test "ordinary ingestion retains its immediate cache invalidation contract" do
     {device, update, _cached} = fixture("192.0.2.33")
+    Phoenix.PubSub.subscribe(ServiceRadar.PubSub, DevicePubSub.invalidation_topic())
 
     assert :ok = SyncIngestor.ingest_updates([update], actor: @actor)
     assert IdentityCache.get(device.ip) == nil
     assert Device.get_by_uid!(device.uid, false, actor: @actor).hostname == update["hostname"]
+    uid = device.uid
+    assert_receive {:devices_invalidated, [^uid]}
   end
 
   defp fixture(ip) do

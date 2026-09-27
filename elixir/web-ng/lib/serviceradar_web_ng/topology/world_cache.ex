@@ -152,8 +152,8 @@ defmodule ServiceRadarWebNG.Topology.WorldCache do
   def handle_info({:tile_timeout, key, token}, state) do
     case Map.get(state.pending, key) do
       %{token: ^token, pid: pid, timed_out: false} ->
-        # Dirty NIF termination can wait for native work. Keep its admission
-        # slot until DOWN, without blocking this owner or the task supervisor.
+        # DOWN ends BEAM bookkeeping, not dirty native execution. The NIF's
+        # independent gate holds capacity until Rust actually returns.
         Process.exit(pid, :kill)
         state = reply_waiters(key, {:error, :tile_timeout}, state)
         pending = %{Map.fetch!(state.pending, key) | timed_out: true}

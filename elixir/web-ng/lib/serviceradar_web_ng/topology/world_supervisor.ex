@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNG.Topology.WorldSupervisor do
   use Supervisor
 
   alias ServiceRadarWebNG.Topology.WorldCache
+  alias ServiceRadarWebNG.Topology.WorldHealth
   alias ServiceRadarWebNG.Topology.WorldLoader
 
   def start_link(opts \\ []), do: Supervisor.start_link(__MODULE__, opts, name: __MODULE__)
@@ -18,6 +19,7 @@ defmodule ServiceRadarWebNG.Topology.WorldSupervisor do
     tile_tasks = ServiceRadarWebNG.Topology.TileTasks
     load_tasks = ServiceRadarWebNG.Topology.WorldLoadTasks
     watch_tasks = ServiceRadarWebNG.Topology.TileWatchTasks
+    health_tasks = ServiceRadarWebNG.Topology.WorldHealthTasks
 
     # Each owner and its task supervisors share a restart boundary. Otherwise
     # an owner crash loses its timeout while an orphan still occupies the pool.
@@ -32,7 +34,21 @@ defmodule ServiceRadarWebNG.Topology.WorldSupervisor do
       {WorldLoader, name: WorldLoader, cache: WorldCache, task_supervisor: load_tasks, pubsub: ServiceRadar.PubSub}
     ]
 
-    children = [group(:tile_cache, cache_children), group(:world_loader, loader_children)]
+    health_children = [
+      Supervisor.child_spec({Task.Supervisor, name: health_tasks, max_children: 1}, id: health_tasks),
+      {WorldHealth, name: WorldHealth, cache: WorldCache, task_supervisor: health_tasks, pubsub: ServiceRadar.PubSub}
+    ]
+
+    # Both depend on the cache, but a loader retry/restart must retain health.
+    dependents = %{
+      id: :world_dependents,
+      start:
+        {Supervisor, :start_link,
+         [[group(:world_loader, loader_children), group(:world_health, health_children)], [strategy: :one_for_one]]},
+      type: :supervisor
+    }
+
+    children = [group(:tile_cache, cache_children), dependents]
     Supervisor.init(children, strategy: :rest_for_one)
   end
 
