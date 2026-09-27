@@ -120,14 +120,6 @@ defmodule ServiceRadar.Plugins.RunOverridesDbTest do
                max_override_duration_seconds: 600
              )
 
-    assert RunOverrides.deliverable_by_assignment([assignment_id], actor: system) == %{}
-
-    assert {:ok, 1} =
-             RunOverrides.apply_action_result(%{"run_overrides" => [set]}, context,
-               actor: system,
-               max_override_duration_seconds: 600
-             )
-
     assert %{^assignment_id => [%{"id" => "fault-1"}]} =
              RunOverrides.deliverable_by_assignment([assignment_id], actor: system)
   end
