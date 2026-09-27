@@ -19,6 +19,11 @@ defmodule ServiceRadar.Analytics.StarRocks.EventDocuments do
   CNPG returns a list, a document and a boolean. Only a row listing carries
   those columns; a stats row (which has no `id`) is left alone, so an
   aggregate aliased to one of those names is never rewritten.
+
+  OTel metric rows carry `is_slow` (samples) or `is_monotonic` (points) as the
+  same 0/1 `TINYINT`. A listing row always has `timestamp`, which a count row
+  (`service_name` or `metric_name` plus the count alias) never has alongside
+  one of those names, so again only listings are rewritten.
   """
 
   alias ServiceRadar.Analytics.StarRocks.Readers
@@ -27,12 +32,14 @@ defmodule ServiceRadar.Analytics.StarRocks.EventDocuments do
 
   @columns ~w(metadata unmapped device observables)
   @mtr_columns ~w(ecmp_addrs mpls_labels)
+  @otel_metric_flags ~w(is_slow is_monotonic)
 
   @spec decode_rows([map()], String.t() | nil) :: [map()]
   def decode_rows(rows, entity) when is_list(rows) and is_binary(entity) do
     case Readers.dataset_for_entity(entity) do
       :events -> Enum.map(rows, &decode_row(&1, @columns))
       :mtr -> Enum.map(rows, &decode_mtr_row/1)
+      :otel_metrics -> Enum.map(rows, &decode_otel_metric_row/1)
       _ -> rows
     end
   end
@@ -50,6 +57,17 @@ defmodule ServiceRadar.Analytics.StarRocks.EventDocuments do
   end
 
   defp decode_mtr_row(row), do: row
+
+  defp decode_otel_metric_row(%{"timestamp" => _} = row) do
+    Enum.reduce(@otel_metric_flags, row, fn column, acc ->
+      case acc do
+        %{^column => flag} when flag in [0, 1, "0", "1"] -> Map.put(acc, column, flag in [1, "1"])
+        _ -> acc
+      end
+    end)
+  end
+
+  defp decode_otel_metric_row(row), do: row
 
   defp decode_row(%{} = row, columns) do
     Enum.reduce(columns, row, fn column, acc ->

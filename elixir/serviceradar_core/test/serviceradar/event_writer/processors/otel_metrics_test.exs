@@ -16,6 +16,7 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetricsTest do
   alias Opentelemetry.Proto.Metrics.V1.ScopeMetrics
   alias Opentelemetry.Proto.Metrics.V1.Sum
   alias Opentelemetry.Proto.Resource.V1.Resource
+  alias ServiceRadar.Analytics.StarRocks.Rows
   alias ServiceRadar.EventWriter.Processors.OtelMetrics
   alias Serviceradar.Metric.V1.IngestIdentity, as: SRIngestIdentity
   alias Serviceradar.Metric.V1.Metric, as: SRMetric
@@ -27,6 +28,57 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetricsTest do
   describe "table_name/0" do
     test "returns correct table name" do
       assert OtelMetrics.table_name() == "otel_metrics"
+    end
+  end
+
+  describe "store/3 with StarRocks enabled" do
+    # A loader stub that records each call in the test process mailbox.
+    defp recording_load(results \\ %{}) do
+      test = self()
+
+      fn dataset, rows ->
+        send(test, {:load, dataset, rows})
+        Map.get(results, dataset, {:ok, %{dataset: dataset, loaded: length(rows)}})
+      end
+    end
+
+    defp warehouse(opts), do: Keyword.put(opts, :starrocks_enabled, true)
+
+    test "samples then points load into the warehouse, once per table" do
+      samples = [%{span_name: "a"}, %{span_name: "b"}]
+      points = [%{metric_name: "m"}]
+
+      assert {:ok, {2, 1}} = OtelMetrics.store(samples, points, warehouse(load: recording_load()))
+
+      assert_received {:load, :otel_metrics, ^samples}
+      assert_received {:load, :otel_metric_points, ^points}
+      refute_received {:load, _, _}
+    end
+
+    test "an empty side is not loaded" do
+      points = [%{metric_name: "m"}]
+
+      assert {:ok, {0, 1}} = OtelMetrics.store([], points, warehouse(load: recording_load()))
+
+      refute_received {:load, :otel_metrics, _}
+      assert_received {:load, :otel_metric_points, ^points}
+    end
+
+    test "a failed sample load fails the batch and skips the point load" do
+      load = recording_load(%{otel_metrics: {:error, :unavailable}})
+
+      assert {:error, :unavailable} =
+               OtelMetrics.store([%{span_name: "a"}], [%{metric_name: "m"}], warehouse(load: load))
+
+      assert_received {:load, :otel_metrics, _}
+      refute_received {:load, :otel_metric_points, _}
+    end
+
+    test "a failed point load fails the batch so JetStream redelivers it" do
+      load = recording_load(%{otel_metric_points: {:error, :unavailable}})
+
+      assert {:error, :unavailable} =
+               OtelMetrics.store([%{span_name: "a"}], [%{metric_name: "m"}], warehouse(load: load))
     end
   end
 
@@ -595,6 +647,65 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetricsTest do
       assert row.ingest_identity == ""
       assert row.ingest_agent_id == ""
       assert row.ingest_partition == ""
+    end
+  end
+
+  # The warehouse encoder picks columns by name, so a row field the encoder does
+  # not know would load NULL. Every value the parser produces must survive.
+  describe "warehouse encoding of parsed rows" do
+    defp assert_carried(parsed, encoded) do
+      for {field, value} <- parsed, value != nil, Map.has_key?(encoded, Atom.to_string(field)) do
+        column = Atom.to_string(field)
+
+        case value do
+          %DateTime{} -> assert encoded[column] == DateTime.to_iso8601(value)
+          v when is_binary(v) or is_boolean(v) or is_number(v) -> assert encoded[column] == v
+          _ -> :ok
+        end
+      end
+
+      missing =
+        parsed
+        |> Map.keys()
+        |> Enum.map(&Atom.to_string/1)
+        |> Enum.reject(&Map.has_key?(encoded, &1))
+
+      assert missing == []
+    end
+
+    test "a span sample keeps every parsed field" do
+      [row] =
+        OtelMetrics.parse_message(%{
+          data:
+            derived_metric_payload(
+              trace_id: "0123456789abcdef0123456789abcdef",
+              span_id: "0123456789abcdef",
+              service_name: "test-service",
+              span_name: "test-operation",
+              span_kind: "SERVER",
+              duration_ms: 150.5,
+              duration_seconds: "0.1505",
+              metric_type: "http",
+              http_method: "GET",
+              http_route: "/api/test",
+              http_status_code: "200",
+              is_slow: "false"
+            ),
+          metadata: %{subject: "otel.metrics.derived"}
+        })
+
+      [encoded] = Rows.encode(:otel_metrics, [row])
+      assert_carried(row, encoded)
+      assert encoded["is_slow"] == false
+    end
+
+    test "sum, gauge and histogram points keep every parsed field" do
+      payload = ExportMetricsServiceRequest.encode(build_metrics_request())
+      rows = OtelMetrics.parse_message(%{data: payload, metadata: %{}})
+      encoded = Rows.encode(:otel_metric_points, rows)
+
+      for {row, row_encoded} <- Enum.zip(rows, encoded), do: assert_carried(row, row_encoded)
+      assert encoded |> Enum.map(& &1["id"]) |> Enum.uniq() |> length() == 3
     end
   end
 end

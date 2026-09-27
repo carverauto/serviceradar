@@ -83,7 +83,7 @@ pub(crate) use plan::is_exhaustive_profile_query;
 pub(crate) use sql::diesel_bind_count;
 pub(crate) use sql::{
     bind_sql_param, diesel_sql, max_dollar_placeholder, reconcile_limit_offset_binds, reject_stats,
-    shift_dollar_placeholders,
+    shift_dollar_placeholders, validate_stats_alias,
 };
 pub use translate::translate_request;
 pub use types::{

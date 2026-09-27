@@ -2789,6 +2789,8 @@ analytics:
       logs: 365
       events: 365
       mtr: 365
+      # OTel metric samples and points together.
+      otel: 365
     # How far an hourly materialized view may lag its own source table before
     # readers stop trusting it and compile from the raw warehouse tables
     # instead. The views are REFRESH ASYNC with no schedule, so this is the

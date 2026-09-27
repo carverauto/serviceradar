@@ -12,6 +12,7 @@ defmodule ServiceRadar.Analytics.StarRocks.RetentionTest do
     SERVICERADAR_STARROCKS_RETENTION_DAYS_LOGS
     SERVICERADAR_STARROCKS_RETENTION_DAYS_EVENTS
     SERVICERADAR_STARROCKS_RETENTION_DAYS_MTR
+    SERVICERADAR_STARROCKS_RETENTION_DAYS_OTEL
   )
 
   setup do
@@ -34,7 +35,8 @@ defmodule ServiceRadar.Analytics.StarRocks.RetentionTest do
              metrics: 365,
              logs: 365,
              events: 365,
-             mtr: 365
+             mtr: 365,
+             otel: 365
            ]
 
     System.put_env("SERVICERADAR_STARROCKS_RETENTION_DAYS_FLOWS", "30")
@@ -47,7 +49,8 @@ defmodule ServiceRadar.Analytics.StarRocks.RetentionTest do
              metrics: 365,
              logs: 730,
              events: 365,
-             mtr: 365
+             mtr: 365,
+             otel: 365
            ]
 
     for invalid <- ["", "0", "-5", "forever"] do
@@ -67,7 +70,9 @@ defmodule ServiceRadar.Analytics.StarRocks.RetentionTest do
       "timeseries_metrics" => "365",
       "events" => "365",
       "mtr_traces" => "365",
-      "mtr_hops" => "365"
+      "mtr_hops" => "365",
+      "otel_metrics" => "365",
+      "otel_metric_points" => "365"
     }
 
     for {table, days} <- expected do
@@ -93,6 +98,17 @@ defmodule ServiceRadar.Analytics.StarRocks.RetentionTest do
     assert days["mtr_traces"] == 14
     assert days["mtr_hops"] == 14
     assert days["logs"] == 365
+  end
+
+  # OTel samples and points are one metrics signal with one setting.
+  test "OTel metric samples and points are retained together at the one OTel setting" do
+    System.put_env("SERVICERADAR_STARROCKS_RETENTION_DAYS_OTEL", "90")
+    assert Env.config()[:retention_days][:otel] == 90
+
+    days = Map.new(Retention.days_by_table(Env.config()))
+    assert days["otel_metrics"] == 90
+    assert days["otel_metric_points"] == 90
+    assert days["mtr_traces"] == 365
   end
 
   test "applying retention stops at the first failure and reports it" do

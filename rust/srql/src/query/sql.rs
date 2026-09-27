@@ -191,6 +191,24 @@ pub(crate) fn bind_sql_param<'a>(
     }
 }
 
+/// A `count() as <alias>` alias becomes a result key and is written into SQL
+/// as a key or column name, so it must be a plain identifier. Anything else
+/// (a quote, a parenthesis) would be SQL, not a name.
+pub(crate) fn validate_stats_alias(alias: &str) -> Result<()> {
+    let mut chars = alias.chars();
+    let valid = chars
+        .next()
+        .is_some_and(|first| first.is_ascii_lowercase() || first == '_')
+        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
+    if valid {
+        Ok(())
+    } else {
+        Err(ServiceError::InvalidRequest(format!(
+            "stats alias must be an identifier (letters, digits, underscore), got '{alias}'"
+        )))
+    }
+}
+
 pub(crate) fn reconcile_limit_offset_binds(
     sql: &str,
     params: &mut Vec<BindParam>,

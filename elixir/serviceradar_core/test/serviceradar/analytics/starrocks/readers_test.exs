@@ -95,6 +95,38 @@ defmodule ServiceRadar.Analytics.StarRocks.ReadersTest do
     end
   end
 
+  # OTel metric samples and points are written to the warehouse only when it
+  # is enabled, so they follow the MTR rule, with every entity spelling.
+  test "OTel metrics SRQL reads StarRocks with the warehouse enabled and CNPG without it" do
+    prev = Application.get_env(:serviceradar_core, StarRocks, [])
+    spellings = ["otel_metrics", "metrics", "OTEL_METRICS", "otel_metric_points", "metric_points"]
+
+    try do
+      Application.put_env(
+        :serviceradar_core,
+        StarRocks,
+        prev |> Keyword.put(:enabled, true) |> Keyword.put(:cutover_datasets, [])
+      )
+
+      for entity <- spellings do
+        assert Readers.mode_for(entity) == "starrocks"
+        assert Readers.backend(entity) == :starrocks
+      end
+
+      query = ~s|in:otel_metric_points time:last_24h stats:"count() as points by metric_name"|
+      assert query |> Readers.entity_for_query() |> Readers.mode_for() == "starrocks"
+
+      Application.put_env(:serviceradar_core, StarRocks, Keyword.put(prev, :enabled, false))
+
+      for entity <- spellings do
+        assert Readers.mode_for(entity) == nil
+        assert Readers.backend(entity) == :cnpg
+      end
+    after
+      Application.put_env(:serviceradar_core, StarRocks, prev)
+    end
+  end
+
   test "enabled? is the global backend switch, independent of the cutover list" do
     prev = Application.get_env(:serviceradar_core, StarRocks, [])
 

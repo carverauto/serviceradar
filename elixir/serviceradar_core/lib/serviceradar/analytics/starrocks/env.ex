@@ -24,7 +24,14 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
   # history affordable, so it does not inherit CNPG's shorter raw windows.
   # Tables created from DDL with a smaller `partition_live_number` are raised to
   # these values by `Retention` at core start.
-  @default_retention_days [flows: 365, metrics: 365, logs: 365, events: 365, mtr: 365]
+  @default_retention_days [
+    flows: 365,
+    metrics: 365,
+    logs: 365,
+    events: 365,
+    mtr: 365,
+    otel: 365
+  ]
 
   # How far an hourly materialized view may lag its source table before a
   # reader stops trusting it. The views refresh asynchronously with no

@@ -58,6 +58,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
       e when e in ~w(mtr_traces mtr_hops mtr_hop_stats) ->
         :mtr
 
+      e when e in ~w(otel_metrics metrics otel_metric_points metric_points) ->
+        :otel_metrics
+
       e
       when e in ~w(
              events activity
@@ -88,6 +91,10 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
   # the warehouse whenever it is enabled, and CNPG only when it is not; it keys
   # on `enabled?/0`, not on `cutover_datasets`, which has no MTR entry.
   def mode_for(:mtr), do: if(enabled?(), do: "starrocks")
+
+  # OTel metric samples and points follow the MTR rule: EventWriter writes
+  # them to the warehouse only when it is enabled (`OtelMetrics.store/3`).
+  def mode_for(:otel_metrics), do: if(enabled?(), do: "starrocks")
 
   def mode_for(dataset) when is_atom(dataset) do
     cond do
