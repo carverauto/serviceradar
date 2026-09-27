@@ -42,7 +42,7 @@ defmodule ServiceRadar.Inventory.StreamedDeviceReadsTest do
     uids = MapSet.new(devices, & &1.uid)
     ips = Enum.map(devices, & &1.ip)
 
-    compiled =
+    {:ok, compiled} =
       SNMPCompiler.execute_target_query(~s|in:devices gateway_id:"#{@gateway_id}"|, actor)
 
     assert MapSet.equal?(MapSet.new(compiled, & &1.uid), uids)

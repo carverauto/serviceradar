@@ -21,6 +21,11 @@ defmodule ServiceRadarWebNG.OtelServicesAccessDbTest do
     :ok = Sandbox.checkout(Repo)
     Sandbox.mode(Repo, {:shared, self()})
 
+    # This target reuses the serial_0 database. Tests on that lane commit
+    # catalog rows for internal logs, recorded as serviceradar.core. Hide them
+    # in this transaction so the signal filter is checked against the rows below.
+    SQL.query!(Repo, "DELETE FROM platform.otel_service_catalog", [])
+
     now = DateTime.utc_now()
     hour_ago = DateTime.add(now, -3600, :second)
 

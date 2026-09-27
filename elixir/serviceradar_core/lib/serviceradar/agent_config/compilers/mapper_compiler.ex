@@ -330,7 +330,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
         NetworkCredentialRule.list_enabled_for_scope!("snmp", type, value, actor: actor)
       end)
       |> Enum.filter(&(&1.purpose in [nil, "", "snmp_monitoring"]))
-      |> Enum.flat_map(&SNMPCompiler.execute_target_query(&1.target_query, actor))
+      |> Enum.flat_map(&credential_rule_devices(&1, actor))
 
     (seed_devices ++ rule_devices)
     |> Enum.uniq_by(& &1.uid)
@@ -359,6 +359,25 @@ defmodule ServiceRadar.AgentConfig.Compilers.MapperCompiler do
       {ip, :suppressed} -> {ip, %{}}
       {ip, {:ok, encoded}} -> {ip, encoded}
     end)
+  end
+
+  # A rule whose target query cannot be read contributes no target credentials,
+  # but the failure is logged so a credential DB outage is visible instead of
+  # silently narrowing discovery. This is a deliberate degrade: the SNMP compiler
+  # fails closed on the same read, but mapper discovery still has the seed
+  # devices and the default credential fallback to work with.
+  defp credential_rule_devices(rule, actor) do
+    case SNMPCompiler.execute_target_query(rule.target_query, actor) do
+      {:ok, devices} ->
+        devices
+
+      {:error, reason} ->
+        Logger.warning(
+          "MapperCompiler: failed to resolve SNMP credential rule targets for #{inspect(rule.target_query)} - #{inspect(reason)}; contributing no target credentials"
+        )
+
+        []
+    end
   end
 
   defp put_target_credential(targets, ip, :suppressed), do: Map.put(targets, ip, :suppressed)

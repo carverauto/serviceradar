@@ -57,6 +57,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   # Mirrors maxTargetNameLength in go/pkg/agent/snmp/config.go. A name over the
   # bound is rejected by the agent, so it is enforced here where the name is
   # built rather than discovered at the far end.
+  alias Ash.Error.Invalid
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.Compilers.TargetedProfileResolver
   alias ServiceRadar.Ash.Page
@@ -102,9 +103,18 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     # target_query + is_default fallback).
     case fetch_profile(device_uid, agent_id, actor) do
       {:ok, %{enabled: true} = profile} ->
-        config = compile_profile(profile, actor, agent_id: agent_id, partition: partition)
-        publish_duplicate_polling_warning(profile, config)
-        {:ok, config}
+        case compile_profile(profile, actor, agent_id: agent_id, partition: partition) do
+          {:ok, config} ->
+            publish_duplicate_polling_warning(profile, config)
+            {:ok, config}
+
+          {:error, reason} ->
+            # A failed target, template, or profile-target read is not an empty
+            # config. ConfigServer caches every {:ok, _}, so returning one here
+            # would make agents poll nothing until the next :snmp invalidation.
+            Logger.error("SNMPCompiler: failed to compile profile - #{inspect(reason)}")
+            {:error, reason}
+        end
 
       {:ok, _no_enabled_profile} ->
         # Return disabled config if no profile found or profile is disabled
@@ -174,41 +184,43 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   @doc """
   Compiles a profile to the agent config format using SRQL-based targeting.
 
-  New flow:
-  1. Execute target_query to find matching devices
-  2. Load OIDs from profile's oid_template_ids
-  3. For each device, build target config with resolved credentials
+  A failed read of profile targets, the target query, or OID templates
+  returns `{:error, reason}` so the caller does not cache an empty config.
+  A zero-row read still compiles a valid config with an empty target list.
+
+  1. Load explicit profile targets
+  2. Execute target_query to find matching devices
+  3. Load OIDs from profile's oid_template_ids
+  4. For each device, build target config with resolved credentials
   """
-  @spec compile_profile(SNMPProfile.t(), map(), keyword()) :: map()
+  @spec compile_profile(SNMPProfile.t(), map(), keyword()) ::
+          {:ok, map()} | {:error, term()}
   def compile_profile(profile, actor, opts \\ []) do
-    # 1. Load explicit targets (from interface selection or profile overrides)
-    profile_targets = load_profile_targets(profile, actor, opts)
-
-    # 2. Execute target_query to find matching devices
     target_query = normalize_target_query(profile.target_query, profile.is_default)
-    devices = execute_target_query(target_query, actor)
 
-    # 3. Load OIDs from profile's templates
-    oids = load_template_oids(profile.oid_template_ids, actor)
+    with {:ok, profile_targets} <- load_profile_targets(profile, actor, opts),
+         {:ok, devices} <- execute_target_query(target_query, actor),
+         {:ok, oids} <- load_template_oids(profile.oid_template_ids, actor) do
+      # Build target config for each device (only when templates are present)
+      query_targets =
+        devices
+        |> Enum.map(fn device -> compile_device_target(device, profile, oids, actor, opts) end)
+        |> Enum.reject(&is_nil/1)
 
-    # 4. Build target config for each device (only when templates are present)
-    query_targets =
-      devices
-      |> Enum.map(fn device -> compile_device_target(device, profile, oids, actor, opts) end)
-      |> Enum.reject(&is_nil/1)
+      compiled_targets =
+        profile_targets
+        |> merge_targets(query_targets)
+        |> sort_targets()
+        |> sanitize_target_names()
 
-    compiled_targets =
-      profile_targets
-      |> merge_targets(query_targets)
-      |> sort_targets()
-      |> sanitize_target_names()
-
-    %{
-      "enabled" => profile.enabled and compiled_targets != [],
-      "profile_id" => profile.id,
-      "profile_name" => profile.name,
-      "targets" => compiled_targets
-    }
+      {:ok,
+       %{
+         "enabled" => profile.enabled and compiled_targets != [],
+         "profile_id" => profile.id,
+         "profile_name" => profile.name,
+         "targets" => compiled_targets
+       }}
+    end
   end
 
   @doc """
@@ -217,10 +229,15 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   Handles both interface and device queries:
   - `in:interfaces ...` → Extract unique devices from matching interfaces
   - `in:devices ...` → Use matched devices directly
+
+  A nil or empty query, an unparseable query, and an uncastable filter
+  return `{:ok, []}`. A failed read returns
+  `{:error, {:target_query_failed, reason}}`.
   """
-  @spec execute_target_query(String.t() | nil, map()) :: [Device.t()]
-  def execute_target_query(nil, _actor), do: []
-  def execute_target_query("", _actor), do: []
+  @spec execute_target_query(String.t() | nil, map()) ::
+          {:ok, [Device.t()]} | {:error, term()}
+  def execute_target_query(nil, _actor), do: {:ok, []}
+  def execute_target_query("", _actor), do: {:ok, []}
 
   def execute_target_query(target_query, actor) do
     target_query = String.trim(target_query)
@@ -232,12 +249,12 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
       {:error, reason} ->
         Logger.warning("SNMPCompiler: failed to parse SRQL query - #{inspect(reason)}")
-        []
+        {:ok, []}
     end
   rescue
     e ->
       Logger.error("SNMPCompiler: error executing target query - #{inspect(e)}")
-      []
+      {:error, {:target_query_failed, e}}
   end
 
   defp normalize_target_query(target_query, is_default) do
@@ -325,15 +342,22 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     case Page.unwrap(Ash.read(query, actor: actor)) do
       {:ok, interfaces} ->
         # Extract unique devices
-        interfaces
-        |> Enum.map(& &1.device)
-        |> Enum.reject(&is_nil/1)
-        |> Enum.filter(&DeviceLifecycle.active?(&1.uid, actor: actor))
-        |> Enum.uniq_by(& &1.uid)
+        devices =
+          interfaces
+          |> Enum.map(& &1.device)
+          |> Enum.reject(&is_nil/1)
+          |> Enum.filter(&DeviceLifecycle.active?(&1.uid, actor: actor))
+          |> Enum.uniq_by(& &1.uid)
+
+        {:ok, devices}
+
+      {:error, %Invalid{} = reason} ->
+        Logger.warning("SNMPCompiler: invalid target query filter - #{inspect(reason)}")
+        {:ok, []}
 
       {:error, reason} ->
-        Logger.warning("SNMPCompiler: failed to query interfaces - #{inspect(reason)}")
-        []
+        Logger.error("SNMPCompiler: failed to query interfaces - #{inspect(reason)}")
+        {:error, {:target_query_failed, reason}}
     end
   end
 
@@ -352,23 +376,33 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
       )
 
     try do
-      query
-      |> Page.stream!(actor: actor)
-      |> Enum.reduce([], fn device, acc -> [device | acc] end)
-      |> Enum.reverse()
+      devices =
+        query
+        |> Page.stream!(actor: actor)
+        |> Enum.reduce([], fn device, acc -> [device | acc] end)
+        |> Enum.reverse()
+
+      {:ok, devices}
     rescue
+      exception in Invalid ->
+        Logger.warning("SNMPCompiler: invalid target query filter - #{inspect(exception)}")
+        {:ok, []}
+
       exception ->
-        Logger.warning("SNMPCompiler: failed to query devices - #{inspect(exception)}")
-        reraise exception, __STACKTRACE__
+        Logger.error("SNMPCompiler: failed to query devices - #{inspect(exception)}")
+        {:error, {:target_query_failed, exception}}
     end
   end
 
   @doc """
   Load OIDs from the selected OID templates.
+
+  A failed template read returns `{:error, reason}` rather than an empty list.
   """
-  @spec load_template_oids([String.t()] | nil, map()) :: [map()]
-  def load_template_oids(nil, _actor), do: []
-  def load_template_oids([], _actor), do: []
+  @spec load_template_oids([String.t()] | nil, map()) ::
+          {:ok, [map()]} | {:error, term()}
+  def load_template_oids(nil, _actor), do: {:ok, []}
+  def load_template_oids([], _actor), do: {:ok, []}
 
   def load_template_oids(template_ids, actor) when is_list(template_ids) do
     # Load templates from database
@@ -377,13 +411,16 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     case Page.unwrap(Ash.read(query, actor: actor)) do
       {:ok, templates} ->
         # Flatten all OIDs from all templates
-        templates
-        |> Enum.flat_map(fn template -> template.oids || [] end)
-        |> Enum.uniq_by(fn oid -> Map.get(oid, "oid") end)
+        oids =
+          templates
+          |> Enum.flat_map(fn template -> template.oids || [] end)
+          |> Enum.uniq_by(fn oid -> Map.get(oid, "oid") end)
+
+        {:ok, oids}
 
       {:error, reason} ->
-        Logger.warning("SNMPCompiler: failed to load OID templates - #{inspect(reason)}")
-        []
+        Logger.error("SNMPCompiler: failed to load OID templates - #{inspect(reason)}")
+        {:error, reason}
     end
   end
 
@@ -662,15 +699,18 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
     case Page.unwrap(Ash.read(query, actor: actor)) do
       {:ok, targets} ->
-        targets
-        |> Enum.sort_by(&target_sort_key/1)
-        |> Enum.map(&compile_profile_target(&1, profile, actor, opts))
-        |> Enum.reject(&is_nil/1)
-        |> sort_targets()
+        compiled =
+          targets
+          |> Enum.sort_by(&target_sort_key/1)
+          |> Enum.map(&compile_profile_target(&1, profile, actor, opts))
+          |> Enum.reject(&is_nil/1)
+          |> sort_targets()
+
+        {:ok, compiled}
 
       {:error, reason} ->
-        Logger.warning("SNMPCompiler: failed to load profile targets - #{inspect(reason)}")
-        []
+        Logger.error("SNMPCompiler: failed to load profile targets - #{inspect(reason)}")
+        {:error, reason}
     end
   end
 
