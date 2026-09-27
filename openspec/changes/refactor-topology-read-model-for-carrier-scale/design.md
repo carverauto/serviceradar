@@ -106,6 +106,7 @@ HTTP contract:
 | --- | --- |
 | `GET /topology/tiles/manifest` | Small authenticated JSON metadata: current layout, generation, extent, zoom range, budgets, coordinate encoding, tile URL template, overlay protocol |
 | `GET /topology/tiles/:layout_version/:z/:x/:y` | One bounded schema-3 Arrow geometry tile, ETag over layout and tile content revision |
+| `GET /topology/overlays/:layout_version/:z/:x/:y?revision=...` | Bounded JSON health and flow snapshot pinned to the encoded tile revision, with a separate content ETag and current authority checked before read and delivery |
 | `GET /topology/tiles/search?device_id=...&layout_version=...` | Authorized device ID, world coordinates, target zoom, bounded detail reference |
 | `GET /topology/details?kind=device|relation|aggregate&id=...&layout_version=...&generation=...` | Bounded picking metadata and a bounded scene reference; aggregate membership is paged in that scene |
 | `GET /topology/snapshot/latest?level_id=...&revision=...` | Bounded schema-3 ELK detail scene after #4749; retained semantic contract is explicitly detail-only |

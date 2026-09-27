@@ -1109,6 +1109,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     pipe_through([:topology_api])
 
     get("/details", TopologyTileController, :details)
+    get("/overlays/:layout_version/:z/:x/:y", TopologyTileController, :overlay)
   end
 
   scope "/topology/tiles", ServiceRadarWebNGWeb do

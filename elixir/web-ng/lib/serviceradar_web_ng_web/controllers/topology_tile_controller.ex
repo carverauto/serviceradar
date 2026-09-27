@@ -10,37 +10,38 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
   alias ServiceRadarWebNG.Topology.TileKey
   alias ServiceRadarWebNG.Topology.WorldCache
   alias ServiceRadarWebNG.Topology.WorldDetails
+  alias ServiceRadarWebNG.Topology.WorldOverlay
   alias ServiceRadarWebNGWeb.FeatureFlags
 
   plug(:authorize)
 
   def manifest(conn, _params) do
-    case WorldCache.manifest() do
-      {:ok, manifest} ->
-        conn
-        |> generation_headers(manifest)
-        |> json(
-          Map.take(manifest, [
-            :layout_version,
-            :generation,
-            :extent,
-            :algorithm_version,
-            :zmax,
-            :node_count,
-            :relation_count,
-            :observed_generation,
-            :catching_up
-          ])
-        )
-
-      {:error, reason} ->
-        error(conn, reason)
+    with {:ok, manifest} <- WorldCache.manifest(),
+         {:ok, _scope} <- current_authority(conn) do
+      conn
+      |> generation_headers(manifest)
+      |> json(
+        Map.take(manifest, [
+          :layout_version,
+          :generation,
+          :extent,
+          :algorithm_version,
+          :zmax,
+          :node_count,
+          :relation_count,
+          :observed_generation,
+          :catching_up
+        ])
+      )
+    else
+      {:error, reason} -> error(conn, reason)
     end
   end
 
   def show(conn, params) do
     with {:ok, key} <- TileKey.parse(params),
-         {:ok, tile} <- WorldCache.fetch(key) do
+         {:ok, tile} <- WorldCache.fetch(key),
+         {:ok, _scope} <- current_authority(conn) do
       etag = ~s("#{key.layout_version}:#{tile.revision}")
       transform = TileKey.transform(key)
 
@@ -69,7 +70,8 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
   def search(conn, %{"device_id" => id}) when is_binary(id) and byte_size(id) > 0 do
     with {:ok, %{world: world, manifest: manifest}} <- WorldCache.world(),
          {:ok, position} <- TopologyAtlas.search(world, id),
-         {:ok, %{} = _authorized_position} <- World.lookup_device(conn.assigns.current_scope, manifest.layout_version, id) do
+         {:ok, %{} = _authorized_position} <- World.lookup_device(conn.assigns.current_scope, manifest.layout_version, id),
+         {:ok, _scope} <- current_authority(conn) do
       conn
       |> generation_headers(manifest)
       |> json(%{
@@ -89,23 +91,45 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
   def search(conn, _params), do: error(conn, :invalid_search)
 
   def details(conn, params) do
-    case WorldDetails.fetch(conn.assigns.current_scope, params) do
-      {:ok, result} ->
-        etag = ~s("#{result.content.layout_version}:#{result.revision}")
-
-        conn =
-          conn
-          |> generation_headers(result.content)
-          |> put_resp_header("cache-control", "private, no-cache")
-          |> put_resp_header("etag", etag)
-
-        if matches_etag?(conn, etag),
-          do: send_resp(conn, :not_modified, ""),
-          else: conn |> put_resp_content_type("application/json") |> send_resp(:ok, result.payload)
-
-      {:error, reason} ->
-        error(conn, reason)
+    with {:ok, result} <- WorldDetails.fetch(conn.assigns.current_scope, params),
+         {:ok, _scope} <- current_authority(conn) do
+      json_payload(conn, result.content, result.payload, result.revision)
+    else
+      {:error, reason} -> error(conn, reason)
     end
+  end
+
+  def overlay(conn, %{"revision" => revision} = params) do
+    with {:ok, key} <- TileKey.parse(params),
+         {:ok, revision} <- TileKey.content_revision(revision),
+         {:ok, content} <- WorldOverlay.fetch(key, revision),
+         {:ok, payload} <- Jason.encode(content),
+         :ok <- overlay_budget(payload),
+         {:ok, _scope} <- current_authority(conn) do
+      digest = :sha256 |> :crypto.hash(payload) |> Base.encode16(case: :lower)
+      json_payload(conn, content, payload, "overlay:" <> digest)
+    else
+      {:error, reason} -> error(conn, reason)
+    end
+  end
+
+  def overlay(conn, _params), do: error(conn, :invalid_tile)
+
+  defp overlay_budget(payload) when byte_size(payload) <= 262_144, do: :ok
+  defp overlay_budget(_payload), do: {:error, :payload_too_large}
+
+  defp json_payload(conn, content, payload, revision) do
+    etag = ~s("#{content.layout_version}:#{revision}")
+
+    conn =
+      conn
+      |> generation_headers(content)
+      |> put_resp_header("cache-control", "private, no-cache")
+      |> put_resp_header("etag", etag)
+
+    if matches_etag?(conn, etag),
+      do: send_resp(conn, :not_modified, ""),
+      else: conn |> put_resp_content_type("application/json") |> send_resp(:ok, payload)
   end
 
   def relayout(conn, _params) do
@@ -127,14 +151,21 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
   defp authorize(conn, _opts) do
     conn = put_resp_header(conn, "cache-control", "no-store")
 
+    case current_authority(conn) do
+      {:ok, current_scope} -> assign(conn, :current_scope, current_scope)
+      {:error, reason} -> conn |> error(reason) |> halt()
+    end
+  end
+
+  defp current_authority(conn) do
     with true <- FeatureFlags.god_view_enabled?(),
          %Scope{user: user} = scope when not is_nil(user) <- conn.assigns[:current_scope],
          {:ok, current_scope} <- RBAC.authorize_current(scope, ["analytics.view", "devices.view"]) do
-      assign(conn, :current_scope, current_scope)
+      {:ok, current_scope}
     else
-      false -> conn |> error(:god_view_disabled) |> halt()
-      {:error, _reason} -> conn |> error(:forbidden) |> halt()
-      _ -> conn |> error(:unauthorized) |> halt()
+      false -> {:error, :god_view_disabled}
+      {:error, _reason} -> {:error, :forbidden}
+      _ -> {:error, :unauthorized}
     end
   end
 
@@ -161,8 +192,8 @@ defmodule ServiceRadarWebNGWeb.TopologyTileController do
         :invalid_search -> {400, "invalid_search"}
         :invalid_detail -> {400, "invalid_detail"}
         :stale_revision -> {409, "stale_revision"}
-        :payload_too_large -> {413, "detail_budget_exceeded"}
-        :not_found -> {404, "device_not_found"}
+        :payload_too_large -> {413, "topology_budget_exceeded"}
+        :not_found -> {404, "topology_item_not_found"}
         :layout_changed -> {409, "layout_changed"}
         :busy -> {503, "tile_busy"}
         :not_ready -> {503, "world_not_ready"}
