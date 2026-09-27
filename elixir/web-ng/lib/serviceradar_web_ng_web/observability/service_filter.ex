@@ -21,9 +21,9 @@ defmodule ServiceRadarWebNGWeb.Observability.ServiceFilter do
 
   Token boundaries follow `rust/srql/src/parser/tokens.rs`: whitespace splits
   tokens except inside quotes (`"`, `'`, backquote) or parentheses/brackets, and a
-  backslash inside quotes escapes the next character. A list value goes
-  through that escape pass twice (once when the query is tokenized, once when
-  the list is split), so list items are escaped twice here.
+  backslash inside quotes escapes the next character. Values are decoded once,
+  scalar or list item alike: one level of backslash escapes and one outer quote
+  pair are removed. So every name is escaped exactly once here.
   """
 
   @field "service_name"
@@ -121,7 +121,7 @@ defmodule ServiceRadarWebNGWeb.Observability.ServiceFilter do
   def token(names) when is_list(names) do
     case normalize_names(names) do
       [] -> nil
-      [name] -> if scalar_safe?(name), do: ~s|#{@field}:"#{escape_scalar(name)}"|, else: list_token([name])
+      [name] -> if scalar_safe?(name), do: ~s|#{@field}:"#{escape_value(name)}"|, else: list_token([name])
       several -> list_token(several)
     end
   end
@@ -168,7 +168,7 @@ defmodule ServiceRadarWebNGWeb.Observability.ServiceFilter do
         if MapSet.member?(@wildcard_rejecting_tabs, target_tab) do
           {nil, :dropped}
         else
-          {base <> " " <> ~s|#{@field}:"#{escape_scalar(pattern)}"|, :carried}
+          {base <> " " <> ~s|#{@field}:"#{escape_value(pattern)}"|, :carried}
         end
 
       {:unsupported, _base} ->
@@ -214,55 +214,60 @@ defmodule ServiceRadarWebNGWeb.Observability.ServiceFilter do
   # Raw token text, quotes and escapes preserved, so a rejoined query is
   # byte-for-byte what the user typed apart from inter-token whitespace.
   @spec tokenize(String.t()) :: [String.t()]
-  def tokenize(query) when is_binary(query) do
-    {tokens, current, _state} =
-      query
-      |> String.graphemes()
-      |> Enum.reduce({[], [], %{quote: nil, depth: 0, escape: false}}, &tokenize_char/2)
+  def tokenize(query) when is_binary(query), do: split_outside_quotes(query, &(String.trim(&1) == ""))
 
-    tokens
-    |> push_token(current)
+  # parser/tokens.rs split_outside_quotes: split at `separator?` outside quotes
+  # and brackets, keeping each segment raw (quotes and backslashes included) and
+  # dropping empty ones. Decoding is `unquote_value/1`'s job alone.
+  defp split_outside_quotes(value, separator?) do
+    {segments, current, _state} =
+      value
+      |> String.graphemes()
+      |> Enum.reduce({[], [], %{quote: nil, depth: 0, escape: false}}, &split_char(&1, &2, separator?))
+
+    segments
+    |> push_segment(current)
     |> Enum.reverse()
   end
 
-  defp tokenize_char(ch, {tokens, current, %{escape: true} = state}) do
-    {tokens, [ch | current], %{state | escape: false}}
+  defp split_char(ch, {segments, current, %{escape: true} = state}, _separator?) do
+    {segments, [ch | current], %{state | escape: false}}
   end
 
-  defp tokenize_char(ch, {tokens, current, %{quote: q} = state}) when is_binary(q) do
+  defp split_char(ch, {segments, current, %{quote: q} = state}, _separator?) when is_binary(q) do
     cond do
-      ch == "\\" -> {tokens, [ch | current], %{state | escape: true}}
-      ch == q -> {tokens, [ch | current], %{state | quote: nil}}
-      true -> {tokens, [ch | current], state}
+      ch == "\\" -> {segments, [ch | current], %{state | escape: true}}
+      ch == q -> {segments, [ch | current], %{state | quote: nil}}
+      true -> {segments, [ch | current], state}
     end
   end
 
-  defp tokenize_char(ch, {tokens, current, state}) when ch in ["\"", "'", "`"] do
-    {tokens, [ch | current], %{state | quote: ch}}
+  defp split_char(ch, {segments, current, state}, _separator?) when ch in ["\"", "'", "`"] do
+    {segments, [ch | current], %{state | quote: ch}}
   end
 
-  defp tokenize_char(ch, {tokens, current, state}) when ch in ["(", "["] do
-    {tokens, [ch | current], %{state | depth: state.depth + 1}}
+  defp split_char(ch, {segments, current, state}, _separator?) when ch in ["(", "["] do
+    {segments, [ch | current], %{state | depth: state.depth + 1}}
   end
 
-  defp tokenize_char(ch, {tokens, current, state}) when ch in [")", "]"] do
-    {tokens, [ch | current], %{state | depth: max(state.depth - 1, 0)}}
+  defp split_char(ch, {segments, current, state}, _separator?) when ch in [")", "]"] do
+    {segments, [ch | current], %{state | depth: max(state.depth - 1, 0)}}
   end
 
-  defp tokenize_char(ch, {tokens, current, %{depth: 0} = state}) do
-    if String.trim(ch) == "" do
-      {push_token(tokens, current), [], state}
+  defp split_char(ch, {segments, current, %{depth: 0} = state}, separator?) do
+    if separator?.(ch) do
+      {push_segment(segments, current), [], state}
     else
-      {tokens, [ch | current], state}
+      {segments, [ch | current], state}
     end
   end
 
-  defp tokenize_char(ch, {tokens, current, state}), do: {tokens, [ch | current], state}
+  defp split_char(ch, {segments, current, state}, _separator?), do: {segments, [ch | current], state}
 
-  defp push_token(tokens, current) do
+  defp push_segment(segments, current) do
     case current |> Enum.reverse() |> Enum.join() |> String.trim() do
-      "" -> tokens
-      token -> [token | tokens]
+      "" -> segments
+      segment -> [segment | segments]
     end
   end
 
@@ -280,7 +285,7 @@ defmodule ServiceRadarWebNGWeb.Observability.ServiceFilter do
 
   defp token_value(token) do
     [_key, value] = String.split(token, ":", parts: 2)
-    value |> unescape_quoted() |> parse_value()
+    parse_value(value)
   end
 
   defp classify({:list, names}) do
@@ -307,13 +312,13 @@ defmodule ServiceRadarWebNGWeb.Observability.ServiceFilter do
       items =
         trimmed
         |> String.slice(1..-2//1)
-        |> split_list()
-        |> Enum.map(&trim_quotes/1)
+        |> split_outside_quotes(&(&1 == ","))
+        |> Enum.map(&unquote_value/1)
         |> Enum.reject(&(&1 == ""))
 
       {:list, items}
     else
-      {:scalar, trim_quotes(trimmed)}
+      {:scalar, unquote_value(trimmed)}
     end
   end
 
@@ -322,70 +327,36 @@ defmodule ServiceRadarWebNGWeb.Observability.ServiceFilter do
       (String.starts_with?(value, "[") and String.ends_with?(value, "]"))
   end
 
-  defp trim_quotes(value) do
-    value |> String.trim() |> String.trim("\"") |> String.trim("'")
-  end
+  # parser/tokens.rs unquote: the one decoding step. Inside a quoted span a
+  # backslash is dropped and the next character kept literally; outside quotes
+  # a backslash is ordinary. One outer `"` or `'` pair is removed when the value
+  # opens with it and ends on its unescaped closing quote.
+  defp unquote_value(raw) do
+    trimmed = String.trim(raw)
 
-  # The tokenizer's escape pass: inside quotes a backslash is dropped and the
-  # next character is kept literally. Quote characters themselves are kept.
-  defp unescape_quoted(value) do
-    {chars, _quote, _escape} =
-      value
+    {chars, _quote, escape, closed_by_last} =
+      trimmed
       |> String.graphemes()
-      |> Enum.reduce({[], nil, false}, fn
-        ch, {acc, q, true} -> {[ch | acc], q, false}
-        "\\", {acc, q, false} when is_binary(q) -> {acc, q, true}
-        ch, {acc, q, false} when is_binary(q) and ch == q -> {[ch | acc], nil, false}
-        ch, {acc, q, false} when is_binary(q) -> {[ch | acc], q, false}
-        ch, {acc, nil, false} when ch in ["\"", "'", "`"] -> {[ch | acc], ch, false}
-        ch, {acc, nil, false} -> {[ch | acc], nil, false}
-      end)
+      |> Enum.reduce({[], nil, false, nil}, &unquote_char/2)
 
-    chars |> Enum.reverse() |> Enum.join()
-  end
+    chars = if escape, do: ["\\" | chars], else: chars
+    decoded = chars |> Enum.reverse() |> Enum.join()
 
-  # parser/tokens.rs split_list: commas split outside quotes and brackets; the
-  # escape pass runs again inside quotes.
-  defp split_list(value) do
-    {items, current, _state} =
-      value
-      |> String.graphemes()
-      |> Enum.reduce({[], [], %{quote: nil, depth: 0, escape: false}}, &split_list_char/2)
+    opened_with = String.first(trimmed)
 
-    [current |> Enum.reverse() |> Enum.join() | items]
-    |> Enum.reverse()
-    |> Enum.map(&String.trim/1)
-  end
-
-  defp split_list_char(ch, {items, current, %{escape: true} = state}) do
-    {items, [ch | current], %{state | escape: false}}
-  end
-
-  defp split_list_char(ch, {items, current, %{quote: q} = state}) when is_binary(q) do
-    cond do
-      ch == "\\" -> {items, current, %{state | escape: true}}
-      ch == q -> {items, [ch | current], %{state | quote: nil}}
-      true -> {items, [ch | current], state}
+    if opened_with in ["\"", "'"] and closed_by_last == opened_with do
+      String.slice(decoded, 1..-2//1)
+    else
+      decoded
     end
   end
 
-  defp split_list_char(ch, {items, current, state}) when ch in ["\"", "'", "`"] do
-    {items, [ch | current], %{state | quote: ch}}
-  end
-
-  defp split_list_char(ch, {items, current, state}) when ch in ["(", "["] do
-    {items, [ch | current], %{state | depth: state.depth + 1}}
-  end
-
-  defp split_list_char(ch, {items, current, state}) when ch in [")", "]"] do
-    {items, [ch | current], %{state | depth: max(state.depth - 1, 0)}}
-  end
-
-  defp split_list_char(",", {items, current, %{depth: 0} = state}) do
-    {[current |> Enum.reverse() |> Enum.join() | items], [], state}
-  end
-
-  defp split_list_char(ch, {items, current, state}), do: {items, [ch | current], state}
+  defp unquote_char(ch, {acc, q, true, _closed}), do: {[ch | acc], q, false, nil}
+  defp unquote_char("\\", {acc, q, false, _closed}) when is_binary(q), do: {acc, q, true, nil}
+  defp unquote_char(ch, {acc, q, false, _closed}) when is_binary(q) and ch == q, do: {[ch | acc], nil, false, q}
+  defp unquote_char(ch, {acc, q, false, _closed}) when is_binary(q), do: {[ch | acc], q, false, nil}
+  defp unquote_char(ch, {acc, nil, false, _closed}) when ch in ["\"", "'", "`"], do: {[ch | acc], ch, false, nil}
+  defp unquote_char(ch, {acc, nil, false, _closed}), do: {[ch | acc], nil, false, nil}
 
   # -- value encoding ---------------------------------------------------------
 
@@ -394,17 +365,15 @@ defmodule ServiceRadarWebNGWeb.Observability.ServiceFilter do
   end
 
   defp list_token(names) do
-    items = Enum.map_join(names, ",", &~s|"#{escape_list_item(&1)}"|)
+    items = Enum.map_join(names, ",", &~s|"#{escape_value(&1)}"|)
     "#{@field}:(#{items})"
   end
 
-  # One escape pass: the tokenizer's.
-  defp escape_scalar(value) do
+  # The content of a double-quoted SRQL value. SRQL decodes it once, whether it
+  # is a scalar or a list item, so it is escaped once.
+  defp escape_value(value) do
     value
     |> String.replace("\\", "\\\\")
     |> String.replace("\"", "\\\"")
   end
-
-  # Two escape passes: `split_list` unescapes what survives the tokenizer.
-  defp escape_list_item(value), do: value |> escape_scalar() |> escape_scalar()
 end

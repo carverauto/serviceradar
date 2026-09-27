@@ -34,7 +34,7 @@ use entity::parse_entity;
 use filters::{MAX_FILTER_LIST_VALUES, build_filter};
 use order::parse_order;
 use stats::{MAX_STATS_EXPR_LEN, merge_stats_exprs, parse_stats_expr};
-use tokens::{parse_value, split_token, tokenize};
+use tokens::{parse_value, split_token, tokenize, unquote};
 
 pub fn parse(input: &str) -> Result<QueryAst> {
     let mut entity = None;
@@ -113,11 +113,7 @@ pub fn parse(input: &str) -> Result<QueryAst> {
                         ));
                     }
 
-                    let alias = alias_token
-                        .trim()
-                        .trim_matches('"')
-                        .trim_matches('\'')
-                        .to_string();
+                    let alias = unquote(&alias_token);
                     if alias.is_empty() {
                         return Err(ServiceError::InvalidRequest(
                             "stats aliases must be of the form 'stats:expr as alias'".into(),
@@ -153,11 +149,7 @@ pub fn parse(input: &str) -> Result<QueryAst> {
                         ));
                     }
 
-                    let field = field_token
-                        .trim()
-                        .trim_matches('"')
-                        .trim_matches('\'')
-                        .to_string();
+                    let field = unquote(&field_token);
                     if field.is_empty() {
                         return Err(ServiceError::InvalidRequest(
                             "stats group by field cannot be empty".into(),
