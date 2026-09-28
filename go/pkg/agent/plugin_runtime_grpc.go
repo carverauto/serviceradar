@@ -178,6 +178,9 @@ func (e *pluginExecution) hostGRPCUnary(ctx context.Context, mod api.Module, req
 		return pluginErrInvalid
 	}
 
+	callCtx, cancel := context.WithTimeout(ctx, call.timeout)
+	defer cancel()
+
 	// The destination is checked exactly as http_request checks it, before any
 	// resolution or dial.
 	permissions := &e.assignment.Permissions
@@ -190,7 +193,7 @@ func (e *pluginExecution) hostGRPCUnary(ctx context.Context, mod api.Module, req
 		return pluginErrDenied
 	}
 
-	dialAddr, code, unavailable := e.grpcDialAddress(ctx, call)
+	dialAddr, code, unavailable := e.grpcDialAddress(callCtx, call)
 	if code != pluginErrOK {
 		return code
 	}
@@ -204,7 +207,7 @@ func (e *pluginExecution) hostGRPCUnary(ctx context.Context, mod api.Module, req
 	}
 	defer e.releaseTransientConnection()
 
-	return e.invokeGRPCUnary(ctx, mod, call, dialAddr, respPtr, respLen)
+	return e.invokeGRPCUnary(callCtx, mod, call, dialAddr, respPtr, respLen)
 }
 
 // grpcDialAddress returns the address to dial. A plaintext (h2c) call must land
@@ -235,11 +238,9 @@ func (e *pluginExecution) grpcDialAddress(ctx context.Context, call grpcUnaryCal
 		return net.JoinHostPort(call.hostAddr.String(), port), pluginErrOK, nil
 	}
 
-	lookupCtx, cancel := context.WithTimeout(ctx, call.timeout)
-	defer cancel()
-	addrs, err := net.DefaultResolver.LookupIPAddr(lookupCtx, call.host)
+	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, call.host)
 	if err != nil {
-		if errors.Is(lookupCtx.Err(), context.DeadlineExceeded) {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			return "", pluginErrTimeout, nil
 		}
 		return "", pluginErrOK, err
@@ -304,8 +305,7 @@ func (e *pluginExecution) invokeGRPCUnary(
 		_ = conn.Close()
 	}()
 
-	callCtx, cancel := context.WithTimeout(ctx, call.timeout)
-	defer cancel()
+	callCtx := ctx
 	if len(call.metadata) > 0 {
 		callCtx = metadata.NewOutgoingContext(callCtx, call.metadata)
 	}
@@ -335,7 +335,7 @@ func (e *pluginExecution) invokeGRPCUnary(
 		// The deadline travels to the server as grpc-timeout, so a server that
 		// honors it can answer DEADLINE_EXCEEDED a moment before the local timer
 		// fires. Both are the same timeout to the guest.
-		if errors.Is(callCtx.Err(), context.DeadlineExceeded) || st.Code() == codes.DeadlineExceeded {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) || st.Code() == codes.DeadlineExceeded {
 			e.logPluginHostGRPCFailure(invokeErr, call, "timeout")
 			return pluginErrTimeout
 		}
