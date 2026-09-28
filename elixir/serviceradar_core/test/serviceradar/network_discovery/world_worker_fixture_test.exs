@@ -158,22 +158,50 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
 
     IO.puts("WORLD_SCALE_PHASE reload persist_ms=#{div(persist_us, 1000)}")
 
+    handler = {__MODULE__, :reload_queries, make_ref()}
+    event = Repo.config() |> Keyword.fetch!(:telemetry_prefix) |> Kernel.++([:query])
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        event,
+        fn _event, timings, metadata, owner ->
+          query = metadata.query
+
+          if String.contains?(query, "topology_world_") do
+            rows =
+              case metadata.result do
+                {:ok, %{num_rows: count}} -> count
+                _ -> 0
+              end
+
+            send(owner, {:reload_query, query, rows, timings})
+          end
+        end,
+        self()
+      )
+
     {reload_us, result} =
-      :timer.tc(fn ->
-        World.stream_active(nil, fn
-          {:manifest, manifest}, nil ->
-            TopologyAtlas.new_builder(manifest.layout_version, manifest.zmax)
+      try do
+        :timer.tc(fn ->
+          World.stream_active(nil, fn
+            {:manifest, manifest}, nil ->
+              TopologyAtlas.new_builder(manifest.layout_version, manifest.zmax)
 
-          {:positions, rows}, builder ->
-            :ok = TopologyAtlas.add_positions(builder, rows)
-            {:ok, builder}
+            {:positions, rows}, builder ->
+              :ok = TopologyAtlas.add_positions(builder, rows)
+              {:ok, builder}
 
-          {:relations, rows}, builder ->
-            :ok = TopologyAtlas.add_relations(builder, rows)
-            {:ok, builder}
+            {:relations, rows}, builder ->
+              :ok = TopologyAtlas.add_relations(builder, rows)
+              {:ok, builder}
+          end)
         end)
-      end)
+      after
+        :telemetry.detach(handler)
+      end
 
+    IO.puts("WORLD_RELOAD_QUERIES " <> Jason.encode!(reload_query_timings(%{})))
     assert {:ok, builder} = result
     {index_us, result} = :timer.tc(fn -> TopologyAtlas.finish_world(builder) end)
     assert {:ok, world} = result
@@ -207,6 +235,45 @@ defmodule ServiceRadar.NetworkDiscovery.WorldWorkerFixtureTest do
 
     # The guarded lifecycle owns and drops this entire scratch database after
     # this final case. Do not spend another full write pass deleting its rows.
+  end
+
+  # Ecto query shapes contain placeholders; never include parameter or row values.
+  defp reload_query_timings(totals) do
+    receive do
+      {:reload_query, query, rows, timings} ->
+        sample =
+          Map.get(totals, query, %{
+            queries: 0,
+            rows: 0,
+            query_us: 0,
+            decode_us: 0,
+            queue_us: 0,
+            max_query_us: 0
+          })
+
+        query_us =
+          System.convert_time_unit(Map.get(timings, :query_time, 0), :native, :microsecond)
+
+        decode_us =
+          System.convert_time_unit(Map.get(timings, :decode_time, 0), :native, :microsecond)
+
+        queue_us =
+          System.convert_time_unit(Map.get(timings, :queue_time, 0), :native, :microsecond)
+
+        sample = %{
+          sample
+          | queries: sample.queries + 1,
+            rows: sample.rows + rows,
+            query_us: sample.query_us + query_us,
+            decode_us: sample.decode_us + decode_us,
+            queue_us: sample.queue_us + queue_us,
+            max_query_us: max(sample.max_query_us, query_us)
+        }
+
+        reload_query_timings(Map.put(totals, query, sample))
+    after
+      0 -> totals
+    end
   end
 
   defp fixture_rows(path, kind, decoder) do

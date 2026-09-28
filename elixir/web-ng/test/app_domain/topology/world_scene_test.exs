@@ -40,6 +40,15 @@ defmodule ServiceRadarWebNG.Topology.WorldSceneTest do
     assert {:error, :invalid_detail} = WorldScene.encode(%{level | nodes: [hd(level.nodes)]})
   end
 
+  test "detail Arrow carries endpoint topology classification separately from evidence" do
+    level = level()
+    [edge] = level.edges
+    assert {:ok, encoded} = WorldScene.encode(%{level | edges: [%{edge | evidence_class: "endpoint-attachment"}]})
+    assert :binary.match(encoded.payload, "endpoint-attachment") != :nomatch
+    assert :binary.match(encoded.payload, "endpoints") != :nomatch
+    assert :binary.match(encoded.payload, "backbone") == :nomatch
+  end
+
   defp level do
     %{
       level_id: "world-detail:invented-page-a",

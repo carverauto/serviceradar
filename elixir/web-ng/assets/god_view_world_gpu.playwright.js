@@ -133,9 +133,17 @@ for (const deviceScaleFactor of [1, 2]) {
       await expect(page.locator("#status")).toContainText("GPU smoke: webgpu")
       await expect(page.locator("#status")).toContainText("decoded tiles=4")
 
-      // The canvas starts 100 CSS pixels below the top of the page. The first
-      // invented node projects near (368, 129) within that canvas, off-center.
-      await page.mouse.click(368, 229)
+      // Wait for the real picking pass before sending the one DOM click.
+      const node = {x: 368, y: 129}
+      await expect.poll(() => page.evaluate(async ({x, y}) => {
+        const info = await window.__SR_WORLD_GPU_SMOKE__.deck.pickObjectAsync({x, y, radius: 0})
+        return info?.object?.id ?? null
+      }, node), {timeout: 15_000}).toBe("invented-router")
+      const point = await page.evaluate(({x, y}) => {
+        const rect = document.querySelector("#map").getBoundingClientRect()
+        return {x: rect.left + x, y: rect.top + y}
+      }, node)
+      await page.mouse.click(point.x, point.y)
       await expect(page.locator("#status")).toContainText("picked=invented-router")
       const picked = await page.evaluate(async () => {
         const {deck} = window.__SR_WORLD_GPU_SMOKE__
