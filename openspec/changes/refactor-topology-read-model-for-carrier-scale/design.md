@@ -27,7 +27,7 @@ The shared invented million-device/two-million-relation generator exercises dete
 
 The overview uses server-authored persistent world coordinates. A browser never lays out the whole canonical topology. Bounded ELK scenes remain separate coordinate spaces for a selected device neighborhood or a page of attachment members. Entering detail saves the map camera and selection; exit restores them without moving the world.
 
-Reuse the jointly paged Dgraph canonical reader, RuntimeSupervisor failure retention, stable semantic identities, component/attachment grouping, bounded detail selection, scoped inventory reads, and current-authority checks. The existing semantic-level content hash includes telemetry and cannot be reused as a geometry tile ETag. Existing Atlas global/component pages are useful detail/index foundations, not the tile overview implementation.
+Reuse the jointly paged Dgraph canonical reader, the application-supervised RuntimeGraph refresh with last-published retention, stable semantic identities, component/attachment grouping, bounded detail selection, scoped inventory reads, and current-authority checks. The existing semantic-level content hash includes telemetry and cannot be reused as a geometry tile ETag. The former Atlas semantic-level serving surface (the levels channel mode, the snapshot revisions endpoint, and AtlasStore level publication) was removed in favor of persisted-world tiles; enriched bounded level pages remain the detail-scene foundation.
 
 ### Decision: Publish immutable generations within a stable coordinate version
 

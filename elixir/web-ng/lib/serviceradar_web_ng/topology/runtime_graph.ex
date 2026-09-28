@@ -11,10 +11,6 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   use GenServer
 
   alias ServiceRadar.Repo
-  alias ServiceRadarWebNG.Topology.Atlas
-  alias ServiceRadarWebNG.Topology.AtlasSource
-  alias ServiceRadarWebNG.Topology.AtlasStore
-  alias ServiceRadarWebNG.Topology.GodViewStream
   alias ServiceRadarWebNG.Topology.Native
 
   require Logger
@@ -196,9 +192,9 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
 
   defp do_refresh_state(state) do
     case fetch_topology_from_dgraph() do
-      {:ok, rows, vertices} ->
+      {:ok, rows} ->
         normalized_rows = normalize_runtime_rows(rows)
-        publish_runtime_rows(state, rows, normalized_rows, vertices)
+        publish_runtime_rows(state, rows, normalized_rows)
 
       {:error, reason} ->
         Logger.warning("runtime_graph_refresh_failed reason=#{inspect(reason)}")
@@ -206,37 +202,23 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
     end
   end
 
-  defp publish_runtime_rows(state, rows, normalized_rows, vertices) do
-    edges = normalized_rows |> decode_runtime_rows() |> GodViewStream.runtime_links_to_edges()
+  defp publish_runtime_rows(state, rows, normalized_rows) do
+    legacy_rows = prioritize_runtime_rows(normalized_rows)
+    ingested = Native.runtime_graph_ingest_rows(state.graph_ref, legacy_rows)
 
-    with {:ok, nodes} <- AtlasSource.decode_nodes(vertices, edges),
-         {:ok, atlas} <- Atlas.build(nodes, edges),
-         :ok <- AtlasStore.publish(atlas) do
-      # The schema-2 compatibility reader remains bounded until the schema-3
-      # client replaces it. Atlas receives the complete canonical source above.
-      legacy_rows = prioritize_runtime_rows(normalized_rows)
-      ingested = Native.runtime_graph_ingest_rows(state.graph_ref, legacy_rows)
+    Logger.info(
+      "runtime_graph_refresh fetched=#{length(rows)} normalized=#{length(normalized_rows)} dropped=#{max(length(rows) - length(normalized_rows), 0)} ingested=#{ingested}"
+    )
 
-      Logger.info(
-        "runtime_graph_refresh fetched=#{length(rows)} normalized=#{length(normalized_rows)} dropped=#{max(length(rows) - length(normalized_rows), 0)} ingested=#{ingested} atlas_nodes=#{length(nodes)} atlas_edges=#{length(edges)}"
-      )
-
-      %{state | last_refresh_at: DateTime.utc_now()}
-    else
-      {:error, reason} ->
-        Logger.warning("runtime_graph_atlas_failed reason=#{inspect(reason)}")
-        state
-    end
+    %{state | last_refresh_at: DateTime.utc_now()}
   end
 
   defp fetch_topology_from_dgraph do
     case ServiceRadar.Dgraph.query_canonical_graph() do
-      {:ok, %{nodes: vertices, edges: edges}} when is_list(vertices) and is_list(edges) ->
+      {:ok, %{nodes: _vertices, edges: edges}} when is_list(edges) ->
         rows = Enum.map(edges, &canonical_edge_to_runtime_row/1)
 
-        with {:ok, rows} <- fetch_topology_links_with_virtualization(rows) do
-          {:ok, rows, vertices}
-        end
+        fetch_topology_links_with_virtualization(rows)
 
       {:ok, _invalid} ->
         {:error, :invalid_canonical_graph}
@@ -375,8 +357,8 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
 
   @sobelow_skip ["SQL.Query"]
   defp fetch_virtualization_links_from_inventory do
-    # PostgreSQL LIMIT NULL means ALL. Limit membership in Atlas levels, not in
-    # the canonical source, or guests beyond the old cap can never be reached.
+    # PostgreSQL LIMIT NULL means ALL. The virtualization membership must not
+    # carry an implicit cap, or guests beyond the old limit can never be reached.
     case Repo.query(virtualization_inventory_links_query(), [nil]) do
       {:ok, %{rows: rows}} when is_list(rows) ->
         {:ok, Enum.map(rows, &first_column/1)}

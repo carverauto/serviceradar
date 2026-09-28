@@ -1,7 +1,6 @@
 defmodule ServiceRadarWebNG.Topology.AtlasLevelTest do
   use ExUnit.Case, async: true
 
-  alias ServiceRadarWebNG.Topology.Atlas
   alias ServiceRadarWebNG.Topology.AtlasLevel
 
   @moduletag :db_free
@@ -112,21 +111,38 @@ defmodule ServiceRadarWebNG.Topology.AtlasLevelTest do
   end
 
   defp selected_levels do
-    nodes = Enum.map(1..4, &%{id: "sr:synthetic-#{&1}", label: "Graph node #{&1}"})
+    first = component_level("component:synthetic-one", ["sr:synthetic-1", "sr:synthetic-2"])
+    second = component_level("component:synthetic-two", ["sr:synthetic-3", "sr:synthetic-4"])
+    global = aggregate_level("global", [first, second])
 
-    edges = [
-      %{id: "link-1", source: "sr:synthetic-1", target: "sr:synthetic-2", evidence_class: "direct"},
-      %{id: "link-2", source: "sr:synthetic-3", target: "sr:synthetic-4", evidence_class: "direct"}
-    ]
+    {global, first, second}
+  end
 
-    {:ok, index} = Atlas.build(nodes, edges)
-    {:ok, global} = Atlas.fetch(index)
-    [first, second] = Enum.map(global.nodes, & &1.child_level_id)
-    {:ok, first} = Atlas.fetch(index, first)
-    {:ok, second} = Atlas.fetch(index, second)
+  defp component_level(id, [first_id, second_id] = node_ids) do
+    %{
+      id: id,
+      nodes: Enum.map(node_ids, fn node_id -> %{id: node_id, label: "Graph node #{node_id}"} end),
+      edges: [%{id: "link-1", source: first_id, target: second_id, evidence_class: "direct"}],
+      budgets: %{nodes: 4, edges: 2, labels: 4, members: 4},
+      revision: 1,
+      structure_revision: 1,
+      canonical_revision: 100
+    }
+  end
 
-    {Map.put(global, :canonical_revision, index.revision), Map.put(first, :canonical_revision, index.revision),
-     Map.put(second, :canonical_revision, index.revision)}
+  defp aggregate_level(id, components) do
+    %{
+      id: id,
+      nodes:
+        Enum.map(components, fn component ->
+          %{id: "aggregate:#{component.id}", label: "Aggregate #{component.id}", aggregate: true}
+        end),
+      edges: [],
+      budgets: %{nodes: 2, edges: 0, labels: 2, members: 4},
+      revision: 1,
+      structure_revision: 1,
+      canonical_revision: 100
+    }
   end
 
   defp devices do

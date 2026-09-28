@@ -1102,7 +1102,6 @@ defmodule ServiceRadarWebNGWeb.Router do
     pipe_through([:topology_api])
 
     get("/latest", TopologySnapshotController, :show)
-    get("/revisions", TopologySnapshotController, :revisions)
   end
 
   scope "/topology", ServiceRadarWebNGWeb do

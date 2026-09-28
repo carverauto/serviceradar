@@ -37,7 +37,6 @@ export default class GodViewRenderer {
   }
 
   async mountScene(payload, headers) {
-    this.context.state.sceneOnly = true
     this.mount()
     const lifecycle = this.context.lifecycle
     // The world owner supplies scene-local callbacks, never global subscriptions.

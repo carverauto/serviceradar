@@ -63,4 +63,13 @@ defmodule ServiceRadarWebNGWeb.TopologySnapshotControllerTest do
     assert conn.status == 403
     assert Jason.decode!(conn.resp_body) == %{"error" => "forbidden"}
   end
+
+  test "show returns unavailable when god view is disabled", %{conn: conn} do
+    Application.put_env(:serviceradar_web_ng, :god_view_enabled, false)
+
+    conn = get(conn, ~p"/topology/snapshot/latest")
+
+    assert conn.status == 404
+    assert Jason.decode!(conn.resp_body) == %{"error" => "god_view_disabled"}
+  end
 end

@@ -6,11 +6,9 @@ defmodule ServiceRadarWebNGWeb.Topology.AtlasControlTest do
   alias ServiceRadarWebNGWeb.Auth.ConfigCache
   alias ServiceRadarWebNGWeb.Endpoint
   alias ServiceRadarWebNGWeb.Router
-  alias ServiceRadarWebNGWeb.TopologyChannel
   alias ServiceRadarWebNGWeb.TopologySnapshotController
 
   @moduletag :db_free
-  @topic "topology:god_view"
 
   setup do
     previous_flag = Application.get_env(:serviceradar_web_ng, :god_view_enabled)
@@ -28,13 +26,11 @@ defmodule ServiceRadarWebNGWeb.Topology.AtlasControlTest do
   test "topology routes return JSON auth failures while the browser route keeps its redirect" do
     prepare_auth_cache()
 
-    for path <- ["/topology/snapshot/latest", "/topology/snapshot/revisions"] do
-      conn = route(path)
-      assert conn.status == 401
-      assert Jason.decode!(conn.resp_body) == %{"error" => "unauthorized"}
-      assert get_resp_header(conn, "location") == []
-      assert get_resp_header(conn, "cache-control") == ["no-store"]
-    end
+    conn = route("/topology/snapshot/latest")
+    assert conn.status == 401
+    assert Jason.decode!(conn.resp_body) == %{"error" => "unauthorized"}
+    assert get_resp_header(conn, "location") == []
+    assert get_resp_header(conn, "cache-control") == ["no-store"]
 
     assert route("/topology").status == 302
 
@@ -44,34 +40,17 @@ defmodule ServiceRadarWebNGWeb.Topology.AtlasControlTest do
     )
 
     :sys.get_state(ConfigCache)
-    rejected = route("/topology/snapshot/revisions", [{"authorization", "Bearer invalid"}])
+    rejected = route("/topology/snapshot/latest", [{"authorization", "Bearer invalid"}])
     assert rejected.status == 401
     assert Jason.decode!(rejected.resp_body)["error"] == "unauthorized"
     assert get_resp_header(rejected, "location") == []
     assert get_resp_header(rejected, "cache-control") == ["no-store"]
   end
 
-  test "metadata HTTP authenticates before validating requests or reading an atlas" do
-    conn = TopologySnapshotController.revisions(Plug.Test.conn(:get, "/"), %{"level_ids" => "invalid"})
+  test "detail HTTP authenticates before validating requests" do
+    conn = TopologySnapshotController.show(Plug.Test.conn(:get, "/"), %{})
     assert conn.status == 401
     assert Jason.decode!(conn.resp_body) == %{"error" => "unauthorized"}
-  end
-
-  test "disabled metadata is unavailable without accessing authority or inventory" do
-    Application.put_env(:serviceradar_web_ng, :god_view_enabled, false)
-    disabled = TopologySnapshotController.revisions(Plug.Test.conn(:get, "/"), %{})
-    assert disabled.status == 404
-    assert Jason.decode!(disabled.resp_body) == %{"error" => "god_view_disabled"}
-  end
-
-  test "channel rejects missing authentication before handling control requests" do
-    socket = %Phoenix.Socket{assigns: %{current_user: %{id: "user01"}}}
-    assert {:error, %{reason: "unauthorized"}} = TopologyChannel.join(@topic, %{}, socket)
-
-    for event <- ["levels:watch", "cluster:set_expanded", "cluster:collapse_all"] do
-      assert {:reply, {:error, %{reason: "unauthorized"}}, ^socket} =
-               TopologyChannel.handle_in(event, %{}, socket)
-    end
   end
 
   defp prepare_auth_cache do

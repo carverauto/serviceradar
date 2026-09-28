@@ -8,12 +8,6 @@ const godViewLifecycleCoreMethods = {
     this.bindLifecycleMethods()
     this.attachLifecycleDom()
     this.initWasmEngine()
-    // A bounded detail scene is supplied by its owning world view. It has no
-    // whole-graph bootstrap, channel, or independent LiveView event handlers.
-    if (this.state.sceneOnly) return
-    this.registerLifecycleEvents()
-    this.bootstrapLatestSnapshot()
-    this.setupSnapshotChannel()
   },
   destroyed() {
     this.cleanupLifecycle()

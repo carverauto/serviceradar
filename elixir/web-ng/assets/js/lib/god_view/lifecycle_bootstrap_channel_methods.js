@@ -1,4 +1,3 @@
-import {godViewLifecycleBootstrapChannelSocketMethods} from "./lifecycle_bootstrap_channel_socket_methods"
 import {godViewLifecycleBootstrapChannelEventMethods} from "./lifecycle_bootstrap_channel_event_methods"
 
 const SNAPSHOT_MAGIC = "GVB1"
@@ -17,74 +16,7 @@ function parseGeneratedAtMs(headers, name) {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
-function putOptionalHeaderInt(stats, headers, key, name) {
-  const raw = headers?.get?.(name)
-  if (raw === null || raw === undefined || raw === "") return
-  const parsed = Number(raw)
-  if (Number.isFinite(parsed) && parsed >= 0) stats[key] = parsed
-}
-
-function pipelineStatsFromHeaders(headers) {
-  const stats = {
-    raw_links: parseHeaderInt(headers, "x-sr-god-view-pipeline-raw-links"),
-    unique_pairs: parseHeaderInt(headers, "x-sr-god-view-pipeline-unique-pairs"),
-    final_edges: parseHeaderInt(headers, "x-sr-god-view-pipeline-final-edges"),
-    final_direct: parseHeaderInt(headers, "x-sr-god-view-pipeline-final-direct"),
-    final_inferred: parseHeaderInt(headers, "x-sr-god-view-pipeline-final-inferred"),
-    final_attachment: parseHeaderInt(headers, "x-sr-god-view-pipeline-final-attachment"),
-    unresolved_endpoints: parseHeaderInt(headers, "x-sr-god-view-pipeline-unresolved-endpoints"),
-    edge_telemetry_interface: parseHeaderInt(headers, "x-sr-god-view-pipeline-edge-telemetry-interface"),
-    edge_telemetry_fallback: parseHeaderInt(headers, "x-sr-god-view-pipeline-edge-telemetry-fallback"),
-    edge_unresolved_directional: parseHeaderInt(headers, "x-sr-god-view-pipeline-edge-unresolved-directional"),
-  }
-
-  // Per-edge-class counts are only set when the server actually sent them so
-  // the backbone-empty predicate never fires on zero-filled defaults.
-  putOptionalHeaderInt(stats, headers, "edge_class_backbone", "x-sr-god-view-pipeline-edge-class-backbone")
-  putOptionalHeaderInt(stats, headers, "edge_class_attachment", "x-sr-god-view-pipeline-edge-class-attachment")
-  putOptionalHeaderInt(stats, headers, "edge_class_inferred", "x-sr-god-view-pipeline-edge-class-inferred")
-  putOptionalHeaderInt(stats, headers, "edge_class_hosted", "x-sr-god-view-pipeline-edge-class-hosted")
-  putOptionalHeaderInt(stats, headers, "edge_class_observed", "x-sr-god-view-pipeline-edge-class-observed")
-  putOptionalHeaderInt(stats, headers, "backbone_edge_count", "x-sr-god-view-pipeline-backbone-edge-count")
-
-  return stats
-}
-
 const godViewLifecycleBootstrapChannelCoreMethods = {
-  async bootstrapLatestSnapshot() {
-    const url = this.state.el?.dataset?.url
-    if (typeof url !== "string" || url.trim() === "" || typeof fetch !== "function") return false
-    if (this.state.snapshotBootstrapPromise) return this.state.snapshotBootstrapPromise
-
-    const promise = (async () => {
-      const response = await fetch(url, {
-        credentials: "same-origin",
-        headers: {Accept: "application/octet-stream"},
-      })
-
-      if (!response.ok) {
-        throw new Error(`snapshot bootstrap http ${response.status}`)
-      }
-
-      const payload = await response.arrayBuffer()
-      this.state.lastPipelineStats = pipelineStatsFromHeaders(response.headers)
-      await this.handleSnapshot(this.buildSnapshotFrameFromHttpResponse(payload, response.headers))
-      return true
-    })()
-      .catch((error) => {
-        if (!this.state.lastGraph && this.state.summary) {
-          this.state.summary.textContent = "waiting for topology snapshot"
-        }
-        this.reportSnapshotStartupError?.("snapshot_bootstrap_failed", {message: `${error}`})
-        return false
-      })
-      .finally(() => {
-        if (this.state.snapshotBootstrapPromise === promise) this.state.snapshotBootstrapPromise = null
-      })
-
-    this.state.snapshotBootstrapPromise = promise
-    return promise
-  },
   buildSnapshotFrameFromHttpResponse(payloadBuffer, headers) {
     const payload = new Uint8Array(payloadBuffer || new ArrayBuffer(0))
     const out = new Uint8Array(SNAPSHOT_HEADER_BYTES + payload.byteLength)
@@ -113,17 +45,10 @@ const godViewLifecycleBootstrapChannelCoreMethods = {
 
     return out.buffer
   },
-  setupSnapshotChannel() {
-    const socket = this.ensureGodViewSocket()
-    this.state.channel = socket.channel("topology:god_view", {})
-    this.registerSnapshotChannelEvents(this.state.channel)
-    this.joinSnapshotChannel(this.state.channel)
-  },
 }
 
 export const godViewLifecycleBootstrapChannelMethods = Object.assign(
   {},
   godViewLifecycleBootstrapChannelCoreMethods,
-  godViewLifecycleBootstrapChannelSocketMethods,
   godViewLifecycleBootstrapChannelEventMethods,
 )

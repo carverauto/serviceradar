@@ -28,8 +28,8 @@ defmodule ServiceRadarWebNG.Application do
       [
         # Web telemetry
         ServiceRadarWebNG.Topology.WorldSupervisor,
-        # Atlas index and runtime graph links served to dashboard and snapshot readers.
-        ServiceRadarWebNG.Topology.RuntimeSupervisor,
+        # Runtime topology link cache served to the dashboard and God View streams.
+        ServiceRadarWebNG.Topology.RuntimeGraph,
         # Runtime index of package-shipped display and config contracts. Owns an
         # ETS table so a LiveView mount - including a disconnected one - resolves
         # a contract without querying.
