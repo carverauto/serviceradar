@@ -9,6 +9,8 @@ import test from "node:test"
 import React from "react"
 import {renderToStaticMarkup} from "react-dom/server"
 
+import {framesEqual} from "@carverauto/serviceradar-dashboard-sdk/frames"
+
 import {createDemoKit} from "./kit.js"
 import {faultTriggers, foldIncidents, headlineIncident, isFaultEvent, scheduleStatus} from "./presenter.js"
 
@@ -55,6 +57,13 @@ test("both fixtures are harness object form: schedule frames, fault actions, tim
       ["overheat"],
     )
   }
+})
+
+test("fixture swaps are visible to SDK frame reconciliation", () => {
+  const steady = loadFixture("presenter-steady.json")
+  const fault = loadFixture("presenter-fault.json")
+
+  assert.equal(framesEqual(steady.frames, fault.frames), false)
 })
 
 test("steady renders the countdown and trigger with no incident", () => {

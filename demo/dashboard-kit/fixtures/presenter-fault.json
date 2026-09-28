@@ -5,6 +5,7 @@
       "query": "in:timeseries_metrics metric_name:(demo.fault.active,demo.fault.next_at) latest:true",
       "encoding": "json_rows",
       "status": "ok",
+      "refreshed_at": "2026-01-01T00:00:10Z",
       "results": [
         {
           "metric_name": "demo.fault.active",
