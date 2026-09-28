@@ -405,18 +405,22 @@ Each hourly CAGG SHALL have a TimescaleDB continuous aggregate refresh policy (s
 - **WHEN** the retention policy runs
 - **THEN** data older than 395 days is dropped from the CAGG
 
-### Requirement: Logs queries use effective timestamps for time filters and ordering
-For the logs entity, SRQL SHALL apply time filters and default ordering against an effective timestamp that coalesces `observed_timestamp` with the event `timestamp`.
+### Requirement: Logs queries window and order by the event timestamp
+For the logs entity, SRQL SHALL apply time filters and ordering against the event `timestamp` column on both backends, so CNPG and StarRocks return identical windows and ordering for a log line regardless of its `observed_timestamp`.
 
-#### Scenario: Time filter uses observed timestamp fallback
-- **GIVEN** a log record with `observed_timestamp` set later than `timestamp`
+#### Scenario: Time filter uses the event timestamp
+- **GIVEN** a log record whose `observed_timestamp` (the collection instant) is set later than its event `timestamp`
 - **WHEN** a client queries `in:logs time:last_1h`
-- **THEN** SRQL SHALL evaluate the time range against the observed timestamp
+- **THEN** SRQL SHALL evaluate the time range against the event `timestamp`
 
-#### Scenario: Default ordering uses effective timestamp
-- **GIVEN** logs with mixed observed timestamps and event timestamps
+#### Scenario: Ordering uses the event timestamp
+- **GIVEN** logs whose `observed_timestamp` disagrees with their event `timestamp`
 - **WHEN** a client queries `in:logs sort:timestamp:desc`
-- **THEN** SRQL SHALL order by the effective timestamp first
+- **THEN** SRQL SHALL order by the event `timestamp`
+
+#### Scenario: Default ordering uses the event timestamp
+- **WHEN** a client queries `in:logs` without an explicit `sort:`
+- **THEN** SRQL SHALL order by event `timestamp` descending, then `severity_number` descending
 
 ### Requirement: SRQL Is The Only Data Source For NetFlow Visualize Widgets
 All NetFlow Visualize charts and tables SHALL be backed by SRQL queries. The UI SHALL NOT execute Ecto queries to generate chart datasets.
