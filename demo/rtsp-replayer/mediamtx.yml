@@ -1,0 +1,25 @@
+# MediaMTX configuration for the showcase demo RTSP replayer.
+#
+# Minimal surface: RTSP only (the agent relay reads RTSP), Prometheus metrics
+# for observability. Every path accepts ffmpeg publishers; the replayer
+# supervisor starts one ffmpeg per entry in paths.json. Key names follow
+# MediaMTX v1.21 (see the pinned release tarball's default mediamtx.yml).
+logLevel: info
+logDestinations: [stdout]
+
+rtsp: true
+rtspAddress: :8554
+
+rtmp: false
+hls: false
+webrtc: false
+srt: false
+
+api: false
+
+metrics: true
+metricsAddress: :9998
+
+paths:
+  all_others:
+    source: publisher

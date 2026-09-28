@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "notes": "RTSP paths served by the replayer. More drones than clips: each clip loops on two paths at different start offsets so simultaneous tiles do not show identical frames.",
+  "paths": [
+    {"path": "drone-highway", "clip": "highway-401", "start_offset_seconds": 0},
+    {"path": "drone-highway-b", "clip": "highway-401", "start_offset_seconds": 13.5},
+    {"path": "drone-quarry", "clip": "quarry-excavators", "start_offset_seconds": 0},
+    {"path": "drone-quarry-b", "clip": "quarry-excavators", "start_offset_seconds": 10},
+    {"path": "drone-surf", "clip": "tamarama-surf", "start_offset_seconds": 0},
+    {"path": "drone-surf-b", "clip": "tamarama-surf", "start_offset_seconds": 55.5}
+  ]
+}

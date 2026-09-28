@@ -1,0 +1,110 @@
+# RTSP replayer (showcase demo video)
+
+Serves licensed drone clips as looping RTSP paths through the real product
+relay. Design: `add-showcase-demo-portfolio` D8 (tasks 9.1-9.2).
+
+## How it works
+
+The `replayer` supervisor (Go, stdlib only) runs MediaMTX plus one ffmpeg
+publisher per entry in [paths.json](paths.json):
+
+1. List the bucket and **refuse startup** if any object falls outside
+   [clips.lock.json](clips.lock.json), or if a download's SHA-256 mismatches.
+2. Wait for MediaMTX's RTSP port, then start one publisher per path:
+   `ffmpeg -re -ss <offset> -stream_loop -1 -i <clip> -c copy -f rtsp ...`.
+3. If any child exits, stop the rest and exit nonzero (Kubernetes restarts).
+
+More drones than clips: each clip loops on two paths at different start
+offsets, so simultaneous tiles never show identical frames.
+
+## Clips
+
+All footage is aerial/drone perspective with detectable content (vehicles,
+machinery, people, infrastructure), transcoded once to H.264 with no
+B-frames because the agent relay is H.264-only. Originals live on
+Wikimedia Commons; transcodes live in the Linode bucket
+`serviceradar-demo-drone-clips`, never in git.
+
+| clip | content | license | author | source |
+| --- | --- | --- | --- | --- |
+| highway-401 | Highway 401 overpasses at sunset, traffic | CC BY 2.0 | InOldNews / Katherine KY Cheng | [Commons](https://commons.wikimedia.org/wiki/File:Aerial_view_(zoom_in)_of_overpasses_crossing_over_Highway_401_during_sunset_in_Toronto,_Canada..webm) |
+| quarry-excavators | Quarry with excavators and haul trucks | CC0 1.0 | Bellergy | [Commons](https://commons.wikimedia.org/wiki/File:Miejscu-pracy-koparka-budowlanych-3741.webm) |
+| tamarama-surf | Drone over body surfers, Tamarama | CC BY 3.0 | Poseidon's Reach | [Commons](https://commons.wikimedia.org/wiki/File:Drone_video_of_people_in_water_-_body_surfing_(East_Sydney_at_Tamarama).webm) |
+
+CC BY clips require attribution: credit author + license wherever demo
+footage is shown or described. `clips.lock.json` records key, sha256,
+duration, resolution, license and source per clip.
+
+Transcode recipe (ffmpeg 8.x, `-bf 0` is the requirement; GOP 60 keeps
+stream joins under ~2 s):
+
+```sh
+ffmpeg -i <original> -c:v libx264 -preset slow -crf 20 -bf 0 -g 60 \
+  -pix_fmt yuv420p -an -movflags +faststart <clip>.mp4
+# quarry only: scale the 4K original down with -vf scale=1920:1080
+```
+
+## Build
+
+```sh
+bazel test --config=remote //demo/rtsp-replayer:replayer_test
+bazel build --config=remote //demo/rtsp-replayer:image   # multiarch index
+bazel run //demo/rtsp-replayer:image_push                # :latest, note digest
+```
+
+(`image_push` must run without `--config=remote`: the push runner needs a
+host jq, and the remote config resolves the Linux one.)
+
+Pinned third-party artifacts (MODULE.bazel `http_file`):
+
+- MediaMTX v1.21.1 (MIT), linux amd64 + arm64
+- Static ffmpeg 7.0.2 (GPLv3; `GPLv3.txt` ships in the image layer),
+  linux amd64 + arm64
+
+## Deploy (demo namespace)
+
+The Deployment lives in `carverauto/gitops` (demo namespace); the bucket-read
+credential is a Kubernetes Secret, which is acceptable here because the
+replayer is demo infrastructure, not a monitored device (D8).
+
+Secret (values from the maintainer; never commit):
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  {name: rtsp-replayer-obj, namespace: demo}
+type: Opaque
+stringData:
+  access-key: <read-only key for serviceradar-demo-drone-clips>
+  secret-key: <read-only secret>
+```
+
+Container env (Secret mounted at `/etc/replayer-secret`):
+
+| var | value |
+| --- | --- |
+| REPLAYER_S3_ENDPOINT | https://us-ord-10.linodeobjects.com |
+| REPLAYER_S3_BUCKET | serviceradar-demo-drone-clips |
+| REPLAYER_S3_REGION | us-ord |
+| REPLAYER_S3_ACCESS_KEY_FILE | /etc/replayer-secret/access-key |
+| REPLAYER_S3_SECRET_KEY_FILE | /etc/replayer-secret/secret-key |
+
+Ports: 8554/tcp (RTSP), 9998/tcp (MediaMTX metrics). Mount an `emptyDir`
+at `/var/lib/replayer/clips` so container restarts skip the ~130 MB
+re-download. Deploy the image **by digest** from the push output, not
+`:latest`.
+
+## Verify
+
+```sh
+# Paths serve H.264 with no B-frames:
+for p in drone-highway drone-highway-b drone-quarry drone-quarry-b \
+         drone-surf drone-surf-b; do
+  ffprobe -v error -rtsp_transport tcp -show_entries stream=codec_name,has_b_frames \
+    -of default=noprint_wrappers=1 rtsp://<host>:8554/$p
+done
+```
+
+Then verify a relay session to one replayer path plays through web-ng
+(`/cameras` or the drone multiview once the `drone-fleet` plugin lands).

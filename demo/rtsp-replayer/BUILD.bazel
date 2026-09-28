@@ -1,0 +1,197 @@
+# gazelle:ignore
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+load("@rules_oci//oci:defs.bzl", "oci_push")
+load("//docker/images:service_images.bzl", "declare_multiarch_image_index", "declare_service_container_amd64", "declare_serviceradar_user_layer")
+
+package(default_visibility = ["//demo:__subpackages__"])
+
+go_library(
+    name = "replayer_lib",
+    srcs = [
+        "fetch.go",
+        "lock.go",
+        "replayer.go",
+        "s3.go",
+        "supervise.go",
+    ],
+    embedsrcs = [
+        "clips.lock.json",
+        "paths.json",
+    ],
+    importpath = "github.com/carverauto/serviceradar/demo/rtsp-replayer",
+)
+
+go_test(
+    name = "replayer_test",
+    size = "small",
+    srcs = [
+        "fetch_test.go",
+        "lock_test.go",
+        "s3_test.go",
+        "supervise_test.go",
+    ],
+    embed = [":replayer_lib"],
+)
+
+# MediaMTX and ffmpeg arrive as upstream release tarballs (pinned in
+# MODULE.bazel). Each genrule below repacks one tool for one architecture as
+# an OCI layer tar with fixed paths, executable bits and normalized mtimes.
+genrule(
+    name = "mediamtx_tar_amd64",
+    srcs = ["@mediamtx_linux_amd64//file"],
+    outs = ["mediamtx_amd64.tar"],
+    cmd = """
+set -euo pipefail
+TMP=$(@D)/mediamtx_amd64
+rm -rf "$${TMP}"
+mkdir -p "$${TMP}/rootfs/usr/local/bin" "$${TMP}/rootfs/usr/share/doc/mediamtx" "$${TMP}/src"
+tar -xzf $(location @mediamtx_linux_amd64//file) -C "$${TMP}/src"
+cp "$${TMP}/src/mediamtx" "$${TMP}/rootfs/usr/local/bin/mediamtx"
+cp "$${TMP}/src/LICENSE" "$${TMP}/rootfs/usr/share/doc/mediamtx/LICENSE"
+chmod 0755 "$${TMP}/rootfs/usr/local/bin/mediamtx"
+chmod 0644 "$${TMP}/rootfs/usr/share/doc/mediamtx/LICENSE"
+find "$${TMP}/rootfs" -exec touch -h -t 200001010000.00 {} + 2>/dev/null || \
+  find "$${TMP}/rootfs" -exec touch -t 200001010000.00 {} +
+tar -cf "$@" -C "$${TMP}/rootfs" .
+""",
+)
+
+genrule(
+    name = "mediamtx_tar_arm64",
+    srcs = ["@mediamtx_linux_arm64//file"],
+    outs = ["mediamtx_arm64.tar"],
+    cmd = """
+set -euo pipefail
+TMP=$(@D)/mediamtx_arm64
+rm -rf "$${TMP}"
+mkdir -p "$${TMP}/rootfs/usr/local/bin" "$${TMP}/rootfs/usr/share/doc/mediamtx" "$${TMP}/src"
+tar -xzf $(location @mediamtx_linux_arm64//file) -C "$${TMP}/src"
+cp "$${TMP}/src/mediamtx" "$${TMP}/rootfs/usr/local/bin/mediamtx"
+cp "$${TMP}/src/LICENSE" "$${TMP}/rootfs/usr/share/doc/mediamtx/LICENSE"
+chmod 0755 "$${TMP}/rootfs/usr/local/bin/mediamtx"
+chmod 0644 "$${TMP}/rootfs/usr/share/doc/mediamtx/LICENSE"
+find "$${TMP}/rootfs" -exec touch -h -t 200001010000.00 {} + 2>/dev/null || \
+  find "$${TMP}/rootfs" -exec touch -t 200001010000.00 {} +
+tar -cf "$@" -C "$${TMP}/rootfs" .
+""",
+)
+
+genrule(
+    name = "ffmpeg_tar_amd64",
+    srcs = ["@ffmpeg_static_linux_amd64//file"],
+    outs = ["ffmpeg_amd64.tar"],
+    cmd = """
+set -euo pipefail
+TMP=$(@D)/ffmpeg_amd64
+rm -rf "$${TMP}"
+mkdir -p "$${TMP}/rootfs/usr/local/bin" "$${TMP}/rootfs/usr/share/doc/ffmpeg" "$${TMP}/src"
+tar -xf $(location @ffmpeg_static_linux_amd64//file) -C "$${TMP}/src"
+cp "$${TMP}"/src/*/ffmpeg "$${TMP}/rootfs/usr/local/bin/ffmpeg"
+cp "$${TMP}"/src/*/GPLv3.txt "$${TMP}/rootfs/usr/share/doc/ffmpeg/GPLv3.txt"
+chmod 0755 "$${TMP}/rootfs/usr/local/bin/ffmpeg"
+chmod 0644 "$${TMP}/rootfs/usr/share/doc/ffmpeg/GPLv3.txt"
+find "$${TMP}/rootfs" -exec touch -h -t 200001010000.00 {} + 2>/dev/null || \
+  find "$${TMP}/rootfs" -exec touch -t 200001010000.00 {} +
+tar -cf "$@" -C "$${TMP}/rootfs" .
+""",
+)
+
+genrule(
+    name = "ffmpeg_tar_arm64",
+    srcs = ["@ffmpeg_static_linux_arm64//file"],
+    outs = ["ffmpeg_arm64.tar"],
+    cmd = """
+set -euo pipefail
+TMP=$(@D)/ffmpeg_arm64
+rm -rf "$${TMP}"
+mkdir -p "$${TMP}/rootfs/usr/local/bin" "$${TMP}/rootfs/usr/share/doc/ffmpeg" "$${TMP}/src"
+tar -xf $(location @ffmpeg_static_linux_arm64//file) -C "$${TMP}/src"
+cp "$${TMP}"/src/*/ffmpeg "$${TMP}/rootfs/usr/local/bin/ffmpeg"
+cp "$${TMP}"/src/*/GPLv3.txt "$${TMP}/rootfs/usr/share/doc/ffmpeg/GPLv3.txt"
+chmod 0755 "$${TMP}/rootfs/usr/local/bin/ffmpeg"
+chmod 0644 "$${TMP}/rootfs/usr/share/doc/ffmpeg/GPLv3.txt"
+find "$${TMP}/rootfs" -exec touch -h -t 200001010000.00 {} + 2>/dev/null || \
+  find "$${TMP}/rootfs" -exec touch -t 200001010000.00 {} +
+tar -cf "$@" -C "$${TMP}/rootfs" .
+""",
+)
+
+# The clips directory must be owned by the service user (10001): the
+# replayer downloads ~130 MB of clips there at startup. pkg_tar empty_dirs
+# do not carry ownership, so this layer sets it explicitly.
+genrule(
+    name = "clips_dir_tar",
+    outs = ["clips_dir.tar"],
+    cmd = """
+set -euo pipefail
+ROOT=$(@D)/clips_dir_rootfs
+rm -rf "$${ROOT}"
+mkdir -p "$${ROOT}/var/lib/replayer/clips"
+find "$${ROOT}" -exec touch -h -t 200001010000.00 {} + 2>/dev/null || \\
+  find "$${ROOT}" -exec touch -t 200001010000.00 {} +
+tar --owner=10001 --group=10001 --numeric-owner -cf "$@" -C "$${ROOT}" .
+""",
+)
+
+declare_serviceradar_user_layer()
+
+declare_service_container_amd64(
+    name = "image_amd64",
+    cmd = [],
+    empty_dirs = [
+        "var/lib/replayer",
+    ],
+    entrypoint = ["/usr/local/bin/replayer"],
+    exposed_ports = [
+        "8554/tcp",
+        "9998/tcp",
+    ],
+    extra_tars = select({
+        "//build/platforms:target_linux_arm64": [
+            ":mediamtx_tar_arm64",
+            ":ffmpeg_tar_arm64",
+            ":clips_dir_tar",
+        ],
+        "//conditions:default": [
+            ":mediamtx_tar_amd64",
+            ":ffmpeg_tar_amd64",
+            ":clips_dir_tar",
+        ],
+    }),
+    files = {
+        "//demo/rtsp-replayer/cmd/replayer": "usr/local/bin/replayer",
+        "@mozilla_ca_bundle//file": "etc/ssl/certs/ca-certificates.crt",
+        ":mediamtx.yml": "etc/replayer/mediamtx.yml",
+        ":clips.lock.json": "etc/replayer/clips.lock.json",
+        ":paths.json": "etc/replayer/paths.json",
+    },
+    image_title = "serviceradar-rtsp-replayer",
+    modes = {
+        "usr/local/bin/replayer": "0755",
+        "etc/ssl/certs/ca-certificates.crt": "0644",
+        "etc/replayer/mediamtx.yml": "0644",
+        "etc/replayer/clips.lock.json": "0644",
+        "etc/replayer/paths.json": "0644",
+    },
+    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-rtsp-replayer:local"],
+    runtime = "scratch",
+    visibility = ["//visibility:public"],
+    workdir = "/var/lib/replayer",
+)
+
+declare_multiarch_image_index(
+    name = "image",
+    image = ":image_amd64",
+    visibility = ["//visibility:public"],
+)
+
+# Demo infrastructure image, pushed by the operator (or demo CI) and consumed
+# by digest from the gitops Deployment. `latest` is a convenience tag; the
+# deployment pins the digest printed by this push.
+oci_push(
+    name = "image_push",
+    image = ":image",
+    remote_tags = ["latest"],
+    repository = "registry.carverauto.dev/serviceradar/serviceradar-rtsp-replayer",
+    visibility = ["//visibility:public"],
+)
