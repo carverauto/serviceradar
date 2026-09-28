@@ -299,4 +299,3 @@ be represented as live enforcement on either RPC.
 - **WHEN** a run requests an output contract or encoding the agent did not
   advertise under the required registry epoch
 - **THEN** the request SHALL fail with an explicit capability error
-
