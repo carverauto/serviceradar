@@ -71,7 +71,7 @@ still compiles because some *other* crate enabled it. That is an accident waitin
 moment the other crate changes. Bazel compiles per-target and is less forgiving.
 
 ```bash
-cargo check -p srql --lib --bins --tests   # must pass in isolation
+cargo check -p srql --lib --tests   # must pass in isolation
 ```
 
 ### Exceptions
@@ -318,7 +318,7 @@ What that bought:
 
 - **Cross-compilation is a `select` on the target platform.** Measured: the same
   `@openssl` yields an `aarch64` `libcrypto.a` for `--platforms=//build/platforms:linux_aarch64`
-  and an `x86-64` one for the default, with `srql_bin` matching each.
+  and an `x86-64` one for the default, with `srql_lib` matching each.
 - **No host `perl`.** The old build ran a two-line wrapper whose body was `exec perl "$@"` --
   the executor image's perl, off `$PATH`, from inside a build action. `@openssl` uses
   `rules_perl`'s prebuilt hermetic perl for the exec platform. (`//third_party/perl` built a
@@ -327,7 +327,7 @@ What that bought:
   its full compiler command line into `libcrypto.a`, which put 15 copies of the execroot in
   the archive and forced a `no-check-output-for-working-dir` opt-out on `openssl-sys`. The
   BCR module compiles with fixed `-DOPENSSLDIR="/etc/ssl"` and friends: measured 0
-  occurrences of `buildbuddy-execroot` in both `libcrypto.a` and `srql_bin`, so the tag is
+  occurrences of `buildbuddy-execroot` in both `libcrypto.a` and `srql_lib`, so the tag is
   gone and the artifacts are cache-shareable across execroots.
 
 ### The patched crate

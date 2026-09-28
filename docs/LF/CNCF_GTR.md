@@ -128,7 +128,7 @@ If this is the case for your project, please mark it as not-applicable (N/A) and
 * Describe how the project is installed and initialized, e.g. a minimal install with a few lines of code or does it require more complex integration and configuration?  
   - Helm chart (`helm/serviceradar`) with CNPG enabled by default, plus SPIRE, NATS, edge proxy, OTEL; Compose files exist for local dev; minimal config is CNPG credentials and ingress hosts.
 * How does an adopter test and validate the installation?  
-  - `helm upgrade --install --wait`, check pod readiness, hit `/healthz` on core/srql, verify agents connect, and run SRQL queries against CNPG via the UI/API.
+  - `helm upgrade --install --wait`, check pod readiness, hit `/healthz` on core, verify agents connect, and run SRQL queries against CNPG via the UI/API.
 
 ### Security
 

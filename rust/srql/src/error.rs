@@ -1,11 +1,4 @@
-use axum::{
-    Json,
-    http::StatusCode,
-    response::{IntoResponse, Response},
-};
-use serde::Serialize;
 use thiserror::Error;
-use tracing::error;
 
 pub type Result<T> = std::result::Result<T, ServiceError>;
 
@@ -33,47 +26,16 @@ pub enum ServiceError {
     Internal(#[from] anyhow::Error),
 }
 
-#[derive(Serialize)]
-struct ErrorBody {
-    error: String,
-}
-
-impl IntoResponse for ServiceError {
-    fn into_response(self) -> Response {
-        let status = match self {
-            ServiceError::Config(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            ServiceError::Auth => StatusCode::UNAUTHORIZED,
-            ServiceError::InvalidRequest(_) => StatusCode::BAD_REQUEST,
-            ServiceError::Forbidden(_) => StatusCode::FORBIDDEN,
-            ServiceError::NotImplemented(_) => StatusCode::NOT_IMPLEMENTED,
-            ServiceError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
-        };
-
-        if !matches!(
-            self,
-            ServiceError::InvalidRequest(_) | ServiceError::Forbidden(_) | ServiceError::Auth
-        ) {
-            error!(error = %self, "request failed");
-        }
-
-        let body = ErrorBody {
-            error: self.to_string(),
-        };
-        (status, Json(body)).into_response()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn forbidden_maps_to_http_403_with_prefixed_message() {
+    fn forbidden_keeps_prefixed_message() {
         let err = ServiceError::Forbidden("signal 'traces' is not permitted".into());
         assert_eq!(
             err.to_string(),
             "forbidden: signal 'traces' is not permitted"
         );
-        assert_eq!(err.into_response().status(), StatusCode::FORBIDDEN);
     }
 }
