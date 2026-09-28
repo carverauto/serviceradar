@@ -6,6 +6,7 @@ defmodule ServiceRadar.Observability.MetricEnvelope do
   ServiceRadar-native scalar metric sources such as sysmon, SNMP, and plugins.
   """
 
+  alias ServiceRadar.EventWriter.PluginDeviceAttribution
   alias Serviceradar.Metric.V1.MetricBatch
   alias ServiceRadar.Observability.SeriesHintDrift
   alias ServiceRadar.Observability.TimeseriesSeriesKey
@@ -41,6 +42,12 @@ defmodule ServiceRadar.Observability.MetricEnvelope do
     most once per message (batched over the distinct target IPs). When omitted,
     decoding stays lookup-free and `device_id` is taken solely from the
     gateway-attested resource (current behavior).
+  - `:plugin_producer` - when `true`, a row from a gateway-attested wasm plugin
+    batch whose `device_id` is a plugin-scoped reference (not an `sr:` uid)
+    carries the emitting assignment id as `:plugin_assignment_id`, for
+    `ServiceRadar.EventWriter.PluginDeviceAttribution.attribute_metric_rows/2`.
+    That key is not a column; the caller must pass the rows through that function
+    (which removes it) before persisting them. Default `false`.
   """
   @spec decode_rows_count(binary(), keyword()) ::
           {:ok, [map()], non_neg_integer()} | {:error, term()}
@@ -48,7 +55,13 @@ defmodule ServiceRadar.Observability.MetricEnvelope do
     with {:ok, %MetricBatch{} = batch} <- decode_batch(data),
          true <- metric_batch?(batch) do
       {rows, count} = rows(batch)
-      {:ok, resolve_device_ids(rows, Keyword.get(opts, :device_resolver)), count}
+
+      rows =
+        rows
+        |> resolve_device_ids(Keyword.get(opts, :device_resolver))
+        |> maybe_mark_plugin_producer(batch, Keyword.get(opts, :plugin_producer, false))
+
+      {:ok, rows, count}
     else
       false -> {:error, :not_metric_envelope}
       {:error, reason} -> {:error, reason}
@@ -100,6 +113,27 @@ defmodule ServiceRadar.Observability.MetricEnvelope do
   end
 
   defp resolve_device_ids(rows, _resolver), do: rows
+
+  # The emitting plugin comes from the gateway-set ingest identity, never from the
+  # guest-controlled tags (a metric tag named "producer_id" overrides the tag
+  # copy of the ingest identity, so the stored tags cannot be trusted for this).
+  defp maybe_mark_plugin_producer(rows, %MetricBatch{} = batch, true) do
+    case PluginDeviceAttribution.metric_batch_assignment_id(batch.ingest_identity) do
+      nil ->
+        rows
+
+      assignment_id ->
+        Enum.map(rows, fn row ->
+          if PluginDeviceAttribution.reference_source(row.device_id) do
+            Map.put(row, :plugin_assignment_id, assignment_id)
+          else
+            row
+          end
+        end)
+    end
+  end
+
+  defp maybe_mark_plugin_producer(rows, _batch, _enabled), do: rows
 
   @spec metric_envelope?(binary()) :: boolean()
   def metric_envelope?(data) when is_binary(data) do
