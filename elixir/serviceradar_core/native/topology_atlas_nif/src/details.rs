@@ -1,7 +1,7 @@
 //! Opaque selection resources contain bounded descriptors, never a World Arc.
 //! The serving owner additionally fences these reads by publication generation.
 
-use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use rustler::{Atom, Encoder, Env, NifMap, NifTaggedEnum, Resource, ResourceArc, Term};
 use serviceradar_topology_atlas::{
