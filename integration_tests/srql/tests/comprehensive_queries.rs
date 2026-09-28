@@ -45,7 +45,7 @@ async fn comprehensive_queries_match_fixtures() {
             })),
         },
         TestCase {
-            query: "in:process device_id:sysmon-compat.example.com name:worker pid:123 time:last_10m",
+            query: "in:processes device_id:sysmon-compat.example.com name:worker pid:123 time:last_10m",
             expected_count: 1,
             validator: Some(Box::new(|body| {
                 let row = &body["results"][0];
@@ -69,7 +69,7 @@ async fn comprehensive_queries_match_fixtures() {
             })),
         },
         TestCase {
-            query: "in:process device_id:sysmon-compat.example.com time:last_10m stats:avg(memory_usage) as average by device_id",
+            query: "in:processes device_id:sysmon-compat.example.com time:last_10m stats:avg(memory_usage) as average by device_id",
             expected_count: 1,
             validator: Some(Box::new(|body| {
                 assert_eq!(body["results"][0]["average"].as_f64(), Some(4096.0))

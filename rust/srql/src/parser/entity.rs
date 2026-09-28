@@ -99,7 +99,7 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
         "cpu_metrics" | "cpu" => Ok(Entity::CpuMetrics),
         "memory_metrics" | "memory" => Ok(Entity::MemoryMetrics),
         "disk_metrics" | "disk" => Ok(Entity::DiskMetrics),
-        "process_metrics" | "processes" | "process" => Ok(Entity::ProcessMetrics),
+        "process_metrics" | "processes" => Ok(Entity::ProcessMetrics),
         "capacity_forecasts" | "capacity_forecast" | "forecasts" | "forecast" => {
             Ok(Entity::CapacityForecasts)
         }

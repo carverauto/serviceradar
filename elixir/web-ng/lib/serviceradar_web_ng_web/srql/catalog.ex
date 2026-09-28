@@ -2346,7 +2346,6 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
     "memory" => "memory_metrics",
     "disk" => "disk_metrics",
     "processes" => "process_metrics",
-    "process" => "process_metrics",
     # Sweep diagnostics (issue 4167). Every alias here is one the SRQL parser
     # already accepts (`rust/srql/src/parser/entity.rs`) and `EntityAccess`
     # already gates. Without the mapping, `entity/1` falls through to the

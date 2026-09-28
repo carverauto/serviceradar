@@ -191,6 +191,7 @@ fn cagg_column_mappings_cover_metric_entities() {
 #[test]
 fn legacy_sysmon_queries_translate_on_both_backends() {
     let config = test_config();
+    assert!(parser::parse("in:process time:last_1h").is_err());
     for (aliases, metric_type, field, filter) in [
         (
             &["cpu", "cpu_metrics"][..],
@@ -211,7 +212,7 @@ fn legacy_sysmon_queries_translate_on_both_backends() {
             "mount_point:/data",
         ),
         (
-            &["process", "processes", "process_metrics"][..],
+            &["processes", "process_metrics"][..],
             "sysmon.process",
             "cpu_usage",
             "pid:123 name:worker",
@@ -287,8 +288,8 @@ fn legacy_sysmon_stats_rank_before_limiting_on_both_backends() {
         ("cpu", "usage_percent"),
         ("memory", "usage_percent"),
         ("disk", "usage_percent"),
-        ("process", "cpu_usage"),
-        ("process", "memory_usage"),
+        ("processes", "cpu_usage"),
+        ("processes", "memory_usage"),
     ] {
         for mode in [None, Some("starrocks"), Some("starrocks_raw")] {
             for (sort, direction) in [("", "DESC"), ("sort:average:asc", "ASC")] {
@@ -326,7 +327,7 @@ fn legacy_sysmon_stats_rank_before_limiting_on_both_backends() {
 #[test]
 fn metric_charts_use_rollups_only_for_integral_hour_buckets() {
     let config = test_config();
-    for entity in ["cpu", "memory", "disk", "process", "timeseries_metrics"] {
+    for entity in ["cpu", "memory", "disk", "processes", "timeseries_metrics"] {
         for (bucket, covered) in [("5m", false), ("90m", false), ("1h", true), ("2h", true)] {
             for mode in [None, Some("starrocks"), Some("starrocks_raw")] {
                 let response = translate_request(
@@ -358,7 +359,7 @@ fn legacy_sysmon_fresh_and_raw_translations_preserve_effective_window() {
         ("cpu", "usage_percent"),
         ("memory", "usage_percent"),
         ("disk", "usage_percent"),
-        ("process", "cpu_usage"),
+        ("processes", "cpu_usage"),
     ] {
         for shape in [
             format!("stats:avg({value}) as average by device_id"),
@@ -431,7 +432,7 @@ fn legacy_sysmon_aggregates_keep_timeseries_retention_routing() {
                     "timeseries_metrics_hourly",
                 ),
                 (
-                    "process stats:avg(memory_usage) as average by device_id",
+                    "processes stats:avg(memory_usage) as average by device_id",
                     "timeseries_metrics_hourly",
                 ),
                 (
@@ -468,7 +469,7 @@ fn legacy_sysmon_aggregates_keep_timeseries_retention_routing() {
                     "timeseries_metrics",
                 ),
                 (
-                    "process name:worker stats:avg(cpu_usage) as average by device_id",
+                    "processes name:worker stats:avg(cpu_usage) as average by device_id",
                     "timeseries_metrics",
                 ),
                 ("cpu bucket:1h agg:last", "timeseries_metrics"),

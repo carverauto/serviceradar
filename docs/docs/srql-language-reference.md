@@ -201,8 +201,9 @@ in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" t
 in:flows time:last_1h stats:sum(bytes_total) as bytes by src_ip sort:bytes:desc
 ```
 
-Legacy `in:cpu`, `in:memory`, `in:disk`, and `in:process`/`in:processes`
-(and their `_metrics` names) remain supported. They project the corresponding
+Legacy `in:cpu`, `in:memory`, `in:disk`, and `in:processes`
+(with canonical names `cpu_metrics`, `memory_metrics`, `disk_metrics`, and
+`process_metrics`) remain supported. They project the corresponding
 `sysmon.*` samples in `timeseries_metrics` into legacy row fields on both CNPG
 and StarRocks through Readers. Saved filters, stats, sorting, and downsampling
 keep working.

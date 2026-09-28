@@ -83,7 +83,7 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
       cpu_metrics cpu
       memory_metrics memory
       disk_metrics disk
-      process_metrics processes process
+      process_metrics processes
       otel_metrics metrics
       otel_metric_points metric_points
       capacity_forecasts capacity_forecast forecasts forecast

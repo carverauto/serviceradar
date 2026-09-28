@@ -66,7 +66,7 @@ defmodule ServiceRadar.Analytics.StarRocks.ReadersTest do
         )
 
         for entity <-
-              ~w(cpu cpu_metrics memory memory_metrics disk disk_metrics process processes process_metrics) do
+              ~w(cpu cpu_metrics memory memory_metrics disk disk_metrics processes process_metrics) do
           assert Readers.fetch(entity, %{
                    cnpg: fn -> :cnpg end,
                    starrocks: fn -> :starrocks end
