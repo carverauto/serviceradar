@@ -19,6 +19,7 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
   import Ash.Expr
   import Ecto.Query, only: [from: 2]
 
+  alias Ash.Error.Unknown.UnknownError
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Inventory.Device
@@ -150,14 +151,10 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
   defp error_types(%{errors: errors}) when is_list(errors),
     do: Enum.flat_map(errors, &error_types/1)
 
-  defp error_types(%{
-         __struct__: Ash.Error.Unknown.UnknownError,
-         error: %{__struct__: _} = error
-       }),
-       do: error_types(error)
+  defp error_types(%{__struct__: UnknownError, error: %{__struct__: _} = error}),
+    do: error_types(error)
 
-  defp error_types(%{__struct__: Ash.Error.Unknown.UnknownError, error: error})
-       when is_binary(error) do
+  defp error_types(%{__struct__: UnknownError, error: error}) when is_binary(error) do
     cond do
       String.contains?(error, "expected an integer in -2147483648..2147483647") ->
         [:parameter_encoding_error]
@@ -171,7 +168,7 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
         [:numeric_value_out_of_range]
 
       true ->
-        [Ash.Error.Unknown.UnknownError]
+        [UnknownError]
     end
   end
 

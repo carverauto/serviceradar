@@ -1,4 +1,5 @@
 defmodule ServiceRadar.Repo.Migrations.WidenNetflowInterfaceCacheSpeed do
+  @moduledoc false
   use Ecto.Migration
 
   def up do
