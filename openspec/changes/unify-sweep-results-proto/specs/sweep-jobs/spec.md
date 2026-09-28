@@ -149,6 +149,15 @@ and immutable `bulk` or `interactive` traffic class.
 - **AND** the gateway SHALL be able to verify that capability locally without a
   per-frame core or database request
 
+#### Scenario: Compile sweep config for agent
+- **GIVEN** a sweep job assigned to an agent that satisfies the v1 readiness
+  gate
+- **WHEN** the agent receives its config
+- **THEN** the compiled config SHALL carry the v1 execution assignment described
+  in "Compile v1 execution assignment", including bounded target ranges and the
+  exact `(mode, protocol, port)` check set
+- **AND** it SHALL NOT select the legacy JSON result format for that execution
+
 #### Scenario: Device query evaluation at compile time
 - **GIVEN** a sweep job with a device query
 - **WHEN** the plan is compiled
@@ -215,6 +224,15 @@ alone.
   counts, and terminal batch sequence for that attempt
 - **AND** SHALL remain delivery-pending, projection-pending, partial, or
   MTR-pending until required durable evidence reconciles
+
+#### Scenario: Agent reports sweep completion
+- **GIVEN** an agent completing a sweep job
+- **WHEN** the sweep finishes
+- **THEN** core SHALL record scanner completion, duration, and cumulative (not
+  per-batch delta) counts for the assignment attempt, as described in "Scanner
+  reports assignment-attempt completion"
+- **AND** the execution SHALL NOT be recorded as reconciled complete until the
+  conditions in "Execution becomes reconciled complete" hold
 
 #### Scenario: Active scan progress updates
 - **GIVEN** an in-progress sweep execution

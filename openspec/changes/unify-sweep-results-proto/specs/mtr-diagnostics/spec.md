@@ -21,6 +21,16 @@ immutable traffic class.
 - **AND** an on-demand trace classified as interactive SHALL use the shared
   interactive edge-record lane, physical stream, durable, and result credits
 
+#### Scenario: On-demand trace via control stream
+- **WHEN** a `mtr.run` command is received via ControlStream with a target
+  address
+- **THEN** the agent SHALL execute a single MTR trace to the specified target,
+  enriched with ASN, DNS, and MPLS data
+- **AND** the control stream response SHALL carry bounded command/progress state
+  and the trace ID rather than the complete enriched result
+- **AND** the complete result SHALL be published through `MtrTraceBatchV1` as
+  described in "On-demand trace succeeds"
+
 #### Scenario: Caller waits for an interactive result
 - **GIVEN** the trace completes within the command's bounded response window
 - **WHEN** the terminal response is returned
@@ -51,6 +61,14 @@ run-wide or interval-wide collection of completed traces before encoding.
   context and wait for PubAck from the mapped edge-record physical stream
 - **AND** the producer SHALL release that completed trace after durable spooling
   while later due checks continue
+
+#### Scenario: Periodic result push
+- **WHEN** a scheduled MTR check completes a probe cycle
+- **THEN** the agent SHALL NOT marshal the trace to JSON or push it via
+  `PushStatus` as a `GatewayServiceStatus` message
+- **AND** the complete trace, including hop data with ASN, MPLS, hostname,
+  target reachability, and timing metadata, SHALL be reported as a typed
+  `MtrTraceBatchV1` event as described in "Scheduled result is reported"
 
 #### Scenario: Sweep profile reports MTR
 - **WHEN** MTR runs as part of a sweep profile
@@ -130,6 +148,14 @@ conversion while retaining original nanoseconds where required.
 - **AND** its hop/path-variant rows SHALL preserve full MPLS labels, ASN,
   hostname, counts, loss, RTT, jitter, and reachability semantics
 - **AND** JetStream SHALL be acknowledged only after the transaction commits
+
+#### Scenario: Trace ingestion into hypertables
+- **WHEN** an MTR trace result is produced for storage
+- **THEN** its `mtr_traces` row and per-hop `mtr_hops` rows (full statistics,
+  MPLS labels, ASN, hostname) SHALL be written by the MTR event-writer consumer
+  from the canonical trace event, as described in "Trace event is ingested"
+- **AND** the core system SHALL NOT insert trace or hop rows through a direct
+  write that bypasses that consumer
 
 #### Scenario: A zero hop ASN is persisted as NULL
 - **WHEN** a hop's `asn` is zero, whether omitted on the wire or explicitly encoded

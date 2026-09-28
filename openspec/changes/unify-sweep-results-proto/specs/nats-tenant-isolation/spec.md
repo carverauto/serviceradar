@@ -31,6 +31,33 @@ admission controls so one site/address space cannot monopolize the installation.
 - **THEN** it SHALL publish to `telemetry.edge-record.v1.bulk.p07`
 - **AND** neither caller text nor `network_scope_id` SHALL alter that subject
 
+#### Scenario: Event publishing with tenant prefix
+
+- **GIVEN** a poller publishing health events
+- **WHEN** the poller publishes its health signal
+- **THEN** the message SHALL be published to the signal's configured fixed
+  subject, as described in "Runtime publisher selects a subject"
+- **AND** it SHALL NOT be rewritten to a customer-prefixed subject such as
+  "acme-corp.events.poller.health"
+
+#### Scenario: Consumer receives prefixed messages
+
+- **GIVEN** a db-event-writer consumer for the poller health signal
+- **WHEN** a message arrives on a customer-prefixed subject such as
+  "acme-corp.events.poller.health"
+- **THEN** the consumer SHALL NOT extract "acme-corp" as a tenant slug from the
+  subject
+- **AND** no subject token SHALL alter identity or authority, as described in
+  "Result publication does not interpolate identity"
+
+#### Scenario: Cross-tenant message isolation
+
+- **GIVEN** two customers each run their own ServiceRadar installation
+- **WHEN** one installation publishes to its fixed installation-local subjects
+- **THEN** the other customer's installation SHALL NOT receive those messages
+- **AND** that isolation SHALL come from the separate installation and its NATS
+  authority, not from a subject prefix
+
 ### Requirement: NATS Account Isolation
 
 One installation SHALL use one configured NATS security/durability authority
@@ -57,6 +84,28 @@ separate provisioned clusters, not an in-runtime account hierarchy.
 - **AND** trusted `network_scope_id` SHALL keep their domain identities distinct
   without creating per-scope accounts, streams, or durables
 
+#### Scenario: Cross-tenant authority widening is rejected
+
+- **GIVEN** a caller requests a credential or permission override for an
+  installation component
+- **WHEN** the request includes publish, subscribe, import, export, or mapping
+  subjects outside the component's exact configured subjects
+- **THEN** no credential with widened authority SHALL be returned, and NATS
+  authorization SHALL reject any such operation as described in "Component
+  credentials attempt to widen authority"
+- **AND** the runtime SHALL NOT provision a per-customer account to satisfy the
+  request
+
+#### Scenario: New account receives bounded JetStream quotas
+
+- **GIVEN** an installation NATS authority is provisioned without explicit
+  JetStream quota overrides
+- **WHEN** its account configuration is created
+- **THEN** its account, stream, storage, consumer, connection, and admission
+  limits SHALL be finite
+- **AND** it SHALL NOT receive unlimited memory, disk, stream, or consumer
+  quotas by default
+
 ### Requirement: JetStream Tenant Streams
 
 JetStream streams SHALL capture fixed installation-local subject families for
@@ -80,6 +129,25 @@ verified envelope/proof for its signal contract, never from a customer prefix.
   collection authority from that record and its signed grants
 - **AND** it SHALL NOT interpret any subject token as customer identity
 
+#### Scenario: Stream subject configuration
+
+- **GIVEN** the "events" stream is configured with its fixed installation-local
+  event subject family
+- **WHEN** a message is published to a subject in that family
+- **THEN** the message SHALL be persisted to the "events" stream and be
+  available for replay
+- **AND** persistence SHALL NOT depend on a customer prefix such as "acme-corp."
+
+#### Scenario: Consumer subject filtering
+
+- **GIVEN** a durable consumer for a configured signal
+- **WHEN** it selects messages
+- **THEN** it SHALL filter by the signal's fixed subject family rather than a
+  customer prefix such as "acme-corp.events.>"
+- **AND** it SHALL derive network scope, agent, and authorization identity from
+  the verified envelope, as described in "Record consumer receives a fixed
+  subject"
+
 ### Requirement: Per-tenant zen consumers
 
 Zen consumers SHALL use bounded installation-scoped credentials and consumer
@@ -92,6 +160,22 @@ customer or network scope, and SHALL NOT use cross-customer fallback consumers.
 - **WHEN** a configured log or event signal arrives
 - **THEN** a bounded installation consumer pool SHALL process it
 - **AND** its output SHALL remain in the same installation authority
+
+#### Scenario: Tenant zen consumes directly
+
+- **GIVEN** a zen consumer with least-privilege installation credentials
+- **WHEN** a log is published to the installation's configured log subject
+- **THEN** the zen consumer SHALL process the message directly, without
+  cross-account stream mirroring
+- **AND** write processed output back to the same installation authority
+
+#### Scenario: Tenant zen HA
+
+- **GIVEN** an installation zen consumer pool has multiple instances
+- **WHEN** one instance becomes unavailable
+- **THEN** remaining instances in the bounded installation pool SHALL continue
+  processing
+- **AND** no cross-customer consumer SHALL be used as a fallback
 
 ### Requirement: Per-tenant db-event-writer ingestion
 
@@ -106,6 +190,14 @@ select database schemas or spawn writers from a customer/tenant subject prefix.
   canonical schema
 - **AND** subject text SHALL NOT select another database authority
 
+#### Scenario: Tenant writer inserts into tenant schema
+
+- **WHEN** a processed log is published within the installation
+- **THEN** EventWriter SHALL write it to the installation's canonical schema
+  tables
+- **AND** SHALL NOT select a per-tenant schema or spawn a per-tenant writer from
+  a subject prefix
+
 ### Requirement: Rule distribution via KV with tenant isolation
 
 Rule distribution SHALL use installation-scoped KV buckets, credentials, and
@@ -118,6 +210,15 @@ metadata and SHALL NOT depend on customer-prefixed bucket or subject names.
 - **THEN** the system SHALL publish it to the configured installation KV bucket
 - **AND** the installation zen consumer SHALL receive it through its bounded
   watch
+
+#### Scenario: Rule update propagates to KV
+
+- **GIVEN** an authorized administrator updates a promotion rule in the UI
+- **WHEN** the change is saved in CNPG
+- **THEN** the system SHALL write the updated rule to the configured
+  installation KV bucket rather than a customer-prefixed bucket
+- **AND** zen SHALL receive the KV watch update, as described in "Rule update
+  propagates inside one installation"
 
 ### Requirement: Backward Compatibility
 
@@ -141,6 +242,24 @@ installation-local contracts and SHALL NOT map unprefixed data to a synthetic
   ambiguity
 - **THEN** migration SHALL quarantine it for audited repair
 - **AND** SHALL NOT invent a `default` customer or widen database authority
+
+#### Scenario: Legacy message handling
+
+- **GIVEN** the legacy feature flag "NATS_TENANT_PREFIX_ENABLED" is false
+- **WHEN** a publisher sends an event
+- **THEN** the message SHALL be published to its fixed installation subject
+  without a tenant prefix
+- **AND** after the cutover barrier the flag SHALL NOT re-enable prefixed
+  publication
+
+#### Scenario: Mixed mode operation
+
+- **GIVEN** prefixed and non-prefixed messages both exist during migration
+- **WHEN** consumers process them
+- **THEN** prefixed messages SHALL be handled only as sealed pre-cutover
+  backlog, as described in "Legacy prefixed backlog exists at cutover"
+- **AND** non-prefixed messages SHALL NOT be associated with a synthetic
+  "default" tenant
 
 ## ADDED Requirements
 

@@ -25,6 +25,15 @@ status MAY remain broker-free.
   ingestor
 - **AND** no newly defined persistent dataset SHALL use that exception
 
+#### Scenario: Large sync payload delivered via chunks
+- **WHEN** a sync results payload exceeds single-message limits
+- **THEN** it MAY be delivered as multiple gRPC chunks without NATS involvement
+  only when it is already-accepted pre-cutover work, as described in
+  "Pre-cutover sync payload delivered via chunks"
+- **AND** any other persistent payload SHALL use bounded typed records through
+  the durable producer plane and JetStream/EventWriter rather than broker-free
+  chunking
+
 #### Scenario: Agent integration emits durable inventory
 - **WHEN** an Armis or other agent-side integration produces persistent
   inventory pages

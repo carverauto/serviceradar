@@ -65,6 +65,14 @@ delivery and acknowledgement lifecycle.
   cumulative counts and the highest closed batch sequence
 - **AND** SHALL NOT emit one progress event per host
 
+#### Scenario: Agent pushes progress batches during large sweeps
+- **GIVEN** a sweep execution with a large target set
+- **WHEN** the agent reaches the configured progress threshold (count or time)
+- **THEN** the agent SHALL emit a rate-limited progress/watermark event with
+  cumulative totals, as described in "Agent reports bounded progress"
+- **AND** that event SHALL be an independently bounded durable record rather
+  than a legacy gRPC status push
+
 #### Scenario: Concurrent builders allocate data batches
 - **GIVEN** multiple mode/window builders flush for one assignment attempt
 - **WHEN** their frames become durable
@@ -80,6 +88,15 @@ delivery and acknowledgement lifecycle.
   and expected/emitted MTR summary and trace reconciliation data
 - **AND** durable delivery completion SHALL remain distinct from scan execution
   completion until required frames are acknowledged
+
+#### Scenario: Agent pushes sweep completion results
+- **GIVEN** an agent that has completed a sweep execution
+- **WHEN** the sweep results are finalized
+- **THEN** the agent SHALL emit one terminal evidence event with cumulative
+  result counts, as described in "Agent completes or aborts an execution",
+  rather than a whole-sweep completion batch on the legacy gRPC status push
+- **AND** the agent SHALL NOT emit periodic result frames when no sweep has
+  executed
 
 #### Scenario: No sweep activity occurs
 - **WHEN** no sweep has executed and no retained spool frame needs retry
@@ -109,6 +126,16 @@ only then return an accepted disposition.
   a retryable/transient publication failure SHALL leave the sequence unresolved
   and SHALL NOT advance the watermark
 
+#### Scenario: Gateway receives and forwards results
+- **GIVEN** the agent-gateway receives sweep results from an agent
+- **WHEN** it processes the delivery frame
+- **THEN** it SHALL publish the exact record bytes to JetStream as described in
+  "Gateway receives a valid sweep frame", rather than forwarding the results to
+  core-elx via RPC or chunking them for that RPC
+- **AND** routing context SHALL come from the authenticated agent, trusted
+  network scope, and signed assignment rather than a tenant extracted from the
+  mTLS certificate
+
 #### Scenario: JetStream or its consumer is unavailable
 - **GIVEN** a frame cannot be durably accepted because the stream is unavailable
   or full
@@ -117,6 +144,15 @@ only then return an accepted disposition.
   backpressure
 - **AND** SHALL NOT place the frame in the volatile `StatusBuffer`, drop its
   oldest result, or route it directly to a database writer
+
+#### Scenario: Gateway handles offline core gracefully
+- **GIVEN** sweep results arrive while core-elx is unavailable
+- **WHEN** the gateway routes them
+- **THEN** acceptance SHALL depend only on the JetStream PubAck, not on core
+  availability
+- **AND** if JetStream cannot accept the frame, the gateway SHALL withhold the
+  edge ACK as described in "JetStream or its consumer is unavailable" and SHALL
+  NOT buffer results in the volatile `StatusBuffer` or drop the oldest results
 
 #### Scenario: Gateway receives spoofed routing metadata
 - **WHEN** decoded record metadata conflicts with the authoritative network scope,

@@ -24,6 +24,22 @@ account or cluster boundary by this change.
   recovery, or record-DLQ subject
 - **THEN** it SHALL NOT add an export for that subject
 
+#### Scenario: Tenant export exposes logs
+
+- **WHEN** runtime provisioning is asked to export a customer-prefixed log
+  subject such as `acme.logs.>`
+- **THEN** it SHALL reject the export as described in "Runtime provisioning
+  evaluates a customer-prefixed export"
+- **AND** no such export SHALL be made available for platform imports
+
+#### Scenario: Tenant export exposes events
+
+- **WHEN** runtime provisioning is asked to export a customer-prefixed event
+  subject such as `acme.events.>`
+- **THEN** it SHALL reject the export as described in "Runtime provisioning
+  evaluates a customer-prefixed export"
+- **AND** no such export SHALL be made available for platform imports
+
 ### Requirement: Platform Imports for Shared Consumers
 
 The runtime SHALL NOT depend on a shared cross-customer platform account or
@@ -47,6 +63,24 @@ PubAck and EventWriter.
 - **AND** the installation-local EventWriter SHALL continue consuming the
   authoritative physical record streams directly
 
+#### Scenario: Platform imports tenant logs
+
+- **WHEN** a shared platform account would be updated to import a
+  customer-prefixed log export such as `acme.logs.>`
+- **THEN** provisioning SHALL reject the import as described in "Shared platform
+  import is requested"
+- **AND** installation-local consumers SHALL subscribe directly to their
+  configured authoritative log stream
+
+#### Scenario: Platform imports tenant events
+
+- **WHEN** a shared platform account would be updated to import a
+  customer-prefixed event export such as `acme.events.>`
+- **THEN** provisioning SHALL reject the import as described in "Shared platform
+  import is requested"
+- **AND** installation-local consumers SHALL subscribe directly to their
+  configured authoritative event stream
+
 ### Requirement: JetStream mirrors for tenant streams
 
 Authoritative installation streams SHALL NOT use a cross-customer JetStream
@@ -67,6 +101,14 @@ acceptance into the source PubAck.
   canonical edge-record subject
 - **THEN** readiness SHALL fail and no record publisher SHALL be enabled
 
+#### Scenario: Platform mirror receives tenant logs
+
+- **WHEN** provisioning requests a shared PLATFORM mirror or source stream for a
+  customer-prefixed log export such as `acme.logs.>`
+- **THEN** it SHALL reject the configuration as described in "Shared customer
+  mirror is requested"
+- **AND** mirror acceptance SHALL NOT stand in for the source stream PubAck
+
 ### Requirement: KV rule stream mirroring
 
 Installation rule KV streams SHALL NOT be mirrored into a shared cross-customer
@@ -80,6 +122,15 @@ configuration contract, not implicit KV mirroring.
   installation rule bucket
 - **THEN** it SHALL reject the configuration
 - **AND** the installation-local rule watch SHALL remain authoritative
+
+#### Scenario: Rule KV update mirrored
+
+- **GIVEN** a rule is updated in the installation rule KV bucket
+- **WHEN** zen watches for rule updates
+- **THEN** zen SHALL receive the update from the installation-local rule bucket
+  directly
+- **AND** the KV stream SHALL NOT be mirrored into a shared PLATFORM account, as
+  described in "Shared KV mirror is requested"
 
 ### Requirement: Tenant Identity from Subject Prefix
 
@@ -104,6 +155,15 @@ network scope, agent, traffic class, or authorization context from a subject tok
   authorization from the verified authoritative record and signed grants
 - **AND** `network_scope_id` SHALL distinguish sites or overlapping RFC1918
   address spaces without becoming a SaaS customer identity
+
+#### Scenario: Tenant slug extracted from subject
+
+- **GIVEN** a runtime consumer receives message subject `acme.logs.syslog`
+- **WHEN** the consumer processes the message
+- **THEN** it SHALL NOT extract `acme` as a tenant slug or use it for downstream
+  routing, schema selection, or authorization
+- **AND** it SHALL handle the message as described in "Customer-prefixed subject
+  reaches a runtime consumer"
 
 ## ADDED Requirements
 
