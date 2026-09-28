@@ -629,6 +629,22 @@ load is redelivered from JetStream rather than written to CNPG. Their
 retention is `analytics.starrocks.retentionDays.otel` (default 365), applied
 to both tables.
 
+`0022` creates `otel_traces` and `otel_trace_summaries`, with the column names
+of the CNPG tables of the same name, plus the `traces_stats_5m` and
+`spans_red_1h` async materialized views that `rollup_stats` reads.
+`otel_traces` is keyed by the CNPG primary key `(trace_id, span_id, timestamp)`,
+partitioned by day from the start, and hash-bucketed and sorted by `trace_id`,
+so the trace detail page's unbounded trace-by-id lookup reads one tablet per
+day by short key. `otel_trace_summaries` is keyed by `trace_id` alone and not
+partitioned: a summary's timestamp is its newest span's and moves as late spans
+arrive, so a day partition would split one trace across two rows. OTel traces
+are not shadowed: while `analytics.starrocks.enabled` is true, EventWriter
+writes spans and summaries to these two tables only, and a failed load is
+redelivered from JetStream rather than written to CNPG. Their retention is
+`analytics.starrocks.retentionDays.traces` (default 365); it is applied to
+`otel_traces` via daily partitions, and the summary worker prunes
+`otel_trace_summaries` to the same window.
+
 `cutoverDatasets` defaults to empty, so metric, log and event panels stay on
 CNPG throughout; the NetFlow panel does not fall back -- it is refused with a
 warehouse-required error until `flows` is cut over to a populated warehouse.

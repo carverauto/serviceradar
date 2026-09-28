@@ -51,4 +51,14 @@ defmodule ServiceRadar.Jobs.RootSpanRatioWorkerTest do
       assert {:ok, _} = RootSpanRatioWorker.evaluate(100, 50, 100, 0.5)
     end
   end
+
+  # With StarRocks enabled the spans are stored only in the warehouse.
+  test "the warehouse count covers the same window, bounded by a UTC literal" do
+    sql = RootSpanRatioWorker.warehouse_counts_sql(~U[2026-01-15 10:15:30Z])
+
+    assert sql =~ "COUNT(*) AS total_spans"
+    assert sql =~ "SUM(CASE WHEN parent_span_id IS NULL THEN 1 ELSE 0 END) AS root_spans"
+    assert sql =~ "otel_traces WHERE `timestamp` > '2026-01-15 10:00:30'"
+    refute sql =~ "NOW()"
+  end
 end

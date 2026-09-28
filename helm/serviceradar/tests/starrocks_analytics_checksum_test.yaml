@@ -24,14 +24,14 @@ tests:
     asserts:
       - equal:
           path: spec.template.metadata.annotations['checksum/starrocks-analytics']
-          value: 478a5c1e31c96a204b7c563bd2bfc3d3e87cdafe7ee38cfeee6004601911c1c5
+          value: 2c1b77f2d25acc420df003d2a1b8075ba17800a69945a416638dbc5f5b872c66
         documentSelector:
           path: kind
           value: Deployment
         template: templates/web.yaml
       - equal:
           path: spec.template.metadata.annotations['checksum/starrocks-analytics']
-          value: 478a5c1e31c96a204b7c563bd2bfc3d3e87cdafe7ee38cfeee6004601911c1c5
+          value: 2c1b77f2d25acc420df003d2a1b8075ba17800a69945a416638dbc5f5b872c66
         documentSelector:
           path: kind
           value: Deployment
@@ -53,7 +53,7 @@ tests:
         template: templates/web.yaml
       - notEqual:
           path: spec.template.metadata.annotations['checksum/starrocks-analytics']
-          value: 478a5c1e31c96a204b7c563bd2bfc3d3e87cdafe7ee38cfeee6004601911c1c5
+          value: 2c1b77f2d25acc420df003d2a1b8075ba17800a69945a416638dbc5f5b872c66
         documentSelector:
           path: kind
           value: Deployment
@@ -67,7 +67,7 @@ tests:
         template: templates/core.yaml
       - notEqual:
           path: spec.template.metadata.annotations['checksum/starrocks-analytics']
-          value: 478a5c1e31c96a204b7c563bd2bfc3d3e87cdafe7ee38cfeee6004601911c1c5
+          value: 2c1b77f2d25acc420df003d2a1b8075ba17800a69945a416638dbc5f5b872c66
         documentSelector:
           path: kind
           value: Deployment

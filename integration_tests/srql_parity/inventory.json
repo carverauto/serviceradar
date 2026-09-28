@@ -626,6 +626,25 @@
     {"id": "otel.points.one_metric", "query": "in:otel_metric_points {window_main} metric_name:\"http.server.requests\" sort:timestamp:desc limit:500", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/log_live/index.ex"]},
     {"id": "otel.points.one_service", "query": "in:otel_metric_points {window_main} service_name:svc-beta limit:1", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/settings/telemetry_onboarding_live.ex"], "ordered": false},
     {"id": "otel.points.attributes.rows", "query": "in:otel_metric_points {window_main} !attributes:checkout sort:value:desc limit:100"},
-    {"id": "otel.points.attributes.count", "query": "in:otel_metric_points {window_main} !attributes:checkout stats:\"count() as n by service_name\""}
+    {"id": "otel.points.attributes.count", "query": "in:otel_metric_points {window_main} !attributes:checkout stats:\"count() as n by service_name\""},
+
+    {"id": "traces.rollup.summary", "query": "in:otel_traces {window_main} rollup_stats:summary", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/stats/query.ex"]},
+    {"id": "traces.rollup.summary.services", "query": "in:otel_traces {window_main} service_name:(svc-alpha,svc-beta) rollup_stats:summary"},
+    {"id": "traces.rollup.red", "query": "in:otel_traces {window_main} rollup_stats:red", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/stats/query.ex"]},
+    {"id": "traces.rollup.red.one_service", "query": "in:otel_traces {window_main} service_name:svc-beta rollup_stats:red"},
+    {"id": "traces.spans.recent", "query": "in:traces {window_main} sort:timestamp:desc limit:100", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/log_live/index.ex"]},
+    {"id": "traces.spans.one_trace", "query": "in:traces {window_main} trace_id:\"00000000000000000000000071000005\" sort:start_time_unix_nano:asc limit:1000", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/trace_live/show.ex"]},
+    {"id": "traces.spans.errors", "query": "in:traces {window_main} status_code:2 sort:timestamp:desc limit:100"},
+    {"id": "traces.spans.not_service", "query": "in:traces {window_main} !service_name:svc-alpha sort:timestamp:asc limit:200"},
+    {"id": "traces.summaries.recent", "query": "in:otel_trace_summaries {window_main} sort:timestamp:desc limit:100", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/log_live/index.ex"]},
+    {"id": "traces.summaries.slowest", "query": "in:otel_trace_summaries {window_main} sort:duration_ms:desc limit:50", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/log_live/index.ex"]},
+    {"id": "traces.summaries.multi_span", "query": "in:otel_trace_summaries {window_main} span_count:>2 sort:timestamp:desc limit:100", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/log_live/index.ex"]},
+    {"id": "traces.summaries.services", "query": "in:otel_trace_summaries {window_main} service_name:(svc-beta,svc-gamma) sort:timestamp:asc limit:200", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/log_live/index.ex"]},
+    {"id": "traces.summaries.not_service", "query": "in:otel_trace_summaries {window_main} !service_name:svc-alpha sort:timestamp:asc limit:200"},
+    {"id": "traces.summaries.one_trace", "query": "in:otel_trace_summaries {window_main} trace_id:\"00000000000000000000000071000005\" limit:1", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/trace_live/show.ex"], "ordered": false},
+    {"id": "traces.summaries.count", "query": "in:otel_trace_summaries {window_main} stats:\"count() as total\"", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/stats/query.ex"]},
+    {"id": "traces.summaries.count.errors", "query": "in:otel_trace_summaries {window_main} error_count:>0 stats:\"count() as total\"", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/stats/query.ex"]},
+    {"id": "traces.summaries.count.service", "query": "in:otel_trace_summaries {window_main} service_name:svc-beta stats:\"count() as total\"", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/stats/query.ex"]},
+    {"id": "traces.summaries.stats.conditions", "query": "in:otel_trace_summaries {window_main} stats:\"count() as total, sum(if(status_code!=0,1,0)) as failed, sum(if(duration_ms>=200,1,0)) as slow\""}
   ]
 }

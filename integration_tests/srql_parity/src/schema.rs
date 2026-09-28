@@ -124,6 +124,8 @@ pub const STARROCKS_MATERIALIZED_VIEWS: &[&str] = &[
     "timeseries_metrics_hourly",
     "ocsf_network_activity_hourly",
     "events_hourly",
+    "traces_stats_5m",
+    "spans_red_1h",
 ];
 
 /// Splits a pg_dump file into statements: `;` ends one outside quotes, dollar quotes and
@@ -209,6 +211,8 @@ pub const CNPG_BASELINE_TABLES: &[&str] = &[
     "mtr_hops",
     "otel_metrics",
     "otel_metric_points",
+    "otel_traces",
+    "otel_trace_summaries",
     // Read by the CNPG flow `app` classifier; left empty, so both dialects fall back to the
     // same port-based labels.
     "netflow_app_classification_rules",
@@ -385,6 +389,7 @@ pub const CNPG_TIMESCALE_DDL: &[&str] = &[
      create_default_indexes => false, if_not_exists => true)",
     "SELECT create_hypertable('platform.ocsf_network_activity', 'time', if_not_exists => true)",
     "SELECT create_hypertable('platform.logs', 'timestamp', if_not_exists => true)",
+    "SELECT create_hypertable('platform.otel_traces', 'timestamp', if_not_exists => true)",
     // 20260220110000_add_srql_metric_hourly_caggs.exs
     "CREATE MATERIALIZED VIEW platform.timeseries_metrics_hourly
      WITH (timescaledb.continuous) AS
@@ -450,6 +455,46 @@ pub const CNPG_TIMESCALE_DDL: &[&str] = &[
      FROM platform.logs
      GROUP BY 1, 2
      WITH NO DATA",
+    // 20260611040000_align_otel_chunks_retention.exs (as the baseline states it).
+    "CREATE MATERIALIZED VIEW platform.traces_stats_5m
+     WITH (timescaledb.continuous) AS
+     SELECT
+       time_bucket('5 minutes', timestamp) AS bucket,
+       service_name,
+       count(*) AS total_count,
+       count(*) FILTER (WHERE status_code = 2) AS error_count,
+       avg((end_time_unix_nano - start_time_unix_nano)::float8 / 1000000.0) AS avg_duration_ms,
+       percentile_cont(0.95) WITHIN GROUP (
+         ORDER BY (end_time_unix_nano - start_time_unix_nano)::float8 / 1000000.0
+       ) AS p95_duration_ms
+     FROM platform.otel_traces
+     WHERE parent_span_id IS NULL
+     GROUP BY 1, 2
+     WITH NO DATA",
+    // 20260611080000_add_otel_span_fidelity_columns.exs (as the baseline states it).
+    "CREATE MATERIALIZED VIEW platform.spans_red_1h
+     WITH (timescaledb.continuous) AS
+     SELECT
+       time_bucket('1 hour', timestamp) AS bucket,
+       COALESCE(service_name, '') AS service_name,
+       COALESCE(service_namespace, '') AS service_namespace,
+       COALESCE(deployment_environment, '') AS deployment_environment,
+       count(*) AS total_count,
+       count(*) FILTER (WHERE status_code = 2) AS error_count,
+       count(*) FILTER (
+         WHERE (end_time_unix_nano - start_time_unix_nano)::float8 / 1000000.0 > 100
+       ) AS slow_count,
+       avg((end_time_unix_nano - start_time_unix_nano)::float8 / 1000000.0) AS avg_duration_ms,
+       percentile_cont(0.5) WITHIN GROUP (
+         ORDER BY (end_time_unix_nano - start_time_unix_nano)::float8 / 1000000.0
+       ) FILTER (WHERE (end_time_unix_nano - start_time_unix_nano) IS NOT NULL) AS p50_duration_ms,
+       percentile_cont(0.95) WITHIN GROUP (
+         ORDER BY (end_time_unix_nano - start_time_unix_nano)::float8 / 1000000.0
+       ) FILTER (WHERE (end_time_unix_nano - start_time_unix_nano) IS NOT NULL) AS p95_duration_ms,
+       max((end_time_unix_nano - start_time_unix_nano)::float8 / 1000000.0) AS max_duration_ms
+     FROM platform.otel_traces
+     GROUP BY 1, 2, 3, 4
+     WITH NO DATA",
 ];
 
 /// Continuous aggregates materialised after seeding: created `WITH NO DATA`, they are empty
@@ -461,6 +506,8 @@ pub const CNPG_CONTINUOUS_AGGREGATES: &[&str] = &[
     "platform.flow_traffic_1h",
     "platform.ocsf_network_activity_hourly_talkers",
     "platform.logs_severity_stats_5m",
+    "platform.traces_stats_5m",
+    "platform.spans_red_1h",
 ];
 
 /// The CNPG DDL, in order, for a fresh database.

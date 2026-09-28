@@ -62,6 +62,11 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
         :otel_metrics
 
       e
+      when e in ~w(otel_traces traces trace_spans otel_trace_summaries trace_summaries
+                     traces_summaries) ->
+        :otel_traces
+
+      e
       when e in ~w(
              events activity
              security_findings security_finding findings finding
@@ -95,6 +100,10 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
   # OTel metric samples and points follow the MTR rule: EventWriter writes
   # them to the warehouse only when it is enabled (`OtelMetrics.store/3`).
   def mode_for(:otel_metrics), do: if(enabled?(), do: "starrocks")
+
+  # So do spans (`OtelTraces.store/2`), and their summaries are derived in the
+  # same backend (`RefreshTraceSummariesWorker`).
+  def mode_for(:otel_traces), do: if(enabled?(), do: "starrocks")
 
   def mode_for(dataset) when is_atom(dataset) do
     cond do

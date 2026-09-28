@@ -8,8 +8,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
   until the dataset is listed in `cutover_datasets`; then Stream Load Success
   or durable quarantine is required before ACK.
 
-  MTR traces and hops (`:mtr_traces`, `:mtr_hops`) and OTel metrics
-  (`:otel_metrics`, `:otel_metric_points`) are not shadowed: while
+  MTR traces and hops (`:mtr_traces`, `:mtr_hops`), OTel metrics
+  (`:otel_metrics`, `:otel_metric_points`) and OTel spans (`:otel_traces`)
+  are not shadowed: while
   StarRocks is enabled they are written to the warehouse only, through
   `persist_warehouse/3`, and a failed load fails the ACK.
 
@@ -58,6 +59,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
           | :mtr_hops
           | :otel_metrics
           | :otel_metric_points
+          | :otel_traces
   @type dest :: :cnpg | :starrocks
 
   @tables %{
@@ -69,7 +71,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
     mtr_traces: "mtr_traces",
     mtr_hops: "mtr_hops",
     otel_metrics: "otel_metrics",
-    otel_metric_points: "otel_metric_points"
+    otel_metric_points: "otel_metric_points",
+    otel_traces: "otel_traces"
   }
 
   @spec table_for(dataset()) :: String.t()

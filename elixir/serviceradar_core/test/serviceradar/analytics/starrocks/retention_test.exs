@@ -13,6 +13,7 @@ defmodule ServiceRadar.Analytics.StarRocks.RetentionTest do
     SERVICERADAR_STARROCKS_RETENTION_DAYS_EVENTS
     SERVICERADAR_STARROCKS_RETENTION_DAYS_MTR
     SERVICERADAR_STARROCKS_RETENTION_DAYS_OTEL
+    SERVICERADAR_STARROCKS_RETENTION_DAYS_TRACES
   )
 
   setup do
@@ -36,7 +37,8 @@ defmodule ServiceRadar.Analytics.StarRocks.RetentionTest do
              logs: 365,
              events: 365,
              mtr: 365,
-             otel: 365
+             otel: 365,
+             traces: 365
            ]
 
     System.put_env("SERVICERADAR_STARROCKS_RETENTION_DAYS_FLOWS", "30")
@@ -50,7 +52,8 @@ defmodule ServiceRadar.Analytics.StarRocks.RetentionTest do
              logs: 730,
              events: 365,
              mtr: 365,
-             otel: 365
+             otel: 365,
+             traces: 365
            ]
 
     for invalid <- ["", "0", "-5", "forever"] do
@@ -72,7 +75,8 @@ defmodule ServiceRadar.Analytics.StarRocks.RetentionTest do
       "mtr_traces" => "365",
       "mtr_hops" => "365",
       "otel_metrics" => "365",
-      "otel_metric_points" => "365"
+      "otel_metric_points" => "365",
+      "otel_traces" => "365"
     }
 
     for {table, days} <- expected do

@@ -23,6 +23,17 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   rather than NULL. Error counting uses OTLP STATUS_ERROR (`status_code = 2`)
   only.
 
+  ## Warehouse
+
+  With StarRocks enabled, EventWriter writes spans to the warehouse only, so
+  the summaries are derived there: every statement that reads spans or writes
+  summaries goes through `ServiceRadar.Analytics.StarRocks.TraceSummaries`
+  instead, with the same meaning. The watermark and the advisory lock stay in
+  CNPG, since they are control-plane state and a run is still one transaction
+  there. The warehouse summary table is pruned to the StarRocks traces
+  retention (`SERVICERADAR_STARROCKS_RETENTION_DAYS_TRACES`), not this worker's
+  `retention_days`, which governs the CNPG table.
+
   ## Scheduling and the trailing refresh
 
   The job is enqueued by the `*/2` cron, by the EventWriter `otel_traces`
@@ -94,6 +105,9 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   import Ecto.Query, only: [from: 2]
 
   alias Ecto.Adapters.SQL
+  alias ServiceRadar.Analytics.StarRocks.Destination
+  alias ServiceRadar.Analytics.StarRocks.Env, as: StarRocksEnv
+  alias ServiceRadar.Analytics.StarRocks.TraceSummaries, as: WarehouseSummaries
   alias ServiceRadar.Observability.OtelPubSub
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
@@ -308,6 +322,8 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   # Slack added to the trailing-probe timeout when flooring the grace.
   @orphan_grace_probe_margin_seconds 10
   @orphan_probe_throttle_key {__MODULE__, :orphan_probe_last_ms}
+  @warehouse_prune_throttle_key {__MODULE__, :warehouse_prune_last_ms}
+  @warehouse_prune_interval_ms 3_600_000
   @min_signed_64 -0x8000000000000000
 
   def upsert_sql, do: @upsert_sql
@@ -579,10 +595,10 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
       )
 
     case result do
-      {:ok, %{changed: changed, watermark: watermark}} ->
+      {:ok, %{changed: changed, watermark: watermark, window_end: window_end}} ->
         OtelPubSub.broadcast_trace_summaries(%{count: changed})
 
-        if spans_ingested_after?(watermark) do
+        if spans_ingested_after?(watermark, window_end) do
           {:snooze, @trailing_refresh_delay_seconds}
         else
           :ok
@@ -619,7 +635,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
         window_end: DateTime.to_iso8601(now)
       )
 
-      {:ok, %{changed: changed, watermark: new_watermark}}
+      {:ok, %{changed: changed, watermark: new_watermark, window_end: now}}
     end
   rescue
     error ->
@@ -666,6 +682,34 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   end
 
   defp run_upsert(window_start, window_end) do
+    if warehouse?() do
+      run_warehouse_upsert(window_start, window_end)
+    else
+      run_cnpg_upsert(window_start, window_end)
+    end
+  end
+
+  # Spans live in the warehouse only when StarRocks is enabled, so their
+  # summaries are derived there; see ServiceRadar.Analytics.StarRocks.TraceSummaries.
+  defp run_warehouse_upsert(window_start, window_end) do
+    with {:ok, true} <-
+           WarehouseSummaries.any_ingested?(window_start, window_end, timeout: probe_timeout_ms()),
+         {:ok, written} <-
+           WarehouseSummaries.upsert(window_start, window_end, warehouse_retention_days(),
+             timeout: upsert_timeout_ms()
+           ) do
+      {:ok, written}
+    else
+      {:ok, false} ->
+        {:ok, 0}
+
+      {:error, reason} = error ->
+        Logger.error("Failed to upsert warehouse otel_trace_summaries: #{inspect(reason)}")
+        error
+    end
+  end
+
+  defp run_cnpg_upsert(window_start, window_end) do
     if window_has_ingested_spans?(window_start, window_end) do
       case SQL.query(
              Repo,
@@ -712,7 +756,28 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
     end
   end
 
-  defp spans_ingested_after?(watermark) do
+  defp spans_ingested_after?(watermark, window_end) do
+    if warehouse?(),
+      do: warehouse_spans_ingested_after?(watermark, window_end),
+      else: cnpg_spans_ingested_after?(watermark)
+  end
+
+  defp warehouse_spans_ingested_after?(watermark, window_end) do
+    case WarehouseSummaries.ingested_after?(watermark, window_end, timeout: probe_timeout_ms()) do
+      {:ok, ingested?} ->
+        ingested?
+
+      {:error, reason} ->
+        Logger.warning(
+          "Trace summaries trailing-refresh probe failed; the cron will catch up: " <>
+            inspect(reason)
+        )
+
+        false
+    end
+  end
+
+  defp cnpg_spans_ingested_after?(watermark) do
     case SQL.query(Repo, @ingested_after_watermark_sql, [watermark], timeout: probe_timeout_ms()) do
       {:ok, %{rows: [[true]]}} ->
         true
@@ -736,22 +801,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   # Advance the watermark to the max created_at actually processed, falling
   # back to the run's upper bound when the window held no spans.
   defp advance_watermark(window_start, window_end) do
-    new_watermark =
-      case SQL.query(
-             Repo,
-             @max_ingested_at_sql,
-             [window_start, window_end],
-             timeout: watermark_timeout_ms()
-           ) do
-        {:ok, %{rows: [[%DateTime{} = max_created_at]]}} ->
-          max_created_at
-
-        {:ok, %{rows: [[%NaiveDateTime{} = max_created_at]]}} ->
-          DateTime.from_naive!(max_created_at, "Etc/UTC")
-
-        _ ->
-          window_end
-      end
+    new_watermark = max_ingested_at(window_start, window_end) || window_end
 
     case SQL.query(
            Repo,
@@ -772,9 +822,85 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
     end
   end
 
+  defp max_ingested_at(window_start, window_end) do
+    if warehouse?() do
+      case WarehouseSummaries.max_ingested_at(window_start, window_end,
+             timeout: watermark_timeout_ms()
+           ) do
+        {:ok, max_created_at} -> max_created_at
+        {:error, _reason} -> nil
+      end
+    else
+      case SQL.query(
+             Repo,
+             @max_ingested_at_sql,
+             [window_start, window_end],
+             timeout: watermark_timeout_ms()
+           ) do
+        {:ok, %{rows: [[%DateTime{} = max_created_at]]}} ->
+          max_created_at
+
+        {:ok, %{rows: [[%NaiveDateTime{} = max_created_at]]}} ->
+          DateTime.from_naive!(max_created_at, "Etc/UTC")
+
+        _ ->
+          nil
+      end
+    end
+  end
+
+  defp cleanup_old_summaries do
+    if warehouse?(), do: prune_warehouse_summaries(), else: cleanup_cnpg_summaries()
+  end
+
+  # The warehouse summary table is not partitioned (a trace's timestamp moves
+  # as late spans arrive), so its DELETE scans the whole table unlike the
+  # CNPG path's bounded/batched cleanup below; throttled to at most once per
+  # hour per node, and a failure here does not fail the refresh or block the
+  # watermark from advancing since the upsert already committed independently.
+  defp prune_warehouse_summaries do
+    if warehouse_prune_permitted?() do
+      retention_days = warehouse_retention_days()
+
+      case WarehouseSummaries.prune(retention_days, timeout: cleanup_timeout_ms()) do
+        {:ok, deleted} ->
+          log_cleanup(deleted, retention_days, 0)
+
+        {:error, reason} ->
+          Logger.warning("Failed to prune warehouse otel_trace_summaries: #{inspect(reason)}")
+      end
+    end
+
+    :ok
+  end
+
+  # Lock-free per-node throttle: the caller whose compare-and-swap advances
+  # the timestamp is the one that prunes.
+  defp warehouse_prune_permitted? do
+    ref = warehouse_prune_throttle()
+    now = System.monotonic_time(:millisecond)
+    last = :atomics.get(ref, 1)
+
+    now - last >= @warehouse_prune_interval_ms and
+      :atomics.compare_exchange(ref, 1, last, now) == :ok
+  end
+
+  defp warehouse_prune_throttle do
+    case :persistent_term.get(@warehouse_prune_throttle_key, nil) do
+      nil ->
+        ref = :atomics.new(1, signed: true)
+        :atomics.put(ref, 1, @min_signed_64)
+        :persistent_term.put(@warehouse_prune_throttle_key, ref)
+        ref
+
+      ref ->
+        ref
+    end
+  end
+
   # Drain expired summary rows in batches until none remain or the time
   # budget for this run is exhausted.
-  defp cleanup_old_summaries do
+  defp cleanup_cnpg_summaries do
     batch_size = cleanup_batch_size()
     retention_days = retention_days()
     deadline = System.monotonic_time(:millisecond) + cleanup_time_budget_ms()
@@ -838,6 +964,14 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
 
   defp retention_days do
     config_positive_integer(:retention_days, @default_retention_days)
+  end
+
+  defp warehouse?, do: Destination.enabled?()
+
+  defp warehouse_retention_days do
+    StarRocksEnv.config()
+    |> Keyword.get(:retention_days, [])
+    |> Keyword.get(:traces, Keyword.fetch!(StarRocksEnv.default_retention_days(), :traces))
   end
 
   defp cleanup_batch_size do

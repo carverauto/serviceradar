@@ -20,6 +20,10 @@ defmodule ServiceRadar.Analytics.StarRocks.EventDocuments do
   those columns; a stats row (which has no `id`) is left alone, so an
   aggregate aliased to one of those names is never rewritten.
 
+  A trace summary's `service_set` (`ARRAY<VARCHAR>`) arrives as its JSON text,
+  where CNPG returns a list. Only a summary listing carries `trace_id` beside
+  it, so a count aliased `service_set` is left alone.
+
   OTel metric rows carry `is_slow` (samples) or `is_monotonic` (points) as the
   same 0/1 `TINYINT`. A listing row always has `timestamp`, which a count row
   (`service_name` or `metric_name` plus the count alias) never has alongside
@@ -40,6 +44,7 @@ defmodule ServiceRadar.Analytics.StarRocks.EventDocuments do
       :events -> Enum.map(rows, &decode_row(&1, @columns))
       :mtr -> Enum.map(rows, &decode_mtr_row/1)
       :otel_metrics -> Enum.map(rows, &decode_otel_metric_row/1)
+      :otel_traces -> Enum.map(rows, &decode_trace_row/1)
       _ -> rows
     end
   end
@@ -68,6 +73,9 @@ defmodule ServiceRadar.Analytics.StarRocks.EventDocuments do
   end
 
   defp decode_otel_metric_row(row), do: row
+
+  defp decode_trace_row(%{"trace_id" => _} = row), do: decode_row(row, ["service_set"])
+  defp decode_trace_row(row), do: row
 
   defp decode_row(%{} = row, columns) do
     Enum.reduce(columns, row, fn column, acc ->

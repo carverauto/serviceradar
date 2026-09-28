@@ -342,6 +342,79 @@ defmodule ServiceRadar.Analytics.StarRocks.RowsTest do
     end
   end
 
+  describe "OTel spans" do
+    defp span(overrides \\ %{}) do
+      Map.merge(
+        %{
+          timestamp: ~U[2026-01-15 10:00:00.123456Z],
+          trace_id: "0123456789abcdef0123456789abcdef",
+          span_id: "0123456789abcdef",
+          parent_span_id: nil,
+          trace_state: nil,
+          name: "GET /cart",
+          kind: 2,
+          start_time_unix_nano: 1_768_471_200_123_456_000,
+          end_time_unix_nano: 1_768_471_200_373_456_000,
+          service_name: "checkout",
+          service_version: "1.0.0",
+          service_instance: "instance-01",
+          service_namespace: "",
+          deployment_environment: "",
+          scope_name: "example.tracer",
+          scope_version: nil,
+          scope_attributes: nil,
+          status_code: 0,
+          status_message: nil,
+          attributes: ~s({"http.route":"/cart"}),
+          resource_attributes: ~s({"service.name":"checkout"}),
+          events: "[]",
+          links: "[]",
+          dropped_attributes_count: 0,
+          dropped_events_count: 0,
+          dropped_links_count: 0,
+          ingest_identity: "",
+          ingest_agent_id: "agent-01",
+          ingest_partition: "default",
+          created_at: ~U[2026-01-15 10:00:05Z]
+        },
+        overrides
+      )
+    end
+
+    test "a span carries exactly the warehouse columns" do
+      [row] = Rows.encode(:otel_traces, [span()])
+
+      assert row |> Map.keys() |> Enum.sort() == ddl_columns("otel_traces")
+      assert row["timestamp"] == "2026-01-15T10:00:00.123456Z"
+      assert row["created_at"] == "2026-01-15T10:00:05Z"
+      assert row["trace_id"] == "0123456789abcdef0123456789abcdef"
+      # A root span's missing parent stays NULL; OK status 0 stays 0.
+      assert row["parent_span_id"] == nil
+      assert row["status_code"] == 0
+      assert row["kind"] == 2
+      assert row["start_time_unix_nano"] == 1_768_471_200_123_456_000
+      assert row["attributes"] == ~s({"http.route":"/cart"})
+    end
+
+    test "encoded spans survive the Stream Load JSON encoding" do
+      assert {:ok, _json} = Jason.encode(Rows.encode(:otel_traces, [span()]))
+    end
+
+    test "an oversized attributes value is truncated to its column limit and still encodes" do
+      # 1_048_576 is the StarRocks otel_traces.attributes VARCHAR limit
+      # (priv/starrocks/0022); a multi-byte filler proves the cut lands on a
+      # UTF-8 boundary rather than mid-codepoint.
+      attributes = String.duplicate("é", 600_000)
+
+      assert [%{"attributes" => truncated} = row] =
+               Rows.encode(:otel_traces, [span(%{attributes: attributes})])
+
+      assert byte_size(truncated) <= 1_048_576
+      assert String.valid?(truncated)
+      assert {:ok, _json} = Jason.encode(row)
+    end
+  end
+
   # The column list of the shipped CREATE, so an encoder that misses or
   # misspells a column fails here rather than loading NULL into it.
   defp ddl_columns(table) do

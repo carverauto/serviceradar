@@ -95,11 +95,25 @@ defmodule ServiceRadar.Analytics.StarRocks.ReadersTest do
     end
   end
 
-  # OTel metric samples and points are written to the warehouse only when it
-  # is enabled, so they follow the MTR rule, with every entity spelling.
-  test "OTel metrics SRQL reads StarRocks with the warehouse enabled and CNPG without it" do
+  # OTel metric samples and points, and spans with the summaries derived from
+  # them, are written to the warehouse only when it is enabled, so they follow
+  # the MTR rule, with every entity spelling.
+  test "OTel metrics and traces SRQL read StarRocks with the warehouse enabled and CNPG without it" do
     prev = Application.get_env(:serviceradar_core, StarRocks, [])
-    spellings = ["otel_metrics", "metrics", "OTEL_METRICS", "otel_metric_points", "metric_points"]
+
+    spellings = [
+      "otel_metrics",
+      "metrics",
+      "OTEL_METRICS",
+      "otel_metric_points",
+      "metric_points",
+      "otel_traces",
+      "traces",
+      "trace_spans",
+      "otel_trace_summaries",
+      "trace_summaries",
+      "traces_summaries"
+    ]
 
     try do
       Application.put_env(
@@ -116,12 +130,16 @@ defmodule ServiceRadar.Analytics.StarRocks.ReadersTest do
       query = ~s|in:otel_metric_points time:last_24h stats:"count() as points by metric_name"|
       assert query |> Readers.entity_for_query() |> Readers.mode_for() == "starrocks"
 
+      assert Readers.backend(:otel_traces) == :starrocks
+
       Application.put_env(:serviceradar_core, StarRocks, Keyword.put(prev, :enabled, false))
 
       for entity <- spellings do
         assert Readers.mode_for(entity) == nil
         assert Readers.backend(entity) == :cnpg
       end
+
+      assert Readers.backend(:otel_traces) == :cnpg
     after
       Application.put_env(:serviceradar_core, StarRocks, prev)
     end

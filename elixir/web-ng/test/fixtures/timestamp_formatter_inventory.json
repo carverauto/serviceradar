@@ -1486,5 +1486,13 @@
     "fingerprint": "1bfa99c3cf7a840fa36c648936aed4c706872666fb4ecdf2e4d6b5efd1f0c9fb",
     "classification": "canonical_machine",
     "reason": null
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/stats.ex",
+    "matcher": "naive_datetime_string",
+    "occurrence": 1,
+    "fingerprint": "f6a61edbcee07856c8f2c634e83c8082686c40ad24e49c4749fff313ccdd6f56",
+    "classification": "canonical_machine",
+    "reason": "UTC wall-clock literal bounding StarRocks DATETIME columns in warehouse trace-rollup probe SQL; never displayed"
   }
 ]

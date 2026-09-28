@@ -8,6 +8,7 @@ use chrono::{SecondsFormat, Timelike, Utc};
 
 mod mtr;
 mod otel_metrics;
+mod traces;
 
 /// Compile an authorized SRQL plan to StarRocks SQL.
 ///
@@ -41,6 +42,12 @@ fn translate_inner(
     // count-only stats grammar.
     if matches!(plan.entity, Entity::OtelMetrics | Entity::OtelMetricPoints) {
         return otel_metrics::translate(plan, database);
+    }
+    // Spans and trace summaries likewise follow their CNPG builders; span
+    // rollups read `traces_stats_5m`/`spans_red_1h` unless the freshness gate
+    // asked for the raw table (`allow_rollup` false).
+    if matches!(plan.entity, Entity::Traces | Entity::TraceSummaries) {
+        return traces::translate(plan, database, allow_rollup);
     }
     match dataset_for(&plan.entity) {
         Some(dataset) => {
@@ -2869,6 +2876,68 @@ fn direction_value(value: &str) -> &str {
         "external" => "unknown",
         _ => value,
     }
+}
+
+/// A text filter as the CNPG row and stats builders write it (the OTel metric
+/// and trace builders and `apply_text_filter!`). `ILIKE` is
+/// `LOWER(column) LIKE LOWER(pattern)`. An empty list filters nothing on
+/// either path. The row path (`apply_text_filter!`) keeps NULL rows under a
+/// negation; the stats path (`build_text_clause`) drops them.
+pub(super) fn text_predicate(
+    column: &str,
+    filter: &Filter,
+    keep_null: bool,
+) -> Result<Option<String>> {
+    text_predicate_on(&format!("`{column}`"), filter, keep_null)
+}
+
+/// `text_predicate` over a SQL expression rather than a column name.
+pub(super) fn text_predicate_on(
+    column: &str,
+    filter: &Filter,
+    keep_null: bool,
+) -> Result<Option<String>> {
+    use crate::parser::FilterOp;
+    let negation = |predicate: String| {
+        if keep_null {
+            format!("({column} IS NULL OR {predicate})")
+        } else {
+            predicate
+        }
+    };
+    let like = |value: &str| {
+        format!(
+            "LOWER({column}) LIKE {}",
+            sql_literal(&value.to_lowercase())
+        )
+    };
+    Ok(Some(match filter.op {
+        FilterOp::Eq => format!("{column} = {}", sql_literal(filter.value.as_scalar()?)),
+        FilterOp::NotEq => negation(format!(
+            "{column} <> {}",
+            sql_literal(filter.value.as_scalar()?)
+        )),
+        FilterOp::Like => like(filter.value.as_scalar()?),
+        FilterOp::NotLike => negation(format!("NOT {}", like(filter.value.as_scalar()?))),
+        FilterOp::In | FilterOp::NotIn => {
+            let values = filter.value.as_list()?;
+            if values.is_empty() {
+                return Ok(None);
+            }
+            let list = literal_list(values.iter().map(String::as_str));
+            if matches!(filter.op, FilterOp::In) {
+                format!("{column} IN ({list})")
+            } else {
+                negation(format!("{column} NOT IN ({list})"))
+            }
+        }
+        _ => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "unsupported operator for text filter: {:?}",
+                filter.op
+            )));
+        }
+    }))
 }
 
 /// A sort direction with Postgres's NULL placement, which is the opposite of StarRocks's default.
