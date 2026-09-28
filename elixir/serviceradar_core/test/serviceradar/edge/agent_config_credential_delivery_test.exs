@@ -17,8 +17,11 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
   # version-stability assertions below then read.
   use ServiceRadar.DataCase, async: false
 
+  alias Ecto.Adapters.SQL.Sandbox
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.Compiler
+  alias ServiceRadar.AgentConfig.ConfigCache
+  alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Credentials.CredentialSecretResolutionAudit
   alias ServiceRadar.Credentials.NetworkCredentialSecret
@@ -30,6 +33,8 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadar.ProcessRegistry
+  alias ServiceRadar.Repo
+  alias ServiceRadar.SNMPProfiles.SNMPProfile
 
   # The real shipped manifest, not a stand-in. Its `additionalProperties: false`
   # is what made a materialized Proxmox assignment unstorable, and with the
@@ -217,6 +222,65 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
 
     assert length(audits_after) > length(audits) - 1
     assert length(audits_after) >= 2
+  end
+
+  # A generation's SNMP section can be compiled by another process whose
+  # database reads fail: a config push on a broken connection, or in the test
+  # sandbox a pusher whose owner exited mid-generation. That compile used to
+  # report the failed default-profile read as "no profile", and ConfigServer
+  # cached the resulting disabled fragment under this agent's key, so the next
+  # generation hashed it and returned a new config_version with nothing changed.
+  test "an SNMP section compiled with failing reads does not re-version the config",
+       %{admin: admin, system: system, agent_uid: agent_uid, unique_id: unique_id} do
+    default_snmp = default_snmp_profile!(system)
+    {:ok, _agent} = create_connected_agent(admin, agent_uid)
+    create_expired_grant_policy_assignment!(admin, system, agent_uid, unique_id)
+
+    {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
+    assert config.snmp_config.profile_id == to_string(default_snmp.id)
+
+    ConfigCache.invalidate(:snmp)
+    failed_section = compile_snmp_section_with_failing_reads(agent_uid)
+
+    {:ok, config2} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
+    assert config.config_version == config2.config_version
+    assert config2.snmp_config.profile_id == to_string(default_snmp.id)
+    # The failed read surfaced as an error rather than as a cacheable config.
+    refute match?({:ok, _entry}, failed_section)
+
+    # A real SNMP change still re-versions the config.
+    {:ok, _renamed} =
+      default_snmp
+      |> Ash.Changeset.for_update(:update, %{name: "Default SNMP #{unique_id}"}, actor: system)
+      |> Ash.update(actor: system)
+
+    ConfigCache.invalidate(:snmp)
+    {:ok, config3} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
+    assert config3.snmp_config.profile_name == "Default SNMP #{unique_id}"
+    refute config3.config_version == config2.config_version
+  end
+
+  test "consecutive generations that each re-mint the broker grant keep one config version",
+       %{admin: admin, system: system, agent_uid: agent_uid, unique_id: unique_id} do
+    {:ok, _agent} = create_connected_agent(admin, agent_uid)
+    create_expired_grant_policy_assignment!(admin, system, agent_uid, unique_id)
+
+    configs =
+      for generation <- 1..4 do
+        # Second-resolution timestamps (grant issued_at/expires_at) differ
+        # between every pair of generations.
+        if generation > 1, do: cross_second_boundary()
+        {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
+        config
+      end
+
+    delivered_grant_ids =
+      Enum.map(configs, fn config ->
+        config.plugins |> hd() |> get_in([:params, "template", "credential_broker", "grant_id"])
+      end)
+
+    assert delivered_grant_ids |> Enum.uniq() |> length() == 4
+    assert configs |> Enum.map(& &1.config_version) |> Enum.uniq() |> length() == 1
   end
 
   test "fresh policy broker grant is reused and still resolves with an audit row",
@@ -457,6 +521,131 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
              )
 
     assert audit_count(secret, system) == after_delivery + 1
+  end
+
+  # The same policy assignment as the re-mint test above: its stored broker
+  # grant is expired, so every generation mints a fresh one.
+  defp create_expired_grant_policy_assignment!(admin, system, agent_uid, unique_id) do
+    package = create_approved_plugin_package!(admin, unique_id, @proxmox_config_schema)
+    secret = create_proxmox_secret!(admin, unique_id)
+
+    stale_payload =
+      system |> issue_expired_grant!(secret, agent_uid) |> CredentialBrokerGrant.to_payload()
+
+    PluginAssignment
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        agent_uid: agent_uid,
+        plugin_package_id: package.id,
+        source: :policy,
+        source_key: "policy-key-#{unique_id}",
+        policy_id: "network-credential-rule:rule-#{unique_id}",
+        enabled: true,
+        interval_seconds: 300,
+        timeout_seconds: 30,
+        params: %{
+          "schema" => "serviceradar.plugin_inputs.v1",
+          "policy_id" => "network-credential-rule:rule-#{unique_id}",
+          "policy_version" => 1,
+          "agent_id" => agent_uid,
+          "generated_at" => DateTime.to_iso8601(DateTime.utc_now()),
+          "inputs" => [
+            %{
+              "name" => "targets",
+              "entity" => "devices",
+              "query" => "in:devices vendor:proxmox",
+              "chunk_index" => 0,
+              "chunk_total" => 1,
+              "chunk_hash" => String.duplicate("b", 64),
+              "items" => [%{"ip" => "192.0.2.14", "hostname" => "pve-test-01"}]
+            }
+          ],
+          "template" => %{
+            "credential_broker" => stale_payload,
+            "api_token_secret_ref" => SecretRefs.network_credential_ref(to_string(secret.id)),
+            "timeout_ms" => 30_000
+          }
+        }
+      },
+      actor: admin
+    )
+    |> create_without_notifications!()
+  end
+
+  # An enabled default SNMP profile that applies to every agent, so the SNMP
+  # section this agent receives names a profile rather than the disabled config.
+  defp default_snmp_profile!(actor) do
+    case SNMPProfile |> Ash.Query.for_read(:get_default, %{}) |> Ash.read_one(actor: actor) do
+      {:ok, %SNMPProfile{agent_ids: []} = profile} ->
+        profile
+
+      {:ok, nil} ->
+        {:ok, profile} =
+          SNMPProfile
+          |> Ash.Changeset.for_create(
+            :create,
+            %{name: "Default SNMP #{System.unique_integer([:positive])}", enabled: true},
+            actor: actor
+          )
+          |> Ash.create(actor: actor)
+
+        {:ok, profile} =
+          profile
+          |> Ash.Changeset.for_update(:set_as_default, %{}, actor: actor)
+          |> Ash.update(actor: actor)
+
+        profile
+    end
+  end
+
+  # Runs the SNMP section lookup AgentConfigGenerator makes for this agent (same
+  # ConfigServer key: partition, agent, no device) from a process whose profile
+  # read fails. The process checks out its own connection with a short
+  # lock_timeout while this test holds an exclusive lock on the SNMP profile
+  # table, so the read errors out; rolling back the savepoint releases the lock.
+  defp compile_snmp_section_with_failing_reads(agent_uid) do
+    {:error, {:snmp_section, result}} =
+      Repo.transaction(fn ->
+        Repo.query!("LOCK TABLE platform.snmp_profiles IN ACCESS EXCLUSIVE MODE")
+        Repo.rollback({:snmp_section, compile_snmp_section_on_own_connection(agent_uid)})
+      end)
+
+    result
+  end
+
+  defp compile_snmp_section_on_own_connection(agent_uid) do
+    parent = self()
+
+    {pid, ref} =
+      spawn_monitor(fn ->
+        :ok = Sandbox.checkout(Repo)
+        Repo.query!("SET LOCAL lock_timeout = '100ms'")
+
+        result =
+          ConfigServer.get_config(:snmp, @default_partition, agent_uid,
+            actor: SystemActor.system(:snmp_config_loader),
+            device_uid: nil,
+            agent_id: agent_uid
+          )
+
+        send(parent, {:snmp_section, self(), result})
+      end)
+
+    receive do
+      {:snmp_section, ^pid, result} ->
+        Process.demonitor(ref, [:flush])
+        result
+
+      {:DOWN, ^ref, :process, ^pid, reason} ->
+        flunk("SNMP section compile exited: #{inspect(reason)}")
+    after
+      30_000 -> flunk("SNMP section compile did not finish")
+    end
+  end
+
+  defp cross_second_boundary do
+    Process.sleep(1_001 - rem(System.os_time(:millisecond), 1_000))
   end
 
   defp audit_count(secret, system) do

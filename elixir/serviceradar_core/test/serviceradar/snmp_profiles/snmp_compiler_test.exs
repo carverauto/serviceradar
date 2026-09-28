@@ -736,7 +736,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
           actor: actor
         )
 
-      config = SNMPCompiler.compile_profile(profile, actor)
+      {:ok, config} = SNMPCompiler.compile_profile(profile, actor)
 
       assert config["enabled"] == true
       assert [%{"host" => "192.168.10.1"}] = config["targets"]
@@ -1011,6 +1011,142 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
 
       assert Enum.all?(names, &(String.length(&1) <= 128))
       assert length(Enum.uniq(names)) == 2
+    end
+  end
+
+  describe "a read that fails during compile" do
+    @tag :integration
+    setup do
+      ServiceRadar.TestSupport.start_core!()
+      ConfigServer.invalidate(:snmp)
+      actor = SystemActor.system(:test)
+      {:ok, actor: actor}
+    end
+
+    @tag :integration
+    test "a failed device read fails the target query instead of matching nothing", %{
+      actor: actor
+    } do
+      Repo.query!("ALTER TABLE platform.ocsf_devices RENAME TO _ocsf_devices_hidden")
+
+      try do
+        assert {:error, {:target_query_failed, _}} =
+                 SNMPCompiler.execute_target_query("in:devices", actor)
+      after
+        Repo.query!("ALTER TABLE platform._ocsf_devices_hidden RENAME TO ocsf_devices")
+      end
+    end
+
+    @tag :integration
+    test "a failed device read during compile returns an error, not a disabled config", %{
+      actor: actor
+    } do
+      Repo.query!("TRUNCATE TABLE platform.snmp_profiles CASCADE")
+      _profile = create_default_profile(actor, agent_ids: [])
+
+      Repo.query!("ALTER TABLE platform.ocsf_devices RENAME TO _ocsf_devices_hidden")
+
+      try do
+        assert {:error, _} = SNMPCompiler.compile("default", nil, actor: actor)
+      after
+        Repo.query!("ALTER TABLE platform._ocsf_devices_hidden RENAME TO ocsf_devices")
+      end
+    end
+
+    @tag :integration
+    test "a failed read is not cached, so the previous config survives", %{actor: actor} do
+      alias ServiceRadar.Inventory.Device
+
+      agent_id = "agent-#{System.unique_integer([:positive])}"
+      unique = System.unique_integer([:positive])
+      hostname = "snmp-read-failure-#{unique}"
+      device_ip = "10.20.#{rem(unique, 250) + 1}.#{rem(div(unique, 250), 250) + 1}"
+
+      Repo.query!("TRUNCATE TABLE platform.snmp_profiles CASCADE")
+
+      {:ok, _device} =
+        Device
+        |> Ash.Changeset.for_create(:create, %{
+          uid: "sr:" <> Ecto.UUID.generate(),
+          hostname: hostname,
+          ip: device_ip,
+          discovery_sources: ["mapper"]
+        })
+        |> Ash.create(actor: actor)
+
+      {:ok, template} =
+        SNMPOIDTemplate
+        |> Ash.Changeset.for_create(:create, %{
+          name: "Read Failure Template #{unique}",
+          vendor: "custom",
+          category: "interface",
+          oids: [
+            %{
+              oid: ".1.3.6.1.2.1.2.2.1.10.1",
+              name: "ifInOctets",
+              data_type: "counter",
+              scale: 1.0,
+              delta: true
+            }
+          ]
+        })
+        |> Ash.create(actor: actor)
+
+      {:ok, profile} =
+        SNMPProfile
+        |> Ash.Changeset.for_create(:create, %{
+          name: "Read Failure Profile #{unique}",
+          poll_interval: 60,
+          timeout: 5,
+          retries: 3,
+          enabled: true,
+          target_query: ~s(in:devices hostname:"#{hostname}"),
+          oid_template_ids: [template.id],
+          version: :v2c,
+          community: "public"
+        })
+        |> Ash.create(actor: actor)
+
+      {:ok, _profile} =
+        profile
+        |> Ash.Changeset.for_update(:set_as_default, %{}, actor: actor)
+        |> Ash.update(actor: actor)
+
+      get_opts = [actor: actor, agent_id: agent_id]
+
+      # First fetch compiles and caches the real config (with the device target).
+      {:ok, good_entry} = ConfigServer.get_config(:snmp, "default", agent_id, get_opts)
+      assert [%{"host" => ^device_ip}] = good_entry.config["targets"]
+
+      # Break the device read and force a recompile.
+      ConfigServer.invalidate(:snmp)
+      Repo.query!("ALTER TABLE platform.ocsf_devices RENAME TO _ocsf_devices_hidden")
+
+      try do
+        # The failed read must fail the compile, not cache an empty config.
+        assert {:error, _} = ConfigServer.get_config(:snmp, "default", agent_id, get_opts)
+      after
+        Repo.query!("ALTER TABLE platform._ocsf_devices_hidden RENAME TO ocsf_devices")
+      end
+
+      # After the read recovers, the cache must not hold the failed empty config.
+      {:ok, recovered} = ConfigServer.get_config(:snmp, "default", agent_id, get_opts)
+      assert [%{"host" => ^device_ip}] = recovered.config["targets"]
+    end
+
+    @tag :integration
+    test "a filter value that cannot be cast matches no device rather than failing", %{
+      actor: actor
+    } do
+      assert {:ok, []} = SNMPCompiler.execute_target_query("in:devices type_id:abc", actor)
+    end
+
+    @tag :integration
+    test "a zero-row target query still yields a valid empty result", %{actor: actor} do
+      missing = "definitely-no-such-host-#{System.unique_integer([:positive])}"
+
+      assert {:ok, []} =
+               SNMPCompiler.execute_target_query(~s(in:devices hostname:"#{missing}"), actor)
     end
   end
 

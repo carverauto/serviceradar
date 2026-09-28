@@ -66,14 +66,18 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
     device_uid = opts[:device_uid]
 
     # Resolve the profile for this agent/device
-    profile = resolve_profile(device_uid, actor)
+    case fetch_profile(device_uid, actor, opts) do
+      {:ok, nil} ->
+        # Return disabled config if no profile found
+        {:ok, disabled_config()}
 
-    if profile do
-      config = compile_profile(profile)
-      {:ok, config}
-    else
-      # Return disabled config if no profile found
-      {:ok, disabled_config()}
+      {:ok, profile} ->
+        {:ok, compile_profile(profile)}
+
+      # A failed profile read is not "no profile": returning the disabled
+      # config here would be cached by ConfigServer as this agent's config.
+      {:error, reason} ->
+        {:error, {:profile_resolution_failed, reason}}
     end
   rescue
     e ->
@@ -101,12 +105,20 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
   Resolution order:
   1. SRQL targeting profiles (ordered by priority, highest first)
 
-  Returns the matching SysmonProfile or nil if no profile matches.
+  Returns the matching SysmonProfile, or nil when no profile matches or the
+  profiles could not be read (`compile/3` treats the latter as an error).
   """
   @spec resolve_profile(String.t() | nil, map()) :: SysmonProfile.t() | nil
   def resolve_profile(device_uid, actor) do
+    case fetch_profile(device_uid, actor, []) do
+      {:ok, profile} -> profile
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp fetch_profile(device_uid, actor, opts) do
     TargetedProfileResolver.resolve(device_uid, actor,
-      resolver: &SrqlTargetResolver.resolve_for_device/2,
+      resolver: Keyword.get(opts, :profile_resolver, &SrqlTargetResolver.resolve_for_device/2),
       log_prefix: "SysmonCompiler"
     )
   end

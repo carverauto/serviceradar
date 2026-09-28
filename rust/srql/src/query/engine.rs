@@ -1,9 +1,9 @@
 use super::{
     PaginationMeta, QueryPlan, QueryRequest, QueryResponse, TranslateRequest, TranslateResponse,
     addon_fleet, addon_statuses, advisory_coordinates, agents, alerts, bmp_events,
-    build_query_plan, capacity_forecasts, composite_results, cpu_metrics, dashboard_service_views,
-    dashboards, device_graph, device_sweep_overlap, devices, disk_metrics, downsample,
-    endpoint_inventory_scans, endpoint_package_catalog, endpoint_packages,
+    build_query_plan, camera_sources, capacity_forecasts, composite_results, cpu_metrics,
+    dashboard_service_views, dashboards, device_graph, device_sweep_overlap, devices, disk_metrics,
+    downsample, endpoint_inventory_scans, endpoint_package_catalog, endpoint_packages,
     endpoint_vulnerability_matches, events, field_survey, flows, gateways, graph_cypher, graph_dql,
     identity, interfaces, is_exhaustive_profile_query, logs, memory_metrics, mtr_hops, mtr_traces,
     otel_metric_points, otel_metrics, otel_services, process_metrics, public_endpoints, services,
@@ -75,6 +75,7 @@ impl QueryEngine {
                 Entity::AddonFleet => addon_fleet::execute(&mut conn, &plan).await?,
                 Entity::AddonStatuses => addon_statuses::execute(&mut conn, &plan).await?,
                 Entity::PublicEndpoints => public_endpoints::execute(&mut conn, &plan).await?,
+                Entity::CameraSources => camera_sources::execute(&mut conn, &plan).await?,
                 Entity::MergeAudit => identity::merge_audit::execute(&mut conn, &plan).await?,
                 Entity::DeviceRevivalAudit => {
                     identity::device_revival_audit::execute(&mut conn, &plan).await?

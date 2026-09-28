@@ -19,6 +19,7 @@ mod advisory_coordinates;
 mod agents;
 mod alerts;
 mod bmp_events;
+mod camera_sources;
 mod capacity_forecasts;
 mod composite_results;
 mod cpu_metrics;

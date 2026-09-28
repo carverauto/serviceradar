@@ -75,6 +75,7 @@ pub enum Entity {
     EndpointPackages,
     EndpointInventoryScans,
     PublicEndpoints,
+    CameraSources,
     SourceFactDisagreements,
     MergeAudit,
     DeviceRevivalAudit,
@@ -187,6 +188,12 @@ pub enum DownsampleAgg {
     /// for example, where the fleet total is the sum and the average understates
     /// it by the number of controllers.
     RateSum,
+    /// The value of the newest sample in each bucket, per series.
+    ///
+    /// Answers "where is each asset now" for gauges such as a position or a
+    /// battery level, where averaging the samples in a bucket would describe a
+    /// point the asset never occupied.
+    Last,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

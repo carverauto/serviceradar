@@ -309,6 +309,91 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisionerTest do
     end
   end
 
+  describe "a package upgrade repoints the assignment" do
+    defmodule RepointAssignmentStore do
+      @moduledoc false
+
+      def list_policy_assignments(policy_id, _actor) do
+        {:ok,
+         [
+           %{
+             id: "assignment-agent-k8s",
+             agent_uid: "agent-k8s",
+             plugin_package_id: "package-superseded",
+             source: :policy,
+             source_key: "plugin-credential-rule:rule-example:agent-k8s",
+             policy_id: policy_id,
+             enabled: true,
+             interval_seconds: 86_400,
+             timeout_seconds: 900,
+             params: %{
+               "endpoint" => "https://inventory.example.test/api",
+               "filters" => [%{"name" => "switches", "type" => "Switch"}]
+             }
+           }
+         ]}
+      end
+
+      def update_assignment(assignment, attrs, _actor) do
+        send(self(), {:update_assignment, attrs.plugin_package_id})
+        {:ok, Map.merge(assignment, attrs)}
+      end
+    end
+
+    defmodule RepointScheduleStore do
+      @moduledoc false
+
+      def get_package_schedule(package_id, schedule_id, _actor) do
+        {:ok,
+         %{
+           id: "schedule-successor",
+           enabled: false,
+           schedule_id: schedule_id,
+           schedule_type: :interval,
+           cadence_seconds: 86_400,
+           plugin_assignment_id: nil,
+           plugin_package_id: package_id,
+           params: %{},
+           credential_refs: %{},
+           metadata: %{}
+         }}
+      end
+
+      def list_assignment_schedules(_assignment_id, _actor) do
+        {:ok,
+         [
+           %{
+             id: "schedule-superseded",
+             enabled: true,
+             plugin_package_id: "package-superseded",
+             schedule_id: "example-inventory.refresh"
+           }
+         ]}
+      end
+
+      def update_schedule(schedule, attrs, _actor) do
+        send(self(), {:update_schedule, schedule.id, attrs})
+        {:ok, Map.merge(schedule, attrs)}
+      end
+    end
+
+    test "disables the superseded package's schedule when the assignment moves" do
+      assert {:ok, summary} =
+               PluginIntegrationProvisioner.reconcile_rules(
+                 [integration_rule()],
+                 [integration_profile()],
+                 actor: %{id: "system"},
+                 assignment_store: RepointAssignmentStore,
+                 schedule_store: RepointScheduleStore
+               )
+
+      assert_receive {:update_assignment, "package-example"}
+      assert_receive {:update_schedule, "schedule-superseded", %{enabled: false}}
+      assert_receive {:update_schedule, "schedule-successor", _attrs}
+      assert summary.schedules_disabled == 1
+    end
+  end
+
   describe "a producer-schedule package that is no longer approved" do
     # Revoking a package drops its profile from the catalog, so these rules
     # arrive with no profile at all. The package status of the provisioner's own

@@ -323,7 +323,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     sweep_config = load_sweep_config(partition_id, agent_id)
     mapper_config = load_mapper_config(partition_id, agent_id)
     sysmon_config = load_sysmon_config(partition_id, agent_id)
-    snmp_config = load_snmp_config(partition_id, agent_id)
+    snmp_config = load_snmp_config!(partition_id, agent_id)
     visibility_config = load_visibility_config(partition_id, agent_id)
     bumblebee_config = load_bumblebee_config(partition_id, agent_id)
     endpoint_inventory_config = load_endpoint_inventory_config(partition_id, agent_id)
@@ -3065,9 +3065,11 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     end
   end
 
-  # Load SNMP configuration from the AgentConfig system
-  # This uses the ConfigServer which compiles snmp configs from SNMPProfile resources
-  defp load_snmp_config(partition, agent_id) do
+  # Load SNMP configuration from the AgentConfig system.
+  # ConfigServer compiles snmp configs from SNMPProfile resources. No profile
+  # is a valid disabled config. A compile or read error raises so generation
+  # fails instead of delivering that disabled config in its place.
+  defp load_snmp_config!(partition, agent_id) do
     actor = SystemActor.system(:snmp_config_loader)
     device_uid = resolve_agent_device_uid(agent_id, actor)
 
@@ -3084,8 +3086,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         SNMPCompiler.disabled_config()
 
       {:error, reason} ->
-        Logger.warning("Failed to load SNMP config for agent #{agent_id}: #{inspect(reason)}")
-        SNMPCompiler.disabled_config()
+        raise "failed to load SNMP config for agent #{agent_id}: #{inspect(reason)}"
     end
   end
 
