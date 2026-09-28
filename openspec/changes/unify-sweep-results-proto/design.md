@@ -169,6 +169,79 @@ redrive completeness, and 64-partition production sizing. Normative
 requirements in `specs/` are unchanged; this amendment changes the order of
 work, not the contract.
 
+### M2.0 design: core-scheduled sweeps as signed schedule leases
+
+Maintainer decisions, 2026-09-28: the issuer is online from the start (no static
+operator-minted authority, even for a canary); core owns sweep scheduling and
+execution identity; and the schedule reaches agents ahead of time as signed
+leases, so an agent at a site that loses connectivity for a week or more keeps
+sweeping. The lease horizon is operator-configurable.
+
+**Today.** Each agent runs its sweep groups on a local ticker and mints a UUIDv4
+execution id only when results are read. Core creates the execution row when
+results arrive, so it cannot tell a missed sweep from one never scheduled. No
+durable producer assignment, authority epoch or fence exists. The gateway loads
+its trust snapshot once, from a file, at boot.
+
+**Assignment authority.** Core persists one assignment per (sweep group, agent):
+`producer_assignment_id`, `network_scope_id` (the agent's partition id),
+`run_shard` (0 until sweeps are sharded) and a monotonic `authority_epoch`. The
+epoch is the fence: it is bumped on reassignment, agent replacement, a target
+change and revocation.
+
+**Schedule lease.** For each opted-in assignment core pre-mints the executions
+of the lease horizon: a UUIDv7 `execution_id` whose time is the slot start, the
+slot's collection window, and the plan and range digests of the compiled sweep
+configuration. Each execution is recorded as scheduled before it runs. The
+horizon has a per-partition default, a per-agent override and an administrator
+maximum. Renewal keeps a connected agent's horizon full, so a disconnection
+starts from a full lease.
+
+**Issuer.** Core signs with an Ed25519 issuer key held through a core-only file
+mount (the automation-callback key pattern); the gateway receives public keys
+and key ids only. The issuer key is ServiceRadar talking to itself, not a device
+credential. Per lease it signs one production capability with `run_id` set to
+the lease; per scheduled execution it signs the SCHEDULED_SWEEP source
+authorization bound to that `execution_id`, its digests and its collection
+window. The ABI requires one source authorization per execution: a five-minute
+interval over seven days is about 2,000 signed slots, well under a megabyte.
+
+**Delivery and execution.** The lease travels core -> gateway -> agent over the
+existing authenticated control path as a compiled sweep assignment plus its
+signed slots, and the agent acknowledges it. For an opted-in group the agent's
+ticker is replaced by the lease: it runs each slot at its time from its own
+clock, connected or not, mints only per-record identity (`event_id`,
+`batch_sequence`), and spools. Every record's `event_id` time must fall inside
+the signed window with no tolerance, so slot windows carry margin. The agent
+refuses a lease slot when its wall clock reads earlier than the lease's signed
+issuance time (the last authenticated time the agent saw) minus the ABI's
+5-minute clock tolerance. There is no NTP-sync requirement. A clock running fast
+remains bounded by the signed slot windows. With no valid slot left the agent
+stops authoritative output and reports the lease exhausted.
+
+**Gateway trust and revocation.** The gateway's trust snapshot (issuer keys,
+fences from assignment epochs, agent-to-scope bindings) comes from core at
+runtime and follows changes, so a long lease does not delay revocation. The
+boot-time trust file remains for tests. A record whose assignment epoch is
+current publishes as primary. A stale epoch presented with a valid per-record
+delivery grant is `audit_publication` / `ledger_only` (never authoritative
+domain rows). A stale epoch without such a grant is refused. The issuer does
+not grant delivery to a revoked assignment.
+
+**Delivery after reconnect.** On reconnect the agent obtains per-record
+delivery grants for its unresolved backlog. Each grant is an
+`EdgeDeliveryClaimsV1` same-spool renewal authorizing one record (`event_id`,
+`record_sha256`, `spool_id`, `sequence`). Collection windows are still checked
+against event time (the original interval), never receipt age.
+
+**Missed runs.** Because core minted every execution, it marks one missed when
+no batch commits by its slot end plus grace, and distinguishes an agent offline
+inside its lease from an exhausted lease.
+
+**Open questions.** Whether dense or very long leases need a range-signing ABI
+extension (one signature over a run of slots) instead of one signature per
+execution, and how lease computation is partitioned across a large fleet.
+
 ## Goals
 
 - Bound memory by active scan window plus in-flight/spooled bytes, not fleet

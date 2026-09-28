@@ -17,38 +17,89 @@
 
 ### M1. Vertical slice green on `usp-01-proposal`
 
-- [ ] M1.1 Fix the EventWriter shared-producer pull-budget starvation on
+- [x] M1.1 Fix the EventWriter shared-producer pull-budget starvation on
   `staging` and bring it into `usp-01-proposal`. The per-tick budget was split
   `ceil(budget / n)` in fixed list order, so the last consumers of the shared
   producer were never pulled once every no_wait pull returned inside the tick;
   after Group D1 that starved the edge-record durable and failed D2 and Groups
-  E-G.
-- [ ] M1.2 `//integration_tests/edge_record:vertical_slice_test` passes Groups
+  E-G. DONE: fixed on `staging` in #4925 (floor split plus per-tick rotation,
+  with a regression test shown failing on the pre-fix producer) and merged into
+  `usp-01-proposal` by #4926.
+- [x] M1.2 `//integration_tests/edge_record:vertical_slice_test` passes Groups
   A-G in the required `BazelCI` check on `usp-01-proposal`, and remains a
-  required target from here on.
+  required target from here on. DONE: #4930 raised the harness core release's
+  Repo pool from 2 to 6 (Group D's rollback probe holds one connection while
+  core's boot-time jobs held the rest) and kept timeout-only diagnostics.
+  `vertical_slice_test` passed in #4930's BazelCI (BuildBuddy invocation
+  `7493dd9f-91e5-40be-9d34-f16f1f9b177f`) and again when #4924 was tested
+  against the updated branch (`45b46fc9-c336-465d-9afa-7738266ebc02`).
 
 ### M2. One real producer on farm01: the agent's ICMP/TCP sweep
 
-- [ ] M2.0 Producer authority. A production agent today holds none of the
-  material a valid record needs; only the test fixture self-signs. The control
-  plane issues it to an opted-in agent and the gateway trusts it: the agent's
-  `network_scope_id` (bound to that agent in the gateway trust snapshot), a
-  producer assignment with its shard and authority epoch (fenced at the
-  gateway), the output-contract reference matching the gateway's contract
-  registry, a SCHEDULED_SWEEP source authorization keyed to the execution, and a
-  production capability signed by a platform issuer key the gateway trusts. The
-  issuer key is ServiceRadar talking to itself, not a device credential. Narrows
-  1.10, 2.10, 2.20, 3.2 and 3.8 to one scheduled-sweep contract.
+- [ ] M2.0 Producer authority: core-scheduled sweeps delivered as signed
+  schedule leases. A production agent today holds none of the authority a valid
+  record needs, schedules its own sweeps, and mints its execution id when results
+  are read, so core learns of an execution only when its results arrive. Design:
+  `design.md`, "M2.0 design: core-scheduled sweeps as signed schedule leases".
+  Narrows 1.10, 2.3, 2.10, 2.20, 3.2 and 3.8 to the scheduled-sweep contract.
+  - [ ] M2.0a Sweep assignment authority. Persist one assignment per (sweep
+    group, agent): `producer_assignment_id`, `network_scope_id` (the agent's
+    partition id), `run_shard` (0 until sharding) and a monotonic
+    `authority_epoch`, bumped on reassignment, agent replacement, target change
+    and revocation.
+  - [ ] M2.0b Lease scheduler. For each opted-in assignment, core pre-mints the
+    executions of the lease horizon (UUIDv7 `execution_id` at the slot start,
+    slot window, plan and range digests from the compiled sweep config) and
+    records each `SweepGroupExecution` as scheduled before it runs. The horizon
+    has a per-partition default, a per-agent override and an administrator
+    maximum; a week or more of disconnected operation is a supported setting.
+    Renewal keeps a connected agent's horizon full.
+  - [ ] M2.0c Issuer. Core holds an Ed25519 issuer key through a core-only file
+    mount and signs, per lease, the production capability (`run_id` = the lease)
+    and, per scheduled execution, the SCHEDULED_SWEEP source authorization bound
+    to that `execution_id`, its digests and its collection window. The gateway
+    receives public keys only.
+  - [ ] M2.0d Lease delivery. Core sends the lease to the agent over the
+    existing authenticated control path as a compiled sweep assignment plus its
+    signed slots; the agent acknowledges the installed lease, and core shows each
+    agent's remaining horizon.
+  - [ ] M2.0e Agent lease execution. For an opted-in group the agent's local
+    ticker is replaced by the lease: it runs each slot at its time from its own
+    clock whether or not it is connected, and refuses a lease slot when its wall
+    clock reads earlier than the lease's signed issuance time (the last
+    authenticated time the agent saw) minus the ABI's 5-minute clock tolerance.
+    There is no NTP-sync requirement. A clock running fast remains bounded by the
+    signed slot windows. When no valid slot remains the agent stops
+    authoritative output and reports the lease exhausted.
+  - [ ] M2.0f Live gateway trust. The gateway's trust snapshot (issuer keys,
+    fences from assignment epochs, agent-to-scope bindings) comes from core at
+    runtime and follows changes. A record whose assignment epoch is current
+    publishes as primary. A stale epoch presented with a valid per-record
+    delivery grant is `audit_publication` / `ledger_only` (never authoritative
+    domain rows). A stale epoch without such a grant is refused. The issuer
+    does not grant delivery to a revoked assignment. The boot-time trust file
+    remains for tests.
+  - [ ] M2.0g Delivery after reconnect. On reconnect the agent obtains a
+    per-record delivery grant (`EdgeDeliveryClaimsV1` same-spool renewal:
+    `event_id`, `record_sha256`, `spool_id`, `sequence`) for each unresolved
+    backlog record. Collection windows are still checked against event time (the
+    original interval), never receipt age.
+  - [ ] M2.0h Enforcement and missed runs. Edge sweep records are accepted only
+    with a valid source authorization that correlates with the batch
+    (`ValidateSweepRecord` / `SweepCorrelate` on the live path), and core marks a
+    scheduled execution missed when no batch commits by its slot end plus grace,
+    distinguishing an agent offline inside its lease from an exhausted lease.
 - [ ] M2.1 Sweep producer. Completed host windows from the agent's sweep become
   byte-bounded `SweepObservationBatchV1` records appended to the existing agent
   spool and sent by the existing sender, while the scan continues (narrows 2.1,
   2.2 and 2.10 to the in-process sweep only; no Wasm or native sink API). The
-  producer and sender share one spool handle; the execution id is a UUIDv7
-  minted when the sweep starts, not when results are read; ICMP sent/received
+  producer and sender share one spool handle; the execution id and authority
+  come from the lease slot (M2.0), not from the agent; ICMP sent/received
   counts, per-port errors and the hostname come from the scanner, since the
   legacy summary drops them; batches are grouped deterministically per host.
-- [ ] M2.2 Per-agent opt-in. An agent configuration flag selects the edge path
-  for that agent's sweep output. Agents without it keep the legacy
+- [ ] M2.2 Per-agent opt-in. An agent opted in has its sweep groups scheduled by
+  core through leases (M2.0) and emits their results only on the edge path.
+  Agents not opted in keep their local ticker and the legacy
   `GatewayServiceStatus{source: "results"}` path unchanged, and one execution is
   never emitted on both paths.
 - [ ] M2.3 Domain projection. For a decoded `SweepObservationBatchV1`, the
