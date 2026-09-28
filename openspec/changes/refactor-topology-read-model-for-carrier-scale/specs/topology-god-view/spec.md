@@ -245,7 +245,7 @@ Telemetry SHALL use a separate bounded overlay keyed by stable node, aggregate, 
 
 Overlay bodies SHALL use authenticated HTTP with a separate ETag and a 256 KiB encoded JSON limit; channel control metadata SHALL remain within 16 KiB. Each overlay SHALL pin the installed generation and encoded geometry revision, using a compatible native selector and health index. Telemetry SQL waits SHALL retain only bounded plain selected data, not native world handles. Rate queries SHALL select at most 512 exact interface pairs from at most 256 selected relations and obey a separate 1 MiB request budget without truncating identities.
 
-Packet attribution SHALL admit only direct physical evidence with no virtual role; only a globally exclusive endpoint interface SHALL supply a relation measurement. A packet total SHALL require all three measured packet families from one identified producer at one endpoint. Ambiguous or absent producer identity, excluded evidence and incomplete measurements SHALL remain unknown. A bundle direction SHALL animate only when its observed relation count equals its rendered membership in that frame; sampled rates SHALL NOT be extrapolated or accumulated across pages as a complete current measurement. Health SHALL distinguish healthy, unavailable and unknown counts, with explicit seed/source freshness metadata.
+Packet attribution SHALL admit only direct physical evidence with no virtual role; only a globally exclusive endpoint interface SHALL supply a relation measurement. Fresh measured packet or octet rates SHALL drive directional traffic animation without requiring every packet family. The response SHALL distinguish observed packet rates from complete packet totals: missing families remain unknown, never zero. Summing packet families SHALL require common identified producer provenance; a uniquely measured single family SHALL NOT require cross-family identity proof. Ambiguous measurements and excluded evidence SHALL remain unknown. A bundle direction SHALL animate only when the driving measurement covers its rendered membership in that frame; sampled rates SHALL NOT be extrapolated or accumulated across pages as a complete current measurement. Health SHALL distinguish healthy, unavailable and unknown counts, with explicit seed/source freshness metadata.
 
 #### Scenario: Geometry change touches only dependent tiles
 - **WHEN** one device's non-telemetry geometry content changes
@@ -276,6 +276,14 @@ Packet attribution SHALL admit only direct physical evidence with no virtual rol
 - **WHEN** all three rates are zero
 - **THEN** its overlay SHALL report measured zero without animation
 - **AND** absent producer identities SHALL NOT establish matching packet-family provenance
+
+#### Scenario: Ordinary SNMP counters animate traffic
+- **GIVEN** a physical relation has a fresh positive unicast packet rate but no multicast or broadcast counters
+- **WHEN** its flow overlay is requested
+- **THEN** the response SHALL carry the observed packet rate and enable directional animation
+- **AND** the complete packet total SHALL remain unknown
+- **AND** a fresh positive octet rate alone SHALL also enable traffic animation without inventing a packet rate
+- **AND** measured zero or stale observations alone SHALL NOT animate
 
 #### Scenario: Publication during telemetry IO cannot replace current overlays
 - **GIVEN** a telemetry query started for an installed generation and encoded tile revision

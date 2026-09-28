@@ -55,7 +55,27 @@ defmodule ServiceRadarWebNG.Topology.WorldFlowTest do
     assert complete.forward.packet_observed_relations == 2
   end
 
-  test "incomplete, stale or ambiguous packet families stay unknown independently of octets" do
+  test "available packet counters drive animation without claiming a complete packet total" do
+    link = relation("partial", "edge")
+    request = WorldFlow.request([link], @now, @settings)
+
+    for value <- [0, 17] do
+      row = rate(link.source_id, "out", "unicast_packets", value)
+      row = Map.drop(row, ["gateway_id", "agent_id"])
+      [edge] = summary([link], [%{id: "edge", count: 1}], [row], request).edges
+      assert edge.forward.status == :partial
+      assert edge.forward.observed_packets_per_second == value
+      assert edge.forward.packets_per_second == nil
+      assert edge.forward.animate == value > 0
+    end
+
+    [edge] = summary([link], [%{id: "edge", count: 1}], [rate(link.source_id, "out", "octets", 25)], request).edges
+    assert edge.forward.packets_per_second == nil
+    assert edge.forward.octets_per_second == 25
+    assert edge.forward.animate
+  end
+
+  test "partial packet totals, stale samples and ambiguous producers remain distinguishable" do
     link = relation("family", "edge")
     request = WorldFlow.request([link], @now, @settings)
     valid = packets(link.source_id, "out", [1, 2, 3])
@@ -64,6 +84,9 @@ defmodule ServiceRadarWebNG.Topology.WorldFlowTest do
 
     [edge] = summary([link], [%{id: "edge", count: 1}], tl(valid) ++ octets, request).edges
     assert edge.forward.packets_per_second == nil
+    assert edge.forward.observed_packets_per_second == 5
+    assert edge.forward.status == :partial
+    assert edge.forward.animate
     assert edge.forward.octets_per_second == 25
 
     for {gateway, agent} <- [{nil, nil}, {"gateway.example.com", nil}, {"unknown", "agent.example.com"}, {"", ""}] do
@@ -71,7 +94,7 @@ defmodule ServiceRadarWebNG.Topology.WorldFlowTest do
       [edge] = summary([link], [%{id: "edge", count: 1}], unidentified ++ octets, request).edges
       assert edge.forward.packets_per_second == nil
       assert edge.forward.octets_per_second == 25
-      refute edge.forward.animate
+      assert edge.forward.animate
     end
 
     for broken <- [

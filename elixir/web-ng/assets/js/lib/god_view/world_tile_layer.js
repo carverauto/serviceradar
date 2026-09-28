@@ -54,10 +54,13 @@ function edgeSeed(id) {
   return (hash >>> 0) % 1_000_000
 }
 
-function measured(direction) {
-  return direction?.status === "measured" && direction.animate === true &&
-    Number.isFinite(direction.packets_per_second) && direction.packets_per_second > 0
-    ? direction.packets_per_second : 0
+function measured(direction, field) {
+  const rate = direction?.[field]
+  return direction?.animate === true && Number.isFinite(rate) && rate > 0 ? rate : 0
+}
+
+function packetRate(direction) {
+  return measured(direction, "observed_packets_per_second") || measured(direction, "packets_per_second")
 }
 
 function flowFrame(geometry, overlay) {
@@ -71,16 +74,17 @@ function flowFrame(geometry, overlay) {
   const edges = geometry.edges.flatMap(edge => {
     const flow = byId.get(edge.id)
     if (!flow || flow.total_relations !== edge.count || flow.selected_relations !== edge.count) return []
-    const ab = measured(flow.forward)
-    const ba = measured(flow.reverse)
-    if (ab + ba === 0) return []
-    const bps = direction => Math.max(0, Number(direction?.octets_per_second) || 0) * 8
+    const ab = packetRate(flow.forward)
+    const ba = packetRate(flow.reverse)
+    const bpsAb = measured(flow.forward, "octets_per_second") * 8
+    const bpsBa = measured(flow.reverse, "octets_per_second") * 8
+    if (ab + ba + bpsAb + bpsBa === 0) return []
     return [{
       sourcePosition: Array.from(geometry.positions.subarray(edge.source * 2, edge.source * 2 + 2)),
       targetPosition: Array.from(geometry.positions.subarray(edge.target * 2, edge.target * 2 + 2)),
       flowPps: ab + ba, flowPpsAb: ab, flowPpsBa: ba,
-      flowBps: (ab ? bps(flow.forward) : 0) + (ba ? bps(flow.reverse) : 0),
-      flowBpsAb: ab ? bps(flow.forward) : 0, flowBpsBa: ba ? bps(flow.reverse) : 0,
+      flowBps: bpsAb + bpsBa,
+      flowBpsAb: bpsAb, flowBpsBa: bpsBa,
       weight: edge.count, topologyClass: "backbone", telemetryEligible: true,
       phaseStart: edge.start, phaseEnd: edge.end, flowSeed: edgeSeed(edge.id),
       worldUnitsPerPixel: 2 ** -geometry.key.z,

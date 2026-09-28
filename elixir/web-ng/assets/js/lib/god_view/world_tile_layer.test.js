@@ -74,4 +74,20 @@ describe("world tile rendering contract", () => {
     expect(second.attributes.instanceShape[3]).toBe(first.attributes.instanceShape[3])
     expect(Array.from(second.attributes.instancePhase)).toEqual([0.75, 1])
   })
+
+  it.each([
+    {status: "partial", animate: true, observed_packets_per_second: 17, packets_per_second: null},
+    {status: "unknown", animate: true, packets_per_second: null, octets_per_second: 250},
+  ])("renders directional measured traffic without requiring a complete packet total: %j", direction => {
+    const geometry = tile()
+    const telemetry = overlay(geometry)
+    telemetry.flow.edges[0].forward = direction
+    const packets = layers(geometry, telemetry).find(layer => layer.id.endsWith("-packets"))
+    expect(packets?.props.data.length).toBe(1)
+    expect(Array.from(packets.props.data.attributes.instanceFlow).slice(1, 3)).toEqual([1, 0])
+
+    const stopped = overlay(geometry)
+    stopped.flow.edges[0].forward = {...direction, animate: false}
+    expect(layers(geometry, stopped).some(layer => layer.id.endsWith("-packets"))).toBe(false)
+  })
 })

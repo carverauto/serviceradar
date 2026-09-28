@@ -100,14 +100,15 @@ defmodule ServiceRadarWebNG.Topology.WorldFlow do
 
   defp endpoint({id, index}, direction, rates, families, request) do
     rows = Enum.map(families, &Map.get(rates, {id, index, direction, &1}))
+    measured = Enum.filter(rows, &measured?(&1, request))
 
     cond do
       Enum.any?(rows, &match?(%{"status" => "ambiguous"}, &1)) ->
         :ambiguous
 
-      Enum.all?(rows, &measured?(&1, request)) ->
-        case producer(rows) do
-          :ok -> measurement(rows)
+      measured != [] ->
+        case producer(measured) do
+          :ok -> measurement(measured, length(measured) == length(families))
           unknown -> unknown
         end
 
@@ -116,8 +117,9 @@ defmodule ServiceRadarWebNG.Topology.WorldFlow do
     end
   end
 
-  defp measurement(rows) do
+  defp measurement(rows, complete) do
     %{
+      complete: complete,
       rate: Enum.reduce(rows, 0, &(&1["rate"] + &2)),
       observed_at: Enum.max_by(rows, & &1["observed_at"], DateTime)["observed_at"],
       earliest_observed_at: Enum.min_by(rows, & &1["observed_at"], DateTime)["observed_at"],
@@ -162,21 +164,28 @@ defmodule ServiceRadarWebNG.Topology.WorldFlow do
   defp direction_summary(values, direction, total) do
     packets = values |> Enum.map(& &1[direction].packets) |> observed()
     octets = values |> Enum.map(& &1[direction].octets) |> observed()
-    packets_complete = total > 0 and length(packets) == total
+    packets_covered = total > 0 and length(packets) == total
+    packets_complete = packets_covered and Enum.all?(packets, & &1.complete)
     octets_complete = total > 0 and length(octets) == total
-    pps = if packets_complete, do: sum(packets)
+    observed_pps = if packets_covered, do: sum(packets)
+    octets_per_second = if octets_complete, do: sum(octets)
 
     %{
-      status: if(packets_complete, do: :measured, else: :unknown),
-      animate: packets_complete and pps > 0,
-      packets_per_second: pps,
-      octets_per_second: if(octets_complete, do: sum(octets)),
+      status: packet_status(packets_covered, packets_complete),
+      animate: (packets_covered and observed_pps > 0) or (octets_complete and octets_per_second > 0),
+      packets_per_second: if(packets_complete, do: observed_pps),
+      observed_packets_per_second: observed_pps,
+      octets_per_second: octets_per_second,
       packet_observed_relations: length(packets),
       octet_observed_relations: length(octets),
       packet_interval: interval(packets),
       octet_interval: interval(octets)
     }
   end
+
+  defp packet_status(_covered, true), do: :measured
+  defp packet_status(true, false), do: :partial
+  defp packet_status(false, false), do: :unknown
 
   defp observed(values), do: Enum.filter(values, &is_map/1)
   defp sum(values), do: Enum.reduce(values, 0, &(&1.rate + &2))
