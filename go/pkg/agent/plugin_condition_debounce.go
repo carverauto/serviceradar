@@ -474,10 +474,7 @@ func (d *pluginConditionDebouncer) completeScopeLocked(
 	}
 
 	cleared := make([]string, 0, len(entries))
-	for key, entry := range entries {
-		if entry.level == conditionLevelOK {
-			continue
-		}
+	for key := range entries {
 		if _, active := marker.activeKeys[key]; active {
 			continue
 		}
