@@ -5,10 +5,20 @@ defmodule ServiceRadar.Automation.Northbound.Catalog do
   The operator catalog exposes configured, active northbound descriptors.
   Retained Ansible providers are an internal compatibility surface and are
   never synchronized or exposed by this read path.
+
+  A plugin action whose credential requirement declares
+  `credential_source: package_rule` has the `rule_input` property of its input
+  schema annotated with the credential rules the operator may choose, as
+  `enum` (rule ids), `x-enum-labels` (rule id to rule name) and
+  `x-credential-rule-options` (a list of `%{"id", "label"}`). Only the rule id
+  and name are exposed. The descriptor itself was authorized for the caller by
+  `:launchable_for_scope`; the choice is enforced again at dispatch, so the
+  annotation is presentation only.
   """
 
   alias ServiceRadar.Automation.Northbound.ActionDescriptor
   alias ServiceRadar.Automation.Northbound.ActionProvider
+  alias ServiceRadar.Automation.Northbound.PluginPackageContext
 
   require Ash.Query
 
@@ -88,7 +98,7 @@ defmodule ServiceRadar.Automation.Northbound.Catalog do
       provider_name: provider.name,
       scope: action_scope,
       destination: nil,
-      input_schema: descriptor.input_schema || %{},
+      input_schema: input_schema(descriptor, provider),
       safety_classification: to_string(descriptor.safety_classification),
       requires_confirmation: descriptor.requires_confirmation,
       timeout_seconds: descriptor.timeout_seconds,
@@ -96,5 +106,50 @@ defmodule ServiceRadar.Automation.Northbound.Catalog do
       # invocation and dispatch paths.
       metadata: descriptor.metadata || %{}
     }
+  end
+
+  defp input_schema(descriptor, provider) do
+    schema = descriptor.input_schema || %{}
+
+    case PluginPackageContext.rule_options(descriptor, provider) do
+      {:ok, options} when map_size(options) > 0 -> put_rule_options(schema, options)
+      _no_options -> schema
+    end
+  end
+
+  defp put_rule_options(schema, options_by_input) do
+    {properties_key, properties} = properties(schema)
+
+    properties =
+      Enum.reduce(options_by_input, properties, fn {input_key, options}, acc ->
+        property_key = Enum.find(Map.keys(acc), input_key, &(to_string(&1) == input_key))
+
+        property =
+          acc
+          |> Map.get(property_key, %{})
+          |> rule_option_property(options)
+
+        Map.put(acc, property_key, property)
+      end)
+
+    Map.put(schema, properties_key, properties)
+  end
+
+  defp properties(schema) do
+    cond do
+      is_map(Map.get(schema, "properties")) -> {"properties", Map.get(schema, "properties")}
+      is_map(Map.get(schema, :properties)) -> {:properties, Map.get(schema, :properties)}
+      true -> {"properties", %{}}
+    end
+  end
+
+  defp rule_option_property(property, options) do
+    property = if is_map(property), do: property, else: %{}
+    ids = Enum.map(options, & &1["id"])
+
+    property
+    |> Map.put("x-credential-rule-options", options)
+    |> Map.put("x-enum-labels", Map.new(options, &{&1["id"], &1["label"]}))
+    |> then(fn property -> if ids == [], do: property, else: Map.put(property, "enum", ids) end)
   end
 end

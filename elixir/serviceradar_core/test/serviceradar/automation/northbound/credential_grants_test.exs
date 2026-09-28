@@ -26,6 +26,174 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrantsTest do
     end
   end
 
+  defmodule FakePackageContext do
+    @moduledoc false
+
+    @bound_ref "credentialref:network-credential-secret:018f3f56-2222-7222-8333-123456789abc"
+
+    def bound_ref, do: @bound_ref
+
+    def schedule_credential(%{id: "assignment-1"}, "example_account", _opts),
+      do: {:ok, %{secret_ref: @bound_ref, credential_rule_id: "rule-bound"}}
+
+    def schedule_credential(_assignment, _ref_name, _opts), do: {:error, :no_bound_schedule}
+
+    def eligible_rule("package-1", "rule-eligible", _opts),
+      do: {:ok, %{id: "rule-eligible", secret_id: "018f3f56-3333-7222-8333-123456789abc"}}
+
+    def eligible_rule(_package_id, _rule_id, _opts), do: {:error, :credential_rule_not_eligible}
+  end
+
+  describe "declared credential sources" do
+    test "assignment_schedule takes the bound schedule ref and ignores secret inputs" do
+      invocation =
+        invocation(%{
+          descriptor:
+            descriptor(%{
+              credential_requirements: %{
+                "source_account" => %{
+                  "credential_source" => "assignment_schedule",
+                  "requirement" => "example_account",
+                  "credential_secret_input" => "api_secret_id",
+                  "purpose" => "management",
+                  "allow" => %{"methods" => ["POST"], "hosts" => ["api.example.com"]},
+                  "ttl_seconds" => 90
+                }
+              }
+            }),
+          input_values: %{"api_secret_id" => @secret_id}
+        })
+
+      assert {:ok, _prepared} =
+               CredentialGrants.prepare_launch(invocation, assignment(),
+                 grant_issuer: {FakeGrantIssuer, :issue},
+                 plugin_package_context: FakePackageContext,
+                 test_pid: self()
+               )
+
+      assert_receive {:grant_attrs, attrs}
+      assert attrs.secret_ref == FakePackageContext.bound_ref()
+      assert attrs.secret_id == nil
+      assert attrs.credential_rule_id == "rule-bound"
+      assert attrs.allowed_methods == ["POST"]
+      assert attrs.allowed_hosts == ["api.example.com"]
+      assert attrs.ttl_seconds == 90
+      assert attrs.metadata["requirement_name"] == "source_account"
+      assert attrs.metadata["credential_source"] == "assignment_schedule"
+    end
+
+    test "assignment_schedule with no bound schedule fails closed" do
+      invocation =
+        invocation(%{
+          descriptor:
+            descriptor(%{
+              credential_requirements: %{
+                "source_account" => %{
+                  "credential_source" => "assignment_schedule",
+                  "requirement" => "other_account"
+                }
+              }
+            })
+        })
+
+      assert {:error, {:no_bound_schedule_credential, "source_account", "other_account"}} =
+               CredentialGrants.prepare_launch(invocation, assignment(),
+                 grant_issuer: {FakeGrantIssuer, :issue},
+                 plugin_package_context: FakePackageContext,
+                 test_pid: self()
+               )
+
+      refute_receive {:grant_attrs, _}
+    end
+
+    test "package_rule resolves only an eligible rule of the invocation's package" do
+      requirements = %{
+        "destination_account" => %{
+          "credential_source" => "package_rule",
+          "rule_input" => "destination_rule_id",
+          "required" => true
+        }
+      }
+
+      eligible =
+        invocation(%{
+          descriptor: descriptor(%{credential_requirements: requirements}),
+          input_values: %{"destination_rule_id" => "rule-eligible"}
+        })
+
+      assert {:ok, _prepared} =
+               CredentialGrants.prepare_launch(eligible, assignment(),
+                 grant_issuer: {FakeGrantIssuer, :issue},
+                 plugin_package_context: FakePackageContext,
+                 test_pid: self()
+               )
+
+      assert_receive {:grant_attrs, attrs}
+      assert attrs.secret_id == "018f3f56-3333-7222-8333-123456789abc"
+      assert attrs.credential_rule_id == "rule-eligible"
+
+      for value <- [@secret_id, "rule-other"] do
+        rejected = %{eligible | input_values: %{"destination_rule_id" => value}}
+
+        assert {:error,
+                {:credential_rule_not_eligible, "destination_account", "destination_rule_id"}} =
+                 CredentialGrants.prepare_launch(rejected, assignment(),
+                   grant_issuer: {FakeGrantIssuer, :issue},
+                   plugin_package_context: FakePackageContext,
+                   test_pid: self()
+                 )
+      end
+
+      refute_receive {:grant_attrs, _}
+    end
+
+    test "declared sources require the provider's own plugin package" do
+      requirement = %{
+        "credential_source" => "assignment_schedule",
+        "requirement" => "example_account"
+      }
+
+      for provider <- [
+            provider(%{provider_type: :native, plugin_package_id: nil}),
+            provider(%{plugin_package_id: "package-2"})
+          ] do
+        invocation =
+          invocation(%{
+            provider: provider,
+            descriptor: descriptor(%{credential_requirements: requirement})
+          })
+
+        assert {:error, {:credential_source_requires_plugin_package, nil, "assignment_schedule"}} =
+                 CredentialGrants.prepare_launch(invocation, assignment(),
+                   grant_issuer: {FakeGrantIssuer, :issue},
+                   plugin_package_context: FakePackageContext,
+                   test_pid: self()
+                 )
+      end
+    end
+
+    test "an unknown credential source fails closed" do
+      invocation =
+        invocation(%{
+          descriptor:
+            descriptor(%{
+              credential_requirements: %{
+                "api" => %{"credential_source" => "operator_input", "secret_id" => @secret_id}
+              }
+            })
+        })
+
+      assert {:error, {:unsupported_credential_source, "api", "operator_input"}} =
+               CredentialGrants.prepare_launch(invocation, assignment(),
+                 grant_issuer: {FakeGrantIssuer, :issue},
+                 plugin_package_context: FakePackageContext,
+                 test_pid: self()
+               )
+
+      refute_receive {:grant_attrs, _}
+    end
+  end
+
   test "prepare_launch issues broker grants from invocation-selected descriptor requirements" do
     invocation =
       invocation(%{

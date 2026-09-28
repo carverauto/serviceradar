@@ -72,6 +72,29 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.NorthboundActionModalTest do
     refute html =~ ~s(name="action[vars])
   end
 
+  test "labels credential rule options by name and submits the rule id" do
+    rule_id = "018f3f56-4444-7222-8333-123456789abc"
+
+    html =
+      render_modal(
+        action(%{
+          input_schema: %{
+            "type" => "object",
+            "properties" => %{
+              "destination_rule_id" => %{
+                "type" => "string",
+                "enum" => [rule_id],
+                "x-enum-labels" => %{rule_id => "Example destination account"}
+              }
+            }
+          }
+        })
+      )
+
+    assert html =~ ~s(<option value="#{rule_id}")
+    assert html =~ "Example destination account"
+  end
+
   test "renders a generic empty-input state" do
     html = render_modal(action(%{input_schema: %{"type" => "object", "properties" => %{}}}))
 

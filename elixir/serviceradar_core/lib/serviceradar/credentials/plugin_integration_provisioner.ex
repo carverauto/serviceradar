@@ -661,8 +661,16 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
     end
   end
 
-  defp policy_id(rule),
-    do: "network-credential-rule:#{required_value!(rule, :id)}:#{@policy_suffix}"
+  defp policy_id(rule), do: rule |> required_value!(:id) |> policy_id_for_rule_id()
+
+  @doc """
+  The policy id this provisioner stamps on the plugin assignment it owns for a
+  credential rule. Only this provisioner writes assignments under it, so an
+  enabled assignment of a package carrying it is the evidence that the rule is
+  provisioned for that package.
+  """
+  @spec policy_id_for_rule_id(String.t()) :: String.t()
+  def policy_id_for_rule_id(rule_id), do: "network-credential-rule:#{rule_id}:#{@policy_suffix}"
 
   defp source_key(rule, agent_uid),
     do: "plugin-credential-rule:#{required_value!(rule, :id)}:#{agent_uid}"

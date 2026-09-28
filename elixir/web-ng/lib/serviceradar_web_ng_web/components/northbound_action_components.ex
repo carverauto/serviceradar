@@ -323,7 +323,9 @@ defmodule ServiceRadarWebNGWeb.NorthboundActionComponents do
       >
         <option value="">Select...</option>
         <%= for option <- @enum_values do %>
-          <option value={option} selected={to_string(@value || "") == option}>{option}</option>
+          <option value={option} selected={to_string(@value || "") == option}>
+            {ActionForm.schema_enum_label(@schema, option)}
+          </option>
         <% end %>
       </select>
 

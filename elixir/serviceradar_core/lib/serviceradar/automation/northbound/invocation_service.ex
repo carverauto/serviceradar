@@ -14,6 +14,7 @@ defmodule ServiceRadar.Automation.Northbound.InvocationService do
   alias ServiceRadar.Automation.Northbound.ActionInvocationTarget
   alias ServiceRadar.Automation.Northbound.ActionProvider
   alias ServiceRadar.Automation.Northbound.Dispatcher
+  alias ServiceRadar.Automation.Northbound.PluginPackageContext
   alias ServiceRadar.Automation.Northbound.TargetResolver
 
   require Ash.Query
@@ -32,8 +33,8 @@ defmodule ServiceRadar.Automation.Northbound.InvocationService do
          :ok <- validate_descriptor(descriptor),
          {:ok, targets} <- normalize_targets(attrs),
          :ok <- validate_target_scopes(descriptor, targets),
-         {:ok, target_snapshots} <-
-           TargetResolver.resolve_targets(targets, actor: target_resolution_actor()),
+         {:ok, resolution_opts} <- target_resolution_opts(descriptor),
+         {:ok, target_snapshots} <- TargetResolver.resolve_targets(targets, resolution_opts),
          {:ok, invocation} <- persist_invocation(descriptor, target_snapshots, attrs, actor),
          {:ok, persisted_targets} <-
            persist_invocation_targets(invocation, target_snapshots, actor) do
@@ -223,4 +224,19 @@ defmodule ServiceRadar.Automation.Northbound.InvocationService do
   defp actor_id(_actor), do: nil
 
   defp target_resolution_actor, do: SystemActor.system(:northbound_target_resolver)
+
+  # A plugin-provided action receives the integration ids of the plugin's own
+  # declared inventory sources on each device and interface target.
+  defp target_resolution_opts(%ActionDescriptor{
+         provider: %{provider_type: :wasm_plugin, plugin_package_id: package_id}
+       })
+       when is_binary(package_id) do
+    actor = target_resolution_actor()
+
+    with {:ok, sources} <- PluginPackageContext.inventory_sources(package_id, actor: actor) do
+      {:ok, [actor: actor, integration_sources: sources]}
+    end
+  end
+
+  defp target_resolution_opts(_descriptor), do: {:ok, [actor: target_resolution_actor()]}
 end

@@ -5,9 +5,21 @@ defmodule ServiceRadar.Automation.Northbound.TargetResolver do
   Invocations keep target snapshots so later provider execution and audit
   history are tied to the selected inventory state, even if the device or
   interface changes after launch.
+
+  ## Plugin integration identity
+
+  When `:integration_sources` is given (the inventory sources declared by the
+  plugin package that provides the action), device and interface snapshots also
+  carry `attributes.integration_ids`: the device's `integration_id` identifier
+  values whose `<source>:` prefix is one of those sources, sorted and
+  deduplicated. This is how a plugin learns the vendor id of the device it
+  discovered. Identifiers of any other source are never included, and without
+  the option snapshots are unchanged.
   """
 
+  alias ServiceRadar.Automation.Northbound.PluginPackageContext
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Interface
 
   require Ash.Query
@@ -18,11 +30,14 @@ defmodule ServiceRadar.Automation.Northbound.TargetResolver do
   def resolve_targets(targets, opts \\ [])
 
   def resolve_targets(targets, opts) when is_list(targets) do
-    actor = Keyword.get(opts, :actor)
+    context = %{
+      actor: Keyword.get(opts, :actor),
+      integration_sources: Keyword.get(opts, :integration_sources)
+    }
 
     targets
     |> Enum.reduce_while({:ok, []}, fn target, {:ok, acc} ->
-      case resolve_target(target, actor) do
+      case resolve_target(target, context) do
         {:ok, snapshot} -> {:cont, {:ok, [snapshot | acc]}}
         {:error, reason} -> {:halt, {:error, reason}}
       end
@@ -35,30 +50,73 @@ defmodule ServiceRadar.Automation.Northbound.TargetResolver do
 
   def resolve_targets(_targets, _opts), do: {:error, :invalid_targets}
 
-  defp resolve_target(target, actor) when is_map(target) do
+  defp resolve_target(target, context) when is_map(target) do
     case normalize_kind(fetch(target, :kind)) do
-      :device -> resolve_device_target(target, actor)
-      :interface -> resolve_interface_target(target, actor)
+      :device -> resolve_device_target(target, context)
+      :interface -> resolve_interface_target(target, context)
       :event -> resolve_event_target(target)
       _ -> {:error, {:unsupported_target_kind, fetch(target, :kind)}}
     end
   end
 
-  defp resolve_target(_target, _actor), do: {:error, :invalid_target}
+  defp resolve_target(_target, _context), do: {:error, :invalid_target}
 
-  defp resolve_device_target(target, actor) do
+  defp resolve_device_target(target, %{actor: actor} = context) do
     with {:ok, uid} <- required_string(target, :device_uid),
          {:ok, device} <- fetch_device(uid, actor) do
-      {:ok, device_snapshot(device)}
+      device
+      |> device_snapshot()
+      |> put_integration_ids(device, context)
     end
   end
 
-  defp resolve_interface_target(target, actor) do
+  defp resolve_interface_target(target, %{actor: actor} = context) do
     with {:ok, device_uid} <- required_string(target, :device_uid),
          {:ok, interface_uid} <- required_string(target, :interface_uid),
          {:ok, device} <- fetch_device(device_uid, actor),
          {:ok, interface} <- fetch_interface(device_uid, interface_uid, actor) do
-      {:ok, interface_snapshot(device, interface)}
+      device
+      |> interface_snapshot(interface)
+      |> put_integration_ids(device, context)
+    end
+  end
+
+  defp put_integration_ids(snapshot, _device, %{integration_sources: nil}), do: {:ok, snapshot}
+
+  defp put_integration_ids(snapshot, device, %{integration_sources: sources, actor: actor})
+       when is_list(sources) do
+    with {:ok, integration_ids} <- device_integration_ids(device.uid, sources, actor) do
+      {:ok,
+       Map.update(
+         snapshot,
+         "attributes",
+         %{"integration_ids" => integration_ids},
+         fn attributes ->
+           attributes
+           |> normalize_map()
+           |> Map.put("integration_ids", integration_ids)
+         end
+       )}
+    end
+  end
+
+  defp device_integration_ids(_device_uid, [], _actor), do: {:ok, []}
+
+  defp device_integration_ids(device_uid, sources, actor) do
+    DeviceIdentifier
+    |> Ash.Query.for_read(:by_device, %{device_id: device_uid}, actor: actor)
+    |> Ash.Query.filter(identifier_type == :integration_id)
+    |> Ash.Query.select([:identifier_value])
+    |> Ash.read(actor: actor, domain: ServiceRadar.Inventory)
+    |> case do
+      {:ok, identifiers} ->
+        {:ok,
+         identifiers
+         |> Enum.map(& &1.identifier_value)
+         |> PluginPackageContext.own_integration_ids(sources)}
+
+      {:error, error} ->
+        {:error, error}
     end
   end
 

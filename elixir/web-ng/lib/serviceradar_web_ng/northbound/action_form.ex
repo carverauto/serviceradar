@@ -77,6 +77,26 @@ defmodule ServiceRadarWebNG.Northbound.ActionForm do
     end
   end
 
+  @doc """
+  Display label for an enum value.
+
+  The action catalog annotates a property whose value names a credential rule
+  with `x-enum-labels` (rule id to rule name), so the operator picks a rule by
+  name while the submitted value stays the id.
+  """
+  def schema_enum_label(schema, value) do
+    case schema_value(schema, "x-enum-labels") do
+      %{} = labels ->
+        case Map.get(labels, value) do
+          label when is_binary(label) and label != "" -> label
+          _ -> value
+        end
+
+      _ ->
+        value
+    end
+  end
+
   def schema_title(name, schema) do
     case schema_value(schema, "title") do
       value when is_binary(value) and value != "" -> value
@@ -166,6 +186,15 @@ defmodule ServiceRadarWebNG.Northbound.ActionForm do
     "The selected action integration is not active."
   end
 
+  def format_launch_error({reason, _requirement, field}, _target_label)
+      when reason in [:credential_rule_not_eligible, :missing_credential_rule_input] do
+    "Select a credential provisioned for this integration in #{humanize(field)}."
+  end
+
+  def format_launch_error({:no_bound_schedule_credential, _requirement, _ref}, _target_label) do
+    "This integration has no enabled credential bound to its agent assignment."
+  end
+
   def format_launch_error(%Forbidden{}, _target_label), do: "You are not authorized to launch actions."
   def format_launch_error(_reason, _target_label), do: "Failed to create action invocation."
 
@@ -250,6 +279,10 @@ defmodule ServiceRadarWebNG.Northbound.ActionForm do
 
   defp schema_value(schema, "order") when is_map(schema), do: Map.get(schema, "order") || Map.get(schema, :order)
   defp schema_value(schema, "enum") when is_map(schema), do: Map.get(schema, "enum") || Map.get(schema, :enum)
+
+  defp schema_value(schema, "x-enum-labels") when is_map(schema),
+    do: Map.get(schema, "x-enum-labels") || Map.get(schema, :"x-enum-labels")
+
   defp schema_value(schema, "title") when is_map(schema), do: Map.get(schema, "title") || Map.get(schema, :title)
 
   defp schema_value(schema, "description") when is_map(schema),

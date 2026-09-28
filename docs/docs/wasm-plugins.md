@@ -152,6 +152,52 @@ validated descriptor, JSON Schema, generic discovery envelope, and nested
 `source_metadata`; duplicate provider/source claims and attempts to replace a
 reserved built-in provider are rejected.
 
+### Northbound actions on discovered devices
+
+A package that declares `inventory_sources` and northbound `actions` receives,
+on every device and interface target, `attributes.integration_ids`: the
+target device's `integration_id` identifiers whose `<source>:` prefix is one of
+the package's own declared sources, sorted and deduplicated. Identifiers of
+other sources are never included.
+
+An action credential requirement can take its secret from the package's own
+provisioned credentials instead of naming one:
+
+```yaml
+actions:
+  - action_id: example-inventory.move_device
+    label: Move device between accounts
+    scopes: [device]
+    safety_classification: destructive
+    requires_confirmation: true
+    input_schema:
+      type: object
+      properties:
+        destination_rule_id: {type: string}
+    credential_requirements:
+      source_account:
+        credential_source: assignment_schedule
+        requirement: inventory_account
+        required: true
+        allow: {methods: [POST], hosts: [api.example.com]}
+      destination_account:
+        credential_source: package_rule
+        rule_input: destination_rule_id
+        required: true
+        allow: {methods: [POST], hosts: [api.example.com]}
+```
+
+`assignment_schedule` uses the secret bound under `credential_refs[<requirement>]`
+of the enabled producer schedule on the plugin assignment the action runs on;
+`requirement` must be the `provisioning.credential_requirement` of one of the
+package's `producer_schedule` credential profiles. `package_rule` uses the
+credential rule whose id the operator selects in the `rule_input` field; only
+enabled rules provisioned for the same package and provider are accepted, and
+the action form lists them by name. Neither source may be combined with
+`credential_secret_id`, `secret_ref` or any secret input key, so an action input
+can never select arbitrary credential material. A source that cannot be
+resolved fails the invocation before it is dispatched.
+
 ### Pre-production validation
 
 Validate a new inventory integration in a non-production partition before

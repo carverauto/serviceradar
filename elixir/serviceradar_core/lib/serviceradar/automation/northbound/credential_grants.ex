@@ -6,12 +6,21 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrants do
   point at invocation input keys that carry selected credential references. This
   module converts those requirements into persisted broker grants and returns
   the redacted command payload fields that are safe to send to agents.
+
+  A requirement of a plugin action may instead declare a `credential_source`
+  (see `ServiceRadar.Plugins.ActionCredentialRequirements`). Its secret is then
+  resolved server-side from the plugin package's own provisioning records by
+  `ServiceRadar.Automation.Northbound.PluginPackageContext`, and the static and
+  input-selected secret keys are ignored for it. A declared source that cannot
+  be resolved fails the launch before anything is dispatched.
   """
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Northbound.ActionInvocation
   alias ServiceRadar.Automation.Northbound.ActionInvocationTarget
+  alias ServiceRadar.Automation.Northbound.PluginPackageContext
   alias ServiceRadar.Credentials.CredentialBrokerGrant
+  alias ServiceRadar.Plugins.ActionCredentialRequirements
 
   @default_ttl_seconds 300
 
@@ -121,7 +130,7 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrants do
   end
 
   defp issue_requirement(requirement, invocation, target, assignment, phase, opts) do
-    case grant_attrs(requirement, invocation, target, assignment, phase) do
+    case grant_attrs(requirement, invocation, target, assignment, phase, opts) do
       {:ok, nil} ->
         {:ok, nil}
 
@@ -148,7 +157,132 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrants do
   defp call_issuer(fun, attrs, opts) when is_function(fun, 2), do: fun.(attrs, opts)
   defp call_issuer(fun, attrs, _opts) when is_function(fun, 1), do: fun.(attrs)
 
-  defp grant_attrs(requirement, invocation, target, assignment, phase) do
+  defp grant_attrs(requirement, invocation, target, assignment, phase, opts) do
+    case ActionCredentialRequirements.credential_source(requirement) do
+      nil ->
+        if present?(map_get(requirement, "credential_source")) do
+          {:error,
+           {:unsupported_credential_source, requirement_name(requirement),
+            map_get(requirement, "credential_source")}}
+        else
+          selected_grant_attrs(requirement, invocation, target, assignment, phase)
+        end
+
+      source ->
+        declared_grant_attrs(source, requirement, invocation, target, assignment, phase, opts)
+    end
+  end
+
+  # A declared source resolves the secret from the package's own provisioning
+  # records. The static and input-selected secret keys are never consulted for
+  # it, so no invocation input can retarget the grant.
+  defp declared_grant_attrs(source, requirement, invocation, target, assignment, phase, opts) do
+    case resolve_declared_source(source, requirement, invocation, assignment, opts) do
+      {:ok, nil} ->
+        {:ok, nil}
+
+      {:ok, %{} = resolved} ->
+        requirement = Map.put(requirement, "credential_rule_id", resolved.credential_rule_id)
+
+        {:ok,
+         build_attrs(
+           requirement,
+           invocation,
+           target,
+           assignment,
+           phase,
+           Map.get(resolved, :secret_id),
+           Map.get(resolved, :secret_ref)
+         )}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp resolve_declared_source(source, requirement, invocation, assignment, opts) do
+    context = Keyword.get(opts, :plugin_package_context, PluginPackageContext)
+    name = requirement_name(requirement)
+
+    cond do
+      not plugin_package_invocation?(invocation, assignment) ->
+        {:error, {:credential_source_requires_plugin_package, name, source}}
+
+      source == "assignment_schedule" ->
+        resolve_schedule_source(context, requirement, assignment, name)
+
+      source == "package_rule" ->
+        resolve_package_rule_source(context, requirement, invocation, name)
+
+      true ->
+        {:error, {:unsupported_credential_source, name, source}}
+    end
+  end
+
+  defp resolve_schedule_source(context, requirement, assignment, name) do
+    ref_name = requirement |> map_get("requirement") |> trimmed()
+
+    case ref_name && context.schedule_credential(assignment, ref_name, []) do
+      {:ok, %{secret_ref: secret_ref} = resolved} when is_binary(secret_ref) ->
+        {:ok, %{secret_ref: secret_ref, credential_rule_id: resolved.credential_rule_id}}
+
+      {:error, :no_bound_schedule} ->
+        {:error, {:no_bound_schedule_credential, name, ref_name}}
+
+      {:error, reason} ->
+        {:error, reason}
+
+      _missing ->
+        {:error, {:no_bound_schedule_credential, name, ref_name}}
+    end
+  end
+
+  defp resolve_package_rule_source(context, requirement, invocation, name) do
+    input_key = requirement |> map_get("rule_input") |> trimmed()
+    rule_id = input_value(normalize_map(invocation.input_values), input_key)
+
+    cond do
+      is_nil(input_key) ->
+        {:error, {:credential_rule_not_eligible, name, input_key}}
+
+      not present?(rule_id) and required_requirement?(requirement) ->
+        {:error, {:missing_credential_rule_input, name, input_key}}
+
+      not present?(rule_id) ->
+        {:ok, nil}
+
+      true ->
+        case context.eligible_rule(invocation.provider.plugin_package_id, rule_id, []) do
+          {:ok, rule} ->
+            {:ok, %{secret_id: to_string(rule.secret_id), credential_rule_id: to_string(rule.id)}}
+
+          {:error, :credential_rule_not_eligible} ->
+            {:error, {:credential_rule_not_eligible, name, input_key}}
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+    end
+  end
+
+  defp plugin_package_invocation?(invocation, assignment) do
+    provider = invocation.provider
+
+    match?(%{provider_type: :wasm_plugin}, provider) and
+      present?(Map.get(provider, :plugin_package_id)) and
+      to_string(provider.plugin_package_id) == to_string(Map.get(assignment, :plugin_package_id))
+  end
+
+  defp trimmed(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp trimmed(_value), do: nil
+
+  defp selected_grant_attrs(requirement, invocation, target, assignment, phase) do
     input_values = normalize_map(invocation.input_values)
 
     secret_id =
@@ -220,7 +354,8 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrants do
       "action_id" => invocation.action_id,
       "descriptor_id" => invocation.descriptor_id,
       "provider_id" => invocation.provider_id,
-      "requirement_name" => requirement_name(requirement)
+      "requirement_name" => requirement_name(requirement),
+      "credential_source" => ActionCredentialRequirements.credential_source(requirement)
     }
     |> Enum.reject(fn {_key, value} -> !present?(value) end)
     |> Map.new()
@@ -278,56 +413,7 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrants do
         invocation.provider && invocation.provider.credential_requirements,
         invocation.descriptor && invocation.descriptor.credential_requirements
       ],
-      &normalize_requirements/1
-    )
-  end
-
-  defp normalize_requirements(nil), do: []
-  defp normalize_requirements([]), do: []
-
-  defp normalize_requirements(requirements) when is_list(requirements) do
-    requirements
-    |> Enum.filter(&is_map/1)
-    |> Enum.map(&normalize_map/1)
-  end
-
-  defp normalize_requirements(%{} = requirements) do
-    cond do
-      is_list(map_get(requirements, "credentials")) ->
-        normalize_requirements(map_get(requirements, "credentials"))
-
-      is_list(map_get(requirements, "requirements")) ->
-        normalize_requirements(map_get(requirements, "requirements"))
-
-      map_size(requirements) == 0 ->
-        []
-
-      credential_requirement?(requirements) ->
-        [normalize_map(requirements)]
-
-      true ->
-        requirements
-        |> Map.values()
-        |> normalize_requirements()
-    end
-  end
-
-  defp normalize_requirements(_requirements), do: []
-
-  defp credential_requirement?(requirement) do
-    Enum.any?(
-      [
-        "credential_secret_id",
-        "secret_id",
-        "credential_secret_ref",
-        "secret_ref",
-        "credential_secret_input",
-        "secret_input",
-        "input_key",
-        "credential_secret_ref_input",
-        "secret_ref_input"
-      ],
-      &present?(map_get(requirement, &1))
+      &ActionCredentialRequirements.flatten/1
     )
   end
 

@@ -3,12 +3,16 @@ defmodule ServiceRadar.Automation.Northbound.InvocationServiceTest do
 
   use ServiceRadar.DataCase, async: false
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Northbound
   alias ServiceRadar.Automation.Northbound.ActionDescriptor
   alias ServiceRadar.Automation.Northbound.ActionProvider
   alias ServiceRadar.Automation.Northbound.InvocationService
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Interface
+  alias ServiceRadar.Plugins.Plugin
+  alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.TestSupport
 
   @moduletag :integration
@@ -167,6 +171,153 @@ defmodule ServiceRadar.Automation.Northbound.InvocationServiceTest do
            ] = invocation.target_snapshots
   end
 
+  test "plugin action snapshots carry only the package's own integration ids", %{actor: actor} do
+    package = create_plugin_package(["example-sat", "example-sat-router"])
+
+    {:ok, provider} =
+      create_provider(actor, provider_type: :wasm_plugin, plugin_package_id: package.id)
+
+    {:ok, descriptor} = create_descriptor(provider, actor, scopes: ["device", "interface"])
+    {:ok, device} = create_device(actor)
+    {:ok, interface} = create_interface(actor, device)
+
+    register_identifiers(device, [
+      {:integration_id, "example-sat:ut:ut-0002"},
+      {:integration_id, "example-sat:ut:ut-0001"},
+      {:integration_id, "example-sat-router:rt-0003"},
+      {:integration_id, "other-source:dev-0004"},
+      {:integration_id, "example-satx:ut-0005"},
+      {:integration_id, "example-sat:"},
+      {:mac, "00005E005301"}
+    ])
+
+    assert {:ok, invocation} =
+             InvocationService.create_invocation(
+               %{
+                 descriptor_id: descriptor.id,
+                 targets: [
+                   %{kind: :device, device_uid: device.uid},
+                   %{
+                     kind: :interface,
+                     device_uid: device.uid,
+                     interface_uid: interface.interface_uid
+                   }
+                 ],
+                 input_values: %{}
+               },
+               actor: actor
+             )
+
+    expected = ["example-sat-router:rt-0003", "example-sat:ut:ut-0001", "example-sat:ut:ut-0002"]
+
+    assert [
+             %{"kind" => "device", "attributes" => %{"integration_ids" => ^expected}},
+             %{"kind" => "interface", "attributes" => %{"integration_ids" => ^expected}}
+           ] = invocation.target_snapshots
+  end
+
+  test "non-plugin action snapshots are unchanged by integration identifiers", %{actor: actor} do
+    {:ok, provider} = create_provider(actor)
+    {:ok, descriptor} = create_descriptor(provider, actor)
+    {:ok, device} = create_device(actor)
+    register_identifiers(device, [{:integration_id, "example-sat:ut:ut-0001"}])
+
+    assert {:ok, invocation} =
+             InvocationService.create_invocation(
+               %{
+                 descriptor_id: descriptor.id,
+                 targets: [%{kind: :device, device_uid: device.uid}],
+                 input_values: %{}
+               },
+               actor: actor
+             )
+
+    assert [snapshot] = invocation.target_snapshots
+    refute Map.has_key?(snapshot, "attributes")
+
+    assert snapshot |> Map.keys() |> Enum.sort() ==
+             ~w(agent_id device_uid discovery_sources gateway_id hostname ip is_available kind mac model name type vendor_name)
+  end
+
+  defp create_plugin_package(sources) do
+    actor = SystemActor.system(:northbound_invocation_service_test)
+    plugin_id = "example-sat-#{System.unique_integer([:positive])}"
+
+    {:ok, _plugin} =
+      Plugin
+      |> Ash.Changeset.for_create(:create, %{plugin_id: plugin_id, name: "Example Satellite"},
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    manifest = %{
+      "id" => plugin_id,
+      "name" => "Example Satellite",
+      "version" => "1.0.0",
+      "entrypoint" => "run_check",
+      "runtime" => "wasi-preview1",
+      "capabilities" => ["submit_result"],
+      "outputs" => "serviceradar.plugin_result.v1",
+      "resources" => %{
+        "requested_memory_mb" => 32,
+        "requested_cpu_ms" => 1_000,
+        "max_open_connections" => 1
+      },
+      "integrations" => %{
+        "inventory_sources" =>
+          Enum.map(sources, &%{"source" => &1, "label" => "Example source #{&1}"})
+      }
+    }
+
+    {:ok, package} =
+      PluginPackage
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          plugin_id: plugin_id,
+          name: "Example Satellite",
+          version: "1.0.0",
+          entrypoint: "run_check",
+          runtime: "wasi-preview1",
+          outputs: "serviceradar.plugin_result.v1",
+          manifest: manifest,
+          content_hash: "sha256:#{plugin_id}-1.0.0",
+          source_type: :upload
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    {:ok, package} =
+      package
+      |> Ash.Changeset.for_update(:approve, %{approved_by: "test"}, actor: actor)
+      |> Ash.update(actor: actor)
+
+    package
+  end
+
+  defp register_identifiers(device, identifiers) do
+    actor = SystemActor.system(:northbound_invocation_service_test)
+
+    Enum.each(identifiers, fn {type, value} ->
+      {:ok, _identifier} =
+        DeviceIdentifier
+        |> Ash.Changeset.for_create(
+          :register,
+          %{
+            device_id: device.uid,
+            identifier_type: type,
+            identifier_value: value,
+            partition: "default",
+            confidence: :strong,
+            source: "test"
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor, domain: ServiceRadar.Inventory)
+    end)
+  end
+
   defp create_provider(actor, opts \\ []) do
     source_ref = "test:#{System.unique_integer([:positive])}"
 
@@ -176,7 +327,8 @@ defmodule ServiceRadar.Automation.Northbound.InvocationServiceTest do
              :create,
              %{
                name: "Test Provider",
-               provider_type: :native,
+               provider_type: Keyword.get(opts, :provider_type, :native),
+               plugin_package_id: Keyword.get(opts, :plugin_package_id),
                source_ref: source_ref,
                approved_capabilities: [],
                credential_requirements: %{},
