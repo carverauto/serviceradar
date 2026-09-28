@@ -1,15 +1,15 @@
 ## ADDED Requirements
 
-### Requirement: Million-device acceptance uses the actual product ingestion path
+### Requirement: Million-device acceptance uses actual product tiles and telemetry
 The topology workstream SHALL demonstrate one million persisted invented devices
-and at least two million canonical relations in the authenticated product, using
+and at least two million topology relations in the authenticated product, using
 SNMP-derived overlays from JetStream/EventWriter and a hardware-WebGPU browser
 with animated edges, before declaring the end-to-end scale proof complete.
 
 #### Scenario: Distinguish focused tests from end-to-end acceptance
 - **WHEN** a browser fixture supplies encoded geometry with mocked channel or overlay responses
 - **THEN** it SHALL remain focused renderer evidence
-- **AND** it SHALL NOT close the real-ingestion acceptance task
+- **AND** it SHALL NOT close the product scale acceptance task
 
 #### Scenario: Hardware performance with active traffic
 - **WHEN** the ingested million-device workload is explored with traffic enabled

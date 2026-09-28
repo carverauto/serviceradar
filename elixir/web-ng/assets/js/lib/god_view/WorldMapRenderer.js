@@ -29,6 +29,7 @@ export default class WorldMapRenderer {
     this.filters = {}
     this.destroyed = false
     this.sceneCache = new Map()
+    this.sceneControls = new Map()
     this.cache = new WorldTileCache({
       onChange: () => {this.geometryRevision += 1; this.render()},
       onRetain: () => this.scheduleWatch(),
@@ -111,20 +112,36 @@ export default class WorldMapRenderer {
     this.handleEvent("god_view:reset_view", () => {
       // The mounted detail renderer fits its own coordinate space. Fitting
       // must not also discard that scene or move the retained map camera.
-      if (!this.detailRenderer) {this.returnToMap(); this.setView(this.overviewView())}
+      if (this.detailRenderer) this.detailHandlers.get("god_view:reset_view")?.({})
+      else {this.returnToMap(); this.setView(this.overviewView())}
     })
     this.handleEvent("god_view:set_layers", ({layers}) => {
+      this.setSceneControl("god_view:set_layers", {layers})
       this.packetFlow = layers?.atmosphere !== false
       this.links = layers?.mantle !== false
       this.render()
     })
-    this.handleEvent("god_view:set_filters", ({filters}) => {this.filters = {...filters}; this.render()})
+    this.handleEvent("god_view:set_filters", ({filters}) => {
+      this.setSceneControl("god_view:set_filters", {filters})
+      this.filters = {...filters}
+      this.render()
+    })
+    for (const name of ["god_view:set_topology_layers", "god_view:mtr_path_data"]) {
+      this.handleEvent(name, payload => this.setSceneControl(name, payload))
+    }
     this.handleEvent("god_view:set_zoom_mode", ({mode}) => {
+      if (this.detailRenderer) return this.detailHandlers.get("god_view:set_zoom_mode")?.({mode})
       const zoom = {global: 0, regional: 4, local: 10, auto: this.overviewView().zoom}[mode]
       if (zoom !== undefined) this.setView({...this.viewState, zoom: Math.min(this.cache.manifest?.zmax ?? 16, zoom)})
     })
     this.timer = setInterval(() => void this.poll(), 5000)
     await this.poll()
+  }
+
+  setSceneControl(name, payload) {
+    this.sceneControls.set(name, payload)
+    this.detailHandlers?.get(name)?.(payload)
+    this.pendingDetail?.handlers.get(name)?.(payload)
   }
 
   async poll() {
@@ -428,7 +445,12 @@ export default class WorldMapRenderer {
         if (name === "god_view_stream_error") this.status(payload.message || "Detail unavailable")
         else if (name !== "god_view_stream_stats") this.pushEvent(name, payload)
       }
-      candidate = {el, renderer: new GodViewRenderer(el, events, this.handleEvent, {csrfToken: this.csrfToken})}
+      const handlers = new Map()
+      const handleSceneEvent = (name, callback) => {
+        handlers.set(name, callback)
+        if (this.sceneControls.has(name)) callback(this.sceneControls.get(name))
+      }
+      candidate = {el, handlers, renderer: new GodViewRenderer(el, events, handleSceneEvent, {csrfToken: this.csrfToken})}
       this.pendingDetail = candidate
       await candidate.renderer.mountScene(bytes, headers)
       if (request.signal.aborted || this.destroyed) return
@@ -439,6 +461,7 @@ export default class WorldMapRenderer {
       this.detailEl?.remove()
       this.detailEl = candidate.el
       this.detailRenderer = candidate.renderer
+      this.detailHandlers = candidate.handlers
       this.detailEl.style.visibility = "visible"
       this.pendingDetail = null
       candidate = null
@@ -472,6 +495,7 @@ export default class WorldMapRenderer {
     this.pendingDetail = null
     this.detailRenderer?.destroy()
     this.detailRenderer = null
+    this.detailHandlers = null
     this.detailEl?.remove()
     this.nextPage?.remove()
     if (this.back) this.back.hidden = true

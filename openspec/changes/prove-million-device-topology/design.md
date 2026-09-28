@@ -1,20 +1,20 @@
 ## Goal and ownership
 
-Required completion proof for #4774/#4901, not a deferred platform enhancement. Run the actual authenticated product against an independently invented million-device topology, with animated edges driven by synthetic SNMP counters through the normal ingestion path.
+Required completion proof for #4774/#4901, not a deferred platform enhancement. Run the actual authenticated product against an independently invented million-device topology, with animated edges driven by invented SNMP counters through JetStream/EventWriter. These are simulated devices; no physical SNMP fleet is required.
 
 Existing production-encoded Arrow/browser fixtures, physical-GPU measurements and the scratch layout/persistence benchmark are useful evidence, but their mocked telemetry/channel paths do not prove this end-to-end scenario.
 
 ## Implementation slices
 
-1. Reuse demo/simkit and the existing demo-only WASM packaging path. Generate stable identities for 1,000,000 devices and at least 2,000,000 relations with a hierarchical backbone, redundant paths and explicit interface bindings. Shard generation and batches within current host limits; do not materialize the whole network in one Wasm invocation.
-2. Audit/complete add-showcase-demo-portfolio D10/tasks 7.x topology-link admission and Go/Rust contracts. Ingest through canonical identity/provenance handling into Dgraph; no direct graph seed that bypasses the product contract.
-3. Emit cumulative SNMP packet and octet counters via SDK emit_telemetry -> JetStream -> EventWriter -> the selected telemetry backend. Preserve interface identity, width/reset semantics and producer identity. Multicast/broadcast are optional; ordinary in/out packet or bit rates must animate traffic.
+1. Generate 1,000,000 invented simulated devices and at least 2,000,000 relations using the existing native hierarchy generator where possible. No physical devices or WASM plugin are required. Use bounded batches with stable identities, hierarchical links and explicit interface bindings.
+2. Prefer existing topology import/API paths. Controlled direct topology seeding into owned isolated storage is also allowed for this scale proof; record the storage boundary and bypassed discovery/ingestion layers. Completing the separate plugin topology-link contract is not a prerequisite.
+3. Emit invented cumulative SNMP packet and octet counters with a native publisher or optional SDK emit_telemetry -> JetStream -> EventWriter -> the selected telemetry backend. Preserve interface identity, width/reset semantics and producer identity. Multicast/broadcast are optional; ordinary in/out packet or bit rates must animate traffic.
 4. Provision an isolated synthetic deployment/graph and storage. An existing CI service does not authorize overwriting its shared graph. Increase small -> medium -> million profiles only after exact counts, resource budgets and freshness pass.
 5. Use the authenticated topology manifest/tiles, channel, SRQL overlays and hardware WebGPU browser with traffic on.
 
 ## Acceptance
 
-- [ ] Exact persisted device/relation counts and interface bindings are verified after ingestion; retry/restart does not duplicate records.
+- [ ] Exact persisted device/relation counts and interface bindings are verified after loading; the report distinguishes inventory, graph and world-position counts and discloses bypassed ingestion layers; retry/restart does not duplicate records.
 - [ ] Record total topology population separately from active telemetry interfaces, sample cadence, offered records/sec, backlog and freshness. A smaller traffic cohort is not advertised as million-device telemetry throughput.
 - [ ] Initial Home view has correct aggregate counts and documented center/zoom/coverage. Zoom reveals infrastructure/endpoints; search flies to a device; bounded ELK detail works and returns to the map.
 - [ ] Real changing metrics produce directional animated edges, including nonzero -> zero, stopped/stale reporting, reset/wrap and resumed traffic. No mocked overlay or direct-to-database metrics satisfy this check.
@@ -28,26 +28,21 @@ This proposal owns its own tasks and deltas. See proposal.md for dependencies.
 
 ## Simulator design
 
-Use the existing `demo/simkit` and demo-only WASM build/publish path for a
-reusable network scenario. The existing Armis faker remains an API emulator;
-this scenario needs stable network relations and interface-bound counters as
-well as device records. No second simulation clock or counter engine is needed.
+Prefer the existing native million-device hierarchy generator and production
+world publication API. A native fixture publisher, existing import/API or
+controlled direct topology seed into owned isolated storage can provide this
+proof. WASM and the showcase plugin topology-link contract are optional, not
+prerequisites. Reuse simkit primitives where they help without requiring a new
+plugin or pretending to poll one million physical SNMP devices.
 
-The scenario is independently invented and seed-derived: hierarchical sites,
-connected backbone routers, switches, endpoints and redundant physical links.
-Device and relation identities and interface indices are stable across retries.
-The million-device profile has at least two million relations. Inventory and
-link generation is streamed in bounded assignment shards; a single WASM run
-must never materialize the whole graph or exceed the existing result, telemetry,
-memory and timeout limits. The shard size is chosen from measured payload and
-runtime limits, not by raising those limits to fit the scenario.
-
-Complete D10's plugin topology ingestion before using it for this proof. Links
-need endpoint identities, local/remote interface indices, evidence class and
-source observation timestamps. Physical links must enter the canonical Dgraph
-writer with real interface attribution. Synthetic does not mean bypassing
-identity reconciliation, provenance or expiry. The ordinary ingestion contract
-must support retries and establish devices before links reference them.
+The scenario is independently invented and deterministic: hierarchical sites,
+backbone routers, switches, endpoints and redundant links. Device/relation IDs
+and interface indices remain stable across retries. Stream bounded batches for
+one million devices and at least two million relations. Verify actual counts in
+each populated store; a world-position count alone is not evidence of a million
+inventory or Dgraph device records. Report which layers were seeded and which
+normal discovery/identity/provenance paths were bypassed. This validates the
+mapping engine and downstream telemetry path, not any bypassed ingestion path.
 
 SNMP traffic uses the existing SDK metric envelope, with metric type `snmp`,
 interface index, counter width, cumulative kind, monotonic flag and producer
@@ -56,8 +51,10 @@ identity. Start with `ifHCInUcastPkts`, `ifHCOutUcastPkts`, `ifHCInOctets` and
 Multicast and broadcast are optional counter families, not prerequisites for
 traffic animation. Use simkit's restart-safe counters and fault scheduler for
 bidirectional load, idle links, loss of observations and explicit device-reboot
-counter resets. All samples go through the agent host's `emit_telemetry` path,
-JetStream and EventWriter; no direct database metric writes.
+counter resets. A native publisher may submit valid SNMP metric envelopes directly to the
+appropriate JetStream subject; a WASM producer may use `emit_telemetry`. Both
+use EventWriter and the deployment-selected telemetry backend. No direct
+database metric writes are permitted.
 
 Topology population and telemetry population are separately configured and
 reported. A million stored devices with a smaller active interface cohort is a

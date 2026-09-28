@@ -1,10 +1,12 @@
 ## 1. Implementation
 
-- [ ] 1.1 Build a concrete old-versus-new parity matrix from the existing renderer, tests and documented behavior: infrastructure/attachment visibility, labels, picking and details, search and filtering, expansion/paging, status colors, traffic controls, Fit/Home, pan/zoom and detail entry/return. Link overlapping search/filter work in #4449 rather than implementing a competing path.
+- [x] 1.1 Build a concrete old-versus-new parity matrix from the existing renderer, tests and documented behavior: infrastructure/attachment visibility, labels, picking and details, search and filtering, expansion/paging, status colors, traffic controls, Fit/Home, pan/zoom and detail entry/return. Link overlapping search/filter work in #4449 rather than implementing a competing path.
 - [ ] 1.2 Fix regressions in the tile engine and bounded detail renderer. Audit existing ELK radial/forest adapters before rebuilding them.
 - [ ] 1.3 Preserve #4749's typed schema-3/WebGPU layers and per-edge procedural packet animation.
 - [ ] 1.4 The world overview uses persisted server coordinates. ELK remains the layout authority inside explicitly entered, bounded detail scenes. Do not run ELK on the entire million-device world or claim a coordinate grid alone proves ELK parity.
 - [ ] 1.5 Preserve map camera/cache when entering and leaving details, correctly scoped Fit behavior, stable selection and compact location links.
+
+Audit: `docs/god-view-parity-audit.md` records current evidence and open gaps.
 
 ## 2. Acceptance
 

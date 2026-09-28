@@ -45,7 +45,7 @@ export function mountTransportHarness() {
     detail() {
       return Array.from(snapshotIpcBytes({
         nodes: devices.map(node => ({state: 2, label: node.label, details: {id: node.id, type: "device", device_role: "access"}})),
-        edges: [{source: 0, target: 1, topologyClass: "backbone", evidenceClass: "direct-physical"}],
+        edges: [{source: 0, target: 1, flowPps: 120, flowPpsAb: 120, topologyClass: "backbone", evidenceClass: "direct-physical"}],
         metadataEntries: [["payload_kind", "detail"], ["layout_algorithm", "elk"]],
       }))
     },

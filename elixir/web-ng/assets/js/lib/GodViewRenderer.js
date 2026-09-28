@@ -40,6 +40,8 @@ export default class GodViewRenderer {
     this.context.state.sceneOnly = true
     this.mount()
     const lifecycle = this.context.lifecycle
+    // The world owner supplies scene-local callbacks, never global subscriptions.
+    lifecycle.registerLifecycleEvents()
     lifecycle.ensureDeck()
     const deadline = performance.now() + 15000
     while (!this.destroyed && this.context.state.rendererMode === "initializing" && performance.now() < deadline) {

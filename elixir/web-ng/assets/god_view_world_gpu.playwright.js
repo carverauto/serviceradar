@@ -90,6 +90,31 @@ test("HTTP bootstrap recovers and search, picking, detail return and invalidatio
   await page.mouse.click(location.x, location.y)
   await page.getByRole("button", {name: "Open neighborhood"}).click()
   await expect(page.getByRole("button", {name: "Back to map"})).toBeVisible()
+  // Controls target the visible ELK scene; the retained map camera must stay put.
+  const detailCamera = await page.evaluate(() => {
+    const {renderer, events} = window.__SR_WORLD_TRANSPORT__
+    const viewport = renderer.detailRenderer.context.state.deck.getViewports()[0]
+    const camera = {zoom: viewport.zoom, target: viewport.target}
+    events.get("god_view:set_zoom_mode")({mode: "global"})
+    return camera
+  })
+  await expect.poll(() => page.evaluate(() =>
+    window.__SR_WORLD_TRANSPORT__.renderer.detailRenderer.context.state.deck.getViewports()[0].zoom
+  )).not.toBe(detailCamera.zoom)
+  expect(await page.evaluate(() => window.__SR_WORLD_TRANSPORT__.renderer.deck.getViewports()[0].zoom)).toBe(2)
+  await page.evaluate(() => window.__SR_WORLD_TRANSPORT__.events.get("god_view:reset_view")({}))
+  await expect.poll(() => page.evaluate(() =>
+    window.__SR_WORLD_TRANSPORT__.renderer.detailRenderer.context.state.deck.getViewports()[0].zoom
+  )).toBeCloseTo(detailCamera.zoom, 5)
+  await expect.poll(() => page.evaluate(() =>
+    window.__SR_WORLD_TRANSPORT__.renderer.detailRenderer.context.state.deck.props.layers
+      .some(layer => layer.id === "god-view-atmosphere-particles" && layer.props.data.length > 0)
+  )).toBe(true)
+  await page.evaluate(() => window.__SR_WORLD_TRANSPORT__.events.get("god_view:set_layers")({layers: {atmosphere: false}}))
+  await expect.poll(() => page.evaluate(() =>
+    window.__SR_WORLD_TRANSPORT__.renderer.detailRenderer.context.state.deck.props.layers
+      .some(layer => layer.id === "god-view-atmosphere-particles")
+  )).toBe(false)
   await page.evaluate(() => window.__SR_WORLD_TRANSPORT__.events.get("god_view:reset_view")({}))
   await expect(page.getByRole("button", {name: "Back to map"})).toBeVisible()
   const loaded = tileRequests.length
@@ -101,6 +126,13 @@ test("HTTP bootstrap recovers and search, picking, detail return and invalidatio
   await page.mouse.click(location.x, location.y)
   await page.getByRole("button", {name: "Open neighborhood"}).click()
   await expect(page.getByRole("button", {name: "Back to map"})).toBeVisible()
+  // Reopening a cached scene retains the operator's Traffic setting.
+  expect(await page.evaluate(() => window.__SR_WORLD_TRANSPORT__.renderer.detailRenderer.context.state.layers.atmosphere)).toBe(false)
+  await page.evaluate(() => window.__SR_WORLD_TRANSPORT__.events.get("god_view:set_layers")({layers: {atmosphere: true}}))
+  await expect.poll(() => page.evaluate(() =>
+    window.__SR_WORLD_TRANSPORT__.renderer.detailRenderer.context.state.deck.props.layers
+      .some(layer => layer.id === "god-view-atmosphere-particles" && layer.props.data.length > 0)
+  )).toBe(true)
   expect(detailRequests).toBe(1)
   await page.getByRole("button", {name: "Back to map"}).click()
   await page.waitForFunction(() => window.__SR_WORLD_TRANSPORT__.renderer.cache.watch?.id > 0)

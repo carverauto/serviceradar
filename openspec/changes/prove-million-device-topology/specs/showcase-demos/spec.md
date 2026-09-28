@@ -1,11 +1,11 @@
 ## ADDED Requirements
 
 ### Requirement: Network-scale simulation exercises the production topology and telemetry paths
-The demo suite SHALL provide an independently invented, deterministic network scenario supporting one million devices and at least two million relations, with stable interface bindings and independently configurable telemetry population and cadence. Generation SHALL be bounded per shard and batch, and repeated runs SHALL preserve identities. The simulator SHALL use ordinary inventory and topology ingestion into the canonical Dgraph model, and cumulative SNMP packet/octet metric envelopes through `emit_telemetry`, JetStream and EventWriter. It SHALL NOT seed metric tables directly or replace God View's HTTP/channel responses with fabricated overlays for end-to-end acceptance.
+The demo suite SHALL provide an independently invented, deterministic network scenario supporting one million devices and at least two million relations, with stable interface bindings and independently configurable telemetry population and cadence. Generation SHALL be bounded per shard and batch, and repeated runs SHALL preserve identities. The simulator SHALL use existing topology import/API paths or controlled direct topology seeding into owned isolated storage, and SHALL identify bypassed ingestion layers and counts in each populated store. Physical devices and WASM SHALL NOT be prerequisites. Cumulative SNMP packet/octet metric envelopes SHALL pass through JetStream and EventWriter, using a native publisher or optional SDK `emit_telemetry`. It SHALL NOT seed metric tables directly or replace God View's HTTP/channel responses with fabricated overlays for end-to-end acceptance.
 
 #### Scenario: Measurable million-device deployment
 - **WHEN** the one-million-device scenario has completed ingestion in an isolated synthetic deployment
-- **THEN** verification SHALL count one million persisted devices and at least two million canonical relations with resolvable endpoints
+- **THEN** verification SHALL count one million persisted devices and at least two million topology relations with resolvable endpoints
 - **AND** SHALL report the number of devices and interfaces actively emitting telemetry, their sample cadence, ingest lag and offered rate separately from topology size
 - **AND** a partial ingestion SHALL fail verification even when the producer reports success
 
