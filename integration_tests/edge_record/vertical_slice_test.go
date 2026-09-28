@@ -1741,10 +1741,6 @@ func (h *harness) assertCumulativeDeliveryAck(t *testing.T) {
 	_ = stream.CloseSend()
 }
 
-// edgeRecordAckFloor returns the stream sequence through which the
-// EventWriter's durable consumer on the edge-record stream has acknowledged
-// every message. The harness reads with direct gets only, so that durable is
-// the stream's one consumer.
 // producerDiagnosticsExpr prints, for every EventWriter Broadway producer in
 // the core node, the producer state that decides whether the edge durable is
 // pulled: demand, buffered messages, per-pull-subject inflight accounting, and
@@ -1924,6 +1920,10 @@ func (h *harness) pipelineDiagnostics(t *testing.T) string {
 	return b.String()
 }
 
+// edgeRecordAckFloor returns the stream sequence through which the
+// EventWriter's durable consumer on the edge-record stream has acknowledged
+// every message. The harness reads with direct gets only, so that durable is
+// the stream's one consumer.
 func (h *harness) edgeRecordAckFloor(t *testing.T) uint64 {
 	t.Helper()
 	stream, err := h.edgeRecordStream(t)
