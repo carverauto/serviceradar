@@ -292,15 +292,22 @@ TinyGo against `serviceradar-sdk-go`, `--template rust` targets `wasm32-wasip1`
 against `serviceradar-sdk-rust`. `plugin validate` checks `plugin.yaml` against
 the same manifest contract the server enforces and makes no network calls.
 
-Fetching `serviceradar-sdk-go` requires
-`GOPRIVATE=github.com/carverauto/serviceradar-sdk-go` on every `go get`,
-`go mod download`, and `tinygo build` invocation that resolves it — the module
-is not served via the public Go proxy, so without this Go fails against the
-proxy/checksum database instead of fetching directly from GitHub:
+`github.com/carverauto/*` modules, including `serviceradar-sdk-go`, are not
+served by the public Go proxy or checksum database. Set both variables below for
+every `go get`, `go mod download`, `go mod vendor`, and `tinygo build` invocation
+that resolves modules, so Go fetches them directly from GitHub instead of failing
+against the proxy/checksum database:
 
 ```
-export GOPRIVATE=github.com/carverauto/serviceradar-sdk-go
+export GOPRIVATE='github.com/carverauto/*'
+export GONOSUMDB='github.com/carverauto/*'
+go get github.com/carverauto/serviceradar-sdk-go/v2@latest
 ```
+
+The module path carries the `/v2` major-version suffix. First-party plugins and
+the `plugin init --template go` scaffold commit a `vendor/` tree, so a build from
+that tree needs no module download; the same two settings are used by the Bazel
+plugin build and the CI workflows.
 
 Publishing does three calls: it stages the package, requests a short-lived
 storage token, then uploads the `plugin.wasm` bytes with that token. Track the

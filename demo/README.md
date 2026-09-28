@@ -105,8 +105,9 @@ Every demo module pins the same SDK tag. To move to a new release, from
 `demo/`:
 
 ```
-for m in pluginkit hello-sim; do (cd $m && GOPRIVATE='github.com/carverauto/*' go get github.com/carverauto/serviceradar-sdk-go/v2@<tag>); done
-GOPRIVATE='github.com/carverauto/*' go work vendor
+export GOPRIVATE='github.com/carverauto/*' GONOSUMDB='github.com/carverauto/*'
+for m in pluginkit hello-sim; do (cd $m && go get github.com/carverauto/serviceradar-sdk-go/v2@<tag>); done
+go work vendor
 ```
 
 A new demo module is added to `go.work`'s `use` list, then `go work vendor`
