@@ -222,9 +222,9 @@
   - [x] 3.4b.3 SRQL `in:bmp_events` / `bmp_event` / `bmp_routing_events` has a StarRocks dialect
     (`rust/srql/src/query/starrocks/bmp_events.rs`), and `Readers.mode_for(:bmp)` sends them to
     it whenever StarRocks is enabled, to CNPG otherwise. It renders the CNPG row builder's own
-    filter and sort grammar, so both backends accept the same queries; `stats:`, `rollup_stats:`,
-    `bucket:` and `other:true` are refused on both (the CNPG builder now refuses the clauses it
-    used to ignore via `refuse_unsupported_clauses`).
+    filter and sort grammar; `stats:` is refused on both. `rollup_stats:` and `other:true` are
+    refused by the warehouse dialect but ignored by CNPG (a plain row listing, as before), and
+    `bucket:` is refused by the warehouse dialect and by CNPG's downsample builder.
   - [x] 3.4b.4 God View's direct `bmp_routing_events` read (`fetch_recent_bmp_routing_events`)
     has a warehouse branch keyed on `Readers.enabled?/0`; the CNPG query serves disabled
     installations. `ServiceRadar.BGP.Stats` reads `bgp_routing_info`, which is flow-derived

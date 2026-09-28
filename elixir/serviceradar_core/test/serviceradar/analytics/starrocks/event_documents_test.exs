@@ -148,7 +148,10 @@ defmodule ServiceRadar.Analytics.StarRocks.EventDocumentsTest do
 
     # A listing row without an id still decodes: BMP has no stats path.
     assert [%{"metadata" => %{"signal_type" => "bmp"}}] =
-             EventDocuments.decode_rows([%{"metadata" => ~s({"signal_type":"bmp"})}], "bmp_events")
+             EventDocuments.decode_rows(
+               [%{"metadata" => ~s({"signal_type":"bmp"})}],
+               "bmp_events"
+             )
   end
 
   test "another dataset's rows are untouched, even with a column of the same name" do

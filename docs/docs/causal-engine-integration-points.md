@@ -377,7 +377,8 @@ is complete.
   (NetFlow/sFlow) -> core-elx EventWriter normalization/persistence -> CNPG.
 - **Causal-signal path (NATS):** BMP/BGP (`ARANCINI_CAUSAL` stream), SIEM
   (`siem.events.>`), MTR/other (`signals.causal.>`) → `CausalSignals`
-  processor → `ocsf_events` / `bmp_routing_events` in CNPG.
+  processor → `ocsf_events` in CNPG, and `bmp_routing_events` to the StarRocks
+  warehouse when StarRocks is enabled (to CNPG otherwise).
 
 All of it is in CNPG within ~instantly of arrival, and all of it is then
 SRQL-queryable.

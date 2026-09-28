@@ -484,7 +484,12 @@ defmodule ServiceRadar.Analytics.StarRocks.RowsTest do
       assert row["router_ip"] == "192.0.2.1"
       assert row["peer_asn"] == 64_512
       assert row["local_asn"] == 64_600
-      assert row["metadata"] == %{"signal_type" => "bmp", "event_identity" => "7b0e6f5c-1d2a-4b3c-8d4e-5f6a7b8c9d0e"}
+
+      assert row["metadata"] == %{
+               "signal_type" => "bmp",
+               "event_identity" => "7b0e6f5c-1d2a-4b3c-8d4e-5f6a7b8c9d0e"
+             }
+
       assert row["raw_data"] == ~s({"synthetic": true})
       assert is_binary(row["created_at"])
     end
