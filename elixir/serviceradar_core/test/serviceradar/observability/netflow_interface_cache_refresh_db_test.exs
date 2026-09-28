@@ -72,11 +72,17 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshDbTest do
 
     log =
       capture_log(fn ->
-        assert {:error, {:interface_cache_upsert_failed, [_ | _]}} =
+        assert {:error, {:interface_cache_upsert_failed, error_types}} =
                  Worker.perform(executing_job(1))
+
+        assert Enum.any?(
+                 error_types,
+                 &(&1 in [:numeric_value_out_of_range, :parameter_encoding_error])
+               )
       end)
 
     assert log =~ "upsert failed"
+    assert log =~ "numeric_value_out_of_range" or log =~ "parameter_encoding_error"
     refute log =~ ip
     refute log =~ "uplink-test"
     assert scheduled_count() == 0
@@ -85,8 +91,13 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshDbTest do
   test "the final failed attempt preserves the periodic chain without claiming success" do
     reject_speed_writes()
 
-    assert {:error, {:interface_cache_upsert_failed, [_ | _]}} =
+    assert {:error, {:interface_cache_upsert_failed, error_types}} =
              Worker.perform(executing_job(3))
+
+    assert Enum.any?(
+             error_types,
+             &(&1 in [:numeric_value_out_of_range, :parameter_encoding_error])
+           )
 
     assert scheduled_count() == 1
   end

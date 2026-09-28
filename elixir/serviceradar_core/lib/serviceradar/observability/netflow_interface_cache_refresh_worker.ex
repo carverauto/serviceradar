@@ -138,8 +138,23 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
   end
 
   # Keep error classes for diagnosis, never messages/values containing inventory data.
+  defp error_types(%Postgrex.Error{postgres: %{code: :numeric_value_out_of_range}}),
+    do: [:numeric_value_out_of_range]
+
+  defp error_types(%Postgrex.Error{postgres: %{pg_code: "22003"}}),
+    do: [:numeric_value_out_of_range]
+
+  defp error_types(%Postgrex.Error{}), do: [:database_error]
+  defp error_types(%DBConnection.EncodeError{}), do: [:parameter_encoding_error]
+
   defp error_types(%{errors: errors}) when is_list(errors),
     do: Enum.flat_map(errors, &error_types/1)
+
+  defp error_types(%{
+         __struct__: Ash.Error.Unknown.UnknownError,
+         error: %{__struct__: _} = error
+       }),
+       do: error_types(error)
 
   defp error_types(%{__struct__: type}), do: [type]
   defp error_types(_error), do: [:unknown]
