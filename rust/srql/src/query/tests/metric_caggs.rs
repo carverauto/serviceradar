@@ -271,6 +271,49 @@ fn legacy_sysmon_queries_translate_on_both_backends() {
 }
 
 #[test]
+fn legacy_sysmon_stats_rank_before_limiting_on_both_backends() {
+    let config = test_config();
+    for (entity, field) in [
+        ("cpu", "usage_percent"),
+        ("memory", "usage_percent"),
+        ("disk", "usage_percent"),
+        ("process", "cpu_usage"),
+        ("process", "memory_usage"),
+    ] {
+        for mode in [None, Some("starrocks"), Some("starrocks_raw")] {
+            for (sort, direction) in [("", "DESC"), ("sort:average:asc", "ASC")] {
+                let response = translate_request(
+                    &config,
+                    QueryRequest {
+                        query: format!(
+                            "in:{entity} time:last_1h stats:avg({field}) as average by device_id {sort} limit:1"
+                        ),
+                        limit: None,
+                        cursor: None,
+                        direction: QueryDirection::Next,
+                        mode: mode.map(str::to_string),
+                        permitted_signals: None,
+                    },
+                )
+                .expect("legacy ranked aggregate should compile");
+                let column = if mode.is_none() {
+                    "agg_value_0"
+                } else {
+                    "average"
+                };
+                assert!(
+                    response
+                        .sql
+                        .contains(&format!("ORDER BY {column} {direction}")),
+                    "{}",
+                    response.sql
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn legacy_sysmon_aggregates_keep_timeseries_retention_routing() {
     let config = test_config();
     for mode in [None, Some("starrocks"), Some("starrocks_raw")] {

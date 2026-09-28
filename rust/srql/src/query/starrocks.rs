@@ -109,11 +109,7 @@ const METRIC_HOURLY: HourlyRollup = HourlyRollup {
 
 /// `timeseries_metrics` and `events` are each one physical table holding
 /// several families, exactly as they are on CNPG, so an entity scoped to one
-/// family carries that family's `scope` predicate. The sysmon entities are
-/// deliberately absent: they are retired at parse time (the dedicated
-/// `cpu_metrics`/`memory_metrics`/`disk_metrics`/`process_metrics` tables
-/// receive no data; device sysmon is ingested as `sysmon.*` metrics in
-/// `timeseries_metrics`).
+/// family carries that family's `scope` predicate.
 fn dataset_for(entity: &Entity) -> Option<Dataset> {
     match entity {
         Entity::Flows => Some(Dataset {

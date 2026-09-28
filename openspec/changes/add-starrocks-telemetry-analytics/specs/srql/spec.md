@@ -5,13 +5,13 @@ For datasets served by the CNPG compatibility backend, the SRQL service SHALL au
 
 #### Scenario: Stats query with large time window routes to CAGG
 - **GIVEN** the `timeseries_metrics_hourly` CAGG exists and has been refreshed
-- **WHEN** a client sends `in:timeseries_metrics metric_type:"sysmon.cpu" time:last_7d stats:avg(value) as avg_usage by device_id`
+- **WHEN** a client sends `in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" time:last_7d stats:avg(value) as avg_usage by device_id`
 - **THEN** SRQL transparently queries the `timeseries_metrics_hourly` CAGG
 - **AND** the response shape is identical to a raw-table stats query
 
 #### Scenario: Stats query with small time window hits raw table
 - **GIVEN** the `timeseries_metrics_hourly` CAGG exists
-- **WHEN** a client sends `in:timeseries_metrics metric_type:"sysmon.cpu" time:last_1h stats:avg(value) as avg_usage by device_id`
+- **WHEN** a client sends `in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" time:last_1h stats:avg(value) as avg_usage by device_id`
 - **THEN** SRQL queries the raw `timeseries_metrics` hypertable (time window under 6h and within the raw retention horizon)
 
 #### Scenario: Short old window routes to CAGG by retention
@@ -40,7 +40,7 @@ For datasets served by the CNPG compatibility backend, the SRQL service SHALL al
 
 #### Scenario: One-year stats query succeeds via CAGG
 - **GIVEN** the `timeseries_metrics_hourly` CAGG has 1 year of data
-- **WHEN** a client sends `in:timeseries_metrics metric_type:"sysmon.cpu" time:last_1y stats:avg(value) as avg_usage by device_id`
+- **WHEN** a client sends `in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" time:last_1y stats:avg(value) as avg_usage by device_id`
 - **THEN** SRQL routes to the CAGG and returns aggregated results for the full year
 
 #### Scenario: Non-CAGG query retains 90-day limit

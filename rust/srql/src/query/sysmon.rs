@@ -6,7 +6,10 @@ use super::{
 use crate::{
     error::{Result, ServiceError},
     jsonb::DbJson,
-    parser::{DownsampleAgg, Entity, Filter, FilterOp, FilterValue, OrderDirection, StatsSpec},
+    parser::{
+        DownsampleAgg, Entity, Filter, FilterOp, FilterValue, OrderClause, OrderDirection,
+        StatsSpec,
+    },
 };
 use diesel::{pg::Pg, sql_query, sql_types::Jsonb};
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
@@ -369,6 +372,12 @@ fn metric_aggregate_plan(plan: &QueryPlan, spec: &MetricSpec) -> Result<Option<Q
             "avg(value) as {alias}{}",
             if grouped { " by device_id" } else { "" }
         )));
+        if normalized.order.is_empty() {
+            normalized.order.push(OrderClause {
+                field: alias,
+                direction: OrderDirection::Desc,
+            });
+        }
         *metric
     } else {
         return Ok(None);

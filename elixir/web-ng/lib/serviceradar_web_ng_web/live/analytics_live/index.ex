@@ -631,7 +631,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     |> extract_numeric()
   end
 
-  defp utilization_host(svc), do: first_present(svc, ["host", "uid"], "Unknown")
+  defp utilization_host(svc), do: first_present(svc, ["host", "uid", "device_id"], "Unknown")
 
   defp first_present(map, keys, default) when is_map(map) and is_list(keys) do
     Enum.find_value(keys, default, &Map.get(map, &1))
@@ -1721,7 +1721,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
   defp disk_utilization_row(assigns) do
     svc = assigns.service
     percent = extract_numeric(Map.get(svc, "percent") || Map.get(svc, "value") || 0)
-    host = Map.get(svc, "host") || Map.get(svc, "uid") || Map.get(svc, "device_id") || "Unknown"
+    host = utilization_host(svc)
     mount = disk_mount(svc)
 
     assigns =

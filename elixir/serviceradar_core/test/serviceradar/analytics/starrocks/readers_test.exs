@@ -219,13 +219,6 @@ defmodule ServiceRadar.Analytics.StarRocks.ReadersTest do
       assert Readers.mode_for("rperf_metrics") == "starrocks"
       assert Readers.backend(:metrics) == :starrocks
       assert Readers.mode_for("flows") == {:error, :starrocks_required}
-
-      # EventWriter mirrors CNPG timeseries_metrics only; the sysmon families
-      # have their own CNPG tables, so a metrics cutover must not divert them.
-      for sysmon <- ~w(cpu_metrics memory_metrics disk_metrics process_metrics) do
-        assert Readers.mode_for(sysmon) == nil
-        assert Readers.backend(sysmon) == :cnpg
-      end
     after
       Application.put_env(:serviceradar_core, StarRocks, prev)
     end
