@@ -36,9 +36,10 @@ imports. Ingestion services SHALL NOT run DDL.
 The system SHALL provide an in-memory longest-prefix-match lookup engine, owned by a
 project module behind a behaviour, that returns the matching tag chain for an IPv4 or
 IPv6 address ordered most-specific first. The engine SHALL serve reads without
-per-lookup database queries and without per-lookup copying visible to process garbage
-collection (persistent-term-backed snapshot storage). Engine updates SHALL occur only
-by atomic snapshot swap.
+per-lookup database queries. Snapshot storage SHALL publish an immutable native
+resource through persistent_term; lookups copy only matching entry maps into the
+caller. Engine updates SHALL occur only by atomic snapshot swap. The pure Elixir
+engine SHALL remain available for tests and explicit configuration.
 
 #### Scenario: Overlapping prefixes return the full chain most-specific first
 
@@ -60,22 +61,27 @@ by atomic snapshot swap.
 
 ### Requirement: Cluster-wide trie replication
 
-Each participating node (core-elx and web-ng) SHALL run a loader that builds the
-lookup trie from the active snapshots in CNPG at boot, subscribes to a PubSub
-invalidation topic, and rebuilds when a snapshot promotion is broadcast or when the
-node reconnects to the cluster. CNPG SHALL remain the sole source of truth; the trie
-is a derived, rebuildable cache.
+Core ingestion nodes SHALL build external provider and threat-intel tries from
+CNPG at boot and on source invalidation. Web nodes SHALL NOT build these external
+tries. Participating nodes SHALL reload their snapshot-backed sources after
+cluster reconnect, without rebuilding external sources on peer joins. CNPG SHALL
+remain the sole source of truth; the trie is a derived, rebuildable cache.
 
 #### Scenario: Nodes reload after snapshot promotion
 
 - **WHEN** an import promotes a new snapshot and broadcasts invalidation
-- **THEN** every subscribed node rebuilds its trie from the new active snapshot
+- **THEN** subscribed nodes that own that source rebuild from the active snapshot
+- **AND** web nodes skip external provider and threat-intel construction
 
 #### Scenario: Late-joining node loads current data
 
-- **WHEN** a node boots or rejoins the cluster after a network partition
-- **THEN** its loader fetches the currently active snapshots from CNPG and serves
-  lookups consistent with the rest of the cluster without requiring a new broadcast
+- **WHEN** a core ingestion node boots
+- **THEN** its loader fetches the active snapshots and external datasets from CNPG
+
+#### Scenario: Peer joins do not rebuild external tries
+
+- **WHEN** a participating node receives a nodeup event
+- **THEN** it rechecks snapshot-backed sources without rebuilding external tries
 
 ### Requirement: Flow enrichment with prefix tags
 
@@ -157,7 +163,8 @@ receive, available to users authorized to view integrations settings.
 
 - **WHEN** an authorized user previews `10.1.2.3` in the settings UI
 - **THEN** the UI shows the most-specific-first tag chain the enrichment path would
-  apply, served from the local node's trie without a database lookup
+  apply, served by a core-node trie lookup without a per-IP database query
+- **AND** an unavailable core is reported as preview unavailability, not an empty match
 
 ### Requirement: Per-source trie instances with independent cadence
 

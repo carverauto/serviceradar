@@ -1,0 +1,38 @@
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_shared_library.bzl", "rust_shared_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_library(
+    name = "prefix_tags_core",
+    srcs = glob(["src/**/*.rs"]),
+    crate_name = "prefix_tags_nif",
+    crate_root = "src/lib.rs",
+    edition = "2021",
+)
+
+rust_test(
+    name = "prefix_tags_core_test",
+    crate = ":prefix_tags_core",
+)
+
+rust_shared_library(
+    name = "prefix_tags_nif",
+    srcs = glob(["src/**/*.rs"]),
+    cc_runtime_linkage = "static",
+    crate_features = ["nif"],
+    crate_name = "prefix_tags_nif",
+    edition = "2021",
+    rustc_env = {"RUSTLER_PRIMARY_NIF_INIT": "1"},
+    # The boundary rejects panic=abort at compile time as well.
+    rustc_flags = ["-Cpanic=unwind"] + select({
+        "@platforms//os:macos": ["-Clink-arg=-Wl,-undefined,dynamic_lookup"],
+        "//conditions:default": [],
+    }),
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ),
+)

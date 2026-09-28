@@ -76,6 +76,12 @@ defmodule ServiceRadar.PrefixTags.DnsPolicySource do
   @spec reload(keyword()) ::
           {:ok, ExternalSources.reload_result()} | {:error, term()}
   def reload(opts \\ []) do
+    if ExternalSources.enabled?(),
+      do: reload_enabled(opts),
+      else: {:error, :external_sources_disabled}
+  end
+
+  defp reload_enabled(opts) do
     broadcast? = Keyword.get(opts, :broadcast?, true)
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
     lookback = Keyword.get(config, :lookback_hours, @default_lookback_hours)

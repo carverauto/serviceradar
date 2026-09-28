@@ -4875,6 +4875,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "prefix_tags_nif"
+version = "0.1.0"
+dependencies = [
+ "rustler",
+]
+
+[[package]]
 name = "pretty_assertions"
 version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

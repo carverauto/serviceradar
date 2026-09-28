@@ -65,6 +65,12 @@ defmodule ServiceRadar.PrefixTags.IntegrationTest do
   }
 
   setup do
+    # Match the stable snapshot transaction used by the streaming loader. Set
+    # isolation on the outer sandbox transaction before creating fixtures.
+    Repo.query!("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ", [],
+      sandbox_subtransaction: false
+    )
+
     Store.clear()
 
     on_exit(fn ->
