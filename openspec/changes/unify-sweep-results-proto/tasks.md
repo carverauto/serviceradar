@@ -65,17 +65,25 @@
     agent's remaining horizon.
   - [ ] M2.0e Agent lease execution. For an opted-in group the agent's local
     ticker is replaced by the lease: it runs each slot at its time from its own
-    clock whether or not it is connected, refuses a slot when its clock is not
-    credible, and when no valid slot remains stops authoritative output and
-    reports the lease exhausted.
+    clock whether or not it is connected, and refuses a lease slot when its wall
+    clock reads earlier than the lease's signed issuance time (the last
+    authenticated time the agent saw) minus the ABI's 5-minute clock tolerance.
+    There is no NTP-sync requirement. A clock running fast remains bounded by the
+    signed slot windows. When no valid slot remains the agent stops
+    authoritative output and reports the lease exhausted.
   - [ ] M2.0f Live gateway trust. The gateway's trust snapshot (issuer keys,
     fences from assignment epochs, agent-to-scope bindings) comes from core at
-    runtime and follows changes, so a revocation (an epoch bump) refuses the rest
-    of a lease on arrival. The boot-time trust file remains for tests.
-  - [ ] M2.0g Delivery after reconnect. Records spooled offline whose signed
-    window has closed drain under a delivery grant the agent obtains on
-    reconnect, scoped to its current assignment and epoch, instead of signing
-    windows as long as the worst outage.
+    runtime and follows changes. A record whose assignment epoch is current
+    publishes as primary. A stale epoch presented with a valid per-record
+    delivery grant is `audit_publication` / `ledger_only` (never authoritative
+    domain rows). A stale epoch without such a grant is refused. The issuer
+    does not grant delivery to a revoked assignment. The boot-time trust file
+    remains for tests.
+  - [ ] M2.0g Delivery after reconnect. On reconnect the agent obtains a
+    per-record delivery grant (`EdgeDeliveryClaimsV1` same-spool renewal:
+    `event_id`, `record_sha256`, `spool_id`, `sequence`) for each unresolved
+    backlog record. Collection windows are still checked against event time (the
+    original interval), never receipt age.
   - [ ] M2.0h Enforcement and missed runs. Edge sweep records are accepted only
     with a valid source authorization that correlates with the batch
     (`ValidateSweepRecord` / `SweepCorrelate` on the live path), and core marks a
