@@ -57,9 +57,15 @@ duplicated mapping code drifts).
 The cloud manifest declares `integrations.credential_profiles[provider: starlink]` with
 auth method `starlink_service_account` (`credential_kind: api_token`), fields
 `client_id` (public), `client_secret` (secret), `account_number` (public, optional, for
-managed child accounts). Provisioning `mode: target_policy`, consumer
-`plugin_id: starlink-cloud`, `target_cardinality: single`, `failure_mode: error`, and a
-grant with `resolution_location: agent` and
+managed child accounts). Provisioning uses `mode: producer_schedule` (the
+`opentext-nom` pattern), not `target_policy`: the agent host applies brokered
+credential injection, including OAuth2 token exchange, only to plugin runs in action
+mode (`credentialBrokerGrantForHTTP` in `go/pkg/agent/plugin_runtime_http.go`), so
+scheduled collection runs as producer-schedule actions (`starlink.inventory.refresh`,
+`starlink.telemetry.collect`) with capabilities `producer-schedule:v1`,
+`action-result-ingest:v1` and `action-only:v1`. Each schedule declares a
+`credential_requirements.starlink_service_account` entry whose grant uses
+`resolution_location: agent` and
 `inject.type: oauth2_client_credentials` using the existing host keys
 (`token_method: POST`, `token_host`, `token_path: /api/auth/connect/token`,
 `field_client_id: client_id`, `field_client_secret: client_secret`,
@@ -87,8 +93,13 @@ emits one `device_discovery.v1` complete snapshot per credential rule with
 `snapshot_complete: false` so absence is never inferred from a failed page.
 
 Identity rules (enforced in code and tests):
-- `device_id` = `starlink:ut:<vendor terminal id>` / `starlink:router:<vendor router id>`;
-  `serial` = vendor kit serial when present. These are the only strong identifiers.
+- `device_id` and `metadata.integration_id` = `starlink:ut:<vendor terminal id>` /
+  `starlink:router:<vendor router id>`. Core ignores a plugin `device_id` as an
+  identifier and matches on `metadata.integration_id` (identifier type
+  `integration_id`), so the vendor ID must be carried there; it is the only strong
+  identifier. Kit and dish serials are attributes (`serial` and metadata): core only
+  treats a serial as identity for allowlisted vendors, and this change does not add
+  one.
 - Public IPv4/IPv6 from the `IpAllocs` telemetry or service-line config are stored as
   metadata, never as `ip` identity: carrier-grade NAT shares them across many terminals.
 - The vendor-default LAN address of a terminal or router is identical at every site and
@@ -226,6 +237,45 @@ hermetic builds. The SDK README install line is corrected to the `/v2` module pa
 `requires_confirmation` server-side for dashboard-launched invocations (an explicit
 confirmation token bound to the action and targets), so a dashboard cannot skip it.
 
+### D15. Resolving plugin device identity on metrics, events and alerts
+Today nothing maps a plugin's own device ID to the canonical `sr:` device when its
+signals are ingested: `timeseries_metrics.device_id` stores `MetricResource.device_id`
+raw (`observability/metric_envelope.ex`), OCSF `device.uid` is stored raw
+(`event_writer/processors/events.ex`), and alert device resolution
+(`alert_lifecycle.ex` via `DeviceCorrelation.resolve/1`) falls back to the agent's own
+device when the uid is not canonical. No shipped plugin attributes signals per device,
+which is why this has not surfaced.
+
+Core gains one ingest-time resolver used by the metrics processor, the events
+processor and alert device resolution: a non-canonical device reference of the form
+`<source>:<...>` is looked up as an `integration_id` identifier
+(`Identity.DeviceLookup.get_canonical_device/2`) in the gateway-attested partition, and
+only when `<source>` is one of the emitting plugin package's declared
+`integrations.inventory_sources`, so a plugin cannot attach signals to another
+source's devices. A reference that does not resolve is stored as-is and never falls
+back to the agent's device. Lookups are batched per ingest batch and cached briefly.
+The plugin sets `MetricResource.device_id` and OCSF `device.uid` to the same
+`starlink:ut:<id>` / `starlink:router:<id>` value it emits as `integration_id`.
+
+### D16. Condition snapshots and synthesized clears
+The agent condition debounce forwards the first observation of every condition key
+(including `ok`) and re-forwards unchanged levels every 15 minutes. A stateless plugin
+therefore has two bad options for vendor alerts: emit `ok` for every possible alert on
+every device each run (floods events), or emit only active alerts (clears never
+arrive; the key silently ages out after an hour).
+
+The agent gains condition scopes: a condition event may carry
+`unmapped.condition_scope`, and a plugin marks a run's condition set for a scope as
+complete with one scope-complete marker record. For a complete scope the agent
+forwards raise and level changes as today, synthesizes an `ok` clear for every key it
+previously forwarded at a non-`ok` level that is absent from the new set, and does not
+forward or refresh `ok` levels that had no prior non-`ok` state. Events without a
+scope keep today's behavior. The plugin emits only active alerts with scope
+`starlink:<source_instance>:alerts`. Limitation: the debounce state is in memory, so an
+alert that clears while the agent is restarting is not cleared by the agent; the
+scope-complete marker is forwarded to core with the active key list so core-side
+reconciliation can close such alerts (tracked as an open question).
+
 ## Risks / Trade-offs
 - Vendor alert docs are inconsistent and codes can be reassigned -> map only through
   response metadata; unknown codes are surfaced, not dropped.
@@ -249,7 +299,11 @@ plugins; inventory rows remain and age out through normal availability handling.
 ## Open Questions
 - Where the Starlink dashboard package lives (in-repo example directory vs. a separate
   public repository).
-- Whether the northbound dispatcher already supports multiple named credential grants per
-  invocation (determines whether the `northbound-actions` delta is new work).
 - Review of vendor terms of service for the community-documented local read methods
   before `enable_unofficial_methods` is documented as supported.
+- Whether core should reconcile open condition alerts against forwarded scope-complete
+  markers (D16) in this change or a follow-up.
+- How operator-launched management actions bind to the account's Starlink credential
+  rule (the dispatcher supports multiple named grants per invocation; the binding of a
+  named requirement to a provisioned credential rule, rather than a static secret ID or
+  a secret-selecting input, is to be confirmed during implementation).
