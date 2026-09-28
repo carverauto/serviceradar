@@ -106,6 +106,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
       "time" => datetime(field(row, :time)),
       "event_type" => "attributed_flow",
       "attribution_version" => field(row, :attribution_version),
+      "agent_id" => stringify(field(row, :agent_id)),
       "pid" => field(row, :pid),
       "comm" => stringify(field(row, :comm)),
       "cmdline" => stringify(field(row, :cmdline)),
@@ -114,10 +115,21 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
   end
 
   defp encode_row(:flows, row) do
+    attribution = map_get(field(row, :ocsf_payload), "attribution")
+
     %{
       "id" => Identity.record_id(:flows, row),
       "device_uid" => stringify(field(row, :device_uid) || field(row, :device_id) || "unknown"),
-      "agent_id" => payload_text(row, "agent_id"),
+      "agent_id" => stringify(field(row, :agent_id) || payload_text(row, "agent_id")),
+      "pid" => field(row, :pid) || map_get(attribution, "pid"),
+      "comm" => stringify(field(row, :comm) || map_get(attribution, "comm")),
+      "cmdline" =>
+        stringify(
+          field(row, :cmdline) || map_get(attribution, "redacted_cmdline") ||
+            map_get(attribution, "cmdline")
+        ),
+      "workload_identity" =>
+        json_text(field(row, :workload_identity) || map_get(attribution, "workload_identity")),
       "event_type" => stringify(field(row, :event_type) || payload_text(row, "event_type")),
       "time" => datetime(field(row, :time)),
       "src_endpoint_ip" => stringify(field(row, :src_endpoint_ip)),

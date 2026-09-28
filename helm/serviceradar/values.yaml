@@ -2774,8 +2774,10 @@ sweep:
 # before its JetStream ACK, so a warehouse outage backpressures flow ingestion
 # instead of skipping warehouse rows. Warehouse flow rows written before the
 # version that stamps agent_id lack agent attribution, so device-risk reads can
-# miss an agent-only device for up to one hour right after the cutover (a
-# bounded, accepted gap; retryable writes keep new rows complete).
+# miss an agent-only device for one effective risk lookback (window_seconds,
+# default one hour) after the immediate cutover, accepted by the captain for
+# dev/test. Post-deploy rows use required retryable writes; full-row ingestion
+# and correlation updates preserve agent identity and process attribution.
 # flowCollector is gated independently. Empty shadowDatasets means all four
 # datasets. Lab clusters run the shared-nothing profile from k8s/starrocks/,
 # not this chart.

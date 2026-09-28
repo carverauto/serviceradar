@@ -483,6 +483,7 @@ defmodule ServiceRadar.FlowAttributionTest do
 
       assert update["pid"] == 61_707
       assert update["comm"] == "serviceradar-agent"
+      assert update["agent_id"] == agent_id
     end
 
     test "correlates pod-local attribution to node-SNATed NetFlow", %{

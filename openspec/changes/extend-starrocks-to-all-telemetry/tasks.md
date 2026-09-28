@@ -34,7 +34,7 @@
     the warehouse; the hostile-IOC join and the device identity stay CNPG lookups
     (`ip_threat_intel_cache` is not in the catalog allowlist; the warehouse flow row carries the
     attributed flow's `agent_id`, so device is resolved agent first via `ocsf_agents` and falls
-    back to `device_identifiers` on the destination IP, matching the CNPG query). Tests:
+    back to `device_identifiers` on the destination IP). Tests:
     `TrafficSparklinesRoutingTest` (web-ng) and `DeviceRiskIocExposureRoutingTest` (core) pin
     the routing and the warehouse SQL shape.
   - [x] DeviceRiskIocExposure warehouse cutover (issue #4869, captain decisions
@@ -49,27 +49,36 @@
     warehouse outage backpressures flow ingestion instead of leaving a silent
     hole; a redelivery re-inserts CNPG as a no-op (`on_conflict: :nothing` on the
     stable flow identity) and the primary-key warehouse table upserts. Post-deploy
-    warehouse rows are therefore complete and carry `agent_id`. Other datasets
-    keep the staged behavior (best-effort shadow until their reads are cut over).
+    warehouse rows use required retryable writes. Full-row ingestion preserves
+    agent and process attribution; correlation selects the matched agent and
+    carries it through JetStream publication and the partial Stream Load. Other
+    datasets keep staged behavior (best-effort shadow until reads are cut over).
     Reads: hard cutover at deploy -- `flows` ships in the DEFAULT cutover set of
     a warehouse-enabled installation (`StarRocks.Env.cutover_datasets/1`: blank
     or unset `SERVICERADAR_STARROCKS_CUTOVER_DATASETS` + enabled = `[:flows]`;
     a non-blank list is the operator's exact list, so omitting `flows` refuses
     flow reads again). The risk reader therefore reads the warehouse from the
     moment the warehouse is enabled; the CNPG query stays only for
-    warehouse-disabled installations, where CNPG is the complete backend. No
+    warehouse-disabled installations or explicit cutover lists without flows. No
     backfill, no timed hold, no new rollout machinery.
     Accepted gap (captain, explicitly): warehouse rows written before this deploy
     lack `agent_id` (and pre-deploy best-effort shadow loads could leave holes),
     so right after the flip risk reads can miss an agent-only device for up to
-    one risk lookback (`window_seconds`, default 3600s), until those rows age out
-    of the warehouse page's strict `time > as_of - window` bound. No new such
-    row can appear (retryable writes). Tests: `DestinationTest` pins
+    one effective risk lookback (`window_seconds`, default 3600s), until those
+    rows age out of the warehouse page's strict `time > as_of - window` bound.
+    This pre-deploy gap is explicitly accepted for dev/test environments.
+    Tests: `DestinationTest` pins
     required-before-ACK before any cutover, outage-redelivery and idempotent
     replay (stable record ids); `EnvTest` and the elx production runtime config
     test pin the default cutover set; `DeviceRiskIocExposureRoutingTest` pins
     the warehouse page, the CNPG fallback for a disabled warehouse, the strict
-    window bound, and the dropped un-enriched in-window row.
+    window bound, the dropped un-enriched in-window row, and retention of a
+    maximum-risk contribution from full and partial encodings for an agent-only
+    device. `FlowAttributionTest` executes the matching SQL and checks the
+    published agent; `FlowsTest`, `RowsTest`, and `AttributionTest` exercise
+    process and agent fields through protobuf decoding and warehouse encoding.
+    Migration `0023_ocsf_network_activity_agent_id.sql` adds the agent column;
+    `SchemaTest` enforces unique versions for the shipped migration set.
   - [ ] Logs/events stat cards that bypass SRQL (still open).
 - [ ] 2.5 Measure log search on the deployed profile: which index types shared-data supports, and latency of a substring search over 1, 30 and 365 days; document the supported behaviour.
 - [ ] 2.6 Run the parity harness for the `logs` and `events` warehouse readers; ship each reader only after it passes; verify cards and charts against ground truth after the rollout completes.

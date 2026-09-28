@@ -70,24 +70,6 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposure do
 
   def correlate(_flows, _findings), do: []
 
-  # Flows read the warehouse from the moment it is enabled: `flows` ships in
-  # the default cutover set of a warehouse-enabled installation
-  # (`StarRocks.Env`, captain decision 2026-09-28: hard cutover, full
-  # retirement of the CNPG flows serving path on day 1). The CNPG flow query
-  # below therefore serves only a warehouse-disabled installation (or one
-  # whose operator explicitly lists cutover datasets without `flows`), where
-  # CNPG is the complete telemetry backend. Warehouse rows written before
-  # this reader shipped carry no `agent_id`, so they resolve device identity
-  # by destination IP alone and an agent-only device is invisible to them:
-  # right after the flip, risk reads can miss an agent-only device for up to
-  # one risk lookback (`window_seconds`, default 3600s) until those rows age
-  # out of the warehouse page's strict `time > as_of - window` bound. The
-  # captain explicitly accepted that bounded gap (dev/test environments, no
-  # dataloss risk); from this deploy on, warehouse flow writes are retryable
-  # before the JetStream ACK (`Destination.warehouse_required?/1`), so no new
-  # such row can appear. The routing tests pin the warehouse page, the CNPG
-  # fallback for a disabled warehouse, the strict window bound, and the
-  # dropped un-enriched row.
   @doc false
   def flow_history_backend, do: Readers.backend(:flows)
 
@@ -545,7 +527,7 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposure do
   # hostile IPs and the device -- agent first via `ocsf_agents`, then the
   # destination IP via `device_identifiers` -- from CNPG and attaches both
   # after the flow page comes back. The keyset page stays over
-  # hostile-IP-matched flows, exactly as the CNPG query pages, so a full page
+  # hostile-IP-matched flows, so a full page
   # is not the end of the window. IPs are normalized as CNPG normalizes them
   # (IPv4-mapped IPv6 prefix stripped, lowercased), but with `lower` applied
   # first: StarRocks `regexp_replace` has no trailing-`'i'` flags argument

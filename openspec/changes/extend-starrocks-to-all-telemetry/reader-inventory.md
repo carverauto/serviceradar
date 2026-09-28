@@ -164,8 +164,10 @@ Go, `serviceradar_core_elx`, `serviceradar_agent_gateway`, `datasvc`, `palisade`
    ACK (`Destination.warehouse_required?/1`). Rows written before the
    `agent_id` enrichment lack agent attribution (and pre-deploy shadow loads
    were best-effort), so right after the flip risk reads can miss an
-   agent-only device for up to one lookback (default 3600s) -- a bounded gap
-   the captain explicitly accepted; no new such row can appear. See task 2.4.
+   agent-only device for up to one effective risk lookback (`window_seconds`,
+   default 3600s), explicitly accepted by the captain for dev/test. Post-deploy
+   rows use required retryable writes; full-row ingestion and correlation
+   updates preserve agent identity and process attribution. See task 2.4.
 6. **`rust/srql/src/server.rs:51` (`/api/query`) runs every entity on CNPG** and bypasses
    `Readers`; no chart deploys it, so it may be dead. **Resolved (issue #4873):** the standalone
    server was dead — no Helm template, Compose service, k8s manifest or Docker image ran it, and

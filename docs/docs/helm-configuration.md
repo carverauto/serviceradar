@@ -523,8 +523,11 @@ also commit to the warehouse before their JetStream ACK, so a warehouse outage
 backpressures flow ingestion. Naming datasets explicitly replaces the default;
 omitting `flows` refuses flow reads again. Warehouse flow rows written before
 the `agent_id` enrichment lack agent attribution, so device-risk reads can miss
-an agent-only device for up to one hour right after the cutover (a bounded,
-accepted gap).
+an agent-only device for up to one effective device-risk lookback
+(`window_seconds`, default one hour) after the immediate cutover. The captain
+explicitly accepted this pre-deploy gap for dev/test environments. Post-deploy
+rows use required retryable writes; full-row ingestion and correlation updates
+preserve agent identity and process attribution.
 
 web-ng and core read these settings once at boot, so the chart stamps a digest
 of `analytics.starrocks.*` on both pods: a `helm upgrade` that changes the
