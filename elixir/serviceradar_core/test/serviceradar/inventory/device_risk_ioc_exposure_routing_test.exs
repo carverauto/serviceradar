@@ -342,19 +342,19 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposureRoutingTest do
     refute_received :ioc_lookup
   end
 
-  # The pre-cutover hold. Warehouse flow rows written before this reader
-  # shipped carry no `agent_id`, so an agent-only device -- one whose
-  # `dst_endpoint_ip` is not a `device_identifiers` row -- is invisible to
-  # them. Until `flows` is listed in the cutover setting the risk read stays
-  # on the CNPG query, which resolves the device agent-first inside the SQL,
-  # and CNPG stays the authoritative flow write, so the hold loses nothing.
-  test "before the cutover the risk read stays on CNPG with agent-first resolution", %{
+  # The CNPG fallback arm. A warehouse-disabled installation (or an operator's
+  # explicit cutover list that omits flows) keeps the risk read on the CNPG
+  # query, which resolves the device agent-first inside the SQL: an
+  # agent-only device -- one whose `dst_endpoint_ip` is not a
+  # `device_identifiers` row -- is detected there even though warehouse rows
+  # written before `agent_id` enrichment cannot see it.
+  test "a warehouse-disabled installation keeps the risk read on CNPG with agent-first resolution", %{
     prev: prev
   } do
     Application.put_env(
       :serviceradar_core,
       StarRocks,
-      prev |> Keyword.put(:enabled, true) |> Keyword.put(:cutover_datasets, [:metrics])
+      prev |> Keyword.put(:enabled, false) |> Keyword.put(:cutover_datasets, [])
     )
 
     parent = self()
@@ -407,21 +407,20 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposureRoutingTest do
     assert sql =~ "COALESCE(a.device_uid, di.device_id)"
     refute sql =~ "serviceradar.ocsf_network_activity"
 
-    # The window the release condition waits out: [as_of - window, as_of].
+    # The CNPG window is [as_of - window, as_of], same bounds the warehouse
+    # page enforces after the cutover.
     assert [^as_of, 3600, _page_size, nil, nil] = params
   end
 
-  # The timing half of the cutover condition. Enriched warehouse writes begin
-  # when this reader deploys (Rows.encode/2 writes agent_id on every flow row,
-  # and Destination.warehouse_required?/1 makes the load retryable before the
-  # JetStream ACK, so post-deploy warehouse rows are complete and enriched).
-  # The warehouse page bounds `time` strictly below as_of - window_seconds, so
-  # once as_of >= deploy + window no row written before the deploy can still
-  # be inside the window: flipping the cutover setting one lookback (default
-  # 3600s) after the deploy leaves every in-window row complete and enriched.
-  # Flipping earlier serves pre-deploy rows without agent attribution (and
-  # pre-deploy shadow holes); that suppression window is the captain decision
-  # recorded in the extend-starrocks tasks.
+  # The accepted gap, bounded by the window. Warehouse flow rows written
+  # before this reader ships carry no `agent_id` (an agent-only device is
+  # invisible to them) and pre-deploy best-effort shadow loads could leave
+  # holes; the warehouse page bounds `time` strictly below
+  # `as_of - window_seconds`, so both classes age out of the window one
+  # lookback (default 3600s) after the hard cutover. The captain accepted
+  # that bounded suppression window (dev/test environments, no dataloss
+  # risk); from this deploy on, flow warehouse writes are retryable before
+  # the JetStream ACK, so no new such row can appear.
   test "the warehouse window is strictly bounded by the risk lookback", %{prev: prev} do
     Application.put_env(
       :serviceradar_core,
@@ -460,12 +459,12 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposureRoutingTest do
     assert sql =~ "`time` <= '2026-08-15 12:00:00'"
   end
 
-  # The hazard the release condition rules out, pinned so the claim stays
-  # honest: a warehouse row from before the enriched writes (agent_id NULL)
-  # whose device is reachable only through its agent resolves no device and
-  # produces no hit. This is why the cutover setting must not name `flows`
-  # until the lookback above has expired -- and why an un-enriched row must
-  # stay dropped rather than be attributed to a wrong device.
+  # The hazard inside the accepted gap, pinned so the claim stays honest: a
+  # warehouse row from before the enriched writes (agent_id NULL) whose device
+  # is reachable only through its agent resolves no device and produces no
+  # hit, for as long as such a row stays inside the window above -- and an
+  # un-enriched row must stay dropped rather than be attributed to a wrong
+  # device.
   test "an un-enriched warehouse row inside the window produces no device", %{prev: prev} do
     Application.put_env(
       :serviceradar_core,

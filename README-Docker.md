@@ -120,9 +120,11 @@ STARROCKS_ENABLED=true docker compose --profile starrocks --profile flows up -d
 `flow-collector` stays off unless you pass `--profile flows` or
 `--profile network-ingest`. The two profiles are independent for *collection*:
 NetFlow collects without the warehouse and stores flows on CNPG hypertables.
-Reading those flows back is warehouse-only -- until `flows` is listed in
-`STARROCKS_CUTOVER_DATASETS`, the NetFlow dashboard and `in:flows` are refused
-with a warehouse-required error instead of being answered from CNPG. See
+Reading those flows back is warehouse-only and cut over by default: with
+`STARROCKS_ENABLED=true` and `STARROCKS_CUTOVER_DATASETS` unset or blank,
+`flows` is in the cutover set; naming datasets explicitly replaces the
+default (omitting `flows` refuses the NetFlow dashboard and `in:flows` with a
+warehouse-required error instead of being answered from CNPG). See
 [NetFlow](docs/docs/netflow.md) for the full flow path.
 
 There is no separate schema container: core creates and upgrades the

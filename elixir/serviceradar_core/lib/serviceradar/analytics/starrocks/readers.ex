@@ -5,7 +5,11 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
   Ordinary installations stay on CNPG until a dataset is listed in
   `cutover_datasets`. NetFlow is the exception: `:flows` is served from the
   warehouse or not at all, so an installation that has not cut it over gets
-  `{:error, :starrocks_required}` rather than CNPG rows.
+  `{:error, :starrocks_required}` rather than CNPG rows. Flows ship in the
+  default cutover set of a warehouse-enabled installation (`Env`), so that
+  refusal arm is reached only when an operator explicitly lists cutover
+  datasets without `flows` (or the warehouse is disabled, where every flows
+  reader except the hostile-IOC risk reader refuses instead of reading CNPG).
 
   An entity only maps to a dataset when the warehouse actually holds its rows.
   Every spelling the SRQL parser accepts for such an entity must be listed:

@@ -65,7 +65,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
     [
       enabled: enabled,
       catalog_enabled: truthy?("SERVICERADAR_STARROCKS_CATALOG_ENABLED"),
-      cutover_datasets: csv_datasets("SERVICERADAR_STARROCKS_CUTOVER_DATASETS"),
+      cutover_datasets: cutover_datasets(enabled),
       shadow_datasets: shadow_datasets(enabled),
       fe_http: fe_http(),
       fe_mysql_host: fe_mysql_host(),
@@ -161,6 +161,29 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
       datasets -> datasets
     end
   end
+
+  # Flows sit in the cutover set by default on a warehouse-enabled
+  # installation (captain decision 2026-09-28: hard cutover, full retirement
+  # of the CNPG flows serving path on day 1), so every flows reader -- SRQL
+  # `in:flows`, the dashboard throughput sparkline, the device Flows-tab probe
+  # and the hostile-IOC risk reader -- serves the warehouse from the moment
+  # the warehouse is enabled. A blank or unset
+  # SERVICERADAR_STARROCKS_CUTOVER_DATASETS takes that default (the Helm chart
+  # always renders the variable, so its blank is the unset); any non-blank
+  # value is parsed exactly as before -- leave `flows` out of it to refuse
+  # flow reads again. The chart default therefore cuts flows over with the
+  # warehouse, and an operator cannot get the old refusal by setting nothing.
+  defp cutover_datasets(enabled) do
+    if blank?(System.get_env("SERVICERADAR_STARROCKS_CUTOVER_DATASETS")) do
+      if(enabled, do: [:flows], else: [])
+    else
+      csv_datasets("SERVICERADAR_STARROCKS_CUTOVER_DATASETS")
+    end
+  end
+
+  defp blank?(nil), do: true
+
+  defp blank?(value) when is_binary(value), do: String.trim(value) == ""
 
   defp fe_http do
     case System.get_env("SERVICERADAR_STARROCKS_FE_HTTP") do

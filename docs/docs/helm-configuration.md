@@ -516,15 +516,22 @@ metrics, logs and event history. It is off by default, and NetFlow collection
 does not depend on it (`flowCollector.enabled` is independent). Metric, log and
 event reads stay on CNPG until the dataset is named in
 `analytics.starrocks.cutoverDatasets`. **Flow reads are the exception: they are
-warehouse-only.** Until `flows` is listed there, the NetFlow dashboard and
-`in:flows` are refused with a warehouse-required error rather than answered from
-CNPG, which stays the flow write target only.
+warehouse-only and cut over by default** -- with the warehouse enabled and the
+cutover list empty, `flows` is in the set, so the NetFlow dashboard, `in:flows`
+and the device-risk IOC reader serve the warehouse immediately. Flow writes
+also commit to the warehouse before their JetStream ACK, so a warehouse outage
+backpressures flow ingestion. Naming datasets explicitly replaces the default;
+omitting `flows` refuses flow reads again. Warehouse flow rows written before
+the `agent_id` enrichment lack agent attribution, so device-risk reads can miss
+an agent-only device for up to one hour right after the cutover (a bounded,
+accepted gap).
 
 web-ng and core read these settings once at boot, so the chart stamps a digest
 of `analytics.starrocks.*` on both pods: a `helm upgrade` that changes the
 cut-over or shadow datasets rolls them without a manual restart. Removing
 `metrics`, `logs` or `events` from the list falls back to CNPG; removing `flows`
-does not, it refuses flow reads again.
+from an explicit list refuses flow reads again (the blank default cuts it
+over).
 
 The StarRocks Frontend is never reached passwordless. With
 `analytics.starrocks.enabled=true` the chart **fails to render** unless

@@ -441,7 +441,11 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
 
     assert starrocks[:enabled] == true
     assert starrocks[:catalog_enabled] == true
-    assert starrocks[:cutover_datasets] == []
+
+    # Hard cutover (captain decision 2026-09-28): with the warehouse enabled
+    # and no explicit cutover list, flows are cut over by default.
+    assert starrocks[:cutover_datasets] == [:flows]
+
     assert starrocks[:shadow_datasets] == [:flows, :metrics, :logs, :events]
     assert starrocks[:fe_http] == "http://lab-fe-service.starrocks.svc:8030"
     assert starrocks[:fe_mysql_host] == "lab-fe-service.starrocks.svc"

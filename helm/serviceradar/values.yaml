@@ -2764,19 +2764,21 @@ sweep:
 
 # Optional telemetry warehouse for flows, scalar metrics, logs and events.
 # Disabled means every dataset is written to CNPG hypertables, and metrics, logs
-# and events are also read from them. Flow READS are warehouse-only: until
-# `flows` is listed in cutoverDatasets, the NetFlow dashboard and `in:flows` are
-# refused with a warehouse-required error instead of falling back to CNPG, which
-# stays the flow write target only. Flow WRITES are stronger: whenever the
-# warehouse is enabled, a flow Stream Load must succeed before its JetStream
-# ACK, so a warehouse outage backpressures flow ingestion instead of skipping
-# warehouse rows. List `flows` in cutoverDatasets only after one device-risk
-# lookback (default 1h) has passed since the version that writes agent_id on
-# warehouse flow rows deployed; flipping earlier can suppress maximum-risk
-# alerts on pre-deploy rows for up to that hour.
+# and events are also read from them. Flow READS are warehouse-only and cut
+# over by default: with the warehouse enabled and cutoverDatasets left empty,
+# flows is in the cutover set, so the NetFlow dashboard, `in:flows` and the
+# device-risk IOC reader serve the warehouse immediately; name datasets
+# explicitly to replace that default (omitting flows refuses flow reads again).
+# CNPG stays the flow write target, not a flow serving path. Flow WRITES are
+# stronger: whenever the warehouse is enabled, a flow Stream Load must succeed
+# before its JetStream ACK, so a warehouse outage backpressures flow ingestion
+# instead of skipping warehouse rows. Warehouse flow rows written before the
+# version that stamps agent_id lack agent attribution, so device-risk reads can
+# miss an agent-only device for up to one hour right after the cutover (a
+# bounded, accepted gap; retryable writes keep new rows complete).
 # flowCollector is gated independently. Empty shadowDatasets means all four
-# datasets. Cutover stays empty until a dataset is explicitly listed. Lab
-# clusters run the shared-nothing profile from k8s/starrocks/, not this chart.
+# datasets. Lab clusters run the shared-nothing profile from k8s/starrocks/,
+# not this chart.
 analytics:
   starrocks:
     enabled: false
@@ -2866,9 +2868,10 @@ analytics:
       maxBytes: 33554432
       maxAgeMs: 2000
       maxInFlight: 4
-    # Shadow writes are opt-in per dataset. Cutover stays empty until
-    # coverage inventory + synthetic shadow parity pass. Current alert
-    # state is never listed here.
+    # Shadow writes are opt-in per dataset. A blank cutoverDatasets on an
+    # enabled warehouse cuts flows over by default (hard cutover); naming
+    # datasets replaces the default, so an explicit list without flows refuses
+    # flow reads again. Current alert state is never listed here.
     shadowDatasets: []
     cutoverDatasets: []
     # JDBC catalog onto CNPG current-state tables for attribution/enrichment

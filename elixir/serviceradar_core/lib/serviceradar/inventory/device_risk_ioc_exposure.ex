@@ -70,27 +70,24 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposure do
 
   def correlate(_flows, _findings), do: []
 
-  # Flows read CNPG until the `flows` dataset is listed in the cutover
-  # setting (Helm `analytics.starrocks.cutoverDatasets`, Compose
-  # `SERVICERADAR_STARROCKS_CUTOVER_DATASETS`). Warehouse flow rows written
-  # before this reader shipped carry no `agent_id`, so they resolve device
-  # identity by destination IP alone and an agent-only device is invisible to
-  # them. While flows are not cut over, EventWriter keeps CNPG the
-  # authoritative flow write and the CNPG query below serves complete,
-  # agent-first-attributed flows with no missed maximum-risk detection.
-  # From this version on, a warehouse-enabled installation also commits every
-  # flow to the warehouse before its JetStream ACK
-  # (`Destination.warehouse_required?/1`), so warehouse rows written after the
-  # deploy are complete and carry `agent_id`; the warehouse page bounds `time`
-  # strictly below `as_of - window_seconds`, so once one risk lookback
-  # (default 3600s) has passed since the deploy, no pre-deploy row -- neither
-  # an un-enriched row nor a best-effort shadow hole -- can still be inside
-  # the window and the cutover flips with zero missed detections. Flipping
-  # sooner serves whatever pre-deploy rows remain in the window without
-  # agent attribution, which can suppress a maximum-risk alert for up to the
-  # lookback; whether an immediate flip is acceptable is a pending captain
-  # decision. The routing tests pin the CNPG hold, the strict window bound,
-  # and the dropped un-enriched row.
+  # Flows read the warehouse from the moment it is enabled: `flows` ships in
+  # the default cutover set of a warehouse-enabled installation
+  # (`StarRocks.Env`, captain decision 2026-09-28: hard cutover, full
+  # retirement of the CNPG flows serving path on day 1). The CNPG flow query
+  # below therefore serves only a warehouse-disabled installation (or one
+  # whose operator explicitly lists cutover datasets without `flows`), where
+  # CNPG is the complete telemetry backend. Warehouse rows written before
+  # this reader shipped carry no `agent_id`, so they resolve device identity
+  # by destination IP alone and an agent-only device is invisible to them:
+  # right after the flip, risk reads can miss an agent-only device for up to
+  # one risk lookback (`window_seconds`, default 3600s) until those rows age
+  # out of the warehouse page's strict `time > as_of - window` bound. The
+  # captain explicitly accepted that bounded gap (dev/test environments, no
+  # dataloss risk); from this deploy on, warehouse flow writes are retryable
+  # before the JetStream ACK (`Destination.warehouse_required?/1`), so no new
+  # such row can appear. The routing tests pin the warehouse page, the CNPG
+  # fallback for a disabled warehouse, the strict window bound, and the
+  # dropped un-enriched row.
   @doc false
   def flow_history_backend, do: Readers.backend(:flows)
 
@@ -456,11 +453,10 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposure do
 
       _ ->
         # Cut over, read the attributed flows from the warehouse with the same
-        # keyset page. Not cut over, keep the CNPG query: it serves an
-        # installation without the warehouse, and holds a warehouse
-        # installation's reads on complete, agent-first-attributed CNPG flows
-        # until the delayed cutover above has expired the lookback past the
-        # enriched writes.
+        # keyset page. Not cut over (warehouse disabled, or an operator's
+        # explicit cutover list that omits flows), keep the CNPG query: it
+        # serves an installation without the warehouse, which still writes
+        # and reads flows there.
         case flow_history_backend() do
           :starrocks -> query_flow_page_warehouse_sql(opts, page_size, after_key)
           {:error, :starrocks_required} -> query_flow_page_sql(opts, page_size, after_key)

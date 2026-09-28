@@ -37,12 +37,12 @@
     back to `device_identifiers` on the destination IP, matching the CNPG query). Tests:
     `TrafficSparklinesRoutingTest` (web-ng) and `DeviceRiskIocExposureRoutingTest` (core) pin
     the routing and the warehouse SQL shape.
-  - [ ] DeviceRiskIocExposure delayed cutover (issue #4869, captain decisions
-    2026-09-28: cutovers over backfill; then "hard and fast" -- flows travel on
-    a dedicated JetStream stream, which is the durable cache). Warehouse flow rows
-    written before this reader ships carry no `agent_id`, so an agent-only device
-    (its `dst_endpoint_ip` is not a `device_identifiers` row) is invisible to
-    them. Two shipped halves:
+  - [x] DeviceRiskIocExposure warehouse cutover (issue #4869, captain decisions
+    2026-09-28: cutovers over backfill; then "hard and fast" / "full retirement
+    on day 1" -- flows travel on a dedicated JetStream stream, which is the
+    durable cache). Warehouse flow rows written before this reader ships carry
+    no `agent_id`, so an agent-only device (its `dst_endpoint_ip` is not a
+    `device_identifiers` row) is invisible to them. Shipped design:
     Writes: on a warehouse-enabled installation every flow commits to the
     warehouse before its JetStream ACK (`Destination.warehouse_required?/1`
     keys flows on `analytics.starrocks.enabled`, not on the cutover list), so a
@@ -51,21 +51,25 @@
     stable flow identity) and the primary-key warehouse table upserts. Post-deploy
     warehouse rows are therefore complete and carry `agent_id`. Other datasets
     keep the staged behavior (best-effort shadow until their reads are cut over).
-    Reads: the risk reader keeps CNPG flow reads (complete and agent-first while
-    CNPG stays the authoritative write) until `flows` is listed in the cutover
-    setting -- existing `Readers` routing, no new rollout machinery, no backfill.
-    Release condition: the warehouse page bounds `time` strictly below
-    `as_of - window`, so listing `flows` one risk lookback (`window_seconds`,
-    default 3600s) after this deploy flips reads with zero missed detections:
-    every in-window row is post-deploy, complete and enriched. An immediate flip
-    instead serves pre-deploy rows -- un-enriched, plus any best-effort shadow
-    holes -- which can silently suppress a maximum-risk alert for up to the
-    lookback; that specific consequence is NOT yet accepted by the captain and is
-    the open decision. Tests: `DestinationTest` pins required-before-ACK before
-    any cutover, outage-redelivery and idempotent replay (stable record ids);
-    `DeviceRiskIocExposureRoutingTest` pins the CNPG hold (agent-first
-    resolution while not cut over), the strict window bound, and the dropped
-    un-enriched in-window row.
+    Reads: hard cutover at deploy -- `flows` ships in the DEFAULT cutover set of
+    a warehouse-enabled installation (`StarRocks.Env.cutover_datasets/1`: blank
+    or unset `SERVICERADAR_STARROCKS_CUTOVER_DATASETS` + enabled = `[:flows]`;
+    a non-blank list is the operator's exact list, so omitting `flows` refuses
+    flow reads again). The risk reader therefore reads the warehouse from the
+    moment the warehouse is enabled; the CNPG query stays only for
+    warehouse-disabled installations, where CNPG is the complete backend. No
+    backfill, no timed hold, no new rollout machinery.
+    Accepted gap (captain, explicitly): warehouse rows written before this deploy
+    lack `agent_id` (and pre-deploy best-effort shadow loads could leave holes),
+    so right after the flip risk reads can miss an agent-only device for up to
+    one risk lookback (`window_seconds`, default 3600s), until those rows age out
+    of the warehouse page's strict `time > as_of - window` bound. No new such
+    row can appear (retryable writes). Tests: `DestinationTest` pins
+    required-before-ACK before any cutover, outage-redelivery and idempotent
+    replay (stable record ids); `EnvTest` and the elx production runtime config
+    test pin the default cutover set; `DeviceRiskIocExposureRoutingTest` pins
+    the warehouse page, the CNPG fallback for a disabled warehouse, the strict
+    window bound, and the dropped un-enriched in-window row.
   - [ ] Logs/events stat cards that bypass SRQL (still open).
 - [ ] 2.5 Measure log search on the deployed profile: which index types shared-data supports, and latency of a substring search over 1, 30 and 365 days; document the supported behaviour.
 - [ ] 2.6 Run the parity harness for the `logs` and `events` warehouse readers; ship each reader only after it passes; verify cards and charts against ground truth after the rollout completes.

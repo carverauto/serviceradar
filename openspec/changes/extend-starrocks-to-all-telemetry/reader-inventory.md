@@ -158,13 +158,14 @@ Go, `serviceradar_core_elx`, `serviceradar_agent_gateway`, `datasvc`, `palisade`
    route through `Readers` and render empty/unavailable on `{:error, :starrocks_required}` rather
    than reading CNPG flows, and `DeviceRiskIocExposure` gained a warehouse flow page selected by
    `Readers.backend(:flows) == :starrocks` (the CNPG query remains for installations without the
-   warehouse). The risk reader cuts over delayed, not at deploy: warehouse rows written before
-   `agent_id` enrichment cannot resolve agent-only devices, so it keeps CNPG reads until
-   `flows` is listed in the cutover setting. Flow warehouse writes are required before the
-   JetStream ACK on warehouse-enabled installations (`Destination.warehouse_required?/1`), so
-   listing `flows` one risk lookback (default 3600s) after the enriching deploy flips reads
-   with zero missed detections; an immediate flip serves pre-deploy rows without agent
-   attribution for up to the lookback (open captain decision). See task 2.4.
+   warehouse). The risk reader cuts over with the flows dataset, hard and by
+   default: flows ships in the default cutover set of a warehouse-enabled
+   installation, and flow warehouse writes are required before the JetStream
+   ACK (`Destination.warehouse_required?/1`). Rows written before the
+   `agent_id` enrichment lack agent attribution (and pre-deploy shadow loads
+   were best-effort), so right after the flip risk reads can miss an
+   agent-only device for up to one lookback (default 3600s) -- a bounded gap
+   the captain explicitly accepted; no new such row can appear. See task 2.4.
 6. **`rust/srql/src/server.rs:51` (`/api/query`) runs every entity on CNPG** and bypasses
    `Readers`; no chart deploys it, so it may be dead. **Resolved (issue #4873):** the standalone
    server was dead — no Helm template, Compose service, k8s manifest or Docker image ran it, and
