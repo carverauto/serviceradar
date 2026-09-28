@@ -1777,6 +1777,77 @@ Process.registered()
 end)
 `
 
+// producerPullTraceExpr traces the shared EventWriter producer for 2s: every
+// JetStream pull it issues (grouped by durable, with the request options) and
+// every message it receives on the edge durable's pull inbox, status replies
+// included. Tracing is switched off in an after block, so a failed evaluation
+// cannot leave the production process traced.
+const producerPullTraceExpr = `
+pid = Process.whereis(ServiceRadar.EventWriter.Pipeline.Broadway.Producer_0)
+mfa = {Gnat.Jetstream.API.Consumer, :request_next_message, 6}
+edge_inbox = "_INBOX.serviceradar.event_writer.pull.serviceradar-event-writer.edge_record"
+
+if pid == nil do
+  IO.puts("trace|no shared producer registered")
+else
+  :erlang.trace_pattern(mfa, true, [:global])
+  :erlang.trace(pid, true, [:call, :receive, {:tracer, self()}])
+
+  events =
+    try do
+      Process.sleep(2_000)
+      :erlang.trace(pid, false, [:call, :receive])
+      collect = fn f, acc ->
+        receive do
+          {:trace, ^pid, _, _} = e -> f.(f, [e | acc])
+          {:trace, ^pid, _, _, _} = e -> f.(f, [e | acc])
+        after
+          200 -> Enum.reverse(acc)
+        end
+      end
+      collect.(collect, [])
+    after
+      :erlang.trace(pid, false, [:call, :receive])
+      :erlang.trace_pattern(mfa, false, [:global])
+    end
+
+  pulls =
+    for {:trace, _, :call, {_, _, [_conn, stream, durable, _reply, _domain, opts]}} <- events,
+      do: {stream, durable, opts}
+
+  pulls
+  |> Enum.frequencies_by(fn {_stream, durable, _opts} -> durable end)
+  |> Enum.sort()
+  |> Enum.each(fn {durable, n} -> IO.puts("trace|pulls|#{durable}|#{n}") end)
+
+  pulls
+  |> Enum.filter(fn {_s, durable, _o} -> durable =~ "edge" end)
+  |> Enum.take(3)
+  |> Enum.each(fn {s, d, o} -> IO.puts("trace|edge_pull|#{s}|#{d}|#{inspect(o)}") end)
+
+  receives = for {:trace, _, :receive, m} <- events, do: m
+
+  receives
+  |> Enum.frequencies_by(fn
+    {:msg, %{topic: t}} -> if t == edge_inbox, do: :edge_inbox_msg, else: :other_msg
+    {:"$gen_producer", _, _} -> :gen_producer
+    {:"$gen_call", _, _} -> :gen_call
+    m when is_tuple(m) -> elem(m, 0)
+    m -> m
+  end)
+  |> Enum.each(fn {k, n} -> IO.puts("trace|recv|#{inspect(k)}|#{n}") end)
+
+  receives
+  |> Enum.filter(&match?({:msg, %{topic: ^edge_inbox}}, &1))
+  |> Enum.take(5)
+  |> Enum.each(fn {:msg, m} ->
+    IO.puts("trace|edge_inbox|" <> inspect(Map.drop(m, [:body]) |> Map.put(:body_bytes, byte_size(m.body || "")), limit: 30))
+  end)
+
+  IO.puts("trace|events|#{length(events)}")
+end
+`
+
 // pipelineDiagnostics describes the edge-record pipeline at the moment a wait
 // timed out: the EventWriter producers' pull state in core and the edge
 // durable's JetStream consumer state. It never fails t; a diagnostic that
@@ -1790,6 +1861,16 @@ func (h *harness) pipelineDiagnostics(t *testing.T) string {
 	} else {
 		for _, line := range strings.Split(out, "\n") {
 			if strings.HasPrefix(strings.TrimSpace(line), "producer|") {
+				fmt.Fprintf(&b, "core %s\n", strings.TrimSpace(line))
+			}
+		}
+	}
+
+	if out, err := h.coreProc.RPC(producerPullTraceExpr, rpcTimeout); err != nil {
+		fmt.Fprintf(&b, "core producer trace: unavailable: %v\n", err)
+	} else {
+		for _, line := range strings.Split(out, "\n") {
+			if strings.HasPrefix(strings.TrimSpace(line), "trace|") {
 				fmt.Fprintf(&b, "core %s\n", strings.TrimSpace(line))
 			}
 		}
