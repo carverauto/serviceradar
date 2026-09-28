@@ -106,15 +106,42 @@ export function eventMatches(filter = {}, event = {}) {
   return normalized ? normalizedEventMatches(normalized, event) : false
 }
 
-function normalizeTargets(targets) {
+function normalizeActionScope(scope) {
+  const normalized = String(scope || "device").trim()
+  if (normalized === "device" || normalized === "interface") return normalized
+  throw harnessError("invalid_request", "Action scope must be device or interface.")
+}
+
+function actionScope(action) {
+  return String(action?.scope || "device")
+}
+
+function matchesActionValue(value, expected) {
+  return expected === undefined || expected === null || expected === "" || String(value ?? "") === String(expected)
+}
+
+function actionMatchesOptions(action, options = {}) {
+  const scope = normalizeActionScope(options.scope)
+  const pluginId = options.pluginId ?? options.plugin_id
+  const providerType = options.providerType ?? options.provider_type
+  return (
+    actionScope(action) === scope &&
+    matchesActionValue(action?.plugin_id, pluginId) &&
+    matchesActionValue(action?.provider_type, providerType)
+  )
+}
+
+function normalizeTargets(scope, targets) {
   if (!Array.isArray(targets) || targets.length === 0) {
     throw harnessError("invalid_request", "actions.invoke requires at least one target")
   }
   return targets.map((target) => {
     const deviceUid = String(target?.deviceUid ?? target?.device_uid ?? "").trim()
     const interfaceUid = String(target?.interfaceUid ?? target?.interface_uid ?? "").trim()
-    if (!deviceUid) throw harnessError("invalid_request", "every action target needs a device uid")
-    return interfaceUid ? {device_uid: deviceUid, interface_uid: interfaceUid} : {device_uid: deviceUid}
+    if (!deviceUid || (scope === "interface" && !interfaceUid)) {
+      throw harnessError("invalid_request", "Targets must name a device (and an interface for interface actions).")
+    }
+    return scope === "interface" ? {device_uid: deviceUid, interface_uid: interfaceUid} : {device_uid: deviceUid}
   })
 }
 
@@ -177,16 +204,21 @@ export function createHarnessActionsApi({
   return {
     publicApi: () => ({
       allowed: () => true,
-      list: async () => getActions().map(({emits: _emits, ...action}) => ({...action})),
+      list: async (options = {}) =>
+        getActions()
+          .filter((action) => actionMatchesOptions(action, options))
+          .map(({emits: _emits, ...action}) => ({...action})),
       invoke(request = {}, {onProgress} = {}) {
         const actionId = String(request.actionId ?? request.action_id ?? "").trim()
         if (!actionId) return Promise.reject(harnessError("invalid_request", "actions.invoke requires an actionId"))
+        let scope
         try {
-          normalizeTargets(request.targets)
+          scope = normalizeActionScope(request.scope)
+          normalizeTargets(scope, request.targets)
         } catch (error) {
           return Promise.reject(error)
         }
-        const action = getActions().find((entry) => entry.id === actionId)
+        const action = getActions().find((entry) => entry.id === actionId && actionScope(entry) === scope)
         if (!action) return Promise.reject(harnessError("rejected", "Select a launchable action."))
 
         sequence += 1

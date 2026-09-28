@@ -46,7 +46,16 @@ test("an invoked action walks to succeeded and delivers the events it emits", as
   const calls = []
   const actions = createHarnessActionsApi({
     onCall: (line) => calls.push(line),
-    getActions: () => [{id: "northbound:jam", label: "Inject jam", emits: [jam]}],
+    getActions: () => [
+      {
+        id: "northbound:jam",
+        label: "Inject jam",
+        scope: "device",
+        plugin_id: "demo-ot-plc",
+        provider_type: "wasm_plugin",
+        emits: [jam],
+      },
+    ],
     events,
     setTimer: immediate,
   }).publicApi()
@@ -61,7 +70,24 @@ test("an invoked action walks to succeeded and delivers the events it emits", as
   assert.deepEqual(states, ["dispatching", "running", "succeeded"])
   assert.deepEqual(received, [jam])
   assert.deepEqual(calls, ["action invoke northbound:jam"])
-  assert.deepEqual(await actions.list(), [{id: "northbound:jam", label: "Inject jam"}])
+  assert.deepEqual(await actions.list({scope: "device", pluginId: "demo-ot-plc", providerType: "wasm_plugin"}), [
+    {id: "northbound:jam", label: "Inject jam", scope: "device", plugin_id: "demo-ot-plc", provider_type: "wasm_plugin"},
+  ])
+})
+
+test("action lists narrow by scope and provider", async () => {
+  const actions = createHarnessActionsApi({
+    getActions: () => [
+      {id: "device-jam", scope: "device", plugin_id: "demo-ot-plc", provider_type: "wasm_plugin"},
+      {id: "interface-jam", scope: "interface", plugin_id: "demo-ot-plc", provider_type: "wasm_plugin"},
+      {id: "other-plugin", scope: "device", plugin_id: "other", provider_type: "wasm_plugin"},
+    ],
+  }).publicApi()
+
+  assert.deepEqual((await actions.list({scope: "device", pluginId: "demo-ot-plc"})).map((action) => action.id), ["device-jam"])
+  assert.deepEqual((await actions.list({scope: "interface", providerType: "wasm_plugin"})).map((action) => action.id), [
+    "interface-jam",
+  ])
 })
 
 test("invalid event filters are rejected before subscribing", () => {
@@ -72,11 +98,19 @@ test("invalid event filters are rejected before subscribing", () => {
 })
 
 test("unknown actions and invalid action requests are rejected", async () => {
-  const actions = createHarnessActionsApi({getActions: () => [{id: "a"}]}).publicApi()
+  const actions = createHarnessActionsApi({getActions: () => [{id: "a", scope: "device"}]}).publicApi()
 
   await assert.rejects(actions.invoke({actionId: "missing", targets: [{deviceUid: "d"}]}), {code: "rejected"})
+  await assert.rejects(actions.invoke({actionId: "a", scope: "bogus", targets: [{deviceUid: "d"}]}), {code: "invalid_request"})
   await assert.rejects(actions.invoke({actionId: "a", targets: []}), {code: "invalid_request"})
   await assert.rejects(actions.invoke({actionId: "a", targets: [{}]}), {code: "invalid_request"})
+  await assert.rejects(actions.invoke({actionId: "a", scope: "interface", targets: [{deviceUid: "d"}]}), {
+    code: "invalid_request",
+  })
+  await assert.rejects(
+    actions.invoke({actionId: "a", scope: "interface", targets: [{deviceUid: "d", interfaceUid: "if-1"}]}),
+    {code: "rejected"},
+  )
   await assert.rejects(actions.invoke({targets: [{deviceUid: "d"}]}), {code: "invalid_request"})
 })
 
