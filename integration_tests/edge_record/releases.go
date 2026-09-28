@@ -225,6 +225,16 @@ func GenerateCloakKey() (string, error) {
 	return base64.StdEncoding.EncodeToString(b), nil
 }
 
+// coreRepoPoolSize is the core release's main Repo pool. It is larger than the
+// gateway's because core does real database work here. Group D's rollback probe
+// deliberately holds one connection for the whole hold, EventWriter needs one
+// to commit the next delivery, the harness's snapshot RPCs need one, and core's
+// own boot-time jobs (advisory feeds, seeding, rollups) hold connections for
+// tens of seconds. At 2, those jobs and the probe exhausted the pool: D2's
+// snapshot was dropped from the queue and the restarted core in D3 could not
+// commit the redelivered fixture in time.
+const coreRepoPoolSize = "6"
+
 // Env returns the environment variables StartRelease should merge in to boot
 // the core_elx release with EventWriter enabled for this test.
 func (c CoreEnvConfig) Env() map[string]string {
@@ -247,7 +257,7 @@ func (c CoreEnvConfig) Env() map[string]string {
 		"EVENT_WRITER_NATS_TLS":          "false",
 		"EVENT_WRITER_NATS_CREDS_FILE":   c.NATSCredsFile,
 		"CLOAK_KEY":                      c.CloakKey,
-		"POOL_SIZE":                      "2",
+		"POOL_SIZE":                      coreRepoPoolSize,
 		"CONTROL_REPO_POOL_SIZE":         "2",
 	}
 	if c.CNPGCAFile != "" {
