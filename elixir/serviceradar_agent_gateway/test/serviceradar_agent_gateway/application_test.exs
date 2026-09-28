@@ -52,7 +52,7 @@ defmodule ServiceRadarAgentGateway.ApplicationTest do
       #
       # Deleting the entry fails BOTH ways -- nothing composes it and nothing started it -- which
       # is the mutation this exists to catch.
-      composed? = PublisherSupervisor in ServiceRadarAgentGateway.Application.core_children()
+      composed? = edge_publisher_lanes_composed?()
       running? = is_pid(Process.whereis(PublisherSupervisor))
 
       assert composed? or running?,
@@ -70,13 +70,53 @@ defmodule ServiceRadarAgentGateway.ApplicationTest do
             :rperf_metrics_publisher,
             :mtr_metrics_publisher,
             :sweep_metrics_publisher,
+            :otlp_relay_publisher,
+            :edge_records_publisher
+          ] do
+        Application.put_env(:serviceradar_agent_gateway, key, enabled: false)
+      end
+
+      refute Enum.any?(
+               ServiceRadarAgentGateway.Application.core_children(),
+               &(&1 == PublisherSupervisor or match?({PublisherSupervisor, _opts}, &1))
+             )
+    end
+
+    test "composes the edge publisher lanes when edge_records_publisher alone is enabled" do
+      for key <- [
+            :sysmon_metrics_publisher,
+            :snmp_metrics_publisher,
+            :icmp_metrics_publisher,
+            :plugin_metrics_publisher,
+            :rperf_metrics_publisher,
+            :mtr_metrics_publisher,
+            :sweep_metrics_publisher,
             :otlp_relay_publisher
           ] do
         Application.put_env(:serviceradar_agent_gateway, key, enabled: false)
       end
 
-      refute PublisherSupervisor in ServiceRadarAgentGateway.Application.core_children()
+      Application.put_env(:serviceradar_agent_gateway, :edge_records_publisher, enabled: true)
+
+      on_exit(fn ->
+        Application.put_env(:serviceradar_agent_gateway, :edge_records_publisher, enabled: false)
+      end)
+
+      composed? = edge_publisher_lanes_composed?()
+      running? = is_pid(Process.whereis(PublisherSupervisor))
+
+      assert composed? or running?,
+             "edge_records_publisher alone must be sufficient to start the edge publisher lanes"
     end
+  end
+
+  # Composed WITH a publisher. A bare PublisherSupervisor starts every lane's accountant and
+  # transport but no PublishPipeline, which leaves the edge record ingest server nothing to offer to.
+  defp edge_publisher_lanes_composed? do
+    Enum.any?(ServiceRadarAgentGateway.Application.core_children(), fn
+      {PublisherSupervisor, [publisher: publisher]} -> is_function(publisher, 2)
+      _child -> false
+    end)
   end
 
   defp unique_tmp_dir!(prefix) do

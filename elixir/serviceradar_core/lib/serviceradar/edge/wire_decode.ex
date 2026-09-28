@@ -214,6 +214,13 @@ defmodule ServiceRadar.Edge.WireDecode do
 
   def decode_frame(_bytes), do: {:error, :systemic}
 
+  @doc "Decodes raw delivery ACK bytes under a caller-supplied positive finite limit."
+  @spec decode_ack(term(), pos_integer()) :: outcome()
+  def decode_ack(bytes, max_bytes) when is_integer(max_bytes) and max_bytes > 0,
+    do: run(Serviceradar.Edge.V1.EdgeDeliveryAckV1, max_bytes, bytes)
+
+  def decode_ack(_bytes, _max_bytes), do: {:error, :systemic}
+
   @doc """
   Decodes the raw `frame.record_bytes` of a delivery frame as an `EdgeRecordV1` -- the second ingress
   stage, distinct from the outer client-message/frame decode. See `t:outcome/0`.
@@ -420,6 +427,10 @@ defmodule ServiceRadar.Edge.WireDecode do
   # which is CORRECT -- every byte then IS overhead -- so the relational budget legitimately applies to it.
   # NOTE: groups NESTED inside the record bytes or inside capabilities are opaque to this top-level peel;
   # rejecting those recursively at every message depth is task 1.5's protobuf-elixir patch.
+  defp raw_frame_envelope_check(frame_raw)
+       when is_binary(frame_raw) and byte_size(frame_raw) > @max_frame_bytes,
+       do: {:error, :too_large}
+
   defp raw_frame_envelope_check(frame_raw) when is_binary(frame_raw) do
     peeled = peel_last_field(frame_raw, @frame_record_bytes_field)
 
@@ -430,7 +441,6 @@ defmodule ServiceRadar.Edge.WireDecode do
       end
 
     cond do
-      byte_size(frame_raw) > @max_frame_bytes -> {:error, :too_large}
       peeled == :malformed -> {:error, :poison}
       byte_size(frame_raw) - record_len > @max_delivery_envelope_bytes -> {:error, :too_large}
       true -> :ok
@@ -438,16 +448,16 @@ defmodule ServiceRadar.Edge.WireDecode do
   end
 
   # scan_client_message/1: enforce the outer ONEOF and extract the single delivery_frame. Returns
-  # {:frame, value} (exactly one delivery_frame payload) | :no_frame (one lane_open, or an empty message)
-  # | :reject. It FAILS CLOSED to :reject on: MORE THAN ONE payload occurrence (a duplicate outer oneof,
-  # incl. a bloated frame + a decoy tiny frame); a delivery_frame with the wrong wire type; a GROUP
+  # {:frame, value} (exactly one delivery_frame payload) | :no_frame (one lane_open)
+  # | :reject. It FAILS CLOSED to :reject on: ZERO payloads or MORE THAN ONE payload occurrence
+  # (incl. a bloated frame + a decoy tiny frame); a delivery_frame with the wrong wire type; a GROUP
   # (wire type 3/4); an out-of-range/OVERFLOW field number a generated decoder might reinterpret; or
   # truncation. It NEVER falls through to the generated decode on a scan failure.
   defp scan_client_message(bin), do: scan_client_message(bin, 0, nil)
 
   defp scan_client_message(<<>>, payloads, frame) do
     cond do
-      payloads > 1 -> :reject
+      payloads != 1 -> :reject
       frame != nil -> {:frame, frame}
       true -> :no_frame
     end

@@ -493,9 +493,10 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
       # it is gone, so a RETRYABLE class is returned instead: reporting {:ok, ack} would report a
       # fact nothing can account for.
       #
-      # What happens next is NOT established here. Nothing at this layer republishes -- there is
-      # no production caller -- and if a caller does retry, `Nats-Msg-Id` deduplication is scoped
-      # to one stream and one duplicate window, so it is not a general answer either.
+      # What happens next is NOT established here. Nothing at this layer republishes -- what the
+      # caller does with this class is `ServiceRadar.Edge.LaneSupervisor`'s moduledoc -- and if a
+      # caller does retry, `Nats-Msg-Id` deduplication is scoped to one stream and one duplicate
+      # window, so it is not a general answer either.
       assert {:error, :systemic} =
                JetStreamPublisher.publish_record(publication(),
                  connection: FakeConn,

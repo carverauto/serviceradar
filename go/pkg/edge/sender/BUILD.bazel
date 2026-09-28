@@ -1,0 +1,30 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "sender",
+    srcs = ["sender.go"],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/edge/sender",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//go/pkg/edge/edgerecord",
+        "//go/pkg/edge/spool",
+        "//proto/edge/v1:edgev1",
+        "@org_golang_google_grpc//:grpc",
+    ],
+)
+
+go_test(
+    name = "sender_test",
+    srcs = ["sender_test.go"],
+    embed = [":sender"],
+    deps = [
+        "//go/pkg/edge/edgerecord",
+        "//go/pkg/edge/spool",
+        "//proto/edge/v1:edgev1",
+        "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//credentials/insecure",
+        "@org_golang_google_grpc//status",
+        "@org_golang_google_grpc//test/bufconn",
+    ],
+)

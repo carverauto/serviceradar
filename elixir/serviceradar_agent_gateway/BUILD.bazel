@@ -150,9 +150,9 @@ elixir_release(
 )
 
 ex_unit_tests(
-    config_loader = "//build:elixir_test_config_loader.exs",
     name = "unit_tests",
     srcs = glob(["test/**/*_test.exs"]),
+    config_loader = "//build:elixir_test_config_loader.exs",
     data = glob(
         [
             "lib/**",

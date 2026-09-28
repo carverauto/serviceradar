@@ -30,6 +30,8 @@ config :logger, :console,
     :section_count
   ]
 
+config :serviceradar_agent_gateway, :edge_records_publisher, enabled: false
+
 config :serviceradar_agent_gateway, :icmp_metrics_publisher,
   enabled: false,
   subject_prefix: "metrics.icmp",

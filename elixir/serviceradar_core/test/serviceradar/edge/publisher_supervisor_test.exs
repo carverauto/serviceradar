@@ -12,11 +12,8 @@ defmodule ServiceRadar.Edge.PublisherSupervisorTest do
   alias ServiceRadar.Edge.LaneSupervisor
   alias ServiceRadar.Edge.PublisherLane
   alias ServiceRadar.Edge.PublisherPool
-
-  # Reservations key on the COMPLETE authenticated slot, never the bare sequence: one pool serves
-  # every agent and spool in its class. `fp/1` fingerprints the publication, so the same sequence
-  # is the same record retrying.
   alias ServiceRadar.Edge.PublisherSupervisor
+  alias ServiceRadar.Edge.PublishPipeline
 
   # Pools live inside each lane's restart unit now, so their specs come from LaneSupervisor. The
   # credits still come from PublisherSupervisor, which is what these tests are about.
@@ -33,6 +30,9 @@ defmodule ServiceRadar.Edge.PublisherSupervisorTest do
     end)
   end
 
+  # Reservations key on the COMPLETE authenticated slot, never the bare sequence: one pool serves
+  # every agent and spool in its class. `fp/1` fingerprints the publication, so the same sequence
+  # is the same record retrying.
   defp k(seq),
     do: ServiceRadar.Edge.PublishWindow.key(<<0xA1>>, "agent-1", <<0xB2>>, seq, fp(seq))
 
@@ -123,6 +123,103 @@ defmodule ServiceRadar.Edge.PublisherSupervisorTest do
 
     defp restore(nil), do: Application.delete_env(:serviceradar_core, PublisherSupervisor)
     defp restore(value), do: Application.put_env(:serviceradar_core, PublisherSupervisor, value)
+  end
+
+  describe "pipeline bounds are configurable, and default to the lane's grant" do
+    setup do
+      previous = Application.get_env(:serviceradar_core, PublisherSupervisor)
+      on_exit(fn -> restore(previous) end)
+      Application.delete_env(:serviceradar_core, PublisherSupervisor)
+      :ok
+    end
+
+    test "max_inflight defaults to the lane's frame credits, max_queue to four times it, and max_lanes to 1024" do
+      assert PublisherSupervisor.pipeline_for(:bulk) ===
+               [max_inflight: 64, max_queue: 256, max_lanes: 1024]
+
+      # NOT VACUOUS: the default follows the lane's resolved grant rather than a constant that
+      # happens to equal the default credits.
+      Application.put_env(:serviceradar_core, PublisherSupervisor,
+        lane_credits: %{recovery: [frame_credits: 16]}
+      )
+
+      assert PublisherSupervisor.pipeline_for(:recovery) ===
+               [max_inflight: 16, max_queue: 64, max_lanes: 1024]
+
+      assert PublisherSupervisor.pipeline_for(:bulk) ===
+               [max_inflight: 64, max_queue: 256, max_lanes: 1024]
+    end
+
+    test "application config sets the bounds for every lane" do
+      Application.put_env(:serviceradar_core, PublisherSupervisor,
+        max_inflight: 12,
+        max_queue: 40,
+        max_lanes: 500
+      )
+
+      for lane <- PublisherLane.lanes() do
+        assert PublisherSupervisor.pipeline_for(lane) ===
+                 [max_inflight: 12, max_queue: 40, max_lanes: 500]
+      end
+    end
+
+    test "a per-lane override beats the global value, for that lane only" do
+      Application.put_env(:serviceradar_core, PublisherSupervisor,
+        max_inflight: 12,
+        max_queue: 40,
+        max_lanes: 500,
+        lane_pipeline: %{interactive: [max_inflight: 3, max_lanes: 20]}
+      )
+
+      assert PublisherSupervisor.pipeline_for(:interactive) ===
+               [max_inflight: 3, max_queue: 40, max_lanes: 20]
+
+      assert PublisherSupervisor.pipeline_for(:bulk) ===
+               [max_inflight: 12, max_queue: 40, max_lanes: 500]
+    end
+
+    test "opts beat application config" do
+      Application.put_env(:serviceradar_core, PublisherSupervisor,
+        max_inflight: 12,
+        max_queue: 40,
+        max_lanes: 500
+      )
+
+      assert PublisherSupervisor.pipeline_for(:bulk, max_inflight: 99, max_lanes: 7) ===
+               [max_inflight: 99, max_queue: 40, max_lanes: 7]
+    end
+
+    test "the configured bounds reach each lane's PublishPipeline child spec" do
+      # Through the supervisor's own specs: a pipeline_for/2 nothing passed on would pass every
+      # test above while every production pipeline ran at its standalone defaults.
+      Application.put_env(:serviceradar_core, PublisherSupervisor,
+        max_inflight: 12,
+        lane_pipeline: %{recovery: [max_queue: 7, max_lanes: 5]}
+      )
+
+      lane_specs =
+        PublisherSupervisor.child_specs(publisher: fn _publication, _opts -> :unused end)
+
+      assert length(lane_specs) === length(PublisherLane.lanes())
+
+      for spec <- lane_specs do
+        {LaneSupervisor, :start_link, [lane_opts]} = spec.start
+        lane = Keyword.fetch!(lane_opts, :lane)
+
+        %{start: {PublishPipeline, :start_link, [pipeline_opts]}} =
+          lane_opts
+          |> LaneSupervisor.child_specs()
+          |> Enum.find(&(&1.id === PublishPipeline.via(lane)))
+
+        assert Keyword.fetch!(pipeline_opts, :max_inflight) === 12
+
+        assert Keyword.fetch!(pipeline_opts, :max_queue) ===
+                 if(lane === :recovery, do: 7, else: 48)
+
+        assert Keyword.fetch!(pipeline_opts, :max_lanes) ===
+                 if(lane === :recovery, do: 5, else: 1024)
+      end
+    end
   end
 
   describe "the running pools" do

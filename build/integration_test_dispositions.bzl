@@ -37,6 +37,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/serviceradar/event_writer/bmp_routing_address_backfill_migration_test.exs",
     "test/serviceradar/event_writer/device_correlation_test.exs",
     "test/serviceradar/event_writer/processors/adhoc_scan_test.exs",
+    "test/serviceradar/event_writer/processors/edge_record_db_test.exs",
     "test/serviceradar/event_writer/processors/falco_events_test.exs",
     "test/serviceradar/event_writer/processors/trivy_reports_test.exs",
     "test/serviceradar/events/audit_writer_test.exs",

@@ -544,4 +544,94 @@ defmodule ServiceRadar.Edge.PublisherPoolTest do
       assert %{outstanding_frames: 1, outstanding_bytes: 50} = PublisherPool.capacity(p)
     end
   end
+
+  describe "the ledger is observable, and reading it changes nothing" do
+    # The composed vertical-slice test reads this over the release's rpc to assert restart overlap
+    # and post-handoff fencing on a live lane. These pin what it reports, so a check written against
+    # it is checking the accountant's state and not a stale or reshaped copy of it.
+
+    test "each reservation reports its credits and its attempt's phase, token, owner and generation" do
+      p = bare_pool(2, 600)
+      {_transport, generation} = live_transport(p)
+      me = self()
+
+      assert {:ok, {key, token}} = PublisherPool.admit(p, k(1), 50, 60_000)
+
+      # admit/4 confirms the handoff with a cast before returning, and this call queues behind it,
+      # so the attempt is already STARTED here.
+      assert %{
+               frame_credits: 2,
+               byte_credits: 600,
+               outstanding_frames: 1,
+               outstanding_bytes: 50,
+               available_frames: 1,
+               available_bytes: 550,
+               accepting: ^generation,
+               reservations: [
+                 %{
+                   key: ^key,
+                   bytes: 50,
+                   attempt: %{phase: :active, token: ^token, owner: ^me, generation: ^generation}
+                 }
+               ]
+             } = PublisherPool.ledger(p)
+    end
+
+    test "a refused retry leaves the listed attempt exactly as it was" do
+      p = pool(:bulk, 2, 200)
+      assert {:ok, _first} = PublisherPool.admit(p, k(1), 50, 60_000)
+      before = PublisherPool.ledger(p)
+
+      assert {:error, :attempt_in_flight} = PublisherPool.admit(p, k(1), 50, 60_000)
+
+      assert PublisherPool.ledger(p) === before
+    end
+
+    test "an ended attempt is listed as charged with no attempt, and its retry as a NEW token" do
+      p = pool(:bulk, 1, 100)
+      assert {:ok, {key, first_token} = first} = PublisherPool.admit(p, k(1), 50, 60_000)
+      assert :ok = PublisherPool.attempt_failed(p, first)
+
+      assert %{outstanding_frames: 1, reservations: [%{key: ^key, bytes: 50, attempt: nil}]} =
+               PublisherPool.ledger(p)
+
+      assert {:ok, {^key, retry_token}} = PublisherPool.admit(p, k(1), 50, 60_000)
+      refute retry_token === first_token
+
+      assert %{
+               outstanding_frames: 1,
+               reservations: [%{attempt: %{phase: :active, token: ^retry_token}}]
+             } = PublisherPool.ledger(p)
+    end
+
+    test "a dead generation's reservation stays listed and charged, its attempt fenced" do
+      p = bare_pool(2, 600)
+      {transport, first_gen} = live_transport(p)
+      assert {:ok, {key, _token}} = PublisherPool.admit(p, k(1), 50, 60_000)
+
+      Process.exit(transport, :kill)
+      assert eventually(fn -> PublisherPool.ledger(p).accepting === nil end, 300)
+
+      {_replacement, second_gen} = live_transport(p)
+      refute second_gen === first_gen
+
+      # The replacement is accepting, and the charge from the dead generation is still in the
+      # ledger rather than handed back to it.
+      assert %{
+               accepting: ^second_gen,
+               outstanding_frames: 1,
+               available_frames: 1,
+               reservations: [%{key: ^key, bytes: 50, attempt: nil}]
+             } = PublisherPool.ledger(p)
+    end
+
+    test "reading the ledger does not disturb the pool" do
+      p = pool(:bulk, 2, 200)
+      assert {:ok, _res} = PublisherPool.admit(p, k(1), 50, 60_000)
+      capacity = PublisherPool.capacity(p)
+
+      assert PublisherPool.ledger(p) === PublisherPool.ledger(p)
+      assert PublisherPool.capacity(p) === capacity
+    end
+  end
 end

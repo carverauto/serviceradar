@@ -4,6 +4,7 @@ load("@rules_rs//rs:rust_library.bzl", "rust_library")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
 load(
     "//build:integration_shards.bzl",
+    "EDGE_RECORD_DB_SHARD",
     "LARGE_INGESTION_DB_SHARD",
     "integration_lane_names",
 )
@@ -326,6 +327,28 @@ rust_binary(
     ],
 )
 
+# Prints one already-cloned `sr_core_test_<run>_<shard>` database's connection identity
+# (host/port/user/password/sslmode/CA) as JSON, for a non-Rust, non-Elixir caller that cannot
+# resolve the typed SERVICERADAR_ENV=ci fixture identity itself -- see src/bin/describe_shard.rs's
+# moduledoc. The shard is SERVICERADAR_TEST_DB_SHARD, the same variable the Elixir lanes' `env`
+# sets. Read-only: it provisions nothing, so it is safe to invoke any number of times against a
+# clone a :provision_generation_<shard> target already created.
+rust_binary(
+    name = "describe_shard",
+    srcs = ["src/bin/describe_shard.rs"],
+    data = FIXTURE_DATA,
+    tags = ["manual"],
+    target_compatible_with = requires_shared_fixture(),
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + [
+        ":serviceradar_integration_db",
+        "//config/proto_bindings/rust:config_schema",
+        "//rust/srql:srql_lib",
+    ],
+)
+
 # Samples the shared fixture while the dedicated IntegrationBenchmark lifecycle runs. It is
 # manual so ordinary wildcards never connect to the fixture; BuildBuddy starts it explicitly
 # after fixture credentials have been materialized.
@@ -392,6 +415,11 @@ rust_test(
             ",".join(integration_lane_names()),
         ),
         ("provision_generation_large_ingestion", "clone", LARGE_INGESTION_DB_SHARD),
+        # //integration_tests/edge_record:vertical_slice_test runs this one itself, as a data
+        # dependency subprocess, to clone the shard its two Elixir releases connect to. `args` and
+        # `env` apply only under `bazel run`, so that caller passes "clone" and the shard list
+        # explicitly; they are kept here so a workstation can provision the same clone by hand.
+        ("provision_generation_edge_record", "clone", EDGE_RECORD_DB_SHARD),
         ("release_generation", "release", ""),
         ("cleanup_generations", "cleanup", ""),
     ]

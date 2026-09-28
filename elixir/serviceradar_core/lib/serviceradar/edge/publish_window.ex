@@ -777,4 +777,62 @@ defmodule ServiceRadar.Edge.PublishWindow do
   """
   @spec outstanding?(t(), key()) :: boolean()
   def outstanding?(%__MODULE__{} = w, key), do: Map.has_key?(w.outstanding, key)
+
+  @doc """
+  A plain-data copy of the whole ledger: the grant, the totals, and every reservation with its
+  attempt.
+
+  For OBSERVATION, not for driving the window. The totals alone cannot show the two claims this
+  module exists for. Restart overlap needs to see that a charge survives a transport's death, and
+  fencing needs to see which attempt holds a publication. Both are properties of individual
+  reservations, and an opaque term cannot be inspected from outside the process that owns it.
+
+  Returning the attempt token grants nothing. Every entry point that ends or extends a started
+  attempt also matches its OWNER, and `reservation/2` already hands the token to any holder of a
+  key.
+
+  `attempt` is `nil` for a reservation that holds credits with no attempt in flight: a failed
+  attempt, or one fenced by its generation's death.
+  """
+  @spec ledger(t()) :: %{
+          frame_credits: non_neg_integer(),
+          byte_credits: non_neg_integer(),
+          outstanding_frames: non_neg_integer(),
+          outstanding_bytes: non_neg_integer(),
+          available_frames: non_neg_integer(),
+          available_bytes: non_neg_integer(),
+          reservations: [
+            %{
+              key: key(),
+              bytes: non_neg_integer(),
+              attempt:
+                nil
+                | %{
+                    phase: :pending | :active,
+                    token: pos_integer(),
+                    owner: pid(),
+                    generation: generation()
+                  }
+            }
+          ]
+        }
+  def ledger(%__MODULE__{} = w) do
+    %{
+      frame_credits: w.frame_credits,
+      byte_credits: w.byte_credits,
+      outstanding_frames: outstanding_frames(w),
+      outstanding_bytes: outstanding_bytes(w),
+      available_frames: available_frames(w),
+      available_bytes: available_bytes(w),
+      reservations:
+        Enum.map(w.outstanding, fn {key, {bytes, _deadline_at, attempt}} ->
+          %{key: key, bytes: bytes, attempt: attempt_view(attempt)}
+        end)
+    }
+  end
+
+  defp attempt_view(nil), do: nil
+
+  defp attempt_view({phase, token, owner, generation}),
+    do: %{phase: phase, token: token, owner: owner, generation: generation}
 end

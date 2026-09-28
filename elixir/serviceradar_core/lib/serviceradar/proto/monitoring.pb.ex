@@ -446,6 +446,11 @@ defmodule Monitoring.AgentHelloRequest do
   field :labels, 9, repeated: true, type: Monitoring.AgentHelloRequest.LabelsEntry, map: true
   field :config_source, 10, type: :string, json_name: "configSource"
   field :host_ip, 11, type: :string, json_name: "hostIp"
+
+  field :edge_record_capabilities, 12,
+    proto3_optional: true,
+    type: Serviceradar.Edge.V1.EdgeRecordCapabilitiesV1,
+    json_name: "edgeRecordCapabilities"
 end
 
 defmodule Monitoring.AgentHelloResponse do
@@ -603,6 +608,11 @@ defmodule Monitoring.ControlStreamHello do
     repeated: true,
     type: Monitoring.PluginAssignmentPolicyAck,
     json_name: "appliedPluginAssignments"
+
+  field :edge_record_capabilities, 13,
+    proto3_optional: true,
+    type: Serviceradar.Edge.V1.EdgeRecordCapabilitiesV1,
+    json_name: "edgeRecordCapabilities"
 end
 
 defmodule Monitoring.CommandRequest do

@@ -2,10 +2,11 @@
 
 ## Why
 
-`unify-sweep-results-proto` is 112 tasks spanning the wire contract, the agent
-spool, the gateway relay, JetStream provisioning, projectors, migration, and
-rollout. Six are done. The wire freeze (task 1.7) cannot ship until every one of
-the other 106 is reviewed alongside it, because they are one change.
+`unify-sweep-results-proto` spans the wire contract, the agent spool, the gateway
+relay, JetStream provisioning, projectors, migration, and rollout. This split
+separates the wire freeze from that runtime work. Current completion is owned by
+the [ABI task ledger](tasks.md) and the
+[runtime task ledger](../unify-sweep-results-proto/tasks.md).
 
 That coupling is not theoretical. The 1.6a decision slice took ten review rounds,
 and a recurring cause was that each round legitimately pulled in decisions

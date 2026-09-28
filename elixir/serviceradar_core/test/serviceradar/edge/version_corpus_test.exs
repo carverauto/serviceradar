@@ -15,15 +15,7 @@ defmodule ServiceRadar.Edge.VersionCorpusTest do
   taken from it would agree with itself while "exhaustive" quietly meant one fewer object. The
   membership and class checks come first; the count is informational and comes last.
 
-  ## Four objects are Go-only, and that is asserted rather than glossed
-
-  Fifteen of the nineteen rows have a production verifier in THIS runtime. Four do not, and the
-  manifest records that as data so it cannot become a silent exemption:
-
-    * `mtr_completion` -- `mtr_completion_digest_version` appears in this tree only in the
-      generated struct and in golden assertions that read it. Task 1.6-c.
-
-  When each lands, its row flips to `both` and reuses these same committed artifacts.
+  All nineteen objects now have both runtime verifiers. The empty exemption set is asserted.
   """
   use ExUnit.Case, async: true
 
@@ -74,10 +66,7 @@ defmodule ServiceRadar.Edge.VersionCorpusTest do
   # no production verifier that trusts the value -- never because writing one is inconvenient,
   # and never as a standing exemption. The set is asserted exactly, so it cannot drift in either
   # direction without a test failing.
-  @expected_go_only MapSet.new([
-                      # task 1.6-c -- no lifecycle validator here
-                      "mtr_completion"
-                    ])
+  @expected_go_only MapSet.new()
 
   defp testdata_dir do
     cond do
@@ -186,6 +175,12 @@ defmodule ServiceRadar.Edge.VersionCorpusTest do
   defp uuidv7_millis(<<millis::big-48, _rest::binary-size(10)>>), do: millis
 
   # ---- the per-object verifiers, each this runtime's PRODUCTION boundary -------------------
+
+  defp verify("mtr_completion", artifact, _peer) do
+    artifact
+    |> Serviceradar.Edge.V1.SweepExecutionEventV1.decode()
+    |> ServiceRadar.Edge.LifecycleValidate.validate()
+  end
 
   defp verify("capability", artifact, _peer) do
     r = EdgeRecordV1.decode(artifact)
@@ -372,10 +367,10 @@ defmodule ServiceRadar.Edge.VersionCorpusTest do
   end
 
   describe "every shared row: the control is accepted and the altered artifact refused" do
-    test "all 18 rows this runtime enforces" do
+    test "all 19 rows this runtime enforces" do
       enforced = Enum.reject(rows(), fn {_o, row} -> row.runtimes == "go_only" end)
 
-      assert length(enforced) == 18
+      assert length(enforced) == 19
 
       for {object, row} <- enforced do
         peer = if row.peer == "-", do: nil, else: artifact(row.peer)

@@ -68,6 +68,48 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
     end
   end
 
+  test "a refused NATS connection leaves the producer alive and retrying" do
+    # Bind an ephemeral port and release it: nothing listens there, so the
+    # connect below is refused immediately rather than timing out.
+    {:ok, listener} = :gen_tcp.listen(0, ip: {127, 0, 0, 1})
+    {:ok, port} = :inet.port(listener)
+    :ok = :gen_tcp.close(listener)
+
+    config = %Config{
+      enabled: true,
+      nats: %{
+        host: "127.0.0.1",
+        port: port,
+        user: nil,
+        password: nil,
+        tls: false,
+        jwt: nil,
+        nkey_seed: nil,
+        creds_file: nil
+      },
+      consumer_name: "serviceradar-event-writer",
+      producer_name: nil,
+      streams: [],
+      consumer_pull_batch_size: 64,
+      max_ack_pending: 8
+    }
+
+    log =
+      capture_log(fn ->
+        pid = start_supervised!({Producer, config})
+        ref = Process.monitor(pid)
+
+        # init/1 queues :connect ahead of this call, so once it returns the
+        # refused connect has been handled. A producer that still linked the
+        # connection would have exited with :econnrefused here instead.
+        assert %GenStage{state: %Producer{connected: false, conn: nil}} = :sys.get_state(pid)
+        refute_received {:DOWN, ^ref, :process, ^pid, _}
+        assert Process.alive?(pid)
+      end)
+
+    assert log =~ "EventWriter NATS connection failed: :econnrefused, retrying"
+  end
+
   test "best-effort setup failures warn without an error and preserve healthy consumers" do
     healthy_stream = %{
       name: "NETFLOW_RAW",

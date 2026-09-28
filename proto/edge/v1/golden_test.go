@@ -421,6 +421,45 @@ func goldenBytes(t *testing.T, name string, b []byte) []byte {
 	return want
 }
 
+// This exercises the outer record caller, not just UUIDv7Nanos: unchecked
+// multiplication would put the forged identity inside every signed window.
+func TestGoldenOuterEventTimeOverflow(t *testing.T) {
+	control := canonicalRecord(t)
+	if err := edgerecord.ValidateRecord(control); err != nil {
+		t.Fatalf("control: %v", err)
+	}
+	var millis int64 = 20_230_744_073_710
+	wrapped := millis * 1_000_000
+	pc := control.GetProductionCapability()
+	sc := control.GetSourceAuthorization().GetCapability()
+	for _, window := range [][2]int64{
+		{pc.GetNotBeforeUnixNano(), pc.GetExpiresAtUnixNano()},
+		{sc.GetNotBeforeUnixNano(), sc.GetExpiresAtUnixNano()},
+		{sc.GetSource().GetCollectionNotBeforeUnixNano(), sc.GetSource().GetCollectionExpiresUnixNano()},
+	} {
+		if wrapped < window[0] || wrapped > window[1] {
+			t.Fatalf("unchecked product %d must land inside %v", wrapped, window)
+		}
+	}
+	record := proto.Clone(control).(*edgev1.EdgeRecordV1)
+	record.EventId = uuidv7At(millis)
+	record.SemanticEnvelopeSha256 = edgerecord.SemanticEnvelopeDigest(record)
+	raw := golden(t, "record_event_time_overflow.bin", record)
+	var decoded edgev1.EdgeRecordV1
+	if err := proto.Unmarshal(raw, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if err := edgerecord.ValidateRecord(&decoded); !errors.Is(err, edgerecord.ErrIdentityTime) {
+		t.Fatalf("outer event overflow: got %v, want ErrIdentityTime", err)
+	}
+	// Restoring only the identity and its digest must restore acceptance.
+	decoded.EventId = control.GetEventId()
+	decoded.SemanticEnvelopeSha256 = edgerecord.SemanticEnvelopeDigest(&decoded)
+	if err := edgerecord.ValidateRecord(&decoded); err != nil {
+		t.Fatalf("restored control: %v", err)
+	}
+}
+
 func TestGoldenRecordAndDelivery(t *testing.T) {
 	record := canonicalRecord(t)
 	if err := edgerecord.ValidateRecord(record); err != nil {

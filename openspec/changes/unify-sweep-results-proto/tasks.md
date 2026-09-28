@@ -7,7 +7,7 @@
 
 ## Active milestone coordination gate
 
-- [ ] 0.12 **FIRST GREEN VERTICAL SLICE -- ACTIVE MILESTONE AND SCOPE FREEZE.**
+- [x] 0.12 **FIRST GREEN VERTICAL SLICE -- ACTIVE MILESTONE AND SCOPE FREEZE.**
   Drive ONE committed BULK `SweepObservationBatchV1` fixture on ONE valid durable
   route through the REAL composed path:
 
@@ -125,6 +125,79 @@
   change only with explicit maintainer approval in a separate docs-only
   amendment. Implementation and review agents MAY propose an amendment; they
   SHALL NOT promote it into the milestone themselves.
+
+  CLOSED 2026-09-14 under the ACCEPTED DEFERRAL below, which is this block's
+  maintainer-approved docs-only scope amendment (`design.md`, "Scope
+  amendments"). https://github.com/carverauto/serviceradar/pull/443 made Groups
+  D2, E and F execute instead of skipping (its own run was BuildBuddy invocation
+  `7111e870-8bd0-41b7-a813-3c6d8dfa33cc`),
+  https://github.com/carverauto/serviceradar/pull/450 made Groups C and D prove
+  what they claim, and https://github.com/carverauto/serviceradar/pull/456 made
+  Groups E and F prove theirs. Evidence: the required `BazelCI` check on the
+  head of https://github.com/carverauto/serviceradar/pull/450, `5191de79d9`, ran
+  the integration wave as BuildBuddy invocation
+  `41ba8a08-3901-4591-9b7e-530f1a4b4152`, which reported
+  `//integration_tests/edge_record:vertical_slice_test PASSED`.
+  https://github.com/carverauto/serviceradar/pull/458 merged into
+  `usp-01-proposal` as `b794adbb6e`, whose tree is identical to that PR's head
+  `0c1e0298c5`; its integration wave, BuildBuddy invocation
+  `bc085c92-12b8-4e86-9983-84b7a6edaa10`, also reported
+  `vertical_slice_test PASSED`.
+  https://github.com/carverauto/serviceradar/pull/456 then merged as
+  `76d6eda5e5`, whose tree is identical to that PR's head `dbadb382d6`; its
+  integration wave, BuildBuddy invocation
+  `19851940-b6af-4093-ae88-0743f44128b3`, also reported
+  `vertical_slice_test PASSED`. The target runs without `-test.v`, so its test
+  log carries no per-group lines. A pass still means every group ran. The
+  harness's only `t.Skip` guards are `-short` and a nil Group A fixture, which
+  Group A sets before its first check and which no later group can see, because
+  the target stops with `t.Fatal` when Group A fails. The subtests after the cut
+  probe that need JetStream -- D2, the core-kill redelivery probe, E and F --
+  call `requireJetStream`, which fails rather than skips when JetStream is off,
+  and the cut probe itself fails if its withheld entry does not land once
+  JetStream is re-enabled.
+
+  ACCEPTED DEFERRAL. Groups C, D, E and F carry none: their observations were
+  closed, not deferred -- C and D by
+  https://github.com/carverauto/serviceradar/pull/450, E and F by
+  https://github.com/carverauto/serviceradar/pull/456. C
+  `Redelivery` makes the ingest probe raise after the first delivery commits
+  and before it is acknowledged, so the production pipeline NAKs, JetStream
+  redelivers the same stored message, and that second entry must report
+  `:replay` with an unchanged snapshot; C `Conflict` asserts that the
+  transaction ends with `{:delivery_slot_conflict, existing}`. D1 disables
+  JetStream and asserts that no agent sender run during the outage logs a
+  `remote_resolved_through` covering the withheld entry. D2
+  `RedeliveryAfterEventWriterRollback` raises inside the CNPG transaction and
+  shows no committed rows and the durable's ack floor below the message until
+  the redelivery commits. D3 validates the gateway's cumulative
+  `EdgeDeliveryAckV1` with `edgerecord.ValidateAck`, including its
+  spool-ID/session-nonce binding, and waits for the agent's remote resolved
+  prefix before asserting that neither moved the local reclaim watermark. E and
+  F read the gateway's `:bulk` lane accountant through `PublisherPool.ledger/1`
+  while the broker's PubAcks are withheld, so each request is genuinely in
+  flight. E kills the lane transport under three such requests: a replacement
+  transport generation accepts while all request owners are alive and the same
+  accountant still charges their reservations; after each owner's termination
+  the retry is a new attempt on the same reservation, and new work is admitted
+  within the unchanged grant. F shows the identical retry refused while the
+  first attempt is active under its living owner, and admitted once after that
+  owner reports termination.
+
+  The one observation below remains weaker than the text of group A. It is a
+  known approximation, reviewed and accepted as a deliberate scope reduction
+  that applies only to closing this milestone gate. It is not waived: it remains
+  owed by the named owner task, which SHALL NOT be checked until its own closure
+  proves the full behavior, including the composed-level observation. Unit-level
+  and in-BEAM proofs do not substitute for that observation, and the owner
+  task's closure does not require re-litigating whether this milestone should
+  have demanded it.
+  - A MISMATCHED IDENTITY -> 3.2. The control presents a certificate with a
+    non-agent component type and is refused `PermissionDenied` at `lane_open`. It
+    is not an agent principal that differs from the record's
+    `authenticated_agent_id`, passes the trust gate, and fails as an identity
+    mismatch before NATS publication. That composed observation is now the
+    vertical slice's Group G, owned by 3.2.
 
 ## 0. Baseline and approve capacity assumptions
 
@@ -470,6 +543,11 @@
   journal copy, segment/metadata overhead, rollover amplification, and scratch
   reservation under one atomic filesystem byte allocator with an unborrowable
   minimum-free-space floor for recovery/control and terminal evidence.
+  PARTIALLY LANDED: https://github.com/carverauto/serviceradar/pull/377 gave
+  `go/pkg/edge/spool` its first production caller, the agent's edge-record
+  sender, and added the `Resolved()` watermark read. The segmented recovery,
+  rollover, and allocator obligations above are not implemented, so this task
+  stays unchecked.
 - [ ] 2.5 Add a bounded bidirectional gRPC sender with independent finite
   platform-owned bulk/interactive and reserved recovery-control sequence/credit
   lanes, cumulative resolved
@@ -480,6 +558,11 @@
   independent RPC per lane plus separately pooled bulk, interactive, and recovery
   HTTP/2 connections with reserved connection-level windows; test a zero-window
   stalled bulk connection while interactive and recovery frames progress.
+  PARTIALLY LANDED: https://github.com/carverauto/serviceradar/pull/377 added
+  `go/pkg/edge/sender`, a minimum single-lane sender over the spool with
+  credit-based flow control, wired into `go/cmd/agent`. Per-lane RPCs and pools,
+  reconnect/replay, capability renewal, and quarantine are not implemented, so
+  this task stays unchecked.
 - [ ] 2.6 Connect scanner admission to spool and network pressure: pause/defer
   lower-priority or overlapping work at high-water, reserve worst-case bytes per
   target window, cap active result state by bytes, use high/low-water hysteresis,
@@ -711,7 +794,7 @@
   APPEND-TIME semantic-join mismatch, which MUST be a permanent refusal with
   nothing stored; and LATER CORRUPTION of a binding that verified at append time,
   which MUST degrade the span to unattributable rather than to a wrong authority.
-- [ ] 2.23 **Make restart resolution total over redundant commit evidence.**
+- [x] 2.23 **Make restart resolution total over redundant commit evidence.**
   Store commit evidence with redundancy INDEPENDENT of the record segment, each
   copy carrying a MONOTONIC EVIDENCE GENERATION and a digest over its own
   contents, so copies can be COMPARED and not merely read. Never classify evidence
@@ -750,6 +833,24 @@
   copy B yields AMBIGUOUS ALLOCATED SLOT (not COMMITTED, and not discarded) in
   both orderings; and no producer receipt is observable when any required copy or
   its directory metadata is not yet durable.
+  DONE in `go/pkg/edge/spool` (`evidence.go`, `resolve.go`, `recover.go`,
+  `spool.go`); their doc comments own the restart contract. Two evidence copies
+  live in their own files and directories, each entry carrying its generation and
+  a digest over its own bytes, and `combineViews` compares them: agreeing valid
+  copies give the agreed state, any valid-copy disagreement is AMBIGUOUS whichever
+  generation is higher, and an unreadable copy decides nothing. The producer
+  receipt waits for the record, both copies, and their directory entries. On open
+  `recover.go` observes every slot and `ResolveSlot` applies the rows in contract
+  order; `rolloverCoverage` gives ATTRIBUTED only when both predicates hold.
+  `ScanFrom` visits COMMITTED slots only. The receipt and attribution layers plug
+  in through `BindingInspector`; the tests are in `restart_test.go`. Accepted
+  limits: (1) the sender lane wedges on an ambiguous sequence gap until task 2.27's
+  wire-level rollover/coverage handling lands (package `sender` doc); (2) opening a
+  spool keeps an index entry per allocated sequence and reads the segment twice, an
+  O(records) cost until the reclaim/rotation work of tasks 2.4, 2.24 and 2.28
+  (`Open` doc); (3) a genuine record found by resync past damage whose sequence
+  lies beyond the open cap is excluded from the high-water, so its sequence can be
+  reused (the KNOWN ACCEPTED RISK on `scanChain`).
 - [x] 2.24 **Bound segments on keys, runs, AND manifest size.** Rotate on
   whichever binds first. Include an ALTERNATING-attribution test (keys A,B,A,B,…)
   proving the run bound triggers rotation where a distinct-key bound alone would
@@ -771,7 +872,7 @@
   re-checksum at the destination BEFORE the source becomes eligible for release;
   degrade a span that cannot be verified to unattributable rather than dropping or
   blindly copying it.
-- [ ] 2.26 **Implement the reserve and allocation primitives (no coordinator
+- [x] 2.26 **Implement the reserve and allocation primitives (no coordinator
   dependency).** Reserve a budget excluded from producer admission and sized for
   the AGGREGATE a recovery must durably write — destination segment, attribution
   sidecar, BOTH journal copies, manifest/tombstone pages, old->new mapping, and
@@ -781,6 +882,20 @@
   failing a barrier write must stop recovery deterministically, never silently
   proceed or partially delete. This task depends only on the spool, so it does NOT
   wait on the coordinator.
+  DONE in `go/pkg/edge/spool` (`reserve.go`, `barrier.go`); their doc comments
+  own the accounting contract. `Footprint` sizes all seven artifacts (journal
+  twice) for cumulative writes, and `Allocator` multiplies it by
+  `MaxConcurrentRecoveries`; the unborrowable floor is that reserve plus
+  `MinFree`. `Spool.Append` (via `WithAllocator`) refuses admission above
+  capacity minus the floor, or when free space cannot back the outstanding floor
+  plus every byte still in flight. A charge lasts until its bytes are physically
+  deleted: `Finish` releases nothing, `ReleaseSource` moves the destination
+  segment and sidecar into the lane's charge, `ReleaseArtifacts` releases the
+  journals, pages and mapping, and the slot returns only after both. A failed
+  barrier write, caller-reported write (`RecoveryGrant.FailStop`), or destructive
+  step fail-stops every grant and all admission; a failed record write/fsync
+  stops its lane and all admission but not recovery; per-artifact exhaustion
+  stops its recovery. Whether a destructive step is AUTHORIZED stays with 2.28.
 - [ ] 2.27 **Resume the saved rollover work as the agent recovery coordinator
   (needs companion ABI task 1.6a plus local 2.10 and 2.21-2.26).** The paged-manifest/tombstone implementation
   preserved at `rescue/usp13-v2-wip-20260725` (`9a3a701f`) already builds pages,
@@ -840,11 +955,24 @@
 
 ## 3. Make the gateway a durable authenticated relay
 
-- [ ] 3.1 Add the dedicated mTLS bidirectional record RPC and advertise the
+- [x] 3.1 Add the dedicated mTLS bidirectional record RPC and advertise the
   `edge-records:v1` capability only when all required streams are writable. The
   RPC SHALL carry the small delivery wrapper plus each already encoded canonical
   `record_bytes` as an opaque bounded byte string, so transport decoding does
   not reconstruct or re-encode the semantic record before publication.
+  LANDED: `ServiceRadarAgentGateway.EdgeRecordIngestServer` terminates the RPC,
+  requires an authenticated `:agent` identity, gates `lane_open` on
+  `ServiceRadarAgentGateway.EdgeRecordCapability` readiness, and offers every
+  verified frame to `JetStreamPublisher.publish_record/2` through its class's
+  `ServiceRadar.Edge.PublishPipeline` (see 3.3). See that
+  module's moduledoc for its deliberately narrow scope: it does NOT discharge
+  3.2 (full grant/contract verification), 3.4 (exact-byte/retained-memory
+  binding), 3.5 (complete outcome-to-disposition mapping), 3.9 (transport-
+  provenance stamping), or 3.10 (two-watermark reclaim state machine), all of
+  which remain unchecked below. Those tasks are NOT prerequisites of 0.12: 0.12
+  requires no owning parent task's completion and closed without them. Where its
+  acceptance groups touch their behavior, 0.12 records the gap as an ACCEPTED
+  DEFERRAL naming the owning task.
 - [ ] 3.2 Derive installation trust, network scope, agent, gateway, and partition
   authority from the canonical deployment-CA/certificate-subject edge identity
   resolver without
@@ -858,6 +986,47 @@
   stale-epoch immutable replay only under an exact
   event-ID/`record_sha256`-bound delivery capability and stamp it for audit-only/fenced
   projection.
+  0.12 DEFERRAL (accepted 2026-09-14, see 0.12 item A): the composed target's
+  mismatched-identity control is a non-agent certificate refused at `lane_open`,
+  not an agent principal whose identity differs from the record's
+  `authenticated_agent_id`. Proving that record-level refusal before publication
+  belongs here. This task's closure still requires that record-level refusal to
+  be observed through the composed target; 0.12's deferral waives it only for
+  0.12's milestone gate, not for this task. That observation now exists as
+  Group G of `integration_tests/edge_record/vertical_slice_test.go`: over the
+  harness agent's own certificate it sends a validly signed record attributed
+  to another agent principal, and requires `REJECTED_PERMANENT` bound to the
+  record's event id, no stored JetStream message and no `event_ledger` row. It
+  is proven when that target runs green in BazelCI.
+  IMPLEMENTED in `ServiceRadarAgentGateway` and awaiting review; still unchecked:
+  `ComponentIdentityResolver.resolve_edge_identity/3` derives installation trust (deployment-CA
+  SPKI digest), agent principal, partition and gateway from the CA and certificate subject, with
+  SPIFFE optional and conflict-checked. `EdgeRecordTrust` is the local trust snapshot (role-bound
+  verifying keys, advanced fences, agent network-scope bindings), and `EdgeRecordCapability` is not
+  ready without it. `EdgeRecordAuthorization` decides each frame with no core or database lookup,
+  in the order Go's `ValidateFrameSigned` uses, and checks the local network-scope binding only
+  after the signatures verify. The vertical slice signs its fixture grant with a
+  synthetic issuer that the gateway trusts and fences, and binds the harness agent to the fixtures'
+  network scope. Network scope authority is the certificate principal's binding in the trust
+  snapshot, cross-checked against the signed grant: an unbound agent, and a signed scope its binding
+  lacks, are withheld as retryable, because a boot-time binding may predate the assignment and no
+  rejection route keeps the record. A producer with no fence entry, and a key id the snapshot does
+  not hold or holds without the requested purpose, are withheld as retryable. Withheld frames
+  follow task 3.3's gap contract (#459).
+  The runtime path is still incomplete: an AUDIT decision (a stale-epoch replay, decided with its
+  `LATE_FENCED_DELIVERY` mode and proof) and a SECURITY-QUARANTINE decision are withheld rather
+  than published. Publishing them is deferred to task 3.5, which owns their streams; EventWriter
+  does not yet act on the stamp. Every authorized record is then admitted by `EdgeContractRegistry`
+  (task 3.8's narrowed slice) before it is offered; a registry withhold or hold is withheld like any
+  other frame, and loading a signed registry snapshot stays open under task 3.8.
+  DEFERRED FOLLOW-UP -- a runtime trust-snapshot refresh: the gateway loads
+  `EdgeRecordTrust` once at boot (`load_configured/0`, from
+  `AGENT_GATEWAY_EDGE_RECORD_TRUST_FILE`) and never replaces it. Fence entries,
+  verifying keys, key purposes and agent scope bindings added after boot are
+  unknown until the gateway restarts, so frames depending on them are withheld (retryable, no ack,
+  per 3.3's gap contract) and never authorized. A fence advanced after boot is
+  not learned either: a handed-off producer's previous generation still reads
+  as current, and its new one as future, until restart.
 - [ ] 3.3 PARTIALLY LANDED: **#4733** (`usp-19`) is MERGED into `usp-01-proposal`.
   Check what it actually delivered before starting -- duplicating it is how the
   earlier 22-PR chain accumulated, and its scope is NARROWER than this task.
@@ -872,17 +1041,23 @@
   returned PubAck. Refusal disposition was also corrected: only PROVEN poison is
   terminal, and an expected-stream refusal (`err_code` 10060) withholds source progress
   rather than routing to the DLQ.
-  STILL OPEN, and REQUIRED before this task may be checked: (c)'s pipelining is
-  now IMPLEMENTED -- `ServiceRadar.Edge.PublishPipeline` publishes asynchronously
-  under the hard frame/byte/PubAck-deadline window, records out-of-order PubAcks
-  through `ResolvedPrefix`, and exposes only the contiguous resolved prefix, with
-  both closure criteria re-proven under concurrency. What is NOT yet true is that
-  anything OFFERS to it: the gateway's per-lane session is task 3.1's mTLS
-  bidirectional record RPC, and `JetStreamPublisher.publish_record/2` still has no
-  production caller either, so the whole chain is exercised by tests rather than
-  running. This task stays UNCHECKED on that basis; whether a pre-production
-  implementation discharges (c) is a judgement for the change owner, not something
-  to settle by ticking the box. The separate pools below are landed. The property this task relies on is that the
+  (c)'s pipelining is IMPLEMENTED and now has a PRODUCTION OFFERER.
+  `ServiceRadar.Edge.PublishPipeline` publishes asynchronously under the hard
+  frame/byte/PubAck-deadline window, records out-of-order PubAcks through
+  `ResolvedPrefix`, and exposes only the contiguous resolved prefix, with both
+  closure criteria re-proven under concurrency. Task 3.1's
+  `ServiceRadarAgentGateway.EdgeRecordIngestServer` offers every verified delivery
+  frame to its class's pipeline instead of publishing it synchronously per frame;
+  the gateway starts one pipeline LAST in each `LaneSupervisor`, handing in
+  `JetStreamPublisher.publish_record/2` as its publisher. Each ack is built from
+  the outcomes the pipeline pushes to the lane's owning stream, and is sent only
+  when the contiguous watermark moves, as the contiguous disposition run the
+  agent's `edgerecord.ValidateAck` requires. Proven-permanent decode/integrity
+  rejections are recorded in the prefix through
+  `PublishPipeline.reject_permanent/3` so they cannot wedge the lane, and retryable
+  outcomes still withhold the ack. This task stays UNCHECKED: whether this
+  discharges (c) is a judgement for the change owner, not something to settle by
+  ticking the box. The separate pools below are landed. The property this task relies on is that the
   transcript commits both `record_sha256` and the semantic digest, so a slot reused
   with different bytes gets a distinct Msg-Id. Limit NATS
   headers to transport concerns; do not duplicate the semantic envelope as
@@ -898,8 +1073,11 @@
   validation and prefix advancement). This task MAY NOT be checked until BOTH
   hold, each covered by a scenario under `ingestion-routing`'s "Backpressure and
   fairness are bounded at every hop":
-  (i) RESTART OVERLAP -- CLOSED, and now under CONCURRENCY as well. An earlier
-  version of this note said the invariant was proven only against the serial
+  (i) RESTART OVERLAP -- CLOSED, and now under CONCURRENCY as well; its
+  composed-level observation landed in
+  https://github.com/carverauto/serviceradar/pull/456 (see the note at the end of
+  this task). An earlier version of this note said the invariant was
+  proven only against the serial
   publisher, which was the honest state at the time: with one caller able to hold
   exactly one outstanding request, "old and replacement requests together cannot
   exceed the grant" was a claim about a single request. `PublishPipeline` now
@@ -924,7 +1102,10 @@
   additionally starts CLOSED -- `admit` returns `:no_transport` until a new
   generation registers, which cannot happen until the previous send capability is
   gone.
-  (ii) POST-HANDOFF FENCING -- CLOSED. Once a reservation is handed to a caller, a
+  (ii) POST-HANDOFF FENCING -- CLOSED; its composed-level observation landed in
+  https://github.com/carverauto/serviceradar/pull/456 (see the note at the end of
+  this task). Once
+  a reservation is handed to a caller, a
   retry MUST NOT be admitted until the previous attempt is fenced by its REQUEST
   (owner, start, termination). A passed deadline or an absent PubAck is NOT
   sufficient evidence: neither distinguishes "never sent" from "in flight",
@@ -953,6 +1134,17 @@
   published -- but it is a real retention gap and it remains OPEN. Bounding it needs
   evidence that the specific request terminated, which is the correlation work in
   3.5, not a supervision change here.
+  COMPOSED OBSERVATION (0.12 Groups E and F):
+  https://github.com/carverauto/serviceradar/pull/456 makes the vertical slice
+  observe (i) and (ii) against the lane ledger, so 0.12 records no deferral
+  against this task. Group E holds three requests in flight with PubAcks
+  withheld and kills the `:bulk` transport: a replacement generation accepts
+  while every request owner is alive and the same accountant still charges their
+  reservations, and after each owner's termination the retry is a new attempt on
+  the same reservation while new work is admitted within the unchanged grant.
+  Group F shows the identical retry refused while the first attempt is active
+  under its living owner, and admitted once after that owner reports
+  termination. This does not check this task: (c) above is still open.
 - [ ] 3.4 Bounded-decode and verify the bounded binary record against the mTLS
   session, grant, registry, route, cost, size, and digest, but publish the exact
   `EdgeDeliveryFrameV1.record_bytes` unchanged to JetStream, never the delivery
@@ -994,8 +1186,34 @@
   prefix through the same validated idempotent publication and PubAck path, without
   subscribing to stored records or recovering private gateway state; evidence
   eviction MUST NOT surface as an ambiguous disposition state to the agent.
-- [ ] 3.6 Ensure this lane never enters `StatusBuffer`, never acknowledges an
+- [x] 3.6 Ensure this lane never enters `StatusBuffer`, never acknowledges an
   ERTS/Core NATS handoff as durable, and remains stateless across restarts.
+  LANDED: `ServiceRadarAgentGateway.EdgeRecordIngestLaneIsolationTest` drives the
+  lane through the real `JetStreamPublisher` and `PublisherPool` with only the
+  NATS connection doubled, and observes each property with a control proving its
+  detector can fail. (1) Receive-tracing a live `StatusBuffer` sees no message,
+  and its telemetry no event, across every non-durable broker answer and pool
+  saturation. (2) Call-tracing the lane process sees no ERTS RPC, Core NATS
+  publish, or `StatusProcessor` call, and only a PubAck from the requested stream
+  is acked: the server acks durable only on `{:ok, _}`, which
+  `JetStreamPublisher` returns only for a PubAck it parsed and fenced to the
+  expected stream. (3) A lane killed by an exit signal left its request reader
+  blocked forever under `DeliveryTaskSupervisor`, because grpc's Cowboy read
+  waits with no monitor or timeout and the exit skipped the `after` cleanup; a
+  watcher now ends the reader with its owner. After a lane killed between frames,
+  no reader, registered name, ETS table, persistent term, or gateway env
+  survives, and a reconnect replays the same frames through identical publish
+  requests to identical dispositions -- and is withheld, not re-acked, once the
+  broker refuses.
+  NOT discharged here: a lane killed while waiting for a PubAck leaves its
+  `PublisherPool` attempt marked in flight (owner death is deliberately not
+  treated as termination), so a reconnect replay of that frame is refused as
+  `:attempt_in_flight` and withheld until the NATS transport restarts, rather
+  than getting an identical disposition; ending that attempt needs evidence the
+  request terminated, which is task 3.5's request-correlation work. The ack no
+  longer moves `resolved_through_sequence` past a withheld earlier sequence: the
+  first sequence a session leaves unresolved caps it (see
+  `EdgeRecordIngestServer`'s moduledoc).
 - [ ] 3.7 Add byte-bounded fair queues and rate limits across network/site scope,
   agent, producer assignment, run/execution, and attested traffic class so a
   noisy stream cannot starve other edge sessions before JetStream partitioning.
@@ -1011,6 +1229,22 @@
   provenance stamped by the trusted agent sink against the authenticated
   session and never trust guest-supplied subject, agent, scope, class, cost, or
   database destination claims.
+  PARTIALLY LANDED as a deliberately NARROWED slice, so this task stays unchecked.
+  `ServiceRadarAgentGateway.EdgeContractRegistry` admits every decoded record
+  before publication against an installation-static snapshot
+  (`AGENT_GATEWAY_EDGE_RECORD_CONTRACT_REGISTRY`) keyed by the existing
+  `EdgeOutputContractRef` fields: it rejects a missing contract, a route or cost
+  model the bundle does not pin, and provenance that contradicts the
+  authenticated session; withholds (no publish, sequence unresolved) on no
+  registry, an epoch or snapshot the gateway does not hold, an unknown or
+  digest-mismatched contract, and any non-active bundle; holds security-revoked
+  bundles; and takes the published route profile, traffic class and partition
+  rule from the registry entry. The edge-records:v1 capability is not ready
+  without a loaded snapshot.
+  STILL OPEN and blocked on tasks 1.10/1.11 defining the signed format: signed
+  snapshot loading, signed readiness reporting, the atomic epoch switch and
+  stale-generation fencing, planned-retirement drain under the exact bundle and
+  watermark, and binding network scope to the session (task 3.2's grant).
 - [ ] 3.9 Stamp the `Sr-Edge-Transport-Provenance` header on every gateway publish,
   alongside `Nats-Msg-Id` and `Sr-Edge-Delivery-Id`, over the edge slot. Its slot
   kind, framed members, delivery-proof presence rule, `delivery_mode` constants, and
@@ -1174,6 +1408,13 @@
   hash(service_slot)) to spread write load WITHIN a window. Add a
   chronological-DROP retirement job that retires whole expired ordered-time
   windows by range drop/detach.
+  PARTIALLY LANDED: https://github.com/carverauto/serviceradar/pull/379 added the
+  minimum slice ledger (migration `20260910120000_create_edge_record_ledger`:
+  `event_ledger`, `edge_delivery_slots`, `edge_sweep_batch_slots`,
+  `edge_sweep_projected_rows`) and the idempotent
+  `ServiceRadar.EventWriter.Processors.EdgeRecord` writer. None of those tables is
+  bucket- or range-partitioned, and there is no terminal slot, service-ingress
+  slot, or retirement job, so this task stays unchecked.
 - [ ] 5.3 Implement horizontally partitioned sweep consumers that preserve each
   micro-batch as an independent idempotency unit while adaptively grouping
   compatible messages in bounded aggregate transactions. Perform bounded bulk authoritative

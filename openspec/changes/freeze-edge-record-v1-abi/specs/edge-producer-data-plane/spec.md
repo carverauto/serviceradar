@@ -1,4 +1,38 @@
 ## ADDED Requirements
+
+### Requirement: Projected row cost is derived from enumerated synchronous mutations
+Any component declaring a projected row cost or performing synchronous mutations for an admitted edge record SHALL account for those mutations using the shared projection row rule, and the count SHALL be the length of its enumerated row set.
+
+The accounting scope is one admitted record and its single synchronous admission
+transaction. It includes every ledger, domain, outbox, work and current-state row
+mutated by that transaction. Asynchronous work and existing event_writer processors
+using a different ingestion contract are outside this scope.
+
+`projection.SweepProjectionRows` and `projection.MtrProjectionRows` enumerate the
+currently defined domain rows; the count functions derive their totals from these
+lists. `ServiceRadar.Edge.ProjectionRows` implements the same rule. Sweep rows
+comprise host reachability, each open port, each port error and a present MTR summary;
+MTR rows comprise each trace and each hop. Batch and child indices identify the
+source of each enumerated mutation. They are projection coordinates, not wire IDs.
+
+No production component currently declares a cost using this rule or persists an
+admitted edge record. This absence SHALL NOT exempt future admission ledger, outbox,
+work or current-state mutations: a component introducing them SHALL extend the row
+rule and its shared fixtures before declaring or consuming that cost. The static
+guard in `build/edge_projection_accounting_test.py` records its inspected source
+scope and its limitations; it SHALL be extended when runtime integration adds an
+ingress or persistence path outside that scope. A lexical guard alone SHALL NOT be
+treated as proof of dynamic callback effects or of a future writer's actual count.
+
+#### Scenario: Both runtimes count the same committed batch
+- **GIVEN** a committed positive sweep or MTR batch in the projection corpus
+- **WHEN** each runtime enumerates its domain rows
+- **THEN** the row coordinates and list length SHALL equal the shared corpus, including an empty batch
+
+#### Scenario: Admission adds an outbox mutation
+- **GIVEN** a component adding a synchronous outbox row to edge-record admission
+- **WHEN** it declares or checks the admitted record's projected cost
+- **THEN** that row SHALL appear in the shared accounting rule and count; a domain-only count SHALL NOT suffice
 ### Requirement: Every record carries an exact output-contract reference
 Every accepted record SHALL carry an `EdgeOutputContractRef` that identifies its output contract EXACTLY.
 
@@ -3292,3 +3326,70 @@ NOT frozen here.
 - **WHEN** a record exceeds exactly one of row count or write bytes, or disagrees on
   `cost_model_version`, with the others valid
 - **THEN** it is refused
+
+### Requirement: Both lane handshake halves enforce bounded credit negotiation
+
+An `EdgeRecordLaneOpen` request SHALL carry a session nonce of 16 through 64 bytes
+inclusive, request 1 through 1073741824 byte credits inclusive, and request 1
+through 1048576 frame credits inclusive. Zero credits in either dimension SHALL
+be refused. Its spool identifier SHALL be UUIDv7, sequence_base SHALL be 1, and
+first_unresolved_sequence SHALL be at least 1. Route and traffic class SHALL be
+members of their admitted platform sets. Unknown retained fields SHALL be refused.
+
+The `EdgeRecordLaneOpenAck` validator SHALL validate the request it answers and
+refuse retained unknown fields in the acknowledgement. Spool identifier, session
+nonce, route and traffic class SHALL equal the request. For each credit dimension
+independently, the grant SHALL satisfy `1 <= granted <= requested`. Equality and
+strictly smaller positive grants SHALL both be accepted when all other rules hold.
+The valid request establishes the hard caps; the return relation cannot widen them.
+These are validator API requirements and do not assert live ingress attachment.
+
+#### Scenario: Nonce endpoints and credit caps are inclusive
+- **GIVEN** an otherwise valid request
+- **WHEN** the nonce has 16 or 64 bytes and each credit is positive and no greater than its cap
+- **THEN** the request is accepted
+- **AND** nonce lengths 15 or 65, zero credits and one-over-cap credits are refused
+
+#### Scenario: Grant bounds are independent of hard caps
+- **GIVEN** a valid request whose byte and frame credits are well below their hard caps
+- **WHEN** either granted dimension is zero or exceeds its requested value
+- **THEN** the acknowledgement is refused even when the other dimension is legal
+- **AND** equality or a strictly smaller positive grant in either dimension is accepted
+
+### Requirement: Delivery acknowledgements have three finite admission budgets
+
+A delivery-ACK receiver SHALL impose finite positive limits on raw received ACK
+bytes before protobuf decode, decoded disposition count, and canonical encoded
+ACK bytes. Each budget SHALL be independently enforced; neither canonical size
+nor count replaces the raw-byte gate. The complete validator API SHALL compose
+raw-size admission, decode and decoded validation in that order. A non-positive
+configuration value SHALL select a finite default or be refused; it SHALL NOT
+disable a budget. The exact default values are implementation policy and are not
+frozen ABI constants. A message exactly at any configured limit SHALL remain
+eligible for acceptance when its other budgets and semantic rules hold.
+
+Both rejection dispositions SHALL carry a nonempty `rejection_code` of 1 through
+64 ASCII bytes inclusive, using only `[A-Z0-9_]`. Accepted dispositions SHALL
+carry an empty code. This is content validation, not field-presence validation:
+proto3 does not distinguish an omitted string from an explicitly empty one.
+Disposition kind alone determines whether the sequence resolves; the code SHALL
+NOT determine cumulative watermark advancement. Existing session binding,
+contiguous sequence, sent-event binding and resolving-prefix rules still apply.
+
+#### Scenario: Duplicate fields cannot bypass the raw-byte budget
+- **GIVEN** ACK bytes whose decoded count and canonical size fit their limits
+- **WHEN** duplicate or non-minimal fields make the raw encoding exceed its byte limit
+- **THEN** admission refuses before protobuf decode
+- **AND** the corresponding encoding exactly at the raw limit is accepted if otherwise valid
+
+#### Scenario: Decoded budgets are independent
+- **GIVEN** raw ACK bytes within their receive limit
+- **WHEN** either decoded count or canonical size exceeds its own configured limit
+- **THEN** the ACK is refused even when the other decoded budget is satisfied
+- **AND** equality at either budget is accepted if all other rules hold
+
+#### Scenario: Rejection-code predicates are independently enforced
+- **GIVEN** an otherwise valid rejection disposition
+- **WHEN** its code is empty, longer than 64 bytes, lowercase or contains punctuation
+- **THEN** the ACK is refused
+- **AND** legal one-byte and 64-byte tokens are accepted

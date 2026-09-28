@@ -73,6 +73,7 @@ defmodule ServiceRadarAgentGateway.Application do
   alias ServiceRadar.Edge.PublisherSupervisor
   alias ServiceRadar.NATS.Connection
   alias ServiceRadar.Telemetry.OtelSetup
+  alias ServiceRadarAgentGateway.JetStreamPublisher
 
   require Logger
 
@@ -94,6 +95,10 @@ defmodule ServiceRadarAgentGateway.Application do
       domain: domain,
       capabilities: capabilities
     )
+
+    # The edge-record lane verifies every frame against this local snapshot; without it
+    # `edge-records:v1` never becomes ready (see EdgeRecordTrust).
+    _ = ServiceRadarAgentGateway.EdgeRecordTrust.load_configured()
 
     # Attach OTEL auto-instrumentation handlers (SDK configured in runtime.exs)
     OtelSetup.attach_instrumentations(instrumentations: [])
@@ -252,9 +257,7 @@ defmodule ServiceRadarAgentGateway.Application do
 
   @doc false
   def edge_server_ssl_opts! do
-    cert_dir =
-      Application.get_env(:serviceradar_agent_gateway, :gateway_cert_dir) ||
-        System.get_env("GATEWAY_CERT_DIR", "/etc/serviceradar/certs")
+    cert_dir = edge_cert_dir()
 
     cert_file = Path.join(cert_dir, "gateway.pem")
     key_file = Path.join(cert_dir, "gateway-key.pem")
@@ -274,6 +277,14 @@ defmodule ServiceRadarAgentGateway.Application do
     else
       raise "No mTLS certs available for agent gateway edge listeners"
     end
+  end
+
+  @doc false
+  # The directory holding the edge listener's gateway.pem / gateway-key.pem / root.pem. Its
+  # root.pem is also the deployment CA the edge identity resolver derives installation trust from.
+  def edge_cert_dir do
+    Application.get_env(:serviceradar_agent_gateway, :gateway_cert_dir) ||
+      System.get_env("GATEWAY_CERT_DIR", "/etc/serviceradar/certs")
   end
 
   defp generate_gateway_id do
@@ -306,15 +317,15 @@ defmodule ServiceRadarAgentGateway.Application do
     end
   end
 
-  # The edge publisher pools: one window owner per lane. Gated on the same switch as the NATS
-  # connections, because a pool without a connection has nothing to bound, and started AFTER them
-  # so the connection a lane publishes on exists before its window admits anything.
+  # Use the same enablement gate as the shared NATS connection. PublisherSupervisor owns
+  # lane connections, pools and publish pipelines; LaneSupervisor owns their startup and readiness
+  # ordering. The publisher is handed in here because core cannot name JetStreamPublisher.
   defp edge_publisher_pools_child do
     if gateway_publisher_enabled?() do
       if Process.whereis(PublisherSupervisor) do
         nil
       else
-        PublisherSupervisor
+        {PublisherSupervisor, publisher: &JetStreamPublisher.publish_record/2}
       end
     end
   end
@@ -329,7 +340,8 @@ defmodule ServiceRadarAgentGateway.Application do
         :rperf_metrics_publisher,
         :mtr_metrics_publisher,
         :sweep_metrics_publisher,
-        :otlp_relay_publisher
+        :otlp_relay_publisher,
+        :edge_records_publisher
       ],
       fn key ->
         :serviceradar_agent_gateway

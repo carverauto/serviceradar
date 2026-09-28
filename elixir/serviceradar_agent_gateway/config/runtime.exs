@@ -312,6 +312,12 @@ spiffe_mode =
 sysmon_metrics_publish_enabled =
   System.get_env("AGENT_GATEWAY_SYSMON_METRICS_ENABLED", "true") in ~w(true 1 yes)
 
+# Off by default, unlike the metrics publishers above: `edge-records:v1` is still an active
+# milestone (unify-sweep-results-proto task 0.12) and must stay disabled outside a guarded
+# vertical-slice target until the durable path is proven end to end.
+edge_records_publish_enabled =
+  System.get_env("AGENT_GATEWAY_EDGE_RECORDS_ENABLED", "false") in ~w(true 1 yes)
+
 snmp_metrics_publish_enabled =
   System.get_env("AGENT_GATEWAY_SNMP_METRICS_ENABLED", "true") in ~w(true 1 yes)
 
@@ -349,6 +355,18 @@ sweep_metrics_publish_enabled =
 
 otlp_relay_publish_enabled =
   System.get_env("AGENT_GATEWAY_OTLP_RELAY_PUBLISH_ENABLED", "true") in ~w(true 1 yes)
+
+# The installation-static output-contract registry snapshot (JSON) edge records are admitted
+# against; see ServiceRadarAgentGateway.EdgeContractRegistry.Static. Unset means no registry, and
+# the edge-records:v1 capability stays not ready.
+config :serviceradar_agent_gateway,
+       :edge_record_contract_registry,
+       System.get_env("AGENT_GATEWAY_EDGE_RECORD_CONTRACT_REGISTRY")
+
+# The local trust snapshot every edge-record frame is authorized against (verifying public keys,
+# producer fences, agent network-scope bindings). Without it `edge-records:v1` never becomes ready.
+config :serviceradar_agent_gateway, :edge_record_trust, file: System.get_env("AGENT_GATEWAY_EDGE_RECORD_TRUST_FILE")
+config :serviceradar_agent_gateway, :edge_records_publisher, enabled: edge_records_publish_enabled
 
 config :serviceradar_agent_gateway, :icmp_metrics_publisher,
   enabled: icmp_metrics_publish_enabled,
@@ -405,7 +423,8 @@ if sysmon_metrics_publish_enabled or snmp_metrics_publish_enabled or
      rperf_metrics_publish_enabled or
      mtr_metrics_publish_enabled or
      sweep_metrics_publish_enabled or
-     otlp_relay_publish_enabled do
+     otlp_relay_publish_enabled or
+     edge_records_publish_enabled do
   nats_url =
     System.get_env("AGENT_GATEWAY_NATS_URL") ||
       System.get_env("NATS_URL", "nats://localhost:4222")
