@@ -17,6 +17,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   import Ecto.Query
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Analytics.StarRocks.Env
   alias ServiceRadar.Analytics.StarRocks.MetricConsumers
   alias ServiceRadar.Analytics.StarRocks.Query
   alias ServiceRadar.Analytics.StarRocks.Readers
@@ -5377,7 +5378,7 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
   defp fetch_recent_bmp_routing_events_warehouse(cutoff, limit) do
     sql = """
     SELECT `time`, `metadata`, `router_id`, `peer_ip`
-    FROM serviceradar.bmp_routing_events
+    FROM #{Env.table("bmp_routing_events")}
     WHERE `time` >= '#{warehouse_datetime(cutoff)}'
       AND COALESCE(`severity_id`, 0) >= #{routing_causal_severity_threshold()}
     ORDER BY `time` DESC

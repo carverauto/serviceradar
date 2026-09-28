@@ -28,7 +28,7 @@ pub(super) async fn execute(
     plan: &QueryPlan,
 ) -> Result<Vec<serde_json::Value>> {
     ensure_entity(plan)?;
-    refuse_unsupported_clauses(plan)?;
+    super::reject_stats(plan, "bmp_events")?;
     let query = build_query(plan)?;
     let rows: Vec<BmpRoutingEventRow> = query
         .select(BmpRoutingEventRow::as_select())
@@ -46,7 +46,7 @@ pub(super) async fn execute(
 
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
     ensure_entity(plan)?;
-    refuse_unsupported_clauses(plan)?;
+    super::reject_stats(plan, "bmp_events")?;
     let query = build_query(plan)?.limit(plan.limit).offset(plan.offset);
     let sql = super::diesel_sql(&query)?;
 
@@ -85,11 +85,11 @@ fn ensure_entity(plan: &QueryPlan) -> Result<()> {
     }
 }
 
-/// Plan clauses the BMP builders of either dialect have no translation for.
-/// They used to be ignored (a listing shaped like something else); now they are
-/// refused by name, so both backends accept and refuse the same BMP queries.
-/// `stats:` is refused by `reject_stats`; `rollup_stats:`, `bucket:` and
-/// `other:true` have no BMP rendering on either backend.
+/// Plan clauses the StarRocks BMP dialect has no translation for. The CNPG
+/// builder refuses only `stats:` (`reject_stats`) and answers `rollup_stats:`
+/// as a plain row listing; `bucket:` is refused by CNPG's downsample builder,
+/// which production routes it to. The warehouse dialect refuses `stats:`,
+/// `rollup_stats:`, `bucket:` and `other:true` by name.
 pub(super) fn refuse_unsupported_clauses(plan: &QueryPlan) -> Result<()> {
     super::reject_stats(plan, "bmp_events")?;
 

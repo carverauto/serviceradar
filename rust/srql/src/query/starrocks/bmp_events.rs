@@ -8,8 +8,9 @@
 //! (`query/bmp_events.rs`) answers, with the same rows:
 //!
 //! * A BMP query is always a row listing; `stats:` is refused on both backends
-//!   (`reject_stats`), and `rollup_stats:`, `bucket:` and `other:true` have no
-//!   BMP rendering on either and are refused by name.
+//!   (`reject_stats`). `rollup_stats:` is refused by the warehouse dialect but
+//!   answered as a plain row listing by CNPG, and `bucket:` is refused by the
+//!   warehouse dialect and by CNPG's downsample builder.
 //! * Time bounds are the closed `[start, end]` CNPG binds, at microsecond
 //!   precision.
 //! * Text filters follow `apply_text_filter!`: equality and lists are exact,
@@ -262,10 +263,15 @@ mod tests {
         }
     }
 
-    /// The CNPG half of the same query, through the entity builder that serves
-    /// it when the warehouse is off.
+    /// The CNPG half of the same query. A listing reaches the `bmp_events`
+    /// entity builder; a `bucket:` query is routed to the downsample builder,
+    /// which refuses BMP, exactly as `translate_request` routes it.
     fn cnpg(query: &str) -> Result<String> {
-        super::super::super::bmp_events::to_sql_and_params(&plan(query)).map(|(sql, _)| sql)
+        let plan = plan(query);
+        if plan.downsample.is_some() {
+            return super::super::super::downsample::to_sql_and_params(&plan).map(|(sql, _)| sql);
+        }
+        super::super::super::bmp_events::to_sql_and_params(&plan).map(|(sql, _)| sql)
     }
 
     /// The queries the BMP page issues, through its generic SRQL list loader.
@@ -394,18 +400,24 @@ mod tests {
     }
 
     #[test]
-    fn clauses_without_a_bmp_translation_are_refused_on_both_backends() {
-        for query in [
-            "in:bmp_events stats:count() as n",
-            "in:bmp_events rollup_stats:severity",
-            "in:bmp_events bucket:5m",
-        ] {
+    fn stats_and_bucket_are_refused_on_both_backends() {
+        for query in ["in:bmp_events stats:count() as n", "in:bmp_events bucket:5m"] {
             assert!(
                 matches!(refused(query), ServiceError::InvalidRequest(_)),
                 "{query}"
             );
             assert!(cnpg(query).is_err(), "{query} must be refused by CNPG too");
         }
+    }
+
+    #[test]
+    fn rollup_stats_is_a_warehouse_only_refusal() {
+        let query = "in:bmp_events rollup_stats:severity";
+        assert!(
+            matches!(refused(query), ServiceError::InvalidRequest(_)),
+            "{query} must be refused by the warehouse dialect"
+        );
+        cnpg(query).unwrap_or_else(|err| panic!("{query} must list rows on CNPG: {err}"));
     }
 
     #[test]
@@ -435,7 +447,9 @@ mod tests {
         );
     }
 
-    /// Both backends accept and refuse the same BMP queries.
+    /// Both backends accept and refuse the same BMP queries, except that
+    /// `rollup_stats:` is a warehouse-only refusal: CNPG answers it as a plain
+    /// row listing.
     #[test]
     fn both_backends_accept_the_same_queries() {
         let mut corpus: Vec<String> = PRODUCT_QUERIES.iter().map(|q| q.to_string()).collect();
@@ -469,10 +483,20 @@ mod tests {
             .map(String::from),
         );
 
+        let warehouse_only_refusals = ["in:bmp_events rollup_stats:severity"];
+
         let mut mismatches = Vec::new();
         for query in &corpus {
             let warehouse = super::super::translate(&plan(query), DB);
             let relational = cnpg(query);
+            if warehouse_only_refusals.contains(&query.as_str()) {
+                assert!(
+                    matches!(&warehouse, Err(ServiceError::InvalidRequest(_))),
+                    "{query} must be refused by the warehouse dialect"
+                );
+                assert!(relational.is_ok(), "{query} must list rows on CNPG");
+                continue;
+            }
             if warehouse.is_ok() != relational.is_ok() {
                 mismatches.push(format!(
                     "{query}\n  starrocks: {:?}\n  cnpg: {:?}",
