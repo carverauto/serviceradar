@@ -323,13 +323,19 @@ The shadow list is included explicitly because it is derived, not set.
       key: database
 {{- $retention := default (dict) $sr.retentionDays }}
 - name: SERVICERADAR_STARROCKS_RETENTION_DAYS_FLOWS
-  value: {{ $retention.flows | default 90 | quote }}
+  value: {{ $retention.flows | default 365 | quote }}
 - name: SERVICERADAR_STARROCKS_RETENTION_DAYS_METRICS
-  value: {{ $retention.metrics | default 90 | quote }}
+  value: {{ $retention.metrics | default 365 | quote }}
 - name: SERVICERADAR_STARROCKS_RETENTION_DAYS_LOGS
   value: {{ $retention.logs | default 365 | quote }}
 - name: SERVICERADAR_STARROCKS_RETENTION_DAYS_EVENTS
   value: {{ $retention.events | default 365 | quote }}
+- name: SERVICERADAR_STARROCKS_RETENTION_DAYS_MTR
+  value: {{ $retention.mtr | default 365 | quote }}
+- name: SERVICERADAR_STARROCKS_RETENTION_DAYS_OTEL
+  value: {{ $retention.otel | default 365 | quote }}
+- name: SERVICERADAR_STARROCKS_RETENTION_DAYS_TRACES
+  value: {{ $retention.traces | default 365 | quote }}
 {{- /* Not `default`: sprig treats 0 as empty, and 0 is the strictest setting
        this knob accepts (serve only a fully current view), not an absent one. */}}
 {{- $rollupStaleAfter := 7200 }}
@@ -346,23 +352,57 @@ The shadow list is included explicitly because it is derived, not set.
 {{- end }}
 - name: SERVICERADAR_STARROCKS_ROLLUP_CACHE_TTL_SECONDS
   value: {{ $rollupCacheTtl | quote }}
+{{- /* Stream Load sizing: EventWriter flushes a warehouse batch after maxAgeMs,
+       splits it into loads of at most maxRows rows / maxBytes bytes, and runs at
+       most maxInFlight of them at once. Read from the analytics ConfigMap so a
+       change rolls core through its checksum. */}}
+{{- range $key := list "maxRows" "maxBytes" "maxAgeMs" "maxInFlight" }}
+- name: SERVICERADAR_STARROCKS_STREAM_LOAD_{{ $key | snakecase | upper }}
+  valueFrom:
+    configMapKeyRef:
+      name: {{ include "serviceradar.fullname" $ }}-starrocks-analytics
+      key: streamLoad{{ $key | title }}
+{{- end }}
 - name: SERVICERADAR_STARROCKS_FE_HTTP
   value: {{ printf "http://%s:%v" $sr.fe.service $sr.fe.httpPort | quote }}
 - name: SERVICERADAR_STARROCKS_FE_HOST
   value: {{ $sr.fe.service | quote }}
 - name: SERVICERADAR_STARROCKS_FE_QUERY_PORT
   value: {{ $sr.fe.queryPort | quote }}
-{{- $feSecret := default (dict) $sr.catalog }}
-{{- if $feSecret.fePasswordSecretName }}
 {{- /* Same Frontend account the provisioning Jobs authenticate as (both run
        `mysql -u root` with this secret), so it has one source of truth. */}}
 - name: SERVICERADAR_STARROCKS_PASSWORD
   valueFrom:
     secretKeyRef:
-      name: {{ $feSecret.fePasswordSecretName | quote }}
-      key: {{ $feSecret.fePasswordSecretKey | default "password" | quote }}
+      name: {{ include "serviceradar.starrocksFePasswordSecretName" . | quote }}
+      key: {{ include "serviceradar.starrocksFePasswordSecretKey" . | quote }}
 {{- end }}
-{{- end }}
+{{- end -}}
+
+{{/*
+The Secret holding the StarRocks Frontend `root` password, in the release
+namespace. core, web-ng (EventWriter Stream Load and the MyXQL reader) and both
+provisioning Jobs authenticate as that one account.
+
+There is deliberately no way to render StarRocks analytics without it, and no
+flag to allow one: the operator chart creates `root` with no password unless
+its initPassword is enabled, so an empty value here meant every install path
+connected to a Frontend anyone who could reach port 9030 could administer.
+The render fails instead of silently falling back to a passwordless login.
+*/}}
+{{- define "serviceradar.starrocksFePasswordSecretName" -}}
+{{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
+{{- $cat := default (dict) $sr.catalog -}}
+{{- if and $sr.enabled (not $cat.fePasswordSecretName) -}}
+{{- fail "analytics.starrocks.catalog.fePasswordSecretName is required when analytics.starrocks.enabled=true: set it to a Secret in the release namespace whose key analytics.starrocks.catalog.fePasswordSecretKey (default \"password\") holds the StarRocks Frontend root password, the same value as the StarRocks operator's initPassword Secret. A passwordless Frontend is not supported; see \"Frontend root password\" in k8s/starrocks/README.md." -}}
+{{- end -}}
+{{- $cat.fePasswordSecretName -}}
+{{- end -}}
+
+{{- define "serviceradar.starrocksFePasswordSecretKey" -}}
+{{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
+{{- $cat := default (dict) $sr.catalog -}}
+{{- $cat.fePasswordSecretKey | default "password" -}}
 {{- end -}}
 
 {{/*
@@ -793,7 +833,16 @@ which is the exact condition the WAL cap guard exists to prevent.
 Fails loudly on anything it cannot compute rather than guessing.
 */}}
 {{- define "serviceradar.storageGiB" -}}
-{{- $raw := trim (toString (default "100Gi" .)) -}}
+{{- div (int64 (include "serviceradar.quantityBytes" (default "100Gi" .))) 1073741824 -}}
+{{- end -}}
+
+{{/*
+Convert a Kubernetes storage quantity to bytes (see serviceradar.storageGiB for why
+a bare number is bytes and why a fraction fails). Kubernetes units are
+case-sensitive: Gi is 2^30 and G is 10^9.
+*/}}
+{{- define "serviceradar.quantityBytes" -}}
+{{- $raw := trim (toString .) -}}
 {{- if contains "." $raw -}}
 {{- fail (printf "storage size %q must be a whole number; use e.g. 1536Gi instead of 1.5Ti" $raw) -}}
 {{- end -}}
@@ -818,7 +867,7 @@ Fails loudly on anything it cannot compute rather than guessing.
 {{- else -}}
 {{- fail (printf "storage size %q uses unsupported unit %q; use Ki/Mi/Gi/Ti/Pi or k/M/G/T/P" $raw $unit) -}}
 {{- end -}}
-{{- div $bytes 1073741824 -}}
+{{- $bytes -}}
 {{- end -}}
 
 {{/*
@@ -846,6 +895,265 @@ spends no extra WAL disk at all, keeping PostgreSQL's own default.
 {{- end -}}
 
 {{/*
+JetStream storage budget (openspec change update-jetstream-storage-budget).
+
+NATS reserves a stream's full max_bytes on every server holding a replica and
+refuses to place a stream when no server has that much of max_file_store left
+(err 10005). The chart therefore owns every reservation ServiceRadar creates:
+it resolves each from its own value or the selected sizing profile
+(files/jetstream-profiles.yaml, nats.jetstream.profile), renders it into the
+environment of the component that creates the stream, and checks the total at
+render time. Moving to a larger profile: docs/nats-jetstream-profile-runbook.md.
+*/}}
+
+{{/*
+A size in the NATS quantity grammar, as bytes. NATS lower-cases the suffix:
+k/m/g/t are powers of 1000 and kb/ki/kib (and the m/g/t equivalents) are powers
+of 1024, so 30G is 30000000000 and 30Gi is 32212254720. A bare number is bytes.
+Fails on anything NATS would not read as a positive size.
+Takes (dict "value" <raw> "what" <value path, for the error>).
+*/}}
+{{- define "serviceradar.natsSizeBytes" -}}
+{{- $v := .value -}}
+{{- $raw := "" -}}
+{{- if kindIs "float64" $v -}}
+{{- if ne (floor $v) $v -}}
+{{- fail (printf "%s: %v is not a whole number of bytes" .what $v) -}}
+{{- end -}}
+{{- $raw = printf "%.0f" $v -}}
+{{- else -}}
+{{- $raw = trim (toString $v) -}}
+{{- end -}}
+{{- if not (regexMatch "^[1-9][0-9]*[A-Za-z]*$" $raw) -}}
+{{- fail (printf "%s: %q is not a positive size; use a whole number of bytes or a NATS quantity such as 30G (10^9 bytes) or 30Gi (2^30 bytes)" .what $raw) -}}
+{{- end -}}
+{{- $n := int64 (regexReplaceAll "^([0-9]+)[A-Za-z]*$" $raw "${1}") -}}
+{{- $unit := lower (regexReplaceAll "^[0-9]+([A-Za-z]*)$" $raw "${1}") -}}
+{{- $mult := dict "" 1 "k" 1000 "kb" 1024 "ki" 1024 "kib" 1024 "m" 1000000 "mb" 1048576 "mi" 1048576 "mib" 1048576 "g" 1000000000 "gb" 1073741824 "gi" 1073741824 "gib" 1073741824 "t" 1000000000000 "tb" 1099511627776 "ti" 1099511627776 "tib" 1099511627776 -}}
+{{- if not (hasKey $mult $unit) -}}
+{{- fail (printf "%s: %q uses unit %q, which NATS does not read; use k/M/G/T (powers of 1000) or Ki/Mi/Gi/Ti (powers of 1024)" .what $raw $unit) -}}
+{{- end -}}
+{{- mul $n (index $mult $unit) -}}
+{{- end -}}
+
+{{/*
+A JetStream replica count: an integer from 1 to 5 (the NATS maximum).
+Takes (dict "value" <raw> "what" <value path, for the error>).
+*/}}
+{{- define "serviceradar.jetstreamReplicaCount" -}}
+{{- $raw := trim (toString .value) -}}
+{{- if not (regexMatch "^[1-5]$" $raw) -}}
+{{- fail (printf "%s: %q is not a JetStream replica count; use an integer from 1 to 5" .what $raw) -}}
+{{- end -}}
+{{- $raw -}}
+{{- end -}}
+
+{{/*
+The JetStream replica count the chart renders: min(configured, nats.replicas)
+when the chart deploys NATS itself (the same gate as templates/nats.yaml), so a
+standalone server never gets a stream with R>1, which nats-server rejects
+(JSStreamReplicasNotSupportedErr), and a cluster never gets more replicas than
+it has servers. Against an external NATS the configured value is kept: the
+chart does not know its size. Every stream replica count the chart renders goes
+through here, and so does the budget.
+Takes (dict "root" <root context> "value" <raw> "what" <value path, for the error>).
+*/}}
+{{- define "serviceradar.jetstreamEffectiveReplicas" -}}
+{{- $r := int64 (include "serviceradar.jetstreamReplicaCount" (dict "value" .value "what" .what)) -}}
+{{- $nats := default (dict) .root.Values.nats -}}
+{{- if or (not (hasKey $nats "enabled")) $nats.enabled -}}
+{{- $servers := int64 (default 1 $nats.replicas) -}}
+{{- if gt $r $servers -}}{{- $r = $servers -}}{{- end -}}
+{{- end -}}
+{{- $r -}}
+{{- end -}}
+
+{{/*
+SERVICERADAR_JS_<STREAM>_<SUFFIX>, where <STREAM> is the stream name upper-cased
+with every other character replaced by "_" (design D7). This is the name every
+size-owning component reads, e.g. SERVICERADAR_JS_KV_SERVICERADAR_DATASVC_MAX_BYTES.
+Takes (dict "stream" <stream name> "suffix" <MAX_BYTES|REPLICAS|...>).
+*/}}
+{{- define "serviceradar.jetstreamEnvName" -}}
+{{- printf "SERVICERADAR_JS_%s_%s" (regexReplaceAll "[^A-Z0-9]" (upper .stream) "_") .suffix -}}
+{{- end -}}
+
+{{/*
+Every JetStream reservation, resolved, plus the render-time budget, as JSON.
+Templates read sizes from here, so the value a component is given is the value
+the budget counted. A size is the explicit chart value when set, otherwise the
+selected profile's; a replica count is the explicit value when set, otherwise
+the profile default.
+
+Budget (design D5), with n = nats.replicas:
+  full   = streams with replicas >= n (a replica on every server)
+  spread = streams with replicas <  n
+  need   = sum(max_bytes of full)
+         + ceil(sum(max_bytes * replicas of spread) / n)
+         + max(max_bytes of spread)
+and need must not exceed 85% of max_file_store. flows and ARANCINI_CAUSAL are
+counted at the collector's size whether or not the collector is enabled: a
+collector that claimed its stream keeps that size after it is disabled. The
+EventWriter fallbacks for them are not counted, so they must not exceed it.
+
+max_file_store must also stay within 94% of nats.persistence.size. That check
+is about the disk, and nats.jetstream.allowOvercommit does not skip it.
+*/}}
+{{- define "serviceradar.jetstreamBudget" -}}
+{{- $v := .Values -}}
+{{- $nats := default (dict) $v.nats -}}
+{{- $js := default (dict) $nats.jetstream -}}
+{{- $persistence := default (dict) $nats.persistence -}}
+{{- $profileName := toString (default "small" $js.profile) -}}
+{{- $data := .Files.Get "files/jetstream-profiles.yaml" | fromYaml -}}
+{{- $profiles := default (dict) $data.profiles -}}
+{{- if not (hasKey $profiles $profileName) -}}
+{{- fail (printf "nats.jetstream.profile %q is not a JetStream sizing profile; use one of: %s" $profileName (keys $profiles | sortAlpha | join ", ")) -}}
+{{- end -}}
+{{- $profile := index $profiles $profileName -}}
+{{- $natsReplicas := int64 (default 1 $nats.replicas) -}}
+{{- /* A one- or two-server NATS takes the profile's single-server table (the
+     Compose sizes): with R3 streams on every server and fewer servers to spread
+     the R1 streams over, the three-server table does not fit. */ -}}
+{{- $profileSizes := default (dict) $profile.sizes -}}
+{{- $sizeTable := "sizes" -}}
+{{- if and (lt $natsReplicas 3) $profile.singleServerSizes -}}
+{{- $profileSizes = $profile.singleServerSizes -}}
+{{- $sizeTable = "singleServerSizes" -}}
+{{- end -}}
+{{- $profileReplicas := default (dict) $data.replicas -}}
+{{- $profileSource := printf "nats.jetstream.profile=%s" $profileName -}}
+{{- if eq $sizeTable "singleServerSizes" -}}
+{{- $profileSource = printf "nats.jetstream.profile=%s single-server" $profileName -}}
+{{- end -}}
+{{- $mfsRaw := $profile.maxFileStore -}}
+{{- $mfsSource := $profileSource -}}
+{{- if and (not (kindIs "invalid" $js.maxFileStore)) (ne (toString $js.maxFileStore) "") -}}
+{{- $mfsRaw = $js.maxFileStore -}}
+{{- $mfsSource = "nats.jetstream.maxFileStore" -}}
+{{- end -}}
+{{- $maxFileStore := int64 (include "serviceradar.natsSizeBytes" (dict "value" $mfsRaw "what" $mfsSource)) -}}
+{{- $pvcSize := toString (default "30Gi" $persistence.size) -}}
+{{- $pvcBytes := int64 (include "serviceradar.quantityBytes" $pvcSize) -}}
+
+{{- $datasvc := default (dict) $v.datasvc -}}
+{{- $logCollector := default (dict) $v.logCollector -}}
+{{- $flowCfg := default (dict) (default (dict) $v.flowCollector).config -}}
+{{- $bmpCfg := default (dict) (default (dict) $v.bmpCollector).config -}}
+{{- $webNg := default (dict) $v.webNg -}}
+{{- $pluginStorage := default (dict) $webNg.pluginStorage -}}
+{{- $fieldSurvey := default (dict) $webNg.fieldSurveyArtifactStore -}}
+{{- $core := default (dict) $v.core -}}
+{{- $threatIntel := default (dict) $core.threatIntelRawPayloadStore -}}
+{{- $ewStreams := default (dict) (default (dict) $core.eventWriter).streams -}}
+
+{{- $entries := list
+  (dict "id" "datasvcKV" "stream" "KV_serviceradar-datasvc" "source" "datasvc.bucketMaxBytes" "value" $datasvc.bucketMaxBytes "replicaSource" "datasvc.jetstreamReplicas" "replicaValue" $datasvc.jetstreamReplicas "counted" true)
+  (dict "id" "datasvcObjects" "stream" "OBJ_serviceradar-objects" "source" "datasvc.objectStoreBytes" "value" $datasvc.objectStoreBytes "replicaSource" "datasvc.jetstreamReplicas" "replicaValue" $datasvc.jetstreamReplicas "counted" true)
+  (dict "id" "events" "stream" "events" "source" "logCollector.streamMaxBytes" "value" $logCollector.streamMaxBytes "replicaSource" "logCollector.streamReplicas" "replicaValue" $logCollector.streamReplicas "counted" true)
+  (dict "id" "flows" "stream" (toString (default "flows" $flowCfg.stream_name)) "source" "flowCollector.config.stream_max_bytes" "value" $flowCfg.stream_max_bytes "replicaSource" "flowCollector.config.stream_replicas" "replicaValue" $flowCfg.stream_replicas "counted" true)
+  (dict "id" "plugins" "stream" (printf "OBJ_%s" (default "serviceradar_plugins" $pluginStorage.jetstreamBucket)) "source" "webNg.pluginStorage.jetstreamMaxBucketBytes" "value" $pluginStorage.jetstreamMaxBucketBytes "replicaSource" "webNg.pluginStorage.jetstreamReplicas" "replicaValue" $pluginStorage.jetstreamReplicas "counted" true)
+  (dict "id" "arancini" "stream" (toString (default "ARANCINI_CAUSAL" $bmpCfg.streamName)) "source" "bmpCollector.config.streamMaxBytes" "value" $bmpCfg.streamMaxBytes "replicaSource" "bmpCollector.config.streamReplicas" "replicaValue" $bmpCfg.streamReplicas "counted" true)
+-}}
+{{- range $name := list "metrics" "k8s_inventory" "analytics_predictions" "mtr_results" "scan_results" "trivy_reports" -}}
+{{- $ewStream := default (dict) (index $ewStreams $name) -}}
+{{- $entries = append $entries (dict "id" $name "stream" $name "source" (printf "core.eventWriter.streams.%s.maxBytes" $name) "value" $ewStream.maxBytes "replicaSource" "" "replicaValue" nil "counted" true) -}}
+{{- end -}}
+{{- $ewFlows := default (dict) (index $ewStreams "flows") -}}
+{{- $ewArancini := default (dict) (index $ewStreams "ARANCINI_CAUSAL") -}}
+{{- $ewNotifications := default (dict) (index $ewStreams "notifications") -}}
+{{- $entries = concat $entries (list
+  (dict "id" "notifications" "stream" "NOTIFICATIONS" "source" "core.eventWriter.streams.notifications.maxBytes" "value" $ewNotifications.maxBytes "replicaSource" "" "replicaValue" nil "counted" true)
+  (dict "id" "fieldsurvey" "stream" (printf "OBJ_%s" (default "serviceradar_fieldsurvey" $fieldSurvey.jetstreamBucket)) "source" "webNg.fieldSurveyArtifactStore.jetstreamMaxBucketBytes" "value" $fieldSurvey.jetstreamMaxBucketBytes "replicaSource" "" "replicaValue" nil "counted" true)
+  (dict "id" "threatIntel" "stream" "OBJ_serviceradar_threat_intel" "source" "core.threatIntelRawPayloadStore.jetstreamMaxBucketBytes" "value" $threatIntel.jetstreamMaxBucketBytes "replicaSource" "" "replicaValue" nil "counted" true)
+  (dict "id" "flowsFallback" "stream" "flows" "source" "core.eventWriter.streams.flows.maxBytes" "value" $ewFlows.maxBytes "replicaSource" "core.eventWriter.streams.flows.replicas" "replicaValue" $ewFlows.replicas "counted" false)
+  (dict "id" "aranciniFallback" "stream" "ARANCINI_CAUSAL" "source" "core.eventWriter.streams.ARANCINI_CAUSAL.maxBytes" "value" $ewArancini.maxBytes "replicaSource" "core.eventWriter.streams.ARANCINI_CAUSAL.replicas" "replicaValue" $ewArancini.replicas "counted" false)
+) -}}
+
+{{- $sizes := dict -}}
+{{- $full := int64 0 -}}
+{{- $spread := int64 0 -}}
+{{- $largest := int64 0 -}}
+{{- $lines := list -}}
+{{- range $e := $entries -}}
+{{- $src := $profileSource -}}
+{{- $raw := index $profileSizes $e.id -}}
+{{- if and $e.source (not (kindIs "invalid" $e.value)) (ne (toString $e.value) "") -}}
+{{- $raw = $e.value -}}
+{{- $src = $e.source -}}
+{{- end -}}
+{{- $mb := int64 (include "serviceradar.natsSizeBytes" (dict "value" $raw "what" $src)) -}}
+{{- $rraw := index $profileReplicas $e.id -}}
+{{- $rsrc := "files/jetstream-profiles.yaml replicas" -}}
+{{- if and $e.replicaSource (not (kindIs "invalid" $e.replicaValue)) (ne (toString $e.replicaValue) "") -}}
+{{- $rraw = $e.replicaValue -}}
+{{- $rsrc = $e.replicaSource -}}
+{{- end -}}
+{{- $configuredR := int64 (include "serviceradar.jetstreamReplicaCount" (dict "value" $rraw "what" $rsrc)) -}}
+{{- $r := int64 (include "serviceradar.jetstreamEffectiveReplicas" (dict "root" $ "value" $rraw "what" $rsrc)) -}}
+{{- $capNote := "" -}}
+{{- if ne $r $configuredR -}}
+{{- $capNote = printf " (capped from R%d by nats.replicas)" $configuredR -}}
+{{- end -}}
+{{- $bucket := "not counted" -}}
+{{- if $e.counted -}}
+{{- if ge $r $natsReplicas -}}
+{{- $full = add $full $mb -}}
+{{- $bucket = "full" -}}
+{{- else -}}
+{{- $spread = add $spread (mul $mb $r) -}}
+{{- if gt $mb $largest -}}{{- $largest = $mb -}}{{- end -}}
+{{- $bucket = "spread" -}}
+{{- end -}}
+{{- $lines = append $lines (printf "%s: %d bytes (%.2f GiB) x R%d%s, %s [%s]" $e.stream $mb (divf $mb 1073741824) $r $capNote $bucket $src) -}}
+{{- end -}}
+{{- $_ := set $sizes $e.id (dict "stream" $e.stream "maxBytes" (printf "%d" $mb) "replicas" (printf "%d" $r) "source" $src "bucket" $bucket) -}}
+{{- end -}}
+
+{{- $spreadShare := div (add $spread (sub $natsReplicas 1)) $natsReplicas -}}
+{{- $need := add $full $spreadShare $largest -}}
+{{- $limit := div (mul $maxFileStore 85) 100 -}}
+{{- $problems := list -}}
+{{- if gt (mul $need 100) (mul $maxFileStore 85) -}}
+{{- $problems = append $problems (printf "the most loaded NATS server may have to reserve %d bytes (%.2f GiB), above the limit of %d bytes (%.2f GiB): 85%% of max_file_store %d bytes (%.2f GiB, from %s) with nats.replicas=%d; need = full + ceil(sum(max_bytes x replicas of spread) / nats.replicas) + largest spread max_bytes = %d + %d + %d bytes (a stream with replicas >= nats.replicas reserves its max_bytes on every server and is full; the others are spread)." $need (divf $need 1073741824) $limit (divf $limit 1073741824) $maxFileStore (divf $maxFileStore 1073741824) $mfsSource $natsReplicas $full $spreadShare $largest) -}}
+{{- end -}}
+{{- range $pair := list (list "flowsFallback" "flows") (list "aranciniFallback" "arancini") -}}
+{{- $fallback := index $sizes (index $pair 0) -}}
+{{- $owner := index $sizes (index $pair 1) -}}
+{{- if gt (int64 $fallback.maxBytes) (int64 $owner.maxBytes) -}}
+{{- $problems = append $problems (printf "the EventWriter fallback for %s (%s bytes from %s) exceeds the collector size the budget counts (%s bytes from %s); lower the fallback or raise the collector size." $fallback.stream $fallback.maxBytes $fallback.source $owner.maxBytes $owner.source) -}}
+{{- end -}}
+{{- end -}}
+{{- $budgetMessage := "" -}}
+{{- if $problems -}}
+{{- $budgetMessage = printf "JetStream storage budget exceeded (nats.jetstream.profile=%s): %s Reservations (max_bytes x replicas, bucket, source): %s. Lower a size, move to a larger sizing profile (docs/nats-jetstream-profile-runbook.md), or set nats.jetstream.allowOvercommit=true to accept that a new stream may not be placeable." $profileName (join " Also, " $problems) (join "; " $lines) -}}
+{{- end -}}
+{{- $diskMessage := "" -}}
+{{- if gt (mul $maxFileStore 100) (mul $pvcBytes 94) -}}
+{{- $diskMessage = printf "NATS max_file_store %d bytes (%.2f GiB, from %s) exceeds 94%% of nats.persistence.size %s (%d bytes), so NATS could promise more space than the volume holds. The StatefulSet volumeClaimTemplates are immutable: moving to a larger profile means expanding every serviceradar-nats PVC first and then raising nats.persistence.size, as docs/nats-jetstream-profile-runbook.md describes. nats.jetstream.allowOvercommit does not skip this check." $maxFileStore (divf $maxFileStore 1073741824) $mfsSource $pvcSize $pvcBytes -}}
+{{- end -}}
+{{- dict "profile" $profileName "sizeTable" $sizeTable "maxFileStore" (printf "%d" $maxFileStore) "natsReplicas" (printf "%d" $natsReplicas) "need" (printf "%d" $need) "limit" (printf "%d" $limit) "sizes" $sizes "budgetMessage" $budgetMessage "diskMessage" $diskMessage | toJson -}}
+{{- end -}}
+
+{{/*
+Render-time guard, called from templates/nats.yaml: always fails on the disk
+ceiling, and fails on the reservation budget unless
+nats.jetstream.allowOvercommit is true.
+Takes (list <root context> <budget dict from serviceradar.jetstreamBudget>).
+*/}}
+{{- define "serviceradar.validateJetStreamBudget" -}}
+{{- $root := index . 0 -}}
+{{- $budget := index . 1 -}}
+{{- $js := default (dict) (default (dict) $root.Values.nats).jetstream -}}
+{{- if $budget.diskMessage -}}
+{{- fail $budget.diskMessage -}}
+{{- end -}}
+{{- if and $budget.budgetMessage (not $js.allowOvercommit) -}}
+{{- fail $budget.budgetMessage -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 serviceradar.flowCollectorConfigJSON -- the flow-collector.json body shared by
 the ordinary ConfigMap (flow-collector.yaml, mounted by the Deployment) and
 the hook-scoped bootstrap ConfigMap (flow-collector-bootstrap-configmap.yaml,
@@ -859,6 +1167,11 @@ will see, including ready_state_path/rehome_state_path.
 {{- $rehomePath := index $cfg "rehome_state_path" | default "/var/lib/serviceradar/flow-collector-rehome.json" -}}
 {{- $_ := set $cfg "ready_state_path" $readyPath -}}
 {{- $_ := set $cfg "rehome_state_path" $rehomePath -}}
+{{- /* The flows reservation is the one the JetStream budget counted: the explicit
+     config value when set, otherwise the sizing profile's. */ -}}
+{{- $flows := (include "serviceradar.jetstreamBudget" . | fromJson).sizes.flows -}}
+{{- $_ := set $cfg "stream_max_bytes" (int64 $flows.maxBytes) -}}
+{{- $_ := set $cfg "stream_replicas" (int64 $flows.replicas) -}}
 {{- toJson $cfg -}}
 {{- end -}}
 
@@ -1058,4 +1371,23 @@ puts that same password into CREATE EXTERNAL CATALOG.
 {{- define "serviceradar.starrocks.readerSecretName" -}}
 {{- $cat := default (dict) (default (dict) (default (dict) .Values.analytics).starrocks).catalog -}}
 {{- default "serviceradar-starrocks-reader" $cat.readerPasswordSecret -}}
+{{- end -}}
+
+{{/*
+serviceradar.boolDefaultTrue renders "true" or "false" for (list $dict "key").
+An absent key, a nil or empty value, or a container that is not a map all mean
+true; an explicit false (the boolean or the string "false") renders "false".
+Use it instead of `default true $x.key`: Sprig's `default` treats false as
+empty, so that form turns an explicit `false` back into true.
+*/}}
+{{- define "serviceradar.boolDefaultTrue" -}}
+{{- $d := index . 0 -}}
+{{- $k := index . 1 -}}
+{{- $v := "" -}}
+{{- if and (kindIs "map" $d) (hasKey $d $k) -}}{{- $v = index $d $k -}}{{- end -}}
+{{- if or (kindIs "invalid" $v) (eq (toString $v) "") -}}true
+{{- else if eq (lower (toString $v)) "false" -}}false
+{{- else if $v -}}true
+{{- else -}}false
+{{- end -}}
 {{- end -}}

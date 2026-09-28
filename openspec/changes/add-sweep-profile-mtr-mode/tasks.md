@@ -27,7 +27,7 @@
 
 ## 3. Sweep profile schema + compiler (Elixir)
 - [ ] 3.1 `sweep_jobs/sweep_profile.ex`: allow `"mtr"` in `sweep_modes`; add
-  `mtr_protocol` / `mtr_max_hops` attributes (+ migration if columns are new).
+  `mtr_protocols` (protocol set) / `mtr_max_hops` attributes (+ migration if columns are new).
 - [ ] 3.2 Sweep-config compiler/distribution: emit `mtr` (+ options) into the
   compiled agent sweep config.
 - [ ] 3.3 ExUnit: profile with `mtr` compiles to a config carrying the mode +

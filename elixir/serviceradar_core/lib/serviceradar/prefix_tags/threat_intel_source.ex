@@ -22,6 +22,7 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSource do
   alias ServiceRadar.PrefixTags.ExternalSources
   alias ServiceRadar.PrefixTags.Loader
   alias ServiceRadar.PrefixTags.Slug
+  alias ServiceRadar.PrefixTags.SnapshotReader
   alias ServiceRadar.PrefixTags.Store
   alias ServiceRadar.Repo
 
@@ -73,27 +74,34 @@ defmodule ServiceRadar.PrefixTags.ThreatIntelSource do
   @spec reload(keyword()) ::
           {:ok, ExternalSources.reload_result()} | {:error, term()}
   def reload(opts \\ []) do
-    broadcast? = Keyword.get(opts, :broadcast?, true)
+    if ExternalSources.enabled?() do
+      with {:ok, result} <- Store.put_stream(@source, &read_snapshot/0) do
+        if Keyword.get(opts, :broadcast?, true),
+          do: Loader.broadcast_invalidation(%{source: @source})
 
-    case SQL.query(Repo, @load_active_sql, []) do
-      {:ok, result} ->
-        %{rows: rows, snapshot_at: snapshot_at} = parse_query_result(result)
-
-        if rows == [] do
-          Store.clear(@source)
-        else
-          _ = Store.put_rows(@source, rows)
-        end
-
-        if broadcast?, do: Loader.broadcast_invalidation(%{source: @source})
-        Logger.info("PrefixTags.ThreatIntelSource loaded ti trie", rows: length(rows))
-        {:ok, ExternalSources.reload_result(length(rows), snapshot_at)}
-
-      {:error, reason} ->
-        {:error, reason}
+        {:ok, ExternalSources.reload_result(result.row_count, result.snapshot_at)}
+      end
+    else
+      {:error, :external_sources_disabled}
     end
   rescue
     e -> {:error, e}
+  end
+
+  defp read_snapshot do
+    %{rows: [[snapshot_at]]} =
+      SQL.query!(Repo, "SELECT max(updated_at) FROM platform.threat_intel_indicators", [])
+
+    # Group the row stream, not each cursor batch: members of one prefix may
+    # straddle a batch boundary. Display caps and expiry apply to the full group.
+    rows =
+      @load_active_sql
+      |> SnapshotReader.stream()
+      |> Stream.flat_map(& &1.rows)
+      |> Stream.chunk_by(&hd/1)
+      |> Stream.flat_map(fn group -> parse_query_result(%{rows: group}).rows end)
+
+    {rows, %{snapshot_at: ExternalSources.normalize_datetime(snapshot_at)}}
   end
 
   @doc false

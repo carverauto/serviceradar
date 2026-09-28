@@ -21,8 +21,53 @@ fn plan_for(query: &str) -> QueryPlan {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
     build_query_plan(&config, &request, ast).expect("should build plan for docs query")
+}
+
+#[test]
+fn entities_without_aggregation_refuse_a_stats_clause() {
+    // A discarded `stats:` clause returns a page of raw rows with a 200, so the
+    // request succeeds and answers a different question than the one asked: a
+    // caller that counts the result counts a page, not the fleet. None of these
+    // modules implements aggregation, so each must refuse rather than ignore.
+    type Translate = fn(&QueryPlan) -> crate::error::Result<(String, Vec<BindParam>)>;
+    let cases: [(&str, Translate); 6] = [
+        (
+            "in:bmp_events stats:count() as n by peer_addr",
+            bmp_events::to_sql_and_params,
+        ),
+        (
+            "in:capacity_forecasts stats:count() as n by device_id",
+            capacity_forecasts::to_sql_and_params,
+        ),
+        (
+            "in:endpoint_inventory_scans stats:count() as n by device_id",
+            endpoint_inventory_scans::to_sql_and_params,
+        ),
+        (
+            "in:field_survey_sessions stats:count() as n by device_id",
+            field_survey::to_sql_and_params,
+        ),
+        (
+            "in:source_fact_disagreements stats:count() as n by device_id",
+            source_fact_disagreements::to_sql_and_params,
+        ),
+        (
+            "in:virtualization_guests stats:count() as n by device_id",
+            virtualization::to_sql_and_params,
+        ),
+    ];
+
+    for (query, translate) in cases {
+        let plan = plan_for(query);
+        let result = translate(&plan);
+        assert!(
+            matches!(result, Err(crate::error::ServiceError::InvalidRequest(_))),
+            "{query} must be refused, not silently answered as a row query"
+        );
+    }
 }
 
 #[test]
@@ -36,6 +81,7 @@ fn other_rollup_rejects_non_flow_stats_entities() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let err = build_query_plan(&config, &request, ast)
@@ -62,7 +108,6 @@ fn has_availability_filter(plan: &QueryPlan, expected: bool) -> bool {
 
 fn test_config() -> AppConfig {
     AppConfig {
-        listen_addr: "127.0.0.1:0".parse().unwrap(),
         database_url: "postgres://example/db".to_string(),
         age_graph_name: "platform_graph".to_string(),
         starrocks_database: "serviceradar".to_string(),
@@ -72,16 +117,11 @@ fn test_config() -> AppConfig {
         database_client_cert_pem: None,
         database_client_key_pem: None,
         database_tls_server_name: None,
-        api_key: None,
-        api_key_kv_key: None,
-        allowed_origins: None,
         cursor_secret: "test-cursor-secret".to_string(),
         max_cursor_offset: 100_000,
         default_limit: 100,
         max_limit: 500,
         request_timeout: StdDuration::from_secs(30),
         db_statement_timeout: StdDuration::from_secs(30),
-        rate_limit_max_requests: 120,
-        rate_limit_window: StdDuration::from_secs(60),
     }
 }

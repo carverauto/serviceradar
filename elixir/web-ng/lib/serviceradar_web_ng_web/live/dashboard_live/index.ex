@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   alias ServiceRadarWebNGWeb.DashboardLive.Window
   alias ServiceRadarWebNGWeb.DashboardLive.WindowRefresh
   alias ServiceRadarWebNGWeb.ObservabilityPaths
+  alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   require Logger
 
@@ -18,24 +19,40 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   @camera_relay_poll_interval_ms 1_000
 
   @impl true
-  def mount(_params, _session, socket) do
+  def mount(params, _session, socket) do
     socket =
       socket
       |> assign(:page_title, "Unified Operations Dashboard")
       |> assign(:current_path, "/dashboard")
       |> assign(:camera_preview_tiles, [])
       |> assign(:dashboard_package_instances, [])
+      |> assign(:query_results, nil)
+      |> assign(:srql, %{enabled: false})
       |> assign_dashboard(Data.empty())
       |> assign_window_preferences()
 
     socket =
-      if connected?(socket) do
+      if connected?(socket) and Map.get(params, "q") in [nil, ""] do
         start_dashboard_slices(socket)
       else
         socket
       end
 
     {:ok, socket}
+  end
+
+  @impl true
+  def handle_params(%{"q" => query} = params, uri, socket) when is_binary(query) and query != "" do
+    entity = SRQLPage.entity_from_query(query) || "timeseries_metrics"
+
+    {:noreply,
+     socket
+     |> SRQLPage.init(entity)
+     |> SRQLPage.load_list(params, uri, :query_results, default_limit: 100, max_limit: 50_000)}
+  end
+
+  def handle_params(_params, _uri, socket) do
+    {:noreply, assign(socket, query_results: nil, srql: %{enabled: false})}
   end
 
   @impl true
@@ -151,6 +168,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index do
   def render(assigns), do: Page.render(assigns)
 
   @impl true
+  def handle_event("srql_" <> _ = event, params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, event, params, fallback_path: "/dashboard")}
+  end
+
   def handle_event("select_dashboard_window", %{"kind" => kind, "window" => value}, socket)
       when kind in ["netflow", "events"] do
     if Window.valid?(value) do

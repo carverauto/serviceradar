@@ -698,6 +698,17 @@ is deliberate: an interest stream discards a message once every *known* consumer
 has acknowledged it, and the whole point of the firehose is that a consumer
 which was absent can come back and catch up.
 
+Configure the firehose size through the notification stream setting in
+[Helm configuration](./helm-configuration.md), or set
+`SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES` to a positive integer byte count
+outside Helm. Unset or blank values use the compiled default; invalid values
+fail startup. On the first publish after a node starts, the publisher applies
+the configured cap to the existing stream. Lowering a discard-old stream's cap
+can remove retained envelopes immediately, so subscribers may encounter the
+`cursor_gap` response described below. Reconciliation failures are logged and
+retried on later publishes; they do not prevent the publish attempt. The retry
+and discard-policy details are owned by `ServiceRadar.Notifications.StreamPublisher`.
+
 With no cursor, an existing durable resumes its broker ACK position. A new
 durable begins at the current stream tail, so its first join does not replay
 notifications published before that client existed. Supplying a cursor makes

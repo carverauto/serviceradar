@@ -25,7 +25,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   alias ServiceRadar.Observability.AnomalyDispositionReporter
   alias ServiceRadar.Observability.BmpSettingsRuntime
   alias ServiceRadar.Observability.CausalPubSub
-  alias ServiceRadar.Observability.StatefulAlertEvaluationQueue
+  alias ServiceRadar.Observability.StatefulEvaluationLedger
 
   require Logger
 
@@ -143,17 +143,28 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
       warehouse = Destination.persist_after_cnpg(:events, bulk_ocsf_rows ++ persisted_ocsf_rows)
 
       dispatch_northbound_inventory_transitions(recorded_ocsf_events)
-      enqueue_alert_evaluation(bulk_ocsf_rows, bulk_ocsf_count)
-      enqueue_alert_evaluation(recorded_ocsf_events, length(recorded_ocsf_events))
+
+      # Insert-only rows are evaluated once per event (the ledger),
+      # synchronously: an engine failure fails the batch and its redelivery
+      # evaluates exactly the rows that did not finish. Lifecycle rows are
+      # upserted under a stable event id, so a later transition reuses an
+      # evaluated id; they are evaluated per transition instead, which the
+      # locked prior-state read already makes exactly-once.
+      evaluation =
+        bulk_ocsf_rows
+        |> alert_evaluation_rows()
+        |> StatefulEvaluationLedger.evaluate_once()
+
+      evaluate_transitions(recorded_ocsf_events)
 
       report_anomaly_dispositions(recorded_ocsf_events)
 
       ocsf_count = bulk_ocsf_count + length(recorded_ocsf_events)
       CausalPubSub.broadcast_ingest(%{count: ocsf_count})
 
-      case warehouse do
-        {:ok, _} -> {:ok, length(parsed_rows)}
-        {:error, reason} -> {:error, reason}
+      with {:ok, _} <- warehouse,
+           :ok <- evaluation do
+        {:ok, length(parsed_rows)}
       end
     end
   rescue
@@ -691,20 +702,17 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     )
   end
 
-  defp enqueue_alert_evaluation(_ocsf_rows, inserted_count)
-       when not is_integer(inserted_count) or inserted_count <= 0,
-       do: :ok
+  # A transition that was recorded cannot be detected again on redelivery, so
+  # failing the batch would not retry it; the failure is logged instead.
+  defp evaluate_transitions([]), do: :ok
 
-  defp enqueue_alert_evaluation(ocsf_rows, _inserted_count) when is_list(ocsf_rows) do
-    ocsf_rows
-    |> alert_evaluation_rows()
-    |> alert_evaluation_queue().enqueue_events()
-    |> case do
+  defp evaluate_transitions(rows) do
+    case rows |> alert_evaluation_rows() |> StatefulEvaluationLedger.engine().evaluate_events() do
       :ok ->
         :ok
 
       {:error, reason} ->
-        Logger.warning("Causal signal alert evaluation enqueue failed",
+        Logger.warning("Stateful alert evaluation of signal transitions failed",
           reason: inspect(reason)
         )
     end
@@ -800,14 +808,6 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   end
 
   defp canonicalize_alert_evaluation_row(row), do: row
-
-  defp alert_evaluation_queue do
-    Application.get_env(
-      :serviceradar_core,
-      :stateful_alert_evaluation_queue,
-      StatefulAlertEvaluationQueue
-    )
-  end
 
   # Out-of-band, report-only anomaly disposition (OpenSpec 1.11). After the class-2004
   # anomaly findings are persisted, fire-and-forget each to AnomalyDispositionReporter,

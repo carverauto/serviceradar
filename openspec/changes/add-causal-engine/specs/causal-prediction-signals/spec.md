@@ -125,7 +125,7 @@ Verdicts SHALL map cleanly to the God-View four causal buckets
 `root_cause | affected | healthy | unknown` (see `topology-god-view`) without
 altering the existing snapshot contract. Mapping a verdict to a bucket SHALL be
 deterministic for a given verdict state. This delta SHALL NOT change the
-`GodViewSnapshot` `schema_version` (which remains `2`) and SHALL NOT add or remove
+`GodViewSnapshot` `schema_version` and SHALL NOT add or remove
 buckets. Verdicts that resolve to a canonical device id which the render layer has
 summarized into an endpoint-cluster summary node MUST still be classifiable; a
 verdict on a summarized device id SHALL NOT silently fail to render (it MUST map to
@@ -139,7 +139,7 @@ handling in `causal-engine`.
 
 #### Scenario: Snapshot schema version unchanged
 - **WHEN** verdicts are rendered into a God-View snapshot
-- **THEN** the `GodViewSnapshot` `schema_version` SHALL remain `2`
+- **THEN** the `GodViewSnapshot` `schema_version` SHALL NOT change as a result of this delta
 - **AND** the four-bucket set SHALL NOT be extended or reduced
 
 #### Scenario: Verdict on a summarized device id still classifies

@@ -26,6 +26,9 @@ common --enable_platform_specific_config
 common --downloader_config=tools/bazel/downloader.cfg
 # Detailed profiling in BuildBuddy
 common --noslim_profile
+# TLC (//build/tla:tlc) runs on the hermetic remote JDK, never the host's Java.
+# No other target in the repository is a java_binary/java_test.
+common --java_runtime_version=remotejdk_21
 # common --experimental_profile_include_target_label
 # common --experimental_profile_include_primary_output
 # Do NOT put repository_cache / disk_cache / distdir under the source tree.

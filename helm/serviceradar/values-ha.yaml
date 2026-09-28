@@ -23,10 +23,11 @@ topologySpread:
 nats:
   replicas: 3
 
-# Avoid scaling workloads with shared ReadWriteOnce volumes by default. Enable
-# this in an environment-specific values file only when existingClaim or
-# storageClassName points at RWX-capable storage, and set accessModes to
-# ReadWriteMany for newly created claims.
+# Avoid scaling workloads with shared ReadWriteOnce volumes by default. The
+# chart default (geoipMmdb.emptyDir: true) gives each replica its own scratch
+# volume, so HA installs can simply enable this. Use a shared claim only when
+# existingClaim or storageClassName points at RWX-capable storage, and set
+# accessModes to ReadWriteMany for newly created claims.
 geoipMmdb:
   enabled: false
 

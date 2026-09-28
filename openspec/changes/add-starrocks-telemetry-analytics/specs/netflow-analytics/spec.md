@@ -2,15 +2,15 @@
 
 ### Requirement: NetFlow collection is independent of StarRocks
 The system SHALL leave NetFlow collection independently gated by Helm and Compose, SHALL keep NetFlow collection and persistence working when StarRocks analytics is disabled, and SHALL NOT make the collector depend on the warehouse in either direction.
-Flow serving is warehouse-only. CNPG hypertables remain the flow write target, and SHALL NOT be read as a flow serving path: a flow read SHALL be answered from StarRocks once the `flows` dataset is cut over, and SHALL otherwise be refused with an explicit warehouse-required error rather than silently answered from CNPG.
+Flow serving is warehouse-only. CNPG hypertables are the flow write target only when StarRocks is disabled, and SHALL NOT be read as a flow serving path: a flow read SHALL be answered from StarRocks when it is enabled, and SHALL otherwise be refused with an explicit warehouse-required error rather than silently answered from CNPG.
 
 #### Scenario: Collector enablement without the warehouse
 - **WHEN** `flowCollector.enabled` is true and `analytics.starrocks.enabled` is false
 - **THEN** the collector is deployed and installation does not fail
 - **AND** CNPG hypertables remain the NetFlow store
 
-#### Scenario: A flow read before the dataset is cut over
-- **WHEN** a dashboard panel or an `in:flows` query runs while `flows` is absent from the cutover setting
+#### Scenario: A flow read with StarRocks disabled
+- **WHEN** a dashboard panel or an `in:flows` query runs while StarRocks is disabled
 - **THEN** the read is refused with an explicit warehouse-required error
 - **AND** no flow rows are served from the CNPG hypertable
 

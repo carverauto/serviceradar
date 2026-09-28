@@ -5,6 +5,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
 
   import ServiceRadarWebNGWeb.SRQLComponents, only: [srql_sparkline: 1]
 
+  alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrDepth
+  alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrHandshake
+
   attr(:device_uid, :string, required: true)
   attr(:fallback_target, :string, default: nil)
   attr(:traces, :list, default: [])
@@ -26,6 +29,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
       assigns
       |> assign(:mtr_dashboard, dashboard)
       |> assign(:recent_trace_bars, recent_trace_bars)
+      |> assign(:latest_by_protocol, latest_trace_by_protocol(assigns.recent_traces))
 
     ~H"""
     <div class="space-y-4">
@@ -39,6 +43,30 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
             View All
           </.ui_button>
         </div>
+      </div>
+
+      <div
+        :if={length(@latest_by_protocol) > 1}
+        id="device-mtr-latest-by-protocol"
+        class="sr-mtr-card flex flex-wrap items-center gap-x-6 gap-y-2 p-3"
+      >
+        <span class="sr-mtr-label">Latest by protocol</span>
+        <button
+          :for={trace <- @latest_by_protocol}
+          type="button"
+          phx-click="view_mtr_trace"
+          phx-value-id={trace["id"]}
+          class="flex items-center gap-2 text-sm"
+        >
+          <.ui_badge size="sm" variant="ghost">
+            {String.upcase(trace["protocol"] || "icmp")}
+          </.ui_badge>
+          <.ui_badge :if={trace["target_reached"]} size="sm" variant="success">Reached</.ui_badge>
+          <.ui_badge :if={!trace["target_reached"]} size="sm" variant="error">Not reached</.ui_badge>
+          <span class="font-mono" title={MtrDepth.depth_summary(trace)}>
+            {MtrDepth.hop_count_label(trace)} hops
+          </span>
+        </button>
       </div>
 
       <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4 min-[1800px]:grid-cols-8">
@@ -66,11 +94,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
             </div>
           </div>
         </div>
-        <div class="sr-mtr-card p-4">
+        <div id="device-mtr-avg-responding-depth" class="sr-mtr-card p-4">
           <div class="sr-mtr-label">
-            Avg Hop Depth
+            Avg Responding Depth
           </div>
-          <div class="sr-mtr-value mt-2 text-3xl">{@mtr_dashboard.avg_hops}</div>
+          <div class="sr-mtr-value mt-2 text-3xl">{@mtr_dashboard.avg_responding_depth}</div>
+          <div class="sr-mtr-muted text-sm">deepest hop that answered</div>
         </div>
         <div id="device-mtr-destination-latency" class="sr-mtr-card p-4">
           <div class="sr-mtr-label">
@@ -239,7 +268,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
                   Unreachable
                 </.ui_badge>
               </td>
-              <td class="text-center">{trace["total_hops"]}</td>
+              <td class="text-center font-mono" title={MtrDepth.depth_summary(trace)}>
+                {MtrDepth.hop_count_label(trace)}
+              </td>
               <td>
                 <.ui_badge size="sm" variant="ghost">
                   {String.upcase(trace["protocol"] || "icmp")}
@@ -314,7 +345,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
   attr(:timezone, :string, default: "Etc/UTC")
 
   def mtr_trace_modal(assigns) do
-    assigns = assign(assigns, :hop_dashboard, mtr_hop_dashboard(assigns.trace, assigns.hops))
+    {hop_rows, silent_tail} = MtrDepth.collapse_trailing_loss(assigns.hops || [])
+
+    assigns =
+      assigns
+      |> assign(:hop_dashboard, mtr_hop_dashboard(assigns.trace, assigns.hops))
+      |> assign(:hop_rows, hop_rows)
+      |> assign(:silent_tail, silent_tail)
+      |> assign(:depth_trace, is_map(assigns.trace) && Map.put(assigns.trace, "hops", assigns.hops || []))
 
     ~H"""
     <%= if @show and @trace do %>
@@ -354,6 +392,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
               <div class="sr-mtr-label">Protocol</div>
               <div class="mt-1 text-sm font-medium text-sr-ink">
                 {String.upcase(@trace["protocol"] || "icmp")}
+                <span :if={@trace["tcp_port"]} class="text-sr-muted">port {@trace["tcp_port"]}</span>
               </div>
             </div>
             <div class="min-w-0 rounded-lg border border-sr-line bg-sr-subtle/40 px-3 py-2.5">
@@ -375,7 +414,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
           >
             <div class="sr-mtr-card p-4">
               <div class="sr-mtr-label">Hop Count</div>
-              <div class="sr-mtr-value mt-2 text-2xl tabular-nums">{@hop_dashboard.hop_count}</div>
+              <div class="sr-mtr-value mt-2 text-2xl tabular-nums">
+                {MtrDepth.hop_count_label(@depth_trace)}
+              </div>
+              <div class="sr-mtr-muted mt-1 text-xs">{MtrDepth.depth_summary(@depth_trace)}</div>
             </div>
             <div class="sr-mtr-card p-4">
               <div class="sr-mtr-label">Destination Loss</div>
@@ -400,6 +442,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
             </div>
           </div>
 
+          <div :if={@trace["protocol"] == "tcp"} class="sr-mtr-panel mb-4 p-4">
+            <MtrHandshake.handshake_panel trace={@trace} id="device-mtr-tcp-handshake" />
+          </div>
+
           <div
             :if={@hops != []}
             class="sr-mtr-panel mb-4 p-4"
@@ -409,12 +455,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
               <div class="sr-mtr-muted text-xs">latency width · loss tint</div>
             </div>
             <div class="mt-4 space-y-3">
-              <div :for={hop <- @hops} class="space-y-1.5">
+              <div :for={hop <- @hop_rows} class="space-y-1.5">
                 <div class="flex items-baseline justify-between gap-3 text-xs">
                   <span class="min-w-0 truncate font-mono text-sr-ink">
                     <span class="text-sr-muted">hop {hop["hop_number"]}</span>
                     <span class="text-sr-muted"> · </span>
                     <span title={hop["addr"] || "???"}>{hop["addr"] || "???"}</span>
+                    <span
+                      :if={MtrDepth.unreachable_kind(hop["unreachable_code"], @trace["ip_version"])}
+                      class="text-warning"
+                    >
+                      · {MtrDepth.unreachable_kind(hop["unreachable_code"], @trace["ip_version"])}
+                    </span>
                   </span>
                   <span class="shrink-0 tabular-nums text-sr-muted">
                     {format_us_mtr(hop["avg_us"])}
@@ -450,10 +502,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
                   <th class="text-right">Avg</th>
                   <th class="text-right">Min</th>
                   <th class="text-right">Max</th>
+                  <th title="Replies by kind: Time Exceeded, Destination Unreachable, SYN-ACK, RST">
+                    Replies
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                <tr :for={hop <- @hops}>
+                <tr :for={hop <- @hop_rows}>
                   <td class="text-center font-mono tabular-nums">{hop["hop_number"]}</td>
                   <td class="font-mono text-sm">{hop["addr"] || "???"}</td>
                   <td class="max-w-[14rem] truncate text-sm" title={hop["hostname"]}>
@@ -477,9 +532,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
                   <td class="text-right font-mono text-sm tabular-nums">
                     {format_us_mtr(hop["max_us"])}
                   </td>
+                  <td class="font-mono text-xs">{MtrHandshake.reply_summary(hop)}</td>
+                </tr>
+                <tr :if={@silent_tail} class="opacity-50">
+                  <td class="text-center font-mono tabular-nums">
+                    {@silent_tail.from}-{@silent_tail.to}
+                  </td>
+                  <td colspan="8" class="text-sm text-sr-muted">
+                    {@silent_tail.count} hops with no reply (probing continued past the last answer)
+                  </td>
                 </tr>
                 <tr :if={@hops == []}>
-                  <td colspan="8" class="sr-mtr-muted py-4 text-center">
+                  <td colspan="9" class="sr-mtr-muted py-4 text-center">
                     No hop data available
                   </td>
                 </tr>
@@ -556,9 +620,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
     trace_count = length(traces)
     failed_count = max(trace_count - reached_count, 0)
 
-    avg_hops =
+    avg_responding_depth =
       traces
-      |> Enum.map(&mtr_trace_total_hops/1)
+      |> Enum.map(&MtrDepth.last_responding_hop/1)
       |> Enum.reject(&(&1 <= 0))
       |> average_mtr_number()
 
@@ -608,7 +672,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
       reached_count: reached_count,
       failed_count: failed_count,
       success_rate: success_rate,
-      avg_hops: Float.round(avg_hops, 1),
+      avg_responding_depth: Float.round(avg_responding_depth, 1),
       avg_latency_label: format_us_mtr(avg_latency_us),
       destination_loss_pct: destination_loss_pct,
       endpoint_sample_count: endpoint_sample_count
@@ -705,14 +769,27 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
   defp loss_class_for_modal(pct) when is_number(pct) and pct >= 10, do: "text-warning"
   defp loss_class_for_modal(_), do: ""
 
+  @doc false
+  # Newest trace of each protocol, in icmp/udp/tcp order. `traces` arrive
+  # newest first, so the first trace seen per protocol is the latest.
+  def latest_trace_by_protocol(traces) when is_list(traces) do
+    latest =
+      traces
+      |> Enum.filter(&is_map/1)
+      |> Enum.reduce(%{}, fn trace, acc ->
+        protocol = trace |> Map.get("protocol", "icmp") |> to_string() |> String.downcase()
+        Map.put_new(acc, protocol, trace)
+      end)
+
+    ["icmp", "udp", "tcp"]
+    |> Enum.map(&Map.get(latest, &1))
+    |> Enum.reject(&is_nil/1)
+  end
+
+  def latest_trace_by_protocol(_traces), do: []
+
   defp mtr_hop_dashboard(trace, hops) do
     hops = List.wrap(hops)
-
-    avg_loss_pct =
-      hops
-      |> Enum.map(&hop_loss_pct/1)
-      |> Enum.reject(&is_nil/1)
-      |> average_mtr_number()
 
     max_avg_us =
       hops
@@ -727,8 +804,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
       |> Enum.max(fn -> 0.0 end)
 
     %{
-      hop_count: length(hops),
-      avg_loss_pct: Float.round(avg_loss_pct, 1),
       max_avg_us: max_avg_us,
       max_loss_pct: max_loss_pct,
       destination_loss_pct: destination_loss_pct(trace, hops)

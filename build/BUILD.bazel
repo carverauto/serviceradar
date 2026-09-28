@@ -3,6 +3,7 @@ load("@rules_python//python:defs.bzl", "py_test")
 load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "string_flag")
 load("@rules_elixir//:ex_unit_test.bzl", "ex_unit_test")
 load("@rules_elixir//:mix_payloads.bzl", "mix_payloads")
+load("@rules_python//python:defs.bzl", "py_test")
 load(":integration_shards.bzl", "integration_selection_runner_names")
 load(
     ":integration_shards_test.bzl",
@@ -159,9 +160,10 @@ run_id_file(
 # ahead-check prescribes had nothing to rebase onto.
 #
 # Being GREEN is not the property that matters -- a passing unmerged branch ratchets it exactly
-# the same way. Being on TRUNK is. So exactly one action in //buildbuddy.yaml passes this --
-# `LargeIngestionGate`, which triggers on push to `staging` -- and pull requests, benchmark
-# branches and workstations apply their migrations to the per-run base instead.
+# the same way. Being on TRUNK is. `LargeIngestionGate` was once the only action that passed
+# this. Since the generation cutover NO action does: every workflow clones immutable per-digest
+# `sr_tpl_*` generations, `sr_core_template` is a frozen rollback artifact, and
+# //build/contracts:ci_heavy_gate_contract_test fails if any active workflow passes the flag.
 #
 # What it gates is the RATCHET, precisely: the migration set the template carries. It does not
 # gate `ensure_template`'s create-if-absent, which `provision_base` still performs on any run --
@@ -225,5 +227,15 @@ py_test(
         "//go/pkg/edge/execstate:all_test_srcs",
         "//go/pkg/edge/projection:all_test_srcs",
         "//proto/edge/v1:all_test_srcs",
+    ],
+)
+
+py_test(
+    name = "edge_projection_accounting_test",
+    srcs = ["edge_projection_accounting_test.py"],
+    data = [
+        "//elixir/serviceradar_core:accounting_guard_sources",
+        "//go/pkg/edge/edgerecord:accounting_guard_sources",
+        "//go/pkg/edge/projection:accounting_guard_sources",
     ],
 )

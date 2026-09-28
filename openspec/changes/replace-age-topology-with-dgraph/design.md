@@ -189,7 +189,8 @@ the user has to run:
 
 The official Dgraph chart (or in-tree templates that render the same
 StatefulSets) is a Helm dependency of `helm/serviceradar`, enabled by
-default. Images stay on `registry.carverauto.dev/mirror/dgraph/dgraph`.
+default. The chart pulls `docker.io/dgraph/dgraph` (`v25.4.0`); the Harbor
+mirror is kept only for `k8s/dgraph`.
 Application pods get `dgraph://` from the release, not from a hand-edited
 endpoint.
 
@@ -255,16 +256,10 @@ the existing Elixir/Rust logic. Only the persist/query adapter changes.
 
 ### D7. Rebuild-from-evidence is the data migration; AGE dump is the checksum
 
-AGE is not the system of record. The migrator binary therefore has two modes:
-
-1. **Rebuild** (default, operator-safe): run the existing canonical rebuild
-   against Dgraph from current mapper evidence. This is the same function as
-   `rebuild_canonical_links_from_current/0` with a Dgraph adapter. It is
-   idempotent and is how a polluted graph is recovered after cutover too.
-2. **Checksum**: walk AGE `platform_graph`, walk Dgraph, compare node/edge
-   counts and a canonical-edge content hash. Fail the Job if they disagree
-   beyond a documented tolerance (unresolved endpoints, stale inferred edges
-   that the rebuild would drop anyway).
+AGE is not the system of record. The migration binary and core's ongoing
+canonical reconciliation are separate paths. Their sources, cutover controls,
+and recovery boundaries are documented in
+[Network Topology](../../../docs/docs/network-topology.md#dgraph-topology-store).
 
 An AGE **dump-and-load** path exists as a bootstrap for lab graphs that have
 no evidence tables, and as a debug aid. It is not the production cutover.
@@ -634,5 +629,13 @@ and rebuild AGE from evidence (the evidence tables never moved).
   matching today's `graph_cypher` contract.
 - OpenText config-retrieve command name and whether startup-config is in
   v1 or running-config only. Default: running-config only.
+- Resolved (verified against a live NA wrapper): config-retrieve reads NA's
+  stored config, never a device show command. `list config -deviceid` returns
+  revisions oldest first; the plugin picks the newest `configuration` revision
+  by `createDate` and sends `show config -id <rev> -mask`, which returns
+  `{"result": "<config>"}` with secrets replaced by `xxx`. Valueless CLI flags
+  are sent as empty strings. `show configlet -deviceid -start -end` returns a
+  scoped block the same way and is the basis for interface-scoped config
+  checks (not yet a plugin mode).
 - Whether a change selector that is "this VRF" or "this device group" is
   v1. Default: v1 selectors are device uid, IP, and CIDR prefix only.

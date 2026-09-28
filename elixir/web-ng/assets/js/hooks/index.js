@@ -25,6 +25,7 @@ import RemoteAccessTCPText from "./RemoteAccessTCPText"
 import RemoteAccessTerminal from "./RemoteAccessTerminal"
 import RemoteConsoleTerminal from "./RemoteConsoleTerminal"
 import SettingsNavTree from "./SettingsNavTree"
+import ServicePickerKeys from "./ServicePickerKeys"
 import SettingsViewFilter from "./SettingsViewFilter"
 import SRQLEditor from "./SRQLEditor"
 import SRQLInput from "./SRQLInput"
@@ -76,6 +77,7 @@ export default {
   RemoteAccessTerminal,
   RemoteConsoleTerminal,
   SettingsNavTree,
+  ServicePickerKeys,
   SettingsViewFilter,
   SRQLEditor,
   SRQLInput,

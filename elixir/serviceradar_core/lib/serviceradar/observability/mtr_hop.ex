@@ -46,6 +46,8 @@ defmodule ServiceRadar.Observability.MtrHop do
         :id,
         :time,
         :trace_id,
+        :target_ip,
+        :device_id,
         :hop_number,
         :addr,
         :hostname,
@@ -63,7 +65,12 @@ defmodule ServiceRadar.Observability.MtrHop do
         :stddev_us,
         :jitter_us,
         :jitter_worst_us,
-        :jitter_interarrival_us
+        :jitter_interarrival_us,
+        :unreachable_code,
+        :reply_time_exceeded,
+        :reply_unreachable,
+        :reply_synack,
+        :reply_rst
       ]
     end
   end
@@ -94,6 +101,18 @@ defmodule ServiceRadar.Observability.MtrHop do
       allow_nil? false
       public? true
       description "Parent trace ID"
+    end
+
+    attribute :target_ip, :string do
+      public? true
+
+      description "Owning trace's target, denormalised so hop metrics can be scoped to the device they measured. Nil on rows written before the attribution backfill, which is also its resume marker. Prefer this over device_id."
+    end
+
+    attribute :device_id, :string do
+      public? true
+
+      description "Owning trace's device_id, denormalised alongside target_ip. On the bulk-scheduled path this is the originating command's id rather than a device uid, so grouping by it yields one row per command."
     end
 
     attribute :hop_number, :integer do
@@ -178,6 +197,32 @@ defmodule ServiceRadar.Observability.MtrHop do
 
     attribute :jitter_interarrival_us, :integer do
       public? true
+    end
+
+    attribute :unreachable_code, :integer do
+      public? true
+
+      description "ICMP Destination Unreachable code this hop returned (ICMPv4 or ICMPv6 numbering)"
+    end
+
+    attribute :reply_time_exceeded, :integer do
+      public? true
+      description "ICMP Time Exceeded replies from this hop"
+    end
+
+    attribute :reply_unreachable, :integer do
+      public? true
+      description "ICMP Destination Unreachable replies from this hop"
+    end
+
+    attribute :reply_synack, :integer do
+      public? true
+      description "TCP SYN-ACK replies from this hop"
+    end
+
+    attribute :reply_rst, :integer do
+      public? true
+      description "TCP RST replies from this hop"
     end
 
     attribute :created_at, :utc_datetime_usec do

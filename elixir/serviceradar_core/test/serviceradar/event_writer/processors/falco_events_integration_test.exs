@@ -7,6 +7,7 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEventsIntegrationTest do
   alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
+  alias ServiceRadar.TestSupport.ScriptedStatefulAlertEngine
 
   @moduletag :integration
 
@@ -51,7 +52,7 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEventsIntegrationTest do
         }
       })
 
-    with_stateful_rule_loading_disabled(fn ->
+    with_stubbed_alert_engine(fn ->
       assert {:ok, 1} = FalcoEvents.process_batch([message])
       assert {:ok, 0} = FalcoEvents.process_batch([message])
     end)
@@ -92,6 +93,35 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEventsIntegrationTest do
     assert diagnostics["kubernetes"]["namespace"] == "ci"
     assert diagnostics["kubernetes"]["pod"] == "runner-0"
     assert diagnostics["attribution"]["status"] == "resolved"
+  end
+
+  test "a failed evaluation fails the batch, and redelivery evaluates each event once" do
+    ScriptedStatefulAlertEngine.use_in_test([{:error, :engine_restarting}])
+    event_uuid = Ash.UUID.generate()
+
+    message =
+      falco_message(%{
+        "uuid" => event_uuid,
+        "output" => "Synthetic ledger probe",
+        "priority" => "Critical",
+        "rule" => "Synthetic ledger probe #{event_uuid}",
+        "time" => DateTime.to_iso8601(DateTime.utc_now()),
+        "hostname" => "host01.example.com",
+        "source" => "syscall"
+      })
+
+    # The event is stored, but its evaluation failed: the batch fails so
+    # JetStream redelivers it.
+    assert {:error, :engine_restarting} = FalcoEvents.process_batch([message])
+    assert_receive {:evaluated, [%{id: ^event_uuid}]}
+
+    # The redelivery stores nothing new, yet finishes the evaluation.
+    assert {:ok, 0} = FalcoEvents.process_batch([message])
+    assert_receive {:evaluated, [%{id: ^event_uuid}]}
+
+    # Once evaluated, a further redelivery does not count the event again.
+    assert {:ok, 0} = FalcoEvents.process_batch([message])
+    refute_receive {:evaluated, _}
   end
 
   test "stateful alert evaluation receives textual UUIDs for promoted Falco events" do
@@ -186,15 +216,11 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEventsIntegrationTest do
     }
   end
 
-  defp with_stateful_rule_loading_disabled(fun) do
-    previous = Application.get_env(:serviceradar_core, :repo_enabled, true)
-    Application.put_env(:serviceradar_core, :repo_enabled, false)
-
-    try do
-      fun.()
-    after
-      Application.put_env(:serviceradar_core, :repo_enabled, previous)
-    end
+  # These tests are about persistence, so the stateful alert engine is stubbed:
+  # evaluation succeeds without loading or firing real rules.
+  defp with_stubbed_alert_engine(fun) do
+    ScriptedStatefulAlertEngine.use_in_test()
+    fun.()
   end
 
   defp reset_engine do

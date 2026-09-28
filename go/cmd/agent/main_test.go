@@ -116,6 +116,57 @@ func TestLoadConfigAcceptsDeprecatedRemoteAccessKnownHostsFile(t *testing.T) {
 	}
 }
 
+func TestLoadConfigParsesEdgeRecordSender(t *testing.T) {
+	t.Parallel()
+
+	path := writeAgentConfig(t, `{
+		"agent_id": "k8s-agent",
+		"checkers_dir": "/var/lib/serviceradar/checkers",
+		"gateway_addr": "serviceradar-agent-gateway:50052",
+		"edge_record_sender": {
+			"enabled": true,
+			"spool_dir": "/var/lib/serviceradar/edge-spool",
+			"poll_interval": "45s"
+		}
+	}`)
+
+	cfg, err := loadConfig(path)
+	if err != nil {
+		t.Fatalf("loadConfig rejected edge_record_sender block: %v", err)
+	}
+
+	if cfg.EdgeRecordSender == nil {
+		t.Fatal("EdgeRecordSender = nil, want non-nil")
+	}
+	if !cfg.EdgeRecordSender.Enabled {
+		t.Error("EdgeRecordSender.Enabled = false, want true")
+	}
+	if cfg.EdgeRecordSender.SpoolDir != "/var/lib/serviceradar/edge-spool" {
+		t.Errorf("SpoolDir = %q, want /var/lib/serviceradar/edge-spool", cfg.EdgeRecordSender.SpoolDir)
+	}
+	if time.Duration(cfg.EdgeRecordSender.PollInterval) != 45*time.Second {
+		t.Errorf("PollInterval = %v, want 45s", time.Duration(cfg.EdgeRecordSender.PollInterval))
+	}
+}
+
+func TestLoadConfigDefaultsEdgeRecordSenderToNil(t *testing.T) {
+	t.Parallel()
+
+	path := writeAgentConfig(t, `{
+		"agent_id": "k8s-agent",
+		"checkers_dir": "/var/lib/serviceradar/checkers",
+		"gateway_addr": "serviceradar-agent-gateway:50052"
+	}`)
+
+	cfg, err := loadConfig(path)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if cfg.EdgeRecordSender != nil {
+		t.Fatalf("EdgeRecordSender = %+v, want nil when unconfigured", cfg.EdgeRecordSender)
+	}
+}
+
 func TestLoadConfigIgnoresFutureUnknownFields(t *testing.T) {
 	t.Parallel()
 

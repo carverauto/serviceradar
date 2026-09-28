@@ -102,7 +102,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView do
         csv_preview={@csv_preview}
         csv_errors={@csv_errors}
         csv_warnings={@csv_warnings}
-        import_status={@import_status}
+        importing={@importing}
+        import_result={@import_result}
         import_partition={@import_partition}
         import_partition_error={@import_partition_error}
         partition_options={@import_partition_options}
@@ -124,6 +125,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView do
       <.bulk_delete_modal
         :if={@show_bulk_delete_modal}
         selected_count={@effective_count}
+        error_form={@bulk_delete_error_form}
       />
 
       <.bulk_availability_source_modal
@@ -145,6 +147,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView do
         close_event="close_northbound_action_modal"
         change_event="northbound_action_change"
         submit_event="launch_northbound_action"
+        show_stop_on_error={true}
       />
 
       <.breakdown_modal

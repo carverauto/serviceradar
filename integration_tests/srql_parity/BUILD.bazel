@@ -1,0 +1,119 @@
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+load("//build:integration_tests.bzl", "requires_shared_fixture")
+
+# SRQL StarRocks-vs-CNPG parity harness: openspec change extend-starrocks-to-all-telemetry,
+# tasks 1.4 (seed both backends with the same synthetic rows, diff result sets), 1.5 (the
+# query-shape inventory, enforced against the checked-in dashboard definitions here and against
+# the product's Elixir query builders by the web-ng unit test named below) and 1.6 (accepted
+# deviations, each with its reason and the rows each backend returns, in inventory.json).
+#
+# Two tiers:
+#
+#   :srql_parity_test -- the unit tier. Database-free: inventory validity, the dashboard
+#     coverage test (every warehouse chart panel in a checked-in dashboard has an inventory
+#     entry), the fixture generator's adversarial cases, the comparison. `make test` runs it.
+#
+#   :parity_test -- the database tier. Creates `srql_parity_<stamp>_<pid>` on the srql-fixtures
+#     CNPG and on a StarRocks FE, seeds both, runs every entry through both dialects, drops
+#     both (and re-lists them to prove it). See src/runner.rs for the environment it reads.
+#     It needs a host that can reach both backends, with the credentials in the CLIENT's
+#     environment and passed through by name. On a Linux host:
+#
+#       bazel test -c opt --config=remote //integration_tests/srql_parity:parity_test \
+#         --//build:enable_integration_tests --test_tag_filters= \
+#         --strategy=TestRunner=local --test_output=all \
+#         --test_env=SRQL_PARITY_CNPG_ADMIN_URL --test_env=SRQL_PARITY_CNPG_CA_PEM \
+#         --test_env=SRQL_PARITY_CNPG_SERVER_NAME --test_env=SRQL_PARITY_STARROCKS_HOST \
+#         --test_env=SRQL_PARITY_STARROCKS_PORT --test_env=SRQL_PARITY_STARROCKS_USER \
+#         --test_env=SRQL_PARITY_STARROCKS_PASSWORD
+#
+#     Compilation stays on RBE; `--strategy=TestRunner=local` runs only the test process on
+#     the host, which is what can reach the databases. `--test_env=NAME` without a value
+#     forwards the client's variable at execution time, so the value is never written into a
+#     BUILD file, a flag file or argv, and `no-remote-cache` keeps the test action that carries
+#     it out of the remote cache. (Not `no-remote`: that tag propagates to the compile actions
+#     and forces them onto the host, which breaks them -- see //integration_tests/srql.) An
+#     RBE build cannot run on a macOS host; there the same test is
+#     `cargo test -p srql-parity --test parity -- --nocapture` with the same environment.
+#
+#     In CI it is the `SrqlParity` BuildBuddy action (//buildbuddy.yaml), dispatched explicitly
+#     for a branch; that action documents the dispatch call, the credentials and why the
+#     carverauto warehouse is reachable from a workflow runner.
+
+# The inventory and the shared normalization examples are also read, as data, by the web-ng
+# unit test that drives the product's Elixir query builders
+# (elixir/web-ng/test/phoenix/srql/warehouse_query_inventory_test.exs).
+exports_files([
+    "inventory.json",
+    "shape_examples.json",
+])
+
+PARITY_DATA = [
+    "inventory.json",
+    "//elixir/serviceradar_core:schema_template_baseline_sql",
+    "//elixir/serviceradar_core/priv/starrocks:schema_sql",
+]
+
+# The dashboard definitions the task-1.5 coverage test loads (src/coverage.rs DASHBOARD_ROOTS).
+DASHBOARD_DATA = [
+    "inventory.json",
+    "//elixir/web-ng:srql_dashboard_definitions",
+]
+
+rust_library(
+    name = "srql_parity",
+    srcs = glob(["src/**/*.rs"]),
+    compile_data = [
+        "inventory.json",
+        "shape_examples.json",
+    ],
+    crate_name = "srql_parity",
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + ["//rust/srql:srql_lib"],
+)
+
+rust_test(
+    name = "srql_parity_test",
+    size = "small",
+    crate = ":srql_parity",
+    data = DASHBOARD_DATA,
+    edition = "2024",
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ) + ["//rust/srql:srql_lib"],
+)
+
+rust_test(
+    name = "parity_test",
+    size = "large",
+    srcs = ["tests/parity.rs"],
+    crate_root = "tests/parity.rs",
+    data = PARITY_DATA,
+    edition = "2024",
+    # integration_test: excluded from the unit sweep (`-integration_test`). manual: it needs
+    # two external databases and credentials the database sweep does not provide, so no
+    # wildcard may select it. requires_shared_fixture(): it runs DDL on the shared CNPG, so it
+    # is incompatible without --//build:enable_integration_tests.
+    tags = [
+        "external",
+        "integration_test",
+        "manual",
+        "no-remote-cache",
+        "requires-network",
+    ],
+    target_compatible_with = requires_shared_fixture(),
+    deps = [
+        ":srql_parity",
+        "//rust/srql:srql_lib",
+    ] + all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ),
+)

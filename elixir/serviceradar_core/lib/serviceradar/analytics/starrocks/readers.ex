@@ -17,6 +17,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
   # stripped (rust/srql `parser/entity.rs`). Anything that decides where a query
   # runs -- or whether the caller may run it -- has to resolve the same token,
   # or it routes and authorizes an entity different from the one that executes.
+  alias ServiceRadar.Analytics.StarRocks
+
   @spec entity_for_query(String.t()) :: String.t() | nil
   def entity_for_query(query) when is_binary(query) do
     query
@@ -53,6 +55,17 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
       "logs" ->
         :logs
 
+      e when e in ~w(mtr_traces mtr_hops mtr_hop_stats) ->
+        :mtr
+
+      e when e in ~w(otel_metrics metrics otel_metric_points metric_points) ->
+        :otel_metrics
+
+      e
+      when e in ~w(otel_traces traces trace_spans otel_trace_summaries trace_summaries
+                     traces_summaries) ->
+        :otel_traces
+
       e
       when e in ~w(
              events activity
@@ -77,6 +90,20 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
   def mode_for(nil), do: nil
 
   def mode_for(entity) when is_binary(entity), do: mode_for(dataset_for_entity(entity))
+
+  # With the warehouse enabled EventWriter writes MTR to StarRocks only, so the
+  # CNPG MTR tables hold history frozen at the switch. MTR SRQL therefore reads
+  # the warehouse whenever it is enabled, and CNPG only when it is not; it keys
+  # on `enabled?/0`, not on `cutover_datasets`, which has no MTR entry.
+  def mode_for(:mtr), do: if(enabled?(), do: "starrocks")
+
+  # OTel metric samples and points follow the MTR rule: EventWriter writes
+  # them to the warehouse only when it is enabled (`OtelMetrics.store/3`).
+  def mode_for(:otel_metrics), do: if(enabled?(), do: "starrocks")
+
+  # So do spans (`OtelTraces.store/2`), and their summaries are derived in the
+  # same backend (`RefreshTraceSummariesWorker`).
+  def mode_for(:otel_traces), do: if(enabled?(), do: "starrocks")
 
   def mode_for(dataset) when is_atom(dataset) do
     cond do
@@ -108,9 +135,27 @@ defmodule ServiceRadar.Analytics.StarRocks.Readers do
     end
   end
 
+  @doc """
+  Whether the warehouse is this installation's telemetry backend
+  (`analytics.starrocks.enabled`).
+
+  Exactly one backend is active. A reader with a warehouse implementation
+  that keys on this flag reads the warehouse when it is true and CNPG when it
+  is false, never both: with the warehouse enabled the CNPG telemetry tables
+  stop receiving rows, so a CNPG read would serve history that ends at the
+  moment the warehouse was turned on. MTR readers key on this flag rather than
+  on `cutover_datasets`, which has no MTR entry.
+  """
+  @spec enabled?() :: boolean()
+  def enabled? do
+    :serviceradar_core
+    |> Application.get_env(StarRocks, [])
+    |> Keyword.get(:enabled, false) == true
+  end
+
   defp cutover_datasets do
     :serviceradar_core
-    |> Application.get_env(ServiceRadar.Analytics.StarRocks, [])
+    |> Application.get_env(StarRocks, [])
     |> Keyword.get(:cutover_datasets, [])
   end
 end

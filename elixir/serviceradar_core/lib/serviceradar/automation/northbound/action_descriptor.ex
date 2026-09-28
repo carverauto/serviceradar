@@ -27,6 +27,7 @@ defmodule ServiceRadar.Automation.Northbound.ActionDescriptor do
     :safety_classification,
     :requires_confirmation,
     :timeout_seconds,
+    :max_override_duration_seconds,
     :credential_requirements,
     :result_schema_version,
     :descriptor_hash,
@@ -184,6 +185,15 @@ defmodule ServiceRadar.Automation.Northbound.ActionDescriptor do
       public? true
       default 60
       constraints min: 1, max: 3600
+    end
+
+    # Upper bound on the run overrides an invocation of this action may set
+    # (`ServiceRadar.Plugins.RunOverrides`). Nil means the action may not set
+    # overrides.
+    attribute :max_override_duration_seconds, :integer do
+      allow_nil? true
+      public? true
+      constraints min: 1
     end
 
     attribute :credential_requirements, :map do

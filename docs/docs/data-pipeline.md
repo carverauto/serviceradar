@@ -39,9 +39,9 @@ flowchart LR
 
 `serviceradar_core` is the bulk-ingestion writer for these streams. It runs the
 Zen decision rules in-process for log normalization and persists records into
-CNPG. `log-promotion` is an in-process JetStream pull consumer running inside
-`serviceradar_core` (not a separate deployment); it promotes matching logs into
-OCSF events without depending on a separate normalize-and-republish hop.
+CNPG. EventWriter's logs consumer promotes logs that match an event rule into
+OCSF events as it stores them; there is no separate promotion consumer, so each
+log is promoted once, under an id derived from the JetStream message.
 
 ## Data Service (datasvc)
 

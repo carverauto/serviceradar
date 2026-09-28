@@ -1,5 +1,79 @@
 # `@carverauto/serviceradar-cli` Changelog
 
+## Unreleased
+
+## 0.1.10
+
+- Add `fixtureResolver` for `dashboard dev`: a project-relative module with a
+  named `resolveFixture` export can map `srql.update` calls to another fixture,
+  replacement frames, or no change so filter chips and search work offline.
+- Extend the HMR harness host library injection with the deck.gl core exports
+  used by plan-view dashboards (`Deck` and `OrthographicView`) while continuing
+  to serve harness libraries from the local npm dependency graph.
+- `react-map` template: the site scatter goes through `useScreenLod` from
+  `@carverauto/serviceradar-dashboard-sdk@^0.3.0`. Zoomed out, the map draws one
+  marker per screen cell, sized by how many sites it holds; from zoom 5 it
+  draws each site. Clicking a group flies to it. A new `dense-synthetic` fixture
+  of about 1,400 invented sites makes the switch visible in `dashboard dev`.
+  The `sites` frame limit rises from 500 to 2000.
+
+## 0.1.9
+
+- `dashboard list --instance <url>`: new subcommand. Lists all dashboard packages
+  installed on an instance — manifest id, version, enabled state, and route slug.
+  Requires `dashboards.packages.view_all` on the instance; does NOT require a
+  publish-scoped token.
+- `dashboard status --instance <url>`: new subcommand. Reads the current project's
+  `dashboard.config.mjs` for its manifest id and declared version, queries the
+  instance for that package, and reports whether the versions match. A not-installed
+  result is reported as information, not an error.
+- `doctor --instance <url>`: when `--instance` is provided and the project has a
+  declared manifest id, `doctor` now shows the version installed on that instance
+  alongside the local declared version.
+
+## 0.1.8
+
+- `dashboard publish` reports the manifest id the author wrote. The instance
+  keys packages by a UUID and returns it as `payload.id`; the CLI preferred
+  that over `manifest.id`, so a successful publish printed the server UUID as
+  the package identity. That value is not in the author's project and does not
+  match the output the publishing docs describe. It now prints
+  `✓ Published com.example.board@0.1.0 (00000000-0000-4000-8000-000000000001)`,
+  keeping the server id visible for support and hand API calls while leading
+  with the manifest id. The Enabled line and the idempotent re-publish line
+  get the same treatment. The UUID is still what the enable endpoint's path
+  uses. Only the display changed.
+
+## 0.1.7
+
+Re-release of the changes below. **0.1.6 shipped without them**: it was
+published from a tree whose `dist/` predated the fix, so the tarball contained
+the previous build. npm versions are immutable, so the corrected build goes out
+as 0.1.7. Anything depending on `^0.1.6` to get the resolution fix must move to
+`^0.1.7`.
+
+- Resolve the dashboard project's `react`, `react-dom`, and
+  `@carverauto/serviceradar-dashboard-sdk` through Node's module resolution
+  instead of a literal `<projectDir>/node_modules/<package>` path. A hand-joined
+  path is only correct when the project sits at the root of its own install tree,
+  so any dashboard whose dependencies were hoisted — every npm-workspaces
+  monorepo — had the CLI looking in the one directory the package is not.
+  `dashboard dev` failed in esbuild with `Cannot read file: …/node_modules/react`,
+  `dashboard build` failed in vite with `Could not load …`, and `doctor` reported
+  an installed SDK as "not resolvable from this project". Project-local installs
+  resolve exactly as before and produce byte-identical renderer output.
+- Let a `vite.resolve.alias` entry from `dashboard.config.mjs` override the CLI's
+  own alias in `dashboard dev`, as it already did in `dashboard build`. `dev`
+  built its alias **array** with the CLI's entries first and the config's appended
+  last; because alias matching is first-match-wins, the CLI's `react` entry always
+  shadowed the author's. Overriding React in `dev` was silently impossible while
+  the identical config worked in `build`. Author entries now come first in both.
+- Fail with an actionable message when a dashboard dependency genuinely cannot be
+  resolved — naming the package and suggesting `npm install` — instead of letting
+  esbuild or vite report a bare filesystem path from inside `node_modules`.
+- Consumers carrying a workaround that symlinks `react` / `react-dom` / the SDK
+  into each dashboard to satisfy the old path can drop it once on this release.
+
 ## 0.1.5
 
 - Report why a request failed instead of printing a bare `fetch failed`. Node

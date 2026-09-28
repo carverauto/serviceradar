@@ -4,7 +4,8 @@
 //! - [`chunker`]: splits OTLP exports into publishable chunks and accounts
 //!   for per-record oversize rejections.
 //! - `connection`: connection state and generation-counted recovery.
-//! - `stream`: JetStream stream creation and config reconciliation.
+//! - `stream`: JetStream stream creation, `serviceradar.owner` claim and
+//!   config reconciliation (discard-old).
 //! - `publish`: chunk publishing with bounded in-flight fan-out, plus the
 //!   [`crate::output::TelemetryOutput`] implementation.
 
@@ -17,7 +18,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use async_nats::jetstream;
 use log::{debug, info};
 use tempfile::TempDir;
@@ -75,6 +76,89 @@ impl Default for NATSConfig {
             tls_material_dir: None,
             max_inflight_publishes: DEFAULT_MAX_INFLIGHT_PUBLISHES,
         }
+    }
+}
+
+/// Suffix of the environment variable that overrides a stream's `max_bytes`.
+pub const ENV_MAX_BYTES_SUFFIX: &str = "MAX_BYTES";
+/// Suffix of the environment variable that overrides a stream's replica count.
+pub const ENV_REPLICAS_SUFFIX: &str = "REPLICAS";
+
+/// Name of the environment variable that overrides a size of `stream`:
+/// `SERVICERADAR_JS_<STREAM>_<SUFFIX>`, where `<STREAM>` is the stream name
+/// upper-cased with every non-alphanumeric character replaced by `_`. For the
+/// default `events` stream this yields `SERVICERADAR_JS_EVENTS_MAX_BYTES` and
+/// `SERVICERADAR_JS_EVENTS_REPLICAS`.
+pub fn stream_env_var(stream: &str, suffix: &str) -> String {
+    let stream: String = stream
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_uppercase()
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    format!("SERVICERADAR_JS_{stream}_{suffix}")
+}
+
+/// Reads an environment variable for [`NATSConfig::apply_env_overrides`].
+///
+/// A value that is not valid Unicode is returned lossily so it fails the
+/// positive-integer parse instead of being treated as unset.
+pub fn process_env(key: &str) -> Option<String> {
+    std::env::var_os(key).map(|value| value.to_string_lossy().into_owned())
+}
+
+fn parse_positive_env<T>(key: &str, raw: &str) -> Result<T>
+where
+    T: std::str::FromStr + PartialOrd + Default,
+{
+    let trimmed = raw.trim();
+    match trimmed.parse::<T>() {
+        Ok(value) if value > T::default() => Ok(value),
+        _ => Err(anyhow!(
+            "invalid value {raw:?} for environment variable {key}: expected a positive integer"
+        )),
+    }
+}
+
+impl NATSConfig {
+    /// Applies the `SERVICERADAR_JS_<STREAM>_MAX_BYTES` and
+    /// `SERVICERADAR_JS_<STREAM>_REPLICAS` overrides to the stream size and
+    /// replica count, so the precedence is environment, then the TOML value,
+    /// then the compiled default. An empty or whitespace-only variable counts
+    /// as unset; any other value that is not a positive integer is an error
+    /// naming the variable, which fails startup.
+    ///
+    /// `lookup` resolves a variable name to its value; production passes
+    /// [`process_env`].
+    pub fn apply_env_overrides<F>(&mut self, lookup: F) -> Result<()>
+    where
+        F: Fn(&str) -> Option<String>,
+    {
+        let max_bytes_key = stream_env_var(&self.stream, ENV_MAX_BYTES_SUFFIX);
+        if let Some(raw) = lookup(&max_bytes_key).filter(|raw| !raw.trim().is_empty()) {
+            let max_bytes: i64 = parse_positive_env(&max_bytes_key, &raw)?;
+            info!(
+                "Stream '{}' max_bytes {} from {max_bytes_key} (config file value {})",
+                self.stream, max_bytes, self.max_bytes
+            );
+            self.max_bytes = max_bytes;
+        }
+
+        let replicas_key = stream_env_var(&self.stream, ENV_REPLICAS_SUFFIX);
+        if let Some(raw) = lookup(&replicas_key).filter(|raw| !raw.trim().is_empty()) {
+            let replicas: usize = parse_positive_env(&replicas_key, &raw)?;
+            info!(
+                "Stream '{}' replicas {} from {replicas_key} (config file value {})",
+                self.stream, replicas, self.stream_replicas
+            );
+            self.stream_replicas = replicas;
+        }
+
+        Ok(())
     }
 }
 

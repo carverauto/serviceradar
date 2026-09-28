@@ -1,10 +1,15 @@
 defmodule ServiceRadar.Credentials.CredentialRulesReconcileTelemetryTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Credentials.PluginAssignmentMaterializer
   alias ServiceRadar.TestSupport.CredentialIntegrationFixtures
 
   @event PluginAssignmentMaterializer.reconcile_telemetry_event()
+
+  # The handler is global and other async modules reconcile through the same
+  # entry point, so every receive pins this module's agent id.
+  @agent_id "agent-reconcile-telemetry"
 
   defmodule FakeReconciler do
     @moduledoc false
@@ -35,7 +40,7 @@ defmodule ServiceRadar.Credentials.CredentialRulesReconcileTelemetryTest do
       target_query: "in:devices vendor:Example",
       tls_policy: :verify,
       scope_type: :agent,
-      scope_value: "agent-a",
+      scope_value: @agent_id,
       metadata: %{}
     }
   end
@@ -44,19 +49,19 @@ defmodule ServiceRadar.Credentials.CredentialRulesReconcileTelemetryTest do
     assert {:ok, summary} =
              PluginAssignmentMaterializer.reconcile_provider_for_agent(
                profile(),
-               "agent-a",
+               @agent_id,
                "device_inventory",
                rules: [credential_rule()],
                plugin_package: %{id: "pkg-example"},
                reconciler: FakeReconciler,
-               actor: %{id: "operator"}
+               grant_issuer: &fake_grant/1
              )
 
     assert summary.rules == 1
     assert summary.upserted == 1
     assert summary.skips == %{}
 
-    assert_receive {@event, _ref, measurements, metadata}
+    assert_receive {@event, _ref, measurements, %{agent_id: @agent_id} = metadata}
 
     assert measurements == %{
              rules_matched: 1,
@@ -69,7 +74,6 @@ defmodule ServiceRadar.Credentials.CredentialRulesReconcileTelemetryTest do
 
     assert metadata.provider == "example-network"
     assert metadata.purpose == "device_inventory"
-    assert metadata.agent_id == "agent-a"
     assert metadata.status == :ok
     assert metadata.skips == %{}
   end
@@ -78,17 +82,16 @@ defmodule ServiceRadar.Credentials.CredentialRulesReconcileTelemetryTest do
     assert {:ok, summary} =
              PluginAssignmentMaterializer.reconcile_provider_for_agent(
                profile(),
-               "agent-a",
+               @agent_id,
                "device_inventory",
                rules: [],
-               reconciler: FakeReconciler,
-               actor: %{id: "operator"}
+               reconciler: FakeReconciler
              )
 
     assert summary.rules == 0
     assert summary.skips == %{no_matching_rules: 1}
 
-    assert_receive {@event, _ref, measurements, metadata}
+    assert_receive {@event, _ref, measurements, %{agent_id: @agent_id} = metadata}
 
     assert measurements.rules_matched == 0
     assert measurements.assignments_written == 0
@@ -99,22 +102,26 @@ defmodule ServiceRadar.Credentials.CredentialRulesReconcileTelemetryTest do
   test "errors emit an error-status event" do
     failing_reconciler = __MODULE__.FailingReconciler
 
-    assert {:error, _reason} =
+    assert {:error, [:boom]} =
              PluginAssignmentMaterializer.reconcile_provider_for_agent(
                profile(),
-               "agent-a",
+               @agent_id,
                "device_inventory",
                rules: [credential_rule()],
                plugin_package: %{id: "pkg-example"},
                reconciler: failing_reconciler,
-               actor: %{id: "operator"}
+               grant_issuer: &fake_grant/1
              )
 
-    assert_receive {@event, _ref, measurements, metadata}
+    assert_receive {@event, _ref, measurements, %{agent_id: @agent_id} = metadata}
     assert measurements.rules_matched == 0
     assert metadata.status == :error
-    assert metadata.error
+    assert metadata.error == [:boom]
   end
 
   defp profile, do: CredentialIntegrationFixtures.target_policy_profile()
+
+  defp fake_grant(attrs) do
+    {:ok, Map.put(CredentialBrokerGrant.issue_attrs(attrs), :id, "grant-1")}
+  end
 end

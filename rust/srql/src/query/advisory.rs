@@ -1,6 +1,6 @@
 //! Shared SQL helpers for advisory catalog, CPE coordinate, and match entities.
 
-use super::{bind_sql_param, BindParam, QueryPlan};
+use super::{BindParam, QueryPlan, bind_sql_param};
 use crate::{
     error::{Result, ServiceError},
     jsonb::DbJson,
@@ -486,6 +486,7 @@ pub(super) fn plan_for_query(query: &str) -> QueryPlan {
         cursor: None,
         direction: Default::default(),
         mode: None,
+        permitted_signals: None,
     };
     let ast = parser::parse(query).expect("parse advisory query");
     super::build_query_plan(

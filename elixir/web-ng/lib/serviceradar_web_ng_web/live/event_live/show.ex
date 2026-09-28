@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   alias ServiceRadarWebNGWeb.AnomalySeriesKey
   alias ServiceRadarWebNGWeb.Dashboard.Engine
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
+  alias ServiceRadarWebNGWeb.EventLive.AnomalyMetricQueries
   alias ServiceRadarWebNGWeb.Observability.DetailStreamComponents
   alias ServiceRadarWebNGWeb.Observability.EventDeviceReference
   alias ServiceRadarWebNGWeb.SRQL.Builder
@@ -25,8 +26,6 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   # Matches Observability events tab / SRQL bar defaults when running a query from detail.
   @srql_default_limit 20
   @anomaly_chart_side_seconds 2 * 60 * 60
-  # Keep room for multi-series interface rates across ±2h at 1–5m buckets.
-  @snmp_metrics_limit 3_600
 
   @impl true
   def mount(_params, _session, socket) do
@@ -1429,106 +1428,13 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     for_result =
       for time_range <- time_windows,
           query <-
-            build_anomaly_metric_query_variants(device_uid, if_index, metric_name, snmp?, time_range),
+            AnomalyMetricQueries.variants(device_uid, if_index, metric_name, snmp?, time_range),
           is_binary(query) do
         query
       end
 
     Enum.uniq(for_result)
   end
-
-  defp build_anomaly_metric_query_variants(device_uid, if_index, metric_name, snmp?, time_range)
-       when is_binary(device_uid) and device_uid != "" and is_binary(time_range) do
-    escaped_uid = escape_value(device_uid)
-    metric_filter = metric_name_filter(metric_name)
-
-    snmp_queries =
-      if snmp? and is_integer(if_index) and if_index > 0 do
-        base =
-          "in:snmp_metrics device_id:\"#{escaped_uid}\" if_index:#{if_index} time:#{time_range}"
-
-        [
-          # Rate series (preferred for counters like ifOutOctets)
-          Enum.join(
-            Enum.reject(
-              [
-                base,
-                metric_filter,
-                "bucket:5m",
-                "agg:rate",
-                "series:metric_name",
-                "limit:#{@snmp_metrics_limit}"
-              ],
-              &is_nil/1
-            ),
-            " "
-          ),
-          # Avg fallback without rate transform
-          Enum.join(
-            Enum.reject(
-              [
-                base,
-                metric_filter,
-                "bucket:5m",
-                "agg:avg",
-                "series:metric_name",
-                "limit:#{@snmp_metrics_limit}"
-              ],
-              &is_nil/1
-            ),
-            " "
-          ),
-          # Raw points for the specific metric
-          if metric_filter do
-            "#{base} #{metric_filter} sort:timestamp:asc limit:#{@snmp_metrics_limit}"
-          end
-        ]
-      else
-        []
-      end
-
-    generic_queries =
-      if is_binary(metric_name) and metric_name != "" do
-        [
-          Enum.join(
-            [
-              "in:timeseries_metrics",
-              "device_id:\"#{escaped_uid}\"",
-              ~s(metric_name:"#{escape_value(metric_name)}"),
-              "time:#{time_range}",
-              "bucket:5m",
-              "agg:avg",
-              "series:metric_name",
-              "limit:#{@snmp_metrics_limit}"
-            ],
-            " "
-          ),
-          Enum.join(
-            [
-              "in:timeseries_metrics",
-              "device_id:\"#{escaped_uid}\"",
-              ~s(metric_name:"#{escape_value(metric_name)}"),
-              "time:#{time_range}",
-              "sort:timestamp:asc",
-              "limit:#{@snmp_metrics_limit}"
-            ],
-            " "
-          )
-        ]
-      else
-        []
-      end
-
-    Enum.reject(snmp_queries ++ generic_queries, &is_nil/1)
-  end
-
-  defp build_anomaly_metric_query_variants(_device_uid, _if_index, _metric_name, _snmp?, _time_range), do: []
-
-  defp metric_name_filter(metric_name) when is_binary(metric_name) and metric_name != "" do
-    ~s(metric_name:"#{escape_value(metric_name)}")
-  end
-
-  defp metric_name_filter(_), do: nil
 
   defp anomaly_panel_assigns(panel, chart_focus, timezone) when is_map(panel) do
     assigns =

@@ -6,6 +6,7 @@ tests:
     set:
       flowCollector.enabled: true
       analytics.starrocks.enabled: true
+      analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
       flowCollector.replicaCount: 3
     documentSelector:
       path: kind

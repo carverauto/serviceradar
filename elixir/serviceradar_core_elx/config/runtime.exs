@@ -9,16 +9,19 @@ alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
 alias ServiceRadar.EventWriter.Processors.Flows
 alias ServiceRadar.Jobs.AlertsRetentionWorker
 alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
+alias ServiceRadar.NATS.StateBucketSizing
 alias ServiceRadar.Notifications.ContinuationWorker, as: NotificationContinuationWorker
 alias ServiceRadar.Notifications.DeliveryRetentionWorker, as: NotificationRetentionWorker
 alias ServiceRadar.Notifications.DispatchSchedule
 alias ServiceRadar.Notifications.PluginTarget, as: NotificationPluginTarget
 alias ServiceRadar.Notifications.ReceiptWorker, as: NotificationReceiptWorker
 alias ServiceRadar.Notifications.SilenceExpiryWorker, as: NotificationSilenceExpiryWorker
+alias ServiceRadar.Notifications.StreamPublisher
 alias ServiceRadar.Observability.CapacityForecasting.Worker, as: CapacityForecastingWorker
 alias ServiceRadar.Observability.DataRetentionWorker
 alias ServiceRadar.Observability.ProductionSchedule
 alias ServiceRadar.Observability.SeasonalDisposition.Worker, as: SeasonalDispositionWorker
+alias ServiceRadar.Observability.ThreatIntelRawPayloadStore
 
 callback_deployment =
   RuntimeConfig.callback_deployment_config!(%{
@@ -428,6 +431,25 @@ otx_raw_storage =
     _ -> :file
   end
 
+# Automated MTR, mirrored from elixir/serviceradar_core/config/runtime.exs.
+# A release evaluates ONLY this file (see the block note above), so core's copy
+# never reaches production -- without this block every MTR_AUTOMATION_* variable
+# the chart and docker-compose render is inert on a release install and
+# CoordinatorChildren falls through to the compiled false.
+#
+# `MTR_AUTOMATION_ENABLED` is NOT a master switch: it is the value the three
+# stage flags inherit when their own variable is unset, and each worker is gated
+# on its own flag. Automation is on by default (#4542); set a stage variable, or
+# all four, to false to narrow or disable it.
+mtr_automation_enabled = System.get_env("MTR_AUTOMATION_ENABLED", "true") in ~w(true 1 yes)
+
+mtr_stage_enabled = fn env_name ->
+  case System.get_env(env_name) do
+    nil -> mtr_automation_enabled
+    value -> value in ~w(true 1 yes)
+  end
+end
+
 # ---------------------------------------------------------------------------
 # Config blocks owned by the serviceradar_core APPLICATION.
 #
@@ -494,18 +516,31 @@ config :serviceradar_core, ServiceRadar.NetworkDiscovery.TopologyGraph,
       "on"
     ]
 
-config :serviceradar_core, ServiceRadar.Observability.ThreatIntelRawPayloadStore,
-  jetstream_bucket: System.get_env("SERVICERADAR_OTX_RAW_BUCKET", "serviceradar_threat_intel"),
-  jetstream_ttl_seconds: parse_int_env.("SERVICERADAR_OTX_RAW_TTL_SECONDS", 0),
-  jetstream_max_bucket_size: parse_int_env.("SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES", nil),
-  jetstream_max_chunk_size: parse_int_env.("SERVICERADAR_OTX_RAW_MAX_CHUNK_BYTES", nil),
-  jetstream_replicas: parse_int_env.("SERVICERADAR_OTX_RAW_REPLICAS", 1),
-  jetstream_storage: otx_raw_storage
-
 # Workload-identity snapshot skip guard.
 config :serviceradar_core, ServiceRadar.WorkloadIdentity,
   skip_guard_enabled: System.get_env("SERVICERADAR_WORKLOAD_IDENTITY_SKIP_GUARD", "1") != "0",
   skip_guard_heartbeat_ms: parse_int_env.("SERVICERADAR_WORKLOAD_IDENTITY_SKIP_GUARD_HEARTBEAT_MS", 1_800_000)
+
+# Notification firehose stream size (a discard-old buffer, reconciled on the
+# first publish per node). Unset or blank means 1 GiB; an invalid value fails boot.
+config :serviceradar_core, StreamPublisher,
+  max_bytes:
+    StateBucketSizing.bytes_from_env!(
+      "SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES",
+      StreamPublisher.default_max_bytes()
+    )
+
+config :serviceradar_core, ThreatIntelRawPayloadStore,
+  jetstream_bucket: System.get_env("SERVICERADAR_OTX_RAW_BUCKET", "serviceradar_threat_intel"),
+  jetstream_ttl_seconds: parse_int_env.("SERVICERADAR_OTX_RAW_TTL_SECONDS", 0),
+  jetstream_max_bucket_size:
+    StateBucketSizing.bytes_from_env!(
+      "SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES",
+      ThreatIntelRawPayloadStore.default_max_bucket_bytes()
+    ),
+  jetstream_max_chunk_size: parse_int_env.("SERVICERADAR_OTX_RAW_MAX_CHUNK_BYTES", nil),
+  jetstream_replicas: parse_int_env.("SERVICERADAR_OTX_RAW_REPLICAS", 1),
+  jetstream_storage: otx_raw_storage
 
 config :serviceradar_core, :spiffe,
   mode: spiffe_mode,
@@ -518,6 +553,13 @@ config :serviceradar_core,
 
 config :serviceradar_core,
   mapper_topology_edge_stale_minutes: parse_int_env.("SERVICERADAR_MAPPER_TOPOLOGY_EDGE_STALE_MINUTES", 180)
+
+config :serviceradar_core,
+  mtr_automation_enabled: mtr_automation_enabled,
+  mtr_retention_days: "MTR_RETENTION_DAYS" |> parse_int_env.(30) |> max(1) |> min(395),
+  mtr_automation_baseline_enabled: mtr_stage_enabled.("MTR_AUTOMATION_BASELINE_ENABLED"),
+  mtr_automation_trigger_enabled: mtr_stage_enabled.("MTR_AUTOMATION_TRIGGER_ENABLED"),
+  mtr_automation_consensus_enabled: mtr_stage_enabled.("MTR_AUTOMATION_CONSENSUS_ENABLED")
 
 # Keep authenticated desktop viewers and ingress actors bounded. These are
 # deliberately runtime-tunable so operators can size the media plane without
@@ -909,11 +951,23 @@ if config_env() == :prod do
     |> System.get_env(Integer.to_string(to_timeout(minute: 240)))
     |> String.to_integer()
 
+  # How long a stopping node waits for executing jobs before killing them. A job
+  # killed here is left `executing` for a rescuer to find, so this is what keeps
+  # a routine rollout from orphaning in-flight jobs. The chart renders it from
+  # core.obanShutdownGracePeriodSeconds and keeps the pod's
+  # terminationGracePeriodSeconds above it. Mirrors serviceradar_core's
+  # runtime.exs.
+  oban_shutdown_grace_period_ms =
+    "OBAN_SHUTDOWN_GRACE_PERIOD_MS"
+    |> System.get_env(Integer.to_string(to_timeout(minute: 1)))
+    |> String.to_integer()
+
   oban_config = [
     engine: Oban.Engines.Basic,
     repo: ServiceRadar.Repo,
     prefix: "platform",
     notifier: oban_notifier,
+    shutdown_grace_period: oban_shutdown_grace_period_ms,
     queues: [
       default: String.to_integer(System.get_env("OBAN_QUEUE_DEFAULT") || "10"),
       maintenance: String.to_integer(System.get_env("OBAN_QUEUE_MAINTENANCE") || "2"),
@@ -1004,13 +1058,24 @@ if config_env() == :prod do
       {System.get_env("SERVICERADAR_OBSERVABILITY_RETENTION_CRON") || "17 3 * * *", DataRetentionWorker,
        queue: :maintenance},
       {System.get_env("ALERT_RETENTION_CRON") || "15 * * * *", AlertsRetentionWorker, queue: :maintenance},
+      # Drops evaluated-event ids past the redelivery window. Offset from the
+      # 03:17 observability sweep.
+      {"37 3 * * *", ServiceRadar.Observability.StatefulEvaluationLedgerPruneWorker, queue: :maintenance},
       # Credential broker grants and secret resolution audits had no retention at
       # all: nothing destroys a grant and nothing calls its :expire transition, so
       # they and their paper_trail versions grew unbounded (~1.9 GB / 460k rows
       # per table on demo). Offset from the 03:17 observability sweep so the two
       # large deletes do not overlap.
       {System.get_env("SERVICERADAR_CREDENTIAL_BROKER_RETENTION_CRON") || "43 3 * * *",
-       ServiceRadar.Credentials.BrokerRetentionWorker, queue: :maintenance}
+       ServiceRadar.Credentials.BrokerRetentionWorker, queue: :maintenance},
+      # Expired rows of the SAML assertion replay ledger. Rows are only needed
+      # until the assertion's NotOnOrAfter (minutes), so an hourly sweep keeps
+      # the table small.
+      {"29 * * * *", ServiceRadar.Identity.SAMLAssertionCleanupWorker, queue: :maintenance},
+      # Camera relay sessions whose edge pull stopped without reporting a close
+      # (tracker restart, lost close) otherwise stay requested/opening/active/
+      # closing forever. Their leases stop renewing, which is what the reaper keys on.
+      {"*/2 * * * *", ServiceRadar.Camera.RelaySessionReaperWorker, queue: :maintenance}
     ] ++
       object_store_retention_crontab ++
       capacity_forecasting_crontab ++
@@ -1107,7 +1172,10 @@ if config_env() == :prod do
          DispatchSchedule.silence_expiry_worker_config()
 
   config :serviceradar_core, Oban, if(oban_enabled, do: oban_config, else: false)
-  config :serviceradar_core, RefreshTraceSummariesWorker, retention_days: trace_summary_retention_days
+
+  config :serviceradar_core, RefreshTraceSummariesWorker,
+    retention_days: trace_summary_retention_days,
+    orphan_grace_seconds: "TRACE_SUMMARIES_ORPHAN_GRACE_SECONDS" |> parse_int_env.(60) |> max(1)
 
   config :serviceradar_core,
          SeasonalDispositionWorker,
@@ -1249,6 +1317,13 @@ if config_env() == :prod do
       batch_timeout: String.to_integer(System.get_env("EVENT_WRITER_BATCH_TIMEOUT") || "1000"),
       consumer_name: System.get_env("EVENT_WRITER_CONSUMER_NAME", "serviceradar-event-writer"),
       consumer_pull_batch_size: String.to_integer(System.get_env("EVENT_WRITER_CONSUMER_PULL_BATCH_SIZE") || "16"),
+      # JetStream sizes of every stream EventWriter creates, from
+      # SERVICERADAR_JS_<STREAM>_MAX_BYTES and the SERVICERADAR_JS_{EVENTS,FLOWS,
+      # ARANCINI_CAUSAL}_FALLBACK_{MAX_BYTES,REPLICAS} fallbacks (the Helm chart
+      # renders them from the budget it checked). Unset or blank means the
+      # compiled default; any other non-positive or non-integer value fails boot
+      # naming the variable. Config.load/0 applies them to the streams below.
+      jetstream_sizes: Config.jetstream_sizes_from_env!(),
       streams: [
         %{
           name: "EVENTS",
@@ -1342,6 +1417,11 @@ if config_env() == :prod do
           consumer_pull_batch_size: 4,
           consumer_max_deliver: -1
         },
+        # Ad-hoc scan and MTR results; definitions shared with
+        # Config.default_streams/0. Nothing else creates these streams, so an
+        # entry missing here refuses every publish to its subject.
+        Config.scan_results_stream(),
+        Config.mtr_results_stream(),
         %{
           name: "BMP_CAUSAL",
           stream_name: "events",
@@ -1370,6 +1450,9 @@ if config_env() == :prod do
         # design D9); definition shared with Config.default_streams/0 so the
         # retention stanza cannot drift.
         Config.analytics_predictions_stream(),
+        # Durable edge records the agent gateway publishes with PubAck; shared
+        # with Config.default_streams/0.
+        Config.edge_record_stream(),
         %{
           name: "ATTRIBUTED_FLOW",
           stream_name: "events",

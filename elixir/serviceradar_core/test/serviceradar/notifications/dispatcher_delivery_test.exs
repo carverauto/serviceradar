@@ -20,6 +20,9 @@ defmodule ServiceRadar.Notifications.DispatcherDeliveryTest do
   use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Credentials.CredentialBrokerGrant
+  alias ServiceRadar.Credentials.CredentialSecretProvider
+  alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Notifications.Dispatcher
   alias ServiceRadar.Notifications.NotificationChannel
@@ -31,6 +34,7 @@ defmodule ServiceRadar.Notifications.DispatcherDeliveryTest do
   alias ServiceRadar.Notifications.NotificationRoute
   alias ServiceRadar.Notifications.RateLimiter
   alias ServiceRadar.Notifications.Transport.Result
+  alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadar.TestSupport
 
   require Ash.Query
@@ -452,6 +456,39 @@ defmodule ServiceRadar.Notifications.DispatcherDeliveryTest do
 
   # --- fixtures -------------------------------------------------------------
 
+  describe "channel credentials" do
+    test "an externally held credential resolves through a grant bound to the channel", %{
+      actor: actor
+    } do
+      secret = external_secret!(actor, "external-token-sentinel")
+
+      %{id: id, now: now, channel: channel} =
+        planned!(actor,
+          provider_config_schema: %{
+            "properties" => %{"token_secret_ref" => %{"type" => "string", "secretRef" => true}}
+          },
+          secret_refs: %{"token_secret_ref" => SecretRefs.network_credential_ref(secret.id)}
+        )
+
+      assert {:ok, :sent} =
+               Dispatcher.deliver(id, actor: actor, now: now, transport: StubTransport)
+
+      assert [request] = StubTransport.requests()
+      assert request.secrets["token"] == "external-token-sentinel"
+
+      assert {:ok, [grant]} =
+               CredentialBrokerGrant.list_for_consumer(:northbound_action, channel.id,
+                 actor: actor
+               )
+
+      assert grant.secret_id == secret.id
+      assert grant.purpose == "notification_delivery"
+      assert grant.resolution_location == :control_plane
+      assert grant.target_kind == "notification_channel"
+      assert grant.target_id == channel.id
+    end
+  end
+
   defp planned!(actor, channel_opts \\ []) do
     channel = create_channel!(actor, channel_opts)
     policy = create_policy!(actor)
@@ -492,7 +529,7 @@ defmodule ServiceRadar.Notifications.DispatcherDeliveryTest do
   # channel whose provider is not `:active` with `:channel_disabled`. Activating
   # is therefore part of a usable fixture, not boilerplate: without it every
   # test here would assert against suppression rather than against delivery.
-  defp create_provider!(actor) do
+  defp create_provider!(actor, config_schema \\ %{}) do
     NotificationProvider
     |> Ash.Changeset.for_create(
       :create,
@@ -503,7 +540,7 @@ defmodule ServiceRadar.Notifications.DispatcherDeliveryTest do
         capabilities: [:send, :test],
         supported_routes: [:control_plane],
         payload_formats: [:json],
-        config_schema: %{},
+        config_schema: config_schema,
         implementation_module: "ServiceRadar.Notifications.Transports.GenericWebhook"
       },
       actor: actor
@@ -514,7 +551,8 @@ defmodule ServiceRadar.Notifications.DispatcherDeliveryTest do
   end
 
   defp create_channel!(actor, opts) do
-    provider = create_provider!(actor)
+    {config_schema, opts} = Keyword.pop(opts, :provider_config_schema, %{})
+    provider = create_provider!(actor, config_schema)
 
     attrs =
       opts
@@ -528,6 +566,33 @@ defmodule ServiceRadar.Notifications.DispatcherDeliveryTest do
     NotificationChannel
     |> Ash.Changeset.for_create(:create, attrs, actor: actor)
     |> Ash.create!(actor: actor)
+  end
+
+  defp external_secret!(actor, value) do
+    unique = System.unique_integer([:positive])
+
+    provider =
+      %{
+        name: "notification-external-#{unique}",
+        provider_type: :stub,
+        resolution_locations: [:control_plane]
+      }
+      |> CredentialSecretProvider.create_provider!(actor: actor)
+      |> Ash.Changeset.for_update(:enable, %{}, actor: actor)
+      |> Ash.update!(actor: actor)
+
+    NetworkCredentialSecret.create_secret!(
+      %{
+        name: "notification-external-secret-#{unique}",
+        provider: "stub",
+        credential_kind: :api_token,
+        source_type: :external_reference,
+        secret_provider_id: provider.id,
+        external_secret_ref: "secret/data/notifications/#{unique}",
+        metadata: %{"stub_secret_value" => value}
+      },
+      actor: actor
+    )
   end
 
   defp create_policy!(actor) do

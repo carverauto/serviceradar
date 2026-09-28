@@ -16,6 +16,12 @@ defmodule ServiceRadar.Identity.EffectivePermissionsDbTest do
   @moduletag :integration
   @moduletag sandbox: :unboxed
 
+  # The resolver task answers after real database work, and under RBE these tests
+  # share one remote Postgres, so a query round-trip can exceed the 100 ms
+  # assert_receive default while nothing is wrong. Gate on the reply message (not a
+  # sleep) with a generous bound, matching the suite's `@db_wait_ms` guard.
+  @db_wait_ms 5_000
+
   setup_all do
     TestSupport.start_core!()
     :ok
@@ -170,7 +176,7 @@ defmodule ServiceRadar.Identity.EffectivePermissionsDbTest do
     resolver_ref = Process.monitor(resolver)
 
     send(resolver, {:resolve, self()})
-    assert_receive {:resolved, before_revoke}
+    assert_receive {:resolved, before_revoke}, @db_wait_ms
     assert MapSet.member?(before_revoke, "services.update")
 
     group_id = Ecto.UUID.dump!(group.id)
@@ -182,10 +188,10 @@ defmodule ServiceRadar.Identity.EffectivePermissionsDbTest do
 
     assert :ok = RBAC.invalidate_user_cache(user.id)
     send(resolver, {:resolve, self()})
-    assert_receive {:resolved, after_revoke}
+    assert_receive {:resolved, after_revoke}, @db_wait_ms
     refute MapSet.member?(after_revoke, "services.update")
     send(resolver, :stop)
-    assert_receive {:DOWN, ^resolver_ref, :process, ^resolver, :normal}
+    assert_receive {:DOWN, ^resolver_ref, :process, ^resolver, :normal}, @db_wait_ms
   end
 
   test "strict authority fails closed when the selected base profile cannot load", %{

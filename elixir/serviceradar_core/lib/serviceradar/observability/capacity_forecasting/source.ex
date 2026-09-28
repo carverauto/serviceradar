@@ -73,7 +73,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Source do
         metric_class: "cpu",
         metric_name: "usage_percent",
         query:
-          ~s|in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" time:#{time_range} bucket:1h agg:avg series:uid sort:timestamp:desc limit:#{limit}|,
+          ~s|in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" time:#{time_range} bucket:1h agg:avg series:uid sort:timestamp:desc window_scan:true limit:#{limit}|,
         value_field: "value",
         bucket_field: "timestamp",
         key_fields: ["series"],
@@ -88,7 +88,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Source do
         metric_class: "memory",
         metric_name: "usage_percent",
         query:
-          ~s|in:timeseries_metrics metric_type:"sysmon.memory" metric_name:"memory.used_percent" time:#{time_range} bucket:1h agg:avg series:uid sort:timestamp:desc limit:#{limit}|,
+          ~s|in:timeseries_metrics metric_type:"sysmon.memory" metric_name:"memory.used_percent" time:#{time_range} bucket:1h agg:avg series:uid sort:timestamp:desc window_scan:true limit:#{limit}|,
         value_field: "value",
         bucket_field: "timestamp",
         key_fields: ["series"],
@@ -106,7 +106,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Source do
         # flat root filesystem. device_id leads key_fields so the resource id stays
         # the device and each mount becomes its own resource key.
         query:
-          ~s|in:timeseries_metric_disk_hourly metric_type:"sysmon.disk" metric_name:"disk.used_percent" time:#{time_range} sort:bucket:desc limit:#{limit}|,
+          ~s|in:timeseries_metric_disk_hourly metric_type:"sysmon.disk" metric_name:"disk.used_percent" time:#{time_range} sort:bucket:desc window_scan:true limit:#{limit}|,
         value_field: "avg_value",
         bucket_field: "bucket",
         key_fields: ["device_id", "mount_point"],
@@ -120,7 +120,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Source do
         metric_class: "interface",
         metric_name: "utilization_percent",
         query:
-          "in:timeseries_metric_interface_hourly time:#{time_range} sort:bucket:desc limit:#{limit}",
+          "in:timeseries_metric_interface_hourly time:#{time_range} sort:bucket:desc window_scan:true limit:#{limit}",
         value_field: "avg_rate_per_second",
         key_fields: [
           "partition",
@@ -141,7 +141,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Source do
         metric_class: "flow",
         metric_name: "bytes_per_hour",
         query:
-          "in:flows time:#{time_range} bucket:1h stats:sum(bytes_total) as bytes_total by bucket sort:bucket:desc limit:#{limit}",
+          "in:flows time:#{time_range} bucket:1h stats:sum(bytes_total) as bytes_total by bucket sort:bucket:desc window_scan:true limit:#{limit}",
         value_field: "bytes_total",
         key_fields: [],
         label_fields: [],

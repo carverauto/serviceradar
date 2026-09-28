@@ -9,12 +9,11 @@ defmodule ServiceRadarWebNG.Mcp.SrqlBind do
 
   ## Why this validates instead of only escaping
 
-  SRQL's tokenizer unwraps a quoted token with `trim_matches('"')`, which strips
-  *every* leading and trailing quote character rather than one. A value whose
-  decoded content ends in a double quote therefore cannot round-trip: it comes
-  back short, silently. That is not an injection -- the token boundary holds --
-  but a diagnostic tool that quietly searches for something other than what it
-  was asked for is worse than one that says no.
+  Escaping alone would round-trip: SRQL removes one outer quote pair and one
+  level of backslash escapes from every value (see `rust/srql/src/parser/tokens.rs`).
+  But a diagnostic tool handed something that is not a device uid, IP or
+  hostname was called wrongly, and searching for it anyway answers a question
+  nobody asked. Saying no is more useful.
 
   So each kind declares the characters it can contain, anything else is refused
   with a message naming the argument, and only then is the value quoted and

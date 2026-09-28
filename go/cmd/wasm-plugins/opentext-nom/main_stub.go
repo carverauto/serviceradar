@@ -8,9 +8,15 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/carverauto/serviceradar-sdk-go/v2/sdk"
 )
+
+// localArtifactDirVariable enables artifact staging for local runs, which
+// config.retrieve needs. Artifacts can contain device secrets; keep the
+// directory outside the repository.
+const localArtifactDirVariable = "SERVICERADAR_LOCAL_ARTIFACT_DIR"
 
 func main() {
 	if err := runLocalMain(); err != nil {
@@ -30,7 +36,9 @@ func runLocalMain() error {
 	}
 	cfg, err := parseLocalRuntimeConfig(runtimeConfig)
 	if err != nil {
-		return fmt.Errorf("local config error: %s", safeErrorCode(err))
+		// Runtime config holds no credentials, so the parse error is safe to
+		// show; the bare code alone hid which field was rejected.
+		return fmt.Errorf("local config error: %s: %v", safeErrorCode(err), err)
 	}
 
 	broker, err := newLocalOAuthBroker(cfg, inputs.Credentials(), nil)
@@ -40,7 +48,12 @@ func runLocalMain() error {
 	capture, runErr := sdk.RunLocalHost(sdk.LocalHostOptions{
 		ConfigJSON:  runtimeConfig,
 		HTTPHandler: broker.Handle,
+		ArtifactDir: strings.TrimSpace(os.Getenv(localArtifactDirVariable)),
 	}, runPlugin)
+	for _, artifact := range capture.Artifacts {
+		_, _ = fmt.Fprintf(os.Stderr, "artifact %s -> %s (%d bytes, sha256 %s)\n",
+			artifact.ObjectKey, artifact.Path, artifact.SizeBytes, artifact.SHA256)
+	}
 	if runErr != nil {
 		return fmt.Errorf("local plugin execution failed: %w", runErr)
 	}

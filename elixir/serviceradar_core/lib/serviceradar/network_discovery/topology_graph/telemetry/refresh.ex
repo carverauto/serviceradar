@@ -1,7 +1,9 @@
 defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry.Refresh do
   @moduledoc false
 
+  alias ServiceRadar.Dgraph
   alias ServiceRadar.Graph
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.Backend
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalMutationLock
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Queries
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry
@@ -13,6 +15,66 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry.Refresh do
   require Logger
 
   def refresh_canonical_edge_telemetry(stale_cutoff) when is_binary(stale_cutoff) do
+    case Backend.backend() do
+      :dgraph ->
+        refresh_dgraph_telemetry()
+
+      backend when backend in [:age, :dual] ->
+        # CanonicalRebuild copies the updated AGE edges to Dgraph in dual mode.
+        refresh_age_telemetry(stale_cutoff)
+    end
+  end
+
+  defp refresh_dgraph_telemetry do
+    with {:ok, raw_edges} <- Dgraph.query_canonical_edges() do
+      edges =
+        Enum.map(raw_edges, fn edge ->
+          %{
+            src_id: edge.source,
+            dst_id: edge.target,
+            local_if_index_ab: edge.if_index_ab,
+            local_if_index_ba: edge.if_index_ba,
+            dgraph_edge: edge
+          }
+        end)
+
+      keys = Metrics.telemetry_metric_keys(edges)
+      observed_at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+
+      {stats, updates} =
+        build_telemetry_updates(
+          edges,
+          Metrics.load_packet_pps(keys),
+          Metrics.load_octet_bps(keys),
+          Metrics.load_interface_capacity(keys),
+          observed_at
+        )
+
+      result =
+        Enum.reduce_while(updates, :ok, fn update, :ok ->
+          edge =
+            update.dgraph_edge
+            |> Map.merge(Map.drop(update, [:src_id, :dst_id, :dgraph_edge]))
+            |> Map.put(:kind, :canonical_topology)
+
+          case Dgraph.update_canonical_edge_telemetry(edge) do
+            :ok -> {:cont, :ok}
+            {:error, _reason} = error -> {:halt, error}
+          end
+        end)
+
+      case result do
+        :ok ->
+          Logger.info("dgraph_canonical_edge_telemetry_stats #{inspect(stats)}")
+          {:ok, stats}
+
+        error ->
+          error
+      end
+    end
+  end
+
+  defp refresh_age_telemetry(stale_cutoff) do
     case Edges.fetch_canonical_edges(stale_cutoff) do
       {:ok, edges} ->
         metric_keys = Metrics.telemetry_metric_keys(edges)
@@ -139,6 +201,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.Telemetry.Refresh do
 
   defp canonical_edge_telemetry_update(edge, telemetry) when is_map(edge) and is_map(telemetry) do
     %{
+      dgraph_edge: Map.get(edge, :dgraph_edge),
       src_id: Map.get(edge, :src_id),
       dst_id: Map.get(edge, :dst_id),
       flow_pps: Map.get(telemetry, :flow_pps, 0),

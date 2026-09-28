@@ -111,6 +111,11 @@ defmodule ServiceRadar.Plugins.SecretRefs do
     * `:broker_opts` — extra options forwarded to the broker call (e.g.
       `audit?: true`, `:actor`, `:agent_id`); applies to both grant-backed and
       grant-less resolution so each resolution can be audited.
+    * `:grant_issuer` — `fn secret_id -> {:ok, grant} | {:error, reason} end`.
+      An external-reference secret resolves only through a broker grant; when
+      no `:grant` covers it, the issuer is asked for one scoped to this caller
+      and the secret resolves through it. Without an issuer such a secret is
+      refused, as before.
   """
   @spec resolve_runtime_params(map(), map(), keyword()) :: {:ok, map()} | {:error, [String.t()]}
   def resolve_runtime_params(schema, params, opts \\ [])
@@ -308,22 +313,35 @@ defmodule ServiceRadar.Plugins.SecretRefs do
 
     case grant_for_secret(Keyword.get(opts, :grant), secret_id) do
       nil ->
-        SecretBroker.resolve_network_credential_secret(
-          secret_id,
-          Keyword.merge(
-            [
-              allow_external_resolution?: false,
-              consumer_kind: :plugin,
-              resolution_location: :agent
-            ],
-            broker_opts
-          )
+        secret_id
+        |> SecretBroker.resolve_network_credential_secret(
+          Keyword.merge([consumer_kind: :plugin, resolution_location: :agent], broker_opts)
         )
+        |> maybe_resolve_through_issued_grant(secret_id, broker_opts, opts)
 
       grant ->
         SecretBroker.resolve_with_grant(grant, broker_opts)
     end
   end
+
+  defp maybe_resolve_through_issued_grant(
+         {:error, :external_secret_requires_broker_grant} = refused,
+         secret_id,
+         broker_opts,
+         opts
+       ) do
+    case Keyword.get(opts, :grant_issuer) do
+      issuer when is_function(issuer, 1) ->
+        with {:ok, grant} <- issuer.(secret_id) do
+          SecretBroker.resolve_with_grant(grant, Keyword.put(broker_opts, :audit?, true))
+        end
+
+      _no_issuer ->
+        refused
+    end
+  end
+
+  defp maybe_resolve_through_issued_grant(result, _secret_id, _broker_opts, _opts), do: result
 
   # Only route through the grant when it actually covers the referenced secret;
   # otherwise fall back to the historical grant-less resolution path.

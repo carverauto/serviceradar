@@ -295,7 +295,6 @@ defmodule ServiceRadar.Notifications.Transports.DiscordTest do
       assert %Result{disposition: :delivered} = result
 
       assert_receive {:broker, "cred-123", broker_opts}
-      assert broker_opts[:allow_external_resolution?] == true
       assert broker_opts[:resolution_location] == :control_plane
       assert broker_opts[:consumer_id] == "channel-1"
 

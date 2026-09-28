@@ -11,6 +11,9 @@ defmodule ServiceRadar.Analytics.StarRocks.RetentionTest do
     SERVICERADAR_STARROCKS_RETENTION_DAYS_METRICS
     SERVICERADAR_STARROCKS_RETENTION_DAYS_LOGS
     SERVICERADAR_STARROCKS_RETENTION_DAYS_EVENTS
+    SERVICERADAR_STARROCKS_RETENTION_DAYS_MTR
+    SERVICERADAR_STARROCKS_RETENTION_DAYS_OTEL
+    SERVICERADAR_STARROCKS_RETENTION_DAYS_TRACES
   )
 
   setup do
@@ -28,18 +31,34 @@ defmodule ServiceRadar.Analytics.StarRocks.RetentionTest do
   end
 
   test "each dataset keeps its own retention, defaulting to the shipped policy" do
-    assert Env.config()[:retention_days] == [flows: 90, metrics: 90, logs: 365, events: 365]
+    assert Env.config()[:retention_days] == [
+             flows: 365,
+             metrics: 365,
+             logs: 365,
+             events: 365,
+             mtr: 365,
+             otel: 365,
+             traces: 365
+           ]
 
     System.put_env("SERVICERADAR_STARROCKS_RETENTION_DAYS_FLOWS", "30")
     System.put_env("SERVICERADAR_STARROCKS_RETENTION_DAYS_LOGS", "730")
 
     # Raw NetFlow can be bounded without also shortening log history, which one
     # shared value could not express.
-    assert Env.config()[:retention_days] == [flows: 30, metrics: 90, logs: 730, events: 365]
+    assert Env.config()[:retention_days] == [
+             flows: 30,
+             metrics: 365,
+             logs: 730,
+             events: 365,
+             mtr: 365,
+             otel: 365,
+             traces: 365
+           ]
 
     for invalid <- ["", "0", "-5", "forever"] do
       System.put_env("SERVICERADAR_STARROCKS_RETENTION_DAYS_FLOWS", invalid)
-      assert Env.config()[:retention_days][:flows] == 90
+      assert Env.config()[:retention_days][:flows] == 365
     end
   end
 
@@ -51,8 +70,13 @@ defmodule ServiceRadar.Analytics.StarRocks.RetentionTest do
     expected = %{
       "ocsf_network_activity" => "30",
       "logs" => "730",
-      "timeseries_metrics" => "90",
-      "events" => "365"
+      "timeseries_metrics" => "365",
+      "events" => "365",
+      "mtr_traces" => "365",
+      "mtr_hops" => "365",
+      "otel_metrics" => "365",
+      "otel_metric_points" => "365",
+      "otel_traces" => "365"
     }
 
     for {table, days} <- expected do
@@ -66,6 +90,29 @@ defmodule ServiceRadar.Analytics.StarRocks.RetentionTest do
     # Unqualified table names: the connection already selects the configured
     # database, so a non-default SERVICERADAR_STARROCKS_DATABASE still applies.
     refute Enum.any?(statements, &String.contains?(&1, "serviceradar."))
+  end
+
+  # A trace without its hops, or hops without their trace, is not an MTR
+  # record, so the two tables share one setting.
+  test "MTR traces and hops are retained together at the one MTR setting" do
+    System.put_env("SERVICERADAR_STARROCKS_RETENTION_DAYS_MTR", "14")
+    assert Env.config()[:retention_days][:mtr] == 14
+
+    days = Map.new(Retention.days_by_table(Env.config()))
+    assert days["mtr_traces"] == 14
+    assert days["mtr_hops"] == 14
+    assert days["logs"] == 365
+  end
+
+  # OTel samples and points are one metrics signal with one setting.
+  test "OTel metric samples and points are retained together at the one OTel setting" do
+    System.put_env("SERVICERADAR_STARROCKS_RETENTION_DAYS_OTEL", "90")
+    assert Env.config()[:retention_days][:otel] == 90
+
+    days = Map.new(Retention.days_by_table(Env.config()))
+    assert days["otel_metrics"] == 90
+    assert days["otel_metric_points"] == 90
+    assert days["mtr_traces"] == 365
   end
 
   test "applying retention stops at the first failure and reports it" do

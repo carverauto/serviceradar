@@ -90,30 +90,41 @@ defmodule ServiceRadar.Credentials.CredentialRotationTest do
     marker = "submitted-secret-must-not-escape-validation"
     test_pid = self()
 
-    dependencies =
-      dependencies(%{
-        build_rotation: fn _secret, _profile, _submitted_values, _opts ->
-          send(test_pid, :built)
-          {:error, {:missing_credential_field, "password"}}
-        end,
-        start_rotation: fn _secret, _actor ->
-          send(test_pid, :started)
-          {:ok, %{}}
-        end
-      })
+    # A declared field-level reason passes through; anything else -- an
+    # unrecognised reason or an oversized field id -- collapses to one code.
+    cases = [
+      {{:missing_credential_field, "password"}, {:missing_credential_field, "password"}},
+      {{:unexpected_builder_reason, marker}, :invalid_credential_rotation},
+      {{:invalid_credential_field, marker <> String.duplicate("x", 129)},
+       :invalid_credential_rotation}
+    ]
 
-    result =
-      CredentialRotation.rotate(
-        rotatable_secret(),
-        %{"username" => "operator", "password" => marker},
-        caller(),
-        dependencies: dependencies
-      )
+    for {builder_error, expected_reason} <- cases do
+      dependencies =
+        dependencies(%{
+          build_rotation: fn _secret, _profile, _submitted_values, _opts ->
+            send(test_pid, :built)
+            {:error, builder_error}
+          end,
+          start_rotation: fn _secret, _actor ->
+            send(test_pid, :started)
+            {:ok, %{}}
+          end
+        })
 
-    assert result == {:error, {:missing_credential_field, "password"}}
-    assert_receive :built
-    refute_receive :started
-    refute inspect(result) =~ marker
+      result =
+        CredentialRotation.rotate(
+          rotatable_secret(),
+          %{"username" => "operator", "password" => marker},
+          caller(),
+          dependencies: dependencies
+        )
+
+      assert result == {:error, expected_reason}
+      assert_receive :built
+      refute_receive :started
+      refute inspect(result) =~ marker
+    end
   end
 
   test "completion failure records a bounded redacted failure code" do

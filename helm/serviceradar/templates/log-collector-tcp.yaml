@@ -45,7 +45,7 @@ data:
     nats_url = "tls://serviceradar-nats:4222"
     nats_subject = {{ default "logs.syslog" $tcpCollector.subject | quote }}
     nats_stream = "events"
-    nats_stream_replicas = {{ default (default 1 .Values.logCollector.streamReplicas) $tcpCollector.streamReplicas }}
+    nats_stream_replicas = {{ include "serviceradar.jetstreamEffectiveReplicas" (dict "root" . "value" (default (default 1 .Values.logCollector.streamReplicas) $tcpCollector.streamReplicas) "what" "logCollector.tcpCollector.streamReplicas") }}
     nats_timeout = 30000
     nats_connect_attempts = 10
     nats_connect_initial_backoff_ms = 500
@@ -147,6 +147,14 @@ spec:
 {{ include "serviceradar.kvEnv" . | indent 8 }}
         - name: CONFIG_PATH
           value: "/etc/serviceradar/log-collector.toml"
+        {{- /* The events stream's owner values (logCollector.*), as budgeted by
+             serviceradar.jetstreamBudget, so every log collector that can create
+             the shared stream is given the same reservation. */}}
+        {{- $eventsJs := (include "serviceradar.jetstreamBudget" . | fromJson).sizes.events }}
+        - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $eventsJs.stream "suffix" "MAX_BYTES") }}
+          value: {{ $eventsJs.maxBytes | quote }}
+        - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $eventsJs.stream "suffix" "REPLICAS") }}
+          value: {{ $eventsJs.replicas | quote }}
         - name: RUST_LOG
           value: "info"
         {{- include "serviceradar.configSyncEnv" (dict "cfg" (default (dict) .Values.configSync.logCollector)) | nindent 8 }}
@@ -232,7 +240,7 @@ spec:
   loadBalancerIP: {{ $tcpCollectorService.loadBalancerIP }}
   {{- end }}
   ports:
-  {{- if (default true ((default (dict) $tcpCollectorServicePorts.syslog).enabled)) }}
+  {{- if (include "serviceradar.boolDefaultTrue" (list (default (dict) $tcpCollectorServicePorts.syslog) "enabled") | eq "true") }}
   - name: syslog-tcp
     port: {{ default 514 ((default (dict) $tcpCollectorServicePorts.syslog).port) }}
     targetPort: {{ default 514 ((default (dict) $tcpCollectorServicePorts.syslog).targetPort) }}
@@ -266,7 +274,7 @@ spec:
     app: serviceradar-log-collector-tcp
     app.kubernetes.io/part-of: serviceradar
   ports:
-  {{- if (default true ((default (dict) $tcpCollectorExternalServicePorts.syslog).enabled)) }}
+  {{- if (include "serviceradar.boolDefaultTrue" (list (default (dict) $tcpCollectorExternalServicePorts.syslog) "enabled") | eq "true") }}
   - name: syslog-tcp
     port: {{ default 514 ((default (dict) $tcpCollectorExternalServicePorts.syslog).port) }}
     targetPort: {{ default 514 ((default (dict) $tcpCollectorExternalServicePorts.syslog).targetPort) }}

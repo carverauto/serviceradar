@@ -3,6 +3,11 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
   Canonical device-ID resolution: strong-identifier lookups, IP/alias
   fallback, canonical selection among conflicting matches, and
   merge-audit canonical following (tombstone resurrection protection).
+
+  An update carrying a source-authoritative identifier never resolves onto a
+  record holding a different one, whatever identifier (a shared MAC, a MAC's
+  hardware sibling) they share: the source-authoritative identifier decides,
+  and the override is recorded (`SourceAuthorityGuard.record_overrides/1`).
   """
 
   alias ServiceRadar.Ash.Page
@@ -14,6 +19,7 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.Inventory.Identity.MergeEngine
+  alias ServiceRadar.Inventory.Identity.SourceAuthorityGuard
   alias ServiceRadar.Inventory.MergeAudit
 
   require Ash.Query
@@ -73,23 +79,67 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
 
   defp do_resolve_device_id(update, actor) do
     ids = Ids.extract_strong_identifiers(update)
+    refuse? = source_refusal(ids, actor)
 
     # Step 1: Lookup by strong identifiers (merge conflicts if multiple IDs found)
-    case lookup_by_strong_identifiers(ids, actor, update.device_id) do
-      {:ok, device_id} when is_binary(device_id) and device_id != "" ->
-        _ = AliasGuard.maybe_merge_ip_alias_device(device_id, ids, actor)
-        {:ok, maybe_merge_hardware_mac_siblings(device_id, ids, update, actor)}
+    {strong, overridden} = lookup_strong_identifiers(ids, actor, update.device_id, refuse?)
 
-      _ ->
-        case lookup_hardware_mac_sibling_device(ids, update, actor) do
-          {:ok, device_id} when is_binary(device_id) and device_id != "" ->
-            _ = AliasGuard.maybe_merge_ip_alias_device(device_id, ids, actor)
-            {:ok, device_id}
+    {result, refused} =
+      case strong do
+        {:ok, device_id} when is_binary(device_id) and device_id != "" ->
+          _ = AliasGuard.maybe_merge_ip_alias_device(device_id, ids, actor)
 
-          _ ->
-            resolve_fallback_device_id(update, ids, actor)
-        end
+          {device_id, refused} =
+            maybe_merge_hardware_mac_siblings(device_id, ids, update, actor, refuse?)
+
+          {{:ok, device_id}, refused}
+
+        _ ->
+          case lookup_hardware_mac_sibling_device(ids, update, actor, refuse?) do
+            {device_id, refused} when is_binary(device_id) ->
+              _ = AliasGuard.maybe_merge_ip_alias_device(device_id, ids, actor)
+              {{:ok, device_id}, refused}
+
+            {nil, refused} ->
+              {resolve_fallback_device_id(update, ids, actor), refused}
+          end
+      end
+
+    with {:ok, device_id} <- result do
+      record_source_overrides(update, ids, device_id, overridden ++ refused)
     end
+
+    result
+  end
+
+  # The refusal predicate for an update carrying a source-authoritative
+  # identifier: a record holding a different one is not a match
+  # (`SourceAuthorityGuard.source_mismatch?/3`). `nil` for every other update.
+  defp source_refusal(ids, actor) do
+    if SourceAuthorityGuard.carries_source_id?(ids) do
+      fn _id_type, device_id ->
+        held = SourceAuthorityGuard.held_source_ids([device_id], actor)
+
+        if SourceAuthorityGuard.source_mismatch?(ids, device_id, held),
+          do: {:refuse, SourceAuthorityGuard.scoped_source_ids(held, device_id, ids)},
+          else: :accept
+      end
+    end
+  end
+
+  defp record_source_overrides(_update, _ids, _device_id, []), do: :ok
+
+  defp record_source_overrides(update, ids, device_id, overridden) do
+    overridden = Enum.reject(overridden, &(&1.device_uid == device_id))
+
+    if overridden != [] do
+      _ =
+        SourceAuthorityGuard.record_overrides([
+          %{update: update, ids: ids, device_uid: device_id, overridden: overridden}
+        ])
+    end
+
+    :ok
   end
 
   defp resolve_fallback_device_id(update, ids, actor) do
@@ -121,6 +171,19 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
   When the given device is tombstoned by a merge, resolution follows the
   audit trail to the live canonical device. Live (or never-seen) IDs are
   returned unchanged, so unmerged/recreated devices are respected.
+
+  Only a merge tombstone (`deleted_reason: "merged"`) is followed. A merge row
+  outlives an unmerge, so a device that was merged, unmerged and later deleted
+  for an unrelated reason still has one; following it would redirect the device
+  to its former survivor, and together with any revival path would close a
+  redirect cycle. Such a device resolves to itself.
+
+  A merged-away id whose tombstone row is gone -- purged by
+  `DeviceCleanupWorker` after retention, or merged before merges tombstoned
+  instead of deleting -- is still followed: `merge_audit` outlives the row. It is
+  followed through its newest merge row unless an unmerge reversed that merge
+  (an unmerge row naming it in `details.original_merge_event_id`). Otherwise a
+  source still carrying the old id would re-create the merged-away device.
   """
   @spec follow_canonical_device_id(String.t(), term()) :: String.t()
   def follow_canonical_device_id(device_id, actor),
@@ -130,9 +193,8 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
 
   defp do_follow_canonical(device_id, actor, depth) do
     with true <- Ids.serviceradar_uuid?(device_id),
-         {:ok, %Device{deleted_at: %_{}}} <- Device.get_by_uid(device_id, true, actor: actor),
          canonical_id when is_binary(canonical_id) and canonical_id != device_id <-
-           latest_merge_target(device_id, actor) do
+           redirect_target(device_id, actor) do
       do_follow_canonical(canonical_id, actor, depth - 1)
     else
       _ -> device_id
@@ -142,6 +204,67 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
       Logger.warning("Canonical follow failed for #{device_id}: #{inspect(e)}")
       device_id
   end
+
+  # Where a merged-away id redirects, or nil when it does not.
+  defp redirect_target(device_id, actor) do
+    case Device.get_by_uid(device_id, true, actor: actor) do
+      {:ok, %Device{deleted_at: %_{}, deleted_reason: "merged"}} ->
+        latest_merge_target(device_id, actor)
+
+      {:ok, %Device{}} ->
+        nil
+
+      {:ok, nil} ->
+        purged_merge_target(device_id, actor)
+
+      {:error, error} ->
+        if not_found?(error), do: purged_merge_target(device_id, actor)
+    end
+  end
+
+  defp not_found?(%Ash.Error.Query.NotFound{}), do: true
+  defp not_found?(%Ash.Error.Invalid{errors: errors}), do: Enum.any?(errors, &not_found?/1)
+  defp not_found?(_error), do: false
+
+  # No row at all. The newest merge row from the id redirects it, unless an
+  # unmerge reversed that merge: the id was then live again, and whatever
+  # deleted it afterwards was not a merge. Rows with equal created_at (one-second
+  # precision) prefer a merge that was not reversed, since a reversed merge must
+  # precede the merge that followed it.
+  defp purged_merge_target(device_id, actor) do
+    query_opts = if actor, do: [actor: actor], else: []
+
+    with {:ok, [_ | _] = merges} <-
+           MergeAudit
+           |> Ash.Query.filter(
+             from_device_id == ^device_id and (is_nil(reason) or reason != "unmerge")
+           )
+           |> Ash.read(query_opts),
+         {:ok, unmerges} <-
+           MergeAudit
+           |> Ash.Query.filter(to_device_id == ^device_id and reason == "unmerge")
+           |> Ash.read(query_opts) do
+      reversed = MapSet.new(unmerges, &reversed_merge_event_id/1)
+
+      newest =
+        Enum.max_by(merges, fn merge ->
+          {created_unix(merge.created_at), not MapSet.member?(reversed, merge.event_id)}
+        end)
+
+      if MapSet.member?(reversed, newest.event_id), do: nil, else: newest.to_device_id
+    else
+      _ -> nil
+    end
+  end
+
+  # A row without created_at sorts oldest.
+  defp created_unix(%DateTime{} = created_at), do: DateTime.to_unix(created_at)
+  defp created_unix(_created_at), do: 0
+
+  defp reversed_merge_event_id(%MergeAudit{details: details}) when is_map(details),
+    do: details["original_merge_event_id"] || details[:original_merge_event_id]
+
+  defp reversed_merge_event_id(_unmerge), do: nil
 
   defp latest_merge_target(device_id, actor) do
     query_opts = if actor, do: [actor: actor], else: []
@@ -162,29 +285,119 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
 
   @doc """
   Lookup device by strong identifiers in priority order.
+
+  Every record owning one of the update's globally-unique MACs takes part, not only the owner
+  of the first MAC that matches: a device reporting several interfaces (a router, a switch)
+  names one chassis, so records split across its MACs are a conflict to resolve rather than a
+  choice to make silently. A locally-administered (randomized) MAC never adds a record to the
+  conflict; it identifies nothing beyond the first match it already had.
   """
   @spec lookup_by_strong_identifiers(Ids.strong_identifiers(), term(), String.t() | nil) ::
           {:ok, String.t() | nil} | {:error, term()}
   def lookup_by_strong_identifiers(ids, actor, preferred_device_id \\ nil) do
-    if Ids.has_strong_identifier?(ids) do
-      matches = lookup_identifier_matches(ids, actor)
-      device_ids = matches |> Map.values() |> Enum.map(& &1.device_id) |> Enum.uniq()
+    {result, overridden} =
+      lookup_strong_identifiers(ids, actor, preferred_device_id, source_refusal(ids, actor))
 
-      case device_ids do
-        [] ->
-          {:ok, nil}
+    # Without a match the caller creates the update's deterministic record.
+    with {:ok, device_id} <- result, [_ | _] <- overridden do
+      target =
+        device_id || follow_canonical_device_id(Ids.generate_deterministic_device_id(ids), actor)
 
-        [device_id] ->
-          {:ok, device_id}
-
-        _ ->
-          canonical_id = select_canonical_device_id(preferred_device_id, matches, actor)
-          _ = MergeEngine.merge_conflicting_devices(canonical_id, device_ids, matches, actor)
-          {:ok, canonical_id}
-      end
-    else
-      {:ok, nil}
+      record_source_overrides(%{metadata: %{}}, ids, target, overridden)
     end
+
+    result
+  end
+
+  # A locally administered MAC is not a strong identifier (`Ids.has_strong_identifier?/1`): it
+  # never derives a uid. A record that registered one still owns that identifier row, so an
+  # update carrying only such MACs still looks them up; registration decides which MACs a
+  # source may claim (the census claims none of them), and `MergePolicy` refuses a merge over
+  # an all-randomized match set.
+  defp lookup_strong_identifiers(ids, actor, preferred_device_id, refuse?) do
+    if Ids.has_strong_identifier?(ids) or Ids.mac_lookup_values(ids) != [] do
+      {first_matches, overridden} = lookup_governed_matches(ids, actor, refuse?)
+
+      matches =
+        Enum.to_list(first_matches) ++
+          hardware_mac_owner_matches(ids, first_matches, actor, refuse?)
+
+      result =
+        case match_device_ids(matches) do
+          [] ->
+            {:ok, nil}
+
+          [device_id] ->
+            {:ok, device_id}
+
+          device_ids ->
+            canonical_id = select_canonical_device_id(preferred_device_id, matches, actor)
+            _ = MergeEngine.merge_conflicting_devices(canonical_id, device_ids, matches, actor)
+            {:ok, canonical_id}
+        end
+
+      {result, overridden}
+    else
+      {{:ok, nil}, []}
+    end
+  end
+
+  # Owners of the update's other globally-unique MACs, as `{:mac, match}` pairs in MAC order,
+  # beyond the first MAC match `lookup_identifier_matches/2` already found. One query. An owner
+  # the source-authoritative guard refuses stays out; `lookup_governed_matches/3` already
+  # reported it as overridden.
+  defp hardware_mac_owner_matches(ids, first_matches, actor, refuse?) do
+    first_mac =
+      case Map.get(first_matches, :mac) do
+        %{value: value} -> value
+        _ -> nil
+      end
+
+    values =
+      :mac
+      |> Ids.get_identifier_values(ids)
+      |> Mac.universal_macs()
+      |> MapSet.delete(first_mac)
+      |> Enum.sort()
+
+    values
+    |> lookup_mac_owners(Ids.ids_get_partition(ids), actor)
+    |> Enum.filter(fn {id_type, %{device_id: device_id}} ->
+      is_nil(refuse?) or refuse?.(id_type, device_id) == :accept
+    end)
+  end
+
+  defp lookup_mac_owners([], _partition, _actor), do: []
+
+  defp lookup_mac_owners(values, partition, actor) do
+    query_opts = if actor, do: [actor: actor], else: []
+
+    DeviceIdentifier
+    |> Ash.Query.filter(
+      identifier_type == :mac and identifier_value in ^values and partition == ^partition
+    )
+    |> Ash.read(query_opts)
+    |> Page.unwrap()
+    |> case do
+      {:ok, identifiers} ->
+        identifiers
+        |> Enum.map(&{:mac, %{value: &1.identifier_value, device_id: &1.device_id}})
+        |> Enum.sort_by(fn {:mac, %{value: value}} -> value end)
+
+      {:error, reason} ->
+        Logger.warning("Failed to look up MAC owners: #{inspect(reason)}")
+        []
+    end
+  rescue
+    e ->
+      Logger.warning("Failed to look up MAC owners: #{inspect(e)}")
+      []
+  end
+
+  defp match_device_ids(matches) do
+    matches
+    |> Enum.map(fn {_id_type, %{device_id: device_id}} -> device_id end)
+    |> Enum.uniq()
   end
 
   defp lookup_device_identifier(id_type, id_value, partition, actor) do
@@ -327,6 +540,57 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
   end
 
   def lookup_identifier_matches(ids, actor) do
+    ids
+    |> lookup_governed_matches(actor, source_refusal(ids, actor))
+    |> elem(0)
+  end
+
+  defp lookup_governed_matches(ids, actor, nil), do: {lookup_all_matches(ids, actor), []}
+
+  # Every value of every type is looked up, so each record the source-authoritative
+  # identifier overrides is reported, not only the first one met; the first
+  # accepted value of a type is its match.
+  defp lookup_governed_matches(ids, actor, refuse?) do
+    partition = Ids.ids_get_partition(ids)
+
+    {matches, overridden} =
+      for id_type <- Ids.identifier_priority(),
+          id_value <- Ids.get_identifier_values(id_type, ids),
+          device_id = trusted_match(id_type, id_value, partition, actor),
+          is_binary(device_id),
+          reduce: {%{}, []} do
+        {matches, overridden} ->
+          case refuse?.(id_type, device_id) do
+            :accept ->
+              {Map.put_new(matches, id_type, %{value: id_value, device_id: device_id}),
+               overridden}
+
+            {:refuse, source_ids} ->
+              refused = %{
+                device_uid: device_id,
+                identifier_type: id_type,
+                identifier_value: id_value,
+                source_ids: source_ids
+              }
+
+              {matches, [refused | overridden]}
+          end
+      end
+
+    {matches, Enum.reverse(overridden)}
+  end
+
+  defp trusted_match(id_type, id_value, partition, actor) do
+    with {:ok, device_id} when is_binary(device_id) and device_id != "" <-
+           lookup_device_identifier(id_type, id_value, partition, actor),
+         true <- trusted_identifier_match?(id_type, id_value, device_id, actor) do
+      device_id
+    else
+      _ -> nil
+    end
+  end
+
+  defp lookup_all_matches(ids, actor) do
     partition = Ids.ids_get_partition(ids)
 
     Enum.reduce(Ids.identifier_priority(), %{}, fn id_type, acc ->
@@ -366,8 +630,13 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
 
   defp trusted_identifier_match?(_id_type, _id_value, _device_id, _actor), do: true
 
+  @doc """
+  The survivor among the devices `matches` name: the preferred device when it is one of them,
+  else the owner of the highest-priority identifier, else the most recently seen. `matches` is
+  a map or a list of `{identifier_type, %{value: _, device_id: _}}` pairs.
+  """
   def select_canonical_device_id(preferred_device_id, matches, actor) do
-    device_ids = matches |> Map.values() |> Enum.map(& &1.device_id) |> Enum.uniq()
+    device_ids = match_device_ids(matches)
 
     if Ids.serviceradar_uuid?(preferred_device_id) and preferred_device_id in device_ids do
       preferred_device_id
@@ -381,65 +650,102 @@ defmodule ServiceRadar.Inventory.Identity.Resolver do
 
   defp highest_priority_match(matches) do
     Enum.find_value(Ids.identifier_priority(), fn id_type ->
-      case Map.get(matches, id_type) do
-        %{device_id: device_id} -> device_id
+      Enum.find_value(matches, fn
+        {^id_type, %{device_id: device_id}} -> device_id
         _ -> nil
-      end
+      end)
     end)
   end
 
-  defp lookup_hardware_mac_sibling_device(ids, update, actor) do
+  defp lookup_hardware_mac_sibling_device(ids, update, actor, refuse?) do
     partition = Ids.ids_get_partition(ids)
+    refuse? = refuse? || fn _id_type, _device_id -> :accept end
 
-    ids
-    |> sibling_mac_candidates(update)
-    |> Enum.map(&Mac.hardware_mac_sibling/1)
-    |> Enum.reject(&is_nil/1)
-    |> Enum.find_value(fn sibling ->
-      case lookup_device_identifier(:mac, sibling, partition, actor) do
-        {:ok, device_id} when is_binary(device_id) and device_id != "" -> device_id
-        _ -> nil
-      end
-    end)
-    |> case do
-      device_id when is_binary(device_id) -> {:ok, device_id}
-      _ -> {:ok, nil}
-    end
+    {device_id, refused} =
+      ids
+      |> sibling_mac_candidates(update)
+      |> Enum.reduce({nil, []}, fn mac, {found, refused} ->
+        with sibling when is_binary(sibling) <- Mac.hardware_mac_sibling(mac),
+             {:ok, device_id} when is_binary(device_id) and device_id != "" <-
+               lookup_device_identifier(:mac, sibling, partition, actor) do
+          case refuse?.(:mac, device_id) do
+            :accept ->
+              {found || device_id, refused}
+
+            {:refuse, source_ids} ->
+              refusal = %{
+                device_uid: device_id,
+                identifier_type: :mac,
+                identifier_value: mac,
+                source_ids: source_ids
+              }
+
+              {found, [refusal | refused]}
+          end
+        else
+          _ -> {found, refused}
+        end
+      end)
+
+    {device_id, Enum.reverse(refused)}
   end
 
   # Prefer the universally-administered MAC as the survivor so a UniFi WAN
   # identity absorbs the SNMP LAN sibling, not the other way around.
-  defp maybe_merge_hardware_mac_siblings(device_id, ids, update, actor) do
+  defp maybe_merge_hardware_mac_siblings(device_id, ids, update, actor, refuse?) do
     partition = Ids.ids_get_partition(ids)
+    refuse? = refuse? || fn _id_type, _device_id -> :accept end
 
-    ids
-    |> sibling_mac_candidates(update)
-    |> Enum.reduce(device_id, fn mac, acc ->
-      merge_hardware_mac_sibling(acc, mac, partition, actor)
-    end)
+    {device_id, refused} =
+      ids
+      |> sibling_mac_candidates(update)
+      |> Enum.reduce({device_id, []}, fn mac, {acc, refused} ->
+        case merge_hardware_mac_sibling(acc, mac, partition, actor, refuse?) do
+          {:refused, refusal} -> {acc, [refusal | refused]}
+          merged -> {merged, refused}
+        end
+      end)
+
+    {device_id, Enum.reverse(refused)}
   end
 
-  defp merge_hardware_mac_sibling(device_id, mac, partition, actor) do
+  defp merge_hardware_mac_sibling(device_id, mac, partition, actor, refuse?) do
     sibling = Mac.hardware_mac_sibling(mac)
 
     with true <- is_binary(sibling),
          {:ok, other_id} when is_binary(other_id) and other_id != device_id <-
            lookup_device_identifier(:mac, sibling, partition, actor) do
-      {from_id, to_id} = hardware_mac_merge_direction(device_id, other_id, mac)
+      case refuse?.(:mac, other_id) do
+        :accept ->
+          merge_hardware_mac_pair(device_id, other_id, mac, sibling, actor)
 
-      case MergeEngine.merge_devices(from_id, to_id,
-             actor: actor,
-             reason: "hardware_mac_sibling",
-             details: %{
-               source: "identity_reconciler",
-               mac: mac,
-               sibling_mac: sibling
-             }
-           ) do
-        :ok -> to_id
-        _ -> device_id
+        {:refuse, source_ids} ->
+          {:refused,
+           %{
+             device_uid: other_id,
+             identifier_type: :mac,
+             identifier_value: mac,
+             source_ids: source_ids
+           }}
       end
     else
+      _ -> device_id
+    end
+  end
+
+  defp merge_hardware_mac_pair(device_id, other_id, mac, sibling, actor) do
+    {from_id, to_id} = hardware_mac_merge_direction(device_id, other_id, mac)
+
+    case MergeEngine.merge_devices(from_id, to_id,
+           actor: actor,
+           reason: "hardware_mac_sibling",
+           details: %{
+             source: "identity_reconciler",
+             mac: mac,
+             sibling_mac: sibling
+           }
+         ) do
+      :ok -> to_id
       _ -> device_id
     end
   end

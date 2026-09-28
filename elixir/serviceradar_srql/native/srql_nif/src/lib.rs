@@ -35,6 +35,13 @@ fn parse_ast(env: Env, srql_query: String) -> Term {
     }
 }
 
+/// Translate an SRQL query to SQL.
+///
+/// `permitted_signals` is the caller's trusted set of viewable OTel signals
+/// (`logs`, `traces`, `metrics`), computed by its access gate and never taken
+/// from the query string. `nil` means no set was supplied, and queries that
+/// need one (`in:otel_services`) fail closed. A permission failure comes back
+/// as `{:error, "forbidden: ..."}`.
 #[rustler::nif(schedule = "DirtyCpu")]
 fn translate(
     env: Env,
@@ -43,6 +50,7 @@ fn translate(
     cursor: Option<String>,
     direction: Option<String>,
     mode: Option<String>,
+    permitted_signals: Option<Vec<String>>,
 ) -> Term {
     let direction = match direction.as_deref() {
         Some("prev") => srql::QueryDirection::Prev,
@@ -55,6 +63,7 @@ fn translate(
         cursor,
         direction,
         mode,
+        permitted_signals,
     };
 
     let config = srql::config::AppConfig::embedded("postgres://unused/db".to_string());

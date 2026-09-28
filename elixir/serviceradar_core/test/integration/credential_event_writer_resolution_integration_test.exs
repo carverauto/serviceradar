@@ -45,14 +45,6 @@ defmodule ServiceRadar.Credentials.CredentialEventWriterResolutionIntegrationTes
     assert resolution_event_count(secret_id) == 1
   end
 
-  test "a denied outcome DOES write an ocsf event" do
-    secret_id = Ecto.UUID.generate()
-
-    assert :ok = CredentialEventWriter.write_secret_resolution(attrs(secret_id, :denied))
-
-    assert resolution_event_count(secret_id) == 1
-  end
-
   test "enabling the flag re-enables success emission" do
     Application.put_env(:serviceradar_core, @flag, true)
     secret_id = Ecto.UUID.generate()

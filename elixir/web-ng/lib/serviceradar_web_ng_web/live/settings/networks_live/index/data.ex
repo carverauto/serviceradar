@@ -150,6 +150,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Data do
     RBAC.can?(scope, "settings.networks.manage")
   end
 
+  # MTR bulk jobs on Active Scans follow the sweep view permission.
+  def can_view_mtr_jobs?(scope) do
+    RBAC.can?(scope, "networks.sweeps.view")
+  end
+
   def can_enable_banner_grab?(scope) do
     RBAC.can?(scope, "networks.sweeps.banner_grab")
   end

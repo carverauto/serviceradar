@@ -1,0 +1,46 @@
+suite: web-ng camera relay WebRTC runtime settings
+templates:
+  - templates/web.yaml
+# Assertions select the Deployment by kind; see README.md in this directory.
+tests:
+  - it: keeps camera relay WebRTC off by default and omits ICE servers
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_CAMERA_RELAY_WEBRTC_ENABLED
+            value: "false"
+        documentSelector:
+          path: kind
+          value: Deployment
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_CAMERA_RELAY_WEBRTC_ICE_SERVERS_JSON
+          any: true
+        documentSelector:
+          path: kind
+          value: Deployment
+  - it: renders the enable flag and ICE servers when enabled
+    set:
+      webNg.cameraRelay.webRTC.enabled: true
+      webNg.cameraRelay.webRTC.iceServers:
+        - urls:
+            - stun:stun.example.com:3478
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_CAMERA_RELAY_WEBRTC_ENABLED
+            value: "true"
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_CAMERA_RELAY_WEBRTC_ICE_SERVERS_JSON
+            value: '[{"urls":["stun:stun.example.com:3478"]}]'
+        documentSelector:
+          path: kind
+          value: Deployment

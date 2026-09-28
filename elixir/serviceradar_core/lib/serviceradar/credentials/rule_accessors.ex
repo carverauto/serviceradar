@@ -40,31 +40,6 @@ defmodule ServiceRadar.Credentials.RuleAccessors do
     end
   end
 
-  @spec metadata_string(map(), String.t(), String.t()) :: String.t()
-  def metadata_string(rule, key, default) do
-    case value_string(metadata(rule), [key, metadata_atom_key(key)]) do
-      value when is_binary(value) and value != "" -> value
-      _ -> default
-    end
-  end
-
-  @spec tls_policy(map()) :: :skip_verify | :verify
-  def tls_policy(rule) do
-    case value_string(rule, [:tls_policy, "tls_policy"]) do
-      "skip_verify" -> :skip_verify
-      _ -> :verify
-    end
-  end
-
-  @spec ssh_host_key_policy(map()) :: String.t()
-  def ssh_host_key_policy(rule) do
-    case value_string(rule, [:ssh_host_key_policy, "ssh_host_key_policy"]) do
-      "trust_on_first_use" -> "trust_on_first_use"
-      "skip_verify" -> "skip_verify"
-      _ -> "known_hosts"
-    end
-  end
-
   @spec auth_method(map()) :: String.t() | nil
   def auth_method(rule), do: value_string(rule, [:auth_method, "auth_method"])
 

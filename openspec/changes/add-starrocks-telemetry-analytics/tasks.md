@@ -35,6 +35,7 @@
 - [x] 4.4 Add flow attribution update events through JetStream and monotonic partial-update semantics; test redelivery without enrichment loss.
   - StarRocks shadow is `Rows.encode(:flow_attribution)` + Stream Load `partial_update`/`columns`; `process_batch` compares incoming `attribution_version` to stored (or in-batch max) and must not persist nil `bytes_in`.
 - [x] 4.5 Prove crash/retry/batch-regrouping/label-expiry/partial-failure behavior and late-event expiry policy with synthetic real-database tests.
+- [x] 4.6 Size warehouse loads from `analytics.starrocks.streamLoad` (issue #4516). The Helm keys were rendered into the analytics ConfigMap and never read, so every Stream Load was one EventWriter batch (at most 100 messages or 1 s). Core now reads `SERVICERADAR_STARROCKS_STREAM_LOAD_{MAX_ROWS,MAX_BYTES,MAX_AGE_MS,MAX_IN_FLIGHT}`: `Destination` encodes a batch once and splits it into loads of at most `maxRows` rows / `maxBytes` bytes, run at most `maxInFlight` at once, all required before ACK (a batch within the limits is one load with its unchanged label); with the warehouse enabled, warehouse-writing batchers flush after `maxAgeMs` and fill to half of their consumer's `max_ack_pending`. Batcher concurrency is deliberately unchanged, so CNPG connection use does not grow while dual-write remains. `[:serviceradar, :starrocks, :stream_load, :batch]` reports rows, bytes and loads per batch for the 6.3 benchmark, which still owns choosing the values.
 
 ## 5. Authorized queries and dashboard acceleration
 - [x] 5.1 Add backend-aware SRQL compilation and nonblocking execution with parameter binding, feature capability checks, stable result/cursor/Arrow contracts and existing authorization boundaries.
@@ -65,5 +66,5 @@
   - Unverifiable here: no dataset cutover, no authorized post-rollout browser session. Helm `cutoverDatasets` empty; demo/serviceradar untouched.
 - [ ] 6.6 Cut over one dataset at a time only with approved consumer/coverage gates and verified rollback history; stop on mismatch.
   - Unverifiable here: live cutover not performed. Rollback is Helm `cutoverDatasets: []` (already empty) so `Readers.mode_for/1` stays CNPG.
-- [ ] 6.7 Retire old writers/storage/jobs only under a separate reviewed cleanup with rechecked coverage and restore proof; update operator/user docs and retention guidance.
+- [ ] 6.7 Keep CNPG telemetry writers, storage and jobs as the non-StarRocks backend (exactly one backend active); retire only legacy archive resources (pg_duckdb #488 heads, buckets, checkpoints) under a separate reviewed cleanup with rechecked coverage and restore proof; update operator/user docs and retention guidance.
   - Unverifiable here: EventWriter still inserts CNPG first; no Timescale CAGG/hypertable/writer path was retired.

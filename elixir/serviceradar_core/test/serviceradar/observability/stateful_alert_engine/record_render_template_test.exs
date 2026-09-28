@@ -61,4 +61,61 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.RecordRenderTemplateTes
     assert Record.render_template("Kubernetes node is NotReady", node_event("worker")) ==
              "Kubernetes node is NotReady"
   end
+
+  test "a structured source device does not mask the canonical device identity" do
+    record = %{
+      device: %{"uid" => "synthetic-device"},
+      unmapped: %{"device" => %{"uid" => "synthetic-device"}}
+    }
+
+    assert Record.build_group(["device"], record) ==
+             {:ok, "device=synthetic-device", %{"device" => "synthetic-device"}}
+
+    assert Record.render_template("Device {device}", record) == "Device synthetic-device"
+  end
+
+  test "structured group values are unresolved instead of crashing evaluation" do
+    for value <- [%{"uid" => "synthetic-device"}, ["synthetic-device"]] do
+      record = %{attributes: %{"subject" => value}}
+      assert Record.build_group(["subject"], record) == :error
+      assert Record.render_template("Subject {subject}", record) == "Subject {subject}"
+    end
+  end
+
+  test "source lookup skips objects and preserves scalar values including false" do
+    record = %{
+      attributes: %{"subject" => %{"name" => "ignored"}},
+      resource_attributes: %{"subject" => "synthetic-subject", "active" => false, "index" => 7}
+    }
+
+    assert Record.build_group(["subject", "active", "index"], record) ==
+             {:ok, "subject=synthetic-subject|active=false|index=7",
+              %{"subject" => "synthetic-subject", "active" => "false", "index" => "7"}}
+  end
+
+  test "log and event source references normalize database UUIDs before JSON encoding" do
+    uuid = "00000000-0000-4000-8000-0000000000dd"
+
+    for id <- [Ecto.UUID.dump!(uuid), uuid] do
+      event = Record.source_record_details(%{id: id, time: ~U[2026-01-01 00:00:00Z]})
+      log = Record.source_record_details(%{id: id, timestamp: ~U[2026-01-01 00:00:00Z]})
+      assert Jason.decode!(Jason.encode!(event))["source_event_id"] == uuid
+      assert Jason.decode!(Jason.encode!(log))["source_log_id"] == uuid
+    end
+  end
+
+  test "source references preserve textual identifiers, including a 16-byte one" do
+    sixteen_byte_text_id = "source-log-id-01"
+    assert byte_size(sixteen_byte_text_id) == 16
+
+    for id <- ["synthetic-event", sixteen_byte_text_id] do
+      assert Record.event_source_details(%{id: id})["source_event_id"] == id
+      assert Record.log_source_details(%{id: id})["source_log_id"] == id
+    end
+  end
+
+  test "source references preserve an absent identifier" do
+    assert Record.event_source_details(%{id: nil})["source_event_id"] == ""
+    assert Record.log_source_details(%{id: nil})["source_log_id"] == ""
+  end
 end

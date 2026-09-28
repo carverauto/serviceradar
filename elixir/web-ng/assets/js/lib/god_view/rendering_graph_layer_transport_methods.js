@@ -1,11 +1,59 @@
 import {COORDINATE_SYSTEM} from "@deck.gl/core"
 import {ArcLayer, LineLayer, PathLayer, ScatterplotLayer} from "@deck.gl/layers"
-import PacketFlowLayer from "../deckgl/PacketFlowLayer"
+import PacketFlowLayer, {packetFlowDensity} from "../deckgl/PacketFlowLayer"
 import {hasManagedTopologySceneRoutes} from "./rendering_graph_data_methods"
 import {managedVisualDensityContract, normalizeManagedVisualDensity} from "./rendering_managed_visual_density"
 import {edgeTopologyVisualStyleValue} from "./rendering_style_edge_topology_methods"
+import {GOD_VIEW_ALPHA_BLEND, GOD_VIEW_NO_DEPTH} from "./gpu_parameters"
+
+export const PACKET_FLOW_LAYER_ID = "god-view-atmosphere-particles"
+const EMPTY_PACKET_FLOW = Object.freeze({length: 0, attributes: {}})
+const mtrPathEdgeCache = new WeakMap()
+const auxiliarySplits = new WeakMap()
+
+// Routed scenes draw auxiliary (manifold) edges separately. Split once per edge list, so a
+// hover or camera refresh that reuses the list does not scan it again.
+function splitAuxiliaryEdges(edgeData) {
+  const cached = auxiliarySplits.get(edgeData)
+  if (cached) return cached
+  const hasAuxiliaryEdges = edgeData.some((edge) => edge?.auxiliary === true)
+  const split = hasAuxiliaryEdges
+    ? {
+        auxiliaryEdgeData: edgeData.filter((edge) => edge?.auxiliary === true),
+        semanticEdgeData: edgeData.filter((edge) => edge?.auxiliary !== true),
+      }
+    : {auxiliaryEdgeData: [], semanticEdgeData: edgeData}
+  auxiliarySplits.set(edgeData, split)
+  return split
+}
 
 export const godViewRenderingGraphLayerTransportMethods = {
+  /** The layer re-issued for the current animation phase, or the same layer if it is static. */
+  animateLayer(layer) {
+    const phase = this.state.animationPhase
+    switch (layer?.id) {
+      case PACKET_FLOW_LAYER_ID:
+        return layer.props.time === phase ? layer : layer.clone({time: phase})
+      case "god-view-security-pulse": {
+        const pulse = (phase * 1.5) % 1.0
+        return layer.clone({
+          getRadius: 10 + (pulse * 40),
+          getLineWidth: Math.max(1, 3 - (pulse * 2)),
+          getLineColor: [...this.state.visual.pulse.slice(0, 3), Math.floor(255 * (1.0 - pulse))],
+        })
+      }
+      case "god-view-nodes-ring":
+        return layer.clone({
+          updateTriggers: {...layer.props.updateTriggers, getRadius: [phase, ...(layer.props.updateTriggers?.getRadius || []).slice(1)]},
+        })
+      case "god-view-geo-grid":
+        return layer.clone({updateTriggers: {getColor: phase * 80.0}})
+      case "god-view-mtr-paths":
+        return layer.clone({updateTriggers: {getSourceColor: [phase], getTargetColor: [phase]}})
+      default:
+        return layer
+    }
+  },
   buildTransportAndEffectLayers(effective, nodeData, edgeData, rootPulseNodesArg = null) {
     const now = typeof performance !== "undefined" ? performance.now() : Date.now()
     const atmosphereReady = now >= Number(this.state.atmosphereSuppressUntil || 0)
@@ -14,11 +62,10 @@ export const godViewRenderingGraphLayerTransportMethods = {
     const pulseAlpha = Math.floor(255 * (1.0 - pulse))
     const zoom = Number(this.state.viewState?.zoom || 0)
     const zoomScale = Math.max(0.4, Math.min(4.5, Math.pow(1.24, zoom + 1.2)))
-    const particleRenderScale = 1.0
     const zoomParticleVisibility = Math.max(0.14, Math.min(1.0, (zoom + 2.2) / 3.6))
     const zoomParticleAlphaScale = Math.max(0.35, zoomParticleVisibility)
-    const minParticleSizePx = 1.0
     const zoomSpreadScale = Math.max(1.0, Math.min(1.35, 1.0 + ((1.0 - zoomParticleVisibility) * 0.35)))
+    const zoomDensity = Math.max(0.55, Math.min(1.25, (zoom + 2.5) / 4.5))
     const hasFocus = this.state.hoveredEdgeKey || this.state.selectedEdgeKey
     const alphaMult = (d) => {
       if (!hasFocus) return 1.0
@@ -28,8 +75,8 @@ export const godViewRenderingGraphLayerTransportMethods = {
       ? rootPulseNodesArg
       : nodeData.filter((d) => d.state === 0)
     const packetFlowData = (this.state.layers.atmosphere && this.state.packetFlowEnabled)
-      ? this.buildPacketFlowInstances(edgeData)
-      : []
+      ? this.buildPacketFlowEdges(edgeData)
+      : EMPTY_PACKET_FLOW
     const routedTopologyScene = hasManagedTopologySceneRoutes(effective)
     const managedVisualDensity = routedTopologyScene
       ? normalizeManagedVisualDensity(this.state.managedTopologyVisualDensity)
@@ -37,13 +84,9 @@ export const godViewRenderingGraphLayerTransportMethods = {
     const managedRouteMaxWidth = routedTopologyScene
       ? managedVisualDensityContract(managedVisualDensity).routeMaxWidth
       : null
-    const hasAuxiliaryEdges = routedTopologyScene && edgeData.some((edge) => edge?.auxiliary === true)
-    const auxiliaryEdgeData = hasAuxiliaryEdges
-      ? edgeData.filter((edge) => edge?.auxiliary === true)
-      : []
-    const semanticEdgeData = hasAuxiliaryEdges
-      ? edgeData.filter((edge) => edge?.auxiliary !== true)
-      : edgeData
+    const {auxiliaryEdgeData, semanticEdgeData} = routedTopologyScene
+      ? splitAuxiliaryEdges(edgeData)
+      : {auxiliaryEdgeData: [], semanticEdgeData: edgeData}
     const transportDataSets = auxiliaryEdgeData.length > 0
       ? [
           {suffix: "-auxiliary", data: auxiliaryEdgeData, pickable: false},
@@ -81,11 +124,7 @@ export const godViewRenderingGraphLayerTransportMethods = {
             widthUnits: "pixels",
             widthMinPixels: 6,
             pickable: dataSet.pickable,
-            parameters: {
-              blend: true,
-              blendFunc: [770, 771],
-              depthTest: false,
-            },
+            parameters: GOD_VIEW_ALPHA_BLEND,
             updateTriggers: {
               getColor: [hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey, this.state.visual.mantleEdgeBase, this.state.visual.mantleEdgeAlphaBase],
               getWidth: [zoomScale, hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey, managedVisualDensity],
@@ -144,12 +183,7 @@ export const godViewRenderingGraphLayerTransportMethods = {
               widthUnits: "pixels",
               ...(routedTopologyScene ? {} : {greatCircle: false}),
               pickable: dataSet.pickable,
-              parameters: {
-                blend: true,
-                blendFunc: [770, 771],
-                depthTest: false,
-                depthWrite: false,
-              },
+              parameters: GOD_VIEW_ALPHA_BLEND,
               updateTriggers: {
                 ...(routedTopologyScene
                   ? {getColor: [hasFocus, this.state.hoveredEdgeKey, this.state.selectedEdgeKey]}
@@ -164,89 +198,22 @@ export const godViewRenderingGraphLayerTransportMethods = {
           ))
         : []
 
-    const atmosphereLayers = this.state.layers.atmosphere && packetFlowData.length > 0
-      ? (() => {
-          if (atmosphereReady && this.state.packetFlowShaderEnabled === true) {
-            return [
-              new PacketFlowLayer({
-                id: "god-view-atmosphere-particles",
-                data: packetFlowData,
-                coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
-                getSourcePosition: (d) => d.sourcePosition,
-                getTargetPosition: (d) => d.targetPosition,
-                getFrom: (d) => d.from,
-                getTo: (d) => d.to,
-                getColor: (d) => {
-                  const color = d.color || this.state.visual.atmosphereParticle
-                  return [color[0], color[1], color[2], Math.round((color[3] || 0) * zoomParticleAlphaScale)]
-                },
-                getSize: (d) => Math.max(minParticleSizePx, Number(d.size || 0) * particleRenderScale),
-                getSpeed: (d) => d.speed,
-                getSeed: (d) => d.seed,
-                getJitter: (d) => Number(d.jitter || 0) * zoomSpreadScale,
-                getLaneOffset: (d) => d.laneOffset,
-                pickable: false,
-                time: this.state.animationPhase,
-                parameters: {
-                  blend: true,
-                  blendFunc: this.state.visual.particleBlend,
-                  depthTest: false,
-                  depthWrite: false,
-                },
-              }),
-            ]
-          }
-
-          const fallbackParticleData = packetFlowData.map((particle) => {
-            const from = particle.from || [0, 0]
-            const to = particle.to || [0, 0]
-            const dx = Number(to[0] || 0) - Number(from[0] || 0)
-            const dy = Number(to[1] || 0) - Number(from[1] || 0)
-            const len = Math.max(0.0001, Math.sqrt((dx * dx) + (dy * dy)))
-            const t = (Number(particle.seed || 0) + (this.state.animationPhase * Number(particle.speed || 0))) % 1
-            const x = Number(from[0] || 0) + (dx * t)
-            const y = Number(from[1] || 0) + (dy * t)
-            const nx = -dy / len
-            const ny = dx / len
-            const laneBucket = ((Math.floor(Number(particle.seed || 0) * 1009) % 5) - 2)
-            const laneSpread = laneBucket * Math.max(0.2, (Number(particle.jitter || 0) * 0.04 * zoomSpreadScale))
-            const laneOffset = Number(particle.laneOffset || 0)
-            const bob = Math.sin((this.state.animationPhase * 9.0) + (Number(particle.seed || 0) * 23.0)) * 0.35
-            const color = particle.color || this.state.visual.atmosphereParticle
-            const alphaFade = Math.max(0, Math.sin(t * Math.PI))
-            return {
-              position: [x + (nx * (laneOffset + laneSpread + bob)), y + (ny * (laneOffset + laneSpread + bob)), 0],
-              radius: Math.max(1.0, Number(particle.size || 2.4) * 0.16 * particleRenderScale),
-              color: [color[0], color[1], color[2], Math.round(Math.max(6, Number(color[3] || 90) * alphaFade * zoomParticleAlphaScale))],
-            }
-          })
-
-          return [
-            new ScatterplotLayer({
-              id: "god-view-atmosphere-particles-fallback",
-              data: fallbackParticleData,
-              coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
-              getPosition: (d) => d.position,
-              getRadius: (d) => d.radius,
-              radiusUnits: "pixels",
-              radiusMinPixels: 1,
-              filled: true,
-              stroked: false,
-              pickable: false,
-              getFillColor: (d) => d.color,
-              parameters: {
-                blend: true,
-                blendFunc: this.state.visual.particleBlend,
-                depthTest: false,
-                depthWrite: false,
-              },
-              updateTriggers: {
-                getPosition: this.state.animationPhase,
-                getFillColor: this.state.animationPhase,
-              },
-            }),
-          ]
-        })()
+    const atmosphereLayers = this.state.layers.atmosphere && atmosphereReady && packetFlowData.length > 0
+      ? [
+          new PacketFlowLayer({
+            id: PACKET_FLOW_LAYER_ID,
+            data: packetFlowData,
+            coordinateSystem: COORDINATE_SYSTEM.CARTESIAN,
+            pickable: false,
+            time: this.state.animationPhase,
+            zoomDensity: packetFlowDensity(zoomDensity, packetFlowData.particleBaseSum),
+            spreadScale: zoomSpreadScale,
+            alphaScale: zoomParticleAlphaScale,
+            cyan: this.state.visual.particleCyan,
+            magenta: this.state.visual.particleMagenta,
+            parameters: this.state.visual.particleBlend,
+          }),
+        ]
       : []
 
     const securityLayers = this.state.layers.security
@@ -270,10 +237,7 @@ export const godViewRenderingGraphLayerTransportMethods = {
               pulseAlpha,
             ],
             pickable: false,
-            parameters: {
-              depthTest: false,
-              depthWrite: false,
-            },
+            parameters: GOD_VIEW_NO_DEPTH,
           }),
         ]
       : []
@@ -300,10 +264,7 @@ export const godViewRenderingGraphLayerTransportMethods = {
             getWidth: 1,
             widthUnits: "pixels",
             pickable: false,
-            parameters: {
-              depthTest: false,
-              depthWrite: false,
-            },
+            parameters: GOD_VIEW_NO_DEPTH,
             updateTriggers: {
               getColor: sweepTime,
             },
@@ -332,12 +293,7 @@ export const godViewRenderingGraphLayerTransportMethods = {
             widthUnits: "pixels",
             greatCircle: false,
             pickable: true,
-            parameters: {
-              blend: true,
-              blendFunc: [770, 771],
-              depthTest: false,
-              depthWrite: false,
-            },
+            parameters: GOD_VIEW_ALPHA_BLEND,
             updateTriggers: {
               getSourceColor: [this.state.animationPhase],
               getTargetColor: [this.state.animationPhase],
@@ -359,6 +315,14 @@ export const godViewRenderingGraphLayerTransportMethods = {
   buildMtrPathEdgeData(nodeData) {
     const paths = this.state.mtrPathData
     if (!paths || paths.length === 0) return []
+    // Same nodes and paths as the last layer pass (a hover, a selection, a camera move): reuse.
+    const cached = mtrPathEdgeCache.get(nodeData)
+    if (cached && cached.paths === paths && cached.owner === this) return cached.value
+    const value = this.buildMtrPathEdgeDataUncached(nodeData, paths)
+    if (nodeData && typeof nodeData === "object") mtrPathEdgeCache.set(nodeData, {owner: this, paths, value})
+    return value
+  },
+  buildMtrPathEdgeDataUncached(nodeData, paths) {
 
     const nodeById = new Map()
     for (const node of nodeData) {

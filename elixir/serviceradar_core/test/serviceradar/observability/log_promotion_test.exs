@@ -1,29 +1,3 @@
-defmodule ServiceRadar.Observability.LogPromotionTest.BlockingAlertQueue do
-  @moduledoc false
-
-  def enqueue_events(events) do
-    test_pid = Application.fetch_env!(:serviceradar_core, :log_promotion_queue_test_pid)
-    send(test_pid, {:stateful_alert_enqueue_started, self(), events})
-
-    receive do
-      :release_stateful_alert_enqueue -> :ok
-    after
-      5_000 -> {:error, :blocking_alert_queue_timeout}
-    end
-  end
-end
-
-defmodule ServiceRadar.Observability.LogPromotionTest.RejectingAlertQueue do
-  @moduledoc false
-
-  def enqueue_events(events) do
-    test_pid = Application.fetch_env!(:serviceradar_core, :log_promotion_queue_test_pid)
-    reason = Application.fetch_env!(:serviceradar_core, :log_promotion_queue_rejection)
-    send(test_pid, {:stateful_alert_enqueue_rejected, reason, events})
-    {:error, reason}
-  end
-end
-
 defmodule ServiceRadar.Observability.LogPromotionTest.AcknowledgingEngine do
   @moduledoc false
   use GenServer
@@ -47,18 +21,19 @@ end
 defmodule ServiceRadar.Observability.LogPromotionTest do
   use ServiceRadar.DataCase, async: false
 
+  import Ecto.Query
+
   alias Ecto.Adapters.SQL, as: SQL
   alias Postgrex.Result
   alias ServiceRadar.EventWriter.Processors.K8sNodes
   alias ServiceRadar.EventWriter.Processors.Logs
+  alias ServiceRadar.NATS.DurablePublishWorker
   alias ServiceRadar.Observability.EventRule
   alias ServiceRadar.Observability.LogPromotion
   alias ServiceRadar.Observability.LogPromotionTest.AcknowledgingEngine
-  alias ServiceRadar.Observability.LogPromotionTest.BlockingAlertQueue
-  alias ServiceRadar.Observability.LogPromotionTest.RejectingAlertQueue
-  alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
+  alias ServiceRadar.TestSupport.ScriptedStatefulAlertEngine
 
   @moduletag :integration
 
@@ -71,63 +46,54 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
     :ok
   end
 
-  test "waits for the configured stateful alert queue admission" do
-    actor = %{id: "system", role: :admin}
-    previous_queue = Application.get_env(:serviceradar_core, :stateful_alert_evaluation_queue)
+  test "evaluates each promoted event once, however often its log is promoted" do
+    configure_scripted_engine([])
+    log = create_queue_probe("evaluate-once")
 
-    Application.put_env(:serviceradar_core, :stateful_alert_evaluation_queue, BlockingAlertQueue)
-    Application.put_env(:serviceradar_core, :log_promotion_queue_test_pid, self())
+    assert {:ok, 1} = LogPromotion.promote([log])
+    assert_receive {:evaluated, [%{id: event_id}]}
 
-    on_exit(fn ->
-      case previous_queue do
-        nil -> Application.delete_env(:serviceradar_core, :stateful_alert_evaluation_queue)
-        value -> Application.put_env(:serviceradar_core, :stateful_alert_evaluation_queue, value)
-      end
-
-      Application.delete_env(:serviceradar_core, :log_promotion_queue_test_pid)
-    end)
-
-    subject = "logs.queue-test.#{System.unique_integer([:positive])}"
-
-    {:ok, _rule} =
-      EventRule
-      |> Ash.Changeset.for_create(
-        :create,
-        %{
-          name: "queue-admission-#{Ash.UUID.generate()}",
-          source_type: :log,
-          source: %{},
-          match: %{"subject_prefix" => subject},
-          event: %{"log_name" => "test.queue.admission", "alert" => false}
-        },
-        actor: actor
-      )
-      |> Ash.create()
-
-    log = %{
-      id: Ash.UUID.generate(),
-      timestamp: DateTime.utc_now(),
-      severity_text: "INFO",
-      severity_number: 11,
-      body: "queue admission probe",
-      service_name: "test",
-      attributes: %{"serviceradar" => %{"ingest" => %{"subject" => subject}}},
-      resource_attributes: %{},
-      created_at: DateTime.utc_now()
-    }
-
-    promotion_task = Task.async(fn -> LogPromotion.promote([log]) end)
-
-    assert_receive {:stateful_alert_enqueue_started, queue_pid, [_event]}, 2_000
-    assert Task.yield(promotion_task, 0) == nil
-
-    send(queue_pid, :release_stateful_alert_enqueue)
-    assert Task.await(promotion_task, 2_000) == {:ok, 1}
+    # A redelivered log promotes to the same event id: nothing new is stored
+    # and the event is not evaluated again.
+    assert {:ok, 0} = LogPromotion.promote([log])
+    refute_receive {:evaluated, _}
+    assert event_id
   end
 
-  test "node transitions wait for evaluation and roll back failed acknowledgements" do
-    configure_rejecting_alert_queue(:unexpected_async_admission)
-    create_queue_probe("node-ack", ServiceRadar.NATS.Channels.build("logs.internal.k8s"))
+  test "an engine failure fails the promotion, and the retry evaluates the event" do
+    configure_scripted_engine([{:error, :engine_restarting}])
+    log = create_queue_probe("engine-failure")
+
+    assert {:error, :engine_restarting} = LogPromotion.promote([log])
+    assert_receive {:evaluated, [%{id: event_id}]}
+
+    assert {:ok, 0} = LogPromotion.promote([log])
+    assert_receive {:evaluated, [%{id: ^event_id}]}
+
+    assert {:ok, 0} = LogPromotion.promote([log])
+    refute_receive {:evaluated, _}
+  end
+
+  test "a failed evaluation defers the promotion alert to the retry, which raises it once" do
+    configure_scripted_engine([{:error, :engine_restarting}])
+    label = "deferred-alert-#{Ash.UUID.generate()}"
+    log = create_queue_probe(label, nil, true)
+    LogPromotion.invalidate_rules_cache()
+
+    assert {:error, :engine_restarting} = LogPromotion.promote([log])
+    assert alert_count("test.#{label}") == 0
+
+    assert {:ok, 0} = LogPromotion.promote([log])
+    assert alert_count("test.#{label}") == 1
+
+    assert {:ok, 0} = LogPromotion.promote([log])
+    assert alert_count("test.#{label}") == 1
+  end
+
+  test "node transitions commit with their publish queued, and evaluation is retried by redelivery" do
+    use_single_engine_shard()
+    subject = ServiceRadar.NATS.Channels.build("logs.internal.k8s")
+    create_queue_probe("node-ack", subject)
     LogPromotion.invalidate_rules_cache()
     start_supervised!({AcknowledgingEngine, self()})
 
@@ -151,32 +117,10 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
     }
 
     assert {:ok, 1} = K8sNodes.process_batch([initial])
-    failed = Task.async(fn -> K8sNodes.process_batch([down]) end)
-    assert_receive {:evaluation_requested, from, [_ | _]}, 2_000
-    assert Task.yield(failed, 0) == nil
-    GenServer.reply(from, {:error, :engine_restarting})
 
-    assert {:error,
-            {:readiness_publish_failed, "node1.example.com", :not_ready, :engine_restarting}} =
-             Task.await(failed, 2_000)
-
-    assert %{rows: [[true]]} =
-             Repo.query!(
-               "SELECT ready FROM platform.k8s_nodes_current WHERE cluster_id = $1",
-               [cluster]
-             )
-
-    assert %{rows: [[^initial_time]]} =
-             Repo.query!(
-               "SELECT snapshot_at FROM platform.k8s_node_snapshots WHERE cluster_id = $1",
-               [cluster]
-             )
-
-    retry = Task.async(fn -> K8sNodes.process_batch([down]) end)
-    assert_receive {:evaluation_requested, retry_from, [_ | _]}, 2_000
-    assert Task.yield(retry, 0) == nil
-    GenServer.reply(retry_from, :ok)
-    assert {:ok, 1} = Task.await(retry, 2_000)
+    # The transition is published from inside the snapshot transaction, so it
+    # is queued with the snapshot and published only after both commit.
+    assert {:ok, 1} = K8sNodes.process_batch([down])
 
     assert %{rows: [[false]]} =
              Repo.query!(
@@ -184,71 +128,23 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
                [cluster]
              )
 
-    refute_receive {:stateful_alert_enqueue_rejected, _, _}
+    refute_receive {:evaluation_requested, _, _}
+    publish = Task.async(fn -> publish_queued(subject) end)
+
+    # The logs batch carrying the transition fails its evaluation...
+    assert_receive {:evaluation_requested, from, [%{id: event_id}]}, 2_000
+    GenServer.reply(from, {:error, :engine_restarting})
+
+    # ...and its redelivery evaluates the same event again.
+    assert_receive {:evaluation_requested, retry_from, [%{id: ^event_id}]}, 2_000
+    GenServer.reply(retry_from, :ok)
+
+    assert [:ok] = Task.await(publish, 5_000)
+    refute_receive {:evaluation_requested, _, _}
   end
 
-  test "falls back to synchronous evaluation when the queue is full" do
-    configure_rejecting_alert_queue(:stateful_alert_evaluation_queue_full)
-    log = create_queue_probe("queue-full")
-
-    assert {:ok, 1} = LogPromotion.promote([log])
-    assert_receive {:stateful_alert_enqueue_rejected, :stateful_alert_evaluation_queue_full, [_]}
-    assert [{pid, _metadata}] = ProcessRegistry.lookup(:stateful_alert_engine)
-    assert Process.alive?(pid)
-  end
-
-  test "falls back to synchronous evaluation when the queue is unavailable" do
-    configure_rejecting_alert_queue(:stateful_alert_evaluation_queue_unavailable)
-    log = create_queue_probe("queue-unavailable")
-
-    assert {:ok, 1} = LogPromotion.promote([log])
-
-    assert_receive {:stateful_alert_enqueue_rejected,
-                    :stateful_alert_evaluation_queue_unavailable, [_]}
-
-    assert [{pid, _metadata}] = ProcessRegistry.lookup(:stateful_alert_engine)
-    assert Process.alive?(pid)
-  end
-
-  test "does not duplicate evaluation after an ambiguous queue timeout" do
-    configure_rejecting_alert_queue(:stateful_alert_evaluation_queue_timeout)
-    log = create_queue_probe("queue-timeout")
-
-    assert {:error, :stateful_alert_evaluation_queue_timeout} = LogPromotion.promote([log])
-
-    assert_receive {:stateful_alert_enqueue_rejected, :stateful_alert_evaluation_queue_timeout,
-                    [_]}
-
-    assert ProcessRegistry.lookup(:stateful_alert_engine) == []
-  end
-
-  test "does not duplicate evaluation after an ambiguous queue exit" do
-    reason = {:stateful_alert_evaluation_queue_unavailable, :shutdown}
-    configure_rejecting_alert_queue(reason)
-    log = create_queue_probe("queue-exit")
-
-    assert {:error, ^reason} = LogPromotion.promote([log])
-    assert_receive {:stateful_alert_enqueue_rejected, ^reason, [_]}
-    assert ProcessRegistry.lookup(:stateful_alert_engine) == []
-  end
-
-  test "async admission failure does not skip independent log alerts" do
-    configure_rejecting_alert_queue(:stateful_alert_evaluation_queue_timeout)
-    label = "independent-#{Ash.UUID.generate()}"
-    log = create_queue_probe(label, nil, true)
-    LogPromotion.invalidate_rules_cache()
-
-    assert {:error, :stateful_alert_evaluation_queue_timeout} = LogPromotion.promote([log])
-
-    assert %{rows: [[1]]} =
-             Repo.query!(
-               "SELECT count(*) FROM alerts a JOIN ocsf_events e ON a.event_id = e.id WHERE e.log_name = $1",
-               ["test.#{label}"]
-             )
-  end
-
-  test "log ingestion propagates promotion admission failures" do
-    configure_rejecting_alert_queue(:evaluation_failed)
+  test "log ingestion propagates promotion evaluation failures" do
+    configure_scripted_engine([{:error, :evaluation_failed}])
     log = create_queue_probe("promotion-failure")
     subject = get_in(log, [:attributes, "serviceradar", "ingest", "subject"])
 
@@ -811,25 +707,42 @@ defmodule ServiceRadar.Observability.LogPromotionTest do
     metadata
   end
 
-  defp configure_rejecting_alert_queue(reason) do
-    previous_queue = Application.get_env(:serviceradar_core, :stateful_alert_evaluation_queue)
-    previous_reason = Application.get_env(:serviceradar_core, :log_promotion_queue_rejection)
-    previous_test_pid = Application.get_env(:serviceradar_core, :log_promotion_queue_test_pid)
-    previous_shards = Application.get_env(:serviceradar_core, :stateful_alert_engine_shards)
+  defp configure_scripted_engine(replies), do: ScriptedStatefulAlertEngine.use_in_test(replies)
 
+  # Runs this test's queued publishes on `subject` as the outbox worker would,
+  # and nothing another test left in the queue.
+  defp publish_queued(subject) do
+    from(j in Oban.Job,
+      where:
+        j.queue == "events" and j.state == "available" and
+          j.worker == ^Oban.Worker.to_string(DurablePublishWorker) and
+          fragment("?->>'subject' = ?", j.args, ^subject)
+    )
+    |> Repo.all(prefix: "platform")
+    |> Enum.map(&DurablePublishWorker.perform/1)
+  end
+
+  # The acknowledging stub registers as the single engine shard, so every
+  # evaluation reaches it.
+  defp use_single_engine_shard do
+    previous_shards = Application.get_env(:serviceradar_core, :stateful_alert_engine_shards)
     TestSupport.drain_stateful_alert_engines()
-    Application.put_env(:serviceradar_core, :stateful_alert_evaluation_queue, RejectingAlertQueue)
-    Application.put_env(:serviceradar_core, :log_promotion_queue_rejection, reason)
-    Application.put_env(:serviceradar_core, :log_promotion_queue_test_pid, self())
     Application.put_env(:serviceradar_core, :stateful_alert_engine_shards, 1)
 
     on_exit(fn ->
       TestSupport.drain_stateful_alert_engines()
-      restore_env(:stateful_alert_evaluation_queue, previous_queue)
-      restore_env(:log_promotion_queue_rejection, previous_reason)
-      restore_env(:log_promotion_queue_test_pid, previous_test_pid)
       restore_env(:stateful_alert_engine_shards, previous_shards)
     end)
+  end
+
+  defp alert_count(log_name) do
+    %{rows: [[count]]} =
+      Repo.query!(
+        "SELECT count(*) FROM alerts a JOIN ocsf_events e ON a.event_id = e.id WHERE e.log_name = $1",
+        [log_name]
+      )
+
+    count
   end
 
   defp create_queue_probe(label, subject \\ nil, alert? \\ false) do

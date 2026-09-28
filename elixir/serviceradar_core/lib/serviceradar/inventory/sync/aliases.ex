@@ -1,9 +1,11 @@
 defmodule ServiceRadar.Inventory.Sync.Aliases do
   @moduledoc """
   IP alias sightings and alias-conflict merges for sync batches.
-  Merges route through IdentityReconciler and inherit its stability
-  guards (distinct-agent veto invalidates the alias; cooldown blocks
-  oscillation).
+  An alias holder that owns an identifier of its own is never merged on the
+  shared address (a recycled DHCP address is not evidence of sameness); its
+  alias is invalidated instead. Other merges route through IdentityReconciler
+  and inherit its stability guards (distinct-agent veto invalidates the alias;
+  cooldown blocks oscillation).
   """
 
   alias ServiceRadar.Identity.AliasEvents
@@ -100,6 +102,20 @@ defmodule ServiceRadar.Inventory.Sync.Aliases do
         MapSet.put(merged_ips, ids.ip)
 
       not IdentityReconciler.serviceradar_uuid?(device_id) ->
+        MapSet.put(merged_ips, ids.ip)
+
+      # The alias holder owns an identifier of its own, so the shared address is the only link
+      # between the two records. DHCP hands addresses to other devices; a recycled address must
+      # never merge them (#4609). Stale the alias so it stops feeding merge attempts.
+      IdentityReconciler.distinct_identified_devices?(alias_device_id, device_id, actor) ->
+        IdentityReconciler.invalidate_ip_alias(
+          ids.ip,
+          ids.partition,
+          alias_device_id,
+          device_id,
+          actor
+        )
+
         MapSet.put(merged_ips, ids.ip)
 
       true ->

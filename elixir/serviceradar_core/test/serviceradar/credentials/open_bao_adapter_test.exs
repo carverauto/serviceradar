@@ -116,16 +116,26 @@ defmodule ServiceRadar.Credentials.OpenBaoAdapterTest do
     assert resolved.value == "bao-public"
   end
 
-  test "maps HTTP failures to broker error classes" do
-    request_fun = fn _request -> {:ok, %{status: 403, body: %{}}} end
+  test "maps HTTP and transport failures to broker error classes" do
+    cases = [
+      {{:ok, %{status: 403, body: %{}}}, :unauthorized},
+      {{:ok, %{status: 404, body: %{}}}, :not_found},
+      {{:ok, %{status: 429, body: %{}}}, :rate_limited},
+      {{:ok, %{status: 500, body: %{}}}, {:provider_http_error, 500}},
+      {{:error, %Req.TransportError{reason: :timeout}}, {:unreachable, :timeout}},
+      # A non-atom reason can carry arbitrary text; only a fixed class escapes.
+      {{:error, "connection reset by peer"}, {:unreachable, :transport_error}}
+    ]
 
-    assert {:error, :unauthorized} =
-             OpenBao.resolve(
-               %{provider_type: :openbao, external_secret_ref: "network/snmp/core"},
-               provider(),
-               openbao_token: "test-token",
-               request_fun: request_fun
-             )
+    for {response, expected_error} <- cases do
+      assert {:error, ^expected_error} =
+               OpenBao.resolve(
+                 %{provider_type: :openbao, external_secret_ref: "network/snmp/core"},
+                 provider(),
+                 openbao_token: "test-token",
+                 request_fun: fn _request -> response end
+               )
+    end
   end
 
   defp provider(metadata \\ %{}) do

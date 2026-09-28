@@ -273,7 +273,7 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.Query do
 
     edges =
       rows
-      |> sankey_edges(mode)
+      |> sankey_edges(mode, cidr_prefix)
       |> Enum.filter(&valid_edge?/1)
 
     sankey_result(edges)
@@ -323,10 +323,11 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.Query do
   defp extract_stats_rows({:ok, %{"results" => results}}) when is_list(results), do: results
   defp extract_stats_rows(_), do: []
 
-  defp sankey_edge_cidr(row) do
+  # SRQL names a CIDR group column with its prefix length (`src_cidr_24`) on both backends.
+  defp sankey_edge_cidr(row, cidr_prefix) do
     other? = other_row?(row)
-    src = other_label(Map.get(row, "src_cidr"), "Other (src)", other?)
-    dst = other_label(Map.get(row, "dst_cidr"), "Other (dst)", other?)
+    src = other_label(Map.get(row, "src_cidr_#{cidr_prefix}"), "Other (src)", other?)
+    dst = other_label(Map.get(row, "dst_cidr_#{cidr_prefix}"), "Other (dst)", other?)
     port = if other?, do: 0, else: to_int(Map.get(row, "dst_endpoint_port"))
     bytes = to_int(Map.get(row, "total_bytes"))
     mid = if other?, do: "Other", else: port_mid_label(port)
@@ -439,17 +440,17 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.Query do
     end
   end
 
-  defp sankey_edges(rows, mode) when is_list(rows) and mode in [:cidr, :ip] do
+  defp sankey_edges(rows, mode, cidr_prefix) when is_list(rows) and mode in [:cidr, :ip] do
     edge_fun =
       case mode do
-        :cidr -> &sankey_edge_cidr/1
+        :cidr -> &sankey_edge_cidr(&1, cidr_prefix)
         :ip -> &sankey_edge_ip/1
       end
 
     Enum.map(rows, edge_fun)
   end
 
-  defp sankey_edges(_rows, _mode), do: []
+  defp sankey_edges(_rows, _mode, _cidr_prefix), do: []
 
   defp valid_edge?(%{src: src, dst: dst, bytes: bytes}) when is_binary(src) and is_binary(dst) and is_integer(bytes) do
     src not in ["", "Unknown"] and dst not in ["", "Unknown"] and bytes > 0

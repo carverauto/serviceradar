@@ -123,6 +123,7 @@ type PluginManager struct {
 	artifactUploader              PluginArtifactUploader
 	credentialCache               map[string]credentialBrokerCacheEntry
 	credentialNow                 func() time.Time
+	oauth2Tokens                  oauth2TokenCache
 	credentialMu                  sync.Mutex
 	awxCallbackCredentialMu       sync.Mutex
 	artifactMu                    sync.Mutex
@@ -146,6 +147,10 @@ type PluginManager struct {
 	// conditions de-duplicates per-cycle plugin condition events (e.g. Proxmox
 	// resource pressure/bottleneck) so only level transitions are forwarded.
 	conditions *pluginConditionDebouncer
+
+	// runOverrides keeps the time-bounded state plugin actions leave for later
+	// scheduled runs (see plugin_runtime_overrides.go).
+	runOverrides *runOverrideStore
 
 	stateMu  sync.Mutex
 	states   map[string]*assignmentState
@@ -190,6 +195,9 @@ type PluginResult struct {
 	PluginName   string
 	Payload      []byte
 	ObservedAt   time.Time
+	// AcknowledgedRunOverrides lists the expired run overrides the run that
+	// produced this result received. Host-authored; never read from Payload.
+	AcknowledgedRunOverrides []string
 }
 
 type pluginEngineStats struct {

@@ -1,3 +1,558 @@
+# ServiceRadar v1.4.76
+
+EventWriter sizes every stream it creates and claims only the
+streams it owns, so no install reserves more JetStream than it
+has. Docker Compose and packaged installs get the same sizing
+profiles as Helm. Migration ledgers stay in sync, and device
+identity stops merging on randomized MACs and anchorless seeds.
+
+## Whats New
+
+**1.4.76**
+- JetStream: EventWriter reads every stream size from the
+  SERVICERADAR_JS_* settings with finite defaults, claims only
+  the streams it creates through `serviceradar.owner` stream
+  metadata, and merges subjects only on a stream a collector
+  owns. A legacy unclaimed stream is claimed after a 15 minute
+  grace period, re-read just before claiming; a periodic check
+  keeps the claim without restarting consumers. NOTIFICATIONS
+  follows its discard policy, and a failed resize never delays a
+  notification (PR #4805).
+- JetStream: Docker Compose selects small, medium or large with
+  SERVICERADAR_NATS_PROFILE, and every service loads the preset.
+  The Compose NATS account quota is sized from the preset, and
+  existing installs converge through `srctl nats-account-limits`.
+  Packaged installs load `/etc/serviceradar/jetstream-sizes.env`
+  (PR #4782).
+- Migrations: `mix serviceradar.db.migrate` keeps
+  `schema_migrations` and `ash_schema_migrations` in sync in both
+  directions, so an applied migration is never run again
+  (PR #4784, PR #4819).
+- Device identity: a randomized (locally administered) MAC never
+  seeds a device id (PR #4785), an existing device no longer
+  adopts an anchorless seed record (PR #4786), and devices
+  holding different NetBox ids are never merged (PR #4778).
+- Plugins: a plugin run can be overridden for a bounded time; the
+  agent merges the override and acknowledges it (PR #4814).
+- Topology: Dgraph canonical topology reconciliation is restored,
+  counter rates are corrected, hypervisors stay visible in the
+  overview, and God View uploads a columnar snapshot for
+  WebGPU-only clients (PR #4808, PR #4806, PR #4794, PR #4812).
+- SNMP: mapper targets keep their scoped credentials, credential
+  resolution streams every matching seed device, and a bound
+  credential's security level is inferred above no-auth
+  (PR #4809, PR #4821, PR #4781).
+- SRQL: CNPG time windows and rollup averages match StarRocks,
+  checked by a parity harness (PR #4822, PR #4787).
+- Services: availability rollups are restored (PR #4807).
+- Reliability: an orphaned trace summary refresh is rescued and
+  shutdown grace is shorter (PR #4818); abandoned camera relay
+  sessions are reaped and hidden tabs release theirs (PR #4817).
+- Security: the `:stub` secret provider is test-only (PR #4791).
+- Web: service filter controls are hidden on observability panes
+  the user cannot read (PR #4823).
+
+## Upgrade Notes
+
+- Two migrations: plugin run overrides and the services
+  availability 5 minute rollup. `core.migrations.expectedVersion`
+  is `20260927120000`.
+- JetStream streams EventWriter creates now have finite sizes, and
+  EventWriter resizes only streams it owns. With flow-collector
+  disabled, `flows` converges to 1 GiB once EventWriter claims it
+  (15 minutes after upgrade for a stream created before v1.4.75).
+- Docker Compose: set SERVICERADAR_NATS_PROFILE (default small).
+  Upgraded packaged installs must change `max_file_store` in
+  `/etc/nats/nats-server.conf` to
+  `$SERVICERADAR_NATS_MAX_FILE_STORE`; see
+  `docs/nats-jetstream-packaged-upgrade.md`.
+- Helm installs that pin JetStream sizes above the profile budget
+  fail to render since v1.4.75; drop the explicit sizes or set
+  `nats.jetstream.allowOvercommit: true`.
+
+# ServiceRadar v1.4.75
+
+Internal events, logs and signals now reach storage through
+JetStream and EventWriter, so the StarRocks warehouse sees every
+event and redelivery never duplicates one. OTel panes filter by
+service, and device identity stops merging on hostname alone.
+
+## Whats New
+
+**1.4.75**
+- Events: core publishes every event, log and analytics signal
+  it produces to JetStream instead of writing CNPG directly;
+  EventWriter is the only writer of events and logs. A publish
+  NATS does not acknowledge is retried from a durable job, and
+  one made inside a transaction waits for the commit. Stateful
+  alert rules evaluate every event at least once, recorded in a
+  ledger, so a redelivered batch neither loses nor double-counts
+  an evaluation, and log and promoted-event ids are stable
+  across redelivery (PR #4733).
+- Events: the standalone log promotion consumer is retired.
+  Processed logs matching a rule were promoted twice under
+  different ids; EventWriter now promotes each log once and
+  removes the leftover `log-promotion` durable (PR #4737).
+- StarRocks: Trivy report events replace their row by id in the
+  warehouse as they do in CNPG, and a warehouse migration removes
+  the duplicate rows rescans added. The demo serves events from
+  StarRocks (PR #4743).
+- Observability: a service picker filters the OTel logs, traces
+  and metrics panes, backed by a service catalog and the new SRQL
+  `in:otel_services` entity (PR #4750).
+- Device identity: two existing devices are never merged on
+  hostname agreement, and no device holding an Armis or NetBox id
+  is adopted; each refusal is recorded as an identity decision
+  (PR #4734). Agent check-in keeps one device per agent across
+  address changes, keeps a NAT address held by a live agent and
+  scopes the holder lookup to its partition (PR #4735, PR #4741).
+  Identity decisions and de-duplication tasks are queryable in
+  SRQL and MCP (PR #4747), and task notifications are sent after
+  commit (PR #4753).
+- Security: external-store secrets resolve only through broker
+  grants, including for notification delivery; a non-system
+  actor cannot issue a grant (PR #4736, PR #4745).
+- Devices: the availability timeline reads a host's sweep
+  availability, so a host answering only TCP shows online
+  (PR #4731).
+- MTR: automated target selection skips link-local addresses,
+  and a TCP trace to one fails fast (PR #4761).
+- JetStream: datasvc and the log, flow and BMP collectors claim
+  their streams and honour the SERVICERADAR_JS_* size overrides;
+  a bucket is never shrunk below the bytes it stores (PR #4759).
+- Helm: chart flags that default to true honour an explicit
+  false (PR #4752). The StarRocks JDBC driver is fetched with
+  curl, so IPv4-only clusters create the CNPG catalog (PR #4739).
+- Dashboards: the react-map template clusters sites by screen
+  cell with useScreenLod (PR #4757). Dashboards can play camera
+  streams through a host camera API (PR #4765), and an exported
+  dashboard definition imports back unchanged (PR #4730).
+- JetStream: the chart sizes NATS from a profile (small, medium,
+  large) and refuses to render when streams and buckets would
+  reserve more than 85% of the store (PR #4776). Plugin,
+  FieldSurvey and threat-intel object stores get finite caps and
+  are never shrunk below what they hold (PR #4768). EventWriter
+  keeps its healthy consumers running when one stream cannot be
+  set up, and retries that one (PR #4773).
+- Device identity: a NetBox device id is source-authoritative
+  like an Armis id; devices holding different NetBox ids are
+  never merged, enforced by a database lock (PR #4754). The web
+  UI has a de-duplication review queue at /devices/deduplication
+  (PR #4775).
+- Security: refused broker grants are audited and a grant with
+  a missing status or expiry fails closed (PR #4772); a revoked
+  producer-schedule package disables its assignments (PR #4767).
+- Plugins: producer schedule results are recorded instead of
+  staying dispatched, and agents in the cluster can download
+  plugin artifacts over an in-cluster URL (PR #4721).
+- Migrations: the OTel service catalog index resolves the
+  trigram operator class wherever pg_trgm is installed
+  (PR #4771).
+
+## Upgrade notes
+- Five CNPG migrations: the stateful evaluation ledger, the OTel
+  service catalog and its trace-summaries index, dropping
+  `platform.starrocks_pending_loads`, and the NetBox identifier
+  ownership lock. The drop refuses to run while the table still
+  holds rows; replay or clear them first. The migration pin is
+  `20260926150000`.
+- The chart now fails to render when JetStream reservations
+  exceed 85% of `nats.jetstream.maxFileStore` per server. Values
+  that set large `datasvc.objectStoreBytes` or
+  `datasvc.bucketMaxBytes` (the 10 GiB / 4 GiB workaround for
+  chart 1.4.30) must drop them for the sizing profile, move to a
+  larger profile, or set `nats.jetstream.allowOvercommit`. See
+  docs/nats-jetstream-profile-runbook.md.
+- StarRocks migration 0020 deletes duplicate Trivy event rows,
+  keeping each report's latest. Core pods still running the
+  previous release during the rolling upgrade can add a few
+  more; each is removed when its report is next rescanned.
+- The `core.logPromotionConsumerEnabled` Helm value and the
+  LOG_PROMOTION_CONSUMER_* environment variables are removed.
+- Events core wrote straight to CNPG before this release are not
+  copied to StarRocks.
+
+# ServiceRadar v1.4.74
+
+A security release. SAML sign-in validates each response against
+the request it answers, rejects replayed assertions and no longer
+depends on samly. Northbound callback secrets stay out of stored
+commands, and the credential redactor covers bare token and secret
+keys. StarRocks writes are batched to configured limits.
+
+## Whats New
+
+**1.4.74**
+- Security: SAML responses must answer a pending request. The
+  request is held server-side under a one-use RelayState, its
+  ID must match InResponseTo, and each assertion ID is accepted
+  once. IdP-initiated responses are rejected unless enabled.
+  The callback accepts the identity provider's cross-site POST,
+  and the sign-in start is rate limited per client. SAML
+  metadata and response parsing reject DTDs and now work end to
+  end. The unused samly dependency is removed, clearing its
+  Hex advisories (PR #4722).
+- Security: northbound action launches keep per-target callback
+  tokens and signing secrets out of the stored command; only the
+  copy sent to the agent carries them (PR #4726, issue #4711).
+- Security: the credential redactor redacts bare token, secret,
+  client_secret, authorization and api_key keys, including
+  header spellings (PR #4716, issue #4674).
+- StarRocks: warehouse Stream Loads are split and flushed by the
+  configured row, byte, age and in-flight limits (PR #4714,
+  issue #4516).
+- Device identity: agent check-in records an address it
+  observes instead of adopting the device holding it, and logs
+  each refused adoption as an identity decision (PR #4715,
+  PR #4724, issue #4664).
+- Dashboards: an authored dashboard exports to the declarative
+  definition format (PR #4723).
+- MTR: hop attribution backfill has database integration tests
+  (PR #4710).
+
+## Upgrade notes
+- Two new migrations create the SAML pending-request and
+  consumed-assertion tables.
+- SAML identity providers may post from a different site. With
+  IdP-initiated SSO, set
+  `config :serviceradar_web_ng, :saml_allow_idp_initiated, true`.
+
+# ServiceRadar v1.4.73
+
+MTR traces run ICMP and TCP from one profile, record handshake
+and hop reply detail, and flow through JetStream into the
+StarRocks warehouse. Device identity resolution stops reviving
+and over-merging devices and records every decision it does
+not merge. Queries no longer truncate results silently.
+
+## Whats New
+
+**1.4.73**
+- MTR: a profile can trace ICMP and TCP in one run. Traces
+  store the TCP handshake result and each hop's reply kinds,
+  and show how deep an unreached trace probed. MTR scans
+  appear on the Active Scans tab (PR #4592, PR #4623,
+  PR #4606, PR #4601, PR #4634).
+- MTR: results travel on JetStream to the EventWriter. With
+  StarRocks enabled, traces are stored and queried in the
+  warehouse, including SRQL (PR #4633, PR #4645, PR #4651,
+  PR #4665, PR #4688).
+- MTR: bulk and baseline traces probe to 30 hops in every
+  execution profile. The fast profile stopped at 16 and
+  marked distant reachable targets unreachable. A trace that
+  stopped while its deepest hop still answered shows as
+  Incomplete on the trace page (PR #4707).
+- MTR: concurrent on-demand traces each report a result, and
+  hop reads are bounded by time (PR #4689, PR #4625).
+- Device identity: the identity fence is enforced on ingest
+  writes. Upserts, gateway sync and sweeps no longer revive
+  merged-away devices. Unmerge restores exactly the
+  merged-away identifiers (PR #4691, PR #4700, PR #4656,
+  PR #4662, PR #4672, PR #4658, PR #4650, PR #4673).
+- Device identity: agent check-in never merges on an IP
+  alias. Devices sharing a globally unique MAC merge. Mapper
+  devices resolve by interface MAC, and an agent check-in
+  that hits an active-IP conflict returns the conflict
+  (PR #4648, PR #4627, PR #4699, PR #4686, PR #4670,
+  PR #4659, PR #4701).
+- Device identity: identity decisions that do not merge are
+  recorded, and ambiguous ones open de-duplication tasks.
+  Ephemeral devices can expire on last-seen; this is off by
+  default (PR #4682, PR #4684, PR #4669).
+- Queries: SRQL and inventory reads no longer truncate
+  results at a fixed page size (PR #4641, PR #4629).
+- Dashboards: built-in dashboards ship as declarative JSON.
+  A package version API, CLI list/status commands and a
+  doctor check are added. An unknown dashboard id returns
+  not found instead of an error (PR #4640, PR #4642,
+  PR #4697, PR #4654).
+- Web: device bulk actions apply to every matching device.
+  Events severity cards count over the query window
+  (PR #4667, PR #4666).
+- OpenText NOM: interface configuration compliance checks,
+  reading NA-stored masked config, and cached OAuth tokens
+  (PR #4608, PR #4602).
+- OTel: log chunks carry the device id header (PR #4635).
+- Jobs: the stale periodic job reaper covers AshOban
+  schedules (PR #4622).
+- Security: the Ash ecosystem and auth libraries are
+  upgraded to clear Hex advisories (PR #4702).
+- Helm: the log-collector certificate has a
+  namespace-qualified SAN, and core may publish ad-hoc scan
+  results to NATS (PR #4655, PR #4631).
+
+## Upgrade Notes
+
+- StarRocks: with the warehouse enabled, the chart refuses
+  to render unless
+  `analytics.starrocks.catalog.fePasswordSecretName` names a
+  Secret holding the Frontend root password. Create the
+  Secret and set the password before upgrading (PR #4647).
+- StarRocks retention defaults to 365 days for every dataset.
+  Flows and metrics were 90 days and MTR 30 (PR #4666).
+- Six new migrations add MTR protocol sets, trace depth and
+  handshake fields, identity decisions, de-duplication tasks
+  and ephemeral expiry settings.
+  `core.migrations.expectedVersion` is `20260925100000`.
+- Bulk MTR traces to unreached targets can send more probes,
+  up to 30 hops instead of 16 or 24.
+
+# ServiceRadar v1.4.72
+
+OpenText NOM can retrieve a device running-config. Crafted-SYN
+MTR traces measure the TCP handshake at the destination. Native
+add-on auto-approval stays inside the profile's capability
+ceiling, and an older import leaves a newer release's provenance
+in place.
+
+## Whats New
+
+**1.4.72**
+- OpenText NOM: the plugin retrieves a device's running
+  configuration and delivers it as a staged artifact. The
+  action requires a device identity. Core loads a plugin
+  result handler before accepting its payload, so a handler
+  that is configured but not loaded returns an error
+  (PR #4530).
+- MTR: a crafted-SYN TCP trace measures the handshake at the
+  destination after the path probe. The trace records
+  attempts, SYNs sent, SYN-ACKs, RSTs, and retransmits.
+  Each unanswered attempt is retried, default once and at
+  most three times. Traces that fall back to connect() do
+  not run this phase (PR #4595, issue #4581).
+- Add-ons: an enabled track_latest_approved profile approves
+  an import when that profile's capability ceiling covers
+  the request. A past approval with a wider capability set
+  does not widen the profile, and a capability expansion
+  stays staged. Importing the same content from an older
+  release leaves the newer provenance unchanged (PR #4593).
+
+## Upgrade Notes
+
+- Crafted-SYN TCP traces send a destination handshake after
+  the path probe: one burst per hop budget, with a single
+  retry of each unanswered SYN by default. Connect-fallback
+  traces are unchanged.
+- An add-on import that used to auto-approve from a historical
+  approval wider than the profile ceiling now stays staged
+  until the profile's ceiling covers it. An older release of
+  identical content does not overwrite a newer row.
+- OpenText NOM config.retrieve calls need a device identity.
+  A plugin result handler that fails to load is reported as
+  an error instead of accepting the payload.
+
+# ServiceRadar v1.4.71
+
+MTR profiles trace every device in scope unless a limit is set,
+TCP traces record when the target answers, and hop metrics can
+be scoped to a device. Device import shows progress and a
+result, and an IP shared by a live device and a deleted one
+resolves to the live device.
+
+## Whats New
+
+**1.4.71**
+- MTR: a profile with a blank target limit traces every device
+  its scope matches. The settings form and the dispatcher were
+  both applying a default of 100, so a wider scope looked
+  healthy while only the first hundred devices were traced. An
+  explicit limit is still honored (PR #4587).
+- MTR: a TCP trace watches the target's reply on one stable
+  flow, and a target that answers is marked reached. Linux
+  sends a crafted SYN and matches the reply by sequence
+  number. The trace records SYN, SYN-ACK and RST counts
+  (PR #4583, issue #4580).
+- MTR: Queue MTR on a device page dispatches through the
+  command bus, including on a web-ng node that does not run
+  the process registry (PR #4585, issue #4578).
+- SRQL: hop loss and latency accept target_ip and device_id
+  as filters and group fields, mtr_traces accepts aggregates,
+  and mtr_hops accepts a bare count(). New hops copy
+  target_ip and device_id from the trace at ingest.
+  mtr_hops and mtr_traces compress after 7 days and expire
+  after 90 (PR #4588).
+- Dashboards: the built-in MTR dashboard lays its four panels
+  out on the grid, so the view shows the same panels as the
+  builder (PR #4584).
+- Dashboards: each refreshed frame carries a timestamp, so a
+  client that stays open applies the new rows. Reachability
+  on a long-lived display follows the latest sweep
+  (PR #4586).
+- Devices: CSV import shows a spinner while it runs, then a
+  summary of created, failed and skipped rows. The import
+  runs outside the LiveView process and the button stays
+  disabled until it finishes (PR #4590).
+- Identity: an IP that belongs to both a live device and a
+  soft-deleted one resolves to the live device, so sweep
+  observations refresh the surviving device (PR #4589).
+- CLI: dashboard publish prints the manifest id on the
+  Published and Enabled lines (PR #4574). `@carverauto/serviceradar-cli`
+  0.1.8 carries the same fix.
+
+## Upgrade Notes
+
+- An MTR profile whose stored target selector has no limit
+  traces every matching device. A profile that previously
+  relied on the implicit cap of 100 will trace the rest of
+  its scope after this upgrade. Set an explicit limit first
+  if that is more traffic than you want. A selector that
+  already stores a limit is unchanged.
+- TCP MTR results change. A trace now stops when the target
+  answers, on one source port and one sequence base for the
+  whole trace. Hop counts and the reached flag on new TCP
+  traces differ from traces recorded on 1.4.70.
+- Two migrations apply: 20260923120000 adds nullable
+  target_ip and device_id to platform.mtr_hops, and
+  20260923130000 enables compression after 7 days and
+  retention of 90 days on platform.mtr_hops and
+  platform.mtr_traces. The chart waits for
+  core.migrations.expectedVersion 20260923130000. Existing
+  hop rows stay unattributed until the backfill runs. It
+  plans by default and writes only with --execute:
+
+      mix serviceradar.mtr_hop_attribution_backfill
+      mix serviceradar.mtr_hop_attribution_backfill --execute
+
+  It is resumable and safe to interrupt. Hops whose trace
+  has already aged out are reported as unrecoverable.
+  Device-scoped hop queries include new hops immediately
+  and older hops as each chunk is backfilled. Once the
+  retention policy is in place, MTR hops and traces older
+  than 90 days are dropped.
+- Sweep ingestion writes to the live device when a deleted
+  device shares its IP. Observations already stored on the
+  deleted device stay there.
+- serviceradar-cli prints the manifest id on the Published
+  and Enabled lines. The enable request still addresses the
+  server-assigned id.
+
+# ServiceRadar v1.4.70
+
+Replacement for the incomplete 1.4.69 publication, including its
+StarRocks flow analytics, device metrics, MTR and alerting changes.
+Release builds now reject stale dependency metadata before publishing.
+
+## Whats New
+
+**1.4.70**
+- Release: refreshed Bazel dependency facts to match the existing Cargo
+  lockfile. Application, native add-on and Wasm publishers now validate
+  the committed dependency lockfile before publication and reject stale
+  metadata instead of silently rewriting it during builds.
+- Metrics: eligible short windows older than CNPG raw retention now read
+  hourly aggregates instead of expired raw rows. The routing horizon
+  defaults to 168 hours and can be set with
+  `SRQL_RAW_TELEMETRY_RETENTION_HOURS`; flow routing is unchanged.
+- Events: StarRocks event scalar values are truncated to their column
+  limits at valid UTF-8 boundaries, with telemetry reporting truncation.
+  This does not establish warehouse/CNPG count parity or enable cutover.
+- Analytics: NetFlow reads now require StarRocks. Warehouse schema
+  migration and retention support flows, scalar metrics, logs and events;
+  dataset cutover remains explicit. Counter charts calculate rates from
+  counter deltas, with fixes for tag-split series, newest-N limits, flow
+  filters and dashboard readers following the configured backend.
+- Topology: Dgraph deployment, schema provisioning and migration checks
+  are available alongside AGE, with a Grafana dashboard for Dgraph.
+- MTR: automated baseline, trigger and consensus processing is enabled
+  by default. The new path analytics dashboard exposes packet-weighted
+  loss and latency through SRQL, with time-bucketed trends and transit-ASN
+  analysis. Built-in dashboard definitions preserve operator edits.
+- Devices: bulk state editing, longer metric windows, and faster chart
+  rendering. Inventory fixes reject reserved MAC identities, tighten
+  duplicate-sweep policy and interface guards, and correct device
+  pagination, vendor filters and event queries through identity aliases.
+- Network changes: change-impact tracking records network changes and
+  their affected devices.
+- Alerts: stateful rules dispatch to the correct shard, handle structured
+  grouping values without crashing, and serialize source UUIDs in both
+  event details and diagnostics while preserving textual IDs.
+- Dashboards: improved NetFlow loading, map arcs, Sankey edge selection
+  and time-axis labels. The dashboard CLI resolves hoisted workspace
+  dependencies and respects configured aliases during development.
+
+## Upgrade Notes
+
+- Version 1.4.69 did not complete publication. Use 1.4.70 for the
+  replacement release; its tag and any already-published 1.4.69 artifacts
+  remain unchanged.
+- When CNPG metric retention differs from seven days, set
+  `SRQL_RAW_TELEMETRY_RETENTION_HOURS` to match and restart the process.
+  Eligible old windows use hourly aggregate resolution; a window that
+  crosses the raw retention horizon is served from aggregates throughout.
+- NetFlow dashboards and `in:flows` no longer fall back to CNPG. Configure
+  a working StarRocks warehouse and explicitly include `flows` in
+  `analytics.starrocks.cutoverDatasets` before using flow reads. CNPG-only
+  installations can continue reading metrics, logs and events.
+- StarRocks remains optional in the base Helm values. Shared-nothing
+  deployments use durable backend volumes; shared-data deployments need
+  object storage. This release does not retire CNPG telemetry writes or
+  automatically cut over every dataset. Warehouse migration can rebuild
+  existing tables; allow capacity and time for that work.
+- The Helm chart enables Dgraph by default and provisions TLS through
+  cert-manager. Install cert-manager and provide persistent storage before
+  upgrading with Dgraph enabled. Topology reads remain on AGE by default;
+  the migration checksum must pass before deliberately switching reads.
+  Set `dgraph.enabled=false` to retain an installation without an in-chart
+  Dgraph cluster.
+- Automated MTR processing can produce additional probes. To opt out, set
+  `MTR_AUTOMATION_ENABLED=false`; explicitly configured baseline, trigger
+  and consensus flags override that shared default and must also be
+  disabled if set. MTR telemetry continues to use CNPG in this release.
+
+# ServiceRadar v1.4.69
+
+StarRocks-backed flow analytics, expanded device metrics, MTR path
+analytics, and more reliable alerting and inventory reconciliation.
+
+## Whats New
+
+**1.4.69**
+- Analytics: NetFlow reads now require StarRocks. Warehouse schema
+  migration and retention support flows, scalar metrics, logs and events;
+  dataset cutover remains explicit. Counter charts calculate rates from
+  counter deltas, with fixes for tag-split series, newest-N limits, flow
+  filters and dashboard readers following the configured backend.
+- Topology: Dgraph deployment, schema provisioning and migration checks
+  are available alongside AGE, with a Grafana dashboard for Dgraph.
+- MTR: automated baseline, trigger and consensus processing is enabled
+  by default. The new path analytics dashboard exposes packet-weighted
+  loss and latency through SRQL, with time-bucketed trends and transit-ASN
+  analysis. Built-in dashboard definitions preserve operator edits.
+- Devices: bulk state editing, longer metric windows, and faster chart
+  rendering. Inventory fixes reject reserved MAC identities, tighten
+  duplicate-sweep policy and interface guards, and correct device
+  pagination, vendor filters and event queries through identity aliases.
+- Network changes: change-impact tracking records network changes and
+  their affected devices.
+- Alerts: stateful rules dispatch to the correct shard, handle structured
+  grouping values without crashing, and serialize source UUIDs in both
+  event details and diagnostics while preserving textual IDs.
+- Dashboards: improved NetFlow loading, map arcs, Sankey edge selection
+  and time-axis labels. The dashboard CLI resolves hoisted workspace
+  dependencies and respects configured aliases during development.
+
+## Upgrade Notes
+
+- NetFlow dashboards and `in:flows` no longer fall back to CNPG. Configure
+  a working StarRocks warehouse and explicitly include `flows` in
+  `analytics.starrocks.cutoverDatasets` before using flow reads. CNPG-only
+  installations can continue reading metrics, logs and events.
+- StarRocks remains optional in the base Helm values. Shared-nothing
+  deployments use durable backend volumes; shared-data deployments need
+  object storage. This release does not retire CNPG telemetry writes or
+  automatically cut over every dataset. Warehouse migration can rebuild
+  existing tables; allow capacity and time for that work.
+- The Helm chart enables Dgraph by default and provisions TLS through
+  cert-manager. Install cert-manager and provide persistent storage before
+  upgrading with Dgraph enabled. Topology reads remain on AGE by default;
+  the migration checksum must pass before deliberately switching reads.
+  Set `dgraph.enabled=false` to retain an installation without an in-chart
+  Dgraph cluster.
+- Automated MTR processing can produce additional probes. To opt out, set
+  `MTR_AUTOMATION_ENABLED=false`; explicitly configured baseline, trigger
+  and consensus flags override that shared default and must also be
+  disabled if set. MTR telemetry continues to use CNPG in this release.
+
 # ServiceRadar v1.4.68
 
 Events raised by stateful alert rules now carry the affected

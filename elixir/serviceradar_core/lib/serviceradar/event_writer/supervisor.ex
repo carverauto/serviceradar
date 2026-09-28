@@ -12,7 +12,9 @@ defmodule ServiceRadar.EventWriter.Supervisor do
 
   ## Children
 
-  1. `EventWriter.Broadway` - The main Broadway pipeline for message processing
+  1. `EventWriter.ServiceCatalogCache` - node-local seen-cache for the OTel
+     service catalog upsert; started before the pipelines that use it
+  2. `EventWriter.Broadway` - The main Broadway pipeline for message processing
   """
 
   use Supervisor
@@ -44,7 +46,7 @@ defmodule ServiceRadar.EventWriter.Supervisor do
     lag_config = merge_lag_streams(config, flow_config)
 
     children =
-      []
+      [ServiceRadar.EventWriter.ServiceCatalogCache]
       |> maybe_pipeline(config, Pipeline)
       |> maybe_pipeline(flow_config, ServiceRadar.EventWriter.FlowPipeline)
       |> Kernel.++([

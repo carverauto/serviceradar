@@ -4,6 +4,7 @@ load("@serviceradar_version//:defs.bzl", "FULL_VERSION")
 go_library(
     name = "agent_lib",
     srcs = [
+        "edge_record_sender.go",
         "main.go",
         "main_other.go",
         "main_windows.go",
@@ -14,8 +15,12 @@ go_library(
     deps = [
         "//go/pkg/agent",
         "//go/pkg/agentgateway",
+        "//go/pkg/edge/sender",
+        "//go/pkg/edge/spool",
+        "//go/pkg/grpc",
         "//go/pkg/lifecycle",
         "//go/pkg/logger",
+        "//proto/edge/v1:edgev1",
     ] + select({
         "@io_bazel_rules_go//go/platform:windows": [
             "@org_golang_x_sys//windows/svc",
@@ -38,6 +43,7 @@ go_binary(
 go_test(
     name = "agent_test",
     srcs = [
+        "edge_record_sender_test.go",
         "main_test.go",
         "main_windows_test.go",
     ],
@@ -47,7 +53,10 @@ go_test(
         "SERVICERADAR_TEST_AGENT_BINARY": "$(rootpath :agent)",
         "SERVICERADAR_TEST_AGENT_VERSION": FULL_VERSION,
     },
-    deps = select({
+    deps = [
+        "//go/pkg/agent",
+        "//go/pkg/logger",
+    ] + select({
         "@io_bazel_rules_go//go/platform:windows": [
             "@org_golang_x_sys//windows/svc",
         ],

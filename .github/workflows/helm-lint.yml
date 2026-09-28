@@ -81,7 +81,19 @@ jobs:
             --set global.imageTag="v1.0.0" \
             --set flowCollector.enabled=true \
             --set analytics.starrocks.enabled=true \
+            --set analytics.starrocks.catalog.fePasswordSecretName=starrocks-fe-password \
             --debug > /dev/null
+          # StarRocks without the Frontend password Secret must NOT render, and
+          # must fail for that reason rather than any other.
+          if helm template serviceradar helm/serviceradar \
+            --set global.imageTag="v1.0.0" \
+            --set analytics.starrocks.enabled=true \
+            > /dev/null 2> "${RUNNER_TEMP}/starrocks-no-fe-password.err"; then
+            echo "chart rendered StarRocks analytics with a passwordless Frontend" >&2
+            exit 1
+          fi
+          grep -F "analytics.starrocks.catalog.fePasswordSecretName is required" \
+            "${RUNNER_TEMP}/starrocks-no-fe-password.err"
           helm template serviceradar helm/serviceradar \
             --set global.imageTag="v1.0.0" \
             -f helm/serviceradar/values-ha.yaml \

@@ -264,6 +264,14 @@
     "reason": null
   },
   {
+    "path": "lib/serviceradar_web_ng/dashboards/frame_runner.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "2060830da943a730156b76df6ea02c9d7e1ce0a22fa4a69922f4251f9a55387a",
+    "classification": "canonical_machine",
+    "reason": null
+  },
+  {
     "path": "lib/serviceradar_web_ng/dashboards/report_delivery_worker.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 1,
@@ -483,6 +491,14 @@
     "path": "lib/serviceradar_web_ng_web/channels/dashboard_frame_channel.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 1,
+    "fingerprint": "6a1e671d36d0d06dd5db2d3b5f644f7ee1352cb63501a583097331da3897a726",
+    "classification": "canonical_machine",
+    "reason": null
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/channels/dashboard_frame_channel.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 2,
     "fingerprint": "2229b83575b3c51aa8d88723578fdc0e86ca6a51923cd534e10e3a02b24645d8",
     "classification": "canonical_machine",
     "reason": null
@@ -811,7 +827,7 @@
     "path": "lib/serviceradar_web_ng_web/controllers/saml_controller.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 1,
-    "fingerprint": "4194b9cc6225bcd16f86086943a699fd267363d97d04d9c489ac4064f2f4a21d",
+    "fingerprint": "ea4ad38641bac989380f332cff86ca4df97924825fecd466a635e5d6b0d85fdd",
     "classification": "canonical_machine",
     "reason": null
   },
@@ -1088,6 +1104,14 @@
     "reason": null
   },
   {
+    "path": "lib/serviceradar_web_ng_web/live/diagnostics_live/mtr_warehouse.ex",
+    "matcher": "naive_datetime_string",
+    "occurrence": 1,
+    "fingerprint": "2bcef5cefea33af774a118d5497e9456d2c380dd1726039b9b414a33262ed9fc",
+    "classification": "canonical_machine",
+    "reason": "UTC wall-clock literal bounding a StarRocks DATETIME column in warehouse MTR SQL; never displayed"
+  },
+  {
     "path": "lib/serviceradar_web_ng_web/live/event_live/show.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 1,
@@ -1155,7 +1179,7 @@
     "path": "lib/serviceradar_web_ng_web/live/log_live/index.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 7,
-    "fingerprint": "9e6bcebdb710ccc4311b4de1f16ea3f61a00856e6d55dcd032f37267b71f7169",
+    "fingerprint": "9a5f3dcdb72bb74756240ba4d47431d614d03dcec93229776b66cef2008239d8",
     "classification": "canonical_machine",
     "reason": null
   },
@@ -1462,5 +1486,13 @@
     "fingerprint": "1bfa99c3cf7a840fa36c648936aed4c706872666fb4ecdf2e4d6b5efd1f0c9fb",
     "classification": "canonical_machine",
     "reason": null
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/stats.ex",
+    "matcher": "naive_datetime_string",
+    "occurrence": 1,
+    "fingerprint": "f6a61edbcee07856c8f2c634e83c8082686c40ad24e49c4749fff313ccdd6f56",
+    "classification": "canonical_machine",
+    "reason": "UTC wall-clock literal bounding StarRocks DATETIME columns in warehouse trace-rollup probe SQL; never displayed"
   }
 ]

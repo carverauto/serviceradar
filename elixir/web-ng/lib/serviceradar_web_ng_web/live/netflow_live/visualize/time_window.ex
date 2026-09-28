@@ -33,7 +33,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize.TimeWindow do
     end
   end
 
-  defp time_token_from_query(query) do
+  def time_token_from_query(query) when is_binary(query) do
     captures =
       Regex.run(
         ~r/(?:^|\s)time:(?:"([^"]+)"|(\[[^\]]+\])|(\S+))/,

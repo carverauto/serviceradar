@@ -1,7 +1,7 @@
 {{- $cnpg := default (dict) .Values.cnpg -}}
 {{- $localDevAccess := default (dict) $cnpg.localDevAccess -}}
 {{- $allowedCIDRs := default (list) $localDevAccess.allowedCIDRs -}}
-{{- if and (default true $cnpg.enabled) (default false $localDevAccess.enabled) (gt (len $allowedCIDRs) 0) }}
+{{- if and (include "serviceradar.boolDefaultTrue" (list $cnpg "enabled") | eq "true") (default false $localDevAccess.enabled) (gt (len $allowedCIDRs) 0) }}
 {{- $clusterName := include "serviceradar.cnpgClusterName" . -}}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

@@ -43,7 +43,7 @@ rules:
   - apiGroups: ["discovery.k8s.io"]
     resources: ["endpointslices"]
     verbs: ["get", "list", "watch"]
-  {{- if default true $gateway.enabled }}
+  {{- if include "serviceradar.boolDefaultTrue" (list $gateway "enabled") | eq "true" }}
   - apiGroups: ["gateway.networking.k8s.io"]
     resources:
       - gateways
@@ -141,7 +141,7 @@ spec:
             - name: K8S_INVENTORY_DEBOUNCE
               value: {{ default "2s" $resync.debounce | quote }}
             - name: K8S_INVENTORY_GATEWAY_API
-              value: {{ default true $gateway.enabled | quote }}
+              value: {{ include "serviceradar.boolDefaultTrue" (list $gateway "enabled") | eq "true" | quote }}
             - name: K8S_INVENTORY_NODES
               value: {{ (or (not (hasKey $nodes "enabled")) $nodes.enabled) | quote }}
             - name: K8S_INVENTORY_PUBLISH_MAX_RETRIES

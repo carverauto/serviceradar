@@ -43,7 +43,7 @@ diff below is exact. Unit-tested for all four states + centrality root selection
 
 Switch the God-View render to consume engine-produced
 `signals.causal.predictions` → normalized `ocsf_events` → `GodViewSnapshot`
-(4 buckets `root_cause|affected|healthy|unknown`, `@schema_version 2`). Keep the
+(4 buckets `root_cause|affected|healthy|unknown`; `@schema_version` is unchanged by this cutover). Keep the
 NIF callable for one release as the rollback path.
 
 ## 1.10.2 — Demote the NIF to a renderer stub (after cutover proves out)

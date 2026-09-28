@@ -4,7 +4,7 @@ ServiceRadar already has a rich device inventory (Ash + OCSF schema), an event/m
 
 The relevant primitives that already exist:
 
-- **`AgentCommandBus.dispatch/4`** (`elixir/serviceradar_core/lib/serviceradar/edge/agent_command_bus.ex:24`) sends typed `CommandRequest` protos to an agent over the bidirectional `ControlStream` and receives one `CommandResult` per command. Used today by patterns like `proxmox.credential_test`, `mtr.run`, `mapper.run_job`.
+- **`AgentCommandBus.dispatch/4`** (`elixir/serviceradar_core/lib/serviceradar/edge/agent_command_bus.ex:24`) sends typed `CommandRequest` protos to an agent over the bidirectional `ControlStream` and receives one `CommandResult` per command. Used today by patterns like `mtr.run` and `mapper.run_job`.
 - **PluginManager streaming mode** (`go/pkg/agent/plugin_runtime.go:181`) supports long-lived plugin assignments that emit a stream of chunks via `StreamStatus` (e.g. `stream_camera`, proxmox console). The host bridges chunks to the gateway and on into Elixir.
 - **Credential broker grants** (`elixir/serviceradar_core/lib/serviceradar/credentials/`) — encrypted, short-lived references that travel in command payloads. Plugins resolve them at the edge to obtain target URLs and tokens. This is the existing pattern for cross-network secret hand-off; it replaces my earlier "store the AWX token via AshCloak on the resource" idea.
 - **Multi-tenancy** is handled at the deployment layer, not the resource layer: each tenant runs their own stack (Elixir, agent-gateway, agents) in their own k8s namespace, sharing only Postgres (separate schemas) and NATS JetStream (subject-isolated). Resources do *not* need `tenant_id` columns for AWX-related work.
@@ -85,7 +85,7 @@ Component split:
 
 **Why this is the right shape:**
 - Honest about the network: every AWX call goes where it has to (through the agent). No SaaS-plane → AWX exception.
-- Uses two existing edge patterns instead of inventing a new one: per-call dispatch (proxmox credential test, mtr.run) and scheduled `DeviceDiscovery` emission (proxmox-inventory plugin). Both already battle-tested.
+- Uses two existing edge patterns instead of inventing a new one: per-call dispatch (`mtr.run`, `mapper.run_job`) and scheduled `DeviceDiscovery` emission (proxmox-inventory plugin). Both already battle-tested.
 - No long-lived streams. Per-tick CommandBus dispatch has bounded latency and bounded resource use, scales with number of controllers (not number of runs), and resumes for free across agent reconnects (every tick reads `last_event_id` from the DB).
 - Plugin stays small and stateless. One agent, one plugin instance, N controllers, M active runs — no per-run state on the agent.
 

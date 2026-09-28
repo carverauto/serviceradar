@@ -29,6 +29,12 @@ defmodule ServiceRadar.PrefixTags.ManualIntegrationTest do
   @system SystemActor.system(:prefix_tags_manual_integration_test)
 
   setup do
+    # Match the stable snapshot transaction used by the streaming loader. Set
+    # isolation on the outer sandbox transaction before creating fixtures.
+    Repo.query!("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ", [],
+      sandbox_subtransaction: false
+    )
+
     Store.clear()
     on_exit(&Store.clear/0)
     :ok

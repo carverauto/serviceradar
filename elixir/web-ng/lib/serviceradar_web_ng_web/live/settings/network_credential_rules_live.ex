@@ -77,11 +77,28 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
       |> assign(:form_mode, socket.assigns.live_action)
 
     if connected?(socket) do
+      Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "producer_schedule:updated")
       {:noreply, load_page(socket, params)}
     else
       {:noreply, socket}
     end
   end
+
+  @impl true
+  def handle_info({:producer_schedule_updated, updated_schedule}, socket) do
+    updated_schedules =
+      Map.new(socket.assigns.integration_schedules, fn {rule_id, schedule} ->
+        if schedule.id == updated_schedule.id do
+          {rule_id, updated_schedule}
+        else
+          {rule_id, schedule}
+        end
+      end)
+
+    {:noreply, assign(socket, :integration_schedules, updated_schedules)}
+  end
+
+  def handle_info(_msg, socket), do: {:noreply, socket}
 
   @impl true
   def handle_event("save_rule", %{"credential_rule" => params}, socket) do
@@ -144,7 +161,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   def handle_event("preview_rule", %{"id" => id}, socket) do
     scope = socket.assigns.current_scope
 
-    with %NetworkCredentialRule{} = rule <- Enum.find(socket.assigns.rules, &(to_string(&1.id) == to_string(id))),
+    with %NetworkCredentialRule{} = rule <-
+           Enum.find(socket.assigns.rules, &(to_string(&1.id) == to_string(id))),
          {:ok, preview} <-
            NetworkCredentialRulePreview.preview_rule(rule,
              resolver: credential_preview_resolver(),
@@ -605,8 +623,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     """
   end
 
-  attr :form, :map, required: true
-  attr :descriptor, :map, default: nil
+  attr(:form, :map, required: true)
+  attr(:descriptor, :map, default: nil)
 
   defp secret_form_modal(assigns) do
     assigns =
@@ -683,9 +701,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     """
   end
 
-  attr :consumers, :map, default: nil
-  attr :rule_id, :any, required: true
-  attr :timezone, :string, required: true
+  attr(:consumers, :map, default: nil)
+  attr(:rule_id, :any, required: true)
+  attr(:timezone, :string, required: true)
 
   defp rule_consumers_panel(assigns) do
     ~H"""
@@ -756,7 +774,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     """
   end
 
-  attr :rule_preview, :map, required: true
+  attr(:rule_preview, :map, required: true)
 
   defp rule_preview_modal(assigns) do
     ~H"""
@@ -930,13 +948,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     """
   end
 
-  attr :form, :map, required: true
-  attr :mode, :atom, required: true
-  attr :secrets, :list, required: true
-  attr :provider_options, :list, required: true
-  attr :integration_profiles, :map, required: true
-  attr :agent_options, :list, required: true
-  attr :editing_rule, :any, default: nil
+  attr(:form, :map, required: true)
+  attr(:mode, :atom, required: true)
+  attr(:secrets, :list, required: true)
+  attr(:provider_options, :list, required: true)
+  attr(:integration_profiles, :map, required: true)
+  attr(:agent_options, :list, required: true)
+  attr(:editing_rule, :any, default: nil)
 
   defp rule_form_modal(assigns) do
     assigns =
@@ -1623,7 +1641,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   defp update_enabled(socket, id, action, message) do
     scope = socket.assigns.current_scope
 
-    with %NetworkCredentialRule{} = rule <- Enum.find(socket.assigns.rules, &(to_string(&1.id) == to_string(id))),
+    with %NetworkCredentialRule{} = rule <-
+           Enum.find(socket.assigns.rules, &(to_string(&1.id) == to_string(id))),
          {:ok, _rule} <-
            rule
            |> Ash.Changeset.for_update(action, %{}, scope: scope)
@@ -1907,7 +1926,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     requested_provider = params |> Map.get("provider", "") |> to_string() |> String.trim()
 
     profile =
-      Map.get(integration_profiles, requested_provider) || default_integration_profile(integration_profiles)
+      Map.get(integration_profiles, requested_provider) ||
+        default_integration_profile(integration_profiles)
 
     cond do
       scheduled_integration_profile?(profile) -> scheduled_rule_defaults(profile)
@@ -2015,7 +2035,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     provider = normalize_provider(Map.get(params, "provider"), integration_profiles)
     profile = Map.get(integration_profiles, provider)
     defaults = default_rule_params(%{"provider" => provider}, integration_profiles)
-    auth_method = normalize_auth_method(provider, Map.get(params, "auth_method"), integration_profiles)
+
+    auth_method =
+      normalize_auth_method(provider, Map.get(params, "auth_method"), integration_profiles)
 
     purposes =
       normalize_form_purposes(
@@ -2299,7 +2321,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
 
   defp scheduled_rule_metadata(params, purposes, profile, credential_use_policy) do
     schedule = profile["producer_schedule"]
-    config = ConfigSchema.normalize_params(profile["config_schema"] || %{}, params["plugin_config"] || %{})
+
+    config =
+      ConfigSchema.normalize_params(
+        profile["config_schema"] || %{},
+        params["plugin_config"] || %{}
+      )
 
     with :ok <- ConfigSchema.validate_params(profile["config_schema"] || %{}, config),
          {:ok, cadence_seconds} <- strict_integer(params, "cadence_seconds"),
@@ -2905,10 +2932,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     end
   end
 
-  attr :rule, :map, required: true
-  attr :profiles, :list, required: true
-  attr :schedules, :map, required: true
-  attr :timezone, :string, required: true
+  attr(:rule, :map, required: true)
+  attr(:profiles, :list, required: true)
+  attr(:schedules, :map, required: true)
+  attr(:timezone, :string, required: true)
 
   defp runtime_status(assigns) do
     assigns =
@@ -2921,7 +2948,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     ~H"""
     <%= if @scheduled? do %>
       <%= case Map.get(@schedules, to_string(@rule.id)) do %>
-        <% %{last_status: status, last_run_at: last_run_at} -> %>
+        <% %{last_status: status, last_run_at: last_run_at, last_error: last_error} -> %>
           {status} /
           <.user_time
             id={
@@ -2932,6 +2959,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
             style={:compact}
             fallback="never"
           />
+          <%= if last_error do %>
+            <span class="text-error text-xs block truncate" title={last_error}>{last_error}</span>
+          <% end %>
         <% nil -> %>
           Awaiting provisioning
       <% end %>
@@ -2961,6 +2991,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   defp format_error(%Ash.Error.Invalid{} = error), do: Exception.message(error)
   defp format_error(%Ash.Error.Forbidden{} = error), do: Exception.message(error)
   defp format_error({field, reason}), do: "#{field}: #{inspect(reason)}"
+
   defp format_error(reason) when is_atom(reason), do: reason |> to_string() |> String.replace("_", " ")
+
   defp format_error(reason), do: inspect(reason)
 end

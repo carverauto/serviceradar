@@ -715,6 +715,23 @@ fn device_inventory_identity_clause(value: &str) -> String {
     )
 }
 
+/// Event-side columns matched against a device's inventory aliases.
+///
+/// Every reference is qualified with the outer `"ocsf_events"` table because
+/// this clause is evaluated inside the inventory-alias EXISTS, whose inner
+/// scope is `platform.ocsf_devices AS d` — and `ocsf_devices` also carries a
+/// `metadata` Jsonb column. Unqualified, `metadata::text` binds to the
+/// *device's* metadata there, so an event naming the device only inside its
+/// own metadata document would never match the alias arm (#4534).
+const EVENT_ALIAS_MATCH_COLUMNS: &[&str] = &[
+    "\"ocsf_events\".\"device\"::text",
+    "\"ocsf_events\".\"metadata\"::text",
+    "\"ocsf_events\".\"unmapped\"::text",
+    "\"ocsf_events\".\"observables\"::text",
+    "\"ocsf_events\".\"src_endpoint\"::text",
+    "\"ocsf_events\".\"dst_endpoint\"::text",
+];
+
 fn device_alias_event_match_clause(alias_expr: &str) -> String {
     let escaped_alias = format!(
         "replace(replace(replace({alias_expr}, E'\\\\', E'\\\\\\\\'), '%', E'\\\\%'), '_', E'\\\\_')"
@@ -728,14 +745,7 @@ fn device_alias_event_match_clause(alias_expr: &str) -> String {
     {
         let key_pattern = escape_like_fragment(key);
 
-        for column in [
-            "device::text",
-            "metadata::text",
-            "unmapped::text",
-            "observables::text",
-            "src_endpoint::text",
-            "dst_endpoint::text",
-        ] {
+        for column in EVENT_ALIAS_MATCH_COLUMNS {
             clauses.push(format!(
                 "{column} ILIKE ('%\"{key_pattern}\"%\"' || {escaped_alias} || '\"%') ESCAPE '\\'"
             ));

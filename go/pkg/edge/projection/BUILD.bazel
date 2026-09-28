@@ -23,3 +23,12 @@ filegroup(
     srcs = glob(["*_test.go"]) + ["BUILD.bazel"],
     visibility = ["//visibility:public"],
 )
+
+filegroup(
+    name = "accounting_guard_sources",
+    srcs = glob(
+        ["*.go"],
+        exclude = ["*_test.go"],
+    ),
+    visibility = ["//visibility:public"],
+)

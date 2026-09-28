@@ -142,6 +142,38 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessTest do
     refute RollupFreshness.fresh?(:flows, query: probe, stale_after_seconds: 900)
   end
 
+  # `traces_stats_5m` buckets on a 5-minute slice, not the hour, so its source
+  # mark is floored to the 5-minute boundary. With an hourly floor a view whose
+  # newest bucket is only the first slice of the current hour reads 0 seconds
+  # behind and serves an undercount with no error, which is the short-count
+  # case this gate exists to send to the raw fallback.
+  test "the 5-minute traces_stats view floors its source mark to its own grain" do
+    mv = "SELECT MAX(`bucket`) FROM #{Env.table("traces_stats_5m")}"
+    raw = "SELECT MAX(`timestamp`) FROM #{Env.table("otel_traces")}"
+
+    probe = fn
+      ^mv -> result([[~N[1999-06-15 14:55:00]]])
+      ^raw -> result([[~N[1999-06-15 14:58:00]]])
+    end
+
+    assert RollupFreshness.fresh?(:traces_stats, query: probe, stale_after_seconds: 0)
+  end
+
+  test "a 5-minute view whose newest bucket is only the first slice reads as stale" do
+    mv = "SELECT MAX(`bucket`) FROM #{Env.table("traces_stats_5m")}"
+    raw = "SELECT MAX(`timestamp`) FROM #{Env.table("otel_traces")}"
+
+    # Spans run through 14:58 but only the 14:00-14:05 slice is loaded. The
+    # hourly floor would call this fresh; the 5-minute floor reports the 55
+    # minutes of missing slices as lag.
+    probe = fn
+      ^mv -> result([[~N[1999-06-15 14:00:00]]])
+      ^raw -> result([[~N[1999-06-15 14:58:00]]])
+    end
+
+    refute RollupFreshness.fresh?(:traces_stats, query: probe, stale_after_seconds: 0)
+  end
+
   test "the staleness threshold is configurable per call" do
     probe = probes([[~N[1999-06-15 09:00:00]]], [[~N[1999-06-15 12:00:00]]])
 
@@ -336,6 +368,16 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshnessTest do
 
     assert RollupFreshness.dataset_for_sql("SELECT bucket FROM #{Env.table("events_hourly")}") ==
              :events
+
+    assert RollupFreshness.dataset_for_sql("SELECT bucket FROM #{Env.table("traces_stats_5m")}") ==
+             :traces_stats
+
+    assert RollupFreshness.dataset_for_sql("SELECT bucket FROM #{Env.table("spans_red_1h")}") ==
+             :traces_red
+
+    # The raw-span fallback names no rollup, so it is never gated.
+    assert RollupFreshness.dataset_for_sql("SELECT `timestamp` FROM #{Env.table("otel_traces")}") ==
+             nil
 
     assert RollupFreshness.dataset_for_sql(
              "SELECT `time` FROM #{Env.table("ocsf_network_activity")}"

@@ -11,6 +11,8 @@ defmodule ServiceRadar.Observability.MtrPolicy do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Observability.Changes.SyncBaselineProtocols
+
   postgres do
     table "mtr_policies"
     repo ServiceRadar.Repo
@@ -40,6 +42,8 @@ defmodule ServiceRadar.Observability.MtrPolicy do
         :target_selector,
         :baseline_interval_sec,
         :baseline_protocol,
+        :baseline_protocols,
+        :tcp_port,
         :baseline_canary_vantages,
         :incident_fanout_max_agents,
         :incident_cooldown_sec,
@@ -48,6 +52,8 @@ defmodule ServiceRadar.Observability.MtrPolicy do
         :consensus_threshold,
         :consensus_min_agents
       ]
+
+      change SyncBaselineProtocols
     end
 
     update :update do
@@ -59,6 +65,8 @@ defmodule ServiceRadar.Observability.MtrPolicy do
         :target_selector,
         :baseline_interval_sec,
         :baseline_protocol,
+        :baseline_protocols,
+        :tcp_port,
         :baseline_canary_vantages,
         :incident_fanout_max_agents,
         :incident_cooldown_sec,
@@ -67,6 +75,8 @@ defmodule ServiceRadar.Observability.MtrPolicy do
         :consensus_threshold,
         :consensus_min_agents
       ]
+
+      change SyncBaselineProtocols
     end
   end
 
@@ -78,6 +88,46 @@ defmodule ServiceRadar.Observability.MtrPolicy do
     policy action([:create, :update, :destroy]) do
       authorize_if always()
     end
+  end
+
+  @protocol_order ["icmp", "udp", "tcp"]
+
+  @doc """
+  The protocols a policy traces with, as lowercase names in icmp/udp/tcp order.
+
+  Accepts a policy struct or a plain map (callers pass either). A policy saved
+  before protocol sets existed falls back to its single `baseline_protocol`.
+  """
+  @spec protocol_names(map()) :: [String.t()]
+  def protocol_names(policy) when is_map(policy) do
+    names =
+      case protocol_list(policy, :baseline_protocols) do
+        [] -> protocol_list(policy, :baseline_protocol)
+        names -> names
+      end
+
+    case Enum.filter(@protocol_order, &(&1 in names)) do
+      [] -> ["icmp"]
+      ordered -> ordered
+    end
+  end
+
+  @doc "The TCP destination port a policy's TCP traces use."
+  @spec tcp_port(map()) :: pos_integer()
+  def tcp_port(policy) when is_map(policy) do
+    case policy_value(policy, :tcp_port) do
+      port when is_integer(port) and port in 1..65_535 -> port
+      _ -> 443
+    end
+  end
+
+  defp policy_value(policy, key), do: Map.get(policy, key, Map.get(policy, Atom.to_string(key)))
+
+  defp protocol_list(policy, key) do
+    policy
+    |> policy_value(key)
+    |> List.wrap()
+    |> Enum.map(&(&1 |> to_string() |> String.downcase()))
   end
 
   attributes do
@@ -121,6 +171,23 @@ defmodule ServiceRadar.Observability.MtrPolicy do
       allow_nil? false
       default "icmp"
       public? true
+      description "Legacy single protocol; mirrors the first entry of baseline_protocols"
+    end
+
+    attribute :baseline_protocols, {:array, :atom} do
+      allow_nil? false
+      default [:icmp]
+      public? true
+      description "Protocols each dispatch traces every target with, in icmp/udp/tcp order"
+      constraints items: [one_of: [:icmp, :udp, :tcp]], min_length: 1
+    end
+
+    attribute :tcp_port, :integer do
+      allow_nil? false
+      default 443
+      public? true
+      description "Destination port for TCP traces"
+      constraints min: 1, max: 65_535
     end
 
     attribute :baseline_canary_vantages, :integer do

@@ -5,13 +5,14 @@
 
 import {existsSync, writeFileSync} from "node:fs"
 import {copyFile} from "node:fs/promises"
-import {join, resolve} from "node:path"
+import {resolve} from "node:path"
 
 import {loadConfig} from "../config.js"
 import {DEFAULT_RENDERER_ENTRY, outputDir, rendererArtifact, sampleTarget} from "../manifest.js"
 import {basenameWithoutExt, relativePath, runCommand} from "../utils.js"
 import {formatValidationFailures, validateProject} from "../validation.js"
 import {manifestCommand} from "./manifest.js"
+import {assertReactResolvable, projectReactAliases} from "./resolve.js"
 
 export async function buildCommand(options: Record<string, any>): Promise<void> {
   const projectDir = resolve(options.cwd || process.cwd())
@@ -45,6 +46,11 @@ async function buildRenderer(
 
   if (!existsSync(entry)) throw new Error(`renderer entry does not exist: ${entry}`)
 
+  // Resolved from the project, so a hoisted install is found. The author's own
+  // alias entries still spread last and win, as they always have here.
+  const reactAliases = projectReactAliases(projectDir)
+  assertReactResolvable(projectDir, reactAliases)
+
   await build({
     root: projectDir,
     configFile: false,
@@ -55,8 +61,7 @@ async function buildRenderer(
     },
     resolve: {
       alias: {
-        react: join(projectDir, "node_modules/react"),
-        "react-dom/client": join(projectDir, "node_modules/react-dom/client"),
+        ...reactAliases,
         ...(config.vite?.resolve?.alias || {}),
       },
       ...(config.vite?.resolve || {}),

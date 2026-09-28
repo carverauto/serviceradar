@@ -25,6 +25,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   alias ServiceRadar.Observability.StatefulAlertEngine.Bucketing
   alias ServiceRadar.Observability.StatefulAlertEngine.Diagnostics
   alias ServiceRadar.Observability.StatefulAlertEngine.EdgeAnomalyDisposition
+  alias ServiceRadar.Observability.StatefulAlertEngine.Record
   alias ServiceRadar.Observability.StatefulAlertEngine.StateMachine
   alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.Observability.StatefulAlertRuleState
@@ -56,7 +57,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
 
   @spec evaluate_events([map()]) :: :ok | {:error, term()}
   def evaluate_events(events) when is_list(events) do
-    fan_out(:evaluate_events, events)
+    # Every shard skips the engine's own events (`Record.skip_engine_event?/1`),
+    # so they are dropped before the fan-out rather than sent to all of them.
+    # EventWriter evaluates every stored event, the engine's included, and a
+    # shard that publishes its event and then has it evaluated in its own
+    # process must not wait on itself.
+    fan_out(:evaluate_events, Enum.reject(events, &Record.skip_engine_event?/1))
   end
 
   @spec evaluate_metrics([map()]) :: :ok | {:error, term()}

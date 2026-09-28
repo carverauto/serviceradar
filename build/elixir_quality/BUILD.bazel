@@ -1,0 +1,27 @@
+load("//build:elixir_quality.bzl", "elixir_format")
+
+# Every Mix project CI's "Elixir Quality" job lints, in the same order as its matrix
+# (.github/workflows/elixir-quality.yml). Adding a project there means adding it here.
+_PROJECTS = [
+    "//elixir/datasvc",
+    "//elixir/palisade",
+    "//elixir/serviceradar_agent_gateway",
+    "//elixir/serviceradar_core",
+    "//elixir/serviceradar_core_elx",
+    "//elixir/serviceradar_srql",
+    "//elixir/web-ng",
+]
+
+# `mix format --check-formatted` + `mix credo --strict` for every project, on RBE:
+#   bazel test --config=remote //build/elixir_quality:quality_check
+test_suite(
+    name = "quality_check",
+    tests = [p + ":quality_check" for p in _PROJECTS],
+)
+
+# Rewrites every file the check would reject; the formatting runs on RBE:
+#   bazel run --config=remote //build/elixir_quality:format
+elixir_format(
+    name = "format",
+    trees = [p + ":formatted" for p in _PROJECTS],
+)

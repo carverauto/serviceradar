@@ -52,6 +52,10 @@ defmodule ServiceRadar.Camera.RelaySession do
       action: :live_for_source_profile,
       args: [:camera_source_id, :stream_profile_id]
 
+    define :list_stale_for_reap,
+      action: :stale_for_reap,
+      args: [:lease_cutoff, :unleased_cutoff]
+
     define :create_session, action: :create
     define :mark_opening, action: :mark_opening
     define :activate, action: :activate
@@ -89,6 +93,28 @@ defmodule ServiceRadar.Camera.RelaySession do
              )
 
       prepare build(sort: [updated_at: :desc], load: [:termination_kind])
+    end
+
+    read :stale_for_reap do
+      description """
+      Non-terminal sessions whose edge pull can no longer be live.
+
+      A live pull renews `lease_expires_at` on every media heartbeat, so a lease
+      that lapsed before `lease_cutoff` means the media plane stopped without
+      reporting a close. Rows that never received a lease are judged by age
+      instead.
+      """
+
+      argument :lease_cutoff, :utc_datetime_usec, allow_nil?: false
+      argument :unleased_cutoff, :utc_datetime_usec, allow_nil?: false
+
+      filter expr(
+               status in [:requested, :opening, :active, :closing] and
+                 ((not is_nil(lease_expires_at) and lease_expires_at < ^arg(:lease_cutoff)) or
+                    (is_nil(lease_expires_at) and inserted_at < ^arg(:unleased_cutoff)))
+             )
+
+      prepare build(sort: [inserted_at: :asc])
     end
 
     create :create do

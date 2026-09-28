@@ -1236,9 +1236,11 @@ func ValidateFrameForSession(f *edgev1.EdgeDeliveryFrameV1, s Session) error {
 // in [ResolvedThrough, HighestSent]. The dispositions are a CONTIGUOUS ascending
 // run starting at the first unresolved sequence (ResolvedThrough+1). A present
 // event_id MUST equal the event the sender transmitted for that sequence
-// (SentEvents); an absent event_id is allowed ONLY for a rejection made before
-// record decode (an oversize/undecodable frame, which yields no inner id) and binds
-// solely to the authenticated session/spool/sequence. The leading
+// (SentEvents); an absent event_id is allowed ONLY for a rejection made before the
+// gateway trusted the record (an oversize/undecodable frame, or a decoded record
+// whose bytes fail their record_sha256 digest check -- an id read from bytes that
+// fail their digest cannot be trusted regardless of decode order) and binds solely
+// to the authenticated session/spool/sequence. The leading
 // RESOLVING prefix -- accepted-authoritative, accepted-audit-only,
 // accepted-quarantine, or rejected-permanent, each after its destination PubAck --
 // determines resolved_through, which MUST equal ResolvedThrough + that prefix
@@ -1277,8 +1279,8 @@ func ValidateAck(a *edgev1.EdgeDeliveryAckV1, s Session, maxDispositions, maxDis
 	// Byte budget uses the CANONICAL encoded size (proto.Size), which bounds the
 	// semantic message. NOTE: this is NOT the received-wire size -- protobuf
 	// unmarshal collapses duplicate/non-minimal fields -- so the transport MUST
-	// separately enforce a hard inbound limit BEFORE decode (the gRPC receive
-	// message size limit). See ValidateAckRawSize for the pre-decode guard.
+	// separately enforce a hard inbound limit BEFORE decode. DecodeAck composes
+	// that raw guard with this decoded validator in the required order.
 	if proto.Size(a) > maxDispositionBytes {
 		return fmt.Errorf("%w: canonical ack %d exceeds byte budget %d", ErrDisposition, proto.Size(a), maxDispositionBytes)
 	}
@@ -1312,10 +1314,11 @@ func ValidateAck(a *edgev1.EdgeDeliveryAckV1, s Session, maxDispositions, maxDis
 		// event_id binding. A PRESENT id MUST equal the event the sender transmitted
 		// for this sequence, so a valid-looking disposition for the wrong event cannot
 		// drive reclamation. An ABSENT id is permitted ONLY for a rejection the gateway
-		// made BEFORE record decode (an oversize/undecodable frame): it cannot read the
-		// inner event id, so that disposition binds solely to the authenticated
-		// session/spool/sequence. Accepts always decoded the record, so they MUST carry
-		// the id.
+		// made BEFORE it trusted the record (an oversize/undecodable frame, or a decoded
+		// record whose bytes fail their record_sha256 digest check): an id read from
+		// bytes that fail their digest cannot be trusted regardless of decode order, so
+		// that disposition binds solely to the authenticated session/spool/sequence.
+		// Accepts always trusted the record, so they MUST carry the id.
 		switch len(d.GetEventId()) {
 		case uuidLen:
 			sent, ok := s.SentEvents[seq]
@@ -1402,8 +1405,8 @@ func validateRejectionCode(code string) error {
 	return nil
 }
 
-// ValidateAckRawSize enforces the hard INBOUND wire limit on the raw server-message
-// bytes BEFORE decode. proto.Size on the decoded message cannot see duplicate /
+// ValidateAckRawSize enforces the hard INBOUND wire limit on raw ACK bytes
+// BEFORE decode. Use DecodeAck to compose it with decode and validation. proto.Size on the decoded message cannot see duplicate /
 // non-minimal fields that inflate the received bytes, so this pre-decode guard (or
 // the equivalent gRPC receive-message-size limit) is what actually bounds parse
 // cost. A non-positive limit applies the hard default.

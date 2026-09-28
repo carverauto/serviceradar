@@ -236,6 +236,25 @@ srctl nats-bootstrap --verify --config /etc/nats/nats.conf
 | `-verify` / `-config` | Verify an existing NATS bootstrap against a `nats.conf`. |
 | `-output` | Output format: `text` or `json`. |
 
+## `nats-account-limits`
+
+Re-issues the platform NATS account JWT with the JetStream quota of the loaded
+sizing profile (`SERVICERADAR_NATS_MAX_FILE_STORE`), so an install bootstrapped
+with the fixed default quota converges. The account key is unchanged, so
+existing credentials stay valid. It does nothing when the variable is unset or
+the account already carries the quota, and it reports a missing operator seed
+or account instead of failing, so it never blocks NATS from starting. The
+Docker Compose stack runs it as the one-shot `nats-account-limits` service.
+
+```bash
+srctl nats-account-limits --creds-dir /etc/serviceradar/creds
+```
+
+| Flag | Description |
+|------|-------------|
+| `-creds-dir` | Directory holding `operator.seed` and the `jwt/` account JWTs written by `nats-bootstrap` (default `/etc/serviceradar/creds`). |
+| `-account` | Account whose JetStream quota follows the profile (default `platform`). |
+
 ## `admin nats`
 
 Inspects and manages NATS state through the core API.

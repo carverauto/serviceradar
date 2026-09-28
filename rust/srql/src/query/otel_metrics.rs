@@ -5,7 +5,7 @@ use crate::{
     models::OtelMetricRow,
     parser::{Entity, Filter, FilterOp, OrderClause, OrderDirection},
     schema::otel_metrics::dsl::{
-        component as col_component, grpc_method as col_grpc_method,
+        component as col_component, duration_ms as col_duration_ms, grpc_method as col_grpc_method,
         grpc_service as col_grpc_service, grpc_status_code as col_grpc_status,
         http_method as col_http_method, http_route as col_http_route,
         http_status_code as col_http_status, ingest_agent_id as col_ingest_agent_id,
@@ -101,11 +101,43 @@ pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindPar
 
 fn ensure_entity(plan: &QueryPlan) -> Result<()> {
     match plan.entity {
-        Entity::OtelMetrics => Ok(()),
+        Entity::OtelMetrics => refuse_unsupported_clauses(plan, "otel_metrics"),
         _ => Err(ServiceError::InvalidRequest(
             "entity not supported by otel_metrics query".into(),
         )),
     }
+}
+
+/// Plan clauses the OTel metric builders of either dialect have no
+/// translation for. They used to be ignored, returning a plain listing shaped
+/// like something else; now they are refused by name.
+pub(super) fn refuse_unsupported_clauses(plan: &QueryPlan, entity: &str) -> Result<()> {
+    if let Some(kind) = plan
+        .rollup_stats
+        .as_deref()
+        .map(str::trim)
+        .filter(|kind| !kind.is_empty())
+    {
+        return Err(ServiceError::InvalidRequest(format!(
+            "rollup_stats:{kind} is not supported for {entity}"
+        )));
+    }
+    if plan.downsample.is_some() {
+        return Err(ServiceError::InvalidRequest(format!(
+            "bucket: is not supported for {entity}"
+        )));
+    }
+    if plan.other {
+        return Err(ServiceError::InvalidRequest(
+            "other:true is currently supported only for flow or timeseries stats".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// Sort fields that name the `service_name` group of a grouped count.
+pub(super) fn is_service_sort_field(field: &str) -> bool {
+    matches!(field, "service" | "service_name" | "name")
 }
 
 fn build_query(plan: &QueryPlan) -> Result<MetricsQuery<'static>> {
@@ -119,8 +151,7 @@ fn build_query(plan: &QueryPlan) -> Result<MetricsQuery<'static>> {
         query = apply_filter(query, filter)?;
     }
 
-    query = apply_ordering(query, &plan.order);
-    Ok(query)
+    apply_ordering(query, &plan.order)
 }
 
 fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
@@ -237,53 +268,64 @@ fn apply_filter<'a>(mut query: MetricsQuery<'a>, filter: &Filter) -> Result<Metr
     Ok(query)
 }
 
-fn apply_ordering<'a>(mut query: MetricsQuery<'a>, order: &[OrderClause]) -> MetricsQuery<'a> {
-    let mut applied = false;
-    for clause in order {
-        query = if !applied {
-            applied = true;
-            match clause.field.as_str() {
-                "timestamp" => match clause.direction {
-                    OrderDirection::Asc => query.order(col_timestamp.asc()),
-                    OrderDirection::Desc => query.order(col_timestamp.desc()),
-                },
-                "service_name" | "service" => match clause.direction {
-                    OrderDirection::Asc => query.order(col_service_name.asc()),
-                    OrderDirection::Desc => query.order(col_service_name.desc()),
-                },
-                "metric_type" | "type" => match clause.direction {
-                    OrderDirection::Asc => query.order(col_metric_type.asc()),
-                    OrderDirection::Desc => query.order(col_metric_type.desc()),
-                },
-                _ => query,
-            }
-        } else {
-            match clause.field.as_str() {
-                "timestamp" => match clause.direction {
-                    OrderDirection::Asc => query.then_order_by(col_timestamp.asc()),
-                    OrderDirection::Desc => query.then_order_by(col_timestamp.desc()),
-                },
-                "service_name" | "service" => match clause.direction {
-                    OrderDirection::Asc => query.then_order_by(col_service_name.asc()),
-                    OrderDirection::Desc => query.then_order_by(col_service_name.desc()),
-                },
-                "metric_type" | "type" => match clause.direction {
-                    OrderDirection::Asc => query.then_order_by(col_metric_type.asc()),
-                    OrderDirection::Desc => query.then_order_by(col_metric_type.desc()),
-                },
-                _ => query,
-            }
+/// Row sort fields, besides `timestamp`, that both dialects accept. Any other
+/// field is refused: silently dropping it returned rows in no order, which is
+/// how the slowest-spans list (`sort:duration_ms:desc`) came back unsorted.
+pub(super) const ROW_SORT_FIELDS: &[(&str, &str)] = &[
+    ("timestamp", "timestamp"),
+    ("service_name", "service_name"),
+    ("service", "service_name"),
+    ("metric_type", "metric_type"),
+    ("type", "metric_type"),
+    ("duration_ms", "duration_ms"),
+];
+
+pub(super) fn row_sort_column(field: &str) -> Result<&'static str> {
+    ROW_SORT_FIELDS
+        .iter()
+        .find(|(name, _)| *name == field)
+        .map(|(_, column)| *column)
+        .ok_or_else(|| {
+            ServiceError::InvalidRequest(format!(
+                "unsupported sort field for otel_metrics: '{field}'"
+            ))
+        })
+}
+
+fn apply_ordering<'a>(
+    mut query: MetricsQuery<'a>,
+    order: &[OrderClause],
+) -> Result<MetricsQuery<'a>> {
+    for (index, clause) in order.iter().enumerate() {
+        let first = index == 0;
+        query = match (row_sort_column(clause.field.as_str())?, clause.direction) {
+            ("timestamp", OrderDirection::Asc) if first => query.order(col_timestamp.asc()),
+            ("timestamp", OrderDirection::Desc) if first => query.order(col_timestamp.desc()),
+            ("timestamp", OrderDirection::Asc) => query.then_order_by(col_timestamp.asc()),
+            ("timestamp", OrderDirection::Desc) => query.then_order_by(col_timestamp.desc()),
+            ("service_name", OrderDirection::Asc) if first => query.order(col_service_name.asc()),
+            ("service_name", OrderDirection::Desc) if first => query.order(col_service_name.desc()),
+            ("service_name", OrderDirection::Asc) => query.then_order_by(col_service_name.asc()),
+            ("service_name", OrderDirection::Desc) => query.then_order_by(col_service_name.desc()),
+            ("metric_type", OrderDirection::Asc) if first => query.order(col_metric_type.asc()),
+            ("metric_type", OrderDirection::Desc) if first => query.order(col_metric_type.desc()),
+            ("metric_type", OrderDirection::Asc) => query.then_order_by(col_metric_type.asc()),
+            ("metric_type", OrderDirection::Desc) => query.then_order_by(col_metric_type.desc()),
+            (_, OrderDirection::Asc) if first => query.order(col_duration_ms.asc()),
+            (_, OrderDirection::Desc) if first => query.order(col_duration_ms.desc()),
+            (_, OrderDirection::Asc) => query.then_order_by(col_duration_ms.asc()),
+            (_, OrderDirection::Desc) => query.then_order_by(col_duration_ms.desc()),
         };
     }
 
-    if !applied {
+    if order.is_empty() {
         query = query.order(col_timestamp.desc());
     }
 
-    query
+    Ok(query)
 }
 
-fn parse_bool(raw: &str) -> Result<bool> {
+pub(super) fn parse_bool(raw: &str) -> Result<bool> {
     match raw.to_lowercase().as_str() {
         "true" | "1" | "yes" => Ok(true),
         "false" | "0" | "no" => Ok(false),
@@ -345,18 +387,18 @@ struct MetricsStatsPayload {
 }
 
 #[derive(Debug, Clone)]
-struct MetricsStatsSpec {
-    alias: String,
-    group_field: Option<MetricsGroupField>,
+pub(super) struct MetricsStatsSpec {
+    pub(super) alias: String,
+    pub(super) group_field: Option<MetricsGroupField>,
 }
 
 #[derive(Debug, Clone, Copy)]
-enum MetricsGroupField {
+pub(super) enum MetricsGroupField {
     ServiceName,
 }
 
 impl MetricsGroupField {
-    fn column(&self) -> &'static str {
+    pub(super) fn column(&self) -> &'static str {
         match self {
             MetricsGroupField::ServiceName => "service_name",
         }
@@ -434,7 +476,7 @@ fn build_stats_order_clause(plan: &QueryPlan, alias: &str, group_column: &str) -
     for clause in &plan.order {
         let expr = if clause.field.eq_ignore_ascii_case(alias) {
             "COUNT(*)".to_string()
-        } else if matches!(clause.field.as_str(), "service" | "service_name" | "name") {
+        } else if is_service_sort_field(clause.field.as_str()) {
             group_column.to_string()
         } else {
             continue;
@@ -542,7 +584,7 @@ fn build_text_clause(
     }
 }
 
-fn parse_stats_spec(raw: &str) -> Result<MetricsStatsSpec> {
+pub(super) fn parse_stats_spec(raw: &str) -> Result<MetricsStatsSpec> {
     let tokens: Vec<&str> = raw.split_whitespace().collect();
     if tokens.len() < 3 {
         return Err(ServiceError::InvalidRequest(
@@ -560,11 +602,7 @@ fn parse_stats_spec(raw: &str) -> Result<MetricsStatsSpec> {
         .trim_matches('"')
         .trim_matches('\'')
         .to_lowercase();
-    if alias.is_empty() {
-        return Err(ServiceError::InvalidRequest(
-            "stats alias cannot be empty".into(),
-        ));
-    }
+    super::validate_stats_alias(&alias)?;
 
     let mut group_field = None;
     if tokens.len() >= 5 {
@@ -624,6 +662,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            exhaustive_window: false,
         }
     }
 

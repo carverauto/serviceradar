@@ -5,6 +5,7 @@ package(default_visibility = ["//visibility:public"])
 
 exports_files([
     "config/datasvc.json",
+    "systemd/serviceradar-datasvc.service",
 ])
 
 serviceradar_package_from_config(

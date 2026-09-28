@@ -10,6 +10,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Identity.InterfaceMacs
+  alias ServiceRadar.Inventory.IdentityDecision
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
@@ -171,8 +173,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
   } do
     uniq = System.unique_integer([:positive, :monotonic])
     ip = unique_test_ip(198, 18, 200, uniq)
-    mac_a = unique_test_mac(uniq)
-    mac_b = unique_test_mac(uniq + 1)
+    mac_a = unique_global_test_mac(uniq)
+    mac_b = unique_global_test_mac(uniq + 1)
     ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
     payload_a =
@@ -300,7 +302,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     uniq = System.unique_integer([:positive, :monotonic])
     old_ip = unique_test_ip(100, 120, uniq)
     new_ip = unique_test_ip(100, 121, uniq + 1)
-    mac = unique_test_mac(uniq)
+    mac = unique_global_test_mac(uniq)
     normalized_mac = IdentityReconciler.normalize_mac(mac)
     ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
@@ -342,9 +344,11 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
 
     assert :ok = MapperResultsIngestor.ingest_interfaces(new_payload, %{})
 
-    new_devices = wait_for_devices_by_ip(actor, new_ip)
-
-    assert new_devices == []
+    # The MAC identifies the device, so the poll at the new address resolves to it, and the
+    # device moves there: the old address is not one it reports any more.
+    assert [moved] = wait_for_devices_by_ip(actor, new_ip)
+    assert moved.uid == device_after_old.uid
+    assert wait_for_devices_by_ip(actor, old_ip, 1) == []
 
     {:ok, interfaces} =
       Interface
@@ -472,13 +476,10 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
 
     assert :ok = MapperResultsIngestor.ingest_interfaces(payload, %{})
 
-    # No new device: DIRE resolves the MAC identifier to the existing device.
-    {:ok, new_devices} =
-      Device
-      |> Ash.Query.for_read(:by_ip, %{ip: new_ip})
-      |> Ash.read(actor: actor)
-
-    assert new_devices == []
+    # No new device: DIRE resolves the MAC identifier to the existing device, which moves to
+    # the polled address.
+    assert [moved] = wait_for_devices_by_ip(actor, new_ip)
+    assert moved.uid == existing_uid
 
     {:ok, interfaces} =
       Interface
@@ -490,27 +491,26 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
            end)
   end
 
-  test "mapper reuses stale IP alias mapping and does not create duplicate device", %{
+  test "a MAC-identified poll never lands on a stale alias holder of the polled address", %{
     actor: actor
   } do
     uniq = System.unique_integer([:positive, :monotonic])
-    canonical_uid = "sr:" <> Ecto.UUID.generate()
-    canonical_ip = unique_test_ip(10, 10, uniq)
-
+    holder_uid = "sr:" <> Ecto.UUID.generate()
+    holder_ip = unique_test_ip(10, 10, uniq)
     stale_alias_ip = unique_test_ip(198, 18, uniq + 1)
-    mac = unique_test_mac(uniq)
-
+    mac = unique_global_test_mac(uniq)
+    normalized_mac = IdentityReconciler.normalize_mac(mac)
     ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
-    {:ok, _canonical} =
+    {:ok, _holder} =
       Device
-      |> Ash.Changeset.for_create(:create, %{uid: canonical_uid, ip: canonical_ip})
+      |> Ash.Changeset.for_create(:create, %{uid: holder_uid, ip: holder_ip})
       |> Ash.create(actor: actor)
 
     {:ok, alias_state} =
       DeviceAliasState.create_detected(
         %{
-          device_id: canonical_uid,
+          device_id: holder_uid,
           partition: "default",
           alias_type: :ip,
           alias_value: stale_alias_ip,
@@ -536,23 +536,270 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
 
     assert :ok = MapperResultsIngestor.ingest_interfaces(payload, %{})
 
-    {:ok, by_alias_ip} =
-      Device
-      |> Ash.Query.for_read(:by_ip, %{ip: stale_alias_ip})
+    # The polled device reports a MAC no record holds, so it is a device of its own, whatever
+    # a stale alias says about the address it was polled at.
+    polled_uid = mac_owner(actor, normalized_mac)
+    assert is_binary(polled_uid)
+    assert polled_uid != holder_uid
+    assert [%Device{uid: ^polled_uid}] = wait_for_devices_by_ip(actor, stale_alias_ip)
+
+    assert interface_macs_of(actor, holder_uid) == MapSet.new()
+    assert MapSet.member?(interface_macs_of(actor, polled_uid), normalized_mac)
+
+    {:ok, interfaces} =
+      Interface
+      |> Ash.Query.filter(device_ip == ^stale_alias_ip)
       |> Ash.read(actor: actor)
 
-    # Mapper should not create a new provisional placeholder at stale alias IP.
-    assert by_alias_ip == []
+    assert interfaces != []
+    assert Enum.all?(interfaces, &(&1.device_id == polled_uid))
 
-    assert {:ok, still_canonical} = Device.get_by_uid(canonical_uid, false, actor: actor)
-    assert still_canonical.uid == canonical_uid
+    {:ok, aliases} = DeviceAliasState.lookup_by_value(:ip, stale_alias_ip, actor: actor)
 
-    {:ok, refreshed_aliases} = DeviceAliasState.lookup_by_value(:ip, stale_alias_ip, actor: actor)
+    refute Enum.any?(aliases, &(&1.device_id == holder_uid and &1.state == :confirmed))
+  end
 
-    assert Enum.any?(
-             refreshed_aliases,
-             &(&1.device_id == canonical_uid and &1.state == :confirmed)
-           )
+  test "a device polled at an address another device's record still holds gets its own record",
+       %{actor: actor} do
+    uniq = System.unique_integer([:positive, :monotonic])
+    ip = unique_test_ip(198, 51, 10, uniq)
+    mac_a = unique_global_test_mac(uniq)
+    mac_b = unique_global_test_mac(uniq + 1)
+    normalized_a = IdentityReconciler.normalize_mac(mac_a)
+    normalized_b = IdentityReconciler.normalize_mac(mac_b)
+
+    # Device A is polled at the address and gets a record there.
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac_a]), %{})
+    assert [%Device{uid: a_uid}] = wait_for_devices_by_ip(actor, ip)
+    assert mac_owner(actor, normalized_a) == a_uid
+
+    # DHCP moves A away and gives the address to device B; A's record still holds it. Polling B
+    # there must not hand B's interface table to A's record.
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac_b]), %{})
+
+    b_uid = mac_owner(actor, normalized_b)
+    assert is_binary(b_uid)
+    assert b_uid != a_uid
+
+    refute MapSet.member?(interface_macs_of(actor, a_uid), normalized_b)
+    assert MapSet.member?(interface_macs_of(actor, b_uid), normalized_b)
+
+    {:ok, b_interfaces} =
+      Interface
+      |> Ash.Query.filter(device_id == ^b_uid)
+      |> Ash.read(actor: actor)
+
+    assert Enum.any?(b_interfaces, fn interface ->
+             IdentityReconciler.normalize_mac(interface.if_phys_address) == normalized_b
+           end)
+  end
+
+  test "a randomized MAC never identifies the polled device", %{actor: actor} do
+    uniq = System.unique_integer([:positive, :monotonic])
+    owner_uid = "sr:" <> Ecto.UUID.generate()
+    owner_ip = unique_test_ip(198, 51, 30, uniq)
+    polled_ip = unique_test_ip(198, 51, 40, uniq + 1)
+    laa_mac = unique_laa_test_mac(uniq)
+    normalized_laa = IdentityReconciler.normalize_mac(laa_mac)
+
+    {:ok, _owner} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{uid: owner_uid, ip: owner_ip})
+      |> Ash.create(actor: actor)
+
+    ids =
+      IdentityReconciler.extract_strong_identifiers(%{
+        device_id: nil,
+        ip: owner_ip,
+        mac: laa_mac,
+        partition: "default",
+        metadata: %{}
+      })
+
+    assert :ok = IdentityReconciler.register_identifiers(owner_uid, ids, actor: actor)
+    assert mac_owner(actor, normalized_laa) == owner_uid
+
+    assert :ok =
+             MapperResultsIngestor.ingest_interfaces(interface_payload(polled_ip, [laa_mac]), %{})
+
+    assert [%Device{uid: polled_uid}] = wait_for_devices_by_ip(actor, polled_ip)
+    assert polled_uid != owner_uid
+    assert mac_owner(actor, normalized_laa) == owner_uid
+    assert interface_macs_of(actor, owner_uid) == MapSet.new()
+  end
+
+  test "a poll does not revive a device an operator deleted", %{actor: actor} do
+    uniq = System.unique_integer([:positive, :monotonic])
+    ip = unique_test_ip(198, 51, 50, uniq)
+    new_ip = unique_test_ip(198, 51, 60, uniq + 1)
+    mac = unique_global_test_mac(uniq)
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})
+    assert [%Device{uid: uid} = device] = wait_for_devices_by_ip(actor, ip)
+
+    assert {:ok, _deleted} =
+             Device.soft_delete(device, "manual", Ecto.UUID.generate(), actor: actor)
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(new_ip, [mac]), %{})
+
+    assert {:ok, tombstone} = Device.get_by_uid(uid, true, actor: actor)
+    assert tombstone.deleted_at
+    assert tombstone.deleted_reason == "manual"
+    assert wait_for_devices_by_ip(actor, new_ip, 1) == []
+
+    {:ok, interfaces} =
+      Interface
+      |> Ash.Query.filter(device_ip == ^new_ip)
+      |> Ash.read(actor: actor)
+
+    assert interfaces == []
+    assert revival_audit_rows(uid) == []
+  end
+
+  test "a poll restores a device an automatic process deleted, through the audited restore", %{
+    actor: actor
+  } do
+    uniq = System.unique_integer([:positive, :monotonic])
+    ip = unique_test_ip(198, 51, 70, uniq)
+    mac = unique_global_test_mac(uniq)
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})
+    assert [%Device{uid: uid} = device] = wait_for_devices_by_ip(actor, ip)
+
+    assert {:ok, deleted} =
+             Device.soft_delete(device, "stale", "system:mapper_test_reaper", actor: actor)
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})
+
+    assert {:ok, restored} = Device.get_by_uid(uid, false, actor: actor)
+    assert restored.deleted_at == nil
+    assert restored.deleted_by == nil
+    assert restored.identity_revision > deleted.identity_revision
+
+    assert [{"system:mapper_test_reaper", "stale"}] = revival_audit_rows(uid)
+
+    {:ok, interfaces} =
+      Interface
+      |> Ash.Query.filter(device_id == ^uid)
+      |> Ash.read(actor: actor)
+
+    assert interfaces != []
+  end
+
+  test "a device polled at two of its own addresses stays one device at its first address", %{
+    actor: actor
+  } do
+    uniq = System.unique_integer([:positive, :monotonic])
+    wan_ip = unique_test_ip(203, 0, 113, uniq)
+    lan_ip = unique_test_ip(198, 51, 20, uniq + 1)
+    wan_mac = unique_global_test_mac(uniq)
+    lan_mac = unique_global_test_mac(uniq + 1)
+    ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+
+    interfaces = fn device_ip ->
+      Jason.encode!([
+        %{
+          "device_id" => "default:#{device_ip}",
+          "partition" => "default",
+          "device_ip" => device_ip,
+          "if_index" => 1,
+          "if_name" => "wan0",
+          "if_phys_address" => wan_mac,
+          "ip_addresses" => [wan_ip <> "/24"],
+          "timestamp" => ts
+        },
+        %{
+          "device_id" => "default:#{device_ip}",
+          "partition" => "default",
+          "device_ip" => device_ip,
+          "if_index" => 2,
+          "if_name" => "lan0",
+          "if_phys_address" => lan_mac,
+          "ip_addresses" => [lan_ip <> "/24"],
+          "timestamp" => ts
+        }
+      ])
+    end
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interfaces.(wan_ip), %{})
+    assert [%Device{uid: router_uid}] = wait_for_devices_by_ip(actor, wan_ip)
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interfaces.(lan_ip), %{})
+
+    # Both polls resolve to the one record the interface MACs identify, and the record keeps
+    # its address: the WAN address is still one the router reports.
+    assert [%Device{uid: ^router_uid}] = wait_for_devices_by_ip(actor, wan_ip)
+    assert wait_for_devices_by_ip(actor, lan_ip, 1) == []
+
+    {:ok, lan_polled} =
+      Interface
+      |> Ash.Query.filter(device_ip == ^lan_ip)
+      |> Ash.read(actor: actor)
+
+    assert lan_polled != []
+    assert Enum.all?(lan_polled, &(&1.device_id == router_uid))
+  end
+
+  test "a restored device polled at two addresses in one batch keeps both addresses' interfaces",
+       %{actor: actor} do
+    uniq = System.unique_integer([:positive, :monotonic])
+    wan_ip = unique_test_ip(203, 0, 113, uniq)
+    lan_ip = unique_test_ip(198, 51, 20, uniq + 1)
+    wan_mac = unique_global_test_mac(uniq)
+    lan_mac = unique_global_test_mac(uniq + 1)
+    ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+
+    wan0 = {1, "wan0", wan_mac, wan_ip}
+    lan0 = {2, "lan0", lan_mac, lan_ip}
+
+    # Interfaces are current state, one row per (device, interface): a poll's rows carry the
+    # address it was polled at. Each address below reports a different interface, so a dropped
+    # poll leaves its interface row on the address of the earlier poll.
+    payload = fn polls ->
+      polls
+      |> Enum.flat_map(fn {device_ip, interfaces} ->
+        Enum.map(interfaces, fn {if_index, if_name, mac, address} ->
+          %{
+            "device_id" => "default:#{device_ip}",
+            "partition" => "default",
+            "device_ip" => device_ip,
+            "if_index" => if_index,
+            "if_name" => if_name,
+            "if_phys_address" => mac,
+            "ip_addresses" => [address <> "/24"],
+            "timestamp" => ts
+          }
+        end)
+      end)
+      |> Jason.encode!()
+    end
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(payload.([{wan_ip, [wan0, lan0]}]), %{})
+    assert [%Device{uid: uid} = device] = wait_for_devices_by_ip(actor, wan_ip)
+
+    assert {:ok, deleted} =
+             Device.soft_delete(device, "stale", "system:mapper_test_reaper", actor: actor)
+
+    assert :ok =
+             MapperResultsIngestor.ingest_interfaces(
+               payload.([{wan_ip, [wan0]}, {lan_ip, [lan0]}]),
+               %{}
+             )
+
+    assert {:ok, restored} = Device.get_by_uid(uid, false, actor: actor)
+    assert restored.deleted_at == nil
+    assert restored.identity_revision > deleted.identity_revision
+    assert [{"system:mapper_test_reaper", "stale"}] = revival_audit_rows(uid)
+
+    for polled_ip <- [wan_ip, lan_ip] do
+      {:ok, interfaces} =
+        Interface
+        |> Ash.Query.filter(device_ip == ^polled_ip)
+        |> Ash.read(actor: actor)
+
+      assert interfaces != []
+      assert Enum.all?(interfaces, &(&1.device_id == uid))
+    end
   end
 
   test "mapper alias updates do not promote mismatched device_ip records onto the management alias",
@@ -562,8 +809,8 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     uniq = System.unique_integer([:positive, :monotonic])
     mgmt_ip = unique_test_ip(192, 0, 2, uniq)
     stray_ip = unique_test_ip(192, 0, 2, uniq + 1)
-    mac_a = unique_test_mac(uniq)
-    mac_b = unique_test_mac(uniq + 1)
+    mac_a = unique_global_test_mac(uniq)
+    mac_b = unique_global_test_mac(uniq + 1)
     ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
     payload =
@@ -649,7 +896,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     assert {:ok, []} = DeviceAliasState.lookup_by_value(:ip, vlan_alias, actor: actor)
   end
 
-  test "mapper interface ingestion prefers canonical UID when duplicate devices share IP", %{
+  test "an address-only poll prefers the canonical UID when duplicate devices share IP", %{
     actor: actor
   } do
     uniq = System.unique_integer([:positive, :monotonic])
@@ -657,7 +904,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     canonical_uid = "sr:" <> Ecto.UUID.generate()
     provisional_uid = "sr:" <> Ecto.UUID.generate()
     ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
-    mac = unique_test_mac(uniq)
 
     {:ok, _canonical} =
       Device
@@ -699,6 +945,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
       [ip, provisional_uid]
     )
 
+    # No interface MAC: the polled address is the only evidence there is.
     payload =
       Jason.encode!([
         %{
@@ -707,7 +954,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
           "device_ip" => ip,
           "if_index" => 1,
           "if_name" => "eth0",
-          "if_phys_address" => mac,
           "timestamp" => ts
         }
       ])
@@ -721,6 +967,143 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
 
     assert Enum.any?(interfaces, &(&1.device_id == canonical_uid))
     refute Enum.any?(interfaces, &(&1.device_id == provisional_uid))
+  end
+
+  test "a poll does not revive a device a DIRE remediation removed", %{actor: actor} do
+    uniq = System.unique_integer([:positive, :monotonic])
+    ip = unique_test_ip(198, 51, 80, uniq)
+    mac = unique_global_test_mac(uniq)
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})
+    assert [%Device{uid: uid} = device] = wait_for_devices_by_ip(actor, ip)
+
+    assert {:ok, _deleted} =
+             Device.soft_delete(
+               device,
+               "dire_remediation_test_duplicate",
+               "system:dire_remediation",
+               actor: actor
+             )
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(ip, [mac]), %{})
+
+    assert {:ok, tombstone} = Device.get_by_uid(uid, true, actor: actor)
+    assert tombstone.deleted_at
+    assert tombstone.deleted_reason == "dire_remediation_test_duplicate"
+    assert revival_audit_rows(uid) == []
+  end
+
+  test "a restored device whose old address was leased again gives it up and moves to the polled address",
+       %{actor: actor} do
+    uniq = System.unique_integer([:positive, :monotonic])
+    old_ip = unique_test_ip(198, 51, 90, uniq)
+    polled_ip = unique_test_ip(198, 51, 100, uniq + 1)
+    mac = unique_global_test_mac(uniq)
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(old_ip, [mac]), %{})
+    assert [%Device{uid: uid} = device] = wait_for_devices_by_ip(actor, old_ip)
+
+    assert {:ok, deleted} =
+             Device.soft_delete(device, "stale_ephemeral", "system:mapper_test_expiry",
+               actor: actor
+             )
+
+    # While the device was gone, another device leased its old address.
+    holder_uid = "sr:" <> Ecto.UUID.generate()
+
+    {:ok, _holder} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{uid: holder_uid, ip: old_ip})
+      |> Ash.create(actor: actor)
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(polled_ip, [mac]), %{})
+
+    assert {:ok, restored} = Device.get_by_uid(uid, false, actor: actor)
+    assert restored.deleted_at == nil
+    assert restored.identity_revision > deleted.identity_revision
+    assert restored.ip == polled_ip
+    assert [{"system:mapper_test_expiry", "stale_ephemeral"}] = revival_audit_rows(uid)
+
+    assert [%Device{uid: ^holder_uid}] = wait_for_devices_by_ip(actor, old_ip)
+
+    {:ok, interfaces} =
+      Interface
+      |> Ash.Query.filter(device_ip == ^polled_ip)
+      |> Ash.read(actor: actor)
+
+    assert interfaces != []
+    assert Enum.all?(interfaces, &(&1.device_id == uid))
+  end
+
+  test "an existing device polled at an address a newer-observed device holds keeps its own and records the conflict",
+       %{actor: actor} do
+    uniq = System.unique_integer([:positive, :monotonic])
+    own_ip = unique_test_ip(198, 51, 110, uniq)
+    held_ip = unique_test_ip(198, 51, 120, uniq + 1)
+    mac = unique_global_test_mac(uniq)
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(own_ip, [mac]), %{})
+    assert [%Device{uid: uid}] = wait_for_devices_by_ip(actor, own_ip)
+
+    holder_uid = "sr:" <> Ecto.UUID.generate()
+
+    {:ok, _holder} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{
+        uid: holder_uid,
+        ip: held_ip,
+        last_seen_time: DateTime.add(DateTime.utc_now(), 3600, :second)
+      })
+      |> Ash.create(actor: actor)
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(held_ip, [mac]), %{})
+
+    assert [%Device{uid: ^uid}] = wait_for_devices_by_ip(actor, own_ip)
+    assert [%Device{uid: ^holder_uid}] = wait_for_devices_by_ip(actor, held_ip)
+
+    assert {:ok, decisions} = IdentityDecision.for_device(uid, actor: actor)
+
+    assert Enum.any?(decisions, fn decision ->
+             decision.decision_kind == :ip_conflict and decision.subject == held_ip and
+               decision.device_uids == Enum.sort([uid, holder_uid])
+           end)
+  end
+
+  test "an existing device polled at an address a stale device holds takes it and the holder releases it",
+       %{actor: actor} do
+    uniq = System.unique_integer([:positive, :monotonic])
+    own_ip = unique_test_ip(198, 51, 110, uniq)
+    held_ip = unique_test_ip(198, 51, 120, uniq + 1)
+    mac = unique_global_test_mac(uniq)
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(own_ip, [mac]), %{})
+    assert [%Device{uid: uid}] = wait_for_devices_by_ip(actor, own_ip)
+
+    holder_uid = "sr:" <> Ecto.UUID.generate()
+
+    {:ok, _holder} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{
+        uid: holder_uid,
+        ip: held_ip,
+        last_seen_time: DateTime.add(DateTime.utc_now(), -3600, :second)
+      })
+      |> Ash.create(actor: actor)
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(interface_payload(held_ip, [mac]), %{})
+
+    assert [%Device{uid: ^uid}] = wait_for_devices_by_ip(actor, held_ip)
+    assert wait_for_devices_by_ip(actor, own_ip, 1) == []
+
+    assert {:ok, %Device{ip: nil, deleted_at: nil}} =
+             Device.get_by_uid(holder_uid, false, actor: actor)
+
+    assert {:ok, decisions} = IdentityDecision.for_device(uid, actor: actor)
+
+    assert Enum.any?(decisions, fn decision ->
+             decision.decision_kind == :ip_conflict and decision.subject == held_ip and
+               decision.device_uids == Enum.sort([uid, holder_uid])
+           end)
   end
 
   defp wait_for_devices_by_ip(actor, ip, attempts \\ 60)
@@ -741,6 +1124,57 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
 
   defp wait_for_devices_by_ip(_actor, _ip, 0), do: []
 
+  defp interface_payload(device_ip, macs) do
+    ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+
+    macs
+    |> Enum.with_index(1)
+    |> Enum.map(fn {mac, index} ->
+      %{
+        "device_id" => "default:#{device_ip}",
+        "partition" => "default",
+        "device_ip" => device_ip,
+        "if_index" => index,
+        "if_name" => "eth#{index}",
+        "if_phys_address" => mac,
+        "timestamp" => ts
+      }
+    end)
+    |> Jason.encode!()
+  end
+
+  defp mac_owner(actor, normalized_mac) do
+    DeviceIdentifier
+    |> Ash.Query.for_read(:lookup, %{
+      identifier_type: :mac,
+      identifier_value: normalized_mac,
+      partition: "default"
+    })
+    |> Ash.read!(actor: actor)
+    |> case do
+      [identifier] -> identifier.device_id
+      [] -> nil
+    end
+  end
+
+  defp interface_macs_of(actor, device_uid),
+    do: InterfaceMacs.registered_values(device_uid, actor)
+
+  defp revival_audit_rows(device_uid) do
+    %{rows: rows} =
+      Repo.query!(
+        """
+        SELECT previous_deleted_by, previous_deleted_reason
+        FROM platform.device_revival_audit
+        WHERE device_uid = $1
+        ORDER BY event_id
+        """,
+        [device_uid]
+      )
+
+    Enum.map(rows, &List.to_tuple/1)
+  end
+
   defp unique_test_ip(a, b, seed) do
     third = rem(seed, 250) + 1
     fourth = rem(div(seed, 250), 250) + 1
@@ -751,13 +1185,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     third = rem(c + div(seed, 250), 250) + 1
     fourth = rem(seed, 250) + 1
     "#{a}.#{b}.#{third}.#{fourth}"
-  end
-
-  defp unique_test_mac(seed) do
-    <<b1, b2, b3, b4, b5, b6, _::binary>> =
-      :crypto.hash(:sha256, "#{seed}:#{Ecto.UUID.generate()}")
-
-    Enum.map_join([b1, b2, b3, b4, b5, b6], ":", &Base.encode16(<<&1>>, case: :upper))
   end
 
   # Globally-unique unicast MAC (multicast + locally-administered bits of the
@@ -792,4 +1219,17 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
   end
 
   defp wait_for_aliases(_actor, _type, _value, _predicate, 0), do: []
+
+  # Locally administered unicast MAC (the IEEE local bit of the first octet set): a
+  # randomized or virtual address that never identifies a device.
+  defp unique_laa_test_mac(seed) do
+    <<b1, b2, b3, b4, b5, b6, _::binary>> =
+      :crypto.hash(:sha256, "#{seed}:#{Ecto.UUID.generate()}")
+
+    Enum.map_join(
+      [Bitwise.bor(Bitwise.band(b1, 0xFC), 0x02), b2, b3, b4, b5, b6],
+      ":",
+      &Base.encode16(<<&1>>, case: :upper)
+    )
+  end
 end

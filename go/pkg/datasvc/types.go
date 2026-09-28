@@ -65,6 +65,13 @@ type Config struct {
 	BucketHistory     uint32            `json:"bucket_history,omitempty"`     // History depth per key
 	CoreRegistration  *CoreRegistration `json:"core_registration,omitempty"`  // Core service registration settings
 
+	// BucketReplicas and ObjectStoreReplicas are the resolved replica counts of
+	// the KV bucket and the object store. They are not read from JSON: Validate
+	// sets each from SERVICERADAR_JS_<STREAM>_REPLICAS when that is set, and
+	// from JetStreamReplicas otherwise.
+	BucketReplicas      int `json:"-"`
+	ObjectStoreReplicas int `json:"-"`
+
 	// NATSOperator configures the NATS account management service for namespace isolation.
 	// When configured, datasvc will expose the NATSAccountService gRPC endpoint.
 	NATSOperator *accounts.OperatorConfig `json:"nats_operator,omitempty"`

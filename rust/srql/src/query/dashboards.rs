@@ -345,6 +345,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            exhaustive_window: false,
         }
     }
 
@@ -367,6 +368,7 @@ mod tests {
             rollup_stats: ast.rollup_stats,
             other: false,
             include_deleted: false,
+            exhaustive_window: false,
         };
 
         let (sql, params) = to_sql_and_params(&plan).expect("dashboard SQL should translate");

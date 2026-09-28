@@ -14,6 +14,9 @@ alias ServiceRadar.Automation.Northbound
 # Ash configuration
 config :ash,
   include_embedded_source_by_default?: false,
+  # Count string length in codepoints, as the SQL data layer does, so
+  # `max_length` bounds the stored size. Required since Ash 3.33.
+  default_string_length_count: :codepoints,
   default_page_type: :keyset,
   policies: [
     no_filter_static_forbidden_reads?: false,
@@ -130,6 +133,9 @@ config :serviceradar_core, :plugin_storage,
   jetstream_bucket: "serviceradar_plugins",
   jetstream_replicas: 1,
   jetstream_storage: :file
+
+# Ingestion nodes own provider, threat-intel, and DNS-policy snapshots.
+config :serviceradar_core, :prefix_tags_external_sources, false
 
 # Also register domains for serviceradar_core OTP app (domains are defined there)
 config :serviceradar_core,
@@ -316,7 +322,15 @@ config :serviceradar_web_ng, :plugin_verification,
     "serviceradar-first-party-v2" => "2KMsaqvof357MV3RQl4/0DNXfF6+eIMQ+qjDJfL/N8I="
   }
 
+# IdP-initiated (unsolicited) SAML responses have no request to bind to and so
+# permit login CSRF. Rejected unless explicitly enabled; see
+# ServiceRadarWebNGWeb.SAMLController.
+config :serviceradar_web_ng, :saml_allow_idp_initiated, false
 config :serviceradar_web_ng, :saml_assertion_max_validity_seconds, 300
+
+# How long an SP-initiated SAML login may take at the IdP: the pending
+# AuthnRequest stored under its RelayState (SAMLPendingRequest) expires after this.
+config :serviceradar_web_ng, :saml_authn_request_ttl_seconds, 600
 
 config :serviceradar_web_ng, :scopes,
   user: [
@@ -397,6 +411,8 @@ config :serviceradar_web_ng,
   generators: [timestamp_type: :utc_datetime]
 
 # Configure tailwind (the version is required).
+# Rustler app-env options override module options, including in path dependencies.
+# Skip both cargo metadata and NIF builds for source-only lint; other builds keep them.
 config :tailwind,
   version: "4.1.12",
   serviceradar_web_ng: [
@@ -408,17 +424,16 @@ config :tailwind,
   ]
 
 if System.get_env("SERVICERADAR_SKIP_NIF_COMPILATION") == "1" do
-  # Rustler app-env options override module options, including in path dependencies.
-  # Skip both cargo metadata and NIF builds for source-only lint; other builds keep them.
   config :serviceradar_core, ServiceRadar.Dgraph.Native, skip_compilation?: true
   config :serviceradar_core, ServiceRadar.NetworkConfig.Native, skip_compilation?: true
   config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true
   config :serviceradar_core, ServiceRadar.Observability.Zen.Native, skip_compilation?: true
+  config :serviceradar_core, ServiceRadar.PrefixTags.Native, skip_compilation?: true
 
+  # Import environment-specific config last so it overrides the configuration above.
   config :serviceradar_srql, ServiceRadarSRQL.Native, skip_compilation?: true
 
   config :serviceradar_web_ng, ServiceRadarWebNG.Topology.Native, skip_compilation?: true
 end
 
-# Import environment-specific config last so it overrides the configuration above.
 import_config "#{config_env()}.exs"

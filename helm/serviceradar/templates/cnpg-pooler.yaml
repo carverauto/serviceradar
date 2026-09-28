@@ -27,7 +27,7 @@ spec:
     name: {{ $clusterName | quote }}
   instances: {{ default 3 $pooler.instances }}
   type: {{ default "rw" $pooler.type | quote }}
-  {{- if default true $podAntiAffinity.enabled }}
+  {{- if include "serviceradar.boolDefaultTrue" (list $podAntiAffinity "enabled") | eq "true" }}
   template:
     metadata:
       labels:

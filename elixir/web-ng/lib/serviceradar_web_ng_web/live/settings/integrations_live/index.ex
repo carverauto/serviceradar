@@ -693,11 +693,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   defp format_ash_error(_), do: "Unexpected error"
 
   defp preview_prefix_tags(ip) when is_binary(ip) do
-    # Local trie only — no DB hop. Failures are soft (empty chain / error string).
-    chain = ServiceRadar.PrefixTags.Store.lookup(ip)
-    {:ok, chain}
-  rescue
-    e -> {:error, Exception.message(e)}
+    ServiceRadar.PrefixTags.Preview.lookup(ip)
   end
 
   @impl true
@@ -946,7 +942,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             <div>
               <div class="text-sm font-semibold">Prefix tag preview</div>
               <p class="text-xs text-sr-muted">
-                Look up what tags an IP would receive from the local node's prefix-tag trie
+                Look up what tags an IP would receive from the current ingestion snapshot
                 (same chain flow enrichment applies when enabled).
               </p>
             </div>

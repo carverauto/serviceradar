@@ -18,6 +18,7 @@ pub enum Entity {
     ScanActivity,
     DnsActivity,
     BmpEvents,
+    MtrHops,
     MtrTraces,
     FieldSurveySessions,
     FieldSurveyRasters,
@@ -62,6 +63,9 @@ pub enum Entity {
     SnmpMetrics,
     TraceSummaries,
     Traces,
+    /// The OTel `service.name` catalog (`platform.otel_service_catalog`). Not
+    /// `Services`, which is monitored service checks.
+    OtelServices,
     Flows,
     AttributedFlows,
     Alerts,
@@ -71,12 +75,15 @@ pub enum Entity {
     EndpointPackages,
     EndpointInventoryScans,
     PublicEndpoints,
+    CameraSources,
     SourceFactDisagreements,
     MergeAudit,
     DeviceRevivalAudit,
     DeviceIdentifiers,
     IdentityReconciliationRuns,
     IdentityEvidenceEdges,
+    IdentityDecisions,
+    DeduplicationTasks,
     VulnerabilityAdvisories,
     AdvisoryCoordinates,
     EndpointVulnerabilityAssessments,
@@ -134,6 +141,9 @@ pub struct StatsAggregation {
     pub agg_type: StatsAggType,
     /// The field to aggregate (None for count())
     pub field: Option<String>,
+    /// The second field of a two-argument aggregation: the denominator of
+    /// `loss_ratio`, the weight of `wavg`. None for single-argument functions.
+    pub field2: Option<String>,
     /// The alias for the result
     pub alias: String,
 }
@@ -147,6 +157,13 @@ pub enum StatsAggType {
     Avg,
     Min,
     Max,
+    /// `loss_ratio(sent, received)`: a ratio of sums, not a mean of per-row
+    /// ratios. The two disagree whenever the rows in a group carry unequal
+    /// denominators, which for probe counts is the normal case.
+    LossRatio,
+    /// `wavg(value, weight)`: a weight-weighted mean, so a low-sample row does
+    /// not carry the same weight as a high-sample one.
+    Wavg,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -171,6 +188,12 @@ pub enum DownsampleAgg {
     /// for example, where the fleet total is the sum and the average understates
     /// it by the number of controllers.
     RateSum,
+    /// The value of the newest sample in each bucket, per series.
+    ///
+    /// Answers "where is each asset now" for gauges such as a position or a
+    /// battery level, where averaging the samples in a bucket would describe a
+    /// point the asset never occupied.
+    Last,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

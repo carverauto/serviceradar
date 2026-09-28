@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
 
   alias ServiceRadar.PrefixTags.Manual
   alias ServiceRadar.PrefixTags.PrefixTag
+  alias ServiceRadar.PrefixTags.Preview
   alias ServiceRadar.PrefixTags.Store
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Settings.Shell
@@ -222,14 +223,7 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
            |> assign(:preview_chain, nil)
            |> assign(:preview_error, "Enter an IP address")}
         else
-          chain =
-            try do
-              Store.lookup(ip)
-            rescue
-              e -> {:error, Exception.message(e)}
-            end
-
-          case chain do
+          case Preview.lookup(ip) do
             {:error, reason} ->
               {:noreply,
                socket
@@ -237,7 +231,7 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLive do
                |> assign(:preview_chain, nil)
                |> assign(:preview_error, reason)}
 
-            list when is_list(list) ->
+            {:ok, list} ->
               {:noreply,
                socket
                |> assign(:preview_ip, ip)

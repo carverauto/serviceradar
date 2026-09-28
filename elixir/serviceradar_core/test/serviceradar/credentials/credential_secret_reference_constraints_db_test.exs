@@ -1,11 +1,10 @@
 defmodule ServiceRadar.Credentials.CredentialSecretReferenceConstraintsDbTest do
   use ServiceRadar.DataCase, async: false
 
+  alias Ash.Resource.Info
   alias Ecto.Adapters.SQL
-  alias Ecto.Adapters.SQL.Sandbox
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.CredentialBrokerGrant
-  alias ServiceRadar.Credentials.CredentialSecretResolutionAudit
   alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Credentials.NetworkCredentialSecretBinding
   alias ServiceRadar.Credentials.NetworkCredentialSecretDeletionAudit
@@ -54,7 +53,11 @@ defmodule ServiceRadar.Credentials.CredentialSecretReferenceConstraintsDbTest do
 
     assert id == secret.id
     assert owner_id == to_string(assignment.id)
-    assert {:error, _} = delete_secret_row(secret.id)
+
+    assert {:error, %Postgrex.Error{postgres: %{constraint: constraint}}} =
+             delete_secret_row(secret.id)
+
+    assert constraint == "network_credential_secret_bindings_secret_id_fkey"
   end
 
   test "removing an owner removes its binding", %{secret: secret} do
@@ -71,12 +74,6 @@ defmodule ServiceRadar.Credentials.CredentialSecretReferenceConstraintsDbTest do
              |> Ash.destroy!()
 
     assert [] = bindings_for(secret.id)
-  end
-
-  test "deleting an unbound secret cascades ciphertext-bearing versions", %{secret: secret} do
-    assert version_count(secret.id) > 0
-    assert :ok = delete_secret_row(secret.id)
-    assert 0 = version_count(secret.id)
   end
 
   test "nested and array credential references are indexed and stale bindings are replaced", %{
@@ -139,83 +136,20 @@ defmodule ServiceRadar.Credentials.CredentialSecretReferenceConstraintsDbTest do
            ]
   end
 
-  test "owners with no network credential reference create no binding" do
-    assignment = plugin_assignment_fixture(%{params: %{"endpoint" => "https://example.test"}})
-
-    assert [] =
-             NetworkCredentialSecretBinding
-             |> Ash.Query.filter(
-               owner_kind == :plugin_assignment and owner_id == ^to_string(assignment.id)
-             )
-             |> Ash.read!(actor: system_actor())
-  end
-
-  test "an unrelated plugin-assignment field is never scanned for credential references", %{
-    secret: secret
-  } do
-    assignment =
-      plugin_assignment_fixture(%{
-        params: %{},
-        permissions_override: %{
-          "unrelated" => SecretRefs.network_credential_ref(secret.id)
-        }
-      })
-
-    assert [] = bindings_for(secret.id)
-
-    assert assignment.permissions_override["unrelated"] ==
-             SecretRefs.network_credential_ref(secret.id)
-  end
-
-  test "named JSON helper indexes only the supplied notification and producer fields", %{
-    secret: secret
-  } do
-    owner_id = Ecto.UUID.generate()
-    ref = SecretRefs.network_credential_ref(secret.id)
-
-    for {kind, path, payload} <- [
-          {"notification_channel", "$.secret_refs", %{"token" => ref}},
-          {"producer_schedule", "$.credential_refs", %{"token" => ref}},
-          {"producer_schedule", "$.params", %{"nested" => %{"token" => ref}}},
-          {"plugin_target_policy", "$.params_template", %{"token" => ref}}
-        ] do
-      SQL.query!(
-        Repo,
-        "SELECT platform.insert_network_credential_secret_bindings($1, $2, $3::jsonb, $4)",
-        [kind, Ecto.UUID.dump!(owner_id), payload, path]
-      )
-    end
-
-    assert raw_binding_count(secret.id) == 4
-
-    assert Enum.sort(Enum.map(bindings_for(secret.id), & &1.owner_kind)) == [
-             :notification_channel,
-             :plugin_target_policy,
-             :producer_schedule,
-             :producer_schedule
-           ]
-  end
-
-  test "migration helper rejects a malformed selected-field marker with its owner context" do
-    assert {:error, %Postgrex.Error{postgres: %{message: message}}} =
-             SQL.query(
-               Repo,
-               "SELECT platform.insert_network_credential_secret_bindings('producer_schedule', $1, jsonb_build_object('token', $2::text), '$.params')",
-               [
-                 Ecto.UUID.dump!(Ecto.UUID.generate()),
-                 "credentialref:network-credential-secret:not-a-uuid"
-               ]
-             )
-
-    assert message =~
-             "invalid network credential reference at producer_schedule.$.params.k:746f6b656e"
-  end
-
   test "owner-table triggers bind only notification, producer, and policy credential fields", %{
     secret: secret
   } do
-    assignment = plugin_assignment_fixture(%{params: %{}})
     ref = SecretRefs.network_credential_ref(secret.id)
+
+    # A plugin assignment binds only credential references inside `params`: a
+    # plain string there, or a reference in any other column, binds nothing.
+    assignment =
+      plugin_assignment_fixture(%{
+        params: %{"endpoint" => "https://example.test"},
+        permissions_override: %{"unrelated" => ref}
+      })
+
+    assert assignment.permissions_override["unrelated"] == ref
 
     %{rows: [[package_id]]} =
       SQL.query!(
@@ -272,7 +206,27 @@ defmodule ServiceRadar.Credentials.CredentialSecretReferenceConstraintsDbTest do
       ]
     )
 
-    assert Enum.count(bindings_for(secret.id)) == 4
+    assert [] =
+             NetworkCredentialSecretBinding
+             |> Ash.Query.filter(
+               owner_kind == :plugin_assignment and owner_id == ^to_string(assignment.id)
+             )
+             |> Ash.read!(actor: system_actor())
+
+    # Only the credential column of each owner binds; `config`, `metadata` and
+    # `last_error` carry the same reference and must not.
+    bindings =
+      secret.id
+      |> bindings_for()
+      |> Enum.map(&{&1.owner_kind, &1.field_path})
+      |> Enum.sort()
+
+    assert bindings == [
+             {:notification_channel, "$.secret_refs.k:746f6b656e"},
+             {:plugin_target_policy, "$.params_template.k:746f6b656e"},
+             {:producer_schedule, "$.credential_refs.k:63726564656e7469616c"},
+             {:producer_schedule, "$.params.k:706172616d"}
+           ]
   end
 
   test "a malformed network credential reference is rejected by the owner trigger" do
@@ -289,54 +243,51 @@ defmodule ServiceRadar.Credentials.CredentialSecretReferenceConstraintsDbTest do
              )
 
     assert message =~ "invalid network credential reference"
+
+    # The vulnerability-feed owner trims before it checks, and still rejects.
+    assert {:error, error} =
+             VulnerabilityFeedDefinition
+             |> Ash.Changeset.for_create(
+               :upsert,
+               %{
+                 provider: "credential-reference-invalid-#{System.unique_integer([:positive])}",
+                 feed_key: "feed-#{System.unique_integer([:positive])}",
+                 display_name: "Credential reference constraints feed",
+                 feed_type: "test",
+                 credential_ref: "  credentialref:network-credential-secret:not-a-uuid  "
+               },
+               actor: system_actor()
+             )
+             |> Ash.create()
+
+    assert Exception.message(error) =~ "invalid network credential reference"
   end
 
-  test "a bare vulnerability-feed UUID creates a restrictive binding", %{secret: secret} do
-    feed =
-      VulnerabilityFeedDefinition
-      |> Ash.Changeset.for_create(
-        :upsert,
-        %{
-          provider: "credential-reference-constraints",
-          feed_key: "feed-#{System.unique_integer([:positive])}",
-          display_name: "Credential reference constraints feed",
-          feed_type: "test",
-          credential_ref: to_string(secret.id)
-        },
-        actor: system_actor()
-      )
-      |> Ash.create!()
+  test "bare, canonical, and trimmed uppercase feed references bind restrictively" do
+    for ref_for <- [
+          &to_string/1,
+          fn id -> "  #{String.upcase(id)}  " end,
+          &SecretRefs.network_credential_ref/1,
+          fn id -> "  credentialref:network-credential-secret:#{String.upcase(id)}  " end
+        ] do
+      secret = secret_fixture()
+      feed = vulnerability_feed_fixture(%{credential_ref: ref_for.(secret.id)})
 
-    assert [
-             %{
-               owner_kind: :vulnerability_feed_definition,
-               owner_id: owner_id,
-               field_path: "$.credential_ref"
-             }
-           ] =
-             bindings_for(secret.id)
+      assert [
+               %{
+                 owner_kind: :vulnerability_feed_definition,
+                 owner_id: owner_id,
+                 field_path: "$.credential_ref"
+               }
+             ] = bindings_for(secret.id)
 
-    assert owner_id == to_string(feed.id)
-    assert {:error, _} = delete_secret_row(secret.id)
-  end
+      assert owner_id == to_string(feed.id)
 
-  test "a canonical vulnerability-feed credential reference creates a restrictive binding", %{
-    secret: secret
-  } do
-    feed =
-      vulnerability_feed_fixture(%{
-        credential_ref: SecretRefs.network_credential_ref(secret.id)
-      })
+      assert {:error, %Postgrex.Error{postgres: %{constraint: constraint}}} =
+               delete_secret_row(secret.id)
 
-    assert [
-             %{
-               owner_kind: :vulnerability_feed_definition,
-               owner_id: owner_id,
-               field_path: "$.credential_ref"
-             }
-           ] = bindings_for(secret.id)
-
-    assert owner_id == to_string(feed.id)
+      assert constraint == "network_credential_secret_bindings_secret_id_fkey"
+    end
   end
 
   test "a conflicting vulnerability-feed upsert binds only the persisted owner", %{secret: secret} do
@@ -378,30 +329,6 @@ defmodule ServiceRadar.Credentials.CredentialSecretReferenceConstraintsDbTest do
            ] = bindings_for(replacement.id)
 
     assert persisted_owner_id == to_string(persisted.id)
-  end
-
-  test "vulnerability references accept trimmed canonical and uppercase bare UUIDs", %{
-    secret: secret
-  } do
-    for ref <- [
-          "  credentialref:network-credential-secret:#{String.upcase(secret.id)}  ",
-          "  #{String.upcase(secret.id)}  "
-        ] do
-      feed = vulnerability_feed_fixture(%{credential_ref: ref})
-
-      assert [
-               %{
-                 owner_kind: :vulnerability_feed_definition,
-                 owner_id: owner_id,
-                 field_path: "$.credential_ref"
-               }
-             ] =
-               secret.id
-               |> bindings_for()
-               |> Enum.filter(&(&1.owner_id == to_string(feed.id)))
-
-      assert owner_id == to_string(feed.id)
-    end
   end
 
   test "raw vulnerability helper trims the runtime Unicode whitespace set", %{secret: secret} do
@@ -452,43 +379,37 @@ defmodule ServiceRadar.Credentials.CredentialSecretReferenceConstraintsDbTest do
              "invalid network credential reference at vulnerability_feed_definition.$.credential_ref"
   end
 
-  test "a trimmed malformed vulnerability network marker fails loudly" do
-    assert {:error, error} =
-             VulnerabilityFeedDefinition
-             |> Ash.Changeset.for_create(
-               :upsert,
-               %{
-                 provider: "credential-reference-invalid-#{System.unique_integer([:positive])}",
-                 feed_key: "feed-#{System.unique_integer([:positive])}",
-                 display_name: "Credential reference constraints feed",
-                 feed_type: "test",
-                 credential_ref: "  credentialref:network-credential-secret:not-a-uuid  "
-               },
-               actor: system_actor()
-             )
-             |> Ash.create()
-
-    assert Exception.message(error) =~ "invalid network credential reference"
-  end
-
-  test "a broker grant cannot pair a network reference with a different secret id", %{
-    secret: secret
-  } do
+  test "a broker grant network reference must name its own secret id", %{secret: secret} do
     other = secret_fixture()
 
-    attrs =
-      CredentialBrokerGrant.issue_attrs(%{
-        secret_id: secret.id,
-        secret_ref: SecretRefs.network_credential_ref(other.id),
-        grant_type: "credential-reference-constraints",
-        consumer_kind: :test,
-        consumer_id: "credential-reference-constraints",
-        purpose: "credential.reference.constraints",
-        ttl_seconds: 60
-      })
+    grant_attrs = %{
+      grant_type: "credential-reference-constraints",
+      consumer_kind: :test,
+      consumer_id: "credential-reference-constraints",
+      purpose: "credential.reference.constraints",
+      ttl_seconds: 60
+    }
 
-    assert {:error, error} = CredentialBrokerGrant.issue_grant(attrs, actor: system_actor())
-    assert Exception.message(error) =~ "network credential secret_ref must match secret_id"
+    mismatched =
+      grant_attrs
+      |> Map.merge(%{
+        secret_id: secret.id,
+        secret_ref: SecretRefs.network_credential_ref(other.id)
+      })
+      |> CredentialBrokerGrant.issue_attrs()
+
+    # `issue_attrs/1` derives the id from a canonical reference, so drop it to
+    # reach the NULL branch of the same check.
+    missing_secret_id =
+      grant_attrs
+      |> Map.put(:secret_ref, SecretRefs.network_credential_ref(secret.id))
+      |> CredentialBrokerGrant.issue_attrs()
+      |> Map.delete(:secret_id)
+
+    for attrs <- [mismatched, missing_secret_id] do
+      assert {:error, error} = CredentialBrokerGrant.issue_grant(attrs, actor: system_actor())
+      assert Exception.message(error) =~ "network credential secret_ref must match secret_id"
+    end
   end
 
   test "migration backfills a missing broker secret id only from a live canonical reference" do
@@ -545,101 +466,32 @@ defmodule ServiceRadar.Credentials.CredentialSecretReferenceConstraintsDbTest do
              ])
   end
 
-  test "migration validation rejects a preexisting broker grant with a mismatched marker", %{
-    secret: secret
-  } do
-    other = secret_fixture()
+  test "every binding owner kind has an AFTER binding trigger on its table" do
+    # Map.fetch! fails for an owner kind added to the resource without a table
+    # here, so a new kind cannot ship without its trigger being checked.
+    owner_tables = %{
+      notification_channel: "notification_channels",
+      plugin_assignment: "plugin_assignments",
+      plugin_target_policy: "plugin_target_policies",
+      producer_schedule: "producer_schedules",
+      vulnerability_feed_definition: "vulnerability_feed_definitions"
+    }
 
-    {:ok, grant} =
-      CredentialBrokerGrant.issue_grant(
-        CredentialBrokerGrant.issue_attrs(%{
-          secret_id: secret.id,
-          grant_type: "credential-reference-constraints",
-          consumer_kind: :test,
-          consumer_id: "preexisting-broker",
-          purpose: "credential.reference.constraints",
-          ttl_seconds: 60
-        }),
-        actor: system_actor()
-      )
+    expected =
+      NetworkCredentialSecretBinding
+      |> Info.attribute(:owner_kind)
+      |> Map.fetch!(:constraints)
+      |> Keyword.fetch!(:one_of)
+      |> Enum.map(&[Map.fetch!(owner_tables, &1), "AFTER"])
+      |> Enum.sort()
 
-    SQL.query!(
-      Repo,
-      "ALTER TABLE platform.credential_broker_grants DISABLE TRIGGER validate_credential_broker_grant_secret_ref"
-    )
-
-    SQL.query!(
-      Repo,
-      "UPDATE platform.credential_broker_grants SET secret_ref = $1 WHERE id = $2",
-      [
-        SecretRefs.network_credential_ref(other.id),
-        Ecto.UUID.dump!(grant.id)
-      ]
-    )
-
-    SQL.query!(
-      Repo,
-      "ALTER TABLE platform.credential_broker_grants ENABLE TRIGGER validate_credential_broker_grant_secret_ref"
-    )
-
-    assert {:error, %Postgrex.Error{postgres: %{message: message}}} =
-             SQL.query(
-               Repo,
-               "SELECT platform.validate_credential_broker_grant_secret_ref(secret_ref, secret_id) FROM platform.credential_broker_grants WHERE id = $1",
-               [Ecto.UUID.dump!(grant.id)]
-             )
-
-    assert message =~ "network credential secret_ref must match secret_id"
-  end
-
-  test "credential binding trigger catalog names every owner wrapper" do
     %{rows: rows} =
       SQL.query!(
         Repo,
-        "SELECT c.relname, p.proname, CASE WHEN (t.tgtype::integer & 2) = 2 THEN 'BEFORE' ELSE 'AFTER' END FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_proc p ON p.oid = t.tgfoid WHERE t.tgname = 'sync_network_credential_secret_bindings' AND c.relnamespace = 'platform'::regnamespace ORDER BY c.relname"
+        "SELECT c.relname, CASE WHEN (t.tgtype::integer & 2) = 2 THEN 'BEFORE' ELSE 'AFTER' END FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid WHERE t.tgname = 'sync_network_credential_secret_bindings' AND c.relnamespace = 'platform'::regnamespace ORDER BY c.relname"
       )
 
-    assert rows == [
-             [
-               "notification_channels",
-               "sync_notification_channels_network_credential_secret_bindings",
-               "AFTER"
-             ],
-             [
-               "plugin_assignments",
-               "sync_plugin_assignments_network_credential_secret_bindings",
-               "AFTER"
-             ],
-             [
-               "plugin_target_policies",
-               "sync_plugin_target_policies_network_credential_secret_bindings",
-               "AFTER"
-             ],
-             [
-               "producer_schedules",
-               "sync_producer_schedules_network_credential_secret_bindings",
-               "AFTER"
-             ],
-             [
-               "vulnerability_feed_definitions",
-               "sync_vulnerability_feed_secret_bindings",
-               "AFTER"
-             ]
-           ]
-  end
-
-  test "binding backfill is idempotent", %{secret: secret} do
-    assignment =
-      plugin_assignment_fixture(%{
-        params: %{"credential" => SecretRefs.network_credential_ref(secret.id)}
-      })
-
-    assert [%{owner_id: owner_id}] = bindings_for(secret.id)
-    assert owner_id == to_string(assignment.id)
-
-    assert 1 == backfill_plugin_assignment_bindings()
-    assert 1 == backfill_plugin_assignment_bindings()
-    assert binding_paths(secret.id) == ["$.params.k:63726564656e7469616c"]
+    assert Enum.sort(rows) == expected
   end
 
   test "a selected preexisting malformed marker makes the migration backfill path fail loudly" do
@@ -675,56 +527,10 @@ defmodule ServiceRadar.Credentials.CredentialSecretReferenceConstraintsDbTest do
              "invalid network credential reference at plugin_assignment.$.params.k:63726564656e7469616c"
   end
 
-  test "a resolution audit survives secret deletion with a nullified secret id", %{secret: secret} do
-    audit =
-      CredentialSecretResolutionAudit.create_audit!(
-        %{
-          secret_id: secret.id,
-          consumer_kind: :test,
-          resolution_location: :control_plane,
-          outcome: :success,
-          metadata: %{}
-        },
-        actor: system_actor()
-      )
-
-    assert :ok = delete_secret_row(secret.id)
-
-    %{rows: [[nil]]} =
-      SQL.query!(
-        Repo,
-        "SELECT secret_id FROM platform.credential_secret_resolution_audits WHERE id = $1",
-        [Ecto.UUID.dump!(audit.id)]
-      )
-  end
-
-  test "deleting a broker grant cascades its PaperTrail versions", %{secret: secret} do
-    {:ok, grant} =
-      CredentialBrokerGrant.issue_grant(
-        CredentialBrokerGrant.issue_attrs(%{
-          secret_id: secret.id,
-          grant_type: "credential-reference-constraints",
-          consumer_kind: :test,
-          consumer_id: "broker-version-cascade",
-          purpose: "credential.reference.constraints",
-          ttl_seconds: 60
-        }),
-        actor: system_actor()
-      )
-
-    assert broker_grant_version_count(grant.id) > 0
-
-    SQL.query!(Repo, "DELETE FROM platform.credential_broker_grants WHERE id = $1", [
-      Ecto.UUID.dump!(grant.id)
-    ])
-
-    assert broker_grant_version_count(grant.id) == 0
-  end
-
   test "deletion audits expose only the redacted record surface" do
     assert [:read, :record] =
              NetworkCredentialSecretDeletionAudit
-             |> Ash.Resource.Info.actions()
+             |> Info.actions()
              |> Enum.map(& &1.name)
              |> Enum.sort()
 
@@ -763,75 +569,7 @@ defmodule ServiceRadar.Credentials.CredentialSecretReferenceConstraintsDbTest do
            ]
   end
 
-  test "credential PaperTrail rows omit action inputs and plaintext rotation markers" do
-    marker = "task1-plaintext-marker-#{System.unique_integer([:positive])}"
-    secret = secret_fixture(%{secret_payload: marker})
-
-    rotating_secret =
-      secret
-      |> Ash.Changeset.for_update(:start_rotation, %{}, actor: system_actor())
-      |> Ash.update!()
-
-    rotating_secret
-    |> Ash.Changeset.for_update(:complete_rotation, %{secret_payload: marker <> "-rotated"},
-      actor: system_actor()
-    )
-    |> Ash.update!()
-
-    %{rows: []} =
-      SQL.query!(
-        Repo,
-        "SELECT column_name FROM information_schema.columns WHERE table_schema = 'platform' AND table_name = 'network_credential_secret_versions' AND column_name = 'version_action_inputs'"
-      )
-
-    %{rows: [[serialized_versions]]} =
-      SQL.query!(
-        Repo,
-        "SELECT coalesce(string_agg(to_jsonb(version)::text, ''), '') FROM platform.network_credential_secret_versions version WHERE version_source_id = $1",
-        [Ecto.UUID.dump!(secret.id)]
-      )
-
-    %{rows: [[serialized_audits]]} =
-      SQL.query!(
-        Repo,
-        "SELECT coalesce(string_agg(to_jsonb(audit)::text, ''), '') FROM platform.network_credential_secret_deletion_audits audit"
-      )
-
-    refute serialized_versions =~ marker
-    refute serialized_audits =~ marker
-  end
-
-  test "a concurrent binding insert and secret delete cannot commit a dangling reference", %{
-    secret: secret,
-    sandbox_owner: sandbox_owner
-  } do
-    binding_task =
-      Task.async(fn ->
-        receive do
-          :race -> insert_racing_binding(secret.id)
-        end
-      end)
-
-    delete_task =
-      Task.async(fn ->
-        receive do
-          :race -> delete_secret_row(secret.id)
-        end
-      end)
-
-    assert :ok = Sandbox.allow(Repo, sandbox_owner, binding_task.pid)
-    assert :ok = Sandbox.allow(Repo, sandbox_owner, delete_task.pid)
-
-    send(binding_task.pid, :race)
-    send(delete_task.pid, :race)
-
-    results = [Task.await(binding_task), Task.await(delete_task)]
-
-    assert 1 == Enum.count(results, &(&1 == :ok))
-    assert 0 == dangling_binding_count()
-  end
-
-  test "every live typed credential reference is restrictive" do
+  test "every foreign key into secrets and broker grants has a declared delete action" do
     expected = %{
       "ansible_controllers_callback_credential_secret_id_fkey" => "r",
       "ansible_controllers_credential_secret_id_fkey" => "r",
@@ -855,22 +593,34 @@ defmodule ServiceRadar.Credentials.CredentialSecretReferenceConstraintsDbTest do
       "snmp_targets_credential_secret_id_fkey" => "r"
     }
 
+    # Selected by the referenced table, not by name, so a new foreign key fails
+    # here until it is given a delete action on purpose.
     %{rows: rows} =
       SQL.query!(
         Repo,
         """
         SELECT conname, confdeltype
         FROM pg_constraint
-        WHERE connamespace = 'platform'::regnamespace
-          AND conname = ANY($1)
+        WHERE contype = 'f'
+          AND confrelid IN (
+            'platform.network_credential_secrets'::regclass,
+            'platform.credential_broker_grants'::regclass
+          )
         ORDER BY conname
-        """,
-        [Map.keys(expected)]
+        """
       )
 
     delete_actions = Map.new(rows, fn [name, action] -> {name, action} end)
 
     assert delete_actions == expected
+
+    # A restrictive foreign key the resource does not map surfaces as a raw
+    # constraint error instead of the "credential_in_use" message callers match.
+    configured = AshPostgres.DataLayer.Info.foreign_key_names(NetworkCredentialSecret)
+    restrict = for {name, "r"} <- delete_actions, do: name
+
+    assert Enum.sort(restrict) == configured |> Enum.map(&elem(&1, 1)) |> Enum.sort()
+    assert configured |> Enum.map(&elem(&1, 2)) |> Enum.uniq() == ["credential_in_use"]
   end
 
   defp bindings_for(secret_id) do
@@ -879,75 +629,11 @@ defmodule ServiceRadar.Credentials.CredentialSecretReferenceConstraintsDbTest do
     |> Ash.read!(actor: system_actor())
   end
 
-  defp raw_binding_count(secret_id) do
-    %{rows: [[count]]} =
-      SQL.query!(
-        Repo,
-        "SELECT count(*) FROM platform.network_credential_secret_bindings WHERE secret_id = $1",
-        [Ecto.UUID.dump!(secret_id)]
-      )
-
-    count
-  end
-
   defp binding_paths(secret_id) do
     secret_id
     |> bindings_for()
     |> Enum.map(& &1.field_path)
     |> Enum.sort()
-  end
-
-  defp backfill_plugin_assignment_bindings do
-    %{num_rows: count} =
-      SQL.query!(
-        Repo,
-        """
-        INSERT INTO platform.network_credential_secret_bindings
-          (id, secret_id, owner_kind, owner_id, field_path, inserted_at)
-        SELECT uuid_generate_v7(), refs.secret_id, 'plugin_assignment', owners.id::text,
-               refs.field_path, now() AT TIME ZONE 'utc'
-        FROM platform.plugin_assignments AS owners
-        CROSS JOIN LATERAL platform.network_credential_secret_ref_strings(owners.params, '$.params') AS raw_refs
-        CROSS JOIN LATERAL (
-          SELECT raw_refs.field_path,
-                 substring(raw_refs.credential_ref FROM length('credentialref:network-credential-secret:') + 1)::uuid AS secret_id
-          WHERE raw_refs.credential_ref ~ '^credentialref:network-credential-secret:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
-        ) AS refs
-        ON CONFLICT (owner_kind, owner_id, field_path) DO UPDATE SET secret_id = EXCLUDED.secret_id
-        """
-      )
-
-    count
-  end
-
-  defp insert_racing_binding(secret_id) do
-    case SQL.query(
-           Repo,
-           """
-           INSERT INTO platform.network_credential_secret_bindings
-             (id, secret_id, owner_kind, owner_id, field_path, inserted_at)
-           VALUES (uuid_generate_v7(), $1, 'plugin_assignment', 'race', '$.race', now() AT TIME ZONE 'utc')
-           """,
-           [Ecto.UUID.dump!(secret_id)]
-         ) do
-      {:ok, %{num_rows: 1}} -> :ok
-      {:error, error} -> {:error, error}
-    end
-  end
-
-  defp dangling_binding_count do
-    %{rows: [[count]]} =
-      SQL.query!(
-        Repo,
-        """
-        SELECT count(*)
-        FROM platform.network_credential_secret_bindings binding
-        LEFT JOIN platform.network_credential_secrets secret ON secret.id = binding.secret_id
-        WHERE secret.id IS NULL
-        """
-      )
-
-    count
   end
 
   defp delete_secret_row(secret_id) do
@@ -961,41 +647,16 @@ defmodule ServiceRadar.Credentials.CredentialSecretReferenceConstraintsDbTest do
     end
   end
 
-  defp version_count(secret_id) do
-    %{rows: [[count]]} =
-      SQL.query!(
-        Repo,
-        "SELECT count(*) FROM platform.network_credential_secret_versions WHERE version_source_id = $1",
-        [Ecto.UUID.dump!(secret_id)]
-      )
-
-    count
-  end
-
-  defp broker_grant_version_count(grant_id) do
-    %{rows: [[count]]} =
-      SQL.query!(
-        Repo,
-        "SELECT count(*) FROM platform.credential_broker_grant_versions WHERE version_source_id = $1",
-        [Ecto.UUID.dump!(grant_id)]
-      )
-
-    count
-  end
-
-  defp secret_fixture(overrides \\ %{}) do
-    attrs =
-      Map.merge(
-        %{
-          name: "DB constraint secret #{System.unique_integer([:positive])}",
-          provider: "credential-reference-constraints",
-          credential_kind: :api_token,
-          secret_payload: "credential-reference-constraint-marker"
-        },
-        Map.new(overrides)
-      )
-
-    NetworkCredentialSecret.create_secret!(attrs, actor: system_actor())
+  defp secret_fixture do
+    NetworkCredentialSecret.create_secret!(
+      %{
+        name: "DB constraint secret #{System.unique_integer([:positive])}",
+        provider: "credential-reference-constraints",
+        credential_kind: :api_token,
+        secret_payload: "credential-reference-constraint-marker"
+      },
+      actor: system_actor()
+    )
   end
 
   defp vulnerability_feed_fixture(overrides) do

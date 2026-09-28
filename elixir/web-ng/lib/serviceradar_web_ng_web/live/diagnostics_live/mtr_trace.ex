@@ -7,11 +7,35 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
 
   alias Ash.Page.Keyset
   alias ServiceRadar.Observability.MtrHop
+  alias ServiceRadar.Observability.MtrTcpHandshake
   alias ServiceRadar.Observability.MtrTrace
+  alias ServiceRadarWebNGWeb.DiagnosticsLive.Mtr.View.Helpers
+  alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrDepth
+  alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrHandshake
+  alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse
 
   require Ash.Query
 
   @sparkline_points 20
+  # Recent points only, and inside the window MTR chunks stay uncompressed.
+  @sparkline_days 7
+
+  @handshake_fields MtrTcpHandshake.trace_columns()
+
+  # The Ash hop read is capped at this many rows; the warehouse read keeps the cap.
+  @hop_limit 256
+
+  @trace_keys ~w(
+    id time agent_id gateway_id check_id check_name device_id target target_ip target_reached
+    total_hops probed_hops last_responding_hop protocol tcp_port ip_version packet_size partition
+    error
+  ) ++ Enum.map(@handshake_fields, &Atom.to_string/1)
+
+  @hop_keys ~w(
+    hop_number addr hostname ecmp_addrs asn asn_org mpls_labels sent received loss_pct last_us
+    avg_us min_us max_us stddev_us jitter_us jitter_worst_us jitter_interarrival_us
+    unreachable_code reply_time_exceeded reply_unreachable reply_synack reply_rst
+  )
 
   @impl true
   def mount(_params, _session, socket) do
@@ -21,6 +45,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
      |> assign(:page_path, "/diagnostics/mtr")
      |> assign(:trace, nil)
      |> assign(:hops, [])
+     |> assign(:hop_rows, [])
+     |> assign(:silent_tail, nil)
      |> assign(:hop_sparklines, %{})
      |> assign(:error, nil)}
   end
@@ -39,15 +65,15 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
     scope = socket.assigns.current_scope
 
     with {:ok, trace_uuid} <- Ecto.UUID.cast(trace_id),
-         {:ok, trace} <- read_trace(trace_uuid, scope),
-         {:ok, hops} <- read_trace_hops(trace_uuid, scope) do
-      trace_map = trace_to_map(trace)
-      hop_maps = Enum.map(hops, &hop_to_map/1)
-      sparklines = load_hop_sparklines(hop_maps, scope)
+         {:ok, trace_map, hop_maps} <- fetch_trace(trace_uuid, scope) do
+      sparklines = hop_sparklines(hop_maps, scope)
+      {hop_rows, silent_tail} = MtrDepth.collapse_trailing_loss(hop_maps)
 
       socket
       |> assign(:trace, trace_map)
       |> assign(:hops, hop_maps)
+      |> assign(:hop_rows, hop_rows)
+      |> assign(:silent_tail, silent_tail)
       |> assign(:hop_sparklines, sparklines)
       |> assign(:page_title, "MTR Trace: #{trace_map["target"]}")
       |> assign(:error, nil)
@@ -109,12 +135,19 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
             <div class="stat">
               <div class="sr-ui-stat-title">Status</div>
               <div class="sr-ui-stat-value text-lg">
-                <span class={status_class(@trace)}>{status_label(@trace)}</span>
+                <span class={status_class(with_hops(@trace, @hops))}>
+                  {Helpers.trace_status_label(with_hops(@trace, @hops))}
+                </span>
               </div>
             </div>
             <div class="stat">
               <div class="sr-ui-stat-title">Hops</div>
-              <div class="sr-ui-stat-value text-lg">{@trace["total_hops"]}</div>
+              <div class="sr-ui-stat-value text-lg">
+                {MtrDepth.hop_count_label(with_hops(@trace, @hops))}
+              </div>
+              <div class="sr-ui-stat-desc">
+                {MtrDepth.depth_summary(with_hops(@trace, @hops))}
+              </div>
             </div>
             <div class="stat">
               <div class="sr-ui-stat-title">Protocol</div>
@@ -122,6 +155,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
                 {String.upcase(@trace["protocol"] || "icmp")}
                 <span :if={@trace["ip_version"] == 6} class="text-sm text-info ml-1">IPv6</span>
               </div>
+              <div :if={@trace["tcp_port"]} class="sr-ui-stat-desc">port {@trace["tcp_port"]}</div>
             </div>
             <div class="stat">
               <div class="sr-ui-stat-title">Time</div>
@@ -142,6 +176,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
             <span>Error: {@trace["error"]}</span>
           </div>
 
+          <MtrHandshake.handshake_panel trace={@trace} />
+
           <div class="sr-ui-table-shell">
             <table class={ui_table_class(size: "sm")}>
               <thead>
@@ -155,16 +191,27 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
                   <th class="text-right">Max</th>
                   <th class="text-right">StdDev</th>
                   <th class="text-right">Jitter</th>
+                  <th title="Replies by kind: Time Exceeded, Destination Unreachable, SYN-ACK, RST">
+                    Replies
+                  </th>
                   <th class="w-24">Trend</th>
                   <th>MPLS</th>
                 </tr>
               </thead>
               <tbody>
-                <tr :for={hop <- @hops} class={hop_row_class(hop)}>
+                <tr :for={hop <- @hop_rows} class={hop_row_class(hop)}>
                   <td class="font-mono text-center">{hop["hop_number"]}</td>
                   <td class="text-xs">
                     <div class="font-mono text-sm">
                       {hop["addr"] || "???"}
+                      <.ui_badge
+                        :if={MtrDepth.unreachable_kind(hop["unreachable_code"], @trace["ip_version"])}
+                        size="sm"
+                        variant="warning"
+                        class="ml-1"
+                      >
+                        {MtrDepth.unreachable_kind(hop["unreachable_code"], @trace["ip_version"])}
+                      </.ui_badge>
                       <span
                         :if={hop["ecmp_addrs"] && hop["ecmp_addrs"] != []}
                         class="ml-1 inline-flex items-center rounded-full border border-sr-brand/30 bg-sr-brand/10 px-1.5 text-[0.65rem] font-semibold text-sr-brand-strong"
@@ -201,6 +248,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
                   <td class="text-right font-mono text-sm">{format_us(hop["max_us"])}</td>
                   <td class="text-right font-mono text-sm">{format_us(hop["stddev_us"])}</td>
                   <td class="text-right font-mono text-sm">{format_us(hop["jitter_us"])}</td>
+                  <td class="text-xs font-mono">{MtrHandshake.reply_summary(hop)}</td>
                   <td>
                     <.srql_sparkline points={Map.get(@hop_sparklines, hop["addr"], [])} />
                   </td>
@@ -208,8 +256,14 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
                     {format_mpls(hop["mpls_labels"])}
                   </td>
                 </tr>
+                <tr :if={@silent_tail} class="opacity-50">
+                  <td class="font-mono text-center">{@silent_tail.from}-{@silent_tail.to}</td>
+                  <td colspan="11" class="text-sm text-sr-muted">
+                    {@silent_tail.count} hops with no reply (probing continued past the last answer)
+                  </td>
+                </tr>
                 <tr :if={@hops == []}>
-                  <td colspan="11" class="text-center py-4 text-sr-muted">
+                  <td colspan="12" class="text-center py-4 text-sr-muted">
                     No hop data available
                   </td>
                 </tr>
@@ -307,34 +361,16 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
     end
   end
 
-  defp status_label(trace) when is_map(trace) do
-    reached? = trace["target_reached"] == true
-    protocol = trace["protocol"] |> to_string() |> String.downcase()
-    total_hops = trace["total_hops"] || 0
+  defp with_hops(trace, hops) when is_map(trace), do: Map.put(trace, "hops", hops)
+  defp with_hops(trace, _hops), do: trace
 
-    cond do
-      reached? ->
-        "Reached"
-
-      protocol == "tcp" and is_integer(total_hops) and total_hops > 0 ->
-        "No Terminal Reply"
-
-      true ->
-        "Unreachable"
-    end
-  end
-
-  defp status_label(_), do: "Unreachable"
-
-  defp status_class(trace) when is_map(trace) do
-    case status_label(trace) do
-      "Reached" -> "text-success"
-      "No Terminal Reply" -> "text-warning"
+  defp status_class(trace) do
+    case Helpers.trace_status_variant(trace) do
+      "success" -> "text-success"
+      "warning" -> "text-warning"
       _ -> "text-error"
     end
   end
-
-  defp status_class(_), do: "text-error"
 
   defp loss_class(nil), do: ""
   defp loss_class(pct) when pct > 50, do: "text-error font-bold"
@@ -346,7 +382,28 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
   # Sparklines
   # ---------------------------------------------------------------------------
 
-  defp load_hop_sparklines(hops, scope) do
+  @doc false
+  # The trace and its hops as the maps the page renders. With StarRocks enabled
+  # the warehouse answers and the Ash resources, whose CNPG tables receive no
+  # rows then, are not read. Public for the backend-routing tests.
+  def fetch_trace(trace_uuid, scope, opts \\ []) do
+    if MtrWarehouse.enabled?() do
+      opts = Keyword.put(opts, :hop_limit, @hop_limit)
+
+      with {:ok, trace, hops} <- MtrWarehouse.trace_detail(trace_uuid, nil, opts) do
+        {:ok, Map.take(trace, @trace_keys), Enum.map(hops, &Map.take(&1, @hop_keys))}
+      end
+    else
+      with {:ok, trace} <- read_trace(trace_uuid, scope),
+           {:ok, hops} <- read_trace_hops(trace, scope) do
+        {:ok, trace_to_map(trace), Enum.map(hops, &hop_to_map/1)}
+      end
+    end
+  end
+
+  @doc false
+  # Per-address latency sparklines for the hops. Public for the backend-routing tests.
+  def hop_sparklines(hops, scope, opts \\ []) do
     addrs =
       hops
       |> Enum.map(& &1["addr"])
@@ -359,23 +416,38 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
       # Read recent valid latency points and cap per-address in Elixir.
       limit = max(length(addrs) * @sparkline_points * 4, 200)
 
-      query =
-        MtrHop
-        |> Ash.Query.for_read(:read, %{})
-        |> Ash.Query.filter(expr(addr in ^addrs and not is_nil(avg_us) and avg_us > 0))
-        |> Ash.Query.sort(time: :desc)
-        |> Ash.Query.limit(limit)
+      if MtrWarehouse.enabled?() do
+        since = DateTime.add(DateTime.utc_now(), -@sparkline_days, :day)
 
-      case Ash.read(query, scope: scope) do
-        {:ok, %Keyset{results: results}} ->
-          build_sparklines_from_hops(results)
-
-        {:ok, results} when is_list(results) ->
-          build_sparklines_from_hops(results)
-
-        {:error, _reason} ->
-          %{}
+        case MtrWarehouse.hop_latency_points(addrs, since, limit, opts) do
+          {:ok, points} -> build_sparklines_from_hops(points)
+          {:error, _reason} -> %{}
+        end
+      else
+        cnpg_hop_sparklines(addrs, limit, scope)
       end
+    end
+  end
+
+  defp cnpg_hop_sparklines(addrs, limit, scope) do
+    query =
+      MtrHop
+      |> Ash.Query.for_read(:read, %{})
+      |> Ash.Query.filter(
+        expr(addr in ^addrs and not is_nil(avg_us) and avg_us > 0 and time >= ago(@sparkline_days, :day))
+      )
+      |> Ash.Query.sort(time: :desc)
+      |> Ash.Query.limit(limit)
+
+    case Ash.read(query, scope: scope) do
+      {:ok, %Keyset{results: results}} ->
+        build_sparklines_from_hops(results)
+
+      {:ok, results} when is_list(results) ->
+        build_sparklines_from_hops(results)
+
+      {:error, _reason} ->
+        %{}
     end
   end
 
@@ -395,12 +467,18 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
     end
   end
 
-  defp read_trace_hops(trace_uuid, scope) do
+  # A hop is never older than its trace, so the trace's time is a lower bound
+  # that lets Timescale skip older chunks instead of scanning each, compressed
+  # ones included.
+  defp read_trace_hops(trace, scope) do
+    trace_time = trace.time
+
     query =
       MtrHop
-      |> Ash.Query.for_read(:by_trace, %{trace_id: trace_uuid})
+      |> Ash.Query.for_read(:by_trace, %{trace_id: trace.id})
+      |> Ash.Query.filter(expr(time >= ^trace_time))
       |> Ash.Query.sort(hop_number: :asc)
-      |> Ash.Query.limit(256)
+      |> Ash.Query.limit(@hop_limit)
 
     case Ash.read(query, scope: scope) do
       {:ok, %Keyset{results: results}} -> {:ok, results}
@@ -410,7 +488,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
   end
 
   defp trace_to_map(trace) do
-    %{
+    map = %{
       "id" => trace.id && to_string(trace.id),
       "time" => trace.time,
       "agent_id" => trace.agent_id,
@@ -422,12 +500,17 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
       "target_ip" => trace.target_ip,
       "target_reached" => trace.target_reached,
       "total_hops" => trace.total_hops,
+      "probed_hops" => trace.probed_hops,
+      "last_responding_hop" => trace.last_responding_hop,
       "protocol" => trace.protocol,
+      "tcp_port" => trace.tcp_port,
       "ip_version" => trace.ip_version,
       "packet_size" => trace.packet_size,
       "partition" => trace.partition,
       "error" => trace.error
     }
+
+    Map.merge(map, Map.new(@handshake_fields, &{Atom.to_string(&1), Map.get(trace, &1)}))
   end
 
   defp hop_to_map(hop) do
@@ -449,7 +532,12 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrTrace do
       "stddev_us" => hop.stddev_us,
       "jitter_us" => hop.jitter_us,
       "jitter_worst_us" => hop.jitter_worst_us,
-      "jitter_interarrival_us" => hop.jitter_interarrival_us
+      "jitter_interarrival_us" => hop.jitter_interarrival_us,
+      "unreachable_code" => hop.unreachable_code,
+      "reply_time_exceeded" => hop.reply_time_exceeded,
+      "reply_unreachable" => hop.reply_unreachable,
+      "reply_synack" => hop.reply_synack,
+      "reply_rst" => hop.reply_rst
     }
   end
 

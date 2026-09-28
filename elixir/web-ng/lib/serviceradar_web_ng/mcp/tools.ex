@@ -114,12 +114,14 @@ defmodule ServiceRadarWebNG.Mcp.Tools do
       Explain one device's identity end to end: its current record including
       tombstone fields, the canonical merge chain in both directions, revival
       events, identifier ownership with whether each identifier still matches
-      the device's current facts, and the shared-identifier evidence component
-      with direct evidence separated from transitive connectivity.
+      the device's current facts, the shared-identifier evidence component
+      with direct evidence separated from transitive connectivity, the identity
+      decisions that refused or overrode a merge involving it, and the
+      de-duplication tasks those decisions opened for an operator.
 
       Use this to answer "where did this device go", "why did these two merge",
-      or "is this MAC still real". Read-only; it cannot merge, unmerge, delete
-      or restore anything. The seed is a bound identifier, not an SRQL fragment.
+      "why did these two NOT merge", or "is this MAC still real". Read-only; it
+      cannot merge, unmerge, delete, restore or resolve anything. The seed is a bound identifier, not an SRQL fragment.
       """)
 
       argument :seed, :string do

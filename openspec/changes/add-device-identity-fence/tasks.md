@@ -69,9 +69,31 @@
       device uid. The pinned revision goes in job args under a string key (Oban args are
       string-keyed).
 - [x] 4.3 Ship both comparing and reporting only. Enforce nothing.
-- [ ] 4.4 Run for a measured period and read the telemetry. Treat demo identity signals with
-      care — `armis_unmerge.ex:42-49` records that faker data makes some unreliable.
-- [ ] 4.5 Decide enforcement per pipeline from what the telemetry actually shows.
+- [x] 4.4 ~~Run for a measured period and read the telemetry.~~ **Superseded:** the formal model
+      (`formal/dire`, `NoStaleCommit`, `NoPurgedResurrection`) showed the observe-only gap is a
+      correctness defect, not a tuning question -- it is what lets a write pinned before a merge
+      and a purge re-create the merged-away device -- so enforcement landed without a soak
+      (#4618, `update-dire-strong-identity-goal` task 3.10).
+- [x] 4.5 Decide enforcement per pipeline (#4618):
+  - `inventory/sync_ingestor.ex` -- **enforced.** The batch pins every resolved device
+    (`Fence.pin_batch/1`, tombstones included, `:absent` for a row not yet written) and writes the
+    device rows and identifiers inside `Fence.fenced_write/3`, which locks the pinned rows
+    `FOR NO KEY UPDATE` in uid order and withholds every write whose pin went stale (moved revision,
+    purged row, row created and already transitioned, or a merged-away tombstone). Withheld
+    updates are resolved again and written once more; a second stale pin abandons them
+    (`Fence.abandon/2`, telemetry `[:serviceradar, :identity_fence, :abandoned]`). A transient
+    conflict (deadlock, active-IP unique violation) aborts the fenced transaction and the whole
+    fenced write is retried, up to three attempts.
+  - `edge/agent_gateway_sync.ex` -- **enforced** for the identity writes (identifier
+    registration, agent-identifier repair, agent link), fenced on the device the upsert settled
+    on; a stale pin re-runs the check-in from resolution once, then abandons. The device-row
+    upsert itself stays outside the transaction because its active-IP adoption recovers from a
+    failed insert, which an open transaction cannot.
+  - `composite_checks/refresh_worker.ex` -- **enforced**: a job whose pinned revision moved
+    re-resolves the device (a merge moves its results to the survivor) and refreshes that; one
+    that resolves to nothing live is abandoned with telemetry.
+  - `event_writer/processors/sweep.ex` -- **left observe-only**: it is not registered as an
+    EventWriter processor and never runs (see `formal/dire/DireLifecycle.tla` `SweepRestore`).
 
 ## 5. Extend pinning
 
@@ -86,7 +108,8 @@ Target roughly ten pinned paths total; below that the fence is decoration.
 - [ ] 5.3 `event_writer/processors/metrics.ex` -- highest write volume of the set;
       `observe_many/2` emits one telemetry event per pinned device, so measure the emit cost
       before enabling here.
-- [ ] ~~5.4 `core/result_processor.ex`~~ **drop this site.** The module performs ZERO writes
+- [x] ~~5.4 `core/result_processor.ex`~~ **Dropped, not pinned** (still true on staging on
+      2026-09-27). The module performs ZERO writes
       (no Ash create/update/destroy/bulk, no Repo write) and has ZERO production callers --
       only `test/serviceradar/core/result_processor_test.exs` references it. A pin here would
       bracket nothing and report a constant zero, which is worse than no measurement because it
@@ -95,7 +118,7 @@ Target roughly ten pinned paths total; below that the fence is decoration.
 - [ ] 5.5 `inventory/endpoint_inventory_ingestor.ex` — also fix `build_context/5`, which
       prefers the agent's cached uid over the freshly repointed value and so reverses the
       merge's own `EndpointInventoryMoves` work on the next scan.
-- [x] 5.6 `inventory/sync_ingestor.ex`
+- [x] 5.6 `inventory/sync_ingestor.ex` -- enforced, not only observed (#4691, task 4.5).
 - [ ] 5.7 `network_discovery/mapper_results_ingestor.ex`
 - [ ] 5.8 `inventory/device_source_observation_ingestor.ex` -- **blocked as written**: its test
       is `use ExUnit.Case, async: true` with no `DataCase`
@@ -208,18 +231,21 @@ automatic, and the real defect is elsewhere.
 
 ## 10. Deferred, with reasons
 
-- [ ] 10.1 `SELECT ... FOR UPDATE` on both device rows inside the merge, which is what turns
-      child-table detection into real mutual exclusion. Needs deadlock analysis against
-      `ArmisUnmerge`'s existing barrier (`armis_unmerge.ex:719-737`). Gated on step 4
-      telemetry showing real collisions.
+- [x] 10.1 `SELECT ... FOR NO KEY UPDATE` on both device rows inside the merge, which is what turns
+      child-table detection into real mutual exclusion. Done with enforcement (#4618):
+      `MergeEngine.do_merge_devices/5` and `do_unmerge/4` lock both device rows first, in uid
+      order, the same order `Fence.fenced_write/3` locks a batch's rows before touching their
+      identifiers, so a merge and a fenced ingest write serialize on the device rows instead of
+      deadlocking on child rows. `ArmisUnmerge` does not call `MergeEngine`; its own barrier is
+      unchanged.
 - [ ] 10.2 Reassigning the full set of device-keyed tables. Larger project, orthogonal to
       fencing, and impossible for hashed identities.
-- [ ] 10.3 A merge-stable device lineage id hashed into `finding_uid`. Conclusion unchanged,
-      reasoning corrected: the uid scheme does not need changing because the edge identity is
+- [x] ~~10.3 A merge-stable device lineage id hashed into `finding_uid`.~~ **Superseded, won't do**
+      (design D7). Conclusion unchanged, reasoning corrected: the uid scheme does not need changing because the edge identity is
       **already** merge-invariant and core re-keys on ingest.
 - [ ] 10.4 Projecting `Agent.device_uid` onto `MetricResource.device_id` so the edge carries a
       canonical, merge-following identity. Independently motivated — the same gap already
       breaks seasonal-baseline delivery for sysmon, since core keys baselines by canonical
       device id while the edge derives `<hostname>|<metric>`, key spaces that cannot match.
-      **Blocked on 3.5**, and note it would make `episode_uid` merge-unstable and only then
+      Its blocker, 3.5, is done. Note it would make `episode_uid` merge-unstable and only then
       create real demand for the successor-uid lineage this proposal removed.

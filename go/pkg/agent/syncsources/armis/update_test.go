@@ -89,7 +89,7 @@ func TestBuildUpdateMapsSdkAttributesToInventoryFields(t *testing.T) {
 	lastSeen := time.Date(2026, 5, 14, 4, 5, 6, 987654321, time.UTC)
 
 	update := buildNormalizedUpdate(device{
-		ID:                18497,
+		ID:                42001,
 		DeviceID:          42,
 		Display:           "PLC-01",
 		Type:              "PLC",
@@ -143,9 +143,9 @@ func TestBuildUpdateMapsSdkAttributesToInventoryFields(t *testing.T) {
 
 	for key, want := range map[string]string{
 		"integration_type": "armis",
-		"armis_device_id":  "18497",
+		"armis_device_id":  "42001",
 		"source_device_id": "42",
-		"integration_id":   "18497",
+		"integration_id":   "42001",
 		"type":             "PLC",
 		"device_type":      "PLC",
 		"category":         "OT",
@@ -203,16 +203,16 @@ func TestBuildUpdateMapsSdkAttributesToInventoryFields(t *testing.T) {
 func TestBuildUpdatePreservesArmisAttachmentMetadataFromRawFields(t *testing.T) {
 	var item device
 	if err := json.Unmarshal([]byte(`{
-		"id": 18497,
-		"ipAddress": "10.0.4.40",
-		"display": "fsfo027c.global.example.com",
-		"Access Switch": "nsfocs-idfer1-asw001:2/20",
+		"id": 42001,
+		"ipAddress": "192.0.2.40",
+		"display": "host01.example.com",
+		"Access Switch": "switch01.example.com:1/1/20",
 		"Connection Type": "Wired",
 		"DHCP Lease Type": "Dynamic",
-		"VLAN": 3006,
-		"vlans": [3006],
+		"VLAN": 100,
+		"vlans": [100],
 		"networkInterfaces": [
-			{"name": "Ethernet", "mac": "7C:57:58:18:18:EC"}
+			{"name": "Ethernet", "mac": "00:00:5E:00:53:4A"}
 		]
 	}`), &item); err != nil {
 		t.Fatalf("unmarshal device: %v", err)
@@ -225,11 +225,11 @@ func TestBuildUpdatePreservesArmisAttachmentMetadataFromRawFields(t *testing.T) 
 	}
 
 	for key, want := range map[string]string{
-		"armis_access_switch":   "nsfocs-idfer1-asw001:2/20",
+		"armis_access_switch":   "switch01.example.com:1/1/20",
 		"armis_connection_type": "Wired",
 		"armis_dhcp_lease_type": "Dynamic",
-		"armis_vlan":            "3006",
-		"armis_vlans":           "[3006]",
+		"armis_vlan":            "100",
+		"armis_vlans":           "[100]",
 	} {
 		if got := metadata[key]; got != want {
 			t.Fatalf("metadata[%q] = %q, want %q", key, got, want)
@@ -335,15 +335,15 @@ func TestBuildUpdateScopesIntegrationIDBySyncServiceID(t *testing.T) {
 		Source:    models.SourceConfig{SyncServiceID: " Svc-1 "},
 	}
 
-	update := buildUpdate(run, device{ID: 18497, IPAddress: "10.0.0.2", Name: "PLC-01"}, managedQueryLabel)
+	update := buildUpdate(run, device{ID: 42001, IPAddress: "10.0.0.2", Name: "PLC-01"}, managedQueryLabel)
 	metadata, ok := update["metadata"].(map[string]string)
 	if !ok {
 		t.Fatalf("metadata has type %T, want map[string]string", update["metadata"])
 	}
-	if got := metadata["integration_id"]; got != "armis:svc-1:device:18497" {
+	if got := metadata["integration_id"]; got != "armis:svc-1:device:42001" {
 		t.Fatalf("metadata[integration_id] = %q, want source-scoped value", got)
 	}
-	if got := metadata["armis_device_id"]; got != "18497" {
+	if got := metadata["armis_device_id"]; got != "42001" {
 		t.Fatalf("metadata[armis_device_id] = %q, want native provider key preserved", got)
 	}
 }

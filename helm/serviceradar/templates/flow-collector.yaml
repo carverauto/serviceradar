@@ -120,6 +120,13 @@ spec:
           value: {{ (.Values.flowCollector.config).rehome_state_path | default "/var/lib/serviceradar/flow-collector-rehome.json" | quote }}
         - name: TERMINATION_GRACE_PERIOD_SECONDS
           value: {{ .Values.flowCollector.terminationGracePeriodSeconds | default 45 | quote }}
+        {{- /* The flows reservation the chart budget counted (serviceradar.jetstreamBudget);
+             flow-collector.json carries the same values. */}}
+        {{- $flowsJs := (include "serviceradar.jetstreamBudget" . | fromJson).sizes.flows }}
+        - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $flowsJs.stream "suffix" "MAX_BYTES") }}
+          value: {{ $flowsJs.maxBytes | quote }}
+        - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $flowsJs.stream "suffix" "REPLICAS") }}
+          value: {{ $flowsJs.replicas | quote }}
         livenessProbe:
           exec:
             command:

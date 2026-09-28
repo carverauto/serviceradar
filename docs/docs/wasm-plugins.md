@@ -453,13 +453,15 @@ To store plugin blobs in NATS JetStream instead, set:
 
 - `PLUGIN_STORAGE_BACKEND=jetstream`
 - `PLUGIN_STORAGE_BUCKET=serviceradar_plugins`
-- `PLUGIN_STORAGE_JS_MAX_BUCKET_BYTES`
+- `PLUGIN_STORAGE_JS_MAX_BUCKET_BYTES` (default `2147483648`, 2 GiB)
 - `PLUGIN_STORAGE_JS_MAX_CHUNK_BYTES`
 - `PLUGIN_STORAGE_JS_REPLICAS`
 - `PLUGIN_STORAGE_JS_STORAGE` (`file` or `memory`)
 - `PLUGIN_STORAGE_JS_TTL_SECONDS`
 
 This backend requires NATS JetStream to be available to web-ng.
+
+The bucket is discard-new: once it reaches `PLUGIN_STORAGE_JS_MAX_BUCKET_BYTES` it refuses new uploads instead of evicting plugin blobs. An unset or blank value uses the default; a non-positive or non-integer value fails boot. web-ng applies the cap to an existing unlimited bucket on first use only when the stored bytes fit strictly below it. Otherwise the bucket's `max_bytes` is left unchanged and the configured, stored and current values are logged; reads and writes of the existing bucket keep working. Raise the value before the next start to converge such a bucket.
 
 ### GitHub access and verification policy
 
@@ -494,7 +496,7 @@ When raw payload archival is enabled in Threat Intel settings, core stores decod
 
 - `SERVICERADAR_OTX_RAW_BUCKET=serviceradar_threat_intel`
 - `SERVICERADAR_OTX_RAW_TTL_SECONDS=0`
-- `SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES`
+- `SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES` (default `1073741824`, 1 GiB; same discard-new reconcile rule as the plugin bucket)
 - `SERVICERADAR_OTX_RAW_MAX_CHUNK_BYTES`
 - `SERVICERADAR_OTX_RAW_REPLICAS=1`
 - `SERVICERADAR_OTX_RAW_STORAGE=file`

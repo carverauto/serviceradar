@@ -13,12 +13,18 @@
 //!   it stopped at its work cap.
 //! * [`evidence_edges`] -- the connected component of devices joined by shared
 //!   identifiers, separating direct evidence from transitive connectivity.
+//! * [`decisions`] -- identity decisions DIRE made without merging (blocked,
+//!   declined or overridden merges), one row per distinct decision.
+//! * [`deduplication_tasks`] -- the device sets those decisions left for an
+//!   operator, one task per set, with how each was resolved.
 //!
 //! These build SQL text with `?` placeholders rather than the Diesel DSL. Two
 //! of them are recursive CTEs and two project computed columns that are not on
 //! any table, neither of which the typed DSL expresses well. `public_endpoints`
 //! sets the same precedent. Every value is bound; nothing is interpolated.
 
+pub(super) mod decisions;
+pub(super) mod deduplication_tasks;
 pub(super) mod device_identifiers;
 pub(super) mod device_revival_audit;
 pub(super) mod evidence_edges;
@@ -190,6 +196,42 @@ pub(super) fn text_condition(
     })
 }
 
+/// Membership in a `text[]` device-set column.
+///
+/// A single uid is `@>` (contains), the operator the GIN index on the column
+/// serves; a list matches a row naming ANY of them (`&&`). A `%` wildcard
+/// matches any member by `ILIKE`, which cannot use the index.
+pub(super) fn device_set_condition(
+    column: &str,
+    filter: &Filter,
+    binds: &mut Vec<BindParam>,
+) -> Result<String> {
+    let condition = if let Ok(values) = filter.value.as_list() {
+        binds.push(BindParam::TextArray(
+            values.iter().map(ToString::to_string).collect(),
+        ));
+        format!("{column} && ?::text[]")
+    } else {
+        let value = scalar_text(filter)?;
+        if value.contains('%') {
+            binds.push(BindParam::Text(value));
+            format!("EXISTS (SELECT 1 FROM unnest({column}) AS member WHERE member ILIKE ?)")
+        } else {
+            binds.push(BindParam::Text(value));
+            format!("{column} @> ARRAY[?]::text[]")
+        }
+    };
+
+    match filter.op {
+        FilterOp::Eq | FilterOp::Like | FilterOp::In => Ok(condition),
+        FilterOp::NotEq | FilterOp::NotLike | FilterOp::NotIn => Ok(format!("NOT ({condition})")),
+        _ => Err(ServiceError::InvalidRequest(format!(
+            "{} filter only supports membership",
+            filter.field
+        ))),
+    }
+}
+
 pub(super) fn bool_condition(
     column: &str,
     filter: &Filter,
@@ -318,6 +360,7 @@ pub(super) mod tests_support {
             cursor: None,
             direction: Default::default(),
             mode: None,
+            permitted_signals: None,
         };
         let ast = parser::parse(query).expect("parse identity query");
         build_query_plan(
@@ -356,6 +399,8 @@ mod tests {
             "in:device_identifiers device_id:sr:aaa limit:10",
             "in:identity_reconciliation_runs status:failed limit:10",
             "in:identity_evidence_edges device:sr:aaa limit:10",
+            "in:identity_decisions device:sr:aaa kind:policy_block limit:10",
+            "in:deduplication_tasks status:open device:(sr:aaa,sr:bbb) limit:10",
         ] {
             let plan = tests_support::plan_for(query);
             let (sql, binds) = match plan.entity {
@@ -371,6 +416,10 @@ mod tests {
                 }
                 crate::parser::Entity::IdentityEvidenceEdges => {
                     evidence_edges::to_sql_and_params(&plan)
+                }
+                crate::parser::Entity::IdentityDecisions => decisions::to_sql_and_params(&plan),
+                crate::parser::Entity::DeduplicationTasks => {
+                    deduplication_tasks::to_sql_and_params(&plan)
                 }
                 other => panic!("unexpected entity {other:?} for {query}"),
             }

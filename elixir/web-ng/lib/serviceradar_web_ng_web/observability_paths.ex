@@ -6,6 +6,11 @@ defmodule ServiceRadarWebNGWeb.ObservabilityPaths do
   plus view chrome). Legacy `?tab=` is accepted and can be rewritten here.
   """
 
+  alias ServiceRadarWebNGWeb.Observability.ServiceFilter
+
+  @service_filter_param "service_filter"
+  @service_filter_not_carried "not_carried"
+
   @tabs ~w(logs traces metrics events alerts netflows)
 
   @doc "Known observability tab identifiers."
@@ -43,6 +48,45 @@ defmodule ServiceRadarWebNGWeb.ObservabilityPaths do
   end
 
   def path(_tab, _query_params), do: "/observability/logs"
+
+  @doc """
+  Tab links for the logs, traces and metrics panes that carry the active
+  pane's OTel service filter into each target's default query.
+
+  Only what the target can express is carried: a `%` wildcard is dropped when
+  the target is the trace-summaries pane (which matches services exactly), and
+  that link instead asks the target to show a "not carried" notice. Returns
+  `%{}` when `active_tab` is not a signal pane, and never includes the active
+  tab itself.
+  """
+  @spec service_carry_paths(String.t(), String.t() | nil) :: %{String.t() => String.t()}
+  def service_carry_paths(active_tab, query) do
+    signal_tabs = ServiceFilter.signal_tabs()
+
+    if active_tab in signal_tabs do
+      for target <- signal_tabs, target != active_tab, into: %{} do
+        {target, service_carry_path(target, query)}
+      end
+    else
+      %{}
+    end
+  end
+
+  defp service_carry_path(target, query) do
+    case ServiceFilter.carry(query, target) do
+      {carried, :carried} -> path(target, %{q: carried})
+      {nil, :dropped} -> path(target, %{@service_filter_param => @service_filter_not_carried})
+      {nil, :none} -> path(target)
+    end
+  end
+
+  @doc "True when `params` say the previous pane's service filter was not carried."
+  @spec service_filter_not_carried?(map()) :: boolean()
+  def service_filter_not_carried?(params) when is_map(params) do
+    Map.get(params, @service_filter_param) == @service_filter_not_carried
+  end
+
+  def service_filter_not_carried?(_params), do: false
 
   @spec events_range_path(DateTime.t(), DateTime.t()) :: String.t()
   def events_range_path(%DateTime{} = start_time, %DateTime{} = end_time) do

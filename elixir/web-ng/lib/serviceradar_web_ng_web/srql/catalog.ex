@@ -67,6 +67,35 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
 
   @wifi_device_numeric_fields ["latitude", "lat", "longitude", "lon", "lng"]
 
+  # TCP SYN handshake diagnostics on mtr_traces. Each is nullable -- NULL means
+  # not reported (an older agent, or a non-TCP / connect-fallback trace) -- and
+  # supports equality, ordered comparison, and sum/avg/min/max in stats:.
+  @mtr_trace_handshake_fields [
+    "tcp_handshake_ttl",
+    "tcp_handshake_attempts",
+    "tcp_syn_sent",
+    "tcp_synack_received",
+    "tcp_rst_received",
+    "tcp_syn_unanswered",
+    "tcp_syn_drop_pct",
+    "tcp_syn_retransmits",
+    "tcp_answered_after_retx",
+    "tcp_ack_mismatch",
+    "tcp_synack_duplicates",
+    "tcp_handshake_rtt_min_us",
+    "tcp_handshake_rtt_avg_us",
+    "tcp_handshake_rtt_max_us",
+    "tcp_server_response_us"
+  ]
+
+  # Per-hop reply-type counts on mtr_hops; NULL means not reported.
+  @mtr_hop_reply_type_fields [
+    "reply_time_exceeded",
+    "reply_unreachable",
+    "reply_synack",
+    "reply_rst"
+  ]
+
   @entities [
     %{
       id: "dashboards",
@@ -363,6 +392,69 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
           "mac",
           "ip",
           "passive_fingerprint"
+        ]
+      },
+      downsample: false
+    },
+    %{
+      id: "identity_decisions",
+      label: "Identity Decisions",
+      route: "/devices",
+      default_time: "",
+      default_sort_field: "last_decided_at",
+      default_sort_dir: "desc",
+      default_filter_field: "device",
+      filter_fields: [
+        "device",
+        "decision_kind",
+        "reason",
+        "subject",
+        "source",
+        "occurrence_count",
+        "device_count"
+      ],
+      known_values: %{
+        "decision_kind" => [
+          "policy_block",
+          "guard_block",
+          "source_block",
+          "alias_invalidated",
+          "ip_conflict",
+          "source_override",
+          "component_block"
+        ]
+      },
+      downsample: false
+    },
+    %{
+      id: "deduplication_tasks",
+      label: "De-duplication Tasks",
+      route: "/devices/deduplication",
+      default_time: "",
+      default_sort_field: "last_decided_at",
+      default_sort_dir: "desc",
+      default_filter_field: "status",
+      filter_fields: [
+        "status",
+        "device",
+        "category",
+        "last_decision_kind",
+        "last_reason",
+        "resolved_by",
+        "merged_into",
+        "occurrence_count",
+        "device_count"
+      ],
+      known_values: %{
+        "status" => ["open", "merged", "distinct", "dismissed"],
+        "category" => [
+          "policy_block",
+          "guard_block",
+          "source_block",
+          "alias_invalidated",
+          "ip_conflict",
+          "source_override",
+          "component_block"
         ]
       },
       downsample: false
@@ -1148,6 +1240,9 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       default_filter_field: "trace_id",
       filter_fields: [
         "trace_id",
+        # Matches any participating span (`service_set`), not only the root.
+        # Exact names and lists only: SRQL rejects `%` wildcards on this field.
+        "service_name",
         "root_service_name",
         "root_span_name",
         "error_count",
@@ -1202,6 +1297,25 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "ingest_partition"
       ],
       numeric_fields: ["status_code"],
+      downsample: false
+    },
+    %{
+      # Catalog of OTel `service.name` values that reported logs, traces or
+      # metrics -- not monitored service checks (`in:services`). Access is the
+      # any-of `observability.{logs,traces,metrics}.view` set; `signal:` is
+      # intersected with the caller's permitted signals by SRQL itself.
+      id: "otel_services",
+      label: "OTel Services",
+      route: "/observability/logs",
+      route_params: %{},
+      default_time: "",
+      default_sort_field: "last_seen",
+      default_sort_dir: "desc",
+      default_filter_field: "service_name",
+      filter_fields: ["service_name", "signal"],
+      known_values: %{"signal" => ["logs", "traces", "metrics"]},
+      array_fields: ["signals"],
+      timestamp_fields: ["last_seen", "logs_last_seen", "traces_last_seen", "metrics_last_seen"],
       downsample: false
     },
     %{
@@ -1507,6 +1621,30 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "port",
         "protocol"
       ],
+      downsample: false
+    },
+    %{
+      id: "camera_sources",
+      label: "Cameras",
+      route: "/cameras",
+      default_time: "",
+      default_sort_field: "display_name",
+      default_sort_dir: "asc",
+      default_filter_field: "display_name",
+      filter_fields: [
+        "display_name",
+        "vendor",
+        "device_uid",
+        "availability_status",
+        "assigned_agent_id",
+        "assigned_gateway_id",
+        "vendor_camera_id",
+        "last_event_type",
+        "viewable"
+      ],
+      known_values: %{
+        "viewable" => ["true", "false"]
+      },
       downsample: false
     },
     # Kubernetes public VIP / Gateway ownership inventory (cluster-plane).
@@ -1881,6 +2019,34 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       downsample: false
     },
     %{
+      id: "mtr_hops",
+      label: "MTR Hops",
+      route: "/diagnostics/mtr",
+      default_time: "last_24h",
+      default_sort_field: "time",
+      default_sort_dir: "desc",
+      default_filter_field: "addr",
+      filter_fields:
+        [
+          "trace_id",
+          "target_ip",
+          "device_id",
+          "addr",
+          "hostname",
+          "asn",
+          "asn_org",
+          "hop_number"
+        ] ++ @mtr_hop_reply_type_fields,
+      boolean_fields: [],
+      numeric_fields: @mtr_hop_reply_type_fields,
+      downsample: false,
+      stats: true,
+      stats_agg_fields:
+        ["loss_pct", "avg_us", "min_us", "max_us", "jitter_us", "sent", "received"] ++
+          @mtr_hop_reply_type_fields,
+      stats_group_fields: ["addr", "asn", "asn_org", "hop_number", "target_ip", "device_id"]
+    },
+    %{
       id: "mtr_traces",
       label: "MTR Traces",
       route: "/diagnostics/mtr",
@@ -1888,18 +2054,33 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       default_sort_field: "time",
       default_sort_dir: "desc",
       default_filter_field: "target",
-      filter_fields: [
-        "target",
+      filter_fields:
+        [
+          "target",
+          "target_ip",
+          "agent_id",
+          "protocol",
+          "check_name",
+          "device_id",
+          "target_reached",
+          "error"
+        ] ++ @mtr_trace_handshake_fields,
+      boolean_fields: ["target_reached"],
+      numeric_fields: @mtr_trace_handshake_fields,
+      downsample: false,
+      stats: true,
+      # target_reached aggregates as a 0/1 indicator, so avg(target_reached) is the
+      # reach rate -- the endpoint signal hop metrics cannot express, because a
+      # trace that never reached its target has no terminal hop to measure.
+      stats_agg_fields: ["total_hops", "target_reached"] ++ @mtr_trace_handshake_fields,
+      stats_group_fields: [
         "target_ip",
+        "target",
+        "device_id",
         "agent_id",
         "protocol",
-        "check_name",
-        "device_id",
-        "target_reached",
-        "error"
-      ],
-      boolean_fields: ["target_reached"],
-      downsample: false
+        "check_name"
+      ]
     },
     %{
       id: "interfaces",

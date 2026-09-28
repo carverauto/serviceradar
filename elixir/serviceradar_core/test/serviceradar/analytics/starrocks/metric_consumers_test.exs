@@ -148,7 +148,7 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumersTest do
              )
   end
 
-  test "directional rows carry the same scope and latest-sample semantics as CNPG" do
+  test "directional rows emit scoped counter-rate SQL and decode warehouse rows" do
     parent = self()
 
     query = fn sql ->
@@ -182,15 +182,23 @@ defmodule ServiceRadar.Analytics.StarRocks.MetricConsumersTest do
 
     assert_received {:directional_sql, sql}
 
-    # The statement the warehouse runs must reduce each
-    # (device, target IP, if_index, metric) to its newest sample. Without this
-    # the topology reducer's max/2 fold renders the window's peak utilization
-    # as the link's current value.
+    # This asserts the emitted warehouse SQL contract. CNPG rate arithmetic
+    # is exercised separately against persisted cumulative samples.
+    sql = String.replace(sql, ~r/\s+/, " ")
+
     assert sql =~
-             "ROW_NUMBER() OVER (PARTITION BY device_id, target_device_ip, if_index, " <>
+             "ROW_NUMBER() OVER (PARTITION BY gateway_id, agent_id, series_key, device_id, target_device_ip, if_index, " <>
                "metric_name ORDER BY `timestamp` DESC)"
 
     assert sql =~ "sample_rank = 1"
+
+    shared_rate =
+      "TIMESTAMPDIFF(MILLISECOND, previous_timestamp, `timestamp`) / 1000.0"
+      |> MetricConsumers.counter_rate_sql()
+      |> String.replace(~r/\s+/, " ")
+      |> String.trim()
+
+    assert sql =~ shared_rate
 
     # Suffixed series such as ifHCInOctets::ifIndex must still match.
     assert sql =~ "split_part(metric_name, '::', 1) IN ('ifHCInOctets','ifHCOutOctets')"

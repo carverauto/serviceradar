@@ -1,6 +1,8 @@
 {{- if .Values.bmpCollector.enabled }}
 {{- $data := default (dict) .Values.bmpCollector.data -}}
 {{- $cfg := default (dict) .Values.bmpCollector.config -}}
+{{- /* The ARANCINI_CAUSAL reservation the chart budget counted (serviceradar.jetstreamBudget). */ -}}
+{{- $aranciniJs := (include "serviceradar.jetstreamBudget" . | fromJson).sizes.arancini -}}
 {{- $dataEnabled := ne false (get $data "enabled") -}}
 {{- if and $dataEnabled (not $data.existingClaim) }}
 apiVersion: v1
@@ -35,7 +37,7 @@ data:
       "nats_url" (default "nats://serviceradar-nats:4222" $cfg.natsUrl)
       "nats_domain" (($cfg.natsDomain | default "") | empty | ternary nil $cfg.natsDomain)
       "nats_creds_file" (($cfg.natsCredsFile | default "") | empty | ternary nil $cfg.natsCredsFile)
-      "nats_tls_required" (default true $cfg.natsTlsRequired)
+      "nats_tls_required" (include "serviceradar.boolDefaultTrue" (list $cfg "natsTlsRequired") | eq "true")
       "nats_tls_first" (default false $cfg.natsTlsFirst)
       "nats_tls_ca_cert_path" (default "/etc/serviceradar/certs/root.pem" $cfg.natsTlsCaCertPath)
       "nats_tls_client_cert_path" (default "/etc/serviceradar/certs/bmp-collector.pem" $cfg.natsTlsClientCertPath)
@@ -43,8 +45,8 @@ data:
       "stream_name" (default "ARANCINI_CAUSAL" $cfg.streamName)
       "subject_prefix" (default "arancini.updates" $cfg.subjectPrefix)
       "stream_subjects" (default (list) $cfg.streamSubjects)
-      "stream_max_bytes" (default 10737418240 $cfg.streamMaxBytes)
-      "stream_replicas" (default 1 $cfg.streamReplicas)
+      "stream_max_bytes" (int64 $aranciniJs.maxBytes)
+      "stream_replicas" (int64 $aranciniJs.replicas)
       "publish_timeout_ms" (default 5000 $cfg.publishTimeoutMs)
       | toPrettyJson | nindent 4 }}
 ---
@@ -94,6 +96,10 @@ spec:
         env:
         - name: RUST_LOG
           value: "info"
+        - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $aranciniJs.stream "suffix" "MAX_BYTES") }}
+          value: {{ $aranciniJs.maxBytes | quote }}
+        - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $aranciniJs.stream "suffix" "REPLICAS") }}
+          value: {{ $aranciniJs.replicas | quote }}
         livenessProbe:
           tcpSocket:
             port: bmp

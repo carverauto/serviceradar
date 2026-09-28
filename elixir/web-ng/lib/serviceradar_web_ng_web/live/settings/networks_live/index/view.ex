@@ -84,7 +84,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View do
                 <Navigation.render
                   active_tab={@active_tab}
                   running_count={
-                    length(merge_running_with_progress(@running_executions, @execution_progress))
+                    length(merge_running_with_progress(@running_executions, @execution_progress)) +
+                      length(@mtr_running)
                   }
                 />
 
@@ -105,6 +106,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View do
                       recent={@recent_executions}
                       groups={@sweep_groups}
                       execution_progress={@execution_progress}
+                      mtr_running={@mtr_running}
+                      mtr_recent={@mtr_recent}
+                      can_view_mtr_jobs={@can_view_mtr_jobs}
+                      filter={@active_scans_filter}
                       timezone={@current_scope.user.timezone || "Etc/UTC"}
                     />
                   <% :cleanup -> %>

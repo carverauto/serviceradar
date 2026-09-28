@@ -176,10 +176,10 @@
 
 ## 12. OpenText config retrieve
 
-- [ ] 12.1 New plugin action on `opentext-nom` (or a sibling package) that
+- [x] 12.1 New plugin action on `opentext-nom` (or a sibling package) that
       retrieves running-config for a device and submits it as an artifact.
       Do not parse inside Wasm. Do not fold this into `list device`.
-- [ ] 12.2 Core ingest path: artifact → `network_config_revisions` →
+- [x] 12.2 Core ingest path: artifact → `network_config_revisions` →
       downparser job. Credentials stay on the unified credential rule;
       nothing new in Helm/env for the NA password.
 

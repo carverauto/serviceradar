@@ -614,7 +614,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents do
   attr :value, :any, required: true
   attr :timezone, :string, required: true
 
-  defp relative_time(assigns) do
+  def relative_time(assigns) do
     absolute? =
       case assigns.value do
         %DateTime{} = value -> DateTime.diff(DateTime.utc_now(), value, :second) >= 86_400

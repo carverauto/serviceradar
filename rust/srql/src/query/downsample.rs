@@ -55,7 +55,6 @@ mod tests {
     };
     use chrono::{Duration as ChronoDuration, TimeZone, Utc};
 
-
     /// Plan a bucketed, aggregated timeseries query split by `series`.
     fn series_plan(entity: Entity, series: &str) -> QueryPlan {
         let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
@@ -78,6 +77,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            exhaustive_window: false,
         }
     }
 
@@ -119,7 +119,10 @@ mod tests {
             .unwrap()
             .0;
 
-        assert_eq!(via_alias, via_tag, "the alias and the explicit tag must agree");
+        assert_eq!(
+            via_alias, via_tag,
+            "the alias and the explicit tag must agree"
+        );
     }
 
     /// The series expression lands in the SELECT and GROUP BY lists, so an
@@ -155,7 +158,6 @@ mod tests {
         assert!(to_sql_and_params(&plan).is_err());
     }
 
-
     fn rate_plan(agg: DownsampleAgg, series: &str) -> QueryPlan {
         let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
         let end = start + ChronoDuration::hours(6);
@@ -177,6 +179,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            exhaustive_window: false,
         }
     }
 
@@ -255,6 +258,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            exhaustive_window: false,
         };
 
         let (sql, _params) = to_sql_and_params(&plan).unwrap();
@@ -289,6 +293,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            exhaustive_window: false,
         }
     }
 
@@ -373,6 +378,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            exhaustive_window: false,
         };
 
         let (sql, params) = to_sql_and_params(&plan).unwrap();
@@ -405,8 +411,16 @@ mod tests {
 
     #[test]
     fn flow_avg_short_window_stays_on_raw_table() {
-        // Below the 6h CAGG routing threshold: must stay on the raw hypertable.
-        let plan = flow_plan(300, DownsampleAgg::Avg, ChronoDuration::hours(1));
+        // Below the 6h CAGG routing threshold: must stay on the raw
+        // hypertable. Flows route on span alone (the retention arm is
+        // metric-only, since CNPG netflow is deprecated), so a now-relative
+        // window inside retention stays raw here just as an old one does.
+        let mut plan = flow_plan(300, DownsampleAgg::Avg, ChronoDuration::hours(1));
+        let start = Utc::now() - ChronoDuration::hours(3);
+        plan.time_range = Some(TimeRange {
+            start,
+            end: start + ChronoDuration::hours(1),
+        });
         let (sql, _params) = to_sql_and_params(&plan).unwrap();
 
         assert!(
@@ -418,6 +432,26 @@ mod tests {
                 "AVG((bytes_total::double precision * GREATEST(COALESCE(sampling_rate, 1), 1)::double precision)) AS value"
             ),
             "expected raw avg to keep the sampling-rate-weighted expression: {sql}"
+        );
+    }
+
+    #[test]
+    fn flow_avg_short_old_window_stays_on_raw_table() {
+        // A sub-threshold flow window that starts beyond the raw metric
+        // retention horizon must still stay on the raw hypertable: flows keep
+        // span-only routing (the retention arm is metric-only), so an old
+        // short flow window is not routed to the 30-day traffic CAGG.
+        let mut plan = flow_plan(300, DownsampleAgg::Avg, ChronoDuration::hours(1));
+        let start = Utc::now() - ChronoDuration::days(40);
+        plan.time_range = Some(TimeRange {
+            start,
+            end: start + ChronoDuration::hours(1),
+        });
+        let (sql, _params) = to_sql_and_params(&plan).unwrap();
+
+        assert!(
+            sql.contains("FROM ocsf_network_activity\n") && !sql.contains("5m_traffic"),
+            "expected old sub-threshold flow window to stay on the raw hypertable: {sql}"
         );
     }
 }

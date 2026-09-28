@@ -229,6 +229,31 @@ defmodule ServiceRadarWebNGWeb.Components.PluginConfigFormTest do
     assert html =~ ~s(name="profile[params][capture_interfaces]")
   end
 
+  test "string fields marked as textarea render multi-line" do
+    schema = %{
+      "type" => "object",
+      "properties" => %{
+        "config_check" => %{
+          "type" => "string",
+          "title" => "Check definition",
+          "x-serviceradar-ui-control" => "textarea"
+        },
+        "api_url" => %{"type" => "string", "title" => "API URL"}
+      }
+    }
+
+    html =
+      render_component(&PluginConfigForm.plugin_config_fields/1, %{
+        schema: schema,
+        params: %{"config_check" => ~s({"checks":[]})},
+        base_name: "profile[params]"
+      })
+
+    assert html =~ ~r/<textarea[^>]*name="profile\[params\]\[config_check\]"/
+    refute html =~ ~r/<textarea[^>]*name="profile\[params\]\[api_url\]"/
+    assert html =~ "{&quot;checks&quot;:[]}"
+  end
+
   test "JSON Schema prefix patterns become HTML full-string prefix matches" do
     schema = %{
       "type" => "object",

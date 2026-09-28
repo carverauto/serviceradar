@@ -1,0 +1,4 @@
+mtr_batch.bin mtr 2 mtr_trace:0:-1,mtr_hop:0:0
+projection_empty_sweep_batch.bin sweep 0 -
+projection_sweep_batch.bin sweep 5 reachability:0:-1,open_port:0:0,port_error:0:0,mtr_summary:0:-1,reachability:1:-1
+sweep_batch.bin sweep 2 reachability:0:-1,mtr_summary:0:-1

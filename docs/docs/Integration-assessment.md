@@ -463,7 +463,7 @@ a device into an endpoint-cluster summary node, verdicts on the underlying
 device ID will not render against the right node otherwise.
 
 Engine output vocabulary is constrained by the `GodViewSnapshot` envelope
-(schema_version 2): verdicts must map cleanly to `root_cause`, `affected`,
+(schema_version 3): verdicts must map cleanly to `root_cause`, `affected`,
 `healthy`, and `unknown`. Don't fight the existing contract.
 
 ### 4.4 Refactoring `god_view_nif`

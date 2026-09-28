@@ -215,6 +215,7 @@ type agentCapabilityOptions struct {
 	endpointInventory                       bool
 	icmpAvailable                           bool
 	mtrAvailable                            bool
+	mtrTCPSyn                               bool
 }
 
 func getAgentCapabilities(cfg *ServerConfig) []string {
@@ -335,6 +336,7 @@ func getAgentCapabilitiesForSidecarsWithRDPPath(
 		endpointInventory:                       cfg != nil && cfg.EndpointInventory != nil && cfg.EndpointInventory.Enabled,
 		icmpAvailable:                           icmpAvailable,
 		mtrAvailable:                            mtrAvailable,
+		mtrTCPSyn:                               mtrAvailable && mtr.RawTCPProbeAvailable(),
 	})
 }
 
@@ -343,8 +345,15 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 	if options.icmpAvailable {
 		capabilities = append(capabilities, "icmp")
 	}
+	if options.mtrTCPSyn {
+		// mtr_tcp_syn: TCP traces craft SYNs on one stable flow and report the
+		// destination handshake diagnostics (raw TCP socket available).
+		capabilities = append(capabilities, "mtr_tcp_syn")
+	}
 	if options.mtrAvailable {
-		capabilities = append(capabilities, "mtr")
+		// mtr_protocol_set: this agent runs a bulk job's `protocols` list, one
+		// trace per target and protocol, inside a single job.
+		capabilities = append(capabilities, "mtr", "mtr_protocol_set")
 	}
 	capabilities = append(capabilities,
 		sweepType,

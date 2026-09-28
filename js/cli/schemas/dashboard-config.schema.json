@@ -15,6 +15,10 @@
       "description": "Named sample-frames fixtures the dev harness side panel can swap between. Keys are display labels; values are project-relative JSON paths.",
       "additionalProperties": {"type": "string"}
     },
+    "fixtureResolver": {
+      "type": "string",
+      "description": "Project-relative module whose resolveFixture export maps an srql.update query to a fixture name or replacement frames, so filter chips work offline in the dev harness."
+    },
     "vite": {
       "type": "object",
       "description": "Optional Vite UserConfig overrides merged into the SDK's default Vite config."

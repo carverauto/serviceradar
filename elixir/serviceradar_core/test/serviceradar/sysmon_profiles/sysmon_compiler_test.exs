@@ -150,6 +150,18 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
     end
   end
 
+  describe "compile/3 profile resolution failures" do
+    # A disabled config returned here would be cached as the device's config.
+    test "returns an error, not a disabled config, when the profile read fails" do
+      assert {:error, {:profile_resolution_failed, :database_unavailable}} =
+               SysmonCompiler.compile("default", "agent-1",
+                 actor: SystemActor.system(:test),
+                 device_uid: "sr:" <> Ecto.UUID.generate(),
+                 profile_resolver: fn _device_uid, _actor -> {:error, :database_unavailable} end
+               )
+    end
+  end
+
   describe "compile_profile/1" do
     test "converts profile to config format" do
       profile = %SysmonProfile{

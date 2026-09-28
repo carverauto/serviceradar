@@ -119,7 +119,7 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelTest do
     route_slug = "test-dashboard-#{System.unique_integer([:positive])}"
     data_frames = [%{"id" => "rows", "query" => "in:test_paged_rows", "encoding" => "json_rows", "limit" => 1}]
     create_dashboard_instance!(route_slug, data_frames, scope)
-    token = DashboardFrameChannel.stream_token(route_slug, data_frames)
+    token = DashboardFrameChannel.stream_token(route_slug, data_frames, user.id)
 
     assert {:ok, _reply, socket} =
              UserSocket
@@ -375,9 +375,6 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelTest do
 
     assert_receive {:srql_query_started, "in:test_slow_rows", query_pid}
 
-    ref = push(socket, "frames:refresh", %{})
-    assert_reply ref, :ok, %{}, 100
-
     send(query_pid, :release_dashboard_frame_query)
 
     assert_push "frames:replace", %{
@@ -512,5 +509,117 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelTest do
       content_hash: String.duplicate("a", 64),
       verification_status: "verified"
     }
+  end
+
+  test "a tick over unchanged data pushes no frame replacement", %{user: user, scope: scope} do
+    # This is the guard for the freshness stamps. FrameRunner now stamps
+    # `checked_at` on every frame, which advances every tick by definition. If the
+    # dedupe hash saw it, this channel would push a full `frames:replace` plus a
+    # re-push of every arrow binary on every tick, for every viewer, and clients
+    # would re-decode each time. The hash must be computed over volatile-stripped
+    # frames so it keeps meaning "did the data change".
+    Application.put_env(:serviceradar_web_ng, :dashboard_frame_test_pid, self())
+    on_exit(fn -> Application.delete_env(:serviceradar_web_ng, :dashboard_frame_test_pid) end)
+
+    route_slug = "test-dashboard-#{System.unique_integer([:positive])}"
+    data_frames = [%{"id" => "required", "query" => "in:test_rows", "encoding" => "json_rows", "limit" => 1}]
+
+    create_dashboard_instance!(route_slug, data_frames, scope)
+    token = DashboardFrameChannel.stream_token(route_slug, data_frames, user.id, [])
+
+    assert {:ok, _reply, socket} =
+             UserSocket
+             |> socket("user-id", %{current_user: user, current_scope: scope})
+             |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{"token" => token})
+
+    assert_push "frames:replace", %{"frames" => [%{"id" => "required", "status" => "ok"}]}
+    assert_receive {:srql_query, "in:test_rows"}
+
+    # Tick again over identical data.
+    send(socket.channel_pid, :dashboard_frame_tick)
+    assert_receive {:srql_query, "in:test_rows"}
+
+    # The data did not change, so no frame may be sent...
+    refute_push "frames:replace", %{}, 200
+    refute_push "frame:binary", %{}, 50
+
+    # ...but the client is still told we looked, so it can render data age.
+    assert_push "frames:heartbeat", %{"checked_at" => checked_at}
+    assert is_binary(checked_at)
+  end
+
+  test "forcing a refresh does not discard the paging position", %{user: user, scope: scope} do
+    # frames:refresh used to clear :frame_cursors, so asking for fresh data threw
+    # away whichever page the user was reading.
+    Application.put_env(:serviceradar_web_ng, :dashboard_frame_test_pid, self())
+    on_exit(fn -> Application.delete_env(:serviceradar_web_ng, :dashboard_frame_test_pid) end)
+
+    route_slug = "test-dashboard-#{System.unique_integer([:positive])}"
+    data_frames = [%{"id" => "required", "query" => "in:test_rows", "encoding" => "json_rows", "limit" => 1}]
+
+    create_dashboard_instance!(route_slug, data_frames, scope)
+    token = DashboardFrameChannel.stream_token(route_slug, data_frames, user.id, [])
+
+    assert {:ok, _reply, socket} =
+             UserSocket
+             |> socket("user-id", %{current_user: user, current_scope: scope})
+             |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{"token" => token})
+
+    assert_push "frames:replace", %{"frames" => [%{"id" => "required"}]}
+    assert_receive {:srql_query, "in:test_rows"}
+
+    ref = push(socket, "frames:page", %{"frame_id" => "required", "cursor" => "cursor-1"})
+    assert_reply ref, :ok, %{}
+    assert_receive {:srql_query, "in:test_rows"}
+    wait_until_settled(socket.channel_pid)
+
+    assert :sys.get_state(socket.channel_pid).assigns.frame_cursors == %{"required" => "cursor-1"}
+
+    ref = push(socket, "frames:refresh", %{})
+    assert_reply ref, :ok, %{}
+
+    assert :sys.get_state(socket.channel_pid).assigns.frame_cursors == %{"required" => "cursor-1"},
+           "a forced refresh must not move the user's page"
+  end
+
+  test "paging while a refresh is in flight is refused rather than silently dropped",
+       %{user: user, scope: scope} do
+    # start_frame_refresh/3 no-ops while a task is in flight. This used to reply
+    # {:ok, %{}} anyway, so the renderer believed its page request was accepted.
+    Application.put_env(:serviceradar_web_ng, :dashboard_frame_test_pid, self())
+    on_exit(fn -> Application.delete_env(:serviceradar_web_ng, :dashboard_frame_test_pid) end)
+
+    route_slug = "test-dashboard-#{System.unique_integer([:positive])}"
+    data_frames = [%{"id" => "required", "query" => "in:test_rows", "encoding" => "json_rows", "limit" => 1}]
+
+    create_dashboard_instance!(route_slug, data_frames, scope)
+    token = DashboardFrameChannel.stream_token(route_slug, data_frames, user.id, [])
+
+    assert {:ok, _reply, socket} =
+             UserSocket
+             |> socket("user-id", %{current_user: user, current_scope: scope})
+             |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{"token" => token})
+
+    assert_push "frames:replace", %{"frames" => [%{"id" => "required"}]}
+    assert_receive {:srql_query, "in:test_rows"}
+
+    # Pin a refresh task open, then page against it.
+    :sys.replace_state(socket.channel_pid, fn state ->
+      %{state | assigns: Map.put(state.assigns, :refresh_task_ref, make_ref())}
+    end)
+
+    ref = push(socket, "frames:page", %{"frame_id" => "required", "cursor" => "cursor-1"})
+    assert_reply ref, :error, %{reason: "refresh_in_progress"}
+
+    ref = push(socket, "frames:refresh", %{})
+    assert_reply ref, :error, %{reason: "refresh_in_progress"}
+  end
+
+  defp wait_until_settled(channel_pid, attempts \\ 20) do
+    if :sys.get_state(channel_pid).assigns[:refresh_task_ref] != nil do
+      if attempts <= 0, do: raise("channel task did not settle")
+      Process.sleep(5)
+      wait_until_settled(channel_pid, attempts - 1)
+    end
   end
 end

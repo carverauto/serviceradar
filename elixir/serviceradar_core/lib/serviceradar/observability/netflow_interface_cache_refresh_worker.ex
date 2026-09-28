@@ -14,14 +14,14 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
   use Oban.Worker,
     queue: :maintenance,
     max_attempts: 3,
-    # Exclude :executing so the self-reschedule in perform/1 isn't deduped
-    # against the still-running job (double-seed guarded by check_existing_job).
     unique: [period: :infinity, states: :incomplete]
 
   import Ash.Expr
   import Ecto.Query, only: [from: 2]
 
+  alias Ash.Error.Unknown.UnknownError
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.Page
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Observability
   alias ServiceRadar.Observability.NetflowInterfaceCache
@@ -30,6 +30,8 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
 
   require Ash.Query
   require Logger
+
+  @successor_unique [period: :infinity, states: [:available, :scheduled, :retryable]]
 
   @seconds_per_day 86_400
   @default_scan_window_seconds 1_800
@@ -65,7 +67,7 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
   end
 
   @impl Oban.Worker
-  def perform(_job) do
+  def perform(job) do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
     scan_window_seconds = scan_window_seconds(config)
     pair_limit = Keyword.get(config, :pair_limit, @default_pair_limit)
@@ -110,19 +112,68 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
            domain: Observability,
            return_errors?: true
          ) do
-      %Ash.BulkResult{errors: []} ->
-        ObanSupport.safe_insert(new(%{}, schedule_in: max(reschedule_seconds, 300)))
+      %Ash.BulkResult{status: :success} ->
+        ObanSupport.safe_insert(
+          new(%{}, schedule_in: max(reschedule_seconds, 300), unique: @successor_unique)
+        )
+
         :ok
 
       %Ash.BulkResult{} = result ->
-        Logger.warning("NetflowInterfaceCacheRefreshWorker: upsert encountered errors",
-          error_count: length(result.errors)
+        error_types = result.errors |> List.wrap() |> Enum.flat_map(&error_types/1) |> Enum.uniq()
+
+        Logger.warning(
+          "NetflowInterfaceCacheRefreshWorker: upsert failed " <>
+            "count=#{result.error_count} error_types=#{inspect(error_types)}"
         )
 
-        ObanSupport.safe_insert(new(%{}, schedule_in: max(reschedule_seconds, 300)))
-        :ok
+        # Oban retries this job. Only its final attempt starts the next periodic cycle.
+        if job.attempt >= job.max_attempts do
+          ObanSupport.safe_insert(
+            new(%{}, schedule_in: max(reschedule_seconds, 300), unique: @successor_unique)
+          )
+        end
+
+        {:error, {:interface_cache_upsert_failed, error_types}}
     end
   end
+
+  # Keep error classes for diagnosis, never messages/values containing inventory data.
+  defp error_types(%Postgrex.Error{postgres: %{code: :numeric_value_out_of_range}}),
+    do: [:numeric_value_out_of_range]
+
+  defp error_types(%Postgrex.Error{postgres: %{pg_code: "22003"}}),
+    do: [:numeric_value_out_of_range]
+
+  defp error_types(%Postgrex.Error{}), do: [:database_error]
+  defp error_types(%DBConnection.EncodeError{}), do: [:parameter_encoding_error]
+
+  defp error_types(%{errors: errors}) when is_list(errors),
+    do: Enum.flat_map(errors, &error_types/1)
+
+  defp error_types(%{__struct__: UnknownError, error: %{__struct__: _} = error}),
+    do: error_types(error)
+
+  defp error_types(%{__struct__: UnknownError, error: error}) when is_binary(error) do
+    cond do
+      String.contains?(error, "expected an integer in -2147483648..2147483647") ->
+        [:parameter_encoding_error]
+
+      String.contains?(error, [
+        "ERROR 22003",
+        "numeric_value_out_of_range",
+        "integer out of range",
+        "out of range for type integer"
+      ]) ->
+        [:numeric_value_out_of_range]
+
+      true ->
+        [UnknownError]
+    end
+  end
+
+  defp error_types(%{__struct__: type}), do: [type]
+  defp error_types(_error), do: [:unknown]
 
   defp build_device_pairs(pairs, devices_by_ip) when is_list(pairs) and is_map(devices_by_ip) do
     Enum.reduce(pairs, %{}, fn {sampler_address, if_index}, acc ->
@@ -235,14 +286,43 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
   defp positive_integer_or(value, _default) when is_integer(value) and value > 0, do: value
   defp positive_integer_or(_value, default), do: default
 
-  defp discover_interface_pairs(scan_window_seconds, limit)
-       when is_integer(scan_window_seconds) and scan_window_seconds > 0 and is_integer(limit) and
-              limit > 0 do
+  @doc false
+  def discover_interface_pairs(scan_window_seconds, limit, opts \\ [])
+
+  def discover_interface_pairs(scan_window_seconds, limit, opts)
+      when is_integer(scan_window_seconds) and scan_window_seconds > 0 and is_integer(limit) and
+             limit > 0 do
     since =
       DateTime.utc_now()
       |> DateTime.add(-scan_window_seconds, :second)
       |> DateTime.truncate(:second)
 
+    collect_interface_pairs(since, limit, nil, [], opts)
+  end
+
+  def discover_interface_pairs(_scan_window_seconds, _limit, _opts), do: []
+
+  # Page by `(sampler_address, if_index)`. `limit` is the page size, not the
+  # number of pairs the window is allowed to contain.
+  defp collect_interface_pairs(since, limit, after_pair, acc, opts) do
+    rows = interface_page(since, limit, after_pair, opts)
+    acc = [Enum.flat_map(rows, &normalize_pair_tuple/1) | acc]
+
+    if length(rows) < limit do
+      acc |> Enum.reverse() |> Enum.concat() |> Enum.uniq()
+    else
+      collect_interface_pairs(since, limit, List.last(rows), acc, opts)
+    end
+  end
+
+  defp interface_page(since, limit, after_pair, opts) do
+    case Keyword.get(opts, :pairs) do
+      pairs when is_function(pairs, 3) -> pairs.(since, limit, after_pair)
+      _ -> interface_page_query(since, limit, after_pair)
+    end
+  end
+
+  defp interface_page_query(since, limit, after_pair) do
     query =
       from(c in "netflow_interface_cache",
         prefix: "platform",
@@ -250,18 +330,26 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
         where: not is_nil(c.sampler_address),
         where: c.sampler_address != "",
         where: c.if_index > 0,
-        order_by: [desc: c.last_observed_at],
+        order_by: [asc: c.sampler_address, asc: c.if_index],
         select: {c.sampler_address, c.if_index},
         limit: ^limit
       )
 
-    query
-    |> Repo.all()
-    |> Enum.flat_map(&normalize_pair_tuple/1)
-    |> Enum.uniq()
-  end
+    query =
+      case after_pair do
+        {address, if_index} ->
+          from(c in query,
+            where:
+              c.sampler_address > ^address or
+                (c.sampler_address == ^address and c.if_index > ^if_index)
+          )
 
-  defp discover_interface_pairs(_scan_window_seconds, _limit), do: []
+        nil ->
+          query
+      end
+
+    Repo.all(query)
+  end
 
   defp observed_interface_pairs_from_row(row) when is_map(row) do
     sampler_address =
@@ -363,9 +451,10 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
     Map.get(map, atom_key) || Map.get(map, string_key)
   end
 
-  defp load_devices_by_ip([], _actor), do: %{}
+  @doc false
+  def load_devices_by_ip([], _actor), do: %{}
 
-  defp load_devices_by_ip(ips, actor) when is_list(ips) do
+  def load_devices_by_ip(ips, actor) when is_list(ips) do
     ips
     |> Enum.chunk_every(2_000)
     |> Enum.reduce(%{}, fn chunk, acc ->
@@ -381,7 +470,7 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
     end)
   end
 
-  defp merge_devices_by_ip(devices, acc) when is_list(devices) and is_map(acc) do
+  defp merge_devices_by_ip(devices, acc) when is_map(acc) do
     Enum.reduce(devices, acc, fn d, map ->
       with ip when is_binary(ip) <- Map.get(d, :ip),
            true <- ip != "" do
@@ -428,10 +517,6 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
   defp latest_interfaces_for_device(_device_uid, _sampler_address, _idxs), do: []
 
   defp read_results(query, actor) do
-    case Ash.read(query, actor: actor) do
-      {:ok, devices} when is_list(devices) -> devices
-      {:ok, %{results: results}} when is_list(results) -> results
-      _ -> []
-    end
+    Page.stream!(query, actor: actor)
   end
 end

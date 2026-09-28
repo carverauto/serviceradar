@@ -1,0 +1,50 @@
+# gazelle:ignore
+#
+# Showcase demos. Nothing under //demo ships with the product: every target here
+# is visible only inside //demo, and //demo/fence checks the product inventories
+# that refer to artifacts by name. See demo/README.md and
+# openspec/changes/add-showcase-demo-portfolio.
+
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+package(default_visibility = ["//demo:__subpackages__"])
+
+package_group(
+    name = "demo_packages",
+    packages = ["//demo/..."],
+)
+
+exports_files(
+    ["README.md"],
+    visibility = ["//demo:__subpackages__"],
+)
+
+# The released serviceradar-sdk-go, from the workspace vendor/ tree
+# (`go work vendor`; the tag is pinned in each module's go.mod), for native
+# builds and tests. TinyGo builds read the same files through -mod=vendor.
+go_library(
+    name = "sdk",
+    srcs = glob(
+        ["vendor/github.com/carverauto/serviceradar-sdk-go/v2/sdk/*.go"],
+        allow_empty = False,
+    ),
+    importpath = "github.com/carverauto/serviceradar-sdk-go/v2/sdk",
+)
+
+# Everything a demo plugin's TinyGo build needs besides its own sources: the
+# workspace, every workspace module's go.mod, the vendored external modules,
+# and the sources of the in-repo library packages plugins import.
+filegroup(
+    name = "workspace_srcs",
+    srcs = [
+        "go.work",
+        "//demo/hello-sim:go.mod",
+        "//demo/pluginkit:module_srcs",
+        "//demo/pluginkit/rulecheck:module_srcs",
+        "//demo/simkit:module_srcs",
+        "//demo/simkit/examples/sample:module_srcs",
+        "//demo/simkit/fixture:module_srcs",
+        "//demo/simkit/guard:module_srcs",
+        "//demo/simkit/internal/tinygocheck:go.mod",
+    ] + glob(["vendor/**"]),
+)

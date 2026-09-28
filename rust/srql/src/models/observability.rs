@@ -10,6 +10,76 @@ use serde::Serialize;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Queryable, Selectable, Serialize)]
+#[diesel(table_name = crate::schema::mtr_hops, check_for_backend(diesel::pg::Pg))]
+pub struct MtrHopRow {
+    pub time: DateTime<Utc>,
+    pub id: Uuid,
+    pub trace_id: Uuid,
+    pub target_ip: Option<String>,
+    pub device_id: Option<String>,
+    pub hop_number: i32,
+    pub addr: Option<String>,
+    pub hostname: Option<String>,
+    pub ecmp_addrs: Option<Vec<String>>,
+    pub asn: Option<i32>,
+    pub asn_org: Option<String>,
+    pub mpls_labels: Option<DbJson>,
+    pub sent: i32,
+    pub received: i32,
+    pub loss_pct: f64,
+    pub last_us: Option<i64>,
+    pub avg_us: Option<i64>,
+    pub min_us: Option<i64>,
+    pub max_us: Option<i64>,
+    pub stddev_us: Option<i64>,
+    pub jitter_us: Option<i64>,
+    pub jitter_worst_us: Option<i64>,
+    pub jitter_interarrival_us: Option<i64>,
+    pub created_at: DateTime<Utc>,
+    // Reply-type counts for this hop. NULL means the agent did not report them
+    // (an older agent), which is distinct from a reported zero.
+    pub reply_time_exceeded: Option<i32>,
+    pub reply_unreachable: Option<i32>,
+    pub reply_synack: Option<i32>,
+    pub reply_rst: Option<i32>,
+}
+
+impl MtrHopRow {
+    pub fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "time": self.time,
+            "id": self.id.to_string(),
+            "trace_id": self.trace_id.to_string(),
+            "target_ip": self.target_ip,
+            "device_id": self.device_id,
+            "hop_number": self.hop_number,
+            "addr": self.addr,
+            "hostname": self.hostname,
+            "ecmp_addrs": self.ecmp_addrs,
+            "asn": self.asn,
+            "asn_org": self.asn_org,
+            "mpls_labels": self.mpls_labels.map(|j| j.0),
+            "sent": self.sent,
+            "received": self.received,
+            "loss_pct": self.loss_pct,
+            "last_us": self.last_us,
+            "avg_us": self.avg_us,
+            "min_us": self.min_us,
+            "max_us": self.max_us,
+            "stddev_us": self.stddev_us,
+            "jitter_us": self.jitter_us,
+            "jitter_worst_us": self.jitter_worst_us,
+            "jitter_interarrival_us": self.jitter_interarrival_us,
+            "created_at": self.created_at,
+            "reply_time_exceeded": self.reply_time_exceeded,
+            "reply_unreachable": self.reply_unreachable,
+            "reply_synack": self.reply_synack,
+            "reply_rst": self.reply_rst,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
 #[diesel(table_name = crate::schema::capacity_forecasts, check_for_backend(diesel::pg::Pg))]
 pub struct CapacityForecastRow {
     pub forecasted_at: DateTime<Utc>,
@@ -161,6 +231,24 @@ pub struct MtrTraceRow {
     pub partition: Option<String>,
     pub error: Option<String>,
     pub created_at: DateTime<Utc>,
+    // TCP SYN handshake diagnostics. NULL means not reported: an older agent,
+    // or a trace that did not run the raw TCP SYN handshake (a non-TCP
+    // protocol, or the connect() fallback).
+    pub tcp_handshake_ttl: Option<i32>,
+    pub tcp_handshake_attempts: Option<i32>,
+    pub tcp_syn_sent: Option<i32>,
+    pub tcp_synack_received: Option<i32>,
+    pub tcp_rst_received: Option<i32>,
+    pub tcp_syn_unanswered: Option<i32>,
+    pub tcp_syn_drop_pct: Option<f64>,
+    pub tcp_syn_retransmits: Option<i32>,
+    pub tcp_answered_after_retx: Option<i32>,
+    pub tcp_ack_mismatch: Option<i32>,
+    pub tcp_synack_duplicates: Option<i32>,
+    pub tcp_handshake_rtt_min_us: Option<i64>,
+    pub tcp_handshake_rtt_avg_us: Option<i64>,
+    pub tcp_handshake_rtt_max_us: Option<i64>,
+    pub tcp_server_response_us: Option<i64>,
 }
 
 impl MtrTraceRow {
@@ -183,6 +271,21 @@ impl MtrTraceRow {
             "partition": self.partition,
             "error": self.error,
             "created_at": self.created_at,
+            "tcp_handshake_ttl": self.tcp_handshake_ttl,
+            "tcp_handshake_attempts": self.tcp_handshake_attempts,
+            "tcp_syn_sent": self.tcp_syn_sent,
+            "tcp_synack_received": self.tcp_synack_received,
+            "tcp_rst_received": self.tcp_rst_received,
+            "tcp_syn_unanswered": self.tcp_syn_unanswered,
+            "tcp_syn_drop_pct": self.tcp_syn_drop_pct,
+            "tcp_syn_retransmits": self.tcp_syn_retransmits,
+            "tcp_answered_after_retx": self.tcp_answered_after_retx,
+            "tcp_ack_mismatch": self.tcp_ack_mismatch,
+            "tcp_synack_duplicates": self.tcp_synack_duplicates,
+            "tcp_handshake_rtt_min_us": self.tcp_handshake_rtt_min_us,
+            "tcp_handshake_rtt_avg_us": self.tcp_handshake_rtt_avg_us,
+            "tcp_handshake_rtt_max_us": self.tcp_handshake_rtt_max_us,
+            "tcp_server_response_us": self.tcp_server_response_us,
         })
     }
 }
@@ -315,6 +418,39 @@ impl TraceSummaryRow {
             "service_set": self.service_set.unwrap_or_default(),
             "span_count": self.span_count.unwrap_or(0),
             "error_count": self.error_count.unwrap_or(0),
+        })
+    }
+}
+
+/// One `in:otel_services` row. Every timestamp is already narrowed to the
+/// caller's effective signals by the query: a signal outside that set arrives
+/// as NULL, and `last_seen` is the greatest of the effective signals only.
+#[derive(Debug, Clone, QueryableByName)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct OtelServiceRow {
+    #[diesel(sql_type = Text)]
+    pub service_name: String,
+    #[diesel(sql_type = Array<Text>)]
+    pub signals: Vec<String>,
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    pub last_seen: Option<DateTime<Utc>>,
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    pub logs_last_seen: Option<DateTime<Utc>>,
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    pub traces_last_seen: Option<DateTime<Utc>>,
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    pub metrics_last_seen: Option<DateTime<Utc>>,
+}
+
+impl OtelServiceRow {
+    pub fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "service_name": self.service_name,
+            "signals": self.signals,
+            "last_seen": self.last_seen,
+            "logs_last_seen": self.logs_last_seen,
+            "traces_last_seen": self.traces_last_seen,
+            "metrics_last_seen": self.metrics_last_seen,
         })
     }
 }

@@ -10,6 +10,7 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTracesTest do
   alias Opentelemetry.Proto.Trace.V1.ScopeSpans
   alias Opentelemetry.Proto.Trace.V1.Span
   alias Opentelemetry.Proto.Trace.V1.Status
+  alias ServiceRadar.Analytics.StarRocks.Rows
   alias ServiceRadar.EventWriter.Processors.OtelTraces
 
   describe "table_name/0" do
@@ -604,6 +605,57 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTracesTest do
         assert row.ingest_identity == "spiffe://serviceradar/gateway/gw-1"
         assert row.ingest_agent_id == "agent-7"
         assert row.ingest_partition == "site-a"
+      end
+    end
+  end
+
+  describe "store/2 with StarRocks enabled" do
+    defp recording_load(result) do
+      test = self()
+
+      fn dataset, rows ->
+        send(test, {:load, dataset, rows})
+        result
+      end
+    end
+
+    test "spans load into the warehouse table, not CNPG" do
+      rows = [%{trace_id: "a", span_id: "b"}, %{trace_id: "a", span_id: "c"}]
+      load = recording_load({:ok, %{dataset: :otel_traces, loaded: 2}})
+
+      assert {:ok, 2} = OtelTraces.store(rows, starrocks_enabled: true, load: load)
+      assert_received {:load, :otel_traces, ^rows}
+    end
+
+    test "a failed load fails the batch so JetStream redelivers it" do
+      load = recording_load({:error, :unavailable})
+
+      assert {:error, :unavailable} =
+               OtelTraces.store([%{trace_id: "a", span_id: "b"}],
+                 starrocks_enabled: true,
+                 load: load
+               )
+    end
+  end
+
+  # The warehouse encoder picks columns by name, so a field it does not know
+  # would load NULL. Every value the parser produces must survive encoding.
+  describe "warehouse encoding of parsed spans" do
+    test "protobuf spans keep every parsed field" do
+      payload = ExportTraceServiceRequest.encode(build_request())
+      rows = OtelTraces.parse_message(%{data: payload, metadata: %{}})
+      encoded = Rows.encode(:otel_traces, rows)
+
+      for {row, row_encoded} <- Enum.zip(rows, encoded) do
+        for {field, value} <- row do
+          column = Atom.to_string(field)
+          assert Map.has_key?(row_encoded, column), "#{column} is not a warehouse column"
+
+          case value do
+            %DateTime{} -> assert row_encoded[column] == DateTime.to_iso8601(value)
+            _ -> assert row_encoded[column] == value
+          end
+        end
       end
     end
   end

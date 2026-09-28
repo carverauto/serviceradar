@@ -1,5 +1,6 @@
 load("@rules_elixir//:elixir_tests.bzl", "ex_unit_tests")
 load("@rules_elixir//:mix_app.bzl", "mix_app")
+load("//build:elixir_quality.bzl", "elixir_quality")
 load(
     "//build:elixir_release.bzl",
     "SHIPPED_ERTS_OTP_ROOT",
@@ -150,9 +151,9 @@ elixir_release(
 )
 
 ex_unit_tests(
-    config_loader = "//build:elixir_test_config_loader.exs",
     name = "unit_tests",
     srcs = glob(["test/**/*_test.exs"]),
+    config_loader = "//build:elixir_test_config_loader.exs",
     data = glob(
         [
             "lib/**",
@@ -169,4 +170,11 @@ ex_unit_tests(
     ],
     test_helper = "test/test_helper.exs",
     deps = [":erlang_app"],
+)
+
+# `mix format --check-formatted` + `mix credo --strict`, as CI's Elixir Quality job runs them.
+# See //build:elixir_quality.bzl.
+elixir_quality(
+    source_deps = ["@hexpm//:ex_dna"],
+    tool_deps = ["//elixir/serviceradar_core:erlang_app"] + GATEWAY_DEPS + GATEWAY_DEV_DEPS + ["@hexpm//:jump_credo_checks"],
 )

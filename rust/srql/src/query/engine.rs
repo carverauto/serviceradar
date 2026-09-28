@@ -1,12 +1,12 @@
 use super::{
     PaginationMeta, QueryPlan, QueryRequest, QueryResponse, TranslateRequest, TranslateResponse,
     addon_fleet, addon_statuses, advisory_coordinates, agents, alerts, bmp_events,
-    build_query_plan, capacity_forecasts, composite_results, cpu_metrics, dashboard_service_views,
-    dashboards, device_graph, device_sweep_overlap, devices, disk_metrics, downsample,
-    endpoint_inventory_scans, endpoint_package_catalog, endpoint_packages,
+    build_query_plan, camera_sources, capacity_forecasts, composite_results, cpu_metrics,
+    dashboard_service_views, dashboards, device_graph, device_sweep_overlap, devices, disk_metrics,
+    downsample, endpoint_inventory_scans, endpoint_package_catalog, endpoint_packages,
     endpoint_vulnerability_matches, events, field_survey, flows, gateways, graph_cypher, graph_dql,
-    identity, interfaces, is_exhaustive_profile_query, logs, memory_metrics, mtr_traces,
-    otel_metric_points, otel_metrics, process_metrics, public_endpoints, services,
+    identity, interfaces, is_exhaustive_profile_query, logs, memory_metrics, mtr_hops, mtr_traces,
+    otel_metric_points, otel_metrics, otel_services, process_metrics, public_endpoints, services,
     source_fact_disagreements, sweep_coverage, sweep_executions, sweep_groups, sweep_profiles,
     sweep_results, threat_intel_matches, timeseries_metrics, trace_summaries, traces,
     translate_request, virtualization, vulnerability_advisories, wifi_map,
@@ -63,7 +63,11 @@ impl QueryEngine {
             })
             .unwrap_or(false);
 
-        let results = if plan.downsample.is_some() && !is_profile_stats {
+        let results = if matches!(plan.entity, Entity::OtelServices) {
+            // Ahead of the downsample branch: this entity's access check lives in
+            // its own builder, so no other builder may ever run it.
+            otel_services::execute(&mut conn, &plan, request.permitted_signals.as_deref()).await?
+        } else if plan.downsample.is_some() && !is_profile_stats {
             downsample::execute(&mut conn, &plan).await?
         } else {
             match plan.entity {
@@ -71,6 +75,7 @@ impl QueryEngine {
                 Entity::AddonFleet => addon_fleet::execute(&mut conn, &plan).await?,
                 Entity::AddonStatuses => addon_statuses::execute(&mut conn, &plan).await?,
                 Entity::PublicEndpoints => public_endpoints::execute(&mut conn, &plan).await?,
+                Entity::CameraSources => camera_sources::execute(&mut conn, &plan).await?,
                 Entity::MergeAudit => identity::merge_audit::execute(&mut conn, &plan).await?,
                 Entity::DeviceRevivalAudit => {
                     identity::device_revival_audit::execute(&mut conn, &plan).await?
@@ -83,6 +88,10 @@ impl QueryEngine {
                 }
                 Entity::IdentityEvidenceEdges => {
                     identity::evidence_edges::execute(&mut conn, &plan).await?
+                }
+                Entity::IdentityDecisions => identity::decisions::execute(&mut conn, &plan).await?,
+                Entity::DeduplicationTasks => {
+                    identity::deduplication_tasks::execute(&mut conn, &plan).await?
                 }
                 Entity::EndpointInventoryScans => {
                     endpoint_inventory_scans::execute(&mut conn, &plan).await?
@@ -104,6 +113,7 @@ impl QueryEngine {
                 | Entity::ScanActivity
                 | Entity::DnsActivity => events::execute(&mut conn, &plan).await?,
                 Entity::BmpEvents => bmp_events::execute(&mut conn, &plan).await?,
+                Entity::MtrHops => mtr_hops::execute(&mut conn, &plan).await?,
                 Entity::MtrTraces => mtr_traces::execute(&mut conn, &plan).await?,
                 Entity::CapacityForecasts => capacity_forecasts::execute(&mut conn, &plan).await?,
                 Entity::CompositeResults => composite_results::execute(&mut conn, &plan).await?,
@@ -147,6 +157,10 @@ impl QueryEngine {
                 Entity::Dashboards => dashboards::execute(&mut conn, &plan).await?,
                 Entity::TraceSummaries => trace_summaries::execute(&mut conn, &plan).await?,
                 Entity::Traces => traces::execute(&mut conn, &plan).await?,
+                Entity::OtelServices => {
+                    otel_services::execute(&mut conn, &plan, request.permitted_signals.as_deref())
+                        .await?
+                }
                 Entity::Alerts => alerts::execute(&mut conn, &plan).await?,
                 Entity::VirtualizationClusters
                 | Entity::VirtualizationHosts
@@ -248,6 +262,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            exhaustive_window: false,
         }
     }
 

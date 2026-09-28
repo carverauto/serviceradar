@@ -134,4 +134,59 @@ describe("God-View render frame observer seam", () => {
     expect(() => godViewRenderingGraphCoreMethods.renderGraph.call(context, effective)).not.toThrow()
     expect(context.state.deck.setProps).toHaveBeenCalledWith({layers: expect.any(Array)})
   })
+
+  it("advanceAnimation re-issues only the clock-driven layers, with the same data", async () => {
+    const {ScatterplotLayer, TextLayer} = await import("@deck.gl/layers")
+    const {default: PacketFlowLayer} = await import("../deckgl/PacketFlowLayer")
+    const {godViewRenderingGraphLayerTransportMethods} = await import("./rendering_graph_layer_transport_methods")
+    const flowData = {length: 1, attributes: {instanceEndpoints: new Float32Array(4)}}
+    const flow = new PacketFlowLayer({id: "god-view-atmosphere-particles", data: flowData, time: 0})
+    const glyphs = new ScatterplotLayer({id: "god-view-nodes", data: [{position: [0, 0]}]})
+    const labels = new TextLayer({id: "god-view-node-labels", data: []})
+    const setProps = vi.fn()
+    const state = {deck: {setProps}, lastGraphLayers: [glyphs, flow, labels], animationPhase: 2.5, visual: {pulse: [1, 2, 3, 4]}}
+    const ctx = {state, deps: {}}
+    Object.assign(ctx, godViewRenderingGraphCoreMethods, godViewRenderingGraphLayerTransportMethods)
+
+    expect(ctx.advanceAnimation()).toBe(true)
+
+    const [{layers}] = setProps.mock.calls[0]
+    expect(layers[0]).toBe(glyphs)
+    expect(layers[2]).toBe(labels)
+    expect(layers[1]).not.toBe(flow)
+    expect(layers[1].props.data).toBe(flowData)
+    expect(layers[1].props.time).toBe(2.5)
+    expect(state.lastGraphLayers).toBe(layers)
+  }, 30_000)
+
+  it("refreshDeferredLayers admits labels once deck has a viewport, and not before", () => {
+    const viewport = {project: () => [0, 0]}
+    let viewports = []
+    const state = {deck: {getViewports: () => viewports}, labelAdmissionAwaitingViewport: true, atmosphereSuppressUntil: 0}
+    const ctx = {state, refreshGraphLayersForViewState: vi.fn(() => true)}
+    Object.assign(ctx, {
+      refreshDeferredLayers: godViewRenderingGraphCoreMethods.refreshDeferredLayers,
+      activeTopologyLabelViewport: () => viewports[0] || null,
+    })
+
+    expect(ctx.refreshDeferredLayers()).toBe(false)
+    expect(ctx.refreshGraphLayersForViewState).not.toHaveBeenCalled()
+
+    viewports = [viewport]
+    expect(ctx.refreshDeferredLayers()).toBe(true)
+    expect(ctx.refreshGraphLayersForViewState).toHaveBeenCalledTimes(1)
+  })
+
+  it("refreshDeferredLayers brings packet flow back once its hold expires", () => {
+    const state = {labelAdmissionAwaitingViewport: false, atmosphereSuppressUntil: performance.now() + 60_000}
+    const ctx = {state, refreshGraphLayersForViewState: vi.fn(() => true), activeTopologyLabelViewport: () => null}
+    ctx.refreshDeferredLayers = godViewRenderingGraphCoreMethods.refreshDeferredLayers
+
+    expect(ctx.refreshDeferredLayers()).toBe(false)
+
+    state.atmosphereSuppressUntil = performance.now() - 1
+    expect(ctx.refreshDeferredLayers()).toBe(true)
+    expect(state.atmosphereSuppressUntil).toBe(0)
+    expect(ctx.refreshGraphLayersForViewState).toHaveBeenCalledTimes(1)
+  })
 })

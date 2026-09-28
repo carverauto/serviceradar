@@ -968,6 +968,92 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     assert restored.is_available
   end
 
+  # #4617: the IP lookup falls back to a tombstone, so a sweep of a merged-away device's old
+  # address reaches it; the sweep must leave it deleted and record the skip.
+  test "ingest results never restores a merged-away device resolved by IP", %{
+    actor: actor,
+    agent_id: agent_id
+  } do
+    unique_id = Ash.UUID.generate()
+    ip = unique_ip("merged-deleted-#{unique_id}")
+    partition = "default"
+
+    {:ok, device} =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: "device-merged-deleted-#{unique_id}",
+          ip: ip,
+          hostname: "merged-#{unique_id}",
+          discovery_sources: ["armis"],
+          is_available: false
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    assert {:ok, tombstone} =
+             device
+             |> Ash.Changeset.for_update(
+               :soft_delete,
+               %{deleted_reason: "merged", deleted_by: "sweep_results_flow_e2e"},
+               actor: actor
+             )
+             |> Ash.update()
+
+    {:ok, group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(
+        :create,
+        %{name: "Sweep Merged Deleted #{unique_id}", partition: partition, agent_ids: []},
+        actor: actor
+      )
+      |> Ash.create()
+
+    handler_id = "merged-restore-skipped-#{unique_id}"
+    test_pid = self()
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        [:serviceradar, :sweep, :restore, :merged_skipped],
+        fn _event, measurements, metadata, _config ->
+          send(test_pid, {:merged_restore_skipped, measurements, metadata})
+        end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    assert {:ok, _stats} =
+             SweepResultsIngestor.ingest_results(
+               [%{"host_ip" => ip, "hostname" => "revived-#{unique_id}", "available" => true}],
+               Ash.UUID.generate(),
+               actor: actor,
+               sweep_group_id: group.id,
+               agent_id: agent_id,
+               authenticated_agent_id: agent_id,
+               authenticated_partition_id: partition,
+               config_version: "hash-merged-deleted-#{unique_id}"
+             )
+
+    uid = device.uid
+    assert_receive {:merged_restore_skipped, %{count: 1}, %{device_uids: [^uid]}}
+
+    assert {:ok, page} =
+             Device
+             |> Ash.Query.for_read(:read, %{include_deleted: true})
+             |> Ash.Query.filter(uid == ^device.uid)
+             |> Ash.read(actor: actor)
+
+    [after_sweep] = results_from(page)
+
+    assert after_sweep.deleted_at == tombstone.deleted_at
+    assert after_sweep.deleted_reason == "merged"
+    assert after_sweep.identity_revision == tombstone.identity_revision
+  end
+
   test "ingest results ignores stale cache after active device IP changes", %{
     actor: actor,
     agent_id: agent_id

@@ -73,6 +73,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
 
   # Alias guards
   defdelegate distinct_agent_identity_conflict?(device_a, device_b, actor), to: AliasGuard
+  defdelegate distinct_identified_devices?(device_a, device_b, actor), to: AliasGuard
 
   defdelegate invalidate_ip_alias(ip, partition, alias_device_id, device_id, actor),
     to: AliasGuard

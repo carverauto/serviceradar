@@ -239,7 +239,8 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
 
   # Only reached when some table failed, which keeps the migration that owns
   # the rollups pending. The layout lists materialized views too, so it says
-  # which rollups are missing. A table without one (logs) has nothing to restore.
+  # which rollups are missing. A table without one (logs, MTR) has nothing to
+  # restore, and is skipped rather than sent an empty statement.
   defp restore_rollups(state, retention) do
     case layout(state) do
       {:ok, layout} ->
@@ -248,6 +249,7 @@ defmodule ServiceRadar.Analytics.StarRocks.PartitionRebuild do
             not Map.has_key?(layout, table <> @suffix),
             not Map.has_key?(layout, table <> "_hourly"),
             statement = rollup_statement(state, table),
+            is_binary(statement),
             {:error, reason} <- [exec(state, statement)] do
           Logger.error("StarRocks rollup of #{table} could not be restored: #{inspect(reason)}")
           {table, {:rollup, reason}}

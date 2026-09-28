@@ -6,6 +6,7 @@ tests:
     set:
       flowCollector.enabled: true
       analytics.starrocks.enabled: true
+      analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
       flowCollector.config.metrics_addr: "0.0.0.0:50046"
     documentSelector:
       path: kind
@@ -25,6 +26,7 @@ tests:
     set:
       flowCollector.enabled: true
       analytics.starrocks.enabled: true
+      analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
       flowCollector.config.metrics_addr: null
     documentSelector:
       path: kind

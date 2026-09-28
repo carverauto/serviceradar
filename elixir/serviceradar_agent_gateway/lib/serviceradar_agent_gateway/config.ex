@@ -73,6 +73,16 @@ defmodule ServiceRadarAgentGateway.Config do
   end
 
   @doc """
+  Get a specific config value by key, or `default` when the gateway identity has not been set up.
+  """
+  @spec get(atom(), term()) :: any()
+  def get(key, default) when is_atom(key) do
+    @pt_key
+    |> :persistent_term.get(%{})
+    |> Map.get(key, default)
+  end
+
+  @doc """
   Get a specific config value by key.
   """
   @spec get(atom()) :: any()

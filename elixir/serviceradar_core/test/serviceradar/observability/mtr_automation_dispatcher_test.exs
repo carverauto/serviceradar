@@ -179,6 +179,112 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcherTest do
              ]
     end
 
+    # A profile with no selector limit must trace its whole scope. Regression: the
+    # limit defaulted to 100, which doubled as the page size AND the cap, so a
+    # scope of 251 devices silently traced its first 100 with nothing logged.
+    test "with no limit, pages to exhaustion and caps nothing" do
+      translate_fn = fn
+        "in:devices tags.role:edge limit:2", 2, nil, nil, nil ->
+          {:ok,
+           Jason.encode!(%{
+             "sql" => "select ip, hostname, uid, partition_id, gateway_id from devices_page_1",
+             "params" => [],
+             "pagination" => %{"limit" => 2, "next_cursor" => "cursor-2"}
+           })}
+
+        "in:devices tags.role:edge limit:2", 2, "cursor-2", nil, nil ->
+          {:ok,
+           Jason.encode!(%{
+             "sql" => "select ip, hostname, uid, partition_id, gateway_id from devices_page_2",
+             "params" => [],
+             "pagination" => %{"limit" => 2}
+           })}
+      end
+
+      query_fn = fn
+        "select ip, hostname, uid, partition_id, gateway_id from devices_page_1", [] ->
+          {:ok,
+           %Postgrex.Result{
+             columns: ["ip", "hostname", "uid", "partition_id", "gateway_id"],
+             rows: [
+               ["192.0.2.10", "edge-01", "dev-1", "p1", "gw-1"],
+               ["192.0.2.11", "edge-02", "dev-2", "p1", "gw-1"]
+             ]
+           }}
+
+        "select ip, hostname, uid, partition_id, gateway_id from devices_page_2", [] ->
+          {:ok,
+           %Postgrex.Result{
+             columns: ["ip", "hostname", "uid", "partition_id", "gateway_id"],
+             rows: [
+               ["192.0.2.12", "edge-03", "dev-3", "p1", "gw-1"],
+               ["192.0.2.13", "edge-04", "dev-4", "p1", "gw-1"]
+             ]
+           }}
+      end
+
+      assert {:ok, targets} =
+               MtrAutomationDispatcher.target_contexts_from_srql("tags.role:edge", nil,
+                 translate_fn: translate_fn,
+                 query_fn: query_fn,
+                 managed_target_filter_fn: & &1,
+                 page_size: 2
+               )
+
+      assert Enum.map(targets, & &1.target_device_uid) == ["dev-1", "dev-2", "dev-3", "dev-4"]
+    end
+
+    # A ceiling larger than one page must not collapse to the page size: the
+    # request keeps paging until the cursor runs out or the ceiling is hit.
+    test "an explicit limit above the page size still pages past one page" do
+      translate_fn = fn
+        "in:devices tags.role:edge limit:2", 2, nil, nil, nil ->
+          {:ok,
+           Jason.encode!(%{
+             "sql" => "select ip, hostname, uid, partition_id, gateway_id from devices_page_1",
+             "params" => [],
+             "pagination" => %{"limit" => 2, "next_cursor" => "cursor-2"}
+           })}
+
+        "in:devices tags.role:edge limit:2", 2, "cursor-2", nil, nil ->
+          {:ok,
+           Jason.encode!(%{
+             "sql" => "select ip, hostname, uid, partition_id, gateway_id from devices_page_2",
+             "params" => [],
+             "pagination" => %{"limit" => 2}
+           })}
+      end
+
+      query_fn = fn
+        "select ip, hostname, uid, partition_id, gateway_id from devices_page_1", [] ->
+          {:ok,
+           %Postgrex.Result{
+             columns: ["ip", "hostname", "uid", "partition_id", "gateway_id"],
+             rows: [
+               ["192.0.2.10", "edge-01", "dev-1", "p1", "gw-1"],
+               ["192.0.2.11", "edge-02", "dev-2", "p1", "gw-1"]
+             ]
+           }}
+
+        "select ip, hostname, uid, partition_id, gateway_id from devices_page_2", [] ->
+          {:ok,
+           %Postgrex.Result{
+             columns: ["ip", "hostname", "uid", "partition_id", "gateway_id"],
+             rows: [["192.0.2.12", "edge-03", "dev-3", "p1", "gw-1"]]
+           }}
+      end
+
+      assert {:ok, targets} =
+               MtrAutomationDispatcher.target_contexts_from_srql("tags.role:edge", 1200,
+                 translate_fn: translate_fn,
+                 query_fn: query_fn,
+                 managed_target_filter_fn: & &1,
+                 page_size: 2
+               )
+
+      assert Enum.map(targets, & &1.target_device_uid) == ["dev-1", "dev-2", "dev-3"]
+    end
+
     test "returns SRQL errors" do
       translate_fn = fn "in:devices hostname:bad limit:10", 10, nil, nil, nil ->
         {:error, :bad_query}
@@ -189,5 +295,282 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcherTest do
                  translate_fn: translate_fn
                )
     end
+  end
+
+  describe "candidate_agents/2" do
+    test "builds candidates from the command bus session listing" do
+      sessions = [
+        session("agent-a", "default", %{"capabilities" => ["mtr", "sweep"], "in_flight" => 2}),
+        session("agent-b", "default", %{"capabilities" => ["sweep"]})
+      ]
+
+      candidates =
+        MtrAutomationDispatcher.candidate_agents(%{partition_id: "default"},
+          session_lister: fn -> sessions end
+        )
+
+      assert [
+               %{agent_id: "agent-a", partition_id: "default", mtr_capable: true, in_flight: 2},
+               %{agent_id: "agent-b", mtr_capable: false}
+             ] = candidates
+    end
+
+    test "keeps only sessions in the target partition" do
+      sessions = [
+        session("agent-a", "default", %{"capabilities" => ["mtr"]}),
+        session("agent-b", "site-02", %{"capabilities" => ["mtr"]})
+      ]
+
+      assert [%{agent_id: "agent-b"}] =
+               MtrAutomationDispatcher.candidate_agents(%{partition_id: "site-02"},
+                 session_lister: fn -> sessions end
+               )
+
+      assert ["agent-a", "agent-b"] =
+               %{partition_id: nil}
+               |> MtrAutomationDispatcher.candidate_agents(session_lister: fn -> sessions end)
+               |> Enum.map(& &1.agent_id)
+    end
+
+    test "rejects legacy keys and sessions whose metadata names another principal" do
+      sessions = [
+        %{key: {:agent_control, "agent-legacy", :gateway@host01}, pid: self(), metadata: %{}},
+        session("agent-a", "default", %{"agent_id" => "agent-other"})
+      ]
+
+      assert [] =
+               MtrAutomationDispatcher.candidate_agents(%{partition_id: "default"},
+                 session_lister: fn -> sessions end
+               )
+    end
+  end
+
+  describe "dispatch_for_mode/5" do
+    test "threads an injected session_lister to candidate selection" do
+      counter = :counters.new(1, [])
+
+      lister = fn ->
+        :counters.add(counter, 1, 1)
+        []
+      end
+
+      target_ctx = %{
+        target: "192.0.2.10",
+        target_ip: "192.0.2.10",
+        partition_id: "default",
+        target_key: "device:sr:00000000-0000-0000-0000-000000000001"
+      }
+
+      policy = %{target_selector: %{}, baseline_canary_vantages: 0}
+
+      assert {:error, :no_candidates} =
+               MtrAutomationDispatcher.dispatch_for_mode(
+                 target_ctx,
+                 policy,
+                 :baseline,
+                 nil,
+                 session_lister: lister
+               )
+
+      assert :counters.get(counter, 1) == 1
+    end
+
+    # A non-empty listing reaches preferred-agent selection. That step runs before
+    # the cooldown read, so a preference no candidate satisfies is decided without
+    # a database; the successful path continues into the cooldown read and the
+    # dispatch-window write, and is covered through select_agents/4 below.
+    test "checks the policy's preferred agent against a non-empty injected listing" do
+      sessions = [
+        session("agent-a", "default", %{"capabilities" => ["mtr"]}),
+        session("agent-b", "default", %{"capabilities" => ["mtr"]})
+      ]
+
+      policy = %{target_selector: %{"agent_id" => "agent-z"}, baseline_canary_vantages: 0}
+
+      assert {:error, :preferred_agent_unavailable} =
+               MtrAutomationDispatcher.dispatch_for_mode(
+                 dispatch_target_ctx(),
+                 policy,
+                 :baseline,
+                 nil,
+                 session_lister: fn -> sessions end
+               )
+    end
+  end
+
+  describe "select_agents/4" do
+    test "selects the preferred agent from a non-empty listing even when it ranks lower" do
+      sessions = [
+        session("agent-a", "default", %{"capabilities" => ["mtr"], "in_flight" => 0}),
+        session("agent-b", "default", %{"capabilities" => ["mtr"], "in_flight" => 8})
+      ]
+
+      policy = %{target_selector: %{"agent_id" => "agent-b"}, baseline_canary_vantages: 0}
+
+      assert {:ok, ["agent-b"]} =
+               MtrAutomationDispatcher.select_agents(dispatch_target_ctx(), policy, :baseline,
+                 session_lister: fn -> sessions end
+               )
+    end
+
+    test "keeps only the preferred agents that are online" do
+      sessions = [
+        session("agent-a", "default", %{"capabilities" => ["mtr"]}),
+        session("agent-c", "default", %{"capabilities" => ["mtr"]})
+      ]
+
+      policy = %{
+        target_selector: %{"agent_ids" => ["agent-c", "agent-offline"]},
+        baseline_canary_vantages: 0
+      }
+
+      assert {:ok, ["agent-c"]} =
+               MtrAutomationDispatcher.select_agents(dispatch_target_ctx(), policy, :baseline,
+                 session_lister: fn -> sessions end
+               )
+    end
+
+    test "without a preference, ranks only MTR-capable candidates" do
+      sessions = [
+        session("agent-a", "default", %{"capabilities" => ["sweep"]}),
+        session("agent-b", "default", %{"capabilities" => ["mtr"]})
+      ]
+
+      policy = %{target_selector: %{}, baseline_canary_vantages: 0}
+
+      assert {:ok, ["agent-b"]} =
+               MtrAutomationDispatcher.select_agents(dispatch_target_ctx(), policy, :baseline,
+                 session_lister: fn -> sessions end
+               )
+
+      assert {:error, :no_candidates} =
+               MtrAutomationDispatcher.select_agents(dispatch_target_ctx(), policy, :incident,
+                 session_lister: fn -> [hd(sessions)] end
+               )
+    end
+  end
+
+  # Link-local addresses are not routed path targets, and a zone-less IPv6
+  # link-local address cannot even open a TCP probe socket, so automated
+  # selection drops them while keeping ULA, global and RFC 1918/5737 addresses.
+  describe "link-local target exclusion" do
+    @link_local ["fe80::1", "169.254.0.10"]
+    @traceable ["fd00::10", "2001:db8::10", "192.0.2.10"]
+
+    test "traceable_target?/1 rejects link-local and keeps routable addresses" do
+      for ip <- @link_local do
+        refute MtrAutomationDispatcher.traceable_target?(ip_target_ctx(ip)), ip
+      end
+
+      for ip <- @traceable do
+        assert MtrAutomationDispatcher.traceable_target?(ip_target_ctx(ip)), ip
+      end
+    end
+
+    test "traceable_target?/1 classifies zoned, mapped and hostname targets" do
+      refute MtrAutomationDispatcher.traceable_target?(ip_target_ctx("fe80::1%eth0"))
+      refute MtrAutomationDispatcher.traceable_target?(ip_target_ctx("::ffff:169.254.0.10"))
+      refute MtrAutomationDispatcher.traceable_target?(%{target: "fe80::1", target_ip: nil})
+      assert MtrAutomationDispatcher.traceable_target?(%{target: "host01.example.com"})
+    end
+
+    test "take_traceable/2 drops link-local targets before applying the ceiling" do
+      targets = Enum.map(@link_local ++ @traceable, &ip_target_ctx/1)
+
+      assert {kept, 2} = MtrAutomationDispatcher.take_traceable(targets, nil)
+      assert Enum.map(kept, & &1.target_ip) == @traceable
+
+      assert {kept, 2} = MtrAutomationDispatcher.take_traceable(targets, 2)
+      assert Enum.map(kept, & &1.target_ip) == ["fd00::10", "2001:db8::10"]
+    end
+
+    test "take_traceable/2 stops consuming its input at the ceiling" do
+      targets = Enum.map(@link_local ++ @traceable, &ip_target_ctx/1)
+      exhausted = Stream.repeatedly(fn -> flunk("consumed past the ceiling") end)
+      input = Stream.concat(targets, exhausted)
+
+      assert {kept, 2} = MtrAutomationDispatcher.take_traceable(input, 3)
+      assert Enum.map(kept, & &1.target_ip) == @traceable
+    end
+
+    test "target_contexts_from_srql/3 excludes link-local rows before the ceiling" do
+      translate_fn = fn
+        "in:devices tags.role:edge limit:2", 2, nil, nil, nil ->
+          {:ok,
+           Jason.encode!(%{
+             "sql" => "select ip, hostname, uid, partition_id, gateway_id from devices_page_1",
+             "params" => [],
+             "pagination" => %{"limit" => 2, "next_cursor" => "cursor-2"}
+           })}
+
+        "in:devices tags.role:edge limit:2", 2, "cursor-2", nil, nil ->
+          {:ok,
+           Jason.encode!(%{
+             "sql" => "select ip, hostname, uid, partition_id, gateway_id from devices_page_2",
+             "params" => [],
+             "pagination" => %{"limit" => 2}
+           })}
+      end
+
+      query_fn = fn
+        "select ip, hostname, uid, partition_id, gateway_id from devices_page_1", [] ->
+          {:ok,
+           %Postgrex.Result{
+             columns: ["ip", "hostname", "uid", "partition_id", "gateway_id"],
+             rows: [
+               ["fe80::1", "host01", "dev-1", "p1", "gw-1"],
+               ["169.254.0.10", "host02", "dev-2", "p1", "gw-1"]
+             ]
+           }}
+
+        "select ip, hostname, uid, partition_id, gateway_id from devices_page_2", [] ->
+          {:ok,
+           %Postgrex.Result{
+             columns: ["ip", "hostname", "uid", "partition_id", "gateway_id"],
+             rows: [
+               ["fd00::10", "host03", "dev-3", "p1", "gw-1"],
+               ["2001:db8::10", "host04", "dev-4", "p1", "gw-1"],
+               ["192.0.2.10", "host05", "dev-5", "p1", "gw-1"]
+             ]
+           }}
+      end
+
+      opts = [translate_fn: translate_fn, query_fn: query_fn, managed_target_filter_fn: & &1]
+
+      assert {:ok, targets} =
+               MtrAutomationDispatcher.target_contexts_from_srql("tags.role:edge", 2, opts)
+
+      assert Enum.map(targets, & &1.target_ip) == ["fd00::10", "2001:db8::10"]
+
+      assert {:ok, targets} =
+               MtrAutomationDispatcher.target_contexts_from_srql(
+                 "tags.role:edge",
+                 nil,
+                 Keyword.put(opts, :page_size, 2)
+               )
+
+      assert Enum.map(targets, & &1.target_ip) == @traceable
+    end
+  end
+
+  defp ip_target_ctx(ip), do: %{target: ip, target_ip: ip, target_key: "ip:#{ip}"}
+
+  defp dispatch_target_ctx do
+    %{
+      target: "192.0.2.10",
+      target_ip: "192.0.2.10",
+      partition_id: "default",
+      target_key: "device:sr:00000000-0000-0000-0000-000000000001"
+    }
+  end
+
+  defp session(agent_id, partition_id, metadata) do
+    %{
+      key: {:agent_control, partition_id, agent_id, :gateway@host01},
+      agent_id: agent_id,
+      pid: self(),
+      partition_id: partition_id,
+      metadata: Map.merge(%{"agent_id" => agent_id, "partition_id" => partition_id}, metadata)
+    }
   end
 end

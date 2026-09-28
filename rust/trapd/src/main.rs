@@ -37,6 +37,14 @@ mod config;
 mod spiffe;
 use config::{Config, SecurityMode};
 
+pub mod serviceradar {
+    pub mod edge {
+        pub mod v1 {
+            tonic::include_proto!("serviceradar.edge.v1");
+        }
+    }
+}
+
 pub mod monitoring {
     tonic::include_proto!("monitoring");
 }

@@ -297,8 +297,17 @@ async function runStep(measure, name, operation, describeResult) {
   return test.step(name, () => measure(name, operation, describeResult))
 }
 
+const FIXTURE_URL = "http://localhost/god-view-fixture"
+
+async function loadFixturePage(page, html) {
+  await page.route(FIXTURE_URL, (route) => route.fulfill({status: 200, contentType: "text/html", body: html}))
+  await page.goto(FIXTURE_URL)
+}
+
 async function preparePage(page, measure) {
-  await runStep(measure, "install fixture DOM", () => page.setContent(`<!doctype html>
+  // WebGPU is only exposed to secure contexts, which `about:blank` is not. Serve the fixture
+  // from an intercepted localhost URL instead: localhost is a secure context.
+  await runStep(measure, "install fixture DOM", () => loadFixturePage(page, `<!doctype html>
     <meta charset="utf-8">
     <style>
       * { animation: none !important; transition: none !important; caret-color: transparent !important; }
@@ -312,7 +321,11 @@ async function preparePage(page, measure) {
     </style>
     <div id="god-view-fixture"></div>`))
   await runStep(measure, "load production renderer bundle", () => page.addScriptTag({path: BUNDLE}))
-  await runStep(measure, "wait for acceptance harness", () => page.waitForFunction(() => window.__SR_GOD_VIEW_HARNESS__))
+  await runStep(measure, "wait for acceptance harness", async () => {
+    await page.waitForFunction(() => window.__SR_GOD_VIEW_HARNESS__ || window.__SR_GOD_VIEW_HARNESS_ERROR__)
+    const failure = await page.evaluate(() => window.__SR_GOD_VIEW_HARNESS_ERROR__)
+    if (failure) throw new Error(`acceptance harness failed to start: ${failure}`)
+  })
   await runStep(measure, "wait for document fonts", () => page.evaluate(() => document.fonts.ready))
 }
 
@@ -418,6 +431,114 @@ test("gates collapsed, expanded, fit, focus, and concurrent roundtrip geometry",
       semanticNodes: 58, semanticEdges: 60, attachmentEdges: 0, renderedRoutes: 57,
       physicalRoutes: 57, renderedPhysicalRoutes: 57, manifolds: 0, renderedGlyphs: 58, admittedLabels: 49,
     })
+  })
+})
+
+test("draws packet flow on WebGPU without a device validation error", async ({page}) => {
+  await mkdir(OUTPUT_DIR, {recursive: true})
+  const measure = timeline("packet-flow")
+  await preparePage(page, measure)
+
+  const result = await runStep(measure, "render packet flow", () => (
+    page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.renderPacketFlow("collapsed"))
+  ))
+  await runStep(measure, "assert packet flow rendered", () => {
+    expect(result.rendererMode).toBe("webgpu")
+    expect(result.flowEdges).toBeGreaterThan(0)
+  })
+  await capturePhase(page, measure, "packet-flow")
+})
+
+test("picks the node under the pointer, at the top and bottom of the view as well as the middle", async ({page}) => {
+  await mkdir(OUTPUT_DIR, {recursive: true})
+  const measure = timeline("picking")
+  await preparePage(page, measure)
+  await renderFixture(page, measure, "collapsed")
+
+  const {targets, viewportHeight} = await runStep(measure, "choose pick targets", () => (
+    page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.pickTargets())
+  ))
+  const top = targets.find((target) => target.where === "top")
+  const bottom = targets.find((target) => target.where === "bottom")
+  // The check only means something if the targets are far from the middle: a pick mirrored
+  // about the middle lands on the node itself there.
+  expect(top.y).toBeLessThan(viewportHeight * 0.35)
+  expect(bottom.y).toBeGreaterThan(viewportHeight * 0.65)
+
+  for (const target of targets) {
+    await runStep(measure, `pick ${target.where} node`, async () => {
+      const picked = await page.evaluate(({x, y}) => window.__SR_GOD_VIEW_HARNESS__.pickNodeAt(x, y), target)
+      expect(picked, `${target.where} glyph ${target.id} at (${Math.round(target.x)}, ${Math.round(target.y)})`).toBe(target.id)
+    })
+    // The real pointer path: deck's own hover picking, then God View's handler.
+    await runStep(measure, `hover ${target.where} node`, async () => {
+      await page.mouse.move(target.pageX - 40, target.pageY - 40)
+      await page.mouse.move(target.pageX, target.pageY)
+      await expect.poll(
+        () => page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.hoveredNodeId()),
+        {message: `hovering ${target.where} glyph ${target.id}`, timeout: 10_000},
+      ).toBe(target.id)
+    })
+  }
+})
+
+// The packet-flow test above steps frames by hand. This one runs the product's real loop --
+// requestAnimationFrame calling advanceAnimation -- for several seconds, and checks from outside
+// the page that the main thread keeps answering and frames keep coming.
+const LIVE_ANIMATION_MS = 6_000
+const LIVE_PROBE_INTERVAL_MS = 250
+const MAX_ROUND_TRIP_MS = 200
+// A single probe can land on a scheduling stall shared CI hardware injects (GC, a neighboring
+// RBE action stealing the core) with nothing to do with the page's own responsiveness. Judge
+// sustained responsiveness by the second-slowest sample, and only bound the single worst sample
+// loosely enough to still fail on a genuine hang.
+const MAX_WORST_ROUND_TRIP_MS = 1_500
+const MIN_FRAMES_PER_SECOND = 20
+
+test("keeps the main thread responsive while the live animation loop draws packet flow", async ({page}) => {
+  await mkdir(OUTPUT_DIR, {recursive: true})
+  const measure = timeline("live-animation")
+  await preparePage(page, measure)
+
+  const started = await runStep(measure, "start live animation loop", () => (
+    page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.startLiveAnimation("collapsed"))
+  ))
+  expect(started.rendererMode).toBe("webgpu")
+  expect(started.flowEdges).toBeGreaterThan(0)
+
+  const roundTrips = await runStep(measure, "probe main thread while animating", async () => {
+    const samples = []
+    const deadline = Date.now() + LIVE_ANIMATION_MS
+    while (Date.now() < deadline) {
+      const sentAt = Date.now()
+      await page.evaluate(() => 0)
+      samples.push(Date.now() - sentAt)
+      await new Promise((resolveProbe) => setTimeout(resolveProbe, LIVE_PROBE_INTERVAL_MS))
+    }
+    return samples
+  }, (samples) => ({probes: samples.length, slowestRoundTripMs: Math.max(...samples)}))
+
+  const stats = await runStep(measure, "stop live animation loop", () => (
+    page.evaluate(() => window.__SR_GOD_VIEW_HARNESS__.stopLiveAnimation())
+  ), (result) => result)
+
+  const sortedRoundTrips = [...roundTrips].sort((a, b) => a - b)
+  const worstRoundTripMs = sortedRoundTrips[sortedRoundTrips.length - 1]
+  const secondWorstRoundTripMs = sortedRoundTrips[sortedRoundTrips.length - 2] ?? worstRoundTripMs
+
+  const report = JSON.stringify({...stats, slowestRoundTripMs: worstRoundTripMs, secondSlowestRoundTripMs: secondWorstRoundTripMs, probes: roundTrips.length})
+  console.log(`[god-view] live animation ${report}`)
+  await runStep(measure, "assert live animation stayed responsive", () => {
+    expect(stats.rendererError).toBeNull()
+    expect(stats.rendererMode).toBe("webgpu")
+    expect(stats.elapsedMs).toBeGreaterThanOrEqual(5_000)
+    expect(secondWorstRoundTripMs).toBeLessThan(MAX_ROUND_TRIP_MS)
+    expect(worstRoundTripMs).toBeLessThan(MAX_WORST_ROUND_TRIP_MS)
+    expect(stats.animationFps).toBeGreaterThanOrEqual(MIN_FRAMES_PER_SECOND)
+    expect(stats.browserFps).toBeGreaterThanOrEqual(MIN_FRAMES_PER_SECOND)
+    // The loop advances the clock only.
+    expect(stats.renderGraphCalls).toBe(0)
+    expect(stats.timeAdvanced).toBe(true)
   })
 })
 

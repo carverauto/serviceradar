@@ -191,6 +191,7 @@ function arrowBytes(edgeOrder, sourceRelations = RELATIONS) {
     edge_protocol: edgeValues("protocol"),
     edge_evidence_class: edgeValues("evidenceClass"),
     edge_details: [null, null, ...details],
+    node_id: nodeValues("id"),
   })
   return tableToIPC(table, "stream")
 }

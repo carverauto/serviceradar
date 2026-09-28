@@ -89,9 +89,9 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
 
     run_bootstrap_or_migrations!(app_user)
 
-    # Sync to ash_schema_migrations after migrations complete.
-    # Ash Framework uses this table to track migrations via Repo config.
-    sync_ash_schema_migrations!()
+    # Carry what was just applied into the ledger the migrator did not write -- web-ng's gate
+    # reads ash_schema_migrations. See the function's docs.
+    SchemaBootstrap.sync_migration_ledgers!(ServiceRadar.Repo)
 
     ensure_managed_database_ownership!(app_user)
     ensure_ag_catalog_privileges!(app_user)
@@ -1080,26 +1080,6 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
     end
   end
 
-  defp sync_ash_schema_migrations! do
-    # Create ash_schema_migrations if it doesn't exist
-    ServiceRadar.Repo.query!("""
-    CREATE TABLE IF NOT EXISTS platform.ash_schema_migrations (
-      version bigint NOT NULL PRIMARY KEY,
-      inserted_at timestamp(0) without time zone
-    )
-    """)
-
-    # Sync any migrations from schema_migrations that aren't in ash_schema_migrations.
-    # Only sync if platform.schema_migrations exists (it won't on fresh installs before migrations run).
-    if table_exists?("platform.schema_migrations") do
-      ServiceRadar.Repo.query!("""
-      INSERT INTO platform.ash_schema_migrations (version, inserted_at)
-      SELECT version, inserted_at FROM platform.schema_migrations
-      ON CONFLICT (version) DO NOTHING
-      """)
-    end
-  end
-
   defp run_migrations_with_repair! do
     migrations_path = Application.app_dir(:serviceradar_core, "priv/repo/migrations")
     do_run_migrations_with_repair!(migrations_path, @max_migration_repair_attempts)
@@ -1124,6 +1104,10 @@ defmodule ServiceRadar.Cluster.StartupMigrations do
 
         ensure_platform_schema!(app_user)
         sync_legacy_public_schema_migrations!()
+        # A migrator run under web-ng's config recorded its versions only in
+        # ash_schema_migrations. Without this, pending would be computed from the ledger it
+        # did not write, and those migrations would run a second time.
+        SchemaBootstrap.sync_migration_ledgers!(ServiceRadar.Repo)
         do_run_migrations_with_repair!(migrations_path, @max_migration_repair_attempts)
 
       {:ambiguous, details} ->

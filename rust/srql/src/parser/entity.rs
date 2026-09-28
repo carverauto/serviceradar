@@ -23,6 +23,7 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
             Ok(Entity::DnsActivity)
         }
         "bmp_events" | "bmp_event" | "bmp_routing_events" => Ok(Entity::BmpEvents),
+        "mtr_hops" | "mtr_hop_stats" => Ok(Entity::MtrHops),
         "mtr_traces" => Ok(Entity::MtrTraces),
         "field_survey_sessions" | "fieldsurvey_sessions" | "survey_sessions" => {
             Ok(Entity::FieldSurveySessions)
@@ -118,6 +119,7 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
             Ok(Entity::TraceSummaries)
         }
         "otel_traces" | "traces" | "trace_spans" => Ok(Entity::Traces),
+        "otel_services" => Ok(Entity::OtelServices),
         "threat_intel_matches" | "threat_intel_match" | "ioc_matches" | "ioc_match" => {
             Ok(Entity::ThreatIntelMatches)
         }
@@ -133,6 +135,7 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
         | "k8s_public_endpoints"
         | "k8s_endpoints"
         | "vip_inventory" => Ok(Entity::PublicEndpoints),
+        "camera_sources" | "camera_source" | "cameras" | "camera" => Ok(Entity::CameraSources),
         "endpoint_inventory_scans"
         | "endpoint_inventory_scan"
         | "endpoint_inventory_status"
@@ -161,6 +164,13 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
         "identity_evidence_edges" | "identity_evidence" | "evidence_edges" => {
             Ok(Entity::IdentityEvidenceEdges)
         }
+        "identity_decisions" | "identity_decision" | "dire_decisions" => {
+            Ok(Entity::IdentityDecisions)
+        }
+        "deduplication_tasks"
+        | "deduplication_task"
+        | "dedup_tasks"
+        | "identity_deduplication_tasks" => Ok(Entity::DeduplicationTasks),
         "vulnerability_advisories" | "vulnerability_advisory" | "advisories" | "cves" => {
             Ok(Entity::VulnerabilityAdvisories)
         }

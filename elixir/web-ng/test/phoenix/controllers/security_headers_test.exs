@@ -11,7 +11,8 @@ defmodule ServiceRadarWebNGWeb.SecurityHeadersTest do
 
     assert csp
     assert csp =~ "script-src 'self' blob:"
-    assert csp =~ "media-src 'none'"
+    assert csp =~ "media-src blob: mediastream:;"
+    refute csp =~ ~r/media-src[^;]*(https:|\*)/
     assert csp =~ "frame-ancestors 'none'"
     refute csp =~ "script-src 'self' 'unsafe-inline'"
   end

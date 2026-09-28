@@ -436,10 +436,19 @@ func TestMtrExpectationIsRequiredAndSelfConsistent(t *testing.T) {
 		}
 	}
 
-	// The count is bounded by the same ceiling the accumulator enforces.
+	// Pin the frozen ceiling independently of the implementation constant. This
+	// is structural validation, not recomputation of billions of plan ordinals.
+	at := validAssignment(t)
+	at.MtrExpectation = &edgev1.SweepMtrExpectationV1{
+		OrdinalCount: 2_147_483_648, OrdinalRangeCommitment: d32domain(0x30), PlanOrdinalOffset: proto.Uint64(0),
+	}
+	if err := ValidateSweepAssignmentRecord(at); err != nil {
+		t.Fatalf("count at the ceiling must be valid: %v", err)
+	}
+
 	over := validAssignment(t)
 	over.MtrExpectation = &edgev1.SweepMtrExpectationV1{
-		OrdinalCount: MaxMtrCompletionOrdinals + 1, OrdinalRangeCommitment: d32domain(0x30), PlanOrdinalOffset: proto.Uint64(0),
+		OrdinalCount: 2_147_483_649, OrdinalRangeCommitment: d32domain(0x30), PlanOrdinalOffset: proto.Uint64(0),
 	}
 	if err := ValidateSweepAssignmentRecord(over); !errors.Is(err, ErrAssignmentExpectation) {
 		t.Fatalf("count over the ceiling = %v, want ErrAssignmentExpectation", err)

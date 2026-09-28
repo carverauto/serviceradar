@@ -14,8 +14,13 @@
 {{- $cnpgPooler := default (dict) $cnpg.pooler -}}
 {{- $cnpgPoolerRoute := default (dict) $cnpgPooler.route -}}
 {{- $coreVals := default (dict) .Values.core -}}
+{{- $coreObanShutdownGrace := int (default 60 $coreVals.obanShutdownGracePeriodSeconds) -}}
+{{- $coreTerminationGrace := int (default 90 $coreVals.terminationGracePeriodSeconds) -}}
+{{- if lt $coreTerminationGrace (add $coreObanShutdownGrace 15) -}}
+{{- fail (printf "core.terminationGracePeriodSeconds (%d) must be at least 15s above core.obanShutdownGracePeriodSeconds (%d): Kubernetes kills the pod at the termination grace, so a shorter one cuts Oban's shutdown wait short and orphans the jobs it was waiting for" $coreTerminationGrace $coreObanShutdownGrace) -}}
+{{- end -}}
 {{- $migrationVals := default (dict) $coreVals.migrations -}}
-{{- $migrationsEnabled := default true $migrationVals.enabled -}}
+{{- $migrationsEnabled := include "serviceradar.boolDefaultTrue" (list $migrationVals "enabled") | eq "true" -}}
 {{- $webNg := default (dict) .Values.webNg -}}
 {{- $pluginStorage := default (dict) $webNg.pluginStorage -}}
 {{- $gateway := default (dict) .Values.agentGateway -}}
@@ -168,6 +173,9 @@ spec:
       {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
       {{- include "serviceradar.topologySpread" (dict "root" . "app" "serviceradar-core") | nindent 6 }}
       serviceAccountName: {{ $coreSA }}
+      # Outlives OBAN_SHUTDOWN_GRACE_PERIOD_MS so in-flight jobs finish on SIGTERM
+      # instead of being orphaned `executing` (see core.obanShutdownGracePeriodSeconds).
+      terminationGracePeriodSeconds: {{ $coreTerminationGrace }}
       {{- include "serviceradar.elixirReleasePodSecurityContext" . | nindent 6 }}
       containers:
       - name: core-elx
@@ -341,8 +349,10 @@ spec:
           value: {{ coalesce .Values.partitionId (default (dict) .Values.agent).partitionId "default" | quote }}
         - name: SERVICERADAR_CORE_OBAN_ENABLED
           value: "true"
+        - name: OBAN_SHUTDOWN_GRACE_PERIOD_MS
+          value: {{ mul $coreObanShutdownGrace 1000 | quote }}
         - name: SERVICERADAR_ASH_OBAN_SCHEDULER_ENABLED
-          value: {{ default true $coreVals.ashObanSchedulerEnabled | quote }}
+          value: {{ include "serviceradar.boolDefaultTrue" (list $coreVals "ashObanSchedulerEnabled") | eq "true" | quote }}
         - name: SERVICERADAR_CORE_REPO_ENABLED
           value: "true"
         - name: SERVICERADAR_CORE_REGISTRIES_ENABLED
@@ -414,7 +424,7 @@ spec:
         - name: DATABASE_POOL_TIMEOUT_MS
           value: {{ default 120000 $database.poolTimeoutMs | quote }}
         - name: CONTROL_REPO_ENABLED
-          value: {{ default true $controlDatabase.enabled | quote }}
+          value: {{ include "serviceradar.boolDefaultTrue" (list $controlDatabase "enabled") | eq "true" | quote }}
         - name: CONTROL_REPO_POOL_SIZE
           value: {{ default 5 $controlDatabase.poolSize | quote }}
         - name: CONTROL_DATABASE_QUEUE_TARGET_MS
@@ -487,7 +497,28 @@ spec:
         # anomaly verdicts on signals.analytics.predictions.*) into CNPG. Default on
         # so anomaly findings/alerts surface without per-deployment extraEnv.
         - name: EVENT_WRITER_ENABLED
-          value: {{ default true $eventWriter.enabled | quote }}
+          value: {{ include "serviceradar.boolDefaultTrue" (list $eventWriter "enabled") | eq "true" | quote }}
+        {{- /* JetStream reservations the chart budget counted (serviceradar.jetstreamBudget):
+             every stream EventWriter creates, the EventWriter fallbacks for the
+             collector-owned events, flows and ARANCINI_CAUSAL streams (used until a
+             collector claims the stream), and core's threat-intel object store. */}}
+        {{- $coreJs := (include "serviceradar.jetstreamBudget" . | fromJson).sizes }}
+        {{- range $id := list "metrics" "k8s_inventory" "analytics_predictions" "mtr_results" "scan_results" "trivy_reports" }}
+        {{- $js := index $coreJs $id }}
+        - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $js.stream "suffix" "MAX_BYTES") }}
+          value: {{ $js.maxBytes | quote }}
+        {{- end }}
+        {{- range $pair := list (list "EVENTS" "events") (list "FLOWS" "flowsFallback") (list "ARANCINI_CAUSAL" "aranciniFallback") }}
+        {{- $js := index $coreJs (index $pair 1) }}
+        - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" (index $pair 0) "suffix" "FALLBACK_MAX_BYTES") }}
+          value: {{ $js.maxBytes | quote }}
+        - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" (index $pair 0) "suffix" "FALLBACK_REPLICAS") }}
+          value: {{ $js.replicas | quote }}
+        {{- end }}
+        - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $coreJs.notifications.stream "suffix" "MAX_BYTES") }}
+          value: {{ $coreJs.notifications.maxBytes | quote }}
+        - name: SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES
+          value: {{ $coreJs.threatIntel.maxBytes | quote }}
 
         {{- /* Exact EventWriter flow consumer subjects: concrete flows.raw.* only. */ -}}
         {{- /* flow.host-slice.* is attribution intermediate (joiner), not ocsf consumers. */ -}}
@@ -538,11 +569,11 @@ spec:
         - name: SERVICERADAR_CAPACITY_FORECAST_CONFIG_METRIC_CLASS_OVERRIDES_JSON
           value: {{ default (dict) $capacityForecastConfig.metricClassOverrides | toJson | quote }}
         - name: SERVICERADAR_CAPACITY_FORECASTING_ENABLED
-          value: {{ default true $capacityForecasting.enabled | quote }}
+          value: {{ include "serviceradar.boolDefaultTrue" (list $capacityForecasting "enabled") | eq "true" | quote }}
         - name: SERVICERADAR_CAPACITY_FORECASTING_CRON
           value: {{ default "41 * * * *" $capacityForecasting.cron | quote }}
         - name: SERVICERADAR_CAPACITY_FORECASTING_EMIT_VERDICTS
-          value: {{ default true $capacityForecasting.emitVerdicts | quote }}
+          value: {{ include "serviceradar.boolDefaultTrue" (list $capacityForecasting "emitVerdicts") | eq "true" | quote }}
         - name: SERVICERADAR_CAPACITY_FORECASTING_HORIZON_SECONDS
           value: {{ coalesce $capacityForecasting.horizonSeconds $capacityForecastConfig.forecastHorizonSeconds 7776000 | int64 | quote }}
         - name: SERVICERADAR_CAPACITY_FORECASTING_WARNING_HORIZON_SECONDS
@@ -587,7 +618,7 @@ spec:
         - name: OBJECT_STORE_RETENTION_NATIVE_ADDON_ORPHAN_GRACE_SECONDS
           value: {{ default 604800 $objectStoreRetention.nativeAddonOrphanGraceSeconds | quote }}
         - name: SYNC_INGESTOR_ASYNC
-          value: {{ default true $syncIngestor.async | quote }}
+          value: {{ include "serviceradar.boolDefaultTrue" (list $syncIngestor "async") | eq "true" | quote }}
         - name: DEVICE_ENRICHMENT_RULES_DIR
           value: {{ $deviceEnrichmentRulesDir | quote }}
         - name: CNPG_HOST
@@ -648,8 +679,12 @@ spec:
         - name: NATS_CREDS_FILE
           value: "/etc/serviceradar/creds/platform.creds"
         {{- end }}
-        - name: LOG_PROMOTION_CONSUMER_ENABLED
-          value: {{ default false $coreVals.logPromotionConsumerEnabled | quote }}
+        {{- /* Keep `default false` here even though the chart default in
+               values.yaml is now true. Sprig's `default` treats `false` as
+               EMPTY, so `default true $mtrAutomation.enabled` would return true
+               even when an operator explicitly sets enabled: false -- making
+               MTR impossible to turn off. The enabled-by-default behavior lives
+               in values.yaml, where an explicit false still wins. */}}
         - name: MTR_AUTOMATION_ENABLED
           value: {{ default false $mtrAutomation.enabled | quote }}
         - name: MTR_AUTOMATION_BASELINE_ENABLED
@@ -674,7 +709,7 @@ spec:
                invalid, and a strategic-merge upgrade fails with "The order in
                patch list ... doesn't match $setElementOrder list". Same guard
                as SERVICERADAR_LOCAL_MAILER above. */}}
-        {{- if and (default true $cnpg.enabled) (not (hasKey (default (dict) $coreVals.extraEnv) "SERVICERADAR_CNPG_STORAGE_SIZE")) }}
+        {{- if and (include "serviceradar.boolDefaultTrue" (list $cnpg "enabled") | eq "true") (not (hasKey (default (dict) $coreVals.extraEnv) "SERVICERADAR_CNPG_STORAGE_SIZE")) }}
         - name: SERVICERADAR_CNPG_STORAGE_SIZE
           value: {{ default "100Gi" $cnpg.storageSize | quote }}
         {{- end }}

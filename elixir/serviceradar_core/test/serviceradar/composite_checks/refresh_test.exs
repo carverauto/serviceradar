@@ -131,6 +131,61 @@ defmodule ServiceRadar.CompositeChecks.RefreshTest do
     assert second.changed_at == first.changed_at
   end
 
+  describe "identity fence" do
+    setup do
+      handler_id = "refresh-fence-#{System.unique_integer([:positive])}"
+      test_pid = self()
+
+      :ok =
+        :telemetry.attach_many(
+          handler_id,
+          [
+            [:serviceradar, :identity_fence, :stale],
+            [:serviceradar, :identity_fence, :abandoned]
+          ],
+          fn event, _measurements, metadata, _ ->
+            if metadata.pipeline == :composite_check_refresh,
+              do: send(test_pid, {:fence, List.last(event), metadata})
+          end,
+          nil
+        )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+      :ok
+    end
+
+    test "a job pinned before a merge refreshes the survivor", %{check: check, now: now} do
+      source = device!("sr:" <> Ecto.UUID.generate())
+      survivor = device!("sr:" <> Ecto.UUID.generate())
+      seed_result(check, source.uid, "device_unreachable", :degraded, now)
+      availability(survivor.uid, "agent-a", true, now)
+      availability(survivor.uid, "agent-b", false, now)
+      pinned = source.identity_revision
+
+      assert :ok =
+               ServiceRadar.Inventory.IdentityReconciler.merge_devices(source.uid, survivor.uid,
+                 actor: actor(),
+                 reason: "manual_merge"
+               )
+
+      args = %{"device_uid" => source.uid, "identity_revision" => pinned}
+      assert {:ok, 1} = RefreshWorker.perform(%Oban.Job{args: args})
+
+      {:ok, refreshed} = result(check, survivor.uid)
+      assert refreshed.verdict == "isolated_verified"
+      assert_receive {:fence, :stale, %{device_id: stale_uid}}
+      assert stale_uid == source.uid
+    end
+
+    test "a job pinned to a device that no longer exists is abandoned with telemetry" do
+      uid = "sr:" <> Ecto.UUID.generate()
+      args = %{"device_uid" => uid, "identity_revision" => 1}
+
+      assert {:ok, 0} = RefreshWorker.perform(%Oban.Job{args: args})
+      assert_receive {:fence, :abandoned, %{device_id: ^uid}}
+    end
+  end
+
   test "does nothing for a device with no result rows" do
     assert {:ok, 0} = RefreshWorker.perform(%Oban.Job{args: %{"device_uid" => "device-unknown"}})
   end

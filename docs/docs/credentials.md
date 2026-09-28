@@ -87,6 +87,15 @@ Grant history remains recorded separately through AshPaperTrail in
 stored events. The `credential_resolution_audit_success_events` setting controls
 secret-resolution events, not broker grant lifecycle logging.
 
+A grant the broker refuses (scope mismatch, not active, expired, missing or
+invalid expiry, or no resolvable secret) always writes a secret-resolution audit
+row with outcome `denied`, the grant ID, the requested consumer, target and
+location, and the denial reason. This happens even when routine success auditing
+is off. If the audit row itself is rejected, the resolution is not failed:
+core logs a redacted warning (identifying fields and rejected field names only,
+never metadata or values) and emits the
+`[:serviceradar, :credentials, :resolution_audit, :write_failed]` telemetry event.
+
 ## Providers come from packages, not from the UI
 
 The provider list, the auth methods, the credential fields, the purposes, and the
@@ -752,6 +761,27 @@ This predates the credential store and is the only supported non-database
 credential source left. Migrate it by creating the equivalent SNMP credential
 above, binding it to the profile that covers those targets, and then removing the
 credentials from the file. Do not add new deployments to this path.
+
+#### Mapper target credentials
+
+Mapper uses the shared SNMP resolver for known inventory devices named by job
+seeds (IP, hostname, or device UID) and known devices matching enabled SNMP rules
+in the compiling agent's agent or partition scope. This includes known neighbors
+that discovery may encounter later; unknown addresses retain the collector's
+fallback credentials. A collector can therefore keep a v2c fallback while
+matching switches use scoped v3 credentials.
+
+Resolved credentials are delivered by target IP. If resolution fails for a
+target, or different device records resolve to the same IP with conflicting
+credentials, Mapper suppresses SNMP for that address before connecting or
+authenticating. It does not retry that address with the collector fallback.
+Other targets and API discovery remain available. Mapper configuration compiler logs identify the
+resolution failure or credential conflict.
+
+When no selected job performs SNMP discovery, Mapper skips per-target SNMP
+credential resolution. Device, SNMP profile, credential rule, and credential
+secret changes invalidate the compiled Mapper configuration so agents can
+receive refreshed credentials.
 
 ## Troubleshooting
 

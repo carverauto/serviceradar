@@ -10,6 +10,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMacValidationTest do
 
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.Sync.Lookups
   alias ServiceRadar.Inventory.Sync.Normalize
@@ -201,6 +202,55 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMacValidationTest do
 
       assert IdentityReconciler.generate_deterministic_device_id(ids_a) ==
                IdentityReconciler.generate_deterministic_device_id(ids_b)
+    end
+
+    # #4760: a locally administered (randomized) MAC never identifies a device.
+    test "a locally administered MAC alone is not strong and the address names the record" do
+      base = %{device_id: nil, partition: "default", metadata: %{}, mac: "02:00:5E:00:53:01"}
+
+      at_a = IdentityReconciler.extract_strong_identifiers(Map.put(base, :ip, "192.0.2.10"))
+      at_b = IdentityReconciler.extract_strong_identifiers(Map.put(base, :ip, "192.0.2.11"))
+
+      refute IdentityReconciler.has_strong_identifier?(at_a)
+
+      refute IdentityReconciler.generate_deterministic_device_id(at_a) ==
+               IdentityReconciler.generate_deterministic_device_id(at_b)
+
+      assert IdentityReconciler.generate_deterministic_device_id(at_a) ==
+               IdentityReconciler.generate_deterministic_device_id(%{
+                 ip: "192.0.2.10",
+                 partition: "default"
+               })
+    end
+
+    test "MAC-only identity uses the first universal MAC even after a local MAC" do
+      at_a = %{
+        partition: "default",
+        ip: "192.0.2.10",
+        mac: "02005E005301",
+        macs: ["02005E005301", "00005E005301", "00005E005302"]
+      }
+
+      at_b = %{at_a | ip: "192.0.2.11", macs: ["02005E005301", "00005E005302"]}
+      universal_only = %{mac: "00005E005301", partition: "default"}
+
+      assert Ids.has_strong_identifier?(at_a)
+
+      assert Ids.generate_deterministic_device_id(at_a) ==
+               Ids.generate_deterministic_device_id(universal_only)
+
+      refute Ids.generate_deterministic_device_id(at_a) ==
+               Ids.generate_deterministic_device_id(at_b)
+
+      changed_local = %{
+        at_a
+        | ip: "192.0.2.12",
+          mac: "02005E005303",
+          macs: ["02005E005303", "00005E005301"]
+      }
+
+      assert Ids.generate_deterministic_device_id(at_a) ==
+               Ids.generate_deterministic_device_id(changed_local)
     end
 
     test "different primary MACs produce different UIDs" do

@@ -1,0 +1,237 @@
+suite: flags that default to true honour an explicit false
+templates:
+  - templates/core.yaml
+  - templates/poddisruptionbudgets.yaml
+  - templates/network-policy.yaml
+  - templates/agent-gateway.yaml
+  - templates/web.yaml
+  - templates/serviceradar-config.yaml
+release:
+  namespace: sr-bool-default
+tests:
+  # Sprig's `default true $x.flag` treats false as empty, so an explicit false
+  # rendered as true. These flags go through serviceradar.boolDefaultTrue, which
+  # keeps "absent means true" and lets false through.
+  - it: renders EVENT_WRITER_ENABLED true when the flag is absent
+    template: templates/core.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: EVENT_WRITER_ENABLED
+            value: "true"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: renders EVENT_WRITER_ENABLED false when the flag is false
+    template: templates/core.yaml
+    set:
+      core.eventWriter.enabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: EVENT_WRITER_ENABLED
+            value: "false"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: treats the string "false" as false
+    template: templates/core.yaml
+    set:
+      core.eventWriter.enabled: "false"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: EVENT_WRITER_ENABLED
+            value: "false"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: honours false for a scheduler flag
+    template: templates/core.yaml
+    set:
+      core.ashObanSchedulerEnabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ASH_OBAN_SCHEDULER_ENABLED
+            value: "false"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: renders pod disruption budgets when the flag is absent
+    template: templates/poddisruptionbudgets.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+        not: true
+
+  - it: renders no pod disruption budgets when the flag is false
+    template: templates/poddisruptionbudgets.yaml
+    set:
+      podDisruptionBudgets.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders AGENT_GATEWAY_NATS_TLS false when natsTls is false
+    template: templates/agent-gateway.yaml
+    set:
+      agentGateway.natsTls: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AGENT_GATEWAY_NATS_TLS
+            value: "false"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: renders the external flow-collector policy when its toggle is absent
+    template: templates/network-policy.yaml
+    set:
+      networkPolicy.enabled: true
+      flowCollector.enabled: true
+      flowCollector.service.type: LoadBalancer
+    asserts:
+      - containsDocument:
+          kind: NetworkPolicy
+          apiVersion: networking.k8s.io/v1
+          name: serviceradar-flow-collector-external
+          any: true
+
+  - it: omits the external flow-collector policy when its toggle is false
+    template: templates/network-policy.yaml
+    set:
+      networkPolicy.enabled: true
+      flowCollector.enabled: true
+      flowCollector.service.type: LoadBalancer
+      networkPolicy.ingress.flowCollectorExternal.enabled: false
+    asserts:
+      - containsDocument:
+          kind: NetworkPolicy
+          apiVersion: networking.k8s.io/v1
+          name: serviceradar-flow-collector-external
+          any: true
+        not: true
+
+  - it: renders the web-ng flags true when they are at their defaults
+    template: templates/web.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CLUSTER_ENABLED
+            value: "true"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PHX_CHECK_ORIGIN
+            value: "true"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: renders the web-ng flags false when they are the boolean false
+    template: templates/web.yaml
+    set:
+      webNg.clusterEnabled: false
+      webNg.godViewEnabled: false
+      webNg.mcpClientCredentialsEnabled: false
+      webNg.checkOrigin: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: CLUSTER_ENABLED
+            value: "false"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_GOD_VIEW_ENABLED
+            value: "false"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_MCP_CLIENT_CREDENTIALS_ENABLED
+            value: "false"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PHX_CHECK_ORIGIN
+            value: "false"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: passes a comma-separated check-origin list through unchanged
+    template: templates/web.yaml
+    set:
+      webNg.checkOrigin: "https://a.example.com,https://b.example.com"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PHX_CHECK_ORIGIN
+            value: "https://a.example.com,https://b.example.com"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: renders the identity drift flags true in core.json by default
+    template: templates/serviceradar-config.yaml
+    asserts:
+      - matchRegex:
+          path: data["core.json"]
+          pattern: '"pause_on_drift": true,\s+"alert_on_drift": true'
+
+  - it: renders the identity drift flags false in core.json when they are false
+    template: templates/serviceradar-config.yaml
+    set:
+      core.identity.drift.pauseOnDrift: false
+      core.identity.drift.alertOnDrift: false
+    asserts:
+      - matchRegex:
+          path: data["core.json"]
+          pattern: '"pause_on_drift": false,\s+"alert_on_drift": false'
+
+  - it: renders the sweep high-performance ICMP flag false when it is false
+    template: templates/serviceradar-config.yaml
+    set:
+      sweep.icmp.highPerf: false
+    asserts:
+      - matchRegex:
+          path: data["sweep.json"]
+          pattern: '"high_perf_icmp": false'

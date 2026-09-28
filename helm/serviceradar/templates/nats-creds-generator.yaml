@@ -1,4 +1,4 @@
-{{- $auto := default true .Values.natsCreds.autoGenerate -}}
+{{- $auto := include "serviceradar.boolDefaultTrue" (list (default (dict) .Values.natsCreds) "autoGenerate") | eq "true" -}}
 {{- if and $auto (not (or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.operator)) }}
 {{- $toolsTag := include "serviceradar.imageTag" (dict "Values" .Values "Chart" .Chart "service" "tools") -}}
 ---

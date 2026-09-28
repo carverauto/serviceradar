@@ -17,6 +17,7 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
   @runtime_config Path.expand("../../config/runtime.exs", __DIR__)
 
   @required_production_workers [
+    ServiceRadar.Identity.SAMLAssertionCleanupWorker,
     ServiceRadar.Jobs.AlertsRetentionWorker,
     ServiceRadar.Jobs.RefreshLogsSeverityStatsWorker,
     ServiceRadar.Observability.AnomalyAddonConfigProjector,
@@ -190,6 +191,86 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     assert predictions.stream_max_age == 86_400_000_000_000
   end
 
+  test "prod EventWriter consumes edge records from the stream the gateway publishes to" do
+    edge_record = Enum.find(read_prod_event_writer_streams(), &(&1.name == "EDGE_RECORD"))
+
+    # Without this entry the release never creates the stream, and every gateway
+    # PubAck request on telemetry.edge-record.v1.bulk.pNN times out.
+    assert edge_record, "missing EDGE_RECORD EventWriter stream entry"
+    assert edge_record == EventWriterConfig.edge_record_stream()
+    assert edge_record.stream_name == "TELEMETRY_EDGE_RECORD_V1_BULK"
+    assert edge_record.subject == "telemetry.edge-record.v1.bulk.>"
+  end
+
+  # The release list replaces Config.default_streams/0 outright, and nothing
+  # but the EventWriter consumer creates these streams: a default stream left
+  # out here has no stream in a deployment, so every publish to its subject is
+  # refused. MTR_RESULTS and SCAN_RESULTS shipped that way.
+  test "prod EventWriter consumes every default EventWriter stream" do
+    prod_names = MapSet.new(read_prod_event_writer_streams(), & &1.name)
+
+    missing =
+      EventWriterConfig.default_streams()
+      |> Enum.map(& &1.name)
+      |> Enum.reject(&MapSet.member?(prod_names, &1))
+
+    assert missing == [], "release EventWriter stream list is missing #{inspect(missing)}"
+  end
+
+  test "prod EventWriter persists ad-hoc scan and MTR results from their own streams" do
+    streams = read_prod_event_writer_streams()
+
+    assert Enum.find(streams, &(&1.name == "SCAN_RESULTS")) ==
+             EventWriterConfig.scan_results_stream()
+
+    assert Enum.find(streams, &(&1.name == "MTR_RESULTS")) ==
+             EventWriterConfig.mtr_results_stream()
+  end
+
+  test "prod EventWriter reads every stream size from the environment" do
+    with_env("EVENT_WRITER_ENABLED", "true")
+    with_env("SERVICERADAR_JS_TRIVY_REPORTS_MAX_BYTES", "123456789")
+    with_env("SERVICERADAR_JS_ARANCINI_CAUSAL_FALLBACK_MAX_BYTES", "234567890")
+    with_env("SERVICERADAR_JS_EVENTS_FALLBACK_REPLICAS", "3")
+    # Blank means unset: the chart may render an empty string.
+    with_env("SERVICERADAR_JS_FLOWS_FALLBACK_MAX_BYTES", "  ")
+    with_env("SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES", "345678901")
+
+    config = read_prod_config()[:serviceradar_core]
+    sizes = config[ServiceRadar.EventWriter][:jetstream_sizes]
+    defaults = EventWriterConfig.default_jetstream_sizes()
+
+    assert sizes.max_bytes["trivy_reports"] == 123_456_789
+    assert sizes.max_bytes["metrics"] == defaults.max_bytes["metrics"]
+    assert sizes.fallbacks["ARANCINI_CAUSAL"].max_bytes == 234_567_890
+    assert sizes.fallbacks["events"].replicas == 3
+    assert sizes.fallbacks["flows"] == defaults.fallbacks["flows"]
+
+    assert config[ServiceRadar.Notifications.StreamPublisher][:max_bytes] == 345_678_901
+
+    # The shared `events` stream carries no hardcoded size in the release list;
+    # its fallback comes from SERVICERADAR_JS_EVENTS_FALLBACK_* instead.
+    events = Enum.find(config[ServiceRadar.EventWriter][:streams], &(&1.name == "EVENTS"))
+    refute Map.has_key?(events, :stream_max_bytes)
+  end
+
+  test "prod boot fails naming an invalid EventWriter stream size variable" do
+    with_env("EVENT_WRITER_ENABLED", "true")
+
+    invalid = [
+      {"SERVICERADAR_JS_METRICS_MAX_BYTES", "abc"},
+      {"SERVICERADAR_JS_FLOWS_FALLBACK_REPLICAS", "0"},
+      {"SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES", "-1"}
+    ]
+
+    for {name, value} <- invalid do
+      with_env(name, value)
+      error = catch_error(read_prod_config())
+      assert Exception.message(error) =~ name
+      with_env(name, nil)
+    end
+  end
+
   test "prod EventWriter Falco consumer targets the provisioned events stream" do
     falco = Enum.find(read_prod_event_writer_streams(), &(&1.name == "FALCO"))
 
@@ -321,6 +402,40 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
              "config :serviceradar_core, #{inspect(module)} is missing from this release's " <>
                "runtime.exs, so its env vars are inert in production"
     end
+  end
+
+  test "prod config enables automated MTR by default" do
+    core_config = read_prod_config()[:serviceradar_core]
+
+    # Asserted here rather than in serviceradar_core because only this tree is
+    # evaluated by the release; core's copy of these keys is inert in production.
+    assert core_config[:mtr_automation_enabled] == true
+    assert core_config[:mtr_automation_baseline_enabled] == true
+    assert core_config[:mtr_automation_trigger_enabled] == true
+    assert core_config[:mtr_automation_consensus_enabled] == true
+  end
+
+  test "prod config lets MTR_AUTOMATION_ENABLED seed the unset stage flags" do
+    with_env("MTR_AUTOMATION_ENABLED", "false")
+
+    core_config = read_prod_config()[:serviceradar_core]
+
+    # `enabled` gates no worker itself -- it is the fallback each stage flag
+    # inherits, which is why the chart renders all four.
+    assert core_config[:mtr_automation_enabled] == false
+    assert core_config[:mtr_automation_baseline_enabled] == false
+    assert core_config[:mtr_automation_trigger_enabled] == false
+    assert core_config[:mtr_automation_consensus_enabled] == false
+  end
+
+  test "prod config honours a per-stage MTR opt-out over the master value" do
+    with_env("MTR_AUTOMATION_CONSENSUS_ENABLED", "false")
+
+    core_config = read_prod_config()[:serviceradar_core]
+
+    assert core_config[:mtr_automation_consensus_enabled] == false
+    assert core_config[:mtr_automation_baseline_enabled] == true
+    assert core_config[:mtr_automation_trigger_enabled] == true
   end
 
   test "prod config enables StarRocks shadow from Helm env" do

@@ -64,6 +64,67 @@ pub(super) fn traces() -> VizMeta {
     }
 }
 
+pub(super) fn mtr_hops() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col("time", ColumnType::Timestamptz, Some(ColumnSemantic::Time)),
+            col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("trace_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("hop_number", ColumnType::Int, Some(ColumnSemantic::Value)),
+            col("addr", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("hostname", ColumnType::Text, Some(ColumnSemantic::Label)),
+            col("ecmp_addrs", ColumnType::TextArray, None),
+            col("asn", ColumnType::Int, None),
+            col("asn_org", ColumnType::Text, None),
+            col("mpls_labels", ColumnType::Jsonb, None),
+            col("sent", ColumnType::Int, Some(ColumnSemantic::Value)),
+            col("received", ColumnType::Int, Some(ColumnSemantic::Value)),
+            col("loss_pct", ColumnType::Float, Some(ColumnSemantic::Value)).with_unit("%"),
+            col("last_us", ColumnType::Int, Some(ColumnSemantic::Value)).with_unit("µs"),
+            col("avg_us", ColumnType::Int, Some(ColumnSemantic::Value)).with_unit("µs"),
+            col("min_us", ColumnType::Int, Some(ColumnSemantic::Value)).with_unit("µs"),
+            col("max_us", ColumnType::Int, Some(ColumnSemantic::Value)).with_unit("µs"),
+            col("stddev_us", ColumnType::Int, Some(ColumnSemantic::Value)).with_unit("µs"),
+            col("jitter_us", ColumnType::Int, Some(ColumnSemantic::Value)).with_unit("µs"),
+            col(
+                "jitter_worst_us",
+                ColumnType::Int,
+                Some(ColumnSemantic::Value),
+            )
+            .with_unit("µs"),
+            col(
+                "jitter_interarrival_us",
+                ColumnType::Int,
+                Some(ColumnSemantic::Value),
+            )
+            .with_unit("µs"),
+            col(
+                "created_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+            col(
+                "reply_time_exceeded",
+                ColumnType::Int,
+                Some(ColumnSemantic::Value),
+            ),
+            col(
+                "reply_unreachable",
+                ColumnType::Int,
+                Some(ColumnSemantic::Value),
+            ),
+            col("reply_synack", ColumnType::Int, Some(ColumnSemantic::Value)),
+            col("reply_rst", ColumnType::Int, Some(ColumnSemantic::Value)),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
+
 pub(super) fn mtr_traces() -> VizMeta {
     VizMeta {
         columns: vec![
@@ -88,6 +149,78 @@ pub(super) fn mtr_traces() -> VizMeta {
                 ColumnType::Timestamptz,
                 Some(ColumnSemantic::Time),
             ),
+            col("tcp_handshake_ttl", ColumnType::Int, None),
+            col(
+                "tcp_handshake_attempts",
+                ColumnType::Int,
+                Some(ColumnSemantic::Value),
+            ),
+            col("tcp_syn_sent", ColumnType::Int, Some(ColumnSemantic::Value)),
+            col(
+                "tcp_synack_received",
+                ColumnType::Int,
+                Some(ColumnSemantic::Value),
+            ),
+            col(
+                "tcp_rst_received",
+                ColumnType::Int,
+                Some(ColumnSemantic::Value),
+            ),
+            col(
+                "tcp_syn_unanswered",
+                ColumnType::Int,
+                Some(ColumnSemantic::Value),
+            ),
+            col(
+                "tcp_syn_drop_pct",
+                ColumnType::Float,
+                Some(ColumnSemantic::Value),
+            )
+            .with_unit("%"),
+            col(
+                "tcp_syn_retransmits",
+                ColumnType::Int,
+                Some(ColumnSemantic::Value),
+            ),
+            col(
+                "tcp_answered_after_retx",
+                ColumnType::Int,
+                Some(ColumnSemantic::Value),
+            ),
+            col(
+                "tcp_ack_mismatch",
+                ColumnType::Int,
+                Some(ColumnSemantic::Value),
+            ),
+            col(
+                "tcp_synack_duplicates",
+                ColumnType::Int,
+                Some(ColumnSemantic::Value),
+            ),
+            col(
+                "tcp_handshake_rtt_min_us",
+                ColumnType::Int,
+                Some(ColumnSemantic::Value),
+            )
+            .with_unit("µs"),
+            col(
+                "tcp_handshake_rtt_avg_us",
+                ColumnType::Int,
+                Some(ColumnSemantic::Value),
+            )
+            .with_unit("µs"),
+            col(
+                "tcp_handshake_rtt_max_us",
+                ColumnType::Int,
+                Some(ColumnSemantic::Value),
+            )
+            .with_unit("µs"),
+            col(
+                "tcp_server_response_us",
+                ColumnType::Int,
+                Some(ColumnSemantic::Value),
+            )
+            .with_unit("µs"),
         ],
         suggestions: vec![VizSuggestion {
             kind: VizKind::Table,
@@ -128,6 +261,35 @@ pub(super) fn trace_summaries() -> VizMeta {
             col("service_set", ColumnType::TextArray, None),
             col("span_count", ColumnType::Int, Some(ColumnSemantic::Value)),
             col("error_count", ColumnType::Int, Some(ColumnSemantic::Value)),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
+
+/// The OTel `service.name` catalog. Per-signal fields outside the caller's
+/// permitted signals are always null.
+pub(super) fn otel_services() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col(
+                "service_name",
+                ColumnType::Text,
+                Some(ColumnSemantic::Label),
+            ),
+            col("signals", ColumnType::TextArray, None),
+            col(
+                "last_seen",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+            col("logs_last_seen", ColumnType::Timestamptz, None),
+            col("traces_last_seen", ColumnType::Timestamptz, None),
+            col("metrics_last_seen", ColumnType::Timestamptz, None),
         ],
         suggestions: vec![VizSuggestion {
             kind: VizKind::Table,

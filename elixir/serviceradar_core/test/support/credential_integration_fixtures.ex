@@ -92,9 +92,6 @@ defmodule ServiceRadar.TestSupport.CredentialIntegrationFixtures do
     end
   end
 
-  @spec catalog([map()]) :: map()
-  def catalog(profiles), do: %{credential_profiles: profiles, inventory_sources: []}
-
   @spec target_policy_profile(keyword()) :: map()
   def target_policy_profile(opts \\ []) do
     provider = Keyword.get(opts, :provider, "example-network")

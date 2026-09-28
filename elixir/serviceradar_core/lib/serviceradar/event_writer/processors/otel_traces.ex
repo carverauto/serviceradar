@@ -2,8 +2,11 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
   @moduledoc """
   Processor for OpenTelemetry trace messages.
 
-  Parses OTEL traces from NATS JetStream and inserts them into
-  the `otel_traces` hypertable.
+  Parses OTEL traces from NATS JetStream and stores them in the one active
+  telemetry backend: the `otel_traces` warehouse table when StarRocks is
+  enabled, the `otel_traces` hypertable otherwise, never both (`store/2`).
+  Either way `RefreshTraceSummariesWorker` then derives trace summaries in the
+  same backend.
 
   ## Message Format
 
@@ -64,15 +67,16 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
   alias Opentelemetry.Proto.Trace.V1.Span.SpanKind
   alias Opentelemetry.Proto.Trace.V1.Status
   alias Opentelemetry.Proto.Trace.V1.Status.StatusCode
+  alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.IngestAttribution
   alias ServiceRadar.EventWriter.OtelId
   alias ServiceRadar.EventWriter.OtlpAttributes
+  alias ServiceRadar.EventWriter.ServiceCatalog
   alias ServiceRadar.EventWriter.SignalTelemetry
   alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
   alias ServiceRadar.Observability.OtelPubSub
-  alias ServiceRadar.SweepJobs.ObanSupport
 
   require Logger
 
@@ -90,7 +94,7 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
     if Enum.empty?(rows) do
       {:ok, 0}
     else
-      insert_trace_rows(rows)
+      store_trace_rows(rows)
     end
   rescue
     e ->
@@ -115,38 +119,85 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
     IngestAttribution.attach(case_result, attribution)
   end
 
+  @doc """
+  Stores spans in the one active telemetry backend: the warehouse when
+  StarRocks is enabled, CNPG otherwise, never both. Returns how many spans were
+  written.
+
+  A failed warehouse load fails the batch, JetStream redelivers it, and the
+  primary-key table upserts the same keys; CNPG ignores the duplicates.
+
+  Options (tests): `:starrocks_enabled` (defaults to `Destination.enabled?/0`)
+  and `:load`, the warehouse loader `(dataset, rows -> {:ok, map} | {:error, term})`.
+  """
+  @spec store([map()], keyword()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def store(rows, opts \\ []) do
+    if Keyword.get_lazy(opts, :starrocks_enabled, &Destination.enabled?/0) do
+      load = Keyword.get(opts, :load, &Destination.persist_warehouse/2)
+
+      case load.(:otel_traces, rows) do
+        {:ok, _result} -> {:ok, length(rows)}
+        {:error, _reason} = error -> error
+      end
+    else
+      # DB connection's search_path determines the schema
+      {count, _} =
+        BulkInsert.insert_all(
+          table_name(),
+          rows,
+          on_conflict: :nothing,
+          returning: false
+        )
+
+      {:ok, count}
+    end
+  end
+
   # Private functions
 
+  # A span with no trace or span id has no key in either backend: CNPG's
+  # NOT NULL columns would fail the whole batch on it, and a warehouse load
+  # would filter it out. It is rejected here instead, on both paths.
   defp build_rows(messages) do
     parsed = Enum.map(messages, &parse_message/1)
     rejected = Enum.count(parsed, &is_nil/1)
 
-    rows =
+    {rows, keyless} =
       parsed
       |> Enum.reject(&is_nil/1)
       |> Enum.flat_map(&List.wrap/1)
+      |> Enum.split_with(&keyed_span?/1)
 
-    {rows, rejected}
+    {rows, rejected + length(keyless)}
   end
 
-  defp insert_trace_rows(rows) do
-    # DB connection's search_path determines the schema
-    {count, _} =
-      BulkInsert.insert_all(
-        table_name(),
-        rows,
-        on_conflict: :nothing,
-        returning: false
-      )
+  defp keyed_span?(row), do: is_binary(row[:trace_id]) and is_binary(row[:span_id])
 
+  defp store_trace_rows(rows) do
+    case store(rows) do
+      {:ok, count} ->
+        announce_stored(rows, count)
+        {:ok, count}
+
+      {:error, reason} = error ->
+        Logger.warning("OtelTraces batch store failed", reason: inspect(reason))
+        error
+    end
+  end
+
+  defp announce_stored(rows, count) do
     SignalTelemetry.emit(:traces, :written, count)
     OtelPubSub.broadcast_traces(%{count: count})
     if count > 0, do: request_summary_refresh()
-    {:ok, count}
+    # Best-effort catalog upsert after the spans are durable; never fails the batch.
+    _ = ServiceCatalog.record(:traces, rows)
+    :ok
   end
 
+  # Also the prompt path out of an orphaned refresh: enqueue/0 rescues an
+  # executing row whose run is provably dead instead of coalescing into it.
   defp request_summary_refresh do
-    case %{} |> RefreshTraceSummariesWorker.new() |> ObanSupport.safe_insert() do
+    case RefreshTraceSummariesWorker.enqueue() do
       {:ok, _job} ->
         :ok
 

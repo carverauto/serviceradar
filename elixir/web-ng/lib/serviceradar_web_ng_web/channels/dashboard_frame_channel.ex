@@ -3,9 +3,12 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
   use Phoenix.Channel
 
   alias ServiceRadar.Dashboards.DashboardInstance
+  alias ServiceRadar.Events.PubSub, as: EventsPubSub
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNG.Dashboards.FrameRunner
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.DashboardFrameChannel.Actions
+  alias ServiceRadarWebNGWeb.DashboardFrameChannel.Events
   alias ServiceRadarWebNGWeb.Endpoint
 
   require Logger
@@ -16,6 +19,9 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
   @stream_salt "dashboard-frame-stream-v1"
   @stream_token_max_age 3_600
   @binary_magic "DFB1"
+  @action_poll_ms 1_000
+  @action_poll_grace_ms 30_000
+  @events_reauthorize_ms 30_000
 
   @impl true
   def join("dashboards:" <> route_slug, %{"token" => token} = payload, socket) when is_binary(route_slug) do
@@ -42,6 +48,9 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
         |> assign(:last_frame_hash, nil)
         |> assign(:refresh_task_ref, nil)
         |> assign(:refresh_task_kind, nil)
+        |> assign(:capabilities, stream_capabilities(stream))
+        |> assign(:event_subscriptions, %{})
+        |> assign(:events_authorized_at, nil)
 
       send(self(), :dashboard_frame_tick)
       {:ok, %{"refresh_interval_ms" => socket.assigns.refresh_ms}, socket}
@@ -98,37 +107,138 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
 
   def handle_info({:dashboard_frame_result, _ref, _result}, socket), do: {:noreply, socket}
 
+  def handle_info({:dashboard_action_poll, invocation_id, deadline}, socket) do
+    case Actions.progress(socket.assigns.current_scope, invocation_id) do
+      {:ok, payload} ->
+        push(socket, "actions:progress", payload)
+        maybe_poll_action(invocation_id, deadline, Actions.terminal?(payload))
+
+      {:error, :progress_unavailable} ->
+        push(socket, "actions:progress", %{"invocation_id" => invocation_id, "state" => "unknown"})
+    end
+
+    {:noreply, socket}
+  end
+
+  def handle_info({:ocsf_event_rows, summaries}, socket) when is_list(summaries) do
+    case authorize_event_delivery(socket) do
+      {:ok, socket} ->
+        push_visible_events(socket, Events.match(socket.assigns.event_subscriptions, summaries))
+        {:noreply, socket}
+
+      {:error, socket} ->
+        push(socket, "events:error", %{"reason" => Events.format_error(:permission_denied)})
+        {:noreply, drop_event_subscriptions(socket)}
+    end
+  end
+
   @impl true
   def handle_in("frames:refresh", _payload, socket) do
-    socket =
-      socket
-      |> assign(:last_frame_hash, nil)
-      |> assign(:frame_cursors, %{})
-      |> assign(:deferred_frame_sent, false)
-      |> start_frame_refresh(socket.assigns.initial_data_frames, :initial)
+    # Two defects previously lived here. It cleared `frame_cursors`, so forcing a
+    # refresh silently threw away the user's paging position; and it then called
+    # start_frame_refresh/3, which returns the socket unchanged when a task is
+    # already in flight — so it could destroy dedupe state, do no work, and still
+    # reply {:ok, %{}}. Now it refuses rather than lying, and never moves the page.
+    if refresh_in_flight?(socket) do
+      {:reply, {:error, %{reason: "refresh_in_progress"}}, socket}
+    else
+      socket =
+        socket
+        |> assign(:last_frame_hash, nil)
+        |> assign(:deferred_frame_sent, false)
+        |> start_frame_refresh(socket.assigns.initial_data_frames, :initial)
 
-    {:reply, {:ok, %{}}, socket}
+      {:reply, {:ok, %{}}, socket}
+    end
+  end
+
+  def handle_in("actions:list", payload, socket) when is_map(payload) do
+    case Actions.list(socket.assigns.current_scope, socket.assigns.capabilities, payload) do
+      {:ok, actions} -> {:reply, {:ok, %{"actions" => actions}}, socket}
+      {:error, reason} -> {:reply, {:error, %{"reason" => Actions.format_error(reason)}}, socket}
+    end
+  end
+
+  def handle_in("actions:invoke", payload, socket) when is_map(payload) do
+    payload = Map.put(payload, "route_slug", socket.assigns.route_slug)
+
+    case Actions.invoke(socket.assigns.current_scope, socket.assigns.capabilities, payload) do
+      {:ok, invocation, timeout_ms} ->
+        deadline = System.monotonic_time(:millisecond) + timeout_ms + @action_poll_grace_ms
+        maybe_poll_action(invocation["invocation_id"], deadline, Actions.terminal?(invocation))
+        {:reply, {:ok, invocation}, socket}
+
+      {:error, reason} ->
+        {:reply, {:error, %{"reason" => Actions.format_error(reason)}}, socket}
+    end
+  end
+
+  def handle_in("events:subscribe", payload, socket) when is_map(payload) do
+    %{current_scope: scope, capabilities: capabilities, event_subscriptions: subscriptions} = socket.assigns
+
+    case Events.subscribe(scope, capabilities, subscriptions, payload) do
+      {:ok, id, filter} ->
+        if subscriptions == %{}, do: Phoenix.PubSub.subscribe(ServiceRadar.PubSub, EventsPubSub.rows_topic())
+
+        socket =
+          socket
+          |> assign(:event_subscriptions, Map.put(subscriptions, id, filter))
+          |> assign(:events_authorized_at, System.monotonic_time(:millisecond))
+
+        {:reply, {:ok, %{"subscription_id" => id}}, socket}
+
+      {:error, reason} ->
+        {:reply, {:error, %{"reason" => Events.format_error(reason)}}, socket}
+    end
+  end
+
+  def handle_in("events:unsubscribe", %{"id" => id}, socket) when is_binary(id) do
+    subscriptions = Map.delete(socket.assigns.event_subscriptions, id)
+    if subscriptions == %{}, do: Phoenix.PubSub.unsubscribe(ServiceRadar.PubSub, EventsPubSub.rows_topic())
+    {:reply, {:ok, %{}}, assign(socket, :event_subscriptions, subscriptions)}
+  end
+
+  def handle_in(event, _payload, socket)
+      when event in ["actions:list", "actions:invoke", "events:subscribe", "events:unsubscribe"] do
+    {:reply, {:error, %{"reason" => "invalid_request"}}, socket}
   end
 
   def handle_in("frames:page", payload, socket) do
     frame_id = payload |> Map.get("frame_id") |> to_string() |> String.trim()
     cursor = payload |> Map.get("cursor") |> to_string() |> String.trim()
 
-    if frame_id == "" or cursor == "" do
-      {:reply, {:error, %{reason: "frame_id and cursor are required"}}, socket}
-    else
-      case find_data_frame(socket, frame_id) do
-        nil ->
-          {:reply, {:error, %{reason: "unknown_frame"}}, socket}
+    cond do
+      frame_id == "" or cursor == "" ->
+        {:reply, {:error, %{reason: "frame_id and cursor are required"}}, socket}
 
-        frame ->
-          socket =
-            socket
-            |> assign(:frame_cursors, Map.put(socket.assigns.frame_cursors, frame_id, cursor))
-            |> start_frame_refresh([Map.put(frame, "cursor", cursor)], :page)
+      # start_frame_refresh/3 no-ops while a task is in flight, and this used to
+      # reply {:ok, %{}} anyway — telling the renderer its page request had been
+      # accepted when it had been dropped. Refuse instead, so the caller can retry.
+      refresh_in_flight?(socket) ->
+        {:reply, {:error, %{reason: "refresh_in_progress"}}, socket}
 
-          {:reply, {:ok, %{}}, socket}
-      end
+      true ->
+        page_frame(socket, frame_id, cursor, normalize_direction(Map.get(payload, "direction")))
+    end
+  end
+
+  defp page_frame(socket, frame_id, cursor, direction) do
+    case find_data_frame(socket, frame_id) do
+      nil ->
+        {:reply, {:error, %{reason: "unknown_frame"}}, socket}
+
+      frame ->
+        paged_frame =
+          frame
+          |> Map.put("cursor", cursor)
+          |> maybe_put_direction(direction)
+
+        socket =
+          socket
+          |> assign(:frame_cursors, Map.put(socket.assigns.frame_cursors, frame_id, cursor))
+          |> start_frame_refresh([paged_frame], :page)
+
+        {:reply, {:ok, %{}}, socket}
     end
   end
 
@@ -171,9 +281,28 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
       |> Map.get(:last_frames, [])
       |> merge_frames(updates)
 
-    hash = :erlang.phash2(frames)
+    # Hash the frames WITHOUT their freshness stamps.
+    #
+    # FrameRunner now stamps `refreshed_at`/`checked_at`/`content_hash` on every
+    # frame so clients can detect a genuine change (the SDK's frameDigest reads
+    # `refreshed_at`, and without it a json_rows digest was constant and every
+    # refresh was discarded). But `checked_at` advances on every tick by
+    # definition, so hashing the whole frame would make this dedupe always miss:
+    # a full `frames:replace` plus a re-push of every arrow binary, every tick,
+    # for every viewer, with clients re-decoding each time.
+    #
+    # Stripping the volatile fields keeps the hash meaning what it has always
+    # meant — "did the data change" — while the stamps still reach the client on
+    # the pushes that do happen.
+    hash = :erlang.phash2(Enum.map(frames, &strip_volatile_fields/1))
 
     if socket.assigns[:last_frame_hash] == hash do
+      # Nothing changed, so no frame is sent. Tell the client we looked, so it can
+      # show liveness ("as of 14:02") without a frame round-trip. Carries no rows.
+      push(socket, "frames:heartbeat", %{
+        "checked_at" => DateTime.to_iso8601(DateTime.utc_now())
+      })
+
       socket
     else
       {metadata_frames, binary_frames} = prepare_frame_transport(frames)
@@ -203,14 +332,69 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
       socket
   end
 
-  def stream_token(route_slug, data_frames, user_id, active_frame_ids \\ [])
+  # `capabilities` is the package's approved capability list; the token is
+  # server-signed, so the channel trusts it the way it trusts `data_frames`.
+  def stream_token(route_slug, data_frames, user_id, active_frame_ids \\ [], capabilities \\ [])
       when is_binary(route_slug) and is_list(data_frames) and not is_nil(user_id) do
     Phoenix.Token.sign(Endpoint, @stream_salt, %{
       "route_slug" => route_slug,
       "user_id" => to_string(user_id),
       "data_frames" => data_frames,
-      "active_frame_ids" => normalize_frame_ids(active_frame_ids)
+      "active_frame_ids" => normalize_frame_ids(active_frame_ids),
+      "capabilities" => Enum.map(List.wrap(capabilities), &to_string/1)
     })
+  end
+
+  defp stream_capabilities(stream) do
+    case stream["capabilities"] || stream[:capabilities] do
+      capabilities when is_list(capabilities) -> Enum.map(capabilities, &to_string/1)
+      _other -> []
+    end
+  end
+
+  defp maybe_poll_action(_invocation_id, _deadline, true), do: :ok
+
+  defp maybe_poll_action(invocation_id, deadline, false) do
+    if System.monotonic_time(:millisecond) < deadline do
+      Process.send_after(self(), {:dashboard_action_poll, invocation_id, deadline}, @action_poll_ms)
+    end
+
+    :ok
+  end
+
+  defp push_visible_events(_socket, []), do: :ok
+
+  defp push_visible_events(socket, matched) do
+    visible = Events.visible_ids(socket.assigns.current_scope, Enum.flat_map(matched, &elem(&1, 1)))
+
+    Enum.each(matched, fn {id, events} ->
+      case Enum.filter(events, &MapSet.member?(visible, &1["id"])) do
+        [] -> :ok
+        events -> push(socket, "events:batch", %{"subscription_id" => id, "events" => events})
+      end
+    end)
+  end
+
+  # Refreshes the viewer (role, status) at most every @events_reauthorize_ms, so
+  # per-row visibility follows role changes and a deactivated viewer's
+  # subscriptions are dropped.
+  defp authorize_event_delivery(socket) do
+    now = System.monotonic_time(:millisecond)
+    checked_at = socket.assigns.events_authorized_at
+
+    if is_integer(checked_at) and now - checked_at < @events_reauthorize_ms do
+      {:ok, socket}
+    else
+      case RBAC.authorize_current(socket.assigns.current_scope, []) do
+        {:ok, scope} -> {:ok, socket |> assign(:current_scope, scope) |> assign(:events_authorized_at, now)}
+        {:error, _reason} -> {:error, socket}
+      end
+    end
+  end
+
+  defp drop_event_subscriptions(socket) do
+    Phoenix.PubSub.unsubscribe(ServiceRadar.PubSub, EventsPubSub.rows_topic())
+    assign(socket, :event_subscriptions, %{})
   end
 
   defp verify_stream_token(token) when is_binary(token) do
@@ -372,6 +556,14 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
       |> Map.put("stale", true)
       |> Map.put("stale_reason", Map.get(update, "error") || "frame_refresh_failed")
       |> Map.put("last_success_status", "ok")
+      # These rows are the PREVIOUS run's, so they keep the previous run's
+      # timestamp and content hash. FrameRunner deliberately leaves `refreshed_at`
+      # off a non-ok frame for exactly this reason: stamping "now" here would
+      # report stale rows as fresh, which is the defect this change exists to fix.
+      # `checked_at` still reflects the failed attempt, so a renderer can say
+      # "as of 14:02, last checked 14:17".
+      |> maybe_put_previous("refreshed_at", previous)
+      |> maybe_put_previous("content_hash", previous)
     else
       update
     end
@@ -405,6 +597,39 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
 
   defp row_count(results) when is_list(results), do: length(results)
   defp row_count(_results), do: 0
+
+  # The fields FrameRunner stamps that move on every evaluation, whether or not the
+  # data did. Excluded from the dedupe hash so it keeps meaning "did the data
+  # change". `content_hash` is deliberately KEPT: it is derived from the rows, so
+  # it moving is exactly the signal we want.
+  @volatile_frame_fields ~w(refreshed_at checked_at)
+
+  defp strip_volatile_fields(frame) when is_map(frame), do: Map.drop(frame, @volatile_frame_fields)
+  defp strip_volatile_fields(frame), do: frame
+
+  defp refresh_in_flight?(socket), do: not is_nil(socket.assigns[:refresh_task_ref])
+
+  # Only two directions are meaningful, and anything else must not reach SRQL.
+  # Nil means "forward", which is what every existing caller gets.
+  defp normalize_direction(value) when is_binary(value) do
+    case value do
+      "prev" -> "prev"
+      "next" -> "next"
+      _ -> nil
+    end
+  end
+
+  defp normalize_direction(_value), do: nil
+
+  defp maybe_put_direction(frame, nil), do: frame
+  defp maybe_put_direction(frame, direction), do: Map.put(frame, "direction", direction)
+
+  defp maybe_put_previous(update, key, previous) do
+    case Map.get(previous, key) do
+      nil -> update
+      value -> Map.put(update, key, value)
+    end
+  end
 
   defp prepare_frame_transport(frames) do
     frames

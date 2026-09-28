@@ -263,10 +263,26 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.Load do
         window = Keyword.get(opts, :window)
         srql_module = Keyword.get(opts, :srql_module, default_srql_module_for_flows())
 
-        if is_map(window) and srql_module != nil do
-          load_netflow_map_window(scope, window, srql_module)
-        else
-          raise "Dashboard NetFlow map requires the flows dataset on StarRocks"
+        cond do
+          not is_map(window) ->
+            raise ArgumentError, "Dashboard NetFlow map requires a time window"
+
+          is_nil(srql_module) ->
+            %{
+              netflow_window: window.value,
+              netflow_state: :unconfigured,
+              collector_counts: %{},
+              flow_summary: empty_flow_summary(),
+              traffic_links: [],
+              traffic_links_json: "[]",
+              topology_links: [],
+              topology_links_json: "[]",
+              mtr_overlays: [],
+              mtr_overlays_json: "[]"
+            }
+
+          true ->
+            load_netflow_map_window(scope, window, srql_module)
         end
       end
 

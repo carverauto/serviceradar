@@ -9,6 +9,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.AgentCommandBus
+  alias ServiceRadar.Plugins.AssignmentOwner
   alias ServiceRadar.Plugins.PolicyAssignmentPlanner
   alias ServiceRadar.Plugins.SRQLInputResolver
 
@@ -269,14 +270,30 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
         {:halt, {:error, create_reason}}
 
       {:ok, existing} ->
-        case store.update_assignment(existing, spec, actor) do
-          {:ok, _} -> {:cont, {:ok, %{stats | upserted: stats.upserted + 1}}}
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
+        adopt_if_same_owner(existing, spec, stats, actor, store, create_reason)
 
       {:error, reason} ->
         {:halt, {:error, reason}}
     end
+  end
+
+  # Another credential rule's assignment for the same plugin may legitimately
+  # coexist on this agent (see AssignmentOwner). Adopting it would rewrite that
+  # rule's assignment into this one, so only a row of the same owner is adopted.
+  defp adopt_if_same_owner(existing, spec, stats, actor, store, create_reason) do
+    if AssignmentOwner.same_owner?(spec_policy_id(spec), Map.get(existing, :policy_id)) do
+      case store.update_assignment(existing, spec, actor) do
+        {:ok, _} -> {:cont, {:ok, %{stats | upserted: stats.upserted + 1}}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    else
+      {:halt, {:error, create_reason}}
+    end
+  end
+
+  # The planner records the owning policy in the spec metadata.
+  defp spec_policy_id(spec) do
+    Map.get(spec, :policy_id) || get_in(spec, [Access.key(:metadata, %{}), "policy_id"])
   end
 
   defp duplicate_enabled_assignment?(%Ash.Error.Invalid{errors: errors}) do
