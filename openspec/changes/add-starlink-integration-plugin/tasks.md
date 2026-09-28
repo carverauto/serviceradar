@@ -53,7 +53,7 @@
 
 ## 8. Dashboard SDK and Host
 - [ ] 8.1 `serviceradar-sdk-dashboard`: typed `actions.list/invoke` and `events.subscribe`, `useDashboardActions`/`useDashboardEvents` hooks, confirmation helper; release a new minor.
-- [ ] 8.2 web-ng: enforce `requires_confirmation` for dashboard-launched invocations with a confirmation bound to action and targets; tests for missing and mismatched confirmations.
+- [x] 8.2 web-ng: enforce `requires_confirmation` for dashboard-launched invocations with a confirmation bound to action and targets; tests for missing and mismatched confirmations.
 
 ## 9. Starlink Dashboard (secondary)
 - [ ] 9.1 Build a Starlink fleet dashboard package with `serviceradar-sdk-dashboard`: inventory table, link-quality trends, active alerts, and confirmed management actions.
