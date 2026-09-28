@@ -2,6 +2,20 @@
 # This allows unit tests to run without requiring a database
 Application.ensure_all_started(:telemetry)
 
+# An ExUnit run interrupted by SIGTERM before it prints a suite summary must
+# exit nonzero. The BEAM's default SIGTERM handler shuts down gracefully and
+# exits 0, so the Bazel wrapper would report PASSED on a run that never
+# finished. System.at_exit hooks are not run for a signal, so trap it and halt.
+#
+# Behavioral coverage: test/serviceradar/exunit_interruption_guard_test.exs.
+case System.trap_signal(:sigterm, fn ->
+  IO.puts(:stderr, "SIGTERM received before ExUnit completed; failing the run")
+  System.halt(1)
+end) do
+  {:ok, _id} -> :ok
+  {:error, :not_sup} -> :ok
+end
+
 # Opt-in slowest-test report, for profiling an integration lane.
 #
 # //build:integration_shards.bzl assigns audited async sources to one concurrent BEAM and balances
