@@ -65,14 +65,28 @@ proof uses a smaller 503-to-504-device fixture to verify atomic publication,
 follow-up scheduling, persisted identities, reload and stable coordinates.
 The same worker then persisted the invented 1,000,000-position and
 2,000,000-relation hierarchy on a scratch database and reloaded it.
-`//rust/dgraph-topology:world_worker_test` passed in 547.4s on hosted run
-[fb038405-3e6d-48be-b990-ef3d41fea76d](https://carverauto.buildbuddy.io/invocation/fb038405-3e6d-48be-b990-ef3d41fea76d)
-(Bazel invocation
-[0eedf842-ca33-4c13-8ef9-c960896b5aa0](https://carverauto.buildbuddy.io/invocation/0eedf842-ca33-4c13-8ef9-c960896b5aa0))
-at commit `03271edaa312`. The test log recorded persist 435,753 ms, publish
-3,682 ms, reload 58,444 ms, spatial index 7,642 ms, and one zoom-16 tile query
-at 19,010 microseconds. Peak BEAM resident memory was 2,945,672 KiB. Suite, observer,
-teardown, and generation release all exited 0.
+`//rust/dgraph-topology:world_worker_test` passed in 386.7s on hosted run
+[4751bf7b-5a71-46eb-a07c-90016b563dcd](https://carverauto.buildbuddy.io/invocation/4751bf7b-5a71-46eb-a07c-90016b563dcd)
+at commit `b5e3e9cbb8`. The test log recorded persist 317,201 ms, publish
+3,492 ms, reload 36,933 ms, index 3,793 ms, and one zoom-16 tile query at
+7,975 microseconds. Peak BEAM resident memory was 2,987,208 KiB. Suite, observer,
+teardown, and generation release all exited 0, with zero remaining scratch
+databases and no manual statistics intervention.
+
+### Stale-statistics cursor regression
+
+An earlier million-device reload selected a plan that scanned all 2,000,000
+relations per page through an endpoint index, spending 266 seconds on relation
+reads against the unchanged 300-second production deadline. The added active
+`(layout_version, relation_id)` cursor index alone did not fix it: PostgreSQL had
+not refreshed its table statistics after the bulk staging, so an independent
+scratch plan still scanned the 2M rows. Running `ANALYZE` on the position and
+relation tables switched the same query to the cursor index in 0.076 ms with
+4 buffers, versus 512 ms and 503,339 buffers. Full-layout activation now
+refreshes planner statistics for both tables before acquiring the active-head
+lock, so readers keep serving the previous publication during the maintenance
+operation and a fresh bulk load can use the bounded seek immediately. No
+production timeout was increased.
 
 ## Reproduction
 
@@ -102,8 +116,10 @@ already-installed Playwright module; this browser-only step builds no assets.
 The exported JSON/HTML and CPU profiles are disposable artifacts and must not be
 committed. The [remote repository gate](https://carverauto.buildbuddy.io/invocation/f7274971-4a46-4a06-9172-e264f2f4b735)
 passed `make test` (367 targets passed, two skipped), followed by all three
-WebGPU/browser acceptance targets at commit `f795ebe144`. Subsequent changes
-require final validation; no-mistakes remains required before a PR.
+WebGPU/browser acceptance targets at commit `f795ebe144`. The final tree at
+`b5e3e9cbb8` re-ran the full remote `make test` (367 targets passed, two
+skipped, seven quality targets passed) and the guarded million-device worker
+above with no manual statistics intervention.
 
 The [Fit navigation regression](https://carverauto.buildbuddy.io/invocation/dd7a6350-7c14-4e9a-bf56-1e8c3c17a350)
 passed all three WebGPU cases after first reproducing the failure: Fit in an open
