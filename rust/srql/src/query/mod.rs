@@ -52,6 +52,7 @@ mod sweep_executions;
 mod sweep_groups;
 mod sweep_profiles;
 mod sweep_results;
+mod sysmon;
 mod threat_intel_matches;
 mod timeseries_metrics;
 mod trace_summaries;

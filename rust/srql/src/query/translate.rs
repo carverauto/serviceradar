@@ -42,7 +42,10 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
         // Ahead of the downsample branch: this entity's access check lives in its
         // own builder, so no other builder may ever compile it.
         otel_services::to_sql_and_params(&plan, request.permitted_signals.as_deref())?
-    } else if plan.downsample.is_some() && !is_profile_stats {
+    } else if plan.downsample.is_some()
+        && !is_profile_stats
+        && !super::sysmon::is_entity(&plan.entity)
+    {
         downsample::to_sql_and_params(&plan)?
     } else {
         match plan.entity {
@@ -101,6 +104,10 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             | Entity::TimeseriesMetricInterfaceHourly
             | Entity::TimeseriesMetricDiskHourly
             | Entity::SnmpMetrics => timeseries_metrics::to_sql_and_params(&plan)?,
+            Entity::CpuMetrics
+            | Entity::MemoryMetrics
+            | Entity::DiskMetrics
+            | Entity::ProcessMetrics => super::sysmon::to_sql_and_params(&plan, None, true)?,
             Entity::Services => services::to_sql_and_params(&plan)?,
             Entity::ServiceAvailability | Entity::MonitoredServices | Entity::SloEvaluations => {
                 dashboard_service_views::to_sql_and_params(&plan)?

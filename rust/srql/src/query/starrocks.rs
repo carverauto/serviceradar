@@ -32,6 +32,19 @@ fn translate_inner(
     database: &str,
     allow_rollup: bool,
 ) -> Result<TranslateResponse> {
+    if super::sysmon::is_entity(&plan.entity) {
+        let (sql, params) = super::sysmon::to_sql_and_params(plan, Some(database), allow_rollup)?;
+        return Ok(TranslateResponse {
+            sql,
+            params,
+            pagination: PaginationMeta {
+                next_cursor: None,
+                prev_cursor: None,
+                limit: Some(plan.limit),
+            },
+            viz: super::viz::meta_for_plan(plan),
+        });
+    }
     // MTR has no rollup, so both entry points compile it the same way. It is
     // not a `Dataset`: its stats grammar is the CNPG MTR builders' own, parsed
     // by them and rendered by `mtr`, not the generic stats compiler below.
@@ -2949,7 +2962,7 @@ pub(super) fn pg_order_sql(direction: OrderDirection) -> &'static str {
     }
 }
 
-fn sql_literal(value: &str) -> String {
+pub(super) fn sql_literal(value: &str) -> String {
     format!("'{}'", value.replace('\\', "\\\\").replace('\'', "''"))
 }
 
@@ -4882,31 +4895,6 @@ mod tests {
         )
         .expect("all");
         assert!(!all.sql.contains("metric_type ="));
-    }
-
-    #[test]
-    fn sysmon_entities_are_retired_before_reaching_the_dialect() {
-        // The dedicated sysmon tables never receive a writer (device sysmon
-        // lives in timeseries_metrics as sysmon.*), so their entities are
-        // retired at parse time with the replacement query in the error —
-        // before any dialect could answer from the wrong source.
-        for query in [
-            "in:cpu_metrics time:last_1h limit:5",
-            "in:memory_metrics time:last_1h limit:5",
-            "in:disk_metrics time:last_1h limit:5",
-            "in:process_metrics time:last_1h limit:5",
-        ] {
-            let err = crate::parser::parse(query).expect_err(query);
-            let message = err.to_string();
-            assert!(
-                message.contains("retired entity"),
-                "expected a retired-entity error for {query}, got: {message}"
-            );
-            assert!(
-                message.contains("in:timeseries_metrics metric_type:"),
-                "expected the error to name the replacement query for {query}, got: {message}"
-            );
-        }
     }
 
     #[test]

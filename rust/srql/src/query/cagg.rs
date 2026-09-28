@@ -104,11 +104,10 @@ pub(crate) fn max_time_range_days_for_ast(ast: &QueryAst) -> i64 {
     if matches!(
         ast.entity,
         Entity::TimeseriesMetricInterfaceHourly | Entity::TimeseriesMetricDiskHourly
-    ) || is_hourly_cagg_eligible_query(
-        &ast.entity,
-        ast.stats.is_some(),
-        ast.downsample.is_some(),
-    ) {
+    ) || (super::sysmon::is_entity(&ast.entity)
+        && (ast.stats.is_some() || ast.downsample.is_some()))
+        || is_hourly_cagg_eligible_query(&ast.entity, ast.stats.is_some(), ast.downsample.is_some())
+    {
         CAGG_MAX_TIME_RANGE_DAYS
     } else {
         90

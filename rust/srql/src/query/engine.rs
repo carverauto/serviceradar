@@ -67,7 +67,10 @@ impl QueryEngine {
             // Ahead of the downsample branch: this entity's access check lives in
             // its own builder, so no other builder may ever run it.
             otel_services::execute(&mut conn, &plan, request.permitted_signals.as_deref()).await?
-        } else if plan.downsample.is_some() && !is_profile_stats {
+        } else if plan.downsample.is_some()
+            && !is_profile_stats
+            && !super::sysmon::is_entity(&plan.entity)
+        {
             downsample::execute(&mut conn, &plan).await?
         } else {
             match plan.entity {
@@ -144,6 +147,10 @@ impl QueryEngine {
                 | Entity::TimeseriesMetricInterfaceHourly
                 | Entity::TimeseriesMetricDiskHourly
                 | Entity::SnmpMetrics => timeseries_metrics::execute(&mut conn, &plan).await?,
+                Entity::CpuMetrics
+                | Entity::MemoryMetrics
+                | Entity::DiskMetrics
+                | Entity::ProcessMetrics => super::sysmon::execute(&mut conn, &plan).await?,
                 Entity::Services => services::execute(&mut conn, &plan).await?,
                 Entity::ServiceAvailability
                 | Entity::MonitoredServices

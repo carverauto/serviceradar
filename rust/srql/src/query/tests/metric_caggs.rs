@@ -79,7 +79,14 @@ fn cagg_retention_arm_honors_configured_horizon() {
         Some(&straddling),
         true,
         false,
-        144
+        168
+    ));
+    assert!(should_route_to_hourly_cagg(
+        &Entity::TimeseriesMetrics,
+        Some(&straddling),
+        true,
+        false,
+        120
     ));
 }
 
@@ -117,7 +124,7 @@ fn short_old_timeseries_downsample_translates_to_cagg_source() {
 #[test]
 fn aggregate_metric_query_allows_one_year_timeframe() {
     let config = test_config();
-    let query = "in:timeseries_metrics metric_type:snmp time:last_1y stats:avg(value) as avg_value";
+    let query = "in:timeseries_metrics metric_type:snmp time:last_1y stats:avg(value) as avg_value by metric_name";
     let ast = parser::parse(query).expect("query should parse");
     let request = QueryRequest {
         query: query.to_string(),
@@ -128,6 +135,7 @@ fn aggregate_metric_query_allows_one_year_timeframe() {
         permitted_signals: None,
     };
 
+    translate_request(&config, request.clone()).expect("stats query should translate");
     let plan = build_query_plan(&config, &request, ast)
         .expect("stats metric query should allow extended range");
     let range = plan.time_range.expect("time range should exist");
@@ -181,24 +189,112 @@ fn cagg_column_mappings_cover_metric_entities() {
 }
 
 #[test]
-fn retired_sysmon_entities_fail_to_parse_with_a_replacement_query() {
-    for (query, metric_type) in [
-        ("in:cpu_metrics time:last_1h limit:5", "sysmon.cpu"),
-        ("in:cpu time:last_1h limit:5", "sysmon.cpu"),
-        ("in:memory_metrics time:last_1h limit:5", "sysmon.memory"),
-        ("in:disk_metrics time:last_1h limit:5", "sysmon.disk"),
-        ("in:process_metrics time:last_1h limit:5", "sysmon.process"),
-        ("in:processes time:last_1h limit:5", "sysmon.process"),
+fn legacy_sysmon_queries_translate_on_both_backends() {
+    let config = test_config();
+    for (aliases, metric_type, field, filter) in [
+        (
+            &["cpu", "cpu_metrics"][..],
+            "sysmon.cpu",
+            "usage_percent",
+            "core_id:0 usage_percent:>70",
+        ),
+        (
+            &["memory", "memory_metrics"][..],
+            "sysmon.memory",
+            "usage_percent",
+            "used_bytes:>100",
+        ),
+        (
+            &["disk", "disk_metrics"][..],
+            "sysmon.disk",
+            "usage_percent",
+            "mount_point:/data",
+        ),
+        (
+            &["process", "processes", "process_metrics"][..],
+            "sysmon.process",
+            "cpu_usage",
+            "pid:123 name:worker",
+        ),
     ] {
-        let err = parser::parse(query).expect_err(query);
-        let message = err.to_string();
-        assert!(
-            message.contains("retired entity"),
-            "expected a retired-entity error for {query}, got: {message}"
-        );
-        assert!(
-            message.contains(&format!("metric_type:\"{metric_type}\"")),
-            "expected the error to name the {metric_type} replacement for {query}, got: {message}"
-        );
+        for alias in aliases {
+            for mode in [None, Some("starrocks"), Some("starrocks_raw")] {
+                for shape in [
+                    format!("{filter} sort:{field}:desc"),
+                    if metric_type == "sysmon.cpu" {
+                        format!("stats:avg({field})")
+                    } else {
+                        format!("stats:avg({field}) as average by device_id")
+                    },
+                    format!("stats:avg({field}) as average by device_id sort:average:desc"),
+                    format!(
+                        "{filter} bucket:5m agg:avg series:uid value_field:{field} sort:timestamp:desc"
+                    ),
+                ] {
+                    let query = format!(
+                        "in:{alias} device_id:host01.example.com time:last_1h {shape} limit:3"
+                    );
+                    let response = translate_request(
+                        &config,
+                        QueryRequest {
+                            query: query.clone(),
+                            limit: None,
+                            cursor: None,
+                            direction: QueryDirection::Next,
+                            mode: mode.map(str::to_string),
+                            permitted_signals: None,
+                        },
+                    )
+                    .unwrap_or_else(|err| panic!("{query} ({mode:?}): {err}"));
+                    assert!(
+                        response.sql.contains("timeseries_metrics"),
+                        "{}",
+                        response.sql
+                    );
+                    assert!(
+                        format!("{} {:?}", response.sql, response.params).contains(metric_type)
+                    );
+                    if !shape.contains("stats:") {
+                        assert!(response.sql.contains(field), "{}", response.sql);
+                    }
+                    if shape.contains("bucket:") {
+                        assert!(
+                            response.sql.contains("windowed ORDER BY 1 ASC"),
+                            "{}",
+                            response.sql
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn legacy_sysmon_aggregates_keep_timeseries_retention_routing() {
+    let config = test_config();
+    for mode in [None, Some("starrocks"), Some("starrocks_raw")] {
+        for shape in ["stats:avg(usage_percent) as average", "bucket:1h agg:avg"] {
+            let response = translate_request(
+                &config,
+                QueryRequest {
+                    query: format!("in:cpu time:last_30d {shape}"),
+                    limit: None,
+                    cursor: None,
+                    direction: QueryDirection::Next,
+                    mode: mode.map(str::to_string),
+                    permitted_signals: None,
+                },
+            )
+            .expect("legacy aggregate should compile");
+            let hourly =
+                mode.is_none() || (shape.starts_with("bucket:") && mode == Some("starrocks"));
+            assert_eq!(
+                response.sql.contains("timeseries_metrics_hourly"),
+                hourly,
+                "{}",
+                response.sql
+            );
+        }
     }
 }

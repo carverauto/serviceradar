@@ -104,8 +104,8 @@
   as `sysmon.*` metric types in `timeseries_metrics`, which is already
   warehouse-backed. No warehouse copies are built. The readers are retired
   instead (issue #4861): the SRQL entities (`cpu`, `memory`, `disk`,
-  `processes` and their `_metrics` spellings) fail at parse time with the
-  `in:timeseries_metrics metric_type:"sysmon.*"` replacement in the error, the
+  `process`/`processes` and their `_metrics` spellings) remain compatible
+  through a shared `timeseries_metrics` projection on both backends via Readers; the
   Analytics high-utilization cards, the device-list sysmon presence probe and
   the authored-dashboard CPU template read `timeseries_metrics` `sysmon.*`
   (through `Readers`, so both backends serve them), and the JSON:API resources

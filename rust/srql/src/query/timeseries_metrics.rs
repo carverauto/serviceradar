@@ -221,6 +221,53 @@ pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindPar
     Ok((sql, params))
 }
 
+pub(super) fn legacy_sysmon_stats_sql(
+    plan: &QueryPlan,
+    alias: &str,
+    grouped: bool,
+) -> Result<(String, Vec<BindParam>)> {
+    super::validate_stats_alias(alias)?;
+    let spec = TimeseriesStatsSpec {
+        aggregations: vec![TimeseriesAggregationSpec {
+            func: TimeseriesAggFunc::Avg,
+            field: Some("value".into()),
+            alias: alias.into(),
+        }],
+        group_by: if grouped {
+            vec![TimeseriesGroupSpec {
+                field: "device_id".into(),
+            }]
+        } else {
+            Vec::new()
+        },
+        profile_hour_of_week: None,
+        profile_hour_of_week_full: None,
+        profile_hour_of_week_peak: None,
+    };
+    let compiled = if should_route_stats_to_cagg(plan, &spec) {
+        build_cagg_stats_query(plan, MetricScope::Any, &spec)?
+    } else {
+        build_stats_query(plan, MetricScope::Any, &spec)?
+    };
+    let sql = format!(
+        "SELECT {}(payload ->> '{alias}')::double precision AS \"{alias}\" FROM ({}) stats",
+        if grouped {
+            "payload ->> 'device_id' AS device_id, "
+        } else {
+            ""
+        },
+        rewrite_placeholders(&compiled.sql)
+    );
+    Ok((
+        sql,
+        compiled
+            .binds
+            .into_iter()
+            .map(bind_param_from_stats)
+            .collect(),
+    ))
+}
+
 fn ensure_entity(plan: &QueryPlan) -> Result<MetricScope<'static>> {
     match plan.entity {
         Entity::TimeseriesMetrics => Ok(MetricScope::Any),
@@ -1149,7 +1196,7 @@ fn build_cagg_stats_query(
         ));
     }
 
-    if !spec.is_avg_value_by_device() {
+    if !spec.is_cagg_average() {
         return Err(ServiceError::InvalidRequest(
             "hourly CAGG stats routing only supports avg(value) by device_id".into(),
         ));
@@ -1564,14 +1611,21 @@ fn build_stats_query_with_source(
         .collect::<Vec<_>>()
         .join(", ");
 
-    let mut inner = format!("SELECT {select_groups}, {select_aggs} FROM {table}");
+    let selections = if select_groups.is_empty() {
+        select_aggs
+    } else {
+        format!("{select_groups}, {select_aggs}")
+    };
+    let mut inner = format!("SELECT {selections} FROM {table}");
     if !clauses.is_empty() {
         inner.push_str("\nWHERE ");
         inner.push_str(&clauses.join(" AND "));
     }
 
-    inner.push_str("\nGROUP BY ");
-    inner.push_str(&group_exprs.join(", "));
+    if !group_exprs.is_empty() {
+        inner.push_str("\nGROUP BY ");
+        inner.push_str(&group_exprs.join(", "));
+    }
 
     let agg_aliases: Vec<&str> = spec
         .aggregations
@@ -2588,10 +2642,7 @@ fn sanitize_alias(raw: String) -> Result<String> {
 }
 
 fn should_route_stats_to_cagg(plan: &QueryPlan, spec: &TimeseriesStatsSpec) -> bool {
-    if plan.other
-        || !spec.is_avg_value_by_device()
-        || !super::should_route_plan_to_hourly_cagg(plan)
-    {
+    if plan.other || !spec.is_cagg_average() || !super::should_route_plan_to_hourly_cagg(plan) {
         return false;
     }
 
@@ -2621,11 +2672,11 @@ impl TimeseriesStatsSpec {
         self.is_profile_hour_of_week() || self.is_profile_hour_of_week_peak()
     }
 
-    fn is_avg_value_by_device(&self) -> bool {
+    fn is_cagg_average(&self) -> bool {
         !self.is_profile_route()
             && self.aggregations.len() == 1
-            && self.group_by.len() == 1
-            && self.group_by[0].field == "device_id"
+            && (self.group_by.is_empty()
+                || (self.group_by.len() == 1 && self.group_by[0].field == "device_id"))
             && self.aggregations[0].func == TimeseriesAggFunc::Avg
             && self.aggregations[0].field.as_deref() == Some("value")
     }

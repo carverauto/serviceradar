@@ -658,8 +658,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
 
   defp disk_key(row) do
     host = host_key(row)
-    mount =
-      Map.get(row, "mount_point") || Map.get(row, "mount") || mount_from_tags(row) || ""
+    mount = disk_mount(row)
 
     if host == "" do
       ""
@@ -668,8 +667,19 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     end
   end
 
-  # sysmon.disk timeseries rows carry the mount point in the sample tags.
+  defp disk_mount(row) do
+    Map.get(row, "mount_point") || Map.get(row, "mount") || mount_from_tags(row) || "/"
+  end
+
   defp mount_from_tags(%{"tags" => %{"mount_point" => mount}}) when is_binary(mount), do: mount
+
+  defp mount_from_tags(%{"tags" => tags}) when is_binary(tags) do
+    case Jason.decode(tags) do
+      {:ok, decoded} -> mount_from_tags(%{"tags" => decoded})
+      _ -> nil
+    end
+  end
+
   defp mount_from_tags(_), do: nil
 
   defp categorize_utilization(rows, value_fun, warning_threshold, critical_threshold) do
@@ -1444,6 +1454,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
       |> assign(:total_cpu_hosts, total_cpu_hosts)
       |> assign(:total_memory_hosts, total_memory_hosts)
       |> assign(:total_disk_mounts, total_disk_mounts)
+      |> assign(:sysmon_cpu_query, @sysmon_cpu_query)
 
     ~H"""
     <.ui_panel class="h-80">
@@ -1711,7 +1722,7 @@ defmodule ServiceRadarWebNGWeb.AnalyticsLive.Index do
     svc = assigns.service
     percent = extract_numeric(Map.get(svc, "percent") || Map.get(svc, "value") || 0)
     host = Map.get(svc, "host") || Map.get(svc, "uid") || Map.get(svc, "device_id") || "Unknown"
-    mount = Map.get(svc, "mount_point") || Map.get(svc, "mount") || "/"
+    mount = disk_mount(svc)
 
     assigns =
       assigns

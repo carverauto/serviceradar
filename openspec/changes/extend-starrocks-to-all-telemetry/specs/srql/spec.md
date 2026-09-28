@@ -32,12 +32,13 @@ The system SHALL answer `rollup_stats:` queries for warehouse datasets from day-
 - **THEN** the counts come from the warehouse severity rollup
 - **AND** they equal the counts CNPG returns for the same rows
 
-### Requirement: Dedicated sysmon entities are retired
-The SRQL service SHALL reject queries for the dedicated sysmon entities (`cpu_metrics`/`cpu`, `memory_metrics`/`memory`, `disk_metrics`/`disk`, `process_metrics`/`processes`) with an invalid-request error that names the `in:timeseries_metrics metric_type:"sysmon.*"` replacement, and SHALL NOT answer them from the dedicated hypertables, which receive no data. Device sysmon SHALL remain queryable through `timeseries_metrics` `sysmon.*` metric types on both the CNPG and StarRocks backends.
+### Requirement: Dedicated sysmon readers are retired with query compatibility
+The SRQL service SHALL translate legacy sysmon entities (`cpu_metrics`/`cpu`, `memory_metrics`/`memory`, `disk_metrics`/`disk`, `process_metrics`/`processes`/`process`) to the corresponding `sysmon.*` samples in `timeseries_metrics`, preserving row fields, filters, sorting, stats and downsampling on CNPG and StarRocks. Readers SHALL route every alias to the metrics backend. No query SHALL read the empty dedicated sysmon hypertables.
 
-#### Scenario: A retired entity fails with the replacement query
-- **WHEN** a client sends `in:cpu_metrics time:last_1h limit:5`
-- **THEN** SRQL rejects the query with a retired-entity error naming `in:timeseries_metrics metric_type:"sysmon.cpu"` as the replacement
+#### Scenario: A saved sysmon query remains compatible
+- **WHEN** a client sends `in:cpu core_id:0 time:last_1h limit:5`
+- **THEN** SRQL returns CPU usage and frequency fields with core identity from `sysmon.cpu` samples in `timeseries_metrics`
+- **AND** the same query contract applies on CNPG and StarRocks through Readers
 - **AND** no dedicated sysmon table is queried
 
 #### Scenario: Product surfaces read sysmon from timeseries_metrics

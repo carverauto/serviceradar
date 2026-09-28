@@ -54,6 +54,30 @@ defmodule ServiceRadar.Analytics.StarRocks.ReadersTest do
     end
   end
 
+  test "legacy sysmon aliases follow the metrics serving backend" do
+    prev = Application.get_env(:serviceradar_core, StarRocks, [])
+
+    try do
+      for {cutover, expected} <- [{[], :cnpg}, {[:metrics], :starrocks}] do
+        Application.put_env(
+          :serviceradar_core,
+          StarRocks,
+          Keyword.put(prev, :cutover_datasets, cutover)
+        )
+
+        for entity <-
+              ~w(cpu cpu_metrics memory memory_metrics disk disk_metrics process processes process_metrics) do
+          assert Readers.fetch(entity, %{
+                   cnpg: fn -> :cnpg end,
+                   starrocks: fn -> :starrocks end
+                 }) == expected
+        end
+      end
+    after
+      Application.put_env(:serviceradar_core, StarRocks, prev)
+    end
+  end
+
   # With the warehouse enabled the CNPG MTR tables stop receiving rows, so MTR
   # SRQL must read StarRocks then, and only CNPG when it is off -- never both.
   test "MTR SRQL reads StarRocks with the warehouse enabled and CNPG without it" do

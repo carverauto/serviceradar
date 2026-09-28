@@ -319,6 +319,49 @@ pub fn metrics(anchor: Anchor) -> Vec<MetricRow> {
         }
     }
 
+    for (metric_type, metric_name, value, tags) in [
+        (
+            "sysmon.memory",
+            "memory.used_percent",
+            25.0,
+            r#"{"used_bytes":"1024","total_bytes":"4096"}"#,
+        ),
+        (
+            "sysmon.disk",
+            "disk.used_percent",
+            95.0,
+            r#"{"mount_point":"/data","used_bytes":"1900","total_bytes":"2000"}"#,
+        ),
+        (
+            "sysmon.process",
+            "process.cpu_usage",
+            12.5,
+            r#"{"pid":"123","name":"worker","status":"running"}"#,
+        ),
+        (
+            "sysmon.process",
+            "process.memory_usage",
+            4096.0,
+            r#"{"pid":"123","name":"worker","status":"running"}"#,
+        ),
+    ] {
+        let series = Series {
+            gateway: GATEWAY_1,
+            agent: AGENT_1,
+            device: DEVICE_A,
+            metric_type,
+            metric_name,
+            if_index: None,
+            counter_width: None,
+            tags: Some(tags.into()),
+            metadata: None,
+            key_suffix: "compat",
+        };
+        for minute in 0..360_i64 {
+            rows.push(series.row(anchor.at(minute * 60 + 5), value));
+        }
+    }
+
     // 9. ICMP round-trip and loss with UNEVEN sampling: every minute in even hours, every ten
     //    minutes in odd hours. A multi-hour average weighted by sample count then differs from
     //    a mean of hourly means, so a backend that averages the hourly rollup unweighted fails.

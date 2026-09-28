@@ -1025,6 +1025,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
          "timeseries_metrics",
          "snmp_metrics",
          "rperf_metrics",
+         "cpu_metrics",
+         "memory_metrics",
+         "disk_metrics",
+         "process_metrics",
          "attributed_flows",
          "capacity_forecasts"
        ] do

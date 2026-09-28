@@ -2664,3 +2664,19 @@ VALUES
      'strong_identity_address_held', '{}'::jsonb,
      'distinct', 1, NOW() - INTERVAL '10 days', NOW() - INTERVAL '10 days',
      NOW() - INTERVAL '9 days', 'operator@example.com', NULL, 'different chassis');
+
+WITH sample_time AS (SELECT NOW() - INTERVAL '2 minutes' AS at)
+INSERT INTO timeseries_metrics
+    (timestamp, gateway_id, agent_id, series_key, metric_name, metric_type, device_id, value, tags, partition)
+SELECT at, 'gateway-1', 'agent-1', metric_name || ':compat', metric_name, metric_type,
+       'sysmon-compat.example.com', value, tags::jsonb, 'default'
+FROM sample_time CROSS JOIN (VALUES
+    ('cpu.usage_percent', 'sysmon.cpu', 75.0, '{"core_id":"0","label":"core0","cluster":"main"}'),
+    ('cpu.frequency_hz', 'sysmon.cpu', 2000000000.0, '{"core_id":"0","label":"core0","cluster":"main"}'),
+    ('cpu.cluster.frequency_hz', 'sysmon.cpu', 1800000000.0, '{"cluster":"main"}'),
+    ('memory.used_percent', 'sysmon.memory', 25.0, '{"used_bytes":"1024","total_bytes":"4096"}'),
+    ('disk.used_percent', 'sysmon.disk', 95.0, '{"mount_point":"/data","used_bytes":"1900","total_bytes":"2000"}'),
+    ('process.cpu_usage', 'sysmon.process', 12.5, '{"pid":"123","name":"worker","status":"running","start_time":"2025-01-01T00:00:00Z"}'),
+    ('process.memory_usage', 'sysmon.process', 4096.0, '{"pid":"123","name":"worker","status":"running","start_time":"2025-01-01T00:00:00Z"}'),
+    ('process.count', 'sysmon.process', 8.0, '{}')
+) AS samples(metric_name, metric_type, value, tags);

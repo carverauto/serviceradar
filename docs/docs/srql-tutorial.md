@@ -284,7 +284,7 @@ in:devices stats:count() as total by type
 Average CPU usage over the last day:
 
 ```srql
-in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" time:last_24h stats:avg(value) as avg_cpu
+in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" time:last_24h stats:avg(value) as avg_cpu by metric_name
 ```
 
 Total bytes per source IP for the busiest talkers:
