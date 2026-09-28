@@ -75,13 +75,6 @@ Excluded as control plane: `stateful_alert_rule_histories`, `otel_service_catalo
 | `CapacityForecasting.Source` `:109`, `:123`; `SeasonalDisposition.Source` `:201` | disk/interface hourly caggs | non-UI (via the unmapped SRQL entities) |
 | JSON:API RawMetricResource / HourlyMetricResource | raw + caggs | API |
 
-### Flows
-
-| Reader | Reads | Surface |
-|---|---|---|
-| `DeviceRiskIocExposure.query_flow_page_sql` `C/inventory/device_risk_ioc_exposure.ex:406` | ocsf_network_activity | Oban (device risk) |
-| Dashboard `traffic_sparklines.ex:69`; device `flow_data.ex:578`, `:605` | flow caggs / raw | go through `Readers`, but fall back to CNPG when flows are not cut over, although flows are warehouse-only |
-
 ### OTel traces and metrics (metrics SRQL routed by 3.1; traces by 3.2)
 
 | Reader | Reads | Surface |
@@ -129,7 +122,11 @@ SRQL timeseries, SNMP and rperf metrics, `TopologyGraph.Telemetry.Metrics`, God 
 dashboard interface sparklines, device sysmon and ICMP views, `PeakProfile`, the raw halves of
 `CapacityForecasting.Source` and `SeasonalDisposition.Source`. Flows: SRQL flows and every flow
 page, `FlowAttribution.Correlation`, the netflow, retrohunt, exporter cache, IP enrichment and
-endpoint scan workers. MTR: SRQL MTR, `MtrData`, dashboard MTR card and sparkline, `MtrTrace`,
+endpoint scan workers, the dashboard throughput sparkline
+(`TrafficSparklines.warehouse_traffic_rows/2`), the device Flows-tab presence probes
+(`DeviceLive.FlowData`), and `DeviceRiskIocExposure` (warehouse flow page when
+`Readers.backend(:flows) == :starrocks`, CNPG kept otherwise). MTR: SRQL MTR, `MtrData`,
+dashboard MTR card and sparkline, `MtrTrace`,
 `MtrCompare`. OTel metrics (3.1): SRQL `otel_metrics`/`otel_metric_points` and every page using
 them (logs page metrics tab and OTLP view, `MetricLive.Show`, Analytics slowest spans,
 onboarding), routed on `enabled?/0` like MTR.
@@ -157,6 +154,11 @@ Go, `serviceradar_core_elx`, `serviceradar_agent_gateway`, `datasvc`, `palisade`
    unconditionally.
 5. **Flows keep CNPG fallbacks** in the dashboard throughput sparkline and the device Flows tab
    probes although flows are warehouse-only, and `DeviceRiskIocExposure` always reads CNPG flows.
+   Resolved by issue #4869: the dashboard sparkline and the device Flows-tab presence probes
+   route through `Readers` and render empty/unavailable on `{:error, :starrocks_required}` rather
+   than reading CNPG flows, and `DeviceRiskIocExposure` gained a warehouse flow page selected by
+   `Readers.backend(:flows) == :starrocks` (the CNPG query remains for installations without the
+   warehouse).
 6. **`rust/srql/src/server.rs:51` (`/api/query`) runs every entity on CNPG** and bypasses
    `Readers`; no chart deploys it, so it may be dead. **Resolved (issue #4873):** the standalone
    server was dead — no Helm template, Compose service, k8s manifest or Docker image ran it, and

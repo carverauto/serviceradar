@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowData do
   @moduledoc false
 
   alias ServiceRadar.Analytics.StarRocks.FlowConsumers
+  alias ServiceRadar.Analytics.StarRocks.Readers
   alias ServiceRadar.Repo
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceTaskData
 
@@ -552,21 +553,26 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowData do
     end
   end
 
-  # Flows cut over to the warehouse are probed there; the CNPG table is for an
-  # installation without it, and with it may no longer be written.
+  # Flows are warehouse-only: cut over, the probe reads the warehouse; not cut
+  # over, `Readers` refuses CNPG and the probe reports no flows, matching the
+  # empty Flows tab the SRQL `in:flows` fallback renders.
   defp flow_seen_for_ip?(ip) do
-    if FlowConsumers.cut_over?() do
-      ip |> FlowConsumers.seen_for_ip?(flow_probe_since()) |> probe_result()
-    else
-      cnpg_flow_seen_for_ip?(ip)
+    case Readers.backend(:flows) do
+      :starrocks ->
+        ip |> FlowConsumers.seen_for_ip?(flow_probe_since()) |> probe_result()
+
+      {:error, :starrocks_required} ->
+        {:ok, false}
     end
   end
 
   defp flow_seen_for_sampler?(sampler) do
-    if FlowConsumers.cut_over?() do
-      sampler |> FlowConsumers.seen_for_sampler?(flow_probe_since()) |> probe_result()
-    else
-      cnpg_flow_seen_for_sampler?(sampler)
+    case Readers.backend(:flows) do
+      :starrocks ->
+        sampler |> FlowConsumers.seen_for_sampler?(flow_probe_since()) |> probe_result()
+
+      {:error, :starrocks_required} ->
+        {:ok, false}
     end
   end
 
@@ -574,56 +580,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.FlowData do
 
   defp probe_result({:ok, seen?}) when is_boolean(seen?), do: {:ok, seen?}
   defp probe_result({:error, _reason}), do: :error
-
-  defp cnpg_flow_seen_for_ip?(ip) do
-    with {:ok, false} <-
-           interpret_exists(fn ->
-             Repo.query(
-               """
-               SELECT 1
-               FROM platform.ocsf_network_activity
-               WHERE time > now() - interval '24 hours' AND src_endpoint_ip = $1
-               LIMIT 1
-               """,
-               [ip]
-             )
-           end) do
-      interpret_exists(fn ->
-        Repo.query(
-          """
-          SELECT 1
-          FROM platform.ocsf_network_activity
-          WHERE time > now() - interval '24 hours' AND dst_endpoint_ip = $1
-          LIMIT 1
-          """,
-          [ip]
-        )
-      end)
-    end
-  end
-
-  defp cnpg_flow_seen_for_sampler?(sampler) do
-    interpret_exists(fn ->
-      Repo.query(
-        """
-        SELECT 1
-        FROM platform.ocsf_network_activity
-        WHERE time > now() - interval '24 hours' AND sampler_address = $1
-        LIMIT 1
-        """,
-        [sampler]
-      )
-    end)
-  end
-
-  defp interpret_exists(fun) when is_function(fun, 0) do
-    case fun.() do
-      {:ok, %{num_rows: n}} -> {:ok, n > 0}
-      {:error, _reason} -> :error
-    end
-  rescue
-    _ -> :error
-  end
 
   defp srql_flow_presence(srql_module, device_uid, scope) do
     query = ~s|in:flows device_id:"#{escape_value(device_uid)}" time:last_24h limit:1|

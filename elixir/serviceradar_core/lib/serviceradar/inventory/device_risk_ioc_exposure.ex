@@ -12,6 +12,9 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposure do
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Analytics.StarRocks.Env
+  alias ServiceRadar.Analytics.StarRocks.Query
+  alias ServiceRadar.Analytics.StarRocks.Readers
   alias ServiceRadar.Events.SignalPublisher
   alias ServiceRadar.Inventory.DeviceRiskReducer
   alias ServiceRadar.Monitoring.Alert
@@ -66,6 +69,12 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposure do
   end
 
   def correlate(_flows, _findings), do: []
+
+  # Flows are warehouse-only: `:starrocks` once the dataset is cut over,
+  # `{:error, :starrocks_required}` otherwise, so the CNPG flow query stays the
+  # fallback only for installations without the warehouse.
+  @doc false
+  def flow_history_backend, do: Readers.backend(:flows)
 
   @doc """
   True when an attributed process name or command line refers to the
@@ -399,7 +408,14 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposure do
         page.(opts, page_size, after_key)
 
       _ ->
-        query_flow_page_sql(opts, page_size, after_key)
+        # Flows are warehouse-only. Cut over, read the attributed flows from
+        # the warehouse with the same keyset page; not cut over, keep the CNPG
+        # query (an installation without the warehouse still writes and reads
+        # flows there).
+        case flow_history_backend() do
+          :starrocks -> query_flow_page_warehouse_sql(opts, page_size, after_key)
+          {:error, :starrocks_required} -> query_flow_page_sql(opts, page_size, after_key)
+        end
     end
   end
 
@@ -475,6 +491,213 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposure do
         raise "hostile IOC flow query failed: #{inspect(reason)}"
     end
   end
+
+  # The warehouse flow table stores `device_uid = 'unknown'` and carries no
+  # `agent_id` (the NetFlow pages resolve device identity through the catalog
+  # at query time), and it cannot join `ip_threat_intel_cache` (not in the
+  # catalog allowlist). The warehouse page therefore resolves the hostile IPs
+  # and the destination device from CNPG and attaches both after the flow page
+  # comes back. The keyset page stays over hostile-IP-matched flows, exactly as
+  # the CNPG query pages, so a full page is not the end of the window. IPs are
+  # normalized as CNPG normalizes them (IPv4-mapped IPv6 prefix stripped,
+  # lowercased), but with `lower` applied first: StarRocks `regexp_replace` has
+  # no trailing-`'i'` flags argument like Postgres does.
+  defp query_flow_page_warehouse_sql(opts, page_size, after_key) do
+    hostile_ips = Keyword.get(opts, :hostile_ioc_ips, &default_hostile_ioc_ips/1)
+    as_of = Keyword.fetch!(opts, :as_of)
+
+    case hostile_ips.(as_of) do
+      {:ok, ioc} when is_map(ioc) and map_size(ioc) > 0 ->
+        warehouse_flow_page(opts, page_size, after_key, ioc)
+
+      {:ok, _ioc} ->
+        []
+
+      {:error, reason} ->
+        raise "hostile IOC flow query failed: #{inspect(reason)}"
+    end
+  end
+
+  defp warehouse_flow_page(opts, page_size, after_key, ioc) do
+    as_of = Keyword.fetch!(opts, :as_of)
+
+    window_seconds =
+      opts
+      |> Keyword.get(:window_seconds, @default_window_seconds)
+      |> max(60)
+
+    lower = DateTime.add(as_of, -window_seconds, :second)
+
+    sql = """
+    SELECT hostile_ip, dst_ip, dst_port, comm, cmdline, observed_at, row_key
+    FROM (
+      SELECT
+        regexp_replace(lower(coalesce(src_endpoint_ip, '')), '^::ffff:', '') AS hostile_ip,
+        regexp_replace(lower(coalesce(dst_endpoint_ip, '')), '^::ffff:', '') AS dst_ip,
+        dst_endpoint_port AS dst_port,
+        comm,
+        cmdline,
+        `time` AS observed_at,
+        id AS row_key
+      FROM #{Env.table("ocsf_network_activity")}
+      WHERE event_type = 'attributed_flow'
+        AND `time` > #{datetime_literal(lower)}
+        AND `time` <= #{datetime_literal(as_of)}
+        AND regexp_replace(lower(coalesce(src_endpoint_ip, '')), '^::ffff:', '') IN (#{ip_literals(Map.keys(ioc))})
+        #{keyset_clause(after_key)}
+      ORDER BY `time` DESC, id DESC
+      LIMIT #{page_size}
+    ) recent
+    """
+
+    query = Keyword.get(opts, :query, &Query.execute/1)
+
+    with {:ok, %{columns: columns, rows: rows}} <- query.(sql),
+         {:ok, devices} <- resolve_device_identifiers(dst_ips(columns, rows), opts) do
+      rows
+      |> Enum.map(&warehouse_flow_row(columns, &1, ioc, devices))
+      |> Enum.reject(&is_nil(&1.device_uid))
+    else
+      {:error, reason} -> raise "hostile IOC flow query failed: #{inspect(reason)}"
+    end
+  end
+
+  defp default_hostile_ioc_ips(as_of) do
+    sql = """
+    SELECT
+      lower(regexp_replace(coalesce(ip, ''), '^::ffff:', '', 'i')) AS ip,
+      sources,
+      max_severity
+    FROM platform.ip_threat_intel_cache
+    WHERE matched = true AND expires_at > $1
+    """
+
+    case SQL.query(Repo, sql, [as_of]) do
+      {:ok, %{rows: rows}} ->
+        {:ok,
+         Map.new(rows, fn [ip, sources, severity] ->
+           {ip, %{sources: List.wrap(sources), severity: severity}}
+         end)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp resolve_device_identifiers([], _opts), do: {:ok, %{}}
+
+  defp resolve_device_identifiers(dst_ips, opts) do
+    resolver =
+      Keyword.get(opts, :resolve_device_identifiers, &default_resolve_device_identifiers/1)
+
+    resolver.(dst_ips)
+  end
+
+  defp default_resolve_device_identifiers(dst_ips) do
+    ips = dst_ips |> Enum.reject(&is_nil/1) |> Enum.uniq()
+
+    if ips == [] do
+      {:ok, %{}}
+    else
+      sql = """
+      SELECT
+        lower(regexp_replace(coalesce(identifier_value, ''), '^::ffff:', '', 'i')) AS ip,
+        device_id
+      FROM platform.device_identifiers
+      WHERE identifier_type = 'ip'
+        AND lower(regexp_replace(coalesce(identifier_value, ''), '^::ffff:', '', 'i')) = ANY($1::text[])
+      """
+
+      case SQL.query(Repo, sql, [ips]) do
+        {:ok, %{rows: rows}} ->
+          {:ok, Map.new(rows, fn [ip, device_id] -> {ip, device_id} end)}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  defp dst_ips(columns, rows) do
+    case Enum.find_index(columns, &(&1 == "dst_ip")) do
+      nil -> []
+      idx -> Enum.map(rows, &Enum.at(&1, idx))
+    end
+  end
+
+  defp warehouse_flow_row(columns, values, ioc, devices) do
+    row =
+      columns
+      |> Enum.zip(values)
+      |> Map.new(fn {column, value} -> {column, value} end)
+
+    hostile_ip = row["hostile_ip"]
+    dst_ip = row["dst_ip"]
+    match = Map.get(ioc, hostile_ip, %{})
+
+    %{
+      device_uid: Map.get(devices, dst_ip),
+      agent_id: nil,
+      hostile_ip: hostile_ip,
+      dst_ip: dst_ip,
+      dst_port: row["dst_port"],
+      comm: row["comm"],
+      cmdline: row["cmdline"],
+      observed_at: to_datetime(row["observed_at"]),
+      ioc_sources: Map.get(match, :sources, []),
+      ioc_severity: Map.get(match, :severity),
+      row_key: row["row_key"]
+    }
+  end
+
+  # The warehouse DATETIME column arrives over the MySQL protocol as a
+  # NaiveDateTime (or a plain string); the CNPG reader returns a UTC DateTime.
+  defp to_datetime(%DateTime{} = value), do: value
+  defp to_datetime(%NaiveDateTime{} = value), do: DateTime.from_naive!(value, "Etc/UTC")
+
+  defp to_datetime(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} ->
+        datetime
+
+      {:error, _reason} ->
+        case NaiveDateTime.from_iso8601(String.replace(value, " ", "T", global: false)) do
+          {:ok, naive} -> DateTime.from_naive!(naive, "Etc/UTC")
+          {:error, _reason} -> value
+        end
+    end
+  end
+
+  defp to_datetime(value), do: value
+
+  defp datetime_literal(%DateTime{} = value) do
+    value
+    |> DateTime.shift_zone!("Etc/UTC")
+    |> DateTime.to_naive()
+    |> NaiveDateTime.to_string()
+    |> then(&"'#{&1}'")
+  end
+
+  defp ip_literals(ips) do
+    Enum.map_join(ips, ",", &"'#{escape_literal(&1)}'")
+  end
+
+  defp keyset_clause(nil), do: ""
+
+  defp keyset_clause({after_time, after_row_key}) do
+    after_time = datetime_literal(after_time)
+    after_row_key = "'#{escape_literal(after_row_key)}'"
+
+    " AND (`time` < #{after_time} OR (`time` = #{after_time} AND id < #{after_row_key}))"
+  end
+
+  defp escape_literal(value) when is_binary(value) do
+    value
+    |> String.replace("\\", "\\\\")
+    |> String.replace("'", "\\'")
+  end
+
+  defp escape_literal(value), do: value |> to_string() |> escape_literal()
 
   defp query_findings([], _opts), do: []
 

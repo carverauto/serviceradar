@@ -24,6 +24,19 @@
 - [x] 2.3 Events filter vocabulary on StarRocks: `log_level`, `event_type`, `host`, `device_id`, `finding_uid`.
   - `log_level` is an ordinary column, added by `priv/starrocks/0018_events_documents.sql` along with the `metadata`/`unmapped`/`device`/`observables` documents. `event_type`, `finding_uid` and `host_id`/`hostname` read the same document paths CNPG reads, via `get_json_string`; `device_id` compiles to CNPG's canonical, alias and document-scan arms in both polarities. The three remaining differences from CNPG, and the row-shape decoding that makes a warehouse event row indistinguishable from a CNPG one, are recorded in `k8s/starrocks/README.md`.
 - [ ] 2.4 Route the direct CNPG readers through `Readers`: dashboard throughput sparklines, device Flows-tab presence probes, and any logs/events stat card that bypasses SRQL.
+  - [x] Flows readers (finding 5, issue #4869): the dashboard throughput sparkline
+    (`TrafficSparklines.warehouse_traffic_rows/2`) and the device Flows-tab presence probes
+    (`DeviceLive.FlowData`) now route through `Readers` and render empty/unavailable on
+    `{:error, :starrocks_required}` instead of reading CNPG flows; the CNPG fallbacks and their
+    helpers are deleted. `DeviceRiskIocExposure` gained a warehouse flow page with the same
+    keyset paging contract (over `time` and the flow row key) selected by
+    `Readers.backend(:flows) == :starrocks`, keeping the CNPG query for installations without
+    the warehouse; the hostile-IOC join and the device identity stay CNPG lookups
+    (`ip_threat_intel_cache` is not in the catalog allowlist, and the warehouse flow row has no
+    `agent_id` -- device is resolved through `device_identifiers` on the destination IP, the
+    CNPG query's fallback arm). Tests: `TrafficSparklinesRoutingTest` (web-ng) and
+    `DeviceRiskIocExposureRoutingTest` (core) pin the routing and the warehouse SQL shape.
+  - [ ] Logs/events stat cards that bypass SRQL (still open).
 - [ ] 2.5 Measure log search on the deployed profile: which index types shared-data supports, and latency of a substring search over 1, 30 and 365 days; document the supported behaviour.
 - [ ] 2.6 Run the parity harness for the `logs` and `events` warehouse readers; ship each reader only after it passes; verify cards and charts against ground truth after the rollout completes.
 
