@@ -140,9 +140,6 @@ declare_serviceradar_user_layer()
 declare_service_container_amd64(
     name = "image_amd64",
     cmd = [],
-    empty_dirs = [
-        "var/lib/replayer",
-    ],
     entrypoint = ["/usr/local/bin/replayer"],
     exposed_ports = [
         "8554/tcp",
