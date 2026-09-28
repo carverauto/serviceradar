@@ -6,7 +6,7 @@ import test from "node:test"
 import React from "react"
 import {act, create} from "react-test-renderer"
 
-import {createDemoKit} from "./kit.js"
+import {createDemoKit, fixtureTimelineKey} from "./kit.js"
 
 function faultEvent(state, faultId) {
   return {
@@ -81,5 +81,23 @@ test("an unchanged timeline key keeps folding across renders", () => {
   const hook = mountHook({timelineKey: "mid-fault"})
   hook.deliver([faultEvent("open", "jam@c7#1")])
   hook.retimeline("mid-fault")
+  assert.equal(hook.headline(), "jam@c7#1")
+})
+
+test("a same-fixture dev harness reload clears manually opened incidents", () => {
+  const hook = mountHook({timelineKey: fixtureTimelineKey({refreshed_at: "steady:1"}, "steady")})
+  hook.deliver([faultEvent("open", "jam@c7#1")])
+  assert.equal(hook.headline(), "jam@c7#1")
+
+  hook.retimeline(fixtureTimelineKey({refreshed_at: "steady:2"}, "steady"))
+  assert.equal(hook.headline(), "none")
+})
+
+test("ordinary frame refresh times do not reset live incidents", () => {
+  const hook = mountHook({timelineKey: fixtureTimelineKey({refreshed_at: "2026-01-01T00:00:00Z"}, "steady")})
+  hook.deliver([faultEvent("open", "jam@c7#1")])
+  assert.equal(hook.headline(), "jam@c7#1")
+
+  hook.retimeline(fixtureTimelineKey({refreshed_at: "2026-01-01T00:00:10Z"}, "steady"))
   assert.equal(hook.headline(), "jam@c7#1")
 })

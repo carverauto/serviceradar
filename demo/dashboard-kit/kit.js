@@ -44,6 +44,16 @@ export const DEMO_KIT_CSS = `
 .sr-demo-trigger{border-radius:.3rem;padding:.2rem .6rem;cursor:pointer}
 `
 
+export function fixtureTimelineKey(frame, loadedScenario) {
+  const scenario = String(loadedScenario || "")
+  const explicit = frame?.fixture_timeline_key ?? frame?.fixtureTimelineKey
+  if (explicit != null && explicit !== "") return String(explicit)
+
+  const refreshed = frame?.refreshed_at ?? frame?.refreshedAt
+  const refreshedKey = refreshed == null ? "" : String(refreshed)
+  return scenario && refreshedKey.startsWith(`${scenario}:`) ? refreshedKey : scenario
+}
+
 export function createDemoKit({React, sdk}) {
   const h = React.createElement
   const {useCallback, useEffect, useMemo, useRef, useState} = React

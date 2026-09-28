@@ -2,7 +2,7 @@ import React, {useEffect, useMemo, useState} from "react"
 import {mountReactDashboard, useDashboardFrame, useDashboardSrql} from "@carverauto/serviceradar-dashboard-sdk/react"
 import * as sdk from "@carverauto/serviceradar-dashboard-sdk/live"
 
-import {DEMO_KIT_CSS, createDemoKit} from "../kit.js"
+import {DEMO_KIT_CSS, createDemoKit, fixtureTimelineKey} from "../kit.js"
 import {latestSampleMs, scheduleStatus} from "../presenter.js"
 
 const {DemoFrame, PresenterStrip, useFaultIncidents} = createDemoKit({React, sdk})
@@ -34,7 +34,7 @@ export function Dashboard() {
   // scenario is actually showing. The timeline key follows the same identity,
   // so a replaced fixture replays from an empty incident set.
   const loadedScenario = (status.activeCount ?? 0) > 0 ? "mid-fault" : "steady"
-  const timelineKey = frame?.fixture_timeline_key || loadedScenario
+  const timelineKey = fixtureTimelineKey(frame, loadedScenario)
   const {headline} = useFaultIncidents({logProvider: `plugin:${PLUGIN_ID}`, timelineKey})
 
   const chips = useMemo(
