@@ -4477,7 +4477,7 @@ mod tests {
         let sql = &compiled.sql;
         assert!(sql.contains("`timestamp` >="), "{sql}");
         assert!(sql.contains("`timestamp` <"), "{sql}");
-        assert!(sql.contains("ORDER BY `timestamp` DESC"), "{sql}");
+        assert!(sql.contains("ORDER BY timestamp DESC"), "{sql}");
         assert!(
             !sql.contains("COALESCE(observed_timestamp"),
             "the warehouse must window/order by event timestamp, not observed: {sql}"
