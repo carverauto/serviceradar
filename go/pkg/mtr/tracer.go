@@ -697,10 +697,15 @@ func (t *Tracer) matchProbeResponse(resp *ICMPResponse) (int, bool) {
 			return 0, false
 		}
 
-		// Quoted ICMP errors should match destination. Some routers do not quote
-		// Echo ID consistently; only enforce ID when present/non-zero.
+		// Quoted ICMP errors should quote an echo request to the target. Every
+		// raw ICMP socket sees every error, so a concurrent UDP or TCP trace to
+		// the same target can produce a quoted packet whose port lands in this
+		// trace's sequence range; the quoted protocol tells them apart. Some
+		// routers do not quote Echo ID consistently; only enforce ID when
+		// present/non-zero.
 		if (resp.Type == 11 || resp.Type == 3 || resp.Type == 1) &&
-			(!t.matchTargetAddr(resp.InnerDstAddr) ||
+			(resp.InnerProto != t.quotedICMPProto() ||
+				!t.matchTargetAddr(resp.InnerDstAddr) ||
 				(resp.InnerID != 0 && resp.InnerID != t.icmpID)) {
 			return 0, false
 		}
@@ -708,13 +713,25 @@ func (t *Tracer) matchProbeResponse(resp *ICMPResponse) (int, bool) {
 	case ProtocolTCP:
 		// Matched by the TCP flow above.
 	case ProtocolUDP:
-		// UDP probes are keyed by destination port, so require quoted destination match.
-		if !t.matchTargetAddr(resp.InnerDstAddr) {
+		// UDP probes are keyed by destination port, so require a quoted UDP
+		// datagram to the target. Without the protocol check, an echo request
+		// quoted for a concurrent ICMP trace would be read as a destination port.
+		if resp.InnerProto != ipProtoUDP || !t.matchTargetAddr(resp.InnerDstAddr) {
 			return 0, false
 		}
 	}
 
 	return seq, true
+}
+
+// quotedICMPProto is the IP protocol number an ICMP error carries when it
+// quotes one of this tracer's echo requests.
+func (t *Tracer) quotedICMPProto() int {
+	if t.ipVersion == 6 {
+		return ipProtoICMPv6
+	}
+
+	return ipProtoICMP
 }
 
 func (t *Tracer) matchTargetAddr(addr net.IP) bool {
