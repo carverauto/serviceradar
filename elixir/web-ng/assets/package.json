@@ -125,5 +125,8 @@
     "vite": "^7.3.2",
     "hoist-non-react-statics>react-is": "19.2.8",
     "@deck.gl/geo-layers": "9.4.0"
+  },
+  "patchedDependencies": {
+    "@deck.gl/core@9.4.0": "patches/deck.gl-core-9.4.0.patch"
   }
 }
