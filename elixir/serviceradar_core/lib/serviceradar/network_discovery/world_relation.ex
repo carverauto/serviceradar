@@ -19,6 +19,13 @@ defmodule ServiceRadar.NetworkDiscovery.WorldRelation do
     end
 
     custom_indexes do
+      # A fresh publication may precede autovacuum statistics. Match the active
+      # cursor read so PostgreSQL cannot favor an endpoint index and rescan the
+      # complete world for every page.
+      index [:layout_version, :relation_id],
+        where: "active",
+        name: "topology_world_relations_active_idx"
+
       index [:layout_version, :source_id],
         where: "active",
         name: "topology_world_relations_source_idx"
