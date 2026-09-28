@@ -28,7 +28,7 @@ import "errors"
 // two implementations was undefined rather than merely unproven.
 //
 // The FIFTEEN NAMES below are FROZEN by the sweep correlation requirements in
-// `openspec/changes/freeze-edge-record-v1-abi`.
+// `openspec/changes/archive/2026-09-28-freeze-edge-record-v1-abi`.
 //
 // WHAT IS FROZEN TODAY IS THE NAME SET, NOT ITS ORDER AND NOT ITS EMISSION.
 //   - The SET is pinned in both runtimes by an inventory test.

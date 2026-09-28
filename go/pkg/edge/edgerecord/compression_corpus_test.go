@@ -35,7 +35,7 @@
 // this corpus MUST NOT be described as proving compression admission.
 //
 // SLICE 3 OWES THE RECORD-LEVEL SHARED VECTORS. The canonical checklist is task 1.5-f slice
-// 3 in openspec/changes/freeze-edge-record-v1-abi/tasks.md -- restating it here produced a
+// 3 in openspec/changes/archive/2026-09-28-freeze-edge-record-v1-abi/tasks.md -- restating it here produced a
 // SECOND inventory that then fell out of date, missing the recursive-compression negative.
 package edgerecord
 
