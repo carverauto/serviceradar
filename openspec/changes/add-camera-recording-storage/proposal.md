@@ -1,38 +1,25 @@
-# Change: Bounded camera recording and VMS/NVR storage
+# Change: VMS/NVR: shared-ingest recording leases and verified S3 segment publication
+
+Tracking issue: [#4913](https://github.com/carverauto/serviceradar/issues/4913).
 
 ## Why
 
-ServiceRadar has agent-routed live RTSP playback and analysis branches, but live
-viewing does not provide recording retention, indexed replay, export or outage
-recovery. Fixed cameras, vehicles and arbitrary dashboard media sources need the
-same recording service. Temporary NATS Object Store staging must be explicitly
-sized so video cannot consume the capacity needed for telemetry.
+Introduce durable recording independently of live viewers, reusing the existing camera/profile ingest. This is a separate platform workstream, not required to finish #4774.
 
 ## What Changes
 
-- Add recording policies, recorder leases, bounded media segments, a recording
-  index and authorized timeline/playback/export APIs on the existing camera path.
-- Retain video in deployment-configured S3-compatible object storage; keep
-  metadata, access policy and retention workflow in CNPG/Ash.
-- Support optional, finite JetStream Object Store staging for completed segments;
-  never use it as an implicit unlimited recording archive.
-- Support a disconnected edge recording profile: a local JetStream domain retains
-  segments and a resumable archiver continuously drains them to permanent object
-  storage whenever that destination is reachable, independently of hub connectivity.
-- Define upload verification, crash recovery, expiry, gaps, quota admission and
-  per-deployment byte/throughput/replica sizing before recording is enabled.
-- Extend dashboard camera interfaces with playback/time-range operations that
-  use the host's authorization and stable camera/object identities.
+- Audit existing relay ownership and edge-record contracts, including #4905. Use independent viewer/recorder/analysis leases so recording survives the last viewer leaving without a second RTSP connection.
+- Prototype supported H.264 keyframe-aligned segmentation and actual browser seek/reconnect before freezing container, initialization, duration/byte bounds and discontinuity behavior. Do not promise arbitrary codecs.
+- Add authorized policy, fenced recorder ownership and segment-index Ash resources/migrations.
+- Stream finalized immutable media/init objects to permanent S3-compatible storage using bounded buffers/spool. Verify length and checksum; persist recoverable manifests and idempotent index publication.
+- Reconcile restart, upload/index boundary failures and orphan/multipart state. Never advertise partial footage as available or invent clock continuity.
+- Plugins register sources through host interfaces; a long-lived media worker owns capture. Camera credentials remain in the unified credential inventory; media-storage credentials are infrastructure credentials.
+
+Related workstreams have separate proposals and acceptance checklists.
 
 ## Impact
 
-- Affected specs: new `camera-recording`; existing `camera-streaming` relay remains the integration boundary.
-- Affected code: agent camera reader/uploader, core relay lifecycle/media branches,
-  Ash resources/migrations, object-store adapters, retention workers, web playback
-  APIs and dashboard SDK.
-- Reuses `add-showcase-demo-portfolio` D8/D9/D16 camera sources, viewers and analysis.
-  Its explicit VMS non-goal remains valid: this separate change owns recording.
-- Coordinates with `add-spatial-observation-ingestion` and the durable edge-record
-  work for metadata/provenance; media bytes remain on the dedicated media path.
-- Proposal only. No recording is enabled, no live media is copied, and no cluster
-  resources or retention settings are changed by this change proposal.
+Existing native camera ingest/relay, recorder ownership, object-store uploader and CNPG/Ash recording index. Reuses #4848 replay sources and applicable #4905 edge primitives. JetStream staging and product playback/retention are separate changes; does not block #4774.
+
+Proposal and tracking only; no deployment, data ingestion or recording is enabled
+by this documentation change.

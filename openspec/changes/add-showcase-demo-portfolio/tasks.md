@@ -101,17 +101,20 @@ goes through the no-mistakes gate.
 - [ ] 12.2 Record follow-up changes for the candidate demos in design D15 (rail short line, rail yard and corridor, ranch, agriculture district, Midwest row crop) and the rest of the backlog (port, retail/stadium, mine site, maritime, public safety, constrained forward site).
 - [ ] 12.3 `openspec validate add-showcase-demo-portfolio --strict`; archive after the last phase ships.
 
-## 13. Network-scale simulator (God View acceptance; design D18)
-- [ ] 13.1 Add an invented, seeded network scenario using `simkit`: one million stable device identities, at least two million links, hierarchical sites, backbone connectivity, redundant paths and explicit interface bindings. Keep generation bounded by assignment shard and batch, with deterministic replay.
-- [ ] 13.2 Complete the plugin topology contract in 7.x with interface bindings, physical/logical evidence and expiry; verify canonical Dgraph output through the real ingestor, not a direct graph seed.
-- [ ] 13.3 Emit cumulative SNMP packet/octet counters through the SDK metric envelope and `emit_telemetry`; preserve device, interface, counter width and producer identity. Verify EventWriter storage and SRQL rates. Include variable bidirectional load, zero traffic, stopped reporting and counter resets.
-- [ ] 13.4 Package a resource-bounded WASM scenario and Bazel build/publish/verification targets. Declare shard count, devices and interfaces emitting telemetry, sample interval and maximum offered rate; measure run time and memory before increasing scale.
-- [ ] 13.5 Provision an isolated synthetic deployment and graph with no live-demo data and no writes to a shared CI graph. Automated database checks use srql-fixtures scratch databases only. Verify cleanup by querying owned records after producers stop.
-- [ ] 13.6 Grow through small, medium and one-million-device profiles; verify exact persisted counts, ingest backlog/freshness and queryable rates at each stage. Report topology scale separately from telemetry coverage and throughput.
-- [ ] 13.7 Use the actual authenticated God View HTTP/channel paths in hardware WebGPU with traffic enabled. Verify initial camera coverage, navigation, bounded ELK detail, animated direction changes, zero/stale/reset behavior and unchanged geometry on telemetry updates. Record failures as failures; mocked overlay responses do not satisfy this check.
+## Separately owned follow-ups
 
-## 14. Shared spatial resources (design D19)
-- [ ] 14.1 Reconcile the SDK plan-view branch and host libraries before extending interfaces; preserve geographic maps and frame-based layers.
-- [ ] 14.2 Add typed host spatial resource descriptors, authorized provider resolution, location navigation/sharing and SDK wrappers using the #4774 location contract. Declare coordinate semantics and default camera per resource; identify the dashboard instance and stable map-view id. Support fixed-view links with optional selection and provider-resolved object links for arbitrary fixed or moving objects.
-- [ ] 14.3 Extract bounded tile transport/cache/invalidation behind a source adapter; retain topology schema-3 decoding and SNMP/ELK behavior in the topology adapter.
-- [ ] 14.4 Prove a synthetic non-network plan resource and a geographic drone location without coupling either to network storage or topology payloads. Test wrong-resource/version rejection, URL round trips, multi-map targeting, camera restoration after initial load, movement after sharing, debounced address-bar coordinates and zoom with host history preservation, missing selections, access denial and disposal on resource changes.
+The former 13.x network-scale tasks moved to `prove-million-device-topology` and
+remain required for #4774. The former 14.x spatial-resource tasks moved to
+`add-shared-spatial-resources`. D20 lists the independent spatial and recording
+proposals. Their checklists are maintained by their own issues, not duplicated here.
+
+| Issue | Independent proposal |
+| --- | --- |
+| [#4908](https://github.com/carverauto/serviceradar/issues/4908) | `verify-topology-feature-parity` |
+| [#4909](https://github.com/carverauto/serviceradar/issues/4909) | `prove-million-device-topology` |
+| [#4910](https://github.com/carverauto/serviceradar/issues/4910) | `add-shared-spatial-resources` |
+| [#4911](https://github.com/carverauto/serviceradar/issues/4911) | `add-spatial-observation-ingestion` |
+| [#4912](https://github.com/carverauto/serviceradar/issues/4912) | `add-spatial-history-projection` |
+| [#4913](https://github.com/carverauto/serviceradar/issues/4913) | `add-camera-recording-storage` |
+| [#4914](https://github.com/carverauto/serviceradar/issues/4914) | `add-edge-recording-archive` |
+| [#4915](https://github.com/carverauto/serviceradar/issues/4915) | `add-recording-playback-lifecycle` |

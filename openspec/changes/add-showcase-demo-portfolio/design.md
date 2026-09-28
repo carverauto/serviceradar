@@ -507,162 +507,28 @@ the natural next step for any pack a customer is about to buy, and the `Source`
 boundary makes it a drop-in.
 
 
-### D18. Network-scale scenario for God View
+### D18. Network-scale acceptance ownership
 
-Use the existing `demo/simkit` and demo-only WASM build/publish path for a
-reusable network scenario. The existing Armis faker remains an API emulator;
-this scenario needs stable network relations and interface-bound counters as
-well as device records. No second simulation clock or counter engine is needed.
+`prove-million-device-topology` owns the network simulator and complete production
+pipeline/hardware-browser proof. It remains required for #4774; the showcase
+portfolio supplies reusable simkit and plugin topology-link foundations (D10).
 
-The scenario is independently invented and seed-derived: hierarchical sites,
-connected backbone routers, switches, endpoints and redundant physical links.
-Device and relation identities and interface indices are stable across retries.
-The million-device profile has at least two million relations. Inventory and
-link generation is streamed in bounded assignment shards; a single WASM run
-must never materialize the whole graph or exceed the existing result, telemetry,
-memory and timeout limits. The shard size is chosen from measured payload and
-runtime limits, not by raising those limits to fit the scenario.
+### D19. Shared mapping ownership
 
-Complete D10's plugin topology ingestion before using it for this proof. Links
-need endpoint identities, local/remote interface indices, evidence class and
-source observation timestamps. Physical links must enter the canonical Dgraph
-writer with real interface attribution. Synthetic does not mean bypassing
-identity reconciliation, provenance or expiry. The ordinary ingestion contract
-must support retries and establish devices before links reference them.
+`add-shared-spatial-resources` owns resource descriptors, reusable tile transport,
+provider adapters and dashboard location sharing. Existing plan-view foundations
+and #4847 stay in this portfolio. Topology location support stays in #4774.
 
-SNMP traffic uses the existing SDK metric envelope, with metric type `snmp`,
-interface index, counter width, cumulative kind, monotonic flag and producer
-identity. Start with `ifHCInUcastPkts`, `ifHCOutUcastPkts`, `ifHCInOctets` and
-`ifHCOutOctets`. Octet derivatives become bit rates by multiplying by eight.
-Multicast and broadcast are optional counter families, not prerequisites for
-traffic animation. Use simkit's restart-safe counters and fault scheduler for
-bidirectional load, idle links, loss of observations and explicit device-reboot
-counter resets. All samples go through the agent host's `emit_telemetry` path,
-JetStream and EventWriter; no direct database metric writes.
+### D20. Separate platform workstreams
 
-Topology population and telemetry population are separately configured and
-reported. A million stored devices with a smaller active interface cohort is a
-valid topology/renderer test, but is not a million-device telemetry throughput
-result. Full-population traffic is an explicit load profile with a declared
-sample cadence, offered records per second and measured backlog/freshness.
-Scale up only after the preceding profile's ingestion and resource checks pass.
+- `add-spatial-observation-ingestion`: atomic wire contract and SDK/host admission.
+- `add-spatial-history-projection`: JetStream history, current projection and reads.
+- `add-camera-recording-storage`: shared ingest and verified segment publication.
+- `add-edge-recording-archive`: offline JetStream buffering and continuous S3 drain.
+- `add-recording-playback-lifecycle`: authorized replay, retention, holds and exports.
 
-Use an isolated synthetic deployment, including its own graph and telemetry
-storage. The presence of a CI Dgraph service is not authorization to overwrite
-its shared graph. Automated database tests keep using srql-fixtures scratch
-lifecycle ownership. Provisioning and verification are Bazel targets; builds
-run on RBE. Stop producers before cleanup and query the owned data afterward.
-
-Acceptance uses the authenticated product, actual HTTP tiles/channel
-invalidations, SRQL overlays and a hardware WebGPU browser. Record counts at
-ingestion/storage boundaries, initial camera target/zoom and population
-coverage, cache behavior, bounded ELK details, traffic transitions and frame
-performance. Existing generated Arrow fixtures and mocked telemetry browser
-checks remain useful focused tests, but do not establish this pipeline proof.
-
-### D19. Reusable spatial resources and shared locations
-
-The dashboard SDK's `feat/plan-view` already provides `createPlanView`,
-`usePlanView`, `fitPlanBounds` and shared layer factories. Extend those interfaces;
-do not embed the God View LiveView hook or make dashboards depend on Dgraph,
-SNMP, ELK or the topology schema-3 decoder. Geographic drone maps continue to use
-longitude/latitude with the geographic map helper. Indoor plans and logical
-networks use explicit Cartesian frames with declared units, axis direction and
-bounds. A zoom value is meaningful only with its frame's camera convention.
-
-The platform is use-case neutral: stable objects can be fixed or moving, geographic
-or diagrammatic. Drone, infrastructure, vehicle, sensor and process examples do not
-become required object classes. Providers own object schemas, motion and presentation;
-the shared layer addresses objects by stable, resource-scoped identity.
-
-A shared dashboard target identifies the dashboard instance route and a stable view
-id within that dashboard, as well as the spatial resource. This distinguishes two
-maps that happen to appear on the same dashboard. Extend the host's existing
-`api.navigate` and query-state handling rather than introducing a competing router.
-The SDK asks the host to construct an authorized route and receives initial location
-state from it. Query/time filters use existing dashboard query-state semantics. Camera changes
-update the address bar after a bounded debounce with `history.replaceState`, preserving
-host history state and unrelated query parameters. Cartesian links expose X/Y and
-zoom; geographic links expose latitude/longitude and zoom (plus bearing/pitch where
-supported). The recipient's viewport determines visible tile coverage from that
-camera; cached or prefetched tile ids are not part of a shared location. Normal
-panning must not flood the browser Back stack.
-
-Two explicit link modes apply to arbitrary objects:
-
-- **View** preserves the camera and may select a stable object. It stays at the
-  shared area even if the object later moves; it is not a historical telemetry
-  snapshot. If the selected object disappears, retain the valid view and explain
-  that selection is unavailable.
-- **Object** resolves a stable identity through its provider when opened and centers
-  its current position. This does not enable continuous camera tracking implicitly.
-  Missing or unauthorized objects have explicit unavailable/denied states.
-
-Apply restored state after the authorized resource is ready, ahead of saved camera
-preferences or default fit-to-bounds. Subsequent frame/telemetry refreshes must not
-reset that camera. A map can still offer Home or explicit object tracking as user
-actions. A tile address identifies a bounded region inside the resource's coordinate
-version; the adapter converts it to a camera without conflating a tile's content
-revision with the long-lived location identity.
-
-A spatial resource is a named visualization dataset inside the existing deployment,
-not a tenant or a new authorization boundary. Its host-owned descriptor supplies
-resource id, coordinate-space id and immutable coordinate version, bounds, units,
-axis convention, default camera, zoom range, supported payload format and budgets.
-The host resolves resource ids to authorized providers; links never supply backend
-URLs or credentials. Keep these boundaries:
-
-- Location and camera: a versioned location value describes resource, coordinate
-  space/version, center and zoom. Geographic adapters additionally own bearing and
-  pitch. The host route serializes locations and the SDK asks the host to navigate
-  or share; packages do not replace the application's URL or history themselves.
-- Tile source: manifest, cancellable bounded tile reads, content revisions and
-  targeted invalidations. Cache identity includes resource, coordinate space/version,
-  tile address and payload format. Publication generation fences coherent reads;
-  changing telemetry does not invalidate geometry. Close/dispose releases requests,
-  subscriptions and cache state when a dashboard unmounts or its resource changes.
-- Presentation adapter: decode payloads, create existing layer specs, resolve stable
-  entity picks and details. Network topology supplies schema 3, persistent world
-  placement, bounded ELK detail and SNMP overlays; floor plans supply plan layers;
-  drone maps supply geographic tracks and sensor overlays.
-
-Do not force every dataset into tiling: bounded dashboard frames remain valid input
-for the existing SDK helpers. Add a tiled source only where dataset size requires
-it. No whole-million-device frame may be sent to the browser to implement SDK LOD.
-
-#4774 implements shared locations for its existing topology resource first, using a
-renderer-independent Cartesian location codec. Its `topology-world` coordinate space uses a Y-down world of width `2^24`;
-center coordinates are world units and zoom zero draws that width at 512 CSS pixels.
-Its link contains a layout version,
-not a telemetry snapshot or publication generation. Same-version links restore the
-same center and scale with current authorized data. An unavailable layout yields a
-visible explanation and Home; an explicit entity link resolves current coordinates.
-The topology route supplies its resource and coordinate-space identity; its compact
-URL uses `layout`, `x`, `y`, and `z`, with one decimal for coordinates and three for
-zoom (trailing zeroes omitted). Older expanded links remain readable and are
-canonicalized without discarding unrelated query state. Dashboard providers still
-need explicit view/resource addressing when the route alone is not sufficient.
-A later SDK host integration reuses this contract, adds provider registration and
-proves a second, non-network resource before claiming a platform tile API. It must
-not copy topology database tables or publish a second competing location format.
-
-### D20. Platform ingestion and recording boundaries
-
-`add-spatial-observation-ingestion` owns the proposed atomic position contract,
-SDK parity, JetStream-first history and bounded CNPG/PostGIS current-position
-projection. The platform routes semantic records; plugins do not select databases.
-It uses D19's resource/coordinate/identity interfaces and coordinates with D10's
-canonical relationship ingestion. Dgraph represents relationships, not every
-movement sample. StarRocks owns telemetry history when enabled; CNPG retains its
-complete telemetry backend for installations without StarRocks.
-
-`add-camera-recording-storage` separately owns VMS/NVR policies, recorder leases,
-segmented durable object storage, playback and retention. It extends the existing
-camera relay without changing this demo portfolio's VMS non-goal. Optional
-JetStream Object Store staging is finite and temporary, with deployment sizing
-and reserved telemetry capacity. Live media remains on the dedicated camera path.
-These proposals preserve provenance for future SCRITH integrations but implement
-neither its ontology nor causal engine. Neither proposal blocks #4774 acceptance.
+Each has its own issue, requirements and acceptance. None blocks #4774. SCRITH
+ontology/causal implementation remains excluded.
 
 ## Risks / Trade-offs
 

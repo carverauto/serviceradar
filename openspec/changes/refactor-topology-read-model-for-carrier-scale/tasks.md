@@ -8,6 +8,15 @@ The [client regression run](https://carverauto.buildbuddy.io/invocation/2e9b3e25
 
 The shared invented million-device/two-million-relation generator passes the [layout and 1% growth regression](https://carverauto.buildbuddy.io/invocation/ebff9383-0c25-4bcd-961a-9c3e2300131d). Its production NIF/Arrow output is served over loopback HTTP to the real map renderer. Physical GPU results and their limitations are recorded in [the acceptance report](../../../docs/god-view-world-acceptance.md). The remote repository gate passed 367 targets with two skipped, and all three browser targets passed, at `f795ebe144`. The final tree at `b5e3e9cbb8` passed the full remote make (367 targets passed, two skipped, seven quality targets) and the guarded million-device scratch worker, which recorded persist 317,201 ms, publish 3,492 ms, reload 36,933 ms, index 3,793 ms, one zoom-16 tile query at 7,975 microseconds, and peak BEAM resident memory of 2,987,208 KiB with no manual statistics intervention.
 
+## Remaining workstream completion gates
+
+The current #4774 workstream is not complete until both independently tracked
+proposals pass: `verify-topology-feature-parity` / #4908 (legacy behavior and bounded ELK)
+and `prove-million-device-topology` / #4909 (real ingestion, SNMP overlays and hardware
+WebGPU animation). Existing checked implementation/fixture tasks do not satisfy
+those remaining gates. Dashboard generalization, spatial ingestion and VMS/NVR
+have separate proposals and are not dependencies of this workstream.
+
 ## 1. Topology Contract
 
 - [x] 1.1 Implement and round-trip schema-3 tile and bounded detail payloads, including UInt16 local coordinates with affine metadata, local UInt32 endpoints, counts, budgets, and lazy details.
@@ -57,7 +66,7 @@ The shared invented million-device/two-million-relation generator passes the [la
 - [x] 5.7 Round-trip tile/detail metadata, UInt16 affine positions, local endpoints/proxies, and columnar/lazy details through the schema-3 NIF encoder and client decoder.
 - [x] 5.8 Run make test with --config=remote on the final tree before the PR. Deliver every PR through no-mistakes with the srql-fixtures-only database restriction in the run intent.
 - [x] 5.9 Pass pure semantic Atlas tests using an invented 200,000-device/400,000-relation graph. This historical foundation check does not replace the open million-device tile acceptance above.
-- [ ] 5.10 Run the network-scale simulator from `add-showcase-demo-portfolio` through real inventory/topology ingestion, isolated Dgraph and JetStream/EventWriter telemetry. Prove one million persisted devices, relation/interface bindings, changing SNMP rates, zero/stale/reset cases, opening camera coverage, bounded ELK detail and hardware WebGPU animation. Record total inventory and active telemetry population separately; the existing Arrow browser fixture and scratch layout benchmark do not prove this end-to-end path.
+- [ ] 5.10 Complete `prove-million-device-topology`; its own checklist owns the real-ingestion million-device proof. Mocked overlay fixtures and scratch layout benchmarks do not satisfy it.
 
 ## 6. Persistent World and Tile Engine
 - [x] 6.1 Add core Ash layout/head/device-position/relation-binding resources and platform migrations with the Helm core migration expected-version bump.
