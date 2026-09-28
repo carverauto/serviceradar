@@ -2767,7 +2767,13 @@ sweep:
 # and events are also read from them. Flow READS are warehouse-only: until
 # `flows` is listed in cutoverDatasets, the NetFlow dashboard and `in:flows` are
 # refused with a warehouse-required error instead of falling back to CNPG, which
-# stays the flow write target only.
+# stays the flow write target only. Flow WRITES are stronger: whenever the
+# warehouse is enabled, a flow Stream Load must succeed before its JetStream
+# ACK, so a warehouse outage backpressures flow ingestion instead of skipping
+# warehouse rows. List `flows` in cutoverDatasets only after one device-risk
+# lookback (default 1h) has passed since the version that writes agent_id on
+# warehouse flow rows deployed; flipping earlier can suppress maximum-risk
+# alerts on pre-deploy rows for up to that hour.
 # flowCollector is gated independently. Empty shadowDatasets means all four
 # datasets. Cutover stays empty until a dataset is explicitly listed. Lab
 # clusters run the shared-nothing profile from k8s/starrocks/, not this chart.

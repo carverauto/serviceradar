@@ -342,7 +342,7 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposureRoutingTest do
     refute_received :ioc_lookup
   end
 
-  # The delayed cutover. Warehouse flow rows written before this reader
+  # The pre-cutover hold. Warehouse flow rows written before this reader
   # shipped carry no `agent_id`, so an agent-only device -- one whose
   # `dst_endpoint_ip` is not a `device_identifiers` row -- is invisible to
   # them. Until `flows` is listed in the cutover setting the risk read stays
@@ -411,16 +411,17 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposureRoutingTest do
     assert [^as_of, 3600, _page_size, nil, nil] = params
   end
 
-  # The timing half of the delayed cutover. Enriched warehouse writes begin
-  # when this reader deploys (Rows.encode/2 writes agent_id on every flow
-  # row). The warehouse page bounds `time` strictly below as_of -
-  # window_seconds, so once as_of >= deploy + window no row written before the
-  # deploy can still be inside the window: flipping the cutover setting at
-  # deploy + 3600 (the production default lookback) leaves every in-window
-  # row enriched. This disposes of the un-enriched rows only; a hole left by a
-  # failed pre-cutover shadow load is a row the warehouse never held, and age
-  # alone cannot clear it -- see the release condition in the
-  # extend-starrocks tasks.
+  # The timing half of the cutover condition. Enriched warehouse writes begin
+  # when this reader deploys (Rows.encode/2 writes agent_id on every flow row,
+  # and Destination.warehouse_required?/1 makes the load retryable before the
+  # JetStream ACK, so post-deploy warehouse rows are complete and enriched).
+  # The warehouse page bounds `time` strictly below as_of - window_seconds, so
+  # once as_of >= deploy + window no row written before the deploy can still
+  # be inside the window: flipping the cutover setting one lookback (default
+  # 3600s) after the deploy leaves every in-window row complete and enriched.
+  # Flipping earlier serves pre-deploy rows without agent attribution (and
+  # pre-deploy shadow holes); that suppression window is the captain decision
+  # recorded in the extend-starrocks tasks.
   test "the warehouse window is strictly bounded by the risk lookback", %{prev: prev} do
     Application.put_env(
       :serviceradar_core,

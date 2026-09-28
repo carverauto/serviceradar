@@ -159,10 +159,12 @@ Go, `serviceradar_core_elx`, `serviceradar_agent_gateway`, `datasvc`, `palisade`
    than reading CNPG flows, and `DeviceRiskIocExposure` gained a warehouse flow page selected by
    `Readers.backend(:flows) == :starrocks` (the CNPG query remains for installations without the
    warehouse). The risk reader cuts over delayed, not at deploy: warehouse rows written before
-   `agent_id` enrichment cannot resolve agent-only devices, so it keeps CNPG reads until the
-   risk lookback (default 3600s) has expired past the enriched writes AND the hold window's
-   warehouse completeness is established -- the second condition has no existing enforcement
-   (pre-cutover shadow loads are best-effort); see task 2.4 for the open decision.
+   `agent_id` enrichment cannot resolve agent-only devices, so it keeps CNPG reads until
+   `flows` is listed in the cutover setting. Flow warehouse writes are required before the
+   JetStream ACK on warehouse-enabled installations (`Destination.warehouse_required?/1`), so
+   listing `flows` one risk lookback (default 3600s) after the enriching deploy flips reads
+   with zero missed detections; an immediate flip serves pre-deploy rows without agent
+   attribution for up to the lookback (open captain decision). See task 2.4.
 6. **`rust/srql/src/server.rs:51` (`/api/query`) runs every entity on CNPG** and bypasses
    `Readers`; no chart deploys it, so it may be dead. **Resolved (issue #4873):** the standalone
    server was dead — no Helm template, Compose service, k8s manifest or Docker image ran it, and

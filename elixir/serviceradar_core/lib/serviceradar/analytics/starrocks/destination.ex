@@ -5,8 +5,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
   CNPG remains the serving authority while shadowing. Each destination is
   tracked independently: a partial success retries only the missing destination
   with the same stable identities. Shadow failure does not fail JetStream ACK
-  until the dataset is listed in `cutover_datasets`; then Stream Load Success
-  or durable quarantine is required before ACK.
+  until the dataset is listed in `cutover_datasets` -- or, for flows, whenever
+  the warehouse is enabled (see `warehouse_required?/1`); from then on Stream
+  Load Success or durable quarantine is required before ACK.
 
   MTR traces and hops (`:mtr_traces`, `:mtr_hops`), OTel metrics
   (`:otel_metrics`, `:otel_metric_points`) and OTel spans (`:otel_traces`)
@@ -140,9 +141,10 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
   @doc """
   After a CNPG insert, persist to StarRocks.
 
-  When `Readers.mode_for/1` is `starrocks`, Stream Load Success or durable
-  quarantine is required and a failure fails the EventWriter ACK. Otherwise
-  shadow writes stay best-effort.
+  When the dataset's reads are cut over -- or, for flows, whenever the
+  warehouse is enabled (see `warehouse_required?/1`) -- Stream Load Success
+  or durable quarantine is required and a failure fails the EventWriter ACK,
+  so JetStream redelivers the batch. Otherwise shadow writes stay best-effort.
   """
   @spec persist_after_cnpg(dataset(), [map()], keyword()) ::
           {:ok, map()} | {:ok, :disabled} | {:error, term()}
@@ -151,7 +153,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
   def persist_after_cnpg(_dataset, [], _opts), do: {:ok, :disabled}
 
   def persist_after_cnpg(dataset, rows, opts) when is_list(rows) do
-    if Readers.mode_for(dataset) == "starrocks" do
+    if warehouse_required?(dataset) do
       persist_shadow(
         dataset,
         rows,
@@ -174,6 +176,21 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
       end
     end
   end
+
+  # Flows commit to the warehouse before the JetStream ACK whenever the
+  # warehouse is enabled (captain decision 2026-09-28: flows already travel
+  # on a dedicated JetStream stream, which is the durable cache, so a
+  # warehouse outage backpressures flow ingestion instead of leaving a silent
+  # hole in the warehouse). This is deliberately keyed on `enabled?/0`, not on
+  # the cutover list: the list routes reads, and flow writes must already be
+  # complete and agent-enriched by the time an operator flips it. A redelivery
+  # re-inserts CNPG as a no-op (`on_conflict: :nothing` on the stable flow
+  # identity) and the primary-key warehouse table upserts the same keys.
+  # Every other dataset keeps the staged behavior: required only once its
+  # reads are cut over, best-effort shadow before that.
+  defp warehouse_required?(:flows), do: Readers.enabled?()
+
+  defp warehouse_required?(dataset), do: Readers.mode_for(dataset) == "starrocks"
 
   @doc """
   Insert into CNPG then apply `persist_after_cnpg/3`. The insert function is

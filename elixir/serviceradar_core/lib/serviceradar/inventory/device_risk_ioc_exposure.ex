@@ -72,24 +72,25 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposure do
 
   # Flows read CNPG until the `flows` dataset is listed in the cutover
   # setting (Helm `analytics.starrocks.cutoverDatasets`, Compose
-  # `SERVICERADAR_STARROCKS_CUTOVER_DATASETS`); that switch is also the
-  # delayed-cutover control for historical warehouse rows. Warehouse flow rows
-  # written before this reader shipped carry no `agent_id`, so they resolve
-  # device identity by destination IP alone and an agent-only device is
-  # invisible to them. Until the cutover, EventWriter keeps CNPG the
-  # authoritative flow write (shadowing to the warehouse), so the CNPG query
-  # below serves complete, agent-first-attributed flows with no missed
-  # maximum-risk detection. Lookback expiry is a necessary, not sufficient,
-  # release condition: it disposes of every un-enriched row (the warehouse
-  # page bounds `time` strictly below `as_of - window_seconds`), but a safe
-  # cutover additionally needs the warehouse to hold every row written during
-  # the hold, and pre-cutover shadow loads are best-effort -- a failed load
-  # leaves no warehouse row and is never retried, and that hole can hide a
-  # hit for up to `window_seconds` after the flip. No existing control
-  # verifies hold-window warehouse completeness; the release condition and
-  # that gap are recorded in the extend-starrocks tasks. The routing tests
-  # pin the CNPG hold, the strict window bound, and the dropped un-enriched
-  # row that makes flipping before lookback expiry unsafe.
+  # `SERVICERADAR_STARROCKS_CUTOVER_DATASETS`). Warehouse flow rows written
+  # before this reader shipped carry no `agent_id`, so they resolve device
+  # identity by destination IP alone and an agent-only device is invisible to
+  # them. While flows are not cut over, EventWriter keeps CNPG the
+  # authoritative flow write and the CNPG query below serves complete,
+  # agent-first-attributed flows with no missed maximum-risk detection.
+  # From this version on, a warehouse-enabled installation also commits every
+  # flow to the warehouse before its JetStream ACK
+  # (`Destination.warehouse_required?/1`), so warehouse rows written after the
+  # deploy are complete and carry `agent_id`; the warehouse page bounds `time`
+  # strictly below `as_of - window_seconds`, so once one risk lookback
+  # (default 3600s) has passed since the deploy, no pre-deploy row -- neither
+  # an un-enriched row nor a best-effort shadow hole -- can still be inside
+  # the window and the cutover flips with zero missed detections. Flipping
+  # sooner serves whatever pre-deploy rows remain in the window without
+  # agent attribution, which can suppress a maximum-risk alert for up to the
+  # lookback; whether an immediate flip is acceptable is a pending captain
+  # decision. The routing tests pin the CNPG hold, the strict window bound,
+  # and the dropped un-enriched row.
   @doc false
   def flow_history_backend, do: Readers.backend(:flows)
 
