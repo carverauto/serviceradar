@@ -220,6 +220,9 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
     assert Destination.table_for(:events) == "events"
     assert Destination.table_for(:mtr_traces) == "mtr_traces"
     assert Destination.table_for(:mtr_hops) == "mtr_hops"
+    assert Destination.table_for(:otel_metrics) == "otel_metrics"
+    assert Destination.table_for(:otel_metric_points) == "otel_metric_points"
+    assert Destination.table_for(:bmp_routing_events) == "bmp_routing_events"
   end
 
   @mtr_trace %{

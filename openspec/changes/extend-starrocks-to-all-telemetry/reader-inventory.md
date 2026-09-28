@@ -22,7 +22,9 @@ Both SRQL entry points route through `Readers`: web-ng `WN/srql.ex:33` / `:72` (
 and core `C/observability/srql_runner.ex:24` / `:31` (mode at `:74`). The StarRocks SRQL dialect
 (`S/starrocks.rs:90`) covers flows, attributed flows, timeseries, SNMP and rperf metrics, logs,
 and events with its sub-entities, including `rollup_stats:severity` and
-`rollup_stats:anomaly_findings`; MTR has its own dialect (`S/starrocks/mtr.rs:36`).
+`rollup_stats:anomaly_findings`; MTR has its own dialect (`S/starrocks/mtr.rs:36`), OTel metrics
+their own (`S/starrocks/otel_metrics.rs:36`), and BMP routing events their own
+(`S/starrocks/bmp_events.rs:36`), each keyed on `enabled?/0`.
 
 ## Telemetry objects
 
@@ -92,9 +94,9 @@ Excluded as control plane: `stateful_alert_rule_histories`, `otel_service_catalo
 | Reader | Reads | Surface |
 |---|---|---|
 | SRQL `cpu`, `memory`, `disk`, `process` metrics; Analytics high utilization `:130-132`; device list `index_data/telemetry.ex:87`; authored dashboard `source_queries.ex:54`; JSON:API | cpu/memory/disk/process tables and caggs | SRQL CNPG / API |
-| SRQL `bmp_events`; `BmpLive` `W/live/bmp_live/index.ex:29` | bmp_routing_events | BMP page |
-| `GodViewStream.fetch_recent_bmp_routing_events` `WN/topology/god_view_stream.ex:5344` | bmp_routing_events | God View |
-| `ServiceRadar.BGP.Stats` `C/bgp/stats.ex:29` and seven more queries | bgp_routing_info | BGP page |
+| SRQL `bmp_events`; `BmpLive` `W/live/bmp_live/index.ex:29` | bmp_routing_events | BMP page (routed by 3.4b: `Readers.mode_for(:bmp)` on `enabled?/0`) |
+| `GodViewStream.fetch_recent_bmp_routing_events` `WN/topology/god_view_stream.ex:5344` | bmp_routing_events | God View (warehouse branch added by 3.4b.4) |
+| `ServiceRadar.BGP.Stats` `C/bgp/stats.ex:29` and seven more queries | bgp_routing_info | BGP page (stays CNPG, see below) |
 | SRQL `services`, `service_availability`, `monitored_services`, `slo_evaluations` | service_status | Services pages, device health, authored dashboards |
 | `Stats.services_availability` `W/stats.ex:461`; dashboard `service_sparklines.ex:30` | services_availability_5m | dashboard service card and sparkline (see findings) |
 | Analytics `get_service_counts` `W/live/analytics_live/index.ex:536` | service_status | Analytics |
@@ -129,7 +131,12 @@ endpoint scan workers, the dashboard throughput sparkline
 dashboard MTR card and sparkline, `MtrTrace`,
 `MtrCompare`. OTel metrics (3.1): SRQL `otel_metrics`/`otel_metric_points` and every page using
 them (logs page metrics tab and OTLP view, `MetricLive.Show`, Analytics slowest spans,
-onboarding), routed on `enabled?/0` like MTR.
+onboarding), routed on `enabled?/0` like MTR. BMP (3.4b): SRQL `bmp_events` (the BMP page)
+routed on `enabled?/0`, and God View's direct `bmp_routing_events` read has a warehouse branch
+next to its CNPG query. `bgp_routing_info` is NOT BMP routing events: `ServiceRadar.BGP.Stats`
+reads flow-derived telemetry that `ServiceRadar.BGP.Ingestor` aggregates by in-place upsert
+(per-minute bucket rows updated in place), so it is current-state-shaped and stays in CNPG
+(Decision 1); it is not part of task 3.4b.
 
 Go, `serviceradar_core_elx`, `serviceradar_agent_gateway`, `datasvc`, `palisade` and
 `serviceradar_srql` read no telemetry.

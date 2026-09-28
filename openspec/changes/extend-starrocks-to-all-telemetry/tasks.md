@@ -206,7 +206,34 @@
       `scans.results.>` and are written inside EventWriter). 3.4.3 is about warehouse-awareness,
       not JetStream, so it does not keep the exception true.
 - [ ] 3.4b BMP routing events and service status history: table, EventWriter destination, routing,
-  readers.
+  readers. BMP routing events are the BMP half (below); service status history stays with its
+  owner, because its write path reads CNPG state (`PluginResultIngestor`,
+  `ServiceStateRegistry`).
+  - [x] 3.4b.1 Warehouse DDL `priv/starrocks/0022_bmp_routing_events.sql`: `bmp_routing_events`
+    with every CNPG column under the same name, keyed `(id, time)` (id is the stable event
+    identity, so a redelivery upserts the same rows), day partitions and 365-day retention
+    (`SERVICERADAR_STARROCKS_RETENTION_DAYS_BMP`, Helm `analytics.starrocks.retentionDays.bmp`,
+    Compose `STARROCKS_RETENTION_DAYS_BMP`). `metadata` is a JSON document, like
+    `mtr_hops.mpls_labels`.
+  - [x] 3.4b.2 EventWriter `AnalyticsSignals` writes BMP routing events to the warehouse only
+    when StarRocks is enabled (`Destination.enabled?/0`), to CNPG only otherwise
+    (`store_routing_events/1`). A failed load fails the batch, JetStream redelivers, and the
+    primary-key table upserts the same stable event ids.
+  - [x] 3.4b.3 SRQL `in:bmp_events` / `bmp_event` / `bmp_routing_events` has a StarRocks dialect
+    (`rust/srql/src/query/starrocks/bmp_events.rs`), and `Readers.mode_for(:bmp)` sends them to
+    it whenever StarRocks is enabled, to CNPG otherwise. It renders the CNPG row builder's own
+    filter and sort grammar, so both backends accept the same queries; `stats:`, `rollup_stats:`,
+    `bucket:` and `other:true` are refused on both (the CNPG builder now refuses the clauses it
+    used to ignore via `refuse_unsupported_clauses`).
+  - [x] 3.4b.4 God View's direct `bmp_routing_events` read (`fetch_recent_bmp_routing_events`)
+    has a warehouse branch keyed on `Readers.enabled?/0`; the CNPG query serves disabled
+    installations. `ServiceRadar.BGP.Stats` reads `bgp_routing_info`, which is flow-derived
+    telemetry aggregated by in-place upsert (per-minute bucket rows), not append-only routing
+    events; it stays in CNPG (Decision 1) and is not part of this task.
+  - [ ] 3.4b.5 Run the parity database tier (`//integration_tests/srql_parity:parity_test`) for
+    the `bmp.*` inventory entries against the BMP fixture (`src/fixture/bmp.rs`), then verify the
+    BMP page and God View on a deployment after the rollout completes.
+  - [ ] 3.4b.6 Service status history (the other half of 3.4b).
 - [ ] 3.5 Measure trace-by-id and single-device detail latency cold and warm; record against the detail-page budget.
 - [ ] 3.6 Retention defaults per new dataset in Helm/Compose, applied by the existing retention task.
 

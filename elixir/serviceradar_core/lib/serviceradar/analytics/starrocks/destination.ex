@@ -61,6 +61,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
           | :otel_metrics
           | :otel_metric_points
           | :otel_traces
+          | :bmp_routing_events
   @type dest :: :cnpg | :starrocks
 
   @tables %{
@@ -73,7 +74,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
     mtr_hops: "mtr_hops",
     otel_metrics: "otel_metrics",
     otel_metric_points: "otel_metric_points",
-    otel_traces: "otel_traces"
+    otel_traces: "otel_traces",
+    bmp_routing_events: "bmp_routing_events"
   }
 
   @spec table_for(dataset()) :: String.t()

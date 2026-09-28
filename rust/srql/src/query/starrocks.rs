@@ -6,6 +6,7 @@ use crate::{
 };
 use chrono::{SecondsFormat, Timelike, Utc};
 
+mod bmp_events;
 mod mtr;
 mod otel_metrics;
 mod traces;
@@ -61,6 +62,11 @@ fn translate_inner(
     // asked for the raw table (`allow_rollup` false).
     if matches!(plan.entity, Entity::Traces | Entity::TraceSummaries) {
         return traces::translate(plan, database, allow_rollup);
+    }
+    // BMP routing events are a row listing with no rollup and no stats; the
+    // dialect answers the same queries the CNPG `bmp_events` builder answers.
+    if matches!(plan.entity, Entity::BmpEvents) {
+        return bmp_events::translate(plan, database);
     }
     match dataset_for(&plan.entity) {
         Some(dataset) => {

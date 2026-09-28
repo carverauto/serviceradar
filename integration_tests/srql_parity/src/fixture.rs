@@ -22,6 +22,7 @@
 
 use chrono::{DateTime, Duration, NaiveTime, Utc};
 
+pub mod bmp;
 pub mod events;
 pub mod logs;
 pub mod mtr;
