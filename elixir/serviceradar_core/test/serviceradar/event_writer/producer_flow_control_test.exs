@@ -452,6 +452,104 @@ defmodule ServiceRadar.EventWriter.ProducerFlowControlTest do
     end
   end
 
+  describe "pull budget across consumers" do
+    # Stands in for the Gnat connection: answers each publish the way Gnat does
+    # and reports the JetStream pull requests the producer sent.
+    defp start_recording_conn do
+      test_pid = self()
+
+      spawn_link(fn ->
+        fn ->
+          receive do
+            {:"$gen_call", from, {:pub, topic, _payload, _opts}} ->
+              send(test_pid, {:pulled, topic})
+              GenServer.reply(from, :ok)
+          end
+        end
+        |> Stream.repeatedly()
+        |> Stream.run()
+      end)
+    end
+
+    defp shared_consumers(count) do
+      for i <- 1..count do
+        %{
+          stream: "stream_#{i}",
+          durable: "durable-#{i}",
+          sid: i,
+          subject: "subject.#{i}.>",
+          pull_subject: "_INBOX.serviceradar.event_writer.pull.durable-#{i}",
+          pull_batch_size: 16
+        }
+      end
+    end
+
+    defp pulled_durables do
+      receive do
+        {:pulled, "$JS.API.CONSUMER.MSG.NEXT." <> rest} ->
+          [_stream, durable] = String.split(rest, ".", parts: 2)
+          [durable | pulled_durables()]
+      after
+        0 -> []
+      end
+    end
+
+    # Every consumer with no pull in flight is pulled within a bounded number of
+    # ticks. Between ticks each no_wait pull gets the empty status JetStream
+    # sends when nothing is pending, so no consumer is skipped for having a pull
+    # outstanding. With 18 consumers and a demand of 94 the shares used to add up
+    # to more than the budget and the last two consumers were never pulled.
+    for {demand, ticks} <- [{94, 1}, {4, 18}] do
+      test "a demand of #{demand} pulls all 18 consumers within #{ticks} tick(s)" do
+        consumers = shared_consumers(18)
+        pull_subjects = MapSet.new(consumers, & &1.pull_subject)
+        sid_map = Map.new(consumers, &{&1.sid, &1.pull_subject})
+
+        state =
+          [max_ack_pending: 64, pull_expires_ns: 0]
+          |> build_config()
+          |> init_state()
+          |> Map.merge(%{
+            conn: start_recording_conn(),
+            demand: unquote(demand),
+            pull_subjects: pull_subjects,
+            sid_to_pull_subject: sid_map,
+            consumer_context: %{
+              consumers: consumers,
+              pull_subjects: pull_subjects,
+              sid_to_pull_subject: sid_map
+            }
+          })
+
+        {pulled, _state} =
+          Enum.reduce(1..unquote(ticks), {MapSet.new(), state}, fn tick, {pulled, acc} ->
+            {:noreply, [], acc} = Producer.handle_info({:fetch, tick * 100}, acc)
+            durables = pulled_durables()
+
+            acc =
+              consumers
+              |> Enum.filter(&(&1.durable in durables))
+              |> Enum.reduce(acc, fn consumer, st ->
+                status = %{
+                  body: "",
+                  topic: consumer.pull_subject,
+                  reply_to: nil,
+                  sid: consumer.sid
+                }
+
+                {:noreply, [], st} = Producer.handle_info({:msg, status}, st)
+                st
+              end)
+
+            {MapSet.union(pulled, MapSet.new(durables)), acc}
+          end)
+
+        flush_mailbox()
+        assert pulled == MapSet.new(consumers, & &1.durable)
+      end
+    end
+  end
+
   describe "setup failure cleanup" do
     test "safe_stop_conn unlinks before exit so caller is not killed" do
       # Spawn a linked child that traps exits poorly — the Producer path must

@@ -82,6 +82,11 @@
         "query": {"type": "string"},
         "encoding": {"type": "string"},
         "limit": {"type": "integer", "minimum": 0},
+        "refresh_interval_ms": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Optional per-frame refresh request in milliseconds. Hosts clamp positive values to the effective 1,000-60,000 ms range."
+        },
         "required": {"type": "boolean"},
         "fields": {
           "type": "array",

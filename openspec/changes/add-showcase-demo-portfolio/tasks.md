@@ -16,7 +16,7 @@ goes through the no-mistakes gate.
 - [x] 1.9 Demo plugin Bazel macro: TinyGo Wasm build, bundle with manifest and config schema, signature with the demo-only upload key.
 - [x] 1.10 Publish run target: signed plugin bundle and dashboard package via the CLI publish APIs, alert-rule install, assignment to the demo agent; token from the client environment; idempotent re-runs.
 - [x] 1.11 Trust the demo upload key in `demo` only (`helm/serviceradar/values-demo.yaml`, which Argo CD reads from `staging`); demo agent assignment through `demo_publish`.
-- [ ] 1.12 Shared dashboard pieces: common frame (incident banner, chip/KPI header, visual/detail split, active SRQL chips) and the presenter strip with countdown and per-fault trigger buttons rendered from action descriptors (D13, D14).
+- [x] 1.12 Shared dashboard pieces: common frame (incident banner, chip/KPI header, visual/detail split, active SRQL chips) and the presenter strip with countdown and per-fault trigger buttons rendered from action descriptors (D13, D14).
 - [ ] 1.13 `simkit` fault injection: the fault-injection and end-fault-early action handlers (opening/resolving events emitted from the action), overlay of active run overrides on every run, guards (maximum duration, one per kind and target, rate limit), schedule on/off per pack.
 
 ## 2. Dashboard video API (validated with UniFi Protect in `demo`)
@@ -56,9 +56,9 @@ goes through the no-mistakes gate.
 - [ ] 5.7 Update `js/cli/templates/plugin-rust/` and `docs/docs/sdks.md`.
 
 ## 6. Dashboard platform additions
-- [ ] 6.1 Per-frame `refresh_interval_ms` in the manifest, clamped 1-60 s, replacing the hardcoded interval in `dashboard_package_live/show.ex`.
-- [ ] 6.2 SDK orthographic plan-view canvas helper sharing layer factories, popups and theme (floorplans, sorter schematic, DC hall).
-- [ ] 6.3 Harness fixture resolver for `srql.update`; option to serve map libraries locally.
+- [x] 6.1 Per-frame `refresh_interval_ms` in the manifest, clamped 1-60 s, replacing the hardcoded interval in `dashboard_package_live/show.ex`.
+- [x] 6.2 SDK orthographic plan-view canvas helper sharing layer factories, popups and theme (floorplans, sorter schematic, DC hall).
+- [x] 6.3 Harness fixture resolver for `srql.update`; option to serve map libraries locally.
 - [ ] 6.4 Confirm SRQL can return a latest-value-per-asset frame for metrics with coordinates; extend SRQL if it cannot.
 
 ## 7. Plugin topology links

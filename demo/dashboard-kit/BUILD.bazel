@@ -1,0 +1,41 @@
+# gazelle:ignore
+#
+# Shared frame + presenter strip for showcase demo dashboards (design D13,
+# D14). Plain ESM with no build step: demo dashboards import kit.js through a
+# relative path and run it offline in `npm run dev` from the fixtures below.
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+package(default_visibility = ["//demo:__subpackages__"])
+
+# `bazel test //demo/dashboard-kit:kit_tests` runs the kit's node --test
+# suites (presenter logic, harness fixture round-trip, component renders).
+#
+# Tagged `manual` while the wider monorepo CI is still coordinating how npm
+# packages slot into the build graph; remove the tag once the workflow is
+# wired up. Marked `local = True` + `no-sandbox` because the wrapper shells
+# out to host npm to install `react`/`react-dom` for the component tests
+# (see the comment in bazel_test.sh for why the workspace lock is out of
+# reach here).
+sh_test(
+    name = "kit_tests",
+    timeout = "long",
+    srcs = ["bazel_test.sh"],
+    data = [
+        "fixtures/presenter-fault.json",
+        "fixtures/presenter-steady.json",
+        ":bazel_test.sh",
+        ":fixtures.test.mjs",
+        ":hook.test.mjs",
+        ":kit.js",
+        ":kit.test.mjs",
+        ":package.json",
+        ":presenter.js",
+        ":presenter.test.mjs",
+    ],
+    local = True,
+    tags = [
+        "manual",
+        "no-remote",
+        "no-sandbox",
+    ],
+)

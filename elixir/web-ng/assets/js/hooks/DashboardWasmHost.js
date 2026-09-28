@@ -23,12 +23,21 @@ let mapDependenciesPromise = null
 async function loadMapDependencies() {
   mapDependenciesPromise ||= Promise.all([
     import("mapbox-gl"),
+    import("@deck.gl/core"),
     import("@deck.gl/layers"),
     import("@deck.gl/mapbox"),
-  ]).then(([mapboxModule, layerModule, mapboxDeckModule]) => ({
+  ]).then(([mapboxModule, coreModule, layerModule, mapboxDeckModule]) => ({
     mapboxgl: mapboxModule.default || mapboxModule,
+    // Deck + OrthographicView back the SDK's plan-view canvas (floorplans and
+    // schematics with no basemap).
+    Deck: coreModule.Deck,
+    OrthographicView: coreModule.OrthographicView,
     ArcLayer: layerModule.ArcLayer,
+    BitmapLayer: layerModule.BitmapLayer,
+    IconLayer: layerModule.IconLayer,
     LineLayer: layerModule.LineLayer,
+    PathLayer: layerModule.PathLayer,
+    PolygonLayer: layerModule.PolygonLayer,
     ScatterplotLayer: layerModule.ScatterplotLayer,
     TextLayer: layerModule.TextLayer,
     MapboxOverlay: mapboxDeckModule.MapboxOverlay,
@@ -919,9 +928,28 @@ const DashboardWasmHost = {
     if (frames.length === 0 || !this._host?.package) return
 
     const currentFrames = Array.isArray(this._host.package.frames) ? this._host.package.frames : []
-    currentFrames.splice(0, currentFrames.length, ...frames)
+    const pending = new Set(Array.isArray(payload?.pending_binary_frame_ids) ? payload.pending_binary_frame_ids.map(String) : [])
+
+    // A partial refresh re-sends binaries only for the frames it re-queried.
+    // Arrow frames whose bytes are not arriving again keep the previous
+    // payload; without this the metadata-only entries would leave them blank.
+    const retainedPayloads = new Map()
+    for (const frame of currentFrames) {
+      if (frame?.payload != null && !pending.has(String(frame?.id))) {
+        retainedPayloads.set(String(frame.id), {payload: frame.payload, payload_encoding: frame.payload_encoding})
+      }
+    }
+    const merged = frames.map((frame) => {
+      const retained = retainedPayloads.get(String(frame?.id))
+      if (frame?.payload_transport === "channel_binary" && frame?.payload == null && retained) {
+        return {...frame, payload: retained.payload, payload_encoding: retained.payload_encoding}
+      }
+      return frame
+    })
+
+    currentFrames.splice(0, currentFrames.length, ...merged)
     this._host.package.frames = currentFrames
-    this._pendingBinaryFrameIds = new Set(Array.isArray(payload?.pending_binary_frame_ids) ? payload.pending_binary_frame_ids.map(String) : [])
+    this._pendingBinaryFrameIds = pending
 
     if (payload?.data_provider && this._host.data_provider) {
       this._host.data_provider.frames = payload.data_provider.frames || this._host.data_provider.frames

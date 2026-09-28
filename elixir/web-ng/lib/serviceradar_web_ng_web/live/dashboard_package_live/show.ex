@@ -19,6 +19,10 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
 
   require Logger
 
+  # Refresh interval for frames whose manifest entry does not set its own
+  # `refresh_interval_ms`; the frame channel clamps every value to 1-60 s.
+  @default_frame_refresh_interval_ms 15_000
+
   @mapbox_public_token_regex ~r/^pk\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/
   @dashboard_search_query "in:dashboards limit:100"
   @dashboard_search_limit 100
@@ -714,7 +718,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
             active_optional_frame_ids(data_frames, overrides),
             package.capabilities || []
           ),
-        "refresh_interval_ms" => 15_000
+        "refresh_interval_ms" => @default_frame_refresh_interval_ms
       },
       "mapbox" => %{
         "enabled" => mapbox_enabled?(mapbox),

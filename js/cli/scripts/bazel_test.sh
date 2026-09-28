@@ -41,6 +41,16 @@ fi
 
 cd "$CLI_DIR"
 
+# `bazel test` runs with a minimal PATH that hides version-manager installs.
+if ! command -v npm >/dev/null 2>&1; then
+  for dir in "$HOME"/.nvm/versions/node/*/bin /usr/local/bin /opt/homebrew/bin; do
+    if [[ -x "$dir/npm" ]]; then
+      export PATH="$dir:$PATH"
+      break
+    fi
+  done
+fi
+
 if ! command -v npm >/dev/null 2>&1; then
   echo "bazel_test.sh: npm not found on PATH; install Node.js >= 20 to run this target." >&2
   exit 1

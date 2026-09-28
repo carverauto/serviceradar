@@ -47,6 +47,7 @@ defmodule ServiceRadar.Dashboards.Manifest do
           required(:encoding) => String.t(),
           optional(:required) => boolean(),
           optional(:limit) => pos_integer(),
+          optional(:refresh_interval_ms) => pos_integer(),
           optional(:fields) => [String.t()],
           optional(:coordinates) => map()
         }
@@ -80,6 +81,8 @@ defmodule ServiceRadar.Dashboards.Manifest do
     events.subscribe
   )
   @allowed_encodings ~w(json_rows arrow_ipc)
+  @min_frame_refresh_interval_ms 1_000
+  @max_frame_refresh_interval_ms 60_000
   @allowed_renderer_kinds ~w(browser_wasm browser_module built_in)
   @allowed_interface_versions ~w(dashboard-wasm-v1 dashboard-browser-module-v1 dashboard-built-in-v1)
   @id_pattern_source "^[a-z0-9][a-z0-9._-]{1,127}$"
@@ -305,12 +308,24 @@ defmodule ServiceRadar.Dashboards.Manifest do
 
     errors =
       frame
-      |> validate_keys(~w(id query encoding required limit fields coordinates), path, errors)
+      |> validate_keys(
+        ~w(id query encoding required limit refresh_interval_ms fields coordinates),
+        path,
+        errors
+      )
       |> validate_allowed_string(frame, "encoding", @allowed_encodings, "#{path}.encoding")
 
     {id, errors} = required_string(frame, "id", errors, "#{path}.id")
     {query, errors} = required_string(frame, "query", errors, "#{path}.query")
     {limit, errors} = optional_positive_int(Map.get(frame, "limit"), "#{path}.limit", errors)
+
+    {refresh_interval_ms, errors} =
+      optional_positive_int(
+        Map.get(frame, "refresh_interval_ms"),
+        "#{path}.refresh_interval_ms",
+        errors
+      )
+
     {fields, errors} = optional_string_list(frame, "fields", errors, "#{path}.fields")
     {coordinates, errors} = validate_coordinates(Map.get(frame, "coordinates"), path, errors)
 
@@ -336,6 +351,7 @@ defmodule ServiceRadar.Dashboards.Manifest do
         "required" => required
       }
       |> maybe_put("limit", limit)
+      |> maybe_put("refresh_interval_ms", clamp_refresh_interval(refresh_interval_ms))
       |> maybe_put("fields", fields)
       |> maybe_put("coordinates", coordinates)
 
@@ -572,6 +588,13 @@ defmodule ServiceRadar.Dashboards.Manifest do
   defp optional_positive_int(_value, key, errors) do
     {nil, ["#{key} must be a positive integer" | errors]}
   end
+
+  # A frame may ask to be refreshed faster or slower than the host default, but
+  # never faster than once a second or slower than once a minute.
+  defp clamp_refresh_interval(nil), do: nil
+
+  defp clamp_refresh_interval(ms) when is_integer(ms),
+    do: ms |> max(@min_frame_refresh_interval_ms) |> min(@max_frame_refresh_interval_ms)
 
   defp maybe_put(map, _key, nil), do: map
   defp maybe_put(map, _key, []), do: map
