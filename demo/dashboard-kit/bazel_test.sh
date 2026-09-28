@@ -56,4 +56,4 @@ if [[ ! -d node_modules/react || ! -d node_modules/react-dom ]]; then
   npm install --no-audit --no-fund
 fi
 
-node --test presenter.test.mjs fixtures.test.mjs kit.test.mjs
+node --test presenter.test.mjs fixtures.test.mjs hook.test.mjs kit.test.mjs

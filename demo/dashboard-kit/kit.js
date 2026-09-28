@@ -45,7 +45,7 @@ export const DEMO_KIT_CSS = `
 
 export function createDemoKit({React, sdk}) {
   const h = React.createElement
-  const {useCallback, useEffect, useMemo, useState} = React
+  const {useCallback, useEffect, useMemo, useRef, useState} = React
 
   function KpiHeader({title, kpis = []}) {
     return h(
@@ -107,8 +107,19 @@ export function createDemoKit({React, sdk}) {
 
   // Open fault incidents from the plugin's live fault events. Frames are
   // refreshed on every fault event so the map and detail panel follow at once.
-  function useFaultIncidents({logProvider, enabled = true} = {}) {
+  // `timelineKey` names the bounded event timeline being folded (for example
+  // the active dev-harness fixture). When it changes, the previously folded
+  // incidents are discarded before new events fold in, because a replaced
+  // timeline replays from its own start; an ordinary frames refresh never
+  // changes the key. Omit it for live subscriptions, where events are never
+  // replayed.
+  function useFaultIncidents({logProvider, enabled = true, timelineKey} = {}) {
     const [open, setOpen] = useState(() => new Map())
+    const timelineRef = useRef(timelineKey)
+    if (timelineRef.current !== timelineKey) {
+      timelineRef.current = timelineKey
+      setOpen(new Map())
+    }
     const refreshFrames = sdk.useFrameRefresh()
     const filter = useMemo(() => faultEventFilter(logProvider), [logProvider])
 

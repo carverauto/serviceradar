@@ -337,7 +337,11 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
 
       socket
     else
-      {metadata_frames, binary_frames} = prepare_frame_transport(frames)
+      # A partial refresh re-queries only some frames. Re-send binaries only
+      # for those: the client keeps the previous bytes for every other arrow
+      # frame, so unchanged binaries are not pushed in full on every tick.
+      updated_ids = MapSet.new(updates, & &1["id"])
+      {metadata_frames, binary_frames} = prepare_frame_transport(frames, updated_ids)
 
       push(socket, "frames:replace", %{
         "frames" => metadata_frames,
@@ -663,7 +667,7 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
     end
   end
 
-  defp prepare_frame_transport(frames) do
+  defp prepare_frame_transport(frames, updated_ids) do
     frames
     |> Enum.map_reduce([], fn
       %{"encoding" => "arrow_ipc", "payload_encoding" => "base64", "payload" => payload} = frame, binary_frames
@@ -673,7 +677,11 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
           |> Map.drop(["payload", "payload_encoding"])
           |> Map.put("payload_transport", "channel_binary")
 
-        {metadata, [frame | binary_frames]}
+        if MapSet.member?(updated_ids, frame["id"]) do
+          {metadata, [frame | binary_frames]}
+        else
+          {metadata, binary_frames}
+        end
 
       frame, binary_frames ->
         {frame, binary_frames}

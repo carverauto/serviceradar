@@ -1,9 +1,9 @@
-import React, {useMemo, useState} from "react"
+import React, {useEffect, useMemo, useState} from "react"
 import {mountReactDashboard, useDashboardFrame, useDashboardSrql} from "@carverauto/serviceradar-dashboard-sdk/react"
 import * as sdk from "@carverauto/serviceradar-dashboard-sdk/live"
 
 import {DEMO_KIT_CSS, createDemoKit} from "../kit.js"
-import {scheduleStatus} from "../presenter.js"
+import {latestSampleMs, scheduleStatus} from "../presenter.js"
 
 const {DemoFrame, PresenterStrip, useFaultIncidents} = createDemoKit({React, sdk})
 
@@ -13,31 +13,43 @@ const SCHEDULE_QUERY = "in:timeseries_metrics metric_name:(demo.fault.active,dem
 export function Dashboard() {
   const frame = useDashboardFrame("schedule")
   const srql = useDashboardSrql()
-  const [scenario, setScenario] = useState("steady")
-  const {headline} = useFaultIncidents({logProvider: `plugin:${PLUGIN_ID}`})
-
   const rows = frame?.results || []
-  const status = scheduleStatus(rows, Date.now())
+
+  // Anchor the clock at the newest schedule sample and advance it from mount:
+  // fixtures sample one instant, so the wall clock would clamp their countdown
+  // to 00:00. Live rows sample near now, so the anchor is ~now and the wall
+  // clock stays in place for them.
+  const [mountedAt] = useState(() => Date.now())
+  const [, bumpClock] = useState(0)
+  useEffect(() => {
+    const timer = setInterval(() => bumpClock((tick) => tick + 1), 1000)
+    return () => clearInterval(timer)
+  }, [])
+  const sampleMs = latestSampleMs(rows)
+  const now = sampleMs === null ? undefined : sampleMs + (Date.now() - mountedAt)
+  const status = scheduleStatus(rows, now === undefined ? Date.now() : now)
+
+  // The pressed chip follows the loaded frames, not the last click: the side
+  // panel can swap the fixture directly, and the schedule rows name which
+  // scenario is actually showing. The timeline key follows the same identity,
+  // so a replaced fixture replays from an empty incident set.
+  const loadedScenario = (status.activeCount ?? 0) > 0 ? "mid-fault" : "steady"
+  const {headline} = useFaultIncidents({logProvider: `plugin:${PLUGIN_ID}`, timelineKey: loadedScenario})
+
   const chips = useMemo(
     () => [
       {
         label: "scenario:steady",
-        active: scenario === "steady",
-        onClick: () => {
-          setScenario("steady")
-          srql.update(`${SCHEDULE_QUERY} scenario:steady`)
-        },
+        active: loadedScenario === "steady",
+        onClick: () => srql.update(`${SCHEDULE_QUERY} scenario:steady`),
       },
       {
         label: "scenario:mid-fault",
-        active: scenario === "mid-fault",
-        onClick: () => {
-          setScenario("mid-fault")
-          srql.update(`${SCHEDULE_QUERY} scenario:mid-fault`)
-        },
+        active: loadedScenario === "mid-fault",
+        onClick: () => srql.update(`${SCHEDULE_QUERY} scenario:mid-fault`),
       },
     ],
-    [scenario, srql],
+    [loadedScenario, srql],
   )
 
   const kpis = [
@@ -62,6 +74,7 @@ export function Dashboard() {
             targets={[{device_uid: "sensor-a"}]}
             scheduleRows={rows}
             incident={headline}
+            now={now}
           />
         }
         visual={

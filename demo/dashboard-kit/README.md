@@ -34,8 +34,8 @@ Shared frame + presenter strip for showcase demo dashboards
   fixture round-trip (steady stays quiet, mid-fault shows the incident,
   resolving clears it, invocation emits reopen it), and component renders
   (countdown hidden without metrics, buttons hidden without permission).
-  Plain `node --test presenter.test.mjs fixtures.test.mjs kit.test.mjs`
-  after `npm install` runs the same suites.
+  Plain `node --test presenter.test.mjs fixtures.test.mjs hook.test.mjs
+  kit.test.mjs` after `npm install` runs the same suites.
 - `cd js/cli && npm run build && node --test tests/cli.test.mjs` — covers
   the `fixtureResolver` schema acceptance `validate` enforces.
 - `cd demo/pluginkit && go test ./...` — covers the metadata mirroring the

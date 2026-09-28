@@ -7,6 +7,7 @@ import {
   foldIncidents,
   formatCountdown,
   headlineIncident,
+  latestSampleMs,
   scheduleStatus,
   triggerRequest,
 } from "./presenter.js"
@@ -47,6 +48,12 @@ test("the countdown reads the simulator's next fault", () => {
 test("the countdown hides when the schedule metrics are absent, as with a real source", () => {
   assert.deepEqual(scheduleStatus([], T0), {visible: false})
   assert.deepEqual(scheduleStatus([{metric_name: "temp_c", value: 21}], T0), {visible: false})
+})
+
+test("the newest sample time anchors an offline clock", () => {
+  assert.equal(latestSampleMs(scheduleRows), T0)
+  assert.equal(latestSampleMs([]), null)
+  assert.equal(latestSampleMs([{metric_name: "temp_c", value: 21}]), null)
 })
 
 test("the latest schedule sample wins and a past start clamps to zero", () => {

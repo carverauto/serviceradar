@@ -4,9 +4,12 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel.RefreshSchedule do
 
   A manifest data frame may declare its own `refresh_interval_ms`; frames that do
   not use the package default. Every interval is clamped to one second through
-  one minute. The channel ticks at the fastest interval among its periodically
-  refreshed frames, and on each periodic tick re-runs only the frames whose own
-  interval has elapsed, so a slow frame is not re-queried on a fast frame's tick.
+  one minute. The channel ticks at the greatest common divisor of the frame
+  intervals (never below one second), so a frame whose deadline falls between
+  the ticks of a faster frame still lands on a tick instead of waiting out a
+  whole extra fast period. On each periodic tick the channel re-runs only the
+  frames whose own interval has elapsed, so a slow frame is not re-queried on
+  a fast frame's tick.
   """
 
   @min_refresh_ms 1_000
@@ -30,12 +33,13 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel.RefreshSchedule do
     end
   end
 
-  @doc "The tick interval: the fastest interval among the given frames, or the default."
+  @doc "The tick interval: the gcd of the frame intervals, floored at one second, or the default."
   @spec tick_interval([map()], pos_integer()) :: pos_integer()
   def tick_interval(frames, default) when is_list(frames) do
-    frames
-    |> Enum.map(&frame_interval(&1, default))
-    |> Enum.min(fn -> default end)
+    case Enum.map(frames, &frame_interval(&1, default)) do
+      [] -> default
+      intervals -> intervals |> Enum.reduce(&Integer.gcd/2) |> max(@min_refresh_ms)
+    end
   end
 
   @doc """

@@ -22,6 +22,7 @@ sh_test(
     data = [
         ":bazel_test.sh",
         ":fixtures.test.mjs",
+        ":hook.test.mjs",
         ":kit.js",
         ":kit.test.mjs",
         ":package.json",

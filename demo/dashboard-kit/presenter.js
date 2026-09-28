@@ -68,6 +68,21 @@ export function scheduleStatus(rows, nowMs = Date.now()) {
   }
 }
 
+/**
+ * Newest sample time across schedule rows, or null when the rows carry none.
+ * An offline dashboard anchors its clock here and advances from mount, so a
+ * fixture sampled long ago still counts down instead of clamping to 00:00
+ * against the wall clock. Live rows sample near now, so the anchor is ~now.
+ */
+export function latestSampleMs(rows) {
+  let best = null
+  for (const row of rows || []) {
+    const ms = rowTime(row)
+    if (ms > 0 && (best === null || ms > best)) best = ms
+  }
+  return best
+}
+
 /** "mm:ss", or "h:mm:ss" past an hour. */
 export function formatCountdown(ms) {
   const total = Math.max(0, Math.round(ms / 1000))
@@ -148,7 +163,7 @@ export function faultTriggers(actions, {allowed = true} = {}) {
   if (!action) return []
 
   const property = action.input_schema.properties.fault_kind
-  const labels = property["x-enum-labels"] || property.enumNames || []
+  const labels = property["x-enum-labels"] || []
   return property.enum.map((kind, index) => ({
     actionId: action.id,
     kind,
