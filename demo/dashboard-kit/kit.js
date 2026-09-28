@@ -46,11 +46,11 @@ export const DEMO_KIT_CSS = `
 
 export function fixtureTimelineKey(frame, loadSequence) {
   const explicit = frame?.fixture_timeline_key ?? frame?.fixtureTimelineKey
-  if (explicit == null || explicit === "") return undefined
-  const base = String(explicit)
-  if (loadSequence === undefined || loadSequence === null) return base
   const sequence = Number(loadSequence)
-  return Number.isFinite(sequence) ? `${base}#load:${sequence}` : base
+  const hasSequence = Number.isFinite(sequence) && sequence > 0
+  if (explicit == null || explicit === "") return hasSequence ? `local-load:${sequence}` : undefined
+  const base = String(explicit)
+  return hasSequence ? `${base}#load:${sequence}` : base
 }
 
 export function createDemoKit({React, sdk}) {

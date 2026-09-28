@@ -16,18 +16,19 @@ export function Dashboard() {
   const rows = frame?.results || []
 
   const [, bumpClock] = useState(0)
+  const [fixtureLoadSeq, bumpFixtureLoadSeq] = useState(1)
   useEffect(() => {
     const timer = setInterval(() => bumpClock((tick) => tick + 1), 1000)
     return () => clearInterval(timer)
   }, [])
   const wallNow = Date.now()
   const sampleMs = latestSampleMs(rows)
-  const fixtureFrameKey = frame?.fixture_timeline_key ?? frame?.fixtureTimelineKey
-  const sampleAnchor = useRef({sampleMs: null, fixtureFrameKey: null, observedAtMs: wallNow})
-  if (sampleAnchor.current.sampleMs !== sampleMs || sampleAnchor.current.fixtureFrameKey !== fixtureFrameKey) {
-    sampleAnchor.current = {sampleMs, fixtureFrameKey, observedAtMs: wallNow}
+  const timelineKey = fixtureTimelineKey(frame, fixtureLoadSeq)
+  const sampleAnchor = useRef({sampleMs: null, timelineKey: null, observedAtMs: wallNow})
+  if (sampleAnchor.current.sampleMs !== sampleMs || sampleAnchor.current.timelineKey !== timelineKey) {
+    sampleAnchor.current = {sampleMs, timelineKey, observedAtMs: wallNow}
   }
-  const now = fixtureScheduleNow(sampleMs, fixtureFrameKey, sampleAnchor.current.observedAtMs, wallNow)
+  const now = fixtureScheduleNow(sampleMs, timelineKey, sampleAnchor.current.observedAtMs, wallNow)
   const status = scheduleStatus(rows, now === undefined ? wallNow : now)
 
   // The pressed chip follows the loaded frames, not the last click: the side
@@ -35,8 +36,6 @@ export function Dashboard() {
   // scenario is actually showing. Chip-driven fixture loads also carry a local
   // sequence so reloading the active fixture clears the replayed incident set.
   const loadedScenario = (status.activeCount ?? 0) > 0 ? "mid-fault" : "steady"
-  const [fixtureLoadSeq, bumpFixtureLoadSeq] = useState(0)
-  const timelineKey = fixtureTimelineKey(frame, fixtureLoadSeq)
   const {headline} = useFaultIncidents({logProvider: `plugin:${PLUGIN_ID}`, timelineKey})
 
   const chips = useMemo(

@@ -7,6 +7,7 @@ import React from "react"
 import {act, create} from "react-test-renderer"
 
 import {createDemoKit, fixtureTimelineKey} from "./kit.js"
+import {fixtureScheduleNow} from "./presenter.js"
 
 function faultEvent(state, faultId) {
   return {
@@ -95,10 +96,10 @@ test("clicking the active fixture chip clears manually opened incidents", () => 
     useFrameRefresh: () => () => Promise.resolve({refreshed: true}),
   }
   const {useFaultIncidents} = createDemoKit({React, sdk})
-  const frame = {id: "schedule", fixture_timeline_key: "steady:1"}
+  const frame = {id: "schedule"}
 
   function Probe() {
-    const [fixtureLoadSeq, bumpFixtureLoadSeq] = React.useState(0)
+    const [fixtureLoadSeq, bumpFixtureLoadSeq] = React.useState(1)
     const timelineKey = fixtureTimelineKey(frame, fixtureLoadSeq)
     const {headline} = useFaultIncidents({logProvider: "plugin:demo", timelineKey})
     return React.createElement(
@@ -137,4 +138,13 @@ test("fixture frame timeline keys reset incidents", () => {
 
   hook.retimeline(fixtureTimelineKey({fixture_timeline_key: "steady:2"}))
   assert.equal(hook.headline(), "none")
+})
+
+test("local fixture load keys anchor clocks without host frame keys", () => {
+  const sample = Date.parse("2026-01-01T00:00:30Z")
+  const observedAt = Date.parse("2026-09-27T12:00:30Z")
+  const timelineKey = fixtureTimelineKey({id: "schedule"}, 1)
+
+  assert.equal(timelineKey, "local-load:1")
+  assert.equal(fixtureScheduleNow(sample, timelineKey, observedAt, observedAt + 15_000), sample + 15_000)
 })
