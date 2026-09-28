@@ -164,22 +164,28 @@ async function devCommandHmr({projectDir, config, options}: DevContext): Promise
 }
 
 function dashboardHarnessPlugin() {
+  const modules = new Set(["dev.js", "dev.css", "camera.js", "runtime.js"])
+  const harnessId = (id: string): string | null => {
+    if (id.startsWith("/@harness/")) return id.slice("/@harness/".length)
+    return null
+  }
+
   return {
     name: "serviceradar-dashboard-harness",
     enforce: "pre" as const,
-    resolveId(id: string) {
-      if (id === "/@harness/dev.js") return id
-      if (id === "/@harness/dev.css") return id
+    resolveId(id: string, importer?: string) {
+      const name = harnessId(id)
+      if (name && modules.has(name)) return id
+      if (importer?.includes("/@harness/") && id.startsWith("./")) {
+        const relativeName = id.slice(2)
+        if (modules.has(relativeName)) return `/@harness/${relativeName}`
+      }
       return null
     },
     async load(id: string) {
-      if (id === "/@harness/dev.js") {
-        return await readFile(join(HARNESS_DIR, "dev.js"), "utf8")
-      }
-      if (id === "/@harness/dev.css") {
-        return await readFile(join(HARNESS_DIR, "dev.css"), "utf8")
-      }
-      return null
+      const name = harnessId(id)
+      if (!name || !modules.has(name)) return null
+      return await readFile(join(HARNESS_DIR, name), "utf8")
     },
   }
 }
