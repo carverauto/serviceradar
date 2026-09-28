@@ -33,7 +33,7 @@ serviceradar_web_ng-*.tar
 
 # In case you use Node.js/npm, you want to ignore these.
 npm-debug.log
-/assets/node_modules/
+/assets/node_modules
 /assets/.npm-cache/
 
 # Local CNPG CA extracted by scripts/dev-with-k8s-db.sh
