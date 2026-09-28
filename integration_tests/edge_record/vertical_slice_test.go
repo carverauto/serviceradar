@@ -1793,6 +1793,21 @@ edge_inbox = "_INBOX.serviceradar.event_writer.pull.serviceradar-event-writer.ed
 if pid == nil do
   IO.puts("trace|no shared producer registered")
 else
+  find_sids = fn
+    _f, %{sid_to_pull_subject: sids} when is_map(sids) -> sids
+    f, %_{} = s -> f.(f, Map.from_struct(s))
+    f, s when is_map(s) -> Enum.find_value(Map.values(s), &f.(f, &1))
+    f, s when is_tuple(s) -> Enum.find_value(Tuple.to_list(s), &f.(f, &1))
+    f, s when is_list(s) -> if length(s) < 64, do: Enum.find_value(s, &f.(f, &1)), else: nil
+    _, _ -> nil
+  end
+  %{} = sid_to_pull_subject = find_sids.(find_sids, :sys.get_state(pid, 5_000))
+  edge_message? = fn
+    {:msg, %{topic: topic} = msg} ->
+      topic == edge_inbox or Map.get(sid_to_pull_subject, Map.get(msg, :sid)) == edge_inbox
+    _ -> false
+  end
+
   :erlang.trace_pattern(mfa, true, [:global])
   :erlang.trace(pid, true, [:call, :receive, {:tracer, self()}])
 
@@ -1832,7 +1847,7 @@ else
 
   receives
   |> Enum.frequencies_by(fn
-    {:msg, %{topic: t}} -> if t == edge_inbox, do: :edge_inbox_msg, else: :other_msg
+    {:msg, _} = m -> if edge_message?.(m), do: :edge_inbox_msg, else: :other_msg
     {:"$gen_producer", _, _} -> :gen_producer
     {:"$gen_call", _, _} -> :gen_call
     m when is_tuple(m) -> elem(m, 0)
@@ -1841,7 +1856,7 @@ else
   |> Enum.each(fn {k, n} -> IO.puts("trace|recv|#{inspect(k)}|#{n}") end)
 
   receives
-  |> Enum.filter(&match?({:msg, %{topic: ^edge_inbox}}, &1))
+  |> Enum.filter(edge_message?)
   |> Enum.take(5)
   |> Enum.each(fn {:msg, m} ->
     IO.puts("trace|edge_inbox|" <> inspect(Map.drop(m, [:body]) |> Map.put(:body_bytes, byte_size(m.body || "")), limit: 30))
