@@ -95,12 +95,11 @@ fn numeric_kind(field: &str) -> Option<NumericKind> {
     }
 }
 
-fn field(spec: &MetricSpec, name: &str, warehouse: bool) -> Result<String> {
+fn filter_field(spec: &MetricSpec, name: &str, warehouse: bool) -> Result<String> {
     let normalized = name.trim().to_ascii_lowercase();
     let name = normalized.as_str();
     let name = if name == "uid" { "device_id" } else { name };
     if [
-        "timestamp",
         "gateway_id",
         "agent_id",
         "host_id",
@@ -116,6 +115,62 @@ fn field(spec: &MetricSpec, name: &str, warehouse: bool) -> Result<String> {
     } else {
         Err(ServiceError::InvalidRequest(format!(
             "unsupported sysmon field '{name}'"
+        )))
+    }
+}
+
+fn series_field(spec: &MetricSpec, name: &str, warehouse: bool) -> Result<String> {
+    let name = name.trim().to_ascii_lowercase();
+    if [
+        "device_id",
+        "host_id",
+        "gateway_id",
+        "agent_id",
+        "partition",
+    ]
+    .contains(&name.as_str())
+        || (spec.dimensions.contains(&name.as_str()) && name != "start_time")
+    {
+        Ok(identifier(&name, warehouse))
+    } else {
+        Err(ServiceError::InvalidRequest(format!(
+            "unsupported sysmon series field '{name}'"
+        )))
+    }
+}
+
+fn sort_field(entity: &Entity, name: &str, warehouse: bool) -> Result<String> {
+    let name = name.trim().to_ascii_lowercase();
+    let allowed = match entity {
+        Entity::CpuMetrics => matches!(
+            name.as_str(),
+            "timestamp"
+                | "usage_percent"
+                | "gateway_id"
+                | "device_id"
+                | "host_id"
+                | "partition"
+                | "core_id"
+        ),
+        Entity::MemoryMetrics => matches!(
+            name.as_str(),
+            "timestamp" | "usage_percent" | "gateway_id" | "device_id" | "host_id"
+        ),
+        Entity::DiskMetrics => matches!(
+            name.as_str(),
+            "timestamp" | "usage_percent" | "gateway_id" | "device_id" | "host_id" | "mount_point"
+        ),
+        Entity::ProcessMetrics => matches!(
+            name.as_str(),
+            "timestamp" | "cpu_usage" | "memory_usage" | "pid" | "name" | "host_id"
+        ),
+        _ => false,
+    };
+    if allowed {
+        Ok(identifier(&name, warehouse))
+    } else {
+        Err(ServiceError::InvalidRequest(format!(
+            "unsupported sysmon sort field '{name}'"
         )))
     }
 }
@@ -147,7 +202,7 @@ fn predicate(
     warehouse: bool,
     keep_null: bool,
 ) -> Result<String> {
-    let column = field(spec, &filter.field, warehouse)?;
+    let column = filter_field(spec, &filter.field, warehouse)?;
     if let Some(kind) = numeric_kind(&filter.field) {
         let comparison = NumericComparison::parse(filter, kind)?;
         let value = bind(params, comparison.value.bind_param(), warehouse);
@@ -519,6 +574,12 @@ pub(super) fn to_sql_and_params(
     }
     let warehouse = database.is_some();
     let spec = spec(&plan.entity)?;
+    let series = plan
+        .downsample
+        .as_ref()
+        .and_then(|ds| ds.series.as_deref())
+        .map(|name| series_field(&spec, name, warehouse))
+        .transpose()?;
     let metric = hourly_metric(plan, &spec, warehouse)?;
     let mut effective = plan.clone();
     if metric.is_some() {
@@ -581,7 +642,7 @@ pub(super) fn to_sql_and_params(
                 "unsupported sysmon value_field".into(),
             ));
         }
-        let value = field(&spec, value_field, warehouse)?;
+        let value = identifier(value_field, warehouse);
         let bucket_seconds = ds.bucket_seconds;
         let bucket = if warehouse {
             format!(
@@ -594,10 +655,10 @@ pub(super) fn to_sql_and_params(
                 bucket_seconds, bucket_seconds
             )
         };
-        let series = match &ds.series {
-            Some(name) => format!(
+        let series = match series {
+            Some(column) => format!(
                 "COALESCE(CAST({} AS {}), '')",
-                field(&spec, name, warehouse)?,
+                column,
                 if warehouse { "STRING" } else { "TEXT" }
             ),
             None => {
@@ -668,7 +729,7 @@ pub(super) fn to_sql_and_params(
         } else {
             ""
         };
-        let value = field(&spec, &column, warehouse)?;
+        let value = identifier(&column, warehouse);
         let aggregate = if use_hourly {
             hourly_average(&value)
         } else {
@@ -681,7 +742,7 @@ pub(super) fn to_sql_and_params(
     let mut order = Vec::new();
     for clause in plan.order.iter().filter(|_| plan.downsample.is_none()) {
         let column = if outputs.is_empty() {
-            field(&spec, &clause.field, warehouse)?
+            sort_field(&plan.entity, &clause.field, warehouse)?
         } else {
             let name = if clause.field == "uid" {
                 "device_id"

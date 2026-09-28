@@ -282,6 +282,176 @@ fn legacy_sysmon_queries_translate_on_both_backends() {
 }
 
 #[test]
+fn legacy_sysmon_fields_follow_operation_contracts() {
+    let config = test_config();
+    for (entity, series_fields, extra_series, sort_fields, extra_sorts) in [
+        (
+            "cpu",
+            &["core_id", "label", "cluster"][..],
+            &["usage_percent", "frequency_hz"][..],
+            &[
+                "timestamp",
+                "usage_percent",
+                "gateway_id",
+                "device_id",
+                "host_id",
+                "partition",
+                "core_id",
+            ][..],
+            &["agent_id", "label", "cluster", "frequency_hz"][..],
+        ),
+        (
+            "memory",
+            &[][..],
+            &[
+                "usage_percent",
+                "used_bytes",
+                "total_bytes",
+                "available_bytes",
+            ][..],
+            &[
+                "timestamp",
+                "usage_percent",
+                "gateway_id",
+                "device_id",
+                "host_id",
+            ][..],
+            &[
+                "agent_id",
+                "partition",
+                "used_bytes",
+                "total_bytes",
+                "available_bytes",
+            ][..],
+        ),
+        (
+            "disk",
+            &["mount_point", "device_name"][..],
+            &[
+                "usage_percent",
+                "used_bytes",
+                "total_bytes",
+                "available_bytes",
+            ][..],
+            &[
+                "timestamp",
+                "usage_percent",
+                "gateway_id",
+                "device_id",
+                "host_id",
+                "mount_point",
+            ][..],
+            &[
+                "agent_id",
+                "partition",
+                "used_bytes",
+                "total_bytes",
+                "available_bytes",
+                "device_name",
+            ][..],
+        ),
+        (
+            "processes",
+            &["pid", "name", "status"][..],
+            &["start_time", "cpu_usage", "memory_usage"][..],
+            &[
+                "timestamp",
+                "cpu_usage",
+                "memory_usage",
+                "pid",
+                "name",
+                "host_id",
+            ][..],
+            &[
+                "gateway_id",
+                "agent_id",
+                "device_id",
+                "partition",
+                "status",
+                "start_time",
+            ][..],
+        ),
+    ] {
+        for mode in [None, Some("starrocks"), Some("starrocks_raw")] {
+            let translate = |shape: &str| {
+                translate_request(
+                    &config,
+                    QueryRequest {
+                        query: format!("in:{entity} time:last_30d {shape}"),
+                        limit: None,
+                        cursor: None,
+                        direction: QueryDirection::Next,
+                        mode: mode.map(str::to_string),
+                        permitted_signals: None,
+                    },
+                )
+            };
+            for field in [
+                "device_id",
+                "uid",
+                "host_id",
+                "gateway_id",
+                "agent_id",
+                "partition",
+            ]
+            .iter()
+            .chain(series_fields)
+            {
+                let shape = format!("bucket:1h agg:avg series:{field}");
+                translate(&shape)
+                    .unwrap_or_else(|err| panic!("{entity} {shape} ({mode:?}): {err}"));
+            }
+            for field in ["timestamp"].iter().chain(extra_series) {
+                for bucket in ["5m", "90m", "1h"] {
+                    let shape = format!("bucket:{bucket} agg:avg series:{field}");
+                    let err = translate(&shape).expect_err(&format!("{entity} {shape} ({mode:?})"));
+                    assert!(
+                        err.to_string().contains("unsupported sysmon series field"),
+                        "{err}"
+                    );
+                }
+            }
+            for direction in ["asc", "desc"] {
+                for field in sort_fields {
+                    let shape = format!("sort:{field}:{direction}");
+                    translate(&shape)
+                        .unwrap_or_else(|err| panic!("{entity} {shape} ({mode:?}): {err}"));
+                }
+                for field in extra_sorts {
+                    for prefix in ["", "timestamp:asc,"] {
+                        let shape = format!("sort:{prefix}{field}:{direction}");
+                        let err =
+                            translate(&shape).expect_err(&format!("{entity} {shape} ({mode:?})"));
+                        assert!(
+                            err.to_string().contains("unsupported sysmon sort field"),
+                            "{err}"
+                        );
+                    }
+                }
+            }
+            let value = if entity == "processes" {
+                "cpu_usage"
+            } else {
+                "usage_percent"
+            };
+            for shape in [
+                String::new(),
+                "bucket:1h agg:avg series:device_id".into(),
+                format!("stats:avg({value}) as average by device_id"),
+            ] {
+                let shape = format!("timestamp:2026-09-01T00:00:00Z {shape}");
+                let err = translate(&shape).expect_err(&format!("{entity} {shape} ({mode:?})"));
+                assert!(
+                    err.to_string()
+                        .contains("unsupported sysmon field 'timestamp'"),
+                    "{err}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn legacy_sysmon_stats_rank_before_limiting_on_both_backends() {
     let config = test_config();
     for (entity, field) in [
