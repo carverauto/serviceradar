@@ -244,11 +244,7 @@ pub(super) fn legacy_sysmon_stats_sql(
         profile_hour_of_week_full: None,
         profile_hour_of_week_peak: None,
     };
-    let compiled = if should_route_stats_to_cagg(plan, &spec) {
-        build_cagg_stats_query(plan, MetricScope::Any, &spec)?
-    } else {
-        build_stats_query(plan, MetricScope::Any, &spec)?
-    };
+    let compiled = build_stats_query(plan, MetricScope::Any, &spec)?;
     let sql = format!(
         "SELECT {}(payload ->> '{alias}')::double precision AS \"{alias}\" FROM ({}) stats",
         if grouped {
@@ -2675,8 +2671,8 @@ impl TimeseriesStatsSpec {
     fn is_cagg_average(&self) -> bool {
         !self.is_profile_route()
             && self.aggregations.len() == 1
-            && (self.group_by.is_empty()
-                || (self.group_by.len() == 1 && self.group_by[0].field == "device_id"))
+            && self.group_by.len() == 1
+            && self.group_by[0].field == "device_id"
             && self.aggregations[0].func == TimeseriesAggFunc::Avg
             && self.aggregations[0].field.as_deref() == Some("value")
     }

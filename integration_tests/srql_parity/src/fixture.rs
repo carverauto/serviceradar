@@ -302,10 +302,34 @@ pub fn metrics(anchor: Anchor) -> Vec<MetricRow> {
         key_suffix,
     };
     let cores = [
-        (cpu(Some(r#"{"core_id":"0"}"#.into()), "core0"), 0),
-        (cpu(Some(r#"{"core_id":"1"}"#.into()), "core1"), 1),
-        (cpu(Some(r#"{"core_id":"2"}"#.into()), "core2"), 2),
-        (cpu(Some(r#"{"core_id":"3"}"#.into()), "core3"), 3),
+        (
+            cpu(
+                Some(r#"{"core_id":"0","host_id":"host01.example.com"}"#.into()),
+                "core0",
+            ),
+            0,
+        ),
+        (
+            cpu(
+                Some(r#"{"core_id":"1","host_id":"host01.example.com"}"#.into()),
+                "core1",
+            ),
+            1,
+        ),
+        (
+            cpu(
+                Some(r#"{"core_id":"2","host_id":"host01.example.com"}"#.into()),
+                "core2",
+            ),
+            2,
+        ),
+        (
+            cpu(
+                Some(r#"{"core_id":"3","host_id":"host01.example.com"}"#.into()),
+                "core3",
+            ),
+            3,
+        ),
         (
             cpu(Some(r#"{"host":"host01.example.com"}"#.into()), "nocore"),
             4,
@@ -324,25 +348,25 @@ pub fn metrics(anchor: Anchor) -> Vec<MetricRow> {
             "sysmon.memory",
             "memory.used_percent",
             25.0,
-            r#"{"used_bytes":"1024","total_bytes":"4096"}"#,
+            r#"{"host_id":"host01.example.com","used_bytes":"1024","total_bytes":"4096"}"#,
         ),
         (
             "sysmon.disk",
             "disk.used_percent",
             95.0,
-            r#"{"mount_point":"/data","used_bytes":"1900","total_bytes":"2000"}"#,
+            r#"{"host_id":"host01.example.com","mount_point":"/data","used_bytes":"1900","total_bytes":"2000"}"#,
         ),
         (
             "sysmon.process",
             "process.cpu_usage",
             12.5,
-            r#"{"pid":"123","name":"worker","status":"running"}"#,
+            r#"{"host_id":"host01.example.com","pid":"123","name":"worker","status":"running"}"#,
         ),
         (
             "sysmon.process",
             "process.memory_usage",
             4096.0,
-            r#"{"pid":"123","name":"worker","status":"running"}"#,
+            r#"{"host_id":"host01.example.com","pid":"123","name":"worker","status":"running"}"#,
         ),
     ] {
         let series = Series {

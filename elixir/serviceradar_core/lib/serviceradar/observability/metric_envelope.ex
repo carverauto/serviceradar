@@ -185,6 +185,12 @@ defmodule ServiceRadar.Observability.MetricEnvelope do
       |> merge_entries(point.attributes)
       |> maybe_put("interface_uid", non_empty(point.interface_uid))
 
+    tags =
+      case non_empty(resource.host_id) do
+        nil -> tags
+        host_id -> Map.put(tags, "host_id", host_id)
+      end
+
     metadata =
       metric_metadata
       |> merge_entries(point.metadata)

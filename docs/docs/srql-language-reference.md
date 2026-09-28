@@ -207,6 +207,21 @@ Legacy `in:cpu`, `in:memory`, `in:disk`, and `in:process`/`in:processes`
 and StarRocks through Readers. Saved filters, stats, sorting, and downsampling
 keep working.
 
+Historical aggregates use existing timeseries hourly rollups when those rollups
+preserve the requested fields, filters and series. The general rollup retains
+device identity and metric values; CNPG's disk rollup also retains mount points.
+Sub-hour chart requests served by rollups return hourly points. Averages are
+weighted by sample count. Shapes that require byte tags, host identity, process
+names or other unretained dimensions read only the configured raw retention
+(seven days by default on CNPG). StarRocks mount-specific queries also use raw
+retention because its general hourly rollup does not retain mounts. This
+compatibility does not restore expired samples or guarantee full historical
+equivalence, and it never reads the retired dedicated sysmon tables.
+
+New metric envelopes persist `resource.host_id` as `tags.host_id`, which supplies
+legacy host fields, filters, series and sorting on both backends. Previously
+stored samples without that tag do not acquire host identity retroactively.
+
 ### Composite-result stats
 
 `in:composite_results` now honours `stats:`. The previous ignore dumped

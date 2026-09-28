@@ -395,6 +395,94 @@ fn metric_aggregate_plan(plan: &QueryPlan, spec: &MetricSpec) -> Result<Option<Q
     Ok(Some(normalized))
 }
 
+fn hourly_source(
+    plan: &QueryPlan,
+    spec: &MetricSpec,
+    database: Option<&str>,
+    params: &mut Vec<BindParam>,
+) -> Result<Option<String>> {
+    let mut routing = plan.clone();
+    routing.entity = Entity::TimeseriesMetrics;
+    if !super::should_route_plan_to_hourly_cagg(&routing) {
+        return Ok(None);
+    }
+    let column = if let Some(ds) = &plan.downsample {
+        if matches!(
+            ds.agg,
+            DownsampleAgg::Rate | DownsampleAgg::RateSum | DownsampleAgg::Last
+        ) {
+            return Ok(None);
+        }
+        ds.value_field
+            .as_deref()
+            .unwrap_or(spec.values[0].0)
+            .trim()
+            .to_ascii_lowercase()
+    } else if let Some(stats) = &plan.stats {
+        stats_spec(&stats.raw, spec)?.0
+    } else {
+        return Ok(None);
+    };
+    let Some((_, metric)) = spec.values.iter().find(|(name, _)| *name == column) else {
+        return Ok(None);
+    };
+    let series = plan
+        .downsample
+        .as_ref()
+        .and_then(|ds| ds.series.as_deref())
+        .map(|name| name.trim().to_ascii_lowercase());
+    let uses_mount = plan.filters.iter().any(|f| f.field == "mount_point")
+        || series.as_deref() == Some("mount_point");
+    let disk = uses_mount && database.is_none() && matches!(plan.entity, Entity::DiskMetrics);
+    let covered =
+        |name: &str| matches!(name, "device_id" | "uid") || (disk && name == "mount_point");
+    if plan.filters.iter().any(|f| !covered(&f.field))
+        || series.as_deref().is_some_and(|name| !covered(name))
+    {
+        return Ok(None);
+    }
+    let table = if disk {
+        "timeseries_metrics_disk_hourly"
+    } else {
+        "timeseries_metrics_hourly"
+    };
+    let warehouse = database.is_some();
+    let table = match database {
+        Some(db) if !db.is_empty() && db.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') => {
+            format!("{db}.{table}")
+        }
+        Some(_) => {
+            return Err(ServiceError::InvalidRequest(
+                "invalid warehouse database".into(),
+            ));
+        }
+        None => table.into(),
+    };
+    let mut conditions = vec![format!(
+        "metric_type = '{}' AND metric_name = '{metric}'",
+        spec.metric_type
+    )];
+    if let Some(range) = &plan.time_range {
+        let start = bind(params, BindParam::timestamptz(range.start), warehouse);
+        let end = bind(params, BindParam::timestamptz(range.end), warehouse);
+        conditions.push(if warehouse {
+            format!("bucket >= date_trunc('hour', CAST({start} AS DATETIME)) AND bucket < date_trunc('hour', CAST({end} AS DATETIME)) + INTERVAL 1 HOUR")
+        } else {
+            format!("bucket >= time_bucket('1 hour', {start}::timestamptz) AND bucket < time_bucket('1 hour', {end}::timestamptz) + INTERVAL '1 hour'")
+        });
+    }
+    Ok(Some(format!(
+        "SELECT bucket AS timestamp, device_id{}, avg_value AS {}, min_value, max_value, sample_count FROM {table} WHERE {}",
+        if disk { ", mount_point" } else { "" },
+        identifier(&column, warehouse),
+        conditions.join(" AND ")
+    )))
+}
+
+fn hourly_average(value: &str) -> String {
+    format!("SUM({value} * sample_count) / NULLIF(SUM(sample_count), 0)")
+}
+
 pub(super) fn to_sql_and_params(
     plan: &QueryPlan,
     database: Option<&str>,
@@ -407,23 +495,34 @@ pub(super) fn to_sql_and_params(
     }
     let warehouse = database.is_some();
     let spec = spec(&plan.entity)?;
-    if let Some(normalized) = metric_aggregate_plan(plan, &spec)? {
-        if let Some(database) = database {
-            let response = if allow_rollup {
-                super::starrocks::translate(&normalized, database)?
-            } else {
-                super::starrocks::translate_raw(&normalized, database)?
-            };
-            return Ok((response.sql, response.params));
-        }
-        if normalized.downsample.is_some() {
-            return super::downsample::to_sql_and_params(&normalized);
-        }
-        let (_, alias, grouped) = stats_spec(&plan.stats.as_ref().unwrap().raw, &spec)?;
-        return super::timeseries_metrics::legacy_sysmon_stats_sql(&normalized, &alias, grouped);
-    }
     let mut params = Vec::new();
-    let source = source(plan, &spec, database, &mut params)?;
+    let hourly = if allow_rollup {
+        hourly_source(plan, &spec, database, &mut params)?
+    } else {
+        None
+    };
+    if hourly.is_none() {
+        if let Some(normalized) = metric_aggregate_plan(plan, &spec)? {
+            if let Some(database) = database {
+                let response = super::starrocks::translate_raw(&normalized, database)?;
+                return Ok((response.sql, response.params));
+            }
+            if normalized.downsample.is_some() {
+                return super::downsample::to_sql_and_params(&normalized);
+            }
+            let (_, alias, grouped) = stats_spec(&plan.stats.as_ref().unwrap().raw, &spec)?;
+            return super::timeseries_metrics::legacy_sysmon_stats_sql(
+                &normalized,
+                &alias,
+                grouped,
+            );
+        }
+    }
+    let use_hourly = hourly.is_some();
+    let source = match hourly {
+        Some(source) => source,
+        None => source(plan, &spec, database, &mut params)?,
+    };
     let predicates = plan
         .filters
         .iter()
@@ -455,15 +554,20 @@ pub(super) fn to_sql_and_params(
             ));
         }
         let value = field(&spec, value_field, warehouse)?;
+        let bucket_seconds = if use_hourly {
+            ds.bucket_seconds.max(3600)
+        } else {
+            ds.bucket_seconds
+        };
         let bucket = if warehouse {
             format!(
                 "from_unixtime(FLOOR(unix_timestamp(timestamp) / {}) * {})",
-                ds.bucket_seconds, ds.bucket_seconds
+                bucket_seconds, bucket_seconds
             )
         } else {
             format!(
                 "to_timestamp(FLOOR(EXTRACT(EPOCH FROM timestamp) / {}) * {})",
-                ds.bucket_seconds, ds.bucket_seconds
+                bucket_seconds, bucket_seconds
             )
         };
         let series = match &ds.series {
@@ -496,6 +600,18 @@ pub(super) fn to_sql_and_params(
             value
         };
         let aggregate = match ds.agg {
+            DownsampleAgg::Avg if use_hourly => hourly_average(&value),
+            DownsampleAgg::Min if use_hourly => "MIN(min_value)".into(),
+            DownsampleAgg::Max if use_hourly => "MAX(max_value)".into(),
+            DownsampleAgg::Sum if use_hourly => format!("SUM({value} * sample_count)"),
+            DownsampleAgg::Count if use_hourly => format!(
+                "CAST(SUM(sample_count) AS {})",
+                if warehouse {
+                    "DOUBLE"
+                } else {
+                    "DOUBLE PRECISION"
+                }
+            ),
             DownsampleAgg::Avg | DownsampleAgg::Rate => format!("AVG({value})"),
             DownsampleAgg::Min => format!("MIN({value})"),
             DownsampleAgg::Max => format!("MAX({value})"),
@@ -528,11 +644,13 @@ pub(super) fn to_sql_and_params(
         } else {
             ""
         };
-        format!(
-            "{prefix}AVG({}) AS {}",
-            field(&spec, &column, warehouse)?,
-            identifier(&alias, warehouse)
-        )
+        let value = field(&spec, &column, warehouse)?;
+        let aggregate = if use_hourly {
+            hourly_average(&value)
+        } else {
+            format!("AVG({value})")
+        };
+        format!("{prefix}{aggregate} AS {}", identifier(&alias, warehouse))
     } else {
         "samples.*, device_id AS uid".into()
     };

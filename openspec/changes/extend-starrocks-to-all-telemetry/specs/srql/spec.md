@@ -35,6 +35,20 @@ The system SHALL answer `rollup_stats:` queries for warehouse datasets from day-
 ### Requirement: Dedicated sysmon readers are retired with query compatibility
 The SRQL service SHALL translate legacy sysmon entities (`cpu_metrics`/`cpu`, `memory_metrics`/`memory`, `disk_metrics`/`disk`, `process_metrics`/`processes`/`process`) to the corresponding `sysmon.*` samples in `timeseries_metrics`, preserving row fields, filters, sorting, stats and downsampling on CNPG and StarRocks. Readers SHALL route every alias to the metrics backend. No query SHALL read the empty dedicated sysmon hypertables.
 
+Historical aggregates SHALL use existing timeseries hourly rollups when they preserve the requested values and dimensions, including mount-point filters and series on CNPG disk metrics. Rollup averages SHALL use sample counts, and sub-hour chart requests served by rollups SHALL return hourly points. Shapes not covered by an existing rollup, including byte tags and host/process dimensions, SHALL read only configured raw retention. StarRocks mount-specific shapes also use raw retention. Compatibility does not imply full historical equivalence or recovery of expired raw samples.
+
+New metric envelopes SHALL persist `resource.host_id` as `tags.host_id` for legacy host fields, filters, series and sorting on both backends. Samples stored without host identity are not retroactively enriched.
+
+#### Scenario: Retained mount history
+- **WHEN** a CNPG query requests `in:disk mount_point:/data time:last_30d stats:avg(usage_percent) as average by device_id`
+- **THEN** it reads `timeseries_metrics_disk_hourly` with sample-weighted averages over retained hours
+- **AND** a query for byte tags or host/process dimensions instead reads only retained raw samples
+
+#### Scenario: Fresh resource host identity
+- **WHEN** an envelope contains `resource.host_id` set to `host01.example.com`
+- **THEN** ingestion persists that identity in `tags.host_id`
+- **AND** legacy host filters, fields, series and sorting use that value on both backends
+
 #### Scenario: A saved sysmon query remains compatible
 - **WHEN** a client sends `in:cpu core_id:0 time:last_1h limit:5`
 - **THEN** SRQL returns CPU usage and frequency fields with core identity from `sysmon.cpu` samples in `timeseries_metrics`

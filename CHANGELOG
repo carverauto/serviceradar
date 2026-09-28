@@ -14,6 +14,12 @@ identity stops merging on randomized MACs and anchorless seeds.
   `in:process_metrics`/`in:processes`/`in:process`) now read `sysmon.*`
   samples in `timeseries_metrics` on CNPG and StarRocks through Readers.
   Saved queries retain their aliases, filters, fields and aggregations.
+  Aggregate history uses existing timeseries hourly rollups where they
+  preserve the requested dimensions and values, including CNPG disk mounts.
+  Other shapes read only configured raw retention, including byte tags,
+  host/process dimensions and warehouse mount filters; full historical
+  equivalence is not provided. Sub-hour charts over rollups use hourly grain.
+  New metric envelopes persist resource host identity for legacy host filters.
   The Analytics high-utilization
   cards, the device-list sysmon presence badge and the authored-dashboard
   CPU template now read `timeseries_metrics` `sysmon.*` directly, and the

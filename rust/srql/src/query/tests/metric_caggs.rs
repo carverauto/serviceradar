@@ -220,7 +220,7 @@ fn legacy_sysmon_queries_translate_on_both_backends() {
         for alias in aliases {
             for mode in [None, Some("starrocks"), Some("starrocks_raw")] {
                 for shape in [
-                    format!("{filter} sort:{field}:desc"),
+                    format!("{filter} sort:host_id:asc,{field}:desc"),
                     if metric_type == "sysmon.cpu" {
                         format!("stats:avg({field})")
                     } else {
@@ -228,11 +228,11 @@ fn legacy_sysmon_queries_translate_on_both_backends() {
                     },
                     format!("stats:avg({field}) as average by device_id sort:average:desc"),
                     format!(
-                        "{filter} bucket:5m agg:avg series:uid value_field:{field} sort:timestamp:desc"
+                        "{filter} bucket:5m agg:avg series:host_id value_field:{field} sort:timestamp:desc"
                     ),
                 ] {
                     let query = format!(
-                        "in:{alias} device_id:host01.example.com time:last_1h {shape} limit:3"
+                        "in:{alias} host_id:host01.example.com time:last_1h {shape} limit:3"
                     );
                     let response = translate_request(
                         &config,
@@ -253,6 +253,16 @@ fn legacy_sysmon_queries_translate_on_both_backends() {
                     );
                     assert!(
                         format!("{} {:?}", response.sql, response.params).contains(metric_type)
+                    );
+                    let host = if mode.is_none() {
+                        "tags ->> 'host_id'"
+                    } else {
+                        "get_json_string(tags, '$.host_id')"
+                    };
+                    assert!(response.sql.contains(host), "{}", response.sql);
+                    assert!(
+                        format!("{} {:?}", response.sql, response.params)
+                            .contains("host01.example.com")
                     );
                     if !shape.contains("stats:") {
                         assert!(response.sql.contains(field), "{}", response.sql);
@@ -316,28 +326,98 @@ fn legacy_sysmon_stats_rank_before_limiting_on_both_backends() {
 #[test]
 fn legacy_sysmon_aggregates_keep_timeseries_retention_routing() {
     let config = test_config();
+    let old_start = chrono::Utc::now() - ChronoDuration::days(10);
+    let old_end = old_start + ChronoDuration::hours(3);
+    let old_window = format!(
+        "time:[{},{}]",
+        old_start.format("%Y-%m-%dT%H:%M:%SZ"),
+        old_end.format("%Y-%m-%dT%H:%M:%SZ")
+    );
     for mode in [None, Some("starrocks"), Some("starrocks_raw")] {
-        for shape in ["stats:avg(usage_percent) as average", "bucket:1h agg:avg"] {
-            let response = translate_request(
-                &config,
-                QueryRequest {
-                    query: format!("in:cpu time:last_30d {shape}"),
-                    limit: None,
-                    cursor: None,
-                    direction: QueryDirection::Next,
-                    mode: mode.map(str::to_string),
-                    permitted_signals: None,
-                },
-            )
-            .expect("legacy aggregate should compile");
-            let hourly =
-                mode.is_none() || (shape.starts_with("bucket:") && mode == Some("starrocks"));
-            assert_eq!(
-                response.sql.contains("timeseries_metrics_hourly"),
-                hourly,
-                "{}",
-                response.sql
-            );
+        for (window, eligible) in [
+            ("time:last_30d", true),
+            (old_window.as_str(), true),
+            ("time:last_1h", false),
+        ] {
+            for (shape, table) in [
+                (
+                    "cpu stats:avg(usage_percent) as average",
+                    "timeseries_metrics_hourly",
+                ),
+                (
+                    "memory stats:avg(usage_percent) as average by device_id",
+                    "timeseries_metrics_hourly",
+                ),
+                (
+                    "process stats:avg(memory_usage) as average by device_id",
+                    "timeseries_metrics_hourly",
+                ),
+                (
+                    "disk mount_point:/data stats:avg(usage_percent) as average by device_id",
+                    "timeseries_metrics_disk_hourly",
+                ),
+                (
+                    "disk bucket:5m agg:avg series:mount_point",
+                    "timeseries_metrics_disk_hourly",
+                ),
+                (
+                    "cpu bucket:5m agg:avg series:uid",
+                    "timeseries_metrics_hourly",
+                ),
+                ("cpu bucket:1h agg:min", "timeseries_metrics_hourly"),
+                ("cpu bucket:1h agg:max", "timeseries_metrics_hourly"),
+                ("cpu bucket:1h agg:sum", "timeseries_metrics_hourly"),
+                ("cpu bucket:1h agg:count", "timeseries_metrics_hourly"),
+                (
+                    "cpu bucket:1h agg:avg value_field:frequency_hz",
+                    "timeseries_metrics_hourly",
+                ),
+                (
+                    "cpu host_id:host01.example.com stats:avg(usage_percent) as average",
+                    "timeseries_metrics",
+                ),
+                (
+                    "memory stats:avg(used_bytes) as average by device_id",
+                    "timeseries_metrics",
+                ),
+                (
+                    "disk bucket:5m agg:avg value_field:available_bytes",
+                    "timeseries_metrics",
+                ),
+                (
+                    "process name:worker stats:avg(cpu_usage) as average by device_id",
+                    "timeseries_metrics",
+                ),
+                ("cpu bucket:1h agg:last", "timeseries_metrics"),
+            ] {
+                let response = translate_request(
+                    &config,
+                    QueryRequest {
+                        query: format!("in:{shape} {window}"),
+                        limit: None,
+                        cursor: None,
+                        direction: QueryDirection::Next,
+                        mode: mode.map(str::to_string),
+                        permitted_signals: None,
+                    },
+                )
+                .expect("legacy aggregate should compile");
+                let hourly = eligible
+                    && mode != Some("starrocks_raw")
+                    && table != "timeseries_metrics"
+                    && (table != "timeseries_metrics_disk_hourly" || mode.is_none());
+                assert_eq!(response.sql.contains("_hourly"), hourly, "{}", response.sql);
+                if hourly {
+                    assert!(response.sql.contains(table), "{}", response.sql);
+                    if shape.contains("agg:avg") || shape.contains("stats:") {
+                        assert!(
+                            response.sql.contains("/ NULLIF(SUM(sample_count), 0)"),
+                            "{}",
+                            response.sql
+                        );
+                    }
+                }
+            }
         }
     }
 }

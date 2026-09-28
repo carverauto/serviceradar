@@ -12,6 +12,32 @@ defmodule ServiceRadar.Observability.MetricEnvelopeTest do
 
   @point_time 1_781_222_400_000_000_000
 
+  test "persists resource host identity in the shared telemetry row" do
+    for {family, metric_name} <- [
+          {"cpu", "cpu.usage_percent"},
+          {"memory", "memory.used_percent"},
+          {"disk", "disk.used_percent"},
+          {"process", "process.cpu_usage"}
+        ],
+        fields <- [
+          [],
+          [
+            tags: %{"host_id" => "tag.example.com"},
+            attributes: %{"host_id" => "point.example.com"}
+          ]
+        ] do
+      payload =
+        encode_batch([gauge_metric(metric_name, "sysmon.#{family}", 25.0, fields)],
+          host_id: "host01.example.com"
+        )
+
+      assert {:ok, [row], 1} = MetricEnvelope.decode_rows_count(payload)
+      assert row.tags["host_id"] == "host01.example.com"
+      assert row.metric_type == "sysmon.#{family}"
+      assert row.value == 25.0
+    end
+  end
+
   describe "target_device_ip resolution (finding 1)" do
     test "SNMP envelope resolves target_device_ip to the IP-bearing host tag, not the target name" do
       # Producer convention: tags["host"] = polled IP, tags["target"] = logical
@@ -301,6 +327,7 @@ defmodule ServiceRadar.Observability.MetricEnvelopeTest do
         partition: "default",
         device_id: Keyword.get(opts, :device_id, ""),
         host_ip: Keyword.get(opts, :host_ip, ""),
+        host_id: Keyword.get(opts, :host_id, ""),
         service_name: "metrics",
         service_type: "metrics"
       },
@@ -350,7 +377,8 @@ defmodule ServiceRadar.Observability.MetricEnvelopeTest do
           raw_value: Float.to_string(value),
           raw_value_type: :METRIC_VALUE_TYPE_DOUBLE,
           observed_at_unix_nano: @point_time,
-          series_identity_hint: Keyword.get(opts, :series_identity_hint, "")
+          series_identity_hint: Keyword.get(opts, :series_identity_hint, ""),
+          attributes: opts |> Keyword.get(:attributes, %{}) |> entries()
         }
       ]
     }
