@@ -11,7 +11,7 @@ export default defineDashboardConfig({
     version: "0.1.0",
     vendor: "ServiceRadar demos",
     description: "Shared demo frame and presenter strip, running offline from fixtures.",
-    capabilities: ["srql.execute", "actions.invoke"],
+    capabilities: ["srql.execute", "actions.invoke", "events.subscribe"],
     data_frames: [
       {
         id: "schedule",

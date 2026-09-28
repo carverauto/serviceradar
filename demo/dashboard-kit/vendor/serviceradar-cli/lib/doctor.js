@@ -1,0 +1,184 @@
+// `serviceradar-cli doctor` and `--version`. Both surface "what is the user
+// running" diagnostics — the version flag prints just the CLI's own version,
+// and `doctor` walks the runtime, install, project, and auth surfaces and
+// prints actionable hints when pieces are missing.
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { spawn } from "node:child_process";
+import { credentialsDir, credentialsPath, normalizeInstanceUrl, readCredentials, resolveCredentialToken } from "./auth/credentials.js";
+import { loadConfig, resolveConfigPath } from "./config.js";
+import { DEFAULT_RENDERER_ENTRY } from "./manifest.js";
+import { resolveProjectPackageManifest } from "./dashboard/resolve.js";
+import { CLI_ROOT, HARNESS_DIR, TEMPLATES_DIR } from "./paths.js";
+import { defaultCaBundlePath, formatFetchFailure, resolveExtraCaFile } from "./tls_ca.js";
+import { relativePath } from "./utils.js";
+export function readPackageVersion(directory) {
+    const path = join(directory, "package.json");
+    if (!existsSync(path))
+        return null;
+    try {
+        const payload = JSON.parse(readFileSync(path, "utf8"));
+        return payload?.version || null;
+    }
+    catch (_) {
+        return null;
+    }
+}
+export function printVersion() {
+    const cliVersion = readPackageVersion(CLI_ROOT) || "unknown";
+    console.log(`@carverauto/serviceradar-cli ${cliVersion}`);
+}
+export async function doctorCommand(options) {
+    const projectDir = resolve(options.cwd || process.cwd());
+    const cliVersion = readPackageVersion(CLI_ROOT) || "unknown";
+    console.log("ServiceRadar CLI doctor");
+    console.log("");
+    console.log("Runtime:");
+    console.log(`  node:                 ${process.version}`);
+    console.log(`  platform:             ${process.platform}/${process.arch}`);
+    const npmVersion = await detectExecVersion("npm --version");
+    console.log(`  npm:                  ${npmVersion || "(not on PATH)"}`);
+    console.log("");
+    console.log("CLI install:");
+    console.log(`  @carverauto/serviceradar-cli:    ${cliVersion}`);
+    console.log(`  bin path:             ${join(CLI_ROOT, "bin", "serviceradar-cli.js")}`);
+    console.log(`  templates dir:        ${TEMPLATES_DIR}`);
+    console.log(`  harness dir:          ${HARNESS_DIR}`);
+    const sdkVersion = resolveSdkVersion(projectDir);
+    console.log(`  @carverauto/serviceradar-dashboard-sdk: ${sdkVersion || "(not resolvable from this project)"}`);
+    const viteVersion = await dynamicVersion("vite");
+    console.log(`  vite (cli dep):       ${viteVersion || "(not resolvable)"}`);
+    console.log("");
+    console.log("Project:");
+    console.log(`  cwd:                  ${projectDir}`);
+    const configPath = resolveConfigPath(projectDir, options.config);
+    if (configPath) {
+        console.log(`  dashboard config:     ${relativePath(projectDir, configPath)}`);
+        try {
+            const config = (await loadConfig(projectDir, options.config));
+            const manifestId = config?.manifest?.id;
+            const localVersion = config?.manifest?.version;
+            console.log(`  manifest id:          ${manifestId || "(not declared)"}`);
+            console.log(`  manifest version:     ${localVersion || "(not declared)"}`);
+            const entry = config?.renderer?.entry || config?.entry || DEFAULT_RENDERER_ENTRY;
+            console.log(`  renderer entry:       ${entry}${existsSync(resolve(projectDir, entry)) ? "" : "  (missing!)"}`);
+            const instanceUrl = normalizeInstanceUrl(options.instance);
+            if (instanceUrl && manifestId) {
+                const installedVersion = await fetchInstalledVersion(instanceUrl, manifestId, options.token);
+                console.log(`  installed version:    ${installedVersion}`);
+            }
+        }
+        catch (error) {
+            console.log(`  config error:         ${error?.message || error}`);
+        }
+    }
+    else {
+        console.log("  dashboard config:     (none — `serviceradar-cli dashboard init <name>` to scaffold)");
+    }
+    console.log("");
+    console.log("Auth:");
+    const credsPath = credentialsPath();
+    console.log(`  credentials path:     ${credsPath}`);
+    if (existsSync(credsPath)) {
+        const store = readCredentials();
+        const entries = Object.keys(store.instances || {});
+        console.log(`  stored instances:     ${entries.length === 0 ? "(none)" : entries.join(", ")}`);
+    }
+    else {
+        console.log("  stored instances:     (no credentials file yet — `serviceradar-cli auth login --instance <url>` to authenticate)");
+    }
+    const extraCa = resolveExtraCaFile();
+    const defaultCa = defaultCaBundlePath();
+    if (extraCa) {
+        console.log(`  extra CA file:        ${extraCa}${process.env.NODE_EXTRA_CA_CERTS === extraCa ? " (loaded)" : ""}`);
+    }
+    else {
+        console.log(`  extra CA file:        (none — Node ignores the OS trust store; place a PEM at ${defaultCa})`);
+    }
+    // A PEM sitting in the config directory under any other name is the failure
+    // mode this whole section exists to prevent: the operator believes the CA is
+    // installed, autodetect never looks at it, and the only symptom is a bare
+    // `fetch failed`. Name the files we can see but will not load.
+    for (const ignored of unusedPemFiles(extraCa)) {
+        console.log(`  unused PEM:           ${ignored} — not loaded; rename it to ${defaultCa} or pass --ca-file ${ignored}`);
+    }
+}
+async function fetchInstalledVersion(instance, manifestId, tokenOverride) {
+    const credential = resolveCredentialToken(instance, { token: tokenOverride });
+    if (!credential)
+        return "(no credentials — run auth login first)";
+    const url = `${instance}/api/v1/dashboard-packages/${encodeURIComponent(manifestId)}`;
+    try {
+        const response = await fetch(url, {
+            headers: { authorization: `Bearer ${credential.token}`, accept: "application/json" },
+        });
+        if (response.status === 404)
+            return "(not installed)";
+        if (!response.ok)
+            return `(fetch failed: HTTP ${response.status})`;
+        const payload = await response.json().catch(() => null);
+        return payload?.package?.version || "(unknown)";
+    }
+    catch (error) {
+        return `(fetch failed: ${formatFetchFailure(error)})`;
+    }
+}
+function unusedPemFiles(loaded) {
+    let entries;
+    try {
+        entries = readdirSync(credentialsDir());
+    }
+    catch {
+        return [];
+    }
+    return entries
+        .filter((entry) => /\.(pem|crt|cer)$/i.test(entry))
+        .map((entry) => join(credentialsDir(), entry))
+        .filter((path) => path !== loaded);
+}
+async function detectExecVersion(command) {
+    return new Promise((res) => {
+        const child = spawn(command, { shell: true, stdio: ["ignore", "pipe", "pipe"] });
+        let chunks = "";
+        child.stdout?.on("data", (chunk) => { chunks += chunk.toString("utf8"); });
+        child.on("error", () => res(null));
+        child.on("exit", (code) => res(code === 0 ? chunks.trim() : null));
+    });
+}
+const SDK_PACKAGE = "@carverauto/serviceradar-dashboard-sdk";
+function resolveSdkVersion(projectDir) {
+    for (const candidate of [
+        // Resolved from the project, so a hoisted install is found. The literal
+        // paths below stay as fallbacks: they cover an SDK that is present on disk
+        // but not resolvable (no `./package.json` export, a broken install tree).
+        resolveProjectPackageManifest(projectDir, SDK_PACKAGE),
+        join(projectDir, "node_modules", "@carverauto", "serviceradar-dashboard-sdk", "package.json"),
+        join(CLI_ROOT, "node_modules", "@carverauto", "serviceradar-dashboard-sdk", "package.json"),
+    ]) {
+        if (candidate && existsSync(candidate)) {
+            try {
+                const payload = JSON.parse(readFileSync(candidate, "utf8"));
+                if (payload?.version)
+                    return payload.version;
+            }
+            catch (_) { /* fall through */ }
+        }
+    }
+    return null;
+}
+async function dynamicVersion(packageName) {
+    for (const candidate of [
+        join(CLI_ROOT, "node_modules", packageName, "package.json"),
+    ]) {
+        if (existsSync(candidate)) {
+            try {
+                const payload = JSON.parse(readFileSync(candidate, "utf8"));
+                if (payload?.version)
+                    return payload.version;
+            }
+            catch (_) { /* noop */ }
+        }
+    }
+    return null;
+}
+//# sourceMappingURL=doctor.js.map

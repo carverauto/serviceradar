@@ -1,0 +1,14 @@
+[
+  {
+    "id": "rows",
+    "query": "in:devices status:Down limit:1000",
+    "encoding": "json_rows",
+    "status": "ok",
+    "limit": 1000,
+    "results": [
+      {"device_id": "d-2001", "name": "edge-rtr-9", "site_code": "LAX", "status": "Down", "model": "Catalyst 9500", "last_seen": "1 hr ago"},
+      {"device_id": "d-2002", "name": "wlc-7", "site_code": "JFK", "status": "Down", "model": "Aruba 7030", "last_seen": "23 min ago"},
+      {"device_id": "d-2003", "name": "core-fw-2", "site_code": "MIA", "status": "Up", "model": "Palo Alto PA-3260", "last_seen": "1 min ago"}
+    ]
+  }
+]

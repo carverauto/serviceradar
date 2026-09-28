@@ -1,0 +1,15 @@
+[
+  {
+    "id": "sites",
+    "query": "in:wifi_sites region:(AMERICAS) limit:500",
+    "encoding": "json_rows",
+    "status": "ok",
+    "limit": 500,
+    "results": [
+      {"site_code": "ZZC", "name": "Denver", "region": "AMERICAS", "longitude": -104.6731, "latitude": 39.8617, "ap_count": 120},
+      {"site_code": "ZZD", "name": "Chicago O'Hare", "region": "AMERICAS", "longitude": -87.9073, "latitude": 41.9742, "ap_count": 240},
+      {"site_code": "ZZA", "name": "Example Intercontinental", "region": "AMERICAS", "longitude": -20.0000, "latitude": 10.0000, "ap_count": 180},
+      {"site_code": "ZZE", "name": "New York JFK", "region": "AMERICAS", "longitude": -73.7781, "latitude": 40.6413, "ap_count": 220}
+    ]
+  }
+]
