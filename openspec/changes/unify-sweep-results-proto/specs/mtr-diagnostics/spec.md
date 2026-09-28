@@ -22,10 +22,10 @@ immutable traffic class.
   interactive edge-record lane, physical stream, durable, and result credits
 
 #### Scenario: On-demand trace via control stream
-- **WHEN** a `mtr.run` command is received via ControlStream with a target
-  address
-- **THEN** the agent SHALL execute a single MTR trace to the specified target,
-  enriched with ASN, DNS, and MPLS data
+- **WHEN** an authorized `mtr.run` command is received via ControlStream with a
+  target address
+- **THEN** the agent SHALL execute one bounded MTR trace to the specified
+  target, enriched with ASN, DNS, and MPLS data
 - **AND** the control stream response SHALL carry bounded command/progress state
   and the trace ID rather than the complete enriched result
 - **AND** the complete result SHALL be published through `MtrTraceBatchV1` as
