@@ -2331,19 +2331,19 @@ http_file(
 # TARGET's. The nif-2.17 in the name is OTP 28's NIF version; bump these together with OTP.
 http_file(
     name = "vix_nif_x86_64",
-    downloaded_file_path = "vix-nif-2.17-x86_64-linux-gnu-0.40.0.tar.gz",
-    sha256 = "26bc9f50d6f1590e5884c8ca9b16579c10a1abc291e358972bac8c56a962470e",
+    downloaded_file_path = "vix-nif-2.17-x86_64-linux-gnu-0.42.0.tar.gz",
+    sha256 = "99425d4779bf5964de677243adb35f192d99095ac69f5639b2468f9443a22526",
     urls = [
-        "https://github.com/akash-akya/vix/releases/download/v0.40.0/vix-nif-2.17-x86_64-linux-gnu-0.40.0.tar.gz",
+        "https://github.com/akash-akya/vix/releases/download/v0.42.0/vix-nif-2.17-x86_64-linux-gnu-0.42.0.tar.gz",
     ],
 )
 
 http_file(
     name = "vix_nif_aarch64",
-    downloaded_file_path = "vix-nif-2.17-aarch64-linux-gnu-0.40.0.tar.gz",
-    sha256 = "4af83bfeb0d70a016c16f3f9acfd033f33818cd11bc57223d1fef62e228f831c",
+    downloaded_file_path = "vix-nif-2.17-aarch64-linux-gnu-0.42.0.tar.gz",
+    sha256 = "3090e3fed591bbc447c8115b675a9a8068f3c0f7bf29e2dfe5f99ddd40ee9324",
     urls = [
-        "https://github.com/akash-akya/vix/releases/download/v0.40.0/vix-nif-2.17-aarch64-linux-gnu-0.40.0.tar.gz",
+        "https://github.com/akash-akya/vix/releases/download/v0.42.0/vix-nif-2.17-aarch64-linux-gnu-0.42.0.tar.gz",
     ],
 )
 
