@@ -403,18 +403,20 @@ core:
     passwordKey: "smtp-password"
   # Core-owned advisory vulnerability feed ingestion (CISA KEV, VulnCheck KEV,
   # VulnCheck nist-nvd2, NVD CVE 2.0, Ubuntu OSV + OpenVEX). Feeds are AshOban-scheduled in core,
-  # disk-staged on a PVC, and bulk-loaded into CNPG — no agent involvement.
+  # disk-staged on a scratch volume, and bulk-loaded into CNPG — no agent involvement.
   # See openspec/changes/refactor-advisory-feeds-into-core.
   advisoryFeeds:
-    # Master switch: mounts the staging PVC and enables the feed scheduler.
-    # Off by default until the PVC exists; on in demo (see values-demo.yaml).
+    # Master switch: mounts the staging volume and enables the feed scheduler.
+    # Off by default; on in demo (see values-demo.yaml).
     enabled: false
     # Sub-gate for the large nist-nvd2 (full NVD CPE) load; KEV enrichment runs
     # independently when this is false.
     nistNvd2Enabled: false
-    # Persistent staging volume (download.zip + extracted *.json.gz shards).
-    # Set emptyDir: true on multi-replica cores that cannot share an RWO PVC.
-    emptyDir: false
+    # Staging is scratch: each run downloads, bulk-loads into CNPG, then prunes
+    # its own run dir (ServiceRadar.Inventory.AdvisoryFeeds.Staging). Default to a
+    # per-replica emptyDir so replicas never share a node-pinned ReadWriteOnce
+    # PVC. Set emptyDir: false only for a single-replica core or an RWX claim.
+    emptyDir: true
     stagingDir: "/var/lib/serviceradar/advisory-feeds"
     size: "5Gi"
     accessModes:
@@ -1205,12 +1207,13 @@ coldTier:
 # might need local lookups (web-ng). Enrichment should never do external API calls
 # at query time.
 geoipMmdb:
-  # Disabled by default because the bundled claim is ReadWriteOnce. Enable only
-  # with a single web-ng replica, an existing RWX claim, or an external updater.
-  # Multi-replica cores (farm01) should set emptyDir: true so each pod downloads
-  # its own MMDB without a shared PVC.
+  # Disabled by default. The MMDB is scratch data each pod downloads itself
+  # (GEOLITE_MMDB_DOWNLOAD_ENABLED / IPINFO_MMDB_DOWNLOAD_ENABLED), so default to
+  # a per-replica emptyDir and never a shared ReadWriteOnce PVC that would pin
+  # every core/web-ng replica to one node. Set emptyDir: false only for a
+  # single-replica install or an RWX-capable claim.
   enabled: false
-  emptyDir: false
+  emptyDir: true
   basePath: "/var/lib/serviceradar/geoip"
   existingClaim: ""
   accessModes:
