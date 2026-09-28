@@ -7,7 +7,67 @@ defmodule ServiceRadar.Repo.Migrations.TopologyWorld do
 
   use Ecto.Migration
 
+  @tables [
+    "platform.topology_world_relations",
+    "platform.topology_world_positions",
+    "platform.topology_world_layouts",
+    "platform.topology_world_head"
+  ]
+
   def up do
+    case existing_topology_table_count() do
+      0 -> create_topology_world()
+      4 -> validate_existing_topology_world!()
+      _ -> raise_partial_schema_error!()
+    end
+  end
+
+  defp existing_topology_table_count do
+    Enum.count(@tables, fn table ->
+      %{rows: [[regclass]]} = repo().query!("SELECT to_regclass($1)", [table])
+      regclass != nil
+    end)
+  end
+
+  defp raise_partial_schema_error! do
+    raise """
+    TopologyWorld migration found a partially-applied topology world schema.
+    Expected none or all four of platform.topology_world_{relations,positions,layouts,head};
+    refusing to proceed rather than masking schema corruption.
+    """
+  end
+
+  defp validate_existing_topology_world! do
+    expected_columns = %{
+      "topology_world_relations" =>
+        ~w(layout_version relation_id source_id target_id evidence_class role source_if_index source_if_name target_if_index target_if_name active inserted_at updated_at),
+      "topology_world_positions" =>
+        ~w(layout_version device_id label x y min_zoom parent_id component_id component_z component_x component_y placement_depth active inserted_at updated_at),
+      "topology_world_layouts" =>
+        ~w(layout_version extent algorithm_version zmax status source_digest node_count relation_count inserted_at updated_at),
+      "topology_world_head" => ~w(id active_layout_version generation updated_at)
+    }
+
+    Enum.each(expected_columns, fn {table, columns} ->
+      Enum.each(columns, fn column ->
+        %{rows: [[count]]} =
+          repo().query!(
+            """
+            SELECT count(*)
+            FROM information_schema.columns
+            WHERE table_schema = 'platform' AND table_name = $1 AND column_name = $2
+            """,
+            [table, column]
+          )
+
+        if count != 1 do
+          raise "TopologyWorld migration found existing platform.#{table} missing column #{column}"
+        end
+      end)
+    end)
+  end
+
+  defp create_topology_world do
     execute("CREATE SCHEMA IF NOT EXISTS platform")
 
     create table(:topology_world_relations, primary_key: false, prefix: "platform") do
