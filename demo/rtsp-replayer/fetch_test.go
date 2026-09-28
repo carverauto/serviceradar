@@ -26,9 +26,9 @@ func testLock(clips ...Clip) *Lock {
 	return &Lock{Version: 1, Bucket: "b", Clips: clips}
 }
 
-func testClip(name, body string) Clip {
+func testClip() Clip {
 	return Clip{
-		Name: name, Key: name + ".mp4", SHA256: shaOf(body),
+		Name: "a", Key: "a.mp4", SHA256: shaOf("AAA"),
 		DurationSeconds: 10, Width: 16, Height: 16,
 		License: "x", SourceURL: "y",
 	}
@@ -41,7 +41,7 @@ func TestEnsureClipsDownloadsMissing(t *testing.T) {
 
 	s3 := &S3Client{Endpoint: srv.URL, Bucket: "b", Region: "r", AccessKey: "A", SecretKey: "S", HTTP: srv.Client()}
 	dir := t.TempDir()
-	lock := testLock(testClip("a", "AAA"))
+	lock := testLock(testClip())
 
 	if err := EnsureClips(context.Background(), testLogger(), s3, lock, dir); err != nil {
 		t.Fatalf("EnsureClips: %v", err)
@@ -73,12 +73,15 @@ func TestEnsureClipsRefetchesCorruptLocal(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "a.mp4"), []byte("CORRUPT"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	lock := testLock(testClip("a", "AAA"))
+	lock := testLock(testClip())
 
 	if err := EnsureClips(context.Background(), testLogger(), s3, lock, dir); err != nil {
 		t.Fatalf("EnsureClips: %v", err)
 	}
-	raw, _ := os.ReadFile(filepath.Join(dir, "a.mp4"))
+	raw, err := os.ReadFile(filepath.Join(dir, "a.mp4"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if string(raw) != "AAA" {
 		t.Fatalf("content = %q, want refetched AAA", raw)
 	}
@@ -91,7 +94,7 @@ func TestEnsureClipsRefusesDigestMismatch(t *testing.T) {
 
 	s3 := &S3Client{Endpoint: srv.URL, Bucket: "b", Region: "r", AccessKey: "A", SecretKey: "S", HTTP: srv.Client()}
 	dir := t.TempDir()
-	lock := testLock(testClip("a", "AAA"))
+	lock := testLock(testClip())
 
 	err := EnsureClips(context.Background(), testLogger(), s3, lock, dir)
 	if err == nil || !strings.Contains(err.Error(), "digest mismatch") {
@@ -100,7 +103,10 @@ func TestEnsureClipsRefusesDigestMismatch(t *testing.T) {
 	if _, statErr := os.Stat(filepath.Join(dir, "a.mp4")); !os.IsNotExist(statErr) {
 		t.Fatalf("mismatched download was installed")
 	}
-	leftovers, _ := filepath.Glob(filepath.Join(dir, ".clip-*"))
+	leftovers, err := filepath.Glob(filepath.Join(dir, ".clip-*"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(leftovers) != 0 {
 		t.Fatalf("temp files left behind: %v", leftovers)
 	}
@@ -113,7 +119,7 @@ func TestEnsureClipsRefusesUnlisted(t *testing.T) {
 
 	s3 := &S3Client{Endpoint: srv.URL, Bucket: "b", Region: "r", AccessKey: "A", SecretKey: "S", HTTP: srv.Client()}
 	dir := t.TempDir()
-	lock := testLock(testClip("a", "AAA"))
+	lock := testLock(testClip())
 
 	err := EnsureClips(context.Background(), testLogger(), s3, lock, dir)
 	if err == nil || !strings.Contains(err.Error(), "intruder.mp4") {

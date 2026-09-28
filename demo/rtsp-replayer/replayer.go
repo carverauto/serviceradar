@@ -17,6 +17,8 @@ import (
 	"time"
 )
 
+var errConfig = errors.New("configure replayer")
+
 //go:embed clips.lock.json
 var defaultLock []byte
 
@@ -62,13 +64,13 @@ func ConfigFromEnv() (Config, error) {
 	cfg.AccessKey, cfg.SecretKey = access, secret
 
 	if cfg.S3Endpoint == "" {
-		return Config{}, errors.New("REPLAYER_S3_ENDPOINT is required")
+		return Config{}, fmt.Errorf("%w: REPLAYER_S3_ENDPOINT is required", errConfig)
 	}
 	if cfg.S3Bucket == "" {
-		return Config{}, errors.New("REPLAYER_S3_BUCKET is required")
+		return Config{}, fmt.Errorf("%w: REPLAYER_S3_BUCKET is required", errConfig)
 	}
 	if cfg.AccessKey == "" || cfg.SecretKey == "" {
-		return Config{}, errors.New("S3 credentials are required (REPLAYER_S3_ACCESS_KEY/SECRET_KEY or _FILE variants)")
+		return Config{}, fmt.Errorf("%w: S3 credentials are required (REPLAYER_S3_ACCESS_KEY/SECRET_KEY or _FILE variants)", errConfig)
 	}
 	return cfg, nil
 }

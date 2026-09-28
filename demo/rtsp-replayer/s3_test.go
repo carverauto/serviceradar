@@ -57,7 +57,10 @@ func TestRFC3986Encode(t *testing.T) {
 }
 
 func TestSignV4Shape(t *testing.T) {
-	req, _ := http.NewRequest(http.MethodGet, "https://s3.example.com/b/k", nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://s3.example.com/b/k", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	when := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	signV4(req, "/b/k", nil, "us-ord-1", "AKID", "SECRET", when)
 
@@ -74,12 +77,18 @@ func TestSignV4Shape(t *testing.T) {
 	}
 
 	// Deterministic for fixed inputs, sensitive to the secret.
-	req2, _ := http.NewRequest(http.MethodGet, "https://s3.example.com/b/k", nil)
+	req2, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://s3.example.com/b/k", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	signV4(req2, "/b/k", nil, "us-ord-1", "AKID", "SECRET", when)
 	if req2.Header.Get("Authorization") != auth {
 		t.Fatalf("signing is not deterministic")
 	}
-	req3, _ := http.NewRequest(http.MethodGet, "https://s3.example.com/b/k", nil)
+	req3, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://s3.example.com/b/k", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	signV4(req3, "/b/k", nil, "us-ord-1", "AKID", "OTHER", when)
 	if req3.Header.Get("Authorization") == auth {
 		t.Fatalf("signature ignores the secret")
@@ -100,7 +109,7 @@ func (f *fakeS3) handler(w http.ResponseWriter, r *http.Request) {
 		f.t.Errorf("missing x-amz-date")
 	}
 	if r.URL.Query().Get("list-type") == "2" {
-		var keys []string
+		keys := make([]string, 0, len(f.objects))
 		for k := range f.objects {
 			keys = append(keys, k)
 		}
@@ -115,27 +124,48 @@ func (f *fakeS3) handler(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		w.Header().Set("Content-Type", "application/xml")
-		w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?><ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">`))
+		if _, err := w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?><ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">`)); err != nil {
+			f.t.Errorf("write response: %v", err)
+			return
+		}
 		if start < len(keys) {
-			w.Write([]byte(`<Contents><Key>` + keys[start] + `</Key></Contents>`))
+			if _, err := w.Write([]byte(`<Contents><Key>` + keys[start] + `</Key></Contents>`)); err != nil {
+				f.t.Errorf("write response: %v", err)
+				return
+			}
 		}
 		if start+1 < len(keys) {
-			w.Write([]byte(`<IsTruncated>true</IsTruncated><NextContinuationToken>` + keys[start] + `</NextContinuationToken>`))
+			if _, err := w.Write([]byte(`<IsTruncated>true</IsTruncated><NextContinuationToken>` + keys[start] + `</NextContinuationToken>`)); err != nil {
+				f.t.Errorf("write response: %v", err)
+				return
+			}
 		} else {
-			w.Write([]byte(`<IsTruncated>false</IsTruncated>`))
+			if _, err := w.Write([]byte(`<IsTruncated>false</IsTruncated>`)); err != nil {
+				f.t.Errorf("write response: %v", err)
+				return
+			}
 		}
-		w.Write([]byte(`</ListBucketResult>`))
+		if _, err := w.Write([]byte(`</ListBucketResult>`)); err != nil {
+			f.t.Errorf("write response: %v", err)
+			return
+		}
 		return
 	}
 	key := strings.TrimPrefix(r.URL.Path, "/b/")
 	body, ok := f.objects[key]
 	if !ok {
 		w.WriteHeader(http.StatusNotFound)
-		w.Write([]byte(`<Error><Code>NoSuchKey</Code><Message>nope</Message></Error>`))
+		if _, err := w.Write([]byte(`<Error><Code>NoSuchKey</Code><Message>nope</Message></Error>`)); err != nil {
+			f.t.Errorf("write response: %v", err)
+			return
+		}
 		return
 	}
 	f.gets++
-	w.Write(body)
+	if _, err := w.Write(body); err != nil {
+		f.t.Errorf("write response: %v", err)
+		return
+	}
 }
 
 func TestS3ListAndGetRoundTrip(t *testing.T) {
@@ -187,7 +217,10 @@ func TestS3RejectsWrongRegion(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				scopes = append(scopes, r.Header.Get("Authorization"))
 				w.WriteHeader(http.StatusBadRequest)
-				w.Write([]byte(`<Error><Code>AuthorizationHeaderMalformed</Code><Message>region wrong</Message><Region>region-other</Region></Error>`))
+				if _, err := w.Write([]byte(`<Error><Code>AuthorizationHeaderMalformed</Code><Message>region wrong</Message><Region>region-other</Region></Error>`)); err != nil {
+					t.Errorf("write response: %v", err)
+					return
+				}
 			}))
 			defer srv.Close()
 			c := &S3Client{Endpoint: srv.URL, Bucket: "b", Region: "region-configured", AccessKey: "A", SecretKey: "S", HTTP: srv.Client()}

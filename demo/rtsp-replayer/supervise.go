@@ -3,6 +3,7 @@ package replayer
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -11,6 +12,8 @@ import (
 	"sync"
 	"time"
 )
+
+var errSupervise = errors.New("supervise")
 
 // Child is one supervised process: MediaMTX or an ffmpeg publisher.
 type Child struct {
@@ -134,9 +137,9 @@ func Supervise(ctx context.Context, log *log.Logger, children []Child) error {
 // WaitTCP polls until addr accepts TCP or the timeout elapses.
 func WaitTCP(ctx context.Context, addr string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
-	var lastErr error
+	lastErr := context.DeadlineExceeded
 	for time.Now().Before(deadline) {
-		conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
+		conn, err := (&net.Dialer{Timeout: 2 * time.Second}).DialContext(ctx, "tcp", addr)
 		if err == nil {
 			_ = conn.Close()
 			return nil
@@ -148,5 +151,5 @@ func WaitTCP(ctx context.Context, addr string, timeout time.Duration) error {
 		case <-time.After(500 * time.Millisecond):
 		}
 	}
-	return fmt.Errorf("wait for %s: %v", addr, lastErr)
+	return fmt.Errorf("%w: wait for %s: %w", errSupervise, addr, lastErr)
 }

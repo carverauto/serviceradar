@@ -3,6 +3,7 @@ package replayer
 import (
 	"context"
 	"encoding/hex"
+	"errors"
 	"log"
 	"net"
 	"os"
@@ -114,22 +115,28 @@ paths:
 }
 
 func TestWaitTCP(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ln.Close()
+	defer func() {
+		if err := ln.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
 	if err := WaitTCP(context.Background(), ln.Addr().String(), 5*time.Second); err != nil {
 		t.Fatalf("WaitTCP on a listener: %v", err)
 	}
 
 	// A closed port never becomes ready.
-	ln2, err := net.Listen("tcp", "127.0.0.1:0")
+	ln2, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	addr := ln2.Addr().String()
-	ln2.Close()
+	if err := ln2.Close(); err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 1200*time.Millisecond)
 	defer cancel()
 	if err := WaitTCP(ctx, addr, time.Minute); err == nil {
@@ -145,9 +152,15 @@ func TestHelperProcess(t *testing.T) {
 	}
 	switch os.Getenv("HELPER_MODE") {
 	case "fail-after":
-		os.Stdout.WriteString("first ")
-		os.Stdout.WriteString("line\nsecond line\n")
-		os.Stderr.WriteString("diagnostic\ntrailing diagnostic")
+		if _, err := os.Stdout.WriteString("first "); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stdout.WriteString("line\nsecond line\n"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stderr.WriteString("diagnostic\ntrailing diagnostic"); err != nil {
+			t.Fatal(err)
+		}
 		time.Sleep(200 * time.Millisecond)
 		os.Exit(3)
 	case "record-start":
@@ -156,7 +169,9 @@ func TestHelperProcess(t *testing.T) {
 		}
 		os.Exit(0)
 	case "block":
-		os.Stderr.WriteString("waiting\n")
+		if _, err := os.Stderr.WriteString("waiting\n"); err != nil {
+			t.Fatal(err)
+		}
 		time.Sleep(30 * time.Second)
 		os.Exit(0)
 	default:
@@ -186,8 +201,8 @@ func TestSuperviseFirstExitStopsRest(t *testing.T) {
 	if err == nil {
 		t.Fatalf("Supervise returned nil after a child failed")
 	}
-	exitErr, ok := err.(*ExitError)
-	if !ok {
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) {
 		t.Fatalf("Supervise error = %T (%v), want *ExitError", err, err)
 	}
 	if exitErr.Name != "failer" {
@@ -238,8 +253,8 @@ func TestSuperviseDelayedStart(t *testing.T) {
 	defer cancel()
 	start := time.Now()
 	err := Supervise(ctx, testLogger(), []Child{child})
-	exitErr, ok := err.(*ExitError)
-	if !ok || exitErr.Name != "delayed" || exitErr.Err != nil {
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) || exitErr.Name != "delayed" || exitErr.Err != nil {
 		t.Fatalf("delayed child did not exit successfully: %v", err)
 	}
 	raw, err := os.ReadFile(marker)

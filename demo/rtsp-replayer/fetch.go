@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -11,6 +12,8 @@ import (
 	"path/filepath"
 	"sort"
 )
+
+var errFetch = errors.New("fetch clips")
 
 // EnsureClips makes the local clip directory match the lock: every locked
 // clip present with a verified digest. Any bucket object
@@ -33,7 +36,7 @@ func EnsureClips(ctx context.Context, log *log.Logger, s3 *S3Client, lock *Lock,
 	}
 	if len(unlisted) > 0 {
 		sort.Strings(unlisted)
-		return fmt.Errorf("refusing startup: %d bucket object(s) outside clips.lock.json: %s", len(unlisted), joinN(unlisted, 8))
+		return fmt.Errorf("%w: refusing startup: %d bucket object(s) outside clips.lock.json: %s", errFetch, len(unlisted), joinN(unlisted, 8))
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create clips dir: %w", err)
@@ -92,7 +95,7 @@ func downloadVerified(ctx context.Context, s3 *S3Client, clip Clip, dest string)
 		return fmt.Errorf("clip %s: close temp: %w", clip.Name, err)
 	}
 	if got := hex.EncodeToString(hash.Sum(nil)); got != clip.SHA256 {
-		return fmt.Errorf("clip %s: refusing digest mismatch (want %.16s, got %.16s)", clip.Name, clip.SHA256, got)
+		return fmt.Errorf("%w: clip %s: refusing digest mismatch (want %.16s, got %.16s)", errFetch, clip.Name, clip.SHA256, got)
 	}
 	if err := os.Chmod(tmpName, 0o644); err != nil {
 		return fmt.Errorf("clip %s: chmod: %w", clip.Name, err)

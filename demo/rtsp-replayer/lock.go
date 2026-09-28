@@ -6,10 +6,14 @@ package replayer
 import (
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
 )
+
+var errInvalidLock = errors.New("parse lock")
+var errInvalidPaths = errors.New("parse paths")
 
 var keyCharset = regexp.MustCompile(`^[A-Za-z0-9_./-]+$`)
 
@@ -60,47 +64,47 @@ func ParseLock(data []byte) (*Lock, error) {
 	dec := json.NewDecoder(strings.NewReader(string(data)))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&lock); err != nil {
-		return nil, fmt.Errorf("parse lock: %w", err)
+		return nil, fmt.Errorf("%w: %w", errInvalidLock, err)
 	}
 	if lock.Version != 1 {
-		return nil, fmt.Errorf("parse lock: unsupported version %d", lock.Version)
+		return nil, fmt.Errorf("%w: unsupported version %d", errInvalidLock, lock.Version)
 	}
 	if lock.Bucket == "" {
-		return nil, fmt.Errorf("parse lock: bucket is empty")
+		return nil, fmt.Errorf("%w: bucket is empty", errInvalidLock)
 	}
 	if len(lock.Clips) == 0 {
-		return nil, fmt.Errorf("parse lock: no clips")
+		return nil, fmt.Errorf("%w: no clips", errInvalidLock)
 	}
 	names := map[string]bool{}
 	keys := map[string]bool{}
 	for i := range lock.Clips {
 		c := &lock.Clips[i]
 		if c.Name == "" {
-			return nil, fmt.Errorf("parse lock: clip %d has no name", i)
+			return nil, fmt.Errorf("%w: clip %d has no name", errInvalidLock, i)
 		}
 		if names[c.Name] {
-			return nil, fmt.Errorf("parse lock: duplicate clip name %q", c.Name)
+			return nil, fmt.Errorf("%w: duplicate clip name %q", errInvalidLock, c.Name)
 		}
 		names[c.Name] = true
 		if c.Key == "" || !keyCharset.MatchString(c.Key) {
-			return nil, fmt.Errorf("parse lock: clip %q has invalid key %q", c.Name, c.Key)
+			return nil, fmt.Errorf("%w: clip %q has invalid key %q", errInvalidLock, c.Name, c.Key)
 		}
 		if keys[c.Key] {
-			return nil, fmt.Errorf("parse lock: duplicate clip key %q", c.Key)
+			return nil, fmt.Errorf("%w: duplicate clip key %q", errInvalidLock, c.Key)
 		}
 		keys[c.Key] = true
 		raw, err := hex.DecodeString(c.SHA256)
 		if err != nil || len(raw) != 32 {
-			return nil, fmt.Errorf("parse lock: clip %q has invalid sha256", c.Name)
+			return nil, fmt.Errorf("%w: clip %q has invalid sha256", errInvalidLock, c.Name)
 		}
 		if c.DurationSeconds <= 0 {
-			return nil, fmt.Errorf("parse lock: clip %q has invalid duration %v", c.Name, c.DurationSeconds)
+			return nil, fmt.Errorf("%w: clip %q has invalid duration %v", errInvalidLock, c.Name, c.DurationSeconds)
 		}
 		if c.Width <= 0 || c.Height <= 0 {
-			return nil, fmt.Errorf("parse lock: clip %q has invalid resolution %dx%d", c.Name, c.Width, c.Height)
+			return nil, fmt.Errorf("%w: clip %q has invalid resolution %dx%d", errInvalidLock, c.Name, c.Width, c.Height)
 		}
 		if c.License == "" || c.SourceURL == "" {
-			return nil, fmt.Errorf("parse lock: clip %q is missing license metadata", c.Name)
+			return nil, fmt.Errorf("%w: clip %q is missing license metadata", errInvalidLock, c.Name)
 		}
 	}
 	return &lock, nil
@@ -122,32 +126,32 @@ func ParsePaths(data []byte, lock *Lock) (*Paths, error) {
 	dec := json.NewDecoder(strings.NewReader(string(data)))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&paths); err != nil {
-		return nil, fmt.Errorf("parse paths: %w", err)
+		return nil, fmt.Errorf("%w: %w", errInvalidPaths, err)
 	}
 	if paths.Version != 1 {
-		return nil, fmt.Errorf("parse paths: unsupported version %d", paths.Version)
+		return nil, fmt.Errorf("%w: unsupported version %d", errInvalidPaths, paths.Version)
 	}
 	if len(paths.Paths) == 0 {
-		return nil, fmt.Errorf("parse paths: no paths")
+		return nil, fmt.Errorf("%w: no paths", errInvalidPaths)
 	}
 	seen := map[string]bool{}
 	for i := range paths.Paths {
 		p := &paths.Paths[i]
 		if p.Path == "" || !keyCharset.MatchString(p.Path) {
-			return nil, fmt.Errorf("parse paths: path %d has invalid name %q", i, p.Path)
+			return nil, fmt.Errorf("%w: path %d has invalid name %q", errInvalidPaths, i, p.Path)
 		}
 		if seen[p.Path] {
-			return nil, fmt.Errorf("parse paths: duplicate path %q", p.Path)
+			return nil, fmt.Errorf("%w: duplicate path %q", errInvalidPaths, p.Path)
 		}
 		seen[p.Path] = true
 		clip, ok := lock.ClipByName(p.Clip)
 		if !ok {
-			return nil, fmt.Errorf("parse paths: path %q names unknown clip %q", p.Path, p.Clip)
+			return nil, fmt.Errorf("%w: path %q names unknown clip %q", errInvalidPaths, p.Path, p.Clip)
 		}
 		if p.StartOffsetSeconds < 0 || p.StartOffsetSeconds >= clip.DurationSeconds {
 			return nil, fmt.Errorf(
-				"parse paths: path %q offset %v outside clip %q duration %v",
-				p.Path, p.StartOffsetSeconds, p.Clip, clip.DurationSeconds,
+				"%w: path %q offset %v outside clip %q duration %v",
+				errInvalidPaths, p.Path, p.StartOffsetSeconds, p.Clip, clip.DurationSeconds,
 			)
 		}
 	}

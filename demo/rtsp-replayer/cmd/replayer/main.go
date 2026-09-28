@@ -13,6 +13,10 @@ import (
 )
 
 func main() {
+	os.Exit(run())
+}
+
+func run() int {
 	fetchOnly := flag.Bool("fetch-only", false, "fetch and verify clips, then exit without serving")
 	flag.Parse()
 
@@ -22,7 +26,7 @@ func main() {
 	cfg, err := replayer.ConfigFromEnv()
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "replayer: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
-	os.Exit(replayer.Run(ctx, cfg, *fetchOnly, os.Stdout, os.Stderr))
+	return replayer.Run(ctx, cfg, *fetchOnly, os.Stdout, os.Stderr)
 }

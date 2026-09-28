@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +15,8 @@ import (
 	"strings"
 	"time"
 )
+
+var errS3 = errors.New("s3")
 
 // emptyBodySHA256 is the hex SHA-256 of the empty string: GET requests sign
 // this as the payload hash instead of UNSIGNED-PAYLOAD, which not every
@@ -66,7 +69,7 @@ func (c *S3Client) ListKeys(ctx context.Context) ([]string, error) {
 		}
 		token = out.NextContinuationToken
 		if token == "" {
-			return nil, fmt.Errorf("s3 list: truncated response without continuation token")
+			return nil, fmt.Errorf("%w list: truncated response without continuation token", errS3)
 		}
 	}
 }
@@ -119,11 +122,11 @@ func (c *S3Client) do(ctx context.Context, method, path string, query url.Values
 		var s3err s3Error
 		if xml.Unmarshal(raw, &s3err) == nil && s3err.Code != "" {
 			return nil, fmt.Errorf(
-				"s3 %s %s: status %d code %s: %.200s",
-				method, path, resp.StatusCode, s3err.Code, s3err.Message,
+				"%w %s %s: status %d code %s: %.200s",
+				errS3, method, path, resp.StatusCode, s3err.Code, s3err.Message,
 			)
 		}
-		return nil, fmt.Errorf("s3 %s %s: status %d: %.200s", method, path, resp.StatusCode, strings.TrimSpace(string(raw)))
+		return nil, fmt.Errorf("%w %s %s: status %d: %.200s", errS3, method, path, resp.StatusCode, strings.TrimSpace(string(raw)))
 	}
 	if w == nil {
 		raw, err := io.ReadAll(io.LimitReader(resp.Body, 256<<20))
