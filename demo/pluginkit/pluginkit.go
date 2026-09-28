@@ -7,6 +7,7 @@
 package pluginkit
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
@@ -19,6 +20,8 @@ import (
 // DefaultLogName is the OCSF log_name demo fault events carry. Alert rules
 // match on it with subject_prefix.
 const DefaultLogName = "demo.fault"
+
+var errMissingSource = errors.New("pluginkit: Options.Source is required")
 
 // Attribute keys set on every fault event (OCSF unmapped). Alert rules match
 // on these with attribute_equals and group on them with group_by.
@@ -73,7 +76,7 @@ type Output struct {
 // Build maps a batch onto SDK payloads without calling the host.
 func Build(b simkit.Batch, opts Options) (Output, error) {
 	if opts.Source == "" {
-		return Output{}, fmt.Errorf("pluginkit: Options.Source is required")
+		return Output{}, errMissingSource
 	}
 	out := Output{}
 	if len(b.Devices) > 0 {
