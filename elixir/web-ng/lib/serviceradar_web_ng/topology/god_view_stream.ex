@@ -2431,7 +2431,9 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
     "#{protocol} #{class_token} #{format_rate(flow_pps || 0)} / #{format_capacity(capacity_bps || 0)}"
   end
 
-  defp edge_topology_class(edge) do
+  @doc false
+  @spec edge_topology_class(map()) :: String.t()
+  def edge_topology_class(edge) do
     case evidence_class(edge) do
       "endpoint-attachment" -> "endpoints"
       "inferred" -> "inferred"

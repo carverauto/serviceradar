@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNG.Topology.WorldScene do
   @moduledoc "Encodes one authorized, bounded detail page for the existing ELK renderer."
 
+  alias ServiceRadarWebNG.Topology.GodViewStream
   alias ServiceRadarWebNG.Topology.Native
 
   def encode(%{nodes: nodes, edges: edges} = level) when length(nodes) <= 128 and length(edges) <= 256 do
@@ -28,7 +29,7 @@ defmodule ServiceRadarWebNG.Topology.WorldScene do
       revision: level.revision,
       nodes: Enum.map(level.nodes, &node(&1, detail)),
       edges: Enum.map(level.edges, &{Map.fetch!(index, &1.source), Map.fetch!(index, &1.target), 0, 0, 0, "", 0}),
-      edge_meta: Enum.map(level.edges, &{"backbone", "", to_string(&1.evidence_class)}),
+      edge_meta: Enum.map(level.edges, &edge_meta/1),
       edge_directional: [],
       edge_details: Enum.map(level.edges, &Jason.encode!(%{id: &1.id, role: &1.role})),
       root_bitmap_bytes: 0,
@@ -58,6 +59,10 @@ defmodule ServiceRadarWebNG.Topology.WorldScene do
       )
 
     Native.encode_scene(payload, metadata)
+  end
+
+  defp edge_meta(edge) do
+    {GodViewStream.edge_topology_class(edge), "", to_string(edge.evidence_class)}
   end
 
   defp node(node, detail) do
