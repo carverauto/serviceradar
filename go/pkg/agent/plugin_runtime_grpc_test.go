@@ -19,11 +19,17 @@ package agent
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
+	"math/big"
 	"net"
 	"net/http"
 	"sync"
@@ -500,7 +506,7 @@ func TestPluginHostGRPCUnaryRefusesH2COutsideAllowedNetworks(t *testing.T) {
 func TestPluginHostGRPCUnaryTLSUsesHostTrustRoots(t *testing.T) {
 	t.Parallel()
 
-	caPEM, leaf := newPrivateCAAndLeaf(t, net.ParseIP(grpcTestHost))
+	caPEM, leaf := newGRPCTestCAAndLeaf(t, net.ParseIP(grpcTestHost))
 	pool := x509.NewCertPool()
 	if !pool.AppendCertsFromPEM([]byte(caPEM)) {
 		t.Fatal("append test CA")
@@ -781,5 +787,58 @@ func TestPluginHostGRPCUnaryHonorsMaxOpenConnections(t *testing.T) {
 	}
 	if _, dials := srv.observed(); len(dials) != 0 {
 		t.Fatalf("dials = %#v, want none", dials)
+	}
+}
+
+// newGRPCTestCAAndLeaf creates a minimal self-signed CA and a leaf certificate
+// carrying the given IP SAN. It is a self-contained helper for the gRPC TLS
+// tests; it does not share state with plugin_host_authority_ca_test.go.
+func newGRPCTestCAAndLeaf(t *testing.T, ip net.IP) (caPEM string, leaf tls.Certificate) {
+	t.Helper()
+
+	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate CA key: %v", err)
+	}
+	caTmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "GRPC Test CA"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		IsCA:                  true,
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
+		BasicConstraintsValid: true,
+	}
+	caDER, err := x509.CreateCertificate(rand.Reader, caTmpl, caTmpl, &caKey.PublicKey, caKey)
+	if err != nil {
+		t.Fatalf("create CA: %v", err)
+	}
+	caCert, err := x509.ParseCertificate(caDER)
+	if err != nil {
+		t.Fatalf("parse CA: %v", err)
+	}
+
+	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatalf("generate leaf key: %v", err)
+	}
+	leafTmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject:      pkix.Name{CommonName: "grpc-test.example.com"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		IPAddresses:  []net.IP{ip},
+	}
+	leafDER, err := x509.CreateCertificate(rand.Reader, leafTmpl, caCert, &leafKey.PublicKey, caKey)
+	if err != nil {
+		t.Fatalf("create leaf: %v", err)
+	}
+
+	caPEM = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER}))
+	return caPEM, tls.Certificate{
+		Certificate: [][]byte{leafDER, caDER},
+		PrivateKey:  leafKey,
 	}
 }
