@@ -29,6 +29,7 @@
     "test": "npm run build && node --test tests/*.test.mjs",
     "typecheck": "tsc --noEmit",
     "pack:check": "npm pack --dry-run .",
+    "prepare": "npm run build",
     "prepublishOnly": "npm run build",
     "ci": "npm run typecheck && npm run build && node --test tests/*.test.mjs && npm run pack:check"
   },

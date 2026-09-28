@@ -8,7 +8,7 @@ import (
 	"github.com/carverauto/serviceradar/demo/simkit"
 )
 
-var t0 = time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+func testTime() time.Time { return time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC) }
 
 func f64(v float64) *float64 { return &v }
 
@@ -55,6 +55,7 @@ func TestNoDevicesNoDiscovery(t *testing.T) {
 }
 
 func TestFaultTransitionsBecomeMatchableEvents(t *testing.T) {
+	t0 := testTime()
 	open := simkit.Event{ID: "overheat@sensor-a#1/opened", AssetID: "sensor-a", Kind: "overheat",
 		Title: "Sensor over temperature", Severity: "high", Opening: true, FaultID: "overheat@sensor-a#1", Time: t0}
 	closed := open
@@ -68,7 +69,7 @@ func TestFaultTransitionsBecomeMatchableEvents(t *testing.T) {
 		t.Fatalf("events = %d", len(out.Events))
 	}
 	o, c := out.Events[0], out.Events[1]
-	if o.ID != open.ID || !o.Time.Equal(t0) || o.LogName != DefaultLogName || o.LogProvider != "demo-test" {
+	if o.ID != open.ID || !o.Time.Equal(t0) || o.LogName != DefaultLogName || o.LogProvider != "plugin:demo-test" {
 		t.Fatalf("opening event = %+v", o)
 	}
 	if o.Unmapped[AttrFaultState] != FaultStateOpen || o.Unmapped[AttrAssetID] != "sensor-a" ||
@@ -81,9 +82,17 @@ func TestFaultTransitionsBecomeMatchableEvents(t *testing.T) {
 	if c.Unmapped[AttrFaultState] != FaultStateResolved || c.Unmapped[AttrFaultID] != o.Unmapped[AttrFaultID] {
 		t.Fatalf("resolving attributes = %+v", c.Unmapped)
 	}
+	for _, ev := range []sdk.OCSFEvent{o, c} {
+		for _, key := range []string{AttrAssetID, AttrFaultState, AttrFaultKind, AttrFaultID} {
+			if ev.Metadata[key] != ev.Unmapped[key] {
+				t.Fatalf("metadata[%s] = %v, want %v (live event summaries read metadata)", key, ev.Metadata[key], ev.Unmapped[key])
+			}
+		}
+	}
 }
 
 func TestMetricsGroupPerSeriesAndChunk(t *testing.T) {
+	t0 := testTime()
 	var ms []simkit.Metric
 	for _, asset := range []string{"a", "b", "c"} {
 		for i := 0; i < 3; i++ {
@@ -138,6 +147,7 @@ func TestMetricsGroupPerSeriesAndChunk(t *testing.T) {
 }
 
 func TestMetricRecordIDsAreStable(t *testing.T) {
+	t0 := testTime()
 	ms := []simkit.Metric{{Name: "temp_c", AssetID: "a", Value: 1, Time: t0}}
 	first, _ := Build(simkit.Batch{Metrics: ms}, Options{Source: "demo-test"})
 	second, _ := Build(simkit.Batch{Metrics: ms}, Options{Source: "demo-test"})
@@ -153,6 +163,7 @@ func TestMetricRecordIDsAreStable(t *testing.T) {
 }
 
 func TestResultOKWithoutActiveFault(t *testing.T) {
+	t0 := testTime()
 	out, _ := Build(simkit.Batch{Metrics: []simkit.Metric{{Name: simkit.MetricFaultActive, Value: 0, Time: t0}}}, Options{Source: "demo-test"})
 	if r := out.Result(simkit.Batch{}); r.Status != sdk.StatusOK {
 		t.Fatalf("status = %s", r.Status)

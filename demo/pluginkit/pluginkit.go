@@ -7,9 +7,11 @@
 package pluginkit
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/carverauto/serviceradar-sdk-go/v2/sdk"
 	"github.com/carverauto/serviceradar/demo/simkit"
@@ -18,6 +20,8 @@ import (
 // DefaultLogName is the OCSF log_name demo fault events carry. Alert rules
 // match on it with subject_prefix.
 const DefaultLogName = "demo.fault"
+
+var errMissingSource = errors.New("pluginkit: Options.Source is required")
 
 // Attribute keys set on every fault event (OCSF unmapped). Alert rules match
 // on these with attribute_equals and group on them with group_by.
@@ -72,7 +76,7 @@ type Output struct {
 // Build maps a batch onto SDK payloads without calling the host.
 func Build(b simkit.Batch, opts Options) (Output, error) {
 	if opts.Source == "" {
-		return Output{}, fmt.Errorf("pluginkit: Options.Source is required")
+		return Output{}, errMissingSource
 	}
 	out := Output{}
 	if len(b.Devices) > 0 {
@@ -194,7 +198,7 @@ func faultEvent(ev simkit.Event, opts Options) sdk.OCSFEvent {
 	if out.LogName == "" {
 		out.LogName = DefaultLogName
 	}
-	out.LogProvider = opts.Source
+	out.LogProvider = eventLogProvider(opts.Source)
 	out.Device = map[string]any{"name": ev.AssetID}
 	attrs := map[string]any{
 		AttrAssetID:    ev.AssetID,
@@ -206,7 +210,22 @@ func faultEvent(ev simkit.Event, opts Options) sdk.OCSFEvent {
 		attrs[k] = v
 	}
 	out.Unmapped = attrs
+	// Live dashboard event summaries carry metadata but not unmapped fields, so
+	// the fault's identity and state are mirrored there for presenter strips.
+	if out.Metadata == nil {
+		out.Metadata = map[string]any{}
+	}
+	for _, key := range []string{AttrAssetID, AttrFaultState, AttrFaultKind, AttrFaultID} {
+		out.Metadata[key] = attrs[key]
+	}
 	return out
+}
+
+func eventLogProvider(source string) string {
+	if strings.HasPrefix(source, "plugin:") {
+		return source
+	}
+	return "plugin:" + source
 }
 
 func openingSeverity(s string) sdk.Severity {

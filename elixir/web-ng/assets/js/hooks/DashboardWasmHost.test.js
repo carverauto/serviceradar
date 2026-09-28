@@ -310,6 +310,74 @@ describe("DashboardWasmHost browser-module API", () => {
     expect(pushes.map((push) => push.event)).toEqual(["events:subscribe", "actions:invoke", "frames:refresh"])
   })
 
+  test("a partial refresh keeps previous arrow bytes for frames it did not re-query", () => {
+    const previous = new Uint8Array([1, 2, 3])
+    const hook = hookContext()
+    hook._host = baseHost({
+      package: {
+        ...baseHost().package,
+        frames: [
+          {
+            id: "slow-arrow",
+            encoding: "arrow_ipc",
+            payload_transport: "channel_binary",
+            payload: previous,
+            payload_encoding: "arraybuffer",
+          },
+          {id: "fast-rows", encoding: "json_rows", results: [{id: "row-1"}]},
+        ],
+      },
+    })
+
+    const notified = []
+    hook._frameUpdateCallbacks.push((update) => notified.push(update))
+
+    // The server re-queried only fast-rows: slow-arrow arrives metadata-only
+    // with no pending binary, so its previous bytes stay in place.
+    hook.replaceFramePayload({
+      frames: [
+        {id: "slow-arrow", encoding: "arrow_ipc", payload_transport: "channel_binary"},
+        {id: "fast-rows", encoding: "json_rows", results: [{id: "row-2"}]},
+      ],
+      pending_binary_frame_ids: [],
+    })
+
+    const frames = hook._host.package.frames
+    expect(frames.find((frame) => frame.id === "slow-arrow").payload).toBe(previous)
+    expect(frames.find((frame) => frame.id === "fast-rows").results).toEqual([{id: "row-2"}])
+    expect(notified).toHaveLength(1)
+  })
+
+  test("an arrow frame with a pending binary waits for its bytes", () => {
+    const previous = new Uint8Array([1, 2, 3])
+    const hook = hookContext()
+    hook._host = baseHost({
+      package: {
+        ...baseHost().package,
+        frames: [
+          {
+            id: "slow-arrow",
+            encoding: "arrow_ipc",
+            payload_transport: "channel_binary",
+            payload: previous,
+            payload_encoding: "arraybuffer",
+          },
+        ],
+      },
+    })
+
+    const notified = []
+    hook._frameUpdateCallbacks.push((update) => notified.push(update))
+
+    hook.replaceFramePayload({
+      frames: [{id: "slow-arrow", encoding: "arrow_ipc", payload_transport: "channel_binary"}],
+      pending_binary_frame_ids: ["slow-arrow"],
+    })
+
+    expect(hook._host.package.frames.find((frame) => frame.id === "slow-arrow").payload).toBeUndefined()
+    expect(notified).toHaveLength(0)
+  })
+
   test("closes camera sessions when the dashboard is destroyed", () => {
     globalThis.fetch = vi.fn(() => new Promise(() => {}))
     globalThis.document.addEventListener = vi.fn()
