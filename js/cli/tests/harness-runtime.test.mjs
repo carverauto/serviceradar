@@ -21,6 +21,8 @@ const immediate = (callback) => {
 test("filters match the production channel's keys", () => {
   assert.ok(eventMatches({log_provider: "plugin:demo-ot-plc", class_uid: [1008]}, jam))
   assert.ok(eventMatches({device_uid: "sr:device:plc-07", min_severity_id: 4, metadata: {fault_kind: "jam"}}, jam))
+  assert.equal(eventMatches({class_uid: "1008"}, jam), false)
+  assert.equal(eventMatches({min_severity_id: "4"}, jam), false)
   assert.equal(eventMatches({min_severity_id: 5}, jam), false)
   assert.equal(eventMatches({metadata: {fault_kind: "mis_sort"}}, jam), false)
   assert.equal(eventMatches({unknown_key: "x"}, jam), false)
@@ -62,11 +64,20 @@ test("an invoked action walks to succeeded and delivers the events it emits", as
   assert.deepEqual(await actions.list(), [{id: "northbound:jam", label: "Inject jam"}])
 })
 
-test("unknown actions and empty targets are rejected", async () => {
+test("invalid event filters are rejected before subscribing", () => {
+  const events = createHarnessEventsApi()
+
+  assert.throws(() => events.publicApi().subscribe({class_uid: "1008"}, () => {}), {code: "invalid_request"})
+  assert.throws(() => events.publicApi().subscribe({min_severity_id: "4"}, () => {}), {code: "invalid_request"})
+})
+
+test("unknown actions and invalid action requests are rejected", async () => {
   const actions = createHarnessActionsApi({getActions: () => [{id: "a"}]}).publicApi()
 
   await assert.rejects(actions.invoke({actionId: "missing", targets: [{deviceUid: "d"}]}), {code: "rejected"})
   await assert.rejects(actions.invoke({actionId: "a", targets: []}), {code: "invalid_request"})
+  await assert.rejects(actions.invoke({actionId: "a", targets: [{}]}), {code: "invalid_request"})
+  await assert.rejects(actions.invoke({targets: [{deviceUid: "d"}]}), {code: "invalid_request"})
 })
 
 test("a fixture resolver can switch fixtures, replace frames, or leave them", async () => {
