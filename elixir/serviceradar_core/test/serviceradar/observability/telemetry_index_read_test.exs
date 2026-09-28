@@ -5,7 +5,6 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
 
   alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.Observability.TelemetryIndexRead
-  alias ServiceRadar.Observability.TelemetryUnavailable
 
   @moduletag :db_free
 
@@ -73,11 +72,13 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
            ) == :cnpg
   end
 
-  test "reports unavailable when enabled and no warehouse table exists" do
+  test "keeps routes without a warehouse table on CNPG when enabled" do
     with_starrocks(true)
 
-    assert TelemetryIndexRead.mode(ServiceRadar.Observability.OtelTrace, table: nil) ==
-             {:unavailable, ServiceRadar.Observability.OtelTrace}
+    assert TelemetryIndexRead.mode(ServiceRadar.Observability.OtelTrace, table: nil) == :cnpg
+
+    assert TelemetryIndexRead.mode(ServiceRadar.Observability.OtelTraceSummary, table: nil) ==
+             :cnpg
   end
 
   test "delegates to the CNPG data layer when the warehouse is disabled" do
@@ -162,12 +163,15 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
              TelemetryIndexRead.read(sorted, :data_layer_query, [table: "logs"], %{})
   end
 
-  test "returns the unavailable error when enabled and no warehouse table exists" do
+  test "delegates to CNPG when enabled but the resource has no warehouse table" do
     with_starrocks(true)
 
-    query = ServiceRadar.Observability.OtelTrace |> Ash.Query.for_read(:api_index)
+    query =
+      ServiceRadar.Observability.OtelTrace
+      |> Ash.Query.for_read(:api_index)
+      |> Ash.Query.set_context(%{cnpg_read: fn _data_layer_query -> {:ok, :cnpg_records} end})
 
-    assert {:error, %TelemetryUnavailable{resource: ServiceRadar.Observability.OtelTrace}} =
-             TelemetryIndexRead.read(query, :data_layer_query, [table: nil], %{})
+    assert TelemetryIndexRead.read(query, :data_layer_query, [table: nil], %{}) ==
+             {:ok, :cnpg_records}
   end
 end

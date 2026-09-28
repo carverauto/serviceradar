@@ -98,11 +98,10 @@
     traces fixture (`src/fixture/traces.rs`), then verify the logs page traces tab, trace detail,
     dashboard and Analytics trace cards and the rollup health banner after a rollout.
   - [ ] 3.2.6 JSON:API `/otel_traces` and `/otel_trace_summaries` are wired to the same
-    `TelemetryIndexRead` manual read. With StarRocks enabled they report "unavailable with
-    StarRocks enabled" instead of returning the frozen CNPG rows, until a JSON:API warehouse
-    reader lands (see 5.4). With StarRocks off they stay on CNPG.
-    `OtelServiceCatalogBackfillWorker` reads CNPG `spans_red_1h` once, for history written
-    before the switch, and needs no change.
+    `TelemetryIndexRead` manual read and stay CNPG-backed. SRQL and EventWriter already use the
+    3.2 warehouse reader and writer; these JSON:API routes do not, so they still read CNPG
+    (see 5.4). `OtelServiceCatalogBackfillWorker` reads CNPG `spans_red_1h` once, for history
+    written before the switch, and needs no change.
 - [ ] 3.3 Sysmon CPU/memory/disk/process: table(s), destination, routing, hourly rollups.
 - [ ] 3.4 MTR traces and hops (spec: "MTR traces and hops reach the warehouse through JetStream").
   Scalar MTR metrics already travel on `metrics.mtr` (gateway `MtrMetricsPublisher` -> EventWriter
@@ -217,11 +216,11 @@
     through `ServiceRadar.Observability.TelemetryIndexRead` when StarRocks is enabled and
     the CNPG data layer otherwise; `/otel_traces`, `/otel_trace_summaries`,
     `/timeseries_metrics_interface_hourly`, `/timeseries_metrics_disk_hourly` and the
-    legacy sysmon routes report "unavailable with StarRocks enabled" until they have a
-    warehouse reader (traces in 3.2; interface/disk hourly stay CNPG-only per finding 4;
-    sysmon retires under #4861). `/service_status` is not warehouse-backed yet and is left
-    on CNPG. Warehouse rows are shaped from the warehouse table's own columns, so columns
-    the warehouse does not store stay null rather than being invented.
+    legacy sysmon routes stay CNPG-backed (their rows are still written to CNPG) until a
+    warehouse reader and writer land (traces in 3.2; interface/disk hourly stay CNPG-only
+    per finding 4; sysmon retires under #4861). `/service_status` is not warehouse-backed
+    yet and is left on CNPG. Warehouse rows are shaped from the warehouse table's own
+    columns, so columns the warehouse does not store stay null rather than being invented.
 - [ ] 5.5 Optional backfill of flows and metrics history from CNPG into the warehouse for an
   installation that turns StarRocks on, newest first, in bounded units; verify counts and totals
   per day.

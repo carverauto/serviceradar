@@ -11,8 +11,8 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
   `/api/v2` telemetry route never serves history frozen at the switch. A
   dataset with no warehouse table yet (OTel traces and summaries, the
   interface/disk hourly aggregates, and the legacy sysmon tables retired under
-  #4861) reports itself unavailable instead of reading a CNPG table that
-  stopped receiving rows.
+  #4861) stays CNPG-backed, because its rows are still written to CNPG, until
+  a warehouse reader and writer land.
 
   The Frontend is queried over the MySQL text protocol, which takes no bind
   parameters, so filter values and pagination bounds reach it as literals.
@@ -35,7 +35,6 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
   alias ServiceRadar.Analytics.StarRocks.Env
   alias ServiceRadar.Analytics.StarRocks.Query
   alias ServiceRadar.Analytics.StarRocks.Readers
-  alias ServiceRadar.Observability.TelemetryUnavailable
 
   # table name -> the subset of the resource's attribute names that warehouse
   # table actually stores. Only these are selected; every other attribute stays
@@ -78,16 +77,12 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
 
       {:starrocks, table} ->
         run_warehouse(query, table, opts)
-
-      {:unavailable, resource} ->
-        {:error, TelemetryUnavailable.exception(resource: resource)}
     end
   end
 
   @doc false
-  @spec mode(module(), keyword()) ::
-          :cnpg | {:starrocks, String.t()} | {:unavailable, module()}
-  def mode(resource, opts) do
+  @spec mode(module(), keyword()) :: :cnpg | {:starrocks, String.t()}
+  def mode(_resource, opts) do
     case Keyword.get(opts, :table) do
       table when is_binary(table) ->
         if Readers.mode_for(Map.fetch!(@dataset_for_table, table)) == "starrocks" do
@@ -97,11 +92,7 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
         end
 
       _ ->
-        if Readers.enabled?() do
-          {:unavailable, resource}
-        else
-          :cnpg
-        end
+        :cnpg
     end
   end
 
