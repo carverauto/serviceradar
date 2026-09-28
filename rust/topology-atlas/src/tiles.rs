@@ -488,10 +488,10 @@ impl Plan {
         let group = self
             .groups
             .partition_point(|(range, _)| range.end <= index as usize);
-        if let Some((range, glyph)) = self.groups.get(group) {
-            if range.contains(&(index as usize)) {
-                return *glyph;
-            }
+        if let Some((range, glyph)) = self.groups.get(group)
+            && range.contains(&(index as usize))
+        {
+            return *glyph;
         }
         let (x, y) = point;
         *proxies

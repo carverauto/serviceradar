@@ -80,9 +80,10 @@ relations per page through an endpoint index, spending 266 seconds on relation
 reads against the unchanged 300-second production deadline. The added active
 `(layout_version, relation_id)` cursor index alone did not fix it: PostgreSQL had
 not refreshed its table statistics after the bulk staging, so an independent
-scratch plan still scanned the 2M rows. Running `ANALYZE` on the position and
-relation tables switched the same query to the cursor index in 0.076 ms with
-4 buffers, versus 512 ms and 503,339 buffers. Full-layout activation now
+scratch plan still scanned the 2M rows. Running `ANALYZE` on the relation
+table switched an empty tail-cursor probe to the cursor index in 0.076 ms with
+4 buffers, versus 512 ms and 503,339 buffers. This diagnostic probe did not
+return a full 5,000-row page. Full-layout activation now
 refreshes planner statistics for both tables before acquiring the active-head
 lock, so readers keep serving the previous publication during the maintenance
 operation and a fresh bulk load can use the bounded seek immediately. No

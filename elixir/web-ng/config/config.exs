@@ -425,6 +425,7 @@ config :tailwind,
 
 if System.get_env("SERVICERADAR_SKIP_NIF_COMPILATION") == "1" do
   config :serviceradar_core, ServiceRadar.Dgraph.Native, skip_compilation?: true
+  config :serviceradar_core, ServiceRadar.TopologyAtlas.Native, skip_compilation?: true
   config :serviceradar_core, ServiceRadar.NetworkConfig.Native, skip_compilation?: true
   config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true
   config :serviceradar_core, ServiceRadar.Observability.Zen.Native, skip_compilation?: true

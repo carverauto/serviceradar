@@ -160,16 +160,15 @@ fn previous_index(previous: &[Position]) -> Result<HashMap<&str, &Position>, Err
         {
             return Err(Error::InvalidPosition(position.id.clone()));
         }
-        if let Some(old) = components.insert(position.component_id.as_str(), position.component) {
-            if old != position.component {
-                return Err(Error::InvalidPosition(position.id.clone()));
-            }
+        if let Some(old) = components.insert(position.component_id.as_str(), position.component)
+            && old != position.component
+        {
+            return Err(Error::InvalidPosition(position.id.clone()));
         }
         if let Some(old) = component_ids.insert(position.component, position.component_id.as_str())
+            && old != position.component_id
         {
-            if old != position.component_id {
-                return Err(Error::InvalidPosition(position.id.clone()));
-            }
+            return Err(Error::InvalidPosition(position.id.clone()));
         }
         if index.insert(position.id.as_str(), position).is_some() {
             return Err(Error::DuplicateIdentity(position.id.clone()));

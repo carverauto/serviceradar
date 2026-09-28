@@ -150,10 +150,9 @@ impl SegmentIndex {
                         self.points[line.source as usize],
                         self.points[line.target as usize],
                         bounds,
-                    ) {
-                        if !visitor(line_id, clipped) {
-                            return (candidates, false);
-                        }
+                    ) && !visitor(line_id, clipped)
+                    {
+                        return (candidates, false);
                     }
                 }
             }
@@ -197,13 +196,12 @@ impl SegmentIndex {
                     self.points[line.source as usize],
                     self.points[line.target as usize],
                     bounds,
-                ) {
-                    if !visitor(line_id, clipped) {
-                        return (
-                            candidates,
-                            (raw + 1 < self.ordered.len()).then_some(raw + 1),
-                        );
-                    }
+                ) && !visitor(line_id, clipped)
+                {
+                    return (
+                        candidates,
+                        (raw + 1 < self.ordered.len()).then_some(raw + 1),
+                    );
                 }
             }
         }
