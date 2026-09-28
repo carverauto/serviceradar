@@ -412,7 +412,7 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/event_writer/device_correlation_cache_test.exs": 5,
     "test/serviceradar/event_writer/processors/analytics_signals_process_batch_db_test.exs": 6,
     "test/serviceradar/event_writer/processors/analytics_signals_test.exs": 56,
-    "test/serviceradar/event_writer/processors/anomaly_episode_registry_db_test.exs": 5,
+    "test/serviceradar/event_writer/processors/anomaly_episode_registry_db_test.exs": 6,
     "test/serviceradar/event_writer/processors/falco_events_integration_test.exs": 3,
     "test/serviceradar/event_writer/processors/k8s_nodes_ordering_test.exs": 3,
     "test/serviceradar/event_writer/processors/trivy_reports_integration_test.exs": 5,
