@@ -17,11 +17,13 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
   high-water mark reads as stale, which routes the query to the StarRocks
   raw table, never CNPG.
 
-  Both marks are read on the same grain: `bucket` is `date_trunc('hour', ...)`,
-  so the source mark is floored to the hour before diffing. The threshold
-  therefore counts whole hours the view is behind -- not the minutes that have
-  elapsed inside the newest bucket, which a caught-up view accrues anyway and
-  which would otherwise report it stale for most of every hour.
+  Both marks are read on the same grain: `bucket` is `date_trunc('hour', ...)`
+  for the hourly views and `time_slice(..., INTERVAL 5 MINUTE)` for
+  `traces_stats_5m`, so the source mark is floored to that view's bucket width
+  before diffing. The threshold therefore counts whole buckets the view is
+  behind -- not the minutes that have elapsed inside the newest bucket, which a
+  caught-up view accrues anyway and which would otherwise report it stale for
+  most of every bucket.
 
   The Frontend is queried over the MySQL text protocol and `MySQL.to_postgrex/1`
   passes cells through untouched, so a `DATETIME` arrives as whatever MyXQL
@@ -46,18 +48,19 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
 
   require Logger
 
-  # dataset => {materialized view, source table, source time column}
+  # dataset => {materialized view, source table, source time column, bucket
+  # width in minutes}
   @sources %{
-    flows: {"ocsf_network_activity_hourly", "ocsf_network_activity", "time"},
-    metrics: {"timeseries_metrics_hourly", "timeseries_metrics", "timestamp"},
-    events: {"events_hourly", "events", "time"},
-    traces_stats: {"traces_stats_5m", "otel_traces", "timestamp"},
-    traces_red: {"spans_red_1h", "otel_traces", "timestamp"}
+    flows: {"ocsf_network_activity_hourly", "ocsf_network_activity", "time", 60},
+    metrics: {"timeseries_metrics_hourly", "timeseries_metrics", "timestamp", 60},
+    events: {"events_hourly", "events", "time", 60},
+    traces_stats: {"traces_stats_5m", "otel_traces", "timestamp", 5},
+    traces_red: {"spans_red_1h", "otel_traces", "timestamp", 60}
   }
 
   @spec dataset_for_sql(term()) :: atom() | nil
   def dataset_for_sql(sql) when is_binary(sql) do
-    Enum.find_value(@sources, fn {dataset, {mv, _raw, _column}} ->
+    Enum.find_value(@sources, fn {dataset, {mv, _raw, _column, _grain}} ->
       if String.contains?(sql, Env.table(mv)), do: dataset
     end)
   end
@@ -110,8 +113,11 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
 
   def fresh?(dataset, opts) when is_atom(dataset) and is_list(opts) do
     case Map.get(@sources, dataset) do
-      {mv, raw, column} -> caught_up?(runner(opts), dataset, mv, raw, column, opts)
-      nil -> false
+      {mv, raw, column, grain} ->
+        caught_up?(runner(opts), dataset, mv, raw, column, grain, opts)
+
+      nil ->
+        false
     end
   rescue
     error -> stale(dataset, error)
@@ -127,7 +133,7 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
     false
   end
 
-  defp caught_up?(run, dataset, mv, raw, column, opts) do
+  defp caught_up?(run, dataset, mv, raw, column, grain, opts) do
     case high_water(run, dataset, :raw, "SELECT MAX(`#{column}`) FROM #{Env.table(raw)}") do
       {:ok, nil} ->
         true
@@ -135,7 +141,8 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
       {:ok, raw_max} ->
         case high_water(run, dataset, :mv, "SELECT MAX(`bucket`) FROM #{Env.table(mv)}") do
           {:ok, %NaiveDateTime{} = mv_max} ->
-            NaiveDateTime.diff(floor_hour(raw_max), mv_max) <= stale_after_seconds(opts)
+            NaiveDateTime.diff(floor_to_grain(raw_max, grain), mv_max) <=
+              stale_after_seconds(opts)
 
           _ ->
             false
@@ -180,8 +187,10 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
 
   defp to_naive(_value), do: :error
 
-  defp floor_hour(%NaiveDateTime{} = value),
-    do: %{value | minute: 0, second: 0, microsecond: {0, 0}}
+  defp floor_to_grain(%NaiveDateTime{} = value, minutes) do
+    minute = value.minute - rem(value.minute, minutes)
+    %{value | minute: minute, second: 0, microsecond: {0, 0}}
+  end
 
   defp runner(opts) do
     case Keyword.get(opts, :query) do
