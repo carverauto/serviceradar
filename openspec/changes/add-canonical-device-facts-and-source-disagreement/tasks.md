@@ -33,7 +33,7 @@
 - [x] 6.3 Preserve existing queries such as `in:devices metadata.armis_access_switch:"%:%"`.
 
 ## 7. Backfill existing Armis attachment
-- [x] 7.1 Backfill facts and canonical fields for devices that already have `metadata.armis_access_switch` and/or `metadata.armis_vlans`, including the Daktronics kiosk set already in inventory.
+- [x] 7.1 Backfill facts and canonical fields for devices that already have `metadata.armis_access_switch` and/or `metadata.armis_vlans`, including devices already in inventory.
 - [x] 7.2 Re-query after the backfill job and fail the task if canonical fields are empty on those rows while metadata still has attachment values.
 
 ## 8. Optional OpenText NOM NNMi L2 pass

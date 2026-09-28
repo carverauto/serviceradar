@@ -40,6 +40,20 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
   A connection failure deliberately does not trigger that retry - see
   `retry_after_ensure?/2`.
 
+  ## Size reconcile
+
+  See `docs/docs/notifications.md`, "The notification firehose", for operator
+  configuration and retention implications, and `reconcile_stream/1` for the
+  discard-policy contract.
+
+  Before publishing, each node attempts `reconcile_stream/1` unless it has
+  cached success for the configured size or a failure whose retry window has
+  not expired. Reconciliation is synchronous, so that attempt can add request
+  latency. An error is logged and cached with a retry-after time
+  (`:reconcile_retry_ms`, 5 minutes by default); the publish attempt proceeds
+  regardless. A later publish after the window expires retries reconciliation.
+  A cached success lasts until the configured size changes or the node restarts.
+
   ## Subjects
 
   Topics are the transport's namespace (`notifications:stream`,
@@ -73,6 +87,11 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
   # come back and replay, and an absent consumer registers no interest.
   @default_max_age_ns 86_400_000_000_000
   @default_max_bytes 1_073_741_824
+
+  # Cache entries include the configured size so a changed cap invalidates
+  # either outcome: `{:ok, configured}` or `{:error, configured, retry_at}`.
+  @reconciled_key {__MODULE__, :reconciled_max_bytes}
+  @default_reconcile_retry_ms 300_000
 
   # Bounds the JetStream request wait. See `request/3` for why inheriting Gnat's
   # 60_000 ms default would stall a dispatcher queue on a missing stream.
@@ -125,6 +144,12 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
       inject it.
     * `:connection` - `fun()` returning `{:ok, conn} | {:error, reason}`.
     * `:ensure_stream` - set `false` to skip the self-healing retry.
+    * `:reconcile_stream` - set `false` to skip size reconciliation, including
+      retries after a cached failure (see "Size reconcile" above).
+    * `:reconcile_retry_ms` - how long a failed reconcile is memoized before
+      the next publish retries it (5 minutes by default).
+    * `:clock` - `fun()` returning the current time in milliseconds
+      (monotonic by default). Tests inject it to control the retry window.
   """
   @spec publish(String.t(), map() | binary(), seam_opts()) :: :ok | {:error, term()}
   def publish(topic, envelope, opts \\ [])
@@ -138,6 +163,7 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
 
   def publish(topic, payload, opts) when is_binary(topic) and is_binary(payload) do
     subject = subject(topic)
+    ensure_reconciled(opts)
 
     case do_publish(subject, payload, opts) do
       {:error, reason} ->
@@ -185,7 +211,7 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
         discard: "old",
         num_replicas: Keyword.get(opts, :replicas, 1),
         max_age: Keyword.get(opts, :max_age, @default_max_age_ns),
-        max_bytes: Keyword.get(opts, :max_bytes, @default_max_bytes)
+        max_bytes: max_bytes(opts)
       })
 
     case request(opts, js_api(opts) <> ".STREAM.CREATE." <> @stream_name, payload) do
@@ -199,6 +225,114 @@ defmodule ServiceRadar.Notifications.StreamPublisher do
         {:error, reason}
     end
   end
+
+  @doc """
+  Creates the firehose stream when it is absent, or reconciles the `max_bytes`
+  of the existing stream to the configured size by its discard policy.
+
+  The firehose is created discard-old, and a discard-old stream is reconciled to
+  the configured `max_bytes` even when that evicts its oldest envelopes. A
+  discard-new stream keeps its `max_bytes` when the configured cap is at or
+  below the bytes it stores, since it would then refuse every later write. The
+  values before and after are logged. A stream of this name that does not
+  capture `notifications.>` is reported as `{:stream_config_conflict, _}`.
+
+  Takes the same seams as `publish/3`, plus `:max_bytes`.
+  """
+  @spec reconcile_stream(seam_opts()) :: :ok | {:error, term()}
+  def reconcile_stream(opts \\ []) do
+    request = fn subject, payload -> request(opts, subject, payload) end
+    domain = Keyword.get(opts, :domain)
+
+    case JetstreamConsumer.stream_info(request, @stream_name, domain) do
+      {:ok, config, stored} ->
+        reconcile_existing(request, config, stored, opts)
+
+      :absent ->
+        ensure_stream(opts)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp reconcile_existing(request, config, stored, opts) do
+    if @subject_wildcard in List.wrap(Map.get(config, "subjects")) do
+      configured = Map.put(config, "max_bytes", max_bytes(opts))
+
+      payload =
+        JetstreamConsumer.hold_discard_new_max_bytes(@stream_name, config, configured, stored)
+
+      domain = Keyword.get(opts, :domain)
+
+      JetstreamConsumer.update_stream_if_changed(
+        request,
+        @stream_name,
+        config,
+        payload,
+        stored,
+        domain
+      )
+    else
+      {:error,
+       {:stream_config_conflict,
+        "stream #{@stream_name} does not capture #{@subject_wildcard}: " <>
+          inspect(Map.get(config, "subjects"))}}
+    end
+  end
+
+  defp ensure_reconciled(opts) do
+    configured = max_bytes(opts)
+
+    if Keyword.get(opts, :reconcile_stream, true) != false and
+         not reconciled?(:persistent_term.get(@reconciled_key, nil), configured, opts) do
+      case reconcile_stream(opts) do
+        :ok ->
+          :persistent_term.put(@reconciled_key, {:ok, configured})
+
+        {:error, reason} ->
+          Logger.warning(
+            "notification firehose stream #{@stream_name} not reconciled: #{inspect(reason)}"
+          )
+
+          retry_at = clock(opts).() + reconcile_retry_ms(opts)
+          :persistent_term.put(@reconciled_key, {:error, configured, retry_at})
+      end
+    end
+
+    :ok
+  end
+
+  # A prior success at the same configured size never needs another reconcile.
+  defp reconciled?({:ok, configured}, configured, _opts), do: true
+
+  # A prior failure at the same configured size fails open until the
+  # retry-after time - the reconcile is skipped, not repeated on every
+  # publish, and the publish itself proceeds regardless.
+  defp reconciled?({:error, configured, retry_at}, configured, opts) do
+    clock(opts).() < retry_at
+  end
+
+  defp reconciled?(_memo, _configured, _opts), do: false
+
+  defp clock(opts), do: Keyword.get(opts, :clock) || (&monotonic_ms/0)
+
+  defp reconcile_retry_ms(opts),
+    do: Keyword.get(opts, :reconcile_retry_ms, @default_reconcile_retry_ms)
+
+  defp monotonic_ms, do: System.monotonic_time(:millisecond)
+
+  defp max_bytes(opts) do
+    Keyword.get_lazy(opts, :max_bytes, fn ->
+      :serviceradar_core
+      |> Application.get_env(__MODULE__, [])
+      |> Keyword.get(:max_bytes, @default_max_bytes)
+    end)
+  end
+
+  @doc "The `max_bytes` used when `SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES` is unset (1 GiB)."
+  @spec default_max_bytes() :: pos_integer()
+  def default_max_bytes, do: @default_max_bytes
 
   @doc """
   The durable consumer options a firehose subscriber passes to

@@ -55,6 +55,11 @@ type pluginAssignment struct {
 	// change it; any policy, host-authority, package, permission, or parameter
 	// change does.
 	generation string
+
+	// runOverrides is the control plane's authoritative run override set for
+	// this assignment (run_overrides_json). It is deliberately excluded from the
+	// config fingerprint: overrides change often and must not restart runners.
+	runOverrides []pluginRunOverride
 	// DownloadURL/DownloadToken are the gateway-signed artifact download
 	// request. The token is short-lived and re-minted by the control plane on
 	// every config generation, so it can be refreshed in place (see
@@ -397,6 +402,14 @@ func newPluginAssignment(cfg *proto.PluginAssignmentConfig, log logger.Logger) *
 			Str("assignment_id", assignment.AssignmentID).
 			Msg("Rejected Proxmox plugin host authority configuration")
 	}
+
+	overrides, err := parseRunOverridesConfig(cfg.GetRunOverridesJson())
+	if err != nil {
+		log.Warn().Err(err).
+			Str("assignment_id", assignment.AssignmentID).
+			Msg("Ignoring invalid plugin run overrides")
+	}
+	assignment.runOverrides = overrides
 
 	if assignment.Interval <= 0 {
 		assignment.Interval = pluginDefaultInterval

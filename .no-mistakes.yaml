@@ -1,0 +1,44 @@
+# no-mistakes gate configuration. Read only from the trusted copy on staging.
+commands:
+  # Run worktrees start with tracked files only, so the gitignored Bazel rc
+  # files that carry the BuildBuddy key and remote-execution settings are
+  # missing and any `bazel` command there would build locally. Link them from
+  # the operator's primary clone (override with SERVICERADAR_BAZELRC_DIR).
+  prepare: >-
+    src="${SERVICERADAR_BAZELRC_DIR:-$HOME/src/serviceradar}";
+    for f in .bazelrc.remote .bazelrc.local; do
+      if [ -e "$src/$f" ] && [ ! -e "$f" ] && [ ! -L "$f" ]; then ln -s "$src/$f" "$f"; fi;
+    done;
+    test -f .bazelrc.remote
+  # Baseline: confirms the run worktree is wired for remote execution. It is
+  # also what makes `prepare` run, since prepare only precedes a configured
+  # command. The test agent still derives and drives its own targeted scenarios.
+  test: test -f .bazelrc.remote
+  # Format Elixir on the remote executors before the gate commits its own
+  # fixes, so an agent fix can never introduce a Styler diff. Mix and Hex come
+  # from Bazel; nothing depends on a local deps/ directory.
+  format: bazel run --config=remote //build/elixir_quality:format
+test:
+  instructions: |
+    Bazel must run on the remote executors, never on this machine. Before any
+    `bazel` command, make sure `.bazelrc.remote` exists in the run worktree; if
+    it does not, link the gitignored rc files from the primary clone:
+    `ln -s "${SERVICERADAR_BAZELRC_DIR:-$HOME/src/serviceradar}/.bazelrc.remote" .bazelrc.remote`
+    (and `.bazelrc.local` the same way when the primary clone has one).
+    Pass `--config=remote` to every `bazel build`, `bazel test` and `bazel run`.
+    If `.bazelrc.remote` cannot be linked, do not run Bazel locally; report the
+    Bazel checks as untested instead.
+gates:
+  # Test-routing contracts that otherwise fail only in BazelCI: every new
+  # serviceradar_core test file needs a row in INTEGRATION_SOURCE_DISPOSITIONS.tsv,
+  # and DB-backed ones must also appear in build/integration_test_dispositions.bzl.
+  # Plain Python, no build; runs in seconds.
+  - name: test-registration
+    after: lint
+    command: python3 -m unittest build/contracts/ci_heavy_gate_contract_test.py
+  # Same checks as CI's "Elixir Quality (<project>)" jobs: mix format
+  # --check-formatted and mix credo --strict for every linted Elixir project,
+  # hermetic on RBE. A failure parks the run for a decision before push.
+  - name: elixir-quality
+    after: lint
+    command: bazel test --config=remote //build/elixir_quality:quality_check

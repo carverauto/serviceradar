@@ -34,11 +34,9 @@ defmodule ServiceRadar.Credentials.CredentialEventWriter do
   history" in `docs/docs/credentials.md`.
   """
 
-  alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.Credentials.CredentialRedactor
+  alias ServiceRadar.Events.OcsfEventPublisher
   alias ServiceRadar.EventWriter.OCSF
-  alias ServiceRadar.Monitoring.OcsfEvent
 
   require Logger
 
@@ -298,14 +296,16 @@ defmodule ServiceRadar.Credentials.CredentialEventWriter do
     }
   end
 
+  # Called from lifecycle actions' after_action hooks, inside their
+  # transaction; the publisher then queues the event with that transaction
+  # (an outbox), so a rolled-back change is never announced.
   defp record_event(attrs) do
-    case Ash.create(OcsfEvent, attrs,
-           action: :record,
-           actor: SystemActor.system(:credential_event_writer),
-           domain: ServiceRadar.Monitoring
-         ) do
-      {:ok, event} -> _ = Destination.persist_after_cnpg(:events, [event])
-      _ -> :ok
+    case OcsfEventPublisher.publish(attrs, family: :credential) do
+      {:error, reason} when reason != :suppressed ->
+        Logger.warning("Failed to publish credential OCSF event", reason: inspect(reason))
+
+      _ ->
+        :ok
     end
 
     :ok

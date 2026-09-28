@@ -51,8 +51,10 @@ This is the Network Automation REST **automation wrapper**, not the NA web UI
 and not an NNMi URL. In a default NOM install the path is
 `/nom/api/automation/v1/wrapper` on the NA host.
 
-The plugin POSTs JSON. Operators never choose the command; it is always
-`list device`. Pagination (`startid`, `limitcount`) is also plugin-owned.
+The plugin POSTs JSON. Operators never choose the command: inventory always
+sends `list device`, and the `opentext-nom.config.retrieve` action always sends
+`list config` followed by `show config -mask`. Pagination (`startid`,
+`limitcount`) is also plugin-owned.
 
 ```json
 {
@@ -159,9 +161,56 @@ it with up to eight named query sets using the allowlisted `list device`
 filters in `config.schema.json`. The plugin always controls the command,
 pagination cursor, and page size.
 
-ServiceRadar provisions a daily producer schedule (`86400` seconds, 15-minute
-timeout). Operators change cadence on the credential rule, within the package
-bounds, or trigger **Run Now** from that rule.
+ServiceRadar provisions a daily inventory producer schedule (`86400` seconds,
+15-minute timeout). Operators change cadence on the credential rule, within the
+package bounds, or trigger **Run Now** from that rule.
+
+## Stored config retrieval
+
+The `opentext-nom.config.retrieve` producer schedule (default daily, minimum
+`3600` seconds, 5-minute timeout) retrieves the configuration Network
+Automation most recently stored for one device. It reads NA's database and never
+opens a session to the device: `list config -deviceid <id>` lists the stored
+revisions, the newest `configuration` revision by `createDate` is chosen, and
+`show config -id <revision> -mask` returns it with passwords and SNMP
+communities masked by NA. The revision ID is reported as `na_config_id`. It
+uses the same service-account credential and `api_url` as inventory, and needs
+these settings:
+
+- `device_id`: the Network Automation device ID sent as `parameters.deviceid`.
+- `device_uid`: the ServiceRadar device UID the revision is recorded against.
+
+Both may also be set as optional advanced fields in the plugin config;
+per-invocation `input_values` override the configured value, and the target's
+`device_uid` is the last fallback for `device_uid`. A missing ID fails the run
+with `opentext_nom_config_device_id_invalid` or
+`opentext_nom_config_device_uid_invalid`.
+
+The body is limited to 2 MiB. It is staged as a plugin artifact and is never
+placed in the result details, because status details are viewer-readable. NA
+masking removes passwords and communities, but the rest of the config is still
+operator data. If staging fails the run fails
+with `opentext_nom_config_artifact_failed`. Core fetches the artifact from the
+reporting agent's `agent-artifacts/<agent_id>/` prefix, verifies its SHA-256,
+and records a network config revision; see `NetworkConfig.PluginIngestor`.
+
+Network Automation must have the HTTP-JSON wrapper enabled
+(`<option name="api/restwrapper/enabled">true</option>` in
+`adjustable_options.rcx`, then restart NA services). Otherwise every request
+returns HTTP 503 `Rest Wrapper is disabled`. Commands and token exchanges can
+take 15-60 seconds, which is why `request_timeout_seconds` defaults to 120.
+
+### OAuth token cache
+
+NA's token endpoint is slow, so the agent host and the native local host reuse
+the bearer token instead of logging in for every request. The cache is keyed by
+the token URL, the full grant form (credentials included) and the TLS mode, so
+rotated credentials never reuse a token. A token is reused for `expires_in`
+capped at 15 minutes (NA advertises 3600 seconds but documents 20-minute
+tokens), minus 60 seconds; a response without `expires_in` is not cached. A
+`401` from NA evicts the token, and the rejected request is not replayed.
+The agent broker's contract is in
+`docs/docs/notification-plugin-authoring.md`.
 
 The signed package declares the `opentext-nom` inventory source and these
 provider-owned observation fields:
@@ -187,6 +236,93 @@ identity serial; stacked serials stay in `hw_info`.
 On the credential rule, **When sources disagree, this source wins** sets
 operator authority for `switch_port_attachment` and `vlan_uid` for this
 instance.
+
+## Interface config checks
+
+The interface config check answers, for each endpoint: does the switch
+interface it is plugged into carry the configuration we require? A common use
+is network access control: an endpoint is compliant only if its access port has
+the expected 802.1X stanza.
+
+It reads the configuration NA has already stored. For each endpoint it takes
+the switch and port from the endpoint's device record, asks NA for that one
+interface block with `show configlet -host <switch> -start <start> -end <end>`,
+and evaluates your checks against it. It never opens a session to a switch.
+
+### Set it up
+
+Create a credential rule with the **OpenText NOM interface config check**
+provider (Settings -> Networks -> Credential Rules), using the same NA service
+account and `api_url` as inventory. The rule's cadence is how often endpoints
+are checked (default hourly). Then set these advanced fields:
+
+- `target_query`: SRQL selecting the endpoints to check, for example
+  `in:devices switch_port_attachment.switch_hostname:%`.
+- `target_fields`: device fields sent with each endpoint, one per line. It must
+  include the field your check definition reads. Default:
+  `switch_port_attachment`.
+- `config_check`: the check definition, as JSON.
+
+```json
+{
+  "attachment_field": "switch_port_attachment",
+  "block_start": "interface {interface}",
+  "block_end": "!",
+  "checks": [
+    {
+      "name": "nac",
+      "match": "all",
+      "patterns": ["authentication port-control auto", "dot1x pae authenticator"]
+    }
+  ]
+}
+```
+
+| Key | Meaning |
+| --- | --- |
+| `attachment_field` | Device field holding the switch and port: `switch_port_attachment` (default) or `metadata.<key>` such as `metadata.armis_access_switch`. A map with `switch_hostname`/`port`, or a `switch:port` string. |
+| `block_start` | Start of the interface block; `{interface}` is replaced by the interface name. Default `interface {interface}`. |
+| `block_end` | End of the block. Cisco IOS uses `!` (default); ArubaOS-Switch uses `exit`. |
+| `interface_expansions` | Extra or overriding shorthand prefixes, for example `{"mgmt": "Management"}`. |
+| `max_targets` | Endpoints checked per run (default 200, maximum 1000). Endpoints past the limit are recorded as `unknown` / `target_limit_exceeded`. The schedule delivers at most 200 endpoints per run. |
+| `run_budget_seconds` | Time allowed for NA requests in one run (default 1440, range 60 to 3600; keep it under the 1800 second schedule timeout). Once spent, remaining endpoints are recorded as `unknown` / `target_limit_exceeded`. |
+| `checks` | One or more checks. `name`: lowercase letters, digits and `_`, at most 44 characters. `patterns`: required text. `match`: `all` (default) or `any`. `regex`: treat patterns as regular expressions. `case_sensitive`: default false. |
+
+Shorthand ports are expanded before asking NA: `gi` GigabitEthernet, `te`
+TenGigabitEthernet, `fa` FastEthernet, `tw` TwoGigabitEthernet, `fi`
+FiveGigabitEthernet, `twe` TwentyFiveGigE, `fo` FortyGigabitEthernet, `hu`
+HundredGigE, `eth` Ethernet, `po` Port-channel. A port with no letter prefix
+(ArubaOS-Switch `1/1/20` or `1`) is used as-is.
+
+The switch name must be the host name NA knows the switch by. If a source
+reports a different form (short name versus FQDN), point `attachment_field` at
+a source whose names match NA.
+
+### Results
+
+Each check is recorded on the endpoint's device metadata:
+
+- `config_check_<name>`: `compliant`, `non_compliant` or `unknown`.
+- `config_check_<name>_detail`: `checked_at`, `switch`, `interface`, `reason`,
+  and `missing` (the required patterns that were not found).
+
+| Status | Reason | Meaning |
+| --- | --- | --- |
+| `compliant` | | The block satisfies the check. |
+| `non_compliant` | | Required patterns are missing; see `missing`. |
+| `non_compliant` | `interface_not_configured` | NA has no stanza for the interface. |
+| `unknown` | `attachment_missing` | The endpoint has no usable switch/port. |
+| `unknown` | `configlet_not_found` | NA does not know the switch. |
+| `unknown` | `configlet_request_failed` | NA timed out or failed. |
+| `unknown` | `target_limit_exceeded` | The endpoint was beyond `max_targets` or the run budget was spent, so it was not checked. |
+
+The run summary and result details report coverage: how many endpoints were
+skipped (`target_limit_exceeded`) and how many the query matched beyond the
+200 the schedule delivers (`not_delivered`).
+
+Find non-compliant endpoints with
+`in:devices metadata.config_check_nac:non_compliant`. The configuration text
+itself is never stored in results.
 
 ## Pre-production validation
 

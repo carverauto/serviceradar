@@ -872,6 +872,8 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Worker do
   defp emit_verdicts?(opts), do: Keyword.get(opts, :emit_verdicts?, true)
 
   defp fetch_rows(runner, query, runner_opts, opts) do
+    opts = Keyword.put_new(opts, :max_history_pages, 100_000)
+
     if function_exported?(runner, :query_page, 2) do
       PagedQuery.fetch(
         runner,

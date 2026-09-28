@@ -1,0 +1,11 @@
+## workspace
+# github.com/carverauto/serviceradar-sdk-go/v2 v2.1.0
+## explicit; go 1.25
+github.com/carverauto/serviceradar-sdk-go/v2/sdk
+# github.com/carverauto/serviceradar/demo/pluginkit v0.0.0 => ./pluginkit
+## explicit; go 1.25
+# github.com/carverauto/serviceradar/demo/simkit v0.0.0 => ./simkit
+## explicit; go 1.25
+# gopkg.in/yaml.v3 v3.0.1
+## explicit
+gopkg.in/yaml.v3

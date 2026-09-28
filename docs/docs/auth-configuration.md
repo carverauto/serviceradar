@@ -114,6 +114,19 @@ Service provider endpoints:
 - ACS URL: `https://<web-host>/auth/saml/consume`
 - SP metadata: `https://<web-host>/auth/saml/metadata`
 
+Sign-in is SP-initiated: the user starts at ServiceRadar, which sends an
+AuthnRequest and records it server-side for 10 minutes under a random
+RelayState. The IdP must return that RelayState unchanged, sign the assertion
+(or the whole response), and answer that request (`InResponseTo`). Each
+RelayState and each assertion is accepted once, on every web node. The ACS
+does not depend on the browser session cookie, so the IdP may be on a
+different site from ServiceRadar.
+
+IdP-initiated (unsolicited) responses are rejected by default, because they
+cannot be tied to a login the user started. They can be allowed with
+`config :serviceradar_web_ng, :saml_allow_idp_initiated, true`; replay
+protection and every other check still apply.
+
 ## Gateway Proxy (JWT)
 
 Use this when an upstream gateway authenticates users and injects a JWT on requests to web-ng.

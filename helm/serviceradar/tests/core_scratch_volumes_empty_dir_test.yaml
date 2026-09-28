@@ -1,0 +1,134 @@
+suite: core scratch volumes are per-replica emptyDir, never a shared node-pinned PVC
+templates:
+  - templates/core.yaml
+  - templates/web.yaml
+  - templates/geoip-mmdb-pvc.yaml
+  - templates/advisory-feeds-pvc.yaml
+release:
+  namespace: sr-scratch-volumes
+tests:
+  # Issue #4866: core's geoip-mmdb and advisory-feeds staging volumes were
+  # ReadWriteOnce PVCs. On a local-path cluster that pins every replica to the
+  # one node that owns the PV, so the 3-replica Deployment had no node-failure
+  # tolerance and a node drain was blocked forever. Both are scratch data each
+  # pod can download for itself, so the default is now a per-replica emptyDir.
+  - it: mounts geoip-mmdb and advisory-feeds as emptyDir when enabled with defaults
+    template: templates/core.yaml
+    set:
+      geoipMmdb.enabled: true
+      core.advisoryFeeds.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: geoip-mmdb
+            emptyDir: {}
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: advisory-feeds
+            emptyDir: {}
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: renders no geoip-mmdb PVC when enabled with the default emptyDir
+    template: templates/geoip-mmdb-pvc.yaml
+    set:
+      geoipMmdb.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders no advisory-feeds PVC when enabled with the default emptyDir
+    template: templates/advisory-feeds-pvc.yaml
+    set:
+      core.advisoryFeeds.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: still renders the geoip-mmdb PVC when an operator opts into a shared claim
+    template: templates/geoip-mmdb-pvc.yaml
+    set:
+      geoipMmdb.enabled: true
+      geoipMmdb.emptyDir: false
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: metadata.name
+          value: serviceradar-geoip-mmdb
+        documentSelector:
+          path: kind
+          value: PersistentVolumeClaim
+
+  - it: still renders the advisory-feeds PVC when an operator opts into a shared claim
+    template: templates/advisory-feeds-pvc.yaml
+    set:
+      core.advisoryFeeds.enabled: true
+      core.advisoryFeeds.emptyDir: false
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: metadata.name
+          value: serviceradar-advisory-feeds
+        documentSelector:
+          path: kind
+          value: PersistentVolumeClaim
+
+  - it: the demo overlay mounts both as emptyDir on core
+    values:
+      - ../values-demo.yaml
+    template: templates/core.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: geoip-mmdb
+            emptyDir: {}
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: advisory-feeds
+            emptyDir: {}
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: the demo overlay mounts geoip-mmdb as emptyDir on web-ng
+    values:
+      - ../values-demo.yaml
+    template: templates/web.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: geoip-mmdb
+            emptyDir: {}
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: the demo overlay creates no geoip-mmdb PVC
+    values:
+      - ../values-demo.yaml
+    template: templates/geoip-mmdb-pvc.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: the demo overlay creates no advisory-feeds PVC
+    values:
+      - ../values-demo.yaml
+    template: templates/advisory-feeds-pvc.yaml
+    asserts:
+      - hasDocuments:
+          count: 0

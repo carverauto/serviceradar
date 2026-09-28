@@ -54,6 +54,132 @@ defmodule ServiceRadar.Analytics.StarRocks.ReadersTest do
     end
   end
 
+  # With the warehouse enabled the CNPG MTR tables stop receiving rows, so MTR
+  # SRQL must read StarRocks then, and only CNPG when it is off -- never both.
+  test "MTR SRQL reads StarRocks with the warehouse enabled and CNPG without it" do
+    prev = Application.get_env(:serviceradar_core, StarRocks, [])
+
+    try do
+      Application.put_env(
+        :serviceradar_core,
+        StarRocks,
+        prev |> Keyword.put(:enabled, true) |> Keyword.put(:cutover_datasets, [])
+      )
+
+      for entity <- ["mtr_traces", "mtr_hops", "MTR_HOPS", "mtr_hop_stats"] do
+        assert Readers.mode_for(entity) == "starrocks"
+        assert Readers.backend(entity) == :starrocks
+      end
+
+      query = "in:mtr_hops time:last_24h stats:count() as n by addr"
+      assert query |> Readers.entity_for_query() |> Readers.mode_for() == "starrocks"
+
+      assert Readers.fetch(:mtr, %{
+               cnpg: fn -> flunk("MTR must not read CNPG with the warehouse enabled") end,
+               starrocks: fn -> :starrocks_branch end
+             }) == :starrocks_branch
+
+      Application.put_env(:serviceradar_core, StarRocks, Keyword.put(prev, :enabled, false))
+
+      for entity <- ["mtr_traces", "mtr_hops", "mtr_hop_stats"] do
+        assert Readers.mode_for(entity) == nil
+        assert Readers.backend(entity) == :cnpg
+      end
+
+      assert Readers.fetch(:mtr, %{
+               cnpg: fn -> :cnpg_branch end,
+               starrocks: fn -> flunk("MTR must not read StarRocks when disabled") end
+             }) == :cnpg_branch
+    after
+      Application.put_env(:serviceradar_core, StarRocks, prev)
+    end
+  end
+
+  # OTel metric samples and points, and spans with the summaries derived from
+  # them, are written to the warehouse only when it is enabled, so they follow
+  # the MTR rule, with every entity spelling.
+  test "OTel metrics and traces SRQL read StarRocks with the warehouse enabled and CNPG without it" do
+    prev = Application.get_env(:serviceradar_core, StarRocks, [])
+
+    spellings = [
+      "otel_metrics",
+      "metrics",
+      "OTEL_METRICS",
+      "otel_metric_points",
+      "metric_points",
+      "otel_traces",
+      "traces",
+      "trace_spans",
+      "otel_trace_summaries",
+      "trace_summaries",
+      "traces_summaries"
+    ]
+
+    try do
+      Application.put_env(
+        :serviceradar_core,
+        StarRocks,
+        prev |> Keyword.put(:enabled, true) |> Keyword.put(:cutover_datasets, [])
+      )
+
+      for entity <- spellings do
+        assert Readers.mode_for(entity) == "starrocks"
+        assert Readers.backend(entity) == :starrocks
+      end
+
+      query = ~s|in:otel_metric_points time:last_24h stats:"count() as points by metric_name"|
+      assert query |> Readers.entity_for_query() |> Readers.mode_for() == "starrocks"
+
+      assert Readers.backend(:otel_traces) == :starrocks
+
+      Application.put_env(:serviceradar_core, StarRocks, Keyword.put(prev, :enabled, false))
+
+      for entity <- spellings do
+        assert Readers.mode_for(entity) == nil
+        assert Readers.backend(entity) == :cnpg
+      end
+
+      assert Readers.backend(:otel_traces) == :cnpg
+    after
+      Application.put_env(:serviceradar_core, StarRocks, prev)
+    end
+  end
+
+  test "enabled? is the global backend switch, independent of the cutover list" do
+    prev = Application.get_env(:serviceradar_core, StarRocks, [])
+
+    try do
+      Application.put_env(:serviceradar_core, StarRocks, Keyword.put(prev, :enabled, false))
+      refute Readers.enabled?()
+
+      # A cutover list without the switch does not make the warehouse the backend.
+      Application.put_env(
+        :serviceradar_core,
+        StarRocks,
+        prev |> Keyword.put(:enabled, false) |> Keyword.put(:cutover_datasets, [:flows])
+      )
+
+      refute Readers.enabled?()
+
+      Application.put_env(
+        :serviceradar_core,
+        StarRocks,
+        prev |> Keyword.put(:enabled, true) |> Keyword.put(:cutover_datasets, [])
+      )
+
+      assert Readers.enabled?()
+
+      # Only a real boolean enables it; a stray string from hand-written config does not.
+      Application.put_env(:serviceradar_core, StarRocks, Keyword.put(prev, :enabled, "true"))
+      refute Readers.enabled?()
+
+      Application.put_env(:serviceradar_core, StarRocks, [])
+      refute Readers.enabled?()
+    after
+      Application.put_env(:serviceradar_core, StarRocks, prev)
+    end
+  end
+
   test "cutover_datasets selects starrocks for metrics entities" do
     prev = Application.get_env(:serviceradar_core, StarRocks, [])
 

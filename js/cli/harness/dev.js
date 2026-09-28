@@ -7,6 +7,9 @@
 // shell (manifest + samples URLs + fixtures map + Mapbox token + theme),
 // and `renderer` is the customer's renderer module.
 
+import {createHarnessCameraApi} from "./camera.js"
+import {createHarnessActionsApi, createHarnessEventsApi} from "./runtime.js"
+
 const ROOT_SELECTOR = "[data-root]"
 const STATUS_SELECTOR = "[data-status]"
 const ERROR_SELECTOR = "[data-error-overlay]"
@@ -76,6 +79,7 @@ function createContext(initialState) {
     },
     async replaceRenderer(nextModule) {
       destroyMounted(mounted)
+      api?.camera?.closeAll()
       mounted = null
       await ctx.mount(nextModule)
     },
@@ -121,6 +125,9 @@ function createContext(initialState) {
     if (!response.ok) throw new Error(`HTTP ${response.status} ${url}`)
     const payload = await response.json()
     frames = Array.isArray(payload) ? payload : Array.isArray(payload?.frames) ? payload.frames : []
+    state.fixtureActions = Array.isArray(payload?.actions) ? payload.actions : []
+    state.fixtureEvents = Array.isArray(payload?.events) ? payload.events : []
+    state.harnessEvents?.replay(state.fixtureEvents)
   }
 
   function appendCallLog(line) {
@@ -202,6 +209,9 @@ function createHost(state) {
 
 async function createHostApi(state, initialFrames, hooks) {
   const {themeListeners, frameListeners, onCall} = hooks
+  state.harnessEvents?.stop()
+  state.harnessEvents = createHarnessEventsApi({onCall})
+  state.harnessEvents.replay(state.fixtureEvents || [])
   let frames = initialFrames
   const libraries = await loadBrowserModuleLibraries()
 
@@ -257,6 +267,18 @@ async function createHostApi(state, initialFrames, hooks) {
       open(target) {
         onCall(`details ${typeof target === "string" ? target : JSON.stringify(target)}`)
       },
+    },
+    camera: createHarnessCameraApi({onCall}),
+    actions: createHarnessActionsApi({
+      onCall,
+      getActions: () => state.fixtureActions || [],
+      events: state.harnessEvents,
+    }).publicApi(),
+    events: state.harnessEvents.publicApi(),
+    async refreshFrames() {
+      onCall("frames refresh")
+      for (const listener of frameListeners) listener(frames)
+      return {refreshed: true}
     },
   }
 }

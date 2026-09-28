@@ -24,8 +24,8 @@ func (s *unsupportedRawSocket) SendUDP(_ net.IP, _ int, _ int, _ int, _ []byte) 
 	return errRawSocketUnsupported
 }
 
-func (s *unsupportedRawSocket) SendTCP(_ net.IP, _ int, _ int, _ int) error {
-	return errRawSocketUnsupported
+func (s *unsupportedRawSocket) OpenTCPFlow(_ net.IP, _ int, _ time.Duration) (TCPFlow, error) {
+	return nil, errRawSocketUnsupported
 }
 
 func (s *unsupportedRawSocket) Receive(_ time.Time) (*ICMPResponse, error) {

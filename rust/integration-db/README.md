@@ -1,10 +1,15 @@
 # Integration database fixture: environment and TLS contract
 
-## Keyed generation lifecycle (opt-in)
+## Keyed generation lifecycle
 
-The legacy `prepare_template` text interface and provisioning targets remain available
-during rollout. The new guarded targets are `prepare_generation`, `provision_generation`,
-`provision_generation_large_ingestion`, `release_generation`, and `cleanup_generations`.
+Every active database workflow (`BazelCI`, `LargeIngestionGate`, `IntegrationBenchmark*`) uses
+these guarded targets: `cleanup_generations`, `prepare_generation`, `provision_generation`,
+`provision_generation_large_ingestion`, and `release_generation`, with
+`//elixir/serviceradar_core:migrate_generation` as the builder. The legacy singleton
+`sr_core_template` is a frozen rollback artifact: no workflow migrates or clones it, and its
+writers (`prepare_template`, `reset_template`, `migrate_template`) refuse without
+`--//build:template_authority=true`, which no active workflow may pass. The legacy
+`provision_base`/`provision_db*` run-base targets remain in the tree but are not invoked.
 They consume the declared `build/schema_template/manifest.json` and `policy.json`;
 there are no ambient generation or capacity overrides. Preparation emits JSON with
 `status` (`needs_migration` or `ready`), `digest`, `database`, and `builder_token`.
@@ -34,13 +39,13 @@ At capacity, preparation fails with guidance to finish/recover builders or run c
 It uses invented schema inputs and separate PostgreSQL sessions to check schema and
 ledger artifacts, reuse, recovery, fencing, capacity, lease renewal and cleanup locks.
 It cleans only its own generation identities. This does not qualify application full
-replay, independent OS-process orchestration, or the cold-baseline lock budget.
-Before workflow activation, deploy `sr_tpl_` exclusions to every ordinary reaper and
-complete those separate qualification gates. Merely compiling this target does not
+replay, independent OS-process orchestration, or the cold-baseline lock budget. Every
+ordinary reaper excludes the `sr_tpl_` namespace. Merely compiling this target does not
 execute database operations.
 
-This crate owns the lifecycle of the `serviceradar_core` integration database — create the
-template, clone a per-run database, tear it down, sweep what earlier runs leaked. It reaches
+This crate owns the lifecycle of the `serviceradar_core` integration database -- prepare the
+schema generation, clone per-run databases from it, tear them down, sweep what earlier runs
+leaked, and reclaim expired generations. It reaches
 CNPG entirely through environment variables, and **those variables are supplied differently by
 each of the three environments the suite runs in**.
 
@@ -168,25 +173,25 @@ duplicated. It also passes the CA to that subprocess explicitly.
 ## Running it locally
 
 Use [the SRQL fixture skill](../../.agents/skills/srql-fixtures-db-tests/SKILL.md) for the
-canonical runnable recipe. The lifecycle is an ordered sequence of Bazel invocations, not a
-wrapper script:
+canonical recipe. The guarded lifecycle runs in the in-cluster BuildBuddy workflows as an
+ordered sequence of Bazel invocations, not a wrapper script:
 
-`sweep -> provision base -> conditional migrate run -> provision lanes -> suite -> teardown`
+`sweep -> cleanup generations -> prepare generation -> migrate generation if needs_migration ->
+prepare generation (ready) -> provision generation -> suite -> teardown -> release generation`
 
-Note what is NOT in that sequence: `prepare_template` and `migrate_template`. They write the
-shared `sr_core_template`, which only the trunk lifecycle may do, and they refuse without
-`--//build:template_authority=true` -- so a workstation cannot ratchet the fixture CI shares,
-which it previously could. `provision_base` seeds this run's own `sr_core_test_<run>` from the
-template and `migrate_run` applies your migrations there.
+Note what is NOT in that sequence: `prepare_template`, `migrate_template` and
+`reset_template`. They write the frozen `sr_core_template`, refuse without
+`--//build:template_authority=true`, and `//build/contracts:ci_heavy_gate_contract_test` fails if
+any active workflow passes that flag or names them. A checkout's own migrations produce a new
+schema digest, and therefore a new immutable `sr_tpl_<digest>` generation, instead of changing
+a database other branches clone.
 
 Every target must receive `--//build:enable_integration_tests`. Database tests clear the manual
-test filter, use `--strategy=TestRunner=local`, and disable test-result caching. `provision_base`
-clears the manual build filter and reports migration status on stdout; the caller matches
-`migration(s) pending`. Keep the base fixture DSNs in `SRQL_TEST_*`, use one numeric run
-ID/attempt for the whole sequence, and pair `provision_db_sN` with `integration_tests_sN` for a
-focused run. Always invoke `teardown_db` after provisioning, including after a red shard.
-`provision_db` refuses to clone a base that is behind the migrations on disk, so do not reorder
-the sequence.
+test filter, use `--strategy=TestRunner=local`, and disable test-result caching. The generation
+binaries are `bazel run` and print one JSON document on stdout, which the caller validates
+rather than matching text. Use one run id for the whole sequence: the lease, the clones and
+teardown are keyed on the run database it names. Always invoke `teardown_db` and then
+`release_generation` after preparation, including after a red shard.
 
 Against a local docker Postgres with TLS off:
 

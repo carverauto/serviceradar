@@ -1,0 +1,268 @@
+suite: jetstream replica counts are capped at the NATS server count
+# A standalone nats-server rejects any stream with more than one replica
+# (JSStreamReplicasNotSupportedErr), and a cluster cannot place more replicas
+# than it has servers. When the chart deploys NATS itself, every JetStream
+# replica count it renders is min(configured, nats.replicas), through
+# serviceradar.jetstreamEffectiveReplicas; against an external NATS the
+# configured value is kept. Every stream below is configured at R3.
+templates:
+  - templates/core.yaml
+  - templates/web.yaml
+  - templates/datasvc.yaml
+  - templates/serviceradar-config.yaml
+  - templates/log-collector.yaml
+  - templates/log-collector-tcp.yaml
+  - templates/flow-collector.yaml
+  - templates/flow-collector-bootstrap-job.yaml
+  - templates/bmp-collector.yaml
+release:
+  namespace: serviceradar-test
+tests:
+  # --- one NATS server: every replica count renders as 1 ----------------------
+  - it: caps the datasvc KV and object store replicas on one server
+    set:
+      nats.replicas: 1
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_KV_SERVICERADAR_DATASVC_REPLICAS, value: "1"}
+        template: templates/datasvc.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_OBJ_SERVICERADAR_OBJECTS_REPLICAS, value: "1"}
+        template: templates/datasvc.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - matchRegex:
+          path: data["datasvc.json"]
+          pattern: '"jetstream_replicas": 1,'
+        template: templates/serviceradar-config.yaml
+
+  - it: caps the trapd events replicas on one server
+    set:
+      nats.replicas: 1
+    template: templates/serviceradar-config.yaml
+    asserts:
+      - matchRegex:
+          path: data["trapd.json"]
+          pattern: '"stream_replicas": 1,'
+
+  - it: caps the log collector events replicas on one server
+    set:
+      nats.replicas: 1
+    template: templates/log-collector.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_EVENTS_REPLICAS, value: "1"}
+        documentSelector: {path: kind, value: Deployment}
+      - matchRegex:
+          path: data["otel.toml"]
+          pattern: "stream_replicas = 1\n"
+        documentSelector: {path: kind, value: ConfigMap}
+      - matchRegex:
+          path: data["flowgger.toml"]
+          pattern: "nats_stream_replicas = 1\n"
+        documentSelector: {path: kind, value: ConfigMap}
+
+  - it: caps the TCP log collector events replicas on one server
+    set:
+      nats.replicas: 1
+    template: templates/log-collector-tcp.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_EVENTS_REPLICAS, value: "1"}
+        documentSelector: {path: kind, value: Deployment}
+      - matchRegex:
+          path: data["flowgger.toml"]
+          pattern: "nats_stream_replicas = 1\n"
+        documentSelector: {path: kind, value: ConfigMap}
+
+  - it: caps the flows replicas in flow-collector and its bootstrap Job on one server
+    set:
+      nats.replicas: 1
+      flowCollector.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_FLOWS_REPLICAS, value: "1"}
+        template: templates/flow-collector.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - matchRegex:
+          path: data["flow-collector.json"]
+          pattern: '"stream_replicas":1[,}]'
+        template: templates/flow-collector.yaml
+        documentSelector: {path: kind, value: ConfigMap}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_FLOWS_REPLICAS, value: "1"}
+        template: templates/flow-collector-bootstrap-job.yaml
+
+  - it: caps the ARANCINI_CAUSAL replicas in bmp-collector on one server
+    set:
+      nats.replicas: 1
+      bmpCollector.enabled: true
+      bmpCollector.config.streamReplicas: 3
+    template: templates/bmp-collector.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_ARANCINI_CAUSAL_REPLICAS, value: "1"}
+        documentSelector: {path: kind, value: Deployment}
+      - matchRegex:
+          path: data["config.json"]
+          pattern: '"stream_replicas": 1[,\n]'
+        documentSelector: {path: kind, value: ConfigMap}
+
+  - it: caps the plugin object store replicas in web-ng on one server
+    set:
+      nats.replicas: 1
+    template: templates/web.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: PLUGIN_STORAGE_JS_REPLICAS, value: "1"}
+
+  - it: caps the EventWriter fallback replicas in core on one server
+    set:
+      nats.replicas: 1
+      core.eventWriter.streams.flows.replicas: 3
+      core.eventWriter.streams.ARANCINI_CAUSAL.replicas: 3
+    template: templates/core.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_EVENTS_FALLBACK_REPLICAS, value: "1"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_FLOWS_FALLBACK_REPLICAS, value: "1"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_ARANCINI_CAUSAL_FALLBACK_REPLICAS, value: "1"}
+
+  # --- three NATS servers: the configured R3 is kept ---------------------------
+  - it: keeps R3 on three servers for datasvc, trapd and the log collectors
+    set:
+      nats.replicas: 3
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_KV_SERVICERADAR_DATASVC_REPLICAS, value: "3"}
+        template: templates/datasvc.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_OBJ_SERVICERADAR_OBJECTS_REPLICAS, value: "3"}
+        template: templates/datasvc.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - matchRegex:
+          path: data["datasvc.json"]
+          pattern: '"jetstream_replicas": 3,'
+        template: templates/serviceradar-config.yaml
+      - matchRegex:
+          path: data["trapd.json"]
+          pattern: '"stream_replicas": 3,'
+        template: templates/serviceradar-config.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_EVENTS_REPLICAS, value: "3"}
+        template: templates/log-collector.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - matchRegex:
+          path: data["otel.toml"]
+          pattern: "stream_replicas = 3\n"
+        template: templates/log-collector.yaml
+        documentSelector: {path: kind, value: ConfigMap}
+      - matchRegex:
+          path: data["flowgger.toml"]
+          pattern: "nats_stream_replicas = 3\n"
+        template: templates/log-collector.yaml
+        documentSelector: {path: kind, value: ConfigMap}
+      - matchRegex:
+          path: data["flowgger.toml"]
+          pattern: "nats_stream_replicas = 3\n"
+        template: templates/log-collector-tcp.yaml
+        documentSelector: {path: kind, value: ConfigMap}
+
+  - it: keeps R3 on three servers for flows, ARANCINI_CAUSAL, plugins and the fallbacks
+    set:
+      nats.replicas: 3
+      flowCollector.enabled: true
+      bmpCollector.enabled: true
+      bmpCollector.config.streamReplicas: 3
+      core.eventWriter.streams.flows.replicas: 3
+      core.eventWriter.streams.ARANCINI_CAUSAL.replicas: 3
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_FLOWS_REPLICAS, value: "3"}
+        template: templates/flow-collector.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - matchRegex:
+          path: data["flow-collector.json"]
+          pattern: '"stream_replicas":3[,}]'
+        template: templates/flow-collector.yaml
+        documentSelector: {path: kind, value: ConfigMap}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_FLOWS_REPLICAS, value: "3"}
+        template: templates/flow-collector-bootstrap-job.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_ARANCINI_CAUSAL_REPLICAS, value: "3"}
+        template: templates/bmp-collector.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - matchRegex:
+          path: data["config.json"]
+          pattern: '"stream_replicas": 3[,\n]'
+        template: templates/bmp-collector.yaml
+        documentSelector: {path: kind, value: ConfigMap}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: PLUGIN_STORAGE_JS_REPLICAS, value: "3"}
+        template: templates/web.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_EVENTS_FALLBACK_REPLICAS, value: "3"}
+        template: templates/core.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_FLOWS_FALLBACK_REPLICAS, value: "3"}
+        template: templates/core.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_ARANCINI_CAUSAL_FALLBACK_REPLICAS, value: "3"}
+        template: templates/core.yaml
+        documentSelector: {path: kind, value: Deployment}
+
+  # --- external NATS: the chart does not know its size, so nothing is capped --
+  - it: keeps the configured replicas against an external NATS
+    set:
+      nats.enabled: false
+      nats.replicas: 1
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_KV_SERVICERADAR_DATASVC_REPLICAS, value: "3"}
+        template: templates/datasvc.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - matchRegex:
+          path: data["trapd.json"]
+          pattern: '"stream_replicas": 3,'
+        template: templates/serviceradar-config.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_EVENTS_REPLICAS, value: "3"}
+        template: templates/log-collector.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: PLUGIN_STORAGE_JS_REPLICAS, value: "3"}
+        template: templates/web.yaml
+        documentSelector: {path: kind, value: Deployment}

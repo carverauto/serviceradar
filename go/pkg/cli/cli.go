@@ -893,6 +893,7 @@ func ParseFlags() (*CmdConfig, error) {
 		"edge-package-token":    EdgePackageTokenHandler{},
 		"edge":                  EdgeHandler{},
 		"nats-bootstrap":        NatsBootstrapHandler{},
+		"nats-account-limits":   NatsAccountLimitsHandler{},
 		"admin":                 AdminHandler{},
 		"auth":                  AuthHandler{},
 	}

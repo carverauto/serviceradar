@@ -22,5 +22,8 @@ pub use inventory::{
     SweepCoverageRow, SweepExecutionRow, SweepGroupRow, SweepProfileRow, SweepResultRow,
 };
 pub use metrics::{OtelMetricPointRow, OtelMetricRow, TimeseriesMetricRow};
-pub use observability::{CapacityForecastRow, LogRow, MtrTraceRow, TraceSpanRow, TraceSummaryRow};
+pub use observability::{
+    CapacityForecastRow, LogRow, MtrHopRow, MtrTraceRow, OtelServiceRow, TraceSpanRow,
+    TraceSummaryRow,
+};
 pub use system_metrics::{CpuMetricRow, DiskMetricRow, MemoryMetricRow, ProcessMetricRow};

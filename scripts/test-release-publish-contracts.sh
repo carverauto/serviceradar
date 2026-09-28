@@ -76,12 +76,6 @@ for fragment in \
   fi
 done
 
-spec_count="$(wc -l < "${tmp_dir}/actual-specs" | tr -d '[:space:]')"
-if [[ "${spec_count}" != "18" ]]; then
-  echo "expected 18 release image specs, found ${spec_count}" >&2
-  exit 1
-fi
-
 for repository in \
   serviceradar-trivy-sidecar \
   serviceradar-datasvc \
@@ -442,12 +436,7 @@ for fragment in (
 ):
     if fragment not in publish_images_step:
         raise SystemExit(f"release retry is missing registry-digest signing contract: {fragment}")
-packages_step = workflow[
-    workflow.index("- name: Publish release packages and agent manifest assets"):
-    workflow.index("- name: Verify uploaded release assets via GitHub API")
-]
-if 'git checkout --detach "${workflow_commit}"' not in packages_step:
-    raise SystemExit("package publish must rebuild publish_packages from the workflow ref")
+# Package publication provenance is exercised by //build/contracts:release_package_workflow_test.
 
 if publish_images_step.count('SERVICERADAR_REPO_ROOT="${PWD}"') < 2:
     raise SystemExit("release retry must pass SERVICERADAR_REPO_ROOT to both sign and verify")

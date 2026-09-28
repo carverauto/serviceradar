@@ -12,6 +12,13 @@ defmodule ServiceRadarWebNG.Api.Access do
   require Ash.Query
 
   @default_limit 100
+
+  # An HTTP-surface policy bound, not a storage limit: `Device.read` imposes no
+  # ceiling, so a client wanting the whole inventory pages or streams. Keep this
+  # explicit rather than relying on any resource-level cap -- Ash silently clamps a
+  # page above the action's `max_page_size` and then reports the short page as
+  # complete, so a bound that is enforced here stays visible instead of becoming a
+  # truncation nobody can see.
   @max_limit 500
   @max_offset 100_000
 
@@ -27,6 +34,11 @@ defmodule ServiceRadarWebNG.Api.Access do
   def execute_query(scope, params) when is_map(params) do
     params = params |> stringify_keys() |> Map.put("scope", scope)
 
+    # A pre-gate only. The permitted signal set for a signal-scoped entity
+    # (`otel_services`) is deliberately NOT forwarded in `params`: those come
+    # from the HTTP/MCP client, so a set carried there would be client-settable.
+    # `query_request/1` re-derives the set from the same server-side `scope`
+    # through `EntityAccess.authorize_signals/3` and passes it to translate.
     with :ok <- EntityAccess.authorize(Map.get(params, "query"), scope) do
       srql_module().query_request(params)
     end

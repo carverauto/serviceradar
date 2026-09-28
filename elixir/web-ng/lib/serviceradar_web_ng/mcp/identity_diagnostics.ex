@@ -20,7 +20,9 @@ defmodule ServiceRadarWebNG.Mcp.IdentityDiagnostics do
 
   @doc """
   Trace one device's identity: current record, tombstone, merge chain both
-  directions, revivals, identifiers with their currency, and evidence edges.
+  directions, revivals, identifiers with their currency, evidence edges, the
+  identity decisions that refused or overrode a merge involving it, and the
+  de-duplication tasks those decisions opened.
 
   `seed` may be a device uid, an IP, or a hostname; a non-uid seed is resolved
   through a bound device query that includes tombstoned devices, because the
@@ -39,7 +41,11 @@ defmodule ServiceRadarWebNG.Mcp.IdentityDiagnostics do
          {:ok, identifiers} <-
            rows(scope, "in:device_identifiers device_id:#{literal} limit:#{row_limit}"),
          {:ok, evidence} <-
-           rows(scope, "in:identity_evidence_edges device:#{literal} limit:#{row_limit}") do
+           rows(scope, "in:identity_evidence_edges device:#{literal} limit:#{row_limit}"),
+         {:ok, decisions} <-
+           rows(scope, "in:identity_decisions device:#{literal} limit:#{row_limit}"),
+         {:ok, tasks} <-
+           rows(scope, "in:deduplication_tasks device:#{literal} limit:#{row_limit}") do
       {:ok,
        annotate_trace(%{
          "device_uid" => uid,
@@ -49,7 +55,9 @@ defmodule ServiceRadarWebNG.Mcp.IdentityDiagnostics do
          "merge_chain" => chain,
          "revivals" => revivals,
          "identifiers" => identifiers,
-         "evidence" => evidence
+         "evidence" => evidence,
+         "identity_decisions" => decisions,
+         "deduplication_tasks" => tasks
        })}
     end
   end
@@ -223,7 +231,9 @@ defmodule ServiceRadarWebNG.Mcp.IdentityDiagnostics do
       "direct_evidence_edges" => Enum.count(evidence, &(&1["direct"] == true)),
       "transitive_evidence_edges" => Enum.count(evidence, &(&1["direct"] == false)),
       "cross_partition_evidence" => Enum.any?(evidence, &(&1["cross_partition"] == true)),
-      "chain_truncated" => Enum.any?(payload["merge_chain"], &(&1["truncated"] == true))
+      "chain_truncated" => Enum.any?(payload["merge_chain"], &(&1["truncated"] == true)),
+      "identity_decision_count" => length(payload["identity_decisions"]),
+      "open_deduplication_tasks" => for(task <- payload["deduplication_tasks"], task["status"] == "open", do: task["id"])
     })
   end
 

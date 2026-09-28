@@ -82,7 +82,6 @@ RELEASE_IDENTIFIER_CARDINALITY = (
 )
 FIXED_EXTERNAL_RESOURCE_PATHS = (
     "test/integration/netflow_ingestion_integration_test.exs",
-    "test/integration/proxmox_api_smoke_integration_test.exs",
     "test/serviceradar/scans/adhoc_scan_nats_e2e_test.exs",
 )
 SERIAL_COMPOSITE_CHECK_SRCS = (
@@ -1583,7 +1582,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             'OSFamily: "linux"',
             'Arch: "amd64"',
             'dockerNetwork: "bridge"',
-            'memory: "50GB"',
+            'memory: "36GB"',
             'disk: "40GB"',
         ):
             self.assertIn(required, action)
@@ -1742,7 +1741,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
             'OSFamily: "linux"',
             'Arch: "amd64"',
             'dockerNetwork: "bridge"',
-            'memory: "50GB"',
+            'memory: "36GB"',
             'disk: "40GB"',
             "//:buildbuddy_setup_docker_auth",
         ):
@@ -2384,6 +2383,10 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         )
         self.assertIn(
             '"SERVICERADAR_LARGE_INGESTION_CHUNK_SIZE": "1000"', release_target
+        )
+        self.assertIn(
+            '"SERVICERADAR_TEST_DATABASE_OWNERSHIP_TIMEOUT_MS": "1800000"',
+            release_target,
         )
         self.assertIn('"integration_test",', release_target)
         self.assertIn('"large_ingestion_test",', release_target)

@@ -10,6 +10,7 @@ exports_files(
             "*.docker.json",
             "*.docker.toml",
             "*.mtls.json",
+            "profiles/*.env",
             "*.sh",
             "*.ts",
             "*.rs",

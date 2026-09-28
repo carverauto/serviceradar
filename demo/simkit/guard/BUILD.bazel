@@ -1,0 +1,24 @@
+# gazelle:ignore
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+package(default_visibility = ["//demo:__subpackages__"])
+
+go_library(
+    name = "guard",
+    srcs = ["guard.go"],
+    importpath = "github.com/carverauto/serviceradar/demo/simkit/guard",
+)
+
+go_test(
+    name = "guard_test",
+    size = "small",
+    srcs = ["guard_test.go"],
+    embed = [":guard"],
+)
+
+# This package's sources as a TinyGo plugin build sees them through the
+# workspace.
+filegroup(
+    name = "module_srcs",
+    srcs = ["guard.go"],
+)

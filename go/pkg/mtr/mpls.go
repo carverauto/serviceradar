@@ -112,9 +112,9 @@ func parseMPLSLabelEntries(data []byte) []MPLSLabel {
 		entry := binary.BigEndian.Uint32(data[:mplsLabelEntryLen])
 
 		labels = append(labels, MPLSLabel{
-			Label: int(entry >> 12),            //nolint:mnd
-			Exp:   int((entry >> 9) & 0x07),    //nolint:mnd
-			S:     (entry>>8)&0x01 == 1,        //nolint:mnd
+			Label: int(entry >> 12),         //nolint:mnd
+			Exp:   int((entry >> 9) & 0x07), //nolint:mnd
+			S:     (entry>>8)&0x01 == 1,     //nolint:mnd
 			TTL:   int(entry & 0xFF),
 		})
 

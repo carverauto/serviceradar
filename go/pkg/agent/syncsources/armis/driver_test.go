@@ -642,7 +642,7 @@ func TestSyncEnrichesConfiguredArmisAssetFields(t *testing.T) {
 					"next":0,
 					"prev":null,
 					"results":[
-						{"id":101,"ipAddress":"10.0.4.40","name":"fsfo027c.global.example.com"}
+						{"id":101,"ipAddress":"192.0.2.40","name":"host01.example.com"}
 					],
 					"total":1
 				},
@@ -685,8 +685,8 @@ func TestSyncEnrichesConfiguredArmisAssetFields(t *testing.T) {
 					{
 						"asset_id": 101,
 						"fields": {
-							"accessSwitch": "nsfocs-idfer1-asw001:2/20",
-							"vlans": [3006]
+							"accessSwitch": "switch01.example.com:1/1/20",
+							"vlans": [100]
 						}
 					}
 				],
@@ -737,10 +737,10 @@ func TestSyncEnrichesConfiguredArmisAssetFields(t *testing.T) {
 	if !ok {
 		t.Fatalf("metadata has type %T, want map[string]string", updates[0]["metadata"])
 	}
-	if got := metadata["armis_access_switch"]; got != "nsfocs-idfer1-asw001:2/20" {
+	if got := metadata["armis_access_switch"]; got != "switch01.example.com:1/1/20" {
 		t.Fatalf("metadata[armis_access_switch] = %q", got)
 	}
-	if got := metadata["armis_vlans"]; got != "[3006]" {
+	if got := metadata["armis_vlans"]; got != "[100]" {
 		t.Fatalf("metadata[armis_vlans] = %q", got)
 	}
 }

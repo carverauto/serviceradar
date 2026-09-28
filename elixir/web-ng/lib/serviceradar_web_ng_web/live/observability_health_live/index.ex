@@ -25,6 +25,10 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
   @capacity_skipped_visible_max 4
   @srql_default_limit 25
 
+  @doc "The anomaly-findings rollup the overview's summary counts read."
+  @spec health_query() :: String.t()
+  def health_query, do: @health_query
+
   @impl true
   def mount(_params, _session, socket) do
     {:ok,
@@ -640,7 +644,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
   defp parse_index(_), do: -1
 
   defp load_overview(scope, capacity_query) do
-    summary_result = query_rows(@health_query, scope)
+    summary_result = query_rows(health_query(), scope)
     summary = summary_counts(summary_result)
 
     capacity_result = query_rows(capacity_query, scope)

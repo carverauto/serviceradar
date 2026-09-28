@@ -54,7 +54,25 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Helpers do
   # read as if it only scoped the state changes, while the tag submit quietly
   # acted on the toolbar selection instead.
   def bulk_scope_form(scope \\ "selected") when is_binary(scope) do
-    to_form(%{"scope" => scope}, as: :bulk_scope)
+    to_form(%{"scope" => scope, "stop_on_error" => "false"}, as: :bulk_scope)
+  end
+
+  def bulk_error_form do
+    to_form(%{"stop_on_error" => "false"}, as: :bulk_error)
+  end
+
+  def availability_source_form do
+    to_form(%{"agent_id" => "", "stop_on_error" => "false"}, as: :availability_source)
+  end
+
+  def stop_on_error?(value), do: value in [true, "true", "on", "1"]
+
+  def on_error_mode(stop_on_error?) do
+    if stop_on_error?, do: :halt, else: :continue
+  end
+
+  def assigns_on_error_mode(assigns, key \\ :bulk_stop_on_error) do
+    on_error_mode(stop_on_error?(Map.get(assigns, key, false)))
   end
 
   def bulk_state_form(overrides \\ %{}) when is_map(overrides) do
@@ -70,6 +88,80 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Helpers do
   def format_transaction_error(reason) when is_binary(reason), do: reason
   def format_transaction_error(reason) when is_exception(reason), do: Exception.message(reason)
   def format_transaction_error(reason), do: inspect(reason)
+
+  @uid_write_batch 200
+
+  @doc """
+  How many device uids one write statement receives.
+
+  The batch is the size of one database call. Callers loop until every uid
+  in the selection has been applied.
+  """
+  def uid_write_batch, do: @uid_write_batch
+
+  @doc """
+  Apply `fun` to every uid, `uid_write_batch/0` at a time.
+
+  `fun` returns `{:ok, count}`, `{:ok, count, extra}`, or `:ok` for a batch.
+  The default is to keep going after a failed batch. Pass `on_error: :halt`
+  only when the operator asked to stop at the first error.
+
+  A finished walk is `{:ok, summary}`. A halted walk is `{:error, summary}`.
+  `summary` carries `:applied`, `:failed`, `:total`, `:errors`, and `:extras`.
+  """
+  def each_uid_batch(uids, fun, opts \\ []) when is_list(uids) and is_function(fun, 1) do
+    on_error = Keyword.get(opts, :on_error, :continue)
+
+    empty = %{applied: 0, failed: 0, total: length(uids), errors: [], extras: []}
+
+    uids
+    |> Enum.chunk_every(@uid_write_batch)
+    |> Enum.reduce_while({:ok, empty}, fn batch, {:ok, acc} ->
+      case fun.(batch) do
+        {:ok, count, extra} when is_integer(count) ->
+          {:cont, {:ok, add_batch(acc, count, extra)}}
+
+        {:ok, count} when is_integer(count) ->
+          {:cont, {:ok, add_batch(acc, count, nil)}}
+
+        :ok ->
+          {:cont, {:ok, add_batch(acc, length(batch), nil)}}
+
+        {:error, reason} ->
+          acc = %{acc | failed: acc.failed + length(batch), errors: [reason | acc.errors]}
+
+          if on_error == :halt do
+            {:halt, {:error, acc}}
+          else
+            {:cont, {:ok, acc}}
+          end
+      end
+    end)
+    |> normalize_batch_summary()
+  end
+
+  def batch_failure_message({:ok, %{applied: _, failed: _, total: _, errors: _} = summary}) do
+    "Updated #{summary.applied} of #{summary.total} device(s). #{summary.failed} failed: #{first_batch_error(summary.errors)}"
+  end
+
+  def batch_failure_message({:error, %{applied: _, total: _, errors: _} = summary}) do
+    "Stopped after updating #{summary.applied} of #{summary.total} device(s): #{first_batch_error(summary.errors)}"
+  end
+
+  def batch_failure_message({:error, reason}), do: format_transaction_error(reason)
+
+  defp add_batch(acc, count, nil), do: %{acc | applied: acc.applied + count}
+
+  defp add_batch(acc, count, extra) do
+    %{acc | applied: acc.applied + count, extras: [extra | acc.extras]}
+  end
+
+  defp normalize_batch_summary({status, acc}) do
+    {status, %{acc | errors: Enum.reverse(acc.errors), extras: Enum.reverse(acc.extras)}}
+  end
+
+  defp first_batch_error([reason | _]), do: format_transaction_error(reason)
+  defp first_batch_error(_), do: "unknown error"
 
   def handle_bulk_update_result(result, existing_count, requested_count) do
     case result do

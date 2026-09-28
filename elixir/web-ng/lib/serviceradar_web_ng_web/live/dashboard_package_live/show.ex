@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
   alias ServiceRadar.Dashboards.DashboardUserPreference
   alias ServiceRadar.Integrations.MapboxSettings
   alias ServiceRadarWebNG.Dashboards
+  alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.DashboardFrameChannel
   alias ServiceRadarWebNGWeb.DashboardPackageLive.AccessControls
   alias ServiceRadarWebNGWeb.DashboardPackageLive.Preferences
@@ -298,18 +299,18 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
       |> assign_sharing(instance)
       |> assign(
         :host_payload_json,
-        Jason.encode!(
-          host_payload(
-            instance,
-            package,
-            data_frames,
-            frames,
-            mapbox,
-            socket.assigns.frame_query_overrides,
-            stored_preferences(socket, instance.route_slug),
-            current_user_id(socket)
-          )
+        instance
+        |> host_payload(
+          package,
+          data_frames,
+          frames,
+          mapbox,
+          socket.assigns.frame_query_overrides,
+          stored_preferences(socket, instance.route_slug),
+          current_user_id(socket)
         )
+        |> Map.put("permissions", host_permissions(socket.assigns.current_scope, package))
+        |> Jason.encode!()
       )
 
     {:noreply, socket}
@@ -674,6 +675,18 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
     end
   end
 
+  # Host-side hints only; the relay API and the dashboard channel authorize every
+  # camera, action and event request again.
+  defp host_permissions(scope, %DashboardPackage{} = package) do
+    capabilities = package.capabilities || []
+
+    %{
+      "camera_stream_view" => "camera.stream.view" in capabilities and RBAC.can?(scope, "devices.view"),
+      "actions_invoke" => "actions.invoke" in capabilities and RBAC.can?(scope, "northbound.actions.launch"),
+      "events_subscribe" => "events.subscribe" in capabilities
+    }
+  end
+
   defp host_payload(
          %DashboardInstance{} = instance,
          %DashboardPackage{} = package,
@@ -698,7 +711,8 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
             instance.route_slug,
             data_frames,
             user_id,
-            active_optional_frame_ids(data_frames, overrides)
+            active_optional_frame_ids(data_frames, overrides),
+            package.capabilities || []
           ),
         "refresh_interval_ms" => 15_000
       },

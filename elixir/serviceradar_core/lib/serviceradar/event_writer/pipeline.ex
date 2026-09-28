@@ -23,6 +23,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   use Broadway
 
   alias Broadway.Message
+  alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.EventWriter.Config
   alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
   alias ServiceRadar.EventWriter.Processors.Events
@@ -210,6 +211,10 @@ defmodule ServiceRadar.EventWriter.Pipeline do
     |> build_batchers()
     |> Keyword.keys()
   end
+
+  @doc false
+  # The processor `handle_batch/4` runs for a batcher.
+  def processor_for_batcher(batcher), do: get_processor(batcher)
 
   @doc false
   # Builds span links from the W3C trace-context headers of up to
@@ -409,12 +414,88 @@ defmodule ServiceRadar.EventWriter.Pipeline do
         end
       end)
 
-    if Keyword.has_key?(stream_batchers, :default) do
-      stream_batchers
-    else
-      Keyword.put(stream_batchers, :default, batcher_opts)
+    stream_batchers =
+      if Keyword.has_key?(stream_batchers, :default) do
+        stream_batchers
+      else
+        Keyword.put(stream_batchers, :default, batcher_opts)
+      end
+
+    size_warehouse_batchers(stream_batchers, config, warehouse_sizing(config))
+  end
+
+  # Batchers whose processor loads the StarRocks warehouse. Each of their
+  # batches becomes one Stream Load call (split by rows/bytes in
+  # `Destination`), so their batch shape is the warehouse load shape.
+  @warehouse_batchers [
+    :flows_raw,
+    :flow_attribution,
+    :metrics,
+    :telemetry,
+    :logs,
+    :events,
+    :falco,
+    :trivy,
+    :mtr_results,
+    :bmp_causal,
+    :arancini_causal,
+    :siem_causal,
+    :analytics_predictions
+  ]
+
+  @doc false
+  def warehouse_batchers, do: @warehouse_batchers
+
+  defp warehouse_sizing(%Config{} = config) do
+    if Destination.enabled?() do
+      Map.merge(
+        %{max_ack_pending: config.max_ack_pending},
+        Map.new(Destination.stream_load_limits())
+      )
     end
   end
+
+  @doc false
+  # With the warehouse enabled, a warehouse batcher flushes after the Stream
+  # Load max age rather than the CNPG-sized batch timeout, and holds up to half
+  # of its consumer's `max_ack_pending` messages, whether that raises or caps
+  # the configured size: the producer cannot deliver more than
+  # `max_ack_pending` unacked messages, so a larger batch would only ever flush
+  # on age, and half leaves room for the next batch to fill while this one
+  # loads. Batchers sharing one consumer (`:events` and `:flow_attribution`
+  # both read EVENTS) split that headroom, so in the worst case they flush on
+  # age instead of stalling. A busy stream then flushes on size and a quiet one
+  # on age. Without the warehouse, or when `max_ack_pending` is unknown, the
+  # batch size is left as configured.
+  def size_warehouse_batchers(batchers, _config, nil), do: batchers
+
+  def size_warehouse_batchers(batchers, %Config{} = config, sizing) do
+    Enum.map(batchers, fn {name, opts} ->
+      if name in @warehouse_batchers do
+        max_ack_pending = batcher_max_ack_pending(config, name) || sizing.max_ack_pending
+        timeout = max(Keyword.fetch!(opts, :batch_timeout), sizing.max_age_ms)
+        size = batch_size_for(Keyword.fetch!(opts, :batch_size), max_ack_pending)
+        rest = Keyword.drop(opts, [:batch_size, :batch_timeout])
+        {name, [batch_size: size, batch_timeout: timeout] ++ rest}
+      else
+        {name, opts}
+      end
+    end)
+  end
+
+  defp batch_size_for(configured, nil), do: configured
+  defp batch_size_for(_configured, max_ack_pending), do: max(div(max_ack_pending, 2), 1)
+
+  defp batcher_max_ack_pending(%Config{streams: streams}, name) when is_list(streams) do
+    Enum.find_value(streams, fn stream ->
+      batcher =
+        if Config.flow_stream?(stream), do: :flows_raw, else: stream_to_batcher_name(stream.name)
+
+      if batcher == name, do: stream[:consumer_max_ack_pending]
+    end)
+  end
+
+  defp batcher_max_ack_pending(_config, _name), do: nil
 
   defp determine_batcher(subject) when is_binary(subject) do
     Enum.find_value(batcher_rules(), :default, fn {batcher, matcher} ->
@@ -499,6 +580,8 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       {:trivy, &trivy_subject?/1},
       {:k8s_nodes, &k8s_nodes_subject?/1},
       {:k8s_inventory, &k8s_inventory_subject?/1},
+      {:scan_results, &scan_results_subject?/1},
+      {:mtr_results, &mtr_results_subject?/1},
       {:otel_metrics, &String.starts_with?(&1, "otel.metrics")},
       {:otel_traces, &String.starts_with?(&1, "otel.traces")},
       {:metrics, &String.starts_with?(&1, "metrics.")},
@@ -563,6 +646,15 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       subject == "inventory.k8s.public_endpoints" or
         String.starts_with?(subject, "inventory.k8s.public_endpoints.")
 
+  # Ad-hoc scan and MTR results have dedicated streams and processors. Without a
+  # rule here they fall through to `:default`, whose processor acks and drops
+  # them, so the traces never reach storage.
+  defp scan_results_subject?(subject),
+    do: subject == "scans.results" or String.starts_with?(subject, "scans.results.")
+
+  defp mtr_results_subject?(subject),
+    do: subject == "mtr.results" or String.starts_with?(subject, "mtr.results.")
+
   defp get_processor(:otel_metrics), do: ServiceRadar.EventWriter.Processors.OtelMetrics
   defp get_processor(:otel_traces), do: ServiceRadar.EventWriter.Processors.OtelTraces
 
@@ -575,6 +667,8 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   defp get_processor(:trivy), do: ServiceRadar.EventWriter.Processors.TrivyReports
   defp get_processor(:k8s_inventory), do: ServiceRadar.EventWriter.Processors.K8sPublicEndpoints
   defp get_processor(:k8s_nodes), do: ServiceRadar.EventWriter.Processors.K8sNodes
+  defp get_processor(:scan_results), do: ServiceRadar.EventWriter.Processors.AdhocScan
+  defp get_processor(:mtr_results), do: ServiceRadar.EventWriter.Processors.Mtr
   defp get_processor(:bmp_causal), do: AnalyticsSignals
   defp get_processor(:arancini_causal), do: AnalyticsSignals
   defp get_processor(:siem_causal), do: AnalyticsSignals

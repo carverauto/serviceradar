@@ -44,7 +44,7 @@ defmodule ServiceRadar.PrefixTags.Trie do
   @empty_node %{}
 
   @impl true
-  def build(rows) when is_list(rows) do
+  def build(rows) do
     Enum.reduce(rows, empty(), fn row, acc ->
       case normalize_row(row) do
         {:ok, family, bits, mask, entry} ->

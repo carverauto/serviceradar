@@ -17,6 +17,7 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Analytics.StarRocks.Readers
+  alias ServiceRadar.Observability.FlowEndpointScan
   alias ServiceRadar.Observability.IpThreatIntelCache
   alias ServiceRadar.Observability.NetflowPortAnomalyFlag
   alias ServiceRadar.Observability.NetflowPortScanFlag
@@ -31,7 +32,6 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
 
   @default_scan_window_token "last_5m"
   @default_limit 200
-  @default_threat_candidate_limit 10_000
   @default_reschedule_seconds 86_400
   @min_reschedule_seconds 86_400
   @default_cache_ttl_seconds 86_400
@@ -106,8 +106,7 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
     limit = Keyword.get(config, :limit, @default_limit)
 
-    threat_candidate_limit =
-      Keyword.get(config, :threat_candidate_limit, @default_threat_candidate_limit)
+    scan_page_size = Keyword.get(config, :scan_page_size, FlowEndpointScan.default_page_size())
 
     reschedule_seconds =
       config
@@ -138,7 +137,7 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
         actor,
         now,
         cache_expires_at,
-        threat_candidate_limit,
+        scan_page_size,
         threat_match_window_seconds
       )
 
@@ -161,12 +160,11 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
          actor,
          now,
          expires_at,
-         limit,
+         scan_page_size,
          threat_match_window_seconds
        ) do
     started_at = System.monotonic_time()
-    time_token = window_seconds_to_token(threat_match_window_seconds, fallback: "last_1h")
-    ips = discover_candidate_ips(time_token, limit)
+    ips = discover_candidate_ips(threat_match_window_seconds, scan_page_size)
 
     # For now, keep matching simple: if threat intel is enabled, mark IPs as matched if any
     # indicator contains the IP. We do the match via SQL for index-backed CIDR containment.
@@ -211,8 +209,7 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
         matched_ip_count: matched_ip_count,
         indicator_match_count: indicator_match_count,
         source_count: source_count,
-        window_seconds: threat_match_window_seconds,
-        time_token: time_token
+        window_seconds: threat_match_window_seconds
       }
     )
 
@@ -244,12 +241,7 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
          expires_at,
          limit
        ) do
-    time_token = window_seconds_to_token(window_seconds)
-
-    q =
-      ~s|in:flows time:#{time_token} stats:"count_distinct(dst_endpoint_port) as unique_ports by src_endpoint_ip" sort:unique_ports:desc limit:#{limit}|
-
-    rows = q |> SRQLRunner.query() |> unwrap_rows()
+    rows = window_seconds |> port_scan_query(limit) |> SRQLRunner.query() |> unwrap_rows()
 
     Enum.each(rows, fn row ->
       src_ip = Map.get(row, "src_endpoint_ip") || Map.get(row, :src_endpoint_ip)
@@ -286,14 +278,8 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
          expires_at,
          limit
        ) do
-    baseline_token = window_seconds_to_token(baseline_seconds, fallback: "last_7d")
-    window_token = window_seconds_to_token(window_seconds)
-
-    current_q =
-      ~s|in:flows time:#{window_token} stats:"sum(bytes_total) as current_bytes by dst_endpoint_port" sort:current_bytes:desc limit:#{limit}|
-
-    baseline_q =
-      ~s|in:flows time:#{baseline_token} stats:"sum(bytes_total) as baseline_bytes_total by dst_endpoint_port" sort:baseline_bytes_total:desc limit:#{limit}|
+    %{current: current_q, baseline: baseline_q} =
+      port_anomaly_queries(baseline_seconds, window_seconds, limit)
 
     current = srql_query_to_int_map(current_q, "dst_endpoint_port", "current_bytes")
 
@@ -319,6 +305,39 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
   end
 
   defp maybe_refresh_anomalies(_settings, _actor, _now, _expires_at, _limit), do: :skip
+
+  @doc """
+  The port-scan query: distinct destination ports per source over the scan window.
+
+  Public so the query this worker sends can be checked against the StarRocks-vs-CNPG parity
+  inventory without a database (web-ng `WarehouseQueryInventoryTest`).
+  """
+  @spec port_scan_query(pos_integer(), pos_integer()) :: String.t()
+  def port_scan_query(window_seconds, limit) do
+    time_token = window_seconds_to_token(window_seconds)
+
+    ~s|in:flows time:#{time_token} stats:"count_distinct(dst_endpoint_port) as unique_ports by src_endpoint_ip" sort:unique_ports:desc limit:#{limit}|
+  end
+
+  @doc """
+  The port-anomaly queries: bytes per destination port over the scan window (`:current`) and
+  over the baseline window (`:baseline`). Public for the same reason as `port_scan_query/2`.
+  """
+  @spec port_anomaly_queries(pos_integer(), pos_integer(), pos_integer()) :: %{
+          current: String.t(),
+          baseline: String.t()
+        }
+  def port_anomaly_queries(baseline_seconds, window_seconds, limit) do
+    baseline_token = window_seconds_to_token(baseline_seconds, fallback: "last_7d")
+    window_token = window_seconds_to_token(window_seconds)
+
+    %{
+      current:
+        ~s|in:flows time:#{window_token} stats:"sum(bytes_total) as current_bytes by dst_endpoint_port" sort:current_bytes:desc limit:#{limit}|,
+      baseline:
+        ~s|in:flows time:#{baseline_token} stats:"sum(bytes_total) as baseline_bytes_total by dst_endpoint_port" sort:baseline_bytes_total:desc limit:#{limit}|
+    }
+  end
 
   defp unwrap_rows({:ok, rows}) when is_list(rows), do: rows
   defp unwrap_rows(_), do: []
@@ -396,34 +415,10 @@ defmodule ServiceRadar.Observability.NetflowSecurityRefreshWorker do
     trunc(baseline_per_window * (1.0 + threshold_percent / 100.0))
   end
 
-  defp discover_candidate_ips(scan_window, limit) do
-    base = "in:flows time:#{scan_window}"
-
-    src_query =
-      ~s|#{base} stats:"sum(bytes_total) as total_bytes by src_endpoint_ip" sort:total_bytes:desc limit:#{limit}|
-
-    dst_query =
-      ~s|#{base} stats:"sum(bytes_total) as total_bytes by dst_endpoint_ip" sort:total_bytes:desc limit:#{limit}|
-
-    src_ips = extract_ips(SRQLRunner.query(src_query), "src_endpoint_ip")
-    dst_ips = extract_ips(SRQLRunner.query(dst_query), "dst_endpoint_ip")
-
-    (src_ips ++ dst_ips)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 in ["", "—", "-", "Unknown"]))
-    |> Enum.uniq()
+  @doc false
+  def discover_candidate_ips(window_seconds, page_size, runner \\ SRQLRunner) do
+    FlowEndpointScan.discover(window_seconds, page_size, runner)
   end
-
-  defp extract_ips({:ok, rows}, key) when is_list(rows) and is_binary(key) do
-    Enum.flat_map(rows, fn
-      %{^key => ip} when is_binary(ip) -> [ip]
-      %{"result" => %{} = payload} -> extract_ips({:ok, [payload]}, key)
-      %{} -> []
-      _ -> []
-    end)
-  end
-
-  defp extract_ips(_other, _key), do: []
 
   defp threat_matches_for_ips(ips) when is_list(ips) do
     ips =

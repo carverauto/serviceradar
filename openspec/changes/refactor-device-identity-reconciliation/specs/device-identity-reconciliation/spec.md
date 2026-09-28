@@ -55,27 +55,6 @@ All ingestion paths (sync, mapper, hypervisor enrichment, wifi, camera, discover
 - **THEN** the device record is created via the identity reconciler (not direct resource creation)
 - **AND** its identifiers are registered in `device_identifiers`
 
-### Requirement: Merge Stability and Oscillation Protection
-The system SHALL prevent merge oscillation: weak or medium evidence (including confirmed IP aliases) MUST NOT merge two devices that hold distinct strong identities (e.g. different `agent_id` identifiers); a device pair that has merged in either direction within a configurable cooldown window MUST NOT be re-merged automatically (the attempt is blocked, audited, and alerted); merged-away device IDs MUST NOT be recreated by deterministic UID generation or identifier registration (canonical-alias lookup precedes creation).
-
-#### Scenario: IP alias cannot override agent identity
-- **GIVEN** device A holds `agent_id` identifier `agent-k8s-cp2-worker2` and device B holds `agent_id` identifier `agent-k8s-cp2-worker1`
-- **AND** an IP of device A is recorded as a confirmed alias of device B
-- **WHEN** an update for device A is processed
-- **THEN** devices A and B are NOT merged
-- **AND** the conflicting alias state is flagged for invalidation
-
-#### Scenario: Merge cooldown breaks ping-pong loops
-- **GIVEN** devices X and Y were merged within the cooldown window
-- **WHEN** a subsequent update would merge them again (in either direction)
-- **THEN** the merge is blocked and an oscillation alert is emitted with the pair history
-
-#### Scenario: Tombstoned device is not resurrected
-- **GIVEN** device F was merged into device T
-- **WHEN** a later update or agent hello produces device F's deterministic UID or one of its former identifiers
-- **THEN** resolution returns canonical device T
-- **AND** no new device record with F's ID is created
-
 ### Requirement: Agent Identity Is First-Class and Self-Healing
 The system SHALL ensure each distinct connected agent resolves to a distinct canonical device carrying that agent's `agent_id` identifier. A periodic repair job SHALL verify and restore agent↔device linkage (agent registration is not the only linkage opportunity). Merges SHALL preserve per-agent linkage and reassign `device_agent_availability` rows. A device acquiring a second connected agent's `agent_id` identifier SHALL be detected and split rather than silently collapsed.
 
@@ -96,7 +75,7 @@ The system SHALL ensure each distinct connected agent resolves to a distinct can
 - **AND** no additional device record is created
 
 ### Requirement: Cross-Source Identity Bridging
-Agent enrollment SHALL register host evidence beyond `agent_id`: the host's interface MAC addresses (subject to observer-exclusion rules), machine identifier when available, and normalized hostname as a medium-confidence corroborating identifier. Hypervisor enrichment SHALL register guest NIC MACs and normalized hostnames through the identity reconciler. Hostname matches MUST only corroborate (never serve as the sole basis for) a merge.
+Agent enrollment SHALL register host evidence beyond `agent_id`: the host's interface MAC addresses (subject to observer-exclusion rules), machine identifier when available, and normalized hostname as a medium-confidence corroborating identifier. Hypervisor enrichment SHALL register guest NIC MACs and normalized hostnames through the identity reconciler. A hostname match MUST NOT merge two existing devices and MUST NOT serve as the sole basis for a merge (see `Hostname Agreement Is Not Identity`).
 
 #### Scenario: Agent and Proxmox guest records converge
 - **GIVEN** a Proxmox guest record carrying the guest's NIC MAC and hostname
@@ -147,37 +126,19 @@ A one-time, audited remediation SHALL: remove invalid (multi-value/malformed) `m
 
 ## MODIFIED Requirements
 
-### Requirement: IP Alias Resolution
-The system SHALL resolve IP-only device updates using confirmed IP aliases before generating a new device ID. Alias-based resolution and alias-triggered merges MUST be subordinate to strong identity: a confirmed alias MUST NOT cause a merge between devices holding distinct strong identifiers, and alias states that conflict with strong identity SHALL be invalidated.
-
-#### Scenario: Interface-discovered IP alias resolves a sweep host
-- **GIVEN** a device `sr:<uuid>` has a confirmed IP alias `216.17.46.98` recorded from interface discovery
-- **WHEN** a sweep result arrives with host IP `216.17.46.98` and no strong identifiers
-- **THEN** DIRE SHALL resolve the update to the canonical device ID
-- **AND** SHALL NOT create a new device record for the alias IP
-
-#### Scenario: Strong-ID update conflicts with confirmed IP alias
-- **GIVEN** a device update with a strong identifier resolves to device ID X
-- **AND** the update IP is a confirmed alias for device ID Y (Y != X)
-- **AND** device Y does NOT hold a distinct strong identifier conflicting with X's
-- **WHEN** DIRE processes the update
-- **THEN** DIRE SHALL merge the alias device into the strong-ID canonical device
-
-#### Scenario: Alias conflicting with strong identity is invalidated
-- **GIVEN** a device update with strong identifier resolving to device X
-- **AND** the update IP is a confirmed alias for device Y, where Y holds a different `agent_id` identifier
-- **WHEN** DIRE processes the update
-- **THEN** no merge occurs
-- **AND** the alias state for that IP on device Y is invalidated and the conflict is audited
-
 ### Requirement: Scheduled Reconciliation Backfill
-The system SHALL run a scheduled reconciliation job that merges existing duplicate devices sharing strong identifiers and logs summary statistics for each run. The job SHALL be bounded (streaming/batched, never loading the full identifier table into memory), SHALL apply the same merge policy gates as ingest-time reconciliation (confidence rules, strong-identity guards, oscillation cooldown), and its scheduling health SHALL be monitored such that a silently-dead schedule raises an alert.
+The system SHALL run a scheduled reconciliation job that merges existing duplicate devices sharing strong identifiers, logs summary statistics for each run, and persists a durable run record for each run. The job SHALL be bounded (streaming/batched, never loading the full identifier table into memory), SHALL apply the same merge policy gates as ingest-time reconciliation (confidence rules, strong-identity guards, oscillation cooldown), and its scheduling health SHALL be monitored such that a silently-dead schedule raises an alert.
 
 #### Scenario: Scheduled reconciliation merges duplicates and logs results
 - **GIVEN** two device IDs that share the same strong identifier within a partition
 - **WHEN** the reconciliation job runs
 - **THEN** the non-canonical device SHALL be merged into the canonical device subject to merge policy gates
 - **AND** the job SHALL emit logs summarizing the number of duplicates scanned and merges performed
+
+#### Scenario: Run summary survives the run
+- **WHEN** the reconciliation job completes
+- **THEN** the job SHALL persist a run record containing the summary statistics
+- **AND** the record SHALL remain queryable after the process that produced it has exited
 
 #### Scenario: Backfill respects merge policy
 - **GIVEN** two devices whose only shared evidence is medium-confidence (e.g. locally-administered MAC or bare IP)

@@ -6,9 +6,8 @@ defmodule ServiceRadar.Inventory.SourceFacts.Events do
   emitted only on state changes.
   """
 
-  alias ServiceRadar.Analytics.StarRocks.Destination
+  alias ServiceRadar.Events.OcsfEventPublisher
   alias ServiceRadar.EventWriter.OCSF
-  alias ServiceRadar.Repo
 
   require Logger
 
@@ -55,17 +54,16 @@ defmodule ServiceRadar.Inventory.SourceFacts.Events do
         "configuration_conflict" =>
           disagreement[:configuration_conflict] || disagreement["configuration_conflict"] || false
       },
-      raw_data: %{}
+      raw_data: nil
     }
 
-    Repo.insert_all("ocsf_events", [row],
-      prefix: "platform",
-      on_conflict: :nothing,
-      conflict_target: [:time, :id],
-      returning: false
-    )
+    case OcsfEventPublisher.publish(row, family: :inventory) do
+      {:error, reason} when reason != :suppressed ->
+        Logger.warning("Source fact disagreement event failed: #{inspect(reason)}")
 
-    _ = Destination.persist_after_cnpg(:events, [row])
+      _ ->
+        :ok
+    end
 
     :ok
   rescue

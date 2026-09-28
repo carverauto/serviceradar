@@ -32,13 +32,33 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerIpDedupTest do
     update = %{
       device_id: nil,
       ip: ip,
-      mac: "AA:BB:CC:DD:EE:FF",
+      mac: "00:00:5E:00:53:FF",
       partition: "default",
       metadata: %{}
     }
 
     assert {:ok, resolved_id} = IdentityReconciler.resolve_device_id(update, actor: actor)
     refute resolved_id == device.uid
+  end
+
+  # #4760: a locally administered (randomized) MAC is not a strong identifier, so an update
+  # whose only MAC is one is an address-only sighting and IP fallback applies to it.
+  test "IP fallback applies to an update whose only MAC is locally administered", %{
+    actor: actor
+  } do
+    ip = unique_ip()
+    {:ok, device} = create_device(actor, ip, "existing-randomized-mac-device")
+
+    update = %{
+      device_id: nil,
+      ip: ip,
+      mac: unique_local_mac(),
+      partition: "default",
+      metadata: %{}
+    }
+
+    assert {:ok, resolved_id} = IdentityReconciler.resolve_device_id(update, actor: actor)
+    assert resolved_id == device.uid
   end
 
   test "IP fallback reuses existing device for weak updates", %{actor: actor} do
@@ -76,8 +96,15 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerIpDedupTest do
     |> Ash.create(actor: actor)
   end
 
+  # A locally administered MAC (0x02 set in the first octet) no other test registers.
+  defp unique_local_mac do
+    n = System.unique_integer([:positive, :monotonic])
+    "06" <> (n |> Integer.to_string(16) |> String.pad_leading(10, "0"))
+  end
+
+  # Benchmarking range (198.18.0.0/15), one address per call, never reused in this run.
   defp unique_ip do
-    suffix = rem(System.unique_integer([:positive]), 200) + 1
-    "10.250.0.#{suffix}"
+    n = System.unique_integer([:positive, :monotonic])
+    "198.#{18 + rem(div(n, 254 * 256), 2)}.#{rem(div(n, 254), 256)}.#{rem(n, 254) + 1}"
   end
 end

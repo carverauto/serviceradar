@@ -2,14 +2,14 @@
 
 Armis already returns wired attachment context. ServiceRadar stores it only as device metadata:
 
-- `metadata.armis_access_switch` = `<switch-hostname>:<port>` (examples: `niadcs-bldd03-asw001:gi1/3`, `nordcs-idfltc-asw001:1/1/41`)
-- `metadata.armis_vlans` = a JSON array string such as `[561]`
+- `metadata.armis_access_switch` = `<switch-hostname>:<port>` (examples: `switch01.example.com:gi1/0/7`, `switch02.example.com:1/1/41`)
+- `metadata.armis_vlans` = a JSON array string such as `[200]`
 
 `ocsf_devices.vlan_uid` already exists and is unused. `network_interfaces` is endpoint NIC inventory, not switch attachment. `add-armis-attachment-metadata` explicitly deferred topology-normalization.
 
 OpenText NOM (Network Automation `list device`, optional NNMi) is the next attachment source. Live NNMi `GET /nnmi/api/disco/v1/attachedSwitchPort` is an end-node L2 lookup: query by endpoint MAC (uppercase, no separators) or IP, then follow HAL links for switch hostname (`hostedOn`), port `ifName`, and optional VLAN title. VLAN titles are often names, not numeric IDs. The collection must run against ServiceRadar endpoints (Armis/sweep MAC/IP), not against the HPNA switch list.
 
-Identity disagreement already exists as `SourceIdentityDrift` / `platform.source_identity_conflicts`. Those rows withhold Armis northbound updates. Reusing them for "Armis says gi1/3, NNMi says 3/1/28" would mix fact comparison with identity repair.
+Identity disagreement already exists as `SourceIdentityDrift` / `platform.source_identity_conflicts`. Those rows withhold Armis northbound updates. Reusing them for "Armis says gi1/0/7, NNMi says 1/1/7" would mix fact comparison with identity repair.
 
 Wasm inventory plugins are not `IntegrationSource` rows. Armis is. Winner policy therefore cannot live only on `integration_sources.settings` or only in `plugin.yaml`.
 
@@ -40,16 +40,16 @@ Wasm inventory plugins are not `IntegrationSource` rows. Armis is. Winner policy
   - Shape:
     ```json
     {
-      "switch_hostname": "niadcs-bldd03-asw001",
+      "switch_hostname": "switch01.example.com",
       "switch_device_uid": null,
-      "port": "gi1/3",
+      "port": "gi1/0/7",
       "if_alias": null,
-      "vlan_id": "561",
+      "vlan_id": "200",
       "vlan_name": null,
       "source": "armis",
       "source_instance": "<source-id-or-instance>",
       "observed_at": "<rfc3339>",
-      "raw": "niadcs-bldd03-asw001:gi1/3"
+      "raw": "switch01.example.com:gi1/0/7"
     }
     ```
   - `vlan_uid` remains the OCSF scalar for the winning access/native VLAN id when it is numeric or otherwise stable. VLAN *names* from NNMi stay on the attachment object and in source metadata until a VLAN inventory exists.
@@ -82,7 +82,7 @@ Wasm inventory plugins are not `IntegrationSource` rows. Armis is. Winner policy
 
 - Decision: Normalize before compare, store both raw and normalized.
   - Switch hostname: trim, case-insensitive. Do not strip DNS suffixes unless both values share a suffix (v1 compares the hostname as stored).
-  - Port: trim, case-insensitive (`gi1/3` == `Gi1/3`). Do not strip media prefixes (`gi` vs `1/3`); that can collide.
+  - Port: trim, case-insensitive (`gi1/0/7` == `Gi1/0/7`). Do not strip media prefixes (`gi1/0/7` vs `1/0/7`); that can collide.
   - Armis parser: split `armis_access_switch` on the last colon into hostname and port.
   - VLAN: parse `armis_vlans` JSON/array/scalar; canonical `vlan_uid` is the single access VLAN when one numeric id is present. Extra VLANs stay in source metadata.
   - NNMi VLAN titles that are not ids populate `vlan_name` only.
@@ -105,7 +105,7 @@ Wasm inventory plugins are not `IntegrationSource` rows. Armis is. Winner policy
 ## Migration Plan
 
 1. Add nullable `switch_port_attachment` and the fact/disagreement/authority tables. Do not change Armis metadata writers.
-2. Parse existing `armis_access_switch` / `armis_vlans` into per-source facts and promote where no conflict exists (the current Daktronics-style rows).
+2. Parse existing `armis_access_switch` / `armis_vlans` into per-source facts and promote where no conflict exists (existing rows that carry Armis attachment metadata).
 3. Ship operator authority controls. Default remains conservative (no silent clobber).
 4. Enable disagreement events and the SRQL report.
 5. Add the optional NOM NNMi L2 pass against endpoint MAC/IP.

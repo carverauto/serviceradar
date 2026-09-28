@@ -16,21 +16,10 @@ defmodule ServiceRadar.Credentials.BrokerRetentionWorkerTest do
   defp now, do: ~U[2026-08-03 12:00:00Z]
 
   describe "cutoff_for/2" do
-    test "nil and :disabled produce no cutoff" do
-      assert Worker.cutoff_for(nil, now()) == nil
-      assert Worker.cutoff_for(:disabled, now()) == nil
-    end
-
-    test "zero and negative day counts produce no cutoff" do
-      assert Worker.cutoff_for(0, now()) == nil
-      assert Worker.cutoff_for(-1, now()) == nil
-      assert Worker.cutoff_for(-3650, now()) == nil
-    end
-
-    test "non-integer values produce no cutoff rather than a garbage one" do
-      assert Worker.cutoff_for("14", now()) == nil
-      assert Worker.cutoff_for(1.5, now()) == nil
-      assert Worker.cutoff_for(:forever, now()) == nil
+    test "anything but a positive integer produces no cutoff rather than a garbage one" do
+      for days <- [nil, :disabled, 0, -1, -3650, "14", 1.5, :forever] do
+        assert Worker.cutoff_for(days, now()) == nil, inspect(days)
+      end
     end
 
     test "positive integer subtracts days x 86400 seconds" do
@@ -41,14 +30,10 @@ defmodule ServiceRadar.Credentials.BrokerRetentionWorkerTest do
   end
 
   describe "pruning_plan/2" do
-    test "carries each window independently" do
-      plan = Worker.pruning_plan(%{grant_days: 14, audit_days: 30}, now())
-
-      assert plan.grant_cutoff == ~U[2026-07-20 12:00:00Z]
-      assert plan.audit_cutoff == ~U[2026-07-04 12:00:00Z]
-    end
-
     test "one window disabled does not disable the other" do
+      assert Worker.pruning_plan(%{grant_days: 14, audit_days: 30}, now()).audit_cutoff ==
+               ~U[2026-07-04 12:00:00Z]
+
       plan = Worker.pruning_plan(%{grant_days: 14, audit_days: :disabled}, now())
 
       assert plan.grant_cutoff == ~U[2026-07-20 12:00:00Z]

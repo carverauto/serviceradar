@@ -82,17 +82,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents do
           <div class="flex flex-wrap items-center justify-between gap-2 text-sm">
             <div class="flex items-center gap-4">
               <div class="flex items-center gap-2">
-                <span class="w-3 h-3 rounded-sm bg-success"></span>
+                <span class={["w-3 h-3 rounded-sm", availability_color(:online)]}></span>
                 <span class="tabular-nums font-semibold">{@online_checks}</span>
                 <span class="text-sr-muted">online buckets</span>
               </div>
               <div class="flex items-center gap-2">
-                <span class="w-3 h-3 rounded-sm bg-error"></span>
+                <span class={["w-3 h-3 rounded-sm", availability_color(:offline)]}></span>
                 <span class="tabular-nums font-semibold">{@offline_checks}</span>
                 <span class="text-sr-muted">offline buckets</span>
               </div>
               <div class="flex items-center gap-2">
-                <span class="w-3 h-3 rounded-sm bg-base-300"></span>
+                <span class={["w-3 h-3 rounded-sm", availability_color(:unknown)]}></span>
                 <span class="tabular-nums font-semibold">{@unknown_checks}</span>
                 <span class="text-sr-muted">unknown buckets</span>
               </div>
@@ -111,9 +111,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents do
     """
   end
 
-  defp availability_color(:online), do: "bg-success"
-  defp availability_color(:offline), do: "bg-error"
-  defp availability_color(:unknown), do: "bg-base-300"
+  defp availability_color(:online), do: "bg-emerald-500"
+  defp availability_color(:offline), do: "bg-red-500"
+  defp availability_color(:unknown), do: "bg-sr-line-strong"
 
   attr(:rows, :list, required: true)
   attr(:device_row, :map, default: %{})
@@ -225,8 +225,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents do
                   <td>
                     <span class={[
                       "inline-flex items-center gap-1",
-                      row.is_available && "text-success",
-                      !row.is_available && "text-error"
+                      row.is_available && "text-emerald-700 dark:text-emerald-300",
+                      !row.is_available && "text-red-700 dark:text-red-300"
                     ]}>
                       <span class="size-1.5 rounded-full bg-current"></span>
                       {if row.is_available, do: "Available", else: "Unavailable"}

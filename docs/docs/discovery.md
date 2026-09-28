@@ -13,6 +13,10 @@ Discovery keeps the registry aligned with real-world infrastructure. Use Mapper 
 - Writes interface observations into `discovered_interfaces` (timeseries, 3-day retention) and topology into `mapper_topology_links` (then projects into the topology graph; see [Network Topology](./network-topology.md)).
 - Supports provider API discovery alongside SNMP for selected platforms, including UniFi and MikroTik RouterOS.
 
+Each job's discovery mode is delivered to the agent: SNMP (`snmp`), API (`api`),
+or both (`snmp_api`). For target selection, scoped SNMP credentials, and handling
+credential failures, see [Mapper target credentials](./credentials.md#mapper-target-credentials).
+
 ## Discovery Types
 
 - **Mapper SNMP Discovery** – populates inventory, interfaces, and topology.

@@ -366,6 +366,35 @@ defmodule ServiceRadar.Plugins.ManifestTest do
     assert action.requires_confirmation == true
   end
 
+  test "northbound actions declare a maximum run override duration only when set" do
+    action = %{
+      "action_id" => "demo.inject_fault",
+      "label" => "Inject fault",
+      "scopes" => ["device"]
+    }
+
+    manifest =
+      Map.put(@valid_manifest, "actions", [
+        Map.put(action, "max_override_duration_seconds", 1800),
+        Map.put(action, "action_id", "demo.status")
+      ])
+
+    assert {:ok, parsed} = Manifest.from_map(manifest)
+    assert [with_max, without_max] = parsed.actions
+    assert with_max.max_override_duration_seconds == 1800
+    # Absent rather than nil, so existing descriptors keep their hash.
+    refute Map.has_key?(without_max, :max_override_duration_seconds)
+
+    assert {:error, errors} =
+             Manifest.from_map(
+               Map.put(@valid_manifest, "actions", [
+                 Map.put(action, "max_override_duration_seconds", 0)
+               ])
+             )
+
+    assert "actions[1].max_override_duration_seconds must be a positive integer" in errors
+  end
+
   test "northbound action descriptors reject provider-owned UI code" do
     manifest =
       Map.put(@valid_manifest, "actions", [
@@ -817,5 +846,57 @@ defmodule ServiceRadar.Plugins.ManifestTest do
         }
       ]
     })
+  end
+
+  describe "producer schedule target_input" do
+    defp schedule_manifest(target_input) do
+      @valid_manifest
+      |> Map.put("capabilities", ["get_config", "log", "submit_result", "producer-schedule:v1"])
+      |> Map.put("producer_schedules", [
+        %{
+          "schedule_id" => "interface_check",
+          "label" => "Interface check",
+          "action_id" => "interface.check",
+          "command_type" => "plugin.run_action",
+          "default_cadence_seconds" => 3_600,
+          "min_cadence_seconds" => 300,
+          "max_cadence_seconds" => 86_400,
+          "target_input" => target_input
+        }
+      ])
+    end
+
+    test "normalizes a valid target_input into the contract" do
+      assert {:ok, parsed} =
+               Manifest.from_map(
+                 schedule_manifest(%{
+                   "query_param" => "target_query",
+                   "fields_param" => "target_fields"
+                 })
+               )
+
+      assert [schedule] = parsed.producer_schedules
+
+      assert schedule["target_input"] == %{
+               "entity" => "devices",
+               "query_param" => "target_query",
+               "fields_param" => "target_fields",
+               "max_items" => 500
+             }
+    end
+
+    test "rejects malformed target_input" do
+      for bad <- [
+            %{"fields_param" => "target_fields"},
+            %{"query_param" => "Target Query"},
+            %{"query_param" => "target_query", "entity" => "interfaces"},
+            %{"query_param" => "target_query", "max_items" => 5_000},
+            %{"query_param" => "target_query", "surprise" => true},
+            "target_query"
+          ] do
+        assert {:error, errors} = Manifest.from_map(schedule_manifest(bad))
+        assert Enum.join(errors, " ") =~ "target_input"
+      end
+    end
   end
 end

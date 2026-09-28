@@ -21,43 +21,62 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents.BulkAvailability do
     scope = socket.assigns.current_scope
     agent_id = params |> Map.get("agent_id", "") |> blank_to_nil()
 
-    case apply_availability_source_to_devices(scope, socket, agent_id) do
-      {:ok, count} ->
+    case apply_availability_source_to_devices(scope, socket, agent_id, params) do
+      {:ok, %{failed: 0, applied: count}} ->
         label = if is_binary(agent_id), do: "Set availability source", else: "Cleared availability source"
         query = Map.get(socket.assigns.srql || %{}, :query, "")
 
         {:noreply,
          socket
          |> assign(:show_bulk_availability_source_modal, false)
-         |> assign(:availability_source_form, to_form(%{"agent_id" => ""}, as: :availability_source))
+         |> assign(:availability_source_form, Helpers.availability_source_form())
          |> assign(:selected_devices, MapSet.new())
          |> assign(:select_all_matching, false)
          |> assign(:total_matching_count, nil)
          |> put_flash(:info, "#{label} for #{count} device(s)")
          |> push_patch(to: Helpers.device_list_path(query, socket.assigns.limit))}
 
-      {:error, reason} ->
+      other ->
         {:noreply,
          socket
          |> assign(:availability_source_form, to_form(params, as: :availability_source))
-         |> put_flash(:error, "Failed to set availability source: #{reason}")}
+         |> put_flash(:error, Helpers.batch_failure_message(other))}
     end
   end
 
-  defp apply_availability_source_to_devices(scope, socket, agent_id) do
+  defp apply_availability_source_to_devices(scope, socket, agent_id, params) do
     case Selection.validate_device_selection(socket) do
       {:error, reason} ->
         {:error, reason}
 
       :ok ->
         case Selection.selected_uids(socket) do
-          [] -> {:error, "No devices selected"}
-          uids -> update_availability_source_for_uids(scope, uids, agent_id)
+          {:ok, []} ->
+            {:error, "No devices selected"}
+
+          {:ok, uids} ->
+            update_availability_source_for_uids(
+              scope,
+              uids,
+              agent_id,
+              Helpers.on_error_mode(Helpers.stop_on_error?(params["stop_on_error"]))
+            )
+
+          {:error, reason} ->
+            {:error, reason}
         end
     end
   end
 
-  defp update_availability_source_for_uids(scope, uids, agent_id) do
+  defp update_availability_source_for_uids(scope, uids, agent_id, on_error) do
+    Helpers.each_uid_batch(
+      uids,
+      fn batch -> update_availability_source_batch(scope, batch, agent_id) end,
+      on_error: on_error
+    )
+  end
+
+  defp update_availability_source_batch(scope, uids, agent_id) do
     query =
       Device
       |> Ash.Query.for_read(:read, %{}, scope: scope)

@@ -151,15 +151,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
           {:ok, skip_summary(:owner_not_authoritative)}
 
         selected_rule ->
-          reconcile_selected_rules(
-            [selected_rule],
-            agent_id,
-            nil,
-            profile,
-            purpose,
-            actor,
-            opts
-          )
+          reconcile_selected_rules([selected_rule], agent_id, profile, purpose, actor, opts)
       end
     else
       false -> {:ok, skip_summary(:owner_not_authoritative)}
@@ -182,7 +174,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
           {:ok, skip_summary(:no_matching_rules)}
 
         _ ->
-          reconcile_selected_rules(rules, agent_id, nil, profile, purpose, actor, opts)
+          reconcile_selected_rules(rules, agent_id, profile, purpose, actor, opts)
       end
     end
   end
@@ -262,8 +254,9 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   Returns the resolved SRQL target list (bounded by `opts[:target_limit]`,
   default 50) plus, per eligible purpose, the stored params template with
   secret material redacted. Secret refs are preserved (they are references, not
-  material); the credential-broker grant is ephemeral — no grant is persisted
-  and no secret is ever resolved.
+  material). The credential-broker grant is a placeholder that is never
+  persisted, never dispatched to an agent, and has its id masked in the output;
+  no secret is ever resolved.
 
   Options: `:actor`, `:resolver` (default `SRQLInputResolver`),
   `:target_limit`, `:agent_id` (defaults to the rule's agent scope value),
@@ -275,10 +268,14 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
     resolver = Keyword.get(opts, :resolver, SRQLInputResolver)
     target_limit = Keyword.get(opts, :target_limit, 50)
 
+    # The dry run only renders the policy template: it never calls the
+    # reconciler, so nothing it builds reaches an agent. It therefore uses the
+    # placeholder issuer unconditionally, even for a system actor that the
+    # default issuer would otherwise let persist a real grant.
     opts =
       opts
       |> Keyword.put(:actor, actor)
-      |> Keyword.put(:grant_issuer, &issue_ephemeral_test_grant/1)
+      |> Keyword.put(:grant_issuer, &dry_run_placeholder_grant/1)
 
     with {:ok, provider} <- required_string(rule, [:provider, "provider"], "provider"),
          {:ok, profile} <- profile_for_provider(provider, actor, opts),
@@ -406,24 +403,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
 
   defp target_in_rule_scope?(_row, _rule), do: false
 
-  @doc """
-  Reconciles already-loaded credential rules.
-
-  This is public so workers/tests can inject a package and avoid a database round
-  trip when the surrounding orchestration already has the records loaded.
-  """
-  @spec reconcile_rules([map()], String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
-  def reconcile_rules(rules, agent_id, package, opts \\ [])
-      when is_list(rules) and is_binary(agent_id) and is_map(package) do
-    actor = Keyword.get(opts, :actor, SystemActor.system(:credential_rule_reconcile))
-
-    with {:ok, profile} <- required_profile(opts),
-         {:ok, purpose} <- required_purpose(opts) do
-      reconcile_selected_rules(rules, agent_id, package, profile, purpose, actor, opts)
-    end
-  end
-
-  defp reconcile_selected_rules(rules, agent_id, package, profile, purpose, actor, opts) do
+  defp reconcile_selected_rules(rules, agent_id, profile, purpose, actor, opts) do
     reconciler = Keyword.get(opts, :reconciler, PolicyAssignmentReconciler)
 
     with {:ok, selected_rules} <- selected_rules_for_agent(profile, rules, agent_id, purpose) do
@@ -434,7 +414,6 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
               consumer,
               rule,
               agent_id,
-              package,
               profile,
               purpose,
               actor,
@@ -454,7 +433,6 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
          consumer,
          rule,
          agent_id,
-         package,
          profile,
          purpose,
          actor,
@@ -463,7 +441,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
          opts
        ) do
     if single_instance_owner?(consumer, rule, agent_id) do
-      case resolve_consumer_package(package, consumer, actor, opts) do
+      case approved_plugin_package(CredentialIntegration.plugin_id(consumer), actor, opts) do
         {:ok, resolved_package} ->
           case reconcile_rule(
                  profile,
@@ -614,20 +592,31 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
   end
 
   defp issue_grant(attrs, actor, opts, extras) do
-    issuer = Keyword.get(opts, :grant_issuer, default_grant_issuer(actor))
-
-    case issuer.(attrs) do
-      {:ok, %{} = grant} -> {:ok, CredentialBrokerGrant.to_payload(grant, extras)}
-      {:error, reason} -> {:error, reason}
-      other -> {:error, {:invalid_credential_broker_grant_issuer_result, other}}
+    with {:ok, issuer} <- grant_issuer(actor, opts) do
+      case issuer.(attrs) do
+        {:ok, %{} = grant} -> {:ok, CredentialBrokerGrant.to_payload(grant, extras)}
+        {:error, reason} -> {:error, reason}
+        other -> {:error, {:invalid_credential_broker_grant_issuer_result, other}}
+      end
     end
   end
 
+  defp grant_issuer(actor, opts) do
+    case Keyword.fetch(opts, :grant_issuer) do
+      {:ok, issuer} -> {:ok, issuer}
+      :error -> default_grant_issuer(actor)
+    end
+  end
+
+  # Only a system actor may issue the persisted grant a materialized assignment
+  # carries. Any other actor is refused: a grant id that was never persisted
+  # would reach the agent as a grant it can never redeem, and would skip the
+  # grant lifecycle's issue guard.
   defp default_grant_issuer(actor) do
     if SystemActor.system_actor?(actor) do
-      &issue_persisted_grant(&1, actor)
+      {:ok, &issue_persisted_grant(&1, actor)}
     else
-      &issue_ephemeral_test_grant/1
+      {:error, :grant_issuer_requires_system_actor}
     end
   end
 
@@ -637,11 +626,13 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
     |> CredentialBrokerGrant.issue_grant(actor: actor)
   end
 
-  defp issue_ephemeral_test_grant(attrs) do
+  # dry_run_rule/2 only: never persisted or dispatched, and mask_dry_run_grant/1
+  # replaces the id before the template is returned.
+  defp dry_run_placeholder_grant(attrs) do
     grant =
       attrs
       |> CredentialBrokerGrant.issue_attrs()
-      |> Map.put(:id, "test-grant-#{System.unique_integer([:positive])}")
+      |> Map.put(:id, "dry-run-placeholder")
 
     {:ok, grant}
   end
@@ -731,21 +722,6 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
     end
   end
 
-  defp required_profile(opts) do
-    case Keyword.get(opts, :profile) do
-      %{} = profile -> validate_target_policy_profile(profile)
-      _ -> {:error, :credential_profile_required}
-    end
-  end
-
-  defp required_purpose(opts) do
-    case Keyword.get(opts, :purpose) do
-      purpose when is_binary(purpose) and purpose != "" -> {:ok, purpose}
-      purpose when is_atom(purpose) -> {:ok, Atom.to_string(purpose)}
-      _ -> {:error, :credential_purpose_required}
-    end
-  end
-
   defp resolve_profile(%{} = profile, _actor, _opts), do: validate_target_policy_profile(profile)
 
   defp resolve_profile(provider, actor, opts) when is_binary(provider) do
@@ -781,33 +757,17 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializer do
       %{credential_profiles: profiles} when is_list(profiles) -> {:ok, profiles}
       %{"credential_profiles" => profiles} when is_list(profiles) -> {:ok, profiles}
       profiles when is_list(profiles) -> {:ok, profiles}
-      nil -> load_integration_profiles(actor, opts)
+      nil -> load_integration_profiles(actor)
       _ -> {:error, :invalid_plugin_integration_catalog}
     end
   end
 
-  defp load_integration_profiles(actor, opts) do
-    catalog_loader = Keyword.get(opts, :catalog_loader, &IntegrationCatalog.load/1)
-
-    case catalog_loader.(actor: actor) do
+  defp load_integration_profiles(actor) do
+    case IntegrationCatalog.load(actor: actor) do
       {:ok, %{credential_profiles: profiles}} -> {:ok, profiles}
       {:error, _reason} = error -> error
       _ -> {:error, :invalid_plugin_integration_catalog}
     end
-  end
-
-  defp resolve_consumer_package(%{} = package, consumer, _actor, _opts) do
-    expected_plugin_id = CredentialIntegration.plugin_id(consumer)
-
-    case value_string(package, [:plugin_id, "plugin_id"]) do
-      nil -> {:ok, package}
-      ^expected_plugin_id -> {:ok, package}
-      _ -> {:error, {:plugin_package_mismatch, expected_plugin_id}}
-    end
-  end
-
-  defp resolve_consumer_package(nil, consumer, actor, opts) do
-    approved_plugin_package(CredentialIntegration.plugin_id(consumer), actor, opts)
   end
 
   defp approved_plugin_package(plugin_id, actor, opts) do

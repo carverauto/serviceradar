@@ -104,3 +104,21 @@ k8sInventorySpoolDir is still honoured so existing values files keep working, bu
 {{- end -}}
 {{- $collector -}}
 {{- end }}
+
+{{/*
+sr-edge.boolDefaultTrue renders "true" or "false" for (list $dict "key").
+An absent key or a nil or empty value means true; an explicit false (the boolean
+or the string "false") renders "false". Use it instead of `default true $x.key`,
+which turns an explicit false back into true.
+*/}}
+{{- define "sr-edge.boolDefaultTrue" -}}
+{{- $d := index . 0 -}}
+{{- $k := index . 1 -}}
+{{- $v := "" -}}
+{{- if and (kindIs "map" $d) (hasKey $d $k) -}}{{- $v = index $d $k -}}{{- end -}}
+{{- if or (kindIs "invalid" $v) (eq (toString $v) "") -}}true
+{{- else if eq (lower (toString $v)) "false" -}}false
+{{- else if $v -}}true
+{{- else -}}false
+{{- end -}}
+{{- end -}}

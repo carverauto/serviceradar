@@ -450,9 +450,6 @@ config :serviceradar_core, ServiceRadar.PubSub,
   name: ServiceRadar.PubSub,
   adapter: Phoenix.PubSub.PG2
 
-# Ensure the gateway never starts the log promotion consumer.
-config :serviceradar_core, :log_promotion_consumer_enabled, false
-
 config :serviceradar_core, :spiffe,
   mode: spiffe_mode,
   trust_domain: System.get_env("SPIFFE_TRUST_DOMAIN", "serviceradar.local"),

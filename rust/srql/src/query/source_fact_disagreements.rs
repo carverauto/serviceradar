@@ -24,6 +24,7 @@ type DisagreementsQuery<'a> =
 
 pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result<Vec<Value>> {
     ensure_entity(plan)?;
+    super::reject_stats(plan, "source_fact_disagreements")?;
     let query = build_query(plan)?;
     let rows: Vec<SourceFactDisagreementRow> = query
         .select(SourceFactDisagreementRow::as_select())
@@ -41,6 +42,7 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
 
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
     ensure_entity(plan)?;
+    super::reject_stats(plan, "source_fact_disagreements")?;
     let query = build_query(plan)?.limit(plan.limit).offset(plan.offset);
     let sql = super::diesel_sql(&query)?;
     let mut params = Vec::new();

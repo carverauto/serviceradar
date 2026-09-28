@@ -54,8 +54,7 @@ use diesel::sql_types::{Array, Bool, Text};
 /// boolean, never NULL), so wrapping it in `NOT (...)` produces the exact
 /// complement. It binds no user input — every literal is hard-coded — so it
 /// contributes zero placeholders to the query.
-pub(in crate::query::devices) const AWX_MANAGED_PREDICATE: &str =
-    "(metadata -> 'awx' ->> 'host_id' IS NOT NULL \
+pub(in crate::query::devices) const AWX_MANAGED_PREDICATE: &str = "(metadata -> 'awx' ->> 'host_id' IS NOT NULL \
      OR metadata -> 'awx' ->> 'controller_id' IS NOT NULL \
      OR COALESCE(discovery_sources, ARRAY[]::text[]) && ARRAY['awx', 'ansible']::text[])";
 

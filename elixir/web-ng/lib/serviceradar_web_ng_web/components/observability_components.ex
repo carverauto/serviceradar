@@ -20,6 +20,10 @@ defmodule ServiceRadarWebNGWeb.ObservabilityComponents do
   attr :subtitle, :string, default: "Unified view of logs, traces, metrics, and infrastructure signals."
   attr :class, :any, default: nil
 
+  attr :tab_paths, :map,
+    default: %{},
+    doc: "Per-tab link overrides (tab id => path), e.g. to carry a service filter."
+
   slot :actions
 
   def observability_chrome(assigns) do
@@ -36,7 +40,11 @@ defmodule ServiceRadarWebNGWeb.ObservabilityComponents do
         </div>
       </div>
 
-      <.observability_tabs active_pane={@active_pane} tab_link_kind={@tab_link_kind} />
+      <.observability_tabs
+        active_pane={@active_pane}
+        tab_link_kind={@tab_link_kind}
+        tab_paths={@tab_paths}
+      />
       <.camera_relay_subtabs
         :if={@active_pane == "camera-relays"}
         active_subsection={@active_subsection}
@@ -47,6 +55,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityComponents do
 
   attr :active_pane, :string, required: true
   attr :tab_link_kind, :string, default: "navigate", values: ~w(navigate patch)
+  attr :tab_paths, :map, default: %{}
 
   def observability_tabs(assigns) do
     ~H"""
@@ -57,7 +66,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityComponents do
           label="Logs"
           icon="hero-rectangle-stack"
           active_pane={@active_pane}
-          path={~p"/observability/logs"}
+          path={Map.get(@tab_paths, "logs", ~p"/observability/logs")}
           link_kind={@tab_link_kind}
         />
         <.query_tab_button
@@ -65,7 +74,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityComponents do
           label="Traces"
           icon="hero-clock"
           active_pane={@active_pane}
-          path={~p"/observability/traces"}
+          path={Map.get(@tab_paths, "traces", ~p"/observability/traces")}
           link_kind={@tab_link_kind}
         />
         <.query_tab_button
@@ -73,7 +82,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityComponents do
           label="Metrics"
           icon="hero-chart-bar"
           active_pane={@active_pane}
-          path={~p"/observability/metrics"}
+          path={Map.get(@tab_paths, "metrics", ~p"/observability/metrics")}
           link_kind={@tab_link_kind}
         />
         <.query_tab_button
@@ -181,6 +190,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityComponents do
     ~H"""
     <.ui_button
       :if={@link_kind == "patch"}
+      id={"observability-tab-#{@id}"}
       patch={@path}
       size="sm"
       variant={if(@active?, do: "primary", else: "ghost")}
@@ -191,6 +201,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityComponents do
     </.ui_button>
     <.ui_button
       :if={@link_kind != "patch"}
+      id={"observability-tab-#{@id}"}
       navigate={@path}
       size="sm"
       variant={if(@active?, do: "primary", else: "ghost")}

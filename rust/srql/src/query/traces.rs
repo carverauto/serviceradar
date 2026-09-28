@@ -3,7 +3,7 @@ use crate::{
     error::{Result, ServiceError},
     jsonb::DbJson,
     models::TraceSpanRow,
-    parser::{Entity, Filter, FilterOp, OrderClause, OrderDirection},
+    parser::{Entity, Filter, FilterOp, OrderDirection},
     schema::otel_traces::dsl::{
         deployment_environment as col_deployment_environment, end_time_unix_nano as col_end,
         ingest_agent_id as col_ingest_agent_id, ingest_identity as col_ingest_identity,
@@ -108,10 +108,65 @@ pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindPar
 
 fn ensure_entity(plan: &QueryPlan) -> Result<()> {
     match plan.entity {
-        Entity::Traces => Ok(()),
+        Entity::Traces => refuse_unsupported_clauses(plan),
         _ => Err(ServiceError::InvalidRequest(
             "entity not supported by traces query".into(),
         )),
+    }
+}
+
+/// Plan clauses the span builders of either dialect have no translation for.
+/// They used to be ignored, returning a plain span listing for a query that
+/// asked for something else; now they are refused by name.
+pub(super) fn refuse_unsupported_clauses(plan: &QueryPlan) -> Result<()> {
+    if plan
+        .stats
+        .as_ref()
+        .is_some_and(|stats| !stats.as_raw().trim().is_empty())
+    {
+        return Err(ServiceError::InvalidRequest(
+            "stats: is not supported for traces; use rollup_stats:summary or rollup_stats:red, \
+             or stats: on otel_trace_summaries"
+                .into(),
+        ));
+    }
+    if plan.downsample.is_some() {
+        return Err(ServiceError::InvalidRequest(
+            "bucket: is not supported for traces".into(),
+        ));
+    }
+    // A rollup is one fixed aggregate row; a sort cannot shape it.
+    if let Some(kind) = plan
+        .rollup_stats
+        .as_deref()
+        .map(str::trim)
+        .filter(|kind| !kind.is_empty())
+        && !plan.order.is_empty()
+    {
+        return Err(ServiceError::InvalidRequest(format!(
+            "rollup_stats:{kind} cannot be combined with sort:"
+        )));
+    }
+    Ok(())
+}
+
+/// The filter fields each rollup accepts, and the rollup column each maps to.
+pub(super) fn rollup_filter_column(kind: &str, field: &str) -> Result<&'static str> {
+    match (kind, field) {
+        ("summary" | "red", "service_name" | "service.name") => Ok("service_name"),
+        ("red", "service_namespace" | "service.namespace") => Ok("service_namespace"),
+        ("red", "deployment_environment" | "deployment.environment") => {
+            Ok("deployment_environment")
+        }
+        ("summary", other) => Err(ServiceError::InvalidRequest(format!(
+            "rollup_stats:summary only supports service_name filter, got: '{other}'"
+        ))),
+        ("red", other) => Err(ServiceError::InvalidRequest(format!(
+            "rollup_stats:red only supports service_name, service_namespace, and deployment_environment filters, got: '{other}'"
+        ))),
+        (other, _) => Err(ServiceError::InvalidRequest(format!(
+            "unsupported rollup_stats type for traces: '{other}' (supported: summary, red)"
+        ))),
     }
 }
 
@@ -215,20 +270,10 @@ fn build_summary_rollup_stats(plan: &QueryPlan) -> Result<Option<TracesStatsSql>
 
     // Apply service_name filter if present
     for filter in &plan.filters {
-        match filter.field.as_str() {
-            "service_name" | "service.name" => {
-                if let Some((clause, mut values)) =
-                    build_rollup_text_clause("service_name", filter)?
-                {
-                    clauses.push(clause);
-                    binds.append(&mut values);
-                }
-            }
-            other => {
-                return Err(ServiceError::InvalidRequest(format!(
-                    "rollup_stats:summary only supports service_name filter, got: '{other}'"
-                )));
-            }
+        let column = rollup_filter_column("summary", filter.field.as_str())?;
+        if let Some((clause, mut values)) = build_rollup_text_clause(column, filter)? {
+            clauses.push(clause);
+            binds.append(&mut values);
         }
     }
 
@@ -272,16 +317,7 @@ fn build_red_rollup_stats(plan: &QueryPlan) -> Result<Option<TracesStatsSql>> {
     // Apply service_name / service_namespace / deployment_environment filters
     // if present (the spans_red_1h CAGG groups by all three).
     for filter in &plan.filters {
-        let column = match filter.field.as_str() {
-            "service_name" | "service.name" => "service_name",
-            "service_namespace" | "service.namespace" => "service_namespace",
-            "deployment_environment" | "deployment.environment" => "deployment_environment",
-            other => {
-                return Err(ServiceError::InvalidRequest(format!(
-                    "rollup_stats:red only supports service_name, service_namespace, and deployment_environment filters, got: '{other}'"
-                )));
-            }
-        };
+        let column = rollup_filter_column("red", filter.field.as_str())?;
         if let Some((clause, mut values)) = build_rollup_text_clause(column, filter)? {
             clauses.push(clause);
             binds.append(&mut values);
@@ -379,14 +415,13 @@ fn build_query(plan: &QueryPlan) -> Result<TracesQuery<'static>> {
         query = apply_filter(query, filter)?;
     }
 
-    query = apply_ordering(query, plan);
-    Ok(query)
+    apply_ordering(query, plan)
 }
 
 /// True when the plan pins the query to specific trace(s) by equality, in
 /// which case the natural default ordering is span start time (waterfall
 /// order) rather than ingest timestamp.
-fn has_trace_id_equality(plan: &QueryPlan) -> bool {
+pub(super) fn has_trace_id_equality(plan: &QueryPlan) -> bool {
     plan.filters.iter().any(|filter| {
         filter.field == "trace_id" && matches!(filter.op, FilterOp::Eq | FilterOp::In)
     })
@@ -632,58 +667,51 @@ fn apply_kind_filter<'a>(mut query: TracesQuery<'a>, filter: &Filter) -> Result<
     }
 }
 
-fn apply_ordering<'a>(mut query: TracesQuery<'a>, plan: &QueryPlan) -> TracesQuery<'a> {
-    let order: &[OrderClause] = &plan.order;
-    let mut applied = false;
-    for clause in order {
-        query = if !applied {
-            applied = true;
-            match clause.field.as_str() {
-                "timestamp" => match clause.direction {
-                    OrderDirection::Asc => query.order(col_timestamp.asc()),
-                    OrderDirection::Desc => query.order(col_timestamp.desc()),
-                },
-                "start_time_unix_nano" => match clause.direction {
-                    OrderDirection::Asc => query.order(col_start.asc()),
-                    OrderDirection::Desc => query.order(col_start.desc()),
-                },
-                "end_time_unix_nano" => match clause.direction {
-                    OrderDirection::Asc => query.order(col_end.asc()),
-                    OrderDirection::Desc => query.order(col_end.desc()),
-                },
-                "service_name" => match clause.direction {
-                    OrderDirection::Asc => query.order(col_service_name.asc()),
-                    OrderDirection::Desc => query.order(col_service_name.desc()),
-                },
-                _ => {
-                    applied = false;
-                    query
-                }
+/// Row sort fields both dialects accept. Any other field is refused: it used
+/// to be dropped, which returned spans in no particular order.
+pub(super) const ROW_SORT_FIELDS: &[&str] = &[
+    "timestamp",
+    "start_time_unix_nano",
+    "end_time_unix_nano",
+    "service_name",
+];
+
+pub(super) fn row_sort_column(field: &str) -> Result<&'static str> {
+    ROW_SORT_FIELDS
+        .iter()
+        .find(|name| **name == field)
+        .copied()
+        .ok_or_else(|| {
+            ServiceError::InvalidRequest(format!("unsupported sort field for traces: '{field}'"))
+        })
+}
+
+fn apply_ordering<'a>(mut query: TracesQuery<'a>, plan: &QueryPlan) -> Result<TracesQuery<'a>> {
+    for (index, clause) in plan.order.iter().enumerate() {
+        let first = index == 0;
+        query = match (row_sort_column(clause.field.as_str())?, clause.direction) {
+            ("timestamp", OrderDirection::Asc) if first => query.order(col_timestamp.asc()),
+            ("timestamp", OrderDirection::Desc) if first => query.order(col_timestamp.desc()),
+            ("timestamp", OrderDirection::Asc) => query.then_order_by(col_timestamp.asc()),
+            ("timestamp", OrderDirection::Desc) => query.then_order_by(col_timestamp.desc()),
+            ("start_time_unix_nano", OrderDirection::Asc) if first => query.order(col_start.asc()),
+            ("start_time_unix_nano", OrderDirection::Desc) if first => {
+                query.order(col_start.desc())
             }
-        } else {
-            match clause.field.as_str() {
-                "timestamp" => match clause.direction {
-                    OrderDirection::Asc => query.then_order_by(col_timestamp.asc()),
-                    OrderDirection::Desc => query.then_order_by(col_timestamp.desc()),
-                },
-                "start_time_unix_nano" => match clause.direction {
-                    OrderDirection::Asc => query.then_order_by(col_start.asc()),
-                    OrderDirection::Desc => query.then_order_by(col_start.desc()),
-                },
-                "end_time_unix_nano" => match clause.direction {
-                    OrderDirection::Asc => query.then_order_by(col_end.asc()),
-                    OrderDirection::Desc => query.then_order_by(col_end.desc()),
-                },
-                "service_name" => match clause.direction {
-                    OrderDirection::Asc => query.then_order_by(col_service_name.asc()),
-                    OrderDirection::Desc => query.then_order_by(col_service_name.desc()),
-                },
-                _ => query,
-            }
+            ("start_time_unix_nano", OrderDirection::Asc) => query.then_order_by(col_start.asc()),
+            ("start_time_unix_nano", OrderDirection::Desc) => query.then_order_by(col_start.desc()),
+            ("end_time_unix_nano", OrderDirection::Asc) if first => query.order(col_end.asc()),
+            ("end_time_unix_nano", OrderDirection::Desc) if first => query.order(col_end.desc()),
+            ("end_time_unix_nano", OrderDirection::Asc) => query.then_order_by(col_end.asc()),
+            ("end_time_unix_nano", OrderDirection::Desc) => query.then_order_by(col_end.desc()),
+            (_, OrderDirection::Asc) if first => query.order(col_service_name.asc()),
+            (_, OrderDirection::Desc) if first => query.order(col_service_name.desc()),
+            (_, OrderDirection::Asc) => query.then_order_by(col_service_name.asc()),
+            (_, OrderDirection::Desc) => query.then_order_by(col_service_name.desc()),
         };
     }
 
-    if !applied {
+    if plan.order.is_empty() {
         // Default ordering: when the query is pinned to specific trace ids,
         // return spans in waterfall (start time) order; otherwise newest-first.
         query = if has_trace_id_equality(plan) {
@@ -693,7 +721,7 @@ fn apply_ordering<'a>(mut query: TracesQuery<'a>, plan: &QueryPlan) -> TracesQue
         };
     }
 
-    query
+    Ok(query)
 }
 
 #[cfg(test)]
@@ -717,6 +745,7 @@ mod tests {
             rollup_stats: None,
             other: false,
             include_deleted: false,
+            exhaustive_window: false,
         }
     }
 

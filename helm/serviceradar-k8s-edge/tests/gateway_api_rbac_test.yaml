@@ -1,0 +1,33 @@
+suite: gateway API RBAC honours an explicit false
+templates:
+  - templates/rbac-inventory.yaml
+set:
+  clusterId: test-cluster
+  agent.gatewayAddress: gateway.example.com:50052
+  agent.existingTlsSecret: test-mtls
+tests:
+  - it: grants gateway API access when the flag is at its default
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: ["gateway.networking.k8s.io"]
+            resources: ["gateways", "httproutes", "grpcroutes", "tcproutes", "udproutes", "tlsroutes"]
+            verbs: ["get", "list", "watch"]
+        documentSelector:
+          path: kind
+          value: ClusterRole
+
+  - it: omits gateway API access when the flag is false
+    set:
+      k8sInventory.gatewayAPI.enabled: false
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups: ["gateway.networking.k8s.io"]
+            resources: ["gateways", "httproutes", "grpcroutes", "tcproutes", "udproutes", "tlsroutes"]
+            verbs: ["get", "list", "watch"]
+        documentSelector:
+          path: kind
+          value: ClusterRole

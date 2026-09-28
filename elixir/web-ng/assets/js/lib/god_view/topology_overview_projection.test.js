@@ -70,6 +70,29 @@ function denseLowTrustFanoutGraph(endpointCount = 160) {
 }
 
 describe("topology_overview_projection", () => {
+  it("keeps a physically connected hypervisor visible without expanding its guests", () => {
+    const overview = prepareTopologyOverviewInput({
+      nodes: [
+        {id: "switch.example.com", details: {type: "Switch"}},
+        {id: "compute.example.com", details: {type: "Hypervisor"}},
+        {id: "guest.example.com", details: {type: "Virtual"}},
+      ],
+      edges: [
+        {source: 0, target: 1, topologyClass: "backbone", evidenceClass: "direct"},
+        {source: 1, target: 2, topologyClass: "hosted", metadata: {relation_type: "HOSTED_ON"}},
+      ],
+    })
+
+    expect(overview.nodes.filter((node) => !node.synthetic).map((node) => node.id)).toEqual([
+      "compute.example.com",
+      "switch.example.com",
+    ])
+    expect(overview.treeRelations).toHaveLength(1)
+    expect(new Set([overview.treeRelations[0].sourceId, overview.treeRelations[0].targetId])).toEqual(
+      new Set(["switch.example.com", "compute.example.com"]),
+    )
+  })
+
   it("is invariant under shuffled farm01 input", () => {
     const forward = prepareTopologyOverviewInput(collapsedFarm01Graph())
     const shuffled = prepareTopologyOverviewInput(reverseGraphArrays(collapsedFarm01Graph()))

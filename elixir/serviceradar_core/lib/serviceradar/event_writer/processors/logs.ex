@@ -26,10 +26,12 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.IngestAttribution
+  alias ServiceRadar.EventWriter.LogSeverity
   alias ServiceRadar.EventWriter.OtelId
+  alias ServiceRadar.EventWriter.ServiceCatalog
   alias ServiceRadar.EventWriter.SignalTelemetry
+  alias ServiceRadar.EventWriter.StableId
   alias ServiceRadar.Observability.LogPromotion
-  alias ServiceRadar.Observability.LogPromotionParser
   alias ServiceRadar.Observability.LogPubSub
   alias ServiceRadar.Observability.Zen.Normalizer, as: ZenNormalizer
 
@@ -98,6 +100,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     case_result
     |> IngestAttribution.attach(attribution)
     |> redact_log_row()
+    |> stabilize_ids(metadata)
   end
 
   @doc false
@@ -144,8 +147,15 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
     cond do
       match?({:error, _}, shadow) -> shadow
       match?({:error, _}, promotion) -> promotion
-      true -> {:ok, count}
+      true -> record_services(rows, count)
     end
+  end
+
+  # After the batch is durable in every destination this mode requires (CNPG,
+  # plus StarRocks when logs are cut over). Best-effort: never fails the batch.
+  defp record_services(rows, count) do
+    _ = ServiceCatalog.record(:logs, rows)
+    {:ok, count}
   end
 
   defp parse_log_payload({:ok, json}, _data, metadata) do
@@ -312,7 +322,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   # Resolves {severity_text, severity_number}. When an explicit severity_text /
   # severity is present it wins. Otherwise a numeric GELF/syslog `level` is mapped
-  # through the shared LogPromotionParser.severity_from_level/1 helper so we always
+  # through `LogSeverity.from_level/1` so we always
   # populate BOTH columns (by_severity filtering + severity_color need
   # severity_number) and never store a bare 0-7 int as severity_text. This is the
   # Elixir-side complement to the bundled `syslog_severity` Zen rule.
@@ -329,7 +339,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
         {text, number}
 
       not is_nil(json["level"]) ->
-        {level_text, level_number} = LogPromotionParser.severity_from_level(json["level"])
+        {level_text, level_number} = LogSeverity.from_level(json["level"])
         {level_text, number || level_number}
 
       true ->
@@ -690,6 +700,30 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
       normalized in @sensitive_log_keys or
         Enum.any?(@sensitive_log_keys, fn key -> String.ends_with?(normalized, "_#{key}") end)
     end)
+  end
+
+  # A message that came from JetStream gets row ids derived from its identity
+  # and each record's position in it, so a redelivery after a failed batch
+  # conflicts with the rows already stored and promotes nothing twice. A
+  # message with no JetStream identity keeps its generated ids.
+  defp stabilize_ids(nil, _metadata), do: nil
+
+  defp stabilize_ids(parsed, metadata) do
+    case StableId.message_identity(metadata) do
+      nil ->
+        parsed
+
+      identity ->
+        stable =
+          parsed
+          |> List.wrap()
+          |> Enum.with_index()
+          |> Enum.map(fn {row, index} ->
+            Map.put(row, :id, StableId.uuid("log:#{identity}:#{index}"))
+          end)
+
+        if is_list(parsed), do: stable, else: hd(stable)
+    end
   end
 
   defp generated_uuid do

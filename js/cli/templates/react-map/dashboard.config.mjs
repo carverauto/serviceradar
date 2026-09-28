@@ -6,14 +6,14 @@ export default defineDashboardConfig({
     name: "__DASHBOARD_TITLE__",
     version: "0.1.0",
     vendor: "__DASHBOARD_TITLE__",
-    description: "Map dashboard powered by useDeckMap + useDeckLayers.",
+    description: "Map dashboard powered by useDeckMap + useDeckLayers + useScreenLod.",
     capabilities: ["srql.execute", "map.basemap.read"],
     data_frames: [
       {
         id: "sites",
-        query: "in:wifi_sites limit:500",
+        query: "in:wifi_sites limit:2000",
         encoding: "json_rows",
-        limit: 500,
+        limit: 2000,
         required: true,
         coordinates: {longitude: "longitude", latitude: "latitude"},
         fields: [
@@ -43,5 +43,6 @@ export default defineDashboardConfig({
   fixtures: {
     "all-regions": "fixtures/sample-frames.json",
     "americas-only": "fixtures/americas-only.json",
+    "dense-synthetic": "fixtures/dense-synthetic.json",
   },
 })

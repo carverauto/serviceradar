@@ -5,7 +5,7 @@ title: Prefix Tags (flow enrichment)
 # Prefix Tags
 
 Prefix tags attach business context (site, role, tenant, zone, …) to every
-NetFlow/sFlow/IPFIX row at ingest time using an in-memory longest-prefix-match
+NetFlow/sFlow/IPFIX row at ingest time using a longest-prefix-match
 (LPM) trie. Tags are imported from NetBox IPAM (and can be authored manually)
 and are queryable in SRQL and the flow UI.
 
@@ -19,8 +19,8 @@ feature. Design background lives in OpenSpec change
 | Piece | Where |
 |-------|--------|
 | Source of truth | CNPG tables `platform.prefix_tag_snapshots`, `platform.prefix_tags` |
-| Hot-path lookup | Pure-Elixir LPM trie in `:persistent_term` (`ServiceRadar.PrefixTags`) |
-| Replication | Per-node `PrefixTags.Loader` on core-elx and web-ng; PubSub topic `prefix_tags:snapshot` |
+| Hot-path lookup | Immutable native trie resource published through `:persistent_term` (`ServiceRadar.PrefixTags.Store`); the pure-Elixir `Trie` remains available by explicit engine override |
+| Replication | Per-node `PrefixTags.Loader` for snapshot-backed sources; external provider, threat-intel, and DNS-policy tries are built only on core ingestion nodes. PubSub topic: `prefix_tags:snapshot` |
 | Import | Oban `:maintenance` worker `ServiceRadar.PrefixTags.NetboxImportWorker` |
 | Enrichment | EventWriter `FlowEnrichment` → columns `src_prefix_tags` / `dst_prefix_tags` (+ provenance) |
 | Feature flag | `:prefix_tag_enrichment_enabled` (default **off**; enable after migrations) |
@@ -60,7 +60,10 @@ WHERE is_active;
 
 5. Manage manual prefixes and preview lookups under **Settings → Network
    Services → Prefix Tags** (`/settings/networks/prefix-tags`). Imported
-   sources (NetBox, provider, ti, dns-policy) are read-only tabs.
+   sources (NetBox, provider, ti, dns-policy) are read-only tabs. Authorized
+   previews query core's current ingestion snapshot; if core is unavailable or
+   still loading, the UI reports preview unavailability rather than an empty
+   match.
 6. **After** migrations are applied on every EventWriter / core-elx node, enable
    tag columns:
 
@@ -186,8 +189,9 @@ SET is_active = FALSE, status = 'superseded', updated_at = now()
 WHERE is_active AND source = 'netbox';
 ```
 
-Then broadcast is optional (loaders will empty on next failed/empty load or
-process restart). Prefer promoting a new empty import only when intentional.
+Broadcast invalidation or restart loaders to clear the deactivated source.
+A failed load retains the last good snapshot; it does not clear it. Prefer
+promoting a new empty import only when intentional.
 
 ## Manual tags
 
@@ -209,16 +213,21 @@ Permission: `settings.prefix_tags.manage` (operator+ by default).
 
 ## Performance notes
 
-- Lookups are local and GC-friendly (`:persistent_term`).
+- Ingestion lookups use an immutable native resource in `:persistent_term` and
+  copy only matching entries into BEAM maps. CNPG reads use repeatable-read
+  transactions and 2,048-row cursor batches; a changed snapshot is built before
+  publication, while an unchanged fingerprint or provider snapshot token skips
+  construction. Failed builds retain the prior snapshot.
+- The pure-Elixir trie remains an explicit `:prefix_tags_engine` override for
+  tests and diagnosis; native load failures do not automatically fall back.
 - Synthetic bench (default 5k prefixes): well above 10k lookups/s on developer
   hardware.
   - Full size: `PREFIX_TAG_BENCH_SIZE=400000 mix test
     test/serviceradar/prefix_tags/benchmark_test.exs --include benchmark --no-start`
   - Multi-source (bench + provider co-resident): add
     `PREFIX_TAG_BENCH_MULTI_SOURCE=1`
-- M1 design gate: if EventWriter P99 batch latency rises more than ~5% with the
-  flag on at production volume, evaluate a Rustler NIF behind the same
-  `PrefixTags.Engine` behaviour (no API change).
+- Watch EventWriter P99 batch latency with enrichment enabled; the native
+  engine implements the existing `PrefixTags.Engine` behaviour.
 - Rollback provider path: set `prefix_tag_provider_trie_enabled: false` to
   force per-batch GiST SQL lookups (no cross-batch ETS cache; the provider
   trie is the durable LPM cache).

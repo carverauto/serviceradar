@@ -56,6 +56,8 @@ type mtrCheckConfig struct {
 	ProbeIntervalMs int
 	PacketSize      int
 	DNSResolve      bool
+	TCPPort         int
+	TCPSynRetries   int
 }
 
 type mtrCheckResult struct {
@@ -230,6 +232,8 @@ func (p *PushLoop) runMtrCheck(ctx context.Context, check *mtrCheckConfig) mtrCh
 		DNSResolve:     check.DNSResolve,
 		MaxUnknownHops: mtr.DefaultMaxUnknownHops,
 		RingBufferSize: mtr.DefaultRingBufferSize,
+		TCPPort:        check.TCPPort,
+		TCPSynRetries:  check.TCPSynRetries,
 	}
 
 	tracer, err := mtr.NewTracer(checkCtx, opts, p.logger)
@@ -360,6 +364,8 @@ func parseMtrCheckConfig(check *proto.AgentCheckConfig) *mtrCheckConfig {
 		ProbeIntervalMs: mtr.DefaultProbeIntervalMs,
 		PacketSize:      mtr.DefaultPacketSize,
 		DNSResolve:      true,
+		TCPPort:         mtr.DefaultTCPPort,
+		TCPSynRetries:   mtr.DefaultTCPSynRetries,
 	}
 
 	if check.Settings != nil {
@@ -401,6 +407,18 @@ func parseMtrCheckConfig(check *proto.AgentCheckConfig) *mtrCheckConfig {
 			}
 		}
 
+		if v, ok := check.Settings["tcp_port"]; ok {
+			if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && validMtrTCPPort(n) {
+				cfg.TCPPort = n
+			}
+		}
+
+		if v, ok := check.Settings["tcp_syn_retries"]; ok {
+			if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && validMtrTCPSynRetries(n) {
+				cfg.TCPSynRetries = n
+			}
+		}
+
 		if v, ok := check.Settings["dns_resolve"]; ok {
 			cfg.DNSResolve = strings.ToLower(v) != "false"
 		}
@@ -419,4 +437,14 @@ func clampInt(v, maxV int) int {
 	}
 
 	return v
+}
+
+// validMtrTCPSynRetries reports whether n is an allowed handshake retry count.
+func validMtrTCPSynRetries(n int) bool {
+	return n >= 0 && n <= mtr.MaxTCPSynRetries
+}
+
+// validMtrTCPPort reports whether n is usable as a TCP trace destination port.
+func validMtrTCPPort(n int) bool {
+	return n > 0 && n <= 65535
 }

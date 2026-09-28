@@ -9,6 +9,7 @@ tests:
   - it: publishes the shipped per-dataset retention policy when starrocks is enabled
     set:
       analytics.starrocks.enabled: true
+      analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
     documentSelector:
       path: kind
       value: Deployment
@@ -17,13 +18,13 @@ tests:
           path: spec.template.spec.containers[0].env
           content:
             name: SERVICERADAR_STARROCKS_RETENTION_DAYS_FLOWS
-            value: "90"
+            value: "365"
           count: 1
       - contains:
           path: spec.template.spec.containers[0].env
           content:
             name: SERVICERADAR_STARROCKS_RETENTION_DAYS_METRICS
-            value: "90"
+            value: "365"
           count: 1
       - contains:
           path: spec.template.spec.containers[0].env
@@ -37,12 +38,31 @@ tests:
             name: SERVICERADAR_STARROCKS_RETENTION_DAYS_EVENTS
             value: "365"
           count: 1
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_STARROCKS_RETENTION_DAYS_MTR
+            value: "365"
+          count: 1
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_STARROCKS_RETENTION_DAYS_OTEL
+            value: "365"
+          count: 1
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_STARROCKS_RETENTION_DAYS_TRACES
+            value: "365"
+          count: 1
 
   # The hourly views refresh asynchronously with no schedule, so readers need
   # the operator's lag tolerance in the env to know when to stop trusting them.
   - it: publishes the rollup staleness threshold when starrocks is enabled
     set:
       analytics.starrocks.enabled: true
+      analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
     documentSelector:
       path: kind
       value: Deployment
@@ -59,6 +79,7 @@ tests:
   - it: lets the rollup staleness threshold be retuned
     set:
       analytics.starrocks.enabled: true
+      analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
       analytics.starrocks.rollupStaleAfterSeconds: 3600
     documentSelector:
       path: kind
@@ -77,6 +98,7 @@ tests:
   - it: honours a zero rollup staleness threshold literally
     set:
       analytics.starrocks.enabled: true
+      analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
       analytics.starrocks.rollupStaleAfterSeconds: 0
     documentSelector:
       path: kind
@@ -94,6 +116,7 @@ tests:
   - it: publishes the rollup freshness cache ttl when starrocks is enabled
     set:
       analytics.starrocks.enabled: true
+      analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
     documentSelector:
       path: kind
       value: Deployment
@@ -110,6 +133,7 @@ tests:
   - it: honours a zero rollup freshness cache ttl literally
     set:
       analytics.starrocks.enabled: true
+      analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
       analytics.starrocks.rollupCacheTtlSeconds: 0
     documentSelector:
       path: kind
@@ -126,6 +150,7 @@ tests:
   - it: lets one dataset be retuned without moving the others
     set:
       analytics.starrocks.enabled: true
+      analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
       analytics.starrocks.retentionDays.flows: 30
     documentSelector:
       path: kind
@@ -156,3 +181,33 @@ tests:
           content:
             name: SERVICERADAR_STARROCKS_RETENTION_DAYS_FLOWS
             value: "90"
+
+  # Stream Load sizing reaches core from the analytics ConfigMap, so a change
+  # rolls core through its checksum; before this the keys were rendered and
+  # never read.
+  - it: publishes the Stream Load sizing from the analytics ConfigMap
+    set:
+      analytics.starrocks.enabled: true
+      analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_STARROCKS_STREAM_LOAD_MAX_BYTES
+            valueFrom:
+              configMapKeyRef:
+                name: serviceradar-starrocks-analytics
+                key: streamLoadMaxBytes
+          count: 1
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_STARROCKS_STREAM_LOAD_MAX_AGE_MS
+            valueFrom:
+              configMapKeyRef:
+                name: serviceradar-starrocks-analytics
+                key: streamLoadMaxAgeMs
+          count: 1

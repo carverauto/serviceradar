@@ -1,6 +1,6 @@
 //! SRQL `in:threat_intel_matches` — current IP/CIDR cache-to-indicator memberships.
 
-use super::{bind_sql_param, BindParam, QueryPlan};
+use super::{BindParam, QueryPlan, bind_sql_param};
 use crate::{
     error::{Result, ServiceError},
     jsonb::DbJson,
@@ -493,7 +493,7 @@ mod tests {
     use crate::{
         config::AppConfig,
         parser,
-        query::{build_query_plan, QueryRequest},
+        query::{QueryRequest, build_query_plan},
     };
 
     fn plan(query: &str) -> QueryPlan {
@@ -503,6 +503,7 @@ mod tests {
             cursor: None,
             direction: Default::default(),
             mode: None,
+            permitted_signals: None,
         };
         let ast = parser::parse(query).expect("parse threat_intel_matches query");
         build_query_plan(
@@ -524,9 +525,11 @@ mod tests {
         assert!(sql.contains("c.matched"));
         assert!(sql.contains("evaluated_at"));
         assert!(sql.contains("i.source = $"));
-        assert!(binds
-            .iter()
-            .any(|bind| matches!(bind, BindParam::Text(value) if value == "alienvault_otx")));
+        assert!(
+            binds
+                .iter()
+                .any(|bind| matches!(bind, BindParam::Text(value) if value == "alienvault_otx"))
+        );
         assert!(!sql.contains("observed_at"));
     }
 
@@ -566,6 +569,7 @@ mod tests {
                         cursor: None,
                         direction: Default::default(),
                         mode: None,
+                        permitted_signals: None,
                     },
                     ast,
                 )

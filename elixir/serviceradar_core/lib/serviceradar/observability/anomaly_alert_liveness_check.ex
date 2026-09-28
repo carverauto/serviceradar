@@ -15,7 +15,6 @@ defmodule ServiceRadar.Observability.AnomalyAlertLivenessCheck do
   alias Ash.Page.Keyset
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Monitoring.Alert
-  alias ServiceRadar.Monitoring.OcsfEvent
   alias ServiceRadar.Observability.RuleSeeder
   alias ServiceRadar.Observability.StatefulAlertEngine
   alias ServiceRadar.Observability.StatefulAlertRule
@@ -97,37 +96,12 @@ defmodule ServiceRadar.Observability.AnomalyAlertLivenessCheck do
     end
   end
 
+  # Only the alert is discarded: the probe's fired event is never published
+  # (`OcsfEventPublisher` holds back synthetic liveness events), so there is
+  # no stored event to clean up.
   defp discard_probe_artifacts(%Alert{} = alert) do
-    actor = SystemActor.system(:anomaly_alert_liveness_cleanup)
-
-    with :ok <- discard_probe_event(actor, alert) do
-      discard_probe_alert(actor, alert)
-    end
+    discard_probe_alert(SystemActor.system(:anomaly_alert_liveness_cleanup), alert)
   end
-
-  defp discard_probe_event(actor, %Alert{event_id: event_id, event_time: event_time})
-       when is_binary(event_id) and not is_nil(event_time) do
-    query =
-      OcsfEvent
-      |> Ash.Query.for_read(:read, %{}, actor: actor)
-      |> Ash.Query.filter(id == ^event_id and time == ^event_time)
-
-    case Ash.read_one(query, actor: actor) do
-      {:ok, nil} ->
-        :ok
-
-      {:ok, event} ->
-        event
-        |> Ash.Changeset.for_destroy(:discard_internal_probe, %{}, actor: actor)
-        |> Ash.destroy()
-        |> normalize_discard_result(:event)
-
-      {:error, reason} ->
-        {:error, {:synthetic_event_lookup_failed, reason}}
-    end
-  end
-
-  defp discard_probe_event(_actor, _alert), do: {:error, :synthetic_event_identity_missing}
 
   defp discard_probe_alert(actor, alert) do
     alert

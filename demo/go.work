@@ -1,0 +1,12 @@
+go 1.25
+
+// Every demo Go module. `go work vendor` puts their external dependencies
+// (the released serviceradar-sdk-go tag, pinned in each go.mod and checked
+// against go.sum) in ./vendor, and the TinyGo builds run with -mod=vendor.
+// In-repo modules are used from their directories, never copied.
+use (
+	./hello-sim
+	./pluginkit
+	./simkit
+	./simkit/internal/tinygocheck
+)

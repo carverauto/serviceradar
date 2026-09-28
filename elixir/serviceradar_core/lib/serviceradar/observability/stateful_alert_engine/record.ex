@@ -128,7 +128,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Record do
 
     %{
       "source_signal" => "event",
-      "source_event_id" => to_string(fetch_attr(record, :id)),
+      "source_event_id" => canonical_source_id(fetch_attr(record, :id)),
       "source_event_time" => fetch_attr(record, :time),
       "source_log_name" => fetch_attr(record, :log_name),
       "source_log_provider" => fetch_attr(record, :log_provider),
@@ -141,11 +141,26 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Record do
   def log_source_details(record) do
     %{
       "source_signal" => "log",
-      "source_log_id" => to_string(fetch_attr(record, :id)),
+      "source_log_id" => canonical_source_id(fetch_attr(record, :id)),
       "source_log_time" => fetch_attr(record, :timestamp),
       "source_service" => fetch_attr(record, :service_name)
     }
   end
+
+  @doc """
+  Canonicalizes a record's database id for JSON metadata.
+
+  Bulk-insert event/log rows carry a PostgreSQL `uuid` as 16 raw bytes, while a
+  JSON source reference must be a string. A value that is already valid UTF-8 is
+  returned verbatim -- byte length alone cannot tell a 16-byte textual id from a
+  raw UUID, so length is never the discriminator. Only binary that is not valid
+  UTF-8 (a dumped UUID) is re-encoded to its canonical UUID text.
+  """
+  def canonical_source_id(id) when is_binary(id) do
+    if String.valid?(id), do: id, else: Ecto.UUID.load!(id)
+  end
+
+  def canonical_source_id(id), do: to_string(id)
 
   def metric_source_details(record) do
     condition = fetch_attr(record, :__stateful_alert_condition__) || %{}
@@ -311,7 +326,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Record do
   def group_value_for_key(key, record, sources) do
     sources
     |> group_source_list()
-    |> Enum.find_value(fn source -> get_nested_value(source, key) end)
+    |> Enum.reduce_while(nil, fn source, _acc ->
+      case get_nested_value(source, key) do
+        value when is_binary(value) or is_number(value) or is_boolean(value) -> {:halt, value}
+        _ -> {:cont, nil}
+      end
+    end)
     |> case do
       nil -> record_field_value(record, key)
       value -> value

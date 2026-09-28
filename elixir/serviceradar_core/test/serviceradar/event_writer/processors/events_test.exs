@@ -67,4 +67,31 @@ defmodule ServiceRadar.EventWriter.Processors.EventsTest do
       assert Events.parse_message(message) == nil
     end
   end
+
+  describe "fields a producer leaves to EventWriter" do
+    @event %{
+      "id" => "0b7f6a2e-3f7d-4c55-9f1d-1f4b5f7c2a10",
+      "class_uid" => 1008,
+      "category_uid" => 1,
+      "type_uid" => 100_801,
+      "activity_id" => 1
+    }
+
+    test "an absent log_name and raw_data take the subject and the raw payload" do
+      data = Jason.encode!(@event)
+      row = Events.parse_message(%{data: data, metadata: %{subject: "events.ocsf.processed"}})
+
+      assert row.log_name == "events.ocsf.processed"
+      assert row.raw_data == data
+    end
+
+    # Core's publisher sends every field; a null it sends is a null it means.
+    test "an explicit null log_name and raw_data are stored as null" do
+      data = Jason.encode!(Map.merge(@event, %{"log_name" => nil, "raw_data" => nil}))
+      row = Events.parse_message(%{data: data, metadata: %{subject: "events.internal.jobs"}})
+
+      assert row.log_name == nil
+      assert row.raw_data == nil
+    end
+  end
 end

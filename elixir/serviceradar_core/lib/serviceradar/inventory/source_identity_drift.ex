@@ -8,6 +8,7 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
   """
 
   alias ServiceRadar.Inventory.Identity.Ids
+  alias ServiceRadar.Inventory.Identity.SourceAuthorityGuard
   alias ServiceRadar.Inventory.IntegrationIdentity
   alias ServiceRadar.Repo
 
@@ -24,9 +25,10 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
   @max_insert_bind_parameters @postgres_bind_parameter_limit - @insert_bind_parameter_headroom
 
   # Categories produced by the periodic drift audit (audit_and_persist/1).
-  # `active_ip_conflict` is intentionally excluded — those rows are written by
-  # the sync ingestion path (record_active_ip_conflict/3), not the audit, so the
-  # audit must never auto-clear them during reconciliation.
+  # `active_ip_conflict` and `source_authoritative_override` are intentionally
+  # excluded — those rows are written by the sync ingestion path
+  # (record_active_ip_conflict/3, the resolvers' override recording), not the
+  # audit, so the audit must never auto-clear them during reconciliation.
   @audit_conflict_categories [
     "multiple_typed_ids_per_device",
     "typed_id_on_multiple_devices",
@@ -40,8 +42,9 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
   # these. Only these count toward a run's skipped_count so it stays disjoint
   # from the devices actually sent: a device sharing its typed id with another
   # device (typed_id_on_multiple_devices) or with mixed source linkage
-  # (source_linkage_conflict) can still be sent, and active_ip_conflict is a
-  # sync-side signal, so none of those should inflate the skip count.
+  # (source_linkage_conflict) can still be sent, and active_ip_conflict and
+  # source_authoritative_override are sync-side signals, so none of those should
+  # inflate the skip count.
   @withholding_conflict_categories [
     "metadata_identifier_disagreement",
     "multiple_typed_ids_per_device",
@@ -214,14 +217,26 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
   end
 
   @doc """
-  Build the active-IP source-identity conflict for a record whose strong
-  identity refused to rebind to an unrelated IP owner, and emit telemetry.
+  Build the active-IP source-identity conflict for a strong-identified record
+  observed at an address a different live record holds, and emit telemetry.
+  The strong identity never rebinds to the unrelated holder; `:action` says
+  how the address was settled:
+
+    * `:drop_ip` (default) -- the incoming record dropped the address and the
+      holder kept it (a declarative inventory's address, an observation not
+      newer than the holder's, or two claims in one batch);
+    * `:release_holder` -- the incoming record was observed at the address
+      more recently than the holder and took it, and the stale holder
+      released it.
 
   Returns the conflict map (or `nil` for a non-map record). Callers persist it —
   collect many and pass them to `record_conflicts/1` in one write instead of
   issuing a separate insert per IP collision.
   """
-  def build_active_ip_conflict(record, existing_device_uid, ip) when is_map(record) do
+  def build_active_ip_conflict(record, existing_device_uid, ip, opts \\ [])
+
+  def build_active_ip_conflict(record, existing_device_uid, ip, opts) when is_map(record) do
+    action = Keyword.get(opts, :action, :drop_ip)
     metadata = Map.get(record, :metadata) || %{}
 
     ids =
@@ -252,7 +267,7 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
         "source_identifier_type" => stringify(identifier_type),
         "source_identifier_value" => identifier_value
       },
-      proposed_action: "preserve_source_identity_drop_conflicting_ip",
+      proposed_action: active_ip_conflict_action(action),
       confidence: "high",
       metadata: %{
         "reason" => "active_ip_owner_did_not_match_source_authoritative_identifier"
@@ -269,14 +284,96 @@ defmodule ServiceRadar.Inventory.SourceIdentityDrift do
         source_identifier_value: identifier_value,
         incoming_device_uid: Map.get(record, :uid),
         existing_device_uid: existing_device_uid,
-        ip: ip
+        ip: ip,
+        action: action
       }
     )
 
     conflict
   end
 
-  def build_active_ip_conflict(_record, _existing_device_uid, _ip), do: nil
+  def build_active_ip_conflict(_record, _existing_device_uid, _ip, _opts), do: nil
+
+  @doc """
+  The `source_type` a conflict about a source-authoritative identifier type is filed under.
+  """
+  @spec source_type_for(atom() | nil) :: String.t()
+  def source_type_for(:armis_device_id), do: "armis"
+  def source_type_for(:netbox_device_id), do: "netbox"
+  def source_type_for(_identifier_type), do: "unknown"
+
+  defp active_ip_conflict_action(:drop_ip), do: "preserve_source_identity_drop_conflicting_ip"
+  defp active_ip_conflict_action(:release_holder), do: "preserve_source_identity_release_stale_ip"
+
+  @doc """
+  Build the source-authoritative override conflict for an update whose
+  source-authoritative identifier decided its identity against identifier
+  matches (a shared MAC, for example) on records holding a different one, and
+  emit telemetry.
+
+  `override` carries the update (`:update`), its extracted identifiers
+  (`:ids`), the record the update resolved to (`:device_uid`), and the refused
+  matches (`:overridden`, a list of `%{device_uid:, identifier_type:,
+  identifier_value:, source_ids:}`). The conflict is keyed by the incoming
+  record and its source-authoritative identifier, so a repeated sighting
+  refreshes the open row instead of adding one.
+  """
+  def build_source_override_conflict(%{update: update, ids: ids} = override) do
+    metadata = Map.get(update, :metadata) || %{}
+
+    # The update's highest-priority source-authoritative identifier keys the conflict.
+    {source_identifier_type, source_value} =
+      ids |> SourceAuthorityGuard.update_source_ids() |> List.first({nil, nil})
+
+    device_uid = override.device_uid
+    overridden = Enum.sort_by(override.overridden, & &1.device_uid)
+    overridden_uids = overridden |> Enum.map(& &1.device_uid) |> Enum.uniq()
+
+    conflict = %{
+      source_type: source_type_for(source_identifier_type),
+      source_id: normalize_string(metadata["sync_service_id"]),
+      source_identifier_type: stringify(source_identifier_type),
+      source_identifier_value: source_value,
+      device_uid: device_uid,
+      current_ip: normalize_string(Ids.ids_get(ids, :ip)),
+      current_mac: normalize_string(Map.get(update, :mac)),
+      site: extract_site(metadata),
+      conflict_category: "source_authoritative_override",
+      conflicting_identifiers: %{
+        "incoming_device_uid" => device_uid,
+        "overridden_device_uids" => overridden_uids,
+        "partition" => Ids.ids_get_partition(ids),
+        "matched_identifiers" =>
+          Enum.map(overridden, fn match ->
+            %{
+              "device_uid" => match.device_uid,
+              "identifier_type" => stringify(match.identifier_type),
+              "identifier_value" => match.identifier_value,
+              "device_source_ids" => match.source_ids
+            }
+          end)
+      },
+      proposed_action: "review_shared_identifier",
+      confidence: "medium",
+      metadata: %{
+        "reason" => "source_authoritative_identifier_overrode_identifier_match"
+      }
+    }
+
+    :telemetry.execute(
+      [:serviceradar, :identity_reconciler, :source_identity, :source_override],
+      %{count: 1},
+      %{
+        source_type: conflict.source_type,
+        source_id: conflict.source_id,
+        source_identifier_value: source_value,
+        device_uid: device_uid,
+        overridden_device_uids: overridden_uids
+      }
+    )
+
+    conflict
+  end
 
   @doc """
   Persist and emit telemetry for a single active-IP recovery conflict.

@@ -363,6 +363,40 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataTest do
     assert Enum.any?(comparison.a.timeline, &(&1["trace_count"] == 0))
   end
 
+  test "compare_windows averages responding depth so an unreached trace does not inflate it" do
+    window_a = %{label: "Now", start: ~U[2026-05-07 00:00:00Z], end: ~U[2026-05-07 09:30:00Z]}
+    window_b = %{label: "Before", start: ~U[2026-05-06 00:00:00Z], end: ~U[2026-05-06 09:30:00Z]}
+
+    insert_mtr_trace!("agent-depth", "192.0.2.30", ~U[2026-05-07 01:00:00Z],
+      target_reached: true,
+      total_hops: 6,
+      last_responding_hop: 6
+    )
+
+    insert_mtr_trace!("agent-depth", "192.0.2.30", ~U[2026-05-07 02:00:00Z],
+      target_reached: false,
+      total_hops: 30,
+      last_responding_hop: 4,
+      protocol: "tcp"
+    )
+
+    insert_mtr_trace!("agent-depth", "192.0.2.30", ~U[2026-05-07 03:00:00Z],
+      target_reached: false,
+      total_hops: 3,
+      hops: [{"198.51.100.1", 10_000, 0.0}, {"198.51.100.2", 20_000, 0.0}, {"*", 0, 100.0}]
+    )
+
+    assert {:ok, comparison} =
+             MtrData.compare_windows(
+               window_a: window_a,
+               window_b: window_b,
+               target_filter: "192.0.2.30",
+               bucket_count: 24
+             )
+
+    assert comparison.a.avg_hops == 4.0
+  end
+
   test "compare_windows weights destination metrics by destination probes and replies" do
     window_a = %{label: "Current", start: ~U[2026-05-07 00:00:00Z], end: ~U[2026-05-07 06:00:00Z]}
     window_b = %{label: "Baseline", start: ~U[2026-05-06 00:00:00Z], end: ~U[2026-05-06 06:00:00Z]}
@@ -618,6 +652,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrDataTest do
         target_ip: target_ip,
         target_reached: target_reached,
         total_hops: total_hops,
+        last_responding_hop: Keyword.get(opts, :last_responding_hop),
         protocol: protocol,
         ip_version: 4,
         packet_size: 64,

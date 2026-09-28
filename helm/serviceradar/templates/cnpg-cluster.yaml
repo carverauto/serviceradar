@@ -7,7 +7,7 @@
 {{- $spire := default (dict) .Values.spire -}}
 {{- $spirePg := default (dict) $spire.postgres -}}
 {{- $spiffeCnpgManaged := and (default false $spire.enabled) (default false $spirePg.enabled) -}}
-{{- if and (default true $cnpg.enabled) (not $spiffeCnpgManaged) }}
+{{- if and (include "serviceradar.boolDefaultTrue" (list $cnpg "enabled") | eq "true") (not $spiffeCnpgManaged) }}
 {{- $ns := .Release.Namespace -}}
 {{- $globalStorage := default (dict) .Values.global.storage -}}
 {{- $backup := default (dict) $cnpg.backup -}}

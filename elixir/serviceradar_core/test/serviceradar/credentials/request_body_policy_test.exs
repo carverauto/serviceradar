@@ -35,14 +35,14 @@ defmodule ServiceRadar.Credentials.RequestBodyPolicyTest do
              RequestBodyPolicy.normalize(%{mode: "empty", max_mutations: 1})
 
     assert {:error, :invalid_request_body_policy_fields} =
-             RequestBodyPolicy.validate(%{
+             RequestBodyPolicy.normalize(%{
                "mode" => "empty",
                "max_mutations" => 1,
                "permit_any_body" => true
              })
 
     assert {:error, :unreviewed_request_body_rewrite_handler} =
-             RequestBodyPolicy.validate(%{
+             RequestBodyPolicy.normalize(%{
                "mode" => "trusted_rewrite",
                "handler" => "plugin_selected",
                "content_type" => "application/json",
@@ -60,6 +60,8 @@ defmodule ServiceRadar.Credentials.RequestBodyPolicyTest do
       "max_bytes" => 1024,
       "max_mutations" => 1
     }
+
+    assert RequestBodyPolicy.matches_type?(base, [])
 
     for invalid <- [
           Map.put(base, "sha256", String.duplicate("A", 64)),

@@ -284,6 +284,6 @@ defmodule ServiceRadar.Analytics.StarRocks.SchemaMigratorTest do
       |> Enum.filter(&Schema.needs_partitioned_tables?/1)
       |> Enum.map(& &1.version)
 
-    assert waiting == [17]
+    assert waiting == [17, 22]
   end
 end

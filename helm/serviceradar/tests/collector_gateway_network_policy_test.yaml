@@ -11,6 +11,7 @@ tests:
       gatewayApi.bmpCollector.enabled: true
       flowCollector.enabled: true
       analytics.starrocks.enabled: true
+      analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
       bmpCollector.enabled: true
     asserts:
       - equal:

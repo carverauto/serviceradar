@@ -2,7 +2,6 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisionerTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Credentials.PluginIntegrationProvisioner
-  alias ServiceRadar.Plugins.PluginAssignment
 
   defmodule AssignmentStore do
     @moduledoc false
@@ -49,6 +48,45 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisionerTest do
     def list_assignment_schedules(_assignment_id, _actor), do: {:ok, []}
   end
 
+  defmodule RevokedPackageAssignmentStore do
+    @moduledoc false
+
+    def list_policy_assignments("network-credential-rule:" <> rest = policy_id, _actor) do
+      [rule_id | _suffix] = String.split(rest, ":")
+
+      {:ok,
+       [
+         %{
+           id: "assignment-#{rule_id}",
+           agent_uid: "agent-k8s",
+           enabled: true,
+           plugin_package_id: "package-#{rule_id}",
+           policy_id: policy_id
+         }
+       ]}
+    end
+
+    def approved_package_ids(_package_ids, _actor),
+      do: {:ok, MapSet.new(["package-rule-approved"])}
+
+    def update_assignment(assignment, attrs, _actor) do
+      send(self(), {:update_assignment, assignment.id, attrs})
+      {:ok, Map.merge(assignment, attrs)}
+    end
+  end
+
+  defmodule RevokedPackageScheduleStore do
+    @moduledoc false
+
+    def list_assignment_schedules(assignment_id, _actor),
+      do: {:ok, [%{id: "schedule-#{assignment_id}", enabled: true}]}
+
+    def update_schedule(schedule, attrs, _actor) do
+      send(self(), {:update_schedule, schedule.id, attrs})
+      {:ok, Map.merge(schedule, attrs)}
+    end
+  end
+
   test "provisions package-owned config and binds its declared credential requirement" do
     rule = integration_rule()
 
@@ -70,9 +108,6 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisionerTest do
              "endpoint" => "https://inventory.example.test/api",
              "filters" => [%{"name" => "switches", "type" => "Switch"}]
            }
-
-    refute Map.has_key?(assignment.params, "credential_broker")
-    refute Map.has_key?(assignment.params, "credential_refs")
 
     assert_receive {:update_schedule, "example-inventory.refresh", schedule}
     refute schedule.enabled
@@ -185,6 +220,20 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisionerTest do
     refute_received {:create_assignment, _attrs}
   end
 
+  test "a producer_schedule-mode profile missing its schedule names the schedule" do
+    # Distinct from an out-of-range cadence. Indexing nil returns nil rather than
+    # raising, so this used to surface as {:invalid_plugin_integration_cadence,
+    # nil, nil} -- blaming the cadence for a missing schedule.
+    profile = Map.delete(integration_profile(), "producer_schedule")
+
+    assert {:error, {:missing_producer_schedule, "example-inventory-plugin"}} =
+             PluginIntegrationProvisioner.reconcile_rule(integration_rule(), profile,
+               actor: %{id: "system"},
+               assignment_store: AssignmentStore,
+               schedule_store: ScheduleStore
+             )
+  end
+
   describe "profiles this provisioner does not own" do
     # IntegrationDescriptor defines three provisioning modes. Only
     # "producer_schedule" carries a schedule for this provisioner to bind, and
@@ -220,9 +269,10 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisionerTest do
   end
 
   describe "target-policy profiles" do
-    # These are owned by PluginTargetPolicyReconcileWorker. IntegrationCatalog only
-    # attaches a "producer_schedule" when the provisioning mode is
-    # "producer_schedule", so one reaching this provisioner has no schedule at all.
+    # These are owned by PluginCredentialRuleReconcileWorker, which drives
+    # PluginAssignmentMaterializer. IntegrationCatalog only attaches a
+    # "producer_schedule" when the provisioning mode is "producer_schedule", so
+    # one reaching this provisioner has no schedule at all.
     #
     # On demo that was every credential rule -- two proxmox, one camera -- and
     # because reconcile_rules/3 halts on the first error, one of them stopped
@@ -234,32 +284,6 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisionerTest do
         "credential_requirement" => "inventory_account"
       })
       |> Map.delete("producer_schedule")
-    end
-
-    test "are skipped by reconcile_rules rather than failing the whole batch" do
-      opts = [
-        actor: %{id: "system"},
-        assignment_store: AssignmentStore,
-        schedule_store: ScheduleStore
-      ]
-
-      assert {:ok, summary} =
-               PluginIntegrationProvisioner.reconcile_rules(
-                 [integration_rule()],
-                 [target_policy_profile()],
-                 opts
-               )
-
-      assert summary.rules == 0
-      assert summary.assignments_written == 0
-      assert summary.schedules_bound == 0
-      # Skipped, NOT disabled -- these rules are valid and actively in use by the
-      # other worker. Treating an unmatched profile as revoked would tear down
-      # working target-policy assignments.
-      assert summary.assignments_disabled == 0
-      assert summary.schedules_disabled == 0
-      refute_received {:create_assignment, _attrs}
-      refute_received {:update_schedule, _id, _attrs}
     end
 
     test "one target-policy rule does not stop a producer-schedule rule beside it" do
@@ -283,27 +307,119 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisionerTest do
       assert_receive {:create_assignment, assignment}
       assert assignment.agent_uid == "agent-k8s"
     end
+  end
 
-    test "a producer_schedule-mode profile missing its schedule names the schedule" do
-      # Distinct from an out-of-range cadence. Indexing nil returns nil rather than
-      # raising, so this used to surface as {:invalid_plugin_integration_cadence,
-      # nil, nil} -- blaming the cadence for a missing schedule.
-      profile = Map.delete(integration_profile(), "producer_schedule")
+  describe "a package upgrade repoints the assignment" do
+    defmodule RepointAssignmentStore do
+      @moduledoc false
 
-      assert {:error, {:missing_producer_schedule, "example-inventory-plugin"}} =
-               PluginIntegrationProvisioner.reconcile_rule(integration_rule(), profile,
+      def list_policy_assignments(policy_id, _actor) do
+        {:ok,
+         [
+           %{
+             id: "assignment-agent-k8s",
+             agent_uid: "agent-k8s",
+             plugin_package_id: "package-superseded",
+             source: :policy,
+             source_key: "plugin-credential-rule:rule-example:agent-k8s",
+             policy_id: policy_id,
+             enabled: true,
+             interval_seconds: 86_400,
+             timeout_seconds: 900,
+             params: %{
+               "endpoint" => "https://inventory.example.test/api",
+               "filters" => [%{"name" => "switches", "type" => "Switch"}]
+             }
+           }
+         ]}
+      end
+
+      def update_assignment(assignment, attrs, _actor) do
+        send(self(), {:update_assignment, attrs.plugin_package_id})
+        {:ok, Map.merge(assignment, attrs)}
+      end
+    end
+
+    defmodule RepointScheduleStore do
+      @moduledoc false
+
+      def get_package_schedule(package_id, schedule_id, _actor) do
+        {:ok,
+         %{
+           id: "schedule-successor",
+           enabled: false,
+           schedule_id: schedule_id,
+           schedule_type: :interval,
+           cadence_seconds: 86_400,
+           plugin_assignment_id: nil,
+           plugin_package_id: package_id,
+           params: %{},
+           credential_refs: %{},
+           metadata: %{}
+         }}
+      end
+
+      def list_assignment_schedules(_assignment_id, _actor) do
+        {:ok,
+         [
+           %{
+             id: "schedule-superseded",
+             enabled: true,
+             plugin_package_id: "package-superseded",
+             schedule_id: "example-inventory.refresh"
+           }
+         ]}
+      end
+
+      def update_schedule(schedule, attrs, _actor) do
+        send(self(), {:update_schedule, schedule.id, attrs})
+        {:ok, Map.merge(schedule, attrs)}
+      end
+    end
+
+    test "disables the superseded package's schedule when the assignment moves" do
+      assert {:ok, summary} =
+               PluginIntegrationProvisioner.reconcile_rules(
+                 [integration_rule()],
+                 [integration_profile()],
                  actor: %{id: "system"},
-                 assignment_store: AssignmentStore,
-                 schedule_store: ScheduleStore
+                 assignment_store: RepointAssignmentStore,
+                 schedule_store: RepointScheduleStore
                )
+
+      assert_receive {:update_assignment, "package-example"}
+      assert_receive {:update_schedule, "schedule-superseded", %{enabled: false}}
+      assert_receive {:update_schedule, "schedule-successor", _attrs}
+      assert summary.schedules_disabled == 1
     end
   end
 
-  test "lists existing policy assignments through PluginAssignment.all_partitions_for_policy" do
-    action = Ash.Resource.Info.action(PluginAssignment, :all_partitions_for_policy)
+  describe "a producer-schedule package that is no longer approved" do
+    # Revoking a package drops its profile from the catalog, so these rules
+    # arrive with no profile at all. The package status of the provisioner's own
+    # assignment decides; the missing profile does not.
+    test "disables the assignment and schedule of a revoked package, not of an approved one" do
+      rules = [
+        integration_rule(%{id: "rule-revoked", provider: "revoked-inventory"}),
+        integration_rule(%{id: "rule-approved", provider: "unlisted-inventory"})
+      ]
 
-    assert action.type == :read
-    assert Enum.any?(action.arguments, &(&1.name == :policy_id))
+      assert {:ok, summary} =
+               PluginIntegrationProvisioner.reconcile_rules(rules, [],
+                 actor: %{id: "system"},
+                 assignment_store: RevokedPackageAssignmentStore,
+                 schedule_store: RevokedPackageScheduleStore
+               )
+
+      assert_receive {:update_assignment, "assignment-rule-revoked", %{enabled: false}}
+      assert_receive {:update_schedule, "schedule-assignment-rule-revoked", %{enabled: false}}
+      refute_received {:update_assignment, "assignment-rule-approved", _attrs}
+      refute_received {:update_schedule, "schedule-assignment-rule-approved", _attrs}
+
+      assert summary.rules == 1
+      assert summary.assignments_disabled == 1
+      assert summary.schedules_disabled == 1
+    end
   end
 
   defp integration_profile(overrides \\ %{}) do

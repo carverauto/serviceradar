@@ -419,6 +419,9 @@ services:
   core-elx:
     image: registry.carverauto.dev/serviceradar/serviceradar-core-elx:${APP_TAG:-latest}
     container_name: serviceradar-core-elx-mtls
+    env_file:
+      # JetStream sizing profile (small, medium or large); see docker/compose/profiles.
+      - ./docker/compose/profiles/${SERVICERADAR_NATS_PROFILE:-small}.env
     hostname: core-elx
     environment:
       - CLUSTER_ENABLED=true
@@ -477,12 +480,13 @@ services:
       - SYNC_INGESTOR_MAX_INFLIGHT=${SYNC_INGESTOR_MAX_INFLIGHT:-2}
       - SYNC_INGESTOR_QUEUE_MAX_CHUNKS=${SYNC_INGESTOR_QUEUE_MAX_CHUNKS:-10}
       - SYNC_INGESTOR_ASYNC=${SYNC_INGESTOR_ASYNC:-true}
-      # Compose should exercise saved MTR automation profiles by default.
-      # Keep the rollout conservative: baseline scheduling on, trigger/consensus off.
+      # Compose should exercise saved MTR automation profiles by default. All
+      # four flags default on (issue #4542); override any of them in .env to
+      # narrow the rollout.
       - MTR_AUTOMATION_ENABLED=${MTR_AUTOMATION_ENABLED:-true}
       - MTR_AUTOMATION_BASELINE_ENABLED=${MTR_AUTOMATION_BASELINE_ENABLED:-true}
-      - MTR_AUTOMATION_TRIGGER_ENABLED=${MTR_AUTOMATION_TRIGGER_ENABLED:-false}
-      - MTR_AUTOMATION_CONSENSUS_ENABLED=${MTR_AUTOMATION_CONSENSUS_ENABLED:-false}
+      - MTR_AUTOMATION_TRIGGER_ENABLED=${MTR_AUTOMATION_TRIGGER_ENABLED:-true}
+      - MTR_AUTOMATION_CONSENSUS_ENABLED=${MTR_AUTOMATION_CONSENSUS_ENABLED:-true}
       - MTR_RETENTION_DAYS=${MTR_RETENTION_DAYS:-30}
       # Ansible integration. RetentionWorker treats 0 for run_detail_days
       # as "disabled"; unset / 0 for run_summary_days means "keep forever".
@@ -548,15 +552,24 @@ services:
       - SERVICERADAR_STARROCKS_FE_HOST=${STARROCKS_FE_HOST:-starrocks}
       - SERVICERADAR_STARROCKS_FE_QUERY_PORT=${STARROCKS_FE_QUERY_PORT:-9030}
       - SERVICERADAR_STARROCKS_DATABASE=${STARROCKS_DATABASE:-serviceradar}
-      - SERVICERADAR_STARROCKS_RETENTION_DAYS_FLOWS=${STARROCKS_RETENTION_DAYS_FLOWS:-90}
-      - SERVICERADAR_STARROCKS_RETENTION_DAYS_METRICS=${STARROCKS_RETENTION_DAYS_METRICS:-90}
+      - SERVICERADAR_STARROCKS_RETENTION_DAYS_FLOWS=${STARROCKS_RETENTION_DAYS_FLOWS:-365}
+      - SERVICERADAR_STARROCKS_RETENTION_DAYS_METRICS=${STARROCKS_RETENTION_DAYS_METRICS:-365}
       - SERVICERADAR_STARROCKS_RETENTION_DAYS_LOGS=${STARROCKS_RETENTION_DAYS_LOGS:-365}
       - SERVICERADAR_STARROCKS_RETENTION_DAYS_EVENTS=${STARROCKS_RETENTION_DAYS_EVENTS:-365}
+      - SERVICERADAR_STARROCKS_RETENTION_DAYS_MTR=${STARROCKS_RETENTION_DAYS_MTR:-365}
+      - SERVICERADAR_STARROCKS_RETENTION_DAYS_OTEL=${STARROCKS_RETENTION_DAYS_OTEL:-365}
+      - SERVICERADAR_STARROCKS_RETENTION_DAYS_TRACES=${STARROCKS_RETENTION_DAYS_TRACES:-365}
+      - SERVICERADAR_STARROCKS_STREAM_LOAD_MAX_ROWS=${STARROCKS_STREAM_LOAD_MAX_ROWS:-50000}
+      - SERVICERADAR_STARROCKS_STREAM_LOAD_MAX_BYTES=${STARROCKS_STREAM_LOAD_MAX_BYTES:-33554432}
+      - SERVICERADAR_STARROCKS_STREAM_LOAD_MAX_AGE_MS=${STARROCKS_STREAM_LOAD_MAX_AGE_MS:-2000}
+      - SERVICERADAR_STARROCKS_STREAM_LOAD_MAX_IN_FLIGHT=${STARROCKS_STREAM_LOAD_MAX_IN_FLIGHT:-4}
       - SERVICERADAR_STARROCKS_ROLLUP_STALE_AFTER_SECONDS=${STARROCKS_ROLLUP_STALE_AFTER_SECONDS:-7200}
       - SERVICERADAR_STARROCKS_ROLLUP_CACHE_TTL_SECONDS=${STARROCKS_ROLLUP_CACHE_TTL_SECONDS:-60}
       - SERVICERADAR_STARROCKS_SHADOW_DATASETS=${STARROCKS_SHADOW_DATASETS:-}
       - SERVICERADAR_STARROCKS_CUTOVER_DATASETS=${STARROCKS_CUTOVER_DATASETS:-}
       - SERVICERADAR_STARROCKS_CATALOG_ENABLED=${STARROCKS_CATALOG_ENABLED:-false}
+      # Frontend root password (the same value the starrocks service sets).
+      - SERVICERADAR_STARROCKS_PASSWORD=${STARROCKS_ROOT_PASSWORD:-}
       # OpenTelemetry
       - OTEL_EXPORTER_OTLP_ENDPOINT=https://log-collector:4317
       - OTEL_EXPORTER_OTLP_TIMEOUT_MS=${OTEL_EXPORTER_OTLP_TIMEOUT_MS:-30000}
@@ -596,6 +609,10 @@ services:
       timeout: 15s
       retries: 10
       start_period: 300s
+    # Outlives Oban's shutdown wait (OBAN_SHUTDOWN_GRACE_PERIOD_MS, 60s by
+    # default) so jobs still running at `docker compose down`/recreate finish
+    # instead of being killed and left `executing`. Compose's default is 10s.
+    stop_grace_period: 90s
     networks:
       - serviceradar-net
     restart: unless-stopped
@@ -609,11 +626,44 @@ services:
       - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds
       - ${NATS_CREDS_SEED_DIR:-./docker/compose/creds}:/seed/creds:ro
       - ./docker/compose/init-nats-creds.sh:/init-nats-creds.sh:ro
+    env_file:
+      # A fresh bootstrap sizes the platform account's JetStream quota from
+      # SERVICERADAR_NATS_MAX_FILE_STORE in the selected profile.
+      - ./docker/compose/profiles/${SERVICERADAR_NATS_PROFILE:-small}.env
     environment:
       - NATS_OPERATOR_NAME=${NATS_OPERATOR_NAME:-serviceradar-dev}
       - NATS_OPERATOR_SEED=${NATS_OPERATOR_SEED:-}
       - NATS_SYSTEM_ACCOUNT_PUBLIC_KEY=${NATS_SYSTEM_ACCOUNT_PUBLIC_KEY:-}
     command: bash /init-nats-creds.sh
+    restart: "no"
+    networks:
+      - serviceradar-net
+
+  # Re-issue the platform account JWT with the JetStream quota of the selected
+  # sizing profile (max_file_store). nats-creds-init skips an existing creds
+  # volume, so this is how an install bootstrapped with the old fixed quota
+  # converges; it is a no-op once the account carries the quota. The account
+  # key does not change, so every issued credential stays valid. It never
+  # blocks NATS startup: a tools image that predates the subcommand, or any
+  # failure, leaves the existing quota in place.
+  nats-account-limits:
+    image: registry.carverauto.dev/serviceradar/serviceradar-tools:${APP_TAG:-latest}
+    container_name: serviceradar-nats-account-limits
+    user: "0:0"
+    volumes:
+      - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds
+    env_file:
+      - ./docker/compose/profiles/${SERVICERADAR_NATS_PROFILE:-small}.env
+    environment:
+      - NATS_OPERATOR_SEED=${NATS_OPERATOR_SEED:-}
+    depends_on:
+      nats-creds-init:
+        condition: service_completed_successfully
+    command:
+      - /bin/sh
+      - -c
+      - |
+          serviceradar-cli nats-account-limits --creds-dir /etc/serviceradar/creds || echo "nats-account-limits: skipped, existing platform account quota kept" >&2
     restart: "no"
     networks:
       - serviceradar-net
@@ -627,6 +677,8 @@ services:
       - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds:ro
     depends_on:
       nats-creds-init:
+        condition: service_completed_successfully
+      nats-account-limits:
         condition: service_completed_successfully
     command:
       - sh
@@ -654,6 +706,9 @@ services:
     image: nats:2.14.0-alpine
     platform: linux/amd64
     container_name: serviceradar-nats-mtls
+    env_file:
+      # JetStream sizing profile (small, medium or large); see docker/compose/profiles.
+      - ./docker/compose/profiles/${SERVICERADAR_NATS_PROFILE:-small}.env
     ports:
       - "4222:4222"
       - "${NATS_MONITORING_BIND:-127.0.0.1}:${NATS_MONITORING_PORT:-8222}:8222"
@@ -681,6 +736,9 @@ services:
   datasvc:
     image: registry.carverauto.dev/serviceradar/serviceradar-datasvc:${APP_TAG:-latest}
     container_name: serviceradar-datasvc-mtls
+    env_file:
+      # JetStream sizing profile (small, medium or large); see docker/compose/profiles.
+      - ./docker/compose/profiles/${SERVICERADAR_NATS_PROFILE:-small}.env
     cpus: "2.0"
     ports:
       - "50057:50057"
@@ -807,6 +865,9 @@ services:
   log-collector:
     image: registry.carverauto.dev/serviceradar/serviceradar-log-collector:${APP_TAG:-latest}
     container_name: serviceradar-log-collector-mtls
+    env_file:
+      # JetStream sizing profile (small, medium or large); see docker/compose/profiles.
+      - ./docker/compose/profiles/${SERVICERADAR_NATS_PROFILE:-small}.env
     build:
       context: .
       dockerfile: docker/compose/Dockerfile.log-collector
@@ -842,6 +903,23 @@ services:
   # served from CNPG. `--profile starrocks` starts the warehouse; it is
   # independent of the collector profiles. Set STARROCKS_ENABLED=true in the
   # environment when using it.
+  #
+  # The Frontend `root` account never runs passwordless here. The container
+  # refuses to start unless STARROCKS_ROOT_PASSWORD is set (README-Docker.md
+  # has the command that generates one), and it sets that password on first
+  # start. That check lives in the container and not in a `${VAR:?}`
+  # interpolation because Compose resolves required variables in EVERY
+  # service, profile or not, so it would stop the default stack too.
+  #
+  # The image's own start-up script registers the backend by logging in as
+  # root with MYSQL_PWD, on every start, so MYSQL_PWD is exported from the same
+  # variable: it must always equal the live password, or a restarted container
+  # shuts itself down with "Password error, stop retrying!". The very first
+  # start (or the first after upgrading a passwordless warehouse) can restart
+  # once while the password is being set.
+  #
+  # Ports are published on loopback only. Set STARROCKS_PUBLIC_BIND to expose
+  # them on another interface; nothing in this stack needs that.
   starrocks:
     image: starrocks/allin1-ubuntu:3.5.21
     container_name: serviceradar-starrocks
@@ -849,9 +927,53 @@ services:
     profiles:
       - starrocks
     ports:
-      - "8030:8030"
-      - "9030:9030"
-      - "8040:8040"
+      - "${STARROCKS_PUBLIC_BIND:-127.0.0.1}:8030:8030"
+      - "${STARROCKS_PUBLIC_BIND:-127.0.0.1}:9030:9030"
+      - "${STARROCKS_PUBLIC_BIND:-127.0.0.1}:8040:8040"
+    environment:
+      - STARROCKS_ROOT_PASSWORD=${STARROCKS_ROOT_PASSWORD:-}
+    command:
+      - /bin/bash
+      - -c
+      - |
+        set -eu
+        pw="$${STARROCKS_ROOT_PASSWORD:-}"
+        unset STARROCKS_ROOT_PASSWORD
+        if [ -z "$$pw" ]; then
+          echo "STARROCKS_ROOT_PASSWORD is not set; refusing to start StarRocks with a passwordless root account. See README-Docker.md." >&2
+          exit 1
+        fi
+        case "$$pw" in
+          *[!A-Za-z0-9._~+=/-]*)
+            echo "STARROCKS_ROOT_PASSWORD may contain only letters, digits and . _ ~ + = / -" >&2
+            exit 1
+            ;;
+        esac
+        export MYSQL_PWD="$$pw"
+        (
+          q="mysql --connect-timeout=5 -h 127.0.0.1 -P 9030 -u root --batch --skip-column-names"
+          while :; do
+            if with_pw=$$($$q -e "SELECT 1" 2>&1); then
+              echo "StarRocks root password is set" >&2
+              exit 0
+            fi
+            if without_pw=$$(env -u MYSQL_PWD $$q --skip-password -e "SELECT 1" 2>&1); then
+              if printf "SET PASSWORD = PASSWORD('%s');\n" "$$pw" \
+                | env -u MYSQL_PWD $$q --skip-password; then
+                echo "StarRocks root password was empty; set it from STARROCKS_ROOT_PASSWORD" >&2
+              fi
+            else
+              case "$$with_pw$$without_pw" in
+                *1045*1045*)
+                  echo "StarRocks root password differs from STARROCKS_ROOT_PASSWORD; set the variable to the live password" >&2
+                  exit 1
+                  ;;
+              esac
+            fi
+            sleep 1
+          done
+        ) &
+        exec ./entrypoint.sh
     volumes:
       - starrocks-data:/data
       - ./logs:/opt/starrocks/logs
@@ -899,6 +1021,9 @@ services:
   flow-collector:
     image: registry.carverauto.dev/serviceradar/serviceradar-flow-collector:${APP_TAG:-latest}
     container_name: serviceradar-flow-collector-mtls
+    env_file:
+      # JetStream sizing profile (small, medium or large); see docker/compose/profiles.
+      - ./docker/compose/profiles/${SERVICERADAR_NATS_PROFILE:-small}.env
     profiles:
       - network-ingest
       - flows
@@ -933,6 +1058,9 @@ services:
   bmp-collector:
     image: registry.carverauto.dev/serviceradar/arancini:${ARANCINI_TAG:-latest}
     container_name: serviceradar-bmp-collector-mtls
+    env_file:
+      # JetStream sizing profile (small, medium or large); see docker/compose/profiles.
+      - ./docker/compose/profiles/${SERVICERADAR_NATS_PROFILE:-small}.env
     profiles:
       - network-ingest
       - bmp
@@ -1093,6 +1221,9 @@ services:
   web-ng:
     image: registry.carverauto.dev/serviceradar/serviceradar-web-ng:${APP_TAG:-latest}
     container_name: serviceradar-web-ng-mtls
+    env_file:
+      # JetStream sizing profile (small, medium or large); see docker/compose/profiles.
+      - ./docker/compose/profiles/${SERVICERADAR_NATS_PROFILE:-small}.env
     environment:
       - PORT=4000
       - PHX_SERVER=true
@@ -1145,15 +1276,24 @@ services:
       - SERVICERADAR_STARROCKS_FE_HOST=${STARROCKS_FE_HOST:-starrocks}
       - SERVICERADAR_STARROCKS_FE_QUERY_PORT=${STARROCKS_FE_QUERY_PORT:-9030}
       - SERVICERADAR_STARROCKS_DATABASE=${STARROCKS_DATABASE:-serviceradar}
-      - SERVICERADAR_STARROCKS_RETENTION_DAYS_FLOWS=${STARROCKS_RETENTION_DAYS_FLOWS:-90}
-      - SERVICERADAR_STARROCKS_RETENTION_DAYS_METRICS=${STARROCKS_RETENTION_DAYS_METRICS:-90}
+      - SERVICERADAR_STARROCKS_RETENTION_DAYS_FLOWS=${STARROCKS_RETENTION_DAYS_FLOWS:-365}
+      - SERVICERADAR_STARROCKS_RETENTION_DAYS_METRICS=${STARROCKS_RETENTION_DAYS_METRICS:-365}
       - SERVICERADAR_STARROCKS_RETENTION_DAYS_LOGS=${STARROCKS_RETENTION_DAYS_LOGS:-365}
       - SERVICERADAR_STARROCKS_RETENTION_DAYS_EVENTS=${STARROCKS_RETENTION_DAYS_EVENTS:-365}
+      - SERVICERADAR_STARROCKS_RETENTION_DAYS_MTR=${STARROCKS_RETENTION_DAYS_MTR:-365}
+      - SERVICERADAR_STARROCKS_RETENTION_DAYS_OTEL=${STARROCKS_RETENTION_DAYS_OTEL:-365}
+      - SERVICERADAR_STARROCKS_RETENTION_DAYS_TRACES=${STARROCKS_RETENTION_DAYS_TRACES:-365}
+      - SERVICERADAR_STARROCKS_STREAM_LOAD_MAX_ROWS=${STARROCKS_STREAM_LOAD_MAX_ROWS:-50000}
+      - SERVICERADAR_STARROCKS_STREAM_LOAD_MAX_BYTES=${STARROCKS_STREAM_LOAD_MAX_BYTES:-33554432}
+      - SERVICERADAR_STARROCKS_STREAM_LOAD_MAX_AGE_MS=${STARROCKS_STREAM_LOAD_MAX_AGE_MS:-2000}
+      - SERVICERADAR_STARROCKS_STREAM_LOAD_MAX_IN_FLIGHT=${STARROCKS_STREAM_LOAD_MAX_IN_FLIGHT:-4}
       - SERVICERADAR_STARROCKS_ROLLUP_STALE_AFTER_SECONDS=${STARROCKS_ROLLUP_STALE_AFTER_SECONDS:-7200}
       - SERVICERADAR_STARROCKS_ROLLUP_CACHE_TTL_SECONDS=${STARROCKS_ROLLUP_CACHE_TTL_SECONDS:-60}
       - SERVICERADAR_STARROCKS_SHADOW_DATASETS=${STARROCKS_SHADOW_DATASETS:-}
       - SERVICERADAR_STARROCKS_CUTOVER_DATASETS=${STARROCKS_CUTOVER_DATASETS:-}
       - SERVICERADAR_STARROCKS_CATALOG_ENABLED=${STARROCKS_CATALOG_ENABLED:-false}
+      # Frontend root password (the same value the starrocks service sets).
+      - SERVICERADAR_STARROCKS_PASSWORD=${STARROCKS_ROOT_PASSWORD:-}
       - CLUSTER_ENABLED=true
       - CLUSTER_STRATEGY=epmd
       - CLUSTER_HOSTS=serviceradar_agent_gateway@agent-gateway,serviceradar_core@core-elx,serviceradar_agent_gateway_t2@agent-gateway-t2

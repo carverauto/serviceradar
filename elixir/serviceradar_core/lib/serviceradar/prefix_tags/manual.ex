@@ -11,7 +11,6 @@ defmodule ServiceRadar.PrefixTags.Manual do
   alias ServiceRadar.PrefixTags.Loader
   alias ServiceRadar.PrefixTags.PrefixTag
   alias ServiceRadar.PrefixTags.Snapshot
-  alias ServiceRadar.PrefixTags.Store
 
   require Ash.Query
   require Logger
@@ -278,15 +277,16 @@ defmodule ServiceRadar.PrefixTags.Manual do
   def invalidate! do
     # Prefer Loader (CNPG → Store); fall back to rebuilding from the active
     # manual snapshot when the GenServer is not running (unit tests / partial boot).
-    case safe_loader_reload() do
-      :ok -> :ok
-      {:error, _} -> rebuild_local_manual_trie()
-    end
+    result =
+      case safe_loader_reload() do
+        :ok -> :ok
+        {:error, _} -> rebuild_local_manual_trie()
+      end
 
-    # The local trie is current before we publish. Mark the origin so its
-    # subscribed Loader can ignore the PubSub echo while peer nodes still
-    # reload the committed snapshot.
-    _ = Loader.broadcast_invalidation(%{source: @source, reloaded_on: node()})
+    metadata =
+      if result == :ok, do: %{source: @source, reloaded_on: node()}, else: %{source: @source}
+
+    _ = Loader.broadcast_invalidation(metadata)
     :ok
   end
 
@@ -299,60 +299,11 @@ defmodule ServiceRadar.PrefixTags.Manual do
   end
 
   defp rebuild_local_manual_trie do
-    case list_all_for_rebuild(@source) do
-      {:ok, tags} ->
-        rows =
-          Enum.map(tags, fn tag ->
-            %{
-              prefix: prefix_string(tag.prefix),
-              tags: List.wrap(tag.tags),
-              vrf: tag.vrf,
-              site: tag.site,
-              role: tag.role,
-              tenant: tag.tenant,
-              status: tag.status,
-              source: @source
-            }
-          end)
-
-        _ = Store.put_rows(@source, rows)
-        :ok
-
-      {:error, _} ->
-        :ok
+    case Loader.load_snapshot_source(@source) do
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
-
-  # `list/1` intentionally returns one UI page. A query-level limit does not
-  # override the read action's required pagination/max page size, so using it
-  # here silently rebuilt the trie from only the first page. Rebuilds
-  # inherently need the complete active dataset, hence the dedicated internal
-  # unpaginated action.
-  defp list_all_for_rebuild(source) do
-    query =
-      PrefixTag
-      |> Ash.Query.for_read(:list_active_for_rebuild, %{})
-      |> Ash.Query.filter(snapshot.source == ^source)
-      |> Ash.Query.sort(prefix: :asc, vrf: :asc, id: :asc)
-
-    case Ash.read(query) do
-      {:ok, tags} when is_list(tags) -> {:ok, tags}
-      {:ok, page} -> {:ok, page_results(page)}
-      {:error, err} -> {:error, err}
-    end
-  end
-
-  defp prefix_string(%Postgrex.INET{} = inet) do
-    mask = inet.netmask || default_mask(inet.address)
-    "#{inet.address |> :inet.ntoa() |> to_string()}/#{mask}"
-  end
-
-  defp prefix_string(other) when is_binary(other), do: other
-  defp prefix_string(other), do: to_string(other)
-
-  defp default_mask(addr) when tuple_size(addr) == 4, do: 32
-  defp default_mask(addr) when tuple_size(addr) == 8, do: 128
-  defp default_mask(_), do: 32
 
   defp ash_opts(opts) do
     # Resource declares domain: ServiceRadar.PrefixTags; code-interface

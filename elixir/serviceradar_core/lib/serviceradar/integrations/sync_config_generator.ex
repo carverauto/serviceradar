@@ -161,7 +161,6 @@ defmodule ServiceRadar.Integrations.SyncConfigGenerator do
         [
           actor: actor,
           audit?: true,
-          allow_external_resolution?: false,
           consumer_kind: :discovery,
           consumer_id: "integration_source:#{source.id}",
           purpose: "integration_source_credentials",

@@ -22,6 +22,7 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
   import Ecto.Query, only: [from: 2]
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.Page
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Observability
   alias ServiceRadar.Observability.NetflowInterfaceCache
@@ -235,14 +236,43 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
   defp positive_integer_or(value, _default) when is_integer(value) and value > 0, do: value
   defp positive_integer_or(_value, default), do: default
 
-  defp discover_interface_pairs(scan_window_seconds, limit)
-       when is_integer(scan_window_seconds) and scan_window_seconds > 0 and is_integer(limit) and
-              limit > 0 do
+  @doc false
+  def discover_interface_pairs(scan_window_seconds, limit, opts \\ [])
+
+  def discover_interface_pairs(scan_window_seconds, limit, opts)
+      when is_integer(scan_window_seconds) and scan_window_seconds > 0 and is_integer(limit) and
+             limit > 0 do
     since =
       DateTime.utc_now()
       |> DateTime.add(-scan_window_seconds, :second)
       |> DateTime.truncate(:second)
 
+    collect_interface_pairs(since, limit, nil, [], opts)
+  end
+
+  def discover_interface_pairs(_scan_window_seconds, _limit, _opts), do: []
+
+  # Page by `(sampler_address, if_index)`. `limit` is the page size, not the
+  # number of pairs the window is allowed to contain.
+  defp collect_interface_pairs(since, limit, after_pair, acc, opts) do
+    rows = interface_page(since, limit, after_pair, opts)
+    acc = [Enum.flat_map(rows, &normalize_pair_tuple/1) | acc]
+
+    if length(rows) < limit do
+      acc |> Enum.reverse() |> Enum.concat() |> Enum.uniq()
+    else
+      collect_interface_pairs(since, limit, List.last(rows), acc, opts)
+    end
+  end
+
+  defp interface_page(since, limit, after_pair, opts) do
+    case Keyword.get(opts, :pairs) do
+      pairs when is_function(pairs, 3) -> pairs.(since, limit, after_pair)
+      _ -> interface_page_query(since, limit, after_pair)
+    end
+  end
+
+  defp interface_page_query(since, limit, after_pair) do
     query =
       from(c in "netflow_interface_cache",
         prefix: "platform",
@@ -250,18 +280,26 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
         where: not is_nil(c.sampler_address),
         where: c.sampler_address != "",
         where: c.if_index > 0,
-        order_by: [desc: c.last_observed_at],
+        order_by: [asc: c.sampler_address, asc: c.if_index],
         select: {c.sampler_address, c.if_index},
         limit: ^limit
       )
 
-    query
-    |> Repo.all()
-    |> Enum.flat_map(&normalize_pair_tuple/1)
-    |> Enum.uniq()
-  end
+    query =
+      case after_pair do
+        {address, if_index} ->
+          from(c in query,
+            where:
+              c.sampler_address > ^address or
+                (c.sampler_address == ^address and c.if_index > ^if_index)
+          )
 
-  defp discover_interface_pairs(_scan_window_seconds, _limit), do: []
+        nil ->
+          query
+      end
+
+    Repo.all(query)
+  end
 
   defp observed_interface_pairs_from_row(row) when is_map(row) do
     sampler_address =
@@ -363,9 +401,10 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
     Map.get(map, atom_key) || Map.get(map, string_key)
   end
 
-  defp load_devices_by_ip([], _actor), do: %{}
+  @doc false
+  def load_devices_by_ip([], _actor), do: %{}
 
-  defp load_devices_by_ip(ips, actor) when is_list(ips) do
+  def load_devices_by_ip(ips, actor) when is_list(ips) do
     ips
     |> Enum.chunk_every(2_000)
     |> Enum.reduce(%{}, fn chunk, acc ->
@@ -381,7 +420,7 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
     end)
   end
 
-  defp merge_devices_by_ip(devices, acc) when is_list(devices) and is_map(acc) do
+  defp merge_devices_by_ip(devices, acc) when is_map(acc) do
     Enum.reduce(devices, acc, fn d, map ->
       with ip when is_binary(ip) <- Map.get(d, :ip),
            true <- ip != "" do
@@ -428,10 +467,6 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
   defp latest_interfaces_for_device(_device_uid, _sampler_address, _idxs), do: []
 
   defp read_results(query, actor) do
-    case Ash.read(query, actor: actor) do
-      {:ok, devices} when is_list(devices) -> devices
-      {:ok, %{results: results}} when is_list(results) -> results
-      _ -> []
-    end
+    Page.stream!(query, actor: actor)
   end
 end

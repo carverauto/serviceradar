@@ -62,6 +62,22 @@ canonical edge it was not given. The predicate has one definition in
 `RuntimeTopologyProjection.canonical_edge_predicate/3`; the migrator's Cypher
 repeats it verbatim.
 
+### Reconciliation after the backend cutover
+
+With `GRAPH_BACKEND=dgraph` (`graph.backend: dgraph` in Helm), core's
+`TopologyGraph.rebuild_canonical_links_from_current/0` reconciles the
+policy-approved mapper evidence and existing canonical edges in Dgraph through
+the existing typed replacement API. It does not read AGE adjacency or refresh
+the SQL topology projection. `age` and `dual` retain their AGE reconciliation
+path; `dual` copies the resulting canonical set to Dgraph.
+
+The Dgraph path preserves directional interface attribution, existing canonical
+telemetry, and observation timestamps. Retained edges participate in same-port
+conflict resolution with their stored support rank. Reconciliation retains the
+starvation and mass-deletion guards for stale pruning. Its fingerprint and
+heartbeat persist in CNPG under a separate projection key so switching backends
+cannot reuse the other store's fingerprint.
+
 ### Dgraph superuser credentials
 
 With the in-chart cluster (`dgraph.enabled=true`), the `groot` password is
@@ -78,9 +94,13 @@ naming the ACL user. Leave `credentialsSecret` empty to dial an external
 cluster that has ACL disabled. A password is never a chart value, because
 `graph.env` renders into the Deployment spec.
 
-### Operator-safe Dgraph reset
+### Dgraph reset during AGE/dual migration
 
-To clear a polluted Dgraph topology and rebuild from current observations:
+Use this procedure while AGE is still receiving topology writes. After
+`GRAPH_BACKEND=dgraph`, use the core reconciliation path above: the migrator
+still reads AGE and can replace current Dgraph topology with stale adjacency.
+
+To rebuild the migration target from current observations:
 
 1. Record pre counts: `AGE_TO_DGRAPH_MODE=checksum` (or inspect God View).
 2. Reset mapper evidence using the existing topology-evidence cleanup (CNPG
@@ -122,6 +142,32 @@ Interpretation:
 - Causal confidence is bounded by telemetry quality/completeness.
 
 ## Telemetry and Signals
+
+### Link traffic
+
+Link traffic shows packets per second (pps) and bits per second (bps), derived
+from cumulative interface counters. Each interval uses two samples from the
+same collector and metric series within the last 30 minutes; octet rates are
+converted to bits per second. For each device/IP, interface and metric, the
+freshest producer is selected before validating its interval. A reset, negative
+sample, invalid interval or single sample yields no rate; it does not fall back
+to an older collector's traffic.
+
+Both telemetry backends use the shared SRQL-compatible wrap and plausibility
+rule in `ServiceRadar.Analytics.StarRocks.MetricConsumers.counter_rate_sql/1`.
+CNPG supplies the producer's `max_counter_rate_per_second` metadata when present.
+The StarRocks reader has no producer ceiling, so it uses the rule's default
+32-bit wrap bound and rejects 64-bit decreases. A decrease without enough
+metadata to distinguish a plausible 32-bit wrap from a reset can still be
+interpreted as a wrap.
+
+With `graph.backend: dgraph`, telemetry refresh updates only existing canonical
+edges' directional traffic, capacity and telemetry eligibility. It preserves
+discovery evidence, `last_seen` and endpoints, and cannot recreate a pruned edge.
+In `dual` mode, refresh still updates AGE before the canonical rebuild copies
+edges to Dgraph.
+
+### Operational metrics
 
 The Network Topology view emits operational telemetry for:
 

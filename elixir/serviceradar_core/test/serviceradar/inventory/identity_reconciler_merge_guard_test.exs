@@ -16,9 +16,11 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeGuardTest do
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceCleanupWorker
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.MergeAudit
+  alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.TestSupport
 
   require Ash.Query
@@ -167,6 +169,78 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeGuardTest do
                Device.get_by_uid(alias_owner.uid, false, actor: actor)
 
       assert {:ok, %DeviceAliasState{state: :stale}} = Ash.get(DeviceAliasState, alias_state.id)
+    end
+
+    # #4610: a device identified by something other than a MAC (here a source-authoritative id,
+    # as an Armis record that reports no MAC) used to count as "not distinct" and was merged into
+    # whichever device later checked in from its old address.
+    test "resolution never merges an identified alias owner that registered no MAC",
+         %{actor: actor} do
+      mac_b = unique_mac()
+      ip = unique_ip()
+
+      {:ok, alias_owner} = create_device(actor, "alias-owner-src")
+      {:ok, updating_device} = create_device(actor, "alias-updater-src")
+
+      {:ok, _} = register_identifier(actor, alias_owner.uid, :armis_device_id, unique("armis"))
+      {:ok, _} = register_identifier(actor, updating_device.uid, :mac, mac_b)
+
+      {:ok, alias_state} = create_confirmed_alias(actor, alias_owner.uid, ip)
+
+      assert {:ok, resolved} =
+               IdentityReconciler.resolve_device_id(
+                 %{device_id: nil, ip: ip, mac: mac_b, partition: "default", metadata: %{}},
+                 actor: actor
+               )
+
+      assert resolved == updating_device.uid
+
+      assert {:ok, %Device{deleted_at: nil}} =
+               Device.get_by_uid(alias_owner.uid, false, actor: actor)
+
+      assert {:ok, []} =
+               MergeAudit
+               |> Ash.Query.filter(from_device_id == ^alias_owner.uid)
+               |> Ash.read(actor: actor)
+
+      assert_received {:telemetry_event,
+                       [:serviceradar, :identity_reconciler, :alias, :invalidated], _,
+                       %{alias_ip: ^ip}}
+
+      assert {:ok, %DeviceAliasState{state: :stale}} = Ash.get(DeviceAliasState, alias_state.id)
+    end
+
+    # An address is evidence, not identity: a holder with no identifiers of its own is left
+    # alone rather than folded into the device that was just resolved.
+    test "resolution leaves an address-only alias owner alone", %{actor: actor} do
+      mac_b = unique_mac()
+      ip = unique_ip()
+
+      {:ok, alias_owner} = create_device(actor, "alias-owner-bare")
+      {:ok, updating_device} = create_device(actor, "alias-updater-bare")
+
+      {:ok, _} = register_identifier(actor, updating_device.uid, :mac, mac_b)
+
+      {:ok, alias_state} = create_confirmed_alias(actor, alias_owner.uid, ip)
+
+      assert {:ok, resolved} =
+               IdentityReconciler.resolve_device_id(
+                 %{device_id: nil, ip: ip, mac: mac_b, partition: "default", metadata: %{}},
+                 actor: actor
+               )
+
+      assert resolved == updating_device.uid
+
+      assert {:ok, %Device{deleted_at: nil}} =
+               Device.get_by_uid(alias_owner.uid, false, actor: actor)
+
+      assert {:ok, []} =
+               MergeAudit
+               |> Ash.Query.filter(from_device_id == ^alias_owner.uid)
+               |> Ash.read(actor: actor)
+
+      assert {:ok, %DeviceAliasState{state: :confirmed}} =
+               Ash.get(DeviceAliasState, alias_state.id)
     end
   end
 
@@ -378,6 +452,106 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeGuardTest do
       refute Enum.any?(lineage, &(&1.from_device_id == current_split.uid))
     end
 
+    test "a device deleted for another reason after an unmerge resolves to itself",
+         %{actor: actor} do
+      {:ok, device_from} = create_device(actor, "stale-follow-from")
+      {:ok, device_to} = create_device(actor, "stale-follow-to")
+
+      assert :ok =
+               IdentityReconciler.merge_devices(device_from.uid, device_to.uid,
+                 actor: actor,
+                 reason: "manual_merge"
+               )
+
+      assert :ok = IdentityReconciler.unmerge_device(device_from.uid, actor: actor)
+
+      assert {:ok, restored} = Device.get_by_uid(device_from.uid, false, actor: actor)
+
+      assert {:ok, _deleted} =
+               Device.soft_delete(restored, "admin_delete", "test", actor: actor)
+
+      # The merge row outlives the unmerge; it is not a redirect for a tombstone
+      # whose deleted_reason is not "merged".
+      assert IdentityReconciler.follow_canonical_device_id(device_from.uid, actor) ==
+               device_from.uid
+    end
+
+    test "a merged-away id whose tombstone was purged still resolves to its survivor",
+         %{actor: actor} do
+      {:ok, device_from} = create_device(actor, "purged-follow-from")
+      {:ok, device_to} = create_device(actor, "purged-follow-to")
+
+      assert :ok =
+               IdentityReconciler.merge_devices(device_from.uid, device_to.uid,
+                 actor: actor,
+                 reason: "manual_merge"
+               )
+
+      purge!(device_from.uid)
+
+      assert IdentityReconciler.follow_canonical_device_id(device_from.uid, actor) ==
+               device_to.uid
+
+      # A source still carrying the purged id lands on the survivor instead of
+      # re-creating the merged-away device.
+      assert {:ok, resolved} =
+               IdentityReconciler.resolve_device_id(
+                 %{
+                   device_id: device_from.uid,
+                   ip: nil,
+                   mac: nil,
+                   partition: "default",
+                   metadata: %{}
+                 },
+                 actor: actor
+               )
+
+      assert resolved == device_to.uid
+
+      # The batch ingest path (BatchResolver) follows it too: the write lands on
+      # the survivor and no row with the purged id is created.
+      assert :ok =
+               SyncIngestor.ingest_updates(
+                 [
+                   %{
+                     "device_id" => device_from.uid,
+                     "ip" => "198.51.100.#{rem(System.unique_integer([:positive]), 250) + 1}",
+                     "hostname" => device_to.hostname,
+                     "source" => "netbox",
+                     "metadata" => %{}
+                   }
+                 ],
+                 actor: actor
+               )
+
+      refute match?({:ok, %Device{}}, Device.get_by_uid(device_from.uid, true, actor: actor))
+
+      assert {:ok, %Device{deleted_at: nil}} =
+               Device.get_by_uid(device_to.uid, false, actor: actor)
+    end
+
+    test "a purged id whose merge was undone resolves to itself", %{actor: actor} do
+      {:ok, device_from} = create_device(actor, "purged-unmerged-from")
+      {:ok, device_to} = create_device(actor, "purged-unmerged-to")
+
+      assert :ok =
+               IdentityReconciler.merge_devices(device_from.uid, device_to.uid,
+                 actor: actor,
+                 reason: "manual_merge"
+               )
+
+      assert :ok = IdentityReconciler.unmerge_device(device_from.uid, actor: actor)
+      assert {:ok, restored} = Device.get_by_uid(device_from.uid, false, actor: actor)
+
+      assert {:ok, _deleted} =
+               Device.soft_delete(restored, "admin_delete", "test", actor: actor)
+
+      purge!(device_from.uid)
+
+      assert IdentityReconciler.follow_canonical_device_id(device_from.uid, actor) ==
+               device_from.uid
+    end
+
     test "legacy null-reason merge audits remain canonical redirects", %{actor: actor} do
       {:ok, merged} = create_device(actor, "legacy-null-merge")
       {:ok, survivor} = create_device(actor, "legacy-null-survivor")
@@ -396,7 +570,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeGuardTest do
       assert {:ok, _deleted} =
                merged
                |> Ash.Changeset.for_update(:soft_delete, %{
-                 deleted_reason: "legacy_merge",
+                 deleted_reason: "merged",
                  deleted_by: "test"
                })
                |> Ash.update(actor: actor)
@@ -456,6 +630,13 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeGuardTest do
       assert {:ok, resolved} = IdentityReconciler.lookup_by_strong_identifiers(ids, actor)
       assert resolved == device.uid
     end
+  end
+
+  # DeviceCleanupWorker's retention purge of one tombstone: the row and its
+  # identifiers go, merge_audit stays.
+  defp purge!(uid) do
+    assert {_stats, 1} =
+             DeviceCleanupWorker.hard_delete_records(%{deleted: 0, errors: 0}, [%{uid: uid}])
   end
 
   defp create_device(actor, hostname) do

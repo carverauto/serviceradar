@@ -581,20 +581,28 @@ The system SHALL exclude tombstoned devices from default inventory reads unless 
 - **THEN** the deleted device SHALL be included
 
 ### Requirement: Restore Soft-Deleted Devices
-The system SHALL support restoring soft-deleted devices by clearing tombstone metadata.
+The system SHALL support restoring soft-deleted devices, and every restore, whatever path performs it, SHALL clear tombstone metadata, increment `identity_revision`, and leave a `device_revival_audit` row. A device soft-deleted because it was merged into another device SHALL NOT be restored by discovery.
 
 #### Scenario: Restore clears tombstone metadata
 - **GIVEN** a device with `deleted_at` set
 - **WHEN** an admin or operator restores the device
 - **THEN** `deleted_at` SHALL be cleared
 - **AND** `deleted_by` and `deleted_reason` SHALL be cleared
+- **AND** `identity_revision` SHALL be incremented
 - **AND** the device SHALL appear in default inventory reads
 
 #### Scenario: Discovery restores a deleted device
-- **GIVEN** a device with `deleted_at` set
-- **WHEN** a sweep or integration discovery result matches the device identity
+- **GIVEN** a device with `deleted_at` set and a `deleted_reason` other than `merged`
+- **WHEN** a sweep, integration sync, or agent check-in matches the device identity
 - **THEN** the device SHALL be restored automatically
+- **AND** `identity_revision` SHALL be incremented
 - **AND** availability/last_seen metadata SHALL be updated from the discovery result
+
+#### Scenario: Discovery does not restore a merged-away device
+- **GIVEN** a device soft-deleted with `deleted_reason` `merged`
+- **WHEN** a sweep, integration sync, or agent check-in matches it
+- **THEN** the match SHALL resolve to the device it was merged into
+- **AND** the merged-away device SHALL remain deleted
 
 ### Requirement: Device Deletion Authorization
 Only admin and operator roles SHALL be permitted to delete devices.
@@ -664,4 +672,136 @@ The camera inventory model SHALL track which edge agent or gateway can originate
 - **WHEN** that profile is no longer refreshed within the configured freshness window
 - **THEN** the system SHALL mark the profile stale
 - **AND** viewer workflows SHALL be able to surface that state before attempting live playback
+
+### Requirement: Source Identity Conflict Diagnostics
+The inventory data layer SHALL persist or expose source identity conflicts so operators can distinguish unreachable devices from devices whose identity evidence is unsafe.
+
+#### Scenario: Conflict is recorded for source identity drift
+- **GIVEN** identity reconciliation detects that an active device has conflicting source-authoritative identifiers
+- **WHEN** the conflict is detected
+- **THEN** inventory diagnostics SHALL include the device UID, source type, source identifier values, current IP, current MAC, conflict category, first detected time, and last detected time
+- **AND** the conflict SHALL remain visible until repaired or explicitly dismissed
+
+#### Scenario: Conflict diagnostics are not silently purged
+- **GIVEN** an unresolved source identity conflict exists
+- **WHEN** routine retention or cleanup workers run
+- **THEN** the conflict SHALL NOT be silently deleted solely because it is older than 30 days
+- **AND** automated workflows SHALL continue treating the affected identity as unsafe until the conflict is resolved
+
+### Requirement: Inventory Repair Audit Trail
+The inventory data layer SHALL record audit information for automated or operator-approved repairs of source identity drift.
+
+#### Scenario: Automated metadata repair
+- **GIVEN** a device has one typed Armis identifier and stale metadata with a different Armis ID
+- **WHEN** repair tooling updates the stale metadata to match the typed identifier
+- **THEN** the system SHALL record the prior value, repaired value, repair actor, repair time, and repair reason
+
+#### Scenario: Ambiguous conflict remains unresolved
+- **GIVEN** a conflict involves multiple active devices or multiple plausible source identifiers
+- **WHEN** repair tooling cannot prove a safe correction
+- **THEN** the tool SHALL leave the conflict unresolved
+- **AND** it SHALL record why automatic repair was skipped
+
+### Requirement: A device identity can be resolved from an address
+The system SHALL expose device identity resolution from an address as a read, without
+probing the device or evaluating any check. It SHALL accept a single address and a batch
+of addresses, and SHALL apply the same resolution rules as the existing internal resolver:
+the address selects the live device that currently holds it, an optional MAC corroborates
+it, and no identity is created. The address is evidence of which device holds it now, not a
+device identity.
+
+#### Scenario: A known address resolves
+- **GIVEN** an address held by exactly one live device in a partition
+- **WHEN** a permitted caller resolves that address
+- **THEN** the response SHALL carry that device's uid
+
+#### Scenario: Resolving causes no side effects
+- **WHEN** an address is resolved
+- **THEN** no probe SHALL be started
+- **AND** no validation run SHALL be created
+- **AND** no device identity SHALL be created
+
+#### Scenario: A corroborating MAC is accepted
+- **GIVEN** an address whose device also holds the MAC supplied with it
+- **WHEN** the address is resolved
+- **THEN** the response SHALL carry that device's uid
+
+#### Scenario: A MAC pointing at another device is a conflict
+- **GIVEN** an address that resolves to one device and a MAC held by a different one
+- **WHEN** the address is resolved
+- **THEN** the outcome SHALL be reported as a conflict
+- **AND** it SHALL name both devices
+- **AND** it SHALL NOT be reported as a successful resolution
+
+#### Scenario: A MAC unknown to inventory is ignored
+- **GIVEN** an address that resolves, and a MAC held by no device
+- **WHEN** the address is resolved
+- **THEN** the response SHALL carry the address's uid
+
+#### Scenario: An address held by several devices is ambiguous
+- **GIVEN** an address held by more than one live device in a partition
+- **WHEN** the address is resolved
+- **THEN** the outcome SHALL be reported as ambiguous
+- **AND** it SHALL name the candidate uids
+
+#### Scenario: An unknown address is not found
+- **WHEN** an address held by no device is resolved
+- **THEN** the outcome SHALL be reported as not found
+- **AND** it SHALL NOT be reported as a server error
+
+#### Scenario: An unusable address is rejected
+- **WHEN** a value that is not a valid address is submitted
+- **THEN** the request SHALL be rejected as malformed
+
+### Requirement: A batch resolution reports each address independently
+A batch resolution SHALL report an outcome for every address submitted, and one address
+that cannot be resolved SHALL NOT prevent the others from being reported.
+
+#### Scenario: A mixed batch reports every outcome
+- **GIVEN** a batch holding a resolvable address and an unknown one
+- **WHEN** the batch is resolved
+- **THEN** the resolvable address SHALL carry its uid
+- **AND** the unknown address SHALL carry its reason
+- **AND** the request SHALL NOT be reported as failed
+
+#### Scenario: Outcomes can be matched to their inputs
+- **WHEN** a batch is resolved
+- **THEN** each outcome SHALL identify the address it is for
+
+#### Scenario: An over-long batch is refused
+- **WHEN** a batch exceeds the supported number of addresses
+- **THEN** the request SHALL be rejected
+- **AND** the response SHALL state the limit
+
+#### Scenario: A batch entry with no address is refused, not dropped
+- **WHEN** a batch holds an entry carrying no address
+- **THEN** the request SHALL be rejected as malformed
+- **AND** the entry SHALL NOT be silently discarded
+
+#### Scenario: A blank partition means the one the request supplied
+- **GIVEN** a batch naming a partition, holding an entry whose own partition is blank
+- **WHEN** the batch is resolved
+- **THEN** the entry SHALL be resolved within the partition the request named
+
+### Requirement: Resolving an identity is separately authorized
+Resolving a device identity SHALL require its own permission, distinct from the permission
+to execute a validation run.
+
+#### Scenario: A caller permitted only to resolve may resolve
+- **GIVEN** a caller holding the identity resolution permission and not the permission to
+  execute validation runs
+- **WHEN** it resolves an address
+- **THEN** the request SHALL be permitted
+
+#### Scenario: An unpermitted caller is refused
+- **GIVEN** a caller holding neither permission
+- **WHEN** it resolves an address
+- **THEN** the request SHALL be refused
+- **AND** it SHALL NOT reveal whether a device exists at that address
+
+#### Scenario: It defaults with the inventory reads it is weaker than
+- **WHEN** the permission catalog is upgraded
+- **THEN** identity resolution SHALL default to the roles that may already view the device
+  inventory
+- **AND** it SHALL NOT default to any role that may not
 

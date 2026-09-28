@@ -1,4 +1,5 @@
 load("@rules_elixir//:mix_app.bzl", "mix_app")
+load("//build:elixir_quality.bzl", "elixir_quality")
 load(
     "//build:elixir_release.bzl",
     "SHIPPED_ERTS_OTP_ROOT",
@@ -144,4 +145,17 @@ elixir_release(
         "config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true",
     ],
     release_name = "serviceradar_core_elx",
+)
+
+# `mix format --check-formatted` + `mix credo --strict`, as CI's Elixir Quality job runs them.
+# See //build:elixir_quality.bzl.
+elixir_quality(
+    source_deps = ["@hexpm//:ex_dna"],
+    tool_deps = CORE_ELX_DEPS + [
+        "@hexpm//:ash_credo",
+        "@hexpm//:ex_dna",
+        "@hexpm//:ex_slop",
+        "@hexpm//:jump_credo_checks",
+        "@hexpm//:styler",
+    ],
 )

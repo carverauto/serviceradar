@@ -1132,7 +1132,7 @@ export const godViewRenderingGraphViewMethods = {
       this.state.managedTopologyVisualDensity = selected.managedVisualDensity
       this.state.hasAutoFit = true
       this.state.isProgrammaticViewUpdate = true
-      this.state.deck.setProps({viewState: this.state.viewState})
+      this.state.deck?.setProps({viewState: this.state.viewState})
       if (this.state.zoomMode === "auto") this.deps.setZoomTier("local", true)
       return
     }
@@ -1165,7 +1165,7 @@ export const godViewRenderingGraphViewMethods = {
 
     this.state.hasAutoFit = true
     this.state.isProgrammaticViewUpdate = true
-    this.state.deck.setProps({viewState: this.state.viewState})
+    this.state.deck?.setProps({viewState: this.state.viewState})
     if (this.state.zoomMode === "auto") {
       this.deps.setZoomTier(preferredAutoFitZoomTier(graph) || this.deps.resolveZoomTier(zoom), true)
     }
@@ -1200,7 +1200,7 @@ export const godViewRenderingGraphViewMethods = {
       this.state.viewState = selected.viewState
       this.state.managedTopologyVisualDensity = selected.managedVisualDensity
       this.state.isProgrammaticViewUpdate = true
-      this.state.deck.setProps({viewState: this.state.viewState})
+      this.state.deck?.setProps({viewState: this.state.viewState})
       if (this.state.zoomMode === "auto") this.deps.setZoomTier("local", true)
       return true
     }
@@ -1258,7 +1258,7 @@ export const godViewRenderingGraphViewMethods = {
       zoom,
     }
     this.state.isProgrammaticViewUpdate = true
-    this.state.deck.setProps({viewState: this.state.viewState})
+    this.state.deck?.setProps({viewState: this.state.viewState})
     if (this.state.zoomMode === "auto") {
       this.deps.setZoomTier(this.deps.resolveZoomTier(zoom), true)
     }

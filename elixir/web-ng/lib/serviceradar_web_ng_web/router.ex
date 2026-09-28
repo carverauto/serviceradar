@@ -32,7 +32,7 @@ defmodule ServiceRadarWebNGWeb.Router do
          "style-src 'self' 'unsafe-inline'; " <>
          "img-src 'self' data: https://api.mapbox.com https://*.tiles.mapbox.com https://*.tile.openstreetmap.org https://*.basemaps.cartocdn.com; " <>
          "font-src 'self' data:; " <>
-         "media-src 'none'; " <>
+         "media-src blob: mediastream:; " <>
          "connect-src 'self' https: wss:; " <>
          "worker-src 'self' blob:; " <>
          "child-src blob:; " <>
@@ -71,6 +71,22 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(GatewayAuth)
     plug(:fetch_current_scope_for_user)
     plug(:set_ash_actor)
+  end
+
+  # The SAML assertion consumer. The IdP's form POST is a cross-site request: it
+  # carries no Phoenix CSRF token, and under the SameSite=Lax session cookie the
+  # browser usually sends no session either, so `:protect_from_forgery` would
+  # refuse every real login. Forgery protection comes from the server-side,
+  # one-use AuthnRequest bound to RelayState and InResponseTo, plus the
+  # assertion replay ledger (see SAMLController). Also excluded: GatewayAuth and
+  # the current-user plugs, which need a session this request does not have.
+  # The session is still fetched so a successful login can write one.
+  pipeline :saml_acs do
+    plug(:accepts, ["html"])
+    plug(:fetch_session)
+    plug(:fetch_live_flash)
+    plug(:put_secure_browser_headers, %{"content-security-policy" => @csp})
+    plug(SecurityHeaders)
   end
 
   # Authenticated browser pipeline without content negotiation.
@@ -280,6 +296,15 @@ defmodule ServiceRadarWebNGWeb.Router do
   pipeline :rate_limit_auth_saml do
     plug(RateLimit,
       bucket: :auth_saml_callback,
+      subject: :ip,
+      response_mode: :auto,
+      html_redirect_to: "/users/log-in"
+    )
+  end
+
+  pipeline :rate_limit_auth_saml_request do
+    plug(RateLimit,
+      bucket: :auth_saml_request,
       subject: :ip,
       response_mode: :auto,
       html_redirect_to: "/users/log-in"
@@ -975,6 +1000,17 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/dashboard-packages/:id/disable", DashboardPackagePublishController, :disable)
   end
 
+  ## Dashboard package read API (version visibility).
+  # Gated on `dashboards.packages.view_all`; does NOT require the
+  # `dashboard.publish` bearer scope so operators and UI users can read
+  # installed package state without a publish-scoped token.
+  scope "/api/v1", ServiceRadarWebNGWeb do
+    pipe_through(:api_key_auth)
+
+    get("/dashboard-packages", DashboardPackageReadController, :index)
+    get("/dashboard-packages/:id", DashboardPackageReadController, :show)
+  end
+
   scope "/api/v1", ServiceRadarWebNGWeb.Api do
     pipe_through(:api_key_auth)
 
@@ -1003,7 +1039,6 @@ defmodule ServiceRadarWebNGWeb.Router do
 
     # SSO initiation + non-callback metadata
     get("/oidc", OIDCController, :request)
-    get("/saml", SAMLController, :request)
     get("/saml/metadata", SAMLController, :metadata)
   end
 
@@ -1030,9 +1065,17 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/oidc/callback", OIDCController, :callback)
   end
 
-  # SAML callback — rate limited.
+  # SAML login start persists a pending AuthnRequest row, so it is metered.
   scope "/auth", ServiceRadarWebNGWeb do
-    pipe_through([:browser, :rate_limit_auth_saml])
+    pipe_through([:browser, :rate_limit_auth_saml_request])
+
+    get("/saml", SAMLController, :request)
+  end
+
+  # SAML assertion consumer — rate limited, no CSRF token or session required
+  # (see `:saml_acs`).
+  scope "/auth", ServiceRadarWebNGWeb do
+    pipe_through([:saml_acs, :rate_limit_auth_saml])
 
     post("/saml/consume", SAMLController, :consume)
   end
@@ -1057,6 +1100,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     get("/flows/visualize", PageController, :redirect_to_observability_flows)
     get("/observability/flows", PageController, :redirect_to_observability_flows)
     get("/observability/flows/visualize", PageController, :redirect_to_observability_flows)
+    get("/dashboard/:dashboard_id/export.json", AuthoredDashboardExportController, :definition_json)
     get("/dashboard/:dashboard_id/panels/:panel_id/export.csv", AuthoredDashboardExportController, :panel_csv)
     get("/scans/:id/export.csv", ScanExportController, :csv)
     get("/scans/:id/export.xlsx", ScanExportController, :xlsx)
@@ -1082,6 +1126,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/security/threat-intel", Security.ThreatIntelLive.Index, :index)
       live("/devices", DeviceLive.Index, :index)
       live("/devices/wifi", DeviceLive.Wifi, :index)
+      live("/devices/deduplication", DeduplicationLive.Index, :index)
       live("/devices/:uid", DeviceLive.Show, :show)
       live("/devices/:uid/proxmox-console", ProxmoxConsoleLive.Show, :show)
       live("/devices/:uid/remote-access/ssh", RemoteAccessLive.SSH, :show)

@@ -53,8 +53,10 @@ The core telemetry and event tables include:
 
 - `platform.events` — platform events (CloudEvents-style envelopes).
 - `platform.ocsf_events` — OCSF Event Log Activity entries produced by log
-  promotion and internal writers.
-- `platform.logs` — OTEL-style log records.
+  promotion and internal producers. EventWriter is the only writer: producers
+  publish to JetStream and never insert directly.
+- `platform.logs` — OTEL-style log records, likewise written only by
+  EventWriter.
 - `platform.otel_traces` — distributed tracing spans.
 - `platform.otel_metrics` — OTEL metric samples.
 

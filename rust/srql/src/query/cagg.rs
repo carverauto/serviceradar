@@ -3,10 +3,42 @@ use crate::{
     parser::{Entity, QueryAst},
     time::TimeRange,
 };
-use chrono::Duration as ChronoDuration;
+use chrono::{Duration as ChronoDuration, Utc};
+use std::sync::OnceLock;
 
 const CAGG_ROUTING_THRESHOLD_HOURS: i64 = 6;
 const CAGG_MAX_TIME_RANGE_DAYS: i64 = 395;
+/// Mirrors the deployed TimescaleDB retention policies on the raw metric
+/// hypertables the hourly CAGGs roll up: 7 days for cpu/disk/memory/process/
+/// timeseries. Flows are deliberately excluded from the retention arm — CNPG
+/// netflow is deprecated in favour of the StarRocks migration, so its longer
+/// raw retention does not participate. Set
+/// `SRQL_RAW_TELEMETRY_RETENTION_HOURS` when those metric policies change.
+const DEFAULT_RAW_TELEMETRY_RETENTION_HOURS: i64 = 168;
+
+/// Hours of raw data the deployment retains on the raw metric hypertables.
+/// Read once per process from `SRQL_RAW_TELEMETRY_RETENTION_HOURS`; an
+/// unparsable or non-positive value falls back to the default with a warning
+/// rather than disabling the retention routing arm silently.
+fn raw_telemetry_retention_hours() -> i64 {
+    static OVERRIDE: OnceLock<i64> = OnceLock::new();
+    *OVERRIDE.get_or_init(|| {
+        let Ok(raw) = std::env::var("SRQL_RAW_TELEMETRY_RETENTION_HOURS") else {
+            return DEFAULT_RAW_TELEMETRY_RETENTION_HOURS;
+        };
+        match raw.trim().parse::<i64>() {
+            Ok(hours) if hours >= 1 => hours,
+            _ => {
+                tracing::warn!(
+                    value = %raw,
+                    fallback = DEFAULT_RAW_TELEMETRY_RETENTION_HOURS,
+                    "SRQL_RAW_TELEMETRY_RETENTION_HOURS must be a positive integer of hours; using fallback"
+                );
+                DEFAULT_RAW_TELEMETRY_RETENTION_HOURS
+            }
+        }
+    })
+}
 
 pub(crate) fn supports_hourly_cagg(entity: &Entity) -> bool {
     matches!(
@@ -117,11 +149,29 @@ pub(crate) fn max_time_range_days_for_ast(ast: &QueryAst) -> i64 {
     }
 }
 
+/// Whether a stats/downsample query over `entity` should read the hourly
+/// CAGG instead of the raw hypertable.
+///
+/// Two arms, and they answer different questions:
+///
+/// - **Span** (`>= CAGG_ROUTING_THRESHOLD_HOURS`): the rollup is cheaper than
+///   the raw scan for wide windows. This is the original heuristic.
+/// - **Retention** (`raw_retention_hours`): a window that *starts* before the
+///   raw tables' retention horizon must read the rollup regardless of span,
+///   because the raw table has already dropped every row in that window — the
+///   span arm alone answers a short old window from an empty source (#4514).
+///   The test is start-based, so a sub-threshold window can straddle the
+///   horizon (start beyond it, end inside it); such a window is served wholly
+///   from the hourly CAGG at hourly grain, giving complete coverage instead of
+///   a partially-empty raw read. Flows are excluded from this arm: CNPG netflow
+///   is deprecated in favour of the StarRocks migration, so the flow path keeps
+///   its span-only routing unchanged.
 pub(crate) fn should_route_to_hourly_cagg(
     entity: &Entity,
     time_range: Option<&TimeRange>,
     has_stats: bool,
     has_downsample: bool,
+    raw_retention_hours: i64,
 ) -> bool {
     if !is_hourly_cagg_eligible_query(entity, has_stats, has_downsample) {
         return false;
@@ -131,10 +181,18 @@ pub(crate) fn should_route_to_hourly_cagg(
         return false;
     };
 
+    let span = time_range.end.signed_duration_since(time_range.start);
+    if span.ge(&ChronoDuration::hours(CAGG_ROUTING_THRESHOLD_HOURS)) {
+        return true;
+    }
+
+    if matches!(entity, Entity::Flows) {
+        return false;
+    }
+
     time_range
-        .end
-        .signed_duration_since(time_range.start)
-        .ge(&ChronoDuration::hours(CAGG_ROUTING_THRESHOLD_HOURS))
+        .start
+        .lt(&(Utc::now() - ChronoDuration::hours(raw_retention_hours.max(1))))
 }
 
 pub(crate) fn should_route_plan_to_hourly_cagg(plan: &QueryPlan) -> bool {
@@ -143,6 +201,7 @@ pub(crate) fn should_route_plan_to_hourly_cagg(plan: &QueryPlan) -> bool {
         plan.time_range.as_ref(),
         plan.stats.is_some(),
         plan.downsample.is_some(),
+        raw_telemetry_retention_hours(),
     )
 }
 

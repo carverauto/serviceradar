@@ -4,8 +4,11 @@ defmodule ServiceRadar.Observability.ThreatIntelRawPayloadStore do
   """
 
   alias Gnat.Jetstream.API.Object
+  alias Gnat.Jetstream.API.Util
+  alias ServiceRadar.NATS.StateBucketSizing
 
   @default_bucket "serviceradar_threat_intel"
+  @default_max_bucket_bytes 1_073_741_824
 
   @spec put_page(map(), binary()) :: {:ok, String.t()} | {:error, term()}
   def put_page(%{} = metadata, payload) when is_binary(payload) do
@@ -39,8 +42,30 @@ defmodule ServiceRadar.Observability.ThreatIntelRawPayloadStore do
     |> Base.encode16(case: :lower)
   end
 
+  @doc "The bucket cap used when `SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES` is unset (1 GiB)."
+  @spec default_max_bucket_bytes() :: pos_integer()
+  def default_max_bucket_bytes, do: @default_max_bucket_bytes
+
+  @doc false
+  # Creates the bucket with its cap, or reconciles an existing bucket's
+  # `max_bytes` under the discard-new rule of `StateBucketSizing`. `request`
+  # performs one JetStream API request (see `StateBucketSizing.ensure/4`).
+  @spec reconcile_bucket(StateBucketSizing.request_fun()) :: {:ok, term()} | {:error, term()}
+  def reconcile_bucket(request) when is_function(request, 2) do
+    StateBucketSizing.ensure(
+      request,
+      "OBJ_#{bucket_name()}",
+      bucket_stream_config(),
+      max_bucket_bytes()
+    )
+  end
+
   defp config do
     Application.get_env(:serviceradar_core, __MODULE__, [])
+  end
+
+  defp max_bucket_bytes do
+    Keyword.get(config(), :jetstream_max_bucket_size) || @default_max_bucket_bytes
   end
 
   defp bucket_name do
@@ -55,7 +80,7 @@ defmodule ServiceRadar.Observability.ThreatIntelRawPayloadStore do
       [
         description:
           Keyword.get(config(), :jetstream_description, "Threat-intel raw payload snapshots"),
-        max_bucket_size: Keyword.get(config(), :jetstream_max_bucket_size),
+        max_bucket_size: max_bucket_bytes(),
         max_chunk_size: Keyword.get(config(), :jetstream_max_chunk_size),
         replicas: Keyword.get(config(), :jetstream_replicas, 1),
         storage: Keyword.get(config(), :jetstream_storage, :file),
@@ -73,35 +98,7 @@ defmodule ServiceRadar.Observability.ThreatIntelRawPayloadStore do
   end
 
   defp ensure_bucket(conn) do
-    stream_name = "OBJ_#{bucket_name()}"
-
-    case Gnat.Jetstream.API.Stream.info(conn, stream_name) do
-      {:ok, _} ->
-        {:ok, :exists}
-
-      {:error, %{"code" => 404}} ->
-        create_bucket(conn)
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp create_bucket(conn) do
-    stream_name = "OBJ_#{bucket_name()}"
-
-    with {:ok, %{body: body}} <-
-           Gnat.request(
-             conn,
-             "$JS.API.STREAM.CREATE.#{stream_name}",
-             Jason.encode!(bucket_stream_config())
-           ),
-         {:ok, decoded} <- Jason.decode(body) do
-      case decoded do
-        %{"error" => reason} -> {:error, reason}
-        response -> {:ok, response}
-      end
-    end
+    reconcile_bucket(fn subject, payload -> Util.request(conn, subject, payload) end)
   end
 
   defp bucket_stream_config do
@@ -115,7 +112,7 @@ defmodule ServiceRadar.Observability.ThreatIntelRawPayloadStore do
       discard: :new,
       allow_rollup_hdrs: true,
       max_age: ttl,
-      max_bytes: Keyword.get(opts, :max_bucket_size, -1),
+      max_bytes: Keyword.fetch!(opts, :max_bucket_size),
       max_msg_size: Keyword.get(opts, :max_chunk_size, -1),
       max_consumers: -1,
       max_msgs: -1,

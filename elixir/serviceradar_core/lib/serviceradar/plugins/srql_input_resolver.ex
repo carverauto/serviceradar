@@ -58,14 +58,82 @@ defmodule ServiceRadar.Plugins.SRQLInputResolver do
     raw_query = ValueUtils.string_value(input_def, [:query, "query"])
 
     cond do
-      ValueUtils.blank_string?(name) -> {:error, ["input definition is missing name"]}
-      ValueUtils.blank_string?(entity) -> {:error, ["input definition is missing entity"]}
-      ValueUtils.blank_string?(raw_query) -> {:error, ["input definition is missing query"]}
-      true -> {:ok, %{name: name, entity: entity, query: normalize_query(raw_query, entity)}}
+      ValueUtils.blank_string?(name) ->
+        {:error, ["input definition is missing name"]}
+
+      ValueUtils.blank_string?(entity) ->
+        {:error, ["input definition is missing entity"]}
+
+      ValueUtils.blank_string?(raw_query) ->
+        {:error, ["input definition is missing query"]}
+
+      true ->
+        with {:ok, fields} <- input_fields(input_def, entity) do
+          {:ok,
+           maybe_put_fields(
+             %{name: name, entity: entity, query: normalize_query(raw_query, entity)},
+             fields
+           )}
+        end
     end
   end
 
   defp normalize_input_def(_), do: {:error, ["input definition must be an object"]}
+
+  @max_input_fields 16
+  @column_field ~r/^[a-z][a-z0-9_]{0,63}$/
+  @metadata_field ~r/^metadata\.[A-Za-z0-9_-]{1,64}$/
+  # Whole metadata maps can carry unrelated or sensitive integration data; only
+  # individual `metadata.<key>` values may be projected.
+  @whole_map_fields ~w(metadata)
+
+  @doc """
+  Validates an input definition's optional `fields`: device field paths the
+  payload builder copies into each item. A path is a top-level SRQL device
+  column or `metadata.<key>`; anything else is rejected rather than ignored,
+  so a typo cannot silently deliver nothing.
+  """
+  @spec input_fields(map(), String.t()) :: {:ok, [String.t()]} | {:error, [String.t()]}
+  def input_fields(input_def, entity) do
+    case Map.get(input_def, :fields, Map.get(input_def, "fields")) do
+      nil ->
+        {:ok, []}
+
+      fields when is_list(fields) and length(fields) <= @max_input_fields ->
+        validate_input_fields(fields, entity)
+
+      fields when is_list(fields) ->
+        {:error, ["input definition lists more than #{@max_input_fields} fields"]}
+
+      _ ->
+        {:error, ["input definition fields must be a list"]}
+    end
+  end
+
+  defp validate_input_fields([], _entity), do: {:ok, []}
+
+  defp validate_input_fields(_fields, entity) when entity != "devices",
+    do: {:error, ["input fields are only supported for devices"]}
+
+  defp validate_input_fields(fields, _entity) do
+    fields
+    |> Enum.map(fn field -> if is_binary(field), do: String.trim(field), else: field end)
+    |> Enum.reduce_while({:ok, []}, fn field, {:ok, acc} ->
+      if is_binary(field) and field not in @whole_map_fields and
+           (Regex.match?(@column_field, field) or Regex.match?(@metadata_field, field)) do
+        {:cont, {:ok, [field | acc]}}
+      else
+        {:halt, {:error, ["invalid input field #{inspect(field)}"]}}
+      end
+    end)
+    |> case do
+      {:ok, acc} -> {:ok, acc |> Enum.reverse() |> Enum.uniq()}
+      error -> error
+    end
+  end
+
+  defp maybe_put_fields(descriptor, []), do: descriptor
+  defp maybe_put_fields(descriptor, fields), do: Map.put(descriptor, :fields, fields)
 
   defp validate_entity(entity) do
     if MapSet.member?(@supported_entities, entity) do

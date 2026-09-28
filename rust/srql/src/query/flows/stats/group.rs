@@ -138,9 +138,9 @@ impl FlowGroupSpec {
                     "invalid CIDR prefix length in group-by: '{token}'"
                 ))
             })?;
-            if prefix > 32 {
+            if prefix > 128 {
                 return Err(ServiceError::InvalidRequest(format!(
-                    "CIDR prefix length must be <= 32 (got {prefix})"
+                    "CIDR prefix length must be <= 128 (got {prefix})"
                 )));
             }
             match kind.as_str() {
@@ -159,23 +159,39 @@ impl FlowGroupSpec {
         )))
     }
 
-    pub(in crate::query::flows) fn response_key(&self) -> &'static str {
+    /// The result column. A CIDR grouping carries its prefix length (`src_cidr_24`), as the
+    /// StarRocks dialect names it, so one query can group an endpoint at two lengths.
+    pub(in crate::query::flows) fn response_key(&self) -> String {
         match self {
-            Self::Field(field) => field.response_key(),
-            Self::SrcCidr { .. } => "src_cidr",
-            Self::DstCidr { .. } => "dst_cidr",
+            Self::Field(field) => field.response_key().to_string(),
+            Self::SrcCidr { prefix } => format!("src_cidr_{prefix}"),
+            Self::DstCidr { prefix } => format!("dst_cidr_{prefix}"),
         }
     }
 
     pub(in crate::query::flows) fn group_expr(&self) -> String {
         match self {
             Self::Field(field) => field.group_expr().to_string(),
-            Self::SrcCidr { prefix } => format!(
-                "COALESCE(set_masklen(try_inet(NULLIF(src_endpoint_ip, '')), {prefix})::text, 'Unknown')"
-            ),
-            Self::DstCidr { prefix } => format!(
-                "COALESCE(set_masklen(try_inet(NULLIF(dst_endpoint_ip, '')), {prefix})::text, 'Unknown')"
-            ),
+            Self::SrcCidr { prefix } => cidr_group_expr("src_endpoint_ip", *prefix),
+            Self::DstCidr { prefix } => cidr_group_expr("dst_endpoint_ip", *prefix),
         }
     }
+}
+
+/// The subnet an endpoint falls in, as Postgres prints a `cidr`: the network address with its
+/// length, `192.0.2.0/24` or `2001:db8::/48`. `set_masklen` alone keeps the host bits, so
+/// every host was its own group; `network` clears them.
+///
+/// The prefix applies to both families up to 32. Past that an IPv4 address is masked at its
+/// own 32 bits (`set_masklen` refuses a longer mask for it), so a `/48` groups IPv6 flows by
+/// `/48` and IPv4 flows by host. The StarRocks dialect (`cidr_label_sql`) applies the same
+/// rule and prints the same text. An address that does not parse is `Unknown`.
+fn cidr_group_expr(column: &str, prefix: u8) -> String {
+    let ip = format!("try_inet(NULLIF({column}, ''))");
+    let masklen = if prefix <= 32 {
+        prefix.to_string()
+    } else {
+        format!("CASE WHEN family({ip}) = 4 THEN 32 ELSE {prefix} END")
+    };
+    format!("COALESCE(network(set_masklen({ip}, {masklen}))::text, 'Unknown')")
 }

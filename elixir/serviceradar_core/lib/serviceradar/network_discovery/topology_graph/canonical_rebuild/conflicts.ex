@@ -10,19 +10,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild.Conflicts
   def reconcile_competing_same_port_canonical_edges do
     case Graph.query(competing_same_port_canonical_edges_query()) do
       {:ok, edges} ->
-        edge_map = Map.new(edges, &{canonical_edge_key(&1), &1})
-
-        demotions =
-          edges
-          |> Enum.flat_map(&edge_port_conflicts/1)
-          |> Enum.group_by(fn {port_key, _edge_key} -> port_key end, fn {_port_key, edge_key} ->
-            edge_key
-          end)
-          |> Enum.flat_map(fn {_port_key, edge_keys} ->
-            demotions_for_port_group(edge_keys, edge_map)
-          end)
-          |> Enum.uniq()
-
+        demotions = competing_edge_demotions(edges)
         Enum.each(demotions, &demote_canonical_edge_to_attachment/1)
         {:ok, length(demotions)}
 
@@ -30,6 +18,20 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild.Conflicts
         Logger.warning("Canonical same-port reconciliation failed: #{inspect(reason)}")
         {:error, reason}
     end
+  end
+
+  def competing_edge_demotions(edges) when is_list(edges) do
+    edge_map = Map.new(edges, &{canonical_edge_key(&1), &1})
+
+    edges
+    |> Enum.flat_map(&edge_port_conflicts/1)
+    |> Enum.group_by(fn {port_key, _edge_key} -> port_key end, fn {_port_key, edge_key} ->
+      edge_key
+    end)
+    |> Enum.flat_map(fn {_port_key, edge_keys} ->
+      demotions_for_port_group(edge_keys, edge_map)
+    end)
+    |> Enum.uniq()
   end
 
   defp competing_same_port_canonical_edges_query do

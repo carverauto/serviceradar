@@ -9,8 +9,9 @@ defmodule ServiceRadar.PrefixTags.Store do
   """
 
   alias ServiceRadar.PrefixTags.Engine
+  alias ServiceRadar.PrefixTags.NativeEngine
   alias ServiceRadar.PrefixTags.Registry
-  alias ServiceRadar.PrefixTags.Trie
+  alias ServiceRadar.PrefixTags.SnapshotReader
 
   # Single atomic handle: one persistent_term get returns
   # {version, trie, :registered | :cleared}. Keeping registration in the same
@@ -127,31 +128,82 @@ defmodule ServiceRadar.PrefixTags.Store do
   @doc "Build and install rows for a single source. Returns the active version."
   @spec put_rows(source(), [Engine.prefix_row()]) :: version()
   def put_rows(source, rows) when is_binary(source) and is_list(rows) do
-    fingerprint = rows_fingerprint(rows)
     started = System.monotonic_time(:microsecond)
 
-    result =
-      Registry.with_source_lock(source, fn ->
-        if registered_handle?(active_handle(source)) and
-             active_rows_fingerprint(source) == fingerprint do
-          {:unchanged, active_version(source)}
-        else
-          trie = engine().build(rows)
-          {version, previous_handle} = install_trie(source, trie)
-          :persistent_term.put(active_rows_fingerprint_key(source), fingerprint)
-          {:installed, version, previous_handle, trie}
-        end
-      end)
+    Registry.with_source_lock(source, fn ->
+      {prepared, _count} = prepare_rows(source, rows)
+      publish(source, prepared, started)
+    end)
+  end
 
-    case result do
-      {:unchanged, version} ->
-        version
+  @doc """
+  Read and build a replayable row stream in a consistent CNPG transaction.
 
-      {:installed, version, previous_handle, trie} ->
-        schedule_previous_handle_erase(source, version, previous_handle)
-        emit_swap_telemetry(source, version, trie, started)
-        version
+  The reader returns `{rows, metadata}`. An immutable `:token` skips enumeration
+  when already installed; `active?: false` clears a source. Publication happens
+  only after the transaction commits, under the same per-source writer lock.
+  """
+  def put_stream(source, reader) when is_binary(source) and is_function(reader, 0) do
+    started = System.monotonic_time(:microsecond)
+
+    Registry.with_source_lock(source, fn ->
+      case SnapshotReader.transaction(fn -> prepare_stream(source, reader) end) do
+        {:ok, {prepared, count, metadata}} ->
+          version = publish(source, prepared, started)
+          put_snapshot_token(source, metadata[:token])
+          {:ok, Map.merge(metadata, %{version: version, row_count: count})}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end)
+  end
+
+  defp prepare_stream(source, reader) do
+    {rows, metadata} = reader.()
+
+    cond do
+      metadata[:active?] == false ->
+        {:clear, 0, metadata}
+
+      is_binary(metadata[:token]) and loaded?(source) and snapshot_token(source) == metadata.token ->
+        {{:unchanged, active_version(source)}, metadata.row_count, metadata}
+
+      true ->
+        {prepared, count} = prepare_rows(source, rows)
+        {prepared, count, metadata}
     end
+  end
+
+  defp prepare_rows(source, rows) do
+    {fingerprint, count} = rows_fingerprint(rows)
+
+    prepared =
+      if registered_handle?(active_handle(source)) and
+           active_rows_fingerprint(source) == fingerprint do
+        {:unchanged, active_version(source)}
+      else
+        {:built, engine().build(rows), fingerprint}
+      end
+
+    {prepared, count}
+  end
+
+  defp publish(_source, {:unchanged, version}, _started), do: version
+
+  defp publish(source, :clear, _started) do
+    {version, previous_handle} = clear_locked(source)
+    schedule_previous_handle_erase(source, version, previous_handle)
+    version
+  end
+
+  defp publish(source, {:built, trie, fingerprint}, started) do
+    {version, previous_handle} = install_trie(source, trie)
+    :persistent_term.put(active_rows_fingerprint_key(source), fingerprint)
+    :persistent_term.erase(active_snapshot_token_key(source))
+    schedule_previous_handle_erase(source, version, previous_handle)
+    emit_swap_telemetry(source, version, trie, started)
+    version
   end
 
   @doc """
@@ -222,23 +274,21 @@ defmodule ServiceRadar.PrefixTags.Store do
   @doc "Clear one source's trie."
   @spec clear(source()) :: :ok
   def clear(source) when is_binary(source) do
-    empty = engine().build([])
-
     {version, previous_handle} =
-      Registry.with_source_lock(source, fn ->
-        version = next_version(source)
-        previous_handle = active_handle(source)
-
-        :persistent_term.put(active_handle_key(source), {version, empty, :cleared})
-        :persistent_term.erase(active_rows_fingerprint_key(source))
-        :persistent_term.erase(active_snapshot_token_key(source))
-        Registry.sync_source(source, false)
-
-        {version, previous_handle}
-      end)
+      Registry.with_source_lock(source, fn -> clear_locked(source) end)
 
     schedule_previous_handle_erase(source, version, previous_handle)
     :ok
+  end
+
+  defp clear_locked(source) do
+    version = next_version(source)
+    previous_handle = active_handle(source)
+    :persistent_term.put(active_handle_key(source), {version, nil, :cleared})
+    :persistent_term.erase(active_rows_fingerprint_key(source))
+    :persistent_term.erase(active_snapshot_token_key(source))
+    Registry.sync_source(source, false)
+    {version, previous_handle}
   end
 
   @doc """
@@ -371,12 +421,13 @@ defmodule ServiceRadar.PrefixTags.Store do
   # queries use deterministic ordering, so identical durable data has a stable
   # fingerprint.
   defp rows_fingerprint(rows) do
-    rows
-    |> Enum.reduce(:crypto.hash_init(:sha256), fn row, context ->
-      encoded = :erlang.term_to_binary(row, [:deterministic])
-      :crypto.hash_update(context, [<<byte_size(encoded)::unsigned-32>>, encoded])
-    end)
-    |> :crypto.hash_final()
+    {context, count} =
+      Enum.reduce(rows, {:crypto.hash_init(:sha256), 0}, fn row, {context, count} ->
+        encoded = :erlang.term_to_binary(row, [:deterministic])
+        {:crypto.hash_update(context, [<<byte_size(encoded)::unsigned-32>>, encoded]), count + 1}
+      end)
+
+    {:crypto.hash_final(context), count}
   end
 
   defp emit_swap_telemetry(source, version, trie, started) do
@@ -403,7 +454,7 @@ defmodule ServiceRadar.PrefixTags.Store do
   end
 
   defp schedule_previous_handle_erase(source, version, previous_handle) do
-    if large_handle?(previous_handle) do
+    if native_handle?(previous_handle) or large_handle?(previous_handle) do
       :ok
     else
       case handle_version(previous_handle) do
@@ -415,6 +466,11 @@ defmodule ServiceRadar.PrefixTags.Store do
       end
     end
   end
+
+  # Native resource references are safe for concurrent readers without parking.
+  defp native_handle?({_version, trie, _registration}), do: is_reference(trie)
+  defp native_handle?({_version, trie}), do: is_reference(trie)
+  defp native_handle?(_), do: false
 
   defp large_handle?({_version, trie}), do: large_trie?(trie)
   defp large_handle?({_version, trie, _registration}), do: large_trie?(trie)
@@ -462,7 +518,7 @@ defmodule ServiceRadar.PrefixTags.Store do
   end
 
   defp engine do
-    Application.get_env(:serviceradar_core, :prefix_tags_engine, Trie)
+    Application.get_env(:serviceradar_core, :prefix_tags_engine, NativeEngine)
   end
 
   defp emit_lookup_telemetry(result) do

@@ -26,6 +26,7 @@ mix_app(
     ),
     extra_config = HEX_COMPILE_ENV_CONFIG,
     deps = [
+        "@hex_igniter//:erlang_app",
         "@hex_jose//:erlang_app",
         "@hex_telemetry//:erlang_app",
         "@hex_telemetry_registry//:erlang_app",

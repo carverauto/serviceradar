@@ -24,9 +24,16 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.Gateway
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Identity.DecisionLog
   alias ServiceRadar.Inventory.Identity.Fence
+  alias ServiceRadar.Inventory.Identity.Ids
+  alias ServiceRadar.Inventory.Identity.Registrar
   alias ServiceRadar.Inventory.IdentityReconciler
+  alias ServiceRadar.Inventory.SourceIdentityDrift
+  alias ServiceRadar.Inventory.Sync.DeviceWrites
   alias ServiceRadar.NetworkDiscovery.MapperJob
+  alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.AgentAssignment
   alias ServiceRadar.SweepJobs.SweepGroup
 
@@ -34,6 +41,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   require Logger
 
   @terminal_release_target_statuses [:healthy, :failed, :rolled_back, :canceled]
+  @agent_live_window_minutes 30
 
   @spec get_config_if_changed(String.t(), String.t()) ::
           :not_modified | {:ok, map()} | {:error, term()}
@@ -276,7 +284,25 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   """
   @spec ensure_device_for_agent(String.t(), map()) ::
           {:ok, String.t()} | {:error, term()}
-  def ensure_device_for_agent(agent_id, attrs) do
+  def ensure_device_for_agent(agent_id, attrs), do: ensure_fenced(agent_id, attrs, 1)
+
+  # A check-in whose identity writes found the device's identity moved under them
+  # (Identity.Fence) is resolved and written once more; a second move abandons it.
+  defp ensure_fenced(agent_id, attrs, attempt) do
+    case do_ensure_device_for_agent(agent_id, attrs) do
+      {:stale, _device_uid} when attempt == 1 ->
+        ensure_fenced(agent_id, attrs, 2)
+
+      {:stale, {device_uid, pin}} ->
+        :ok = Fence.abandon(%{device_uid => pin}, :agent_gateway_sync)
+        {:error, :identity_fence_stale}
+
+      result ->
+        result
+    end
+  end
+
+  defp do_ensure_device_for_agent(agent_id, attrs) do
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:gateway_sync)
 
@@ -307,26 +333,77 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end
   end
 
+  # The identity writes -- the agent's identifiers and the agent link -- are fenced
+  # (Identity.Fence): the device the upsert settled on is pinned, and the writes run
+  # in one transaction that locks its row first, so a merge or delete that has not
+  # committed waits for them, and one that has makes the pin stale. A stale pin
+  # writes nothing here and returns `{:stale, {uid, pin}}` for the caller to
+  # re-resolve.
   defp complete_agent_device_sync(device_uid, agent_id, attrs, device_update, actor) do
-    # Observe-only identity fence. Identity was resolved once above, and the six
-    # writes below are independent, so a merge landing partway through leaves some
-    # of them on the old device. This measures how often that actually happens
-    # before anything is enforced; nothing branches on the result.
-    pinned = Fence.observe_pin(device_uid)
+    pins = Fence.pin_batch([device_uid])
+    run_test_hook(:agent_gateway_sync_after_pin)
 
-    # Register agent_id as a strong identifier so DIRE can resolve
-    # subsequent enrollments (even from different IPs) to this device
+    pins
+    |> Fence.fenced_write(:agent_gateway_sync, fn stale ->
+      if MapSet.member?(stale, device_uid) do
+        {:ok, :stale}
+      else
+        run_test_hook(:agent_gateway_sync_in_fenced_write)
+        {:ok, {:written, write_agent_identity(device_uid, agent_id, device_update, actor)}}
+      end
+    end)
+    |> case do
+      {:ok, {{:written, deferred_merge}, _stale}} ->
+        # After the commit: the merges take their own device-row locks.
+        :ok = Registrar.run_deferred_merge(deferred_merge, actor)
+        finish_agent_device_sync(device_uid, agent_id, attrs, actor)
+
+      {:ok, {:stale, _stale}} ->
+        {:stale, {device_uid, Map.fetch!(pins, device_uid)}}
+
+      {:error, reason} ->
+        # These writes are best effort, as they were before the fence: a failing
+        # identifier upsert or agent link was logged and ignored. Inside the fenced
+        # transaction any failed Ash action rolls the whole write back, so repeat it
+        # unfenced rather than fail the check-in, and say so.
+        Fence.report_fallback(:agent_gateway_sync, device_uid, reason)
+
+        device_uid
+        |> write_agent_identity(agent_id, device_update, actor)
+        |> Registrar.run_deferred_merge(actor)
+
+        finish_agent_device_sync(device_uid, agent_id, attrs, actor)
+    end
+  end
+
+  # Register agent_id as a strong identifier so DIRE can resolve subsequent
+  # enrollments (even from different IPs) to this device, repair a stale agent_id
+  # row, and link the agent. Returns the identifier-conflict and register-time merges,
+  # deferred.
+  defp write_agent_identity(device_uid, agent_id, device_update, actor) do
     ids = IdentityReconciler.extract_strong_identifiers(device_update)
-    IdentityReconciler.register_identifiers(device_uid, ids, actor: actor)
-    IdentityReconciler.repair_agent_identifier(agent_id, device_uid, actor)
 
-    # Link the agent to the device
+    {_result, deferred_merge} =
+      Registrar.register_identifiers_deferring_merge(device_uid, ids, actor: actor)
+
+    IdentityReconciler.repair_agent_identifier(agent_id, device_uid, actor)
     link_agent_to_device(agent_id, device_uid, actor)
+    deferred_merge
+  end
+
+  defp finish_agent_device_sync(device_uid, agent_id, attrs, actor) do
     backfill_endpoint_inventory_device_uid(agent_id, device_uid)
     retire_superseded_agents(agent_id, device_uid, attrs, actor)
-
-    Fence.observe(pinned, :agent_gateway_sync)
     {:ok, device_uid}
+  end
+
+  # Test-only barrier between pinning and the fenced write
+  # (Application env :identity_fence_test_hooks). Production leaves it unset.
+  defp run_test_hook(event) do
+    case Application.get_env(:serviceradar_core, :identity_fence_test_hooks) do
+      %{^event => fun} when is_function(fun, 0) -> fun.()
+      _ -> :ok
+    end
   end
 
   defp resolve_device_id_for_agent(device_update, actor) do
@@ -409,7 +486,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
     hostname = Map.get(attrs, :hostname)
     source_ip = agent_source_ip(attrs)
-    partition = Map.get(attrs, :partition, "default")
+    partition = agent_partition(attrs)
     os_name = Map.get(attrs, :os)
     arch = Map.get(attrs, :arch)
     capabilities = Map.get(attrs, :capabilities, [])
@@ -434,14 +511,18 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
             source_ip: source_ip,
             partition: partition,
             os_info: os_info,
-            capabilities: capabilities
+            capabilities: capabilities,
+            identity: agent_identity_pairs(agent_id, attrs)
           },
           actor,
           now
         )
 
+      {:ok, %Device{deleted_reason: "merged", deleted_at: %DateTime{}} = device} ->
+        follow_merged_away_device(device, agent_id, attrs, capabilities, actor, now)
+
       {:ok, device} ->
-        # Update existing device
+        # Update existing device (a soft-deleted one is restored: see gateway_update_action/1)
         update_existing_device_for_agent(device, agent_id, attrs, capabilities, actor, now)
 
       {:error, reason} ->
@@ -454,13 +535,44 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
             source_ip: source_ip,
             partition: partition,
             os_info: os_info,
-            capabilities: capabilities
+            capabilities: capabilities,
+            identity: agent_identity_pairs(agent_id, attrs)
           }
 
           create_device_for_agent(device_context, actor, now)
         else
           {:error, reason}
         end
+    end
+  end
+
+  # A check-in never writes a merged-away device back to life (#4615). DIRE resolution
+  # already follows merge redirects, so this is reached only when the agent's uid is
+  # merged away between resolution and this write; the check-in follows the merge to the
+  # survivor, as resolution would have. With no live survivor it is refused, and the
+  # tombstone stays.
+  defp follow_merged_away_device(device, agent_id, attrs, capabilities, actor, now) do
+    survivor_uid = IdentityReconciler.follow_canonical_device_id(device.uid, actor)
+
+    case survivor_uid != device.uid && Device.get_by_uid(survivor_uid, false, actor: actor) do
+      {:ok, %Device{} = survivor} ->
+        Logger.info(
+          "Agent #{agent_id} check-in reached merged-away device #{device.uid}; " <>
+            "following its merge into #{survivor_uid}"
+        )
+
+        case update_existing_device_for_agent(survivor, agent_id, attrs, capabilities, actor, now) do
+          :ok -> {:ok, survivor_uid}
+          other -> other
+        end
+
+      _no_live_survivor ->
+        Logger.warning(
+          "Agent #{agent_id} check-in reached merged-away device #{device.uid} " <>
+            "with no live survivor; leaving it deleted"
+        )
+
+        {:error, {:merged_away_device, device.uid}}
     end
   end
 
@@ -491,6 +603,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         is_managed: true,
         is_trusted: true,
         discovery_sources: discovery_sources,
+        partition: partition,
         first_seen_time: now,
         last_seen_time: now,
         created_time: now,
@@ -530,7 +643,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
          allow_conflict_release?
        ) do
     if active_ip_unique_conflict?(reason) and present_string?(source_ip) do
-      case fetch_active_device_by_ip(source_ip, actor) do
+      case fetch_active_device_by_ip(source_ip, device_context.partition, actor) do
         {:ok, %Device{} = existing_device} ->
           handle_active_ip_owner_conflict(
             existing_device,
@@ -549,10 +662,10 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end
   end
 
-  defp maybe_adopt_existing_active_ip_device(reason, source_ip, device_context, actor, now) do
-    maybe_adopt_existing_active_ip_device(reason, source_ip, device_context, actor, now, true)
-  end
-
+  # A new agent device whose address another live device in its partition holds. The
+  # holder is adopted only when it is genuinely this agent's device. Otherwise the address
+  # is decided by address_claim/4: the holder releases it and the new device takes it, or
+  # the new device is created without it. Either way the conflict is recorded.
   defp handle_active_ip_owner_conflict(
          existing_device,
          source_ip,
@@ -562,7 +675,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
          allow_conflict_release?
        ) do
     cond do
-      adoptable_active_ip_owner?(existing_device, device_context) ->
+      adoptable_active_ip_owner?(existing_device, device_context, actor) ->
         Logger.info(
           "Adopting existing device #{existing_device.uid} for agent #{device_context.agent_id} after active IP conflict on #{source_ip}"
         )
@@ -583,15 +696,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         end
 
       allow_conflict_release? ->
-        with :ok <-
-               release_conflicting_active_ip_owner(
-                 existing_device,
-                 source_ip,
-                 device_context,
-                 actor
-               ) do
-          create_device_for_agent(device_context, actor, now, false)
-        end
+        claim_active_ip_for_new_device(existing_device, source_ip, device_context, actor, now)
 
       true ->
         {:error,
@@ -600,14 +705,230 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end
   end
 
-  defp adoptable_active_ip_owner?(%Device{} = existing_device, device_context) do
-    existing_agent_id = normalize_optional_string(existing_device.agent_id)
-    current_agent_id = normalize_optional_string(device_context.agent_id)
-    existing_hostname = normalize_hostname(existing_device.hostname || existing_device.name)
-    current_hostname = normalize_hostname(device_context.hostname)
+  defp claim_active_ip_for_new_device(holder, source_ip, device_context, actor, now) do
+    case address_claim(holder, device_context.agent_id, now, actor) do
+      :release ->
+        with :ok <- release_conflicting_active_ip_owner(holder, source_ip, device_context, actor) do
+          record_active_ip_conflict(
+            device_context.device_uid,
+            device_context.agent_id,
+            holder,
+            source_ip,
+            {:release_holder, :holder_stale}
+          )
 
-    is_nil(existing_agent_id) or existing_agent_id == current_agent_id or
-      (present_string?(existing_hostname) and existing_hostname == current_hostname)
+          create_device_for_agent(device_context, actor, now, false)
+        end
+
+      {:keep, reason} ->
+        record_active_ip_conflict(
+          device_context.device_uid,
+          device_context.agent_id,
+          holder,
+          source_ip,
+          {:drop_ip, reason}
+        )
+
+        create_device_for_agent(%{device_context | source_ip: nil}, actor, now, false)
+    end
+  end
+
+  # The address holder is genuinely this agent's device only when it claims no identity
+  # the agent does not also claim: an unbound record that knows nothing but the address
+  # (a sweep or mapper seed, perhaps with a name), or a record already bound to this
+  # agent. Address and hostname are evidence, not identity, so they never decide it: a
+  # holder identified as something else -- another agent, an Armis id, a MAC, a serial,
+  # on the record or registered for it -- is never taken over (#4664).
+  defp adoptable_active_ip_owner?(%Device{} = holder, device_context, actor) do
+    holder
+    |> holder_identity_pairs(actor)
+    |> MapSet.subset?(device_context.identity)
+  end
+
+  # The anchor identifiers (`Ids.identifier_priority/0`) the agent's check-in claims.
+  defp agent_identity_pairs(agent_id, attrs) do
+    agent_id
+    |> build_device_update_from_agent(attrs)
+    |> IdentityReconciler.extract_strong_identifiers()
+    |> identity_pairs()
+  end
+
+  # The anchor identifiers a holder carries on its record or has registered.
+  defp holder_identity_pairs(%Device{} = holder, actor) do
+    on_record =
+      identity_pairs(
+        IdentityReconciler.extract_strong_identifiers(%{
+          mac: holder.mac,
+          metadata: holder.metadata || %{},
+          partition: holder.partition
+        })
+      )
+
+    anchor_types = Ids.identifier_priority()
+
+    registered =
+      case DeviceIdentifier.get_by_device(holder.uid, actor: actor) do
+        {:ok, identifiers} ->
+          for %DeviceIdentifier{identifier_type: type, identifier_value: value} <- identifiers,
+              type in anchor_types,
+              into: MapSet.new(),
+              do: {Atom.to_string(type), value}
+
+        # Unknown identity is not "no identity": a failed lookup never adopts.
+        {:error, _reason} ->
+          MapSet.new([{"lookup_failed", holder.uid}])
+      end
+
+    bound_agent =
+      case normalize_optional_string(holder.agent_id) do
+        nil -> MapSet.new()
+        holder_agent_id -> MapSet.new([{"agent_id", holder_agent_id}])
+      end
+
+    on_record |> MapSet.union(registered) |> MapSet.union(bound_agent)
+  end
+
+  defp identity_pairs(ids) do
+    for type <- Ids.identifier_priority(),
+        value <- Ids.get_identifier_values(type, ids),
+        Ids.present_id?(value),
+        into: MapSet.new(),
+        do: {Atom.to_string(type), value}
+  end
+
+  # An agent check-in on a device that already exists, at an address another live device
+  # holds. The address is decided by address_claim/4. Either way the check-in's other
+  # fields are written and the conflict is recorded.
+  defp claim_active_ip_for_existing_device(device, action, update_attrs, reason, actor, now) do
+    source_ip = Map.fetch!(update_attrs, :ip)
+
+    case live_active_ip_holder(device, source_ip, actor) do
+      %Device{} = holder ->
+        case address_claim(holder, update_attrs.agent_id, now, actor) do
+          :release ->
+            take_active_ip_from_stale_holder(device, holder, action, update_attrs, actor)
+
+          {:keep, keep_reason} ->
+            keep_own_address(device, holder, action, update_attrs, keep_reason, actor)
+        end
+
+      nil ->
+        {:error, reason}
+    end
+  end
+
+  defp take_active_ip_from_stale_holder(device, holder, action, update_attrs, actor) do
+    source_ip = update_attrs.ip
+
+    fn ->
+      DeviceWrites.lock_and_clear_for_upsert([%{uid: device.uid}], [{holder.uid, source_ip}])
+
+      device
+      |> Ash.Changeset.for_update(action, update_attrs)
+      |> Ash.update(actor: actor, return_notifications?: true)
+      |> case do
+        {:ok, _device, notifications} -> notifications
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end
+    |> Repo.transaction()
+    |> case do
+      {:ok, notifications} ->
+        Ash.Notifier.notify(notifications)
+
+        Logger.info(
+          "Agent #{update_attrs.agent_id} device #{device.uid} takes active IP #{source_ip}; " <>
+            "released from stale holder #{holder.uid}"
+        )
+
+        record_active_ip_conflict(
+          device.uid,
+          update_attrs.agent_id,
+          holder,
+          source_ip,
+          {:release_holder, :holder_stale}
+        )
+
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp keep_own_address(device, holder, action, update_attrs, keep_reason, actor) do
+    source_ip = update_attrs.ip
+
+    Logger.info(
+      "Agent #{update_attrs.agent_id} device #{device.uid} keeps #{inspect(device.ip)}; " <>
+        "active IP #{source_ip} stays with #{holder.uid} (#{keep_reason})"
+    )
+
+    record_active_ip_conflict(
+      device.uid,
+      update_attrs.agent_id,
+      holder,
+      source_ip,
+      {:drop_ip, keep_reason}
+    )
+
+    update_attrs = Map.delete(update_attrs, :ip)
+
+    device
+    |> Ash.Changeset.for_update(action, update_attrs)
+    |> Ash.update(actor: actor)
+    |> case do
+      {:ok, _device} ->
+        :ok
+
+      {:error, error} ->
+        if stale_record_error?(error),
+          do: force_gateway_sync_update(device.uid, action, update_attrs, actor),
+          else: {:error, error}
+    end
+  end
+
+  defp live_active_ip_holder(%Device{} = device, source_ip, actor) do
+    Device
+    |> Ash.Query.for_read(:by_ip, %{ip: source_ip, partition: device.partition})
+    |> Ash.Query.filter(uid != ^device.uid)
+    |> Ash.read(actor: actor)
+    |> case do
+      {:ok, [holder | _]} -> holder
+      _none_or_error -> nil
+    end
+  end
+
+  # One active-IP conflict: a DIRE conflict row and an identity decision, as the sync and
+  # mapper paths record theirs. `:release_holder` -- the agent's device took the address from
+  # a stale holder; `:drop_ip` -- the holder kept it. The reason says why:
+  # `:holder_stale`, `:holder_seen_no_earlier`, or `:held_by_live_agent` (the address is
+  # shared, as behind NAT, by two live agents, and stays where it is).
+  defp record_active_ip_conflict(device_uid, agent_id, %Device{} = holder, ip, {action, reason}) do
+    conflict =
+      SourceIdentityDrift.build_active_ip_conflict(
+        %{uid: device_uid, metadata: %{"integration_type" => "agent", "agent_id" => agent_id}},
+        holder.uid,
+        ip,
+        action: action
+      )
+
+    SourceIdentityDrift.record_conflicts([conflict])
+
+    DecisionLog.record(:ip_conflict, "active_ip_conflict", [device_uid, holder.uid],
+      subject: ip,
+      source: "agent_gateway_sync",
+      evidence: %{
+        "incoming_device_uid" => device_uid,
+        "existing_device_uid" => holder.uid,
+        "ip" => ip,
+        "agent_id" => agent_id,
+        "existing_agent_id" => holder.agent_id,
+        "adoption" => "refused",
+        "proposed_action" => conflict.proposed_action,
+        "reason" => Atom.to_string(reason)
+      }
+    )
   end
 
   defp release_conflicting_active_ip_owner(
@@ -660,12 +981,64 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
   defp normalize_hostname(_), do: nil
 
-  defp fetch_active_device_by_ip(source_ip, actor) do
-    case Device.get_by_ip(source_ip, false, actor: actor) do
-      {:ok, %Device{} = device} -> {:ok, device}
+  # Whether a check-in observed at the holder's address `now` takes it. The address is
+  # evidence and follows the newer observation (#4639), with one exception: a holder
+  # bound to a different agent that is still live keeps it. Two live agents behind one
+  # NAT address would otherwise move it between their devices on every reconnect; it
+  # stays with the device that has it and neither device's identity changes. A different
+  # agent that is gone -- retired, or not heard from within the live window -- is no
+  # evidence the address is still its host's, and releases it like any stale holder.
+  defp address_claim(%Device{} = holder, agent_id, now, actor) do
+    cond do
+      different_agent?(holder, agent_id) and live_agent?(holder.agent_id, actor) ->
+        {:keep, :held_by_live_agent}
+
+      DeviceWrites.observed_after?(%{last_seen_time: now}, holder) ->
+        :release
+
+      true ->
+        {:keep, :holder_seen_no_earlier}
+    end
+  end
+
+  # Live: not retired, and seen within the window the `:connected` read uses. A recent
+  # disconnect still counts, so a stream reconnect does not move the address. Unknown
+  # liveness (a failed read) counts as live: the address stays where it is.
+  defp live_agent?(agent_id, actor) do
+    agent_id = normalize_optional_string(agent_id)
+    cutoff = DateTime.add(DateTime.utc_now(), -@agent_live_window_minutes * 60, :second)
+
+    Agent
+    |> Ash.Query.for_read(:read, %{})
+    |> Ash.Query.filter(uid == ^agent_id and status != :unavailable and last_seen_time > ^cutoff)
+    |> Ash.exists(actor: actor)
+    |> case do
+      {:ok, live?} -> live?
+      {:error, _reason} -> true
+    end
+  end
+
+  defp different_agent?(%Device{} = holder, agent_id) do
+    case {normalize_optional_string(holder.agent_id), normalize_optional_string(agent_id)} do
+      {nil, _} -> false
+      {same, same} -> false
+      {_holder_agent_id, _} -> true
+    end
+  end
+
+  # The partition a check-in's device lives in, and the only one its address is looked up
+  # in: a missing or blank partition is "default", never "any partition".
+  defp agent_partition(attrs) do
+    normalize_optional_string(Map.get(attrs, :partition)) || "default"
+  end
+
+  defp fetch_active_device_by_ip(source_ip, partition, actor) do
+    Device
+    |> Ash.Query.for_read(:by_ip, %{ip: source_ip, partition: partition})
+    |> Ash.read(actor: actor)
+    |> case do
       {:ok, [device | _]} -> {:ok, device}
       {:ok, []} -> {:error, %NotFound{}}
-      {:ok, nil} -> {:error, %NotFound{}}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -695,53 +1068,36 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       |> maybe_put(:ip, source_ip)
       |> compact_attrs()
 
+    action = gateway_update_action(device)
+
     # DB connection's search_path determines the schema
     device
-    |> Ash.Changeset.for_update(:gateway_sync, update_attrs)
+    |> Ash.Changeset.for_update(action, update_attrs)
     |> Ash.update(actor: actor)
     |> case do
       {:ok, _device} ->
-        Logger.debug("Updated device #{device.uid} for agent #{agent_id}")
+        Logger.debug("Updated device #{device.uid} for agent #{agent_id} (#{action})")
         :ok
 
-      {:error, %Invalid{} = error} ->
+      {:error, error} ->
         cond do
           stale_record_error?(error) ->
-            force_gateway_sync_update(device.uid, update_attrs, actor)
+            force_gateway_sync_update(device.uid, action, update_attrs, actor)
 
-          active_ip_unique_conflict?(error) ->
-            maybe_adopt_existing_active_ip_device(
-              error,
-              source_ip,
-              %{
-                agent_id: agent_id,
-                hostname: hostname,
-                source_ip: source_ip,
-                capabilities: capabilities
-              },
-              actor,
-              now
-            )
+          active_ip_unique_conflict?(error) and present_string?(source_ip) ->
+            claim_active_ip_for_existing_device(device, action, update_attrs, error, actor, now)
 
           true ->
             {:error, error}
         end
-
-      {:error, reason} ->
-        maybe_adopt_existing_active_ip_device(
-          reason,
-          source_ip,
-          %{
-            agent_id: agent_id,
-            hostname: hostname,
-            source_ip: source_ip,
-            capabilities: capabilities
-          },
-          actor,
-          now
-        )
     end
   end
+
+  # A check-in on a soft-deleted device restores it (Device :gateway_restore bumps
+  # identity_revision, as :restore does); :gateway_sync never clears a tombstone. A
+  # merged-away device never gets here (follow_merged_away_device/6).
+  defp gateway_update_action(%Device{deleted_at: %DateTime{}}), do: :gateway_restore
+  defp gateway_update_action(%Device{}), do: :gateway_sync
 
   defp agent_host_device_type(%Device{} = device) do
     if hypervisor_device?(device) do
@@ -1395,19 +1751,19 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end)
   end
 
-  defp force_gateway_sync_update(device_uid, update_attrs, actor) do
+  defp force_gateway_sync_update(device_uid, action, update_attrs, actor) do
     query =
       Device
       |> Ash.Query.for_read(:read, %{include_deleted: true})
       |> Ash.Query.filter(uid == ^device_uid)
 
-    case Ash.bulk_update(query, :gateway_sync, update_attrs,
+    case Ash.bulk_update(query, action, update_attrs,
            actor: actor,
            return_errors?: true,
            return_records?: false
          ) do
       %Ash.BulkResult{status: :success} ->
-        Logger.debug("Force-updated device #{device_uid} via gateway_sync")
+        Logger.debug("Force-updated device #{device_uid} via #{action}")
         :ok
 
       %Ash.BulkResult{status: :partial_success, errors: errors} ->

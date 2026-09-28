@@ -3,8 +3,8 @@ defmodule ServiceRadar.PrefixTags.BenchmarkTest do
   Lightweight synthetic gate for the pure-Elixir LPM engine.
 
   Not a full EventWriter P99 bench (that needs a running pipeline). This
-  records raw lookup throughput + persistent_term swap cost so we can spot
-  regressions and decide if the Rustler NIF path is warranted.
+  records raw lookup throughput + persistent_term swap cost for the explicitly
+  selected pure-Elixir engine; the production default is the native engine.
   """
   use ExUnit.Case, async: false
 
@@ -14,6 +14,15 @@ defmodule ServiceRadar.PrefixTags.BenchmarkTest do
   @moduletag :benchmark
 
   setup do
+    previous = Application.get_env(:serviceradar_core, :prefix_tags_engine)
+    Application.put_env(:serviceradar_core, :prefix_tags_engine, Trie)
+
+    on_exit(fn ->
+      if previous,
+        do: Application.put_env(:serviceradar_core, :prefix_tags_engine, previous),
+        else: Application.delete_env(:serviceradar_core, :prefix_tags_engine)
+    end)
+
     on_exit(fn -> Store.clear() end)
     Store.clear()
     :ok
@@ -74,7 +83,7 @@ defmodule ServiceRadar.PrefixTags.BenchmarkTest do
       end)
 
     # Soft gates: pure Elixir should easily clear these on modern hardware.
-    # Failures mean we revisit the Rustler NIF decision (design.md M1 gate).
+    # Failures indicate a regression in the explicitly selected Elixir fallback.
     assert lookups_per_sec > 10_000,
            "lookup throughput too low: #{Float.round(lookups_per_sec, 1)}/s " <>
              "(build=#{build_us}us, lookups=#{lookup_us}us, n=#{prefix_count})"

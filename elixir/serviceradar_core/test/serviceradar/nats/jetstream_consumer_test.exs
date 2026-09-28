@@ -349,4 +349,129 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
     assert JetstreamConsumer.deliver_policy_immutable_error?(%{"err_code" => 10_012})
     assert JetstreamConsumer.deliver_policy_immutable_error?("deliver policy can not be updated")
   end
+
+  describe "serviceradar.owner claim (design D6)" do
+    # What EventWriter's `events` consumers ask for: the fallback shape plus the
+    # `event-writer` claim. The legacy default reconciled this shape onto the
+    # shared stream no matter who owned it.
+    @claim_opts [
+      stream_owner_claim: "event-writer",
+      stream_retention: "limits",
+      stream_discard: "old",
+      stream_replicas: 1,
+      stream_max_bytes: 2_147_483_648,
+      stream_max_age: 86_400_000_000_000
+    ]
+
+    @collector_events %{
+      "name" => "events",
+      "subjects" => ["events.>"],
+      "retention" => "limits",
+      "discard" => "old",
+      "num_replicas" => 3,
+      "max_bytes" => 4_294_967_296,
+      "max_age" => 1_800_000_000_000,
+      "metadata" => %{"serviceradar.owner" => "otel-log-collector"}
+    }
+
+    test "a stream claimed by a collector only gets its subjects merged" do
+      assert {:ok, payload} =
+               JetstreamConsumer.reconciled_stream_payload(
+                 @collector_events,
+                 "events",
+                 "logs.>",
+                 @claim_opts
+               )
+
+      assert payload["subjects"] == ["events.>", "logs.>"]
+      assert payload["max_bytes"] == 4_294_967_296
+      assert payload["num_replicas"] == 3
+      assert payload["max_age"] == 1_800_000_000_000
+      assert JetstreamConsumer.stream_owner(payload) == "otel-log-collector"
+    end
+
+    test "a legacy stream with no claim only gets its subjects merged" do
+      legacy = Map.delete(@collector_events, "metadata")
+
+      assert {:ok, payload} =
+               JetstreamConsumer.reconciled_stream_payload(
+                 legacy,
+                 "events",
+                 "logs.>",
+                 @claim_opts
+               )
+
+      assert payload["subjects"] == ["events.>", "logs.>"]
+      assert payload["max_bytes"] == 4_294_967_296
+      assert payload["num_replicas"] == 3
+      assert JetstreamConsumer.stream_owner(payload) == nil
+    end
+
+    test "a stream carrying the caller's own claim is reconciled to its shape" do
+      claimed = JetstreamConsumer.put_stream_owner(@collector_events, "event-writer")
+
+      assert {:ok, payload} =
+               JetstreamConsumer.reconciled_stream_payload(
+                 claimed,
+                 "events",
+                 "logs.>",
+                 @claim_opts
+               )
+
+      assert payload["max_bytes"] == 2_147_483_648
+      assert payload["num_replicas"] == 1
+      assert payload["max_age"] == 86_400_000_000_000
+      assert JetstreamConsumer.stream_owner(payload) == "event-writer"
+    end
+
+    test "the claim is never stamped onto a stream discovery resolved onto" do
+      opts = [stream_name: "ARANCINI_CAUSAL"] ++ @claim_opts
+      scoped = JetstreamConsumer.scoped_stream_opts(opts, "events")
+
+      refute Keyword.has_key?(scoped, :stream_owner_claim)
+    end
+
+    test "put_stream_owner keeps other metadata keys" do
+      config = %{"metadata" => %{"team" => "ops", "serviceradar.owner" => "bmp-collector"}}
+
+      assert JetstreamConsumer.put_stream_owner(config, "event-writer")["metadata"] == %{
+               "team" => "ops",
+               "serviceradar.owner" => "event-writer"
+             }
+    end
+  end
+
+  describe "reconcile by discard policy" do
+    test "a discard-old stream is shrunk below its stored bytes and the eviction is logged" do
+      config = %{"discard" => "old", "max_bytes" => 10_737_418_240}
+      payload = %{config | "max_bytes" => 1_073_741_824}
+      stored = 9_000_000_000
+
+      assert JetstreamConsumer.hold_discard_new_max_bytes("flows", config, payload, stored) ==
+               payload
+
+      line = JetstreamConsumer.describe_shape_change("flows", config, payload, stored)
+      assert line =~ "max_bytes 10737418240 -> 1073741824"
+      assert line =~ "evicts the oldest messages"
+    end
+
+    test "a discard-new stream keeps max_bytes when its stored bytes do not fit the cap" do
+      config = %{"discard" => "new", "max_bytes" => 10_737_418_240}
+      payload = %{config | "max_bytes" => 4_294_967_296}
+
+      stored = 6_442_450_944
+      held = JetstreamConsumer.hold_discard_new_max_bytes("state", config, payload, stored)
+
+      assert held["max_bytes"] == 10_737_418_240
+      assert JetstreamConsumer.describe_shape_change("state", config, held, 0) == nil
+    end
+
+    test "a discard-new stream whose data fits takes the cap" do
+      config = %{"discard" => "new", "max_bytes" => 10_737_418_240}
+      payload = %{config | "max_bytes" => 4_294_967_296}
+
+      assert JetstreamConsumer.hold_discard_new_max_bytes("state", config, payload, 1_000) ==
+               payload
+    end
+  end
 end

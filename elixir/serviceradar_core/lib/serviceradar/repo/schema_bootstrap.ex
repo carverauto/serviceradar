@@ -93,6 +93,65 @@ defmodule ServiceRadar.Repo.SchemaBootstrap do
   end
 
   @doc """
+  Make `platform.schema_migrations` and `platform.ash_schema_migrations` record the same
+  versions: each receives every version the other has and it lacks.
+
+  One schema has two ledgers because the ledger `Ecto.Migrator` reads and writes is the repo's
+  `:migration_source`, and the two applications sharing `ServiceRadar.Repo` configure it
+  differently. Core leaves it unset, so its migrator uses `platform.schema_migrations`. web-ng
+  sets `migration_source: "ash_schema_migrations"`, so its `RequireMigrations` gate -- and any
+  migrator that runs under web-ng's config, `mix serviceradar.db.migrate` and `mix ecto.migrate`
+  included -- uses `platform.ash_schema_migrations`. Whichever ledger a run wrote, the other
+  falls behind: web-ng then answers every route with 503, or core treats migrations that were
+  applied as pending and runs them a second time.
+
+  Ecto gives no way to make one migrator write both, so the paths this project owns converge
+  the ledgers instead, and do it on BOTH sides of the migrator:
+
+    * before it, so it computes what is pending from every version recorded in either ledger
+      -- the same union `classify/1` already uses to decide that a database has history;
+    * after it, so what it just applied, and any version startup's self-repair marked, reaches
+      the ledger it did not write.
+
+  `ServiceRadar.Cluster.StartupMigrations`, `mix serviceradar.db.migrate` and the fixture
+  lifecycle's migrate step all call it in both places (startup's before-call sits on its
+  existing-history path, since a database it has just baselined has one ledger). A version is
+  only ever added, never removed, which is safe because migrations here are append-only and
+  nothing rolls one back.
+
+  Nothing is created on a database with neither ledger, where there is nothing to copy and the
+  schema a ledger lives in may not exist yet; the migrator creates its own ledger on its first
+  run. Otherwise a missing ledger is created before it is filled. Only missing versions are
+  inserted, so running it repeatedly is a no-op.
+
+  Returns how many versions it added to each ledger.
+  """
+  @spec sync_migration_ledgers!(module()) :: %{
+          schema_migrations: non_neg_integer(),
+          ash_schema_migrations: non_neg_integer()
+        }
+  def sync_migration_ledgers!(repo) do
+    core = "platform.schema_migrations"
+    ash = "platform.ash_schema_migrations"
+    ledgers = [core, ash]
+
+    case Enum.filter(ledgers, &table_exists?(repo, &1)) do
+      [] ->
+        %{schema_migrations: 0, ash_schema_migrations: 0}
+
+      existing ->
+        Enum.each(ledgers -- existing, &create_migration_ledger!(repo, &1))
+
+        # Two copies reach the union: core first takes what only ash has, and ash then takes
+        # everything core has, which by now includes its own versions.
+        %{
+          schema_migrations: copy_missing_versions!(repo, ash, core),
+          ash_schema_migrations: copy_missing_versions!(repo, core, ash)
+        }
+    end
+  end
+
+  @doc """
   Versions recorded in any of the ledgers this deployment may have used.
 
   Three locations are read because a database can legitimately hold more than one: the ledger's
@@ -169,6 +228,26 @@ defmodule ServiceRadar.Repo.SchemaBootstrap do
   end
 
   # -- internals ------------------------------------------------------------------------------
+
+  defp create_migration_ledger!(repo, table) do
+    repo.query!("""
+    CREATE TABLE IF NOT EXISTS #{table} (
+      version bigint NOT NULL PRIMARY KEY,
+      inserted_at timestamp(0) without time zone
+    )
+    """)
+  end
+
+  defp copy_missing_versions!(repo, from, to) do
+    %{num_rows: added} =
+      repo.query!("""
+      INSERT INTO #{to} (version, inserted_at)
+      SELECT version, inserted_at FROM #{from}
+      ON CONFLICT (version) DO NOTHING
+      """)
+
+    added
+  end
 
   defp migration_versions_from_table(repo, table) do
     if table_exists?(repo, table) do

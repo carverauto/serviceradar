@@ -19,6 +19,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonProfiles do
     AddonProfile
     |> Ash.Query.for_read(:read)
     |> maybe_filter_package_id(filters)
+    |> maybe_filter_addon_id(filters)
     |> maybe_filter_enabled(filters)
     |> Ash.Query.limit(limit)
     |> Ash.Query.sort(priority: :asc, inserted_at: :desc)
@@ -156,6 +157,16 @@ defmodule ServiceRadarWebNG.Plugins.AddonProfiles do
 
     if is_binary(package_id) and package_id != "" do
       Ash.Query.filter(query, addon_package_id == ^package_id)
+    else
+      query
+    end
+  end
+
+  defp maybe_filter_addon_id(query, filters) do
+    addon_id = Map.get(filters, :addon_id) || Map.get(filters, "addon_id")
+
+    if is_binary(addon_id) and addon_id != "" do
+      Ash.Query.filter(query, addon_id == ^addon_id)
     else
       query
     end

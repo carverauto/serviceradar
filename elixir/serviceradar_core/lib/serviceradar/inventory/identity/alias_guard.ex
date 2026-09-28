@@ -3,8 +3,8 @@ defmodule ServiceRadar.Inventory.Identity.AliasGuard do
   Strong-identity guards for IP-alias driven merges.
 
   A confirmed IP alias may corroborate identity but must never override
-  it: two devices bound to different agents are never merged on alias
-  evidence, and the conflicting alias is invalidated (marked stale).
+  it: the agent check-in path never merges on alias evidence, and an alias
+  held by an identified device is invalidated (marked stale).
   """
 
   alias ServiceRadar.Actors.SystemActor
@@ -12,15 +12,24 @@ defmodule ServiceRadar.Inventory.Identity.AliasGuard do
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Identity.DecisionLog
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.Identity.InterfaceMacs
   alias ServiceRadar.Inventory.Identity.Mac
-  alias ServiceRadar.Inventory.Identity.MergeEngine
   alias ServiceRadar.Inventory.Identity.Resolver
 
   require Ash.Query
   require Logger
 
+  @doc """
+  Handles a confirmed IP alias of the address a resolved device was just seen at. The alias
+  never merges: an address is evidence, not identity, and DHCP hands the same address to other
+  devices.
+
+  When the alias holder owns identifiers of its own, it is a different identified device that
+  once held the address, so the alias is invalidated (marked stale) and the decision is
+  recorded. An address-only holder is left alone.
+  """
   def maybe_merge_ip_alias_device(device_id, ids, actor) do
     ip = Ids.ids_get_string(ids, :ip)
     partition = Ids.ids_get_partition(ids)
@@ -30,25 +39,12 @@ defmodule ServiceRadar.Inventory.Identity.AliasGuard do
          {:ok, alias_device_id} when is_binary(alias_device_id) and alias_device_id != "" <-
            Resolver.lookup_alias_device_id(ip, partition, actor),
          true <- alias_device_id != device_id,
-         false <- Ids.service_device_id?(alias_device_id) do
-      if distinct_strong_identity_conflict?(alias_device_id, device_id, actor) do
-        # A bare IP must never merge two devices that carry distinct strong
-        # identity. Different agents — or different MACs, the network-agnostic
-        # tell that a recycling IP (a churned pod address, a reused DHCP lease)
-        # has rebound to other hardware — mean these are different hosts.
-        # Invalidate the alias so the recycled IP stops feeding merge attempts.
-        invalidate_ip_alias(ip, partition, alias_device_id, device_id, actor)
-      else
-        _ =
-          MergeEngine.merge_devices(alias_device_id, device_id,
-            actor: actor,
-            reason: "ip_alias_conflict",
-            details: %{
-              source: "identity_reconciler",
-              alias_ip: ip
-            }
-          )
-      end
+         false <- Ids.service_device_id?(alias_device_id),
+         true <- identified?(alias_device_id, actor) do
+      # Merging here used to require distinct agents or disjoint MACs to veto it, so a holder
+      # identified by something else (a source-authoritative id with no MAC reported) counted
+      # as "not distinct" and was folded into whichever device leased its old address.
+      invalidate_ip_alias(ip, partition, alias_device_id, device_id, actor)
     end
 
     :ok
@@ -82,6 +78,62 @@ defmodule ServiceRadar.Inventory.Identity.AliasGuard do
       MapSet.disjoint?(MapSet.new(macs_a), MapSet.new(macs_b)) and
       not Mac.any_hardware_mac_siblings?(macs_a, macs_b) and
       not same_chassis?(device_a, device_b, macs_a, macs_b, actor)
+  end
+
+  @doc """
+  Whether two devices each own at least one identifier and nothing corroborates that they are
+  one chassis. When they do, a shared IP address is the only thing linking them, and DHCP hands
+  addresses to other devices, so the address is never evidence that they are one device: an
+  address-driven merge must not proceed.
+
+  Wider than `distinct_mac_conflict?/3`, which vetoes only when BOTH sides hold MACs. A device
+  identified by an agent or source-authoritative id and a device identified only by its MAC are
+  just as distinct, and "unknown is not distinct" is exactly how a recycled address merged them.
+  The own-interface claim (`same_chassis?/5`) still lifts the veto, as it does there.
+  """
+  @spec distinct_identified_devices?(String.t(), String.t(), term()) :: boolean()
+  def distinct_identified_devices?(device_a, device_b, actor) do
+    identified?(device_a, actor) and identified?(device_b, actor) and
+      not same_chassis?(
+        device_a,
+        device_b,
+        device_macs(device_a, actor),
+        device_macs(device_b, actor),
+        actor
+      )
+  end
+
+  defp identified?(device_id, actor) do
+    query_opts = if actor, do: [actor: actor], else: []
+
+    DeviceIdentifier
+    |> Ash.Query.filter(device_id == ^device_id)
+    |> Ash.Query.limit(1)
+    |> Ash.read(query_opts)
+    |> log_identifier_read_error(device_id)
+    |> identified_read_result?()
+  rescue
+    e ->
+      Logger.warning("Failed to load identifiers for #{device_id}: #{inspect(e)}")
+      # Fail closed: an unreadable device is treated as identified, so the veto holds and no
+      # address-driven merge happens on missing evidence.
+      true
+  end
+
+  # Pure decision table for the identifier read, public for tests.
+  @doc false
+  @spec identified_read_result?(term()) :: boolean()
+  def identified_read_result?({:ok, [_ | _]}), do: true
+  def identified_read_result?({:ok, []}), do: false
+  # Any error fails closed, treating the device as identified so the veto holds and nothing
+  # merges on missing evidence.
+  def identified_read_result?(_error), do: true
+
+  defp log_identifier_read_error({:ok, _} = result, _device_id), do: result
+
+  defp log_identifier_read_error(error, device_id) do
+    Logger.warning("Failed to load identifiers for #{device_id}: #{inspect(error)}")
+    error
   end
 
   # Whether one device's OWN interface table claims a MAC the other device is
@@ -232,6 +284,21 @@ defmodule ServiceRadar.Inventory.Identity.AliasGuard do
           [:serviceradar, :identity_reconciler, :alias, :invalidated],
           %{count: length(alias_states)},
           %{alias_ip: ip, alias_device_id: alias_device_id, device_id: device_id}
+        )
+
+        DecisionLog.record(
+          :alias_invalidated,
+          "ip_alias_conflicts_with_identity",
+          [alias_device_id, device_id],
+          subject: ip,
+          source: "alias_guard",
+          evidence: %{
+            "alias_ip" => ip,
+            "partition" => partition,
+            "alias_device_id" => alias_device_id,
+            "device_id" => device_id,
+            "staled_alias_count" => length(alias_states)
+          }
         )
 
       _ ->

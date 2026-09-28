@@ -178,7 +178,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
   end
 
   defp profile_query(metric_type, metric_name, time_range, limit, profile_timezone) do
-    ~s|in:timeseries_metrics metric_type:"#{metric_type}" metric_name:"#{metric_name}" time:#{time_range} bucket:1h agg:avg series:uid stats:profile_hour_of_week(value) timezone:"#{profile_timezone}" sort:dow:asc,hod:asc limit:#{limit}|
+    ~s|in:timeseries_metrics metric_type:"#{metric_type}" metric_name:"#{metric_name}" time:#{time_range} bucket:1h agg:avg series:uid stats:profile_hour_of_week(value) timezone:"#{profile_timezone}" sort:dow:asc,hod:asc window_scan:true limit:#{limit}|
   end
 
   defp interface_sources(time_range, limit, profile_timezone) do
@@ -198,7 +198,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.Source do
   end
 
   defp interface_profile_query(metric_name, time_range, limit, profile_timezone) do
-    ~s|in:timeseries_metric_interface_hourly metric_name:"#{metric_name}" time:#{time_range} stats:profile_hour_of_week(value) timezone:"#{profile_timezone}" sort:series:asc,if_index:asc,dow:asc,hod:asc limit:#{limit}|
+    ~s|in:timeseries_metric_interface_hourly metric_name:"#{metric_name}" time:#{time_range} stats:profile_hour_of_week(value) timezone:"#{profile_timezone}" sort:series:asc,if_index:asc,dow:asc,hod:asc window_scan:true limit:#{limit}|
   end
 
   @doc """

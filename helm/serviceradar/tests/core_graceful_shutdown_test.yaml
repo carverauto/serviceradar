@@ -1,0 +1,58 @@
+suite: core graceful shutdown
+templates:
+  - templates/core.yaml
+release:
+  namespace: serviceradar-test
+tests:
+  # On SIGTERM Oban waits OBAN_SHUTDOWN_GRACE_PERIOD_MS for executing jobs and
+  # kills whatever is still running; a killed job is left `executing`, and a
+  # unique worker (the trace-summary refresh) is blocked until a rescuer finds
+  # it. Kubernetes kills the pod at terminationGracePeriodSeconds, so the pod
+  # has to outlive Oban's wait or the wait is cut short and a routine rollout
+  # orphans jobs again.
+  - it: renders an Oban shutdown grace the pod outlives by default
+    asserts:
+      - equal:
+          path: spec.template.spec.terminationGracePeriodSeconds
+          value: 90
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OBAN_SHUTDOWN_GRACE_PERIOD_MS
+            value: "60000"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: follows overridden values
+    set:
+      core.obanShutdownGracePeriodSeconds: 120
+      core.terminationGracePeriodSeconds: 150
+    asserts:
+      - equal:
+          path: spec.template.spec.terminationGracePeriodSeconds
+          value: 150
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: OBAN_SHUTDOWN_GRACE_PERIOD_MS
+            value: "120000"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: rejects a pod grace that does not outlive the Oban grace
+    set:
+      core.obanShutdownGracePeriodSeconds: 60
+      core.terminationGracePeriodSeconds: 70
+    asserts:
+      - failedTemplate:
+          errorPattern: "core.terminationGracePeriodSeconds \\(70\\) must be at least 15s above core.obanShutdownGracePeriodSeconds \\(60\\)"

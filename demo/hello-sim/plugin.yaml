@@ -1,0 +1,48 @@
+id: demo-hello-sim
+name: Demo Hello Sim
+version: 0.1.0
+description: >
+  Showcase demo plugin (never shipped with the product): three simulated
+  environmental sensors with steady telemetry and a recurring overheat fault
+  that opens and resolves an alert on its own.
+entrypoint: run_check
+runtime: wasi-preview1
+outputs: serviceradar.plugin_result.v1
+capabilities:
+  - get_config
+  - log
+  - submit_result
+  - emit_telemetry
+resources:
+  requested_memory_mb: 32
+  requested_cpu_ms: 2000
+  max_open_connections: 0
+# Proposed rules are created disabled on approve; the demo publish target
+# enables them (see demo/tools/demopublish).
+alert_rules:
+  - name: demo_hello_sim_overheat
+    description: One incident per sensor while the simulated overheat fault is active.
+    signal: event
+    match:
+      subject_prefix: demo.fault
+      attribute_equals:
+        demo.fault.kind: overheat
+        demo.fault.state: open
+      recovery:
+        subject_prefix: demo.fault
+        attribute_equals:
+          demo.fault.kind: overheat
+          demo.fault.state: resolved
+    group_by:
+      - asset_id
+    threshold: 1
+    window_seconds: 300
+    bucket_seconds: 60
+    cooldown_seconds: 60
+    renotify_seconds: 21600
+    event:
+      log_name: alert.demo.hello_sim.overheat
+      message: "Sensor {asset_id} is over temperature"
+    alert:
+      title: Demo sensor over temperature
+      severity: warning

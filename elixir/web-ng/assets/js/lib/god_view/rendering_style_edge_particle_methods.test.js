@@ -2,216 +2,100 @@ import {describe, expect, it} from "vitest"
 
 import {godViewRenderingStyleEdgeParticleMethods} from "./rendering_style_edge_particle_methods"
 
+// Packet flow is one instance per edge; these tests read the per-edge inputs the shader
+// turns into particles: flow = [particle base, A->B weight, B->A weight, base speed],
+// shape = [lane separation, jitter, utilization, seed], style = [alpha scale, size scale].
+function flowFor(edges, context = {}) {
+  const block = godViewRenderingStyleEdgeParticleMethods.buildPacketFlowEdges.call(
+    {edgeWidthPixels: () => 4.0, ...context},
+    edges,
+  )
+  const rows = []
+  for (let i = 0; i < block.length; i += 1) {
+    rows.push({
+      endpoints: Array.from(block.attributes.instanceEndpoints.subarray(i * 4, i * 4 + 4)),
+      flow: Array.from(block.attributes.instanceFlow.subarray(i * 4, i * 4 + 4)),
+      shape: Array.from(block.attributes.instanceShape.subarray(i * 4, i * 4 + 4)),
+      style: Array.from(block.attributes.instanceStyle.subarray(i * 2, i * 2 + 2)),
+    })
+  }
+  return {block, rows}
+}
+
+const trafficEdge = {
+  sourcePosition: [0, 0, 0],
+  targetPosition: [100, 0, 0],
+  flowPps: 1000,
+  flowBps: 10_000_000,
+  flowPpsAb: 700,
+  flowPpsBa: 300,
+  flowBpsAb: 7_000_000,
+  flowBpsBa: 3_000_000,
+  capacityBps: 20_000_000,
+  telemetryEligible: true,
+  topologyClass: "backbone",
+}
+
 describe("rendering_style_edge_particle_methods", () => {
-  it("omits particles for bent routes until polyline distance sampling exists", () => {
-    const particles = godViewRenderingStyleEdgeParticleMethods.buildPacketFlowInstances([
-      {
-        sourcePosition: [0, 0, 0],
-        targetPosition: [100, 100, 0],
-        path: [[0, 0, 0], [100, 0, 0], [100, 100, 0]],
-        flowPps: 1000,
-        flowBps: 10_000_000,
-        flowPpsAb: 1000,
-        flowBpsAb: 10_000_000,
-        capacityBps: 20_000_000,
-        telemetryEligible: true,
-      },
-    ])
+  it("emits one packed row per edge with traffic, and nothing per particle", () => {
+    const {block, rows} = flowFor([trafficEdge, {...trafficEdge, sourcePosition: [0, 10, 0], targetPosition: [50, 10, 0]}])
 
-    expect(particles).toEqual([])
+    expect(block.length).toBe(2)
+    expect(Object.keys(block.attributes).sort()).toEqual(["instanceEndpoints", "instanceFlow", "instanceShape", "instanceStyle"])
+    expect(rows[0].endpoints).toEqual([0, 0, 100, 0])
+    expect(rows[1].endpoints).toEqual([0, 10, 50, 10])
   })
 
-  it("buildPacketFlowInstances enforces visibility floors on low-but-real telemetry links", () => {
-    const particles = godViewRenderingStyleEdgeParticleMethods.buildPacketFlowInstances([
-      {
-        sourcePosition: [0, 0, 0],
-        targetPosition: [100, 0, 0],
-        flowPps: 10,
-        flowBps: 1000,
-        flowPpsAb: 10,
-        flowPpsBa: 0,
-        flowBpsAb: 1000,
-        flowBpsBa: 0,
-        capacityBps: 0,
-        weight: 1,
-      },
+  it("omits bent routes, ineligible links and links with no traffic", () => {
+    const {block} = flowFor([
+      {...trafficEdge, path: [[0, 0, 0], [100, 0, 0], [100, 100, 0]]},
+      {...trafficEdge, telemetryEligible: false},
+      {...trafficEdge, flowPps: 0, flowBps: 0, flowPpsAb: 0, flowPpsBa: 0, flowBpsAb: 0, flowBpsBa: 0},
     ])
 
-    expect(particles.length).toBeGreaterThanOrEqual(32)
-    const headParticles = particles.filter((p) => p.size >= 3.8)
-    const dustParticles = particles.filter((p) => p.size < 3.8)
-    expect(headParticles.length).toBeGreaterThan(0)
-    expect(dustParticles.length).toBeGreaterThan(0)
-    for (const particle of headParticles) {
-      expect(particle.size).toBeLessThanOrEqual(9.1)
-      expect(particle.jitter).toBeLessThanOrEqual(10.5)
-      expect(particle.color[3]).toBeGreaterThanOrEqual(90)
-      expect(particle.color[3]).toBeLessThanOrEqual(255)
-    }
-    for (const particle of dustParticles) {
-      expect(particle.size).toBeLessThanOrEqual(3.8)
-      expect(particle.jitter).toBeLessThanOrEqual(10.5)
-      expect(particle.color[3]).toBeGreaterThanOrEqual(75)
-      expect(particle.color[3]).toBeLessThanOrEqual(255)
-    }
+    expect(block.length).toBe(0)
   })
 
-  it("buildPacketFlowInstances keeps particle count bounded for larger edge sets", () => {
-    const edgeData = Array.from({length: 2000}, (_, i) => ({
-      sourcePosition: [i, 0, 0],
-      targetPosition: [i + 1, 10, 0],
-      flowPps: 10_000,
-      flowBps: 100_000_000,
-      capacityBps: 1_000_000_000,
+  it("draws a reverse lane only when there is real B->A telemetry, weighted by direction", () => {
+    const oneWay = flowFor([{...trafficEdge, flowPpsBa: 0, flowBpsBa: 0}]).rows[0]
+    const twoWay = flowFor([trafficEdge]).rows[0]
+
+    expect(oneWay.flow[2]).toBe(0)
+    expect(twoWay.flow[1]).toBeCloseTo(0.7, 5)
+    expect(twoWay.flow[2]).toBeCloseTo(0.3, 5)
+  })
+
+  it("keeps a visible particle floor on low-but-real telemetry links", () => {
+    const [row] = flowFor([{
+      sourcePosition: [0, 0, 0],
+      targetPosition: [100, 0, 0],
+      flowPps: 10,
+      flowBps: 1000,
+      flowPpsAb: 10,
+      flowBpsAb: 1000,
+      capacityBps: 0,
       weight: 1,
-    }))
+    }]).rows
 
-    const particles = godViewRenderingStyleEdgeParticleMethods.buildPacketFlowInstances(edgeData)
-    expect(particles.length).toBeLessThanOrEqual(60000)
+    // The shader clamps each lane to at least 18 particles; the base itself is well above it.
+    expect(row.flow[0]).toBeGreaterThan(18)
+    expect(row.flow[3]).toBeGreaterThan(0.02)
   })
 
-  it("buildPacketFlowInstances skips telemetry-ineligible edges", () => {
-    const particles = godViewRenderingStyleEdgeParticleMethods.buildPacketFlowInstances([
-      {
-        sourcePosition: [0, 0, 0],
-        targetPosition: [20, 0, 0],
-        flowPps: 1000,
-        flowBps: 1_000_000,
-        capacityBps: 10_000_000,
-        telemetryEligible: false,
-      },
-      {
-        sourcePosition: [0, 5, 0],
-        targetPosition: [20, 5, 0],
-        flowPps: 1000,
-        flowBps: 1_000_000,
-        capacityBps: 10_000_000,
-        telemetryEligible: true,
-      },
-    ])
+  it("softens endpoint attachment links", () => {
+    const backbone = flowFor([trafficEdge]).rows[0]
+    const endpoint = flowFor([{...trafficEdge, topologyClass: "endpoints"}]).rows[0]
 
-    expect(particles.length).toBeGreaterThan(0)
-    for (const particle of particles) {
-      expect(particle.from).toEqual([0, 5])
-      expect(particle.to).toEqual([20, 5])
-    }
+    expect(endpoint.flow[0]).toBeLessThan(backbone.flow[0])
+    expect(endpoint.style[0]).toBeLessThan(backbone.style[0])
   })
 
-  it("buildPacketFlowInstances renders reverse lane only when real BA directional telemetry exists", () => {
-    const noReverse = godViewRenderingStyleEdgeParticleMethods.buildPacketFlowInstances([
-      {
-        sourcePosition: [0, 0, 0],
-        targetPosition: [100, 0, 0],
-        flowPps: 500,
-        flowBps: 5_000_000,
-        flowPpsAb: 500,
-        flowPpsBa: 0,
-        flowBpsAb: 5_000_000,
-        flowBpsBa: 0,
-        capacityBps: 10_000_000,
-        telemetryEligible: true,
-      },
-    ])
+  it("builds the block once per edge list", () => {
+    const edges = [trafficEdge]
+    const context = {edgeWidthPixels: () => 4.0}
+    const first = godViewRenderingStyleEdgeParticleMethods.buildPacketFlowEdges.call(context, edges)
+    const second = godViewRenderingStyleEdgeParticleMethods.buildPacketFlowEdges.call(context, edges)
 
-    expect(noReverse.length).toBeGreaterThan(0)
-    expect(noReverse.every((p) => p.from[0] === 0 && p.to[0] === 100)).toBe(true)
-    expect(noReverse.every((p) => p.laneOffset === 0)).toBe(true)
-
-    const withReverse = godViewRenderingStyleEdgeParticleMethods.buildPacketFlowInstances([
-      {
-        sourcePosition: [0, 0, 0],
-        targetPosition: [100, 0, 0],
-        flowPps: 500,
-        flowBps: 5_000_000,
-        flowPpsAb: 300,
-        flowPpsBa: 200,
-        flowBpsAb: 3_000_000,
-        flowBpsBa: 2_000_000,
-        capacityBps: 10_000_000,
-        telemetryEligible: true,
-      },
-    ])
-
-    expect(withReverse.length).toBeGreaterThan(0)
-    const forward = withReverse.filter((p) => p.from[0] === 0 && p.to[0] === 100)
-    const reverse = withReverse.filter((p) => p.from[0] === 100 && p.to[0] === 0)
-    expect(forward.length).toBeGreaterThan(0)
-    expect(reverse.length).toBeGreaterThan(0)
-    expect(forward.every((p) => p.laneOffset > 0)).toBe(true)
-    expect(reverse.every((p) => p.laneOffset > 0)).toBe(true)
-  })
-
-  it("buildPacketFlowInstances uses directional ratios to bias per-lane density", () => {
-    const particles = godViewRenderingStyleEdgeParticleMethods.buildPacketFlowInstances([
-      {
-        sourcePosition: [0, 0, 0],
-        targetPosition: [100, 0, 0],
-        flowPps: 1000,
-        flowBps: 10_000_000,
-        flowPpsAb: 900,
-        flowPpsBa: 100,
-        flowBpsAb: 9_000_000,
-        flowBpsBa: 1_000_000,
-        capacityBps: 20_000_000,
-        telemetryEligible: true,
-      },
-    ])
-
-    const forward = particles.filter((p) => p.from[0] === 0 && p.to[0] === 100)
-    const reverse = particles.filter((p) => p.from[0] === 100 && p.to[0] === 0)
-    expect(forward.length).toBeGreaterThan(reverse.length)
-  })
-
-  it("buildPacketFlowInstances scales density by zoom tier", () => {
-    const edge = {
-      sourcePosition: [0, 0, 0],
-      targetPosition: [100, 0, 0],
-      flowPps: 1000,
-      flowBps: 10_000_000,
-      flowPpsAb: 600,
-      flowPpsBa: 400,
-      flowBpsAb: 6_000_000,
-      flowBpsBa: 4_000_000,
-      capacityBps: 20_000_000,
-      telemetryEligible: true,
-    }
-
-    const farCtx = {
-      state: {viewState: {zoom: -1}},
-      edgeWidthPixels: () => 4.0,
-      ...godViewRenderingStyleEdgeParticleMethods,
-    }
-    const nearCtx = {
-      state: {viewState: {zoom: 3}},
-      edgeWidthPixels: () => 4.0,
-      ...godViewRenderingStyleEdgeParticleMethods,
-    }
-
-    const farParticles = farCtx.buildPacketFlowInstances([edge])
-    const nearParticles = nearCtx.buildPacketFlowInstances([edge])
-    expect(nearParticles.length).toBeGreaterThan(farParticles.length)
-  })
-
-  it("buildPacketFlowInstances softens endpoint attachment particles", () => {
-    const backboneEdge = {
-      sourcePosition: [0, 0, 0],
-      targetPosition: [100, 0, 0],
-      flowPps: 1000,
-      flowBps: 10_000_000,
-      flowPpsAb: 700,
-      flowPpsBa: 300,
-      flowBpsAb: 7_000_000,
-      flowBpsBa: 3_000_000,
-      capacityBps: 20_000_000,
-      telemetryEligible: true,
-      topologyClass: "backbone",
-    }
-    const endpointEdge = {...backboneEdge, topologyClass: "endpoints"}
-
-    const backboneParticles = godViewRenderingStyleEdgeParticleMethods.buildPacketFlowInstances([backboneEdge])
-    const endpointParticles = godViewRenderingStyleEdgeParticleMethods.buildPacketFlowInstances([endpointEdge])
-
-    expect(endpointParticles.length).toBeLessThan(backboneParticles.length)
-    expect(endpointParticles.every((particle) => particle.color[3] <= 110)).toBe(true)
+    expect(second).toBe(first)
   })
 })

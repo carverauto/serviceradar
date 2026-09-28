@@ -68,4 +68,50 @@ defmodule ServiceRadar.Analytics.StarRocks.EnvTest do
     System.put_env(@ttl_var, "-5")
     assert Env.config()[:rollup_cache_ttl_seconds] == Env.default_rollup_cache_ttl_seconds()
   end
+
+  describe "stream load sizing" do
+    @stream_vars Enum.map(
+                   ~w(MAX_ROWS MAX_BYTES MAX_AGE_MS MAX_IN_FLIGHT),
+                   &("SERVICERADAR_STARROCKS_STREAM_LOAD_" <> &1)
+                 )
+
+    setup do
+      previous = Map.new(@stream_vars, &{&1, System.get_env(&1)})
+
+      on_exit(fn ->
+        Enum.each(previous, fn
+          {name, nil} -> System.delete_env(name)
+          {name, value} -> System.put_env(name, value)
+        end)
+      end)
+
+      Enum.each(@stream_vars, &System.delete_env/1)
+      :ok
+    end
+
+    test "defaults match the shipped Helm streamLoad values" do
+      assert Env.config()[:stream_load] == [
+               max_rows: 50_000,
+               max_bytes: 33_554_432,
+               max_age_ms: 2_000,
+               max_in_flight: 4
+             ]
+    end
+
+    # Helm's `quote` renders a large integer in scientific notation; the value
+    # an operator set must still apply rather than silently reverting.
+    test "operator values apply, including a scientific-notation byte limit" do
+      System.put_env("SERVICERADAR_STARROCKS_STREAM_LOAD_MAX_ROWS", "200000")
+      System.put_env("SERVICERADAR_STARROCKS_STREAM_LOAD_MAX_BYTES", "6.7108864e+07")
+      System.put_env("SERVICERADAR_STARROCKS_STREAM_LOAD_MAX_AGE_MS", "5000")
+      System.put_env("SERVICERADAR_STARROCKS_STREAM_LOAD_MAX_IN_FLIGHT", "0")
+
+      assert Env.config()[:stream_load] == [
+               max_rows: 200_000,
+               max_bytes: 67_108_864,
+               max_age_ms: 5_000,
+               max_in_flight: 4
+             ]
+    end
+  end
 end

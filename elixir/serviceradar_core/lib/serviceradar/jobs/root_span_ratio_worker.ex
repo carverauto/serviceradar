@@ -25,6 +25,9 @@ defmodule ServiceRadar.Jobs.RootSpanRatioWorker do
     (env `SERVICERADAR_ROOT_SPAN_RATIO_THRESHOLD`)
   - `:min_spans` — minimum spans in the window before the signal is
     evaluated, default 1000 (env `SERVICERADAR_ROOT_SPAN_RATIO_MIN_SPANS`)
+
+  With StarRocks enabled the spans are stored in the warehouse only, so the
+  counts are read there; otherwise from CNPG.
   """
 
   use Oban.Worker,
@@ -33,6 +36,9 @@ defmodule ServiceRadar.Jobs.RootSpanRatioWorker do
     unique: [period: :infinity, states: :incomplete]
 
   alias Ecto.Adapters.SQL
+  alias ServiceRadar.Analytics.StarRocks.Destination
+  alias ServiceRadar.Analytics.StarRocks.Env, as: StarRocksEnv
+  alias ServiceRadar.Analytics.StarRocks.Query, as: StarRocksQuery
 
   require Logger
 
@@ -65,7 +71,7 @@ defmodule ServiceRadar.Jobs.RootSpanRatioWorker do
         :ok
 
       {:error, error} ->
-        Logger.error("Failed to compute root span ratio: #{Exception.message(error)}")
+        Logger.error("Failed to compute root span ratio: #{describe(error)}")
         {:error, error}
     end
   end
@@ -120,7 +126,41 @@ defmodule ServiceRadar.Jobs.RootSpanRatioWorker do
     :ok
   end
 
+  @doc false
+  # The warehouse form of @counts_sql. The Frontend evaluates NOW() in its own
+  # time zone while spans are stored in UTC, so the cutoff is a UTC literal.
+  @spec warehouse_counts_sql(DateTime.t()) :: String.t()
+  def warehouse_counts_sql(now) do
+    cutoff =
+      now
+      |> DateTime.add(-@window_minutes * 60, :second)
+      |> DateTime.to_naive()
+      |> NaiveDateTime.truncate(:second)
+      |> NaiveDateTime.to_string()
+
+    "SELECT COUNT(*) AS total_spans, " <>
+      "SUM(CASE WHEN parent_span_id IS NULL THEN 1 ELSE 0 END) AS root_spans " <>
+      "FROM #{StarRocksEnv.table("otel_traces")} WHERE `timestamp` > '#{cutoff}'"
+  end
+
   defp fetch_counts do
+    if Destination.enabled?(), do: fetch_warehouse_counts(), else: fetch_cnpg_counts()
+  end
+
+  defp fetch_warehouse_counts do
+    case StarRocksQuery.execute(warehouse_counts_sql(DateTime.utc_now()), timeout: 30_000) do
+      {:ok, %{rows: [[total, roots]]}} when is_integer(total) ->
+        {:ok, total, roots || 0}
+
+      {:ok, _result} ->
+        :skip
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp fetch_cnpg_counts do
     case SQL.query(ServiceRadar.Repo, @counts_sql, [@window_minutes], timeout: 30_000) do
       {:ok, %{rows: [[total, roots]]}} when is_integer(total) and is_integer(roots) ->
         {:ok, total, roots}
@@ -136,6 +176,9 @@ defmodule ServiceRadar.Jobs.RootSpanRatioWorker do
         {:error, error}
     end
   end
+
+  defp describe(error) when is_exception(error), do: Exception.message(error)
+  defp describe(error), do: inspect(error)
 
   defp threshold do
     :serviceradar_core

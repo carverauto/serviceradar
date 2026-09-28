@@ -15,16 +15,19 @@ alias ServiceRadar.EventWriter.Processors.Flows
 alias ServiceRadar.EventWriter.Processors.PowerDNS
 alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
 alias ServiceRadar.Jobs.RootSpanRatioWorker
+alias ServiceRadar.NATS.StateBucketSizing
 alias ServiceRadar.Notifications.ContinuationWorker, as: NotificationContinuationWorker
 alias ServiceRadar.Notifications.DeliveryRetentionWorker, as: NotificationRetentionWorker
 alias ServiceRadar.Notifications.DispatchSchedule
 alias ServiceRadar.Notifications.PluginTarget, as: NotificationPluginTarget
 alias ServiceRadar.Notifications.ReceiptWorker, as: NotificationReceiptWorker
 alias ServiceRadar.Notifications.SilenceExpiryWorker, as: NotificationSilenceExpiryWorker
+alias ServiceRadar.Notifications.StreamPublisher
 alias ServiceRadar.Observability.CapacityForecasting.Worker, as: CapacityForecastingWorker
 alias ServiceRadar.Observability.DataRetentionWorker
 alias ServiceRadar.Observability.ProductionSchedule
 alias ServiceRadar.Observability.SeasonalDisposition.Worker, as: SeasonalDispositionWorker
+alias ServiceRadar.Observability.ThreatIntelRawPayloadStore
 
 callback_deployment =
   RuntimeConfig.callback_deployment_config!(%{
@@ -560,7 +563,14 @@ if config_env() == :prod do
     end
   end
 
-  mtr_automation_enabled = parse_bool.("MTR_AUTOMATION_ENABLED", false)
+  # Automated MTR defaults on (issue #4542).
+  #
+  # This sits inside the `config_env() == :prod` block above, so the default is
+  # a release default only. The dev/test base is config/config.exs, which
+  # deliberately keeps all four flags false so the test suite does not start the
+  # baseline/trigger/consensus workers. Set MTR_AUTOMATION_ENABLED=false to turn
+  # the automation off; the three specific flags fall back to this value.
+  mtr_automation_enabled = parse_bool.("MTR_AUTOMATION_ENABLED", true)
   mtr_retention_days = "MTR_RETENTION_DAYS" |> parse_int_env.(30) |> max(1) |> min(395)
 
   observability_retention_batch_size =
@@ -659,9 +669,6 @@ if config_env() == :prod do
           netflow_security_refresh_reschedule_seconds
         )
     end
-
-  netflow_security_threat_candidate_limit =
-    parse_int_env.("NETFLOW_SECURITY_THREAT_CANDIDATE_LIMIT", 10_000)
 
   database_url =
     System.get_env("DATABASE_URL") ||
@@ -1139,8 +1146,7 @@ if config_env() == :prod do
 
   config :serviceradar_core, ServiceRadar.Observability.NetflowSecurityRefreshWorker,
     reschedule_seconds: netflow_security_refresh_reschedule_seconds,
-    cache_ttl_seconds: netflow_security_refresh_cache_ttl_seconds,
-    threat_candidate_limit: netflow_security_threat_candidate_limit
+    cache_ttl_seconds: netflow_security_refresh_cache_ttl_seconds
 
   if otx_provider_config != %{} do
     config :serviceradar_core, ServiceRadar.Observability.ThreatIntelOTXSyncWorker,
@@ -1155,15 +1161,30 @@ if config_env() == :prod do
       _ -> :file
     end
 
-  config :serviceradar_core, ServiceRadar.Observability.ThreatIntelRawPayloadStore,
+  config :serviceradar_core, ServiceRadar.Repo, repo_opts
+
+  # Notification firehose stream size (a discard-old buffer, reconciled on the
+  # first publish per node). Unset or blank means 1 GiB; an invalid value fails
+  # boot naming the variable.
+  config :serviceradar_core, StreamPublisher,
+    max_bytes:
+      StateBucketSizing.bytes_from_env!(
+        "SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES",
+        StreamPublisher.default_max_bytes()
+      )
+
+  config :serviceradar_core, ThreatIntelRawPayloadStore,
     jetstream_bucket: System.get_env("SERVICERADAR_OTX_RAW_BUCKET", "serviceradar_threat_intel"),
     jetstream_ttl_seconds: parse_int_env.("SERVICERADAR_OTX_RAW_TTL_SECONDS", 0),
-    jetstream_max_bucket_size: parse_int_env.("SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES", nil),
+    jetstream_max_bucket_size:
+      StateBucketSizing.bytes_from_env!(
+        "SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES",
+        ThreatIntelRawPayloadStore.default_max_bucket_bytes()
+      ),
     jetstream_max_chunk_size: parse_int_env.("SERVICERADAR_OTX_RAW_MAX_CHUNK_BYTES", nil),
     jetstream_replicas: parse_int_env.("SERVICERADAR_OTX_RAW_REPLICAS", 1),
     jetstream_storage: otx_raw_storage
 
-  config :serviceradar_core, ServiceRadar.Repo, repo_opts
   config :serviceradar_core, :age_graph_name, age_graph_name
   config :serviceradar_core, :platform_sync_component_id, platform_sync_component_id
 
@@ -1233,6 +1254,7 @@ if config_env() == :prod do
 
   config :serviceradar_core, RefreshTraceSummariesWorker,
     retention_days: trace_summary_retention_days,
+    orphan_grace_seconds: "TRACE_SUMMARIES_ORPHAN_GRACE_SECONDS" |> parse_int_env.(60) |> max(1),
     cleanup_batch_size: "TRACE_SUMMARIES_CLEANUP_BATCH_SIZE" |> parse_int_env.(5_000) |> max(1),
     cleanup_time_budget_ms:
       "TRACE_SUMMARIES_CLEANUP_TIME_BUDGET_MS" |> parse_int_env.(10_000) |> max(1),
@@ -1479,6 +1501,16 @@ if config_env() == :prod do
     |> System.get_env(Integer.to_string(to_timeout(minute: 240)))
     |> String.to_integer()
 
+  # How long a stopping node waits for executing jobs before killing them. A job
+  # killed here is left `executing` for a rescuer to find, so this is what keeps
+  # a routine rollout from orphaning in-flight jobs. The pod's
+  # terminationGracePeriodSeconds must exceed it (the chart sets both); keep in
+  # step with serviceradar_core_elx's runtime.exs.
+  oban_shutdown_grace_period_ms =
+    "OBAN_SHUTDOWN_GRACE_PERIOD_MS"
+    |> System.get_env(Integer.to_string(to_timeout(minute: 1)))
+    |> String.to_integer()
+
   config :serviceradar_core, CapacityForecastingWorker,
     enabled: capacity_forecasting_enabled,
     horizon_seconds: capacity_forecasting_horizon_seconds,
@@ -1530,6 +1562,7 @@ if config_env() == :prod do
     repo: ServiceRadar.Repo,
     prefix: System.get_env("OBAN_SCHEMA", "platform"),
     notifier: oban_notifier,
+    shutdown_grace_period: oban_shutdown_grace_period_ms,
     queues: [
       default: String.to_integer(System.get_env("OBAN_QUEUE_DEFAULT") || "10"),
       maintenance: String.to_integer(System.get_env("OBAN_QUEUE_MAINTENANCE") || "2"),
@@ -1572,14 +1605,20 @@ if config_env() == :prod do
            # Cold-window pruning + manifest/bucket reconciliation (no-op when
            # cold-tier config is absent).
            {"23 4 * * *", ServiceRadar.ColdTier.Pruner, queue: :maintenance},
+           {"37 3 * * *", ServiceRadar.Observability.StatefulEvaluationLedgerPruneWorker,
+            queue: :maintenance},
            {"*/10 * * * *", ServiceRadar.Edge.RemoteAccessRecordingReaperWorker,
             queue: :maintenance},
+           # Kept in step with serviceradar_core_elx's runtime.exs, as below.
+           {"*/2 * * * *", ServiceRadar.Camera.RelaySessionReaperWorker, queue: :maintenance},
            {"31 3 * * *", ServiceRadar.Edge.RemoteAccessVersionRetentionWorker,
             queue: :maintenance},
            # Kept in step with the same entry in serviceradar_core_elx's
            # runtime.exs -- that one is what the release actually loads.
            {System.get_env("SERVICERADAR_CREDENTIAL_BROKER_RETENTION_CRON") || "43 3 * * *",
-            ServiceRadar.Credentials.BrokerRetentionWorker, queue: :maintenance}
+            ServiceRadar.Credentials.BrokerRetentionWorker, queue: :maintenance},
+           # Kept in step with serviceradar_core_elx's runtime.exs, as above.
+           {"29 * * * *", ServiceRadar.Identity.SAMLAssertionCleanupWorker, queue: :maintenance}
          ] ++
            object_store_retention_crontab ++
            capacity_forecasting_crontab ++
@@ -1630,9 +1669,6 @@ if config_env() == :prod do
       false
     end
 
-  log_promotion_enabled =
-    System.get_env("LOG_PROMOTION_CONSUMER_ENABLED", "true") in ~w(true 1 yes)
-
   # EventWriter configuration (NATS JetStream → CNPG consumer).
   # Default ON when NATS creds are configured: the helm chart sets
   # EVENT_WRITER_ENABLED and EVENT_WRITER_NATS_CREDS_FILE together, so an UNSET flag
@@ -1652,8 +1688,6 @@ if config_env() == :prod do
     password: {:system, "NATS_PASSWORD"},
     creds_file: nats_creds_file,
     tls: nats_tls_config
-
-  config :serviceradar_core, :log_promotion_consumer_enabled, log_promotion_enabled
 
   if event_writer_enabled do
     event_writer_creds = System.get_env("EVENT_WRITER_NATS_CREDS_FILE")
@@ -1709,20 +1743,21 @@ if config_env() == :prod do
         String.to_integer(System.get_env("EVENT_WRITER_ACK_WAIT_SECONDS") || "120") *
           1_000_000_000,
       max_deliver: String.to_integer(System.get_env("EVENT_WRITER_MAX_DELIVER") || "5"),
+      # JetStream sizes of every stream EventWriter creates, from
+      # SERVICERADAR_JS_<STREAM>_MAX_BYTES and the SERVICERADAR_JS_{EVENTS,FLOWS,
+      # ARANCINI_CAUSAL}_FALLBACK_{MAX_BYTES,REPLICAS} fallbacks. Unset or blank
+      # means the compiled default; any other non-positive or non-integer value
+      # fails boot naming the variable. Config.load/0 applies them below; the
+      # `events` fallback shape replaces the old hardcoded 8 GiB.
+      jetstream_sizes: Config.jetstream_sizes_from_env!(),
       streams: [
         %{
           name: "EVENTS",
+          stream_name: "events",
           subject: "events.>",
           processor: ServiceRadar.EventWriter.Processors.Events,
           batch_size: 100,
-          batch_timeout: 1_000,
-          # Retention guard: drop oldest if the consumer falls behind instead of
-          # growing the shared `events` stream until core OOMs (8 GiB / 24h).
-          stream_retention: "limits",
-          stream_storage: "file",
-          stream_discard: "old",
-          stream_max_bytes: 8_589_934_592,
-          stream_max_age: 86_400_000_000_000
+          batch_timeout: 1_000
         },
         %{
           name: "PDNS_OCSF",
@@ -1765,6 +1800,7 @@ if config_env() == :prod do
         Config.k8s_nodes_stream(),
         %{
           name: "OTEL_METRICS",
+          stream_name: "events",
           subject: "otel.metrics.>",
           processor: ServiceRadar.EventWriter.Processors.OtelMetrics,
           batch_size: 100,
@@ -1772,6 +1808,7 @@ if config_env() == :prod do
         },
         %{
           name: "OTEL_TRACES",
+          stream_name: "events",
           subject: "otel.traces.>",
           processor: ServiceRadar.EventWriter.Processors.OtelTraces,
           batch_size: 100,
@@ -1800,21 +1837,14 @@ if config_env() == :prod do
           consumer_pull_batch_size: 4,
           consumer_max_deliver: 5
         },
-        %{
-          name: "SCAN_RESULTS",
-          stream_name: "scan_results",
-          subject: "scans.results.>",
-          processor: ServiceRadar.EventWriter.Processors.AdhocScan,
-          batch_size: 200,
-          batch_timeout: 500,
-          stream_retention: "limits",
-          stream_storage: "file",
-          stream_discard: "old",
-          stream_max_bytes: 268_435_456,
-          stream_max_age: 3_600_000_000_000
-        },
+        # Ad-hoc scan and MTR results; definitions shared with
+        # Config.default_streams/0. Nothing else creates these streams, so an
+        # entry missing here refuses every publish to its subject.
+        Config.scan_results_stream(),
+        Config.mtr_results_stream(),
         %{
           name: "BMP_CAUSAL",
+          stream_name: "events",
           subject: "bmp.events.>",
           processor: AnalyticsSignals,
           batch_size: 100,
@@ -1822,6 +1852,7 @@ if config_env() == :prod do
         },
         %{
           name: "ARANCINI_CAUSAL",
+          stream_name: "ARANCINI_CAUSAL",
           subject: "arancini.updates.>",
           processor: AnalyticsSignals,
           batch_size: 100,
@@ -1829,6 +1860,7 @@ if config_env() == :prod do
         },
         %{
           name: "SIEM_CAUSAL",
+          stream_name: "events",
           subject: "siem.events.>",
           processor: AnalyticsSignals,
           batch_size: 100,

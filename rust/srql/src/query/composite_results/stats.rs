@@ -17,8 +17,6 @@ use diesel::sql_types::{Jsonb, Nullable};
 pub(super) const SUPPORTED_GROUP_FIELDS: &str =
     "check, check_slug, check_name, verdict, status, input_key, input_value, input_stale";
 
-const MAX_GROUP_LIMIT: i64 = 500;
-
 #[derive(Debug, QueryableByName)]
 #[diesel(check_for_backend(diesel::pg::Pg))]
 pub(super) struct StatsPayload {
@@ -224,7 +222,7 @@ pub(super) fn build_stats_query(plan: &QueryPlan, spec: &StatsSpec) -> Result<St
             .join(", ");
         sql.push_str(&format!("\nGROUP BY {group_by}"));
         sql.push_str("\nORDER BY COUNT(*) DESC");
-        let limit = plan.limit.clamp(1, MAX_GROUP_LIMIT);
+        let limit = plan.limit.max(1);
         sql.push_str(&format!("\nLIMIT {limit}"));
         if plan.offset > 0 {
             sql.push_str(&format!(" OFFSET {}", plan.offset));

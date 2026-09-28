@@ -12,6 +12,7 @@ defmodule ServiceRadar.PrefixTags.Loader do
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.PrefixTags.ExternalSources
+  alias ServiceRadar.PrefixTags.SnapshotReader
   alias ServiceRadar.PrefixTags.Store
   alias ServiceRadar.Repo
 
@@ -25,21 +26,12 @@ defmodule ServiceRadar.PrefixTags.Loader do
   @snapshot_age_tick_ms 60_000
 
   @load_active_sql """
-  SELECT
-    host(p.prefix) || '/' || masklen(p.prefix) AS prefix,
-    p.tags,
-    p.vrf,
-    p.site,
-    p.role,
-    p.tenant,
-    p.status,
-    s.source,
-    s.id AS snapshot_id,
-    s.promoted_at
-  FROM platform.prefix_tag_snapshots s
-  LEFT JOIN platform.prefix_tags p ON p.snapshot_id = s.id
-  WHERE s.is_active = TRUE
-  ORDER BY s.source, p.prefix, p.vrf
+  SELECT DISTINCT source FROM platform.prefix_tag_snapshots WHERE is_active = TRUE ORDER BY source
+  """
+
+  @snapshot_meta_sql """
+  SELECT id::text, promoted_at FROM platform.prefix_tag_snapshots
+  WHERE is_active = TRUE AND source = $1 ORDER BY id
   """
 
   @load_active_for_source_sql """
@@ -262,26 +254,8 @@ defmodule ServiceRadar.PrefixTags.Loader do
   defp do_reload(state, scope) do
     started = System.monotonic_time(:microsecond)
 
-    case fetch_active_rows(scope) do
-      {:ok, rows_by_source, snapshot_ids_by_source} ->
-        sources_meta =
-          Map.new(rows_by_source, fn {source, rows} ->
-            version = Store.put_rows(source, rows)
-            stats = Store.stats(source)
-            # Prefer snapshot promoted_at for age telemetry (not rebuild wall time).
-            freshness = Map.get(snapshot_ids_by_source, {:promoted_at, source})
-
-            {source,
-             %{
-               version: version,
-               row_count: length(rows),
-               snapshot_ids: Map.get(snapshot_ids_by_source, source, []),
-               stats: stats,
-               loaded_at: DateTime.utc_now(),
-               snapshot_at: freshness
-             }}
-          end)
-
+    case load_active_sources(scope) do
+      {:ok, sources_meta} ->
         # Drop tries for snapshot-backed sources that are no longer active.
         # External materializers (provider/ti/dns-policy) are never cleared here.
         sources_meta =
@@ -345,11 +319,7 @@ defmodule ServiceRadar.PrefixTags.Loader do
 
       {:error, reason} ->
         duration_us = System.monotonic_time(:microsecond) - started
-        message = Exception.message(reason)
-
-        if is_nil(state.loaded_at) and scope == :all do
-          Store.clear()
-        end
+        message = if is_exception(reason), do: Exception.message(reason), else: inspect(reason)
 
         emit_rebuild_telemetry(Store.stats(), duration_us, 0, :error, scope)
         # Still emit ages from retained snapshot_at so the gauge advances.
@@ -363,20 +333,51 @@ defmodule ServiceRadar.PrefixTags.Loader do
     end
   end
 
-  defp fetch_active_rows(:all) do
-    with {:ok, result} <- SQL.query(Repo, @load_active_sql, []) do
-      parse_active_rows(result)
+  defp load_active_sources(scope) do
+    sources =
+      case scope do
+        :all -> Enum.map(SQL.query!(Repo, @load_active_sql, []).rows, &hd/1)
+        source when is_binary(source) -> [source]
+      end
+
+    Enum.reduce_while(sources, {:ok, %{}}, fn source, {:ok, acc} ->
+      case load_snapshot_source(source) do
+        {:ok, %{active?: false}} -> {:cont, {:ok, acc}}
+        {:ok, metadata} -> {:cont, {:ok, Map.put(acc, source, metadata)}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  rescue
+    e -> {:error, e}
+  end
+
+  @doc "Load one snapshot-backed source without requiring the Loader process."
+  def load_snapshot_source(source) when is_binary(source) do
+    with {:ok, result} <- Store.put_stream(source, fn -> snapshot_rows(source) end) do
+      {:ok, Map.merge(result, %{stats: Store.stats(source), loaded_at: DateTime.utc_now()})}
     end
   rescue
     e -> {:error, e}
   end
 
-  defp fetch_active_rows(source) when is_binary(source) do
-    with {:ok, result} <- SQL.query(Repo, @load_active_for_source_sql, [source]) do
-      parse_active_rows(result)
-    end
-  rescue
-    e -> {:error, e}
+  defp snapshot_rows(source) do
+    metadata = SQL.query!(Repo, @snapshot_meta_sql, [source]).rows
+    ids = Enum.map(metadata, &hd/1)
+
+    times =
+      metadata |> Enum.map(fn [_, time] -> normalize_datetime(time) end) |> Enum.reject(&is_nil/1)
+
+    snapshot_at = Enum.min(times, DateTime, fn -> nil end)
+
+    rows =
+      @load_active_for_source_sql
+      |> SnapshotReader.stream([source])
+      |> Stream.flat_map(fn batch ->
+        {:ok, by_source, _metadata} = parse_active_rows(batch)
+        Map.get(by_source, source, [])
+      end)
+
+    {rows, %{snapshot_ids: ids, snapshot_at: snapshot_at, active?: ids != []}}
   end
 
   defp merge_preserving_external_freshness(old_sources, new_sources) do
@@ -618,6 +619,14 @@ defmodule ServiceRadar.PrefixTags.Loader do
   end
 
   defp reload_external_source(state, source) when is_binary(source) do
+    if ExternalSources.enabled?() do
+      reload_enabled_external_source(state, source)
+    else
+      {clear_external_error(state, source), :ok}
+    end
+  end
+
+  defp reload_enabled_external_source(state, source) do
     case ExternalSources.module_for(source) do
       nil ->
         {clear_external_error(state, source), :ok}

@@ -3,6 +3,7 @@ load("@rules_elixir//:elixir_tests.bzl", "ex_unit_tests")
 load("@rules_elixir//:ex_unit_test.bzl", "ex_unit_test")
 load("@rules_elixir//:mix_app.bzl", "mix_app")
 load("@serviceradar//build:integration_tests.bzl", "requires_shared_fixture")
+load("//build:elixir_quality.bzl", "elixir_quality")
 load(
     "//build:elixir_release.bzl",
     "SHIPPED_ERTS_OTP_ROOT",
@@ -52,6 +53,20 @@ filegroup(
     srcs = glob(
         ["lib/**/*.heex"],
         allow_empty = True,
+    ),
+)
+
+# Read by //integration_tests/srql_parity:srql_parity_test (task 1.5 of the
+# extend-starrocks-to-all-telemetry change): every SRQL chart query a checked-in dashboard or
+# dashboard package defines for a warehouse-served entity must have a parity inventory entry.
+# A named input, so a refactor of the broader globs cannot silently drop definitions from the audit.
+filegroup(
+    name = "srql_dashboard_definitions",
+    srcs = glob(
+        [
+            "priv/dashboards/**/*.json",
+            "priv/dashboard-packages/**/*.json",
+        ],
     ),
 )
 
@@ -219,6 +234,7 @@ WEB_NG_DEPS = [
     "@hexpm//:dns_cluster",
     "@hexpm//:ecto_sql",
     "@hexpm//:elixlsx",
+    "@hexpm//:esaml",
     "@hexpm//:esbuild",
     "@hexpm//:gen_smtp",
     "@hexpm//:gettext",
@@ -241,8 +257,8 @@ WEB_NG_DEPS = [
     "@hexpm//:protobuf",
     "@hexpm//:redoc_ui_plug",
     "@hexpm//:req",
-    "@hexpm//:samly",
     "@hexpm//:stream_data",
+    "@hexpm//:sweet_xml",
     "@hexpm//:swoosh",
     "@hexpm//:tailwind",
     "@hexpm//:telemetry_metrics",
@@ -405,6 +421,11 @@ ex_unit_tests(
         # TimezoneMigrationTest asserts on the generated core migration, so its
         # cross-package source must be in runfiles.
         "//elixir/serviceradar_core:migrations",
+        # WarehouseQueryInventoryTest matches the queries the product's SRQL builders produce
+        # against the StarRocks-vs-CNPG parity inventory, with the shape normalization the
+        # shared examples pin for the Rust harness and the Elixir port alike.
+        "//integration_tests/srql_parity:inventory.json",
+        "//integration_tests/srql_parity:shape_examples.json",
     ],
     # web-ng already defines a database-free tier: with ALLOW_DB_FREE_TESTS set and neither
     # CI nor REQUIRE_DB_TESTS, test_helper.exs skips Application.ensure_all_started and runs
@@ -430,24 +451,37 @@ ex_unit_test(
     name = "networks_live_db_test",
     size = "enormous",
     srcs = [
+        "test/app_domain/dashboards/dashboard_export_round_trip_db_test.exs",
         "test/app_domain/dashboards/group_access_db_test.exs",
+        "test/app_domain/dashboards/packages_test.exs",
         "test/app_domain/dashboards/report_jobs_test.exs",
+        "test/app_domain/dashboards/system_reports_db_test.exs",
+        "test/app_domain/otel_services_access_db_test.exs",
         "test/phoenix/auth/sso_provisioning_test.exs",
+        "test/phoenix/channels/dashboard_frame_channel_live_db_test.exs",
         "test/phoenix/controllers/api/admin_authorization_test.exs",
         "test/phoenix/controllers/api/api_endpoint_integration_test.exs",
         "test/phoenix/controllers/api/api_rate_limit_test.exs",
         "test/phoenix/controllers/api/configuration_authentication_db_test.exs",
         "test/phoenix/controllers/api/configuration_lifecycle_db_test.exs",
+        "test/phoenix/controllers/api/plugin_package_controller_test.exs",
+        "test/phoenix/controllers/dashboard_package_asset_controller_test.exs",
+        "test/phoenix/controllers/dashboard_package_publish_controller_test.exs",
+        "test/phoenix/controllers/dashboard_package_read_controller_test.exs",
+        "test/phoenix/controllers/saml_controller_test.exs",
+        "test/phoenix/live/admin/dashboard_package_live_test.exs",
         "test/phoenix/live/alert_live/show_test.exs",
         "test/phoenix/live/authored_dashboard_live_test.exs",
         "test/phoenix/live/camera_analysis_worker_live_test.exs",
         "test/phoenix/live/dashboard_live/netflow_map_geo_test.exs",
+        "test/phoenix/live/deduplication_live_test.exs",
         "test/phoenix/live/device_live/bulk_state_apply_db_test.exs",
         "test/phoenix/live/device_live/endpoint_inventory_data_db_test.exs",
         "test/phoenix/live/device_live_test.exs",
         "test/phoenix/live/event_live/show_test.exs",
         "test/phoenix/live/log_live/index_test.exs",
         "test/phoenix/live/log_live/netflows_test.exs",
+        "test/phoenix/live/log_live/service_picker_test.exs",
         "test/phoenix/live/log_live/show_test.exs",
         "test/phoenix/live/metric_live/timestamp_rendering_test.exs",
         "test/phoenix/live/security_dashboard_routes_test.exs",
@@ -460,6 +494,7 @@ ex_unit_test(
         "test/phoenix/live/user_live/settings_test.exs",
         "test/serviceradar/identity/timezone_migration_db_test.exs",
         "test/serviceradar/identity/timezone_preference_test.exs",
+        "test/serviceradar_web_ng/topology/god_view_device_page_test.exs",
     ],
     data = glob(
         [
@@ -512,4 +547,18 @@ ex_unit_test(
         "//config/manager_config/elixir:manager",
         "//config/manager_secret/elixir:secret",
     ],
+)
+
+# `mix format --check-formatted` + `mix credo --strict`, as CI's Elixir Quality job runs them.
+# See //build:elixir_quality.bzl.
+elixir_quality(
+    extra_inputs = ["priv/*/seeds.exs"],
+    extra_srcs = ["//elixir/serviceradar_core:credo_checks"],
+    formatter_deps = [
+        "@hexpm//:ecto",
+        "@hexpm//:ecto_sql",
+        "@hexpm//:phoenix",
+    ],
+    source_deps = ["@hexpm//:ex_dna"],
+    tool_deps = ["//elixir/serviceradar_core:erlang_app"] + WEB_NG_DEPS + WEB_NG_DEV_DEPS,
 )

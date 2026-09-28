@@ -129,12 +129,17 @@
     "architecture": "amd64",
     "build_method": "external",
     "conffiles": [
-      "/etc/nats/nats-server.conf"
+      "/etc/nats/nats-server.conf",
+      "/etc/serviceradar/jetstream-sizes.env"
     ],
     "config_files": [
       {
         "dest": "/etc/nats/nats-server.conf",
         "source": "build/packaging/nats/config/nats-server.conf"
+      },
+      {
+        "dest": "/etc/serviceradar/jetstream-sizes.env",
+        "source": "build/packaging/nats/config/jetstream-sizes.env"
       },
       {
         "dest": "/etc/nats/templates/nats-cloud.conf",

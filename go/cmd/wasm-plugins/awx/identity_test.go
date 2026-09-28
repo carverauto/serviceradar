@@ -50,6 +50,34 @@ func TestAWXLegacyIDsBridgeTheHostnameKey(t *testing.T) {
 	}
 }
 
+func TestAWXHostHasStrongAnchor(t *testing.T) {
+	cases := map[string]struct {
+		variables string
+		want      bool
+	}{
+		"ip ansible_host":                                {`{"ansible_host":"192.0.2.44"}`, true},
+		"yaml ip ansible_host":                           {"ansible_host: 192.0.2.44\n", true},
+		"proxmox nic mac":                                {`{"proxmox_net0":"virtio=BC:24:11:53:84:67,bridge=vmbr0"}`, true},
+		"dns ansible_host only":                          {`{"ansible_host":"db01.example.org"}`, false},
+		"dns ansible_host with ip ansible_ssh_host":      {`{"ansible_host":"db01.example.org","ansible_ssh_host":"10.0.0.5"}`, true},
+		"yaml dns ansible_host with ip ansible_ssh_host": {"ansible_host: db01.example.org\nansible_ssh_host: 10.0.0.5\n", true},
+		"empty variables":                                {"", false},
+		"blank ansible_host":                             {`{"ansible_host":""}`, false},
+		"yaml without host":                              {"ansible_connection: local\nansible_user: root\n", false},
+		"loopback only":                                  {`{"proxmox_lxc_interfaces":[{"name":"lo","hwaddr":"00:00:00:00:00:00"}]}`, false},
+		"empty json object":                              {`{}`, false},
+		"ip and mac both present":                        {`{"ansible_host":"192.0.2.44","proxmox_net0":"virtio=BC:24:11:53:84:67"}`, true},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := awxHostHasStrongAnchor(awxHostRow{Variables: tc.variables}); got != tc.want {
+				t.Fatalf("awxHostHasStrongAnchor(%q) = %v, want %v", tc.variables, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestAWXHostMACsFromProxmoxConfigString(t *testing.T) {
 	vars := `{"ansible_host":"192.168.2.44",
 	          "proxmox_net0":"virtio=BC:24:11:53:84:67,bridge=vmbr0,tag=10",
@@ -130,6 +158,29 @@ func TestBuildDiscoveredHostEmitsIdentityChannels(t *testing.T) {
 	awxBlock, ok := device.Metadata["awx"].(map[string]any)
 	if !ok || awxBlock["host_id"] != 7 || awxBlock["controller_id"] != "farm01" {
 		t.Fatalf("awx metadata block = %#v", device.Metadata["awx"])
+	}
+}
+
+func TestBuildDiscoveredHostEmitsLegacySSHHostIP(t *testing.T) {
+	cfg := InventorySyncControllerConfig{ControllerID: "farm01"}
+	inv := awxInventoryRow{ID: 1, Name: "prod"}
+	host := awxHostRow{
+		ID:        8,
+		Name:      "db01",
+		Enabled:   true,
+		Variables: `{"ansible_host":"db01.example.org","ansible_ssh_host":"10.0.0.5"}`,
+	}
+
+	device := buildDiscoveredHost(cfg, inv, host)
+
+	if device.IP != "10.0.0.5" {
+		t.Fatalf("ip = %q, want the ansible_ssh_host address", device.IP)
+	}
+	if device.Hostname != "db01" {
+		t.Fatalf("hostname = %q, want the AWX name", device.Hostname)
+	}
+	if got := device.Metadata["integration_id"]; got != "awx:v2:farm01:host:8" {
+		t.Fatalf("integration_id = %#v", got)
 	}
 }
 

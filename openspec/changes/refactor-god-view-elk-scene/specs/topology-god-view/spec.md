@@ -3,28 +3,23 @@
 ### Requirement: Versioned Binary Topology Snapshots
 The system SHALL stream topology snapshots for God-View using a versioned Arrow IPC payload contract and a required metadata envelope for deterministic client decoding.
 
-The snapshot schema version `1` MUST use two record batches:
-- `nodes` columns:
-  - `node_index` (`u32`, required)
-  - `node_id` (`utf8`, required)
-  - `node_type` (`utf8`, required)
-  - `x` (`f32`, required compatibility hint; non-authoritative for ELK scene geometry)
-  - `y` (`f32`, required compatibility hint; non-authoritative for ELK scene geometry)
-  - `z` (`f32`, optional; default `0`)
-  - `status_code` (`u8`, required; enum-mapped)
-  - `causal_class` (`u8`, required; enum-mapped to `root_cause|affected|healthy|unknown`)
-  - `severity` (`u8`, optional)
-  - `size` (`f32`, optional)
-  - `color_rgba` (`fixed_size_binary[4]`, optional)
-- `edges` columns:
-  - `edge_index` (`u32`, required)
-  - `edge_id` (`utf8`, required)
-  - `source_index` (`u32`, required; references `nodes.node_index`)
-  - `target_index` (`u32`, required; references `nodes.node_index`)
-  - `edge_type` (`utf8`, required)
-  - `weight` (`f32`, optional)
-  - `status_code` (`u8`, optional)
-  - `color_rgba` (`fixed_size_binary[4]`, optional)
+The snapshot schema version `3` MUST use one record batch in which node rows come first and edge rows follow, with `node_count` and `edge_count` recorded in the Arrow schema metadata. Every numeric column is therefore dense over rows `0..node_count` for nodes and `node_count..node_count + edge_count` for edges, and a decoder MUST be able to slice positions, states and endpoints without branching on `row_type` or parsing JSON.
+- Node columns:
+  - `node_x`, `node_y` (`u16`, quantized layout coordinates; compatibility hints, non-authoritative for ELK scene geometry)
+  - `node_state` (`u16`, enum-mapped causal class)
+  - `node_label` (`utf8`)
+  - `node_pps` (`u32`)
+  - `node_oper_up` (`u8`)
+  - `node_details` (`utf8`, JSON)
+- Edge columns:
+  - `edge_source`, `edge_target` (`u32`, required for edge rows; node row indexes, so snapshots above 65535 nodes can name both endpoints)
+  - `edge_pps`, `edge_pps_ab`, `edge_pps_ba` (`u32`)
+  - `edge_flow_bps`, `edge_flow_bps_ab`, `edge_flow_bps_ba`, `edge_capacity_bps` (`u64`)
+  - `edge_telemetry_eligible` (`u8`)
+  - `edge_label`, `edge_topology_class`, `edge_protocol`, `edge_evidence_class` (`utf8`)
+  - `edge_details` (`utf8`, JSON)
+- Details columns: every details key read for every row by rendering, filtering, clustering, labeling or layout MUST also be emitted as a typed column named `node_detail_<key>`, `edge_detail_<key>` or `edge_metadata_<key>` (text `utf8`, number `f64`, flag `u8`). These are derived from the same JSON the row ships, so a column never disagrees with its row. `edge_has_metadata`, `edge_has_sparkline` and `details_irregular` (`u8`) accompany them; `details_irregular` marks a row with a value a column cannot carry exactly.
+- `row_type` (`i8`), `snapshot_schema_version` (`u32`) and `snapshot_revision` (`u64`) are present on every row.
 
 The metadata envelope MUST be included with each snapshot revision and MUST include:
 - `schema_version` (integer, required)
@@ -41,7 +36,7 @@ Backend `x`, `y`, or equivalent coordinate fields SHALL NOT be authoritative for
 #### Scenario: Client accepts supported snapshot schema
 - **GIVEN** the server emits a topology snapshot with a supported schema version
 - **WHEN** the God-View client receives the payload
-- **THEN** the client decodes nodes and edges without JSON transformation
+- **THEN** the client decodes nodes and edges into typed columns without parsing details JSON
 - **AND** the client renders the decoded snapshot revision
 
 #### Scenario: Client handles unsupported snapshot schema
@@ -56,14 +51,20 @@ Backend `x`, `y`, or equivalent coordinate fields SHALL NOT be authoritative for
 - **THEN** missing required fields cause the revision to be rejected
 - **AND** the previous accepted revision remains active
 
-#### Scenario: Client validates required columns for schema version 1
-- **GIVEN** the server emits schema version `1`
-- **WHEN** the client validates record batch columns
+#### Scenario: Client validates required columns for schema version 3
+- **GIVEN** the server emits schema version `3`
+- **WHEN** the client validates the record batch columns
 - **THEN** missing required node or edge columns cause the revision to be rejected
-- **AND** optional columns may be absent without failing decode
+- **AND** absent details columns fall back to parsing that row's details JSON
+
+#### Scenario: Endpoint indexes above 65535 round-trip
+- **GIVEN** a snapshot with more than 65535 nodes and edges whose endpoints index nodes above 65535
+- **WHEN** the snapshot is encoded by the server and decoded by the client
+- **THEN** every edge resolves to the node rows it names
+- **AND** the decoded position column has length twice the node count
 
 #### Scenario: Legacy coordinate hints do not become a second authority
-- **GIVEN** a supported snapshot contains finite `x` and `y` compatibility hints
+- **GIVEN** a supported snapshot contains finite `node_x` and `node_y` compatibility hints
 - **WHEN** the ELK scene path lays out the bounded visible graph
 - **THEN** the client SHALL NOT apply those hints as accepted node positions
 - **AND** all accepted coordinates and routes SHALL come from the decoded ELK result

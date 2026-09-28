@@ -7,6 +7,7 @@ go_library(
         "core_registration.go",
         "errors.go",
         "interfaces.go",
+        "jetstream_sizing.go",
         "mock_datasvc.go",
         "nats.go",
         "nats_account_service.go",
@@ -39,6 +40,7 @@ go_test(
     name = "datasvc_test",
     srcs = [
         "config_test.go",
+        "jetstream_sizing_test.go",
         "nats_account_service_test.go",
         "nats_reconnect_test.go",
         "rbac_test.go",

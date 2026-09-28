@@ -2,10 +2,28 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorker do
   @moduledoc """
   Reaps stale periodic Oban jobs that remain stuck in `executing`.
 
-  Periodic jobs are identified by the cron metadata Oban stores on rows enqueued by
-  `Oban.Plugins.Cron`. Jobs older than the configured stale threshold are transitioned
-  back to `available` or `discarded`, and the cleanup is emitted via telemetry/logs so
-  operators can see which workers and job ids were affected.
+  Periodic jobs are identified by two complementary mechanisms:
+
+  - `Oban.Plugins.Cron` stamps `meta.cron = "true"` on the rows it enqueues, and
+    the query matches that fragment directly.
+  - AshOban triggers enqueue through their own generated scheduler/worker modules
+    with **empty meta**, so their worker names are derived at query time from the
+    AshOban trigger declarations across all configured domains (see
+    `periodic_worker_names/0`). An explicit `@self_scheduled_workers` allowlist
+    covers workers that self-schedule by other means.
+
+  Jobs older than the configured stale threshold are transitioned back to `available`
+  or `discarded`, and the cleanup is emitted via telemetry/logs so operators can see
+  which workers and job ids were affected.
+
+  Age is all this sweep can go by, so the threshold has to exceed any legitimate run
+  and an orphan left by an ordinary deploy blocks its worker for hours. A worker that
+  can prove its own executing rows are dead implements `ServiceRadar.Jobs.OrphanRescue`
+  and is listed in `orphan_rescue_workers/0`; each pass calls its `rescue_orphaned/1`
+  first, which rescues provable orphans immediately and leaves a live run alone. The
+  age-based sweep still runs afterwards, for every worker, as the fallback for what
+  that proof cannot cover. Jobs rescued either way are reported together as
+  `rescued_jobs`.
   """
 
   use Oban.Worker,
@@ -57,6 +75,9 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorker do
     "ServiceRadarWebNG.Plugins.BlobRetentionWorker",
     "ServiceRadarWebNG.Plugins.FirstPartySyncWorker"
   ]
+
+  # Workers implementing ServiceRadar.Jobs.OrphanRescue.
+  @orphan_rescue_workers [ServiceRadar.Jobs.RefreshTraceSummariesWorker]
 
   @completed_event [:serviceradar, :jobs, :periodic_cleanup, :completed]
   @failed_event [:serviceradar, :jobs, :periodic_cleanup, :failed]
@@ -116,9 +137,44 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorker do
     end
   end
 
+  @doc """
+  Workers whose orphaned `executing` rows each pass rescues by proof rather than age.
+
+  Each implements `ServiceRadar.Jobs.OrphanRescue`.
+  """
+  @spec orphan_rescue_workers() :: [module()]
+  def orphan_rescue_workers, do: @orphan_rescue_workers
+
   @spec reap_stale_jobs() ::
           {:ok, %{rescued_jobs: [job_ref()], discarded_jobs: [job_ref()]}} | {:error, term()}
   def reap_stale_jobs do
+    orphans_rescued = rescue_provable_orphans()
+
+    with {:ok, %{rescued_jobs: rescued_jobs} = result} <- reap_jobs_past_threshold() do
+      {:ok, %{result | rescued_jobs: orphans_rescued ++ rescued_jobs}}
+    end
+  end
+
+  # One worker's failure is logged and skipped: it must neither stop the others
+  # nor the age-based sweep, which still covers that worker's rows.
+  defp rescue_provable_orphans do
+    Enum.flat_map(orphan_rescue_workers(), fn worker ->
+      case worker.rescue_orphaned([]) do
+        {:ok, rescued} ->
+          rescued
+
+        {:error, reason} ->
+          Logger.warning("Orphan rescue failed; the age-based sweep still covers it",
+            worker: inspect(worker),
+            reason: inspect(reason)
+          )
+
+          []
+      end
+    end)
+  end
+
+  defp reap_jobs_past_threshold do
     now = DateTime.utc_now()
     cutoff = DateTime.add(now, -stale_threshold_minutes() * 60, :second)
 
@@ -148,6 +204,64 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorker do
     Enum.split_with(stale_jobs, &(&1.attempt < &1.max_attempts))
   end
 
+  @doc """
+  Worker names this reaper is allowed to unstick, as stored in `oban_jobs.worker`.
+
+  Periodic work reaches Oban two ways here and only one of them is self-describing.
+  `Oban.Plugins.Cron` stamps `meta.cron = "true"`, which the query matches directly.
+  An AshOban trigger instead enqueues through its own scheduler/worker modules with
+  **empty meta**, so it matched neither that fragment nor the hand-maintained
+  `@self_scheduled_workers` list -- every AshOban-backed schedule was invisible to
+  the one component whose job is to unstick stranded periodic jobs. A trigger
+  stranded in `executing` by a node restart then blocked its own re-enqueue,
+  because its uniqueness covers incomplete states, and nothing could clear it.
+
+  Deriving the AshOban names from the trigger declarations rather than listing them
+  keeps a newly added trigger covered without anyone remembering to update a list.
+  """
+  @spec periodic_worker_names() :: [String.t()]
+  def periodic_worker_names do
+    Enum.uniq(@self_scheduled_workers ++ ash_oban_worker_names())
+  end
+
+  defp ash_oban_worker_names do
+    :serviceradar_core
+    |> Application.get_env(:ash_domains, [])
+    |> List.wrap()
+    |> Enum.flat_map(&safe_domain_resources/1)
+    |> Enum.uniq()
+    |> Enum.flat_map(&safe_resource_triggers/1)
+    |> Enum.flat_map(fn trigger ->
+      [Map.get(trigger, :scheduler_module_name), Map.get(trigger, :worker_module_name)]
+    end)
+    |> Enum.reject(&is_nil/1)
+    # `oban_jobs.worker` holds the aliased form without the "Elixir." prefix, which
+    # is what inspect/1 produces for a module atom; to_string/1 would not match.
+    |> Enum.map(&inspect/1)
+    |> Enum.uniq()
+  end
+
+  # A resource without the AshOban extension, or a stale domain entry, must not be
+  # able to stop the reap. Reaping fewer jobs is recoverable; crashing the only
+  # thing that clears stranded jobs is not.
+  defp safe_domain_resources(domain) do
+    Ash.Domain.Info.resources(domain)
+  rescue
+    error ->
+      Logger.warning("Skipping domain while listing periodic workers",
+        domain: inspect(domain),
+        reason: Exception.message(error)
+      )
+
+      []
+  end
+
+  defp safe_resource_triggers(resource) do
+    AshOban.Info.oban_triggers_and_scheduled_actions(resource)
+  rescue
+    _error -> []
+  end
+
   @doc false
   def stale_periodic_jobs_query(cutoff) do
     from(j in Job,
@@ -155,7 +269,7 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorker do
       where: not is_nil(j.attempted_at) and j.attempted_at < ^cutoff,
       where:
         fragment("coalesce(?->>'cron', 'false') = 'true'", j.meta) or
-          j.worker in ^@self_scheduled_workers,
+          j.worker in ^periodic_worker_names(),
       order_by: [asc: j.id],
       select: %{
         id: j.id,

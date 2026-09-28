@@ -23,6 +23,17 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.Groups 
     {:noreply, assign(socket, :active_tab, active_tab)}
   end
 
+  def handle_event("active_scans_filter", %{"filter" => filter}, socket) do
+    filter =
+      case filter do
+        "sweeps" -> :sweeps
+        "mtr" -> :mtr
+        _ -> :all
+      end
+
+    {:noreply, assign(socket, :active_scans_filter, filter)}
+  end
+
   def handle_event("toggle_group", %{"id" => id}, socket) do
     scope = socket.assigns.current_scope
 

@@ -145,6 +145,7 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
         Entity::ScanActivity => events::scan_activity(),
         Entity::DnsActivity => events::dns_activity(),
         Entity::BmpEvents => network::bmp_events(),
+        Entity::MtrHops => observability::mtr_hops(),
         Entity::MtrTraces => observability::mtr_traces(),
         Entity::FieldSurveySessions => fieldsurvey::sessions(),
         Entity::FieldSurveyRasters => fieldsurvey::rasters(),
@@ -156,6 +157,7 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
         Entity::Logs => observability::logs(),
         Entity::Traces => observability::traces(),
         Entity::TraceSummaries => observability::trace_summaries(),
+        Entity::OtelServices => observability::otel_services(),
         Entity::OtelMetrics => observability::otel_metrics(),
         Entity::OtelMetricPoints => observability::otel_metric_points(),
         Entity::CapacityForecasts => observability::capacity_forecasts(),
@@ -174,6 +176,7 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
         Entity::GraphDql => inventory::graph_cypher(),
         Entity::Flows | Entity::AttributedFlows => network::flows(),
         Entity::PublicEndpoints => network::public_endpoints(),
+        Entity::CameraSources => network::camera_sources(),
         Entity::ThreatIntelMatches => network::threat_intel_matches(),
         Entity::SourceFactDisagreements => inventory::source_fact_disagreements(),
         Entity::SweepGroups => inventory::sweep_groups(),
@@ -187,6 +190,8 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
         Entity::DeviceIdentifiers => inventory::device_identifiers(),
         Entity::IdentityReconciliationRuns => inventory::identity_reconciliation_runs(),
         Entity::IdentityEvidenceEdges => inventory::identity_evidence_edges(),
+        Entity::IdentityDecisions => inventory::identity_decisions(),
+        Entity::DeduplicationTasks => inventory::deduplication_tasks(),
     })
 }
 

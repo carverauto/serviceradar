@@ -1,0 +1,40 @@
+# gazelle:ignore
+#
+# pluginkit maps simkit batches onto SDK calls. It is its own Go module: go.mod
+# pins the released serviceradar-sdk-go tag and go.sum records its checksum;
+# the SDK is vendored once for all demo modules in demo/vendor (see
+# demo/go.work). simkit is `replace`d with ../simkit.
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+package(default_visibility = ["//demo:__subpackages__"])
+
+go_library(
+    name = "pluginkit",
+    srcs = ["pluginkit.go"],
+    importpath = "github.com/carverauto/serviceradar/demo/pluginkit",
+    deps = [
+        "//demo:sdk",
+        "//demo/simkit",
+    ],
+)
+
+go_test(
+    name = "pluginkit_test",
+    size = "small",
+    srcs = ["pluginkit_test.go"],
+    embed = [":pluginkit"],
+    deps = [
+        "//demo:sdk",
+        "//demo/simkit",
+    ],
+)
+
+# The module as a TinyGo plugin build sees it through the workspace.
+filegroup(
+    name = "module_srcs",
+    srcs = [
+        "go.mod",
+        "go.sum",
+        "pluginkit.go",
+    ],
+)

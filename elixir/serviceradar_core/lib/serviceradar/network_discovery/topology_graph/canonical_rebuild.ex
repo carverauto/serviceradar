@@ -9,6 +9,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Backend
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalMutationLock
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild.Conflicts
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild.DgraphRebuild
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.DgraphPersist
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.HealthConditions
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.Persist
@@ -33,26 +34,15 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
   @self_heal_condition :canonical_self_heal
   @default_canonical_prune_max_fraction 0.5
 
-  # Change-detection: the canonical rebuild rewrites every CANONICAL_TOPOLOGY
-  # edge with unconditional SETs, and it runs on EVERY mapper topology report
-  # (per upsert_links) plus the cleanup worker. For a static topology that means
-  # re-rewriting an unchanged graph indefinitely (observed: tens of millions of
-  # CANONICAL_TOPOLOGY updates on a few hundred edges). We fingerprint the full
-  # mapper-evidence input (every observed edge label's start/end ids plus the
-  # per-edge properties that drive the upsert content_hash) and skip the rebuild
-  # when it is unchanged, with a heartbeat so a long-static graph still rebuilds
-  # periodically (a defence-in-depth backstop, since the fingerprint now covers
-  # property changes the old structural-only hash omitted).
+  # Fingerprint the active backend's mapper evidence to avoid rewriting a static
+  # canonical graph on every report. The heartbeat still forces periodic rebuilds
+  # so the skip guard cannot indefinitely prevent reconciliation or stale pruning.
   @default_canonical_rebuild_heartbeat_ms 3_600_000
 
-  # The skip-guard fingerprint is persisted on the shared
-  # platform.runtime_topology_projection_meta row (input_hash / input_hashed_at)
-  # rather than a process-local :persistent_term. persistent_term is wiped on
-  # every pod restart, so each rollout forced a cold full canonical rebuild on
-  # every replica (the rollout-correlated CNPG CPU burst). The shared meta row
-  # makes the guard durable across restarts and consistent across replicas. A nil
-  # input_hash (fresh deploy, query failure) always fails open into a rebuild, so
-  # the guard can never erroneously skip a needed change.
+  # Shared platform.runtime_topology_projection_meta rows make the skip guard
+  # durable across restarts and replicas. AGE/dual and Dgraph use distinct keys
+  # because their input fingerprints are not interchangeable. Missing hashes
+  # always proceed with reconciliation.
 
   def rebuild_canonical_links_from_current do
     _ = rebuild_canonical_links_from_current_with_stats()
@@ -131,9 +121,16 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
   end
 
   defp rebuild_input_fingerprint do
-    case Repo.query(Queries.rebuild_input_fingerprint_query(), []) do
-      {:ok, %{rows: [[fingerprint]]}} when is_binary(fingerprint) -> fingerprint
-      _ -> nil
+    if Backend.backend() == :dgraph do
+      case DgraphRebuild.read_inputs() do
+        {:ok, inputs} -> DgraphRebuild.fingerprint(inputs)
+        {:error, _reason} -> nil
+      end
+    else
+      case Repo.query(Queries.rebuild_input_fingerprint_query(), []) do
+        {:ok, %{rows: [[fingerprint]]}} when is_binary(fingerprint) -> fingerprint
+        _ -> nil
+      end
     end
   rescue
     _ -> nil
@@ -143,10 +140,12 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
     # input_hashed_at is a `timestamp without time zone` column, so a schemaless
     # read yields a NaiveDateTime; type/2 loads it as a UTC DateTime to match the
     # DateTime the skip-guard compares against.
+    projection_name = rebuild_projection_name()
+
     query =
       from(m in "runtime_topology_projection_meta",
         prefix: "platform",
-        where: m.projection_name == ^@projection_name,
+        where: m.projection_name == ^projection_name,
         select: {m.input_hash, type(m.input_hashed_at, :utc_datetime_usec)}
       )
 
@@ -517,11 +516,26 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
   end
 
   def canonical_edge_count do
-    edge_count_from_query(Queries.canonical_edge_count_query())
+    backend_edge_count(:canonical, Queries.canonical_edge_count_query())
   end
 
   def mapper_evidence_edge_count do
-    edge_count_from_query(Queries.mapper_evidence_edge_count_query())
+    backend_edge_count(:evidence, Queries.mapper_evidence_edge_count_query())
+  end
+
+  defp backend_edge_count(kind, cypher) do
+    if Backend.backend() == :dgraph do
+      dgraph_input_count(kind)
+    else
+      edge_count_from_query(cypher)
+    end
+  end
+
+  defp dgraph_input_count(key) do
+    case DgraphRebuild.read_inputs() do
+      {:ok, inputs} -> length(Map.fetch!(inputs, key))
+      {:error, _reason} -> 0
+    end
   end
 
   @doc false
@@ -564,7 +578,32 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
   # reacquires this lock only around its AGE writes. Returns {:ok,
   # structural_stats} (telemetry_refresh / runtime_projection_refresh are merged
   # in later) or {:error, reason, stats}.
+  # For the dgraph backend, DgraphRebuild.rebuild/1 performs its Dgraph reads and
+  # writes over the network while this lock's advisory-lock transaction still
+  # holds a pooled CNPG connection, since pg_try_advisory_xact_lock only
+  # releases at transaction end. This is a known latency/connection-hold cost,
+  # accepted rather than worked around: the lock is the only existing mutation
+  # serialization for canonical rebuilds, and there is no narrower reusable
+  # session-scoped lock in this codebase (CoordinatorManager's advisory lock is
+  # a standalone leader-election primitive held for a process lifetime, not a
+  # per-call lock, and adapting it here would be new coordinator machinery).
   defp do_rebuild_canonical_device_links do
+    if Backend.backend() == :dgraph do
+      case DgraphRebuild.rebuild(Utils.stale_cutoff_iso8601()) do
+        {:ok, stats} ->
+          {:ok, stats}
+
+        {:error, reason} ->
+          stats = %{lock_skipped: false}
+          emit_canonical_rebuild_telemetry(:failed, stats, reason)
+          {:error, reason, stats}
+      end
+    else
+      do_rebuild_age_canonical_device_links()
+    end
+  end
+
+  defp do_rebuild_age_canonical_device_links do
     before_edges = canonical_edge_count()
     mapper_evidence_edges = mapper_evidence_edge_count()
     evidence_max_last_observed_at = mapper_evidence_max_last_observed_at()
@@ -647,7 +686,14 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
     stale_cutoff = Map.fetch!(structural_stats, :stale_cutoff)
 
     telemetry_result = Telemetry.refresh_canonical_edge_telemetry(stale_cutoff)
-    runtime_projection_refresh = refresh_runtime_topology_projection(fingerprint)
+
+    runtime_projection_refresh =
+      if Backend.backend() == :dgraph do
+        store_dgraph_rebuild_fingerprint(structural_stats)
+      else
+        refresh_runtime_topology_projection(fingerprint)
+      end
+
     maybe_dual_write_canonical()
 
     stats =
@@ -658,6 +704,38 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
     emit_canonical_rebuild_telemetry(:completed, stats)
     Logger.info("canonical_topology_rebuild_stats #{inspect(stats)}")
     {:ok, stats}
+  end
+
+  # The Dgraph read model is already canonical. Record only its successful
+  # reconciliation, using a distinct key so switching stores cannot reuse an
+  # AGE fingerprint or refresh the obsolete SQL adjacency projection.
+  defp store_dgraph_rebuild_fingerprint(stats) do
+    now = DateTime.utc_now()
+
+    attrs = %{
+      projection_name: rebuild_projection_name(),
+      input_hash: stats.input_fingerprint,
+      input_hashed_at: now,
+      row_count: stats.after_prune_edges,
+      refreshed_at: now,
+      inserted_at: now,
+      updated_at: now
+    }
+
+    Repo.insert_all("runtime_topology_projection_meta", [attrs],
+      prefix: "platform",
+      conflict_target: [:projection_name],
+      on_conflict:
+        {:replace, [:input_hash, :input_hashed_at, :row_count, :refreshed_at, :updated_at]}
+    )
+
+    %{rows: stats.after_prune_edges}
+  rescue
+    error -> %{status: :failed, reason: inspect(error)}
+  end
+
+  defp rebuild_projection_name do
+    if Backend.backend() == :dgraph, do: "dgraph_canonical_topology", else: @projection_name
   end
 
   # Starvation guard (fj #4378): decide whether the stale prune may run at all.
@@ -880,7 +958,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild do
         flow_bps_ab: coalesce(r.flow_bps_ab, 0),
         flow_bps_ba: coalesce(r.flow_bps_ba, 0),
         capacity_bps: coalesce(r.capacity_bps, 0),
-        telemetry_eligible: coalesce(r.telemetry_eligible, false)
+        telemetry_eligible: coalesce(r.telemetry_eligible, false),
+        pair_support_rank: coalesce(r.pair_support_rank, 0)
       } AS row
       """
 

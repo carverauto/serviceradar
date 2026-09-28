@@ -5,6 +5,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+# JetStream stream sizes (shipped by serviceradar-nats). Optional so the
+# service still starts on a host without the NATS package.
+EnvironmentFile=-/etc/serviceradar/jetstream-sizes.env
 EnvironmentFile=-/etc/serviceradar/web-ng.env
 WorkingDirectory=/usr/local/share/serviceradar-web-ng
 ExecStart=/usr/local/share/serviceradar-web-ng/bin/serviceradar_web_ng start

@@ -25,6 +25,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.Address
+  alias ServiceRadar.Inventory.IdentityDecision
   alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
@@ -100,6 +101,45 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
 
     {:ok, integration_device} = Device.get_by_uid(integration_device_uid, false, actor: actor)
     assert integration_device.ip == nil
+  end
+
+  # #4705: an existing device never adopts a provisional seed. A device that moves onto an
+  # address a sweep has seeded keeps its own record and takes the address; the seed releases
+  # it, stays live, and the conflict is recorded. The write used to land on the seed instead,
+  # leaving the device at its old address on every sync.
+  test "an existing device moving onto a sweep-seeded address takes it and leaves the seed", %{
+    actor: actor
+  } do
+    {old_ip, new_ip} = seed_ip_pair()
+    armis_id = "armis-4705-#{System.unique_integer([:positive])}"
+
+    assert :ok = SyncIngestor.ingest_updates([armis_update(armis_id, old_ip, 0)], actor: actor)
+    device_uid = device_uid_for_armis!(armis_id, actor)
+
+    seed =
+      create_device!(actor, nil, new_ip, %{
+        uid: "sr:" <> Ecto.UUID.generate(),
+        discovery_sources: ["sweep"],
+        metadata: %{"identity_state" => "provisional", "identity_source" => "sweep_ip_seed"}
+      })
+
+    assert :ok = SyncIngestor.ingest_updates([armis_update(armis_id, new_ip, 60)], actor: actor)
+
+    assert device_uid_for_armis!(armis_id, actor) == device_uid
+    {:ok, device} = Device.get_by_uid(device_uid, false, actor: actor)
+    assert device.ip == new_ip
+
+    {:ok, seed} = Device.get_by_uid(seed.uid, false, actor: actor)
+    assert is_nil(seed.deleted_at)
+    assert seed.ip == nil
+    assert seed.hostname == nil
+
+    decisions =
+      IdentityDecision
+      |> Ash.Query.filter(decision_kind == :ip_conflict and subject == ^new_ip)
+      |> Ash.read!(actor: actor)
+
+    assert Enum.any?(decisions, &(Enum.sort(&1.device_uids) == Enum.sort([device_uid, seed.uid])))
   end
 
   test "pre-resolves a batch with colliding strong identities without choosing an IP owner", %{
@@ -282,6 +322,10 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
     assert Enum.map(devices_at_ip, & &1.uid) == [agent_device.uid]
   end
 
+  # Unboxed: each ingest writes inside its own fenced transaction (Identity.Fence),
+  # and two open transactions cannot share one sandbox connection, so the second
+  # writer could never reach its precheck while the first holds the barrier.
+  @tag sandbox: :unboxed
   test "concurrent distinct strong identities race on a free IP without dual holders", %{
     actor: actor
   } do
@@ -346,6 +390,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
 
     first_uid = device_uid_for_integration!(first_id, actor)
     second_uid = device_uid_for_integration!(second_id, actor)
+    on_exit(fn -> purge_unboxed_devices!([first_uid, second_uid]) end)
     assert first_uid != second_uid
 
     {:ok, first} = Device.get_by_uid(first_uid, false, actor: actor)
@@ -761,6 +806,35 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
     uid
   end
 
+  # Two addresses in 198.18.0.0/15 from one monotonic draw, one in each /16, so they never
+  # equal each other or wrap onto another test's pair.
+  defp seed_ip_pair do
+    n = System.unique_integer([:positive, :monotonic])
+    host = "#{rem(div(n, 254), 254) + 1}.#{rem(n, 254) + 1}"
+    {"198.18." <> host, "198.19." <> host}
+  end
+
+  # An Armis sync observed at `ip`, stamped `offset` seconds from now.
+  defp armis_update(armis_id, ip, offset) do
+    %{
+      "ip" => ip,
+      "hostname" => "armis-4705",
+      "source" => "armis",
+      "last_seen_time" => DateTime.to_iso8601(DateTime.add(DateTime.utc_now(), offset, :second)),
+      "metadata" => %{"integration_type" => "armis", "armis_device_id" => armis_id}
+    }
+  end
+
+  defp device_uid_for_armis!(armis_id, actor) do
+    {:ok, identifiers} =
+      DeviceIdentifier
+      |> Ash.Query.filter(identifier_type == :armis_device_id and identifier_value == ^armis_id)
+      |> Ash.read(actor: actor)
+
+    assert [%DeviceIdentifier{device_id: uid}] = List.wrap(identifiers)
+    uid
+  end
+
   # Monotonic, not a random draw: the hash-of-a-UUID version could repeat, and a repeated
   # address is indistinguishable from the conflict this file exists to test.
   defp unique_test_ip do
@@ -791,5 +865,19 @@ defmodule ServiceRadar.Inventory.SyncIngestorIpConflictTest do
   defp ip_taken_error?(error) do
     fields = List.wrap(Map.get(error, :fields) || []) ++ List.wrap(Map.get(error, :field))
     :ip in fields and Map.get(error, :message) == "has already been taken"
+  end
+
+  # Unboxed rows outlive the test: tombstone them and let the cleanup worker's purge
+  # remove every restricting child row with them.
+  defp purge_unboxed_devices!(uids) do
+    Repo.query!(
+      "UPDATE platform.ocsf_devices SET deleted_at = now() WHERE uid = ANY($1) AND deleted_at IS NULL",
+      [uids]
+    )
+
+    ServiceRadar.Inventory.DeviceCleanupWorker.hard_delete_records(
+      %{deleted: 0, errors: 0},
+      Enum.map(uids, &%{uid: &1})
+    )
   end
 end

@@ -295,7 +295,7 @@ SRQL SHALL provide a “latest snapshot per interface” result shape for UI que
 - **THEN** SRQL returns the latest observation per interface
 
 ### Requirement: Automatic time-based CAGG routing
-The SRQL service SHALL automatically route `stats:` and `bucket:` queries to hourly Continuous Aggregate views when the requested time window spans 6 hours or more. Queries with time windows under 6 hours SHALL continue to query the raw hypertable. The response shape SHALL be identical regardless of which backend serves the query.
+The SRQL service SHALL automatically route `stats:` and `bucket:` queries to hourly Continuous Aggregate views when either the requested time window spans 6 hours or more, or the window starts before the raw hypertable's retention horizon (the raw tier has already dropped every row in that window). The retention arm is start-based, so a window under 6 hours that straddles the horizon is served wholly from the rollup at hourly grain. It applies only to metric entities whose raw hypertables retain less history than their rollups; flows keep span-only routing. Queries that meet neither condition SHALL continue to query the raw hypertable. The response shape SHALL be identical regardless of which backend serves the query.
 
 #### Scenario: Stats query with large time window routes to CAGG
 - **GIVEN** the `cpu_metrics_hourly` CAGG exists and has been refreshed
@@ -306,7 +306,13 @@ The SRQL service SHALL automatically route `stats:` and `bucket:` queries to hou
 #### Scenario: Stats query with small time window hits raw table
 - **GIVEN** the `cpu_metrics_hourly` CAGG exists
 - **WHEN** a client sends `in:cpu_metrics time:last_1h stats:avg(usage_percent) as avg_usage`
-- **THEN** SRQL queries the raw `cpu_metrics` hypertable (time window < 6h threshold)
+- **THEN** SRQL queries the raw `cpu_metrics` hypertable (time window under 6h and within the raw retention horizon)
+
+#### Scenario: Short old window routes to CAGG by retention
+- **GIVEN** the `cpu_metrics_hourly` CAGG exists and has been refreshed
+- **AND** the raw `cpu_metrics` hypertable retains only 7 days
+- **WHEN** a client sends a `time:` window shorter than 6 hours that starts before that 7-day horizon
+- **THEN** SRQL queries the `cpu_metrics_hourly` CAGG instead of the empty raw table
 
 #### Scenario: Bucket query with large time window routes to CAGG
 - **GIVEN** the `memory_metrics_hourly` CAGG exists and has been refreshed
@@ -399,18 +405,22 @@ Each hourly CAGG SHALL have a TimescaleDB continuous aggregate refresh policy (s
 - **WHEN** the retention policy runs
 - **THEN** data older than 395 days is dropped from the CAGG
 
-### Requirement: Logs queries use effective timestamps for time filters and ordering
-For the logs entity, SRQL SHALL apply time filters and default ordering against an effective timestamp that coalesces `observed_timestamp` with the event `timestamp`.
+### Requirement: Logs queries window and order by the event timestamp
+For the logs entity, SRQL SHALL apply time filters and ordering against the event `timestamp` column on both backends, so CNPG and StarRocks return identical windows and ordering for a log line regardless of its `observed_timestamp`.
 
-#### Scenario: Time filter uses observed timestamp fallback
-- **GIVEN** a log record with `observed_timestamp` set later than `timestamp`
+#### Scenario: Time filter uses the event timestamp
+- **GIVEN** a log record whose `observed_timestamp` (the collection instant) is set later than its event `timestamp`
 - **WHEN** a client queries `in:logs time:last_1h`
-- **THEN** SRQL SHALL evaluate the time range against the observed timestamp
+- **THEN** SRQL SHALL evaluate the time range against the event `timestamp`
 
-#### Scenario: Default ordering uses effective timestamp
-- **GIVEN** logs with mixed observed timestamps and event timestamps
+#### Scenario: Ordering uses the event timestamp
+- **GIVEN** logs whose `observed_timestamp` disagrees with their event `timestamp`
 - **WHEN** a client queries `in:logs sort:timestamp:desc`
-- **THEN** SRQL SHALL order by the effective timestamp first
+- **THEN** SRQL SHALL order by the event `timestamp`
+
+#### Scenario: Default ordering uses the event timestamp
+- **WHEN** a client queries `in:logs` without an explicit `sort:`
+- **THEN** SRQL SHALL order by event `timestamp` descending, then `severity_number` descending
 
 ### Requirement: SRQL Is The Only Data Source For NetFlow Visualize Widgets
 All NetFlow Visualize charts and tables SHALL be backed by SRQL queries. The UI SHALL NOT execute Ecto queries to generate chart datasets.
@@ -604,10 +614,10 @@ SRQL SHALL provide `in:identity_reconciliation_runs` as a queryable entity backe
 - **AND** `blocked_component_devices` SHALL list the device uids of each blocked component
 
 ### Requirement: Identity Diagnostic Entities Are Permission Gated
-Every parser alias for `merge_audit`, `device_revival_audit`, `device_identifiers`, `identity_reconciliation_runs`, and `identity_evidence_edges` SHALL be registered under the `devices.view` permission in the SRQL entity access map. No identity diagnostic alias SHALL rely on the unknown-entity passthrough.
+Every parser alias for `merge_audit`, `device_revival_audit`, `device_identifiers`, `identity_reconciliation_runs`, `identity_evidence_edges`, `identity_decisions`, and `deduplication_tasks` SHALL be registered under the `devices.view` permission in the SRQL entity access map. No identity diagnostic alias SHALL rely on the unknown-entity passthrough.
 
 #### Scenario: Every alias resolves to a permission
-- **WHEN** each canonical name and alias for the five identity diagnostic entities is resolved through the entity access map
+- **WHEN** each canonical name and alias for the seven identity diagnostic entities is resolved through the entity access map
 - **THEN** each SHALL resolve to `devices.view`
 - **AND** none SHALL resolve to the unknown-entity passthrough
 
@@ -615,5 +625,184 @@ Every parser alias for `merge_audit`, `device_revival_audit`, `device_identifier
 - **GIVEN** a caller whose permission set does not include `devices.view`
 - **WHEN** that caller submits `in:merge_audit` over HTTP or MCP
 - **THEN** the request SHALL be rejected as forbidden
-- **AND** no query SHALL be executed
+
+### Requirement: MTR Hops SRQL Entity
+The SRQL service SHALL expose `platform.mtr_hops` as the `in:mtr_hops` query entity, supporting time-range filtering, field equality and pattern filters, and `stats:` aggregations grouped by hop address, ASN, ASN organization, or hop number.
+
+Supported filter fields: `trace_id` (UUID equality), `addr` (text, supports `%` wildcards), `hostname` (text, supports `%` wildcards), `asn` (integer equality), `asn_org` (text, supports `%` wildcards), `hop_number` (integer equality and range).
+
+Supported `stats:` aggregation functions on numeric columns: `avg`, `min`, `max`, `sum`, `count`, and the two-argument aggregates `loss_ratio(<sent>, <received>)` and `wavg(<value>, <weight>)`. Aggregatable columns: `loss_pct`, `avg_us`, `min_us`, `max_us`, `jitter_us`, `sent`, `received`. Supported `by` grouping fields: `addr`, `asn`, `asn_org`, `hop_number`, and `time:<duration>` (time-bucket grouping; not emitted by the query builder).
+
+Default ordering: `time DESC, id DESC`. Stats queries order by the first aggregated alias descending by default.
+
+#### Scenario: Hop-level loss aggregation by address
+- **WHEN** a client sends `in:mtr_hops time:last_24h stats:loss_ratio(sent, received) as loss by addr sort:loss:desc limit:50`
+- **THEN** SRQL returns rows of `{"addr": "...", "loss": F}` sorted highest loss first
+- **AND** only hops within the last 24 hours are included
+
+#### Scenario: Latency aggregation by ASN
+- **WHEN** a client sends `in:mtr_hops time:last_6h asn:>0 stats:wavg(avg_us, received) as latency by asn sort:latency:desc`
+- **THEN** SRQL returns rows of `{"asn": N, "latency": F}` grouped by ASN number, excluding hops with unresolved ASNs
+
+#### Scenario: Trace-scoped hop listing
+- **WHEN** a client sends `in:mtr_hops trace_id:some-uuid sort:hop_number:asc`
+- **THEN** SRQL returns all hop rows for that trace in hop-number order with full per-hop fields
+
+#### Scenario: Unsupported filter field is rejected
+- **WHEN** a client sends `in:mtr_hops device_id:some-id`
+- **THEN** SRQL returns an `InvalidRequest` error naming the unsupported field
+
+#### Scenario: Time range limits hop rows
+- **WHEN** a client sends `in:mtr_hops time:[2026-01-01T00:00:00Z,2026-01-02T00:00:00Z]`
+- **THEN** only hop rows with `time >= 2026-01-01T00:00:00Z AND time < 2026-01-02T00:00:00Z` are returned
+
+### Requirement: MTR Traces Rejects stats Clauses
+The SRQL service SHALL return an `InvalidRequest` error when a `stats:` clause is present on an `in:mtr_traces` query instead of silently ignoring it.
+
+#### Scenario: stats clause on mtr_traces returns error
+- **WHEN** a client sends `in:mtr_traces stats:count() by device_id`
+- **THEN** SRQL returns an `InvalidRequest` error indicating that `stats:` is not supported for `mtr_traces`
+- **AND** no result rows are returned
+
+#### Scenario: mtr_traces without stats clause succeeds
+- **WHEN** a client sends `in:mtr_traces device_id:some-id time:last_1h`
+- **THEN** SRQL returns trace rows normally without error
+
+### Requirement: OTel services catalog entity
+SRQL SHALL expose the OTel service catalog as `in:otel_services`, returning `service_name`, `signals`, `last_seen`, `logs_last_seen`, `traces_last_seen` and `metrics_last_seen`.
+
+- **Filters.** The entity SHALL support filtering `service_name` (exact, list, negated, and `%` wildcards compiled to case-insensitive `ILIKE`) and `signal:` (`logs`, `traces`, `metrics`, or a list meaning any of them).
+- **Time.** `time:` SHALL apply to the last-seen of the requested signals, or of the caller's permitted signals when no signal is given.
+- **Derived fields.** `signals`, `last_seen` and the default `last_seen:desc` ordering SHALL derive only from the requested signals, or from the caller's permitted signals when no signal is given. Per-signal last-seen fields for any other signal SHALL be null.
+- **Sort.** Sorting SHALL be supported on `service_name` and `last_seen`, with `last_seen:desc` as the default.
+- **Limit.** The default limit SHALL be 50 and the maximum 500.
+- **Stats.** `stats:"count() as total"` SHALL be supported.
+- **Backend.** The entity SHALL always read CNPG, regardless of StarRocks cutover.
+
+This entity is distinct from `in:services`, which reads monitored service checks.
+
+#### Scenario: Substring search with a bounded result
+- **WHEN** a client sends `in:otel_services signal:logs service_name:%pay% limit:50`
+- **THEN** at most 50 catalog entries whose name contains `pay` (case-insensitive) and that have reported logs SHALL be returned, ordered by most recently seen
+
+#### Scenario: Match count for a search
+- **WHEN** a client sends `in:otel_services signal:traces service_name:%pay% stats:"count() as total"`
+- **THEN** the response SHALL contain the total number of matching entries
+
+#### Scenario: Limit above the maximum
+- **WHEN** a client sends `in:otel_services limit:5000`
+- **THEN** at most 500 rows SHALL be returned
+
+#### Scenario: Not confused with monitored services
+- **WHEN** a client sends `in:services`
+- **THEN** SRQL SHALL continue to return monitored service check status, not catalog entries
+
+### Requirement: OTel services entity access control
+Access to `in:otel_services` SHALL be enforced in two places. The shared `EntityAccess` gate used by the LiveView, HTTP and MCP query paths SHALL map this entity to an any-of permission set (`observability.logs.view`, `observability.traces.view`, `observability.metrics.view`), SHALL reject a caller holding none, and SHALL pass the caller's permitted signal set to SRQL as a trusted parameter that is separate from the query string and is not part of the wire-deserialized request. Every caller of the gate, and every translate call site including re-translation, SHALL pass that set. The standalone SRQL server has no trusted-caller path and SHALL reject `otel_services` queries. Other entities SHALL keep single-permission gating.
+
+The SRQL planner for `otel_services` SHALL be the single parser of `signal:`. It SHALL intersect the parsed `signal:` values with the permitted set, and with no `signal:` it SHALL use the permitted set. It SHALL fail closed with one error contract. A permission failure (a named or list-form `signal:` value outside the set, an empty intersection, or a missing permitted set) SHALL return a distinct forbidden error kind, which web-ng maps to `{:error, :forbidden}` and HTTP 403. A malformed form (a repeated `signal:` token or a negated `signal:`) SHALL return an invalid-request error (HTTP 400).
+
+The `otel_services` mapping MUST be enforced before the SRQL entity is reachable, because the gate treats unmapped entities as authorized.
+
+#### Scenario: Signal the caller cannot view
+- **GIVEN** a caller with `observability.logs.view` but not `observability.traces.view`
+- **WHEN** the caller sends `in:otel_services signal:traces`
+- **THEN** the query SHALL be rejected as forbidden
+
+#### Scenario: Unscoped query is narrowed to permitted signals
+- **GIVEN** a caller with only `observability.logs.view`
+- **WHEN** the caller sends `in:otel_services`
+- **THEN** only services that have reported logs SHALL be returned
+- **AND** the `signals` field SHALL NOT disclose traces or metrics
+
+#### Scenario: List form is intersected with the permitted set
+- **GIVEN** a caller with only `observability.logs.view`
+- **WHEN** the caller sends `in:otel_services signal:(logs,traces)`
+- **THEN** the query SHALL be rejected as forbidden
+
+#### Scenario: Repeated or negated signal token
+- **GIVEN** a caller with only `observability.logs.view`
+- **WHEN** the caller sends `in:otel_services signal:logs signal:traces`, or `in:otel_services !signal:logs`
+- **THEN** each query SHALL be rejected as an invalid request
+
+#### Scenario: Differently cased key
+- **GIVEN** a caller with only `observability.logs.view`
+- **WHEN** the caller sends `in:otel_services SIGNAL:traces`
+- **THEN** the query SHALL be rejected as forbidden, the same as `signal:traces`
+
+#### Scenario: Missing permitted set fails closed
+- **WHEN** SRQL receives `in:otel_services` with no permitted signal set
+- **THEN** the query SHALL be rejected as forbidden and no catalog rows SHALL be returned
+
+#### Scenario: Client cannot supply the permitted set
+- **WHEN** a client sends a request body to the standalone SRQL server containing `in:otel_services` and a permitted-signals field
+- **THEN** the field SHALL be ignored and the query SHALL be rejected as forbidden
+
+#### Scenario: Re-translation keeps the permitted set
+- **GIVEN** a caller with only `observability.logs.view`
+- **WHEN** a query is re-translated after a rollup freshness settle
+- **THEN** the re-translated query SHALL still be restricted to the permitted signals
+
+#### Scenario: Caller with no observability permission
+- **GIVEN** a caller with none of the three observability view permissions
+- **WHEN** the caller sends `in:otel_services`
+- **THEN** the query SHALL be rejected as forbidden
+
+#### Scenario: Narrowed query does not leak other-signal activity
+- **GIVEN** `checkout` reported logs an hour ago and traces one minute ago
+- **AND** a caller with only `observability.logs.view`
+- **WHEN** the caller sends `in:otel_services time:last_2h`
+- **THEN** `last_seen` SHALL reflect the logs activity only
+- **AND** `traces_last_seen` SHALL be null
+- **AND** the default `last_seen:desc` ordering and the `time:` filter SHALL ignore the trace activity
+
+### Requirement: Trace summaries filter by participating service
+`in:otel_trace_summaries` SHALL accept a `service_name` filter that matches a trace when any of its spans belongs to the given service (containment in `service_set`). The list form SHALL match traces touching any listed service, and negation SHALL exclude traces touching the service.
+
+The existing `root_service_name` filter SHALL keep its root-span-only meaning. Wildcard values for `service_name` on this entity SHALL be rejected with an invalid-request error.
+
+#### Scenario: Trace touching a service below the root
+- **GIVEN** a trace whose root span is in `frontend` and which contains a span in `checkout`
+- **WHEN** a client sends `in:otel_trace_summaries service_name:checkout time:last_24h`
+- **THEN** that trace SHALL be returned
+
+#### Scenario: Root-only filter unchanged
+- **GIVEN** the same trace
+- **WHEN** a client sends `in:otel_trace_summaries root_service_name:checkout time:last_24h`
+- **THEN** that trace SHALL NOT be returned
+
+#### Scenario: Multiple services
+- **WHEN** a client sends `in:otel_trace_summaries service_name:(checkout,billing)`
+- **THEN** traces touching either service SHALL be returned
+
+#### Scenario: Negation includes traces with no services
+- **GIVEN** a trace whose `service_set` is NULL
+- **WHEN** a client sends `in:otel_trace_summaries !service_name:checkout`
+- **THEN** that trace SHALL be returned
+
+#### Scenario: Wildcard rejected
+- **WHEN** a client sends `in:otel_trace_summaries service_name:%check%`
+- **THEN** SRQL SHALL return an invalid-request error naming the field
+
+### Requirement: SRQL Identity Decisions Entity
+SRQL SHALL provide `in:identity_decisions` as a read-only entity backed by `platform.identity_decisions`. Parser aliases SHALL include `identity_decision` and `dire_decisions`. Results SHALL expose `id`, `decision_kind`, `reason`, `device_uids`, `device_count`, `subject`, `source`, `evidence`, `occurrence_count`, `first_decided_at`, and `last_decided_at`, and SHALL NOT expose the internal `decision_key`. A `device:` filter SHALL match every decision whose device set names that device. The `time:` predicate SHALL filter `last_decided_at`, and the default sort SHALL be `last_decided_at desc`.
+
+#### Scenario: Find the decisions that refused a merge for a device
+- **GIVEN** the merge policy refused to merge devices A and B three times
+- **WHEN** a client queries `in:identity_decisions device:A`
+- **THEN** SRQL SHALL return one decision row naming A and B
+- **AND** the row SHALL report its `decision_kind`, `reason` and an `occurrence_count` of three
+
+### Requirement: SRQL De-duplication Tasks Entity
+SRQL SHALL provide `in:deduplication_tasks` as a read-only entity backed by `platform.identity_deduplication_tasks`. Parser aliases SHALL include `deduplication_task`, `dedup_tasks` and `identity_deduplication_tasks`. Results SHALL expose `id`, `status`, `device_uids`, `device_count`, `category`, `last_decision_kind`, `last_reason`, `evidence`, `occurrence_count`, `opened_at`, `last_decided_at`, `resolved_at`, `resolved_by`, `merged_into`, and `resolution_note`, and SHALL NOT expose the internal `candidate_key`. A `device:` filter SHALL match every task whose device set names that device. The `time:` predicate SHALL filter `last_decided_at`, and the default sort SHALL be `last_decided_at desc`.
+
+#### Scenario: List the open tasks for a device
+- **GIVEN** a device named by one open task and one task an operator marked distinct
+- **WHEN** a client queries `in:deduplication_tasks status:open device:<uid>`
+- **THEN** SRQL SHALL return only the open task
+
+#### Scenario: A resolved task records who resolved it
+- **GIVEN** an operator marked a task's devices distinct with a note
+- **WHEN** a client queries `in:deduplication_tasks status:distinct`
+- **THEN** the row SHALL report `resolved_by`, `resolved_at` and `resolution_note`
 

@@ -169,11 +169,11 @@ func TestInventoryDeviceMapsOCSFFieldsFromHPNARow(t *testing.T) {
 func TestCollectorPaginatesAndBuildsCompleteDeterministicSnapshot(t *testing.T) {
 	fake := &fakeHTTPDoer{responses: []HTTPResponse{
 		jsonResponse(200, []any{
-			deviceRow(2, "ORD-ASW002", "10.0.0.2", "SER-2"),
-			deviceRow(1, "ORD-ASW001", "10.0.0.1", "SER-1"),
+			deviceRow(2, "SITE01-SW02", "10.0.0.2", "SER-2"),
+			deviceRow(1, "SITE01-SW01", "10.0.0.1", "SER-1"),
 		}),
 		jsonResponse(200, map[string]any{"result": []any{
-			deviceRow(3, "ORD-ASW003", "10.0.0.3", "SER-3"),
+			deviceRow(3, "SITE01-SW03", "10.0.0.3", "SER-3"),
 		}}),
 	}}
 	cfg := validTestConfig()
@@ -211,7 +211,7 @@ func TestCollectorPaginatesAndBuildsCompleteDeterministicSnapshot(t *testing.T) 
 
 func TestCollectorEncodesIDsAsCommaSeparatedString(t *testing.T) {
 	fake := &fakeHTTPDoer{responses: []HTTPResponse{
-		jsonResponse(200, []any{deviceRow(1, "ORD-ASW001", "10.0.0.1", "SER-1")}),
+		jsonResponse(200, []any{deviceRow(1, "SITE01-SW01", "10.0.0.1", "SER-1")}),
 	}}
 	cfg := validTestConfig()
 	cfg.Queries = []Query{{Name: "sample", Parameters: map[string]any{"ids": []any{json.Number("1"), json.Number("2")}}}}
@@ -230,7 +230,7 @@ func TestCollectorEncodesIDsAsCommaSeparatedString(t *testing.T) {
 }
 
 func TestCollectorDeduplicatesIdenticalRowsAcrossQueries(t *testing.T) {
-	row := deviceRow(1, "ORD-ASW001", "10.0.0.1", "SER-1")
+	row := deviceRow(1, "SITE01-SW01", "10.0.0.1", "SER-1")
 	fake := &fakeHTTPDoer{responses: []HTTPResponse{
 		jsonResponse(200, []any{row}),
 		jsonResponse(200, []any{row}),
@@ -252,8 +252,8 @@ func TestCollectorDeduplicatesIdenticalRowsAcrossQueries(t *testing.T) {
 
 func TestCollectorRejectsConflictingDuplicateDeviceIDs(t *testing.T) {
 	fake := &fakeHTTPDoer{responses: []HTTPResponse{
-		jsonResponse(200, []any{deviceRow(1, "ORD-ASW001", "10.0.0.1", "SER-1")}),
-		jsonResponse(200, []any{deviceRow(1, "ORD-ASW001", "10.0.0.99", "SER-1")}),
+		jsonResponse(200, []any{deviceRow(1, "SITE01-SW01", "10.0.0.1", "SER-1")}),
+		jsonResponse(200, []any{deviceRow(1, "SITE01-SW01", "10.0.0.99", "SER-1")}),
 	}}
 	cfg := validTestConfig()
 	cfg.Queries = []Query{
@@ -449,7 +449,7 @@ func assertRunError(t *testing.T, err error, code string) {
 
 func TestCollectorPropagatesInsecureSkipVerify(t *testing.T) {
 	fake := &fakeHTTPDoer{responses: []HTTPResponse{
-		jsonResponse(200, []any{deviceRow(1, "ORD-ASW001", "10.0.0.1", "SER-1")}),
+		jsonResponse(200, []any{deviceRow(1, "SITE01-SW01", "10.0.0.1", "SER-1")}),
 	}}
 	cfg := validTestConfig()
 	cfg.InsecureSkipVerify = true
@@ -468,7 +468,7 @@ func TestCollectorPropagatesInsecureSkipVerify(t *testing.T) {
 
 func TestCollectorSkipsL2WithoutEndpoints(t *testing.T) {
 	fake := &fakeHTTPDoer{responses: []HTTPResponse{
-		jsonResponse(200, []any{deviceRow(1, "ORD-ASW001", "10.0.0.1", "SER-1")}),
+		jsonResponse(200, []any{deviceRow(1, "SITE01-SW01", "10.0.0.1", "SER-1")}),
 	}}
 	cfg := validTestConfig()
 	if _, err := testCollector(fake).Collect(context.Background(), cfg); err != nil {
@@ -483,7 +483,7 @@ func TestCollectorSkipsL2WithoutEndpoints(t *testing.T) {
 
 func TestCollectorSkipsL2WithoutNNMURL(t *testing.T) {
 	fake := &fakeHTTPDoer{responses: []HTTPResponse{
-		jsonResponse(200, []any{deviceRow(1, "ORD-ASW001", "10.0.0.1", "SER-1")}),
+		jsonResponse(200, []any{deviceRow(1, "SITE01-SW01", "10.0.0.1", "SER-1")}),
 	}}
 	cfg := validTestConfig()
 	cfg.NNMURL = ""
@@ -502,7 +502,7 @@ func TestCollectorSkipsL2WithoutNNMURL(t *testing.T) {
 
 func TestCollectorLooksUpAttachedSwitchPortByEndpointMAC(t *testing.T) {
 	fake := &fakeHTTPDoer{responses: []HTTPResponse{
-		jsonResponse(200, []any{deviceRow(1, "ORD-ASW001", "10.0.0.1", "SER-1")}),
+		jsonResponse(200, []any{deviceRow(1, "SITE01-SW01", "10.0.0.1", "SER-1")}),
 		jsonResponse(200, map[string]any{
 			"items": []any{
 				map[string]any{
@@ -515,17 +515,17 @@ func TestCollectorLooksUpAttachedSwitchPortByEndpointMAC(t *testing.T) {
 		jsonResponse(200, map[string]any{
 			"_links": map[string]any{
 				"interface": map[string]any{
-					"title": "3/1/28",
+					"title": "1/1/7",
 					"href":  "https://nnm.example.com/nnmi/api/topo/v1/interface/if-1",
 				},
-				"vlan": map[string]any{"title": "561"},
+				"vlan": map[string]any{"title": "200"},
 			},
 		}),
 		jsonResponse(200, map[string]any{
-			"ifName":  "3/1/28",
+			"ifName":  "1/1/7",
 			"ifAlias": "CCTV",
 			"_links": map[string]any{
-				"hostedOn": map[string]any{"title": "SITE01-IDFC08-ASW002"},
+				"hostedOn": map[string]any{"title": "SWITCH03.EXAMPLE.COM"},
 			},
 		}),
 	}}
@@ -544,10 +544,10 @@ func TestCollectorLooksUpAttachedSwitchPortByEndpointMAC(t *testing.T) {
 	attachment := snapshot.AttachmentDevices[0]
 	facts := attachment.Metadata["facts"].(map[string]any)
 	port := facts["switch_port_attachment"].(map[string]any)
-	if port["switch_hostname"] != "SITE01-IDFC08-ASW002" || port["port"] != "3/1/28" {
+	if port["switch_hostname"] != "SWITCH03.EXAMPLE.COM" || port["port"] != "1/1/7" {
 		t.Fatalf("attachment facts = %#v", port)
 	}
-	if facts["vlan_uid"] != "561" {
+	if facts["vlan_uid"] != "200" {
 		t.Fatalf("vlan_uid = %#v", facts["vlan_uid"])
 	}
 	if !strings.Contains(fake.requests[1].URL, "mac=B8A44F82EFF9") {
@@ -568,7 +568,7 @@ func TestCollectorLooksUpAttachedSwitchPortByEndpointMAC(t *testing.T) {
 
 func TestCollectorTreatsEmptyNNMiItemsAsNoMatch(t *testing.T) {
 	fake := &fakeHTTPDoer{responses: []HTTPResponse{
-		jsonResponse(200, []any{deviceRow(1, "ORD-ASW001", "10.0.0.1", "SER-1")}),
+		jsonResponse(200, []any{deviceRow(1, "SITE01-SW01", "10.0.0.1", "SER-1")}),
 		jsonResponse(200, map[string]any{"items": []any{}}),
 	}}
 	cfg := validTestConfig()

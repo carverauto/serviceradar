@@ -262,7 +262,8 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
       command_bus.dispatch(
         assignment.agent_uid,
         @command_type,
-        payload,
+        stored_launch_payload(payload),
+        transmit_payload: payload,
         ttl_seconds: ttl_seconds,
         required_partition: assignment.partition_id,
         source: :automation,
@@ -279,6 +280,27 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
       )
     end
   end
+
+  # The agent needs each target's callback token and signing secret, so they go
+  # out in the transmitted payload. The stored command keeps placeholders: the
+  # target row already holds the token hash and the encrypted signing secret,
+  # which is all callback verification reads.
+  defp stored_launch_payload(payload) do
+    Map.update!(payload, "targets", fn targets ->
+      Enum.map(targets, &redact_callback_credentials/1)
+    end)
+  end
+
+  defp redact_callback_credentials(%{"callback" => %{} = callback} = target) do
+    redacted =
+      Enum.reduce(["token", "signing_secret"], callback, fn key, acc ->
+        if is_binary(acc[key]), do: Map.put(acc, key, "REDACTED"), else: acc
+      end)
+
+    Map.put(target, "callback", redacted)
+  end
+
+  defp redact_callback_credentials(target), do: target
 
   defp dispatch_poll_to_assignment(invocation, target, assignment, opts, actor) do
     with {:ok, credential_grants} <-
@@ -323,6 +345,7 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
       "action_version" => invocation.action_version,
       "descriptor_hash" => invocation.descriptor_hash,
       "result_schema_version" => invocation.descriptor.result_schema_version,
+      "max_override_duration_seconds" => invocation.descriptor.max_override_duration_seconds,
       "plugin_assignment_id" => assignment.id,
       "plugin_package_id" => assignment.plugin_package_id,
       "targets" => target_payloads,
@@ -352,6 +375,7 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
       "action_version" => invocation.action_version,
       "descriptor_hash" => invocation.descriptor_hash,
       "result_schema_version" => invocation.descriptor.result_schema_version,
+      "max_override_duration_seconds" => invocation.descriptor.max_override_duration_seconds,
       "plugin_assignment_id" => assignment.id,
       "plugin_package_id" => assignment.plugin_package_id,
       "targets" => target_payloads,

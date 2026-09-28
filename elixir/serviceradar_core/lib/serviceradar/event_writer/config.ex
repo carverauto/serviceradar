@@ -43,12 +43,19 @@ defmodule ServiceRadar.EventWriter.Config do
   - `EVENT_WRITER_BATCH_TIMEOUT` - Batch timeout in ms (default: 1000)
   - `EVENT_WRITER_CONSUMER_PULL_BATCH_SIZE` - Max JetStream messages requested per pull (default: 16)
   - `EVENT_WRITER_CONSUMER_LAG_POLL_INTERVAL_MS` - JetStream consumer lag poll interval (default: 30000)
+  - `EVENT_WRITER_OWNERSHIP_RECONCILE_INTERVAL_MS` - stream ownership reconcile tick (default: 300000)
+  - `EVENT_WRITER_OWNERSHIP_GRACE_PERIOD_MS` - how long a stream with no `serviceradar.owner`
+    claim stays unclaimed before EventWriter claims it (default: 900000)
+  - `SERVICERADAR_JS_<STREAM>_MAX_BYTES`, `SERVICERADAR_JS_<STREAM>_FALLBACK_MAX_BYTES` and
+    `_FALLBACK_REPLICAS` - JetStream stream sizes, see `jetstream_sizes_from_env!/1`
   """
 
   alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
   alias ServiceRadar.EventWriter.Processors.Events
   alias ServiceRadar.EventWriter.Processors.Flows
   alias ServiceRadar.EventWriter.Processors.PowerDNS
+  alias ServiceRadar.EventWriter.StreamOwnership
+  alias ServiceRadar.NATS.StateBucketSizing
 
   require Logger
 
@@ -65,10 +72,41 @@ defmodule ServiceRadar.EventWriter.Config do
   @default_flow_pull_expires_ns 2_000_000_000
   @default_flow_pull_batch_size 64
   @default_flow_max_ack_pending 1024
-  # Conservative create-if-missing defaults (10 GiB / 6h). flow-collector owns
-  # live retention reconcile; EventWriter must not thrash these on existing streams.
-  @default_flows_stream_max_bytes 10_737_418_240
+  @gib 1_073_741_824
+
+  # Create-if-missing age for the dedicated `flows` stream (6h). Its size is the
+  # EventWriter fallback below; flow-collector owns the shape once it claims it.
   @default_flows_stream_max_age_ns 21_600_000_000_000
+  @default_events_stream_max_age_ns 86_400_000_000_000
+
+  # Streams only EventWriter creates, keyed by JetStream stream name: their
+  # compiled default `max_bytes` (design D3). Each is overridden by
+  # SERVICERADAR_JS_<STREAM>_MAX_BYTES, which the Helm chart renders from
+  # `core.eventWriter.streams.<name>.maxBytes`.
+  @default_stream_max_bytes %{
+    "metrics" => @gib,
+    "k8s_inventory" => @gib,
+    "analytics_predictions" => @gib,
+    "mtr_results" => @gib,
+    "scan_results" => 268_435_456,
+    "trivy_reports" => @gib
+  }
+
+  # EventWriter's fallback shape for the streams a collector may own (design D3,
+  # D6): used when EventWriter creates the stream and while it owns it. Each is
+  # overridden by SERVICERADAR_JS_<STREAM>_FALLBACK_MAX_BYTES / _REPLICAS.
+  @default_fallbacks %{
+    "events" => %{max_bytes: 2 * @gib, replicas: 1},
+    "flows" => %{max_bytes: @gib, replicas: 1},
+    "ARANCINI_CAUSAL" => %{max_bytes: @gib, replicas: 1}
+  }
+
+  @fallback_max_age_ns %{
+    "events" => @default_events_stream_max_age_ns,
+    "flows" => @default_flows_stream_max_age_ns
+  }
+
+  @default_ownership_reconcile_interval_ms 300_000
 
   # `max_ack_pending` is still the server-side delivered-but-unacked ceiling for
   # each durable, but pull mode means it is a safety bound rather than a push
@@ -79,6 +117,16 @@ defmodule ServiceRadar.EventWriter.Config do
   # the redelivery storm a 30s ack_wait caused once a backlog formed.
   @default_ack_wait_ns 120_000_000_000
   @default_max_deliver 5
+
+  # Durables earlier releases created that nothing consumes any more. The shared
+  # pipeline deletes them once its own consumers are ready, so they do not sit
+  # on the server as dead state with an ever-growing pending count.
+  @retired_consumers [
+    # Core's standalone log promotion consumer. The LOGS consumer below already
+    # promotes every log on the same stream, so the two promoted each processed
+    # log twice, under different event ids.
+    %{stream_name: "events", consumer_name: "log-promotion"}
+  ]
 
   defstruct [
     :enabled,
@@ -94,7 +142,10 @@ defmodule ServiceRadar.EventWriter.Config do
     :ack_wait_ns,
     :max_deliver,
     :consumer_lag_poll_interval_ms,
-    :pull_expires_ns
+    :pull_expires_ns,
+    :ownership_reconcile_interval_ms,
+    :ownership_grace_period_ms,
+    retired_consumers: []
   ]
 
   @type t :: %__MODULE__{
@@ -111,7 +162,10 @@ defmodule ServiceRadar.EventWriter.Config do
           ack_wait_ns: pos_integer(),
           max_deliver: pos_integer(),
           consumer_lag_poll_interval_ms: pos_integer(),
-          pull_expires_ns: non_neg_integer() | nil
+          pull_expires_ns: non_neg_integer() | nil,
+          ownership_reconcile_interval_ms: pos_integer() | nil,
+          ownership_grace_period_ms: non_neg_integer() | nil,
+          retired_consumers: [%{stream_name: String.t(), consumer_name: String.t()}]
         }
 
   @type nats_config :: %{
@@ -146,7 +200,20 @@ defmodule ServiceRadar.EventWriter.Config do
           optional(:consumer_deliver_policy) => atom() | nil,
           optional(:consumer_inactive_threshold) => non_neg_integer() | nil,
           optional(:allow_stream_fallback) => boolean() | nil,
-          optional(:reconcile_stream_shape) => boolean() | nil
+          optional(:reconcile_stream_shape) => boolean() | nil,
+          optional(:stream_owner_claim) => String.t() | nil
+        }
+
+  @typedoc """
+  JetStream sizes for the streams EventWriter creates: `max_bytes` for the
+  streams only EventWriter creates, and the fallback size and replicas for the
+  streams a collector may own. Keys are JetStream stream names.
+  """
+  @type jetstream_sizes :: %{
+          max_bytes: %{optional(String.t()) => pos_integer()},
+          fallbacks: %{
+            optional(String.t()) => %{max_bytes: pos_integer(), replicas: pos_integer()}
+          }
         }
 
   @doc """
@@ -156,7 +223,11 @@ defmodule ServiceRadar.EventWriter.Config do
   def load do
     config = Application.get_env(:serviceradar_core, ServiceRadar.EventWriter, [])
     consumer_name = load_consumer_name(config)
-    streams = load_non_flow_streams(config)
+
+    streams =
+      config
+      |> load_non_flow_streams()
+      |> apply_jetstream_sizes(load_jetstream_sizes(config))
 
     # Shared pipeline must also fail closed on durable/inbox collisions after
     # canonicalization (long EVENT_WRITER_CONSUMER_NAME prefixes included).
@@ -177,7 +248,10 @@ defmodule ServiceRadar.EventWriter.Config do
       max_deliver: load_max_deliver(config),
       consumer_lag_poll_interval_ms: load_consumer_lag_poll_interval_ms(config),
       # Shared pipeline keeps the legacy no_wait + timer path (pull_expires_ns nil/0).
-      pull_expires_ns: 0
+      pull_expires_ns: 0,
+      ownership_reconcile_interval_ms: load_ownership_reconcile_interval_ms(config),
+      ownership_grace_period_ms: load_ownership_grace_period_ms(config),
+      retired_consumers: @retired_consumers
     }
   end
 
@@ -227,6 +301,7 @@ defmodule ServiceRadar.EventWriter.Config do
         |> put_flow_tuning(:consumer_pull_batch_size, pull_batch, pull_batch_override?)
         |> put_flow_tuning(:consumer_max_ack_pending, max_ack, max_ack_override?)
       end)
+      |> apply_jetstream_sizes(load_jetstream_sizes(config))
 
     # Fail closed if two stream configs collapse to one durable/inbox after
     # durable_name/2 / pull-subject canonicalization.
@@ -396,6 +471,169 @@ defmodule ServiceRadar.EventWriter.Config do
   def default_max_deliver, do: @default_max_deliver
 
   @doc """
+  Default interval of the producer's ownership reconcile tick (5 minutes).
+  """
+  @spec default_ownership_reconcile_interval_ms() :: pos_integer()
+  def default_ownership_reconcile_interval_ms, do: @default_ownership_reconcile_interval_ms
+
+  @doc """
+  The environment variable carrying a JetStream size for `stream_name`:
+  `SERVICERADAR_JS_<STREAM>_<SUFFIX>`, where `<STREAM>` is the stream name
+  upper-cased with every non-alphanumeric character replaced by `_` (design D7).
+  """
+  @spec jetstream_env_name(String.t(), String.t()) :: String.t()
+  def jetstream_env_name(stream_name, suffix) when is_binary(stream_name) and is_binary(suffix) do
+    token = stream_name |> String.upcase() |> String.replace(~r/[^A-Z0-9]/, "_")
+    "SERVICERADAR_JS_#{token}_#{suffix}"
+  end
+
+  @doc """
+  The compiled JetStream sizes, used when nothing is configured.
+  """
+  @spec default_jetstream_sizes() :: jetstream_sizes()
+  def default_jetstream_sizes do
+    %{max_bytes: @default_stream_max_bytes, fallbacks: @default_fallbacks}
+  end
+
+  @doc """
+  Reads every EventWriter stream size from the environment (design D3, D7).
+
+  * `SERVICERADAR_JS_<STREAM>_MAX_BYTES` for `metrics`, `k8s_inventory`,
+    `analytics_predictions`, `mtr_results`, `scan_results` and `trivy_reports`;
+  * `SERVICERADAR_JS_<STREAM>_FALLBACK_MAX_BYTES` and `_FALLBACK_REPLICAS` for
+    `events`, `flows` and `ARANCINI_CAUSAL`.
+
+  An unset, empty or whitespace-only variable yields the compiled default. Any
+  other value must be a positive integer, or this raises an `ArgumentError`
+  naming the variable, so boot fails. `get_env` looks a variable up (defaults
+  to `System.get_env/1`).
+  """
+  @spec jetstream_sizes_from_env!((String.t() -> String.t() | nil)) :: jetstream_sizes()
+  def jetstream_sizes_from_env!(get_env \\ &System.get_env/1) when is_function(get_env, 1) do
+    max_bytes =
+      Map.new(@default_stream_max_bytes, fn {stream_name, default} ->
+        env_name = jetstream_env_name(stream_name, "MAX_BYTES")
+        {stream_name, StateBucketSizing.parse_bytes!(get_env.(env_name), env_name, default)}
+      end)
+
+    fallbacks =
+      Map.new(@default_fallbacks, fn {stream_name, default} ->
+        bytes_env = jetstream_env_name(stream_name, "FALLBACK_MAX_BYTES")
+        replicas_env = jetstream_env_name(stream_name, "FALLBACK_REPLICAS")
+
+        {stream_name,
+         %{
+           max_bytes:
+             StateBucketSizing.parse_bytes!(get_env.(bytes_env), bytes_env, default.max_bytes),
+           replicas: parse_replicas!(get_env.(replicas_env), replicas_env, default.replicas)
+         }}
+      end)
+
+    %{max_bytes: max_bytes, fallbacks: fallbacks}
+  end
+
+  defp parse_replicas!(value, env_name, default) do
+    case value && String.trim(value) do
+      nil ->
+        default
+
+      "" ->
+        default
+
+      trimmed ->
+        case Integer.parse(trimmed) do
+          {replicas, ""} when replicas > 0 ->
+            replicas
+
+          _ ->
+            raise ArgumentError,
+                  "#{env_name} must be a positive integer replica count, got: #{inspect(value)}"
+        end
+    end
+  end
+
+  @doc """
+  Applies JetStream sizes to stream configs, by the JetStream stream each binds.
+
+  A stream only EventWriter creates gets its `max_bytes`. Every consumer of a
+  stream a collector may own (`events`, `flows`, `ARANCINI_CAUSAL`) gets the
+  EventWriter fallback shape (discard-old, the fallback size and replicas) and
+  the `event-writer` claim, which replaces `reconcile_stream_shape`: EventWriter
+  creates the stream with that claim when it is absent and reconciles the shape
+  only of a stream that carries it (design D6). A consumer that never creates
+  its stream (`ensure_stream: false`) is left unchanged.
+  """
+  @spec apply_jetstream_sizes([stream_config()], jetstream_sizes()) :: [stream_config()]
+  def apply_jetstream_sizes(streams, %{max_bytes: max_bytes, fallbacks: fallbacks})
+      when is_list(streams) do
+    Enum.map(streams, fn stream ->
+      stream_name = jetstream_stream_name(stream)
+
+      cond do
+        Map.get(stream, :ensure_stream, true) == false ->
+          stream
+
+        Map.has_key?(fallbacks, stream_name) ->
+          put_fallback_shape(stream, stream_name, Map.fetch!(fallbacks, stream_name))
+
+        Map.has_key?(max_bytes, stream_name) ->
+          Map.put(stream, :stream_max_bytes, Map.fetch!(max_bytes, stream_name))
+
+        true ->
+          stream
+      end
+    end)
+  end
+
+  defp put_fallback_shape(stream, stream_name, %{max_bytes: bytes, replicas: replicas}) do
+    stream =
+      stream
+      |> Map.merge(%{
+        stream_retention: "limits",
+        stream_storage: "file",
+        stream_discard: "old",
+        stream_max_bytes: bytes,
+        stream_replicas: replicas,
+        stream_owner_claim: StreamOwnership.owner()
+      })
+      |> Map.delete(:reconcile_stream_shape)
+
+    case Map.fetch(@fallback_max_age_ns, stream_name) do
+      {:ok, max_age} -> Map.put_new(stream, :stream_max_age, max_age)
+      :error -> stream
+    end
+  end
+
+  defp load_jetstream_sizes(config) do
+    case Keyword.get(config, :jetstream_sizes) do
+      %{max_bytes: _, fallbacks: _} = sizes -> sizes
+      _ -> default_jetstream_sizes()
+    end
+  end
+
+  defp load_ownership_reconcile_interval_ms(config) do
+    load_positive_int(
+      "EVENT_WRITER_OWNERSHIP_RECONCILE_INTERVAL_MS",
+      Keyword.get(
+        config,
+        :ownership_reconcile_interval_ms,
+        @default_ownership_reconcile_interval_ms
+      ),
+      @default_ownership_reconcile_interval_ms
+    )
+  end
+
+  defp load_ownership_grace_period_ms(config) do
+    default = StreamOwnership.default_grace_period_ms()
+
+    load_positive_int(
+      "EVENT_WRITER_OWNERSHIP_GRACE_PERIOD_MS",
+      Keyword.get(config, :ownership_grace_period_ms, default),
+      default
+    )
+  end
+
+  @doc """
   Checks if the EventWriter is enabled.
   """
   @spec enabled?() :: boolean()
@@ -461,6 +699,63 @@ defmodule ServiceRadar.EventWriter.Config do
   end
 
   @doc """
+  Ad-hoc scan results (`scans.results.>`), persisted by the AdhocScan processor.
+
+  Interactive and low-volume, so a small, short-lived stream: 256 MiB / 1h,
+  discard old.
+
+  Shared by `default_streams/0` and both runtime.exs stream lists. A stream the
+  release list leaves out has no consumer and, because nothing else creates
+  it, no stream either: every publish to its subject is refused.
+  """
+  @spec scan_results_stream() :: stream_config()
+  def scan_results_stream do
+    %{
+      name: "SCAN_RESULTS",
+      stream_name: "scan_results",
+      subject: "scans.results.>",
+      processor: ServiceRadar.EventWriter.Processors.AdhocScan,
+      batch_size: 200,
+      batch_timeout: 500,
+      stream_retention: "limits",
+      stream_storage: "file",
+      stream_discard: "old",
+      stream_max_bytes: 268_435_456,
+      stream_max_age: 3_600_000_000_000
+    }
+  end
+
+  @doc """
+  MTR trace results (`mtr.results.>`), persisted by the Mtr processor.
+
+  The only path MTR traces take to storage, so the stream is the buffer while
+  EventWriter or the database is unavailable: 1 GiB / 24h, discard old. Each
+  message carries a Nats-Msg-Id (its trace id); the duplicate window stores a
+  retried publish once.
+
+  Shared by `default_streams/0` and both runtime.exs stream lists, for the same
+  reason as `scan_results_stream/0`.
+  """
+  @spec mtr_results_stream() :: stream_config()
+  def mtr_results_stream do
+    %{
+      name: "MTR_RESULTS",
+      stream_name: "mtr_results",
+      subject: "mtr.results.>",
+      processor: ServiceRadar.EventWriter.Processors.Mtr,
+      batch_size: 100,
+      batch_timeout: 500,
+      stream_retention: "limits",
+      stream_storage: "file",
+      stream_discard: "old",
+      stream_max_bytes: 1_073_741_824,
+      stream_max_age: 86_400_000_000_000,
+      stream_duplicate_window: 120_000_000_000,
+      consumer_max_deliver: 5
+    }
+  end
+
+  @doc """
   Returns the default stream configurations.
 
   Subjects are unprefixed in single-deployment deployments.
@@ -468,21 +763,17 @@ defmodule ServiceRadar.EventWriter.Config do
   @spec default_streams() :: [stream_config()]
   def default_streams do
     [
+      # The shared `events` stream is owned by the otel log-collector when it
+      # runs. Its bounded discard-old fallback shape (SERVICERADAR_JS_EVENTS_
+      # FALLBACK_*, 24h) is applied by apply_jetstream_sizes/2 to every consumer
+      # of `events`; EventWriter reconciles it only while it holds the claim.
       %{
         name: "EVENTS",
         stream_name: "events",
         subject: "events.>",
         processor: Events,
         batch_size: 100,
-        batch_timeout: 1_000,
-        # Retention guard: if the consumer ever falls behind, the shared `events`
-        # stream must degrade gracefully (drop oldest) instead of growing until
-        # core OOMs. 8 GiB / 24h, discard old.
-        stream_retention: "limits",
-        stream_storage: "file",
-        stream_discard: "old",
-        stream_max_bytes: 8_589_934_592,
-        stream_max_age: 86_400_000_000_000
+        batch_timeout: 1_000
       },
       %{
         name: "PDNS_OCSF",
@@ -573,21 +864,8 @@ defmodule ServiceRadar.EventWriter.Config do
         consumer_pull_batch_size: 64,
         consumer_max_deliver: 5
       },
-      %{
-        name: "SCAN_RESULTS",
-        stream_name: "scan_results",
-        subject: "scans.results.>",
-        processor: ServiceRadar.EventWriter.Processors.AdhocScan,
-        batch_size: 200,
-        batch_timeout: 500,
-        # Ad-hoc scan results are interactive and low-volume; keep a small,
-        # short-lived stream (results are also persisted durably in CNPG).
-        stream_retention: "limits",
-        stream_storage: "file",
-        stream_discard: "old",
-        stream_max_bytes: 268_435_456,
-        stream_max_age: 3_600_000_000_000
-      },
+      scan_results_stream(),
+      mtr_results_stream(),
       %{
         name: "BMP_CAUSAL",
         stream_name: "events",
@@ -625,7 +903,9 @@ defmodule ServiceRadar.EventWriter.Config do
   @spec default_flow_streams() :: [stream_config()]
   def default_flow_streams do
     # No per-stream pull/ack literals — load_flow/0 fills defaults via put_new.
-    # Retention create-if-missing only; collector owns reconcile_stream_shape.
+    # The fallback size and the `event-writer` claim come from
+    # apply_jetstream_sizes/2; once flow-collector claims `flows`, EventWriter
+    # only merges subjects (design D6).
     base = %{
       stream_name: "flows",
       processor: Flows,
@@ -634,10 +914,8 @@ defmodule ServiceRadar.EventWriter.Config do
       stream_retention: "limits",
       stream_storage: "file",
       stream_discard: "old",
-      stream_max_bytes: @default_flows_stream_max_bytes,
       stream_max_age: @default_flows_stream_max_age_ns,
-      allow_stream_fallback: false,
-      reconcile_stream_shape: false
+      allow_stream_fallback: false
     }
 
     [
@@ -779,10 +1057,8 @@ defmodule ServiceRadar.EventWriter.Config do
           stream_retention: "limits",
           stream_storage: "file",
           stream_discard: "old",
-          stream_max_bytes: @default_flows_stream_max_bytes,
           stream_max_age: @default_flows_stream_max_age_ns,
-          allow_stream_fallback: false,
-          reconcile_stream_shape: false
+          allow_stream_fallback: false
         }
       end)
 

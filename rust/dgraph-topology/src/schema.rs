@@ -79,6 +79,7 @@ topo.if_index_ab: int .
 topo.if_index_ba: int .
 topo.if_name_ab: string .
 topo.if_name_ba: string .
+topo.pair_support_rank: int .
 topo.last_seen: datetime @index(hour) .
 topo.stale: bool @index(bool) .
 topo.agent_id: string @index(exact) .
@@ -155,6 +156,7 @@ type TopologyEdge {
   topo.if_index_ba
   topo.if_name_ab
   topo.if_name_ba
+  topo.pair_support_rank
   topo.last_seen
   topo.stale
   topo.agent_id
@@ -221,6 +223,7 @@ pub const PREDICATES: &[&str] = &[
     "topo.if_index_ba",
     "topo.if_name_ab",
     "topo.if_name_ba",
+    "topo.pair_support_rank",
     "topo.last_seen",
     "topo.stale",
     "topo.agent_id",

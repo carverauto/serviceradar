@@ -47,14 +47,14 @@ defmodule ServiceRadarWebNG.SRQL do
     direction = Map.get(opts, :direction)
     scope = Map.get(opts, :scope)
 
-    with :ok <- EntityAccess.authorize(query, scope),
+    with {:ok, permitted_signals} <- EntityAccess.authorize_signals(query, scope),
          {:ok, mode} <- resolve_backend_mode(query),
-         {:ok, translation} <- translate(query, limit, cursor, direction, mode),
+         {:ok, translation} <- translate(query, limit, cursor, direction, mode, permitted_signals),
          {:ok, translation, mode} <-
            RollupFreshness.settle(
              translation,
              mode,
-             &translate(query, limit, cursor, direction, &1)
+             &translate(query, limit, cursor, direction, &1, permitted_signals)
            ),
          {:ok, result} <- execute_backend_raw(translation, mode),
          {:ok, payload} <- encode_result_arrow(result, warehouse_shape(query, mode)) do
@@ -90,11 +90,11 @@ defmodule ServiceRadarWebNG.SRQL do
     start_time = System.monotonic_time()
 
     result =
-      case EntityAccess.authorize(query, scope) do
+      case EntityAccess.authorize_signals(query, scope) do
         {:error, :forbidden} = denied ->
           denied
 
-        :ok ->
+        {:ok, permitted_signals} ->
           if entity == "dashboards" do
             {:ok,
              %{
@@ -105,12 +105,13 @@ defmodule ServiceRadarWebNG.SRQL do
              }}
           else
             with {:ok, mode} <- resolve_backend_mode(query),
-                 {:ok, translation} <- translate(query, limit, cursor, direction, mode),
+                 {:ok, translation} <-
+                   translate(query, limit, cursor, direction, mode, permitted_signals),
                  {:ok, translation, mode} <-
                    RollupFreshness.settle(
                      translation,
                      mode,
-                     &translate(query, limit, cursor, direction, &1)
+                     &translate(query, limit, cursor, direction, &1, permitted_signals)
                    ) do
               execute_backend(Map.put(translation, "_query", query), mode)
             end
@@ -177,21 +178,33 @@ defmodule ServiceRadarWebNG.SRQL do
 
   defp execute_backend_raw(translation, _mode), do: execute_translation_raw(translation)
 
-  defp translate(query, limit, cursor, direction, mode) do
-    case Native.translate(query, limit, cursor, direction, mode) do
-      {:ok, json} when is_binary(json) ->
-        case Jason.decode(json) do
-          {:ok, decoded} when is_map(decoded) -> {:ok, decoded}
-          {:error, reason} -> {:error, reason}
-        end
+  # `permitted_signals` is the trusted set from `EntityAccess.authorize_signals/3`,
+  # derived from the caller's scope and never from the request. Every translate
+  # -- including the re-translation `RollupFreshness.settle/3` performs -- passes
+  # it, because SRQL fails a signal-scoped entity closed when the set is nil.
+  defp translate(query, limit, cursor, direction, mode, permitted_signals) do
+    query
+    |> Native.translate(limit, cursor, direction, mode, permitted_signals)
+    |> decode_translation()
+  end
 
-      {:error, reason} ->
-        {:error, reason}
-
-      other ->
-        {:error, {:unexpected_srql_translate_result, other}}
+  @doc false
+  # SRQL reports a permission failure as a `forbidden: ...` error string. This is
+  # the one place that turns it into the `{:error, :forbidden}` every caller (and
+  # the HTTP 403 mapping in `Api.QueryController`) already understands; any other
+  # error passes through unchanged.
+  @spec decode_translation(term()) :: {:ok, map()} | {:error, term()}
+  def decode_translation({:ok, json}) when is_binary(json) do
+    case Jason.decode(json) do
+      {:ok, decoded} when is_map(decoded) -> {:ok, decoded}
+      {:ok, other} -> {:error, {:unexpected_srql_translate_result, other}}
+      {:error, reason} -> {:error, reason}
     end
   end
+
+  def decode_translation({:error, "forbidden: " <> _reason}), do: {:error, :forbidden}
+  def decode_translation({:error, reason}), do: {:error, reason}
+  def decode_translation(other), do: {:error, {:unexpected_srql_translate_result, other}}
 
   defp execute_translation(%{"sql" => sql} = translation) when is_binary(sql) do
     translation

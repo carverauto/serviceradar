@@ -41,7 +41,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.BulkStateApplyDbTest do
                socket
              )
 
-    assert socket.assigns.flash["error"] =~ "Failed to update devices"
+    assert socket.assigns.flash["error"] =~ "Updated 0 of 1 device(s). 1 failed"
     assert socket.assigns.flash["error"] =~ "Unknown managed state"
 
     assert %Device{is_active: true} =

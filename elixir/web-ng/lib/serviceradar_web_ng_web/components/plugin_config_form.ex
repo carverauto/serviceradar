@@ -300,6 +300,9 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
 
   defp input_type(_), do: :text
 
+  # Multi-line text for string values such as JSON definitions.
+  defp input_type_from_type(%{"type" => "string", "x-serviceradar-ui-control" => "textarea"}), do: :textarea
+
   defp input_type_from_type(%{"type" => "boolean"}), do: :checkbox
   defp input_type_from_type(%{"type" => "integer"}), do: :number
   defp input_type_from_type(%{"type" => "number"}), do: :number

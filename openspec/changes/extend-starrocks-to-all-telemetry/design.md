@@ -1,20 +1,21 @@
-# Design: StarRocks as the telemetry system of record
+# Design: StarRocks as the telemetry backend when enabled, CNPG otherwise
 
 ## Context
 
-Where things stand, in a deployment that has cut flows over: flows are read only from the
-warehouse; metrics are being cut over; logs and events are shadow-written and read from CNPG;
+Where things stand, in a deployment that has moved flows over: flows are read only from the
+warehouse; metrics readers are gaining warehouse implementations; logs and events are dual-written and read from CNPG;
 nothing else is in the warehouse. All four warehouse tables are partitioned by day with
 per-dataset retention, and the three hourly rollups are day-partitioned async materialized
-views. CNPG still receives every telemetry write.
+views. CNPG still receives every telemetry write: that dual-write is what this revision removes
+(Decision 1).
 
 Where the money is: flows and scalar metrics dominate CNPG telemetry storage by roughly two
-orders of magnitude over every other dataset, which is why they are retired first.
+orders of magnitude over every other dataset, which is why they moved to the warehouse first.
 
 ## Goals / Non-Goals
 
-- Goals: every append-only telemetry dataset served from, and eventually stored only in, the
-  warehouse; no chart that silently shows different numbers after a cutover; CNPG reduced to
+- Goals: with StarRocks enabled, every append-only telemetry dataset stored in and served from
+  the warehouse only; no chart that silently shows different numbers after a reader moves; CNPG reduced to
   transactional state; maintenance safe on a modest warehouse.
 - Non-Goals: moving inventory, identity, credentials, configuration, alert state or jobs;
   replacing the JetStream-first single-owner write path; making StarRocks mandatory (an
@@ -22,23 +23,44 @@ orders of magnitude over every other dataset, which is why they are retired firs
 
 ## Decisions
 
-### 1. The order is fixed, per dataset, and only the last two steps are one-way
+### 1. Exactly one telemetry backend is active
 
-`shadow write -> dialect parity proven -> reads cut over -> non-UI consumers migrated -> soak ->
-stop CNPG writes -> retirement hold -> drop CNPG storage`.
+CNPG and the warehouse are both complete, supported telemetry backends; `analytics.starrocks.enabled`
+picks one. Enabled: EventWriter writes every append-only telemetry dataset to the warehouse and
+nothing to CNPG, and every reader reads the warehouse. Disabled: everything is written to and read
+from CNPG, as today. Never both. There is no per-dataset
+shadow list, no per-dataset cutover list and no soak. `shadowDatasets` and `cutoverDatasets`
+are removed from Helm, Compose and `ServiceRadar.Analytics.StarRocks.Env`; the reader and
+destination code that branches on them (`Readers.mode_for/1`, `Destination.persist_after_cnpg/3`,
+`ack_cnpg_batch/4`) collapses to one branch on `enabled`.
 
-The two waits are distinct. The **soak** precedes "stop CNPG writes", because that is the first
-irreversible step: it runs with reads cut over, non-UI consumers migrated and CNPG still
-written, so a problem found during it is still a configuration revert. The **retirement hold**
-is the shorter wait between "stop CNPG writes" and "drop CNPG storage": it proves nothing still
-reads the now-frozen CNPG history before that history is destroyed.
+This replaces the earlier fixed order (shadow, parity, cutover, consumers migrated, soak, stop
+writes, retirement hold, drop). The dual-write existed to make a cutover reversible by keeping
+CNPG current; the product decision is that an installation that enables the warehouse does not
+need that, and the cost of keeping two stores for every dataset is not worth the reversibility.
 
-Everything up to and including "reads cut over" is reversible by removing the dataset from
-`cutoverDatasets`, because CNPG is still written. Flows are the existing exception: they have no
-CNPG read path, so removing `flows` refuses flow reads rather than falling back. "Stop CNPG
-writes" ends reversibility for new data; "drop CNPG storage" ends it for history. They are
-separate operator actions with separate configuration, and neither is implied by the other or
-by any release.
+Consequences, accepted deliberately:
+
+- **No per-dataset rollback.** With CNPG no longer written, returning one dataset's reads to CNPG
+  would serve history that stopped when the warehouse was enabled. So the switch does not exist.
+  Disabling StarRocks entirely resumes CNPG writes; CNPG then lacks everything written while the
+  warehouse was on, and the operator documentation states it.
+- **Readers without a warehouse implementation show nothing.** Writes stop for every dataset at
+  once, including datasets whose readers only query CNPG today (OTel, sysmon, MTR, BMP, service
+  status, and the direct readers inventoried in task 5.1). Until a reader has a warehouse
+  implementation, it SHALL report "unavailable with StarRocks enabled" rather than read a CNPG
+  table that is silently frozen: a frozen table looks healthy and is wrong, which is worse than an
+  explicit gap. Adding those implementations is the critical path of this change.
+- **A warehouse outage is a telemetry outage.** A failed load is not acknowledged and JetStream
+  redelivers; there is no CNPG fallback write. Stream retention bounds how long an outage can
+  last without loss, and is stated in operator docs.
+- **CNPG is not ripped out.** Every writer and reader keeps its CNPG implementation next to the
+  warehouse one, selected by the switch, and no migration drops a CNPG telemetry table, continuous
+  aggregate or policy: installations without StarRocks depend on them, and the schema is shared.
+  On a StarRocks installation those tables simply stop receiving rows and retention ages them out.
+
+Parity (Decision 2) still gates each warehouse reader: it proves a reader's queries answer the
+same as CNPG's before that reader ships. It no longer gates writes.
 
 ### 2. Parity is established by diffing results, not by reading SQL
 
@@ -96,9 +118,11 @@ range and structured filters", not a promise of fast free-text search over a yea
 
 ## Risks / Trade-offs
 
-- Retiring CNPG writes removes rollback. Mitigated by the soak before it, by the retirement
-  hold before the drop, by the two separate operator actions, and by doing the
-  largest-saving, longest-proven dataset (flows) first.
+- No rollback per dataset, and disabling StarRocks leaves a gap in CNPG. Accepted: see Decision 1.
+- Readers that still query CNPG go dark the moment the warehouse is enabled. Mitigated only by
+  moving them, in the order of section 5 of the tasks, and by the explicit "unavailable" state
+  instead of silently stale data.
+- A warehouse outage stops telemetry persistence; JetStream retention is the buffer.
 - Freshness is the Stream Load batch interval (seconds). A live log tail shows it; dashboards do
   not. Stated in operator docs rather than hidden.
 - Trace-by-id is a point lookup against object storage: tens to low hundreds of milliseconds
@@ -108,14 +132,18 @@ range and structured filters", not a promise of fast free-text search over a yea
 
 ## Migration Plan
 
-Per dataset, in this order: flows (already warehouse-only for reads), metrics, logs, events,
-then the new datasets as each gains a warehouse table. Each completes the sequence in Decision 1
-before the next starts its one-way steps; reversible steps may overlap.
+1. MTR first (task 3.4): JetStream subject, one EventWriter owner for all MTR paths, warehouse
+   tables, and warehouse implementations of every MTR reader next to the CNPG ones.
+2. Give every other telemetry reader a warehouse implementation next to its CNPG one (tasks 5.1,
+   5.4, 2.4, 3.x), highest-traffic pages first: dashboard cards and sparklines, logs and events
+   pages, OTel, sysmon, BMP, service status. Each reader ships behind its parity comparison.
+3. Remove the dual-write and the per-dataset lists (task 5.2) once the readers it would otherwise
+   darken have warehouse implementations; readers still without one report "unavailable".
+4. Optionally backfill CNPG history into the warehouse for an installation that turns StarRocks on
+   (task 5.5). CNPG telemetry storage is never dropped (Decision 1).
 
 ## Open Questions
 
-- Soak period before write retirement: proposed 14 days of clean operation per dataset.
-  Retirement hold before the storage drop: proposed 7 days with no reader errors.
-- Whether history already in CNPG is backfilled into the warehouse before its hypertable is
-  dropped, or allowed to age out. Proposed: backfill flows and metrics (large, valuable), let
-  the rest age out under their existing CNPG retention before the drop.
+- Whether enabling StarRocks on an existing installation backfills its CNPG history into the
+  warehouse or starts the warehouse empty. Proposed: backfill flows and metrics (large, valuable);
+  the rest starts empty, while the unwritten CNPG tables age out under their existing retention.
