@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelRuntimeTest do
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.DashboardFrameChannel.Actions
   alias ServiceRadarWebNGWeb.DashboardFrameChannel.Events
+  alias ServiceRadarWebNGWeb.DashboardFrameChannel.RefreshSchedule
 
   @moduletag :db_free
 
@@ -106,4 +107,62 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelRuntimeTest do
   end
 
   defp normalize(raw), do: Events.normalize_filter(raw)
+
+  describe "refresh schedule" do
+    @fast %{"id" => "fast", "refresh_interval_ms" => 2_000}
+    @slow %{"id" => "slow", "refresh_interval_ms" => 60_000}
+    @plain %{"id" => "plain"}
+
+    test "a frame's interval is clamped to one second through one minute, else the default" do
+      assert RefreshSchedule.frame_interval(@fast, 15_000) == 2_000
+      assert RefreshSchedule.frame_interval(%{"refresh_interval_ms" => 5}, 15_000) == 1_000
+      assert RefreshSchedule.frame_interval(%{"refresh_interval_ms" => 900_000}, 15_000) == 60_000
+      assert RefreshSchedule.frame_interval(@plain, 15_000) == 15_000
+    end
+
+    test "the tick runs at the gcd of the frame intervals, floored at one second" do
+      assert RefreshSchedule.tick_interval([@slow, @fast, @plain], 15_000) == 1_000
+      assert RefreshSchedule.tick_interval([@plain], 15_000) == 15_000
+      assert RefreshSchedule.tick_interval([], 15_000) == 15_000
+    end
+
+    test "a frame whose deadline falls between fast ticks still lands on a tick" do
+      frames = [
+        %{"id" => "two", "refresh_interval_ms" => 2_000},
+        %{"id" => "three", "refresh_interval_ms" => 3_000}
+      ]
+
+      assert RefreshSchedule.tick_interval(frames, 15_000) == 1_000
+
+      # Each frame keeps its own period on the shared 1 s tick instead of the
+      # 3 s frame waiting out a whole extra 2 s period.
+      refreshed_at = %{"two" => 0, "three" => 0}
+      assert RefreshSchedule.due(frames, refreshed_at, 1_000, 15_000, &schedule_frame_id/1) == []
+      assert RefreshSchedule.due(frames, refreshed_at, 2_000, 15_000, &schedule_frame_id/1) == [hd(frames)]
+
+      refreshed_at = %{"two" => 2_000, "three" => 0}
+      assert RefreshSchedule.due(frames, refreshed_at, 3_000, 15_000, &schedule_frame_id/1) == [List.last(frames)]
+
+      refreshed_at = %{"two" => 2_000, "three" => 3_000}
+      assert RefreshSchedule.due(frames, refreshed_at, 4_000, 15_000, &schedule_frame_id/1) == [hd(frames)]
+      assert RefreshSchedule.due(frames, refreshed_at, 6_000, 15_000, &schedule_frame_id/1) == frames
+    end
+
+    test "only frames whose own interval has elapsed are due" do
+      refreshed_at = %{"fast" => 0, "slow" => 0, "plain" => 0}
+      frames = [@fast, @slow, @plain]
+
+      assert RefreshSchedule.due(frames, refreshed_at, 2_000, 15_000, &schedule_frame_id/1) == [@fast]
+      assert RefreshSchedule.due(frames, refreshed_at, 15_000, 15_000, &schedule_frame_id/1) == [@fast, @plain]
+      assert RefreshSchedule.due(frames, refreshed_at, 60_000, 15_000, &schedule_frame_id/1) == frames
+    end
+
+    test "a tick landing just before the interval still counts, and an unrefreshed frame is due" do
+      assert RefreshSchedule.due([@fast], %{"fast" => 0}, 1_900, 15_000, &schedule_frame_id/1) == [@fast]
+      assert RefreshSchedule.due([@fast], %{"fast" => 0}, 1_500, 15_000, &schedule_frame_id/1) == []
+      assert RefreshSchedule.due([@slow], %{}, 10, 15_000, &schedule_frame_id/1) == [@slow]
+    end
+  end
+
+  defp schedule_frame_id(frame), do: frame["id"]
 end

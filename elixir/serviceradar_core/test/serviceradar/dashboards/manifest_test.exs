@@ -87,6 +87,55 @@ defmodule ServiceRadar.Dashboards.ManifestTest do
     assert "events.subscribe" in parsed.capabilities
   end
 
+  test "keeps a per-frame refresh interval, clamped to one second through one minute" do
+    frames = [
+      %{
+        "id" => "fast",
+        "query" => "in:devices",
+        "encoding" => "json_rows",
+        "refresh_interval_ms" => 2_000
+      },
+      %{
+        "id" => "too_fast",
+        "query" => "in:devices",
+        "encoding" => "json_rows",
+        "refresh_interval_ms" => 10
+      },
+      %{
+        "id" => "too_slow",
+        "query" => "in:devices",
+        "encoding" => "json_rows",
+        "refresh_interval_ms" => 600_000
+      },
+      %{"id" => "default", "query" => "in:devices", "encoding" => "json_rows"}
+    ]
+
+    assert {:ok, parsed} = Manifest.from_map(put_in(valid_manifest(), ["data_frames"], frames))
+
+    intervals = Map.new(parsed.data_frames, &{&1["id"], &1["refresh_interval_ms"]})
+
+    assert intervals == %{
+             "fast" => 2_000,
+             "too_fast" => 1_000,
+             "too_slow" => 60_000,
+             "default" => nil
+           }
+  end
+
+  test "rejects a non-positive frame refresh interval" do
+    frames = [
+      %{
+        "id" => "sites",
+        "query" => "in:wifi_sites",
+        "encoding" => "json_rows",
+        "refresh_interval_ms" => 0
+      }
+    ]
+
+    assert {:error, errors} = Manifest.from_map(put_in(valid_manifest(), ["data_frames"], frames))
+    assert "data_frames[0].refresh_interval_ms must be a positive integer" in errors
+  end
+
   test "rejects unsupported renderer capabilities and mutable package shape" do
     manifest = valid_manifest()
 

@@ -244,8 +244,9 @@ chips work offline instead of only logging the query.
 - **Plan views.** An SDK helper for a deck.gl `OrthographicView` canvas with the
   same layer factories, popup and theme plumbing as the map helpers.
 - **Harness resolver.** `srql.update` in the dev harness calls an optional
-  author-supplied `resolveFixture(query, frameQueries)`; libraries can be served
-  locally for offline booths instead of from `esm.sh`.
+  author-supplied `resolveFixture({query, frameQueries, frames, fixtures,
+  activeFixture})`; libraries can be served locally for offline booths instead
+  of from `esm.sh`.
 
 ### D10. Topology links from plugins
 

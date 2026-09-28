@@ -6,6 +6,7 @@ filegroup(
     name = "srcs",
     srcs = glob(
         ["**"],
+        allow_empty = False,
         exclude = [
             "node_modules",
             "node_modules/**",
@@ -15,7 +16,6 @@ filegroup(
             "bazel-*/**",
         ],
         exclude_directories = 1,
-        allow_empty = False,
     ),
 )
 
@@ -28,6 +28,7 @@ filegroup(
 # out to host npm to install dependencies.
 sh_test(
     name = "ci",
+    timeout = "long",
     srcs = ["scripts/bazel_test.sh"],
     data = [
         ":srcs",
@@ -38,5 +39,4 @@ sh_test(
         "no-remote",
         "no-sandbox",
     ],
-    timeout = "long",
 )

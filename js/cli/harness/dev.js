@@ -13,6 +13,7 @@ import {
   createHarnessEventsApi,
   interpretFixtureResolution,
   pickFixtureResolver,
+  withFixtureTimelineKey,
 } from "./runtime.js"
 
 const ROOT_SELECTOR = "[data-root]"
@@ -42,6 +43,7 @@ function createContext(initialState) {
   const state = {
     ...initialState,
     activeFixture: initialState.initialFixture || "",
+    fixtureTimelineSeq: 0,
     mapboxToken: initialState.mapboxToken || readTokenFromStorage() || "",
     theme: readThemeFromStorage() ?? "light",
   }
@@ -84,6 +86,7 @@ function createContext(initialState) {
 
         const host = createHost(state)
         mounted = await fn(root, host, api) || null
+        replayFixtureEvents()
         clearError()
         setStatus(`mounted ${state.manifest?.id || "renderer"}`)
       } catch (error) {
@@ -113,7 +116,8 @@ function createContext(initialState) {
       }
       // Push the new frames through the existing api callbacks first; if the
       // renderer doesn't subscribe (most do via SDK hooks), remount.
-      await broadcastFrames({reloadFramesOnRemount: true})
+      const remounted = await broadcastFrames({reloadFramesOnRemount: true})
+      if (!remounted) replayFixtureEvents()
     },
     setTheme(next) {
       state.theme = next === "dark" ? "dark" : "light"
@@ -145,7 +149,10 @@ function createContext(initialState) {
       if (resolution.kind === "fixture") {
         await ctx.swapFixture(resolution.name)
       } else if (resolution.kind === "frames") {
-        frames = resolution.frames
+        replaceFrames(resolution.frames)
+        state.fixtureActions = []
+        state.fixtureEvents = []
+        state.harnessEvents?.stop()
         await broadcastFrames()
       }
     } catch (error) {
@@ -159,25 +166,41 @@ function createContext(initialState) {
     const broadcast = Array.from(frameListeners)
     if (broadcast.length === 0) {
       const next = await reimportRenderer()
-      if (next) await ctx.replaceRenderer(next, {reloadFrames: reloadFramesOnRemount})
-      return
+      if (next) {
+        await ctx.replaceRenderer(next, {reloadFrames: reloadFramesOnRemount})
+        return true
+      }
+      return false
     }
     for (const listener of broadcast) listener({frames})
+    return false
+  }
+
+  function replayFixtureEvents() {
+    state.harnessEvents?.replay(state.fixtureEvents || [])
   }
 
   async function loadFrames() {
     const url = state.fixtures?.[state.activeFixture] ?? state.samples?.frames ?? ""
     if (!url) {
-      frames = []
+      replaceFrames([])
+      state.fixtureActions = []
+      state.fixtureEvents = []
+      state.harnessEvents?.stop()
       return
     }
     const response = await fetch(url)
     if (!response.ok) throw new Error(`HTTP ${response.status} ${url}`)
     const payload = await response.json()
-    frames = Array.isArray(payload) ? payload : Array.isArray(payload?.frames) ? payload.frames : []
+    replaceFrames(Array.isArray(payload) ? payload : Array.isArray(payload?.frames) ? payload.frames : [])
     state.fixtureActions = Array.isArray(payload?.actions) ? payload.actions : []
     state.fixtureEvents = Array.isArray(payload?.events) ? payload.events : []
-    state.harnessEvents?.replay(state.fixtureEvents)
+  }
+
+  function replaceFrames(nextFrames) {
+    state.fixtureTimelineSeq += 1
+    const timelineKey = `${state.activeFixture || "samples"}:${state.fixtureTimelineSeq}`
+    frames = withFixtureTimelineKey(nextFrames, timelineKey)
   }
 
   function appendCallLog(line) {
@@ -259,15 +282,19 @@ function createHost(state) {
 
 async function createHostApi(state, hooks) {
   const {themeListeners, frameListeners, onCall, getFrames, resolveQuery} = hooks
+  const capabilities = new Set(Array.isArray(state.manifest?.capabilities) ? state.manifest.capabilities.map(String) : [])
+  const capabilityAllowed = (capability) => capabilities.has(String(capability || ""))
+  const requireCapability = (capability) => {
+    if (!capabilityAllowed(capability)) throw new Error(`dashboard capability is not approved: ${capability}`)
+  }
   state.harnessEvents?.stop()
-  state.harnessEvents = createHarnessEventsApi({onCall})
-  state.harnessEvents.replay(state.fixtureEvents || [])
+  state.harnessEvents = createHarnessEventsApi({onCall, capabilityAllowed})
   const libraries = await loadBrowserModuleLibraries()
 
   return {
     version: "dashboard-browser-module-host-v1",
-    capabilityAllowed: () => true,
-    requireCapability: () => {},
+    capabilityAllowed,
+    requireCapability,
     theme: () => state.theme,
     isDarkMode: () => state.theme === "dark",
     frames: () => getFrames(),
@@ -321,6 +348,7 @@ async function createHostApi(state, hooks) {
       onCall,
       getActions: () => state.fixtureActions || [],
       events: state.harnessEvents,
+      capabilityAllowed,
     }).publicApi(),
     events: state.harnessEvents.publicApi(),
     async refreshFrames() {
