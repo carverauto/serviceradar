@@ -43,7 +43,7 @@ defmodule ServiceRadar.Analytics.StarRocks.TraceSummaries do
     sql = """
     SELECT 1 FROM #{spans()}
     WHERE created_at > #{literal(from)} AND created_at <= #{literal(to)}
-      AND `timestamp` >= #{literal(floor(to))}
+      AND `timestamp` >= #{literal(day_floor(to))}
     LIMIT 1
     """
 
@@ -63,7 +63,7 @@ defmodule ServiceRadar.Analytics.StarRocks.TraceSummaries do
   def ingested_after?(watermark, to, opts \\ []) do
     sql = """
     SELECT 1 FROM #{spans()}
-    WHERE created_at > #{literal(watermark)} AND `timestamp` >= #{literal(floor(to))}
+    WHERE created_at > #{literal(watermark)} AND `timestamp` >= #{literal(day_floor(to))}
     LIMIT 1
     """
 
@@ -77,7 +77,7 @@ defmodule ServiceRadar.Analytics.StarRocks.TraceSummaries do
     sql = """
     SELECT MAX(created_at) FROM #{spans()}
     WHERE created_at > #{literal(from)} AND created_at <= #{literal(to)}
-      AND `timestamp` >= #{literal(floor(to))}
+      AND `timestamp` >= #{literal(day_floor(to))}
     """
 
     with {:ok, %{rows: rows}} <- run(sql, opts), do: {:ok, rows |> single() |> to_datetime()}
@@ -110,7 +110,7 @@ defmodule ServiceRadar.Analytics.StarRocks.TraceSummaries do
   @doc false
   @spec upsert_sql(DateTime.t(), DateTime.t(), pos_integer(), DateTime.t()) :: String.t()
   def upsert_sql(from, to, retention_days, now) do
-    candidate_floor = floor(to)
+    candidate_floor = day_floor(to)
     retention_floor = DateTime.add(now, -retention_days * 86_400, :second)
 
     """
@@ -171,7 +171,8 @@ defmodule ServiceRadar.Analytics.StarRocks.TraceSummaries do
   defp spans, do: Env.table("otel_traces")
   defp summaries, do: Env.table("otel_trace_summaries")
 
-  defp floor(%DateTime{} = instant), do: DateTime.add(instant, -@candidate_floor_seconds, :second)
+  defp day_floor(%DateTime{} = instant),
+    do: DateTime.add(instant, -@candidate_floor_seconds, :second)
 
   # A naive UTC DATETIME literal with microseconds.
   defp literal(%DateTime{} = instant) do

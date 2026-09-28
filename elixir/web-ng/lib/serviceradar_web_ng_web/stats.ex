@@ -676,17 +676,13 @@ defmodule ServiceRadarWebNGWeb.Stats do
     }
   end
 
-  defp missing_summary_table_message(:starrocks),
-    do: "Missing trace summary table: otel_trace_summaries."
+  defp missing_summary_table_message(:starrocks), do: "Missing trace summary table: otel_trace_summaries."
 
-  defp missing_summary_table_message(_backend),
-    do: "Missing trace summary table: platform.otel_trace_summaries."
+  defp missing_summary_table_message(_backend), do: "Missing trace summary table: platform.otel_trace_summaries."
 
-  defp missing_traces_rollup_message(:starrocks),
-    do: "Missing trace rollup: traces_stats_5m materialized view."
+  defp missing_traces_rollup_message(:starrocks), do: "Missing trace rollup: traces_stats_5m materialized view."
 
-  defp missing_traces_rollup_message(_backend),
-    do: "Missing trace rollup: platform.traces_stats_5m continuous aggregate."
+  defp missing_traces_rollup_message(_backend), do: "Missing trace rollup: platform.traces_stats_5m continuous aggregate."
 
   # Re-export empty defaults for convenience
   defdelegate empty_logs_severity(), to: Extract
