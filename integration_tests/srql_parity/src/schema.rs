@@ -213,6 +213,7 @@ pub const CNPG_BASELINE_TABLES: &[&str] = &[
     "otel_metric_points",
     "otel_traces",
     "otel_trace_summaries",
+    "bmp_routing_events",
     // Read by the CNPG flow `app` classifier; left empty, so both dialects fall back to the
     // same port-based labels.
     "netflow_app_classification_rules",

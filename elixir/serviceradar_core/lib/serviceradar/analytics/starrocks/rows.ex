@@ -46,6 +46,11 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
   # a Stream Load batch.
   @bmp_message_limit 65_533
   @bmp_raw_data_limit 65_533
+  @bmp_event_type_limit 256
+  @bmp_router_id_limit 256
+  @bmp_router_ip_limit 64
+  @bmp_peer_ip_limit 64
+  @bmp_prefix_limit 128
 
   # priv/starrocks/0021: every column of platform.otel_metrics /
   # platform.otel_metric_points under the same name, as built by the
@@ -296,14 +301,14 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
     %{
       "id" => uuid_text(value(row, :id)),
       "time" => datetime(value(row, :time)),
-      "event_type" => stringify(value(row, :event_type)),
+      "event_type" => bmp_bounded(value(row, :event_type), @bmp_event_type_limit),
       "severity_id" => value(row, :severity_id),
-      "router_id" => stringify(value(row, :router_id)),
-      "router_ip" => stringify(value(row, :router_ip)),
-      "peer_ip" => stringify(value(row, :peer_ip)),
+      "router_id" => bmp_bounded(value(row, :router_id), @bmp_router_id_limit),
+      "router_ip" => bmp_bounded(value(row, :router_ip), @bmp_router_ip_limit),
+      "peer_ip" => bmp_bounded(value(row, :peer_ip), @bmp_peer_ip_limit),
       "peer_asn" => value(row, :peer_asn),
       "local_asn" => value(row, :local_asn),
-      "prefix" => stringify(value(row, :prefix)),
+      "prefix" => bmp_bounded(value(row, :prefix), @bmp_prefix_limit),
       "message" => bmp_bounded(value(row, :message), @bmp_message_limit),
       "metadata" => json_document(value(row, :metadata)),
       "raw_data" => bmp_bounded(value(row, :raw_data), @bmp_raw_data_limit),
