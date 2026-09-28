@@ -825,7 +825,7 @@ defmodule ServiceRadar.Plugins.IntegrationDescriptor do
                 {acc, next_errors}
 
               {schedule_id, next_errors} ->
-                next_errors =
+                validated_errors =
                   listed_schedule_errors(
                     Map.get(schedule_by_id, schedule_id),
                     schedule_id,
@@ -834,7 +834,11 @@ defmodule ServiceRadar.Plugins.IntegrationDescriptor do
                     next_errors
                   )
 
-                {[schedule_id | acc], next_errors}
+                if length(validated_errors) > length(next_errors) do
+                  {acc, validated_errors}
+                else
+                  {[schedule_id | acc], validated_errors}
+                end
             end
           end)
 

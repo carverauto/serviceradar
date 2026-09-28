@@ -590,7 +590,7 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisionerTest do
       assert summary.schedules_disabled == 2
     end
 
-    test "a schedule dropped from the list is retired while the listed one stays bound" do
+    test "a schedule dropped from the list during a package upgrade is retired while the listed one stays bound" do
       profile =
         multi_schedule_profile()
         |> put_in(["provisioning", "schedule_ids"], ["example-inventory.refresh"])
@@ -600,6 +600,57 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisionerTest do
                PluginIntegrationProvisioner.reconcile_rules([integration_rule()], [profile],
                  actor: %{id: "system"},
                  assignment_store: __MODULE__.RepointAssignmentStore,
+                 schedule_store: MultiScheduleBoundScheduleStore
+               )
+
+      assert_receive {:update_schedule, "schedule-example-inventory.telemetry", %{enabled: false}}
+
+      assert_receive {:update_schedule, "schedule-example-inventory.refresh", refresh}
+      assert refresh.plugin_assignment_id == "assignment-agent-k8s"
+      refute_received {:update_schedule, "schedule-example-inventory.telemetry", _attrs}
+      assert summary.schedules_disabled == 1
+    end
+
+    defmodule SamePackageShrinkAssignmentStore do
+      @moduledoc false
+
+      def list_policy_assignments(policy_id, _actor) do
+        {:ok,
+         [
+           %{
+             id: "assignment-agent-k8s",
+             agent_uid: "agent-k8s",
+             plugin_package_id: "package-example",
+             source: :policy,
+             source_key: "plugin-credential-rule:rule-example:agent-k8s",
+             policy_id: policy_id,
+             enabled: true,
+             interval_seconds: 86_400,
+             timeout_seconds: 900,
+             params: %{
+               "endpoint" => "https://inventory.example.test/api",
+               "filters" => [%{"name" => "switches", "type" => "Switch"}]
+             }
+           }
+         ]}
+      end
+
+      def update_assignment(assignment, attrs, _actor) do
+        send(self(), {:update_assignment, assignment.id, attrs})
+        {:ok, Map.merge(assignment, attrs)}
+      end
+    end
+
+    test "a schedule dropped from the list of an unchanged package is retired while the listed one stays bound" do
+      profile =
+        multi_schedule_profile()
+        |> put_in(["provisioning", "schedule_ids"], ["example-inventory.refresh"])
+        |> Map.update!("producer_schedules", &Enum.take(&1, 1))
+
+      assert {:ok, summary} =
+               PluginIntegrationProvisioner.reconcile_rules([integration_rule()], [profile],
+                 actor: %{id: "system"},
+                 assignment_store: SamePackageShrinkAssignmentStore,
                  schedule_store: MultiScheduleBoundScheduleStore
                )
 
