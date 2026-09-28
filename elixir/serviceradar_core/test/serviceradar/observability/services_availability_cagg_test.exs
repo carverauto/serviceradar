@@ -8,6 +8,11 @@ defmodule ServiceRadar.Observability.ServicesAvailabilityCaggTest do
   # transaction are visible. The bucket holding "one minute ago" always ends
   # after the refresh policy's five-minute end offset, so it is never
   # materialized and never hides them.
+  #
+  # Every report lands in that one bucket, whose start is the multiple of five
+  # minutes of Unix time `time_bucket` aligns to: the readers sum across
+  # buckets, so a service whose reports straddled a boundary would count once
+  # per bucket.
   use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.Repo
@@ -16,7 +21,8 @@ defmodule ServiceRadar.Observability.ServicesAvailabilityCaggTest do
 
   setup do
     unique = System.unique_integer([:positive])
-    at = DateTime.add(DateTime.utc_now(), -60, :second)
+    minute_ago = DateTime.to_unix(DateTime.utc_now()) - 60
+    at = DateTime.from_unix!(div(minute_ago, 300) * 300 + 1)
 
     report = fn service_name, service_type, agent_id, available, offset_seconds ->
       %{
