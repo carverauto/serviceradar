@@ -485,10 +485,10 @@ networkPolicy:
 
 geoipMmdb:
   enabled: true
+  # Per-replica scratch (emptyDir): each core/web-ng pod downloads its own MMDB,
+  # never a shared ReadWriteOnce PVC that would pin every replica to one node.
+  emptyDir: true
   basePath: "/var/lib/serviceradar/geoip"
-  existingClaim: ""
-  size: 1Gi
-  storageClassName: ""
 
 webNg:
   replicas: 3
@@ -685,7 +685,9 @@ core:
   advisoryFeeds:
     enabled: true
     nistNvd2Enabled: true
-    size: "5Gi"
+    # Per-replica scratch staging (emptyDir); the bulk load into CNPG is the
+    # durable copy. Never a shared ReadWriteOnce PVC across replicas.
+    emptyDir: true
   database:
     poolSize: 10
   controlDatabase:

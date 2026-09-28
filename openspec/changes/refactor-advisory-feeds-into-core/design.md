@@ -25,7 +25,7 @@ Presigned URLs carry their own credentials and **expire in 15 min** — download
 
 Goals: bounded memory regardless of dump size; indexed CPE matching with version-range semantics; no agent involvement; idempotent 6-hour refresh; survivable restarts (resume/cleanup of partial downloads).
 
-Non-Goals: broadening endpoint CPE coverage (separate); object-store staging (use a local PVC); changing the OCSF/device-risk emit path.
+Non-Goals: broadening endpoint CPE coverage (separate); object-store staging (use a local scratch volume); changing the OCSF/device-risk emit path.
 
 ## Decisions
 
@@ -34,7 +34,7 @@ Each feed is an `AshOban`-triggered worker (queue `:integrations` or a new `:adv
 
 Rejected: keeping the Go add-on (the whole point is to stop pushing bulk data through agents). Rejected: a separate sidecar service (core already has DB access, scheduling, and the matcher; a new service adds ops surface for no gain).
 
-### D2. Disk staging on a PVC (never whole-file-in-memory)
+### D2. Disk staging on a scratch volume (never whole-file-in-memory)
 Staging root `${SERVICERADAR_ADVISORY_STAGING_DIR:-/var/lib/serviceradar/advisory-feeds}` on a dedicated volume. Per-run layout:
 ```
 <root>/<feed_key>/<run_id>/
@@ -48,7 +48,7 @@ Pipeline per run:
 4. **Parse + Load** (D3/D4).
 5. **Cleanup** — delete `<run_id>/` on success; keep last N failed runs for debugging; reap orphaned dirs older than T on startup.
 
-Sizing: nist-nvd2 zip ~355 MB + extracted gz ~360 MB ⇒ PVC **≥ 5 Gi** (headroom for two runs + future growth). Helm `persistence.advisoryFeeds.size` default `5Gi`; compose named volume `serviceradar-advisory-feeds`.
+Sizing: nist-nvd2 zip ~355 MB + extracted gz ~360 MB ⇒ staging volume **≥ 5 Gi** (headroom for two runs + future growth). Helm defaults to a per-replica scratch `emptyDir` (`core.advisoryFeeds.emptyDir: true`); set it `false` for a PVC sized by `core.advisoryFeeds.size` (default `5Gi`). Compose named volume `serviceradar-advisory-feeds`.
 
 ### D3. Streaming parse
 - **nist-nvd2:** iterate shards; for each `*.json.gz`, wrap a file reader in a gzip stream and decode incrementally. Decode the top-level object, then stream the `vulnerabilities` array element-by-element (do not hold the whole shard). One shard (~25 MB max gz) is the memory bound. Elixir: `File.stream!` → `:zlib` gunzip stream → a streaming JSON decoder (e.g. `Jaxon`/`jiffy` streaming) emitting one `cve` object at a time.
