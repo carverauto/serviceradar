@@ -38,7 +38,11 @@ This is not merely a serialization problem:
   trace; and
 - replay is not idempotent across sweep, OCSF, execution, and MTR projections.
 
-## Active milestone scope and review contract
+## Completed vertical-slice scope and review contract
+
+The following contract governed task 0.12. For the current work order, see
+[the active milestones](tasks.md#active-end-to-end-milestones); the
+[scope amendment below](#scope-amendment-2026-09-28) records the transition.
 
 Task 0.12, the first green vertical slice, is the milestone this section scopes;
 its checkbox in `tasks.md` records whether it is closed. Until it is green,
@@ -2388,7 +2392,7 @@ change, which owns them. They are NOT duplicated here: two byte-identical copies
 a frozen grammar is exactly the dual-ownership this boundary reset removes, and a
 divergence between them would be invisible until a cross-language fixture failed.
 
-See the frozen edge record v1 wire ABI's Appendix A.
+See [the frozen edge record v1 wire ABI design](../archive/2026-09-28-freeze-edge-record-v1-abi/design.md), Appendix A.
 
 ## Ledger replay/conflict outcomes
 
