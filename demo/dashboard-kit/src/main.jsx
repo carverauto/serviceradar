@@ -31,10 +31,11 @@ export function Dashboard() {
 
   // The pressed chip follows the loaded frames, not the last click: the side
   // panel can swap the fixture directly, and the schedule rows name which
-  // scenario is actually showing. The timeline key follows the same identity,
-  // so a replaced fixture replays from an empty incident set.
+  // scenario is actually showing. Chip-driven fixture loads also carry a local
+  // sequence so reloading the active fixture clears the replayed incident set.
   const loadedScenario = (status.activeCount ?? 0) > 0 ? "mid-fault" : "steady"
-  const timelineKey = fixtureTimelineKey(frame, loadedScenario)
+  const [fixtureLoadSeq, bumpFixtureLoadSeq] = useState(0)
+  const timelineKey = fixtureTimelineKey(frame, loadedScenario, fixtureLoadSeq)
   const {headline} = useFaultIncidents({logProvider: `plugin:${PLUGIN_ID}`, timelineKey})
 
   const chips = useMemo(
@@ -42,12 +43,18 @@ export function Dashboard() {
       {
         label: "scenario:steady",
         active: loadedScenario === "steady",
-        onClick: () => srql.update(`${SCHEDULE_QUERY} scenario:steady`),
+        onClick: () => {
+          bumpFixtureLoadSeq((seq) => seq + 1)
+          srql.update(`${SCHEDULE_QUERY} scenario:steady`)
+        },
       },
       {
         label: "scenario:mid-fault",
         active: loadedScenario === "mid-fault",
-        onClick: () => srql.update(`${SCHEDULE_QUERY} scenario:mid-fault`),
+        onClick: () => {
+          bumpFixtureLoadSeq((seq) => seq + 1)
+          srql.update(`${SCHEDULE_QUERY} scenario:mid-fault`)
+        },
       },
     ],
     [loadedScenario, srql],

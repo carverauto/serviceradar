@@ -44,14 +44,20 @@ export const DEMO_KIT_CSS = `
 .sr-demo-trigger{border-radius:.3rem;padding:.2rem .6rem;cursor:pointer}
 `
 
-export function fixtureTimelineKey(frame, loadedScenario) {
+export function fixtureTimelineKey(frame, loadedScenario, loadSequence) {
   const scenario = String(loadedScenario || "")
   const explicit = frame?.fixture_timeline_key ?? frame?.fixtureTimelineKey
-  if (explicit != null && explicit !== "") return String(explicit)
+  const base = explicit != null && explicit !== ""
+    ? String(explicit)
+    : (() => {
+        const refreshed = frame?.refreshed_at ?? frame?.refreshedAt
+        const refreshedKey = refreshed == null ? "" : String(refreshed)
+        return scenario && refreshedKey.startsWith(`${scenario}:`) ? refreshedKey : scenario
+      })()
 
-  const refreshed = frame?.refreshed_at ?? frame?.refreshedAt
-  const refreshedKey = refreshed == null ? "" : String(refreshed)
-  return scenario && refreshedKey.startsWith(`${scenario}:`) ? refreshedKey : scenario
+  if (loadSequence === undefined || loadSequence === null) return base
+  const sequence = Number(loadSequence)
+  return Number.isFinite(sequence) ? `${base || scenario || "fixture"}#load:${sequence}` : base
 }
 
 export function createDemoKit({React, sdk}) {

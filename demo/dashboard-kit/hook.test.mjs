@@ -84,13 +84,41 @@ test("an unchanged timeline key keeps folding across renders", () => {
   assert.equal(hook.headline(), "jam@c7#1")
 })
 
-test("a same-fixture dev harness reload clears manually opened incidents", () => {
-  const hook = mountHook({timelineKey: fixtureTimelineKey({refreshed_at: "steady:1"}, "steady")})
-  hook.deliver([faultEvent("open", "jam@c7#1")])
-  assert.equal(hook.headline(), "jam@c7#1")
+test("clicking the active fixture chip clears manually opened incidents", () => {
+  let onEvents = null
+  const sdk = {
+    useDashboardActions: () => ({allowed: true, actions: [], invocations: {}, invoke: () => {}}),
+    useDashboardEvents: (_filter, handler) => {
+      onEvents = handler
+      return {allowed: true, error: null}
+    },
+    useFrameRefresh: () => () => Promise.resolve({refreshed: true}),
+  }
+  const {useFaultIncidents} = createDemoKit({React, sdk})
+  const frame = {id: "schedule", refreshed_at: "steady:1"}
 
-  hook.retimeline(fixtureTimelineKey({refreshed_at: "steady:2"}, "steady"))
-  assert.equal(hook.headline(), "none")
+  function Probe() {
+    const [fixtureLoadSeq, bumpFixtureLoadSeq] = React.useState(0)
+    const timelineKey = fixtureTimelineKey(frame, "steady", fixtureLoadSeq)
+    const {headline} = useFaultIncidents({logProvider: "plugin:demo", timelineKey})
+    return React.createElement(
+      "button",
+      {type: "button", onClick: () => bumpFixtureLoadSeq((seq) => seq + 1)},
+      headline ? headline.faultId : "none",
+    )
+  }
+
+  let renderer = null
+  act(() => {
+    renderer = create(React.createElement(Probe))
+  })
+  const button = () => renderer.root.findByType("button")
+
+  act(() => onEvents([faultEvent("open", "jam@c7#1")]))
+  assert.equal(button().children[0], "jam@c7#1")
+
+  act(() => button().props.onClick())
+  assert.equal(button().children[0], "none")
 })
 
 test("ordinary frame refresh times do not reset live incidents", () => {
