@@ -665,6 +665,34 @@ func isDestUnreachable(icmpType int, ipv6 bool) bool {
 	return icmpType == icmpv4DestUnreachableType
 }
 
+// matchICMPResponse validates that an ICMP echo reply or error message belongs
+// to this tracer's probe stream.
+func (t *Tracer) matchICMPResponse(resp *ICMPResponse, isIPv6 bool) bool {
+	// Echo replies must come from the target and match this tracer's ICMP ID.
+	if (resp.Type == 0 || resp.Type == 129) &&
+		(!resp.SrcAddr.Equal(t.targetIP) || resp.InnerID != t.icmpID) {
+		return false
+	}
+
+	// Quoted ICMP errors must match destination. Some routers omit the Echo ID;
+	// only enforce it when present/non-zero. When InnerProto is set, verify it
+	// is ICMP — a concurrent UDP trace can produce Time Exceeded errors whose
+	// sequence numbers overlap with ours (InnerProto==17).
+	icmpProto := ipProtoICMP
+	if isIPv6 {
+		icmpProto = ipProtoICMPv6
+	}
+
+	if (resp.Type == 11 || resp.Type == 3 || resp.Type == 1) &&
+		(!t.matchTargetAddr(resp.InnerDstAddr) ||
+			(resp.InnerID != 0 && resp.InnerID != t.icmpID) ||
+			(resp.InnerProto != 0 && resp.InnerProto != icmpProto)) {
+		return false
+	}
+
+	return true
+}
+
 func (t *Tracer) matchProbeResponse(resp *ICMPResponse) (int, bool) {
 	isIPv6 := t.ipVersion == 6
 	switch {
@@ -691,29 +719,9 @@ func (t *Tracer) matchProbeResponse(resp *ICMPResponse) (int, bool) {
 
 	switch t.opts.Protocol {
 	case ProtocolICMP:
-		// Echo replies should come from the target and match this tracer's ICMP identifier.
-		if (resp.Type == 0 || resp.Type == 129) &&
-			(!resp.SrcAddr.Equal(t.targetIP) || resp.InnerID != t.icmpID) {
+		if !t.matchICMPResponse(resp, isIPv6) {
 			return 0, false
 		}
-
-		// Quoted ICMP errors should match destination. Some routers do not quote
-		// Echo ID consistently; only enforce ID when present/non-zero.
-		// When InnerProto is set, verify it is ICMP — a concurrent UDP trace to
-		// the same target can produce Time Exceeded errors whose sequence numbers
-		// overlap with ours; those errors quote a UDP datagram (InnerProto==17).
-		icmpProto := ipProtoICMP
-		if isIPv6 {
-			icmpProto = ipProtoICMPv6
-		}
-
-		if (resp.Type == 11 || resp.Type == 3 || resp.Type == 1) &&
-			(!t.matchTargetAddr(resp.InnerDstAddr) ||
-				(resp.InnerID != 0 && resp.InnerID != t.icmpID) ||
-				(resp.InnerProto != 0 && resp.InnerProto != icmpProto)) {
-			return 0, false
-		}
-
 	case ProtocolTCP:
 		// Matched by the TCP flow above.
 	case ProtocolUDP:
