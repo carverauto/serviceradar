@@ -31,26 +31,6 @@ admission controls so one site/address space cannot monopolize the installation.
 - **THEN** it SHALL publish to `telemetry.edge-record.v1.bulk.p07`
 - **AND** neither caller text nor `network_scope_id` SHALL alter that subject
 
-#### Scenario: Event publishing with tenant prefix
-
-- **GIVEN** a poller publishing health events for tenant "acme-corp"
-- **WHEN** the poller publishes to subject "events.poller.health"
-- **THEN** the message SHALL be published to "acme-corp.events.poller.health"
-
-#### Scenario: Consumer receives prefixed messages
-
-- **GIVEN** a db-event-writer consumer subscribed to "*.events.poller.health"
-- **WHEN** a message is published to "acme-corp.events.poller.health"
-- **THEN** the consumer SHALL receive the message
-- **AND** the consumer SHALL extract "acme-corp" as the tenant slug from the subject
-
-#### Scenario: Cross-tenant message isolation
-
-- **GIVEN** tenant "acme-corp" publishes to "acme-corp.logs.syslog.processed"
-- **AND** tenant "xyz-inc" subscribes to "xyz-inc.logs.syslog.processed"
-- **WHEN** the message is published
-- **THEN** tenant "xyz-inc" SHALL NOT receive tenant "acme-corp" messages
-
 ### Requirement: NATS Account Isolation
 
 One installation SHALL use one configured NATS security/durability authority
@@ -77,18 +57,6 @@ separate provisioned clusters, not an in-runtime account hierarchy.
 - **AND** trusted `network_scope_id` SHALL keep their domain identities distinct
   without creating per-scope accounts, streams, or durables
 
-#### Scenario: Cross-tenant authority widening is rejected
-- **GIVEN** a caller requests a signed account JWT or user credential override for tenant `acme-corp`
-- **WHEN** the request includes publish, subscribe, import, export, or mapping subjects outside `acme-corp` or approved platform subjects
-- **THEN** the signing request SHALL be rejected
-- **AND** no JWT with widened cross-tenant authority is returned
-
-#### Scenario: New account receives bounded JetStream quotas
-- **GIVEN** the platform signs a new tenant account without explicit JetStream quota overrides
-- **WHEN** the account JWT is created
-- **THEN** the JetStream limits in the account claims SHALL be finite
-- **AND** the account SHALL NOT receive unlimited memory, disk, stream, or consumer quotas by default
-
 ### Requirement: JetStream Tenant Streams
 
 JetStream streams SHALL capture fixed installation-local subject families for
@@ -112,19 +80,6 @@ verified envelope/proof for its signal contract, never from a customer prefix.
   collection authority from that record and its signed grants
 - **AND** it SHALL NOT interpret any subject token as customer identity
 
-#### Scenario: Stream subject configuration
-
-- **GIVEN** the "events" stream is configured with subjects "*.events.>"
-- **WHEN** a message is published to "acme-corp.events.poller.health"
-- **THEN** the message SHALL be persisted to the "events" stream
-- **AND** the message SHALL be available for replay
-
-#### Scenario: Consumer subject filtering
-
-- **GIVEN** a durable consumer with filter "acme-corp.events.>"
-- **WHEN** messages are published for multiple tenants
-- **THEN** the consumer SHALL only receive messages for "acme-corp"
-
 ### Requirement: Per-tenant zen consumers
 
 Zen consumers SHALL use bounded installation-scoped credentials and consumer
@@ -137,20 +92,6 @@ customer or network scope, and SHALL NOT use cross-customer fallback consumers.
 - **WHEN** a configured log or event signal arrives
 - **THEN** a bounded installation consumer pool SHALL process it
 - **AND** its output SHALL remain in the same installation authority
-
-#### Scenario: Tenant zen consumes directly
-
-- **GIVEN** tenant "acme-corp" has a zen consumer with tenant credentials
-- **WHEN** a log is published to "acme-corp.logs.syslog"
-- **THEN** the tenant zen consumer SHALL process the message
-- **AND** write processed output back to the tenant account
-
-#### Scenario: Tenant zen HA
-
-- **GIVEN** tenant "acme-corp" has multiple zen consumer instances
-- **WHEN** one instance becomes unavailable
-- **THEN** remaining instances SHALL continue processing tenant messages
-- **AND** no cross-tenant consumers are used as fallbacks
 
 ### Requirement: Per-tenant db-event-writer ingestion
 
@@ -165,12 +106,6 @@ select database schemas or spawn writers from a customer/tenant subject prefix.
   canonical schema
 - **AND** subject text SHALL NOT select another database authority
 
-#### Scenario: Tenant writer inserts into tenant schema
-
-- **GIVEN** tenant "acme-corp" has a db-event-writer with tenant creds
-- **WHEN** a processed log is published to the tenant account
-- **THEN** the db-event-writer SHALL write to the tenant schema tables
-
 ### Requirement: Rule distribution via KV with tenant isolation
 
 Rule distribution SHALL use installation-scoped KV buckets, credentials, and
@@ -183,13 +118,6 @@ metadata and SHALL NOT depend on customer-prefixed bucket or subject names.
 - **THEN** the system SHALL publish it to the configured installation KV bucket
 - **AND** the installation zen consumer SHALL receive it through its bounded
   watch
-
-#### Scenario: Rule update propagates to KV
-
-- **GIVEN** a tenant admin updates a promotion rule in the UI
-- **WHEN** the change is saved in CNPG
-- **THEN** the system SHALL write the updated rule to the tenant KV bucket
-- **AND** zen SHALL receive the KV watch update for that tenant
 
 ### Requirement: Backward Compatibility
 
@@ -213,21 +141,6 @@ installation-local contracts and SHALL NOT map unprefixed data to a synthetic
   ambiguity
 - **THEN** migration SHALL quarantine it for audited repair
 - **AND** SHALL NOT invent a `default` customer or widen database authority
-
-#### Scenario: Legacy message handling
-
-- **GIVEN** the feature flag "NATS_TENANT_PREFIX_ENABLED" is false
-- **WHEN** a publisher sends an event
-- **THEN** the message SHALL be published without tenant prefix
-- **AND** consumers SHALL process the message normally
-
-#### Scenario: Mixed mode operation
-
-- **GIVEN** the feature flag "NATS_TENANT_PREFIX_ENABLED" is true
-- **AND** consumers are configured for "*.events.>" patterns
-- **WHEN** both prefixed and non-prefixed messages exist
-- **THEN** consumers SHALL handle both message formats
-- **AND** non-prefixed messages SHALL be associated with "default" tenant
 
 ## ADDED Requirements
 
