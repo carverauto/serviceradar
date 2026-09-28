@@ -140,8 +140,8 @@ test("fixture timeline keys change frame identity without mutating fixtures", ()
   const first = withFixtureTimelineKey(frames, "steady:1")
   const second = withFixtureTimelineKey(frames, "steady:2")
 
-  assert.deepEqual(first, [{id: "schedule", results: [], fixture_timeline_key: "steady:1"}])
-  assert.deepEqual(second, [{id: "schedule", results: [], fixture_timeline_key: "steady:2"}])
+  assert.deepEqual(first, [{id: "schedule", results: [], fixture_timeline_key: "steady:1", refreshed_at: "steady:1"}])
+  assert.deepEqual(second, [{id: "schedule", results: [], fixture_timeline_key: "steady:2", refreshed_at: "steady:2"}])
   assert.deepEqual(frames, [{id: "schedule", results: []}])
 })
 

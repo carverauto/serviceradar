@@ -114,8 +114,9 @@ export function eventMatches(filter = {}, event = {}) {
 }
 
 export function withFixtureTimelineKey(frames = [], timelineKey = "") {
+  const key = String(timelineKey)
   return (Array.isArray(frames) ? frames : []).map((frame) =>
-    frame && typeof frame === "object" ? {...frame, fixture_timeline_key: String(timelineKey)} : frame,
+    frame && typeof frame === "object" ? {...frame, fixture_timeline_key: key, refreshed_at: key} : frame,
   )
 }
 
