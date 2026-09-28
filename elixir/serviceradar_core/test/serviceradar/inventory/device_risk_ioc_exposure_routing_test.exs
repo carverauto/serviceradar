@@ -278,4 +278,63 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposureRoutingTest do
                end
              )
   end
+
+  test "the hostile-IOC lookup runs once per evaluate", %{prev: prev} do
+    Application.put_env(
+      :serviceradar_core,
+      StarRocks,
+      Keyword.put(prev, :cutover_datasets, [:flows])
+    )
+
+    parent = self()
+    observed_at = ~U[2026-08-15 12:00:00Z]
+
+    query = fn _sql ->
+      case Process.get(:page, :first) do
+        :first ->
+          Process.put(:page, :second)
+
+          {:ok,
+           %{
+             columns: @flow_columns,
+             rows: [
+               [
+                 "203.0.113.9",
+                 "10.0.0.8",
+                 443,
+                 "sshd",
+                 nil,
+                 nil,
+                 observed_at,
+                 "row-1"
+               ]
+             ]
+           }}
+
+        :second ->
+          {:ok, %{columns: @flow_columns, rows: []}}
+      end
+    end
+
+    assert {:ok, %{devices: 0, hits: 0}} =
+             DeviceRiskIocExposure.evaluate(
+               flow_limit: 1,
+               hostile_ioc_ips: fn _as_of ->
+                 send(parent, :ioc_lookup)
+                 {:ok, %{"203.0.113.9" => %{sources: ["alienvault_otx"], severity: 4}}}
+               end,
+               resolve_device_identifiers: fn _dst_ips -> {:ok, %{}} end,
+               resolve_agent_devices: fn _agent_ids -> {:ok, %{}} end,
+               query: query,
+               query_findings: fn _device_uids, _opts -> [] end,
+               query_active_contribution_uids: fn -> [] end,
+               open_alert?: fn _source_id -> false end,
+               upsert_contribution: fn _contribution, _opts -> :ok end,
+               emit_event: fn _payload -> :ok end,
+               create_alert: fn _attrs -> {:ok, %{id: "alert"}} end
+             )
+
+    assert_received :ioc_lookup
+    refute_received :ioc_lookup
+  end
 end

@@ -386,8 +386,35 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposure do
         |> min(20_000)
         |> max(1)
 
-      fetch_flow_pages(Keyword.put(opts, :as_of, DateTime.utc_now()), page_size, nil, [])
+      opts = Keyword.put(opts, :as_of, DateTime.utc_now())
+
+      case flow_history_backend() do
+        :starrocks ->
+          case hostile_ioc_ips(opts) do
+            {:ok, ioc} when is_map(ioc) and map_size(ioc) > 0 ->
+              opts =
+                opts
+                |> Keyword.put(:hostile_ioc_map, ioc)
+                |> Keyword.put(:hostile_ioc_literal, ip_literals(Map.keys(ioc)))
+
+              fetch_flow_pages(opts, page_size, nil, [])
+
+            {:ok, _ioc} ->
+              []
+
+            {:error, reason} ->
+              raise "hostile IOC flow query failed: #{inspect(reason)}"
+          end
+
+        {:error, :starrocks_required} ->
+          fetch_flow_pages(opts, page_size, nil, [])
+      end
     end
+  end
+
+  defp hostile_ioc_ips(opts) do
+    fetcher = Keyword.get(opts, :hostile_ioc_ips, &default_hostile_ioc_ips/1)
+    fetcher.(Keyword.fetch!(opts, :as_of))
   end
 
   defp fetch_flow_pages(opts, page_size, after_key, acc) do
@@ -504,19 +531,7 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposure do
   # first: StarRocks `regexp_replace` has no trailing-`'i'` flags argument
   # like Postgres does.
   defp query_flow_page_warehouse_sql(opts, page_size, after_key) do
-    hostile_ips = Keyword.get(opts, :hostile_ioc_ips, &default_hostile_ioc_ips/1)
-    as_of = Keyword.fetch!(opts, :as_of)
-
-    case hostile_ips.(as_of) do
-      {:ok, ioc} when is_map(ioc) and map_size(ioc) > 0 ->
-        warehouse_flow_page(opts, page_size, after_key, ioc)
-
-      {:ok, _ioc} ->
-        []
-
-      {:error, reason} ->
-        raise "hostile IOC flow query failed: #{inspect(reason)}"
-    end
+    warehouse_flow_page(opts, page_size, after_key, Keyword.fetch!(opts, :hostile_ioc_map))
   end
 
   defp warehouse_flow_page(opts, page_size, after_key, ioc) do
@@ -545,7 +560,7 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposure do
       WHERE event_type = 'attributed_flow'
         AND `time` > #{datetime_literal(lower)}
         AND `time` <= #{datetime_literal(as_of)}
-        AND regexp_replace(lower(coalesce(src_endpoint_ip, '')), '^::ffff:', '') IN (#{ip_literals(Map.keys(ioc))})
+        AND regexp_replace(lower(coalesce(src_endpoint_ip, '')), '^::ffff:', '') IN (#{Keyword.fetch!(opts, :hostile_ioc_literal)})
         #{keyset_clause(after_key)}
       ORDER BY `time` DESC, id DESC
       LIMIT #{page_size}
