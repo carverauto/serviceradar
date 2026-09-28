@@ -11,10 +11,15 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
 
   @uuid "11111111-1111-1111-1111-111111111111"
 
-  defp with_starrocks(enabled?) do
+  defp with_starrocks(enabled?, opts \\ []) do
     prev = Application.get_env(:serviceradar_core, StarRocks, [])
 
-    Application.put_env(:serviceradar_core, StarRocks, Keyword.put(prev, :enabled, enabled?))
+    config =
+      prev
+      |> Keyword.put(:enabled, enabled?)
+      |> Keyword.put(:cutover_datasets, Keyword.get(opts, :cutover_datasets, []))
+
+    Application.put_env(:serviceradar_core, StarRocks, config)
 
     on_exit(fn -> Application.put_env(:serviceradar_core, StarRocks, prev) end)
   end
@@ -26,11 +31,8 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
     assert TelemetryIndexRead.mode(ServiceRadar.Observability.OtelTrace, table: nil) == :cnpg
   end
 
-  test "routes to the warehouse table when enabled and one exists" do
+  test "routes otel metrics to the warehouse when enabled" do
     with_starrocks(true)
-
-    assert TelemetryIndexRead.mode(ServiceRadar.Observability.Log, table: "logs") ==
-             {:starrocks, "logs"}
 
     assert TelemetryIndexRead.mode(
              ServiceRadar.Observability.OtelMetric,
@@ -38,9 +40,37 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
            ) == {:starrocks, "otel_metrics"}
 
     assert TelemetryIndexRead.mode(
+             ServiceRadar.Observability.OtelMetricPoint,
+             table: "otel_metric_points"
+           ) == {:starrocks, "otel_metric_points"}
+  end
+
+  test "routes logs and metrics to the warehouse once cut over" do
+    with_starrocks(true, cutover_datasets: [:logs, :metrics])
+
+    assert TelemetryIndexRead.mode(ServiceRadar.Observability.Log, table: "logs") ==
+             {:starrocks, "logs"}
+
+    assert TelemetryIndexRead.mode(
              ServiceRadar.Observability.TimeseriesMetric,
              table: "timeseries_metrics"
            ) == {:starrocks, "timeseries_metrics"}
+
+    assert TelemetryIndexRead.mode(
+             ServiceRadar.Observability.TimeseriesMetricHourly,
+             table: "timeseries_metrics_hourly"
+           ) == {:starrocks, "timeseries_metrics_hourly"}
+  end
+
+  test "keeps logs and metrics on CNPG when enabled but not cut over" do
+    with_starrocks(true)
+
+    assert TelemetryIndexRead.mode(ServiceRadar.Observability.Log, table: "logs") == :cnpg
+
+    assert TelemetryIndexRead.mode(
+             ServiceRadar.Observability.TimeseriesMetric,
+             table: "timeseries_metrics"
+           ) == :cnpg
   end
 
   test "reports unavailable when enabled and no warehouse table exists" do
@@ -63,7 +93,7 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
   end
 
   test "serves the warehouse table when enabled, rendering filter, sort and page bounds" do
-    with_starrocks(true)
+    with_starrocks(true, cutover_datasets: [:logs])
 
     parent = self()
 
@@ -78,28 +108,58 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
         starrocks_query: fn sql ->
           send(parent, {:sql, sql})
 
-          {:ok,
-           %{
-             columns: ["timestamp", "id", "trace_id"],
-             rows: [["2026-01-01 00:00:00.000000", @uuid, "abc123"]]
-           }}
+          if String.contains?(sql, "COUNT(*)") do
+            {:ok, %{columns: ["COUNT(*)"], rows: [[42]]}}
+          else
+            {:ok,
+             %{
+               columns: ["timestamp", "id", "trace_id"],
+               rows: [["2026-01-01 00:00:00.000000", @uuid, "abc123"]]
+             }}
+          end
         end
       })
 
-    assert {:ok, [record]} =
+    assert {:ok, [record], %{full_count: 42}} =
              TelemetryIndexRead.read(query, :data_layer_query, [table: "logs"], %{})
 
     assert record.id == @uuid
     assert record.trace_id == "abc123"
     assert %DateTime{} = record.timestamp
 
-    assert_received {:sql, sql}
+    assert_received {:sql, data_sql}
 
-    assert sql =~ "FROM serviceradar.logs"
-    assert sql =~ "`trace_id` = 'abc123'"
-    assert sql =~ "ORDER BY `timestamp` DESC"
-    assert sql =~ "LIMIT 101"
-    assert sql =~ "OFFSET 20"
+    assert data_sql =~ "FROM serviceradar.logs"
+    assert data_sql =~ "`trace_id` = 'abc123'"
+    assert data_sql =~ "ORDER BY `timestamp` DESC"
+    assert data_sql =~ "LIMIT 101"
+    assert data_sql =~ "OFFSET 20"
+
+    assert_received {:sql, count_sql}
+
+    assert count_sql =~ "SELECT COUNT(*) FROM serviceradar.logs"
+    assert count_sql =~ "`trace_id` = 'abc123'"
+    refute count_sql =~ "LIMIT"
+  end
+
+  test "rejects filters and sorts on columns the warehouse table does not store" do
+    with_starrocks(true, cutover_datasets: [:logs])
+
+    filtered =
+      ServiceRadar.Observability.Log
+      |> Ash.Query.for_read(:api_index)
+      |> Ash.Query.filter(scope_name == "otel")
+
+    assert {:error, {:unsupported_warehouse_filter_field, :scope_name}} =
+             TelemetryIndexRead.read(filtered, :data_layer_query, [table: "logs"], %{})
+
+    sorted =
+      ServiceRadar.Observability.Log
+      |> Ash.Query.for_read(:api_index)
+      |> Ash.Query.sort(scope_version: :asc)
+
+    assert {:error, {:unsupported_warehouse_sort_field, :scope_version}} =
+             TelemetryIndexRead.read(sorted, :data_layer_query, [table: "logs"], %{})
   end
 
   test "returns the unavailable error when enabled and no warehouse table exists" do

@@ -4,12 +4,15 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
 
   Exactly one telemetry backend is active. With `analytics.starrocks.enabled`
   off, the read delegates to the resource's CNPG data layer query unchanged.
-  With it on, the same page is served from the warehouse table (logs, OTel
-  metrics, raw and hourly timeseries metrics), so a `/api/v2` telemetry route
-  never serves history frozen at the switch. A dataset with no warehouse table
-  yet (OTel traces and summaries, the interface/disk hourly aggregates, and the
-  legacy sysmon tables retired under #4861) reports itself unavailable instead
-  of reading a CNPG table that stopped receiving rows.
+  With it on, a dataset whose writes have moved to the warehouse is served from
+  its warehouse table: OTel metric samples and points follow the enabled flag,
+  while logs and raw and hourly timeseries metrics follow the per-dataset
+  cutover list, so a row still written to CNPG is still read from CNPG and a
+  `/api/v2` telemetry route never serves history frozen at the switch. A
+  dataset with no warehouse table yet (OTel traces and summaries, the
+  interface/disk hourly aggregates, and the legacy sysmon tables retired under
+  #4861) reports itself unavailable instead of reading a CNPG table that
+  stopped receiving rows.
 
   The Frontend is queried over the MySQL text protocol, which takes no bind
   parameters, so filter values and pagination bounds reach it as literals.
@@ -22,9 +25,9 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
   Test seams live in the query context: `:cnpg_read` replaces the data-layer
   run, and `:starrocks_query` replaces `ServiceRadar.Analytics.StarRocks.Query.execute/1`.
 
-  The offset page's total count is not computed (a manual read reports no
-  `full_count`), so the JSON:API response omits `meta.total` and the `last`
-  link while `next` pagination links stay intact.
+  The offset page's total count is computed with a separate `COUNT(*)` query
+  over the same filter, so the JSON:API response keeps `meta.total` and the
+  `last` link.
   """
 
   use Ash.Resource.ManualRead
@@ -59,6 +62,14 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
       ~w(bucket device_id metric_type metric_name avg_value min_value max_value sample_count)a
   }
 
+  @dataset_for_table %{
+    "logs" => :logs,
+    "otel_metrics" => :otel_metrics,
+    "otel_metric_points" => :otel_metrics,
+    "timeseries_metrics" => :metrics,
+    "timeseries_metrics_hourly" => :metrics
+  }
+
   @impl Ash.Resource.ManualRead
   def read(query, data_layer_query, opts, _context) do
     case mode(query.resource, opts) do
@@ -77,13 +88,20 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
   @spec mode(module(), keyword()) ::
           :cnpg | {:starrocks, String.t()} | {:unavailable, module()}
   def mode(resource, opts) do
-    if Readers.enabled?() do
-      case Keyword.get(opts, :table) do
-        table when is_binary(table) -> {:starrocks, table}
-        _ -> {:unavailable, resource}
-      end
-    else
-      :cnpg
+    case Keyword.get(opts, :table) do
+      table when is_binary(table) ->
+        if Readers.mode_for(Map.fetch!(@dataset_for_table, table)) == "starrocks" do
+          {:starrocks, table}
+        else
+          :cnpg
+        end
+
+      _ ->
+        if Readers.enabled?() do
+          {:unavailable, resource}
+        else
+          :cnpg
+        end
     end
   end
 
@@ -96,14 +114,19 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
 
   defp run_warehouse(query, table, opts) do
     select_attributes = select_attributes(query.resource, table)
+    available = Map.fetch!(@warehouse_columns, table)
 
-    with {:ok, where} <- where_clause(query.filter),
-         {:ok, order} <- order_clause(query.sort) do
+    with {:ok, where} <- where_clause(query.filter, available),
+         {:ok, order} <- order_clause(query.sort, available) do
       sql = build_sql(table, select_attributes, where, order, query.limit, query.offset)
 
       case execute_warehouse(sql, query.context, opts) do
         {:ok, %{columns: columns, rows: rows}} when is_list(rows) ->
-          {:ok, build_records(query.resource, select_attributes, columns, rows)}
+          records = build_records(query.resource, select_attributes, columns, rows)
+
+          with {:ok, full_count} <- full_count(table, where, query, opts) do
+            {:ok, records, %{full_count: full_count}}
+          end
 
         {:ok, other} ->
           {:error, {:unexpected_starrocks_result, other}}
@@ -111,6 +134,24 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
         {:error, reason} ->
           {:error, reason}
       end
+    end
+  end
+
+  defp full_count(table, where, query, opts) do
+    sql =
+      ["SELECT", "COUNT(*)", "FROM", Env.table(table), where]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join(" ")
+
+    case execute_warehouse(sql, query.context, opts) do
+      {:ok, %{rows: [[count]]}} when is_integer(count) and count >= 0 ->
+        {:ok, count}
+
+      {:ok, other} ->
+        {:error, {:unexpected_starrocks_count_result, other}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -261,34 +302,38 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
   # Filter, sort and pagination rendering
   # ---------------------------------------------------------------------------
 
-  defp where_clause(nil), do: {:ok, nil}
-  defp where_clause(%Ash.Filter{expression: expression}), do: expression_sql(expression)
-  defp where_clause(expression), do: expression_sql(expression)
+  defp where_clause(nil, _available), do: {:ok, nil}
 
-  defp expression_sql(true), do: {:ok, nil}
-  defp expression_sql(false), do: {:ok, "1 = 0"}
-  defp expression_sql(nil), do: {:ok, nil}
+  defp where_clause(%Ash.Filter{expression: expression}, available),
+    do: expression_sql(expression, available)
 
-  defp expression_sql(%Ash.Query.BooleanExpression{op: op, left: left, right: right})
+  defp where_clause(expression, available), do: expression_sql(expression, available)
+
+  defp expression_sql(true, _available), do: {:ok, nil}
+  defp expression_sql(false, _available), do: {:ok, "1 = 0"}
+  defp expression_sql(nil, _available), do: {:ok, nil}
+
+  defp expression_sql(%Ash.Query.BooleanExpression{op: op, left: left, right: right}, available)
        when op in [:and, :or] do
-    with {:ok, left_sql} <- expression_sql(left),
-         {:ok, right_sql} <- expression_sql(right) do
+    with {:ok, left_sql} <- expression_sql(left, available),
+         {:ok, right_sql} <- expression_sql(right, available) do
       {:ok, "(#{left_sql} #{String.upcase(to_string(op))} #{right_sql})"}
     end
   end
 
-  defp expression_sql(%Ash.Query.Not{expression: expression}) do
-    with {:ok, sql} <- expression_sql(expression) do
+  defp expression_sql(%Ash.Query.Not{expression: expression}, available) do
+    with {:ok, sql} <- expression_sql(expression, available) do
       {:ok, "NOT (#{sql})"}
     end
   end
 
-  defp expression_sql(%{__operator__?: true} = predicate), do: operator_sql(predicate)
+  defp expression_sql(%{__operator__?: true} = predicate, available),
+    do: operator_sql(predicate, available)
 
-  defp expression_sql(other), do: {:error, {:unsupported_warehouse_filter, other}}
+  defp expression_sql(other, _available), do: {:error, {:unsupported_warehouse_filter, other}}
 
-  defp operator_sql(%{operator: op, left: left, right: right}) do
-    with {:ok, column} <- column_sql(left) do
+  defp operator_sql(%{operator: op, left: left, right: right}, available) do
+    with {:ok, column} <- column_sql(left, available) do
       case op do
         :== -> equality_sql(column, "=", right)
         :!= -> equality_sql(column, "!=", right)
@@ -333,16 +378,28 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
 
   defp in_sql(_column, _values), do: {:error, {:unsupported_warehouse_filter, :empty_in}}
 
-  defp column_sql(%Ash.Query.Ref{} = ref) do
-    if ref.relationship_path == [] do
-      {:ok, "`#{Ash.Query.Ref.name(ref)}`"}
-    else
-      {:error, :relationship_filter_unsupported}
+  defp column_sql(%Ash.Query.Ref{} = ref, available) do
+    cond do
+      ref.relationship_path != [] ->
+        {:error, :relationship_filter_unsupported}
+
+      Ash.Query.Ref.name(ref) in available ->
+        {:ok, "`#{Ash.Query.Ref.name(ref)}`"}
+
+      true ->
+        {:error, {:unsupported_warehouse_filter_field, Ash.Query.Ref.name(ref)}}
     end
   end
 
-  defp column_sql(%{name: name}) when is_atom(name), do: {:ok, "`#{name}`"}
-  defp column_sql(other), do: {:error, {:unsupported_warehouse_filter_field, other}}
+  defp column_sql(%{name: name}, available) when is_atom(name) do
+    if name in available do
+      {:ok, "`#{name}`"}
+    else
+      {:error, {:unsupported_warehouse_filter_field, name}}
+    end
+  end
+
+  defp column_sql(other, _available), do: {:error, {:unsupported_warehouse_filter_field, other}}
 
   defp literal_sql(value) when is_binary(value), do: {:ok, "'#{escape_string(value)}'"}
   defp literal_sql(value) when is_integer(value), do: {:ok, Integer.to_string(value)}
@@ -375,12 +432,12 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
 
   defp datetime_literal(%NaiveDateTime{} = value), do: NaiveDateTime.to_string(value)
 
-  defp order_clause(nil), do: {:ok, nil}
-  defp order_clause([]), do: {:ok, nil}
+  defp order_clause(nil, _available), do: {:ok, nil}
+  defp order_clause([], _available), do: {:ok, nil}
 
-  defp order_clause(sort) when is_list(sort) do
+  defp order_clause(sort, available) when is_list(sort) do
     Enum.reduce_while(sort, {:ok, []}, fn entry, {:ok, acc} ->
-      case sort_entry_sql(entry) do
+      case sort_entry_sql(entry, available) do
         {:ok, sql} -> {:cont, {:ok, [sql | acc]}}
         {:error, reason} -> {:halt, {:error, reason}}
       end
@@ -391,23 +448,37 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
     end
   end
 
-  defp sort_entry_sql({field, direction}), do: sort_field_sql(field, direction)
-  defp sort_entry_sql(field) when is_atom(field), do: sort_field_sql(field, :asc)
+  defp sort_entry_sql({field, direction}, available),
+    do: sort_field_sql(field, direction, available)
 
-  defp sort_entry_sql(other), do: {:error, {:unsupported_warehouse_sort, other}}
+  defp sort_entry_sql(field, available) when is_atom(field),
+    do: sort_field_sql(field, :asc, available)
 
-  defp sort_field_sql(field, direction) when is_atom(field),
-    do: {:ok, "`#{field}` #{direction_sql(direction)}"}
+  defp sort_entry_sql(other, _available), do: {:error, {:unsupported_warehouse_sort, other}}
 
-  defp sort_field_sql(%Ash.Query.Ref{} = ref, direction) do
-    if ref.relationship_path == [] do
-      {:ok, "`#{Ash.Query.Ref.name(ref)}` #{direction_sql(direction)}"}
+  defp sort_field_sql(field, direction, available) when is_atom(field) do
+    if field in available do
+      {:ok, "`#{field}` #{direction_sql(direction)}"}
     else
-      {:error, :relationship_sort_unsupported}
+      {:error, {:unsupported_warehouse_sort_field, field}}
     end
   end
 
-  defp sort_field_sql(other, _direction), do: {:error, {:unsupported_warehouse_sort_field, other}}
+  defp sort_field_sql(%Ash.Query.Ref{} = ref, direction, available) do
+    cond do
+      ref.relationship_path != [] ->
+        {:error, :relationship_sort_unsupported}
+
+      Ash.Query.Ref.name(ref) in available ->
+        {:ok, "`#{Ash.Query.Ref.name(ref)}` #{direction_sql(direction)}"}
+
+      true ->
+        {:error, {:unsupported_warehouse_sort_field, Ash.Query.Ref.name(ref)}}
+    end
+  end
+
+  defp sort_field_sql(other, _direction, _available),
+    do: {:error, {:unsupported_warehouse_sort_field, other}}
 
   defp direction_sql(direction) when direction in [:asc, :asc_nulls_first, :asc_nulls_last],
     do: "ASC"
