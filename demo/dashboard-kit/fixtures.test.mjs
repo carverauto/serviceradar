@@ -66,7 +66,9 @@ test("steady renders the countdown and trigger with no incident", () => {
   assert.equal(headlineIncident(openAt(fixture, 60_000)), null)
 
   const {PresenterStrip} = createDemoKit({React, sdk: fakeSdk({actions: fixture.actions})})
-  const html = renderToStaticMarkup(React.createElement(PresenterStrip, {scheduleRows: scheduleRows(fixture), now: T0}))
+  const html = renderToStaticMarkup(
+    React.createElement(PresenterStrip, {scheduleRows: scheduleRows(fixture), now: T0, targets: [{device_uid: "sensor-a"}]}),
+  )
   assert.match(html, /No active incident/)
   assert.match(html, /Next overheat in 05:00/)
   assert.match(html, /data-fault-trigger="overheat"[^>]*>Overheat</)
@@ -85,7 +87,12 @@ test("mid-fault the replayed opening event becomes the active incident", () => {
 
   const {PresenterStrip} = createDemoKit({React, sdk: fakeSdk({actions: fixture.actions})})
   const html = renderToStaticMarkup(
-    React.createElement(PresenterStrip, {scheduleRows: scheduleRows(fixture), incident, now: T0}),
+    React.createElement(PresenterStrip, {
+      scheduleRows: scheduleRows(fixture),
+      incident,
+      now: T0,
+      targets: [{device_uid: "sensor-a"}],
+    }),
   )
   assert.match(html, /Active: overheat on sensor-a/)
   assert.match(html, /Next overheat in 15:00/)

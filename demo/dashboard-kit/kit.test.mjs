@@ -43,7 +43,9 @@ const incident = {faultId: "jam@c7#1", kind: "jam", assetId: "conveyor-07", seve
 test("the strip shows the incident, the countdown and one button per fault", () => {
   const {sdk} = fakeSdk()
   const {PresenterStrip} = createDemoKit({React, sdk})
-  const html = renderToStaticMarkup(React.createElement(PresenterStrip, {scheduleRows, incident, now: T0}))
+  const html = renderToStaticMarkup(
+    React.createElement(PresenterStrip, {scheduleRows, incident, now: T0, targets: [{device_uid: "conveyor-07"}]}),
+  )
 
   assert.match(html, /Active: jam on conveyor-07/)
   assert.match(html, /Next jam in 01:30/)
@@ -63,7 +65,9 @@ test("without action permission the strip has no trigger buttons", () => {
 test("without schedule metrics, as with a real source, the countdown is hidden", () => {
   const {sdk} = fakeSdk()
   const {PresenterStrip} = createDemoKit({React, sdk})
-  const html = renderToStaticMarkup(React.createElement(PresenterStrip, {scheduleRows: [], now: T0}))
+  const html = renderToStaticMarkup(
+    React.createElement(PresenterStrip, {scheduleRows: [], now: T0, targets: [{device_uid: "conveyor-07"}]}),
+  )
 
   assert.doesNotMatch(html, /data-countdown/)
   assert.match(html, /data-fault-trigger="jam"/)
@@ -72,9 +76,19 @@ test("without schedule metrics, as with a real source, the countdown is hidden",
 test("trigger buttons are disabled while an invocation is running", () => {
   const {sdk} = fakeSdk({invocations: {"inv-1": {state: "running"}}})
   const {PresenterStrip} = createDemoKit({React, sdk})
-  const html = renderToStaticMarkup(React.createElement(PresenterStrip, {scheduleRows, now: T0}))
+  const html = renderToStaticMarkup(
+    React.createElement(PresenterStrip, {scheduleRows, now: T0, targets: [{device_uid: "conveyor-07"}]}),
+  )
 
   assert.match(html, /data-fault-trigger="jam" disabled=""/)
+})
+
+test("without a selected target the strip has no trigger buttons", () => {
+  const {sdk} = fakeSdk()
+  const {PresenterStrip} = createDemoKit({React, sdk})
+  const html = renderToStaticMarkup(React.createElement(PresenterStrip, {scheduleRows, now: T0}))
+
+  assert.doesNotMatch(html, /data-fault-trigger/)
 })
 
 test("the frame lays out header, chips, banner, visual and detail", () => {

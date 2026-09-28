@@ -8,6 +8,7 @@ import {
   formatCountdown,
   headlineIncident,
   latestSampleMs,
+  normalizeActionTargets,
   scheduleStatus,
   triggerRequest,
 } from "./presenter.js"
@@ -112,12 +113,27 @@ test("one trigger per declared fault kind, hidden without permission", () => {
 
 test("a trigger invokes the plugin's fault action with its kind", () => {
   const [trigger] = faultTriggers([{id: "act-fault", input_schema: {properties: {fault_kind: {enum: ["jam"]}}}}])
-  assert.deepEqual(triggerRequest(trigger, {targets: [{device_uid: "sr:device:c7"}], input: {duration_seconds: 120}}), {
+  assert.deepEqual(triggerRequest(trigger, {targets: [{deviceUid: "sr:device:c7"}], input: {duration_seconds: 120}}), {
     actionId: "act-fault",
     scope: "device",
     targets: [{device_uid: "sr:device:c7"}],
     input: {duration_seconds: 120, fault_kind: "jam"},
   })
+})
+
+test("action targets require devices and interfaces by scope", () => {
+  assert.deepEqual(normalizeActionTargets("device", [{deviceUid: "sr:device:c7", interfaceUid: "if-1"}]), [
+    {device_uid: "sr:device:c7"},
+  ])
+  assert.deepEqual(normalizeActionTargets("interface", [{deviceUid: "sr:device:c7", interfaceUid: "if-1"}]), [
+    {device_uid: "sr:device:c7", interface_uid: "if-1"},
+  ])
+  assert.deepEqual(normalizeActionTargets("device", []), [])
+  assert.deepEqual(normalizeActionTargets("device", Array.from({length: 51}, () => ({device_uid: "sr:device:c7"}))), [])
+  assert.deepEqual(normalizeActionTargets("device", [{}]), [])
+  assert.deepEqual(normalizeActionTargets("interface", [{device_uid: "sr:device:c7"}]), [])
+  assert.deepEqual(normalizeActionTargets("unknown", [{device_uid: "sr:device:c7"}]), [])
+  assert.throws(() => triggerRequest({actionId: "act-fault", kind: "jam"}, {targets: []}), /requires at least one/)
 })
 
 test("the event filter scopes to the plugin's fault events", () => {

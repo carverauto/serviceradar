@@ -17,6 +17,7 @@ import {
   faultTriggers,
   foldIncidents,
   formatCountdown,
+  hasActionTargets,
   headlineIncident,
   scheduleStatus,
   triggerRequest,
@@ -153,7 +154,8 @@ export function createDemoKit({React, sdk}) {
   // countdown hides without the simulator's schedule metrics.
   function PresenterStrip({pluginId, scope = "device", targets = [], scheduleRows = [], incident, now}) {
     const {allowed, actions, invoke, invocations} = sdk.useDashboardActions({scope, pluginId})
-    const triggers = faultTriggers(actions, {allowed})
+    const targetsReady = hasActionTargets(scope, targets)
+    const triggers = faultTriggers(actions, {allowed: allowed && targetsReady})
     const ticking = now === undefined
     const clock = useNow(ticking)
     const schedule = scheduleStatus(scheduleRows, ticking ? clock : now)

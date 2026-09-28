@@ -34,7 +34,8 @@ export function Dashboard() {
   // scenario is actually showing. The timeline key follows the same identity,
   // so a replaced fixture replays from an empty incident set.
   const loadedScenario = (status.activeCount ?? 0) > 0 ? "mid-fault" : "steady"
-  const {headline} = useFaultIncidents({logProvider: `plugin:${PLUGIN_ID}`, timelineKey: loadedScenario})
+  const timelineKey = frame?.fixture_timeline_key || loadedScenario
+  const {headline} = useFaultIncidents({logProvider: `plugin:${PLUGIN_ID}`, timelineKey})
 
   const chips = useMemo(
     () => [

@@ -19,6 +19,7 @@ const STATE = "demo.fault.state"
 const KIND = "demo.fault.kind"
 const FAULT_ID = "demo.fault.id"
 const ASSET = "asset_id"
+const MAX_ACTION_TARGETS = 50
 
 function metricName(row) {
   return row?.metric_name
@@ -174,9 +175,30 @@ function humanize(kind) {
   return text.charAt(0).toUpperCase() + text.slice(1)
 }
 
+export function normalizeActionTargets(scope = "device", targets = []) {
+  if (!Array.isArray(targets) || targets.length === 0 || targets.length > MAX_ACTION_TARGETS) return []
+  const normalizedScope = String(scope || "device")
+  if (normalizedScope !== "device" && normalizedScope !== "interface") return []
+  const needsInterface = normalizedScope === "interface"
+  const normalized = []
+  for (const target of targets) {
+    const deviceUid = String(target?.deviceUid ?? target?.device_uid ?? "").trim()
+    const interfaceUid = String(target?.interfaceUid ?? target?.interface_uid ?? "").trim()
+    if (!deviceUid || (needsInterface && !interfaceUid)) return []
+    normalized.push(needsInterface ? {device_uid: deviceUid, interface_uid: interfaceUid} : {device_uid: deviceUid})
+  }
+  return normalized
+}
+
+export function hasActionTargets(scope = "device", targets = []) {
+  return normalizeActionTargets(scope, targets).length > 0
+}
+
 /** The invocation request a trigger button sends through useDashboardActions. */
 export function triggerRequest(trigger, {scope = "device", targets = [], input = {}} = {}) {
-  return {actionId: trigger.actionId, scope, targets, input: {...input, fault_kind: trigger.kind}}
+  const normalizedTargets = normalizeActionTargets(scope, targets)
+  if (normalizedTargets.length === 0) throw new Error("fault trigger requires at least one valid target")
+  return {actionId: trigger.actionId, scope, targets: normalizedTargets, input: {...input, fault_kind: trigger.kind}}
 }
 
 /** Link to the product's alert view for an incident, when its alert id is known. */

@@ -15,12 +15,19 @@
 // work offline. Filters match the same keys the production channel accepts.
 
 export const MAX_EVENT_SUBSCRIPTIONS = 8
+export const MAX_ACTION_TARGETS = 50
 
 function harnessError(code, message) {
   const error = new Error(message)
   error.name = "DashboardChannelError"
   error.code = code
   return error
+}
+
+function requireCapability(capabilityAllowed, capability) {
+  if (!capabilityAllowed(capability)) {
+    throw harnessError("capability_denied", `dashboard capability is not approved: ${capability}`)
+  }
 }
 
 function stringSet(value) {
@@ -106,6 +113,12 @@ export function eventMatches(filter = {}, event = {}) {
   return normalized ? normalizedEventMatches(normalized, event) : false
 }
 
+export function withFixtureTimelineKey(frames = [], timelineKey = "") {
+  return (Array.isArray(frames) ? frames : []).map((frame) =>
+    frame && typeof frame === "object" ? {...frame, fixture_timeline_key: String(timelineKey)} : frame,
+  )
+}
+
 function normalizeActionScope(scope) {
   const normalized = String(scope || "device").trim()
   if (normalized === "device" || normalized === "interface") return normalized
@@ -135,6 +148,9 @@ function normalizeTargets(scope, targets) {
   if (!Array.isArray(targets) || targets.length === 0) {
     throw harnessError("invalid_request", "actions.invoke requires at least one target")
   }
+  if (targets.length > MAX_ACTION_TARGETS) {
+    throw harnessError("invalid_request", `At most ${MAX_ACTION_TARGETS} targets can be launched at once.`)
+  }
   return targets.map((target) => {
     const deviceUid = String(target?.deviceUid ?? target?.device_uid ?? "").trim()
     const interfaceUid = String(target?.interfaceUid ?? target?.interface_uid ?? "").trim()
@@ -145,7 +161,12 @@ function normalizeTargets(scope, targets) {
   })
 }
 
-export function createHarnessEventsApi({onCall = () => {}, setTimer = setTimeout, clearTimer = clearTimeout} = {}) {
+export function createHarnessEventsApi({
+  onCall = () => {},
+  capabilityAllowed = () => true,
+  setTimer = setTimeout,
+  clearTimer = clearTimeout,
+} = {}) {
   const subscriptions = new Map()
   let timers = []
   let sequence = 0
@@ -174,8 +195,9 @@ export function createHarnessEventsApi({onCall = () => {}, setTimer = setTimeout
       timers = []
     },
     publicApi: () => ({
-      allowed: () => true,
+      allowed: () => capabilityAllowed("events.subscribe"),
       subscribe(filter = {}, onEvents) {
+        requireCapability(capabilityAllowed, "events.subscribe")
         if (typeof onEvents !== "function") throw harnessError("invalid_request", "events.subscribe requires a callback")
         if (subscriptions.size >= MAX_EVENT_SUBSCRIPTIONS) {
           throw harnessError("invalid_request", `at most ${MAX_EVENT_SUBSCRIPTIONS} event subscriptions are allowed`)
@@ -196,6 +218,7 @@ export function createHarnessActionsApi({
   onCall = () => {},
   getActions = () => [],
   events = null,
+  capabilityAllowed = () => true,
   setTimer = setTimeout,
   stepMs = 400,
 } = {}) {
@@ -203,16 +226,20 @@ export function createHarnessActionsApi({
 
   return {
     publicApi: () => ({
-      allowed: () => true,
-      list: async (options = {}) =>
-        getActions()
+      allowed: () => capabilityAllowed("actions.invoke"),
+      list: async (options = {}) => {
+        requireCapability(capabilityAllowed, "actions.invoke")
+        return getActions()
           .filter((action) => actionMatchesOptions(action, options))
-          .map(({emits: _emits, ...action}) => ({...action})),
+          .map(({emits: _emits, ...action}) => ({...action}))
+      },
       invoke(request = {}, {onProgress} = {}) {
-        const actionId = String(request.actionId ?? request.action_id ?? "").trim()
-        if (!actionId) return Promise.reject(harnessError("invalid_request", "actions.invoke requires an actionId"))
         let scope
+        let actionId
         try {
+          requireCapability(capabilityAllowed, "actions.invoke")
+          actionId = String(request.actionId ?? request.action_id ?? "").trim()
+          if (!actionId) throw harnessError("invalid_request", "actions.invoke requires an actionId")
           scope = normalizeActionScope(request.scope)
           normalizeTargets(scope, request.targets)
         } catch (error) {

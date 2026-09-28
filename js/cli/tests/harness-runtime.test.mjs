@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import {createHarnessActionsApi, createHarnessEventsApi, eventMatches} from "../harness/runtime.js"
+import {createHarnessActionsApi, createHarnessEventsApi, eventMatches, withFixtureTimelineKey} from "../harness/runtime.js"
 
 const jam = {
   id: "evt-1",
@@ -97,12 +97,33 @@ test("invalid event filters are rejected before subscribing", () => {
   assert.throws(() => events.publicApi().subscribe({min_severity_id: "4"}, () => {}), {code: "invalid_request"})
 })
 
+test("events require the manifest subscribe capability", () => {
+  const events = createHarnessEventsApi({capabilityAllowed: () => false}).publicApi()
+
+  assert.equal(events.allowed(), false)
+  assert.throws(() => events.subscribe({log_provider: "plugin:demo-ot-plc"}, () => {}), {code: "capability_denied"})
+})
+
+test("actions require the manifest invoke capability", async () => {
+  const actions = createHarnessActionsApi({
+    capabilityAllowed: () => false,
+    getActions: () => [{id: "a", scope: "device"}],
+  }).publicApi()
+
+  assert.equal(actions.allowed(), false)
+  await assert.rejects(actions.list({scope: "device"}), {code: "capability_denied"})
+  await assert.rejects(actions.invoke({actionId: "a", targets: [{deviceUid: "d"}]}), {code: "capability_denied"})
+})
+
 test("unknown actions and invalid action requests are rejected", async () => {
   const actions = createHarnessActionsApi({getActions: () => [{id: "a", scope: "device"}]}).publicApi()
 
   await assert.rejects(actions.invoke({actionId: "missing", targets: [{deviceUid: "d"}]}), {code: "rejected"})
   await assert.rejects(actions.invoke({actionId: "a", scope: "bogus", targets: [{deviceUid: "d"}]}), {code: "invalid_request"})
   await assert.rejects(actions.invoke({actionId: "a", targets: []}), {code: "invalid_request"})
+  await assert.rejects(actions.invoke({actionId: "a", targets: Array.from({length: 51}, () => ({deviceUid: "d"}))}), {
+    code: "invalid_request",
+  })
   await assert.rejects(actions.invoke({actionId: "a", targets: [{}]}), {code: "invalid_request"})
   await assert.rejects(actions.invoke({actionId: "a", scope: "interface", targets: [{deviceUid: "d"}]}), {
     code: "invalid_request",
@@ -112,6 +133,16 @@ test("unknown actions and invalid action requests are rejected", async () => {
     {code: "rejected"},
   )
   await assert.rejects(actions.invoke({targets: [{deviceUid: "d"}]}), {code: "invalid_request"})
+})
+
+test("fixture timeline keys change frame identity without mutating fixtures", () => {
+  const frames = [{id: "schedule", results: []}]
+  const first = withFixtureTimelineKey(frames, "steady:1")
+  const second = withFixtureTimelineKey(frames, "steady:2")
+
+  assert.deepEqual(first, [{id: "schedule", results: [], fixture_timeline_key: "steady:1"}])
+  assert.deepEqual(second, [{id: "schedule", results: [], fixture_timeline_key: "steady:2"}])
+  assert.deepEqual(frames, [{id: "schedule", results: []}])
 })
 
 test("a fixture resolver can switch fixtures, replace frames, or leave them", async () => {
