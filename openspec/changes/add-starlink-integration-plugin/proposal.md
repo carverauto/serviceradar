@@ -58,6 +58,13 @@ SDK work is untagged, and the dashboard SDK has no typed action or event API.
   - tagged SDK releases (Go `v2.2.0`, Rust next minor) that the plugin pins;
   - typed `actions` and `events` APIs plus React hooks in `serviceradar-sdk-dashboard`,
     and server-side enforcement of `requires_confirmation` for dashboard-launched actions.
+- **Signal attribution and alert clears** (found during implementation):
+  - core resolves a plugin's own device reference on metrics, OCSF events and alerts to the
+    canonical device through its `integration_id` identifier, limited to the plugin's
+    declared inventory sources; today such references are stored raw and alerts fall back to
+    the agent's own device;
+  - the agent condition debounce gains condition scopes so a stateless plugin can emit only
+    active alerts and still get clear events, without per-run `ok` floods.
 - **Go module fetching**: standardize `GOPRIVATE`/`GONOSUMDB`/`GOPROXY=direct` handling for
   `github.com/carverauto/*` modules across Bazel, CI, plugin templates and SDK READMEs (and
   fix the SDK README's missing `/v2` module path). No new proxy infrastructure.
@@ -71,10 +78,14 @@ SDK work is untagged, and the dashboard SDK has no typed action or event API.
   - `wasm-plugin-system`
   - `wasm-plugin-builds`
   - `dashboard-sdk`
+  - `observability-signals`
   - `northbound-actions` (delta against the pending `add-northbound-action-integrations`)
 - Affected code:
   - `go/cmd/wasm-plugins/starlink/**` (new), `build/wasm_plugins/plugin_inventory.bzl`
   - `go/pkg/agent/plugin_runtime_*.go` (new gRPC host function, capability gating)
+  - `go/pkg/agent/plugin_condition_debounce.go` (condition scopes)
+  - `elixir/serviceradar_core/lib/serviceradar/event_writer/**`,
+    `observability/metric_envelope.ex`, alert device resolution (plugin device attribution)
   - `elixir/serviceradar_core/lib/serviceradar/plugins/**` (capability allowlist)
   - `elixir/web-ng/lib/serviceradar_web_ng_web/channels/dashboard_frame_channel/actions.ex`
     (confirmation enforcement)

@@ -16,9 +16,10 @@ pipeline, that ships a `starlink-cloud` package for the vendor cloud APIs and a
 
 ### Requirement: Starlink Service Account Credentials
 The `starlink-cloud` manifest SHALL declare a `starlink` credential profile whose auth method
-collects a client ID, a secret client secret and an optional managed account number, and
-whose grant uses host-side `oauth2_client_credentials` token exchange so the guest never
-receives the client secret.
+collects a client ID, a secret client secret and an optional managed account number,
+provisioned as producer schedules whose credential requirement grant uses host-side
+`oauth2_client_credentials` token exchange, so that scheduled collection runs in action mode
+with an injected bearer token and the guest never receives the client secret.
 
 #### Scenario: Token obtained by the host
 - **WHEN** a scheduled `starlink-cloud` run makes a Management API request
@@ -50,9 +51,10 @@ ServiceRadar inventory through `serviceradar.device_discovery.v1` snapshots.
 - **THEN** it follows the external inventory availability lifecycle and the plugin does not request deletion
 
 ### Requirement: Starlink Device Identity
-The plugins SHALL identify Starlink devices only by vendor device ID (as
-`starlink:ut:<id>` or `starlink:router:<id>`) and vendor kit serial, and SHALL NOT emit public
-IP addresses, vendor-default LAN addresses, or blank/placeholder values as device identifiers.
+The plugins SHALL identify Starlink devices only by vendor device ID, emitted as both
+`device_id` and `metadata.integration_id` in the form `starlink:ut:<id>` or
+`starlink:router:<id>`, and SHALL NOT emit public IP addresses, vendor-default LAN addresses,
+serials, or blank/placeholder values as device identifiers.
 
 #### Scenario: Shared public IP
 - **WHEN** two terminals report the same public IPv4 address
@@ -61,6 +63,10 @@ IP addresses, vendor-default LAN addresses, or blank/placeholder values as devic
 #### Scenario: Local result converges on cloud device
 - **WHEN** `starlink-local` reads a terminal whose vendor ID the cloud plugin already discovered
 - **THEN** local metrics and events attach to the same device and no second device is created
+
+#### Scenario: Metrics land on the discovered device
+- **WHEN** the cloud plugin emits a terminal metric with device reference `starlink:ut:<id>` after discovering that terminal
+- **THEN** the stored metric row carries the terminal's canonical device uid
 
 #### Scenario: Placeholder identifier
 - **WHEN** a vendor record carries an empty or all-zero identifier
@@ -94,7 +100,7 @@ only through the enum metadata of the same response.
 
 #### Scenario: Alert raised and cleared
 - **WHEN** a terminal reports an active alert on one run and no longer reports it on a later run
-- **THEN** the agent condition debounce produces one raise event and one clear event for that device and alert
+- **THEN** the agent produces one raise event and one clear event for that device and alert, and the plugin emits no event for alerts that were never active
 
 #### Scenario: Unknown alert code
 - **WHEN** a numeric alert code is not present in the response enum metadata

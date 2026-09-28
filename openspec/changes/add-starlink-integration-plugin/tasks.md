@@ -1,6 +1,6 @@
 ## 1. Proposal Approval
 - [x] 1.1 Review and approve the OpenSpec proposal.
-- [ ] 1.2 Resolve open questions: dashboard package location, multi-grant dispatcher support, terms-of-service review for unofficial local methods.
+- [ ] 1.2 Resolve open questions: dashboard package location, terms-of-service review for unofficial local methods, core reconciliation of scope markers, action credential binding.
 
 ## 2. Go Module Fetching
 - [ ] 2.1 Standardize `GOPRIVATE`/`GONOSUMDB` for `github.com/carverauto/*` in `.bazelrc`, `build/wasm_plugins/build_wasm_binary.sh`, `.github/workflows/wasm-plugins.yml` and `external-wasm-plugin.yml`.
@@ -13,6 +13,12 @@
 - [ ] 3.3 Advertise `grpc_request` in agent capabilities and add it to the core plugin capability allowlist and admission checks.
 - [ ] 3.4 Add agent tests: allowed call, denied destination, undeclared capability, h2c outside allowed networks, oversized response, timeout.
 
+## 3A. Signal Device Attribution and Condition Scopes
+- [ ] 3A.1 Add an ingest-time resolver for plugin-scoped device references (integration_id lookup, attested partition, declared inventory source prefix), batched and cached.
+- [ ] 3A.2 Use it in the metrics processor (`MetricResource.device_id`), the events processor (OCSF `device.uid`) and alert device resolution; never fall back to the agent's device for an unresolved plugin reference.
+- [ ] 3A.3 Add condition scopes to `go/pkg/agent/plugin_condition_debounce.go`: scope-complete marker, synthesized `ok` clears for keys absent from a complete scope, no forwarding or refresh of never-alerting `ok` keys; unscoped behavior unchanged.
+- [ ] 3A.4 Tests: resolved metric/event/alert attribution, foreign prefix refused, unresolved reference not attributed to the agent, scope clear synthesis, unscoped regression.
+
 ## 4. SDK Changes (serviceradar-sdk-go, serviceradar-sdk-rust)
 - [ ] 4.1 Go: unary gRPC wrapper, typed status errors, local dev-host gRPC handler.
 - [ ] 4.2 Go: `ResponseModeEnvelope` constant plus `Header` and `RetryAfter` helpers.
@@ -23,7 +29,7 @@
 
 ## 5. Starlink Cloud Plugin
 - [ ] 5.1 Scaffold `go/cmd/wasm-plugins/starlink/` (module, pinned tagged SDK, committed `vendor/`, `BUILD.bazel`, `main_tinygo.go`/`main_stub.go`), and register both bundles in `build/wasm_plugins/plugin_inventory.bzl`.
-- [ ] 5.2 Write `plugin.yaml` (`starlink-cloud`): capabilities, permissions, config schema, credential profile with OAuth2 client-credentials grant, split read/management allow lists, inventory source, signal schemas, proposed alert rules, actions.
+- [ ] 5.2 Write `plugin.yaml` (`starlink-cloud`): producer schedules for inventory and telemetry with the OAuth2 client-credentials credential requirement, capabilities, permissions, credential profile (`mode: producer_schedule`), split read/management allow lists, inventory source, signal schemas, proposed alert rules, actions.
 - [ ] 5.3 Management API client: response envelope parsing, index and cursor pagination, 429/`Retry-After` handling, per-run request budget.
 - [ ] 5.4 Inventory: terminals, routers, service lines to `device_discovery.v1` complete snapshots with the identity rules from design D3.
 - [ ] 5.5 Telemetry: bounded stream draining, name-based column decoding, enum decoding, metric mapping to `serviceradar.metric.v1` via `EmitTelemetry`, gap detection.
@@ -31,7 +37,7 @@
 - [ ] 5.7 Tests with synthetic fixtures only: pagination, partial snapshot, identity (shared public IP, placeholders), column reorder, unknown alert code, secret rejection in guest config.
 
 ## 6. Management Actions
-- [ ] 6.1 Confirm whether the northbound dispatcher supports multiple named credential grants per invocation; implement it with tests if not.
+- [ ] 6.1 Bind each management action's named credential requirements to the account's provisioned Starlink credential rule (multiple named grants per invocation are already supported by `credential_grants.ex`); add tests for the two-account move.
 - [ ] 6.2 Implement reboot actions for terminal and router.
 - [ ] 6.3 Implement `starlink.swap_terminal` with preflight, checkpointed steps, L2VPN re-apply and verification.
 - [ ] 6.4 Implement `starlink.move_terminal_account` with two credential requirements, checkpointed steps and verification.
