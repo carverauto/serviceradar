@@ -113,7 +113,7 @@ func (c *S3Client) do(ctx context.Context, method, path string, query url.Values
 	if err != nil {
 		return nil, fmt.Errorf("s3 %s %s: %w", method, path, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		var s3err s3Error

@@ -138,7 +138,7 @@ func WaitTCP(ctx context.Context, addr string, timeout time.Duration) error {
 	for time.Now().Before(deadline) {
 		conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
 		if err == nil {
-			conn.Close()
+			_ = conn.Close()
 			return nil
 		}
 		lastErr = err

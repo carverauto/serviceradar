@@ -21,7 +21,7 @@ func main() {
 
 	cfg, err := replayer.ConfigFromEnv()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "replayer: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "replayer: %v\n", err)
 		os.Exit(1)
 	}
 	os.Exit(replayer.Run(ctx, cfg, *fetchOnly, os.Stdout, os.Stderr))

@@ -177,9 +177,8 @@ declare_multiarch_image_index(
     visibility = ["//visibility:public"],
 )
 
-# Demo infrastructure image, pushed by the operator (or demo CI) and consumed
-# by digest from the gitops Deployment. `latest` is a convenience tag; the
-# deployment pins the digest printed by this push.
+# Demo infrastructure image, pushed by the operator (or demo CI).
+# See README.md for the deployment contract and digest-pinning guidance.
 oci_push(
     name = "image_push",
     image = ":image",

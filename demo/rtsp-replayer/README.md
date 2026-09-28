@@ -10,6 +10,8 @@ publisher per entry in [paths.json](paths.json):
 
 1. List the bucket and **refuse startup** if any object falls outside
    [clips.lock.json](clips.lock.json), or if a download's SHA-256 mismatches.
+   Reuse cached clips only after verifying their digests; replace missing or
+   mismatched cached clips with verified downloads.
 2. Generate a random publish password and render the embedded MediaMTX template
    to a mode-0600 file next to the clips directory. Start MediaMTX with that file,
    wait for its RTSP port, then start one authenticated publisher per path
@@ -82,9 +84,10 @@ Pinned third-party artifacts (MODULE.bazel `http_file`):
 
 ## Deploy (demo namespace)
 
-The Deployment lives in `carverauto/gitops` (demo namespace); the bucket-read
-credential is a Kubernetes Secret, which is acceptable here because the
-replayer is demo infrastructure, not a monitored device (D8).
+The digest-pinned Deployment and bucket-read Secret are follow-up work in
+`carverauto/gitops` (demo namespace). The configuration below is the deployment
+contract. A Kubernetes Secret is acceptable here because the replayer is demo
+infrastructure, not a monitored device (D8).
 
 Secret (values from the maintainer; never commit):
 
@@ -122,6 +125,11 @@ Deploy the image **by digest** from the push output, not
 `:latest`.
 
 ## Verify
+
+Run `replayer -fetch-only` with the same S3 configuration to fetch and verify
+the clips without starting MediaMTX or publishers. For playback checks, allow
+90 seconds after the supervisor logs `mediamtx ready, starting 6 publishers`
+for all staggered publishers to start.
 
 ```sh
 # Paths serve H.264 with no B-frames:

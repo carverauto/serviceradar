@@ -100,12 +100,12 @@ func Run(ctx context.Context, cfg Config, fetchOnly bool, stdout, stderr io.Writ
 
 	lock, err := ParseLock(defaultLock)
 	if err != nil {
-		fmt.Fprintf(stderr, "replayer: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "replayer: %v\n", err)
 		return 1
 	}
 	paths, err := ParsePaths(defaultPaths, lock)
 	if err != nil {
-		fmt.Fprintf(stderr, "replayer: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "replayer: %v\n", err)
 		return 1
 	}
 
@@ -118,7 +118,7 @@ func Run(ctx context.Context, cfg Config, fetchOnly bool, stdout, stderr io.Writ
 	}
 	log.Printf("fetching %d locked clips from s3://%s", len(lock.Clips), cfg.S3Bucket)
 	if err := EnsureClips(ctx, log, s3, lock, cfg.ClipsDir); err != nil {
-		fmt.Fprintf(stderr, "replayer: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "replayer: %v\n", err)
 		return 1
 	}
 	if fetchOnly {
@@ -128,10 +128,10 @@ func Run(ctx context.Context, cfg Config, fetchOnly bool, stdout, stderr io.Writ
 
 	configPath, publishURL, err := prepareMediaMTX(cfg.ClipsDir)
 	if err != nil {
-		fmt.Fprintf(stderr, "replayer: prepare mediamtx: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "replayer: prepare mediamtx: %v\n", err)
 		return 1
 	}
-	defer os.Remove(configPath)
+	defer func() { _ = os.Remove(configPath) }()
 	mediamtx := Child{Name: "mediamtx", Bin: cfg.MediamtxBin, Args: []string{configPath}}
 	ffmpegChildren := make([]Child, 0, len(paths.Paths))
 	for _, p := range paths.Paths {
@@ -148,8 +148,8 @@ func Run(ctx context.Context, cfg Config, fetchOnly bool, stdout, stderr io.Writ
 	}
 
 	// MediaMTX first: publishers have nowhere to push until its RTSP port
-	// accepts. Either side failing later stops the other; the replayer never
-	// serves a partial path set.
+	// accepts. Either side failing later stops the other, including publishers
+	// still waiting for their staggered start.
 	runCtx, stopAll := context.WithCancel(ctx)
 	defer stopAll()
 	mediamtxErr := make(chan error, 1)
@@ -159,12 +159,12 @@ func Run(ctx context.Context, cfg Config, fetchOnly bool, stdout, stderr io.Writ
 	rtspAddr := publishURL.Host
 	select {
 	case err := <-mediamtxErr:
-		fmt.Fprintf(stderr, "replayer: mediamtx failed to start: %v\n", err)
+		_, _ = fmt.Fprintf(stderr, "replayer: mediamtx failed to start: %v\n", err)
 		return 1
 	case <-time.After(45 * time.Second):
 		stopAll()
 		<-mediamtxErr
-		fmt.Fprintf(stderr, "replayer: mediamtx did not become ready\n")
+		_, _ = fmt.Fprintf(stderr, "replayer: mediamtx did not become ready\n")
 		return 1
 	case <-waitTCPAsync(runCtx, rtspAddr):
 	}
@@ -212,7 +212,7 @@ func prepareMediaMTX(clipsDir string) (string, *url.URL, error) {
 		err = closeErr
 	}
 	if err != nil {
-		os.Remove(f.Name())
+		_ = os.Remove(f.Name())
 		return "", nil, err
 	}
 	return f.Name(), u, nil
@@ -224,7 +224,7 @@ func exitFor(err error, ctx context.Context, stderr io.Writer) int {
 	if ctx.Err() != nil || err == nil {
 		return 0
 	}
-	fmt.Fprintf(stderr, "replayer: %v\n", err)
+	_, _ = fmt.Fprintf(stderr, "replayer: %v\n", err)
 	return 1
 }
 

@@ -68,7 +68,7 @@ func verifyFile(path, wantHex string) (bool, error) {
 		}
 		return false, fmt.Errorf("open %s: %w", path, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	sum, err := hashReader(f)
 	if err != nil {
 		return false, fmt.Errorf("hash %s: %w", path, err)
@@ -82,10 +82,10 @@ func downloadVerified(ctx context.Context, s3 *S3Client, clip Clip, dest string)
 		return fmt.Errorf("clip %s: temp file: %w", clip.Name, err)
 	}
 	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
+	defer func() { _ = os.Remove(tmpName) }()
 	hash := sha256.New()
 	if err := s3.GetObject(ctx, clip.Key, io.MultiWriter(tmp, hash)); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return fmt.Errorf("clip %s: %w", clip.Name, err)
 	}
 	if err := tmp.Close(); err != nil {
