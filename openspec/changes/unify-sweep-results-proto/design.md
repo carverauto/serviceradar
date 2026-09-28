@@ -179,15 +179,22 @@ sweeping. The lease horizon is operator-configurable.
 
 **Today.** Each agent runs its sweep groups on a local ticker and mints a UUIDv4
 execution id only when results are read. Core creates the execution row when
-results arrive, so it cannot tell a missed sweep from one never scheduled. No
-durable producer assignment, authority epoch or fence exists. The gateway loads
-its trust snapshot once, from a file, at boot.
+results arrive, so it cannot tell a missed sweep from one never scheduled.
+Assignment rows are persisted, as Assignment authority describes, and a group
+update that changes the authorized sweep fences them in the same transaction.
+No lease is issued and nothing is signed. The gateway still loads its trust
+snapshot once, from a file, at boot.
 
 **Assignment authority.** Core persists one assignment per (sweep group, agent):
-`producer_assignment_id`, `network_scope_id` (the agent's partition id),
-`run_shard` (0 until sweeps are sharded) and a monotonic `authority_epoch`. The
-epoch is the fence: it is bumped on reassignment, agent replacement, a target
-change and revocation.
+`producer_assignment_id` (the row id), `network_scope_id` (the agent's partition
+id), `run_shard` (0 until sweeps are sharded) and a monotonic `authority_epoch`.
+The epoch is the fence. It only moves up, by an atomic update, and is never
+reused, including when a revoked assignment is reissued. `ProducerAssignments`
+is the only writer. A group update bumps every active assignment when the
+partition, the selected agents, the targets, the target query, the ports, the
+modes, the overrides, or the profile change, and revokes an agent that is no
+longer selected. Reassignment and agent replacement both arrive as an
+`agent_ids` update.
 
 **Schedule lease.** For each opted-in assignment core pre-mints the executions
 of the lease horizon: a UUIDv7 `execution_id` whose time is the slot start, the

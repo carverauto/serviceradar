@@ -46,7 +46,10 @@
     group, agent): `producer_assignment_id`, `network_scope_id` (the agent's
     partition id), `run_shard` (0 until sharding) and a monotonic
     `authority_epoch`, bumped on reassignment, agent replacement, target change
-    and revocation.
+    and revocation. The table, the system-only writer, and that fence are in
+    tree (migration `20260928190000`; the field list is Assignment authority in
+    `design.md`). This item stays open until `producer_assignments_db_test` is
+    green on the BazelCI integration lane.
   - [ ] M2.0b Lease scheduler. For each opted-in assignment, core pre-mints the
     executions of the lease horizon (UUIDv7 `execution_id` at the slot start,
     slot window, plan and range digests from the compiled sweep config) and
