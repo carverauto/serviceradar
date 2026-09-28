@@ -128,23 +128,23 @@
 
   CLOSED 2026-09-14 under the ACCEPTED DEFERRAL below, which is this block's
   maintainer-approved docs-only scope amendment (`design.md`, "Scope
-  amendments"). https://github.com/carverauto/serviceradar/pull/443 made Groups
+  amendments"). commit `03f5e1d69a` made Groups
   D2, E and F execute instead of skipping (its own run was BuildBuddy invocation
   `7111e870-8bd0-41b7-a813-3c6d8dfa33cc`),
-  https://github.com/carverauto/serviceradar/pull/450 made Groups C and D prove
-  what they claim, and https://github.com/carverauto/serviceradar/pull/456 made
+  commit `7d96886cbf` made Groups C and D prove
+  what they claim, and commit `76d6eda5e5` made
   Groups E and F prove theirs. Evidence: the required `BazelCI` check on the
-  head of https://github.com/carverauto/serviceradar/pull/450, `5191de79d9`, ran
+  pre-merge head `5191de79d9` of the change that landed as commit `7d96886cbf` ran
   the integration wave as BuildBuddy invocation
   `41ba8a08-3901-4591-9b7e-530f1a4b4152`, which reported
   `//integration_tests/edge_record:vertical_slice_test PASSED`.
-  https://github.com/carverauto/serviceradar/pull/458 merged into
-  `usp-01-proposal` as `b794adbb6e`, whose tree is identical to that PR's head
+  The lane-death reader fix merged into
+  `usp-01-proposal` as commit `b794adbb6e`, whose tree is identical to that PR's head
   `0c1e0298c5`; its integration wave, BuildBuddy invocation
   `bc085c92-12b8-4e86-9983-84b7a6edaa10`, also reported
   `vertical_slice_test PASSED`.
-  https://github.com/carverauto/serviceradar/pull/456 then merged as
-  `76d6eda5e5`, whose tree is identical to that PR's head `dbadb382d6`; its
+  The lane-ledger E/F assertions then merged as
+  commit `76d6eda5e5`, whose tree is identical to that PR's head `dbadb382d6`; its
   integration wave, BuildBuddy invocation
   `19851940-b6af-4093-ae88-0743f44128b3`, also reported
   `vertical_slice_test PASSED`. The target runs without `-test.v`, so its test
@@ -159,8 +159,8 @@
 
   ACCEPTED DEFERRAL. Groups C, D, E and F carry none: their observations were
   closed, not deferred -- C and D by
-  https://github.com/carverauto/serviceradar/pull/450, E and F by
-  https://github.com/carverauto/serviceradar/pull/456. C
+  commit `7d96886cbf`, E and F by
+  commit `76d6eda5e5`. C
   `Redelivery` makes the ingest probe raise after the first delivery commits
   and before it is acknowledged, so the production pipeline NAKs, JetStream
   redelivers the same stored message, and that second entry must report
@@ -543,7 +543,7 @@
   journal copy, segment/metadata overhead, rollover amplification, and scratch
   reservation under one atomic filesystem byte allocator with an unborrowable
   minimum-free-space floor for recovery/control and terminal evidence.
-  PARTIALLY LANDED: https://github.com/carverauto/serviceradar/pull/377 gave
+  PARTIALLY LANDED: commit `2c816c114e` gave
   `go/pkg/edge/spool` its first production caller, the agent's edge-record
   sender, and added the `Resolved()` watermark read. The segmented recovery,
   rollover, and allocator obligations above are not implemented, so this task
@@ -558,7 +558,7 @@
   independent RPC per lane plus separately pooled bulk, interactive, and recovery
   HTTP/2 connections with reserved connection-level windows; test a zero-window
   stalled bulk connection while interactive and recovery frames progress.
-  PARTIALLY LANDED: https://github.com/carverauto/serviceradar/pull/377 added
+  PARTIALLY LANDED: commit `2c816c114e` added
   `go/pkg/edge/sender`, a minimum single-lane sender over the spool with
   credit-based flow control, wired into `go/cmd/agent`. Per-lane RPCs and pools,
   reconnect/replay, capability renewal, and quarantine are not implemented, so
@@ -1012,7 +1012,7 @@
   lacks, are withheld as retryable, because a boot-time binding may predate the assignment and no
   rejection route keeps the record. A producer with no fence entry, and a key id the snapshot does
   not hold or holds without the requested purpose, are withheld as retryable. Withheld frames
-  follow task 3.3's gap contract (#459).
+  follow task 3.3's gap contract (commit `3cba585303`).
   The runtime path is still incomplete: an AUDIT decision (a stale-epoch replay, decided with its
   `LATE_FENCED_DELIVERY` mode and proof) and a SECURITY-QUARANTINE decision are withheld rather
   than published. Publishing them is deferred to task 3.5, which owns their streams; EventWriter
@@ -1075,7 +1075,7 @@
   fairness are bounded at every hop":
   (i) RESTART OVERLAP -- CLOSED, and now under CONCURRENCY as well; its
   composed-level observation landed in
-  https://github.com/carverauto/serviceradar/pull/456 (see the note at the end of
+  commit `76d6eda5e5` (see the note at the end of
   this task). An earlier version of this note said the invariant was
   proven only against the serial
   publisher, which was the honest state at the time: with one caller able to hold
@@ -1103,7 +1103,7 @@
   generation registers, which cannot happen until the previous send capability is
   gone.
   (ii) POST-HANDOFF FENCING -- CLOSED; its composed-level observation landed in
-  https://github.com/carverauto/serviceradar/pull/456 (see the note at the end of
+  commit `76d6eda5e5` (see the note at the end of
   this task). Once
   a reservation is handed to a caller, a
   retry MUST NOT be admitted until the previous attempt is fenced by its REQUEST
@@ -1135,7 +1135,7 @@
   evidence that the specific request terminated, which is the correlation work in
   3.5, not a supervision change here.
   COMPOSED OBSERVATION (0.12 Groups E and F):
-  https://github.com/carverauto/serviceradar/pull/456 makes the vertical slice
+  commit `76d6eda5e5` makes the vertical slice
   observe (i) and (ii) against the lane ledger, so 0.12 records no deferral
   against this task. Group E holds three requests in flight with PubAcks
   withheld and kills the `:bulk` transport: a replacement generation accepts
@@ -1408,7 +1408,7 @@
   hash(service_slot)) to spread write load WITHIN a window. Add a
   chronological-DROP retirement job that retires whole expired ordered-time
   windows by range drop/detach.
-  PARTIALLY LANDED: https://github.com/carverauto/serviceradar/pull/379 added the
+  PARTIALLY LANDED: commit `0d3940cbe1` added the
   minimum slice ledger (migration `20260910120000_create_edge_record_ledger`:
   `event_ledger`, `edge_delivery_slots`, `edge_sweep_batch_slots`,
   `edge_sweep_projected_rows`) and the idempotent
