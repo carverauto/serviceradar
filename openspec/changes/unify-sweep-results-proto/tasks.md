@@ -4,7 +4,10 @@
 > task 0.12 is closed. The active work is the four end-to-end milestones M1-M4
 > below and nothing else. Each milestone closes only on evidence from the
 > required `BazelCI` composed target or from a running deployment (farm01, then
-> demo), recorded in the task: never on unit tests alone. Every task in the
+> demo), never on unit tests alone. Deployment evidence (queries, counts,
+> results) is recorded in the milestone's GitHub tracking issue, never in this
+> repository: data captured from a live system SHALL NOT be committed, so only
+> synthetic query shapes belong here. Every task in the
 > backlog further down remains owed but is NOT required to ship M1-M4 and SHALL
 > NOT be treated as a prerequisite of them. A milestone task that narrows a
 > backlog task names it; the backlog task stays unchecked until its full scope is
@@ -26,10 +29,24 @@
 
 ### M2. One real producer on farm01: the agent's ICMP/TCP sweep
 
+- [ ] M2.0 Producer authority. A production agent today holds none of the
+  material a valid record needs; only the test fixture self-signs. The control
+  plane issues it to an opted-in agent and the gateway trusts it: the agent's
+  `network_scope_id` (bound to that agent in the gateway trust snapshot), a
+  producer assignment with its shard and authority epoch (fenced at the
+  gateway), the output-contract reference matching the gateway's contract
+  registry, a SCHEDULED_SWEEP source authorization keyed to the execution, and a
+  production capability signed by a platform issuer key the gateway trusts. The
+  issuer key is ServiceRadar talking to itself, not a device credential. Narrows
+  1.10, 2.10, 2.20, 3.2 and 3.8 to one scheduled-sweep contract.
 - [ ] M2.1 Sweep producer. Completed host windows from the agent's sweep become
   byte-bounded `SweepObservationBatchV1` records appended to the existing agent
   spool and sent by the existing sender, while the scan continues (narrows 2.1,
-  2.2 and 2.10 to the in-process sweep only; no Wasm or native sink API).
+  2.2 and 2.10 to the in-process sweep only; no Wasm or native sink API). The
+  producer and sender share one spool handle; the execution id is a UUIDv7
+  minted when the sweep starts, not when results are read; ICMP sent/received
+  counts, per-port errors and the hostname come from the scanner, since the
+  legacy summary drops them; batches are grouped deterministically per host.
 - [ ] M2.2 Per-agent opt-in. An agent configuration flag selects the edge path
   for that agent's sweep output. Agents without it keep the legacy
   `GatewayServiceStatus{source: "results"}` path unchanged, and one execution is
@@ -46,13 +63,14 @@
   of 3.2 and 3.8), and the agent spool directory and size bound.
 - [ ] M2.5 Bounded spool. The agent reclaims a spool record only after its
   terminal disposition is durable at the gateway, so a long-running agent's
-  spool stays within its configured bound (the minimum of 3.10; the coverage
-  proof and rollover coordinator of 2.27-2.28 stay in the backlog).
+  spool stays within its configured bound. Today the sender never resolves a
+  record, so the spool only grows (the minimum of 3.10; the coverage proof and
+  rollover coordinator of 2.27-2.28 stay in the backlog).
 - [ ] M2.6 Parallel run on farm01. One canary agent on the edge path and one
   control agent on the legacy path sweep the same target set for at least 24
   hours. Per execution, host count, availability and open ports match between
-  the two in CNPG, and the canary's spool stays within its bound. Record the
-  queries and their results here.
+  the two in CNPG, and the canary's spool stays within its bound. The evidence
+  goes in the M2 tracking issue.
 
 ### M3. Survive real failures on farm01
 
@@ -65,7 +83,8 @@
 - [ ] M3.3 Fault drill. During active sweeps on farm01, restart the gateway,
   core (EventWriter), NATS and the canary agent, each at least once
   mid-execution. Afterwards CNPG shows zero missing and zero duplicated host
-  results against the control agent. Record the queries and their results here.
+  results against the control agent. The evidence goes in the M3 tracking
+  issue.
 - [ ] M3.4 Operator signals. Dashboards and alerts for agent spool bytes, oldest
   unresolved record age, gateway PubAck errors and EDGE_RECORD consumer lag
   (narrows 4.5).

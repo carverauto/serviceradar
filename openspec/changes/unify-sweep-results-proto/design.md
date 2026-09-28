@@ -148,12 +148,16 @@ The active work order is therefore four end-to-end milestones (`tasks.md`,
 1. M1: the vertical-slice target green again on `usp-01-proposal`.
 2. M2: the agent's sweep as the first real producer, projected into the same
    domain tables the legacy path writes, run beside the legacy path on farm01.
+   Its first task is producer authority: no production agent yet holds the
+   scope, assignment, contract reference or signed capability a record needs.
 3. M3: reconnect, backpressure and a restart drill on farm01 with zero loss and
    zero duplicates measured in CNPG.
 4. M4: sweep cut over and its legacy emission removed, then scheduled MTR.
 
 A milestone closes only on evidence from the required composed target or a
-running deployment, recorded in its task. The remaining tasks stay owed as a
+running deployment. Deployment evidence lives in the milestone's GitHub
+tracking issue, never in the repository, because data captured from a live
+system is not committed. The remaining tasks stay owed as a
 backlog that does not gate M1-M4: capacity baselines and benchmarks, the
 signed registry lifecycle and cost API, the Wasm, native and inventory producer
 migrations, the recovery coordinator and coverage-proof reclamation, DLQ and
