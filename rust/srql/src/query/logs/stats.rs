@@ -1,6 +1,6 @@
 use super::stats_clauses::{build_lowered_text_clause, build_numeric_clause, build_text_clause};
 use super::stats_expr::parse_stats_expressions;
-use super::time::effective_timestamp_sql;
+use super::time::log_timestamp_sql;
 use super::{RECOGNIZED_SEVERITY_TEXTS, severity_match_any};
 use crate::{
     error::{Result, ServiceError},
@@ -84,10 +84,10 @@ pub(super) fn build_stats_query(plan: &QueryPlan) -> Result<Option<LogsStatsSql>
     let mut clauses = Vec::new();
 
     if let Some(TimeRange { start, end }) = &plan.time_range {
-        clauses.push(format!("{} >= ?", effective_timestamp_sql()));
+        clauses.push(format!("{} >= ?", log_timestamp_sql()));
         binds.push(SqlBindValue::Timestamp(*start));
         // Half-open, like the list query, the severity rollup and the StarRocks dialect.
-        clauses.push(format!("{} < ?", effective_timestamp_sql()));
+        clauses.push(format!("{} < ?", log_timestamp_sql()));
         binds.push(SqlBindValue::Timestamp(*end));
     }
 
@@ -438,7 +438,7 @@ mod tests {
     }
 
     #[test]
-    fn stats_query_uses_effective_timestamp() {
+    fn stats_query_windows_by_event_timestamp() {
         let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
         let end = start + ChronoDuration::hours(24);
         let plan = QueryPlan {
@@ -459,17 +459,18 @@ mod tests {
         let stats_sql = build_stats_query(&plan).expect("stats query should parse");
         let stats_sql = stats_sql.expect("stats SQL expected");
         assert!(
-            stats_sql
-                .sql
-                .contains("COALESCE(observed_timestamp, timestamp) >= ?"),
-            "time filter should use effective timestamp: {}",
+            stats_sql.sql.contains("timestamp >= ?"),
+            "time filter should window by event timestamp: {}",
             stats_sql.sql
         );
         assert!(
-            stats_sql
-                .sql
-                .contains("COALESCE(observed_timestamp, timestamp) < ?"),
-            "time filter should use effective timestamp: {}",
+            stats_sql.sql.contains("timestamp < ?"),
+            "time filter should window by event timestamp: {}",
+            stats_sql.sql
+        );
+        assert!(
+            !stats_sql.sql.contains("COALESCE(observed_timestamp"),
+            "the observed timestamp must not decide window membership: {}",
             stats_sql.sql
         );
     }

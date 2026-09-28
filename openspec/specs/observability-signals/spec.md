@@ -468,14 +468,14 @@ The system SHALL preserve source-event provenance when duplicate events are supp
 - **THEN** the incident SHALL record updated occurrence metadata including at least occurrence count and last-seen time
 - **AND** operators SHALL be able to inspect the grouping context that caused the event to be suppressed into that incident
 
-### Requirement: Logs time filtering uses observed timestamps when available
-The system SHALL evaluate log time filters and ordering against an effective timestamp that prefers `observed_timestamp` when present and falls back to the event `timestamp`.
+### Requirement: Logs time filtering uses the event timestamp
+The system SHALL evaluate log time filters and ordering against the event `timestamp` column on both backends, so a log line's window membership and order agree regardless of its `observed_timestamp`.
 
-#### Scenario: Syslog without timezone appears in recent results
-- **GIVEN** a syslog log record with an event `timestamp` that lacks timezone context and an `observed_timestamp` set at ingest
+#### Scenario: Log is windowed by its event timestamp
+- **GIVEN** a log record with an event `timestamp` and an `observed_timestamp` set at ingest that disagrees with it
 - **WHEN** a user queries `in:logs time:last_24h sort:timestamp:desc`
-- **THEN** the log SHALL be included based on the observed timestamp
-- **AND** the stored event timestamp SHALL remain unchanged in the result payload
+- **THEN** the log SHALL be included and ordered based on the event `timestamp`
+- **AND** the stored `observed_timestamp` SHALL remain unchanged in the result payload
 
 ### Requirement: BMP Causal Ingestion Path
 BMP routing events SHALL enter ServiceRadar through `BMP collector (risotto) -> NATS JetStream -> Elixir Broadway consumer` and SHALL NOT require agent-originated gRPC payloads.

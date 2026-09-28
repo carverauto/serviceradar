@@ -6,12 +6,17 @@
 //! outranks a disagreeing number, a number with no text, unrecognised text that falls back to
 //! the number, and a row neither classifies.
 
-use super::{Anchor, BATCH_ROWS, Backend, instant, opt_num, opt_text, synthetic_uuid, text};
+use super::{
+    Anchor, BATCH_ROWS, Backend, instant, opt_instant, opt_num, opt_text, synthetic_uuid, text,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LogRow {
     pub id: String,
     pub timestamp: chrono::DateTime<chrono::Utc>,
+    /// The collection instant (OTel `observedTimeUnixNano` / ingest receive time). Kept for
+    /// display; window membership and ordering use `timestamp` on both backends.
+    pub observed_timestamp: Option<chrono::DateTime<chrono::Utc>>,
     pub severity_text: Option<&'static str>,
     pub severity_number: Option<i32>,
     pub body: String,
@@ -54,6 +59,7 @@ pub fn logs(anchor: Anchor) -> Vec<LogRow> {
             rows.push(LogRow {
                 id: synthetic_uuid(0x41, (minute * 8 + index as i64) as u64),
                 timestamp: anchor.at(minute * 60 + 13 + index as i64),
+                observed_timestamp: None,
                 severity_text,
                 severity_number,
                 body: format!("synthetic log line {minute} from {service}"),
@@ -76,9 +82,39 @@ pub fn logs(anchor: Anchor) -> Vec<LogRow> {
         rows.push(LogRow {
             id: synthetic_uuid(0x42, n as u64),
             timestamp,
+            observed_timestamp: None,
             severity_text: Some("INFO"),
             severity_number: Some(9),
             body: format!("synthetic edge log line {n}"),
+            service_name: service,
+            source,
+            ingest_agent_id: "agent-parity-01",
+            source_ip: ip,
+        });
+    }
+
+    // The observed-timestamp window ({window_skew}): rows whose collection instant
+    // (`observed_timestamp`) disagrees with their event time (`timestamp`). They exist to prove
+    // both backends window and order by the event time, so a row never migrates windows (or
+    // changes list position) on one dialect only.
+    //
+    //   skew_inside   event +10m, observed +50m   } both inside: reversed order under observed
+    //   skew_inside2  event +20m, observed +40m   }
+    //   skew_cross    event +30m, observed +90m   observed lies past the window's upper bound
+    let skew = [
+        (600_i64, 3000_i64, "skew_inside"),
+        (1200, 2400, "skew_inside2"),
+        (1800, 5400, "skew_cross"),
+    ];
+    for (n, (event_offset, observed_offset, label)) in skew.into_iter().enumerate() {
+        let (service, source, ip) = SERVICES[0];
+        rows.push(LogRow {
+            id: synthetic_uuid(0x43, n as u64),
+            timestamp: anchor.at(11 * 3600 + event_offset),
+            observed_timestamp: Some(anchor.at(11 * 3600 + observed_offset)),
+            severity_text: Some("INFO"),
+            severity_number: Some(9),
+            body: format!("synthetic {label} log line"),
             service_name: service,
             source,
             ingest_agent_id: "agent-parity-01",
@@ -90,7 +126,8 @@ pub fn logs(anchor: Anchor) -> Vec<LogRow> {
 
 pub fn inserts(rows: &[LogRow], backend: Backend, qualifier: &str) -> Vec<String> {
     let columns = "id, `timestamp`, ingest_identity, severity_text, severity_number, body, \
-                   service_name, source, ingest_agent_id, ingest_partition, source_ip";
+                   service_name, source, ingest_agent_id, ingest_partition, source_ip, \
+                   observed_timestamp";
     let columns = match backend {
         Backend::Cnpg => columns.replace('`', "\""),
         Backend::StarRocks => columns.to_string(),
@@ -105,7 +142,7 @@ pub fn inserts(rows: &[LogRow], backend: Backend, qualifier: &str) -> Vec<String
                         Backend::StarRocks => text(&r.id),
                     };
                     format!(
-                        "({id}, {}, {}, {}, {}, {}, {}, {}, {}, 'default', {})",
+                        "({id}, {}, {}, {}, {}, {}, {}, {}, {}, 'default', {}, {})",
                         instant(r.timestamp, backend),
                         text(&format!("parity:{}", r.id)),
                         opt_text(r.severity_text),
@@ -115,6 +152,7 @@ pub fn inserts(rows: &[LogRow], backend: Backend, qualifier: &str) -> Vec<String
                         text(r.source),
                         text(r.ingest_agent_id),
                         text(r.source_ip),
+                        opt_instant(r.observed_timestamp, backend),
                     )
                 })
                 .collect();
@@ -145,6 +183,27 @@ mod tests {
         assert!(
             rows.iter()
                 .any(|row| row.timestamp == anchor().edge_instant())
+        );
+    }
+
+    #[test]
+    fn the_observed_window_has_rows_that_disagree_with_their_event_time() {
+        let rows = logs(anchor());
+        let skew: Vec<&LogRow> = rows
+            .iter()
+            .filter(|row| row.observed_timestamp.is_some())
+            .collect();
+        assert_eq!(skew.len(), 3, "three skew rows: two ordering, one crossing");
+        assert!(
+            skew.iter()
+                .all(|row| row.observed_timestamp != Some(row.timestamp))
+        );
+        // The crossing row's observed instant lies past {window_skew}'s upper bound, while its
+        // event time is inside: an observed-time window drops it, an event-time window keeps it.
+        let skew_window_end = anchor().at(12 * 3600);
+        assert!(
+            skew.iter().any(|row| row.timestamp < skew_window_end
+                && row.observed_timestamp > Some(skew_window_end))
         );
     }
 }

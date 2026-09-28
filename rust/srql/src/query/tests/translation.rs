@@ -141,9 +141,9 @@ fn translate_timestamp_sorted_severity_list_uses_bounded_topn_branches() {
     assert!(response.sql.starts_with("SELECT severity_topn.* FROM ("));
     assert!(!response.sql.contains(" = ANY("), "{}", response.sql);
     assert!(
-        response.sql.contains(
-            "ORDER BY COALESCE(severity_topn.observed_timestamp, severity_topn.\"timestamp\") DESC, severity_topn.id DESC"
-        ),
+        response
+            .sql
+            .contains("ORDER BY severity_topn.\"timestamp\" DESC, severity_topn.id DESC"),
         "{}",
         response.sql
     );
@@ -258,17 +258,23 @@ fn translate_logs_without_time_gets_default_window() {
     let response = translate_request(&config, request).expect("translation should succeed");
 
     assert!(
-        response
-            .sql
-            .contains("COALESCE(observed_timestamp, timestamp) >= $1"),
+        response.sql.contains("timestamp >= $1"),
         "logs list query should be lower-bounded by default, got: {}",
         response.sql
     );
     assert!(
-        response
-            .sql
-            .contains("COALESCE(observed_timestamp, timestamp) < $2"),
+        response.sql.contains("timestamp < $2"),
         "logs list query should be upper-bounded by default, got: {}",
+        response.sql
+    );
+    assert!(
+        response.sql.contains("ORDER BY timestamp DESC"),
+        "logs list query should order by event timestamp, got: {}",
+        response.sql
+    );
+    assert!(
+        !response.sql.contains("COALESCE(observed_timestamp"),
+        "the observed timestamp must not decide window or order: {}",
         response.sql
     );
     assert_eq!(
@@ -294,12 +300,7 @@ fn translate_logs_stats_without_time_gets_default_window() {
     let response = translate_request(&config, request).expect("translation should succeed");
 
     assert!(
-        response
-            .sql
-            .contains("COALESCE(observed_timestamp, timestamp) >= $1")
-            && response
-                .sql
-                .contains("COALESCE(observed_timestamp, timestamp) < $2"),
+        response.sql.contains("timestamp >= $1") && response.sql.contains("timestamp < $2"),
         "logs stats query should be time-bounded by default, got: {}",
         response.sql
     );
@@ -2064,13 +2065,10 @@ fn translate_metric_and_event_windows_are_half_open() {
             format!("in:security_findings {window} stats:count() as total"),
             "\"ocsf_events\".\"time\" < $",
         ),
-        (
-            format!("in:logs {window} limit:10"),
-            "COALESCE(observed_timestamp, timestamp) < $2",
-        ),
+        (format!("in:logs {window} limit:10"), "timestamp < $2"),
         (
             format!("in:logs {window} stats:count() as total"),
-            "COALESCE(observed_timestamp, timestamp) < $2",
+            "timestamp < $2",
         ),
     ];
 

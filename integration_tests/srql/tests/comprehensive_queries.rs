@@ -42,11 +42,9 @@ async fn comprehensive_queries_match_fixtures() {
         },
         TestCase {
             query: "in:logs time:last_10m sort:timestamp:desc",
-            expected_count: 2,
+            expected_count: 1,
             validator: Some(Box::new(|body| {
-                let results = body["results"].as_array().unwrap();
-                assert_eq!(results[0]["body"], "Connection failed");
-                assert_eq!(results[1]["body"], "Application started");
+                assert_eq!(body["results"][0]["body"], "Application started");
             })),
         },
         TestCase {

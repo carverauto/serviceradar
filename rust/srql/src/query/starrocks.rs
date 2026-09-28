@@ -4529,6 +4529,25 @@ mod tests {
     }
 
     #[test]
+    fn logs_window_and_order_by_event_timestamp_not_observed() {
+        let compiled = translate(
+            &plan(
+                "in:logs time:[2026-09-19T10:00:00Z,2026-09-19T16:00:00Z] sort:timestamp:desc limit:5",
+            ),
+            "serviceradar",
+        )
+        .expect("logs compile");
+        let sql = &compiled.sql;
+        assert!(sql.contains("`timestamp` >="), "{sql}");
+        assert!(sql.contains("`timestamp` <"), "{sql}");
+        assert!(sql.contains("ORDER BY timestamp DESC"), "{sql}");
+        assert!(
+            !sql.contains("COALESCE(observed_timestamp"),
+            "the warehouse must window/order by event timestamp, not observed: {sql}"
+        );
+    }
+
+    #[test]
     fn attributed_flows_filter_persisted_pid_not_live_catalog_join() {
         let compiled = translate(
             &plan("in:attributed_flows time:last_1h limit:5"),
