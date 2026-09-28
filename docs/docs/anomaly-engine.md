@@ -198,7 +198,9 @@ An OCSF event row represents a lifecycle transition, not a detector evaluation.
 
 Every emitted row carries deterministic identity:
 
-- `finding_uid`: stable per finding series.
+- `finding_uid`: derived from the canonical device and finding series. If a
+  device merge changes it, the next report for the same `episode_uid` updates
+  the existing episode's finding identity in place.
 - `episode_uid`: stable per open lifecycle.
 - `transition`: `open`, `update`, or `clear`.
 - `producer_version`: anomaly add-on version.
