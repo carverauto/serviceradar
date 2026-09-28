@@ -88,9 +88,11 @@ SHALL NOT be a durable bulk-record boundary.
 - **THEN** the agent-gateway MAY forward bounded non-persistent status through
   the existing gRPC/ERTS control route, as described in "Control and small
   status remain direct"
-- **AND** persistent results, including `sync` and `sweep` results, SHALL NOT
-  share that routing because they are small; they SHALL use the durable record
-  plane as described in "Sweep observations use layered delivery"
+- **AND** persistent results SHALL NOT share that routing; general persistent
+  results, including `sync`, SHALL use the durable record plane as described in
+  "Plugin or integration publishes persistent output"
+- **AND** persistent `sweep` results SHALL use the durable record plane as
+  described in "Sweep observations use layered delivery"
 
 ### Requirement: Results routing is explicit by output contract
 The durable result pipeline SHALL route typed platform records, approved

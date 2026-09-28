@@ -47,8 +47,8 @@ admission controls so one site/address space cannot monopolize the installation.
   "acme-corp.events.poller.health"
 - **THEN** the consumer SHALL NOT extract "acme-corp" as a tenant slug from the
   subject
-- **AND** no subject token SHALL alter identity or authority, as described in
-  "Result publication does not interpolate identity"
+- **AND** it SHALL derive identity from the verified envelope/proof for its
+  signal contract, and no subject token SHALL alter that identity or authority
 
 #### Scenario: Cross-tenant message isolation
 
@@ -145,8 +145,8 @@ verified envelope/proof for its signal contract, never from a customer prefix.
 - **THEN** it SHALL filter by the signal's fixed subject family rather than a
   customer prefix such as "acme-corp.events.>"
 - **AND** it SHALL derive network scope, agent, and authorization identity from
-  the verified envelope, as described in "Record consumer receives a fixed
-  subject"
+  the verified envelope/proof for its signal contract, never from a customer
+  prefix or any other subject token
 
 ### Requirement: Per-tenant zen consumers
 
