@@ -53,8 +53,9 @@ wait is cancelled by Postgres `statement_timeout`.
   `shadowDatasets`/`cutoverDatasets` lists, the dual-write and the soak before retiring writes
   are removed. A reader that has no warehouse implementation yet reports its data as unavailable instead of
   reading a CNPG table that stopped receiving rows. CNPG stays a complete, supported backend for
-  installations without StarRocks: every writer and reader keeps its CNPG implementation, and no
-  CNPG telemetry table is dropped.
+  installations without StarRocks, subject to the existing warehouse-only flow-serving
+  exception in [NetFlow](../../../docs/docs/netflow.md#flow-cutover-and-delivery).
+  Other writers and readers keep their CNPG implementation, and no CNPG telemetry table is dropped.
 - **MTR moves onto JetStream.** Core publishes every MTR trace result to a JetStream subject and
   EventWriter persists traces and hops (warehouse when enabled, CNPG otherwise), removing the
   last direct-to-database MTR write path.

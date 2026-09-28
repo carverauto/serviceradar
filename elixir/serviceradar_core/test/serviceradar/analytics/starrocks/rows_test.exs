@@ -10,6 +10,39 @@ defmodule ServiceRadar.Analytics.StarRocks.RowsTest do
   # 65_533 is the StarRocks events.message VARCHAR limit (priv/starrocks/0004).
   @message_limit 65_533
 
+  test "flow records retain attribution with atom and JSON field names" do
+    flow = %{
+      id: "flow-example-01",
+      agent_id: "agent-example-01",
+      event_type: "attributed_flow",
+      pid: 73,
+      comm: "sshd",
+      cmdline: "/usr/sbin/sshd -D",
+      workload_identity: %{"namespace" => "example"}
+    }
+
+    for input <- [flow, flow |> Jason.encode!() |> Jason.decode!()] do
+      assert [encoded] = Rows.encode(:flows, [input])
+      assert encoded["agent_id"] == "agent-example-01"
+      assert encoded["pid"] == 73
+      assert encoded["comm"] == "sshd"
+      assert encoded["cmdline"] == "/usr/sbin/sshd -D"
+      assert Jason.decode!(encoded["workload_identity"]) == %{"namespace" => "example"}
+    end
+  end
+
+  test "flow payloads prefer redacted commands and retain legacy commands" do
+    for {attribution, expected} <- [
+          {%{"redacted_cmdline" => "sshd -D", "cmdline" => "sshd -legacy"}, "sshd -D"},
+          {%{"cmdline" => "sshd -legacy"}, "sshd -legacy"}
+        ] do
+      assert [%{"cmdline" => ^expected}] =
+               Rows.encode(:flows, [
+                 %{id: "flow-example-01", ocsf_payload: %{"attribution" => attribution}}
+               ])
+    end
+  end
+
   defp encode_event(overrides) do
     Map.merge(
       %{

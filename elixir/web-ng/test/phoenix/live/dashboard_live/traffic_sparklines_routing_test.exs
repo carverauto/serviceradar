@@ -15,14 +15,24 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.TrafficSparklinesRoutingTest d
     %{prev: prev}
   end
 
-  test "the throughput sparkline keeps its CNPG relations while flows are not cut over", %{prev: prev} do
-    Application.put_env(:serviceradar_core, StarRocks, Keyword.put(prev, :cutover_datasets, [:metrics]))
+  test "the throughput sparkline refuses CNPG while flows are not cut over", %{prev: prev} do
+    Application.put_env(
+      :serviceradar_core,
+      StarRocks,
+      Keyword.put(prev, :cutover_datasets, [:metrics])
+    )
 
-    assert TrafficSparklines.warehouse_traffic_rows(@cutoff, 900) == :cnpg
+    # Flows are warehouse-only: before cutover the reader is refused, never
+    # handed CNPG flow aggregates.
+    assert {:error, :starrocks_required} = TrafficSparklines.warehouse_traffic_rows(@cutoff, 900)
   end
 
   test "with flows cut over it asks the warehouse and never falls back to CNPG", %{prev: prev} do
-    Application.put_env(:serviceradar_core, StarRocks, Keyword.put(prev, :cutover_datasets, [:flows]))
+    Application.put_env(
+      :serviceradar_core,
+      StarRocks,
+      Keyword.put(prev, :cutover_datasets, [:flows])
+    )
 
     # No warehouse is running under this test, so the read fails; what matters
     # is that the answer is the warehouse's error and not `:cnpg`.
