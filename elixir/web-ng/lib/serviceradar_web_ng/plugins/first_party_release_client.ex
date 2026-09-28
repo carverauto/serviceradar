@@ -5,20 +5,21 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
   (issue 3425) so both the Wasm plugin importer and the native add-on importer
   reuse one HTTP/OCI/cosign client instead of duplicating it.
 
-  Covers: repo-URL parsing, release + asset fetch, JSON index decode, OCI manifest
-  /blob fetch (with registry bearer-token + docker-config auth and redirect
-  handling), Cosign verification, trusted-host/URL validation, and digest/string
-  utilities. Nothing here is plugin- or addon-specific; the index entry shape,
-  bundle layout, and persistence stay in each importer.
+  GitHub release listing and index decoding delegate to
+  `ServiceRadarWebNG.Packages.RepoClient` so they route through
+  `ServiceRadar.HTTP.EgressClient` in proxied deployments. The OCI / binary-asset
+  download path (which needs manual redirect handling and registry bearer-token
+  auth) stays here.
 
-  Injection seams (unchanged from FirstPartyImporter so existing config + tests
-  keep working): `:first_party_plugin_import_http_client` (HTTP client, default
-  `Req`), `:first_party_plugin_cosign_verifier` (default `CosignVerifier`),
+  Injection seams: `:first_party_plugin_import_http_client` (OCI + asset HTTP
+  client, default `Req`; also injected into `RepoClient` for GitHub API calls in
+  tests), `:first_party_plugin_cosign_verifier` (default `CosignVerifier`),
   `:first_party_plugin_import_github_token` / `GITHUB_TOKEN`, and
   `:first_party_plugin_import` (`:repo_url`, `:registry_docker_config_json/file`).
   """
 
   alias ServiceRadar.Plugins.RepoUrl
+  alias ServiceRadarWebNG.Packages.RepoClient
   alias ServiceRadar.Policies.OutboundURLPolicy
   alias ServiceRadarWebNG.Plugins.CosignVerifier
   alias ServiceRadarWebNG.Plugins.Storage
@@ -85,17 +86,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
   # --- release + asset fetch ----------------------------------------------------
 
   def fetch_release(repo, tag) do
-    url = "#{repo.api_base_url}/repos/#{repo.owner}/#{repo.repo}/releases/tags/#{URI.encode(tag)}"
-
-    with {:ok, request_url} <- validate_provider_api_url(repo, url),
-         {:ok, response} <- request(request_url, headers: api_headers(repo), decode_body: true) do
-      case response do
-        %Req.Response{status: 200, body: body} when is_map(body) -> {:ok, body}
-        %Req.Response{status: 404} -> {:error, not_found_reason(repo, "Release tag #{tag} was not found")}
-        %Req.Response{status: status} when status in [401, 403] -> {:error, credential_reason(repo, status)}
-        %Req.Response{status: status} -> {:error, "Release import failed with HTTP #{status}"}
-      end
-    end
+    RepoClient.fetch_release(%{owner: repo.owner, repo: repo.repo}, tag, repo_client_opts(repo))
   end
 
   @doc """
@@ -190,44 +181,25 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
   end
 
   def fetch_recent_releases(repo, limit) do
-    url = "#{repo.api_base_url}/repos/#{repo.owner}/#{repo.repo}/releases?per_page=#{normalize_limit(limit)}"
-
-    with {:ok, request_url} <- validate_provider_api_url(repo, url),
-         {:ok, response} <- request(request_url, headers: api_headers(repo), decode_body: true) do
-      case response do
-        %Req.Response{status: 200, body: body} when is_list(body) -> {:ok, body}
-        %Req.Response{status: 200} -> {:error, "Plugin release browser returned an unexpected payload"}
-        %Req.Response{status: 404} -> {:error, not_found_reason(repo, "Repository or releases not found")}
-        %Req.Response{status: status} when status in [401, 403] -> {:error, credential_reason(repo, status)}
-        %Req.Response{status: status} -> {:error, "Recent plugin releases could not be loaded (HTTP #{status})"}
-      end
-    end
+    RepoClient.fetch_recent_releases(%{owner: repo.owner, repo: repo.repo}, limit, repo_client_opts(repo))
   end
 
-  defp not_found_reason(repo, fallback) do
-    if repo_token(repo) do
-      fallback <>
-        ". If this repository is private, its access token may lack access to it " <>
-        "(GitHub answers 404, not 403, for a repository the token cannot see)."
-    else
-      fallback <>
-        ". If this repository is private, attach a GitHub access token to it: " <>
-        "an unauthenticated request cannot see private repositories and GitHub " <>
-        "reports that as 404."
-    end
-  end
+  # Opts passed to RepoClient for GitHub release listing.
+  # Uses the configured `:first_party_plugin_import_http_client` (EgressClient by
+  # default) so tests can inject a mock while production routes through the proxy.
+  defp repo_client_opts(repo) do
+    client =
+      Application.get_env(
+        :serviceradar_web_ng,
+        :first_party_plugin_import_http_client,
+        ServiceRadar.HTTP.EgressClient
+      )
 
-  defp credential_reason(repo, status) do
-    if repo_token(repo) do
-      "Plugin repository rejected the configured access token (HTTP #{status}); " <>
-        "the token may be expired or missing repository read access."
-    else
-      "Plugin repository requires authentication (HTTP #{status}); attach a GitHub access token."
-    end
+    [
+      http_client: client,
+      github_token: repo_token(repo) || configured_token()
+    ]
   end
-
-  defp normalize_limit(limit) when is_integer(limit) and limit > 0, do: min(limit, 50)
-  defp normalize_limit(_limit), do: 10
 
   def fetch_release_asset(release, asset_name) do
     assets = List.wrap(Map.get(release, "assets"))
@@ -264,11 +236,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
   end
 
   def decode_index(body) when is_binary(body) do
-    case Jason.decode(body) do
-      {:ok, %{} = index} -> {:ok, index}
-      {:ok, _} -> {:error, "Plugin import index must contain a JSON object"}
-      {:error, _} -> {:error, "Plugin import index asset is not valid JSON"}
-    end
+    RepoClient.decode_index(body)
   end
 
   # --- OCI fetch ----------------------------------------------------------------
@@ -623,10 +591,6 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
 
   defp req_opts do
     [connect_options: [timeout: 5_000], receive_timeout: 10_000, redirect: false]
-  end
-
-  defp api_headers(repo) do
-    [{"user-agent", "serviceradar"}, {"accept", "application/vnd.github+json"} | auth_headers(repo)]
   end
 
   defp asset_headers(repo, url) do
