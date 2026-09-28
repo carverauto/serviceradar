@@ -995,8 +995,8 @@ defmodule ServiceRadar.EventWriter.Producer do
 
     {requested, requested_by_subject, _remaining_budget} =
       Enum.reduce_while(tail ++ head, {0, [], budget}, fn consumer,
-                                                       {requested, requested_by_subject,
-                                                        remaining} ->
+                                                          {requested, requested_by_subject,
+                                                           remaining} ->
         # One outstanding pull per reply subject at a time so long-poll
         # accounting cannot stack overlapping batch budgets.
         outstanding = Map.get(state.pull_inflight_by_subject, consumer.pull_subject, 0)
@@ -1052,10 +1052,9 @@ defmodule ServiceRadar.EventWriter.Producer do
     min(available, Config.default_consumer_pull_batch_size())
   end
 
-  # Floor, not ceiling: with a ceiling the shares add up to more than the
-  # budget, so whenever it does not divide evenly the last consumers in the list
-  # get nothing, on every tick. Eighteen consumers and a demand of 94 gave six
-  # each to the first fifteen and none to the last two, which then never pulled.
+  # Floor division leaves a share for every consumer when budget >= count.
+  # Ceiling division can exhaust the budget before reaching the tail. When
+  # budget < count, the minimum share of one relies on rotation for fairness.
   defp fair_consumer_budget(_budget, consumer_count) when consumer_count <= 0, do: 0
   defp fair_consumer_budget(budget, _consumer_count) when budget <= 0, do: 0
   defp fair_consumer_budget(budget, consumer_count), do: max(1, div(budget, consumer_count))
