@@ -1823,7 +1823,7 @@ fn profile_order_sql(plan: &QueryPlan, bucket_count_alias: &str) -> String {
     format!("\nORDER BY {}", parts.join(", "))
 }
 
-fn floor_hour(value: chrono::DateTime<Utc>) -> chrono::DateTime<Utc> {
+pub(super) fn floor_hour(value: chrono::DateTime<Utc>) -> chrono::DateTime<Utc> {
     value
         .with_minute(0)
         .and_then(|value| value.with_second(0))
@@ -1837,7 +1837,7 @@ fn floor_hour(value: chrono::DateTime<Utc>) -> chrono::DateTime<Utc> {
 /// leaving an already-aligned end alone would exclude the bucket CNPG includes,
 /// so the two backends would resolve `latest` to different hours for the same
 /// query.
-fn exclusive_hour_end(value: chrono::DateTime<Utc>) -> chrono::DateTime<Utc> {
+pub(super) fn exclusive_hour_end(value: chrono::DateTime<Utc>) -> chrono::DateTime<Utc> {
     floor_hour(value) + chrono::Duration::hours(1)
 }
 

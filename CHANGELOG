@@ -18,7 +18,10 @@ identity stops merging on randomized MACs and anchorless seeds.
   preserve the requested dimensions and values, including CNPG disk mounts.
   Other shapes read only configured raw retention, including byte tags,
   host/process dimensions and warehouse mount filters; full historical
-  equivalence is not provided. Sub-hour charts over rollups use hourly grain.
+  equivalence is not provided. Charts use hourly rollups only for integral-hour
+  buckets; sub-hour and nonintegral-hour buckets read retained raw samples.
+  Rollup-compatible aggregates include their complete edge hours on both the
+  fresh-rollup path and the raw retry when a warehouse rollup is stale.
   New metric envelopes persist resource host identity for legacy host filters.
   The Analytics high-utilization
   cards, the device-list sysmon presence badge and the authored-dashboard

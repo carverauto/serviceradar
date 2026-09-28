@@ -73,6 +73,7 @@ pub(super) fn build_sql(plan: &QueryPlan) -> Result<String> {
             // pre-materialized column, and the bucket is hourly-or-coarser (the CAGG resolution).
             Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics => {
                 downsample.bucket_seconds >= 3600
+                    && downsample.bucket_seconds % 3600 == 0
                     && matches!(
                         downsample.agg,
                         DownsampleAgg::Avg | DownsampleAgg::Min | DownsampleAgg::Max

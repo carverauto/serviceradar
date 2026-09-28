@@ -324,6 +324,88 @@ fn legacy_sysmon_stats_rank_before_limiting_on_both_backends() {
 }
 
 #[test]
+fn metric_charts_use_rollups_only_for_integral_hour_buckets() {
+    let config = test_config();
+    for entity in ["cpu", "memory", "disk", "process", "timeseries_metrics"] {
+        for (bucket, covered) in [("5m", false), ("90m", false), ("1h", true), ("2h", true)] {
+            for mode in [None, Some("starrocks"), Some("starrocks_raw")] {
+                let response = translate_request(
+                    &config,
+                    QueryRequest {
+                        query: format!("in:{entity} device_id:host01.example.com time:last_30d bucket:{bucket} agg:avg series:device_id"),
+                        limit: None,
+                        cursor: None,
+                        direction: QueryDirection::Next,
+                        mode: mode.map(str::to_string),
+                        permitted_signals: None,
+                    },
+                ).expect("metric chart should translate");
+                assert_eq!(
+                    response.sql.contains("_hourly"),
+                    covered && mode != Some("starrocks_raw"),
+                    "{}",
+                    response.sql
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn legacy_sysmon_fresh_and_raw_translations_preserve_effective_window() {
+    let config = test_config();
+    for (entity, value) in [
+        ("cpu", "usage_percent"),
+        ("memory", "usage_percent"),
+        ("disk", "usage_percent"),
+        ("process", "cpu_usage"),
+    ] {
+        for shape in [
+            format!("stats:avg({value}) as average by device_id"),
+            "bucket:1h agg:avg series:device_id".into(),
+            "bucket:2h agg:count series:device_id".into(),
+        ] {
+            for (end, upper) in [("06:15:00", "07:00:00"), ("07:00:00", "08:00:00")] {
+                for mode in ["starrocks", "starrocks_raw"] {
+                    let response = translate_request(
+                        &config,
+                        QueryRequest {
+                            query: format!(
+                                "in:{entity} time:[2026-09-11T00:15:00Z,2026-09-11T{end}Z] {shape}"
+                            ),
+                            limit: None,
+                            cursor: None,
+                            direction: QueryDirection::Next,
+                            mode: Some(mode.into()),
+                            permitted_signals: None,
+                        },
+                    )
+                    .expect("aggregate should translate for either freshness state");
+                    assert_eq!(
+                        response.sql.contains("_hourly"),
+                        mode == "starrocks",
+                        "{}",
+                        response.sql
+                    );
+                    assert!(
+                        response.sql.contains(">= '2026-09-11 00:00:00.000000'"),
+                        "{}",
+                        response.sql
+                    );
+                    assert!(
+                        response
+                            .sql
+                            .contains(&format!("< '2026-09-11 {upper}.000000'")),
+                        "{}",
+                        response.sql
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn legacy_sysmon_aggregates_keep_timeseries_retention_routing() {
     let config = test_config();
     let old_start = chrono::Utc::now() - ChronoDuration::days(10);
@@ -358,12 +440,13 @@ fn legacy_sysmon_aggregates_keep_timeseries_retention_routing() {
                 ),
                 (
                     "disk bucket:5m agg:avg series:mount_point",
-                    "timeseries_metrics_disk_hourly",
+                    "timeseries_metrics",
                 ),
                 (
-                    "cpu bucket:5m agg:avg series:uid",
-                    "timeseries_metrics_hourly",
+                    "disk bucket:1h agg:avg series:mount_point",
+                    "timeseries_metrics_disk_hourly",
                 ),
+                ("cpu bucket:5m agg:avg series:uid", "timeseries_metrics"),
                 ("cpu bucket:1h agg:min", "timeseries_metrics_hourly"),
                 ("cpu bucket:1h agg:max", "timeseries_metrics_hourly"),
                 ("cpu bucket:1h agg:sum", "timeseries_metrics_hourly"),

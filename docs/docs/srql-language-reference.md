@@ -210,8 +210,12 @@ keep working.
 Historical aggregates use existing timeseries hourly rollups when those rollups
 preserve the requested fields, filters and series. The general rollup retains
 device identity and metric values; CNPG's disk rollup also retains mount points.
-Sub-hour chart requests served by rollups return hourly points. Averages are
-weighted by sample count. Shapes that require byte tags, host identity, process
+Charts use hourly rollups only for buckets that are positive multiples of one
+hour. Sub-hour and nonintegral-hour buckets use retained raw samples at the
+requested resolution. Rollup-compatible aggregates include the full hours
+containing the start and end timestamps, with the same effective window when
+a stale warehouse rollup triggers a raw retry. Averages are weighted by sample
+count. Shapes that require byte tags, host identity, process
 names or other unretained dimensions read only the configured raw retention
 (seven days by default on CNPG). StarRocks mount-specific queries also use raw
 retention because its general hourly rollup does not retain mounts. This
