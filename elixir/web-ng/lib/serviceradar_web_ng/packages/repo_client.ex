@@ -42,18 +42,25 @@ defmodule ServiceRadarWebNG.Packages.RepoClient do
   refs sometimes come from `git clone` output.
   """
   @spec parse_repo_url(term()) :: {:ok, %{owner: String.t(), repo: String.t()}} | {:error, atom()}
+  def parse_repo_url(nil), do: {:error, :missing_repo_url}
+  def parse_repo_url(""), do: {:error, :missing_repo_url}
+
   def parse_repo_url(url) when is_binary(url) do
     trimmed = String.trim(url)
 
-    case RepoUrl.parse(trimmed) do
-      {:ok, %{owner: owner, repo: repo}} ->
-        {:ok, %{owner: owner, repo: repo}}
+    if trimmed == "" do
+      {:error, :missing_repo_url}
+    else
+      case RepoUrl.parse(trimmed) do
+        {:ok, %{owner: owner, repo: repo}} ->
+          {:ok, %{owner: owner, repo: repo}}
 
-      {:error, _} ->
-        case Regex.run(~r/^git@github\.com:([^\/]+)\/(.+?)(?:\.git)?$/, trimmed) do
-          [_full, owner, repo] -> {:ok, %{owner: owner, repo: repo}}
-          _ -> {:error, :invalid_repo_url}
-        end
+        {:error, _} ->
+          case Regex.run(~r/^git@github\.com:([^\/]+)\/(.+?)(?:\.git)?$/, trimmed) do
+            [_full, owner, repo] -> {:ok, %{owner: owner, repo: repo}}
+            _ -> {:error, :invalid_repo_url}
+          end
+      end
     end
   end
 
