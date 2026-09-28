@@ -56,6 +56,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   # list — omitting a requested sensitive capability denies it.
   @sensitive_capabilities ~w(
     http_request
+    grpc_request
     websocket_connect
     websocket_send
     websocket_recv
