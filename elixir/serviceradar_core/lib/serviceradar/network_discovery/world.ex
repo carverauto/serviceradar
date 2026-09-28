@@ -19,6 +19,7 @@ defmodule ServiceRadar.NetworkDiscovery.World do
   alias ServiceRadar.NetworkDiscovery.WorldPosition
   alias ServiceRadar.NetworkDiscovery.WorldRelation
   alias ServiceRadar.NetworkDiscovery.WorldWorker
+  alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
 
   require Ash.Query
@@ -124,7 +125,8 @@ defmodule ServiceRadar.NetworkDiscovery.World do
 
   @doc "Activates a fully staged relayout only if its base publication is still current."
   def activate_relayout(expected_generation, layout_version) do
-    with :ok <- ensure_head() do
+    with :ok <- refresh_planner_statistics(),
+         :ok <- ensure_head() do
       @resources
       |> Ash.transact(
         fn ->
@@ -255,6 +257,21 @@ defmodule ServiceRadar.NetworkDiscovery.World do
     |> Ash.Query.filter(layout_version == ^layout_version and device_id == ^device_id and active)
     |> Ash.Query.filter(layout.status in [:active, :retired])
     |> Ash.read_one(scope: scope)
+  end
+
+  defp refresh_planner_statistics do
+    # Bulk staging can finish before autovacuum updates the empty-table statistics.
+    # Even a matching cursor index then loses to a full endpoint-index scan on
+    # every page. Analyze before acquiring the active-head lock, so readers keep
+    # serving the previous publication during this maintenance operation.
+    case Repo.query(
+           "ANALYZE platform.topology_world_positions, platform.topology_world_relations",
+           [],
+           timeout: @publication_timeout
+         ) do
+      {:ok, _result} -> :ok
+      {:error, _reason} = error -> error
+    end
   end
 
   defp ensure_head do
