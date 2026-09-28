@@ -1,0 +1,14 @@
+[package]
+name = "prefix_tags_nif"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[features]
+default = ["nif"]
+nif = ["dep:rustler"]
+
+[dependencies]
+rustler = { workspace = true, optional = true, features = ["nif_version_2_15"] }

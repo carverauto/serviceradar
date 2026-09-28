@@ -13,6 +13,7 @@ defmodule ServiceRadar.PrefixTags.ProviderSource do
   alias Ecto.Adapters.SQL
   alias ServiceRadar.PrefixTags.ExternalSources
   alias ServiceRadar.PrefixTags.Loader
+  alias ServiceRadar.PrefixTags.SnapshotReader
   alias ServiceRadar.PrefixTags.Store
   alias ServiceRadar.Repo
 
@@ -39,7 +40,7 @@ defmodule ServiceRadar.PrefixTags.ProviderSource do
     c.provider
   FROM platform.netflow_provider_dataset_snapshots s
   LEFT JOIN platform.netflow_provider_cidrs c ON c.snapshot_id = s.id
-  WHERE s.is_active = TRUE
+  WHERE s.is_active = TRUE AND s.id = $1
   ORDER BY c.cidr, c.provider
   """
 
@@ -59,41 +60,40 @@ defmodule ServiceRadar.PrefixTags.ProviderSource do
   @spec reload(keyword()) ::
           {:ok, ExternalSources.reload_result()} | {:error, term()}
   def reload(opts \\ []) do
-    broadcast? = Keyword.get(opts, :broadcast?, true)
-
-    case fetch_active_snapshot_meta() do
-      {:ok, nil} ->
-        Store.clear(@source)
-        maybe_broadcast(broadcast?)
-        {:ok, ExternalSources.reload_result(0, nil)}
-
-      {:ok, meta} ->
-        if skip_rebuild?(meta) do
-          Logger.info("PrefixTags.ProviderSource trie already current",
-            rows: meta.record_count,
-            snapshot_id: meta.id
-          )
-
-          {:ok, ExternalSources.reload_result(meta.record_count, meta.snapshot_at)}
-        else
-          load_and_install(meta, broadcast?)
-        end
-
-      {:error, reason} ->
-        {:error, reason}
+    if ExternalSources.enabled?() do
+      with {:ok, result} <- Store.put_stream(@source, &read_snapshot/0) do
+        maybe_broadcast(Keyword.get(opts, :broadcast?, true))
+        {:ok, ExternalSources.reload_result(result.row_count, result.snapshot_at)}
+      end
+    else
+      {:error, :external_sources_disabled}
     end
   rescue
     e -> {:error, e}
+  end
+
+  defp read_snapshot do
+    case fetch_active_snapshot_meta() do
+      {:ok, nil} ->
+        {[], %{active?: false, snapshot_at: nil}}
+
+      {:ok, meta} ->
+        rows =
+          @load_active_sql
+          |> SnapshotReader.stream([meta.id])
+          |> Stream.flat_map(&parse_query_result(&1).rows)
+
+        {rows, Map.merge(meta, %{token: snapshot_token(meta), row_count: meta.record_count})}
+
+      {:error, reason} ->
+        Repo.rollback(reason)
+    end
   end
 
   @doc false
   @spec snapshot_token(map()) :: String.t()
   def snapshot_token(%{id: id, source_sha256: sha, record_count: count}) do
     "#{id}:#{sha || ""}:#{count}"
-  end
-
-  defp skip_rebuild?(meta) do
-    Store.loaded?(@source) and Store.snapshot_token(@source) == snapshot_token(meta)
   end
 
   defp fetch_active_snapshot_meta do
@@ -109,30 +109,6 @@ defmodule ServiceRadar.PrefixTags.ProviderSource do
            record_count: count || 0,
            snapshot_at: ExternalSources.normalize_datetime(snapshot_at)
          }}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp load_and_install(meta, broadcast?) do
-    case SQL.query(Repo, @load_active_sql, []) do
-      {:ok, result} ->
-        %{active_snapshot?: active_snapshot?, rows: rows, snapshot_at: snapshot_at} =
-          parse_query_result(result)
-
-        if active_snapshot? do
-          # An active, authoritative zero-row snapshot must remain registered
-          # as loaded so callers do not fall back to an older SQL cache.
-          _ = Store.put_rows(@source, rows)
-          _ = Store.put_snapshot_token(@source, snapshot_token(meta))
-        else
-          Store.clear(@source)
-        end
-
-        maybe_broadcast(broadcast?)
-        Logger.info("PrefixTags.ProviderSource loaded provider trie", rows: length(rows))
-        {:ok, ExternalSources.reload_result(length(rows), snapshot_at)}
 
       {:error, reason} ->
         {:error, reason}

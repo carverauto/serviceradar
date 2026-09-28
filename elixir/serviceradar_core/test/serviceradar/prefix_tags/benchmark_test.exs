@@ -14,6 +14,15 @@ defmodule ServiceRadar.PrefixTags.BenchmarkTest do
   @moduletag :benchmark
 
   setup do
+    previous = Application.get_env(:serviceradar_core, :prefix_tags_engine)
+    Application.put_env(:serviceradar_core, :prefix_tags_engine, Trie)
+
+    on_exit(fn ->
+      if previous,
+        do: Application.put_env(:serviceradar_core, :prefix_tags_engine, previous),
+        else: Application.delete_env(:serviceradar_core, :prefix_tags_engine)
+    end)
+
     on_exit(fn -> Store.clear() end)
     Store.clear()
     :ok

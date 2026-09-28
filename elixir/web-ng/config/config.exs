@@ -134,6 +134,9 @@ config :serviceradar_core, :plugin_storage,
   jetstream_replicas: 1,
   jetstream_storage: :file
 
+# Ingestion nodes own provider, threat-intel, and DNS-policy snapshots.
+config :serviceradar_core, :prefix_tags_external_sources, false
+
 # Also register domains for serviceradar_core OTP app (domains are defined there)
 config :serviceradar_core,
   ash_domains: [
@@ -408,6 +411,8 @@ config :serviceradar_web_ng,
   generators: [timestamp_type: :utc_datetime]
 
 # Configure tailwind (the version is required).
+# Rustler app-env options override module options, including in path dependencies.
+# Skip both cargo metadata and NIF builds for source-only lint; other builds keep them.
 config :tailwind,
   version: "4.1.12",
   serviceradar_web_ng: [
@@ -419,17 +424,16 @@ config :tailwind,
   ]
 
 if System.get_env("SERVICERADAR_SKIP_NIF_COMPILATION") == "1" do
-  # Rustler app-env options override module options, including in path dependencies.
-  # Skip both cargo metadata and NIF builds for source-only lint; other builds keep them.
   config :serviceradar_core, ServiceRadar.Dgraph.Native, skip_compilation?: true
   config :serviceradar_core, ServiceRadar.NetworkConfig.Native, skip_compilation?: true
   config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true
   config :serviceradar_core, ServiceRadar.Observability.Zen.Native, skip_compilation?: true
+  config :serviceradar_core, ServiceRadar.PrefixTags.Native, skip_compilation?: true
 
+  # Import environment-specific config last so it overrides the configuration above.
   config :serviceradar_srql, ServiceRadarSRQL.Native, skip_compilation?: true
 
   config :serviceradar_web_ng, ServiceRadarWebNG.Topology.Native, skip_compilation?: true
 end
 
-# Import environment-specific config last so it overrides the configuration above.
 import_config "#{config_env()}.exs"

@@ -533,7 +533,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
     {:ok, lv, html} = live(conn, ~p"/settings/networks/integrations?tab=crm_ipam")
 
     assert html =~ "Prefix tag preview"
-    assert html =~ "local node"
+    assert html =~ "current ingestion snapshot"
     assert has_element?(lv, ~s(form[phx-submit="prefix_tag_preview"] input[name="ip"]))
 
     lv
@@ -543,42 +543,14 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
     assert render(lv) =~ "Enter an IP address"
   end
 
-  test "prefix tag preview looks up the local trie and shows matches", %{conn: conn} do
-    alias ServiceRadar.PrefixTags.Store
-
-    Store.put_rows("netbox", [
-      %{prefix: "10.1.0.0/16", tags: ["netbox:tag:corp", "site:hq"], source: "netbox"}
-    ])
-
-    on_exit(fn -> Store.clear("netbox") end)
-
-    {:ok, lv, _html} = live(conn, ~p"/settings/networks/integrations?tab=crm_ipam")
-
-    lv
-    |> form(~s(form[phx-submit="prefix_tag_preview"]), %{"ip" => "10.1.2.3"})
-    |> render_submit()
-
-    html = render(lv)
-    assert html =~ "Most-specific first"
-    assert html =~ "10.1.0.0/16"
-    assert html =~ "netbox:tag:corp"
-    assert html =~ "site:hq"
-    assert html =~ "netbox"
-  end
-
-  test "prefix tag preview reports no match for unmapped IPs", %{conn: conn} do
-    alias ServiceRadar.PrefixTags.Store
-
-    Store.clear()
-    on_exit(fn -> Store.clear() end)
-
+  test "prefix tag preview reports unavailable core", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/settings/networks/integrations?tab=crm_ipam")
 
     lv
     |> form(~s(form[phx-submit="prefix_tag_preview"]), %{"ip" => "203.0.113.9"})
     |> render_submit()
 
-    assert render(lv) =~ "No matching prefixes for this address."
+    assert render(lv) =~ "Prefix tag preview is unavailable"
   end
 
   test "viewer without integrations manage is redirected", %{conn: _conn} do

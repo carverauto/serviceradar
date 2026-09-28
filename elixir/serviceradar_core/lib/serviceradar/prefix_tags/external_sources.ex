@@ -26,6 +26,9 @@ defmodule ServiceRadar.PrefixTags.ExternalSources do
     ServiceRadar.PrefixTags.DnsPolicySource
   ]
 
+  @doc "Whether this release owns external prefix materialization."
+  def enabled?, do: Application.get_env(:serviceradar_core, :prefix_tags_external_sources, true)
+
   @doc "Materializer modules (compile-time list)."
   @spec modules() :: [module()]
   def modules, do: @modules
