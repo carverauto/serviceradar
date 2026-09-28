@@ -253,9 +253,9 @@ If the `inventory_sync` plugin assignment is wired up on the controller's agent,
 
 1. Plugin runs on schedule.
 2. Plugin calls AWX inventory API.
-3. Plugin emits a `DeviceDiscovery` aggregate (`source: "awx"`) via `result.WithDeviceDiscovery(...)`.
-4. Agent → gateway → DIRE merges the records with existing devices (matching on `ansible_host` IP, hostname, or AWX host `name` in priority order).
-5. Matched devices get `ansible_managed = true`; AWX hosts that DIRE cannot match surface in **Settings → Ansible → Controllers** as a "needs review" list (v2 feature; currently they're emitted but not yet rendered).
+3. Plugin skips any host whose variables carry neither an IP (`ansible_host` or `ansible_ssh_host`) nor a NIC MAC, then emits a `DeviceDiscovery` aggregate (`source: "awx"`) for the remaining hosts via `result.WithDeviceDiscovery(...)`.
+4. Agent → gateway → DIRE merges the records with existing devices by the AWX source key (controller + host id), MAC, or IP — never by hostname.
+5. Matched devices get `ansible_managed = true`; anchored AWX hosts that DIRE still cannot match surface in **Settings → Ansible → Controllers** as a "needs review" list (v2 feature; currently they're emitted but not yet rendered).
 
 No manual "mark Ansible-managed" toggle exists — the state is fully derived.
 
@@ -414,8 +414,8 @@ The token is wrong, expired, or missing scope. Check `Controller.last_health_sum
 
 - Confirm the `inventory_sync` plugin manifest is assigned (separate from the on-demand manifest).
 - Confirm the agent can reach AWX (same constraint as health).
-- Check `DiscoveryRecord` ingestion in DIRE — the AWX hosts may be matching but onto different devices (hostname collision). Look for `awx` in the device's `discovery_sources` set.
-- Hosts AWX has that DIRE can't match are emitted but not yet surfaced; check the agent logs for `inventory_sync` discovery records.
+- Check `DiscoveryRecord` ingestion in DIRE — the AWX hosts may be matching onto different devices. Look for `awx` in the device's `discovery_sources` set.
+- A host whose variables carry no IP or MAC is skipped at the producer and never emitted; if an expected host is missing, check its AWX host variables. Anchored hosts DIRE can't match are emitted but not yet surfaced; check the agent logs for `inventory_sync` discovery records.
 
 ### Operation stuck in `:planned` or `:dispatching`
 
