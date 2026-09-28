@@ -32,7 +32,8 @@ defmodule ServiceRadar.EventWriter.PluginDeviceAttribution do
 
   - metrics: `ingest_identity.producer_id`, which the agent gateway overwrites with
     the assignment id from the host-set status source `plugin:<assignment id>`
-    (gated on the gateway-set `ingest_identity.source == "wasm-plugin"`);
+    (gated on the gateway-set `ingest_identity.source == "wasm-plugin"` and a
+    non-empty `ingest_identity.attested_by`);
   - events: `metadata.service_radar.plugin_id`, which core's `StatusHandler` sets
     from the same status source, replacing whatever the plugin put there.
 
