@@ -395,7 +395,7 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposure do
     acc = [rows | acc]
 
     if length(rows) < page_size do
-      acc |> Enum.reverse() |> Enum.concat()
+      acc |> Enum.reverse() |> Enum.concat() |> Enum.reject(&is_nil(&1.device_uid))
     else
       last = List.last(rows)
       fetch_flow_pages(opts, page_size, {last.observed_at, last.row_key}, acc)
@@ -492,16 +492,17 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposure do
     end
   end
 
-  # The warehouse flow table stores `device_uid = 'unknown'` and carries no
-  # `agent_id` (the NetFlow pages resolve device identity through the catalog
-  # at query time), and it cannot join `ip_threat_intel_cache` (not in the
-  # catalog allowlist). The warehouse page therefore resolves the hostile IPs
-  # and the destination device from CNPG and attaches both after the flow page
-  # comes back. The keyset page stays over hostile-IP-matched flows, exactly as
-  # the CNPG query pages, so a full page is not the end of the window. IPs are
-  # normalized as CNPG normalizes them (IPv4-mapped IPv6 prefix stripped,
-  # lowercased), but with `lower` applied first: StarRocks `regexp_replace` has
-  # no trailing-`'i'` flags argument like Postgres does.
+  # The warehouse flow row stores `device_uid = 'unknown'` and carries the
+  # attributed flow's `agent_id`, and it cannot join `ip_threat_intel_cache`
+  # (not in the catalog allowlist). The warehouse page therefore resolves the
+  # hostile IPs and the device -- agent first via `ocsf_agents`, then the
+  # destination IP via `device_identifiers` -- from CNPG and attaches both
+  # after the flow page comes back. The keyset page stays over
+  # hostile-IP-matched flows, exactly as the CNPG query pages, so a full page
+  # is not the end of the window. IPs are normalized as CNPG normalizes them
+  # (IPv4-mapped IPv6 prefix stripped, lowercased), but with `lower` applied
+  # first: StarRocks `regexp_replace` has no trailing-`'i'` flags argument
+  # like Postgres does.
   defp query_flow_page_warehouse_sql(opts, page_size, after_key) do
     hostile_ips = Keyword.get(opts, :hostile_ioc_ips, &default_hostile_ioc_ips/1)
     as_of = Keyword.fetch!(opts, :as_of)
@@ -529,7 +530,7 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposure do
     lower = DateTime.add(as_of, -window_seconds, :second)
 
     sql = """
-    SELECT hostile_ip, dst_ip, dst_port, comm, cmdline, observed_at, row_key
+    SELECT hostile_ip, dst_ip, dst_port, comm, cmdline, agent_id, observed_at, row_key
     FROM (
       SELECT
         regexp_replace(lower(coalesce(src_endpoint_ip, '')), '^::ffff:', '') AS hostile_ip,
@@ -537,6 +538,7 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposure do
         dst_endpoint_port AS dst_port,
         comm,
         cmdline,
+        agent_id,
         `time` AS observed_at,
         id AS row_key
       FROM #{Env.table("ocsf_network_activity")}
@@ -548,15 +550,15 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposure do
       ORDER BY `time` DESC, id DESC
       LIMIT #{page_size}
     ) recent
+    ORDER BY observed_at DESC, row_key DESC
     """
 
     query = Keyword.get(opts, :query, &Query.execute/1)
 
     with {:ok, %{columns: columns, rows: rows}} <- query.(sql),
-         {:ok, devices} <- resolve_device_identifiers(dst_ips(columns, rows), opts) do
-      rows
-      |> Enum.map(&warehouse_flow_row(columns, &1, ioc, devices))
-      |> Enum.reject(&is_nil(&1.device_uid))
+         {:ok, ip_devices} <- resolve_device_identifiers(dst_ips(columns, rows), opts),
+         {:ok, agent_devices} <- resolve_agent_devices(agent_ids(columns, rows), opts) do
+      Enum.map(rows, &warehouse_flow_row(columns, &1, ioc, agent_devices, ip_devices))
     else
       {:error, reason} -> raise "hostile IOC flow query failed: #{inspect(reason)}"
     end
@@ -625,7 +627,43 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposure do
     end
   end
 
-  defp warehouse_flow_row(columns, values, ioc, devices) do
+  defp agent_ids(columns, rows) do
+    case Enum.find_index(columns, &(&1 == "agent_id")) do
+      nil -> []
+      idx -> Enum.map(rows, &Enum.at(&1, idx))
+    end
+  end
+
+  defp resolve_agent_devices([], _opts), do: {:ok, %{}}
+
+  defp resolve_agent_devices(agent_ids, opts) do
+    resolver = Keyword.get(opts, :resolve_agent_devices, &default_resolve_agent_devices/1)
+    resolver.(agent_ids)
+  end
+
+  defp default_resolve_agent_devices(agent_ids) do
+    uids = agent_ids |> Enum.reject(&is_nil/1) |> Enum.uniq()
+
+    if uids == [] do
+      {:ok, %{}}
+    else
+      sql = """
+      SELECT uid, device_uid
+      FROM platform.ocsf_agents
+      WHERE uid = ANY($1::text[])
+      """
+
+      case SQL.query(Repo, sql, [uids]) do
+        {:ok, %{rows: rows}} ->
+          {:ok, Map.new(rows, fn [uid, device_uid] -> {uid, device_uid} end)}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  defp warehouse_flow_row(columns, values, ioc, agent_devices, ip_devices) do
     row =
       columns
       |> Enum.zip(values)
@@ -633,11 +671,12 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposure do
 
     hostile_ip = row["hostile_ip"]
     dst_ip = row["dst_ip"]
+    agent_id = row["agent_id"]
     match = Map.get(ioc, hostile_ip, %{})
 
     %{
-      device_uid: Map.get(devices, dst_ip),
-      agent_id: nil,
+      device_uid: Map.get(agent_devices, agent_id) || Map.get(ip_devices, dst_ip),
+      agent_id: agent_id,
       hostile_ip: hostile_ip,
       dst_ip: dst_ip,
       dst_port: row["dst_port"],

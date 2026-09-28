@@ -7,7 +7,7 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposureRoutingTest do
 
   @moduletag :db_free
 
-  @flow_columns ~w(hostile_ip dst_ip dst_port comm cmdline observed_at row_key)
+  @flow_columns ~w(hostile_ip dst_ip dst_port comm cmdline agent_id observed_at row_key)
 
   setup do
     prev = Application.get_env(:serviceradar_core, StarRocks, [])
@@ -20,6 +20,7 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposureRoutingTest do
       flow_limit: 100,
       hostile_ioc_ips: hostile_ioc_ips,
       resolve_device_identifiers: fn _dst_ips -> {:ok, %{}} end,
+      resolve_agent_devices: fn _agent_ids -> {:ok, %{}} end,
       query: query,
       query_findings: fn _device_uids, _opts -> [] end,
       query_active_contribution_uids: fn -> [] end,
@@ -115,7 +116,7 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposureRoutingTest do
            %{
              columns: @flow_columns,
              rows: [
-               ["203.0.113.9", "10.0.0.8", 443, "sshd", nil, observed_at, row_key]
+               ["203.0.113.9", "10.0.0.8", 443, "sshd", nil, nil, observed_at, row_key]
              ]
            }}
 
@@ -133,6 +134,7 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposureRoutingTest do
                resolve_device_identifiers: fn dst_ips ->
                  {:ok, Map.new(dst_ips, &{&1, "sr:device-a"})}
                end,
+               resolve_agent_devices: fn _agent_ids -> {:ok, %{}} end,
                query: query,
                query_findings: fn _device_uids, _opts -> [] end,
                query_active_contribution_uids: fn -> [] end,
@@ -148,5 +150,132 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposureRoutingTest do
     refute first_sql =~ "id <"
     assert second_sql =~ "id < 'obs-row-key-1'"
     assert second_sql =~ "`time` < '2026-08-15 12:00:00"
+  end
+
+  test "a full warehouse page of unresolved destinations keeps scanning", %{prev: prev} do
+    Application.put_env(
+      :serviceradar_core,
+      StarRocks,
+      Keyword.put(prev, :cutover_datasets, [:flows])
+    )
+
+    parent = self()
+
+    query = fn sql ->
+      send(parent, {:flow_sql, sql})
+
+      case Process.get(:page, :first) do
+        :first ->
+          Process.put(:page, :second)
+
+          {:ok,
+           %{
+             columns: @flow_columns,
+             rows: [
+               [
+                 "203.0.113.9",
+                 "10.0.0.8",
+                 443,
+                 "sshd",
+                 nil,
+                 nil,
+                 ~U[2026-08-15 12:00:00Z],
+                 "row-1"
+               ],
+               [
+                 "203.0.113.9",
+                 "10.0.0.9",
+                 443,
+                 "sshd",
+                 nil,
+                 nil,
+                 ~U[2026-08-15 11:59:59Z],
+                 "row-2"
+               ]
+             ]
+           }}
+
+        :second ->
+          {:ok, %{columns: @flow_columns, rows: []}}
+      end
+    end
+
+    assert {:ok, %{devices: 0, hits: 0}} =
+             DeviceRiskIocExposure.evaluate(
+               flow_limit: 2,
+               hostile_ioc_ips: fn _as_of ->
+                 {:ok, %{"203.0.113.9" => %{sources: ["alienvault_otx"], severity: 4}}}
+               end,
+               resolve_device_identifiers: fn _dst_ips -> {:ok, %{}} end,
+               resolve_agent_devices: fn _agent_ids -> {:ok, %{}} end,
+               query: query,
+               query_findings: fn _device_uids, _opts -> [] end,
+               query_active_contribution_uids: fn -> [] end,
+               open_alert?: fn _source_id -> false end,
+               upsert_contribution: fn _contribution, _opts -> :ok end,
+               emit_event: fn _payload -> :ok end,
+               create_alert: fn _attrs -> {:ok, %{id: "alert"}} end
+             )
+
+    assert_received {:flow_sql, first_sql}
+    assert_received {:flow_sql, second_sql}
+
+    refute first_sql =~ "id <"
+    assert second_sql =~ "id < 'row-2'"
+    assert second_sql =~ "`time` < '2026-08-15 11:59:59"
+  end
+
+  test "the warehouse page resolves device agent-first", %{prev: prev} do
+    Application.put_env(
+      :serviceradar_core,
+      StarRocks,
+      Keyword.put(prev, :cutover_datasets, [:flows])
+    )
+
+    observed_at = ~U[2026-08-15 12:00:00Z]
+
+    query = fn _sql ->
+      {:ok,
+       %{
+         columns: @flow_columns,
+         rows: [
+           ["203.0.113.9", "10.0.0.8", 443, "sshd", nil, "agent-001", observed_at, "row-1"]
+         ]
+       }}
+    end
+
+    assert {:ok, %{devices: 1, hits: 1}} =
+             DeviceRiskIocExposure.evaluate(
+               flow_limit: 100,
+               hostile_ioc_ips: fn _as_of ->
+                 {:ok, %{"203.0.113.9" => %{sources: ["alienvault_otx"], severity: 4}}}
+               end,
+               resolve_device_identifiers: fn _dst_ips -> {:ok, %{}} end,
+               resolve_agent_devices: fn agent_ids ->
+                 {:ok, Map.new(agent_ids, &{&1, "sr:device-from-agent"})}
+               end,
+               query: query,
+               query_findings: fn device_uids, _opts ->
+                 assert device_uids == ["sr:device-from-agent"]
+
+                 [
+                   %{
+                     device_uid: hd(device_uids),
+                     cve_id: "CVE-2026-0001",
+                     kev: true,
+                     cvss: 9.8,
+                     package: "openssh"
+                   }
+                 ]
+               end,
+               query_active_contribution_uids: fn -> [] end,
+               open_alert?: fn _source_id -> false end,
+               upsert_contribution: fn _contribution, _opts -> :ok end,
+               emit_event: fn _payload -> :ok end,
+               create_alert: fn attrs ->
+                 assert attrs.agent_uid == "agent-001"
+                 {:ok, %{id: "alert"}}
+               end
+             )
   end
 end

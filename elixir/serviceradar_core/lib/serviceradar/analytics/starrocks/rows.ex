@@ -117,6 +117,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
     %{
       "id" => Identity.record_id(:flows, row),
       "device_uid" => stringify(field(row, :device_uid) || field(row, :device_id) || "unknown"),
+      "agent_id" => payload_text(row, "agent_id"),
       "event_type" => stringify(field(row, :event_type) || payload_text(row, "event_type")),
       "time" => datetime(field(row, :time)),
       "src_endpoint_ip" => stringify(field(row, :src_endpoint_ip)),

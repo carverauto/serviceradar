@@ -32,10 +32,11 @@
     keyset paging contract (over `time` and the flow row key) selected by
     `Readers.backend(:flows) == :starrocks`, keeping the CNPG query for installations without
     the warehouse; the hostile-IOC join and the device identity stay CNPG lookups
-    (`ip_threat_intel_cache` is not in the catalog allowlist, and the warehouse flow row has no
-    `agent_id` -- device is resolved through `device_identifiers` on the destination IP, the
-    CNPG query's fallback arm). Tests: `TrafficSparklinesRoutingTest` (web-ng) and
-    `DeviceRiskIocExposureRoutingTest` (core) pin the routing and the warehouse SQL shape.
+    (`ip_threat_intel_cache` is not in the catalog allowlist; the warehouse flow row carries the
+    attributed flow's `agent_id`, so device is resolved agent first via `ocsf_agents` and falls
+    back to `device_identifiers` on the destination IP, matching the CNPG query). Tests:
+    `TrafficSparklinesRoutingTest` (web-ng) and `DeviceRiskIocExposureRoutingTest` (core) pin
+    the routing and the warehouse SQL shape.
   - [ ] Logs/events stat cards that bypass SRQL (still open).
 - [ ] 2.5 Measure log search on the deployed profile: which index types shared-data supports, and latency of a substring search over 1, 30 and 365 days; document the supported behaviour.
 - [ ] 2.6 Run the parity harness for the `logs` and `events` warehouse readers; ship each reader only after it passes; verify cards and charts against ground truth after the rollout completes.
