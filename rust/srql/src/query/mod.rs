@@ -2,10 +2,10 @@
 mod filters_common;
 
 mod cagg;
-mod counter_rate;
-pub mod interface_rates;
 mod cold;
+mod counter_rate;
 mod engine;
+pub mod interface_rates;
 mod plan;
 mod sql;
 mod starrocks;
