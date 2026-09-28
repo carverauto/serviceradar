@@ -349,7 +349,7 @@ func TestWorstCaseSegmentManifestFitsGrammarCeilings(t *testing.T) {
 // each with maximum encoding size and a grammar-valid body.
 func makeMaxSpans(n int, attributed bool) []*edgev1.EdgeClassificationSpanV1 {
 	// Base keeps every sequence varint at its 10-byte maximum while ascending.
-	base := uint64(math.MaxUint64 - uint64(n) - 1)
+	base := math.MaxUint64 - uint64(n) - 1
 	spans := make([]*edgev1.EdgeClassificationSpanV1, 0, n)
 	for i := 0; i < n; i++ {
 		seq := base + uint64(i) + 1

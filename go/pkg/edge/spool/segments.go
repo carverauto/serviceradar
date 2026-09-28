@@ -181,7 +181,7 @@ func (b *segmentBounds) refusalFor(key []byte) string {
 		if _, ok := b.keys[k]; !ok {
 			keys++
 		}
-		if !(b.hasRun && b.curAttributed && b.curKey == k) {
+		if !b.hasRun || !b.curAttributed || b.curKey != k {
 			runs++
 			cost += maxAttributedSpanBytes
 		}
