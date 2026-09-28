@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.DashboardFrameChannel
   alias ServiceRadarWebNGWeb.DashboardPackageLive.AccessControls
+  alias ServiceRadarWebNGWeb.DashboardPackageLive.ActionConfirmation
   alias ServiceRadarWebNGWeb.DashboardPackageLive.Preferences
   alias ServiceRadarWebNGWeb.SRQL.Builder, as: SRQLBuilder
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
@@ -57,6 +58,7 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
       |> assign_grant_forms()
       |> assign_visibility_form()
       |> assign_dashboard_search_srql(dashboard_reference_query(route_slug))
+      |> ActionConfirmation.assign_defaults()
 
     {:ok, socket}
   end
@@ -132,6 +134,17 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
 
   def handle_event("dashboard_detail_request", _params, socket) do
     {:noreply, socket}
+  end
+
+  def handle_event("confirm_dashboard_action", %{"id" => id}, socket) when is_binary(id) do
+    {:noreply, ActionConfirmation.handle_decision(socket, :confirmed, id)}
+  end
+
+  def handle_event("confirm_dashboard_action", _params, socket), do: {:noreply, socket}
+
+  def handle_event("decline_dashboard_action", params, socket) do
+    id = if is_binary(params["id"]), do: params["id"]
+    {:noreply, ActionConfirmation.handle_decision(socket, :declined, id)}
   end
 
   def handle_event("srql_builder_toggle", _params, socket) do
@@ -284,6 +297,17 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
     end
   end
 
+  # The dashboard's frame channel asks this LiveView, not the renderer, to
+  # confirm actions that require it; see ActionConfirmation.
+  @impl true
+  def handle_info({:dashboard_action_confirmation_request, request}, socket) do
+    {:noreply, ActionConfirmation.handle_request(socket, request)}
+  end
+
+  def handle_info({:dashboard_action_confirmation_closed, id}, socket) do
+    {:noreply, ActionConfirmation.handle_closed(socket, id)}
+  end
+
   @impl true
   def handle_async(
         :dashboard_package_load,
@@ -407,6 +431,11 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
           show_pickers?={@can_view_share_principals?}
         />
       </.ui_modal>
+
+      <ActionConfirmation.confirmation_modal
+        confirmations={@action_confirmations}
+        timezone={@current_scope.user.timezone || "Etc/UTC"}
+      />
 
       <div class="min-h-[calc(100vh-5rem)] bg-sr-surface">
         <div :if={@load_state == :loading} class="flex min-h-[28rem] items-center justify-center">
@@ -716,7 +745,10 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
             data_frames,
             user_id,
             active_optional_frame_ids(data_frames, overrides),
-            package.capabilities || []
+            package.capabilities || [],
+            # host_payload/8 is called from handle_async/3, so self() is this
+            # LiveView: the process that renders action confirmations.
+            confirmation_host: self()
           ),
         "refresh_interval_ms" => @default_frame_refresh_interval_ms
       },

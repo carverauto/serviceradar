@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
   alias ServiceRadarWebNG.Dashboards
   alias ServiceRadarWebNG.Dashboards.FrameRunner
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.DashboardFrameChannel.ActionConfirmations
   alias ServiceRadarWebNGWeb.DashboardFrameChannel.Actions
   alias ServiceRadarWebNGWeb.DashboardFrameChannel.Events
   alias ServiceRadarWebNGWeb.DashboardFrameChannel.RefreshSchedule
@@ -52,6 +53,8 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
         |> assign(:capabilities, stream_capabilities(stream))
         |> assign(:event_subscriptions, %{})
         |> assign(:events_authorized_at, nil)
+        |> assign(:confirmation_host, stream_confirmation_host(stream))
+        |> assign(:action_confirmations, %{})
 
       send(self(), :dashboard_frame_tick)
       {:ok, %{"refresh_interval_ms" => socket.assigns.refresh_ms}, socket}
@@ -121,6 +124,51 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
     {:noreply, socket}
   end
 
+  # The LiveView that rendered this dashboard answers a pending confirmation.
+  # This arrives process to process; nothing the dashboard renderer sends over
+  # the channel can produce it.
+  def handle_info({:dashboard_action_confirmation_reply, id, :confirmed, reply}, socket) do
+    now = System.monotonic_time(:millisecond)
+
+    case ActionConfirmations.consume(socket.assigns.action_confirmations, id, reply, now) do
+      {:ok, entry, pending} ->
+        socket = assign(socket, :action_confirmations, pending)
+        {:noreply, dispatch_confirmed(socket, entry)}
+
+      # Already answered, expired or never issued: the pending invoke was
+      # settled when the entry left, so there is nothing to tell the renderer.
+      {:error, :confirmation_not_found, pending} ->
+        {:noreply, assign(socket, :action_confirmations, pending)}
+
+      {:error, reason, pending} ->
+        push_confirmation(socket, id, "rejected", %{"reason" => Actions.format_error(reason)})
+        {:noreply, assign(socket, :action_confirmations, pending)}
+    end
+  end
+
+  def handle_info({:dashboard_action_confirmation_reply, id, :declined, reply}, socket) do
+    case ActionConfirmations.decline(socket.assigns.action_confirmations, id, reply) do
+      {:ok, entry, pending} ->
+        push_confirmation(socket, entry.id, "declined", %{})
+        {:noreply, assign(socket, :action_confirmations, pending)}
+
+      {:error, _reason, _pending} ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_info({:dashboard_action_confirmation_expired, id}, socket) do
+    case ActionConfirmations.expire(socket.assigns.action_confirmations, id) do
+      {:ok, entry, pending} ->
+        push_confirmation(socket, entry.id, "expired", %{"reason" => Actions.format_error(:confirmation_expired)})
+        notify_confirmation_host(socket, {:dashboard_action_confirmation_closed, entry.id})
+        {:noreply, assign(socket, :action_confirmations, pending)}
+
+      {:error, _pending} ->
+        {:noreply, socket}
+    end
+  end
+
   def handle_info({:ocsf_event_rows, summaries}, socket) when is_list(summaries) do
     case authorize_event_delivery(socket) do
       {:ok, socket} ->
@@ -165,9 +213,11 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
 
     case Actions.invoke(socket.assigns.current_scope, socket.assigns.capabilities, payload) do
       {:ok, invocation, timeout_ms} ->
-        deadline = System.monotonic_time(:millisecond) + timeout_ms + @action_poll_grace_ms
-        maybe_poll_action(invocation["invocation_id"], deadline, Actions.terminal?(invocation))
+        start_action_polling(invocation, timeout_ms)
         {:reply, {:ok, invocation}, socket}
+
+      {:confirmation_required, prepared} ->
+        request_confirmation(socket, prepared)
 
       {:error, reason} ->
         {:reply, {:error, %{"reason" => Actions.format_error(reason)}}, socket}
@@ -370,15 +420,90 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
 
   # `capabilities` is the package's approved capability list; the token is
   # server-signed, so the channel trusts it the way it trusts `data_frames`.
-  def stream_token(route_slug, data_frames, user_id, active_frame_ids \\ [], capabilities \\ [])
+  #
+  # `:confirmation_host` is the pid of the LiveView that rendered the dashboard.
+  # It is the only process that may show and answer an action confirmation, so
+  # it travels in the signed token rather than anywhere the renderer can set it.
+  def stream_token(route_slug, data_frames, user_id, active_frame_ids \\ [], capabilities \\ [], opts \\ [])
       when is_binary(route_slug) and is_list(data_frames) and not is_nil(user_id) do
     Phoenix.Token.sign(Endpoint, @stream_salt, %{
       "route_slug" => route_slug,
       "user_id" => to_string(user_id),
       "data_frames" => data_frames,
       "active_frame_ids" => normalize_frame_ids(active_frame_ids),
-      "capabilities" => Enum.map(List.wrap(capabilities), &to_string/1)
+      "capabilities" => Enum.map(List.wrap(capabilities), &to_string/1),
+      "confirmation_host" => confirmation_host_opt(opts)
     })
+  end
+
+  defp confirmation_host_opt(opts) do
+    case Keyword.get(opts, :confirmation_host) do
+      pid when is_pid(pid) -> pid
+      _other -> nil
+    end
+  end
+
+  defp stream_confirmation_host(stream) do
+    case stream["confirmation_host"] || stream[:confirmation_host] do
+      pid when is_pid(pid) -> pid
+      _other -> nil
+    end
+  end
+
+  defp request_confirmation(%{assigns: %{confirmation_host: host}} = socket, prepared) when is_pid(host) do
+    now = System.monotonic_time(:millisecond)
+    attrs = Map.put(prepared, :user_id, socket.assigns.current_scope.user.id)
+
+    case ActionConfirmations.issue(socket.assigns.action_confirmations, attrs, now) do
+      {:ok, entry, pending} ->
+        send(host, {:dashboard_action_confirmation_request, ActionConfirmations.host_request(entry, self(), now)})
+        Process.send_after(self(), {:dashboard_action_confirmation_expired, entry.id}, ActionConfirmations.ttl_ms())
+
+        reply = %{
+          "state" => "confirmation_required",
+          "confirmation_id" => entry.id,
+          "action_id" => entry.action_id,
+          "expires_in_ms" => ActionConfirmations.ttl_ms()
+        }
+
+        {:reply, {:ok, reply}, assign(socket, :action_confirmations, pending)}
+
+      {:error, reason} ->
+        {:reply, {:error, %{"reason" => Actions.format_error(reason)}}, socket}
+    end
+  end
+
+  # No host can render the dialog (for example a stream token minted before
+  # confirmation existed), so the action cannot be confirmed and is refused.
+  defp request_confirmation(socket, _prepared) do
+    {:reply, {:error, %{"reason" => Actions.format_error(:confirmation_unavailable)}}, socket}
+  end
+
+  defp dispatch_confirmed(socket, entry) do
+    case Actions.dispatch_confirmed(socket.assigns.current_scope, socket.assigns.capabilities, entry) do
+      {:ok, invocation, timeout_ms} ->
+        push_confirmation(socket, entry.id, "confirmed", %{"invocation" => invocation})
+        start_action_polling(invocation, timeout_ms)
+        socket
+
+      {:error, reason} ->
+        push_confirmation(socket, entry.id, "rejected", %{"reason" => Actions.format_error(reason)})
+        socket
+    end
+  end
+
+  defp push_confirmation(socket, id, state, extra) do
+    push(socket, "actions:confirmation", Map.merge(%{"confirmation_id" => to_string(id), "state" => state}, extra))
+  end
+
+  defp notify_confirmation_host(%{assigns: %{confirmation_host: host}}, message) when is_pid(host),
+    do: send(host, message)
+
+  defp notify_confirmation_host(_socket, _message), do: :ok
+
+  defp start_action_polling(invocation, timeout_ms) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms + @action_poll_grace_ms
+    maybe_poll_action(invocation["invocation_id"], deadline, Actions.terminal?(invocation))
   end
 
   defp stream_capabilities(stream) do

@@ -18,7 +18,16 @@ export const CHANNEL_API_ERRORS = Object.freeze({
   INVALID_REQUEST: "invalid_request",
   REJECTED: "rejected",
   TIMEOUT: "timeout",
+  CONFIRMATION_DECLINED: "confirmation_declined",
+  CONFIRMATION_EXPIRED: "confirmation_expired",
+  CONFIRMATION_REJECTED: "confirmation_rejected",
 })
+
+const CONFIRMATION_ERROR_CODES = {
+  declined: CHANNEL_API_ERRORS.CONFIRMATION_DECLINED,
+  expired: CHANNEL_API_ERRORS.CONFIRMATION_EXPIRED,
+  rejected: CHANNEL_API_ERRORS.CONFIRMATION_REJECTED,
+}
 
 export class DashboardChannelError extends Error {
   constructor(code, message) {
@@ -74,6 +83,16 @@ function normalizeTargets(targets) {
 
 export function createDashboardActionsApi({capabilityAllowed = () => false, permitted = false, getChannel = () => null} = {}) {
   const pending = new Map()
+  // Invokes the server is holding for a host-rendered confirmation, keyed by
+  // confirmation id. The dialog is drawn by the LiveView, never by this module
+  // or the package; the server only dispatches after the operator confirms.
+  const awaitingConfirmation = new Map()
+
+  const notifyConfirmation = (entry, update) => {
+    try {
+      entry.onConfirmation?.(update)
+    } catch (_error) {}
+  }
 
   const handleProgress = (payload) => {
     const id = String(payload?.invocation_id || "")
@@ -106,8 +125,12 @@ export function createDashboardActionsApi({capabilityAllowed = () => false, perm
   }
 
   // Resolves with the invocation's terminal progress payload; `onProgress`
-  // receives every state change, starting with the submitted state.
-  const invoke = (request = {}, {onProgress} = {}) => {
+  // receives every state change, starting with the submitted state. For an
+  // action that requires confirmation the server replies `confirmation_required`
+  // instead of dispatching; `onConfirmation` then receives `pending` and the
+  // outcome (`confirmed`, `declined`, `expired`, `rejected`), and a refusal
+  // rejects with the matching `confirmation_*` code.
+  const invoke = (request = {}, {onProgress, onConfirmation} = {}) => {
     let payload
     try {
       requireAccess(capabilityAllowed, ACTIONS_INVOKE_CAPABILITY, permitted)
@@ -125,7 +148,20 @@ export function createDashboardActionsApi({capabilityAllowed = () => false, perm
 
     return pushWithReply(getChannel, "actions:invoke", payload).then(
       (submitted) =>
-        new Promise((resolve) => {
+        new Promise((resolve, reject) => {
+          if (submitted.state === "confirmation_required") {
+            const confirmationId = String(submitted.confirmation_id || "")
+            const entry = {resolve, reject, onProgress, onConfirmation, actionId: payload.action_id}
+            awaitingConfirmation.set(confirmationId, entry)
+            notifyConfirmation(entry, {
+              state: "pending",
+              confirmation_id: confirmationId,
+              action_id: payload.action_id,
+              expires_in_ms: submitted.expires_in_ms,
+            })
+            return
+          }
+
           const id = String(submitted.invocation_id || "")
           pending.set(id, {resolve, onProgress})
           handleProgress(submitted)
@@ -133,9 +169,37 @@ export function createDashboardActionsApi({capabilityAllowed = () => false, perm
     )
   }
 
+  // `actions:confirmation` settles an invoke the server held for confirmation:
+  // `confirmed` carries the dispatched invocation, which then reports progress
+  // like any other; `declined`, `expired` and `rejected` reject the invoke.
+  const handleConfirmation = (payload) => {
+    const confirmationId = String(payload?.confirmation_id || "")
+    const entry = awaitingConfirmation.get(confirmationId)
+    if (!entry) return
+    awaitingConfirmation.delete(confirmationId)
+
+    const state = String(payload?.state || "")
+    notifyConfirmation(entry, {state, confirmation_id: confirmationId, action_id: entry.actionId, reason: payload?.reason})
+
+    if (state === "confirmed" && payload?.invocation) {
+      const invocation = payload.invocation
+      pending.set(String(invocation.invocation_id || ""), {resolve: entry.resolve, onProgress: entry.onProgress})
+      handleProgress(invocation)
+      return
+    }
+
+    const code = CONFIRMATION_ERROR_CODES[state] || CHANNEL_API_ERRORS.CONFIRMATION_REJECTED
+    const error = new DashboardChannelError(code, payload?.reason || `action confirmation ${state || "failed"}`)
+    error.confirmationId = confirmationId
+    error.actionId = entry.actionId
+    entry.reject(error)
+  }
+
   return {
     handleProgress,
+    handleConfirmation,
     pendingCount: () => pending.size,
+    awaitingConfirmationCount: () => awaitingConfirmation.size,
     publicApi: () => ({
       allowed: () => capabilityAllowed(ACTIONS_INVOKE_CAPABILITY) && permitted,
       list,

@@ -20,12 +20,14 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
   alias ServiceRadarWebNG.AccountsFixtures
   alias ServiceRadarWebNG.AshTestHelpers
   alias ServiceRadarWebNGWeb.DashboardFrameChannel
+  alias ServiceRadarWebNGWeb.DashboardFrameChannel.ActionConfirmations
   alias ServiceRadarWebNGWeb.UserSocket
 
   @moduletag :web_ng_shared_fixture_db
 
   @endpoint ServiceRadarWebNGWeb.Endpoint
   @action_id "northbound:showcase-fault"
+  @confirm_action_id "northbound:showcase-reset"
   @data_frames [%{"id" => "rows", "query" => "in:dashboard_live_rows", "encoding" => "json_rows", "limit" => 1}]
 
   defmodule FakeSRQL do
@@ -49,6 +51,21 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
           input_schema: %{},
           safety_classification: "mutating",
           requires_confirmation: false,
+          timeout_seconds: 30,
+          metadata: %{"plugin_id" => "showcase-ot"}
+        },
+        %{
+          id: "northbound:showcase-reset",
+          descriptor_id: nil,
+          label: "Reset controller",
+          description: "Power-cycles the controller.",
+          provider_type: "wasm_plugin",
+          provider_name: "showcase",
+          scope: "device",
+          destination: nil,
+          input_schema: %{"type" => "object", "properties" => %{"reason" => %{"type" => "string"}}},
+          safety_classification: "destructive",
+          requires_confirmation: true,
           timeout_seconds: 30,
           metadata: %{"plugin_id" => "showcase-ot"}
         }
@@ -155,6 +172,139 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
     end
   end
 
+  # The test process stands in for the dashboard LiveView: the stream token names
+  # it as the confirmation host, so it receives the confirmation request and
+  # answers it the way the LiveView does.
+  describe "actions:invoke with requires_confirmation" do
+    test "holds the invocation for the host and dispatches nothing" do
+      {socket, user} = join_with_user!(:operator, ["srql.execute", "actions.invoke"], confirmation_host: self())
+
+      ref = push(socket, "actions:invoke", confirm_payload())
+
+      assert_reply ref, :ok, %{"state" => "confirmation_required", "confirmation_id" => id, "expires_in_ms" => ttl}
+      assert ttl == ActionConfirmations.ttl_ms()
+      assert_receive {:dashboard_action_confirmation_request, request}
+      assert request.id == id
+      assert request.channel_pid == socket.channel_pid
+      assert request.user_id == to_string(user.id)
+      assert request.label == "Reset controller"
+      assert request.safety_classification == "destructive"
+      assert request.targets == [%{device_uid: "sr:device:plc-07", interface_uid: nil}]
+      refute_receive {:invocation_requested, _attrs, _opts}, 300
+    end
+
+    test "dispatches exactly once after the host confirms" do
+      {socket, user} = join_with_user!(:operator, ["srql.execute", "actions.invoke"], confirmation_host: self())
+      request = request_confirmation!(socket)
+      reply = {:dashboard_action_confirmation_reply, request.id, :confirmed, host_reply(user, request)}
+
+      send(socket.channel_pid, reply)
+      send(socket.channel_pid, reply)
+
+      assert_push "actions:confirmation",
+                  %{"state" => "confirmed", "invocation" => %{"invocation_id" => _id}},
+                  8_000
+
+      assert_received {:invocation_requested, attrs, opts}
+      assert Keyword.fetch!(opts, :actor).id == user.id
+      assert attrs.targets == [%{kind: "device", device_uid: "sr:device:plc-07"}]
+      assert attrs.input_values == %{"reason" => "scheduled"}
+      assert attrs.metadata["confirmation"] == %{"method" => "host_dialog", "confirmation_id" => request.id}
+
+      refute_receive {:invocation_requested, _attrs, _opts}, 500
+    end
+
+    test "rejects a confirmation bound to a different target set and burns it" do
+      {socket, user} = join_with_user!(:operator, ["srql.execute", "actions.invoke"], confirmation_host: self())
+      request = request_confirmation!(socket)
+
+      other_binding =
+        ActionConfirmations.binding(
+          user.id,
+          @confirm_action_id,
+          "device",
+          [%{kind: "device", device_uid: "sr:device:plc-99"}],
+          %{"reason" => "scheduled"}
+        )
+
+      send(
+        socket.channel_pid,
+        {:dashboard_action_confirmation_reply, request.id, :confirmed,
+         %{user_id: to_string(user.id), binding: other_binding}}
+      )
+
+      assert_push "actions:confirmation", %{"state" => "rejected", "reason" => reason}
+      assert reason == "The confirmation does not match this action request."
+
+      # The mismatch consumed the entry: the genuine answer can no longer release it.
+      send(socket.channel_pid, {:dashboard_action_confirmation_reply, request.id, :confirmed, host_reply(user, request)})
+      refute_push "actions:confirmation", _payload, 300
+      refute_received {:invocation_requested, _attrs, _opts}
+    end
+
+    test "rejects a confirmation answered after it expired" do
+      {socket, user} = join_with_user!(:operator, ["srql.execute", "actions.invoke"], confirmation_host: self())
+      request = request_confirmation!(socket)
+
+      # Monotonic time can be negative, so "in the past" is relative to now.
+      expired_at = System.monotonic_time(:millisecond) - 1
+
+      :sys.replace_state(socket.channel_pid, fn channel_socket ->
+        update_in(channel_socket.assigns.action_confirmations[request.id], &Map.put(&1, :expires_at_ms, expired_at))
+      end)
+
+      send(socket.channel_pid, {:dashboard_action_confirmation_reply, request.id, :confirmed, host_reply(user, request)})
+
+      assert_push "actions:confirmation", %{"state" => "rejected", "reason" => reason}
+      assert reason == "The confirmation expired before it was answered."
+      refute_received {:invocation_requested, _attrs, _opts}
+    end
+
+    test "expires an unanswered confirmation, closes the host dialog and refuses a late answer" do
+      {socket, user} = join_with_user!(:operator, ["srql.execute", "actions.invoke"], confirmation_host: self())
+      request = request_confirmation!(socket)
+
+      send(socket.channel_pid, {:dashboard_action_confirmation_expired, request.id})
+
+      assert_push "actions:confirmation", %{"state" => "expired"}
+      assert_receive {:dashboard_action_confirmation_closed, closed_id}
+      assert closed_id == request.id
+
+      send(socket.channel_pid, {:dashboard_action_confirmation_reply, request.id, :confirmed, host_reply(user, request)})
+      refute_push "actions:confirmation", _payload, 300
+      refute_received {:invocation_requested, _attrs, _opts}
+    end
+
+    test "a declined confirmation dispatches nothing" do
+      {socket, user} = join_with_user!(:operator, ["srql.execute", "actions.invoke"], confirmation_host: self())
+      request = request_confirmation!(socket)
+
+      send(socket.channel_pid, {:dashboard_action_confirmation_reply, request.id, :declined, host_reply(user, request)})
+
+      assert_push "actions:confirmation", %{"state" => "declined"}
+      refute_receive {:invocation_requested, _attrs, _opts}, 300
+    end
+
+    test "is refused when no host can render the confirmation" do
+      socket = join!(:operator, ["srql.execute", "actions.invoke"])
+
+      ref = push(socket, "actions:invoke", confirm_payload())
+
+      assert_reply ref, :error, %{"reason" => "This action requires confirmation in the ServiceRadar host."}
+      refute_receive {:invocation_requested, _attrs, _opts}, 300
+    end
+
+    test "leaves actions without requires_confirmation dispatching immediately" do
+      socket = join!(:operator, ["srql.execute", "actions.invoke"], confirmation_host: self())
+
+      ref = push(socket, "actions:invoke", invoke_payload())
+
+      assert_reply ref, :ok, %{"invocation_id" => _id, "state" => "dispatching"}, 8_000
+      assert_received {:invocation_requested, _attrs, _opts}
+      refute_received {:dashboard_action_confirmation_request, _request}
+    end
+  end
+
   describe "events:subscribe" do
     test "is rejected when the package does not declare events.subscribe" do
       socket = join!(:viewer, ["srql.execute"])
@@ -211,18 +361,18 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
     end
   end
 
-  defp join!(role, capabilities) do
-    {socket, _user} = join_with_user!(role, capabilities)
+  defp join!(role, capabilities, opts \\ []) do
+    {socket, _user} = join_with_user!(role, capabilities, opts)
     socket
   end
 
-  defp join_with_user!(role, capabilities) do
+  defp join_with_user!(role, capabilities, opts \\ []) do
     user = AccountsFixtures.user_fixture(%{role: role})
     scope = Scope.for_user(user, permissions: RBAC.permissions_for_user(user))
     route_slug = "live-dashboard-#{System.unique_integer([:positive])}"
     create_dashboard_instance!(route_slug, capabilities)
 
-    token = DashboardFrameChannel.stream_token(route_slug, @data_frames, user.id, [], capabilities)
+    token = DashboardFrameChannel.stream_token(route_slug, @data_frames, user.id, [], capabilities, opts)
 
     {:ok, _reply, socket} =
       UserSocket
@@ -235,6 +385,25 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
   defp subscribe!(socket, filter) do
     ref = push(socket, "events:subscribe", %{"id" => "s1", "filter" => filter})
     assert_reply ref, :ok, %{"subscription_id" => "s1"}
+  end
+
+  defp request_confirmation!(socket) do
+    ref = push(socket, "actions:invoke", confirm_payload())
+    assert_reply ref, :ok, %{"state" => "confirmation_required", "confirmation_id" => id}
+    assert_receive {:dashboard_action_confirmation_request, %{id: ^id} = request}
+    request
+  end
+
+  # What the LiveView sends back: the operator's id and the binding the dialog showed.
+  defp host_reply(user, request), do: %{user_id: to_string(user.id), binding: request.binding}
+
+  defp confirm_payload do
+    %{
+      "action_id" => @confirm_action_id,
+      "scope" => "device",
+      "targets" => [%{"device_uid" => "sr:device:plc-07"}],
+      "input" => %{"reason" => "scheduled"}
+    }
   end
 
   defp invoke_payload do

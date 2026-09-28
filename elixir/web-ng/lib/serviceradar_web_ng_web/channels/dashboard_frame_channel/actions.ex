@@ -47,6 +47,11 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel.Actions do
 
   @doc """
   Creates and dispatches one invocation for the given targets.
+
+  An action whose descriptor has `requires_confirmation` is never dispatched
+  from here. It returns `{:confirmation_required, prepared}` instead, and the
+  channel holds it for a host-rendered confirmation (see `ActionConfirmations`);
+  only `dispatch_confirmed/3` can then release it.
   """
   def invoke(scope, capabilities, params) when is_map(params) do
     with :ok <- require_capability(capabilities),
@@ -54,10 +59,47 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel.Actions do
          {:ok, target_scope} <- target_scope(params),
          {:ok, action} <- find_action(scope, target_scope, params["action_id"]),
          {:ok, targets} <- targets(target_scope, params["targets"]),
-         {:ok, input_values} <- ActionForm.parse_input(action, %{"input" => input_params(params)}),
-         {:ok, invocation} <- create_invocation(scope, action, targets, input_values, params) do
+         {:ok, input_values} <- ActionForm.parse_input(action, %{"input" => input_params(params)}) do
+      if action.requires_confirmation == true do
+        {:confirmation_required,
+         %{
+           action: action,
+           target_scope: target_scope,
+           targets: targets,
+           input_values: input_values,
+           route_slug: to_string(params["route_slug"] || "")
+         }}
+      else
+        dispatch(scope, action, targets, input_values, params["route_slug"], nil)
+      end
+    end
+  end
+
+  @doc """
+  Dispatches an invocation the operator confirmed in the host dialog.
+
+  `entry` is a consumed `ActionConfirmations` entry. Capability, permission and
+  eligibility are checked again, because the viewer's role or the catalog may
+  have changed while the dialog was open, and the action must still be the
+  descriptor the operator saw.
+  """
+  def dispatch_confirmed(scope, capabilities, %{} = entry) do
+    with :ok <- require_capability(capabilities),
+         {:ok, scope} <- authorize(scope),
+         {:ok, action} <- find_action(scope, entry.target_scope, entry.action_id),
+         :ok <- same_descriptor(action, entry) do
+      dispatch(scope, action, entry.targets, entry.input_values, entry.route_slug, entry.id)
+    end
+  end
+
+  defp dispatch(scope, action, targets, input_values, route_slug, confirmation_id) do
+    with {:ok, invocation} <- create_invocation(scope, action, targets, input_values, route_slug, confirmation_id) do
       {:ok, invocation_payload(invocation), timeout_ms(action)}
     end
+  end
+
+  defp same_descriptor(action, entry) do
+    if Map.get(action, :descriptor_id) == entry.descriptor_id, do: :ok, else: {:error, :action_changed}
   end
 
   @doc """
@@ -82,6 +124,12 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel.Actions do
   def format_error(:invalid_scope), do: "Action scope must be device or interface."
   def format_error(:too_many_targets), do: "At most #{@max_targets} targets can be launched at once."
   def format_error(:invalid_targets), do: "Targets must name a device (and an interface for interface actions)."
+  def format_error(:confirmation_unavailable), do: "This action requires confirmation in the ServiceRadar host."
+  def format_error(:too_many_pending_confirmations), do: "Too many actions are waiting for confirmation."
+  def format_error(:confirmation_expired), do: "The confirmation expired before it was answered."
+  def format_error(:confirmation_mismatch), do: "The confirmation does not match this action request."
+  def format_error(:confirmation_not_found), do: "The confirmation is no longer pending."
+  def format_error(:action_changed), do: "The action changed while it was waiting for confirmation."
   def format_error(reason), do: ActionForm.format_launch_error(reason, "target")
 
   defp require_capability(capabilities) do
@@ -156,21 +204,33 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel.Actions do
   defp input_params(%{"input" => %{} = input}), do: Map.new(input, fn {key, value} -> {to_string(key), value} end)
   defp input_params(_params), do: %{}
 
-  defp create_invocation(scope, action, targets, input_values, params) do
+  defp create_invocation(scope, action, targets, input_values, route_slug, confirmation_id) do
+    metadata =
+      maybe_put_confirmation(
+        %{
+          "ui_surface" => "dashboard_package",
+          "dashboard_route_slug" => to_string(route_slug || ""),
+          "selected_target_count" => length(targets)
+        },
+        confirmation_id
+      )
+
     invocation_service_module().create_and_dispatch(
       %{
         descriptor_id: Map.get(action, :descriptor_id),
         targets: targets,
         input_values: input_values,
         source: :user,
-        metadata: %{
-          "ui_surface" => "dashboard_package",
-          "dashboard_route_slug" => to_string(params["route_slug"] || ""),
-          "selected_target_count" => length(targets)
-        }
+        metadata: metadata
       },
       actor: scope_actor(scope)
     )
+  end
+
+  defp maybe_put_confirmation(metadata, nil), do: metadata
+
+  defp maybe_put_confirmation(metadata, confirmation_id) do
+    Map.put(metadata, "confirmation", %{"method" => "host_dialog", "confirmation_id" => confirmation_id})
   end
 
   defp timeout_ms(action) do
