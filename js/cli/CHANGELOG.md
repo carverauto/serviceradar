@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 0.1.10
+
+- Add `fixtureResolver` for `dashboard dev`: a project-relative module with a
+  named `resolveFixture` export can map `srql.update` calls to another fixture,
+  replacement frames, or no change so filter chips and search work offline.
+- Extend the HMR harness host library injection with the deck.gl core exports
+  used by plan-view dashboards (`Deck` and `OrthographicView`) while continuing
+  to serve harness libraries from the local npm dependency graph.
 - `react-map` template: the site scatter goes through `useScreenLod` from
   `@carverauto/serviceradar-dashboard-sdk@^0.3.0`. Zoomed out, the map draws one
   marker per screen cell, sized by how many sites it holds; from zoom 5 it

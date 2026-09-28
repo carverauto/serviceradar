@@ -88,12 +88,14 @@ async function devCommandHmr({projectDir, config, options}: DevContext): Promise
     || ""
   const samples = computeSampleUrls(projectDir, config, "/@samples/")
   const fixtures = computeFixtureUrls(projectDir, config, "/@fixtures/")
+  const fixtureResolver = resolveFixtureResolverUrl(projectDir, config)
 
   const harnessHtml = renderDevHarnessHtml({
     entry: "/" + relativeUrl(projectDir, entryPath),
     manifest: synthesizeManifestForDev(config),
     samples,
     fixtures,
+    fixtureResolver,
     mapboxToken,
   })
 
@@ -162,22 +164,28 @@ async function devCommandHmr({projectDir, config, options}: DevContext): Promise
 }
 
 function dashboardHarnessPlugin() {
+  const modules = new Set(["dev.js", "dev.css", "camera.js", "runtime.js"])
+  const harnessId = (id: string): string | null => {
+    if (id.startsWith("/@harness/")) return id.slice("/@harness/".length)
+    return null
+  }
+
   return {
     name: "serviceradar-dashboard-harness",
     enforce: "pre" as const,
-    resolveId(id: string) {
-      if (id === "/@harness/dev.js") return id
-      if (id === "/@harness/dev.css") return id
+    resolveId(id: string, importer?: string) {
+      const name = harnessId(id)
+      if (name && modules.has(name)) return id
+      if (importer?.includes("/@harness/") && id.startsWith("./")) {
+        const relativeName = id.slice(2)
+        if (modules.has(relativeName)) return `/@harness/${relativeName}`
+      }
       return null
     },
     async load(id: string) {
-      if (id === "/@harness/dev.js") {
-        return await readFile(join(HARNESS_DIR, "dev.js"), "utf8")
-      }
-      if (id === "/@harness/dev.css") {
-        return await readFile(join(HARNESS_DIR, "dev.css"), "utf8")
-      }
-      return null
+      const name = harnessId(id)
+      if (!name || !modules.has(name)) return null
+      return await readFile(join(HARNESS_DIR, name), "utf8")
     },
   }
 }
@@ -275,14 +283,29 @@ interface HarnessRenderInput {
   manifest: Record<string, any>
   samples: Record<string, string>
   fixtures: Record<string, string>
+  fixtureResolver: string
   mapboxToken: string
 }
 
-function renderDevHarnessHtml({entry, manifest, samples, fixtures, mapboxToken}: HarnessRenderInput): string {
+// `fixtureResolver` in dashboard.config.mjs names a module whose `resolveFixture`
+// export maps an SRQL update to a fixture or frames (see harness/runtime.js).
+// It is imported through Vite like the renderer, so it can use project code.
+function resolveFixtureResolverUrl(projectDir: string, config: any): string {
+  const spec = config.fixtureResolver
+  if (!spec) return ""
+  const path = resolve(projectDir, String(spec))
+  if (!existsSync(path)) {
+    throw new Error(`fixtureResolver does not exist: ${relativePath(projectDir, path)}\n→ fix \`fixtureResolver\` in dashboard.config.mjs or create the module`)
+  }
+  return "/" + relativeUrl(projectDir, path)
+}
+
+function renderDevHarnessHtml({entry, manifest, samples, fixtures, fixtureResolver, mapboxToken}: HarnessRenderInput): string {
   const initialState = {
     manifest,
     samples,
     fixtures,
+    fixtureResolver,
     initialFixture: Object.keys(fixtures || {})[0] || "",
     mapboxToken,
     settings: {},
