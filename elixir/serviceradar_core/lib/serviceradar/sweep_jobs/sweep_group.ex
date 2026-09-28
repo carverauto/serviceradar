@@ -42,6 +42,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.SweepJobs.Changes.NormalizeAgentAssignment
+  alias ServiceRadar.SweepJobs.Changes.ReconcileProducerAssignments
   alias ServiceRadar.SweepJobs.Changes.ScheduleSweepMonitor
   alias ServiceRadar.SweepJobs.Changes.ValidateSrqlQuery
   alias ServiceRadar.SweepJobs.Validations.AgentAssignment
@@ -102,6 +103,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
       validate AgentAssignment
       change ScheduleSweepMonitor
       change ValidateSrqlQuery
+      change ReconcileProducerAssignments
     end
 
     update :enable do
@@ -145,6 +147,8 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
 
         Ash.Changeset.change_attribute(changeset, :static_targets, merged_targets)
       end
+
+      change ReconcileProducerAssignments
     end
 
     update :remove_targets do
@@ -164,6 +168,8 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
 
         Ash.Changeset.change_attribute(changeset, :static_targets, filtered_targets)
       end
+
+      change ReconcileProducerAssignments
     end
 
     read :enabled_groups do
