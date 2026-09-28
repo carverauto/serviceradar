@@ -13,7 +13,7 @@ publisher per entry in [paths.json](paths.json):
 2. Generate a random publish password and render the embedded MediaMTX template
    to a mode-0600 file next to the clips directory. Start MediaMTX with that file,
    wait for its RTSP port, then start one authenticated publisher per path:
-   `ffmpeg -re -ss <offset> -stream_loop -1 -i <clip> -c copy -f rtsp ...`.
+   `ffmpeg -re -stream_loop -1 -i <clip> -ss <offset> -c copy -f rtsp ...`.
 3. If any child exits, stop the rest and exit nonzero (Kubernetes restarts).
 
 Readers need no credentials. Publishing requires the per-boot `replayer`
@@ -26,8 +26,13 @@ The clip lock, six-path catalog, and MediaMTX template are embedded in the
 binary; there are no runtime file overrides or permissive inventory mode.
 S3 requests use the configured signing region without region discovery.
 
-More drones than clips: each clip loops on two paths at different start
-offsets, so simultaneous tiles never show identical frames.
+Each clip loops on two paths with different initial output offsets. Output-side
+seeking preserves the full input timeline across loop wraps, with stream copy
+and RTSP over TCP. Because `-re` reads the input in real time, the first frame
+arrives roughly the offset in seconds after publisher startup, plus any wait
+for a keyframe: up to about 55.5 seconds for `drone-surf-b`. This startup delay
+is acceptable for the long-running demo. Once started, paired publishers may
+show the same clip position at the same time.
 
 ## Clips
 

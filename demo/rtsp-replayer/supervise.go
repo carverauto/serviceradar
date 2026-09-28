@@ -27,9 +27,9 @@ func FFmpegArgs(clipPath string, offsetSeconds float64, rtspBase, path string) [
 	return []string{
 		"-hide_banner", "-loglevel", "warning",
 		"-re",
-		"-ss", strconv.FormatFloat(offsetSeconds, 'f', -1, 64),
 		"-stream_loop", "-1",
 		"-i", clipPath,
+		"-ss", strconv.FormatFloat(offsetSeconds, 'f', -1, 64),
 		"-c", "copy",
 		"-f", "rtsp",
 		"-rtsp_transport", "tcp",

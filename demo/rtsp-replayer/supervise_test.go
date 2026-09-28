@@ -20,9 +20,9 @@ func TestFFmpegArgsGolden(t *testing.T) {
 	want := []string{
 		"-hide_banner", "-loglevel", "warning",
 		"-re",
-		"-ss", "13.5",
 		"-stream_loop", "-1",
 		"-i", "/clips/a.mp4",
+		"-ss", "13.5",
 		"-c", "copy",
 		"-f", "rtsp",
 		"-rtsp_transport", "tcp",
