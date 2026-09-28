@@ -282,6 +282,81 @@ fn legacy_sysmon_queries_translate_on_both_backends() {
 }
 
 #[test]
+fn legacy_sysmon_quoted_stats_match_unquoted_translations() {
+    let config = test_config();
+    for (entity, field) in [
+        ("cpu", "usage_percent"),
+        ("memory", "usage_percent"),
+        ("disk", "usage_percent"),
+        ("processes", "cpu_usage"),
+    ] {
+        for mode in [None, Some("starrocks"), Some("starrocks_raw")] {
+            for filter in ["", "agent_id:agent-test", "host_id:host01.example.com"] {
+                let translate = |expression: &str| {
+                    translate_request(
+                        &config,
+                        QueryRequest {
+                            query: format!(
+                                "in:{entity} time:[2026-09-01T00:00:00Z,2026-09-02T00:00:00Z] {filter} stats:{}",
+                                serde_json::to_string(expression).unwrap()
+                            ),
+                            limit: None,
+                            cursor: None,
+                            direction: QueryDirection::Next,
+                            mode: mode.map(str::to_string),
+                            permitted_signals: None,
+                        },
+                    )
+                };
+                for group in ["device_id", "'device_id'", "\"device_id\"", ""] {
+                    if group.is_empty() && entity != "cpu" {
+                        continue;
+                    }
+                    let expected = translate(&format!(
+                        "avg({field}) as average{}",
+                        if group.is_empty() {
+                            ""
+                        } else {
+                            " by device_id"
+                        }
+                    ))
+                    .unwrap();
+                    for alias in ["average", "'average'", "\"average\""] {
+                        let expression = format!(
+                            "avg({field}) as {alias}{}",
+                            if group.is_empty() {
+                                String::new()
+                            } else {
+                                format!(" by {group}")
+                            }
+                        );
+                        let actual = translate(&expression).unwrap_or_else(|err| {
+                            panic!("{entity} {filter} {expression} ({mode:?}): {err}")
+                        });
+                        assert_eq!(actual.sql, expected.sql, "{expression}");
+                        assert_eq!(
+                            serde_json::to_value(actual.params).unwrap(),
+                            serde_json::to_value(&expected.params).unwrap(),
+                            "{expression}"
+                        );
+                    }
+                }
+                for expression in [
+                    format!("avg({field}) as 'average\" by device_id"),
+                    format!("avg({field}) as average by \"device_id'"),
+                    format!("avg({field}) as 'average;drop' by device_id"),
+                ] {
+                    assert!(
+                        translate(&expression).is_err(),
+                        "{entity} {expression} ({mode:?})"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn legacy_sysmon_fields_follow_operation_contracts() {
     let config = test_config();
     for (entity, series_fields, extra_series, sort_fields, extra_sorts) in [

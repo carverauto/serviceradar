@@ -8,7 +8,7 @@ use crate::{
     jsonb::DbJson,
     parser::{
         DownsampleAgg, Entity, Filter, FilterOp, FilterValue, OrderClause, OrderDirection,
-        StatsSpec,
+        StatsSpec, strip_matching_quotes,
     },
 };
 use diesel::{pg::Pg, sql_query, sql_types::Jsonb};
@@ -345,7 +345,7 @@ fn source(
 fn stats_spec(raw: &str, spec: &MetricSpec) -> Result<(String, String, bool)> {
     let lower = raw.to_ascii_lowercase();
     let (expression, group) = match lower.rsplit_once(" by ") {
-        Some((expression, group)) => (expression.trim(), Some(group.trim())),
+        Some((expression, group)) => (expression.trim(), Some(strip_matching_quotes(group))),
         None => (lower.trim(), None),
     };
     if !matches!(group, None | Some("device_id"))
@@ -356,7 +356,7 @@ fn stats_spec(raw: &str, spec: &MetricSpec) -> Result<(String, String, bool)> {
         ));
     }
     let (expression, alias) = match expression.split_once(" as ") {
-        Some((expression, alias)) => (expression.trim(), Some(alias.trim())),
+        Some((expression, alias)) => (expression.trim(), Some(strip_matching_quotes(alias))),
         None if spec.metric_type == "sysmon.cpu" => (expression, None),
         None => {
             return Err(ServiceError::InvalidRequest(
