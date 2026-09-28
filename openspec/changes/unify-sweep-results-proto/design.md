@@ -38,7 +38,11 @@ This is not merely a serialization problem:
   trace; and
 - replay is not idempotent across sweep, OCSF, execution, and MTR projections.
 
-## Active milestone scope and review contract
+## Completed vertical-slice scope and review contract
+
+The following contract governed task 0.12. For the current work order, see
+[the active milestones](tasks.md#active-end-to-end-milestones); the
+[scope amendment below](#scope-amendment-2026-09-28) records the transition.
 
 Task 0.12, the first green vertical slice, is the milestone this section scopes;
 its checkbox in `tasks.md` records whether it is closed. Until it is green,
@@ -133,6 +137,37 @@ reviewer does not add a seventh group without the scope-amendment process above.
 Closure does not check broader parent tasks, complete the ABI freeze, authorize
 production rollout, or waive deferred work. It ends this scope freeze and
 permits the next milestone to be chosen explicitly.
+
+### Scope amendment 2026-09-28
+
+Maintainer-approved, docs-only, per the rule above. Task 0.12 closed, but after
+three months the plane still carried no real producer, had no deployment
+wiring, and had not run on a deployment; the only end-to-end proof was one
+composed test. The task list had grown to 96 open items, most of them hardening
+for scale and extensibility that nothing yet exercises.
+
+The active work order is therefore four end-to-end milestones (`tasks.md`,
+"Active: end-to-end milestones"):
+
+1. M1: the vertical-slice target green again on `usp-01-proposal`.
+2. M2: the agent's sweep as the first real producer, projected into the same
+   domain tables the legacy path writes, run beside the legacy path on farm01.
+   Its first task is producer authority: no production agent yet holds the
+   scope, assignment, contract reference or signed capability a record needs.
+3. M3: reconnect, backpressure and a restart drill on farm01 with zero loss and
+   zero duplicates measured in CNPG.
+4. M4: sweep cut over and its legacy emission removed, then scheduled MTR.
+
+A milestone closes only on evidence from the required composed target or a
+running deployment. Deployment evidence lives in the milestone's GitHub
+tracking issue, never in the repository, because data captured from a live
+system is not committed. The remaining tasks stay owed as a
+backlog that does not gate M1-M4: capacity baselines and benchmarks, the
+signed registry lifecycle and cost API, the Wasm, native and inventory producer
+migrations, the recovery coordinator and coverage-proof reclamation, DLQ and
+redrive completeness, and 64-partition production sizing. Normative
+requirements in `specs/` are unchanged; this amendment changes the order of
+work, not the contract.
 
 ## Goals
 
@@ -2357,7 +2392,7 @@ change, which owns them. They are NOT duplicated here: two byte-identical copies
 a frozen grammar is exactly the dual-ownership this boundary reset removes, and a
 divergence between them would be invisible until a cross-language fixture failed.
 
-See the frozen edge record v1 wire ABI's Appendix A.
+See [the frozen edge record v1 wire ABI design](../archive/2026-09-28-freeze-edge-record-v1-abi/design.md), Appendix A.
 
 ## Ledger replay/conflict outcomes
 

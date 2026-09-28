@@ -1,11 +1,107 @@
 # Tasks: Build the durable extensible edge producer data plane
 
-> **ACTIVE WORK-ORDER GATE:** Until task 0.12 is checked, implementation and
-> review SHALL follow its scope and the review contract in `design.md`. An
-> unchecked task elsewhere in this file remains owed; it does not become a
-> prerequisite merely because it is nearby or more general.
+> **ACTIVE WORK ORDER (scope amendment 2026-09-28, maintainer-approved):**
+> task 0.12 is closed. The active work is the four end-to-end milestones M1-M4
+> below and nothing else. Each milestone closes only on evidence from the
+> required `BazelCI` composed target or from a running deployment (farm01, then
+> demo), never on unit tests alone. Deployment evidence (queries, counts,
+> results) is recorded in the milestone's GitHub tracking issue, never in this
+> repository: data captured from a live system SHALL NOT be committed, so only
+> synthetic query shapes belong here. Every task in the
+> backlog further down remains owed but is NOT required to ship M1-M4 and SHALL
+> NOT be treated as a prerequisite of them. A milestone task that narrows a
+> backlog task names it; the backlog task stays unchecked until its full scope is
+> met. See `design.md`, "Scope amendment 2026-09-28".
 
-## Active milestone coordination gate
+## Active: end-to-end milestones
+
+### M1. Vertical slice green on `usp-01-proposal`
+
+- [ ] M1.1 Fix the EventWriter shared-producer pull-budget starvation on
+  `staging` and bring it into `usp-01-proposal`. The per-tick budget was split
+  `ceil(budget / n)` in fixed list order, so the last consumers of the shared
+  producer were never pulled once every no_wait pull returned inside the tick;
+  after Group D1 that starved the edge-record durable and failed D2 and Groups
+  E-G.
+- [ ] M1.2 `//integration_tests/edge_record:vertical_slice_test` passes Groups
+  A-G in the required `BazelCI` check on `usp-01-proposal`, and remains a
+  required target from here on.
+
+### M2. One real producer on farm01: the agent's ICMP/TCP sweep
+
+- [ ] M2.0 Producer authority. A production agent today holds none of the
+  material a valid record needs; only the test fixture self-signs. The control
+  plane issues it to an opted-in agent and the gateway trusts it: the agent's
+  `network_scope_id` (bound to that agent in the gateway trust snapshot), a
+  producer assignment with its shard and authority epoch (fenced at the
+  gateway), the output-contract reference matching the gateway's contract
+  registry, a SCHEDULED_SWEEP source authorization keyed to the execution, and a
+  production capability signed by a platform issuer key the gateway trusts. The
+  issuer key is ServiceRadar talking to itself, not a device credential. Narrows
+  1.10, 2.10, 2.20, 3.2 and 3.8 to one scheduled-sweep contract.
+- [ ] M2.1 Sweep producer. Completed host windows from the agent's sweep become
+  byte-bounded `SweepObservationBatchV1` records appended to the existing agent
+  spool and sent by the existing sender, while the scan continues (narrows 2.1,
+  2.2 and 2.10 to the in-process sweep only; no Wasm or native sink API). The
+  producer and sender share one spool handle; the execution id is a UUIDv7
+  minted when the sweep starts, not when results are read; ICMP sent/received
+  counts, per-port errors and the hostname come from the scanner, since the
+  legacy summary drops them; batches are grouped deterministically per host.
+- [ ] M2.2 Per-agent opt-in. An agent configuration flag selects the edge path
+  for that agent's sweep output. Agents without it keep the legacy
+  `GatewayServiceStatus{source: "results"}` path unchanged, and one execution is
+  never emitted on both paths.
+- [ ] M2.3 Domain projection. For a decoded `SweepObservationBatchV1`, the
+  EventWriter EdgeRecord processor writes the same domain state the legacy path
+  writes (`SweepHostResult` rows, `SweepGroupExecution` statistics, device
+  availability and discovery sources) by reusing
+  `ServiceRadar.SweepJobs.SweepResultsIngestor`'s domain logic inside the ledger
+  transaction, so a redelivered record changes nothing (narrows 5.3).
+- [ ] M2.4 Deployment wiring. Helm values, off by default, enable the gateway
+  edge-record publisher, EventWriter's EDGE_RECORD stream and durable, the
+  gateway trust snapshot and static contract registry (the landed narrow slices
+  of 3.2 and 3.8), and the agent spool directory and size bound.
+- [ ] M2.5 Bounded spool. The agent reclaims a spool record only after its
+  terminal disposition is durable at the gateway, so a long-running agent's
+  spool stays within its configured bound. Today the sender never resolves a
+  record, so the spool only grows (the minimum of 3.10; the coverage proof and
+  rollover coordinator of 2.27-2.28 stay in the backlog).
+- [ ] M2.6 Parallel run on farm01. One canary agent on the edge path and one
+  control agent on the legacy path sweep the same target set for at least 24
+  hours. Per execution, host count, availability and open ports match between
+  the two in CNPG, and the canary's spool stays within its bound. The evidence
+  goes in the M2 tracking issue.
+
+### M3. Survive real failures on farm01
+
+- [ ] M3.1 Reconnect and replay. After a gateway restart the agent sender
+  reconnects and resends every unresolved spool record; an acknowledgement from
+  a stale session is rejected (narrows 2.5).
+- [ ] M3.2 Backpressure. Sweep admission pauses at the spool high-water mark and
+  resumes at the low-water mark, and an execution is never reported complete
+  while its records are unresolved (narrows 2.6).
+- [ ] M3.3 Fault drill. During active sweeps on farm01, restart the gateway,
+  core (EventWriter), NATS and the canary agent, each at least once
+  mid-execution. Afterwards CNPG shows zero missing and zero duplicated host
+  results against the control agent. The evidence goes in the M3 tracking
+  issue.
+- [ ] M3.4 Operator signals. Dashboards and alerts for agent spool bytes, oldest
+  unresolved record age, gateway PubAck errors and EDGE_RECORD consumer lag
+  (narrows 4.5).
+
+### M4. Cut over sweep, then MTR
+
+- [ ] M4.1 Enable the edge path for every farm01 agent's sweep and run at least
+  seven days with M3.4's signals clean.
+- [ ] M4.2 Remove the legacy sweep-results emission and decode for agents on the
+  edge path in a separately gated cleanup release (narrows 7.4 and 7.5).
+- [ ] M4.3 Scheduled MTR on the same path: `MtrTraceBatchV1` from the agent,
+  projection into the existing MTR tables, then the M2.6 parallel run and M3.3
+  drill for MTR (narrows 2.8, 5.4 and 6.2 to scheduled MTR).
+- [ ] M4.4 Enable on the demo deployment after farm01, with operator
+  documentation for the Helm values and signals.
+
+## Completed milestone gate
 
 - [x] 0.12 **FIRST GREEN VERTICAL SLICE -- ACTIVE MILESTONE AND SCOPE FREEZE.**
   Drive ONE committed BULK `SweepObservationBatchV1` fixture on ONE valid durable
@@ -197,6 +293,13 @@
     `authenticated_agent_id`, passes the trust gate, and fails as an identity
     mismatch before NATS publication. That composed observation is now the
     vertical slice's Group G, owned by 3.2.
+
+# Backlog
+
+Everything below is the full task inventory from before the 2026-09-28 scope
+amendment, kept verbatim. Checked items are done. Unchecked items remain owed
+but do not block M1-M4; when this change is archived they move to a follow-up
+change together with the requirements they implement.
 
 ## 0. Baseline and approve capacity assumptions
 
