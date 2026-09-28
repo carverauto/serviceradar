@@ -8,28 +8,27 @@ import (
 	"net"
 	"os"
 	"os/exec"
-	"strconv"
 	"sync"
 	"time"
 )
 
 // Child is one supervised process: MediaMTX or an ffmpeg publisher.
 type Child struct {
-	Name string
-	Bin  string
-	Args []string
-	Env  []string // extra environment, appended to the supervisor's
+	Name       string
+	Bin        string
+	Args       []string
+	Env        []string      // extra environment, appended to the supervisor's
+	StartAfter time.Duration // delay before starting, relative to supervision start
 }
 
-// FFmpegArgs builds the loop-and-publish invocation for one RTSP path: seek
-// to the path's start offset, loop forever, remux without re-encoding.
-func FFmpegArgs(clipPath string, offsetSeconds float64, rtspBase, path string) []string {
+// FFmpegArgs builds the loop-and-publish invocation for one RTSP path:
+// loop the full clip forever and remux without re-encoding.
+func FFmpegArgs(clipPath, rtspBase, path string) []string {
 	return []string{
 		"-hide_banner", "-loglevel", "warning",
 		"-re",
 		"-stream_loop", "-1",
 		"-i", clipPath,
-		"-ss", strconv.FormatFloat(offsetSeconds, 'f', -1, 64),
 		"-c", "copy",
 		"-f", "rtsp",
 		"-rtsp_transport", "tcp",
@@ -78,33 +77,39 @@ func (w *childLogWriter) Flush() {
 	}
 }
 
-// Supervise starts every child and waits. The first child to exit (or context
-// cancellation) stops the rest; the replayer never serves a partial path set.
+// Supervise starts each child after its independent delay and waits. The first
+// child to exit (or context cancellation) stops running and pending children.
 func Supervise(ctx context.Context, log *log.Logger, children []Child) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
 	var wg sync.WaitGroup
 	errs := make(chan *ExitError, len(children))
-	cmds := make([]*exec.Cmd, len(children))
 
-	for i, child := range children {
+	for _, child := range children {
 		cmd := exec.CommandContext(ctx, child.Bin, child.Args...)
 		output := &childLogWriter{log: log, name: child.Name}
 		cmd.Stdout, cmd.Stderr = output, output
 		if len(child.Env) > 0 {
 			cmd.Env = append(os.Environ(), child.Env...)
 		}
-		cmds[i] = cmd
-		if err := cmd.Start(); err != nil {
-			cancel()
-			wg.Wait()
-			return fmt.Errorf("start %s: %w", child.Name, err)
-		}
-		log.Printf("started %s (pid %d)", child.Name, cmd.Process.Pid)
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			if child.StartAfter > 0 {
+				timer := time.NewTimer(child.StartAfter)
+				defer timer.Stop()
+				select {
+				case <-timer.C:
+				case <-ctx.Done():
+					return
+				}
+			}
+			if err := cmd.Start(); err != nil {
+				errs <- &ExitError{Name: child.Name, Err: fmt.Errorf("start: %w", err)}
+				return
+			}
+			log.Printf("started %s (pid %d)", child.Name, cmd.Process.Pid)
 			err := cmd.Wait()
 			output.Flush()
 			select {
@@ -117,21 +122,7 @@ func Supervise(ctx context.Context, log *log.Logger, children []Child) error {
 	select {
 	case first := <-errs:
 		cancel()
-		done := make(chan struct{})
-		go func() {
-			wg.Wait()
-			close(done)
-		}()
-		select {
-		case <-done:
-		case <-time.After(15 * time.Second):
-			for _, cmd := range cmds {
-				if cmd.Process != nil {
-					_ = cmd.Process.Kill()
-				}
-			}
-			<-done
-		}
+		wg.Wait()
 		return first
 	case <-ctx.Done():
 		cancel()

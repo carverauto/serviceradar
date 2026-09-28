@@ -39,8 +39,8 @@ type Lock struct {
 	Clips   []Clip `json:"clips"`
 }
 
-// RTSPPath maps one served RTSP path to a locked clip and a start offset, so
-// more drones than clips never show identical frames.
+// RTSPPath maps one served RTSP path to a locked clip and a publisher start
+// delay in seconds. Staggered starts give paired paths different clip phases.
 type RTSPPath struct {
 	Path               string  `json:"path"`
 	Clip               string  `json:"clip"`

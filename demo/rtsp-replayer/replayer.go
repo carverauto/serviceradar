@@ -141,8 +141,9 @@ func Run(ctx context.Context, cfg Config, fetchOnly bool, stdout, stderr io.Writ
 			Bin:  cfg.FFmpegBin,
 			Args: FFmpegArgs(
 				filepath.Join(cfg.ClipsDir, filepath.Base(clip.Key)),
-				p.StartOffsetSeconds, publishURL.String(), p.Path,
+				publishURL.String(), p.Path,
 			),
+			StartAfter: time.Duration(p.StartOffsetSeconds * float64(time.Second)),
 		})
 	}
 
