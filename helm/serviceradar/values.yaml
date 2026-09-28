@@ -1202,7 +1202,7 @@ coldTier:
     postgresqlParameters: {}
     resources: {}
 
-# Shared storage for GeoLite2 MMDB files used by GeoIP/ASN enrichment.
+# Storage for GeoLite2 MMDB files used by GeoIP/ASN enrichment.
 # This must be mounted wherever enrichment jobs run (core) and anywhere that
 # might need local lookups (web-ng). Enrichment should never do external API calls
 # at query time.
