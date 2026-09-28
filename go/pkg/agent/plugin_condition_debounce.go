@@ -227,6 +227,7 @@ type conditionScopeMarkerUnmapped struct {
 
 // conditionScopeMarkerField is checked before decoding so ordinary events do
 // not pay for a second JSON decode.
+//nolint:gochecknoglobals // effectively-const byte pattern, read-only
 var conditionScopeMarkerField = []byte(`"condition_scope_complete"`)
 
 // parseConditionScopeMarker extracts a scope-complete marker. Both fields are
@@ -519,6 +520,7 @@ func newConditionClearTemplate(record *addonpb.TelemetryRecord, sample condition
 // conditionTemplateKeptFields are the top-level OCSF fields an oversized
 // template is reduced to: what the event writer requires, plus the event's
 // provenance. The device is reduced to its identifying fields below.
+//nolint:gochecknoglobals // fixed read-only field list, shared by the reduce function
 var conditionTemplateKeptFields = []string{
 	"class_uid", "category_uid", "type_uid", "activity_id", "activity_name",
 	"log_name", "log_provider", "log_version",

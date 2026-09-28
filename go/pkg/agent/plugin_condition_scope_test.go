@@ -36,6 +36,7 @@ const (
 	testKeyMot = "example:dev-02:motors_stuck"
 )
 
+//nolint:gochecknoglobals // fixed reference time shared by every test case in this file
 var testScopeEpoch = time.Date(2026, time.January, 2, 3, 0, 0, 0, time.UTC)
 
 func scopedConditionPayload(key, scope, level string) map[string]any {
@@ -432,6 +433,7 @@ func TestConditionScopeClearTemplateShapes(t *testing.T) {
 			name:   "numeric time stays numeric",
 			mutate: func(p map[string]any) { p["time"] = testScopeEpoch.Add(-time.Minute).UnixMilli() },
 			checkFn: func(t *testing.T, now time.Time, payload map[string]any, _ *addonpb.TelemetryRecord) {
+				t.Helper()
 				if payload["time"] != float64(now.UnixMilli()) {
 					t.Errorf("time = %#v, want %d", payload["time"], now.UnixMilli())
 				}
@@ -441,6 +443,7 @@ func TestConditionScopeClearTemplateShapes(t *testing.T) {
 			name:   "oversized raise is reduced",
 			mutate: func(p map[string]any) { p["observables"] = strings.Repeat("x", conditionTemplateMaxBytes) },
 			checkFn: func(t *testing.T, _ time.Time, payload map[string]any, cleared *addonpb.TelemetryRecord) {
+				t.Helper()
 				if _, has := payload["observables"]; has {
 					t.Error("oversized fields must not survive into the template")
 				}
