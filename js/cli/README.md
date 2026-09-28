@@ -75,6 +75,37 @@ action's `emits` events. Subscriptions filter on the same keys as the production
 host: `log_provider`, `log_name`, `class_uid`, `device_uid`, `min_severity_id`
 and `metadata`.
 
+### Resolving SRQL updates to fixtures
+
+By default `srql.update` in the harness only logs the query. To make filter chips
+and search work offline, name a resolver module in `dashboard.config.mjs`:
+
+```js
+export default {
+  fixtures: {steady: "fixtures/steady.json", jam: "fixtures/jam.json"},
+  fixtureResolver: "fixtures/resolve.js",
+}
+```
+
+```js
+// fixtures/resolve.js
+export function resolveFixture({query, frameQueries, frames, fixtures, activeFixture}) {
+  if (query.includes("status:fault")) return "jam"          // switch fixture
+  return frames.map((frame) => ({...frame, results: frame.results?.slice(0, 5)}))  // or new frames
+}
+```
+
+Return a fixture name to switch to, an array of frames (or `{frames}`) to show
+instead, or nothing to leave the frames unchanged. The module is imported through
+Vite, so it can import project code.
+
+### Offline use
+
+`npm run dev` loads Mapbox GL and deck.gl from the project's `node_modules`, so
+after `npm install` the harness needs no network for its libraries. Mapbox basemap
+tiles still need network; plan-view dashboards built on the SDK's orthographic
+canvas need none. The legacy `?advanced` harness loads its libraries from esm.sh.
+
 ## Auth
 
 `serviceradar-cli auth login --instance <url>` runs the OAuth 2.0 Device

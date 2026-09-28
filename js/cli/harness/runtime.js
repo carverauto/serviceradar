@@ -138,3 +138,31 @@ export function createHarnessActionsApi({
     }),
   }
 }
+
+// Fixture resolution for `srql.update` in the dev harness.
+//
+// A project may name a resolver module in dashboard.config.mjs
+// (`fixtureResolver: "fixtures/resolve.js"`). Its `resolveFixture` export is
+// called on every SRQL update with
+// `{query, frameQueries, frames, fixtures, activeFixture}` and may return, or
+// resolve to:
+//   - a fixture name (string) to switch to,
+//   - an array of frames, or `{frames: [...]}`, to show instead,
+//   - nothing, to leave the frames as they are.
+export function interpretFixtureResolution(result, fixtures = {}) {
+  if (typeof result === "string") {
+    if (!Object.prototype.hasOwnProperty.call(fixtures || {}, result)) {
+      throw harnessError("unknown_fixture", `fixture resolver returned unknown fixture "${result}"`)
+    }
+    return {kind: "fixture", name: result}
+  }
+  if (Array.isArray(result)) return {kind: "frames", frames: result}
+  if (result && Array.isArray(result.frames)) return {kind: "frames", frames: result.frames}
+  return {kind: "none"}
+}
+
+export function pickFixtureResolver(module) {
+  if (!module) return null
+  if (typeof module.resolveFixture === "function") return module.resolveFixture
+  return null
+}

@@ -8,7 +8,12 @@
 // and `renderer` is the customer's renderer module.
 
 import {createHarnessCameraApi} from "./camera.js"
-import {createHarnessActionsApi, createHarnessEventsApi} from "./runtime.js"
+import {
+  createHarnessActionsApi,
+  createHarnessEventsApi,
+  interpretFixtureResolution,
+  pickFixtureResolver,
+} from "./runtime.js"
 
 const ROOT_SELECTOR = "[data-root]"
 const STATUS_SELECTOR = "[data-status]"
@@ -46,6 +51,7 @@ function createContext(initialState) {
   let frames = []
   let mounted = null
   let api = null
+  let resolver = null
 
   const ctx = {
     async mount(module) {
@@ -63,10 +69,17 @@ function createContext(initialState) {
           return
         }
 
-        api = await createHostApi(state, frames, {
+        if (state.fixtureResolver && !resolver) {
+          resolver = pickFixtureResolver(await import(/* @vite-ignore */ state.fixtureResolver))
+          if (!resolver) showError(`${state.fixtureResolver} exports no resolveFixture function`)
+        }
+
+        api = await createHostApi(state, {
           themeListeners,
           frameListeners,
           onCall: appendCallLog,
+          getFrames: () => frames,
+          resolveQuery,
         })
 
         const host = createHost(state)
@@ -92,6 +105,12 @@ function createContext(initialState) {
         showError(`failed to load fixture "${name}": ${error.message}`)
         return
       }
+      // A scenario chip can swap the fixture without touching the side panel;
+      // keep the dropdown on the fixture that is actually loaded.
+      const fixtureSelect = document.querySelector(FIXTURE_SELECT_SELECTOR)
+      if (fixtureSelect && Array.from(fixtureSelect.options).some((option) => option.value === name)) {
+        fixtureSelect.value = name
+      }
       // Push the new frames through the existing api callbacks first; if the
       // renderer doesn't subscribe (most do via SDK hooks), remount.
       const broadcast = Array.from(frameListeners)
@@ -111,6 +130,33 @@ function createContext(initialState) {
       state.mapboxToken = String(token || "")
       writeTokenToStorage(state.mapboxToken)
     },
+  }
+
+  // srql.update in the harness: without a resolver it only logs; with one, the
+  // resolver decides which fixture or frames the new query should show.
+  async function resolveQuery(query, frameQueries = {}) {
+    appendCallLog(`srql.update ${query}`)
+    console.info("[dev harness] srql.update", {query, frameQueries})
+    if (!resolver) return
+
+    try {
+      const result = await resolver({
+        query,
+        frameQueries,
+        frames,
+        fixtures: state.fixtures || {},
+        activeFixture: state.activeFixture,
+      })
+      const resolution = interpretFixtureResolution(result, state.fixtures)
+      if (resolution.kind === "fixture") {
+        await ctx.swapFixture(resolution.name)
+      } else if (resolution.kind === "frames") {
+        frames = resolution.frames
+        for (const listener of frameListeners) listener({frames})
+      }
+    } catch (error) {
+      showError(`fixture resolver failed: ${error.message}`)
+    }
   }
 
   wireSidePanel(ctx, state)
@@ -207,12 +253,11 @@ function createHost(state) {
   }
 }
 
-async function createHostApi(state, initialFrames, hooks) {
-  const {themeListeners, frameListeners, onCall} = hooks
+async function createHostApi(state, hooks) {
+  const {themeListeners, frameListeners, onCall, getFrames, resolveQuery} = hooks
   state.harnessEvents?.stop()
   state.harnessEvents = createHarnessEventsApi({onCall})
   state.harnessEvents.replay(state.fixtureEvents || [])
-  let frames = initialFrames
   const libraries = await loadBrowserModuleLibraries()
 
   return {
@@ -221,12 +266,11 @@ async function createHostApi(state, initialFrames, hooks) {
     requireCapability: () => {},
     theme: () => state.theme,
     isDarkMode: () => state.theme === "dark",
-    frames: () => frames,
-    frame: (id) => frames.find((entry) => String(entry?.id) === String(id)),
-    srql: createSrqlClient(() => frames, onCall),
+    frames: () => getFrames(),
+    frame: (id) => getFrames().find((entry) => String(entry?.id) === String(id)),
+    srql: createSrqlClient(getFrames, resolveQuery),
     setSrqlQuery(query, frameQueries = {}) {
-      onCall(`srql.update ${query}`)
-      console.info("[dev harness] SRQL update", {query, frameQueries})
+      return resolveQuery(query, frameQueries)
     },
     navigate(target) {
       onCall(`navigate ${typeof target === "string" ? target : JSON.stringify(target)}`)
@@ -277,21 +321,18 @@ async function createHostApi(state, initialFrames, hooks) {
     events: state.harnessEvents.publicApi(),
     async refreshFrames() {
       onCall("frames refresh")
-      for (const listener of frameListeners) listener(frames)
+      for (const listener of frameListeners) listener({frames: getFrames()})
       return {refreshed: true}
     },
   }
 }
 
-function createSrqlClient(getFrames, onCall) {
+function createSrqlClient(getFrames, resolveQuery) {
   const queryFor = (id) => {
     const frame = getFrames().find((entry) => String(entry?.id) === String(id || ""))
     return frame?.query || getFrames()[0]?.query || ""
   }
-  const update = (query, frameQueries = {}) => {
-    onCall(`srql.update ${query}`)
-    console.info("[dev harness] srql.update", {query, frameQueries})
-  }
+  const update = (query, frameQueries = {}) => resolveQuery(query, frameQueries)
   return Object.assign(() => ({query: queryFor()}), {
     query: queryFor,
     update,
@@ -306,15 +347,25 @@ function createSrqlClient(getFrames, onCall) {
 async function loadBrowserModuleLibraries() {
   await import("mapbox-gl/dist/mapbox-gl.css")
 
-  const [mapboxModule, deckLayers, deckMapbox] = await Promise.all([
+  const [mapboxModule, deckCore, deckLayers, deckMapbox] = await Promise.all([
     import("mapbox-gl"),
+    import("@deck.gl/core"),
     import("@deck.gl/layers"),
     import("@deck.gl/mapbox"),
   ])
 
+  // Same library set the production host injects.
   return {
     mapboxgl: mapboxModule.default || mapboxModule,
+    Deck: deckCore.Deck,
+    OrthographicView: deckCore.OrthographicView,
     MapboxOverlay: deckMapbox.MapboxOverlay,
+    ArcLayer: deckLayers.ArcLayer,
+    BitmapLayer: deckLayers.BitmapLayer,
+    IconLayer: deckLayers.IconLayer,
+    LineLayer: deckLayers.LineLayer,
+    PathLayer: deckLayers.PathLayer,
+    PolygonLayer: deckLayers.PolygonLayer,
     ScatterplotLayer: deckLayers.ScatterplotLayer,
     TextLayer: deckLayers.TextLayer,
   }

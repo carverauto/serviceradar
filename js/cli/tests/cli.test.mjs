@@ -77,6 +77,25 @@ test("validate accepts a clean dashboard config", async () => {
   assert.match(stdout, /manifest id com\.example\.dashboard@1\.0\.0/)
 })
 
+test("validate accepts fixtures with a fixtureResolver for offline chips", async () => {
+  const projectDir = await mkdtemp(join(tmpdir(), "sr-dashboard-validate-resolver-"))
+  await execFileAsync("mkdir", ["-p", join(projectDir, "src")])
+  await execFileAsync("mkdir", ["-p", join(projectDir, "fixtures")])
+  await writeFile(join(projectDir, "src/main.jsx"), "export function mountDashboard() {}\\n")
+  await writeFile(join(projectDir, "fixtures/steady.json"), JSON.stringify({frames: []}))
+  await writeFile(join(projectDir, "fixtures/resolve.js"), "export function resolveFixture() {}\\n")
+  await writeFile(join(projectDir, "dashboard.config.json"), JSON.stringify({
+    manifest: {id: "com.example.dashboard", name: "Demo", version: "1.0.0"},
+    renderer: {entry: "src/main.jsx"},
+    fixtures: {steady: "fixtures/steady.json"},
+    fixtureResolver: "fixtures/resolve.js",
+  }))
+
+  const {stdout} = await execFileAsync(process.execPath, [cliPath.pathname, "validate"], {cwd: projectDir})
+
+  assert.match(stdout, /Dashboard config validates\./)
+})
+
 test("validate flags a missing manifest field", async () => {
   const projectDir = await mkdtemp(join(tmpdir(), "sr-dashboard-validate-fail-"))
   await execFileAsync("mkdir", ["-p", join(projectDir, "src")])

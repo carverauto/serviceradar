@@ -1,6 +1,6 @@
 {
   "name": "@carverauto/serviceradar-cli",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "description": "ServiceRadar developer CLI: dashboard authoring loop, auth, and tooling. Companion to @carverauto/serviceradar-dashboard-sdk.",
   "type": "module",
   "license": "UNLICENSED",
@@ -36,6 +36,7 @@
     "node": ">=20"
   },
   "dependencies": {
+    "@deck.gl/core": "^9.3.2",
     "@deck.gl/layers": "^9.3.2",
     "@deck.gl/mapbox": "^9.3.2",
     "@vitejs/plugin-react": "^5.0.4",

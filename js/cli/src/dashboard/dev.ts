@@ -88,12 +88,14 @@ async function devCommandHmr({projectDir, config, options}: DevContext): Promise
     || ""
   const samples = computeSampleUrls(projectDir, config, "/@samples/")
   const fixtures = computeFixtureUrls(projectDir, config, "/@fixtures/")
+  const fixtureResolver = resolveFixtureResolverUrl(projectDir, config)
 
   const harnessHtml = renderDevHarnessHtml({
     entry: "/" + relativeUrl(projectDir, entryPath),
     manifest: synthesizeManifestForDev(config),
     samples,
     fixtures,
+    fixtureResolver,
     mapboxToken,
   })
 
@@ -275,14 +277,29 @@ interface HarnessRenderInput {
   manifest: Record<string, any>
   samples: Record<string, string>
   fixtures: Record<string, string>
+  fixtureResolver: string
   mapboxToken: string
 }
 
-function renderDevHarnessHtml({entry, manifest, samples, fixtures, mapboxToken}: HarnessRenderInput): string {
+// `fixtureResolver` in dashboard.config.mjs names a module whose `resolveFixture`
+// export maps an SRQL update to a fixture or frames (see harness/runtime.js).
+// It is imported through Vite like the renderer, so it can use project code.
+function resolveFixtureResolverUrl(projectDir: string, config: any): string {
+  const spec = config.fixtureResolver
+  if (!spec) return ""
+  const path = resolve(projectDir, String(spec))
+  if (!existsSync(path)) {
+    throw new Error(`fixtureResolver does not exist: ${relativePath(projectDir, path)}\n→ fix \`fixtureResolver\` in dashboard.config.mjs or create the module`)
+  }
+  return "/" + relativeUrl(projectDir, path)
+}
+
+function renderDevHarnessHtml({entry, manifest, samples, fixtures, fixtureResolver, mapboxToken}: HarnessRenderInput): string {
   const initialState = {
     manifest,
     samples,
     fixtures,
+    fixtureResolver,
     initialFixture: Object.keys(fixtures || {})[0] || "",
     mapboxToken,
     settings: {},

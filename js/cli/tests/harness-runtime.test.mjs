@@ -68,3 +68,19 @@ test("unknown actions and empty targets are rejected", async () => {
   await assert.rejects(actions.invoke({actionId: "missing", targets: [{deviceUid: "d"}]}), {code: "rejected"})
   await assert.rejects(actions.invoke({actionId: "a", targets: []}), {code: "invalid_request"})
 })
+
+test("a fixture resolver can switch fixtures, replace frames, or leave them", async () => {
+  const {interpretFixtureResolution, pickFixtureResolver} = await import("../harness/runtime.js")
+  const fixtures = {steady: "/@fixtures/steady.json", jam: "/@fixtures/jam.json"}
+
+  assert.deepEqual(interpretFixtureResolution("jam", fixtures), {kind: "fixture", name: "jam"})
+  assert.deepEqual(interpretFixtureResolution([{id: "a"}], fixtures), {kind: "frames", frames: [{id: "a"}]})
+  assert.deepEqual(interpretFixtureResolution({frames: [{id: "b"}]}, fixtures), {kind: "frames", frames: [{id: "b"}]})
+  assert.deepEqual(interpretFixtureResolution(undefined, fixtures), {kind: "none"})
+  assert.throws(() => interpretFixtureResolution("missing", fixtures), /unknown fixture "missing"/)
+
+  const named = () => "jam"
+  assert.equal(pickFixtureResolver({resolveFixture: named}), named)
+  assert.equal(pickFixtureResolver({default: () => "steady"}), null)
+  assert.equal(pickFixtureResolver({}), null)
+})
