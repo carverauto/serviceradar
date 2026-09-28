@@ -99,7 +99,14 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel.Actions do
   end
 
   defp same_descriptor(action, entry) do
-    if Map.get(action, :descriptor_id) == entry.descriptor_id, do: :ok, else: {:error, :action_changed}
+    action_did = Map.get(action, :descriptor_id)
+    entry_did = entry.descriptor_id
+
+    if is_nil(action_did) or is_nil(entry_did) or action_did != entry_did do
+      {:error, :action_changed}
+    else
+      :ok
+    end
   end
 
   @doc """

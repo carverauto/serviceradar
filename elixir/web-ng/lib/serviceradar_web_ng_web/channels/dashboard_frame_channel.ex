@@ -142,6 +142,7 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
 
       {:error, reason, pending} ->
         push_confirmation(socket, id, "rejected", %{"reason" => Actions.format_error(reason)})
+        notify_confirmation_host(socket, {:dashboard_action_confirmation_closed, id})
         {:noreply, assign(socket, :action_confirmations, pending)}
     end
   end

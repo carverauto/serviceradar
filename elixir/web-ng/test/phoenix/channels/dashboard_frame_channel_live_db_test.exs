@@ -56,7 +56,7 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
         },
         %{
           id: "northbound:showcase-reset",
-          descriptor_id: nil,
+          descriptor_id: "018f0000-cafe-7000-8000-000000000001",
           label: "Reset controller",
           description: "Power-cycles the controller.",
           provider_type: "wasm_plugin",
@@ -257,6 +257,8 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelLiveDbTest do
 
       assert_push "actions:confirmation", %{"state" => "rejected", "reason" => reason}
       assert reason == "The confirmation expired before it was answered."
+      assert_receive {:dashboard_action_confirmation_closed, closed_id}
+      assert closed_id == request.id
       refute_received {:invocation_requested, _attrs, _opts}
     end
 
