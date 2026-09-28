@@ -1,7 +1,8 @@
 # edge-producer-data-plane Specification
 
 ## Purpose
-TBD - created by archiving change freeze-edge-record-v1-abi. Update Purpose after archive.
+Define the frozen edge record v1 wire ABI, including record and frame bounds,
+identity and digest grammars, producer authority, and loss classification.
 ## Requirements
 ### Requirement: Projected row cost is derived from enumerated synchronous mutations
 Any component declaring a projected row cost or performing synchronous mutations for an admitted edge record SHALL account for those mutations using the shared projection row rule, and the count SHALL be the length of its enumerated row set.
@@ -3395,4 +3396,3 @@ contiguous sequence, sent-event binding and resolving-prefix rules still apply.
 - **WHEN** its code is empty, longer than 64 bytes, lowercase or contains punctuation
 - **THEN** the ACK is refused
 - **AND** legal one-byte and 64-byte tokens are accepted
-
