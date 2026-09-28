@@ -85,6 +85,20 @@ delivery and acknowledgement lifecycle.
 - **WHEN** no sweep has executed and no retained spool frame needs retry
 - **THEN** the agent SHALL NOT emit periodic sweep result frames
 
+#### Scenario: Agent pushes sweep completion results
+- **GIVEN** an agent that has completed a sweep execution
+- **WHEN** the sweep results are finalized
+- **THEN** the agent SHALL push a completion batch via gRPC
+- **AND** the batch SHALL include total hosts scanned, hosts available, and hosts failed
+- **AND** the agent SHALL NOT emit periodic result pushes when no sweep has executed
+
+#### Scenario: Agent pushes progress batches during large sweeps
+- **GIVEN** a sweep execution with a large target set
+- **WHEN** the agent reaches the configured progress threshold (count or time)
+- **THEN** the agent SHALL push a progress batch via gRPC
+- **AND** the batch SHALL include cumulative totals for the execution so far
+- **AND** progress batches SHALL be rate-limited by configuration
+
 ### Requirement: Gateway Forwards Sweep Results to Core
 The agent-gateway SHALL authenticate and validate sweep `EdgeDeliveryFrameV1`
 messages, then publish their exact `EdgeRecordV1` bytes to the installation-local,
@@ -131,6 +145,22 @@ only then return an accepted disposition.
   auditable
 - **AND** redrive SHALL use the same class-specific stream and SHALL NOT promote
   bulk work into the interactive path
+
+#### Scenario: Gateway receives and forwards results
+- **GIVEN** the agent-gateway receives sweep results from an agent
+- **WHEN** processing the status push
+- **THEN** the gateway SHALL extract tenant from mTLS certificate
+- **AND** forward results to core-elx via RPC with tenant context
+- **AND** use streaming/chunking for large payloads
+
+#### Scenario: Gateway handles offline core gracefully
+- **GIVEN** sweep results received while core-elx is unavailable
+- **WHEN** the forward attempt fails
+- **THEN** the gateway SHALL buffer results with configurable retention
+- **AND** retry forwarding when core becomes available
+- **AND** drop oldest results if buffer is full
+
+---
 
 ### Requirement: Core Processes Sweep Results via DIRE
 Partitioned event-writer consumers SHALL decode independently durable sweep

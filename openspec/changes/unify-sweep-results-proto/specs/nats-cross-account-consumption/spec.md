@@ -24,6 +24,18 @@ account or cluster boundary by this change.
   recovery, or record-DLQ subject
 - **THEN** it SHALL NOT add an export for that subject
 
+#### Scenario: Tenant export exposes logs
+- **GIVEN** tenant "acme" has a NATS account
+- **WHEN** the tenant account is provisioned
+- **THEN** the account SHALL export `acme.logs.>`
+- **AND** the export SHALL be available for platform imports
+
+#### Scenario: Tenant export exposes events
+- **GIVEN** tenant "acme" has a NATS account
+- **WHEN** the tenant account is provisioned
+- **THEN** the account SHALL export `acme.events.>`
+- **AND** the export SHALL be available for platform imports
+
 ### Requirement: Platform Imports for Shared Consumers
 
 The runtime SHALL NOT depend on a shared cross-customer platform account or
@@ -47,6 +59,18 @@ PubAck and EventWriter.
 - **AND** the installation-local EventWriter SHALL continue consuming the
   authoritative physical record streams directly
 
+#### Scenario: Platform imports tenant logs
+- **GIVEN** tenant "acme" exports `acme.logs.>`
+- **WHEN** the platform account is updated for tenant "acme"
+- **THEN** the platform account SHALL import `acme.logs.>`
+- **AND** platform consumers SHALL receive messages published to `acme.logs.syslog`
+
+#### Scenario: Platform imports tenant events
+- **GIVEN** tenant "acme" exports `acme.events.>`
+- **WHEN** the platform account is updated for tenant "acme"
+- **THEN** the platform account SHALL import `acme.events.>`
+- **AND** platform consumers SHALL receive messages published to `acme.events.poller.health`
+
 ### Requirement: JetStream mirrors for tenant streams
 
 Authoritative installation streams SHALL NOT use a cross-customer JetStream
@@ -67,6 +91,12 @@ acceptance into the source PubAck.
   canonical edge-record subject
 - **THEN** readiness SHALL fail and no record publisher SHALL be enabled
 
+#### Scenario: Platform mirror receives tenant logs
+- **GIVEN** tenant "acme" exports `acme.logs.>`
+- **AND** the platform account creates a mirror stream for the export
+- **WHEN** a log is published in the tenant account
+- **THEN** the mirrored PLATFORM stream SHALL receive the message
+
 ### Requirement: KV rule stream mirroring
 
 Installation rule KV streams SHALL NOT be mirrored into a shared cross-customer
@@ -80,6 +110,11 @@ configuration contract, not implicit KV mirroring.
   installation rule bucket
 - **THEN** it SHALL reject the configuration
 - **AND** the installation-local rule watch SHALL remain authoritative
+
+#### Scenario: Rule KV update mirrored
+- **GIVEN** tenant "acme" updates a rule in its KV bucket
+- **WHEN** the KV stream is mirrored into PLATFORM
+- **THEN** zen SHALL receive the rule update via the platform mirror
 
 ### Requirement: Tenant Identity from Subject Prefix
 
@@ -104,6 +139,12 @@ network scope, agent, traffic class, or authorization context from a subject tok
   authorization from the verified authoritative record and signed grants
 - **AND** `network_scope_id` SHALL distinguish sites or overlapping RFC1918
   address spaces without becoming a SaaS customer identity
+
+#### Scenario: Tenant slug extracted from subject
+- **GIVEN** a shared consumer receives message subject `acme.logs.syslog`
+- **WHEN** the consumer processes the message
+- **THEN** the consumer SHALL extract tenant slug `acme`
+- **AND** use that slug for downstream routing
 
 ## ADDED Requirements
 
