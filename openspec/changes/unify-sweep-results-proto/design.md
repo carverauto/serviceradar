@@ -187,8 +187,7 @@ its trust snapshot once, from a file, at boot.
 `producer_assignment_id`, `network_scope_id` (the agent's partition id),
 `run_shard` (0 until sweeps are sharded) and a monotonic `authority_epoch`. The
 epoch is the fence: it is bumped on reassignment, agent replacement, a target
-change and revocation, and the gateway refuses a record whose epoch is not the
-current one.
+change and revocation.
 
 **Schedule lease.** For each opted-in assignment core pre-mints the executions
 of the lease horizon: a UUIDv7 `execution_id` whose time is the slot start, the
@@ -213,20 +212,27 @@ signed slots, and the agent acknowledges it. For an opted-in group the agent's
 ticker is replaced by the lease: it runs each slot at its time from its own
 clock, connected or not, mints only per-record identity (`event_id`,
 `batch_sequence`), and spools. Every record's `event_id` time must fall inside
-the signed window with no tolerance, so slot windows carry margin and the agent
-refuses a slot when its clock is not credible. With no valid slot left the agent
+the signed window with no tolerance, so slot windows carry margin. The agent
+refuses a lease slot when its wall clock reads earlier than the lease's signed
+issuance time (the last authenticated time the agent saw) minus the ABI's
+5-minute clock tolerance. There is no NTP-sync requirement. A clock running fast
+remains bounded by the signed slot windows. With no valid slot left the agent
 stops authoritative output and reports the lease exhausted.
 
 **Gateway trust and revocation.** The gateway's trust snapshot (issuer keys,
 fences from assignment epochs, agent-to-scope bindings) comes from core at
-runtime and follows changes. A long lease therefore does not delay revocation:
-bumping the epoch refuses every remaining record of the old lease when it
-arrives. The boot-time trust file remains for tests.
+runtime and follows changes, so a long lease does not delay revocation. The
+boot-time trust file remains for tests. A record whose assignment epoch is
+current publishes as primary. A stale epoch presented with a valid per-record
+delivery grant is `audit_publication` / `ledger_only` (never authoritative
+domain rows). A stale epoch without such a grant is refused. The issuer does
+not grant delivery to a revoked assignment.
 
-**Delivery after reconnect.** A record spooled offline may reach the gateway
-after its signed window has closed. Rather than signing windows as long as the
-worst outage, the agent obtains a delivery grant on reconnect, scoped to its
-current assignment and epoch, under which the backlog drains.
+**Delivery after reconnect.** On reconnect the agent obtains per-record
+delivery grants for its unresolved backlog. Each grant is an
+`EdgeDeliveryClaimsV1` same-spool renewal authorizing one record (`event_id`,
+`record_sha256`, `spool_id`, `sequence`). Collection windows are still checked
+against event time (the original interval), never receipt age.
 
 **Missed runs.** Because core minted every execution, it marks one missed when
 no batch commits by its slot end plus grace, and distinguishes an agent offline
@@ -234,8 +240,7 @@ inside its lease from an exhausted lease.
 
 **Open questions.** Whether dense or very long leases need a range-signing ABI
 extension (one signature over a run of slots) instead of one signature per
-execution; how lease computation is partitioned across a large fleet; and the
-exact clock-credibility rule on the agent.
+execution, and how lease computation is partitioned across a large fleet.
 
 ## Goals
 
