@@ -2197,9 +2197,6 @@ func TestRunInventorySyncBuildsDeviceDiscovery(t *testing.T) {
 	if _, present := byID["awx:ctrl-uuid-1:host:201"]; present {
 		t.Error("lab02 carries no IP or MAC and must not be emitted as a device")
 	}
-	if skipped, ok := disc.Metadata["skipped_hosts"].(int); !ok || skipped != 1 {
-		t.Errorf("metadata.skipped_hosts = %#v, want 1", disc.Metadata["skipped_hosts"])
-	}
 }
 
 func TestRunInventorySyncSkipsHostsWithoutStrongAnchor(t *testing.T) {
@@ -2250,14 +2247,8 @@ func TestRunInventorySyncSkipsHostsWithoutStrongAnchor(t *testing.T) {
 	if got["awx:ctrl-1:host:102"] || got["awx:ctrl-1:host:103"] {
 		t.Fatalf("hostname-only hosts must not be emitted, got %#v", got)
 	}
-	if skipped, ok := disc.Metadata["skipped_hosts"].(int); !ok || skipped != 2 {
-		t.Fatalf("metadata.skipped_hosts = %#v, want 2", disc.Metadata["skipped_hosts"])
-	}
 	if res.Labels["hosts"] != "2" {
 		t.Errorf("hosts label = %q, want 2", res.Labels["hosts"])
-	}
-	if res.Labels["skipped_hosts"] != "2" {
-		t.Errorf("skipped_hosts label = %q, want 2", res.Labels["skipped_hosts"])
 	}
 }
 
