@@ -20,9 +20,9 @@ Shared frame + presenter strip for showcase demo dashboards
   `resolve.js` fixture resolver that maps scenario chips to fixtures.
 - `dashboard.config.mjs` + `src/main.jsx` + `package.json` — runnable
   offline example: `npm install` then `npm run dev`, no live ServiceRadar.
-  The demo consumes branch-local compatible CLI and SDK packages from the
-  worktree so `fixtureResolver`, the `live` hooks, and the plan-view helper are
-  present during the offline authoring loop.
+  The demo consumes published compatible CLI and SDK packages so
+  `fixtureResolver` and the `live` hooks are present during the offline
+  authoring loop.
 
 ## Tests
 
