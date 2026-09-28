@@ -256,8 +256,15 @@ installation-local contracts and SHALL NOT map unprefixed data to a synthetic
 
 - **GIVEN** prefixed and non-prefixed messages both exist during migration
 - **WHEN** consumers process them
-- **THEN** prefixed messages SHALL be handled only as sealed pre-cutover
-  backlog, as described in "Legacy prefixed backlog exists at cutover"
+- **THEN** a prefixed message accepted before the cutover watermark in a
+  declared legacy stream, and mappable to the installation without ambiguity,
+  MAY be drained by a compatibility consumer as described in "Legacy prefixed
+  backlog exists at cutover"
+- **AND** a retained message that cannot be mapped to the installation without
+  ambiguity SHALL be quarantined for audited repair, as described in "Legacy
+  prefix cannot be resolved safely"
+- **AND** after the cutover barrier, runtime publishers and consumers SHALL use
+  only fixed installation-local contracts
 - **AND** non-prefixed messages SHALL NOT be associated with a synthetic
   "default" tenant
 
