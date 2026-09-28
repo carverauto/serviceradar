@@ -1105,32 +1105,35 @@ func requireSingleDisposition(
 // edgeRecordStream opens the edge-record stream over a fresh NATS connection
 // authenticated with the same .creds file the releases use. The connection
 // closes when t ends.
-func (h *harness) edgeRecordStream(t *testing.T) jetstream.Stream {
+func (h *harness) edgeRecordStream(t *testing.T) (jetstream.Stream, error) {
 	t.Helper()
 	nc, err := nats.Connect(h.nats.URL, nats.UserCredentials(h.nats.CredsPath))
 	if err != nil {
-		t.Fatalf("connect to nats: %v", err)
+		return nil, fmt.Errorf("connect to nats: %w", err)
 	}
 	t.Cleanup(nc.Close)
 
 	js, err := jetstream.New(nc)
 	if err != nil {
-		t.Fatalf("jetstream context: %v", err)
+		return nil, fmt.Errorf("jetstream context: %w", err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
 	defer cancel()
 	stream, err := js.Stream(ctx, edgeRecordStreamName)
 	if err != nil {
-		t.Fatalf("open stream %s: %v", edgeRecordStreamName, err)
+		return nil, fmt.Errorf("open stream %s: %w", edgeRecordStreamName, err)
 	}
-	return stream
+	return stream, nil
 }
 
 // storedMessagesCarrying returns the stream sequence of every message stored
 // in the edge-record stream whose body is exactly recordBytes.
 func (h *harness) storedMessagesCarrying(t *testing.T, recordBytes []byte) []uint64 {
 	t.Helper()
-	stream := h.edgeRecordStream(t)
+	stream, err := h.edgeRecordStream(t)
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
 	defer cancel()
 
@@ -1882,7 +1885,11 @@ func (h *harness) pipelineDiagnostics(t *testing.T) string {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
 	defer cancel()
-	stream := h.edgeRecordStream(t)
+	stream, err := h.edgeRecordStream(t)
+	if err != nil {
+		fmt.Fprintf(&b, "jetstream: unavailable: %v\n", err)
+		return b.String()
+	}
 	if si, err := stream.Info(ctx); err != nil {
 		fmt.Fprintf(&b, "stream %s: info unavailable: %v\n", edgeRecordStreamName, err)
 	} else {
@@ -1904,7 +1911,10 @@ func (h *harness) pipelineDiagnostics(t *testing.T) string {
 
 func (h *harness) edgeRecordAckFloor(t *testing.T) uint64 {
 	t.Helper()
-	stream := h.edgeRecordStream(t)
+	stream, err := h.edgeRecordStream(t)
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
 	defer cancel()
 
