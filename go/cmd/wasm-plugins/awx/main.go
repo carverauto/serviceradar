@@ -3608,6 +3608,9 @@ func runInventorySyncController(cfg InventorySyncControllerConfig) *sdk.Result {
 				complete = false
 				continue
 			}
+			if !awxHostHasStrongAnchor(host) {
+				continue
+			}
 			discovery.AddDevice(buildDiscoveredHost(cfg, inv, host))
 			totalHosts++
 		}
@@ -3676,6 +3679,14 @@ func buildDiscoveredHost(cfg InventorySyncControllerConfig, inv awxInventoryRow,
 			ip = ansibleHost
 		} else if hostname == "" {
 			hostname = ansibleHost
+		}
+	}
+	if ip == "" {
+		for _, candidate := range extractAnsibleHostsFromVariables(host.Variables) {
+			if isProbablyIP(candidate) {
+				ip = candidate
+				break
+			}
 		}
 	}
 
@@ -3749,22 +3760,34 @@ func hostStatusString(enabled bool) string {
 	return "disabled"
 }
 
-// extractAnsibleHostFromVariables pulls `ansible_host` (or
-// `ansible_ssh_host` legacy) from an AWX host's `variables` blob. AWX
-// returns this as either a YAML or JSON string. We try JSON first, then
-// fall back to a simple line-by-line YAML scan — full YAML parsing in
-// TinyGo isn't ergonomic and we only need this one key.
-func extractAnsibleHostFromVariables(variables string) string {
-	if variables == "" {
-		return ""
-	}
+// extractAnsibleHostsFromVariables pulls every `ansible_host` and legacy
+// `ansible_ssh_host` value from an AWX host's `variables` blob, in preference
+// order (ansible_host first). AWX returns this as either a YAML or JSON string.
+// We try JSON first, then fall back to a simple line-by-line YAML scan — full
+// YAML parsing in TinyGo isn't ergonomic and we only need these keys.
+func extractAnsibleHostsFromVariables(variables string) []string {
 	trimmed := strings.TrimSpace(variables)
+	if trimmed == "" {
+		return nil
+	}
+
+	var out []string
+	seen := make(map[string]bool)
+	add := func(v string) {
+		v = strings.TrimSpace(v)
+		if v == "" || seen[v] {
+			return
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+
 	if strings.HasPrefix(trimmed, "{") {
 		var asJSON map[string]any
 		if err := json.Unmarshal([]byte(trimmed), &asJSON); err == nil {
 			for _, key := range []string{"ansible_host", "ansible_ssh_host"} {
-				if v, ok := asJSON[key].(string); ok && v != "" {
-					return v
+				if v, ok := asJSON[key].(string); ok {
+					add(v)
 				}
 			}
 		}
@@ -3774,16 +3797,23 @@ func extractAnsibleHostFromVariables(variables string) string {
 		for _, key := range []string{"ansible_host:", "ansible_ssh_host:"} {
 			if strings.HasPrefix(line, key) {
 				v := strings.TrimSpace(strings.TrimPrefix(line, key))
-				// Strip optional quotes and inline comments.
 				if i := strings.Index(v, "#"); i >= 0 {
 					v = strings.TrimSpace(v[:i])
 				}
 				v = strings.Trim(v, "\"'")
-				if v != "" {
-					return v
-				}
+				add(v)
 			}
 		}
+	}
+	return out
+}
+
+// extractAnsibleHostFromVariables pulls `ansible_host` (or
+// `ansible_ssh_host` legacy) from an AWX host's `variables` blob, preferring
+// the former when both are present.
+func extractAnsibleHostFromVariables(variables string) string {
+	if candidates := extractAnsibleHostsFromVariables(variables); len(candidates) > 0 {
+		return candidates[0]
 	}
 	return ""
 }
