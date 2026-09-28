@@ -4,7 +4,9 @@ title: Network Topology
 
 # Network Topology
 
-The Network Topology view is the high-density topology experience for large graphs with causal blast-radius overlays.
+The Network Topology view is the high-density topology experience for large
+graphs with causal blast-radius overlays. The overview renders server-authored
+world tiles fetched by zoom level; drill-down opens bounded ELK detail scenes.
 
 ## Feature Flag
 
@@ -15,7 +17,19 @@ The Network Topology view is controlled by:
 Runtime behavior:
 
 - `false` (default): `/topology` is hidden/disabled.
-- `true`: `/topology`, topology channel stream, and latest snapshot endpoint are available.
+- `true`: `/topology`, the topology channel stream, and the world-tile and
+  latest-snapshot endpoints are available.
+
+### Serving model
+
+The overview is a quadtree of world tiles over a persisted, versioned layout.
+The client fetches only the tiles in the viewport, keyed by
+`layout_version`/`z`/`x`/`y`, and renders schema-3 Arrow batches; telemetry
+(health and interface rates) rides a separate per-tile overlay so geometry
+tiles stay cached. Zoom reveals aggregates first, then backbone, infrastructure
+and endpoints. Searching for a device resolves its world coordinates and flies
+to them; opening a device or attachment group enters a bounded ELK detail scene
+and returns to the tile map on exit.
 
 ## Rollout Guidance
 
@@ -122,17 +136,18 @@ must not enter git.
 
 Primary controls in the Network Topology view:
 
-- Causal filter toggles (`root_cause`, `affected`, `healthy`, `unknown`)
-- Visual ghosting/highlight controls
-- Semantic zoom mode
-- Structural reshape actions (collapse/expand paths)
+- Zoom mode (`auto`, `world`, `region`, or `detail`)
+- Health toggles (`unavailable`, `healthy`, `unknown`)
+- Layer toggles (links and traffic)
 
 Interpretation:
 
-- `root_cause`: primary fault origin
-- `affected`: blast-radius impacted nodes
-- `healthy`: unaffected nodes
-- `unknown`: insufficient/conflicting evidence
+- `healthy`: last observed available
+- `unavailable`: last observed unavailable
+- `unknown`: not yet observed
+
+Health is availability only, independent of geometry and causality; it does not
+imply a causal `root_cause`/`affected` status.
 
 ## Known Limitations
 
