@@ -51,6 +51,11 @@ durable producer sink and JetStream/EventWriter path.
 - **AND** it SHALL NOT become an alternate durable ingestion path for any
   persistent output contract
 
+#### Scenario: Legacy checker ingestion unaffected
+- **GIVEN** legacy checker statuses arriving at the gateway
+- **WHEN** plugin results are enabled
+- **THEN** the legacy ingestion path continues unchanged
+
 ### Requirement: Runtime Telemetry Reporting
 The agent MUST periodically report bounded Wasm runtime health and recent
 execution status to the control plane. Coalescible runtime health MAY use the
