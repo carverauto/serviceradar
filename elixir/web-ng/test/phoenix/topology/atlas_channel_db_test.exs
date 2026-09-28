@@ -22,7 +22,12 @@ defmodule ServiceRadarWebNGWeb.Topology.AtlasChannelDBTest do
     :ok = Sandbox.checkout(Repo)
     previous_flag = Application.get_env(:serviceradar_web_ng, :god_view_enabled)
     Application.put_env(:serviceradar_web_ng, :god_view_enabled, true)
-    start_supervised!({AtlasStore, name: AtlasStore})
+
+    if is_nil(Process.whereis(AtlasStore)) do
+      start_supervised!({AtlasStore, name: AtlasStore})
+    else
+      :ok = AtlasStore.publish(nil)
+    end
 
     on_exit(fn ->
       if is_nil(previous_flag),
