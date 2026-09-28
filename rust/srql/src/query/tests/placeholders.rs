@@ -7,8 +7,8 @@
 //! execution path.
 
 use super::{
-    addon_fleet, field_survey, flows, plan_for, public_endpoints, threat_intel_matches,
-    wifi_map,
+    addon_fleet, camera_sources, field_survey, flows, plan_for, public_endpoints,
+    threat_intel_matches, wifi_map,
 };
 use diesel::{debug_query, pg::Pg};
 
@@ -18,6 +18,10 @@ fn raw_sql_execute_queries_use_postgres_placeholders() {
         (
             "public_endpoints",
             public_endpoints::execution_query(&plan_for("in:public_endpoints limit:10")),
+        ),
+        (
+            "camera_sources",
+            camera_sources::execution_query(&plan_for("in:camera_sources limit:10")),
         ),
         (
             "addon_fleet",

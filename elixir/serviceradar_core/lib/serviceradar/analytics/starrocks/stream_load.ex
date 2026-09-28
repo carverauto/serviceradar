@@ -19,7 +19,9 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
     config = Keyword.get(opts, :config, %{})
     label = Keyword.get(opts, :label) || load_label(table, rows)
 
-    body = encode_json_rows(rows)
+    # A caller that already encoded the rows (Destination sizes loads by their
+    # encoded bytes) passes the body so the rows are not encoded twice.
+    body = Keyword.get_lazy(opts, :body, fn -> encode_json_rows(rows) end)
     request = stream_load_request(config, table, label, body, opts)
     request = maybe_override_url(request, Keyword.get(opts, :url))
     redirects = Keyword.get(opts, :redirects, 3)

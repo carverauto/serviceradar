@@ -10,10 +10,9 @@ defmodule ServiceRadar.Observability.ObanFailureEventReporter do
 
   use GenServer
 
-  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Events.OcsfEventPublisher
   alias ServiceRadar.EventWriter.OCSF
-  alias ServiceRadar.Monitoring
-  alias ServiceRadar.Monitoring.OcsfEvent
+  alias ServiceRadar.NATS.DurablePublishWorker
 
   require Logger
 
@@ -24,6 +23,12 @@ defmodule ServiceRadar.Observability.ObanFailureEventReporter do
   @max_string_length 2_000
   @max_collection_items 25
   @max_stacktrace_frames 8
+
+  # The job that retries a failed JetStream publish fails exactly when NATS is
+  # unavailable. Reporting that failure as an event would publish through the
+  # same unavailable NATS and queue another retry job, growing for as long as
+  # the outage lasts; its failures are logged and remain visible as jobs.
+  @unreported_workers [inspect(DurablePublishWorker)]
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -46,7 +51,7 @@ defmodule ServiceRadar.Observability.ObanFailureEventReporter do
       Logger.debug("Oban failure event reporter attached")
     end
 
-    {:ok, %{enabled?: enabled?, record_event: Keyword.get(opts, :record_event, &record_event/2)}}
+    {:ok, %{enabled?: enabled?, record_event: Keyword.get(opts, :record_event, &record_event/1)}}
   end
 
   @impl GenServer
@@ -67,8 +72,7 @@ defmodule ServiceRadar.Observability.ObanFailureEventReporter do
   @spec record_job_failure(Oban.Job.t(), atom(), term(), list(), map()) ::
           {:ok, struct()} | {:error, term()}
   def record_job_failure(%Oban.Job{} = job, kind, reason, stacktrace \\ [], measurements \\ %{}) do
-    actor = SystemActor.system(:oban_failure_event_reporter)
-    job |> build_event_attrs(kind, reason, stacktrace, measurements) |> record_event(actor)
+    job |> build_event_attrs(kind, reason, stacktrace, measurements) |> record_event()
   end
 
   @impl GenServer
@@ -78,11 +82,10 @@ defmodule ServiceRadar.Observability.ObanFailureEventReporter do
     reason = Map.get(metadata, :reason)
     stacktrace = Map.get(metadata, :stacktrace, [])
 
-    if job do
+    if job && job.worker not in @unreported_workers do
       attrs = build_event_attrs(job, kind, reason, stacktrace, measurements)
-      actor = SystemActor.system(:oban_failure_event_reporter)
 
-      case state.record_event.(attrs, actor) do
+      case state.record_event.(attrs) do
         {:ok, _event} ->
           :ok
 
@@ -151,19 +154,7 @@ defmodule ServiceRadar.Observability.ObanFailureEventReporter do
     }
   end
 
-  defp record_event(attrs, actor) do
-    OcsfEvent
-    |> Ash.Changeset.for_create(:record, attrs, actor: actor)
-    |> Ash.create(domain: Monitoring)
-    |> case do
-      {:ok, event} = ok ->
-        ServiceRadar.Events.PubSub.broadcast_event(event)
-        ok
-
-      {:error, _error} = error ->
-        error
-    end
-  end
+  defp record_event(attrs), do: OcsfEventPublisher.publish(attrs, family: :jobs)
 
   defp severity_id(%Oban.Job{attempt: attempt, max_attempts: max_attempts})
        when is_integer(attempt) and is_integer(max_attempts) and attempt >= max_attempts do

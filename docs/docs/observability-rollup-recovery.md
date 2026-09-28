@@ -6,6 +6,8 @@ title: Observability Rollup Recovery
 
 Use this runbook when `/observability?tab=traces` or `/analytics` shows stale or obviously wrong trace-derived data, or when the UI warns that trace rollups need attention.
 
+When `analytics.starrocks.enabled` is true, OTel spans and trace summaries are warehouse-only and the trace rollups live in the warehouse (see [OTel storage model](./otel.md#storage-model)). The CNPG `psql` checks below apply to a CNPG-only installation.
+
 ## Symptoms
 
 - Trace counts or durations stay at zero even though `otel_traces` is ingesting data

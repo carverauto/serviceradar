@@ -1,20 +1,22 @@
-use serviceradar_integration_db as db;
-use runfiles::Runfiles;
 use anyhow::Context;
 use axum::{
     body::{self, Body},
-    http::{self, Request, StatusCode},
-    Router,
+    http::{self, StatusCode},
 };
-use serde::Serialize;
+use runfiles::Runfiles;
 use serde_json::Value;
-use srql::{config::AppConfig, db::PgRustlsConnect, query::QueryRequest, server::Server};
+use serviceradar_integration_db as db;
+use srql::{
+    config::AppConfig,
+    db::PgRustlsConnect,
+    error::ServiceError,
+    query::{QueryEngine, QueryRequest},
+};
 use std::{
     env,
     fs::{self, File, OpenOptions},
     future::Future,
     io::Write,
-    net::SocketAddr,
     path::{Path, PathBuf},
     process,
     sync::{
@@ -29,9 +31,7 @@ use tokio::{
     time::{sleep, Duration as TokioDuration},
 };
 use tokio_postgres::{config::Host, error::SqlState, Client, Config as PgConfig, NoTls};
-use tower::ServiceExt;
 
-const API_KEY: &str = "test-api-key";
 const DB_CONNECT_RETRIES: usize = 240;
 const DB_CONNECT_DELAY_MS: u64 = 250;
 const REMOTE_FIXTURE_LOCK_ID: i64 = 4_216_042;
@@ -86,14 +86,12 @@ where
     let age_available = check_age_available(&config.database_url, &tls_config)
         .await
         .expect("failed to check whether AGE is available");
-    let server = Server::new(app_config)
+    let embedded = srql::EmbeddedSrql::new(app_config)
         .await
-        .expect("failed to boot SRQL server for remote harness");
-    let router = server.router();
+        .expect("failed to boot embedded SRQL engine for remote harness");
 
     let harness = SrqlTestHarness {
-        router,
-        api_key: API_KEY.to_string(),
+        engine: embedded.query,
         age_available,
     };
 
@@ -104,7 +102,6 @@ where
 
 fn test_config(database_url: String, tls_config: &FixtureTlsConfig) -> AppConfig {
     AppConfig {
-        listen_addr: SocketAddr::from(([127, 0, 0, 1], 0)),
         database_url,
         age_graph_name: "platform_graph".to_string(),
         starrocks_database: "serviceradar".to_string(),
@@ -114,17 +111,12 @@ fn test_config(database_url: String, tls_config: &FixtureTlsConfig) -> AppConfig
         database_client_cert_pem: tls_config.client_cert_pem.clone(),
         database_client_key_pem: tls_config.client_key_pem.clone(),
         database_tls_server_name: tls_config.server_name.clone(),
-        api_key: Some(API_KEY.to_string()),
-        api_key_kv_key: None,
-        allowed_origins: None,
         cursor_secret: "test-cursor-secret".to_string(),
         max_cursor_offset: 100_000,
         default_limit: 100,
         max_limit: 500,
         request_timeout: Duration::from_secs(30),
         db_statement_timeout: Duration::from_secs(30),
-        rate_limit_max_requests: 120,
-        rate_limit_window: Duration::from_secs(60),
     }
 }
 
@@ -148,10 +140,10 @@ async fn seed_fixture_database_once(
     let mut attempts = 0usize;
     let client = loop {
         // Through the shared parser: the assembled DSN carries `sslmode=verify-full`, which
-    // tokio-postgres rejects outright -- it accepts only disable/prefer/require. The verifying
-    // posture is a typed field that configures the connector, so the mode is stripped rather
-    // than rewritten, and one implementation does it for both this harness and the lifecycle.
-    let config = db::parse_pg_config(database_url, "database.url")?;
+        // tokio-postgres rejects outright -- it accepts only disable/prefer/require. The verifying
+        // posture is a typed field that configures the connector, so the mode is stripped rather
+        // than rewritten, and one implementation does it for both this harness and the lifecycle.
+        let config = db::parse_pg_config(database_url, "database.url")?;
         match connect_with_tls(config, "fixture", tls_config).await {
             Ok((client, _task)) => break client,
             Err(err) => {
@@ -204,55 +196,51 @@ async fn extension_exists(client: &Client, name: &str) -> anyhow::Result<bool> {
 
 #[derive(Clone)]
 pub struct SrqlTestHarness {
-    router: Router,
-    api_key: String,
+    engine: QueryEngine,
     #[allow(dead_code)]
     age_available: bool,
 }
 
 impl SrqlTestHarness {
     pub async fn query(&self, request: QueryRequest) -> http::Response<Body> {
-        self.request("/api/query", &request, true).await
-    }
-
-    #[allow(dead_code)]
-    pub async fn query_without_api_key(&self, request: QueryRequest) -> http::Response<Body> {
-        self.request("/api/query", &request, false).await
-    }
-
-    async fn request<T>(
-        &self,
-        path: &str,
-        payload: &T,
-        include_api_key: bool,
-    ) -> http::Response<Body>
-    where
-        T: Serialize,
-    {
-        let mut builder = Request::builder()
-            .method("POST")
-            .uri(path)
-            .header(http::header::CONTENT_TYPE, "application/json");
-
-        if include_api_key {
-            builder = builder.header("x-api-key", &self.api_key);
+        let result = self.engine.execute_query(request).await;
+        match result {
+            Ok(rows) => json_response(
+                StatusCode::OK,
+                serde_json::to_value(&rows).expect("query response should serialize"),
+            ),
+            Err(err) => json_response(
+                status_for(&err),
+                serde_json::json!({ "error": err.to_string() }),
+            ),
         }
-
-        let body = serde_json::to_vec(payload).expect("request payload should serialize");
-        let request = builder
-            .body(Body::from(body))
-            .expect("failed to build harness request");
-        self.router
-            .clone()
-            .oneshot(request)
-            .await
-            .expect("router should handle harness request")
     }
 
     #[allow(dead_code)]
     pub fn age_available(&self) -> bool {
         self.age_available
     }
+}
+
+fn status_for(err: &ServiceError) -> StatusCode {
+    match err {
+        ServiceError::Config(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        ServiceError::Auth => StatusCode::UNAUTHORIZED,
+        ServiceError::InvalidRequest(_) => StatusCode::BAD_REQUEST,
+        ServiceError::Forbidden(_) => StatusCode::FORBIDDEN,
+        ServiceError::NotImplemented(_) => StatusCode::NOT_IMPLEMENTED,
+        ServiceError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
+    }
+}
+
+fn json_response(status: StatusCode, value: Value) -> http::Response<Body> {
+    http::Response::builder()
+        .status(status)
+        .header(http::header::CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&value).expect("response body should serialize"),
+        ))
+        .expect("failed to build harness response")
 }
 
 pub async fn read_json(response: http::Response<Body>) -> (StatusCode, Value) {

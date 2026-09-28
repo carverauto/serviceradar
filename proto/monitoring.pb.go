@@ -4308,8 +4308,12 @@ type PluginAssignmentConfig struct {
 	// paired with an old agent fails closed instead of exposing secrets through
 	// the Wasm get_config surface.
 	HostParamsJson []byte `protobuf:"bytes,23,opt,name=host_params_json,json=hostParamsJson,proto3" json:"host_params_json,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Host-delivered run overrides (serviceradar.plugin_run_overrides.v1) set by
+	// this assignment's plugin actions. The agent, not the control plane, merges
+	// them into the scheduled-run config; an older agent ignores field 24.
+	RunOverridesJson []byte `protobuf:"bytes,24,opt,name=run_overrides_json,json=runOverridesJson,proto3" json:"run_overrides_json,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *PluginAssignmentConfig) Reset() {
@@ -4499,6 +4503,13 @@ func (x *PluginAssignmentConfig) GetDownloadToken() string {
 func (x *PluginAssignmentConfig) GetHostParamsJson() []byte {
 	if x != nil {
 		return x.HostParamsJson
+	}
+	return nil
+}
+
+func (x *PluginAssignmentConfig) GetRunOverridesJson() []byte {
+	if x != nil {
+		return x.RunOverridesJson
 	}
 	return nil
 }
@@ -8237,7 +8248,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"\n" +
 	"max_cpu_ms\x18\x02 \x01(\x05R\bmaxCpuMs\x12%\n" +
 	"\x0emax_concurrent\x18\x03 \x01(\x05R\rmaxConcurrent\x120\n" +
-	"\x14max_open_connections\x18\x04 \x01(\x05R\x12maxOpenConnections\"\x9d\x06\n" +
+	"\x14max_open_connections\x18\x04 \x01(\x05R\x12maxOpenConnections\"\xcb\x06\n" +
 	"\x16PluginAssignmentConfig\x12#\n" +
 	"\rassignment_id\x18\x01 \x01(\tR\fassignmentId\x12\x1b\n" +
 	"\tplugin_id\x18\x02 \x01(\tR\bpluginId\x12\x1d\n" +
@@ -8268,7 +8279,8 @@ const file_monitoring_proto_rawDesc = "" +
 	"\rsource_commit\x18\x14 \x01(\tR\fsourceCommit\x12!\n" +
 	"\fdownload_url\x18\x15 \x01(\tR\vdownloadUrl\x12%\n" +
 	"\x0edownload_token\x18\x16 \x01(\tR\rdownloadToken\x12(\n" +
-	"\x10host_params_json\x18\x17 \x01(\fR\x0ehostParamsJson\"\xf6\x03\n" +
+	"\x10host_params_json\x18\x17 \x01(\fR\x0ehostParamsJson\x12,\n" +
+	"\x12run_overrides_json\x18\x18 \x01(\fR\x10runOverridesJson\"\xf6\x03\n" +
 	"\x0fBumblebeeConfig\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12\x19\n" +
 	"\bagent_id\x18\x02 \x01(\tR\aagentId\x12!\n" +

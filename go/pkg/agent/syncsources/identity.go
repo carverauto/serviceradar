@@ -23,7 +23,7 @@ import (
 
 // ScopedIntegrationID mints a source-scoped integration identifier for the
 // generic identity contract: "<type>:<scope>:<kind>:<native-id>"
-// (for example "armis:main:device:18497", mirroring the NetBox driver's
+// (for example "armis:main:device:42001", mirroring the NetBox driver's
 // "netbox:<source>:device:<id>" form).
 //
 // The scope must distinguish one provider instance from another; a bare

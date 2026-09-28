@@ -1,7 +1,7 @@
 //! Viz metadata builders for network entities: interfaces, flows, and BMP
 //! routing events.
 
-use super::{col, ColumnSemantic, ColumnType, VizKind, VizMeta, VizSuggestion};
+use super::{ColumnSemantic, ColumnType, VizKind, VizMeta, VizSuggestion, col};
 
 pub(super) fn interfaces() -> VizMeta {
     VizMeta {
@@ -205,6 +205,45 @@ pub(super) fn public_endpoints() -> VizMeta {
             col("service_target_port", ColumnType::Int, None),
             col("endpoint_targets", ColumnType::Jsonb, None),
             col("backend_refs", ColumnType::Jsonb, None),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Table,
+            x: None,
+            y: None,
+            series: None,
+        }],
+    }
+}
+
+pub(super) fn camera_sources() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col(
+                "display_name",
+                ColumnType::Text,
+                Some(ColumnSemantic::Label),
+            ),
+            col("device_uid", ColumnType::Text, None),
+            col("vendor", ColumnType::Text, None),
+            col("vendor_camera_id", ColumnType::Text, None),
+            col(
+                "availability_status",
+                ColumnType::Text,
+                Some(ColumnSemantic::Label),
+            ),
+            col("availability_reason", ColumnType::Text, None),
+            col("assigned_agent_id", ColumnType::Text, None),
+            col("assigned_gateway_id", ColumnType::Text, None),
+            col("last_activity_at", ColumnType::Timestamptz, None),
+            col("last_event_at", ColumnType::Timestamptz, None),
+            col("last_event_type", ColumnType::Text, None),
+            col(
+                "updated_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+            col("stream_profiles", ColumnType::Jsonb, None),
         ],
         suggestions: vec![VizSuggestion {
             kind: VizKind::Table,

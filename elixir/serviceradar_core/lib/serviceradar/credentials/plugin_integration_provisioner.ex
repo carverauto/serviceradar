@@ -15,6 +15,7 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
   alias ServiceRadar.Plugins.ConfigSchema
   alias ServiceRadar.Plugins.IntegrationCatalog
   alias ServiceRadar.Plugins.PluginAssignment
+  alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Plugins.ProducerSchedule
   alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadar.Plugins.ValueUtils
@@ -49,39 +50,17 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
   def reconcile_rules(rules, profiles, opts) when is_list(rules) and is_list(profiles) do
     profiles_by_provider = Map.new(profiles, &{&1["provider"], &1})
 
-    rules
-    |> Enum.filter(&plugin_integration_rule?(&1, profiles_by_provider))
-    |> Enum.filter(&producer_schedule_rule?(&1, profiles_by_provider))
-    |> Enum.reduce_while({:ok, empty_summary()}, fn rule, {:ok, summary} ->
-      provider = provider(rule)
+    {scheduled, unscheduled} =
+      rules
+      |> Enum.filter(&plugin_integration_rule?(&1, profiles_by_provider))
+      |> Enum.split_with(&producer_schedule_rule?(&1, profiles_by_provider))
 
-      case {Map.get(profiles_by_provider, provider), rule_enabled?(rule)} do
-        {%{} = profile, true} ->
-          case reconcile_rule(rule, profile, opts) do
-            {:ok, result} ->
-              {:cont,
-               {:ok,
-                %{
-                  summary
-                  | rules: summary.rules + 1,
-                    assignments_written:
-                      summary.assignments_written + bool_count(result.assignment_changed?),
-                    schedules_bound:
-                      summary.schedules_bound + bool_count(result.schedule_changed?)
-                }}}
-
-            {:error, reason} ->
-              {:halt, {:error, reason}}
-          end
-
-        {_profile_or_nil, false} ->
-          disable_and_continue(rule, summary, opts)
-
-        {nil, true} ->
-          # A revoked package must not leave its previous assignment runnable.
-          disable_and_continue(rule, summary, opts)
-      end
-    end)
+    # Revocation first. The scheduled pass halts on the first rule that fails
+    # validation, and a rule nobody has fixed yet must not keep a revoked
+    # package runnable.
+    with {:ok, summary} <- disable_revoked_package_rules(unscheduled, empty_summary(), opts) do
+      reconcile_scheduled_rules(scheduled, profiles_by_provider, summary, opts)
+    end
   end
 
   def reconcile_rules(_rules, _profiles, _opts), do: {:error, :invalid_plugin_integration_rules}
@@ -98,6 +77,13 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
          {:ok, cadence_seconds} <- cadence_seconds(rule, profile),
          {:ok, assignment, assignment_changed?} <-
            upsert_assignment(rule, profile, params, actor, opts),
+         {:ok, schedules_retired} <-
+           retire_superseded_schedules(
+             assignment,
+             profile["plugin_package_id"],
+             actor,
+             opts
+           ),
          {:ok, schedule, schedule_changed?} <-
            bind_schedule(
              rule,
@@ -114,7 +100,8 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
          assignment: assignment,
          schedule: schedule,
          assignment_changed?: assignment_changed?,
-         schedule_changed?: schedule_changed?
+         schedule_changed?: schedule_changed?,
+         schedules_retired: schedules_retired
        }}
     end
   end
@@ -225,45 +212,122 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
     end
   end
 
+  # Every rule reaching this reduce has a producer_schedule profile, which is
+  # what `producer_schedule_rule?/2` selected it for.
+  defp reconcile_scheduled_rules(rules, profiles_by_provider, summary, opts) do
+    Enum.reduce_while(rules, {:ok, summary}, fn rule, {:ok, summary} ->
+      if rule_enabled?(rule) do
+        profile = Map.fetch!(profiles_by_provider, provider(rule))
+
+        case reconcile_rule(rule, profile, opts) do
+          {:ok, result} ->
+            {:cont,
+             {:ok,
+              %{
+                summary
+                | rules: summary.rules + 1,
+                  assignments_written:
+                    summary.assignments_written + bool_count(result.assignment_changed?),
+                  schedules_bound: summary.schedules_bound + bool_count(result.schedule_changed?),
+                  schedules_disabled:
+                    summary.schedules_disabled + Map.get(result, :schedules_retired, 0)
+              }}}
+
+          {:error, reason} ->
+            {:halt, {:error, reason}}
+        end
+      else
+        disable_and_continue(rule, summary, opts)
+      end
+    end)
+  end
+
+  # A revoked package must not leave its previous assignment runnable.
+  #
+  # The integration catalog is built from approved packages only, so revoking a
+  # producer-schedule package removes its profile and its rules arrive here, in
+  # the set `producer_schedule_rule?/2` rejected. A missing profile cannot be the
+  # signal: target_policy and credential_only rules land in the same set and
+  # their assignments belong to other reconcilers. The package status is the
+  # signal. Only assignments under this provisioner's own policy id are read,
+  # which no other reconciler writes, and of those only the ones whose package
+  # is no longer :approved are disabled, together with their schedules. An
+  # approved package whose profile is merely absent keeps its assignment.
+  defp disable_revoked_package_rules(rules, summary, opts) do
+    Enum.reduce_while(rules, {:ok, summary}, fn rule, {:ok, summary} ->
+      case disable_revoked_package_assignments(rule, opts) do
+        {:ok, %{assignments: 0, schedules: 0}} -> {:cont, {:ok, summary}}
+        {:ok, counts} -> {:cont, {:ok, add_disabled(summary, counts)}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp disable_revoked_package_assignments(rule, opts) do
+    actor = Keyword.get(opts, :actor, SystemActor.system(:plugin_integration_provisioner))
+    store = Keyword.get(opts, :assignment_store, __MODULE__.AssignmentStore)
+
+    with {:ok, assignments} <- store.list_policy_assignments(policy_id(rule), actor),
+         {:ok, revoked} <- revoked_package_assignments(assignments, actor, store) do
+      disable_assignments(revoked, actor, opts)
+    end
+  end
+
+  defp revoked_package_assignments([], _actor, _store), do: {:ok, []}
+
+  defp revoked_package_assignments(assignments, actor, store) do
+    package_ids = assignments |> Enum.map(&to_string(&1.plugin_package_id)) |> Enum.uniq()
+
+    with {:ok, approved} <- store.approved_package_ids(package_ids, actor) do
+      {:ok, Enum.reject(assignments, &MapSet.member?(approved, to_string(&1.plugin_package_id)))}
+    end
+  end
+
   defp disable_and_continue(rule, summary, opts) do
     case disable_rule(rule, opts) do
-      {:ok, %{assignments: assignments, schedules: schedules}} ->
-        {:cont,
-         {:ok,
-          %{
-            summary
-            | rules: summary.rules + 1,
-              assignments_disabled: summary.assignments_disabled + assignments,
-              schedules_disabled: summary.schedules_disabled + schedules
-          }}}
-
-      {:error, reason} ->
-        {:halt, {:error, reason}}
+      {:ok, counts} -> {:cont, {:ok, add_disabled(summary, counts)}}
+      {:error, reason} -> {:halt, {:error, reason}}
     end
+  end
+
+  defp add_disabled(summary, %{assignments: assignments, schedules: schedules}) do
+    %{
+      summary
+      | rules: summary.rules + 1,
+        assignments_disabled: summary.assignments_disabled + assignments,
+        schedules_disabled: summary.schedules_disabled + schedules
+    }
   end
 
   defp disable_rule(rule, opts) do
     actor = Keyword.get(opts, :actor, SystemActor.system(:plugin_integration_provisioner))
     assignment_store = Keyword.get(opts, :assignment_store, __MODULE__.AssignmentStore)
-    schedule_store = Keyword.get(opts, :schedule_store, __MODULE__.ScheduleStore)
 
     with {:ok, assignments} <- assignment_store.list_policy_assignments(policy_id(rule), actor) do
-      Enum.reduce_while(assignments, {:ok, %{assignments: 0, schedules: 0}}, fn assignment,
-                                                                                {:ok, counts} ->
-        with {:ok, assignment_count} <- disable_assignment(assignment, actor, assignment_store),
-             {:ok, schedule_count} <-
-               disable_assignment_schedules(assignment, actor, schedule_store) do
-          {:cont,
-           {:ok,
-            %{
-              assignments: counts.assignments + assignment_count,
-              schedules: counts.schedules + schedule_count
-            }}}
-        else
-          {:error, reason} -> {:halt, {:error, reason}}
-        end
-      end)
+      disable_assignments(assignments, actor, opts)
     end
+  end
+
+  defp disable_assignments(assignments, actor, opts) do
+    assignment_store = Keyword.get(opts, :assignment_store, __MODULE__.AssignmentStore)
+    schedule_store = Keyword.get(opts, :schedule_store, __MODULE__.ScheduleStore)
+
+    initial = {:ok, %{assignments: 0, schedules: 0}}
+
+    Enum.reduce_while(assignments, initial, fn assignment, {:ok, counts} ->
+      with {:ok, assignment_count} <- disable_assignment(assignment, actor, assignment_store),
+           {:ok, schedule_count} <-
+             disable_assignment_schedules(assignment, actor, schedule_store) do
+        {:cont,
+         {:ok,
+          %{
+            assignments: counts.assignments + assignment_count,
+            schedules: counts.schedules + schedule_count
+          }}}
+      else
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
   end
 
   defp disable_assignment(%{enabled: false}, _actor, _store), do: {:ok, 0}
@@ -272,6 +336,44 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
     case store.update_assignment(assignment, %{enabled: false}, actor) do
       {:ok, _updated} -> {:ok, 1}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # An upgrade repoints the assignment at the successor package and binds that
+  # package's schedule. Schedules still armed for an earlier package stay bound
+  # to the same assignment, and the dispatcher would run the old contract
+  # against the new assignment. Disarm every enabled schedule on this assignment
+  # whose package is not the one being bound, before the successor is armed.
+  defp retire_superseded_schedules(_assignment, package_id, _actor, _opts)
+       when package_id in [nil, ""], do: {:ok, 0}
+
+  defp retire_superseded_schedules(assignment, package_id, actor, opts) do
+    store = Keyword.get(opts, :schedule_store, __MODULE__.ScheduleStore)
+    package_id = to_string(package_id)
+
+    with {:ok, schedules} <- store.list_assignment_schedules(assignment.id, actor) do
+      Enum.reduce_while(schedules, {:ok, 0}, fn schedule, {:ok, count} ->
+        if superseded_schedule?(schedule, package_id) do
+          case store.update_schedule(schedule, %{enabled: false}, actor) do
+            {:ok, _updated} -> {:cont, {:ok, count + 1}}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+        else
+          {:cont, {:ok, count}}
+        end
+      end)
+    end
+  end
+
+  defp superseded_schedule?(schedule, package_id) do
+    schedule.enabled == true and schedule_package_id(schedule) not in [nil, package_id]
+  end
+
+  defp schedule_package_id(schedule) do
+    case Map.get(schedule, :plugin_package_id) do
+      nil -> nil
+      "" -> nil
+      id -> to_string(id)
     end
   end
 
@@ -397,9 +499,13 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
   # this worker again. Anything this provisioner cannot provision is not its work.
   #
   # Skipped rather than routed to `disable_and_continue`: these rules are valid and
-  # owned elsewhere -- target_policy by PluginTargetPolicyReconcileWorker,
-  # credential_only by nothing at all (the rule exists purely to bind a secret).
+  # owned elsewhere -- target_policy by PluginCredentialRuleReconcileWorker (which
+  # drives PluginAssignmentMaterializer), credential_only by nothing at all (the
+  # rule exists purely to bind a secret).
   # Treating an unmatched profile as "revoked" would tear down working assignments.
+  # Rejected rules still go through `disable_revoked_package_rules/3`, which acts
+  # on the package status of this provisioner's own assignments, never on the
+  # missing profile.
   defp producer_schedule_rule?(rule, profiles_by_provider) do
     case Map.get(profiles_by_provider, provider(rule)) do
       %{} = profile -> provisioning_mode(profile) == "producer_schedule"
@@ -489,6 +595,18 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
       assignment
       |> Ash.Changeset.for_update(:update, attrs, actor: actor)
       |> Ash.update(actor: actor)
+    end
+
+    def approved_package_ids(package_ids, actor) do
+      PluginPackage
+      |> Ash.Query.for_read(:approved, %{}, actor: actor)
+      |> Ash.Query.filter(id in ^package_ids)
+      |> Ash.Query.select([:id])
+      |> Ash.read(actor: actor)
+      |> case do
+        {:ok, packages} -> {:ok, MapSet.new(packages, &to_string(&1.id))}
+        {:error, reason} -> {:error, reason}
+      end
     end
   end
 

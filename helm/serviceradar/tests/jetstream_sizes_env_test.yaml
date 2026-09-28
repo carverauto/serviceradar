@@ -1,0 +1,244 @@
+suite: jetstream sizes in component environments
+# openspec change update-jetstream-storage-budget (design D3, D7): every size
+# the budget counts (jetstream_storage_budget_test.yaml) reaches the component
+# that creates the stream, under the name that component reads, so the value a
+# stream is created with is the value the budget counted.
+templates:
+  - templates/core.yaml
+  - templates/web.yaml
+  - templates/datasvc.yaml
+  - templates/serviceradar-config.yaml
+  - templates/log-collector.yaml
+  - templates/log-collector-tcp.yaml
+  - templates/flow-collector.yaml
+  - templates/flow-collector-bootstrap-job.yaml
+  - templates/bmp-collector.yaml
+release:
+  namespace: serviceradar-test
+tests:
+  - it: renders every EventWriter stream, fallback and the threat-intel size into core
+    template: templates/core.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_METRICS_MAX_BYTES, value: "1073741824"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_K8S_INVENTORY_MAX_BYTES, value: "1073741824"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_ANALYTICS_PREDICTIONS_MAX_BYTES, value: "1073741824"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_MTR_RESULTS_MAX_BYTES, value: "1073741824"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_SCAN_RESULTS_MAX_BYTES, value: "268435456"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_TRIVY_REPORTS_MAX_BYTES, value: "1073741824"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_EVENTS_FALLBACK_MAX_BYTES, value: "2147483648"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_EVENTS_FALLBACK_REPLICAS, value: "3"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_FLOWS_FALLBACK_MAX_BYTES, value: "1073741824"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_FLOWS_FALLBACK_REPLICAS, value: "1"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_ARANCINI_CAUSAL_FALLBACK_MAX_BYTES, value: "1073741824"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_ARANCINI_CAUSAL_FALLBACK_REPLICAS, value: "1"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES, value: "1073741824"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES, value: "1073741824"}
+
+  - it: renders an explicit NOTIFICATIONS size into core
+    set:
+      core.eventWriter.streams.notifications.maxBytes: 512Mi
+    template: templates/core.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES, value: "536870912"}
+
+  - it: gives a single-server install the single-server flows size
+    set:
+      nats.replicas: 1
+      flowCollector.enabled: true
+    template: templates/flow-collector.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_FLOWS_MAX_BYTES, value: "3221225472"}
+
+  - it: an explicit EventWriter size wins over the profile
+    set:
+      core.eventWriter.streams.mtr_results.maxBytes: 536870912
+    template: templates/core.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_MTR_RESULTS_MAX_BYTES, value: "536870912"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_METRICS_MAX_BYTES, value: "1073741824"}
+
+  - it: renders the web-ng object store sizes into web-ng
+    template: templates/web.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: PLUGIN_STORAGE_JS_MAX_BUCKET_BYTES, value: "2147483648"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: FIELD_SURVEY_JS_MAX_BUCKET_BYTES, value: "1073741824"}
+
+  - it: an explicit datasvc size wins and every other size keeps its profile value
+    set:
+      datasvc.objectStoreBytes: 2Gi
+    template: templates/datasvc.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_OBJ_SERVICERADAR_OBJECTS_MAX_BYTES, value: "2147483648"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_OBJ_SERVICERADAR_OBJECTS_REPLICAS, value: "3"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_KV_SERVICERADAR_DATASVC_MAX_BYTES, value: "1073741824"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_KV_SERVICERADAR_DATASVC_REPLICAS, value: "3"}
+
+  - it: datasvc.json carries the same budgeted sizes as the datasvc environment
+    template: templates/serviceradar-config.yaml
+    asserts:
+      - matchRegex:
+          path: data["datasvc.json"]
+          pattern: '"bucket_max_bytes": 1073741824,'
+      - matchRegex:
+          path: data["datasvc.json"]
+          pattern: '"object_store_bytes": 4294967296,'
+      - matchRegex:
+          path: data["datasvc.json"]
+          pattern: '"jetstream_replicas": 3,'
+
+  - it: gives both log collectors the events owner size, and the otel config the same
+    template: templates/log-collector.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_EVENTS_MAX_BYTES, value: "2147483648"}
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_EVENTS_REPLICAS, value: "3"}
+        documentSelector:
+          path: kind
+          value: Deployment
+      - matchRegex:
+          path: data["otel.toml"]
+          pattern: "max_bytes = 2147483648\n"
+        documentSelector:
+          path: kind
+          value: ConfigMap
+
+  - it: gives the TCP log collector the events owner size
+    template: templates/log-collector-tcp.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_EVENTS_MAX_BYTES, value: "2147483648"}
+
+  - it: gives flow-collector the flows size in its environment and its JSON
+    set:
+      flowCollector.enabled: true
+      nats.jetstream.profile: medium
+      nats.persistence.size: 100Gi
+    template: templates/flow-collector.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_FLOWS_MAX_BYTES, value: "34359738368"}
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_FLOWS_REPLICAS, value: "3"}
+        documentSelector:
+          path: kind
+          value: Deployment
+      - matchRegex:
+          path: data["flow-collector.json"]
+          pattern: '"stream_max_bytes":34359738368'
+        documentSelector:
+          path: kind
+          value: ConfigMap
+
+  - it: gives the flow-collector bootstrap Job, which creates flows, the same size
+    set:
+      flowCollector.enabled: true
+    template: templates/flow-collector-bootstrap-job.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_FLOWS_MAX_BYTES, value: "8589934592"}
+
+  - it: gives bmp-collector the ARANCINI_CAUSAL size in its environment and its JSON
+    set:
+      bmpCollector.enabled: true
+    template: templates/bmp-collector.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_ARANCINI_CAUSAL_MAX_BYTES, value: "2147483648"}
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_ARANCINI_CAUSAL_REPLICAS, value: "1"}
+        documentSelector:
+          path: kind
+          value: Deployment
+      - matchRegex:
+          path: data["config.json"]
+          pattern: '"stream_max_bytes": 2147483648,'
+        documentSelector:
+          path: kind
+          value: ConfigMap

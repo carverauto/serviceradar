@@ -19,7 +19,8 @@ defmodule ServiceRadar.Credentials.CredentialErrorClassifier do
     :missing_secret_provider,
     :missing_provider_token,
     :missing_kubernetes_auth_role,
-    :missing_kubernetes_jwt
+    :missing_kubernetes_jwt,
+    :grant_missing_secret_id
   ]
 
   @provider_policy_errors [
@@ -28,7 +29,10 @@ defmodule ServiceRadar.Credentials.CredentialErrorClassifier do
     :invalid_lease_expiration,
     :resolution_location_not_allowed,
     :external_secret_requires_broker_grant,
-    :grant_scope_mismatch
+    :grant_scope_mismatch,
+    :grant_not_active,
+    :grant_expired,
+    :grant_expiry_invalid
   ]
 
   @doc false

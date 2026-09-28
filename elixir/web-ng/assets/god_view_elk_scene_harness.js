@@ -64,6 +64,45 @@ function settle() {
   return new Promise((resolveFrame) => requestAnimationFrame(() => requestAnimationFrame(resolveFrame)))
 }
 
+// God View renders on WebGPU only. Wait for deck's device so a browser without WebGPU fails
+// here, naming the cause, instead of as a null deck several calls later.
+// A WebGPU validation error arrives asynchronously and ends in the renderer's error state, so
+// every step checks for it after its frames have been submitted.
+function assertRendererHealthy(state) {
+  if (state.rendererMode !== "webgpu") {
+    throw new Error(`God View renderer is ${state.rendererMode}: ${state.rendererError || "no WebGPU device"}`)
+  }
+}
+
+async function settleFrames(count) {
+  for (let frame = 0; frame < count; frame += 1) await settle()
+}
+
+// Topology fixtures carry no telemetry; give every edge traffic so packet flow has particles.
+function withTraffic(graph) {
+  return {
+    ...graph,
+    edges: graph.edges.map((edge, index) => ({
+      ...edge,
+      flowPps: 400 + index * 25,
+      flowPpsAb: 250 + index * 10,
+      flowPpsBa: 150 + index * 15,
+      flowBps: 8_000_000,
+      capacityBps: 1_000_000_000,
+      telemetryEligible: true,
+    })),
+  }
+}
+
+async function rendererReady(state, timeoutMs = 30_000) {
+  const deadline = performance.now() + timeoutMs
+  while (state.rendererMode === "initializing" && performance.now() < deadline) await settle()
+  if (state.rendererMode !== "webgpu") {
+    const context = `navigator.gpu=${Boolean(navigator.gpu)} secureContext=${globalThis.isSecureContext}`
+    throw new Error(`God View renderer is ${state.rendererMode}: ${state.rendererError || "no WebGPU device"} (${context})`)
+  }
+}
+
 async function start() {
   window.__SR_GOD_VIEW_ACCEPTANCE__ = true
   await document.fonts.ready
@@ -74,13 +113,13 @@ async function start() {
   lifecycle.initLifecycleState()
   lifecycle.bindLifecycleMethods()
   state.packetFlowEnabled = false
-  state.packetFlowShaderEnabled = false
   state.layers.atmosphere = false
   state.topologyLayers.endpoints = true
   lifecycle.ensureDOM()
   lifecycle.resizeCanvas()
   lifecycle.syncReducedMotionPreference()
   lifecycle.ensureDeck()
+  await rendererReady(state)
 
   let revision = 100
   let currentFixture = ""
@@ -100,10 +139,186 @@ async function start() {
     } catch (error) {
       throw new Error(`${String(error)}; viewport=${state.viewportWidth}x${state.viewportHeight}; safe=${JSON.stringify(state.topologyLabelSafeRect)}`)
     }
+    assertRendererHealthy(state)
     state.deck.redraw(true)
     await settle()
+    assertRendererHealthy(state)
     currentFixture = name
     return {elapsedMs: performance.now() - startedAt, snapshot: window.__SR_GOD_VIEW_GEOMETRY__()}
+  }
+
+  // Draws packet flow (the one custom-shader layer) over a fixture for a few animated frames.
+  // Its pipeline is only created, and so only validated by the device, once it has particles.
+  async function renderPacketFlow(name = "collapsed") {
+    const fixture = fixtures[name]
+    if (!fixture) throw new Error(`unknown fixture: ${name}`)
+    state.layers.atmosphere = true
+    state.packetFlowEnabled = true
+    try {
+      const laidOut = await layout.prepareGraphLayout(withTraffic(fixture()), revision++, `acceptance:packets:${name}`)
+      state.lastGraph = laidOut
+      state.hasAutoFit = false
+      state.userCameraLocked = false
+      rendering.renderGraph(laidOut)
+      // Animate the way the live loop does: advance the clock, not the graph.
+      for (let frame = 0; frame < 6; frame += 1) {
+        state.animationPhase = frame / 10
+        rendering.advanceAnimation()
+        assertRendererHealthy(state)
+        state.deck.redraw(true)
+        await settle()
+      }
+      await settleFrames(4)
+      assertRendererHealthy(state)
+      const particles = (state.deck.props.layers || []).find((layer) => layer.id === "god-view-atmosphere-particles")
+      return {flowEdges: particles?.props?.data?.length || 0, rendererMode: state.rendererMode}
+    } finally {
+      state.layers.atmosphere = false
+      state.packetFlowEnabled = false
+        }
+  }
+
+  // Runs the product's own animation loop (requestAnimationFrame -> advanceAnimation) over a
+  // fixture with packet flow on, the way a live page does. The caller probes responsiveness from
+  // outside the page while it runs, then stops it and reads the frame statistics.
+  let liveAnimation = null
+
+  async function startLiveAnimation(name = "collapsed", {width = 960, height = 540} = {}) {
+    const fixture = fixtures[name]
+    if (!fixture) throw new Error(`unknown fixture: ${name}`)
+    if (liveAnimation) throw new Error("live animation already running")
+    root.style.width = `${width}px`
+    root.style.height = `${height}px`
+    lifecycle.resizeCanvas()
+    state.layers.atmosphere = true
+    state.packetFlowEnabled = true
+    const laidOut = await layout.prepareGraphLayout(withTraffic(fixture()), revision++, `acceptance:live:${name}`)
+    state.lastGraph = laidOut
+    state.hasAutoFit = false
+    state.userCameraLocked = false
+    rendering.renderGraph(laidOut)
+    assertRendererHealthy(state)
+    const packetFlow = () => (state.deck.props.layers || []).find((layer) => layer.id === "god-view-atmosphere-particles")
+    const flowEdges = packetFlow()?.props?.data?.length || 0
+
+    // Count graph renders from here on: the loop must advance the clock, never re-render.
+    const renderGraph = rendering.renderGraph
+    let renderGraphCalls = 0
+    rendering.renderGraph = (...args) => {
+      renderGraphCalls += 1
+      return renderGraph(...args)
+    }
+    // An independent frame clock, so the frame rate is measured by the browser rather than
+    // by the loop under test.
+    const gaps = []
+    let lastFrameAt = performance.now()
+    let frameClock = 0
+    const onFrame = (now) => {
+      gaps.push(now - lastFrameAt)
+      lastFrameAt = now
+      frameClock = requestAnimationFrame(onFrame)
+    }
+    frameClock = requestAnimationFrame(onFrame)
+
+    lifecycle.startAnimationLoop()
+    // The first frames compile pipelines and upload buffers. Measure the steady state after them.
+    const warmupStartedAt = performance.now()
+    while (gaps.length < 12 && performance.now() - warmupStartedAt < 20_000) await settle()
+    const warmupMs = performance.now() - warmupStartedAt
+    gaps.length = 0
+    lastFrameAt = performance.now()
+
+    const startedAt = performance.now()
+    const startTime = packetFlow()?.props?.time
+    const startFrames = state.animationFrames || 0
+    let slowestTickMs = 0
+    const tickWatch = setInterval(() => {
+      slowestTickMs = Math.max(slowestTickMs, Number(state.lastAnimationFrameMs || 0))
+    }, 50)
+
+    liveAnimation = {
+      async stop() {
+        lifecycle.stopAnimationLoop()
+        cancelAnimationFrame(frameClock)
+        clearInterval(tickWatch)
+        rendering.renderGraph = renderGraph
+        const elapsedMs = performance.now() - startedAt
+        const frames = (state.animationFrames || 0) - startFrames
+        const endTime = packetFlow()?.props?.time
+        state.layers.atmosphere = false
+        state.packetFlowEnabled = false
+        liveAnimation = null
+        return {
+          rendererMode: state.rendererMode,
+          rendererError: state.rendererError ? String(state.rendererError.message || state.rendererError) : null,
+          flowEdges,
+          warmupMs,
+          elapsedMs,
+          animationFrames: frames,
+          animationFps: (frames * 1000) / elapsedMs,
+          browserFps: gaps.length > 0 ? (gaps.length * 1000) / gaps.reduce((sum, gap) => sum + gap, 0) : 0,
+          longestFrameGapMs: gaps.length > 0 ? Math.max(...gaps) : null,
+          slowestTickMs,
+          renderGraphCalls,
+          timeAdvanced: Number.isFinite(startTime) && Number.isFinite(endTime) && endTime !== startTime,
+        }
+      },
+    }
+    return {flowEdges, rendererMode: state.rendererMode}
+  }
+
+  async function stopLiveAnimation() {
+    if (!liveAnimation) throw new Error("live animation is not running")
+    return liveAnimation.stop()
+  }
+
+  // Picking checks: visible node glyphs at the top, bottom, left and right edges of the view
+  // and one near the middle, with their positions in page (CSS) pixels. A pick at a glyph's own
+  // position must return that glyph -- WebGPU reads the picking framebuffer top-down, and a
+  // bottom-up row returns the node mirrored about the middle of the view instead.
+  function pickTargets() {
+    const viewport = state.deck.getViewports()[0]
+    const rect = state.deck.getCanvas().getBoundingClientRect()
+    const margin = 8
+    const onScreen = (state.lastGraphLayerFrame?.nodeData || [])
+      .map((node) => ({node, at: viewport.project(node.position)}))
+      .filter(({at}) => at[0] > margin && at[0] < viewport.width - margin && at[1] > margin && at[1] < viewport.height - margin)
+    if (onScreen.length < 5) throw new Error(`only ${onScreen.length} node glyphs on screen`)
+    const by = (score) => onScreen.reduce((best, entry) => (score(entry) < score(best) ? entry : best))
+    const middle = by(({at}) => Math.hypot(at[0] - viewport.width / 2, at[1] - viewport.height / 2))
+    const chosen = [
+      ["top", by(({at}) => at[1])],
+      ["bottom", by(({at}) => -at[1])],
+      ["left", by(({at}) => at[0])],
+      ["right", by(({at}) => -at[0])],
+      ["middle", middle],
+    ]
+    return {
+      viewportHeight: viewport.height,
+      targets: chosen.map(([where, {node, at}]) => ({
+        where,
+        id: String(node.id),
+        index: node.index,
+        x: at[0],
+        y: at[1],
+        pageX: rect.left + at[0],
+        pageY: rect.top + at[1],
+      })),
+    }
+  }
+
+  async function pickNodeAt(x, y) {
+    const info = await state.deck.pickObjectAsync({x, y, radius: 0, layerIds: ["god-view-nodes"]})
+    const resolve = info?.layer?.props?.data?.resolve
+    const node = info?.object || (Number.isInteger(info?.index) && info.index >= 0 && typeof resolve === "function" ? resolve(info.index) : null)
+    return node ? String(node.id) : null
+  }
+
+  function hoveredNodeId() {
+    const index = state.hoveredNodeIndex
+    if (!Number.isInteger(index)) return null
+    const node = (state.lastGraphLayerFrame?.nodeData || []).find((record) => record.index === index)
+    return node ? String(node.id) : `unknown index ${index}`
   }
 
   async function fit() {
@@ -134,6 +349,12 @@ async function start() {
 
   window.__SR_GOD_VIEW_HARNESS__ = Object.freeze({
     renderFixture,
+    renderPacketFlow,
+    startLiveAnimation,
+    pickTargets,
+    pickNodeAt,
+    hoveredNodeId,
+    stopLiveAnimation,
     fit,
     focus,
     profile,
@@ -142,4 +363,6 @@ async function start() {
   })
 }
 
-void start()
+start().catch((error) => {
+  window.__SR_GOD_VIEW_HARNESS_ERROR__ = String(error?.stack || error)
+})

@@ -10,10 +10,10 @@ defmodule ServiceRadar.Observability.LogPromotion do
   alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.FalcoDecomposition
   alias ServiceRadar.EventWriter.OCSF
+  alias ServiceRadar.EventWriter.StableId
   alias ServiceRadar.Monitoring.AlertGenerator
   alias ServiceRadar.Observability.EventRule
-  alias ServiceRadar.Observability.StatefulAlertEngine
-  alias ServiceRadar.Observability.StatefulAlertEvaluationQueue
+  alias ServiceRadar.Observability.StatefulEvaluationLedger
 
   require Ash.Query
   require Logger
@@ -36,26 +36,16 @@ defmodule ServiceRadar.Observability.LogPromotion do
   }
 
   @spec promote([map()], keyword()) :: {:ok, non_neg_integer()} | {:error, term()}
-  def promote(rows, opts \\ []) when is_list(rows) do
+  def promote(rows, _opts \\ []) when is_list(rows) do
     # DB connection's search_path determines the schema
     with {:ok, rules} <- active_log_rules() do
       promotions = build_promotions(rows, rules)
       events = Enum.map(promotions, & &1.event)
 
-      case insert_events(events) do
-        {:ok, 0} ->
-          {:ok, 0}
-
-        {:ok, count} ->
-          with :ok <-
-                 evaluate_and_create_alerts(
-                   events,
-                   promotions,
-                   Keyword.get(opts, :stateful_evaluation, :async)
-                 ) do
-            Logger.debug("Promoted #{count} logs to OCSF events")
-            {:ok, count}
-          end
+      with {:ok, count} <- insert_events(events),
+           :ok <- apply_consequences(promotions) do
+        Logger.debug("Promoted #{count} logs to OCSF events")
+        {:ok, count}
       end
     end
   rescue
@@ -132,6 +122,9 @@ defmodule ServiceRadar.Observability.LogPromotion do
 
   defp insert_events([]), do: {:ok, 0}
 
+  # A warehouse load failure is returned, not ignored: once `events` is served
+  # from the warehouse a swallowed failure would lose the event there, and the
+  # stable event ids make the caller's retry store nothing twice.
   defp insert_events(events) do
     # DB connection's search_path determines the schema
     {count, _} =
@@ -146,15 +139,16 @@ defmodule ServiceRadar.Observability.LogPromotion do
       ServiceRadar.Events.PubSub.broadcast_event(%{count: count})
     end
 
-    _ = Destination.persist_after_cnpg(:events, events)
-
     :telemetry.execute(
       [:serviceradar, :log_promotion, :events_created],
       %{count: count},
       %{}
     )
 
-    {:ok, count}
+    case Destination.persist_after_cnpg(:events, events) do
+      {:error, reason} -> {:error, reason}
+      _ -> {:ok, count}
+    end
   end
 
   defp match_rules(log, rules) do
@@ -317,6 +311,14 @@ defmodule ServiceRadar.Observability.LogPromotion do
       attributes |> get_nested_value("serviceradar.ingest") |> get_nested_value("subject")
   end
 
+  # A log promoted by a rule always yields the same event id, so a redelivered
+  # log promotes to an event that is already stored instead of a second one.
+  defp promoted_event_id(%{id: log_id}, %EventRule{id: rule_id})
+       when is_binary(log_id) and log_id != "" and not is_nil(rule_id),
+       do: StableId.uuid("promotion:#{log_id}:#{rule_id}")
+
+  defp promoted_event_id(_log, _rule), do: Ecto.UUID.bingenerate()
+
   defp build_event(log, %EventRule{} = rule) do
     event_overrides = rule.event || %{}
     log_time = event_log_time(log)
@@ -327,7 +329,7 @@ defmodule ServiceRadar.Observability.LogPromotion do
     status_id = event_status_id(event_overrides)
 
     event = %{
-      id: Ecto.UUID.bingenerate(),
+      id: promoted_event_id(log, rule),
       time: log_time,
       class_uid: class_uid,
       category_uid: category_uid,
@@ -514,15 +516,25 @@ defmodule ServiceRadar.Observability.LogPromotion do
 
   defp put_falco_unmapped(_, falco, context), do: %{falco: Map.merge(falco, context)}
 
-  defp evaluate_and_create_alerts(events, promotions, :async) do
-    maybe_create_alerts(promotions)
-    maybe_evaluate_stateful_rules(events, :async)
-  end
+  # Each promoted event's alert consequences run once (the ledger):
+  # synchronously, so an engine failure fails the batch and its redelivery
+  # retries exactly the events that did not finish. A promotion alert that
+  # fails to create is logged and not retried, as a validation failure would
+  # fail every redelivery the same way.
+  defp apply_consequences([]), do: :ok
 
-  defp evaluate_and_create_alerts(events, promotions, :sync) do
-    with :ok <- maybe_evaluate_stateful_rules(events, :sync) do
-      maybe_create_alerts(promotions)
-    end
+  defp apply_consequences(promotions) do
+    promotions
+    |> Enum.map(& &1.event)
+    |> StatefulEvaluationLedger.evaluate_once(fn pending_events ->
+      pending = MapSet.new(pending_events, & &1.id)
+
+      promotions
+      |> Enum.filter(&MapSet.member?(pending, &1.event.id))
+      |> maybe_create_alerts()
+
+      :ok
+    end)
   end
 
   defp maybe_create_alerts(promotions) do
@@ -541,54 +553,6 @@ defmodule ServiceRadar.Observability.LogPromotion do
       %{"alert" => %{} = config} -> config
       _ -> if Map.get(event, :severity_id, 0) >= OCSF.severity_high(), do: %{}
     end
-  end
-
-  defp maybe_evaluate_stateful_rules(events, :sync),
-    do: StatefulAlertEngine.evaluate_events(events)
-
-  defp maybe_evaluate_stateful_rules([], :async), do: :ok
-
-  defp maybe_evaluate_stateful_rules(events, :async) do
-    case alert_evaluation_queue().enqueue_events(events) do
-      :ok ->
-        :ok
-
-      {:error, :stateful_alert_evaluation_queue_full} ->
-        evaluate_stateful_rules_with_backpressure(events, :stateful_alert_evaluation_queue_full)
-
-      {:error, :stateful_alert_evaluation_queue_unavailable} ->
-        evaluate_stateful_rules_with_backpressure(
-          events,
-          :stateful_alert_evaluation_queue_unavailable
-        )
-
-      {:error, reason} ->
-        Logger.warning("Stateful alert evaluation enqueue failed", reason: inspect(reason))
-        {:error, reason}
-    end
-  end
-
-  defp evaluate_stateful_rules_with_backpressure(events, queue_reason) do
-    Logger.warning("Stateful alert evaluation queue rejected events; evaluating synchronously",
-      reason: inspect(queue_reason)
-    )
-
-    case StatefulAlertEngine.evaluate_events(events) do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning("Synchronous stateful alert evaluation failed", reason: inspect(reason))
-        {:error, reason}
-    end
-  end
-
-  defp alert_evaluation_queue do
-    Application.get_env(
-      :serviceradar_core,
-      :stateful_alert_evaluation_queue,
-      StatefulAlertEvaluationQueue
-    )
   end
 
   defp build_metadata(log, rule, subject) do

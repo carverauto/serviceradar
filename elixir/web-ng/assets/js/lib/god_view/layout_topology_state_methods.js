@@ -18,6 +18,7 @@ import {
   topologySemanticLevel,
 } from "./topology_layout_mode"
 import {topologyRelationId} from "./topology_relation_identity"
+import {isLazySnapshotDetails} from "./snapshot_columns"
 
 let defaultLayoutEngine = null
 const MAX_LAYOUT_CACHE_ENTRIES = 12
@@ -108,13 +109,14 @@ function layoutErrorMessage(error) {
 }
 
 function immutableTopologyScene(value) {
-  if (!value || typeof value !== "object" || Object.isFrozen(value)) return value
+  if (!value || typeof value !== "object" || Object.isFrozen(value) || isLazySnapshotDetails(value)) return value
   for (const child of Object.values(value)) immutableTopologyScene(child)
   return Object.freeze(value)
 }
 
 function cloneTopologyValue(value) {
   if (Array.isArray(value)) return value.map(cloneTopologyValue)
+  if (isLazySnapshotDetails(value)) return value
   if (value && typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value).map(([key, child]) => [key, cloneTopologyValue(child)]),

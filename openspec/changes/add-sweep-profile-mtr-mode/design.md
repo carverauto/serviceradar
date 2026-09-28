@@ -61,7 +61,9 @@ The switch statements in `base_processor.go`, `memory_store.go`,
   JetStream + event-writer route. No direct DB write; no new stream.
 
 ### D4: Profile -> compiler -> agent config
-`SweepProfile.sweep_modes` accepts `"mtr"`; add `mtr_protocol` /
+`SweepProfile.sweep_modes` accepts `"mtr"`; add `mtr_protocols` (a non-empty
+protocol set, as defined for MTR policies by
+`update-mtr-protocols-and-scan-visibility`) /
 `mtr_max_hops` profile options. The sweep-config compiler passes `mtr` (and
 options) into the compiled `AgentCheckConfig`/sweep config so the agent's
 `MultiSweepService` runs MTR on the profile's interval. MTR options default
@@ -69,7 +71,7 @@ sensibly (`icmp` protocol, 30 hops) when omitted.
 
 ### D5: Settings UI
 The sweep-profile editor LiveView gains an MTR mode toggle beside ICMP/TCP and
-MTR protocol / max-hops inputs, gated by the existing sweep-profile
+MTR protocols / max-hops inputs, gated by the existing sweep-profile
 permissions. No new RBAC.
 
 ## Risks / Trade-offs

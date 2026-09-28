@@ -22,6 +22,8 @@
  * @typedef {object} GodViewRenderingApi
  * @property {(...args: any[]) => any} renderGraph
  * @property {(...args: any[]) => any} refreshGraphLayersForViewState
+ * @property {(...args: any[]) => any} advanceAnimation
+ * @property {(...args: any[]) => any} refreshDeferredLayers
  * @property {(...args: any[]) => any} stateDisplayName
  * @property {(...args: any[]) => any} edgeTopologyClass
  * @property {(...args: any[]) => any} focusNodeByIndex
@@ -75,6 +77,8 @@ export const RENDERING_DEP_KEYS = ["resolveZoomTier", "setZoomTier", "reshapeGra
  * @typedef {object} GodViewLifecycleDeps
  * @property {(...args: any[]) => any} renderGraph
  * @property {(...args: any[]) => any} refreshGraphLayersForViewState
+ * @property {(...args: any[]) => any} advanceAnimation
+ * @property {(...args: any[]) => any} refreshDeferredLayers
  * @property {(...args: any[]) => any} focusNodeByIndex
  * @property {(...args: any[]) => any} ensureBitmapMetadata
  * @property {(...args: any[]) => any} normalizePipelineStats
@@ -96,6 +100,8 @@ export const RENDERING_DEP_KEYS = ["resolveZoomTier", "setZoomTier", "reshapeGra
 export const LIFECYCLE_DEP_KEYS = [
   "renderGraph",
   "refreshGraphLayersForViewState",
+  "advanceAnimation",
+  "refreshDeferredLayers",
   "focusNodeByIndex",
   "ensureBitmapMetadata",
   "normalizePipelineStats",
@@ -150,6 +156,8 @@ export function buildLifecycleDeps(context) {
   return {
     renderGraph: (...args) => context.rendering.renderGraph(...args),
     refreshGraphLayersForViewState: (...args) => context.rendering.refreshGraphLayersForViewState(...args),
+    advanceAnimation: (...args) => context.rendering.advanceAnimation(...args),
+    refreshDeferredLayers: (...args) => context.rendering.refreshDeferredLayers(...args),
     focusNodeByIndex: (...args) => context.rendering.focusNodeByIndex(...args),
     ensureBitmapMetadata: (...args) => context.rendering.ensureBitmapMetadata(...args),
     normalizePipelineStats: (...args) => context.rendering.normalizePipelineStats(...args),

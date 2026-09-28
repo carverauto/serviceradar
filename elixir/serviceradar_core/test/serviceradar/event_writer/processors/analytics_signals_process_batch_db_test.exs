@@ -9,10 +9,10 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
 
   @moduletag :integration
 
-  defmodule AlertQueue do
+  defmodule AlertEngine do
     @moduledoc false
 
-    def enqueue_events(events) do
+    def evaluate_events(events) do
       send(test_pid(), {:alert_evaluation_events, events})
       :ok
     end
@@ -47,7 +47,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
   end
 
   setup do
-    previous_queue = Application.get_env(:serviceradar_core, :stateful_alert_evaluation_queue)
+    previous_queue = Application.get_env(:serviceradar_core, :stateful_alert_engine)
 
     previous_northbound_runner =
       Application.get_env(:serviceradar_core, :northbound_event_handler_runner)
@@ -65,8 +65,8 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
 
     Application.put_env(
       :serviceradar_core,
-      :stateful_alert_evaluation_queue,
-      __MODULE__.AlertQueue
+      :stateful_alert_engine,
+      __MODULE__.AlertEngine
     )
 
     Application.put_env(
@@ -87,7 +87,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     AnomalyEpisodeRegistry.reset_tripwire!()
 
     on_exit(fn ->
-      restore_env(:stateful_alert_evaluation_queue, previous_queue)
+      restore_env(:stateful_alert_engine, previous_queue)
       restore_env(:northbound_event_handler_runner, previous_northbound_runner)
       restore_env(:analytics_signals_process_batch_test_pid, previous_test_pid)
       restore_env(:anomaly_episodes_enabled, previous_episodes)

@@ -236,6 +236,7 @@ describe("rendering_selection_methods", () => {
     ctx.state.selectedNodeIndex = null
     ctx.state.selectedEdgeKey = null
     ctx.renderGraph = vi.fn()
+    ctx.refreshInteraction = vi.fn()
     ctx.edgeLayerId = () => false
     ctx.handlePick = godViewRenderingSelectionMethods.handlePick.bind(ctx)
     ctx.scheduleSelectionRefresh = godViewRenderingSelectionMethods.scheduleSelectionRefresh.bind(ctx)
@@ -265,6 +266,7 @@ describe("rendering_selection_methods", () => {
     ctx.state.selectedNodeIndex = null
     ctx.state.selectedEdgeKey = null
     ctx.renderGraph = vi.fn()
+    ctx.refreshInteraction = vi.fn()
     ctx.edgeLayerId = () => false
     ctx.deps.setClusterExpanded = vi.fn()
     ctx.handlePick = godViewRenderingSelectionMethods.handlePick.bind(ctx)
@@ -292,6 +294,7 @@ describe("rendering_selection_methods", () => {
     ctx.state.selectedNodeIndex = 0
     ctx.state.selectedEdgeKey = "local:stale"
     ctx.renderGraph = vi.fn()
+    ctx.refreshInteraction = vi.fn()
     ctx.edgeLayerId = () => false
     ctx.deps.setClusterExpanded = vi.fn()
     ctx.handlePick = godViewRenderingSelectionMethods.handlePick.bind(ctx)
@@ -324,6 +327,7 @@ describe("rendering_selection_methods", () => {
     ctx.state.lastGraph = {nodes: [{id: "n1"}]}
     ctx.state.details.classList.remove("hidden")
     ctx.renderGraph = vi.fn()
+    ctx.refreshInteraction = vi.fn()
     ctx.edgeLayerId = () => false
     ctx.state.deck = {redraw: vi.fn()}
     ctx.handlePick = godViewRenderingSelectionMethods.handlePick.bind(ctx)
@@ -335,7 +339,8 @@ describe("rendering_selection_methods", () => {
     expect(ctx.state.selectedNodeIndex).toEqual(null)
     expect(ctx.state.selectedEdgeKey).toEqual(null)
     expect(ctx.state.details.classList.contains("hidden")).toEqual(true)
-    expect(ctx.renderGraph).toHaveBeenCalledTimes(1)
+    expect(ctx.refreshInteraction).toHaveBeenCalledTimes(1)
+    expect(ctx.renderGraph).not.toHaveBeenCalled()
   })
 
   it("handlePick treats deck.gl index -1 as a dismiss, not a node", () => {
@@ -345,6 +350,7 @@ describe("rendering_selection_methods", () => {
     ctx.state.lastGraph = {nodes: [{id: "n1"}, {id: "n2"}, {id: "n3"}]}
     ctx.state.details.classList.remove("hidden")
     ctx.renderGraph = vi.fn()
+    ctx.refreshInteraction = vi.fn()
     ctx.edgeLayerId = () => false
     ctx.deps.setClusterExpanded = vi.fn()
     ctx.state.deck = {redraw: vi.fn()}
@@ -358,7 +364,8 @@ describe("rendering_selection_methods", () => {
     expect(ctx.state.selectedEdgeKey).toEqual(null)
     expect(ctx.state.details.classList.contains("hidden")).toEqual(true)
     expect(ctx.deps.setClusterExpanded).not.toHaveBeenCalled()
-    expect(ctx.renderGraph).toHaveBeenCalledTimes(1)
+    expect(ctx.refreshInteraction).toHaveBeenCalledTimes(1)
+    expect(ctx.renderGraph).not.toHaveBeenCalled()
     expect(ctx.state.lastGraph.nodes).toHaveLength(3)
   })
 
@@ -368,6 +375,7 @@ describe("rendering_selection_methods", () => {
     ctx.state.selectedEdgeKey = null
     ctx.state.lastGraph = {nodes: [{id: "n1"}]}
     ctx.renderGraph = vi.fn()
+    ctx.refreshInteraction = vi.fn()
     ctx.edgeLayerId = () => false
     ctx.state.deck = {redraw: vi.fn()}
     ctx.handlePick = godViewRenderingSelectionMethods.handlePick.bind(ctx)
@@ -389,6 +397,7 @@ describe("rendering_selection_methods", () => {
     ctx.state.details.classList.remove("hidden")
     ctx.state.deck = {redraw: vi.fn()}
     ctx.renderGraph = vi.fn()
+    ctx.refreshInteraction = vi.fn()
     ctx.edgeLayerId = (layerId) => layerId === "god-view-edges-crust"
     ctx.handlePick = godViewRenderingSelectionMethods.handlePick.bind(ctx)
     ctx.forceDeckRedraw = godViewRenderingSelectionMethods.forceDeckRedraw.bind(ctx)
@@ -399,7 +408,8 @@ describe("rendering_selection_methods", () => {
     expect(ctx.state.selectedNodeIndex).toEqual(null)
     expect(ctx.state.selectedEdgeKey).toEqual(null)
     expect(ctx.state.details.classList.contains("hidden")).toEqual(true)
-    expect(ctx.renderGraph).toHaveBeenCalledTimes(1)
+    expect(ctx.refreshInteraction).toHaveBeenCalledTimes(1)
+    expect(ctx.renderGraph).not.toHaveBeenCalled()
   })
 
   it("handlePick ignores undefined pick metadata", () => {
@@ -409,6 +419,7 @@ describe("rendering_selection_methods", () => {
     ctx.state.lastGraph = {nodes: [{id: "n1"}]}
     ctx.state.deck = {redraw: vi.fn()}
     ctx.renderGraph = vi.fn()
+    ctx.refreshInteraction = vi.fn()
     ctx.renderSelectionDetails = vi.fn()
     ctx.edgeLayerId = () => false
     ctx.handlePick = godViewRenderingSelectionMethods.handlePick.bind(ctx)
@@ -420,7 +431,8 @@ describe("rendering_selection_methods", () => {
     expect(ctx.state.selectedNodeIndex).toEqual(null)
     expect(ctx.state.selectedEdgeKey).toEqual(null)
     expect(ctx.state.details.classList.contains("hidden")).toEqual(true)
-    expect(ctx.renderGraph).toHaveBeenCalledTimes(1)
+    expect(ctx.refreshInteraction).toHaveBeenCalledTimes(1)
+    expect(ctx.renderGraph).not.toHaveBeenCalled()
   })
 
   it("handlePick dismisses details on edge-layer clicks without an interaction key even without picked=false", () => {
@@ -431,6 +443,7 @@ describe("rendering_selection_methods", () => {
     ctx.state.details.classList.remove("hidden")
     ctx.state.deck = {redraw: vi.fn()}
     ctx.renderGraph = vi.fn()
+    ctx.refreshInteraction = vi.fn()
     ctx.edgeLayerId = (layerId) => layerId === "god-view-edges-crust"
     ctx.handlePick = godViewRenderingSelectionMethods.handlePick.bind(ctx)
     ctx.forceDeckRedraw = godViewRenderingSelectionMethods.forceDeckRedraw.bind(ctx)
@@ -441,7 +454,8 @@ describe("rendering_selection_methods", () => {
     expect(ctx.state.selectedNodeIndex).toEqual(null)
     expect(ctx.state.selectedEdgeKey).toEqual(null)
     expect(ctx.state.details.classList.contains("hidden")).toEqual(true)
-    expect(ctx.renderGraph).toHaveBeenCalledTimes(1)
+    expect(ctx.refreshInteraction).toHaveBeenCalledTimes(1)
+    expect(ctx.renderGraph).not.toHaveBeenCalled()
   })
 
   it("renderSelectionDetails avoids rewriting identical detail HTML", () => {
@@ -540,6 +554,7 @@ describe("rendering_selection_methods", () => {
       ],
     }
     ctx.renderGraph = vi.fn()
+    ctx.refreshInteraction = vi.fn()
     ctx.edgeLayerId = () => false
     ctx.deps.setClusterExpanded = vi.fn()
     ctx.handlePick = godViewRenderingSelectionMethods.handlePick.bind(ctx)
@@ -576,6 +591,7 @@ describe("rendering_selection_methods", () => {
       ],
     }
     ctx.renderGraph = vi.fn()
+    ctx.refreshInteraction = vi.fn()
     ctx.edgeLayerId = () => false
     ctx.deps.setClusterExpanded = vi.fn()
     ctx.handlePick = godViewRenderingSelectionMethods.handlePick.bind(ctx)
@@ -615,6 +631,7 @@ describe("rendering_selection_methods", () => {
       ],
     }
     ctx.renderGraph = vi.fn()
+    ctx.refreshInteraction = vi.fn()
     ctx.edgeLayerId = () => false
     ctx.deps.setClusterExpanded = vi.fn()
     ctx.handlePick = godViewRenderingSelectionMethods.handlePick.bind(ctx)

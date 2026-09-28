@@ -4,6 +4,8 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
   alias Broadway.Message
   alias ServiceRadar.EventWriter.Config
   alias ServiceRadar.EventWriter.Pipeline
+  alias ServiceRadar.EventWriter.Processors.AdhocScan
+  alias ServiceRadar.EventWriter.Processors.Mtr
 
   setup do
     handler_id = "pipeline-ack-test-#{System.unique_integer([:positive])}"
@@ -182,6 +184,68 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
 
     assert_receive {:telemetry, [:serviceradar, :event_writer, :ack], %{count: 1},
                     %{action: :nack, result: :error, subject_class: "falco"}}
+  end
+
+  # A stream whose subject has no routing rule still gets a consumer, so its
+  # messages arrive, fall through to the Default processor, and are acked and
+  # dropped without an error anywhere. MTR and ad-hoc scan results shipped that
+  # way.
+  test "every default stream's subject reaches the processor its stream declares" do
+    config = %Config{
+      enabled: true,
+      nats: %{},
+      batch_size: 100,
+      batch_timeout: 1_000,
+      consumer_name: "test-consumer",
+      streams: Config.default_streams()
+    }
+
+    batchers = Pipeline.configured_batcher_names(config)
+
+    for stream <- Config.default_streams(), not Config.flow_stream?(stream) do
+      subject = String.replace(stream.subject, [">", "*"], "example")
+
+      message = %Message{
+        data: "",
+        metadata: %{subject: subject},
+        acknowledger: {Pipeline, :ack_ref, %{ack_fun: fn _ -> :ok end}}
+      }
+
+      %Message{batcher: batcher} = Pipeline.handle_message(:default, message, %{})
+
+      assert batcher in batchers, "#{stream.name}: #{subject} routes to undeclared #{batcher}"
+
+      assert Pipeline.processor_for_batcher(batcher) == stream.processor,
+             "#{stream.name}: #{subject} runs #{inspect(Pipeline.processor_for_batcher(batcher))}"
+    end
+  end
+
+  test "routes MTR and ad-hoc scan results to their own batchers" do
+    config = %Config{
+      enabled: true,
+      nats: %{},
+      batch_size: 100,
+      batch_timeout: 1_000,
+      consumer_name: "test-consumer",
+      streams: Config.default_streams()
+    }
+
+    routes = [
+      {"mtr.results.ingest", :mtr_results, Mtr},
+      {"scans.results.run01", :scan_results, AdhocScan}
+    ]
+
+    for {subject, batcher, processor} <- routes do
+      message = %Message{
+        data: "",
+        metadata: %{subject: subject},
+        acknowledger: {Pipeline, :ack_ref, %{ack_fun: fn _ -> :ok end}}
+      }
+
+      assert batcher in Pipeline.configured_batcher_names(config)
+      assert %Message{batcher: ^batcher} = Pipeline.handle_message(:default, message, %{})
+      assert Pipeline.processor_for_batcher(batcher) == processor
+    end
   end
 
   test "routes metrics subjects to the declared metrics batcher" do
@@ -395,5 +459,70 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
     }
 
     assert %Message{batcher: :flows_raw} = Pipeline.handle_message(:default, message, %{})
+  end
+
+  describe "warehouse batch sizing" do
+    @batchers [
+      metrics: [batch_size: 100, batch_timeout: 1_000],
+      falco: [batch_size: 100, batch_timeout: 1_000],
+      otel_traces: [batch_size: 100, batch_timeout: 1_000],
+      logs: [batch_size: 500, batch_timeout: 10_000]
+    ]
+
+    @metrics_batchers [metrics: [batch_size: 500, batch_timeout: 500]]
+
+    @sizing %{
+      max_ack_pending: 256,
+      max_age_ms: 2_000,
+      max_rows: 50_000,
+      max_bytes: 1,
+      max_in_flight: 4
+    }
+
+    test "without the warehouse the batchers are left as configured" do
+      assert Pipeline.size_warehouse_batchers(@batchers, %Config{streams: []}, nil) == @batchers
+    end
+
+    test "warehouse batchers flush on the load max age and fill to half of max_ack_pending" do
+      sized = Pipeline.size_warehouse_batchers(@batchers, %Config{streams: []}, @sizing)
+
+      assert sized[:metrics] == [batch_size: 128, batch_timeout: 2_000]
+      assert sized[:falco] == [batch_size: 128, batch_timeout: 2_000]
+      # Not a warehouse writer: untouched.
+      assert sized[:otel_traces] == [batch_size: 100, batch_timeout: 1_000]
+      # A configured timeout longer than the max age is kept.
+      assert sized[:logs] == [batch_size: 128, batch_timeout: 10_000]
+    end
+
+    test "a configured batch size the consumer cannot deliver is capped" do
+      sized = Pipeline.size_warehouse_batchers(@metrics_batchers, %Config{streams: []}, @sizing)
+
+      assert sized[:metrics] == [batch_size: 128, batch_timeout: 2_000]
+    end
+
+    test "batch size is left as configured when max_ack_pending is unknown" do
+      sizing = %{@sizing | max_ack_pending: nil}
+      sized = Pipeline.size_warehouse_batchers(@metrics_batchers, %Config{streams: []}, sizing)
+
+      assert sized[:metrics] == [batch_size: 500, batch_timeout: 2_000]
+    end
+
+    test "a stream's own max_ack_pending bounds its batcher" do
+      config = %Config{
+        streams: [
+          %{
+            name: "METRICS",
+            subject: "metrics.>",
+            processor: nil,
+            consumer_max_ack_pending: 2_048
+          }
+        ]
+      }
+
+      sized = Pipeline.size_warehouse_batchers(@batchers, config, @sizing)
+
+      assert sized[:metrics][:batch_size] == 1_024
+      assert sized[:falco][:batch_size] == 128
+    end
   end
 end

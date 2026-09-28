@@ -20,8 +20,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
 
   alias ServiceRadar.ControlRepo
   alias ServiceRadar.Edge.AgentReleaseManager
-  alias ServiceRadar.Observability.MtrMetricsIngestor
-  alias ServiceRadar.Observability.MtrPubSub
+  alias ServiceRadar.Observability.MtrResultPublisher
   alias ServiceRadar.Repo
 
   require Logger
@@ -759,20 +758,21 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
     mtr_payload = build_ingest_payload(data, trace, target, timestamp)
     status = build_ingest_status(data)
 
-    case MtrMetricsIngestor.ingest(mtr_payload, status) do
-      :ok ->
-        _ =
-          MtrPubSub.broadcast_ingest(%{
-            command_id: Map.get(data, :command_id),
-            target: target,
-            agent_id: Map.get(data, :agent_id)
-          })
+    # EventWriter stores the trace and then announces it, so a page waiting on
+    # this command refreshes once the trace is readable.
+    broadcast = %{
+      command_id: Map.get(data, :command_id),
+      target: target,
+      agent_id: Map.get(data, :agent_id)
+    }
 
+    case mtr_result_publisher().publish(mtr_payload, status, broadcast: broadcast) do
+      :ok ->
         :ok
 
       {:error, reason} ->
         Logger.warning(
-          "AgentCommandStatusHandler: failed to ingest on-demand MTR result",
+          "AgentCommandStatusHandler: failed to publish on-demand MTR result",
           safe_failure_metadata(reason, command_id: Map.get(data, :command_id))
         )
     end
@@ -844,20 +844,19 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
     if results != [] do
       status_payload = build_ingest_status(data)
 
-      case MtrMetricsIngestor.ingest(%{"results" => results}, status_payload) do
+      broadcast = fn result ->
+        %{command_id: command_id, target: result["target"], agent_id: Map.get(data, :agent_id)}
+      end
+
+      payload = %{"results" => results}
+
+      case mtr_result_publisher().publish(payload, status_payload, broadcast: broadcast) do
         :ok ->
-          Enum.each(results, fn result ->
-            _ =
-              MtrPubSub.broadcast_ingest(%{
-                command_id: command_id,
-                target: result["target"],
-                agent_id: Map.get(data, :agent_id)
-              })
-          end)
+          :ok
 
         {:error, reason} ->
           Logger.warning(
-            "AgentCommandStatusHandler: failed to ingest bulk MTR results",
+            "AgentCommandStatusHandler: failed to publish bulk MTR results",
             safe_failure_metadata(reason,
               command_id: command_id,
               target_count: length(results)
@@ -878,7 +877,8 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
           map_get_any(data, [:timestamp, "timestamp"], nil)
 
       %{
-        "check_id" => "#{command_id}:#{target}",
+        "check_id" =>
+          bulk_check_id(command_id, target, map_get_any(update, ["protocol", :protocol], nil)),
         "check_name" => "bulk-mtr",
         "target" => target,
         "available" => map_get_any(trace, ["target_reached", :target_reached], false) == true,
@@ -891,6 +891,13 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
   end
 
   defp bulk_ingest_result(_command_id, _data, _update), do: nil
+
+  # A multi-protocol bulk job traces a target once per protocol; qualify the
+  # check id so each trace keeps its own identity.
+  defp bulk_check_id(command_id, target, protocol) when is_binary(protocol) and protocol != "",
+    do: "#{command_id}:#{target}:#{protocol}"
+
+  defp bulk_check_id(command_id, target, _protocol), do: "#{command_id}:#{target}"
 
   defp persist_bulk_target_updates(nil, _updates), do: :ok
   defp persist_bulk_target_updates(_command_id, []), do: :ok
@@ -910,6 +917,19 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
                SELECT
                  $1::text AS command_id,
                  x.target::text AS target,
+                 -- Agents that predate protocol sets omit the protocol; their
+                 -- jobs are single-protocol, so reuse the queued row's.
+                 COALESCE(
+                   NULLIF(btrim(x.protocol), ''),
+                   (
+                     SELECT t.protocol
+                     FROM platform.mtr_bulk_job_targets t
+                     WHERE t.command_id = $1::uuid AND t.target = x.target
+                     ORDER BY t.protocol
+                     LIMIT 1
+                   ),
+                   'icmp'
+                 ) AS protocol,
                  x.status::text AS status,
                  x.error::text AS error,
                  x.result_payload::jsonb AS result_payload,
@@ -921,6 +941,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
                  END AS completed_at
                FROM jsonb_to_recordset($2::jsonb) AS x(
                  target text,
+                 protocol text,
                  status text,
                  error text,
                  result_payload jsonb,
@@ -931,6 +952,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
              INSERT INTO platform.mtr_bulk_job_targets (
                command_id,
                target,
+               protocol,
                status,
                error,
                result_payload,
@@ -943,6 +965,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
              SELECT
                command_id::uuid,
                target,
+               protocol,
                status,
                error,
                result_payload,
@@ -952,7 +975,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
                now() AT TIME ZONE 'utc',
                now() AT TIME ZONE 'utc'
              FROM updates
-             ON CONFLICT (command_id, target)
+             ON CONFLICT (command_id, target, protocol)
              DO UPDATE SET
                status = EXCLUDED.status,
                error = EXCLUDED.error,
@@ -990,6 +1013,7 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
     else
       %{
         target: target,
+        protocol: update |> map_get_any(["protocol", :protocol], nil) |> to_string_or_nil(),
         status: normalize_bulk_target_status(map_get_any(update, ["status", :status], "queued")),
         error: map_get_any(update, ["error", :error], nil),
         result_payload: map_get_any(update, ["result_payload", :result_payload], nil),
@@ -1106,4 +1130,8 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
 
   defp to_string_or_nil(nil), do: nil
   defp to_string_or_nil(value), do: to_string(value)
+
+  defp mtr_result_publisher do
+    Application.get_env(:serviceradar_core, :mtr_result_publisher, MtrResultPublisher)
+  end
 end

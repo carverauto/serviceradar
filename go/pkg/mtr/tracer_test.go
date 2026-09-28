@@ -2,6 +2,7 @@ package mtr
 
 import (
 	"context"
+	"errors"
 	"net"
 	"testing"
 	"time"
@@ -231,7 +232,9 @@ type fakeRawSocket struct {
 
 func (f *fakeRawSocket) SendICMP(_ net.IP, _ int, _ int, _ int, _ []byte) error { return nil }
 func (f *fakeRawSocket) SendUDP(_ net.IP, _ int, _ int, _ int, _ []byte) error  { return nil }
-func (f *fakeRawSocket) SendTCP(_ net.IP, _ int, _ int, _ int) error            { return nil }
+func (f *fakeRawSocket) OpenTCPFlow(_ net.IP, _ int, _ time.Duration) (TCPFlow, error) {
+	return nil, errFakeNoTCPFlow
+}
 func (f *fakeRawSocket) Receive(deadline time.Time) (*ICMPResponse, error) {
 	time.Sleep(time.Until(deadline))
 	return nil, fakeTimeoutError{}
@@ -241,6 +244,8 @@ func (f *fakeRawSocket) Close() error {
 	return nil
 }
 func (f *fakeRawSocket) IsIPv6() bool { return false }
+
+var errFakeNoTCPFlow = errors.New("fake socket has no TCP flow")
 
 type fakeTimeoutError struct{}
 
@@ -267,5 +272,44 @@ func TestResolveHopHostnamesUsesDNSCache(t *testing.T) {
 
 	if got := hop.Snapshot().Hostname; got != "router.example.net" {
 		t.Fatalf("expected hostname from reverse DNS cache, got %q", got)
+	}
+}
+
+// A tracer that opens its own socket must close it exactly once. The send side
+// of a raw socket is a bare descriptor number, so a second close(2) closes
+// whichever descriptor the process was handed that number in between -- with
+// traces running concurrently, another trace's probe or DNS socket.
+//
+// Not parallel: it swaps the package-level socket opener.
+func TestTracerRun_ClosesOwnedSocketOnce(t *testing.T) {
+	socket := &fakeRawSocket{}
+	original := openProbeSocket
+	openProbeSocket = func(bool) (RawSocket, error) { return socket, nil }
+	t.Cleanup(func() { openProbeSocket = original })
+
+	opts := DefaultOptions("192.0.2.10")
+	opts.MaxHops = 2
+	opts.ProbesPerHop = 1
+	opts.ProbeInterval = 0
+	opts.Timeout = 5 * time.Millisecond
+	opts.DNSResolve = false
+
+	tracer, err := NewTracer(t.Context(), opts, logger.NewTestLogger())
+	if err != nil {
+		t.Fatalf("new tracer: %v", err)
+	}
+
+	runCtx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+
+	if _, err := tracer.Run(runCtx); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if err := tracer.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	if socket.closeCalls != 1 {
+		t.Fatalf("owned probe socket closed %d times, want exactly 1", socket.closeCalls)
 	}
 }

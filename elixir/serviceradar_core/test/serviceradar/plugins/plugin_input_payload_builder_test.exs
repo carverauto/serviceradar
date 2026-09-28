@@ -128,4 +128,38 @@ defmodule ServiceRadar.Plugins.PluginInputPayloadBuilderTest do
     assert {:error, errors} = PluginInputPayloadBuilder.build_payloads(base, invalid)
     assert Enum.any?(errors, &String.contains?(&1, "missing name"))
   end
+
+  test "normalize_rows projects requested device fields under fields" do
+    rows = [
+      %{
+        "uid" => "sr:00000000-0000-4000-8000-000000000001",
+        "switch_port_attachment" => %{
+          "switch_hostname" => "switch01.example.com",
+          "port" => "1/1/20"
+        },
+        "metadata" => %{
+          "armis_access_switch" => "switch01.example.com:1/1/20",
+          "secret_note" => "x"
+        }
+      },
+      %{"uid" => "sr:00000000-0000-4000-8000-000000000002"}
+    ]
+
+    assert [first, second] =
+             PluginInputPayloadBuilder.normalize_rows("devices", rows, [
+               "switch_port_attachment",
+               "metadata.armis_access_switch"
+             ])
+
+    assert first["fields"] == %{
+             "switch_port_attachment" => %{
+               "switch_hostname" => "switch01.example.com",
+               "port" => "1/1/20"
+             },
+             "metadata.armis_access_switch" => "switch01.example.com:1/1/20"
+           }
+
+    refute Map.has_key?(second, "fields")
+    refute inspect(first) =~ "secret_note"
+  end
 end

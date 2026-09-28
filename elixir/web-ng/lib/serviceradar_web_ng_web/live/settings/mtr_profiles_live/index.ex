@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
   alias ServiceRadar.Observability.MtrSettings
   alias ServiceRadar.Observability.MtrSettingsRuntime
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Protocols
   alias ServiceRadarWebNGWeb.Settings.Shell
   alias ServiceRadarWebNGWeb.SRQL.Catalog
 
@@ -22,7 +23,6 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
   @protocol_icmp "icmp"
   @protocol_udp "udp"
   @protocol_tcp "tcp"
-  @protocols [@protocol_icmp, @protocol_udp, @protocol_tcp]
   @execution_profile_fast "fast"
   @execution_profile_balanced "balanced"
   @execution_profile_deep "deep"
@@ -108,7 +108,8 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
       selector_limit,
       defaults["preferred_agent_id"],
       defaults[@selector_execution_profile_key],
-      defaults["baseline_interval_sec"]
+      defaults["baseline_interval_sec"],
+      1
     )
   end
 
@@ -132,7 +133,8 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
           selector_limit,
           params["preferred_agent_id"],
           params[@selector_execution_profile_key],
-          params["baseline_interval_sec"]
+          params["baseline_interval_sec"],
+          Protocols.count(params)
         )
         |> assign(:builder_open, false)
         |> assign(:builder, builder)
@@ -151,7 +153,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
     query = normalize_target_query(Map.get(params, @selector_query_key))
     params = Map.put(params, @selector_query_key, query || "")
     {parsed_builder, builder_sync} = parse_target_query_to_builder(query)
-    selector_limit = parse_int(Map.get(params, @selector_limit_key), 100, 1)
+    selector_limit = parse_optional_limit(Map.get(params, @selector_limit_key))
 
     socket =
       socket
@@ -162,7 +164,8 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
         selector_limit,
         Map.get(params, "preferred_agent_id"),
         Map.get(params, @selector_execution_profile_key),
-        Map.get(params, "baseline_interval_sec")
+        Map.get(params, "baseline_interval_sec"),
+        Protocols.count(params)
       )
       |> assign(:builder_sync, builder_sync)
 
@@ -179,22 +182,19 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
   def handle_event("save_profile", %{"form" => params}, socket) do
     scope = socket.assigns.current_scope
     query = normalize_target_query(Map.get(params, @selector_query_key))
-    selector_limit = parse_int(Map.get(params, @selector_limit_key), 100, 1)
+    selector_limit = parse_optional_limit(Map.get(params, @selector_limit_key))
     preferred_agent_id = blank_to_nil(Map.get(params, "preferred_agent_id"))
 
     bulk_execution_profile =
       normalize_bulk_execution_profile(Map.get(params, @selector_execution_profile_key))
 
     target_selector =
-      maybe_put(
-        %{
-          @selector_query_key => query || "in:devices",
-          @selector_limit_key => selector_limit,
-          @selector_execution_profile_key => bulk_execution_profile
-        },
-        @selector_agent_id_key,
-        preferred_agent_id
-      )
+      %{
+        @selector_query_key => query || "in:devices",
+        @selector_execution_profile_key => bulk_execution_profile
+      }
+      |> maybe_put(@selector_agent_id_key, preferred_agent_id)
+      |> maybe_put(@selector_limit_key, selector_limit)
 
     attrs = %{
       name: String.trim(Map.get(params, "name", "")),
@@ -203,7 +203,8 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
       partition_id: blank_to_nil(Map.get(params, "partition_id")),
       target_selector: target_selector,
       baseline_interval_sec: parse_int(Map.get(params, "baseline_interval_sec"), 300, 30),
-      baseline_protocol: normalize_protocol(Map.get(params, "baseline_protocol")),
+      baseline_protocols: Protocols.normalize(Map.get(params, "baseline_protocols")),
+      tcp_port: params |> Map.get("tcp_port") |> parse_int(443, 1) |> min(65_535),
       baseline_canary_vantages: parse_int(Map.get(params, "baseline_canary_vantages"), 0, 0),
       incident_fanout_max_agents: parse_int(Map.get(params, "incident_fanout_max_agents"), 3, 1),
       incident_cooldown_sec: parse_int(Map.get(params, "incident_cooldown_sec"), 600, 30),
@@ -213,13 +214,19 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
       consensus_min_agents: parse_int(Map.get(params, "consensus_min_agents"), 2, 1)
     }
 
-    case save_profile(socket.assigns.show_form, socket.assigns.selected_profile, attrs, scope) do
+    case save_profile_with_protocols(socket.assigns.show_form, socket.assigns.selected_profile, attrs, scope) do
       {:ok, _profile} ->
         {:noreply,
          socket
          |> assign(:profiles, load_profiles(scope))
          |> put_flash(:info, "MTR automation profile saved")
          |> push_navigate(to: ~p"/settings/networks/mtr")}
+
+      {:error, :no_protocols} ->
+        {:noreply,
+         socket
+         |> assign(:form, to_form(params, as: :form))
+         |> put_flash(:error, "Select at least one protocol")}
 
       {:error, reason} ->
         {:noreply,
@@ -397,7 +404,8 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
        Map.get(params, @selector_limit_key),
        Map.get(params, "preferred_agent_id"),
        Map.get(params, @selector_execution_profile_key),
-       Map.get(params, "baseline_interval_sec")
+       Map.get(params, "baseline_interval_sec"),
+       Protocols.count(params)
      )}
   end
 
@@ -573,7 +581,7 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
                 {selector_query(profile)}
               </td>
               <td class="font-mono text-xs">{selector_agent(profile) || "-"}</td>
-              <td>{String.upcase(profile.baseline_protocol || protocol_icmp())}</td>
+              <td>{Protocols.label(profile)}</td>
               <td>{profile.baseline_interval_sec}s</td>
               <td>{profile.incident_fanout_max_agents}</td>
               <td>
@@ -856,9 +864,9 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
                   under "limit", and save_profile/validate_profile read it back
                   with Map.get(params, @selector_limit_key). A mismatched atom
                   renders blank and silently discards the operator's input,
-                  because parse_int/3 then falls through to its 100 default --
-                  so the selector limit can never be changed from the UI. Same
-                  rule as :srql_query above. --%>
+                  causing parse_optional_limit/1 to return nil -- which is the
+                  "no limit" sentinel, so the selector limit can never be set
+                  from the UI. Same rule as :srql_query above. --%>
             <.input
               type="number"
               id="mtr-profile-selector-limit"
@@ -911,14 +919,50 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
             <label class="flex items-center justify-between gap-2">
-              <span class="text-sm font-medium text-sr-ink">Protocol</span>
+              <span class="text-sm font-medium text-sr-ink">Protocols</span>
+            </label>
+            <input type="hidden" name={@form[:baseline_protocols].name <> "[]"} value="" />
+            <div class="flex flex-wrap gap-3 pt-2">
+              <label
+                :for={{label, value} <- protocol_options()}
+                class="flex items-center gap-1.5 text-sm"
+              >
+                <input
+                  type="checkbox"
+                  name={@form[:baseline_protocols].name <> "[]"}
+                  value={value}
+                  checked={value in form_protocols(@form)}
+                  class="checkbox checkbox-sm"
+                />
+                {label}
+              </label>
+            </div>
+            <p :if={length(form_protocols(@form)) > 1} class="mt-1 text-xs text-sr-muted">
+              Each target is traced {length(form_protocols(@form))} times per run, once per protocol.
+            </p>
+          </div>
+          <div :if={"tcp" in form_protocols(@form)}>
+            <label class="flex items-center justify-between gap-2">
+              <span class="text-sm font-medium text-sr-ink">TCP Port</span>
             </label>
             <.input
-              type="select"
-              field={@form[:baseline_protocol]}
+              type="number"
+              field={@form[:tcp_port]}
+              min="1"
+              max="65535"
               class={ui_field_class(class: "w-full")}
-              options={protocol_options()}
             />
+            <p class="mt-1 text-xs text-sr-muted">
+              An RST from a closed port still counts as reached; a filtered port never does.
+              <a
+                href="https://docs.serviceradar.cloud/docs/mtr-protocols"
+                class="link"
+                target="_blank"
+                rel="noopener"
+              >
+                Why protocols differ
+              </a>
+            </p>
           </div>
           <div>
             <label class="flex items-center justify-between gap-2">
@@ -1157,7 +1201,8 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
          selector_limit,
          preferred_agent_id,
          execution_profile,
-         configured_interval
+         configured_interval,
+         protocol_count
        ) do
     summary = target_scope_summary(scope, target_query, selector_limit)
 
@@ -1169,7 +1214,9 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
         scope,
         preferred_agent_id,
         execution_profile,
-        effective_target_count(summary),
+        # Every target is traced once per protocol, and measured throughput is
+        # in those (target, protocol) units.
+        Protocols.scaled_target_count(effective_target_count(summary), protocol_count),
         configured_interval
       )
     )
@@ -1180,10 +1227,11 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
       "name" => "",
       "enabled" => true,
       @selector_query_key => "in:devices",
-      @selector_limit_key => 100,
+      @selector_limit_key => "",
       "preferred_agent_id" => "",
       "partition_id" => "",
-      "baseline_protocol" => @protocol_icmp,
+      "baseline_protocols" => [@protocol_icmp],
+      "tcp_port" => 443,
       @selector_execution_profile_key => @execution_profile_fast,
       "baseline_interval_sec" => 300,
       "baseline_canary_vantages" => 0,
@@ -1207,7 +1255,8 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
       @selector_limit_key => fallback(Map.get(selector, @selector_limit_key), defaults[@selector_limit_key]),
       "preferred_agent_id" => fallback(Map.get(selector, @selector_agent_id_key), defaults["preferred_agent_id"]),
       "partition_id" => fallback(profile.partition_id, defaults["partition_id"]),
-      "baseline_protocol" => fallback(profile.baseline_protocol, defaults["baseline_protocol"]),
+      "baseline_protocols" => MtrPolicy.protocol_names(profile),
+      "tcp_port" => MtrPolicy.tcp_port(profile),
       @selector_execution_profile_key =>
         fallback(
           Map.get(selector, @selector_execution_profile_key),
@@ -1236,9 +1285,8 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
   end
 
   defp cluster_icmp_vantage?(%{params: params}) when is_map(params) do
-    protocol = params |> Map.get("baseline_protocol", @protocol_icmp) |> to_string() |> String.downcase()
     agent = params |> Map.get("preferred_agent_id", "") |> to_string() |> String.trim() |> String.downcase()
-    protocol == @protocol_icmp and cluster_mtr_agent?(agent)
+    @protocol_icmp in Protocols.from_params(params) and cluster_mtr_agent?(agent)
   end
 
   defp cluster_icmp_vantage?(_), do: false
@@ -1570,13 +1618,13 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
          {:ok, %{"results" => [%{"total" => count} | _]}} <-
            srql_module().query(full_query, %{scope: scope}),
          eligible_count when is_integer(eligible_count) <- extract_total_count(count) do
-      selector_limit = parse_int(selector_limit, 100, 1)
+      selector_limit = parse_optional_limit(selector_limit)
 
       %{
         eligible_managed_count: eligible_count,
         selector_limit: selector_limit,
-        effective_target_count: min(eligible_count, selector_limit),
-        limited?: eligible_count > selector_limit
+        effective_target_count: capped_count(eligible_count, selector_limit),
+        limited?: is_integer(selector_limit) and eligible_count > selector_limit
       }
     else
       _ -> nil
@@ -1584,6 +1632,12 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
   rescue
     _ -> nil
   end
+
+  # No selector limit means every eligible device is a target, so the count the
+  # operator sees must be the full eligible count rather than a capped one.
+  defp capped_count(eligible_count, nil), do: eligible_count
+
+  defp capped_count(eligible_count, limit) when is_integer(limit), do: min(eligible_count, limit)
 
   defp effective_target_count(%{effective_target_count: count}) when is_integer(count), do: count
   defp effective_target_count(_), do: nil
@@ -1766,12 +1820,32 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
         Map.get(params, @selector_limit_key),
         Map.get(params, "preferred_agent_id"),
         Map.get(params, @selector_execution_profile_key),
-        Map.get(params, "baseline_interval_sec")
+        Map.get(params, "baseline_interval_sec"),
+        Protocols.count(params)
       )
     else
       socket
     end
   end
+
+  # The Selector Limit field is optional, and blank means "every device the scope
+  # query matches" -- not a built-in cap. Do NOT give this a numeric default: a
+  # default here is written into the stored selector on every Save, so it silently
+  # truncates a profile's coverage to the first N matches with nothing in the UI
+  # saying the scope was cut. A non-positive entry is treated as blank for the
+  # same reason.
+  # Deliberately not routed through parse_int/3: that clamps to its `min`, so a
+  # 0 would come back as 1 and cap the profile at a single target.
+  defp parse_optional_limit(value) when is_integer(value) and value > 0, do: value
+
+  defp parse_optional_limit(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {parsed, ""} when parsed > 0 -> parsed
+      _ -> nil
+    end
+  end
+
+  defp parse_optional_limit(_value), do: nil
 
   defp parse_int(nil, default, _min), do: default
   defp parse_int("", default, _min), do: default
@@ -1814,12 +1888,12 @@ defmodule ServiceRadarWebNGWeb.Settings.MtrProfilesLive.Index do
 
   defp parse_float(_value, default, _min, _max), do: default
 
-  defp normalize_protocol(value) do
-    value = value |> to_string() |> String.downcase()
-    if value in @protocols, do: value, else: @protocol_icmp
-  end
+  defp save_profile_with_protocols(_mode, _profile, %{baseline_protocols: []}, _scope), do: {:error, :no_protocols}
 
-  defp protocol_icmp, do: @protocol_icmp
+  defp save_profile_with_protocols(mode, profile, attrs, scope), do: save_profile(mode, profile, attrs, scope)
+
+  defp form_protocols(%{params: params}), do: Protocols.from_params(params)
+  defp form_protocols(_form), do: []
 
   defp protocol_options do
     [{"ICMP", @protocol_icmp}, {"UDP", @protocol_udp}, {"TCP", @protocol_tcp}]

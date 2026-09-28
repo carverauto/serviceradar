@@ -27,60 +27,65 @@ defmodule ServiceRadar.Credentials.CredentialEventWriterTest do
       :ok
     end
 
-    test "routine successes are NOT emitted to ocsf_events" do
-      refute CredentialEventWriter.emit_resolution_event?(:success)
-      refute CredentialEventWriter.emit_resolution_event?(:cache_hit)
+    test "only routine successes are suppressed from ocsf_events" do
+      for outcome <- [:success, :cache_hit] do
+        refute CredentialEventWriter.emit_resolution_event?(outcome), inspect(outcome)
+      end
+
+      for outcome <- [:failed, :denied, :error, :unavailable] do
+        assert CredentialEventWriter.emit_resolution_event?(outcome), inspect(outcome)
+      end
     end
 
-    test "security-relevant outcomes ARE emitted" do
-      assert CredentialEventWriter.emit_resolution_event?(:failed)
-      assert CredentialEventWriter.emit_resolution_event?(:denied)
-      assert CredentialEventWriter.emit_resolution_event?(:error)
-      assert CredentialEventWriter.emit_resolution_event?(:unavailable)
-    end
-  end
-
-  describe "emit_resolution_event?/1 with success events enabled" do
-    setup do
-      Application.put_env(:serviceradar_core, @flag, true)
-      :ok
-    end
-
-    test "routine successes are emitted when the flag is on" do
-      assert CredentialEventWriter.emit_resolution_event?(:success)
-      assert CredentialEventWriter.emit_resolution_event?(:cache_hit)
-    end
-
-    test "non-truthy flag values leave successes suppressed" do
+    test "only the literal true enables routine success events" do
       Application.put_env(:serviceradar_core, @flag, "yes")
+
       refute CredentialEventWriter.emit_resolution_event?(:success)
     end
   end
 
-  describe "write_secret_resolution/1 short-circuit" do
-    test "returns :ok for a suppressed success without touching the DB" do
-      Application.delete_env(:serviceradar_core, @flag)
+  describe "secret_resolution_event_attrs/1" do
+    test "resolution events carry only allowlisted audit fields, never caller metadata" do
+      attrs =
+        CredentialEventWriter.secret_resolution_event_attrs(%{
+          secret_id: "secret-1",
+          secret_provider_id: "provider-1",
+          grant_id: "grant-1",
+          consumer_kind: :northbound_action,
+          consumer_id: "task-1",
+          purpose: "device-task-api-call",
+          target_kind: "device",
+          target_id: "dev-1",
+          resolution_location: :agent,
+          outcome: :success,
+          cache_status: :disabled,
+          metadata: %{
+            "external_secret_ref" => "path/to/secret",
+            "token" => "secret-token",
+            "note" => "caller-marker"
+          }
+        })
 
-      # No database is required: a suppressed success returns before record_event/1.
-      assert :ok =
-               CredentialEventWriter.write_secret_resolution(%{
-                 secret_id: Ecto.UUID.generate(),
-                 outcome: :success
-               })
+      rendered = inspect(attrs)
+
+      assert attrs.severity == "Informational"
+      assert attrs.log_name == "credential.secret_resolution"
+      assert rendered =~ "secret-1"
+      refute rendered =~ "secret-token"
+      refute rendered =~ "path/to/secret"
+      refute rendered =~ "caller-marker"
     end
   end
 
   describe "emit_grant_lifecycle_event?/1" do
-    test "routine grant issuance and use are NOT emitted to ocsf_events" do
-      refute CredentialEventWriter.emit_grant_lifecycle_event?(:issue)
-      refute CredentialEventWriter.emit_grant_lifecycle_event?(:activate)
-      refute CredentialEventWriter.emit_grant_lifecycle_event?(:consume)
-    end
+    test "only routine grant issuance and use are suppressed from ocsf_events" do
+      for action <- [:issue, :activate, :consume] do
+        refute CredentialEventWriter.emit_grant_lifecycle_event?(action), inspect(action)
+      end
 
-    test "security-relevant grant outcomes ARE emitted" do
-      assert CredentialEventWriter.emit_grant_lifecycle_event?(:deny)
-      assert CredentialEventWriter.emit_grant_lifecycle_event?(:revoke)
-      assert CredentialEventWriter.emit_grant_lifecycle_event?(:expire)
+      for action <- [:deny, :revoke, :expire] do
+        assert CredentialEventWriter.emit_grant_lifecycle_event?(action), inspect(action)
+      end
     end
 
     test "unknown actions fail closed to an event, never suppressed" do

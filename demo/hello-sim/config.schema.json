@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "interval_seconds": {
+      "type": "integer",
+      "minimum": 10,
+      "default": 60,
+      "description": "Assignment interval; each run backfills samples for the window since the previous run."
+    },
+    "pack": {
+      "type": "object",
+      "description": "Overrides the simkit sample scenario (seed, sensors, prefix, schedule). Omit to use the defaults."
+    }
+  }
+}

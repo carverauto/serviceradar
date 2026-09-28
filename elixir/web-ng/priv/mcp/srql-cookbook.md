@@ -49,6 +49,10 @@ in:identity_evidence_edges device:sr:<uuid> limit:100
 in:identity_reconciliation_runs time:last_24h limit:25
 in:identity_reconciliation_runs merge_cap_reached:true time:last_7d limit:25
 in:dire_runs status:failed time:last_7d limit:25
+in:identity_decisions device:sr:<uuid> limit:50
+in:identity_decisions decision_kind:policy_block time:last_7d limit:50
+in:deduplication_tasks status:open sort:last_decided_at:desc limit:50
+in:deduplication_tasks device:sr:<uuid> limit:25
 ```
 
 `in:devices deleted:true` returns tombstoned devices with `deleted_at`,
@@ -76,6 +80,19 @@ configured `max_merges_configured` and more mergeable duplicates may remain for
 the next run. `blocked_component_devices` lists the device uids of each component
 it declined to merge; seed `in:identity_evidence_edges device:` with one of them
 to see why.
+
+`in:identity_decisions` records every merge identity reconciliation refused,
+declined or overrode instead of merging (`decision_kind` is `policy_block`,
+`guard_block`, `source_block`, `alias_invalidated`, `ip_conflict`,
+`source_override` or `component_block`; `reason` says which rule applied). One
+row per distinct decision; `occurrence_count` counts repeats.
+
+Each decision naming two or more devices opens or counts on one
+`in:deduplication_tasks` row for that device set. `status` is `open` until an
+operator merges the devices (`merged`, with `merged_into`), marks them distinct
+(`distinct`; automatic merges of the pair are refused from then on) or dismisses
+the task (`dismissed`). `device:` matches any task or decision naming that
+device. Both entities are read-only.
 
 ## Sweep diagnostics
 
@@ -183,6 +200,27 @@ defaults to `time:last_24h` when `time:` is omitted.
 
 `ip:` / `port:` / `cidr:` / `tag:` match **either** endpoint. Directional forms
 are `src_*` / `dst_*`. `port:22` is “SSH either direction”.
+
+## Cameras
+
+Requires `devices.view`. Rows never include `source_url`, per-profile
+`source_url_override`, or `metadata`. Field list:
+[SRQL reference](https://docs.serviceradar.cloud/docs/srql-language-reference#camera_sources).
+
+```
+in:camera_sources viewable:true sort:display_name:asc
+in:camera_sources availability:available vendor:ubiquiti
+```
+
+## Latest value per asset
+
+`agg:last` (alias `agg:latest`) keeps the newest raw sample in each bucket per
+series, for gauges such as a position or a battery level. It is never read from
+hourly rollups.
+
+```
+in:timeseries_metrics metric_name:drone.position.lat time:last_2m bucket:2m agg:last series:tags.asset_id
+```
 
 ## Attributed flows and public endpoints
 

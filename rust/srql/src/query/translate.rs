@@ -1,15 +1,15 @@
 use super::{
     PaginationMeta, QueryRequest, TranslateResponse, addon_fleet, addon_statuses,
-    advisory_coordinates, agents, alerts, bmp_events, build_query_plan, capacity_forecasts,
-    composite_results, cpu_metrics, dashboard_service_views, dashboards, device_graph,
-    device_sweep_overlap, devices, disk_metrics, downsample, endpoint_inventory_scans,
-    endpoint_package_catalog, endpoint_packages, endpoint_vulnerability_matches, events,
-    field_survey, flows, gateways, graph_cypher, graph_dql, identity, interfaces,
-    is_exhaustive_profile_query, logs, memory_metrics, mtr_traces, otel_metric_points,
-    otel_metrics, process_metrics, public_endpoints, services, source_fact_disagreements,
-    starrocks, sweep_coverage, sweep_executions, sweep_groups, sweep_profiles, sweep_results,
-    threat_intel_matches, timeseries_metrics, trace_summaries, traces, virtualization, viz,
-    vulnerability_advisories, wifi_map,
+    advisory_coordinates, agents, alerts, bmp_events, build_query_plan, camera_sources,
+    capacity_forecasts, composite_results, cpu_metrics, dashboard_service_views, dashboards,
+    device_graph, device_sweep_overlap, devices, disk_metrics, downsample,
+    endpoint_inventory_scans, endpoint_package_catalog, endpoint_packages,
+    endpoint_vulnerability_matches, events, field_survey, flows, gateways, graph_cypher, graph_dql,
+    identity, interfaces, is_exhaustive_profile_query, logs, memory_metrics, mtr_hops, mtr_traces,
+    otel_metric_points, otel_metrics, otel_services, process_metrics, public_endpoints, services,
+    source_fact_disagreements, starrocks, sweep_coverage, sweep_executions, sweep_groups,
+    sweep_profiles, sweep_results, threat_intel_matches, timeseries_metrics, trace_summaries,
+    traces, virtualization, viz, vulnerability_advisories, wifi_map,
 };
 use crate::{
     config::AppConfig,
@@ -39,6 +39,10 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
         // bucketed query would fall through to the CNPG downsample builder.
         let compiled = starrocks::translate_raw(&plan, &config.starrocks_database)?;
         (compiled.sql, compiled.params)
+    } else if matches!(plan.entity, Entity::OtelServices) {
+        // Ahead of the downsample branch: this entity's access check lives in its
+        // own builder, so no other builder may ever compile it.
+        otel_services::to_sql_and_params(&plan, request.permitted_signals.as_deref())?
     } else if plan.downsample.is_some() && !is_profile_stats {
         downsample::to_sql_and_params(&plan)?
     } else {
@@ -47,6 +51,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             Entity::AddonFleet => addon_fleet::to_sql_and_params(&plan)?,
             Entity::AddonStatuses => addon_statuses::to_sql_and_params(&plan)?,
             Entity::PublicEndpoints => public_endpoints::to_sql_and_params(&plan)?,
+            Entity::CameraSources => camera_sources::to_sql_and_params(&plan)?,
             Entity::MergeAudit => identity::merge_audit::to_sql_and_params(&plan)?,
             Entity::DeviceRevivalAudit => identity::device_revival_audit::to_sql_and_params(&plan)?,
             Entity::DeviceIdentifiers => identity::device_identifiers::to_sql_and_params(&plan)?,
@@ -54,6 +59,8 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
                 identity::reconciliation_runs::to_sql_and_params(&plan)?
             }
             Entity::IdentityEvidenceEdges => identity::evidence_edges::to_sql_and_params(&plan)?,
+            Entity::IdentityDecisions => identity::decisions::to_sql_and_params(&plan)?,
+            Entity::DeduplicationTasks => identity::deduplication_tasks::to_sql_and_params(&plan)?,
             Entity::EndpointInventoryScans => endpoint_inventory_scans::to_sql_and_params(&plan)?,
             Entity::EndpointPackageCatalog => endpoint_package_catalog::to_sql_and_params(&plan)?,
             Entity::EndpointPackages => endpoint_packages::to_sql_and_params(&plan)?,
@@ -66,6 +73,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             | Entity::ScanActivity
             | Entity::DnsActivity => events::to_sql_and_params(&plan)?,
             Entity::BmpEvents => bmp_events::to_sql_and_params(&plan)?,
+            Entity::MtrHops => mtr_hops::to_sql_and_params(&plan)?,
             Entity::MtrTraces => mtr_traces::to_sql_and_params(&plan)?,
             Entity::CapacityForecasts => capacity_forecasts::to_sql_and_params(&plan)?,
             Entity::CompositeResults => composite_results::to_sql_and_params(&plan)?,
@@ -105,6 +113,9 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             Entity::Dashboards => dashboards::to_sql_and_params(&plan)?,
             Entity::TraceSummaries => trace_summaries::to_sql_and_params(&plan)?,
             Entity::Traces => traces::to_sql_and_params(&plan)?,
+            Entity::OtelServices => {
+                otel_services::to_sql_and_params(&plan, request.permitted_signals.as_deref())?
+            }
             Entity::Alerts => alerts::to_sql_and_params(&plan)?,
             Entity::VirtualizationClusters
             | Entity::VirtualizationHosts

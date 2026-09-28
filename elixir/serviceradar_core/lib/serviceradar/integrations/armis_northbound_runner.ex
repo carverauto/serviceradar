@@ -14,6 +14,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   import Ecto.Query
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Events.OcsfEventPublisher
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Integrations.ArmisNorthboundLedger
   alias ServiceRadar.Integrations.ArmisNorthboundPopulation
@@ -24,8 +25,6 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.SourceIdentityDrift
-  alias ServiceRadar.Monitoring
-  alias ServiceRadar.Monitoring.OcsfEvent
   alias ServiceRadar.Repo
 
   require Logger
@@ -1542,13 +1541,10 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     )
   end
 
-  defp default_record_event(attrs, actor) do
-    Ash.create(OcsfEvent, attrs,
-      action: :record,
-      actor: actor,
-      domain: Monitoring
-    )
-  end
+  # The run event is published to JetStream and stored by EventWriter; the
+  # actor the injectable recorder receives is not needed to publish it.
+  defp default_record_event(attrs, _actor),
+    do: OcsfEventPublisher.publish(attrs, family: :integration)
 
   defp event_severity_id(:success), do: OCSF.severity_informational()
   defp event_severity_id(:partial), do: OCSF.severity_medium()

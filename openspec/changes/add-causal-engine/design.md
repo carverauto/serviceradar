@@ -271,8 +271,8 @@ Alternatives considered:
 
 The `god_view_nif` cutover is incremental and reversible at each step
 (Integration-assessment §4.5). The 5,833-line `GodViewStream` is touched at one
-point (verdict source); the `GodViewSnapshot` contract (4 buckets, schema_version
-2) is unchanged throughout.
+point (verdict source); the `GodViewSnapshot` contract (4 buckets, schema_version)
+is unchanged by this change.
 
 1. **Stand up `rust/causal-engine` in parallel.** New top-level crate; engine
    publishes `signals.causal.predictions.*`; the existing NIF stub continues to

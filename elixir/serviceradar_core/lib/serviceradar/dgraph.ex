@@ -97,6 +97,14 @@ defmodule ServiceRadar.Dgraph do
     end
   end
 
+  @doc "Refresh rates without changing an existing edge's discovery timestamp or evidence."
+  @spec update_canonical_edge_telemetry(map()) :: write_result()
+  def update_canonical_edge_telemetry(edge) when is_map(edge) do
+    with {:ok, url} <- url() do
+      Native.update_canonical_edge_telemetry(url, edge_map(edge))
+    end
+  end
+
   @spec upsert_mtr_path(map()) :: write_result()
   def upsert_mtr_path(edge) when is_map(edge) do
     with {:ok, url} <- url() do
@@ -301,7 +309,8 @@ defmodule ServiceRadar.Dgraph do
       telemetry_eligible: attr(attrs, :telemetry_eligible),
       last_seen: attr(attrs, :last_seen),
       mutation_id: attr(attrs, :mutation_id),
-      agent_id: attr(attrs, :agent_id)
+      agent_id: attr(attrs, :agent_id),
+      pair_support_rank: attr(attrs, :pair_support_rank) || 0
     }
   end
 end

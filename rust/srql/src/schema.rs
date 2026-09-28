@@ -338,6 +338,41 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    mtr_hops (time, id) {
+        time -> Timestamptz,
+        id -> Uuid,
+        trace_id -> Uuid,
+        target_ip -> Nullable<Text>,
+        device_id -> Nullable<Text>,
+        hop_number -> Int4,
+        addr -> Nullable<Text>,
+        hostname -> Nullable<Text>,
+        ecmp_addrs -> Nullable<Array<Text>>,
+        asn -> Nullable<Int4>,
+        asn_org -> Nullable<Text>,
+        mpls_labels -> Nullable<Jsonb>,
+        sent -> Int4,
+        received -> Int4,
+        loss_pct -> Float8,
+        last_us -> Nullable<Int8>,
+        avg_us -> Nullable<Int8>,
+        min_us -> Nullable<Int8>,
+        max_us -> Nullable<Int8>,
+        stddev_us -> Nullable<Int8>,
+        jitter_us -> Nullable<Int8>,
+        jitter_worst_us -> Nullable<Int8>,
+        jitter_interarrival_us -> Nullable<Int8>,
+        created_at -> Timestamptz,
+        reply_time_exceeded -> Nullable<Int4>,
+        reply_unreachable -> Nullable<Int4>,
+        reply_synack -> Nullable<Int4>,
+        reply_rst -> Nullable<Int4>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     mtr_traces (time, id) {
         time -> Timestamptz,
         id -> Uuid,
@@ -356,6 +391,21 @@ diesel::table! {
         partition -> Nullable<Text>,
         error -> Nullable<Text>,
         created_at -> Timestamptz,
+        tcp_handshake_ttl -> Nullable<Int4>,
+        tcp_handshake_attempts -> Nullable<Int4>,
+        tcp_syn_sent -> Nullable<Int4>,
+        tcp_synack_received -> Nullable<Int4>,
+        tcp_rst_received -> Nullable<Int4>,
+        tcp_syn_unanswered -> Nullable<Int4>,
+        tcp_syn_drop_pct -> Nullable<Float8>,
+        tcp_syn_retransmits -> Nullable<Int4>,
+        tcp_answered_after_retx -> Nullable<Int4>,
+        tcp_ack_mismatch -> Nullable<Int4>,
+        tcp_synack_duplicates -> Nullable<Int4>,
+        tcp_handshake_rtt_min_us -> Nullable<Int8>,
+        tcp_handshake_rtt_avg_us -> Nullable<Int8>,
+        tcp_handshake_rtt_max_us -> Nullable<Int8>,
+        tcp_server_response_us -> Nullable<Int8>,
     }
 }
 

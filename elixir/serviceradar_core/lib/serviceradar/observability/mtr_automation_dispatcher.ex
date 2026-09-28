@@ -5,24 +5,33 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
 
   import Ash.Expr
 
-  alias Ash.Page.Keyset
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Observability.MtrDispatchWindow
+  alias ServiceRadar.Observability.MtrPolicy
   alias ServiceRadar.Observability.MtrVantageSelector
   alias ServiceRadar.Observability.SRQLRunner
-  alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.Repo
 
   require Ash.Query
   require Logger
 
-  @default_target_limit 100
+  # Target selection is uncapped by default: a profile that declares a scope is
+  # asking for every device in that scope, and the dashboards consuming these
+  # targets do not paginate. A selector `limit` is therefore an OPTIONAL operator
+  # ceiling, and its absence means "all matches" rather than a built-in cap.
+  #
+  # A default cap here is actively harmful rather than merely conservative: it
+  # silently shrinks a profile's coverage to the first N matches with nothing
+  # logged and nothing in the UI to indicate truncation, so the profile looks
+  # healthy while most of its scope is never traced.
+  @target_page_size 500
 
-  # Keyset page size for the managed-device enforcement stream. Deliberately far
-  # below `Device.read`'s `default_limit: 5000`: a single page that large returns
-  # short without saying so. See enforce_managed_baseline_targets/1.
+  # Keyset page size for the managed-device enforcement stream. Any single page is
+  # the wrong tool here regardless of size: Ash clamps a requested page to the
+  # action's `max_page_size` silently and then reports the short page as complete.
+  # See enforce_managed_baseline_targets/1, which streams for that reason.
   @managed_enforcement_batch_size 250
 
   @type target_ctx :: %{
@@ -34,11 +43,27 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
           optional(:target_key) => String.t()
         }
 
-  @spec baseline_targets(map()) :: [target_ctx()]
-  def baseline_targets(policy) when is_map(policy) do
+  # Link-local addresses (IPv4 169.254.0.0/16, IPv6 fe80::/10) are dropped from
+  # every automatically selected target set. A link-local address is only
+  # meaningful on one link and, for IPv6, only together with an interface zone
+  # that inventory never records; it is not a routed path, so a trace to it
+  # carries no path information, and a TCP probe to a zone-less IPv6 link-local
+  # address cannot even open its socket. Dropping them here, before any operator
+  # ceiling is applied, keeps a profile's target count and failure count about
+  # addresses that can actually be traced.
+
+  @doc """
+  Resolves a policy's `target_selector` into the targets an automated baseline
+  run traces, returning them with the number of link-local addresses dropped.
+
+  Both resolution paths (an SRQL `srql_query`, or the managed-device read) apply
+  the same link-local exclusion before any selector `limit`.
+  """
+  @spec baseline_target_selection(map()) :: {[target_ctx()], non_neg_integer()}
+  def baseline_target_selection(policy) when is_map(policy) do
     actor = SystemActor.system(:mtr_automation)
     selector = Map.get(policy, :target_selector, %{}) || %{}
-    limit = selector_int(selector, "limit", @default_target_limit)
+    limit = normalize_target_limit(selector_int(selector, "limit", nil))
     ips = selector_list(selector, "ips")
     device_uids = selector_list(selector, "device_uids")
     srql_query = selector_string(selector, "srql_query")
@@ -46,40 +71,151 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     if is_binary(srql_query) and srql_query != "" do
       baseline_targets_from_srql(srql_query, limit)
     else
-      query =
-        Device
-        |> Ash.Query.for_read(:read, %{include_deleted: false})
-        |> Ash.Query.filter(expr(is_managed == true and not is_nil(ip)))
-        |> maybe_filter_uids(device_uids)
-        |> maybe_filter_ips(ips)
-        |> Ash.Query.limit(limit)
-
-      case Ash.read(query, actor: actor) do
-        {:ok, %Keyset{results: results}} ->
-          Enum.map(results, &device_to_target_ctx/1)
-
-        {:ok, results} when is_list(results) ->
-          Enum.map(results, &device_to_target_ctx/1)
-
-        {:error, reason} ->
-          Logger.warning("MTR baseline target query failed", reason: inspect(reason))
-          []
-      end
+      Device
+      |> Ash.Query.for_read(:read, %{include_deleted: false})
+      |> Ash.Query.filter(expr(is_managed == true and not is_nil(ip)))
+      |> maybe_filter_uids(device_uids)
+      |> maybe_filter_ips(ips)
+      |> read_baseline_devices(limit, actor)
     end
   end
 
-  @spec target_contexts_from_srql(String.t(), pos_integer(), keyword()) ::
+  # Streams rather than reading one page, and applies any ceiling to the stream
+  # instead of pushing it into the query.
+  #
+  # Uncapped (`limit` nil): a bare `Ash.read/2` would reimpose the action's page
+  # size as the very cap this path exists to remove, and Ash clamps it silently
+  # while reporting the short page as complete. `Ash.stream!/2` opts out of that
+  # clamp and pages internally, so there is no ceiling other than the scope.
+  #
+  # Capped: `Ash.Query.limit/2` is clamped to the action's `max_page_size` exactly
+  # as a requested page is, so an operator ceiling above that produced a short
+  # target set which reported itself complete: the profile traced the cap while
+  # the UI showed the larger number. Taking from the stream honours whatever
+  # ceiling the operator sets, and the stream stays paged underneath.
+  defp read_baseline_devices(query, limit, actor) do
+    query
+    |> Ash.stream!(actor: actor, batch_size: page_size_for(limit, []))
+    |> Stream.map(&device_to_target_ctx/1)
+    |> take_traceable(limit)
+  rescue
+    error ->
+      Logger.warning("MTR baseline target query failed", reason: Exception.message(error))
+      {[], 0}
+  end
+
+  # Consumes `targets` until `limit` traceable targets are kept (or the input is
+  # exhausted when `limit` is nil), counting the link-local ones it drops. Halting
+  # at the ceiling keeps the underlying stream lazy, as `Enum.take/2` did.
+  #
+  # Public (but undocumented) so the managed-device path's exclusion and ceiling
+  # can be tested without the Ash read that feeds it.
+  @doc false
+  @spec take_traceable(Enumerable.t(), pos_integer() | nil) ::
+          {[target_ctx()], non_neg_integer()}
+  def take_traceable(targets, limit) do
+    {kept, _kept_count, skipped} =
+      Enum.reduce_while(targets, {[], 0, 0}, fn target, {kept, kept_count, skipped} ->
+        cond do
+          not traceable_target?(target) ->
+            {:cont, {kept, kept_count, skipped + 1}}
+
+          is_integer(limit) and kept_count + 1 >= limit ->
+            {:halt, {[target | kept], kept_count + 1, skipped}}
+
+          true ->
+            {:cont, {[target | kept], kept_count + 1, skipped}}
+        end
+      end)
+
+    {Enum.reverse(kept), skipped}
+  end
+
+  @doc """
+  Whether an automatically selected target can be traced.
+
+  A target whose address is link-local (IPv4 169.254.0.0/16, IPv6 fe80::/10,
+  including the IPv4-mapped form) is not a routed path target and is excluded
+  from automated selection. A hostname or other non-literal target is kept.
+  """
+  @spec traceable_target?(target_ctx()) :: boolean()
+  def traceable_target?(target_ctx) when is_map(target_ctx) do
+    addresses = [Map.get(target_ctx, :target_ip), Map.get(target_ctx, :target)]
+    not Enum.any?(addresses, &link_local_address?/1)
+  end
+
+  # Any zone suffix ("fe80::1%eth0") names an interface on the host that recorded
+  # the address, not on the agent that would trace it, so it is stripped before
+  # classifying rather than treated as making the address traceable.
+  defp link_local_address?(value) when is_binary(value) do
+    [address | _zone] = value |> String.trim() |> String.split("%", parts: 2)
+
+    case :inet.parse_strict_address(String.to_charlist(address)) do
+      {:ok, ip} -> link_local_ip?(ip)
+      {:error, _} -> false
+    end
+  end
+
+  defp link_local_address?(_value), do: false
+
+  defp link_local_ip?({169, 254, _, _}), do: true
+  defp link_local_ip?({first, _, _, _, _, _, _, _}) when first in 0xFE80..0xFEBF, do: true
+  # ::ffff:169.254.x.x -- 0xA9FE is 169.254 in the mapped address's high word.
+  defp link_local_ip?({0, 0, 0, 0, 0, 0xFFFF, 0xA9FE, _}), do: true
+  defp link_local_ip?(_ip), do: false
+
+  @spec target_contexts_from_srql(String.t(), pos_integer() | nil, keyword()) ::
           {:ok, [target_ctx()]} | {:error, term()}
   def target_contexts_from_srql(srql_query, limit, opts \\ [])
-      when is_binary(srql_query) and is_integer(limit) and limit > 0 and is_list(opts) do
-    query = normalize_srql_target_query(srql_query, limit)
-    collect_target_contexts(query, srql_query, limit, nil, [], MapSet.new(), MapSet.new(), opts)
+      when is_binary(srql_query) and is_list(opts) and
+             (is_nil(limit) or (is_integer(limit) and limit > 0)) do
+    case srql_target_selection(srql_query, limit, opts) do
+      {:ok, targets, skipped} ->
+        log_link_local_skips(skipped, srql_query)
+        {:ok, targets}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp srql_target_selection(srql_query, limit, opts) do
+    query = normalize_srql_target_query(srql_query, page_size_for(limit, opts))
+    collect_target_contexts(query, 0, limit, nil, [], MapSet.new(), MapSet.new(), opts)
+  end
+
+  defp log_link_local_skips(0, _srql_query), do: :ok
+
+  defp log_link_local_skips(skipped, srql_query) do
+    Logger.info(
+      "MTR target selection skipped #{skipped} link-local target(s); " <>
+        "link-local addresses are not routable path targets",
+      query: srql_query
+    )
+  end
+
+  # A stored zero or negative ceiling is treated as no ceiling, so a legacy or
+  # hand-edited selector cannot silently select nothing.
+  defp normalize_target_limit(limit) when is_integer(limit) and limit > 0, do: limit
+  defp normalize_target_limit(_), do: nil
+
+  # Page size is independent of the optional ceiling: `nil` means walk every page
+  # the cursor offers, it does not mean "ask for everything in one page". A
+  # ceiling below one page shrinks the request so the last page is not oversized.
+  defp page_size_for(limit, opts) do
+    page_size = Keyword.get(opts, :page_size, @target_page_size)
+
+    if is_integer(limit) and limit > 0 do
+      min(limit, page_size)
+    else
+      page_size
+    end
   end
 
   defp baseline_targets_from_srql(srql_query, limit) do
-    case target_contexts_from_srql(srql_query, limit) do
-      {:ok, targets} ->
-        targets
+    case srql_target_selection(srql_query, limit, []) do
+      {:ok, targets, skipped} ->
+        {targets, skipped}
 
       {:error, reason} ->
         Logger.warning("MTR baseline SRQL query failed",
@@ -87,13 +223,13 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
           reason: inspect(reason)
         )
 
-        []
+        {[], 0}
     end
   end
 
   defp collect_target_contexts(
          query,
-         srql_query,
+         skipped,
          limit,
          cursor,
          acc,
@@ -103,15 +239,21 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
        ) do
     page_opts =
       opts
-      |> Keyword.put(:limit, limit)
+      |> Keyword.put(:limit, page_size_for(limit, opts))
       |> maybe_put_cursor(cursor)
 
     case SRQLRunner.query_page(query, page_opts) do
       {:ok, %{rows: rows, next_cursor: next_cursor}} when is_list(rows) ->
-        {acc, seen_targets} =
+        {traceable, link_local} =
           rows
           |> Enum.map(&row_to_target_ctx/1)
           |> Enum.reject(&is_nil/1)
+          |> Enum.split_with(&traceable_target?/1)
+
+        skipped = skipped + length(link_local)
+
+        {acc, seen_targets} =
+          traceable
           |> managed_target_filter(opts).()
           |> Enum.reduce({acc, seen_targets}, fn target, {targets, seen} ->
             target_id = Map.get(target, :target_key) || Map.get(target, :target_ip)
@@ -124,14 +266,14 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
           end)
 
         cond do
-          length(acc) >= limit ->
-            {:ok, Enum.take(acc, limit)}
+          is_integer(limit) and length(acc) >= limit ->
+            {:ok, Enum.take(acc, limit), skipped}
 
           is_binary(next_cursor) and next_cursor != "" and
               not MapSet.member?(seen_cursors, next_cursor) ->
             collect_target_contexts(
               query,
-              srql_query,
+              skipped,
               limit,
               next_cursor,
               acc,
@@ -141,7 +283,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
             )
 
           true ->
-            {:ok, acc}
+            {:ok, acc, skipped}
         end
 
       {:error, reason} ->
@@ -162,8 +304,8 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     transition_class = Keyword.get(opts, :transition_class, transition_class(mode))
 
     with {:ok, target_ctx} <- normalize_target_ctx(target_ctx),
-         true <- target_matches_policy_scope?(target_ctx, policy),
-         {:ok, selected_agents} <- select_agents(target_ctx, policy, mode),
+         :ok <- ensure_in_policy_scope(target_ctx, policy),
+         {:ok, selected_agents} <- select_agents(target_ctx, policy, mode, opts),
          false <- cooldown_active?(target_ctx, mode, transition_class),
          {:ok, _} <-
            dispatch_to_agents(
@@ -227,8 +369,15 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     })
   end
 
-  defp select_agents(target_ctx, policy, :baseline) do
-    candidates = candidate_agents(target_ctx)
+  # Public (but undocumented) so agent selection over an injected
+  # `:session_lister` can be tested without the cooldown read and the dispatch
+  # window write that follow it in dispatch_for_mode/5, both of which need the
+  # database.
+  @doc false
+  @spec select_agents(target_ctx(), map(), :baseline | :incident | :recovery, keyword()) ::
+          {:ok, [String.t()]} | {:error, term()}
+  def select_agents(target_ctx, policy, :baseline, opts) do
+    candidates = candidate_agents(target_ctx, opts)
 
     with {:ok, preferred} <- select_preferred_agents(policy, candidates) do
       if preferred == [] do
@@ -239,8 +388,8 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     end
   end
 
-  defp select_agents(target_ctx, policy, mode) when mode in [:incident, :recovery] do
-    candidates = candidate_agents(target_ctx)
+  def select_agents(target_ctx, policy, mode, opts) when mode in [:incident, :recovery] do
+    candidates = candidate_agents(target_ctx, opts)
 
     with {:ok, preferred} <- select_preferred_agents(policy, candidates) do
       if preferred == [] do
@@ -304,25 +453,18 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
       trigger_mode = trigger_mode(mode)
       partition_id = blank_to_nil(Map.get(target_ctx, :partition_id))
 
-      payload = %{
-        "target" => target,
-        "protocol" => normalize_protocol(Map.get(policy, :baseline_protocol))
-      }
-
+      payloads = protocol_payloads(target, policy, mode)
       context = dispatch_context(target_ctx, trigger_mode, incident_correlation_id)
       actor = SystemActor.system(:mtr_automation)
       now = DateTime.utc_now()
 
+      # An agent counts as dispatched when at least one protocol's trace was
+      # accepted; each protocol is its own mtr.run command.
       dispatched =
         Enum.filter(agent_ids, fn agent_id ->
-          dispatch_agent(
-            agent_id,
-            payload,
-            context,
-            partition_id,
-            actor,
-            trigger_mode
-          )
+          payloads
+          |> Enum.map(&dispatch_agent(agent_id, &1, context, partition_id, actor, trigger_mode))
+          |> Enum.any?()
         end)
 
       finalize_dispatch(
@@ -343,11 +485,17 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     end
   end
 
-  defp candidate_agents(target_ctx) do
+  # Candidates come from the command bus's online-session listing, not a direct
+  # ProcessRegistry read: web-ng dispatches here too and does not join the Horde
+  # registry, so a local select there raises on the missing ETS table. The
+  # listing reads locally on registry members and over RPC everywhere else.
+  @doc false
+  @spec candidate_agents(target_ctx(), keyword()) :: [map()]
+  def candidate_agents(target_ctx, opts \\ []) do
     target_partition = blank_to_nil(Map.get(target_ctx, :partition_id))
+    list_sessions = Keyword.get(opts, :session_lister, &AgentCommandBus.list_online_agents/0)
 
-    :agent_control
-    |> ProcessRegistry.select_by_type()
+    list_sessions.()
     |> Enum.map(&session_to_candidate/1)
     |> Enum.reject(&is_nil/1)
     |> Enum.filter(fn candidate ->
@@ -355,9 +503,10 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     end)
   end
 
-  defp session_to_candidate(
-         {{:agent_control, partition_id, agent_id, _gateway_node}, _pid, metadata}
-       )
+  defp session_to_candidate(%{
+         key: {:agent_control, partition_id, agent_id, _gateway_node},
+         metadata: metadata
+       })
        when is_binary(partition_id) and is_binary(agent_id) do
     metadata = metadata || %{}
     metadata_agent_id = metadata_value(metadata, "agent_id")
@@ -408,6 +557,10 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
   end
 
   defp normalize_target_ctx(_), do: {:error, :invalid_target_context}
+
+  defp ensure_in_policy_scope(target_ctx, policy) do
+    if target_matches_policy_scope?(target_ctx, policy), do: :ok, else: {:error, :out_of_scope}
+  end
 
   defp target_matches_policy_scope?(target_ctx, policy) do
     selector = Map.get(policy, :target_selector, %{}) || %{}
@@ -826,16 +979,25 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     int_value(Map.get(policy, :incident_cooldown_sec), 600)
   end
 
-  defp normalize_protocol(nil), do: "icmp"
+  # Incident and recovery captures feed the cohort consensus, which keeps one
+  # outcome per agent; they trace only the set's first protocol so each agent
+  # contributes one comparable result. Baseline traces the whole set.
+  @doc false
+  def protocol_payloads(target, policy, mode \\ :baseline) do
+    policy
+    |> MtrPolicy.protocol_names()
+    |> protocols_for_mode(mode)
+    |> Enum.map(fn
+      "tcp" ->
+        %{"target" => target, "protocol" => "tcp", "tcp_port" => MtrPolicy.tcp_port(policy)}
 
-  defp normalize_protocol(protocol) do
-    value =
-      protocol
-      |> to_string()
-      |> String.downcase()
-
-    if value in ["icmp", "udp", "tcp"], do: value, else: "icmp"
+      protocol ->
+        %{"target" => target, "protocol" => protocol}
+    end)
   end
+
+  defp protocols_for_mode([first | _], mode) when mode in [:incident, :recovery], do: [first]
+  defp protocols_for_mode(protocols, _mode), do: protocols
 
   defp selector_int(selector, key, default) do
     selector
@@ -884,7 +1046,10 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     if Atom.to_string(atom_key) == key, do: value
   end
 
-  defp normalize_srql_target_query(query, limit) when is_binary(query) do
+  # `page_size` bounds one page, not the result set: collect_target_contexts/8
+  # keeps following the cursor. An explicit `limit:` already in the operator's
+  # query is left alone, because there it means the ceiling they asked for.
+  defp normalize_srql_target_query(query, page_size) when is_binary(query) do
     query =
       query
       |> String.trim()
@@ -893,7 +1058,7 @@ defmodule ServiceRadar.Observability.MtrAutomationDispatcher do
     if String.contains?(query, " limit:") or String.starts_with?(query, "limit:") do
       query
     else
-      "#{query} limit:#{limit}"
+      "#{query} limit:#{page_size}"
     end
   end
 

@@ -12,6 +12,7 @@ fn request_for(query: &str) -> QueryRequest {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     }
 }
 

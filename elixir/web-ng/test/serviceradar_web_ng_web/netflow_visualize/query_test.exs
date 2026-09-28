@@ -68,16 +68,16 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.QueryTest do
     defp default_results do
       [
         %{
-          "src_cidr" => "10.0.0.0/24",
+          "src_cidr_24" => "10.0.0.0/24",
           "dst_endpoint_port" => 443,
-          "dst_cidr" => "198.51.100.0/24",
+          "dst_cidr_24" => "198.51.100.0/24",
           "total_bytes" => 300
         },
         %{
           "__other__" => true,
-          "src_cidr" => nil,
+          "src_cidr_24" => nil,
           "dst_endpoint_port" => nil,
-          "dst_cidr" => nil,
+          "dst_cidr_24" => nil,
           "total_bytes" => 300
         }
       ]
@@ -86,22 +86,22 @@ defmodule ServiceRadarWebNGWeb.NetflowVisualize.QueryTest do
     defp fragmented_endpoint_tail_results do
       [
         %{
-          "src_cidr" => "192.0.2.0/24",
+          "src_cidr_24" => "192.0.2.0/24",
           "dst_endpoint_port" => 443,
-          "dst_cidr" => "203.0.113.0/24",
+          "dst_cidr_24" => "203.0.113.0/24",
           "total_bytes" => 450
         },
         %{
-          "src_cidr" => "198.51.100.0/24",
+          "src_cidr_24" => "198.51.100.0/24",
           "dst_endpoint_port" => 53,
-          "dst_cidr" => "203.0.113.0/24",
+          "dst_cidr_24" => "203.0.113.0/24",
           "total_bytes" => 250
         },
         %{
           "__other__" => true,
-          "src_cidr" => nil,
+          "src_cidr_24" => nil,
           "dst_endpoint_port" => nil,
-          "dst_cidr" => nil,
+          "dst_cidr_24" => nil,
           "total_bytes" => 900
         }
       ]

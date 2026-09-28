@@ -12,6 +12,7 @@ load(
 )
 load("@serviceradar//build:integration_tests.bzl", "requires_shared_fixture")
 load("@serviceradar//build/schema_template:replay_env.bzl", "SCHEMA_TEMPLATE_REPLAY_ENV")
+load("//build:elixir_quality.bzl", "elixir_quality")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -61,6 +62,9 @@ INTEGRATION_RUNTIME_DATA = glob(
     # has to be a declared input. ex_unit_test mirrors the workspace layout, which is
     # what puts it where that relative path resolves.
     "//addons/anomaly-addon:anomaly_manifest",
+    # Committed DIRE traces: test/serviceradar/inventory/dire_resolution_trace_test.exs
+    # compares each recorded trace with its golden copy (formal/dire/README.md).
+    "//formal/dire:traces",
     # Likewise module level: test/serviceradar/plugins/manifest_test.exs globs
     # go/cmd/wasm-plugins/**/{config*.schema.json,plugin*.yaml} and raises if the glob
     # comes back empty, so every first-party Wasm plugin package has to be an input.
@@ -118,6 +122,8 @@ INTEGRATION_RUNTIME_DATA = glob(
 INTEGRATION_SELECTION_DATA = glob(
     [
         "config/**",
+        # test/credo/ loads the custom Credo checks it tests.
+        "credo/**",
         "lib/**",
         "priv/**",
         "test/**",
@@ -332,9 +338,11 @@ CORE_EXTRA_CONFIG = [
     "config :serviceradar_core, ServiceRadar.Observability.DispositionKernels, skip_compilation?: true",
     "config :serviceradar_core, ServiceRadar.Dgraph.Native, skip_compilation?: true",
     "config :serviceradar_core, ServiceRadar.NetworkConfig.Native, skip_compilation?: true",
+    "config :serviceradar_core, ServiceRadar.PrefixTags.Native, skip_compilation?: true",
 ]
 
 CORE_NATIVE_LIBS = {
+    "//elixir/serviceradar_core/native/prefix_tags_nif:prefix_tags_nif": "prefix_tags_nif",
     "//elixir/serviceradar_core/native/anomaly_disposition_nif:anomaly_disposition_nif": "anomaly_disposition_nif",
     "//elixir/serviceradar_core/native/dgraph_nif:dgraph_nif": "dgraph_nif",
     "//elixir/serviceradar_core/native/network_config_nif:network_config_nif": "network_config_nif",
@@ -455,6 +463,8 @@ ex_unit_tests(
     # priv/repo/migrations to assert on it, and test/support carries fixtures.
     data = glob(
         [
+            # The custom Credo checks, which test/credo/ loads and runs.
+            "credo/**",
             "lib/**",
             "priv/**",
             "test/**",
@@ -683,6 +693,12 @@ ex_unit_test(
         "SERVICERADAR_TEST_DB_SHARD": LARGE_INGESTION_DB_SHARD,
         "SERVICERADAR_LARGE_INGESTION_DEVICE_COUNT": "50000",
         "SERVICERADAR_LARGE_INGESTION_CHUNK_SIZE": "1000",
+        # The gate runs `sandbox: :unboxed`, which holds ONE checkout for the whole
+        # 50,000-device run. Without this the DBConnection default of 120 s capped the
+        # entire ingestion, not a single query: a run that finished just under two
+        # minutes passed and one just over failed, so the gate flipped with fixture
+        # load. Match the test's own 30 minute ExUnit timeout.
+        "SERVICERADAR_TEST_DATABASE_OWNERSHIP_TIMEOUT_MS": "1800000",
     },
     tags = [
         "integration_test",
@@ -705,6 +721,10 @@ test_suite(
 )
 
 # --- template migration -----------------------------------------------------------------
+#
+# `sr_core_template` is a frozen rollback artifact: no active workflow calls this target or
+# :migrate_run below any more (see :migrate_generation above). Both remain in the tree as the
+# legacy path documented in docs/docs/ci-schema-templates.md.
 #
 # The only part of the database lifecycle that must run on the BEAM: the 368 migrations are
 # `use Ecto.Migration` modules, so only Ecto.Migrator can apply them. Creating databases,
@@ -760,8 +780,10 @@ ex_unit_test(
     deps = [":erlang_app"],
 )
 
-# Ordered, opt-in lifecycle step. Keep the singleton target below available
-# until the keyed lifecycle and reaper protections are qualified in-cluster.
+# Ordered lifecycle step. Every active workflow (BazelCI, LargeIngestionGate,
+# IntegrationBenchmark*) builds schema generations through this target; the singleton
+# targets below (:migrate_template, :migrate_run) are kept only as a frozen rollback path
+# that no workflow invokes. See docs/docs/ci-schema-templates.md.
 ex_unit_test(
     name = "migrate_generation",
     size = "enormous",
@@ -930,4 +952,31 @@ filegroup(
         ["lib/**/*.ex"],
         exclude = ["lib/serviceradar/proto/**"],
     ),
+)
+
+# `mix format --check-formatted` + `mix credo --strict`, as CI's Elixir Quality job runs them.
+# See //build:elixir_quality.bzl.
+elixir_quality(
+    extra_inputs = ["credo/**/*.ex"],
+    formatter_deps = [
+        "@hexpm//:ash",
+        "@hexpm//:ash_json_api",
+        "@hexpm//:ash_oban",
+        "@hexpm//:ash_paper_trail",
+        "@hexpm//:ash_postgres",
+        "@hexpm//:ash_state_machine",
+        "@hexpm//:ecto",
+        "@hexpm//:ecto_sql",
+    ],
+    source_deps = ["@hexpm//:ex_dna"],
+    tool_deps = CORE_DEPS + CORE_DEV_DEPS + [
+        "@hexpm//:jump_credo_checks",
+        "@hexpm//:spark",
+    ],
+)
+
+# The custom Credo checks, which web-ng's .credo.exs `requires:` from here as well.
+filegroup(
+    name = "credo_checks",
+    srcs = glob(["credo/**/*.ex"]),
 )

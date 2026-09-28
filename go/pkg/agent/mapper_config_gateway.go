@@ -309,21 +309,11 @@ func parseMapperJobCreds(job mapperJobSpec, log logger.Logger) mapper.SNMPCreden
 		return mapper.SNMPCredentials{}
 	}
 
-	var parsed mapperCredSpec
+	var parsed mapper.SNMPCredentials
 	if err := json.Unmarshal(raw, &parsed); err != nil {
 		log.Warn().Err(err).Str("job", job.Name).Msg("Failed to decode mapper credentials")
 		return mapper.SNMPCredentials{}
 	}
 
-	return mapper.SNMPCredentials{
-		Version:               mapper.SNMPVersion(parsed.Version),
-		Community:             parsed.Community,
-		Username:              parsed.Username,
-		SecurityLevel:         parsed.SecurityLevel,
-		AuthProtocol:          parsed.AuthProtocol,
-		AuthPassword:          parsed.AuthPassword,
-		PrivacyProtocol:       parsed.PrivacyProtocol,
-		PrivacyPassword:       parsed.PrivacyPassword,
-		VLANCommunityIndexing: parsed.VLANCommunityIndexing,
-	}
+	return parsed
 }

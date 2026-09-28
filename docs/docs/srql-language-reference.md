@@ -150,16 +150,21 @@ in:events time:[,2026-01-02T00:00:00Z]      # open start
 ### Limits
 
 Most queries are capped at a 90-day time range. Aggregated metric queries (a metric
-entity combined with `stats:` or `bucket:`) may span a longer window because they
-are served from pre-computed hourly rollups.
+entity combined with `stats:` or `bucket:`) may span a longer window. Hourly rollups
+serve the aggregates that have a stored column. `agg:last` does not use them; see
+[Downsampling with `bucket`](#downsampling-with-bucket).
 
 ## Sorting and pagination
 
 - `sort:<field>[:asc|:desc]` — orders results. Direction defaults to `desc`.
   Multiple sort keys are comma-separated: `sort:time:desc,bytes_total`.
   `order:` is an accepted alias for `sort:`.
-- `limit:<n>` — caps the number of rows. Must be a positive integer; the engine
-  enforces a configured maximum.
+- `limit:<n>` — caps the number of rows returned in one page. Must be a
+  positive integer. An explicit limit is the limit that runs. When
+  `srql_max_limit` is set above zero, that configured maximum still applies.
+  Grouped device stats default to 20 groups when `limit:` is omitted. A page
+  that comes back full includes `next_cursor`, which means further rows or
+  groups may exist.
 - On `bucket:` queries `sort:` selects which end of the time window survives
   `limit:`, not the order rows come back in. See
   [Downsampling with `bucket`](#downsampling-with-bucket).
@@ -168,9 +173,12 @@ are served from pre-computed hourly rollups.
 - The configured cursor-offset cap applies to ordinary queries. Seasonal
   `stats:profile_hour_of_week(value)` and `stats:profile_hour_of_week_full(value)`
   queries are exempt so cohort discovery and baseline delivery can page to
-  completion. This exception applies to both query execution and SQL translation,
-  including caller-supplied queries; it is not restricted to internal workers.
-  Per-page row limits still apply.
+  completion. A query may also set `window_scan:true` to take the same
+  exemption. Maintenance jobs that have to cover a time window use it.
+  Interactive queries omit it and still receive the cursor-limit error past
+  the ceiling. This exception applies to both query execution and SQL
+  translation, including caller-supplied queries; it is not restricted to
+  internal workers. Per-page row limits still apply.
 
 ## Aggregation with `stats`
 
@@ -204,7 +212,8 @@ Only `count()` is supported. Group fields: `check` (aliases
 `check_slug`, `slug`), `check_name`, `verdict`, `status`, `input_key`,
 `input_value`, `input_stale`. `input_*` fields unnest the `inputs`
 JSONB map with `jsonb_each` so a vantage rollup is a GROUP BY, not a
-client fold. Default limit 100, hard cap 500. Unquoted stats tokens
+client fold. Default limit 100 when `limit:` is omitted. An explicit
+`limit:` is honored. A full page sets `next_cursor`. Unquoted stats tokens
 cannot contain spaces; write `by check,verdict` or quote the
 expression.
 
@@ -245,13 +254,19 @@ For time-series charts, `bucket:` groups rows into fixed time buckets.
 
 - `bucket:<duration>` — bucket width using `s|m|h|d` suffixes (e.g. `bucket:5m`).
 - `agg:<function>` — bucket aggregation: `avg` (default), `min`, `max`, `sum`,
-  `count`, or `rate` (per-second rate of change for counters).
+  `count`, `rate` (per-second rate of change for counters), `rate_sum` (per-second
+  rates summed across the series collapsed into a bucket), or `last` (alias
+  `latest`: the value of the newest sample in the bucket, for gauges such as a
+  position or a battery level). `agg:last` reads raw samples on CNPG and on
+  StarRocks. Hourly rollups have no newest-sample column, so this aggregate is
+  never served from them.
 - `series:<field>` — splits buckets into one series per distinct value.
 - `value_field:<field>` — which numeric field to aggregate.
 
 ```srql
 in:timeseries_metrics time:last_7d bucket:5m agg:avg series:metric_name
 in:flows time:last_1h bucket:5m agg:sum value_field:bytes_total
+in:timeseries_metrics metric_name:drone.position.lat time:last_2m bucket:2m agg:last series:tags.asset_id
 ```
 
 Buckets are always **returned** oldest-first, because that is what a chart renders.
@@ -281,6 +296,7 @@ fields; using a field that the entity does not support returns an
 | `flows` | `flow`, `network_activity` | NetFlow / network activity records (raw 5-tuples) |
 | `attributed_flows` | `attributed_flow`, `flow_attributions`, `flow_attribution` | Flows joined with host process context (and optional public VIP owner) |
 | `public_endpoints` | — | Kubernetes public VIP / Gateway ownership inventory (current snapshot) |
+| `camera_sources` | `camera_source`, `cameras`, `camera` | Camera inventory with availability and viewable stream profiles. Requires `devices.view`. |
 | `services` | `service` | Observed services and their availability |
 | `gateways` | `gateway` | Gateway/agent operational state |
 | `interfaces` | `interface`, `discovered_interfaces` | Discovered network interfaces (time-series) |
@@ -297,6 +313,8 @@ fields; using a field that the entity does not support returns an
 | `rperf_metrics` | `rperf` | rperf network performance metrics (shares the time-series schema) |
 | `otel_metrics` | `metrics` | OpenTelemetry span-derived metrics |
 | `traces` | `otel_traces`, `trace_spans` | OpenTelemetry trace spans |
+| `otel_trace_summaries` | `trace_summaries`, `traces_summaries` | One row per trace. `service_name` matches any participating span (`service_set`). |
+| `otel_services` | — | Catalog of OTel `service.name` values that reported logs, traces or metrics (not monitored service checks; see `services`). Requires at least one of `observability.logs.view`, `observability.traces.view`, `observability.metrics.view`. |
 | `composite_results` | `composite_check_results`, `composite_verdicts` | Composite-check evaluations. Row queries return per-device verdicts; `stats:count()` groups by check / verdict / vantage (`input_*`). |
 | `endpoint_packages` | `endpoint_package`, `packages`, `endpoint_inventory` | Current and historical endpoint software inventory (installed packages, CPE arrays) |
 | `vulnerability_advisories` | `advisories`, `cves`, `vulnerability_advisory` | NVD/KEV advisory catalog. Default `current:true`. |
@@ -536,6 +554,39 @@ Examples:
 in:public_endpoints port:22 limit:50
 in:public_endpoints exposure_class:Gateway sort:ip:asc
 in:public_endpoints ip:198.51.100.10
+```
+
+### camera_sources
+
+Camera inventory for relay viewing: each camera's owning device, availability and
+the relay-eligible stream profiles a viewer can open through the dashboard camera
+API. `source_url`, per-profile `source_url_override`, and `metadata` are never
+returned. RTSP URLs often embed credentials, and the relay opens the upstream
+stream on the agent, so a viewer never needs them. Filtering or sorting on those
+fields is rejected. Not a time-series entity; `time:` filters on `updated_at`.
+
+| Field | Aliases | Description |
+|-------|---------|-------------|
+| `display_name` | `name` | Camera display name |
+| `vendor` | | Camera vendor, e.g. `ubiquiti`, `axis` |
+| `vendor_camera_id` | `camera_id` | Vendor-side camera identifier |
+| `device_uid` | `device_id`, `uid` | Owning device |
+| `availability_status` | `availability`, `status` | e.g. `available`, `unavailable` |
+| `assigned_agent_id` | `agent_id` | Agent that pulls the stream |
+| `assigned_gateway_id` | `gateway_id` | Gateway on the relay path |
+| `last_event_type` | | Type of the camera's last event |
+| `viewable` | `relay_eligible`, `has_viewable_profile` | `true` for cameras with at least one relay-eligible profile |
+
+Each row carries `stream_profiles`: a list of `{id, profile_name, vendor_profile_id,
+codec_hint, container_hint, rtsp_transport, last_seen_at}` for relay-eligible
+profiles only.
+
+Examples:
+
+```srql
+in:camera_sources viewable:true sort:display_name:asc
+in:camera_sources availability:available vendor:ubiquiti
+in:cameras device_uid:(dev-a,dev-b)
 ```
 
 ### services
@@ -783,7 +834,8 @@ in:timeseries_metric_disk_hourly metric_name:"disk.used_percent" device_id:"sr:h
 | `grpc_status_code` | | gRPC status code |
 | `is_slow` | | Slow-request flag (`true`/`false`) |
 
-Sortable fields: `timestamp`, `service_name` / `service`, `metric_type` / `type`.
+Sortable fields: `timestamp`, `service_name` / `service`, `metric_type` / `type`,
+`duration_ms`.
 
 ### traces
 
@@ -804,6 +856,36 @@ Sortable fields: `timestamp`, `service_name` / `service`, `metric_type` / `type`
 
 Sortable fields: `timestamp`, `start_time_unix_nano`, `end_time_unix_nano`,
 `service_name`.
+
+### otel_trace_summaries
+
+`service_name` matches a trace when any participating span (`service_set`) has that
+service, not only the root span. Use an exact name (`service_name:checkout`) or a list
+(`service_name:(checkout,cart)`); `!service_name:` also matches traces with no recorded
+service set. `%` wildcards are rejected on this field; use `root_service_name` for pattern
+matches.
+
+### otel_services
+
+`in:otel_services` reads the service catalog that EventWriter maintains from persisted
+logs, traces and metrics. It is best-effort and throttled, and entries expire after 30
+days without activity. The catalog is CNPG state in every storage mode.
+
+| Field | Description |
+|-------|-------------|
+| `service_name` | Service name; supports `%` wildcards |
+| `signal` | `logs`, `traces` or `metrics`; a list is allowed, a repeated or negated `signal:` is rejected |
+
+Rows carry `signals` and per-signal last-seen timestamps (`logs_last_seen`,
+`traces_last_seen`, `metrics_last_seen`) plus `last_seen`. All of them are derived only
+from the signals the caller may view: without `signal:` the query covers every permitted
+signal, and requesting a signal the caller cannot view is forbidden (403). Sortable
+fields: `service_name`, `last_seen` (default, descending). The default limit is 50 and the
+maximum is 500. `stats:"count() as total"` is the only aggregation.
+
+```text
+in:otel_services signal:traces service_name:%pay% sort:last_seen:desc limit:50
+```
 
 ### endpoint_packages
 

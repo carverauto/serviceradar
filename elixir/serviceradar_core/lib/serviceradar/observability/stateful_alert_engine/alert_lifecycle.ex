@@ -34,13 +34,13 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
   import ServiceRadar.Observability.StatefulAlertEngine.Severity
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Events.OcsfEventPublisher
   alias ServiceRadar.EventWriter.DeviceCorrelation
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceLifecycle
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Monitoring.AlertGenerator
-  alias ServiceRadar.Monitoring.OcsfEvent
   alias ServiceRadar.Notifications.RoutingWorker
   alias ServiceRadar.Observability.StatefulAlertRuleHistory
   alias ServiceRadar.Observability.StatefulAlertRuleState
@@ -56,7 +56,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
     # DB connection's search_path determines the schema
     actor = SystemActor.system(:alert_engine)
 
-    with {:ok, ocsf_event} <- record_event(event, actor) do
+    with {:ok, ocsf_event} <- record_event(event) do
       case AlertGenerator.from_event(ocsf_event,
              actor: actor,
              alert: alert_config(rule, record),
@@ -137,12 +137,10 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
     _ -> nil
   end
 
-  defp record_event(attrs, actor) do
-    # DB connection's search_path determines the schema
-    OcsfEvent
-    |> Ash.Changeset.for_create(:record, attrs, actor: actor)
-    |> Ash.create()
-  end
+  # Published to JetStream; the returned event carries the id and time the
+  # alert and its history link. A synthetic liveness probe's event is
+  # returned without being published, so it never reaches storage.
+  defp record_event(attrs), do: OcsfEventPublisher.publish(attrs, family: :alert)
 
   def resolve_alert(alert_id, rule, snapshot, now, opts \\ [])
 
@@ -414,7 +412,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
   # resolved_device_uid/1 confirmed against the inventory (the one the alert gets),
   # plus the hostname and ip the triggering event reported for that same device.
   #
-  # An out-of-service device is left off. OcsfEvent :record rejects operational
+  # An out-of-service device is left off. OcsfEventPublisher suppresses operational
   # events for such a device, and incidents about one fired before the event
   # carried a device, so it is recorded without one rather than lost.
   @spec event_device(map(), String.t() | nil, boolean()) :: map()

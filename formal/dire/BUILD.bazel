@@ -1,0 +1,536 @@
+load("//build/tla:tlc.bzl", "tlc_test")
+
+# DIRE formal models. See README.md, openspec/specs/dire-formal-model and
+# openspec/specs/device-identity-reconciliation.
+
+# The committed traces, read by the core integration lanes (INTEGRATION_RUNTIME_DATA) so
+# dire_resolution_trace_test.exs and dire_lifecycle_trace_test.exs can compare each recorded
+# trace with its golden copy.
+filegroup(
+    name = "traces",
+    srcs = glob([
+        "traces/*.tla",
+        "traces/*.cfg",
+    ]),
+    visibility = ["//elixir/serviceradar_core:__pkg__"],
+)
+
+# ---- Lifecycle model ----
+
+tlc_test(
+    name = "lifecycle_current_test",
+    size = "medium",
+    cfg = "lifecycle_current.cfg",
+    spec = "MCDireLifecycle.tla",
+    workers = 8,
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+    ],
+)
+
+tlc_test(
+    name = "lifecycle_vacuity_expire_test",
+    size = "medium",
+    cfg = "lifecycle_vacuity_expire.cfg",
+    expect = "violation:NeverExpires",
+    spec = "MCDireLifecycle.tla",
+    workers = 8,
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+    ],
+)
+
+tlc_test(
+    name = "lifecycle_goal_test",
+    size = "medium",
+    cfg = "lifecycle_goal.cfg",
+    spec = "MCDireLifecycle.tla",
+    workers = 8,
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+    ],
+)
+
+# ---- Resolution model ----
+
+tlc_test(
+    name = "resolution_goal_armis_macs_test",
+    size = "medium",
+    cfg = "resolution_goal_armis_macs.cfg",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_goal_armis_nomacs_test",
+    size = "medium",
+    cfg = "resolution_goal_armis_nomacs.cfg",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_goal_mixed_test",
+    size = "medium",
+    cfg = "resolution_goal_mixed.cfg",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_goal_router_test",
+    size = "medium",
+    cfg = "resolution_goal_router.cfg",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_goal_phones_test",
+    size = "medium",
+    cfg = "resolution_goal_phones.cfg",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_goal_armis_shared_mac_test",
+    size = "medium",
+    cfg = "resolution_goal_armis_shared_mac.cfg",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_goal_agents_test",
+    size = "medium",
+    cfg = "resolution_goal_agents.cfg",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_goal_router_agent_test",
+    size = "medium",
+    cfg = "resolution_goal_router_agent.cfg",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_vacuity_router_merges_test",
+    cfg = "resolution_vacuity_router_merges.cfg",
+    expect = "violation:NeverMerged",
+    spec = "MCDireResolution.tla",
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_vacuity_armis_converges_test",
+    cfg = "resolution_vacuity_armis_converges.cfg",
+    expect = "violation:NeverConverged",
+    spec = "MCDireResolution.tla",
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_vacuity_shared_mac_override_test",
+    cfg = "resolution_vacuity_shared_mac_override.cfg",
+    expect = "violation:NeverDecides",
+    spec = "MCDireResolution.tla",
+    deps = ["DireResolution.tla"],
+)
+
+# ---- Traces recorded from the real code (a matched trace reaches its last state) ----
+# A __tamper_<var> variant alters one variable in the final state and must NOT be matched.
+
+tlc_test(
+    name = "trace_agent_alias_unknown_mac_test",
+    cfg = "traces/Trace_agent_alias_unknown_mac.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_agent_alias_unknown_mac.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_alias_unknown_mac_test",
+    cfg = "traces/Trace_alias_unknown_mac.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_alias_unknown_mac.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_armis_dhcp_test",
+    cfg = "traces/Trace_armis_dhcp.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_armis_dhcp.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_armis_dhcp__tamper_act_test",
+    cfg = "traces/Trace_armis_dhcp__tamper_act.cfg",
+    spec = "traces/Trace_armis_dhcp__tamper_act.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_armis_dhcp__tamper_alias_test",
+    cfg = "traces/Trace_armis_dhcp__tamper_alias.cfg",
+    spec = "traces/Trace_armis_dhcp__tamper_alias.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_armis_dhcp__tamper_created_test",
+    cfg = "traces/Trace_armis_dhcp__tamper_created.cfg",
+    spec = "traces/Trace_armis_dhcp__tamper_created.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_armis_dhcp__tamper_ifClaims_test",
+    cfg = "traces/Trace_armis_dhcp__tamper_ifClaims.cfg",
+    spec = "traces/Trace_armis_dhcp__tamper_ifClaims.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_armis_dhcp__tamper_into_test",
+    cfg = "traces/Trace_armis_dhcp__tamper_into.cfg",
+    spec = "traces/Trace_armis_dhcp__tamper_into.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_armis_dhcp__tamper_ipAt_test",
+    cfg = "traces/Trace_armis_dhcp__tamper_ipAt.cfg",
+    spec = "traces/Trace_armis_dhcp__tamper_ipAt.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_armis_dhcp__tamper_owner_test",
+    cfg = "traces/Trace_armis_dhcp__tamper_owner.cfg",
+    spec = "traces/Trace_armis_dhcp__tamper_owner.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_armis_dhcp__tamper_phys_test",
+    cfg = "traces/Trace_armis_dhcp__tamper_phys.cfg",
+    spec = "traces/Trace_armis_dhcp__tamper_phys.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_armis_dhcp__tamper_recIp_test",
+    cfg = "traces/Trace_armis_dhcp__tamper_recIp.cfg",
+    spec = "traces/Trace_armis_dhcp__tamper_recIp.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_conflict_unmerge_test",
+    cfg = "traces/Trace_conflict_unmerge.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_conflict_unmerge.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_conflict_unmerge__tamper_act_test",
+    cfg = "traces/Trace_conflict_unmerge__tamper_act.cfg",
+    spec = "traces/Trace_conflict_unmerge__tamper_act.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_conflict_unmerge__tamper_audit_test",
+    cfg = "traces/Trace_conflict_unmerge__tamper_audit.cfg",
+    spec = "traces/Trace_conflict_unmerge__tamper_audit.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_conflict_unmerge__tamper_ipOf_test",
+    cfg = "traces/Trace_conflict_unmerge__tamper_ipOf.cfg",
+    spec = "traces/Trace_conflict_unmerge__tamper_ipOf.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_conflict_unmerge__tamper_owner_test",
+    cfg = "traces/Trace_conflict_unmerge__tamper_owner.cfg",
+    spec = "traces/Trace_conflict_unmerge__tamper_owner.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_conflict_unmerge__tamper_reason_test",
+    cfg = "traces/Trace_conflict_unmerge__tamper_reason.cfg",
+    spec = "traces/Trace_conflict_unmerge__tamper_reason.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_conflict_unmerge__tamper_status_test",
+    cfg = "traces/Trace_conflict_unmerge__tamper_status.cfg",
+    spec = "traces/Trace_conflict_unmerge__tamper_status.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_conflict_unmerge__tamper_work_test",
+    cfg = "traces/Trace_conflict_unmerge__tamper_work.cfg",
+    spec = "traces/Trace_conflict_unmerge__tamper_work.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_expire_ephemeral_test",
+    cfg = "traces/Trace_expire_ephemeral.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_expire_ephemeral.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_gateway_sync_revival_test",
+    cfg = "traces/Trace_gateway_sync_revival.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_gateway_sync_revival.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_mapper_stale_address_test",
+    cfg = "traces/Trace_mapper_stale_address.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_mapper_stale_address.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_purge_recreate_test",
+    cfg = "traces/Trace_purge_recreate.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_purge_recreate.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_agent_stale_armis_holder_test",
+    cfg = "traces/Trace_agent_stale_armis_holder.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_agent_stale_armis_holder.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_agent_mac_split_test",
+    cfg = "traces/Trace_agent_mac_split.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_agent_mac_split.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_router_mac_only_test",
+    cfg = "traces/Trace_router_mac_only.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_router_mac_only.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_soft_delete_upsert_revival_test",
+    cfg = "traces/Trace_soft_delete_upsert_revival.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_soft_delete_upsert_revival.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_src_attach_shared_mac_test",
+    cfg = "traces/Trace_src_attach_shared_mac.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_src_attach_shared_mac.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_stale_redirect_test",
+    cfg = "traces/Trace_stale_redirect.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_stale_redirect.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_sweep_restores_merged_test",
+    cfg = "traces/Trace_sweep_restores_merged.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_sweep_restores_merged.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+        "DireLifecycleTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_armis_moves_onto_sweep_seed_test",
+    cfg = "traces/Trace_armis_moves_onto_sweep_seed.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_armis_moves_onto_sweep_seed.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_census_randomized_mac_test",
+    cfg = "traces/Trace_census_randomized_mac.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_census_randomized_mac.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)

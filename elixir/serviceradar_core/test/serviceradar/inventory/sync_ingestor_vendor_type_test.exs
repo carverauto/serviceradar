@@ -5,8 +5,10 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ash.Page
+  alias ServiceRadar.Inventory.DeduplicationTask
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceEnrichmentRules
+  alias ServiceRadar.Inventory.IdentityDecision
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.Repo
@@ -816,7 +818,12 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     assert "armis" in reclassified.discovery_sources
   end
 
-  test "merges an existing IP-less integration duplicate with an audit", %{actor: actor} do
+  test "an existing IP-less integration duplicate is not merged on hostname agreement", %{
+    actor: actor
+  } do
+    # Hostname and address are evidence, never identity (#4671): a device that
+    # already exists is never merged into the address holder because their
+    # hostnames agree. The pair is recorded for an operator instead.
     ip = "192.0.2.81"
     hostname = "merge-switch.example.com"
 
@@ -854,7 +861,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
 
     refute duplicate_uid == holder.uid
 
-    # Reproduce a previously persisted duplicate whose address was cleared.
+    # A previously persisted duplicate whose address was cleared.
     assert %{num_rows: 1} =
              Repo.query!("UPDATE platform.ocsf_devices SET ip = NULL WHERE uid = $1", [
                duplicate_uid
@@ -868,44 +875,45 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     assert :ok = SyncIngestor.ingest_updates([followup], actor: actor)
     assert :ok = SyncIngestor.ingest_updates([followup], actor: actor)
 
-    survivor = fetch_device_by_ip!(actor, ip)
-    assert survivor.uid == holder.uid
-    assert survivor.type == "Switch"
-    assert survivor.type_id == 10
-    assert "armis" in survivor.discovery_sources
-    assert "netbox" in survivor.discovery_sources
-    assert survivor.metadata["synthetic_history"] == "retained"
+    # Two devices: the holder keeps the address and its own classification, the
+    # duplicate stays live and keeps its identifier and history.
+    holder_now = fetch_device_by_ip!(actor, ip)
+    assert holder_now.uid == holder.uid
+    assert holder_now.type == "Tablet"
+    refute "netbox" in holder_now.discovery_sources
 
-    assert %{rows: [[1]]} =
+    assert {:ok, %Device{deleted_at: nil} = duplicate} =
+             Device.get_by_uid(duplicate_uid, false, actor: actor)
+
+    assert duplicate.type == "Switch"
+    assert duplicate.metadata["synthetic_history"] == "retained"
+
+    assert %{rows: [[2]]} =
              Repo.query!(
                "SELECT count(*) FROM platform.ocsf_devices WHERE hostname = $1 AND deleted_at IS NULL",
                [hostname]
              )
 
-    assert %{rows: [[true]]} =
-             Repo.query!(
-               "SELECT deleted_at IS NOT NULL FROM platform.ocsf_devices WHERE uid = $1",
-               [
-                 duplicate_uid
-               ]
-             )
-
-    assert %{rows: [[owner_uid]]} =
+    assert %{rows: [[^duplicate_uid]]} =
              Repo.query!(
                "SELECT device_id FROM platform.device_identifiers WHERE identifier_type = 'integration_id' AND identifier_value = $1",
                [integration_id]
              )
 
-    assert owner_uid == holder.uid
-
-    assert %{rows: [[1]]} =
+    assert %{rows: [[0]]} =
              Repo.query!(
-               "SELECT count(*) FROM platform.merge_audit WHERE from_device_id = $1 AND to_device_id = $2",
-               [duplicate_uid, holder.uid]
+               "SELECT count(*) FROM platform.merge_audit WHERE from_device_id = $1 OR to_device_id = $1",
+               [duplicate_uid]
              )
+
+    assert_hostname_pair_recorded(duplicate_uid, holder.uid, ip, actor)
   end
 
-  test "untyped manual provenance remains reclassifiable after merging", %{actor: actor} do
+  test "an untyped manual duplicate is not merged on hostname agreement and stays reclassifiable",
+       %{actor: actor} do
+    # The duplicate already exists, so hostname agreement does not merge it into
+    # the address holder (#4671); the integration keeps reclassifying the
+    # duplicate itself, and the pair is recorded for an operator.
     ip = "192.0.2.83"
     hostname = "untyped-merge.example.com"
 
@@ -961,23 +969,22 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     for type <- ["Switch", "Router", "Switch"] do
       update = put_in(followup, ["metadata", "netbox_device_type"], type)
       assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
-      survivor = fetch_device_by_ip!(actor, ip)
-      assert survivor.uid == holder.uid
-      assert survivor.type == type
-      assert survivor.type_id == if(type == "Switch", do: 10, else: 12)
-      assert "manual" in survivor.discovery_sources
-      assert "armis" in survivor.discovery_sources
-      assert "netbox" in survivor.discovery_sources
-      assert survivor.metadata["type_manually_set"] == false
+
+      holder_now = fetch_device_by_ip!(actor, ip)
+      assert holder_now.uid == holder.uid
+      assert holder_now.type == "Tablet"
+
+      assert {:ok, %Device{deleted_at: nil} = duplicate} =
+               Device.get_by_uid(duplicate_uid, false, actor: actor)
+
+      assert duplicate.type == type
+      assert duplicate.type_id == if(type == "Switch", do: 10, else: 12)
+      assert "manual" in duplicate.discovery_sources
+      assert "netbox" in duplicate.discovery_sources
+      assert duplicate.metadata["type_manually_set"] == false
     end
 
-    assert %{rows: [[true]]} =
-             Repo.query!(
-               "SELECT deleted_at IS NOT NULL FROM platform.ocsf_devices WHERE uid = $1",
-               [
-                 duplicate_uid
-               ]
-             )
+    assert_hostname_pair_recorded(duplicate_uid, holder.uid, ip, actor)
 
     assert :ok =
              SyncIngestor.ingest_updates(
@@ -1472,7 +1479,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     assert device.metadata["identity_state"] == "provisional"
   end
 
-  test "recovers from active-ip unique conflicts by remapping to existing uid", %{actor: actor} do
+  test "an Armis write at a held IP takes it without remapping to the holder", %{actor: actor} do
     ip = unique_ip()
     existing_uid = "sr:existing-ip-#{System.unique_integer([:positive])}"
 
@@ -1482,7 +1489,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
         uid: existing_uid,
         ip: ip,
         hostname: "existing-host",
-        is_available: true
+        is_available: true,
+        last_seen_time: DateTime.add(DateTime.utc_now(), -3600, :second)
       })
       |> Ash.create(actor: actor)
 
@@ -1504,10 +1512,12 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
 
     # The update carries a strong identifier, so it must NOT be remapped onto
     # whichever device happens to hold the IP (that adoption collapsed
-    # distinct devices); the conflicting IP is dropped from the new record.
-    existing_device = fetch_device_by_ip!(actor, ip)
-    assert existing_device.uid == existing_uid
+    # distinct devices). Armis observed the device at this address, so the
+    # address follows it (#4639): the holder releases it and stays live.
+    {:ok, existing_device} = Device.get_by_uid(existing_uid, false, actor: actor)
     assert existing_device.hostname == "existing-host"
+    assert existing_device.ip in [nil, ""]
+    assert is_nil(existing_device.deleted_at)
 
     # (conflict recovery may or may not be exercised depending on lookup
     # timing; the behavioral assertions below are what matter)
@@ -1520,7 +1530,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
       |> Page.unwrap()
 
     assert [new_device | _] = Enum.filter(devices, &(&1.uid != existing_uid))
-    refute new_device.ip == ip
+    assert new_device.ip == ip
+    assert fetch_device_by_ip!(actor, ip).uid == new_device.uid
     assert new_device.metadata["sys_descr"] == "Ubiquiti UniFi UDM-Pro 4.4.6 Linux 4.19.152 al324"
   end
 
@@ -1624,6 +1635,26 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
       assert device.type_id == 10
       assert device.metadata["classification_rule_id"] == "aruba-switch"
     end
+  end
+
+  # The hostname-agreement pair was recorded as a decision and opened a
+  # de-duplication task for an operator.
+  defp assert_hostname_pair_recorded(uid_a, uid_b, ip, actor) do
+    pair = Enum.sort([uid_a, uid_b])
+    {:ok, decisions} = IdentityDecision.for_device(uid_a, actor: actor)
+
+    assert Enum.any?(
+             decisions,
+             &(&1.decision_kind == :policy_block and
+                 &1.reason == "hostname_agreement_not_identity" and
+                 &1.device_uids == pair and &1.subject == ip)
+           ),
+           "the hostname-agreement pair was not recorded as a decision"
+
+    {:ok, tasks} = DeduplicationTask.for_device(uid_a, actor: actor)
+
+    assert Enum.any?(tasks, &(&1.device_uids == pair and &1.status == :open)),
+           "no open de-duplication task for the pair"
   end
 
   defp fetch_device_by_ip!(actor, ip) do

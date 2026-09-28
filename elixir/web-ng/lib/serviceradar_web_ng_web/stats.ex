@@ -34,7 +34,9 @@ defmodule ServiceRadarWebNGWeb.Stats do
   import Ecto.Query
 
   alias Ecto.Adapters.SQL
+  alias ServiceRadar.Analytics.StarRocks.Env, as: StarRocksEnv
   alias ServiceRadar.Analytics.StarRocks.LogEventConsumers
+  alias ServiceRadar.Analytics.StarRocks.Query, as: StarRocksQuery
   alias ServiceRadar.Analytics.StarRocks.Readers
   alias ServiceRadar.Repo, as: CoreRepo
   alias ServiceRadarWebNG.Repo
@@ -101,14 +103,15 @@ defmodule ServiceRadarWebNGWeb.Stats do
   ## Options
 
     * `:time` - Time range filter (default: "last_24h")
-    * `:service_name` - Filter by service name (optional)
+    * `:service_name` - Filter by OTel service: a list of exact names (the
+      rollup's list filter), or one pattern string (optional)
     * `:srql_module` - SRQL module to use (default from config)
 
   ## Examples
 
       Stats.logs_severity()
       Stats.logs_severity(time: "last_1h")
-      Stats.logs_severity(service_name: "api-gateway")
+      Stats.logs_severity(service_name: ["checkout", "billing"])
   """
   @spec logs_severity(keyword()) :: Extract.logs_severity()
   def logs_severity(opts \\ []) do
@@ -324,14 +327,15 @@ defmodule ServiceRadarWebNGWeb.Stats do
   ## Options
 
     * `:time` - Time range filter (default: "last_24h")
-    * `:service_name` - Filter by service name (optional)
+    * `:service_name` - Filter by OTel service: a list of exact names (the
+      rollup's list filter), or one pattern string (optional)
     * `:srql_module` - SRQL module to use (default from config)
 
   ## Examples
 
       Stats.traces_summary()
       Stats.traces_summary(time: "last_6h")
-      Stats.traces_summary(service_name: "user-service")
+      Stats.traces_summary(service_name: ["checkout"])
   """
   @spec traces_summary(keyword()) :: Extract.traces_summary()
   def traces_summary(opts \\ []) do
@@ -345,69 +349,6 @@ defmodule ServiceRadarWebNGWeb.Stats do
   end
 
   @doc """
-  Fetch event severity counts from the hourly OCSF events aggregate.
-
-  This summary intentionally ignores pagination so overview cards reflect the
-  selected time window rather than the currently visible page slice. The hourly
-  aggregate only materializes completed hours, so current-hour events come
-  directly from `ocsf_events`; otherwise newly ingested events would be visible
-  in the list but missing from the severity cards.
-  """
-  @spec events_summary(keyword()) :: events_summary()
-  def events_summary(opts \\ []) do
-    time_window = Keyword.get(opts, :time, "last_7d")
-
-    case cutoff_for_time_window(time_window) do
-      {:ok, cutoff} ->
-        cutoff
-        |> event_summary_rows()
-        |> merge_event_stats(empty_events_summary())
-
-      _ ->
-        empty_events_summary()
-    end
-  rescue
-    _ -> empty_events_summary()
-  end
-
-  @type events_hourly_point :: %{
-          bucket: DateTime.t() | NaiveDateTime.t() | term(),
-          total: non_neg_integer(),
-          low: non_neg_integer(),
-          medium: non_neg_integer(),
-          high: non_neg_integer(),
-          critical: non_neg_integer()
-        }
-
-  @doc """
-  Hourly event severity buckets for the dashboard Events Over Time chart.
-
-  Uses the hourly CAGG for closed hours when that rollup has data. If the
-  rollup exists but is empty (a leftover view or an unrefreshed CAGG), the
-  same window is aggregated from raw `ocsf_events` so the chart is not blank
-  while events still exist.
-  """
-  @spec events_hourly_trend(DateTime.t()) :: [events_hourly_point()]
-  def events_hourly_trend(%DateTime{} = cutoff) do
-    cutoff
-    |> event_hourly_trend_rows()
-    |> Enum.map(fn [bucket, total, low, medium, high, critical] ->
-      %{
-        bucket: bucket,
-        total: to_int(total),
-        low: to_int(low),
-        medium: to_int(medium),
-        high: to_int(high),
-        critical: to_int(critical)
-      }
-    end)
-  rescue
-    _ -> []
-  end
-
-  def events_hourly_trend(_), do: []
-
-  @doc """
   Fetch span RED (rate/errors/duration) stats using the rollup_stats pattern.
 
   Backs the metrics stat cards. Uses the `spans_red_1h` CAGG computed over ALL
@@ -418,14 +359,15 @@ defmodule ServiceRadarWebNGWeb.Stats do
   ## Options
 
     * `:time` - Time range filter (default: "last_24h")
-    * `:service_name` - Filter by service name (optional)
+    * `:service_name` - Filter by OTel service: a list of exact names (the
+      rollup's list filter), or one pattern string (optional)
     * `:srql_module` - SRQL module to use (default from config)
 
   ## Examples
 
       Stats.metrics_summary()
       Stats.metrics_summary(time: "last_6h")
-      Stats.metrics_summary(service_name: "core-elx")
+      Stats.metrics_summary(service_name: ["checkout"])
   """
   @spec metrics_summary(keyword()) :: metrics_summary()
   def metrics_summary(opts \\ []) do
@@ -436,6 +378,50 @@ defmodule ServiceRadarWebNGWeb.Stats do
     query
     |> srql_module.query(%{scope: scope})
     |> Extract.metrics_red()
+  end
+
+  @doc """
+  Count the OTel services that reported `signal` in the window, from the
+  service catalog (`in:otel_services`), not from telemetry.
+
+  ## Options
+
+    * `:time` - Time range filter (default: "last_24h")
+    * `:service_name` - Narrow to a list of exact names (optional)
+    * `:scope`, `:srql_module`
+  """
+  @spec otel_service_count(String.t(), keyword()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def otel_service_count(signal, opts \\ []) do
+    srql_module = Keyword.get(opts, :srql_module, default_srql_module())
+    scope = Keyword.get(opts, :scope)
+
+    signal
+    |> Query.otel_service_count(opts)
+    |> srql_module.query(%{scope: scope})
+    |> Extract.count_total()
+  end
+
+  @doc """
+  Count the traces that touch any of `names` (a participating span, not only
+  the root) and how many of them carry an error, from `in:otel_trace_summaries`.
+  See `Query.trace_summary_counts/2` for why the rollup cannot answer this.
+
+  ## Options
+
+    * `:time` - Time range filter (default: "last_24h"); pass the list's window
+    * `:scope`, `:srql_module`
+  """
+  @spec trace_summary_counts([String.t()], keyword()) ::
+          {:ok, %{total: non_neg_integer(), errors: non_neg_integer()}} | {:error, term()}
+  def trace_summary_counts(names, opts \\ []) when is_list(names) do
+    srql_module = Keyword.get(opts, :srql_module, default_srql_module())
+    scope = Keyword.get(opts, :scope)
+    {total_query, errors_query} = Query.trace_summary_counts(names, opts)
+
+    with {:ok, total} <- total_query |> srql_module.query(%{scope: scope}) |> Extract.count_total(),
+         {:ok, errors} <- errors_query |> srql_module.query(%{scope: scope}) |> Extract.count_total() do
+      {:ok, %{total: total, errors: errors}}
+    end
   end
 
   @doc """
@@ -536,12 +522,78 @@ defmodule ServiceRadarWebNGWeb.Stats do
   """
   @spec trace_rollup_status(keyword()) :: trace_rollup_status()
   def trace_rollup_status(opts \\ []) do
-    if repo_started?() do
-      do_trace_rollup_status(opts)
-    else
-      empty_trace_rollup_status()
+    case Readers.backend(:otel_traces) do
+      :starrocks ->
+        starrocks_trace_rollup_status(opts)
+
+      :cnpg ->
+        if repo_started?(), do: do_trace_rollup_status(opts), else: empty_trace_rollup_status()
     end
   end
+
+  # With the warehouse enabled the spans, their summaries and the rollup all
+  # live there (priv/starrocks/0022), and the CNPG relations stop receiving
+  # rows. A probe error (connectivity blip, query timeout) cannot tell a
+  # missing relation apart from an unreachable one, so it reports as unknown
+  # health rather than a missing relation. The marks are taken over the last
+  # day, which the day partitions (and the summary table's timestamp sort)
+  # prune to; a quiet day reads as no raw traces, not a lag.
+  defp starrocks_trace_rollup_status(opts) do
+    threshold_seconds =
+      Keyword.get(opts, :stale_threshold_seconds, trace_rollup_stale_threshold_seconds())
+
+    query = Keyword.get(opts, :query, &StarRocksQuery.execute/1)
+    cutoff = DateTime.utc_now() |> DateTime.add(-86_400, :second) |> warehouse_instant()
+
+    with {:ok, raw} <- warehouse_latest(query, "otel_traces", "timestamp", cutoff),
+         {:ok, summary} <- warehouse_latest(query, "otel_trace_summaries", "timestamp", cutoff),
+         {:ok, rollup} <- warehouse_latest(query, "traces_stats_5m", "bucket", cutoff) do
+      assess_trace_rollup_status(
+        backend: :starrocks,
+        summary_table_present?: true,
+        traces_rollup_present?: true,
+        raw_latest_timestamp: raw,
+        summary_latest_timestamp: summary,
+        rollup_latest_bucket: rollup,
+        stale_threshold_seconds: threshold_seconds
+      )
+    else
+      {:error, reason} ->
+        Logger.warning("trace rollup probe failed: #{inspect(reason, limit: 10)}")
+        empty_trace_rollup_status()
+    end
+  rescue
+    error ->
+      Logger.warning("trace rollup health verification failed: #{Exception.message(error)}")
+
+      empty_trace_rollup_status()
+  end
+
+  defp warehouse_latest(query, table, column, cutoff) do
+    sql =
+      "SELECT MAX(`#{column}`) FROM #{StarRocksEnv.table(table)} WHERE `#{column}` >= '#{cutoff}'"
+
+    case query.(sql) do
+      {:ok, %{rows: [[value]]}} -> {:ok, warehouse_datetime(value)}
+      {:ok, _result} -> {:ok, nil}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # StarRocks holds naive UTC and evaluates NOW() in the Frontend's zone, so
+  # bounds are passed as UTC literals.
+  defp warehouse_instant(%DateTime{} = instant) do
+    instant |> DateTime.to_naive() |> NaiveDateTime.truncate(:second) |> NaiveDateTime.to_string()
+  end
+
+  defp warehouse_datetime(value) when is_binary(value) do
+    case NaiveDateTime.from_iso8601(value) do
+      {:ok, naive} -> DateTime.from_naive!(naive, "Etc/UTC")
+      _ -> nil
+    end
+  end
+
+  defp warehouse_datetime(value), do: normalize_datetime(value)
 
   defp do_trace_rollup_status(opts) do
     threshold_seconds =
@@ -579,6 +631,7 @@ defmodule ServiceRadarWebNGWeb.Stats do
   @doc false
   @spec assess_trace_rollup_status(keyword()) :: trace_rollup_status()
   def assess_trace_rollup_status(opts) do
+    backend = Keyword.get(opts, :backend, :cnpg)
     summary_table_present? = Keyword.get(opts, :summary_table_present?, false)
     traces_rollup_present? = Keyword.get(opts, :traces_rollup_present?, false)
     raw_latest_timestamp = Keyword.get(opts, :raw_latest_timestamp)
@@ -591,14 +644,8 @@ defmodule ServiceRadarWebNGWeb.Stats do
 
     messages =
       []
-      |> maybe_add_message(
-        not summary_table_present?,
-        "Missing trace summary table: platform.otel_trace_summaries."
-      )
-      |> maybe_add_message(
-        not traces_rollup_present?,
-        "Missing trace rollup: platform.traces_stats_5m continuous aggregate."
-      )
+      |> maybe_add_message(not summary_table_present?, missing_summary_table_message(backend))
+      |> maybe_add_message(not traces_rollup_present?, missing_traces_rollup_message(backend))
       |> maybe_add_message(
         raw_latest_timestamp && summary_table_present? && is_nil(summary_latest_timestamp),
         "Trace summaries are empty while raw traces exist."
@@ -628,6 +675,14 @@ defmodule ServiceRadarWebNGWeb.Stats do
       messages: messages
     }
   end
+
+  defp missing_summary_table_message(:starrocks), do: "Missing trace summary table: otel_trace_summaries."
+
+  defp missing_summary_table_message(_backend), do: "Missing trace summary table: platform.otel_trace_summaries."
+
+  defp missing_traces_rollup_message(:starrocks), do: "Missing trace rollup: traces_stats_5m materialized view."
+
+  defp missing_traces_rollup_message(_backend), do: "Missing trace rollup: platform.traces_stats_5m continuous aggregate."
 
   # Re-export empty defaults for convenience
   defdelegate empty_logs_severity(), to: Extract
@@ -851,198 +906,6 @@ defmodule ServiceRadarWebNGWeb.Stats do
 
   defp format_lag(seconds) when is_integer(seconds), do: "#{seconds}s"
   defp format_lag(_), do: "unknown"
-
-  # Read only closed hours from the CAGG and union in the current hour from the
-  # raw hypertable. Timescale's materialized CAGG does not contain the
-  # in-progress hour, which made the cards show zero while the raw event list
-  # already showed the same events.
-  # The query text is a fixed private function and `cutoff` is bound as $1.
-  @sobelow_skip ["SQL.Query"]
-  defp event_summary_rows(cutoff) do
-    if closed_hour_event_rollup_present?(cutoff) do
-      case SQL.query(CoreRepo, event_summary_rollup_sql(), [cutoff]) do
-        {:ok, %{rows: rows}} -> normalize_event_summary_rows(rows)
-        _ -> raw_event_summary_rows(cutoff)
-      end
-    else
-      raw_event_summary_rows(cutoff)
-    end
-  end
-
-  @sobelow_skip ["SQL.Query"]
-  defp event_hourly_trend_rows(cutoff) do
-    if closed_hour_event_rollup_present?(cutoff) do
-      case SQL.query(CoreRepo, event_hourly_trend_rollup_sql(), [cutoff]) do
-        {:ok, %{rows: rows}} -> rows
-        _ -> raw_event_hourly_trend_rows(cutoff)
-      end
-    else
-      raw_event_hourly_trend_rows(cutoff)
-    end
-  end
-
-  @sobelow_skip ["SQL.Query"]
-  defp raw_event_hourly_trend_rows(cutoff) do
-    case SQL.query(CoreRepo, event_hourly_trend_raw_sql(), [cutoff]) do
-      {:ok, %{rows: rows}} -> rows
-      _ -> []
-    end
-  end
-
-  @sobelow_skip ["SQL.Query"]
-  defp closed_hour_event_rollup_present?(cutoff) do
-    sql = """
-    SELECT EXISTS (
-      SELECT 1
-      FROM ocsf_events_hourly_stats
-      WHERE bucket >= $1 AND bucket < date_trunc('hour', now())
-      LIMIT 1
-    )
-    """
-
-    case SQL.query(CoreRepo, sql, [cutoff]) do
-      {:ok, %{rows: [[true]]}} -> true
-      _ -> false
-    end
-  end
-
-  # The query text is a fixed private function and `cutoff` is bound as $1.
-  @sobelow_skip ["SQL.Query"]
-  defp raw_event_summary_rows(cutoff) do
-    case SQL.query(CoreRepo, raw_event_summary_sql(), [cutoff]) do
-      {:ok, %{rows: rows}} -> normalize_event_summary_rows(rows)
-      _ -> []
-    end
-  end
-
-  defp normalize_event_summary_rows(rows) do
-    Enum.flat_map(rows, fn
-      [severity_id, total_count] -> [{severity_id, total_count}]
-      {severity_id, total_count} -> [{severity_id, total_count}]
-      _ -> []
-    end)
-  end
-
-  defp event_summary_rollup_sql do
-    """
-    WITH hourly AS (
-      SELECT severity_id, total_count
-      FROM ocsf_events_hourly_stats
-      WHERE bucket >= $1 AND bucket < date_trunc('hour', NOW())
-
-      UNION ALL
-
-      SELECT COALESCE(severity_id, 0) AS severity_id, COUNT(*)::bigint AS total_count
-      FROM ocsf_events
-      WHERE time >= GREATEST($1::timestamptz, date_trunc('hour', NOW()))
-      GROUP BY 1
-    )
-    SELECT severity_id, SUM(total_count)::bigint AS total_count
-    FROM hourly
-    GROUP BY severity_id
-    """
-  end
-
-  defp raw_event_summary_sql do
-    """
-    SELECT COALESCE(severity_id, 0) AS severity_id, COUNT(*)::bigint AS total_count
-    FROM ocsf_events
-    WHERE time >= $1
-    GROUP BY 1
-    """
-  end
-
-  defp event_hourly_trend_rollup_sql do
-    """
-    WITH hourly AS (
-      SELECT bucket, severity_id, total_count
-      FROM ocsf_events_hourly_stats
-      WHERE bucket >= $1 AND bucket < date_trunc('hour', now())
-      UNION ALL
-      SELECT
-        date_trunc('hour', time) AS bucket,
-        COALESCE(severity_id, 0) AS severity_id,
-        COUNT(*)::bigint AS total_count
-      FROM ocsf_events
-      WHERE time >= date_trunc('hour', now())
-      GROUP BY 1, 2
-    ),
-    recent AS (
-      SELECT
-        bucket,
-        SUM(total_count)::bigint AS total,
-        COALESCE(SUM(total_count) FILTER (WHERE severity_id BETWEEN 1 AND 2), 0)::bigint AS low,
-        COALESCE(SUM(total_count) FILTER (WHERE severity_id = 3), 0)::bigint AS medium,
-        COALESCE(SUM(total_count) FILTER (WHERE severity_id = 4), 0)::bigint AS high,
-        COALESCE(SUM(total_count) FILTER (WHERE severity_id >= 5), 0)::bigint AS critical
-      FROM hourly
-      GROUP BY bucket
-      ORDER BY bucket DESC
-      LIMIT 48
-    )
-    SELECT bucket, total, low, medium, high, critical
-    FROM recent
-    ORDER BY bucket ASC
-    """
-  end
-
-  defp event_hourly_trend_raw_sql do
-    """
-    SELECT bucket, total, low, medium, high, critical
-    FROM (
-      SELECT
-        date_trunc('hour', time) AS bucket,
-        COUNT(*)::bigint AS total,
-        COALESCE(COUNT(*) FILTER (WHERE COALESCE(severity_id, 0) BETWEEN 1 AND 2), 0)::bigint AS low,
-        COALESCE(COUNT(*) FILTER (WHERE COALESCE(severity_id, 0) = 3), 0)::bigint AS medium,
-        COALESCE(COUNT(*) FILTER (WHERE COALESCE(severity_id, 0) = 4), 0)::bigint AS high,
-        COALESCE(COUNT(*) FILTER (WHERE COALESCE(severity_id, 0) >= 5), 0)::bigint AS critical
-      FROM ocsf_events
-      WHERE time >= $1
-      GROUP BY 1
-      ORDER BY 1 DESC
-      LIMIT 48
-    ) recent
-    ORDER BY bucket ASC
-    """
-  end
-
-  defp merge_event_stats(rows, base) when is_list(rows) do
-    Enum.reduce(rows, base, fn {severity_id, total_count}, acc ->
-      count = to_int(total_count)
-      acc = Map.update!(acc, :total, &(&1 + count))
-
-      case to_int(severity_id) do
-        6 -> Map.update!(acc, :fatal, &(&1 + count))
-        5 -> Map.update!(acc, :critical, &(&1 + count))
-        4 -> Map.update!(acc, :high, &(&1 + count))
-        3 -> Map.update!(acc, :medium, &(&1 + count))
-        2 -> Map.update!(acc, :low, &(&1 + count))
-        1 -> Map.update!(acc, :informational, &(&1 + count))
-        _ -> acc
-      end
-    end)
-  end
-
-  defp merge_event_stats(_, base), do: base
-
-  defp cutoff_for_time_window("last_1h"), do: {:ok, DateTime.add(DateTime.utc_now(), -1, :hour)}
-  defp cutoff_for_time_window("last_24h"), do: {:ok, DateTime.add(DateTime.utc_now(), -24, :hour)}
-
-  defp cutoff_for_time_window(value) when is_binary(value) do
-    case Regex.run(~r/^last_(\d+)([hd])$/i, String.trim(value)) do
-      [_, amount, "h"] ->
-        {:ok, DateTime.add(DateTime.utc_now(), -String.to_integer(amount), :hour)}
-
-      [_, amount, "d"] ->
-        {:ok, DateTime.add(DateTime.utc_now(), -String.to_integer(amount), :day)}
-
-      _ ->
-        :error
-    end
-  end
-
-  defp cutoff_for_time_window(_), do: :error
 
   defp to_int(value) when is_integer(value), do: value
   defp to_int(value) when is_float(value), do: trunc(value)

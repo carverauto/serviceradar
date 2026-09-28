@@ -1,0 +1,17 @@
+# gazelle:ignore
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
+
+package(default_visibility = ["//demo:__subpackages__"])
+
+_PRODUCT_INVENTORIES = [
+    "//build/wasm_plugins:plugin_inventory.bzl",
+    "//helm/serviceradar:chart_files",
+]
+
+go_test(
+    name = "fence_test",
+    size = "small",
+    srcs = ["fence_test.go"],
+    args = ["$(rootpaths {})".format(label) for label in _PRODUCT_INVENTORIES],
+    data = _PRODUCT_INVENTORIES,
+)

@@ -198,6 +198,27 @@ defmodule ServiceRadarWebNGWeb.Stats.Extract do
 
   # Type conversion helpers
 
+  @doc """
+  Extract the `total` of a `stats:"count() as total"` response.
+
+  `{:error, :invalid_count}` for anything that is not a count row, so a
+  caller never renders a failed count as zero.
+  """
+  @spec count_total({:ok, map()} | {:error, term()}) :: {:ok, non_neg_integer()} | {:error, term()}
+  def count_total({:ok, %{"results" => [%{"total" => total} | _]}}) when is_integer(total) and total >= 0,
+    do: {:ok, total}
+
+  def count_total({:ok, %{"results" => [%{"total" => total} | _]}}) when is_binary(total) do
+    case Integer.parse(String.trim(total)) do
+      {value, ""} when value >= 0 -> {:ok, value}
+      _ -> {:error, :invalid_count}
+    end
+  end
+
+  def count_total({:ok, %{"results" => []}}), do: {:ok, 0}
+  def count_total({:error, reason}), do: {:error, reason}
+  def count_total(_response), do: {:error, :invalid_count}
+
   defp to_int(value) when is_integer(value), do: value
   defp to_int(value) when is_float(value), do: trunc(value)
 

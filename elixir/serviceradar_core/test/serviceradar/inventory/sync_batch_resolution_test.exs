@@ -16,8 +16,11 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
   import Ecto.Query
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.Page
+  alias ServiceRadar.Inventory.DeduplicationTask
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.IdentityDecision
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.SourceIdentityConflict
   alias ServiceRadar.Inventory.SyncIngestor
@@ -43,6 +46,33 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
     "10.#{rem(div(a, 65_536), 60) + 60}.#{rem(div(a, 256), 256)}.#{rem(a, 254) + 1}"
   end
 
+  # Benchmarking range (198.18.0.0/15), one address per call, never reused by
+  # another test in this run.
+  defp benchmark_ip do
+    n = System.unique_integer([:positive, :monotonic])
+    "198.#{18 + rem(div(n, 254 * 256), 2)}.#{rem(div(n, 254), 256)}.#{rem(n, 254) + 1}"
+  end
+
+  # The hostname-agreement pair was recorded as a decision and opened a
+  # de-duplication task for an operator.
+  defp assert_hostname_pair_recorded(uid_a, uid_b, ip, actor) do
+    pair = Enum.sort([uid_a, uid_b])
+    {:ok, decisions} = IdentityDecision.for_device(uid_b, actor: actor)
+
+    assert Enum.any?(
+             decisions,
+             &(&1.decision_kind == :policy_block and
+                 &1.reason == "hostname_agreement_not_identity" and
+                 &1.device_uids == pair and &1.subject == ip)
+           ),
+           "the hostname-agreement pair was not recorded as a decision"
+
+    {:ok, tasks} = DeduplicationTask.for_device(uid_b, actor: actor)
+
+    assert Enum.any?(tasks, &(&1.device_uids == pair and &1.status == :open)),
+           "no open de-duplication task for the pair"
+  end
+
   defp integration_update(integration_id, ip, hostname) do
     %{
       "ip" => ip,
@@ -61,6 +91,20 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
         identifier_type: :integration_id,
         identifier_value: integration_id,
         partition: "default"
+      })
+
+    case Ash.read(query, actor: actor) do
+      {:ok, [identifier | _]} -> identifier.device_id
+      _ -> nil
+    end
+  end
+
+  defp device_for_typed_id(type, value, actor, partition \\ "default") do
+    query =
+      Ash.Query.for_read(DeviceIdentifier, :lookup, %{
+        identifier_type: type,
+        identifier_value: value,
+        partition: partition
       })
 
     case Ash.read(query, actor: actor) do
@@ -129,7 +173,7 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
       Device
       |> Ash.Query.filter(ip == ^ip and is_nil(deleted_at))
       |> Ash.read(actor: actor)
-      |> ServiceRadar.Ash.Page.unwrap()
+      |> Page.unwrap()
 
     assert [%Device{uid: uid}] = devices
     assert uid == existing.uid
@@ -852,6 +896,84 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
            "a MAC-less re-observation must not trigger the distinct-MAC veto"
   end
 
+  # A shared hostname and address are evidence, not identity (#4671): two Armis
+  # ids at one address under one hostname stay two devices, and the pair is
+  # recorded for an operator instead of being merged.
+  test "hostname agreement does not merge two Armis devices at one address", %{actor: actor} do
+    n = System.unique_integer([:positive])
+    ip = benchmark_ip()
+    hostname = "shared-name-#{n}"
+    armis_a = "armis-shared-a-#{n}"
+    armis_b = "armis-shared-b-#{n}"
+
+    update = fn armis_id ->
+      %{
+        "hostname" => hostname,
+        "source" => "armis",
+        "ip" => ip,
+        "metadata" => %{"integration_type" => "armis", "armis_device_id" => armis_id}
+      }
+    end
+
+    assert :ok = SyncIngestor.ingest_updates([update.(armis_a)], actor: actor)
+    uid_a = device_for_armis_id(armis_a, actor)
+    assert is_binary(uid_a)
+
+    assert :ok = SyncIngestor.ingest_updates([update.(armis_b)], actor: actor)
+    uid_b = device_for_armis_id(armis_b, actor)
+
+    assert is_binary(uid_b)
+    assert uid_a != uid_b
+    assert device_for_armis_id(armis_a, actor) == uid_a
+    assert_hostname_pair_recorded(uid_a, uid_b, ip, actor)
+  end
+
+  # One source-authoritative identifier is enough (#4671): a record without one
+  # is not adopted onto a holder that holds an Armis id, even when their
+  # hostnames agree.
+  test "hostname agreement does not adopt a holder that holds an Armis id", %{actor: actor} do
+    n = System.unique_integer([:positive])
+    ip = benchmark_ip()
+    hostname = "armis-held-#{n}"
+    armis_id = "armis-held-#{n}"
+    netbox_id = "netbox:source-a:device:armis-held-#{n}"
+
+    assert :ok =
+             SyncIngestor.ingest_updates(
+               [
+                 %{
+                   "hostname" => hostname,
+                   "source" => "armis",
+                   "ip" => ip,
+                   "metadata" => %{"integration_type" => "armis", "armis_device_id" => armis_id}
+                 }
+               ],
+               actor: actor
+             )
+
+    holder = device_for_armis_id(armis_id, actor)
+    assert is_binary(holder)
+
+    assert :ok =
+             SyncIngestor.ingest_updates(
+               [
+                 %{
+                   "hostname" => hostname,
+                   "source" => "netbox",
+                   "ip" => ip,
+                   "metadata" => %{"integration_type" => "netbox", "integration_id" => netbox_id}
+                 }
+               ],
+               actor: actor
+             )
+
+    incoming = device_for_integration_id(netbox_id, actor)
+    assert is_binary(incoming)
+    assert incoming != holder, "the NetBox record was adopted onto the Armis holder"
+    assert device_for_armis_id(armis_id, actor) == holder
+    assert_hostname_pair_recorded(holder, incoming, ip, actor)
+  end
+
   test "a new typed Armis ID does not adopt another device's historical MAC", %{actor: actor} do
     armis_a = "armis-history-a-#{System.unique_integer([:positive])}"
     armis_b = "armis-history-b-#{System.unique_integer([:positive])}"
@@ -1036,6 +1158,794 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
 
     assert deleted_at
   end
+
+  # #4611: an Armis id decides identity. A second Armis device reporting a MAC that a record
+  # holding a different Armis id owns (cloned VMs, a swapped NIC) gets its own record, the MAC
+  # stays with its owner, and the override is recorded for review.
+  describe "source-authoritative override of a shared MAC" do
+    test "the batch path gives the second Armis id its own record and records it", %{
+      actor: actor
+    } do
+      n = System.unique_integer([:positive])
+      mac = "00:00:5E:00:53:#{hex2(rem(n, 200) + 16)}"
+      armis_a = "#{n}01"
+      armis_b = "#{n}02"
+
+      assert :ok =
+               SyncIngestor.ingest_updates([armis_update(armis_a, doc_ip(n, 1), mac)],
+                 actor: actor
+               )
+
+      device_a = device_for_armis_id(armis_a, actor)
+      assert is_binary(device_a)
+
+      for _sync <- 1..2 do
+        assert :ok =
+                 SyncIngestor.ingest_updates([armis_update(armis_b, doc_ip(n, 2), mac)],
+                   actor: actor
+                 )
+      end
+
+      device_b = device_for_armis_id(armis_b, actor)
+      assert is_binary(device_b)
+      assert device_b != device_a
+      assert device_for_armis_id(armis_a, actor) == device_a
+      assert device_for_mac(mac_value(mac), actor) == device_a
+
+      assert [conflict] = override_conflicts(device_b, actor)
+      assert conflict.source_identifier_value == armis_b
+      assert conflict.conflicting_identifiers["overridden_device_uids"] == [device_a]
+      assert conflict.status == "open"
+    end
+
+    test "the resolver path refuses the shared MAC and records it", %{actor: actor} do
+      n = System.unique_integer([:positive])
+      mac = "00:00:5E:00:53:#{hex2(rem(n, 200) + 16)}"
+      armis_a = "#{n}01"
+      armis_b = "#{n}02"
+
+      assert :ok =
+               SyncIngestor.ingest_updates([armis_update(armis_a, doc_ip(n, 1), mac)],
+                 actor: actor
+               )
+
+      device_a = device_for_armis_id(armis_a, actor)
+
+      update = %{
+        device_id: nil,
+        ip: doc_ip(n, 2),
+        mac: mac,
+        partition: "default",
+        metadata: %{"integration_type" => "armis", "armis_device_id" => armis_b}
+      }
+
+      assert {:ok, resolved} = IdentityReconciler.resolve_device_id(update, actor: actor)
+      assert resolved != device_a
+      assert [conflict] = override_conflicts(resolved, actor)
+      assert conflict.conflicting_identifiers["overridden_device_uids"] == [device_a]
+    end
+
+    test "a NetBox id does not attach through a shared MAC to a different NetBox id", %{
+      actor: actor
+    } do
+      n = System.unique_integer([:positive])
+      mac = "00:00:5E:00:53:#{hex2(rem(n, 200) + 16)}"
+      netbox_a = "nb-#{n}-a"
+      netbox_b = "nb-#{n}-b"
+
+      update = fn id, ip ->
+        %{
+          "ip" => ip,
+          "mac" => mac,
+          "hostname" => "netbox-#{id}",
+          "source" => "netbox",
+          "metadata" => %{"integration_type" => "netbox", "netbox_device_id" => id}
+        }
+      end
+
+      assert :ok =
+               SyncIngestor.ingest_updates([update.(netbox_a, doc_ip(n, 1))], actor: actor)
+
+      uid_a = device_for_typed_id(:netbox_device_id, netbox_a, actor)
+      assert is_binary(uid_a)
+
+      assert :ok =
+               SyncIngestor.ingest_updates([update.(netbox_b, doc_ip(n, 2))], actor: actor)
+
+      uid_b = device_for_typed_id(:netbox_device_id, netbox_b, actor)
+      assert is_binary(uid_b)
+      assert uid_a != uid_b
+      assert device_for_typed_id(:netbox_device_id, netbox_a, actor) == uid_a
+    end
+
+    test "an Armis id still attaches to a record holding no Armis id through its MAC", %{
+      actor: actor
+    } do
+      n = System.unique_integer([:positive])
+      mac = "00:00:5E:00:53:#{hex2(rem(n, 200) + 16)}"
+      armis_id = "#{n}03"
+
+      census = %{
+        "ip" => doc_ip(n, 3),
+        "mac" => mac,
+        "source" => "netprobe-census",
+        "partition" => "default",
+        "agent_id" => "batch-resolution-observer",
+        "metadata" => %{
+          "mac" => mac,
+          "source" => "netprobe-census",
+          "discovery_source" => "netprobe-census",
+          "identity_source" => "netprobe_census",
+          "agent_id" => "batch-resolution-observer"
+        }
+      }
+
+      assert :ok = SyncIngestor.ingest_updates([census], actor: actor)
+      discovered = device_for_mac(mac_value(mac), actor)
+      assert is_binary(discovered)
+
+      assert :ok =
+               SyncIngestor.ingest_updates([armis_update(armis_id, doc_ip(n, 3), mac)],
+                 actor: actor
+               )
+
+      assert device_for_armis_id(armis_id, actor) == discovered
+      assert override_conflicts(discovered, actor) == []
+    end
+
+    test "two Armis ids sharing a MAC in one batch never land on one record", %{actor: actor} do
+      n = System.unique_integer([:positive])
+      mac = "00:00:5E:00:53:#{hex2(rem(n, 200) + 16)}"
+      armis_a = "#{n}04"
+      armis_b = "#{n}05"
+
+      census = %{
+        "ip" => doc_ip(n, 4),
+        "mac" => mac,
+        "source" => "netprobe-census",
+        "partition" => "default",
+        "agent_id" => "batch-resolution-observer",
+        "metadata" => %{
+          "mac" => mac,
+          "source" => "netprobe-census",
+          "discovery_source" => "netprobe-census",
+          "identity_source" => "netprobe_census",
+          "agent_id" => "batch-resolution-observer"
+        }
+      }
+
+      assert :ok = SyncIngestor.ingest_updates([census], actor: actor)
+      discovered = device_for_mac(mac_value(mac), actor)
+      assert is_binary(discovered)
+
+      assert :ok =
+               SyncIngestor.ingest_updates(
+                 [
+                   armis_update(armis_a, doc_ip(n, 4), mac),
+                   armis_update(armis_b, doc_ip(n, 5), mac)
+                 ],
+                 actor: actor
+               )
+
+      device_a = device_for_armis_id(armis_a, actor)
+      device_b = device_for_armis_id(armis_b, actor)
+
+      assert device_a == discovered
+      assert is_binary(device_b)
+      assert device_b != device_a
+      assert device_for_mac(mac_value(mac), actor) == discovered
+
+      assert [conflict] = override_conflicts(device_b, actor)
+      assert conflict.source_identifier_value == armis_b
+      assert conflict.conflicting_identifiers["overridden_device_uids"] == [discovered]
+    end
+
+    test "the batch path does not merge a discovered record with an Armis record on a sibling MAC",
+         %{actor: actor} do
+      %{discovered: discovered, armis_holder: holder, mac: mac, incoming: incoming} =
+        sibling_split(actor)
+
+      assert :ok =
+               SyncIngestor.ingest_updates([armis_update(incoming, doc_ip(1, 4), mac)],
+                 actor: actor
+               )
+
+      assert_sibling_split_kept(actor, discovered, holder, incoming)
+    end
+
+    test "the resolver path does not merge a discovered record with an Armis record on a sibling MAC",
+         %{actor: actor} do
+      %{discovered: discovered, armis_holder: holder, mac: mac, incoming: incoming} =
+        sibling_split(actor)
+
+      update = %{
+        device_id: nil,
+        ip: doc_ip(1, 4),
+        mac: mac,
+        partition: "default",
+        metadata: %{"integration_type" => "armis", "armis_device_id" => incoming}
+      }
+
+      assert {:ok, resolved} = IdentityReconciler.resolve_device_id(update, actor: actor)
+      assert resolved == discovered.uid
+      assert {:ok, %Device{deleted_at: nil}} = Device.get_by_uid(holder.uid, true, actor: actor)
+      assert [conflict] = override_conflicts(discovered.uid, actor)
+      assert conflict.conflicting_identifiers["overridden_device_uids"] == [holder.uid]
+    end
+  end
+
+  describe "source-authoritative override of a sibling-only MAC" do
+    test "the resolver path records the refused sibling holder", %{actor: actor} do
+      n = System.unique_integer([:positive])
+      suffix = hex2(rem(n, 200) + 16)
+      sibling = "02:00:5E:00:53:#{suffix}"
+      holder = create_device(actor, doc_ip(n, 5), sibling)
+
+      register_identifier(actor, holder.uid, :mac, mac_value(sibling))
+      register_identifier(actor, holder.uid, :armis_device_id, "#{n}02")
+
+      update = %{
+        device_id: nil,
+        ip: doc_ip(n, 4),
+        mac: "00:00:5E:00:53:#{suffix}",
+        partition: "default",
+        metadata: %{"integration_type" => "armis", "armis_device_id" => "#{n}01"}
+      }
+
+      assert {:ok, resolved} = IdentityReconciler.resolve_device_id(update, actor: actor)
+      assert resolved != holder.uid
+      assert [conflict] = override_conflicts(resolved, actor)
+      assert conflict.conflicting_identifiers["overridden_device_uids"] == [holder.uid]
+
+      assert {:ok, decisions} = IdentityDecision.for_device(resolved, actor: actor)
+
+      assert Enum.any?(decisions, fn decision ->
+               decision.decision_kind == :source_override and resolved in decision.device_uids and
+                 holder.uid in decision.device_uids
+             end)
+    end
+  end
+
+  # #4718: the NetBox device id governs identity exactly as the Armis id does. A second NetBox
+  # device reporting a MAC a record holding a different NetBox id owns gets its own record, and
+  # the override is recorded for review.
+  describe "NetBox source-authoritative override of a shared MAC" do
+    test "the batch path gives the second NetBox id its own record and records it", %{
+      actor: actor
+    } do
+      n = System.unique_integer([:positive])
+      mac = "00:00:5E:00:53:#{hex2(rem(n, 200) + 16)}"
+      netbox_a = netbox_id(n, 1)
+      netbox_b = netbox_id(n, 2)
+
+      assert :ok =
+               SyncIngestor.ingest_updates([netbox_update(netbox_a, benchmark_ip(), mac)],
+                 actor: actor
+               )
+
+      device_a = device_for_netbox_id(netbox_a, actor)
+      assert is_binary(device_a)
+
+      for _sync <- 1..2 do
+        assert :ok =
+                 SyncIngestor.ingest_updates([netbox_update(netbox_b, benchmark_ip(), mac)],
+                   actor: actor
+                 )
+      end
+
+      device_b = device_for_netbox_id(netbox_b, actor)
+      assert is_binary(device_b)
+      assert device_b != device_a
+      assert device_for_netbox_id(netbox_a, actor) == device_a
+      assert device_for_mac(mac_value(mac), actor) == device_a
+
+      assert [conflict] = override_conflicts(device_b, actor)
+      assert conflict.source_type == "netbox"
+      assert conflict.source_identifier_type == "netbox_device_id"
+      assert conflict.source_identifier_value == netbox_b
+      assert conflict.conflicting_identifiers["overridden_device_uids"] == [device_a]
+      assert_source_override_recorded(device_b, device_a, actor)
+    end
+
+    test "the resolver path refuses the shared MAC and records it", %{actor: actor} do
+      n = System.unique_integer([:positive])
+      mac = "00:00:5E:00:53:#{hex2(rem(n, 200) + 16)}"
+      netbox_a = netbox_id(n, 1)
+      netbox_b = netbox_id(n, 2)
+
+      assert :ok =
+               SyncIngestor.ingest_updates([netbox_update(netbox_a, benchmark_ip(), mac)],
+                 actor: actor
+               )
+
+      device_a = device_for_netbox_id(netbox_a, actor)
+
+      update = %{
+        device_id: nil,
+        ip: benchmark_ip(),
+        mac: mac,
+        partition: "default",
+        metadata: %{"integration_type" => "netbox", "netbox_device_id" => netbox_b}
+      }
+
+      assert {:ok, resolved} = IdentityReconciler.resolve_device_id(update, actor: actor)
+      assert resolved != device_a
+      assert [conflict] = override_conflicts(resolved, actor)
+      assert conflict.conflicting_identifiers["overridden_device_uids"] == [device_a]
+      assert_source_override_recorded(resolved, device_a, actor)
+    end
+
+    test "two NetBox ids sharing a MAC in one batch never land on one record", %{actor: actor} do
+      n = System.unique_integer([:positive])
+      mac = "00:00:5E:00:53:#{hex2(rem(n, 200) + 16)}"
+      netbox_a = netbox_id(n, 1)
+      netbox_b = netbox_id(n, 2)
+      ip = benchmark_ip()
+
+      census = %{
+        "ip" => ip,
+        "mac" => mac,
+        "source" => "netprobe-census",
+        "partition" => "default",
+        "agent_id" => "batch-resolution-observer",
+        "metadata" => %{
+          "mac" => mac,
+          "source" => "netprobe-census",
+          "discovery_source" => "netprobe-census",
+          "identity_source" => "netprobe_census",
+          "agent_id" => "batch-resolution-observer"
+        }
+      }
+
+      assert :ok = SyncIngestor.ingest_updates([census], actor: actor)
+      discovered = device_for_mac(mac_value(mac), actor)
+      assert is_binary(discovered)
+
+      assert :ok =
+               SyncIngestor.ingest_updates(
+                 [
+                   netbox_update(netbox_a, ip, mac),
+                   netbox_update(netbox_b, benchmark_ip(), mac)
+                 ],
+                 actor: actor
+               )
+
+      device_a = device_for_netbox_id(netbox_a, actor)
+      device_b = device_for_netbox_id(netbox_b, actor)
+
+      assert device_a == discovered
+      assert is_binary(device_b)
+      assert device_b != device_a
+
+      assert [conflict] = override_conflicts(device_b, actor)
+      assert conflict.source_identifier_value == netbox_b
+      assert conflict.conflicting_identifiers["overridden_device_uids"] == [discovered]
+    end
+
+    test "a NetBox id still attaches to a record holding only an Armis id through its MAC", %{
+      actor: actor
+    } do
+      # Different source-authoritative types never refuse each other: an Armis record and a
+      # NetBox record of one device are one device.
+      n = System.unique_integer([:positive])
+      mac = "00:00:5E:00:53:#{hex2(rem(n, 200) + 16)}"
+      armis_id = "#{n}06"
+      netbox = netbox_id(n, 3)
+
+      assert :ok =
+               SyncIngestor.ingest_updates([armis_update(armis_id, benchmark_ip(), mac)],
+                 actor: actor
+               )
+
+      armis_device = device_for_armis_id(armis_id, actor)
+      assert is_binary(armis_device)
+
+      assert :ok =
+               SyncIngestor.ingest_updates([netbox_update(netbox, benchmark_ip(), mac)],
+                 actor: actor
+               )
+
+      assert device_for_netbox_id(netbox, actor) == armis_device
+      assert override_conflicts(armis_device, actor) == []
+    end
+  end
+
+  # An integration id is not source-authoritative on its own: providers do not mint it stably
+  # per device. A virtualization guest whose provider id changed when it moved between hosts is
+  # still the same device, and re-attaches through its MAC instead of being refused.
+  test "a changed integration id never vetoes a MAC match", %{actor: actor} do
+    n = System.unique_integer([:positive])
+    mac = "00:00:5E:00:53:#{hex2(rem(n, 200) + 16)}"
+    ip = benchmark_ip()
+
+    assert :ok =
+             SyncIngestor.ingest_updates([guest_update("host-a", n, ip, mac)], actor: actor)
+
+    guest = device_for_mac(mac_value(mac), actor)
+    assert is_binary(guest)
+
+    assert :ok =
+             SyncIngestor.ingest_updates([guest_update("host-b", n, ip, mac)], actor: actor)
+
+    assert device_for_mac(mac_value(mac), actor) == guest
+    assert device_for_integration_id(guest_integration_id("host-b", n), actor) == guest
+    assert override_conflicts(guest, actor) == []
+  end
+
+  # A host-scoped guest id, the shape a hypervisor inventory mints when it has no cluster scope.
+  defp guest_integration_id(host, n), do: "virt-inventory:guest:#{host}:#{n}"
+
+  defp guest_update(host, n, ip, mac) do
+    %{
+      "ip" => ip,
+      "mac" => mac,
+      "hostname" => "guest-#{n}",
+      "source" => "virt-inventory",
+      "metadata" => %{
+        "integration_type" => "virt-inventory",
+        "integration_id" => guest_integration_id(host, n)
+      }
+    }
+  end
+
+  # NetBox device ids carry their source (`<source>:<id>`), like the NetBox plugin emits.
+  defp netbox_id(n, i), do: "batch-resolution-#{n}:#{i}"
+
+  defp netbox_update(netbox_id, ip, mac) do
+    [source, id] = String.split(netbox_id, ":", parts: 2)
+
+    %{
+      "ip" => ip,
+      "mac" => mac,
+      "hostname" => "netbox-#{String.replace(netbox_id, ":", "-")}",
+      "source" => "netbox",
+      "metadata" => %{
+        "integration_type" => "netbox",
+        "netbox_device_id" => netbox_id,
+        "integration_id" => "netbox:#{source}:device:#{id}"
+      }
+    }
+  end
+
+  defp device_for_netbox_id(netbox_id, actor) do
+    query =
+      Ash.Query.for_read(DeviceIdentifier, :lookup, %{
+        identifier_type: :netbox_device_id,
+        identifier_value: netbox_id,
+        partition: "default"
+      })
+
+    case Ash.read(query, actor: actor) do
+      {:ok, [identifier | _]} -> identifier.device_id
+      _ -> nil
+    end
+  end
+
+  defp assert_source_override_recorded(resolved, overridden, actor) do
+    {:ok, decisions} = IdentityDecision.for_device(resolved, actor: actor)
+
+    assert Enum.any?(decisions, fn decision ->
+             decision.decision_kind == :source_override and resolved in decision.device_uids and
+               overridden in decision.device_uids
+           end),
+           "no source_override decision names both devices"
+  end
+
+  # A discovered record (no Armis id) owns a MAC; a record holding a different Armis id owns
+  # that MAC's LAA/UAA hardware sibling.
+  defp sibling_split(actor) do
+    n = System.unique_integer([:positive])
+    suffix = hex2(rem(n, 200) + 16)
+    mac = "00:00:5E:00:53:#{suffix}"
+    sibling = "02:00:5E:00:53:#{suffix}"
+    holder_armis = "#{n}02"
+
+    discovered = create_device(actor, doc_ip(n, 3), mac)
+    holder = create_device(actor, doc_ip(n, 5), sibling)
+
+    register_identifier(actor, discovered.uid, :mac, mac_value(mac))
+    register_identifier(actor, holder.uid, :mac, mac_value(sibling))
+    register_identifier(actor, holder.uid, :armis_device_id, holder_armis)
+
+    %{discovered: discovered, armis_holder: holder, mac: mac, incoming: "#{n}01"}
+  end
+
+  defp create_device(actor, ip, mac) do
+    {:ok, device} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{
+        uid: "sr:" <> Ecto.UUID.generate(),
+        ip: ip,
+        mac: mac
+      })
+      |> Ash.create(actor: actor)
+
+    device
+  end
+
+  defp register_identifier(actor, device_id, type, value) do
+    assert {:ok, _} =
+             DeviceIdentifier
+             |> Ash.Changeset.for_create(:register, %{
+               device_id: device_id,
+               identifier_type: type,
+               identifier_value: value,
+               partition: "default",
+               confidence: :strong,
+               source: "test"
+             })
+             |> Ash.create(actor: actor)
+  end
+
+  defp assert_sibling_split_kept(actor, discovered, holder, incoming) do
+    assert {:ok, %Device{deleted_at: nil}} = Device.get_by_uid(holder.uid, true, actor: actor)
+    assert {:ok, %Device{deleted_at: nil}} = Device.get_by_uid(discovered.uid, true, actor: actor)
+    assert device_for_armis_id(incoming, actor) == discovered.uid
+    assert [conflict] = override_conflicts(discovered.uid, actor)
+    assert conflict.conflicting_identifiers["overridden_device_uids"] == [holder.uid]
+  end
+
+  defp armis_update(armis_id, ip, mac) do
+    %{
+      "ip" => ip,
+      "mac" => mac,
+      "hostname" => "armis-#{armis_id}",
+      "source" => "armis",
+      "metadata" => %{
+        "integration_type" => "armis",
+        "armis_device_id" => armis_id,
+        "integration_id" => "armis:batch-resolution:device:#{armis_id}"
+      }
+    }
+  end
+
+  # #4639: the address follows the device observed at it. An Armis sync observed at an
+  # address a stale record still holds takes it; the holder releases it and stays live, and the
+  # decision is recorded. (A declarative inventory's address does not move: see "IP conflict
+  # drops IP from strong-identified record instead of remapping" above.)
+  describe "a randomized MAC seen by the census" do
+    # #4760: a locally administered MAC never identifies a device. The census neither looks it
+    # up nor registers it, and it no longer seeds the uid either, so each sighting is
+    # address-only: one phone sighted at two addresses is two records named by their
+    # addresses, and none carries the uid its MAC would derive.
+    test "sightings at two addresses are two address-only records", %{actor: actor} do
+      mac = local_mac()
+      ip_a = benchmark_ip()
+      ip_b = benchmark_ip()
+
+      assert :ok = SyncIngestor.ingest_updates([census_update(mac, ip_a)], actor: actor)
+      assert :ok = SyncIngestor.ingest_updates([census_update(mac, ip_b)], actor: actor)
+
+      assert [%Device{uid: uid_a}] = live_devices_at(ip_a, actor)
+      assert [%Device{uid: uid_b}] = live_devices_at(ip_b, actor)
+      refute uid_a == uid_b
+
+      assert uid_a == address_uid(ip_a)
+      assert uid_b == address_uid(ip_b)
+
+      mac_seeded =
+        IdentityReconciler.generate_deterministic_device_id(%{mac: mac, partition: "default"})
+
+      refute mac_seeded in [uid_a, uid_b]
+      assert device_for_mac(mac, actor) == nil
+    end
+  end
+
+  defp census_update(mac, ip) do
+    %{
+      "ip" => ip,
+      "mac" => mac,
+      "source" => "netprobe-census",
+      "partition" => "default",
+      "agent_id" => "batch-resolution-observer",
+      "metadata" => %{
+        "mac" => mac,
+        "source" => "netprobe-census",
+        "discovery_source" => "netprobe-census",
+        "identity_source" => "netprobe_census",
+        "agent_id" => "batch-resolution-observer"
+      }
+    }
+  end
+
+  defp live_devices_at(ip, actor) do
+    {:ok, devices} =
+      Device
+      |> Ash.Query.filter(ip == ^ip and is_nil(deleted_at))
+      |> Ash.read(actor: actor)
+      |> Page.unwrap()
+
+    devices
+  end
+
+  defp address_uid(ip),
+    do: IdentityReconciler.generate_deterministic_device_id(%{ip: ip, partition: "default"})
+
+  describe "an observed address moves to the device seen at it" do
+    test "an Armis sync takes the IP from a stale holder, which stays live", %{actor: actor} do
+      n = System.unique_integer([:positive])
+      ip = observed_ip(n)
+      holder_uid = "sr:" <> Ecto.UUID.generate()
+
+      {:ok, _holder} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: holder_uid,
+            ip: ip,
+            hostname: "stale-holder-#{n}",
+            mac: "00:00:5E:00:53:01",
+            last_seen_time: DateTime.add(DateTime.utc_now(), -3600, :second)
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      armis_id = "#{n}07"
+      assert :ok = SyncIngestor.ingest_updates([armis_ip_update(armis_id, ip)], actor: actor)
+
+      claimer_uid = device_for_armis_id(armis_id, actor)
+      assert is_binary(claimer_uid)
+      assert claimer_uid != holder_uid
+
+      {:ok, claimer_row} = Device.get_by_uid(claimer_uid, false, actor: actor)
+      assert claimer_row.ip == ip
+
+      {:ok, %Device{deleted_at: nil} = holder_row} =
+        Device.get_by_uid(holder_uid, false, actor: actor)
+
+      assert holder_row.ip in [nil, ""]
+
+      assert [conflict] =
+               SourceIdentityConflict
+               |> Ash.Query.filter(
+                 conflict_category == "active_ip_conflict" and device_uid == ^claimer_uid
+               )
+               |> Ash.read!(actor: actor)
+
+      assert conflict.current_ip == ip
+      assert conflict.proposed_action == "preserve_source_identity_release_stale_ip"
+      assert conflict.conflicting_identifiers["existing_device_uid"] == holder_uid
+    end
+
+    test "an older Armis observation does not take the IP from a newer holder", %{actor: actor} do
+      n = System.unique_integer([:positive])
+      ip = observed_ip(n)
+      holder_uid = "sr:" <> Ecto.UUID.generate()
+
+      {:ok, _holder} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: holder_uid,
+            ip: ip,
+            hostname: "live-holder-#{n}",
+            mac: "00:00:5E:00:53:02",
+            last_seen_time: DateTime.utc_now()
+          },
+          actor: actor
+        )
+        |> Ash.create(actor: actor)
+
+      armis_id = "#{n}13"
+
+      last_seen = DateTime.add(DateTime.utc_now(), -3600, :second)
+
+      offline_update =
+        armis_id
+        |> armis_ip_update(ip)
+        |> Map.put("last_seen_time", DateTime.to_iso8601(last_seen))
+
+      assert :ok = SyncIngestor.ingest_updates([offline_update], actor: actor)
+
+      armis_uid = device_for_armis_id(armis_id, actor)
+      assert is_binary(armis_uid)
+      assert armis_uid != holder_uid
+
+      {:ok, armis_row} = Device.get_by_uid(armis_uid, false, actor: actor)
+      refute armis_row.ip == ip
+
+      {:ok, %Device{deleted_at: nil} = holder_row} =
+        Device.get_by_uid(holder_uid, false, actor: actor)
+
+      assert holder_row.ip == ip
+
+      assert [conflict] =
+               SourceIdentityConflict
+               |> Ash.Query.filter(
+                 conflict_category == "active_ip_conflict" and device_uid == ^armis_uid
+               )
+               |> Ash.read!(actor: actor)
+
+      assert conflict.current_ip == ip
+      assert conflict.proposed_action == "preserve_source_identity_drop_conflicting_ip"
+      assert conflict.conflicting_identifiers["existing_device_uid"] == holder_uid
+    end
+
+    test "a holder re-observed at its IP in the same batch keeps it", %{actor: actor} do
+      n = System.unique_integer([:positive])
+      ip = observed_ip(n)
+      holder_id = "#{n}08"
+      claimer_id = "#{n}09"
+
+      assert :ok = SyncIngestor.ingest_updates([armis_ip_update(holder_id, ip)], actor: actor)
+
+      assert :ok =
+               SyncIngestor.ingest_updates(
+                 [armis_ip_update(holder_id, ip), armis_ip_update(claimer_id, ip)],
+                 actor: actor
+               )
+
+      {:ok, holder_row} =
+        Device.get_by_uid(device_for_armis_id(holder_id, actor), false, actor: actor)
+
+      {:ok, claimer_row} =
+        Device.get_by_uid(device_for_armis_id(claimer_id, actor), false, actor: actor)
+
+      assert holder_row.ip == ip
+      refute claimer_row.ip == ip
+    end
+
+    test "two new records at a stale holder's IP in one batch both drop it", %{actor: actor} do
+      n = System.unique_integer([:positive])
+      ip = observed_ip(n)
+      holder_id = "#{n}10"
+      first_id = "#{n}11"
+      second_id = "#{n}12"
+
+      assert :ok = SyncIngestor.ingest_updates([armis_ip_update(holder_id, ip)], actor: actor)
+
+      assert :ok =
+               SyncIngestor.ingest_updates(
+                 [armis_ip_update(first_id, ip), armis_ip_update(second_id, ip)],
+                 actor: actor
+               )
+
+      {:ok, holder_row} =
+        Device.get_by_uid(device_for_armis_id(holder_id, actor), false, actor: actor)
+
+      {:ok, first_row} =
+        Device.get_by_uid(device_for_armis_id(first_id, actor), false, actor: actor)
+
+      {:ok, second_row} =
+        Device.get_by_uid(device_for_armis_id(second_id, actor), false, actor: actor)
+
+      assert holder_row.ip == ip
+      refute first_row.ip == ip
+      refute second_row.ip == ip
+    end
+  end
+
+  defp armis_ip_update(armis_id, ip) do
+    %{
+      "ip" => ip,
+      "hostname" => "armis-#{armis_id}",
+      "source" => "armis",
+      "metadata" => %{
+        "integration_type" => "armis",
+        "armis_device_id" => armis_id,
+        "integration_id" => "armis:batch-resolution:device:#{armis_id}"
+      }
+    }
+  end
+
+  defp override_conflicts(device_uid, actor) do
+    SourceIdentityConflict
+    |> Ash.Query.filter(
+      conflict_category == "source_authoritative_override" and device_uid == ^device_uid
+    )
+    |> Ash.read!(actor: actor)
+  end
+
+  defp doc_ip(n, i), do: "198.51.100.#{rem(n * 3 + i, 250) + 1}"
+
+  defp mac_value(mac), do: mac |> String.replace(":", "") |> String.upcase()
+
+  defp hex2(n), do: n |> Integer.to_string(16) |> String.pad_leading(2, "0")
+
+  defp observed_ip(n), do: "203.0.113.#{rem(n, 250) + 1}"
 
   defp device_for_mac(mac, actor) do
     query =

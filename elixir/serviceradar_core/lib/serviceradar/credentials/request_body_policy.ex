@@ -80,15 +80,6 @@ defmodule ServiceRadar.Credentials.RequestBodyPolicy do
   @doc "Return the callback credential host rewrite handler identifier."
   def callback_rewrite_handler, do: @callback_rewrite_handler
 
-  @doc "Validate a policy without casting it through an Ash action."
-  @spec validate(term()) :: :ok | {:error, atom()}
-  def validate(value) do
-    case normalize(value) do
-      {:ok, _policy} -> :ok
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
   @doc "Normalize a policy to its exact string-keyed wire representation."
   @spec normalize(term()) :: {:ok, t()} | {:error, atom()}
   def normalize(value) when is_map(value) and map_size(value) == 0, do: {:ok, %{}}

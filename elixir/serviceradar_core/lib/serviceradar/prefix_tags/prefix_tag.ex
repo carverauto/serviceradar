@@ -19,6 +19,12 @@ defmodule ServiceRadar.PrefixTags.PrefixTag do
   alias ServiceRadar.Types.Cidr
   alias ServiceRadar.Types.Jsonb
 
+  # Ash requires a positive integer, so "no ceiling" is spelled as a number larger
+  # than any real result set. Declaring it is the only escape from Ash's default of
+  # 250, which silently clamps a larger requested page and calls it complete. Not a
+  # capacity limit; raise it rather than truncating if anything nears it.
+  @unbounded_page_size 1_000_000_000
+
   @manage_check {ServiceRadar.Policies.Checks.ActorHasPermission,
                  permission: "settings.prefix_tags.manage"}
 
@@ -90,14 +96,22 @@ defmodule ServiceRadar.PrefixTags.PrefixTag do
     read :by_snapshot do
       argument :snapshot_id, :uuid, allow_nil?: false
       filter expr(snapshot_id == ^arg(:snapshot_id))
-      pagination keyset?: true, default_limit: 500
+      # max_page_size exists only to escape Ash's default of 250, which silently
+      # clamps larger requested pages and then reports them as complete. It is not
+      # a ceiling on what may be read.
+      pagination keyset?: true, default_limit: 250, max_page_size: @unbounded_page_size
     end
 
     read :list_active do
       description "All prefix tags belonging to currently active snapshots"
       prepare build(load: [:snapshot])
       filter expr(snapshot.is_active == true)
-      pagination keyset?: true, default_limit: 1000
+
+      # "All" is the intent and nothing here caps it: a caller may request any page
+      # size and follow the cursor, or use :list_active_for_rebuild, which is
+      # deliberately unpaginated. default_limit is only the page used when no
+      # preference is expressed.
+      pagination keyset?: true, default_limit: 250, max_page_size: @unbounded_page_size
     end
 
     read :list_active_for_rebuild do

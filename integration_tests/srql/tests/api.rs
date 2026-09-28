@@ -13,7 +13,6 @@ async fn srql_api_queries() {
         check_mtr_traces_query_contract(&harness).await;
         check_devices_inventory_query_matches_fixture(&harness).await;
         check_invalid_field_returns_400(&harness).await;
-        check_missing_api_key_returns_401(&harness).await;
         check_device_graph_query_returns_neighborhood(&harness).await;
         check_device_graph_query_rejects_invalid_device_id(&harness).await;
         check_timeseries_metrics_query_returns_rows(&harness).await;
@@ -35,6 +34,7 @@ async fn query_ok(harness: &SrqlTestHarness, query: &str) -> serde_json::Value {
             cursor: None,
             direction: QueryDirection::Next,
             mode: None,
+            permitted_signals: None,
         })
         .await;
     let (status, body) = read_json(response).await;
@@ -69,7 +69,7 @@ async fn check_mtr_traces_query_contract(harness: &SrqlTestHarness) {
     let row = filtered_rows[0]
         .as_object()
         .unwrap_or_else(|| panic!("MTR result must be an object: {filtered_body}"));
-    let expected_columns = [
+    let expected_columns: Vec<&str> = [
         "id",
         "time",
         "agent_id",
@@ -87,15 +87,18 @@ async fn check_mtr_traces_query_contract(harness: &SrqlTestHarness) {
         "partition",
         "error",
         "created_at",
-    ];
+    ]
+    .into_iter()
+    .chain(MTR_HANDSHAKE_COLUMNS)
+    .collect();
     assert_eq!(
         row.len(),
         expected_columns.len(),
         "MTR rows must serialize the authoritative table shape: {filtered_body}"
     );
-    for column in expected_columns {
+    for column in &expected_columns {
         assert!(
-            row.contains_key(column),
+            row.contains_key(*column),
             "MTR result is missing '{column}': {filtered_body}"
         );
     }
@@ -116,6 +119,13 @@ async fn check_mtr_traces_query_contract(harness: &SrqlTestHarness) {
     assert_eq!(row["partition"], "partition-mtr-a");
     assert_eq!(row["error"], "destination timeout");
     assert!(row["created_at"].is_string(), "{filtered_body}");
+    // An ICMP trace reports no handshake: every handshake column is NULL.
+    for column in MTR_HANDSHAKE_COLUMNS {
+        assert!(
+            row[column].is_null(),
+            "'{column}' must be null on a trace without a handshake: {filtered_body}"
+        );
+    }
 
     // Each advertised filter must independently narrow the fixture. A combined-only
     // assertion could still pass if one predicate were accidentally omitted.
@@ -216,6 +226,7 @@ async fn check_mtr_traces_query_contract(harness: &SrqlTestHarness) {
                 cursor,
                 direction: QueryDirection::Next,
                 mode: None,
+                permitted_signals: None,
             })
             .await;
         let (status, body) = read_json(response).await;
@@ -246,6 +257,7 @@ async fn check_mtr_traces_query_contract(harness: &SrqlTestHarness) {
             cursor,
             direction: QueryDirection::Next,
             mode: None,
+            permitted_signals: None,
         })
         .await;
     let (exhausted_status, exhausted_body) = read_json(exhausted_response).await;
@@ -279,6 +291,127 @@ async fn check_mtr_traces_query_contract(harness: &SrqlTestHarness) {
             "optional '{column}' must serialize as null: {null_row}"
         );
     }
+
+    check_mtr_traces_handshake_contract(harness).await;
+}
+
+/// TCP SYN handshake columns every `in:mtr_traces` row carries.
+const MTR_HANDSHAKE_COLUMNS: [&str; 15] = [
+    "tcp_handshake_ttl",
+    "tcp_handshake_attempts",
+    "tcp_syn_sent",
+    "tcp_synack_received",
+    "tcp_rst_received",
+    "tcp_syn_unanswered",
+    "tcp_syn_drop_pct",
+    "tcp_syn_retransmits",
+    "tcp_answered_after_retx",
+    "tcp_ack_mismatch",
+    "tcp_synack_duplicates",
+    "tcp_handshake_rtt_min_us",
+    "tcp_handshake_rtt_avg_us",
+    "tcp_handshake_rtt_max_us",
+    "tcp_server_response_us",
+];
+
+async fn check_mtr_traces_handshake_contract(harness: &SrqlTestHarness) {
+    // The three synthetic handshake fixtures sit in their own absolute window.
+    const WINDOW: &str = "time:[2026-06-02T00:00:00Z,2026-06-02T01:00:00Z]";
+    const ANSWERED: &str = "00000000-0000-4000-8000-000000000200";
+    const UNANSWERED: &str = "00000000-0000-4000-8000-000000000201";
+    const NO_HANDSHAKE: &str = "00000000-0000-4000-8000-000000000202";
+
+    let body = query_ok(
+        harness,
+        &format!("in:mtr_traces {WINDOW} sort:time:asc limit:10"),
+    )
+    .await;
+    let rows = body["results"]
+        .as_array()
+        .unwrap_or_else(|| panic!("results must be an array: {body}"));
+    let ids: Vec<_> = rows.iter().map(|row| row["id"].as_str()).collect();
+    assert_eq!(
+        ids,
+        [Some(ANSWERED), Some(UNANSWERED), Some(NO_HANDSHAKE)],
+        "{body}"
+    );
+    assert_eq!(rows[0]["tcp_synack_received"], 3, "{body}");
+    assert_eq!(rows[0]["tcp_syn_drop_pct"].as_f64(), Some(0.0), "{body}");
+    assert_eq!(rows[0]["tcp_handshake_rtt_avg_us"], 1500, "{body}");
+    assert_eq!(rows[1]["tcp_syn_unanswered"], 3, "{body}");
+    assert_eq!(rows[1]["tcp_syn_drop_pct"].as_f64(), Some(100.0), "{body}");
+    assert!(rows[1]["tcp_handshake_rtt_avg_us"].is_null(), "{body}");
+    for column in MTR_HANDSHAKE_COLUMNS {
+        assert!(
+            rows[2][column].is_null(),
+            "'{column}' must be null when no handshake was reported: {body}"
+        );
+    }
+
+    // Equality and ordered comparisons each narrow the fixture; a NULL row fails
+    // every comparison, so the no-handshake trace never matches.
+    let filter_cases: [(&str, &[&str]); 5] = [
+        ("tcp_syn_drop_pct:>0", &[UNANSWERED]),
+        ("tcp_syn_drop_pct:>=0", &[ANSWERED, UNANSWERED]),
+        ("tcp_synack_received:>=3", &[ANSWERED]),
+        ("tcp_handshake_attempts:3", &[ANSWERED, UNANSWERED]),
+        ("tcp_handshake_rtt_avg_us:<2000", &[ANSWERED]),
+    ];
+    for (filter, expected_ids) in filter_cases {
+        let body = query_ok(
+            harness,
+            &format!("in:mtr_traces {filter} {WINDOW} sort:time:asc limit:10"),
+        )
+        .await;
+        let ids: Vec<_> = body["results"]
+            .as_array()
+            .unwrap_or_else(|| panic!("results must be an array for {filter}: {body}"))
+            .iter()
+            .map(|row| row["id"].as_str().expect("MTR row must include an id"))
+            .collect();
+        assert_eq!(
+            ids, expected_ids,
+            "filter {filter} was not enforced: {body}"
+        );
+    }
+
+    // Aggregation skips NULL, and a handshake filter constrains a stats query.
+    let stats_body = query_ok(
+        harness,
+        &format!(
+            r#"in:mtr_traces agent_id:"agent-mtr-handshake" {WINDOW} stats:"avg(tcp_syn_drop_pct) as drop_pct, count() as traces by protocol" limit:10"#
+        ),
+    )
+    .await;
+    let stats_rows = stats_body["results"]
+        .as_array()
+        .unwrap_or_else(|| panic!("stats results must be an array: {stats_body}"));
+    let by_protocol = |protocol: &str| {
+        stats_rows
+            .iter()
+            .find(|row| row["protocol"] == protocol)
+            .unwrap_or_else(|| panic!("missing {protocol} group: {stats_body}"))
+    };
+    assert_eq!(
+        by_protocol("tcp")["drop_pct"].as_f64(),
+        Some(50.0),
+        "{stats_body}"
+    );
+    assert_eq!(by_protocol("tcp")["traces"], 2, "{stats_body}");
+    assert!(by_protocol("icmp")["drop_pct"].is_null(), "{stats_body}");
+
+    let filtered_stats = query_ok(
+        harness,
+        &format!(
+            r#"in:mtr_traces tcp_syn_drop_pct:>0 {WINDOW} stats:"count() as traces by target_ip" limit:10"#
+        ),
+    )
+    .await;
+    assert_eq!(
+        filtered_stats["results"],
+        serde_json::json!([{"traces": 1, "target_ip": "198.51.100.31"}]),
+        "{filtered_stats}"
+    );
 }
 
 async fn check_logs_severity_topn_paginates_by_effective_timestamp(harness: &SrqlTestHarness) {
@@ -300,6 +433,7 @@ async fn check_logs_severity_topn_paginates_by_effective_timestamp(harness: &Srq
                 cursor,
                 direction: QueryDirection::Next,
                 mode: None,
+                permitted_signals: None,
             })
             .await;
         let (status, body) = read_json(response).await;
@@ -339,6 +473,7 @@ async fn check_logs_severity_topn_paginates_by_effective_timestamp(harness: &Srq
             cursor,
             direction: QueryDirection::Next,
             mode: None,
+            permitted_signals: None,
         })
         .await;
     let (exhausted_status, exhausted_body) = read_json(exhausted_response).await;
@@ -355,6 +490,7 @@ async fn check_devices_inventory_query_matches_fixture(harness: &SrqlTestHarness
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = harness.query(request).await;
@@ -403,6 +539,7 @@ async fn check_invalid_field_returns_400(harness: &SrqlTestHarness) {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = harness.query(request).await;
@@ -413,22 +550,6 @@ async fn check_invalid_field_returns_400(harness: &SrqlTestHarness) {
         body["error"],
         serde_json::json!("invalid request: unsupported filter field 'unsupported_field'")
     );
-}
-
-async fn check_missing_api_key_returns_401(harness: &SrqlTestHarness) {
-    let request = QueryRequest {
-        query: "in:devices limit:1".to_string(),
-        limit: None,
-        cursor: None,
-        direction: QueryDirection::Next,
-        mode: None,
-    };
-
-    let response = harness.query_without_api_key(request).await;
-    let (status, body) = read_json(response).await;
-
-    assert_eq!(status, http::StatusCode::UNAUTHORIZED);
-    assert_eq!(body["error"], serde_json::json!("authentication failed"));
 }
 
 async fn check_device_graph_query_returns_neighborhood(harness: &SrqlTestHarness) {
@@ -446,6 +567,7 @@ async fn check_device_graph_query_returns_neighborhood(harness: &SrqlTestHarness
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = harness.query(request).await;
@@ -546,6 +668,7 @@ async fn check_device_graph_query_returns_neighborhood(harness: &SrqlTestHarness
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let filtered_response = harness.query(filtered_request).await;
@@ -580,6 +703,7 @@ async fn check_device_graph_query_rejects_invalid_device_id(harness: &SrqlTestHa
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = harness.query(request).await;
@@ -604,6 +728,7 @@ async fn check_timeseries_metrics_query_returns_rows(harness: &SrqlTestHarness) 
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = harness.query(request).await;
@@ -632,6 +757,7 @@ async fn check_timeseries_other_rollup_returns_tail_row(harness: &SrqlTestHarnes
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = harness.query(request).await;
@@ -658,6 +784,7 @@ async fn check_timeseries_metrics_profile_hour_of_week(harness: &SrqlTestHarness
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = harness.query(request).await;
@@ -718,6 +845,7 @@ async fn check_snmp_metrics_alias_filters_metric_type(harness: &SrqlTestHarness)
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = harness.query(request).await;
@@ -745,6 +873,7 @@ async fn check_virtualization_inventory_queries(harness: &SrqlTestHarness) {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = harness.query(hosts).await;
@@ -766,6 +895,7 @@ async fn check_virtualization_inventory_queries(harness: &SrqlTestHarness) {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = harness.query(guests).await;
@@ -787,6 +917,7 @@ async fn check_virtualization_inventory_queries(harness: &SrqlTestHarness) {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = harness.query(datastores).await;
@@ -807,6 +938,7 @@ async fn check_virtualization_inventory_queries(harness: &SrqlTestHarness) {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = harness.query(guest_nics).await;
@@ -831,6 +963,7 @@ async fn check_virtualization_inventory_queries(harness: &SrqlTestHarness) {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = harness.query(ceph).await;
@@ -849,6 +982,7 @@ async fn check_rperf_metrics_queries_still_work(harness: &SrqlTestHarness) {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = harness.query(request).await;

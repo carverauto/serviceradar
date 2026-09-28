@@ -81,12 +81,32 @@ To default to the dev compose overlay (no `-f`), set `COMPOSE_FILE=docker-compos
    - Email: `root@localhost`
    - Password: (from step 5)
 
+## JetStream sizing profile
+
+NATS JetStream storage is sized by a profile: `small` (the default, 30G),
+`medium` (100G) or `large` (500G). Set `SERVICERADAR_NATS_PROFILE` in `.env`
+to pick one. The profile file, `docker/compose/profiles/<profile>.env`, sets
+NATS `max_file_store` and the size of every stream, KV bucket and object store,
+and is loaded by NATS and every service that creates one. `max_file_store` is a
+reservation ceiling, so the Docker host needs at least that much free disk for
+the `nats-data` volume. To change one size, set its variable in that service's
+`environment` (for example in a `docker-compose.override.yml`); keep the total
+within 85% of `max_file_store`, the budget
+`//go/pkg/nats/jetstreambudget:jetstreambudget_test` enforces for the shipped
+profiles. The platform NATS account's JetStream quota follows the same
+`max_file_store`: `nats-creds-init` issues it on a fresh stack, and the
+one-shot `nats-account-limits` service re-issues an existing account JWT (same
+account key, so credentials stay valid) before NATS starts.
+
 ## Optional profiles: StarRocks warehouse and NetFlow collector
 
 The default stack does **not** start StarRocks or the NetFlow collector, and
 all telemetry stays on CNPG hypertables. Optional profiles:
 
 ```bash
+# Every StarRocks command below needs STARROCKS_ROOT_PASSWORD in .env first;
+# see "StarRocks root password".
+
 # Warehouse only (metrics/logs/events shadow). No flow collector.
 STARROCKS_ENABLED=true docker compose --profile starrocks up -d
 
@@ -105,22 +125,84 @@ Reading those flows back is warehouse-only -- until `flows` is listed in
 with a warehouse-required error instead of being answered from CNPG. See
 [NetFlow](docs/docs/netflow.md) for the full flow path.
 
-`--profile starrocks` also runs a one-shot `starrocks-init` container that
-creates the warehouse database and tables once the frontend and backend are up.
-Compose runs a single backend, so it rewrites the replica count the clustered
-DDL pins. Re-running the profile is safe: every statement is
-`CREATE ... IF NOT EXISTS` except the flow rollup view, which is dropped and
-recreated each time so a warehouse built before sampling-weighted totals is
-corrected.
+There is no separate schema container: core creates and upgrades the
+warehouse schema itself at startup, sizing replication to the single backend
+Compose runs, and retries with backoff until the warehouse accepts it.
+
+### StarRocks root password
+
+The warehouse's Frontend `root` account is never left passwordless.
+`--profile starrocks` needs `STARROCKS_ROOT_PASSWORD` in `.env`; without it the
+`serviceradar-starrocks` container logs
+`STARROCKS_ROOT_PASSWORD is not set; refusing to start StarRocks with a
+passwordless root account` and exits. Generate the value once:
+
+```bash
+openssl rand -hex 32
+```
+
+and paste it after `STARROCKS_ROOT_PASSWORD=` in `.env` (letters, digits and
+`. _ ~ + = / -` only). Keep `.env` private (`chmod 600 .env`).
+
+On start the container sets that password if `root` still has none, and
+otherwise checks that it already matches. core and web-ng receive the same
+variable as `SERVICERADAR_STARROCKS_PASSWORD`. The image's own start-up script
+logs in as `root` with `MYSQL_PWD` to register its backend on every start, so
+the container exports the variable as `MYSQL_PWD` too. The very first start --
+or the first after adding a password to a warehouse that ran without one --
+can restart the container once while the password is being set; that is
+expected. Adding a password to an existing passwordless warehouse is only
+setting the variable and running the `up` command above again: the data volume
+is kept.
+
+The ports 8030, 9030 and 8040 are published on `127.0.0.1` only. Set
+`STARROCKS_PUBLIC_BIND` to publish them on another interface; the stack does
+not need that, since every client reaches the warehouse over the Compose
+network.
+
+To change the password later, change the live password FIRST, then the
+variable, then recreate every container that uses it together. The running
+container still holds the old password, so it can log in:
+
+```bash
+# 1. New value into a private file, never onto a command line.
+( umask 077; openssl rand -hex 32 > starrocks-root-password.new )
+# 2. Set it on the Frontend (SQL on stdin; printf is a shell builtin).
+#    The container's STARROCKS_ROOT_PASSWORD still holds the old value.
+printf "SET PASSWORD = PASSWORD('%s');\n" "$(cat starrocks-root-password.new)" \
+  | docker exec -i serviceradar-starrocks sh -c \
+      'MYSQL_PWD="$STARROCKS_ROOT_PASSWORD" exec mysql -h 127.0.0.1 -P 9030 -u root'
+# 3. Put the same value in .env as STARROCKS_ROOT_PASSWORD, then:
+docker compose --profile starrocks up -d --force-recreate starrocks core-elx web-ng
+rm starrocks-root-password.new
+```
+
+If `.env` and the live password ever disagree, the starrocks container logs
+`StarRocks root password differs from STARROCKS_ROOT_PASSWORD` and the image
+then shuts down with `Password error, stop retrying!`. Put the live value back
+in `.env`; do not delete the data volume.
 
 StarRocks telemetry retention is set per dataset. The warehouse tables are
 partitioned by day, so each `STARROCKS_RETENTION_DAYS_*` value is the number of
 daily partitions kept; anything older is dropped.
-`STARROCKS_RETENTION_DAYS_FLOWS` and `STARROCKS_RETENTION_DAYS_METRICS` default
-to 90, `STARROCKS_RETENTION_DAYS_LOGS` and `STARROCKS_RETENTION_DAYS_EVENTS` to
-365. Core applies them at start and retries with backoff until the warehouse
+Every dataset defaults to 365 days: `STARROCKS_RETENTION_DAYS_FLOWS`,
+`STARROCKS_RETENTION_DAYS_METRICS`, `STARROCKS_RETENTION_DAYS_LOGS`,
+`STARROCKS_RETENTION_DAYS_EVENTS`, `STARROCKS_RETENTION_DAYS_MTR` (MTR traces
+and hops together), `STARROCKS_RETENTION_DAYS_OTEL` (OTel metric samples and
+points together) and `STARROCKS_RETENTION_DAYS_TRACES` (OTel spans and trace
+summaries together).
+Warehouse loads are sized by `STARROCKS_STREAM_LOAD_MAX_AGE_MS` (flush a
+batch after this long, default 2000), `STARROCKS_STREAM_LOAD_MAX_ROWS` (50000)
+and `STARROCKS_STREAM_LOAD_MAX_BYTES` (33554432) per load, and
+`STARROCKS_STREAM_LOAD_MAX_IN_FLIGHT` (4) loads at once. Each Stream Load is a
+warehouse transaction, so fewer, larger loads are cheaper than many small ones.
+Retention values are re-applied at every core start: core retries with backoff until the warehouse
 accepts them, so a slow Frontend does not leave the tables on their DDL
-default.
+default. With the warehouse enabled, MTR traces and hops, OTel metric samples
+and points, and OTel spans and trace summaries are stored only there, so
+`STARROCKS_RETENTION_DAYS_MTR`, `STARROCKS_RETENTION_DAYS_OTEL` and
+`STARROCKS_RETENTION_DAYS_TRACES` are the retentions that apply; the value
+saved in Settings -> Networks -> MTR governs the CNPG MTR tables only.
 
 Hourly charts are served from the `*_hourly` materialized views only while
 those views have kept up with the tables they aggregate; otherwise the query
@@ -160,8 +242,10 @@ The stack automatically handles certificate generation and configuration:
 8. **dgraph-migrate** - Applies the Dgraph topology schema (one-shot)
 9. **core-elx, agent-gateway, web-ng** - Control plane services
 10. **age-to-dgraph** - Rebuilds Dgraph from the AGE graph and checksums the two (one-shot)
-11. **zen, log-promotion** - Bulk ingestion consumers
-12. **agent** - Edge agent (collectors + embedded engines + Wasm plugins)
+11. **agent** - Edge agent (collectors + embedded engines + Wasm plugins)
+
+Zen log normalization and the EventWriter ingestion consumers run inside
+core-elx; they are not separate containers.
 
 ## Test Your Setup
 

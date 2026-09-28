@@ -47,9 +47,9 @@
 
 # Captured from `helm get values bb-cache-proxy -n buildbuddy` at revision 4, with two
 # deliberate edits called out below. Anything not listed here is a chart default -- including
-# `image.tag`, which is why the proxy tracks the same enterprise-v2.290.0 the two executor
-# fleets pin. If you pin the executors to a newer tag, pin this too rather than letting the
-# chart default drift underneath it.
+# `image.tag`, which therefore follows the chart version. Deployed 2026-09-27 with chart 0.0.49
+# (enterprise-v2.310.0), ahead of the executors' pinned enterprise-v2.290.0; upgrade with
+# `--version 0.0.49` (or newer) rather than an unpinned chart.
 
 # THE UPSTREAM CACHE THIS PROXY FRONTS.
 #

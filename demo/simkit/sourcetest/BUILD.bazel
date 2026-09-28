@@ -1,0 +1,15 @@
+# gazelle:ignore
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+package(default_visibility = ["//demo:__subpackages__"])
+
+go_library(
+    name = "sourcetest",
+    testonly = True,
+    srcs = ["sourcetest.go"],
+    importpath = "github.com/carverauto/serviceradar/demo/simkit/sourcetest",
+    deps = [
+        "//demo/simkit",
+        "//demo/simkit/guard",
+    ],
+)

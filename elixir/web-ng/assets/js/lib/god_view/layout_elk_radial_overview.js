@@ -1,3 +1,5 @@
+import {isLazySnapshotDetails} from "./snapshot_columns"
+
 const SEMANTIC_ENVELOPE = 112
 const SYNTHETIC_ENVELOPE = 0
 const NODE_SPACING = 96
@@ -25,8 +27,10 @@ function canonicalNodeId(value) {
   return value == null ? "" : String(value).trim()
 }
 
+// A snapshot row's details object is shared rather than cloned or frozen: copying it would
+// parse every row, and nothing downstream writes to it.
 function deepFreeze(value) {
-  if (!value || typeof value !== "object" || Object.isFrozen(value)) return value
+  if (!value || typeof value !== "object" || Object.isFrozen(value) || isLazySnapshotDetails(value)) return value
   Object.freeze(value)
   for (const child of Object.values(value)) deepFreeze(child)
   return value
@@ -34,6 +38,7 @@ function deepFreeze(value) {
 
 function clone(value) {
   if (Array.isArray(value)) return value.map(clone)
+  if (isLazySnapshotDetails(value)) return value
   if (value && typeof value === "object") {
     return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, clone(child)]))
   }

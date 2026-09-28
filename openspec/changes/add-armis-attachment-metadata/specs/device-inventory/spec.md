@@ -3,7 +3,7 @@
 The Armis sync integration SHALL preserve selected attachment evidence fields from Armis device or asset payloads in device metadata using stable `armis_*` keys.
 
 #### Scenario: Armis access switch fields are preserved
-- **GIVEN** an Armis payload includes an access switch value such as `nsfocs-idfer1-asw001:2/20`
+- **GIVEN** an Armis payload includes an access switch value such as `switch01.example.com:1/1/20`
 - **WHEN** the payload is mapped into a ServiceRadar device update
 - **THEN** the update metadata SHALL include the value under a stable key such as `armis_access_switch`
 

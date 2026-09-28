@@ -218,6 +218,164 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
     assert Destination.table_for(:metrics) == "timeseries_metrics"
     assert Destination.table_for(:logs) == "logs"
     assert Destination.table_for(:events) == "events"
+    assert Destination.table_for(:mtr_traces) == "mtr_traces"
+    assert Destination.table_for(:mtr_hops) == "mtr_hops"
+  end
+
+  @mtr_trace %{
+    id: "00000000-0000-4000-8000-000000000001",
+    time: ~U[2026-01-15 10:00:00.000000Z],
+    agent_id: "agent-01",
+    target: "host01.example.com",
+    target_ip: "192.0.2.10",
+    target_reached: true,
+    total_hops: 3,
+    protocol: "icmp",
+    ip_version: 4
+  }
+
+  @replace_config %{
+    fe_http: "http://starrocks.example.com:8030",
+    database: "serviceradar",
+    user: "root",
+    password: ""
+  }
+  @report_id "550e8400-e29b-41d4-a716-446655440000"
+  @other_report_id "6ba7b810-9dad-41d1-80b4-00c04fd430c8"
+  @report_event %{
+    id: @report_id,
+    time: ~U[2026-01-15 10:00:00Z],
+    log_name: "trivy.report.vulnerability",
+    log_provider: "trivy"
+  }
+
+  defp recording(parent, reply) do
+    fn sql ->
+      send(parent, {:statement, sql})
+      reply
+    end
+  end
+
+  defp loading(parent) do
+    fn table, rows, _opts ->
+      send(parent, {:statement, {:load, table, length(rows)}})
+      {:ok, %{loaded: length(rows)}}
+    end
+  end
+
+  defp next_message do
+    receive do
+      message -> message
+    after
+      0 -> :none
+    end
+  end
+
+  describe "replacing events by id" do
+    test "the provider's rows with those ids are deleted before the load" do
+      {:ok, raw_other} = Ecto.UUID.dump(@other_report_id)
+
+      assert {:ok, %{missing: []}} =
+               Destination.persist_shadow(:events, [@report_event],
+                 config: @replace_config,
+                 replace: %{ids: [@report_id, raw_other, @report_id], log_provider: "trivy"},
+                 delete: recording(self(), {:ok, %{}}),
+                 persist: loading(self())
+               )
+
+      # In order: the delete, then the load.
+      assert {:statement, sql} = next_message()
+
+      assert sql ==
+               "DELETE FROM serviceradar.events WHERE log_provider = 'trivy' " <>
+                 "AND id IN ('#{@report_id}', '#{@other_report_id}')"
+
+      assert {:statement, {:load, "events", 1}} = next_message()
+    end
+
+    test "a failed delete loads nothing and fails a required load" do
+      assert {:error, {:missing_destinations, %{missing: [:starrocks]}}} =
+               Destination.persist_shadow(:events, [@report_event],
+                 config: @replace_config,
+                 require_all: true,
+                 replace: %{ids: [@report_id], log_provider: "trivy"},
+                 delete: recording(self(), {:error, :connect_failed}),
+                 persist: loading(self())
+               )
+
+      assert_received {:statement, "DELETE FROM " <> _}
+      refute_received {:statement, {:load, _, _}}
+    end
+
+    test "an id that is not a UUID, or an unsafe provider, sends no statement" do
+      for replace <- [
+            %{ids: [@report_id, "x') OR ('1'='1"], log_provider: "trivy"},
+            %{ids: [@report_id], log_provider: "trivy' OR '1'='1"}
+          ] do
+        assert {:error, {:missing_destinations, _}} =
+                 Destination.persist_shadow(:events, [@report_event],
+                   config: @replace_config,
+                   require_all: true,
+                   replace: replace,
+                   delete: recording(self(), {:ok, %{}}),
+                   persist: loading(self())
+                 )
+      end
+
+      refute_received {:statement, _}
+    end
+
+    test "without a replace nothing is deleted" do
+      assert {:ok, %{missing: []}} =
+               Destination.persist_shadow(:events, [@report_event],
+                 config: @replace_config,
+                 delete: recording(self(), {:ok, %{}}),
+                 persist: loading(self())
+               )
+
+      assert_received {:statement, {:load, "events", 1}}
+      refute_received {:statement, "DELETE" <> _}
+    end
+  end
+
+  test "a warehouse-only load encodes the dataset and reports what it loaded" do
+    persist = fn table, rows, _opts ->
+      send(self(), {:loaded, table, rows})
+      {:ok, %{loaded: length(rows), label: "sr-mtr"}}
+    end
+
+    assert {:ok, %{dataset: :mtr_traces, loaded: 1}} =
+             Destination.persist_warehouse(:mtr_traces, [@mtr_trace], persist: persist)
+
+    assert_received {:loaded, "mtr_traces", [%{"id" => id, "target_reached" => true}]}
+    assert id == @mtr_trace.id
+  end
+
+  test "a failed warehouse-only load is an error, so the caller fails its ACK" do
+    persist = fn _table, _rows, _opts -> {:error, :connect_failed} end
+
+    assert {:error, {:warehouse_load, :mtr_hops, :connect_failed}} =
+             Destination.persist_warehouse(:mtr_hops, [%{id: "hop"}], persist: persist)
+  end
+
+  test "a warehouse-only load of nothing sends nothing" do
+    persist = fn _table, _rows, _opts -> flunk("nothing to load") end
+
+    assert {:ok, %{loaded: 0}} = Destination.persist_warehouse(:mtr_hops, [], persist: persist)
+  end
+
+  test "the backend switch reads analytics.starrocks.enabled" do
+    prev = Application.get_env(:serviceradar_core, StarRocks, [])
+
+    try do
+      Application.put_env(:serviceradar_core, StarRocks, Keyword.put(prev, :enabled, true))
+      assert Destination.enabled?()
+
+      Application.put_env(:serviceradar_core, StarRocks, Keyword.put(prev, :enabled, false))
+      refute Destination.enabled?()
+    after
+      Application.put_env(:serviceradar_core, StarRocks, prev)
+    end
   end
 
   test "disabled shadow writes are a no-op" do
@@ -428,5 +586,106 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
 
     assert_received {:load_label, replay_label}
     refute first_label == replay_label
+  end
+
+  describe "Stream Load sizing" do
+    @log_rows for n <- 1..5,
+                  do: %{
+                    id: "log-alpha-000#{n}",
+                    timestamp: ~U[2026-01-15 10:00:01Z],
+                    body: "line #{n}"
+                  }
+
+    test "a batch within the limits is one load whose body is the rows' JSON array" do
+      parent = self()
+
+      persist = fn table, rows, opts ->
+        send(parent, {:load, table, rows, opts})
+        {:ok, %{label: "sr-single", loaded: length(rows)}}
+      end
+
+      assert {:ok, %{loaded: 5, label: "sr-single"}} =
+               Destination.persist_warehouse(:logs, @log_rows, persist: persist)
+
+      assert_received {:load, "logs", rows, opts}
+      refute_received {:load, _, _, _}
+      assert opts[:body] == Jason.encode!(rows)
+      refute Keyword.has_key?(opts, :label)
+    end
+
+    test "a batch over max_rows is split into loads that must all succeed" do
+      parent = self()
+
+      persist = fn _table, rows, opts ->
+        send(parent, {:load, rows, opts[:body]})
+        {:ok, %{loaded: length(rows)}}
+      end
+
+      assert {:ok, %{loaded: 5, loads: 3}} =
+               Destination.persist_warehouse(:logs, @log_rows,
+                 persist: persist,
+                 stream_load: [max_rows: 2, max_in_flight: 1]
+               )
+
+      sizes =
+        for _ <- 1..3 do
+          assert_received {:load, rows, body}
+          assert body == Jason.encode!(rows)
+          length(rows)
+        end
+
+      assert sizes == [2, 2, 1]
+    end
+
+    test "one failed load fails the batch so JetStream redelivers it" do
+      persist = fn _table, rows, _opts ->
+        if Enum.any?(rows, &(&1["id"] == "log-alpha-0003")),
+          do: {:error, {:http_status, 500, "sr-x"}},
+          else: {:ok, %{loaded: length(rows)}}
+      end
+
+      assert {:error, {:warehouse_load, :logs, {:http_status, 500, "sr-x"}}} =
+               Destination.persist_warehouse(:logs, @log_rows,
+                 persist: persist,
+                 stream_load: [max_rows: 2, max_in_flight: 4]
+               )
+    end
+
+    test "a caller label is suffixed per load so split loads never share a label" do
+      parent = self()
+
+      persist = fn _table, rows, opts ->
+        send(parent, {:label, opts[:label]})
+        {:ok, %{loaded: length(rows)}}
+      end
+
+      assert {:ok, _} =
+               Destination.persist_warehouse(:logs, @log_rows,
+                 persist: persist,
+                 label: "sr-replay",
+                 stream_load: [max_rows: 3, max_in_flight: 1]
+               )
+
+      assert_received {:label, "sr-replay-0"}
+      assert_received {:label, "sr-replay-1"}
+    end
+
+    test "loads are cut at max_bytes, and a single oversized row still loads alone" do
+      rows = [
+        %{"id" => "a", "body" => String.duplicate("x", 40)},
+        %{"id" => "b", "body" => "y"},
+        %{"id" => "c", "body" => "z"}
+      ]
+
+      loads = Destination.split_loads(rows, max_rows: 100, max_bytes: 50)
+
+      assert Enum.map(loads, fn {load_rows, _body, _bytes} -> Enum.map(load_rows, & &1["id"]) end) ==
+               [["a"], ["b", "c"]]
+
+      for {load_rows, body, bytes} <- loads do
+        assert body == Jason.encode!(load_rows)
+        assert bytes == byte_size(body)
+      end
+    end
   end
 end

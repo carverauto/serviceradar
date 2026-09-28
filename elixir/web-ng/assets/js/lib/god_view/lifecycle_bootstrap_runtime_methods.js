@@ -23,7 +23,6 @@ const BOUND_METHOD_NAMES = [
   "buildBitmapFallbackMetadata",
   "startAnimationLoop",
   "stopAnimationLoop",
-  "buildPacketFlowInstances",
   "prepareGraphLayout",
   "bootstrapLatestSnapshot",
   "renderSelectionDetails",

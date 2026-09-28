@@ -6,6 +6,7 @@ tests:
     set:
       flowCollector.enabled: true
       analytics.starrocks.enabled: true
+      analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
     asserts:
       - isKind:
           of: Job
@@ -33,6 +34,7 @@ tests:
     set:
       flowCollector.enabled: true
       analytics.starrocks.enabled: true
+      analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
     asserts:
       - equal:
           path: spec.template.spec.volumes[3].name
@@ -49,6 +51,7 @@ tests:
     set:
       flowCollector.enabled: true
       analytics.starrocks.enabled: true
+      analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
     release:
       upgrade: true
     asserts:

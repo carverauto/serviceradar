@@ -36,6 +36,7 @@ pub struct CanonicalEdge {
     local_if_name_ba: String,
     link_key: String,
     mutation_id: String,
+    pair_support_rank: i64,
 }
 
 impl CanonicalEdge {
@@ -81,7 +82,22 @@ impl CanonicalEdge {
             local_if_name_ba,
             link_key,
             mutation_id,
+            pair_support_rank: 0,
         }
+    }
+
+    /// Same-port conflict support rank, retained across rebuilds that see no
+    /// fresh evidence for this pair. Defaults to 0 for edges written before
+    /// this predicate existed.
+    #[must_use]
+    pub fn with_pair_support_rank(mut self, rank: i64) -> Self {
+        self.pair_support_rank = rank;
+        self
+    }
+
+    #[must_use]
+    pub fn pair_support_rank(&self) -> i64 {
+        self.pair_support_rank
     }
 
     #[must_use]

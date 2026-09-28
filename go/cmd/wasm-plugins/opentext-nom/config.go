@@ -14,10 +14,12 @@ import (
 )
 
 const (
-	defaultPageSize              = 1000
-	defaultMaxRows               = 25000
-	defaultMaxResultBytes        = 10 * 1024 * 1024
-	defaultRequestTimeoutSeconds = 30
+	defaultPageSize       = 1000
+	defaultMaxRows        = 25000
+	defaultMaxResultBytes = 10 * 1024 * 1024
+	// NA commands take 15-30s each and its token endpoint can take longer, so
+	// the old 30s default failed routinely.
+	defaultRequestTimeoutSeconds = 120
 	defaultMaxRetries            = 2
 	maxQueries                   = 8
 	maxFilterStringBytes         = 512
@@ -51,7 +53,11 @@ type Config struct {
 	MaxRetries            int          `json:"max_retries"`
 	L2Endpoints           []L2Endpoint `json:"l2_endpoints,omitempty"`
 	InsecureSkipVerify    bool         `json:"insecure_skip_verify,omitempty"`
-	tokenAuthMode         tokenAuthMode
+	// DeviceID and DeviceUID identify the device for the config.retrieve
+	// action. Action input values override them per invocation.
+	DeviceID      string `json:"device_id,omitempty"`
+	DeviceUID     string `json:"device_uid,omitempty"`
+	tokenAuthMode tokenAuthMode
 }
 
 type L2Endpoint struct {

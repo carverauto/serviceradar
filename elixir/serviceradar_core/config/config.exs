@@ -16,6 +16,9 @@ alias ServiceRadar.Observability.SeasonalDisposition.Worker, as: SeasonalDisposi
 # Ash configuration
 config :ash,
   include_embedded_source_by_default?: false,
+  # Count string length in codepoints, as the SQL data layer does, so
+  # `max_length` bounds the stored size. Required since Ash 3.33.
+  default_string_length_count: :codepoints,
   default_page_type: :keyset,
   policies: [no_filter_static_forbidden_reads?: false]
 
@@ -68,6 +71,7 @@ config :serviceradar_core, Oban,
        {"53 * * * *", SeasonalEdgeBaselineProducer,
         args: %{"trigger" => "cron"}, queue: :maintenance},
        {"*/10 * * * *", ServiceRadar.Edge.RemoteAccessRecordingReaperWorker, queue: :maintenance},
+       {"*/2 * * * *", ServiceRadar.Camera.RelaySessionReaperWorker, queue: :maintenance},
        {"31 3 * * *", ServiceRadar.Edge.RemoteAccessVersionRetentionWorker, queue: :maintenance},
        {"23 3 * * *", ServiceRadar.Jobs.SecurityEventsRetentionWorker, queue: :maintenance},
        {"*/5 * * * *", ServiceRadar.Observability.AnomalyEpisodeStaleCloseWorker,
@@ -128,8 +132,7 @@ config :serviceradar_core, ServiceRadar.NetworkDiscovery.TopologyStateCleanupWor
 
 config :serviceradar_core, ServiceRadar.Observability.NetflowSecurityRefreshWorker,
   reschedule_seconds: 86_400,
-  cache_ttl_seconds: 86_400,
-  threat_candidate_limit: 10_000
+  cache_ttl_seconds: 86_400
 
 config :serviceradar_core, ServiceRadar.Observability.ThreatIntelOTXSyncWorker, []
 config :serviceradar_core, ServiceRadar.Observability.ThreatIntelRawPayloadStore, []
@@ -143,6 +146,7 @@ config :serviceradar_core, ServiceRadar.Security.RateLimiter,
     auth_password_reset: [limit: 5, window_seconds: 300],
     auth_oidc_callback: [limit: 30, window_seconds: 60],
     auth_saml_callback: [limit: 30, window_seconds: 60],
+    auth_saml_request: [limit: 30, window_seconds: 60],
     cli_device_auth: [limit: 30, window_seconds: 60],
     dashboard_publish: [limit: 10, window_seconds: 60],
     dashboard_publish_admin: [limit: 30, window_seconds: 60],
@@ -358,6 +362,7 @@ if System.get_env("SERVICERADAR_SKIP_NIF_COMPILATION") == "1" do
     skip_compilation?: true
 
   config :serviceradar_core, ServiceRadar.Observability.Zen.Native, skip_compilation?: true
+  config :serviceradar_core, ServiceRadar.PrefixTags.Native, skip_compilation?: true
 
   config :serviceradar_srql, ServiceRadarSRQL.Native, skip_compilation?: true
 end

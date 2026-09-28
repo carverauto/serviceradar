@@ -38,7 +38,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityDataTest do
     assert query =~ "metric_name:icmp_available"
     assert query =~ "agg:max"
     assert_receive {:query, sweep, _}
-    assert sweep =~ "metric_name:sweep.host.icmp_available"
+    assert sweep =~ "metric_name:sweep.host.available"
     refute_receive {:query, _, _}
   end
 
@@ -94,7 +94,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityDataTest do
     assert_receive {:query, dedicated, _}
     assert_receive {:query, sweep, _}
     assert dedicated =~ "metric_name:icmp_available"
-    assert sweep =~ "metric_name:sweep.host.icmp_available"
+    assert sweep =~ "metric_name:sweep.host.available"
 
     assert Enum.find(String.split(dedicated), &String.starts_with?(&1, "time:")) ==
              Enum.find(String.split(sweep), &String.starts_with?(&1, "time:"))
@@ -120,6 +120,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityDataTest do
     assert Enum.find(result.segments, &(&1.timestamp == "1999-06-15T13:00:00Z")).status == :offline
     assert Enum.find(result.segments, &(&1.timestamp == "1999-06-16T11:30:00Z")).status == :online
     assert List.last(result.segments).status == :offline
+  end
+
+  test "a swept host that answers TCP but not ICMP reads as online" do
+    respond_with([rows([]), rows([point("1999-06-16T01:00:00Z", 1)])])
+
+    assert %{online_checks: 1, offline_checks: 0, uptime_pct: 100.0} = load()
+    assert_receive {:query, _dedicated, _}
+    assert_receive {:query, sweep, _}
+    assert sweep =~ "metric_name:sweep.host.available"
+    refute sweep =~ "icmp_available"
   end
 
   test "no authoritative observations means unknown coverage without a success percentage" do

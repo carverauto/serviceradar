@@ -32,8 +32,10 @@ So the write targets now require the caller to say so:
 
     bazel ... --//build:template_authority=true //rust/integration-db:prepare_template
 
-It means "this checkout is trunk, and the shared template may be brought to match it". Only
-the push-to-`staging` action in //buildbuddy.yaml passes it. Everything else -- every pull
+It means "this checkout is trunk, and the shared template may be brought to match it". The
+push-to-`staging` action once passed it; since the generation cutover no active workflow does,
+because every workflow clones immutable per-digest `sr_tpl_*` generations and
+`sr_core_template` is kept only as a frozen rollback artifact. Every caller -- every pull
 request, every benchmark branch, and every developer running the lifecycle by hand -- leaves
 it false, and the write targets refuse rather than quietly doing something else, because a
 caller that reached for the template meant the template.

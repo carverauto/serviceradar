@@ -313,6 +313,45 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconcilerTest do
     assert adopted.enabled == true
   end
 
+  test "never adopts another credential rule's enabled assignment" do
+    package_id = Ecto.UUID.generate()
+
+    other_rule = %{
+      id: Ecto.UUID.generate(),
+      agent_uid: "agent-a",
+      partition_id: "farm01",
+      plugin_package_id: package_id,
+      source: :policy,
+      source_key: "other-rule-source-key",
+      policy_id: "network-credential-rule:00000000-0000-4000-8000-00000000000b",
+      enabled: true,
+      params: %{}
+    }
+
+    {:ok, _pid} = DriftedStore.start_link(other_rule)
+    on_exit(fn -> DriftedStore.stop() end)
+
+    policy = %{
+      policy_id: "network-credential-rule:00000000-0000-4000-8000-00000000000a",
+      policy_version: 1,
+      plugin_package_id: package_id,
+      params_template: %{},
+      interval_seconds: 30,
+      timeout_seconds: 8,
+      enabled: true
+    }
+
+    assert {:error, _reason} =
+             PolicyAssignmentReconciler.reconcile(policy, [],
+               resolver: ResolverV1,
+               store: DriftedStore,
+               partition_resolver: fn "agent-a" -> {:ok, "farm01"} end,
+               generated_at: "2026-02-21T23:30:00Z"
+             )
+
+    assert DriftedStore.adopted() == nil
+  end
+
   test "same agent UID rebind creates a new partition-bound row and disables the old row" do
     policy = %{
       policy_id: "policy-rebind",

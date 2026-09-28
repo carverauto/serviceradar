@@ -243,6 +243,99 @@ describe("DashboardWasmHost browser-module API", () => {
     expect(hook.pushEvent).toHaveBeenCalledWith("dashboard_preference_update", {key: "density", value: "compact"})
   })
 
+  test("gates the camera API on the package capability and the viewer's permission", () => {
+    const hook = hookContext()
+    const withoutCapability = hook.browserModuleApi(baseHost({permissions: {camera_stream_view: true}}))
+    const request = {
+      camera_source_id: "11111111-1111-4111-8111-111111111111",
+      stream_profile_id: "22222222-2222-4222-8222-222222222222",
+    }
+
+    expect(() => withoutCapability.camera.open(request)).toThrow(
+      expect.objectContaining({code: "capability_denied"})
+    )
+
+    const withoutPermission = hook.browserModuleApi(
+      baseHost({package: {...baseHost().package, capabilities: ["camera.stream.view"]}})
+    )
+
+    expect(withoutPermission.camera.allowed()).toBe(false)
+    expect(() => withoutPermission.camera.open(request)).toThrow(expect.objectContaining({code: "permission_denied"}))
+
+    const allowed = hook.browserModuleApi(
+      baseHost({
+        package: {...baseHost().package, capabilities: ["camera.stream.view"]},
+        permissions: {camera_stream_view: true},
+      })
+    )
+
+    expect(allowed.camera.allowed()).toBe(true)
+    expect(allowed.camera.maxSessions).toBe(9)
+  })
+
+  test("gates the action and event APIs and routes channel pushes to them", async () => {
+    const pushes = []
+    const channel = {
+      push: vi.fn((event, payload) => {
+        pushes.push({event, payload})
+        const reply = event === "actions:invoke" ? {invocation_id: "inv-1", state: "dispatching"} : {}
+        const push = {receive: (kind, callback) => (kind === "ok" && callback(reply), push)}
+        return push
+      }),
+    }
+    const hook = hookContext({_frameChannel: channel})
+
+    const denied = hook.browserModuleApi(baseHost({permissions: {actions_invoke: true, events_subscribe: true}}))
+    expect(denied.actions.allowed()).toBe(false)
+    expect(() => denied.events.subscribe({}, vi.fn())).toThrow(expect.objectContaining({code: "capability_denied"}))
+
+    const api = hook.browserModuleApi(
+      baseHost({
+        package: {...baseHost().package, capabilities: ["srql.execute", "actions.invoke", "events.subscribe"]},
+        permissions: {actions_invoke: true, events_subscribe: true},
+      })
+    )
+
+    const onEvents = vi.fn()
+    api.events.subscribe({log_provider: "plugin:demo"}, onEvents)
+    hook._eventsApi.handleBatch({subscription_id: "sub-1", events: [{id: "e1"}]})
+    expect(onEvents).toHaveBeenCalledWith([{id: "e1"}])
+
+    const result = api.actions.invoke({actionId: "northbound:1", targets: [{deviceUid: "d1"}]})
+    await Promise.resolve()
+    hook._actionsApi.handleProgress({invocation_id: "inv-1", state: "succeeded"})
+    await expect(result).resolves.toMatchObject({state: "succeeded"})
+
+    await expect(api.refreshFrames()).resolves.toEqual({refreshed: true})
+    expect(pushes.map((push) => push.event)).toEqual(["events:subscribe", "actions:invoke", "frames:refresh"])
+  })
+
+  test("closes camera sessions when the dashboard is destroyed", () => {
+    globalThis.fetch = vi.fn(() => new Promise(() => {}))
+    globalThis.document.addEventListener = vi.fn()
+    globalThis.document.removeEventListener = vi.fn()
+    globalThis.window.removeEventListener = vi.fn()
+    const hook = hookContext({disconnectFrameStream: vi.fn(), teardownMap: vi.fn()})
+    const api = hook.browserModuleApi(
+      baseHost({
+        package: {...baseHost().package, capabilities: ["camera.stream.view"]},
+        permissions: {camera_stream_view: true},
+      })
+    )
+
+    const handle = api.camera.open({
+      camera_source_id: "11111111-1111-4111-8111-111111111111",
+      stream_profile_id: "22222222-2222-4222-8222-222222222222",
+    })
+    expect(api.camera.activeCount()).toBe(1)
+
+    hook.destroyed()
+
+    expect(handle.state).toBe("closed")
+    expect(api.camera.activeCount()).toBe(0)
+    delete globalThis.fetch
+  })
+
   test("enforces popup and detail host actions", () => {
     const hook = hookContext()
     const denied = hook.browserModuleApi(baseHost())

@@ -410,12 +410,21 @@ func writePlatformAccountFiles(cfg *CmdConfig, paths *natsBootstrapPaths, result
 		platformUser = defaultPlatformUser
 	}
 
+	// The platform account owns every stream, so when a JetStream sizing
+	// profile is loaded its quota follows the profile's max_file_store instead
+	// of the fixed defaults. Without the variable the defaults stay.
+	sizing, err := accounts.JetStreamSizingFromEnv(os.LookupEnv)
+	if err != nil {
+		return err
+	}
+
 	platformResult, platformCreds, err := generatePlatformAccount(
 		operatorSeed,
 		operatorName,
 		platformAccount,
 		result.SystemAccountPublicKey,
 		platformUser,
+		sizing,
 	)
 	if err != nil {
 		return fmt.Errorf("generate platform account: %w", err)
@@ -577,6 +586,7 @@ func generatePlatformAccount(
 	accountName string,
 	systemAccountPublicKey string,
 	userName string,
+	sizing *accounts.JetStreamSizing,
 ) (*accounts.AccountResult, string, error) {
 	if strings.TrimSpace(operatorName) == "" {
 		operatorName = defaultNATSOperatorName
@@ -593,7 +603,7 @@ func generatePlatformAccount(
 		return nil, "", err
 	}
 
-	signer := accounts.NewAccountSigner(operator)
+	signer := accounts.NewAccountSigner(operator).WithJetStreamSizing(sizing)
 
 	account, err := signer.CreateAccount(accountName, nil, nil, nil)
 	if err != nil {

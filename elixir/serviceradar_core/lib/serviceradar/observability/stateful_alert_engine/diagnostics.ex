@@ -196,7 +196,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Diagnostics do
   def source_event_id(record) do
     case fetch_attr(record, :id) do
       nil -> nil
-      id -> to_string(id)
+      id -> canonical_source_id(id)
     end
   end
 

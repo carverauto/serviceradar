@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.Page do
   alias ServiceRadarWebNGWeb.DashboardLive.Index.FieldSurveyPanel
   alias ServiceRadarWebNGWeb.DashboardLive.Index.MapPanel
   alias ServiceRadarWebNGWeb.DashboardLive.Index.ObservabilityPanel
+  alias ServiceRadarWebNGWeb.DashboardLive.Index.QueryResults
   alias ServiceRadarWebNGWeb.DashboardLive.Index.ThreatPanel
   alias ServiceRadarWebNGWeb.DashboardLive.Index.VirtualizationPanel
   alias ServiceRadarWebNGWeb.DashboardLive.Index.VulnerableAssetsPanel
@@ -18,10 +19,20 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.Page do
       flash={@flash}
       current_scope={@current_scope}
       current_path={@current_path}
+      srql={Map.get(assigns, :srql, %{})}
       shell={:operations}
       hide_breadcrumb
     >
+      <QueryResults.render
+        :if={is_list(Map.get(assigns, :query_results))}
+        rows={@query_results}
+        srql={@srql}
+        limit={@limit}
+        current_page={@pagination_page}
+        timezone={@current_scope.user.timezone || "Etc/UTC"}
+      />
       <div
+        :if={is_nil(Map.get(assigns, :query_results))}
         class="sr-ops-dashboard"
         data-testid="operations-dashboard"
         data-dashboard-modules={Enum.join(@dashboard_modules, " ")}

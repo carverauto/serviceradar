@@ -31,18 +31,17 @@ defmodule ServiceRadar.AgentConfig.Compilers.VisibilityCompiler do
     actor = opts[:actor] || SystemActor.system(:visibility_compiler)
     device_uid = opts[:device_uid]
 
-    profile = resolve_profile(device_uid, actor, opts)
-    device_ip = resolve_device_ip(device_uid, actor, opts)
-
-    cond do
-      profile == nil ->
+    case fetch_profile(device_uid, actor, opts) do
+      {:ok, nil} ->
         {:ok, disabled_config(opts)}
 
-      blank?(device_ip) ->
-        {:ok, disabled_config(opts)}
+      {:ok, profile} ->
+        compile_resolved_profile(profile, resolve_device_ip(device_uid, actor, opts), opts)
 
-      true ->
-        {:ok, compile_profile(profile, device_ip, opts)}
+      # A failed profile read is not "no profile": returning the disabled
+      # config here would be cached by ConfigServer as this agent's config.
+      {:error, reason} ->
+        {:error, {:profile_resolution_failed, reason}}
     end
   rescue
     error ->
@@ -67,8 +66,28 @@ defmodule ServiceRadar.AgentConfig.Compilers.VisibilityCompiler do
     end
   end
 
+  defp compile_resolved_profile(profile, device_ip, opts) do
+    if blank?(device_ip) do
+      {:ok, disabled_config(opts)}
+    else
+      {:ok, compile_profile(profile, device_ip, opts)}
+    end
+  end
+
+  @doc """
+  Returns the visibility profile that applies to a device, or nil when none
+  applies or the profiles could not be read (`compile/3` treats the latter as an
+  error).
+  """
   @spec resolve_profile(String.t() | nil, map(), keyword()) :: VisibilityProfile.t() | nil
   def resolve_profile(device_uid, actor, opts \\ []) do
+    case fetch_profile(device_uid, actor, opts) do
+      {:ok, profile} -> profile
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp fetch_profile(device_uid, actor, opts) do
     TargetedProfileResolver.resolve(device_uid, actor,
       resolver: Keyword.get(opts, :profile_resolver, &SrqlTargetResolver.resolve_for_device/2),
       log_prefix: "VisibilityCompiler"

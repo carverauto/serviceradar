@@ -21,6 +21,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   alias ServiceRadarWebNGWeb.CompositeChecks.Catalog, as: CompositeCatalog
   alias ServiceRadarWebNGWeb.DeviceLive.IndexData
   alias ServiceRadarWebNGWeb.DeviceLive.IndexEvents
+  alias ServiceRadarWebNGWeb.DeviceLive.IndexEvents.DeviceManagement
   alias ServiceRadarWebNGWeb.DeviceLive.IndexEvents.Helpers
   alias ServiceRadarWebNGWeb.DeviceLive.IndexView
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
@@ -80,7 +81,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:bulk_scope_form, Helpers.bulk_scope_form())
      |> assign(:bulk_target_scope, "selected")
      |> assign(:bulk_target_matching_count, nil)
-     |> assign(:availability_source_form, to_form(%{"agent_id" => ""}, as: :availability_source))
+     |> assign(:bulk_stop_on_error, false)
+     |> assign(:bulk_delete_stop_on_error, false)
+     |> assign(:bulk_delete_error_form, Helpers.bulk_error_form())
+     |> assign(:availability_source_form, Helpers.availability_source_form())
      |> assign(
        :availability_source_agent_options,
        IndexData.load_availability_source_agent_options(socket.assigns.current_scope)
@@ -103,7 +107,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:csv_preview, nil)
      |> assign(:csv_errors, [])
      |> assign(:csv_warnings, [])
-     |> assign(:import_status, nil)
+     |> assign(:importing, false)
+     |> assign(:import_result, nil)
+     |> assign(:import_skipped, [])
      |> assign(:import_partition, "default")
      |> assign(:import_partition_error, nil)
      |> assign(:import_partition_options, [{"Default", "default"}])
@@ -226,6 +232,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     end
   end
 
+  def handle_async(:import_devices, {:ok, result}, socket) do
+    {:noreply, DeviceManagement.apply_import_result(socket, result)}
+  end
+
+  # No such path existed before this change: the import ran synchronously inside
+  # handle_event, so a crash took the whole LiveView with it rather than being
+  # reportable to the operator.
+  def handle_async(:import_devices, {:exit, reason}, socket) do
+    Logger.warning("Device CSV import failed: #{inspect(reason)}")
+    {:noreply, DeviceManagement.apply_import_failure(socket, reason)}
+  end
+
   def handle_async(:northbound_device_actions, {:ok, actions}, socket) when is_list(actions) do
     {:noreply,
      socket
@@ -257,7 +275,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
     if is_binary(query) and String.trim(query) != "" do
       params
     else
-      Map.put(params, "q", SystemReports.new_devices_query())
+      case SystemReports.new_devices_query() do
+        nil -> params
+        q -> Map.put(params, "q", q)
+      end
     end
   end
 

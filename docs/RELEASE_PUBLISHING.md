@@ -29,6 +29,15 @@ stay draft until both catalogs and both security bundles have arrived. This
 ordering matters when GitHub immutable releases are enabled because a late
 asset upload to an already-published release is rejected.
 
+The three Bazel-backed publishers (`release.yml` package job,
+`native-addons.yml`, and `wasm-plugins.yml`) validate the committed
+`MODULE.bazel.lock` in strict mode before they publish: each runs
+`bazel mod deps --lockfile_mode=error` and passes `--lockfile_mode=error` to its
+release Bazel commands, so a stale dependency lockfile fails the release
+instead of being silently regenerated. Fix it with
+`bazel mod deps --lockfile_mode=update`, commit the lockfile, and cut a new
+release commit.
+
 ## Prepare Release Metadata
 
 Update the top `CHANGELOG` entry and `VERSION` before cutting the release. Use
@@ -42,6 +51,12 @@ The dry-run validates the version, changelog, tag shape, existing local tag,
 Helm metadata changes, and the release branch operation without creating refs.
 It reports the remote-tag check that the real cut will perform but does not
 contact the remote itself.
+
+For prerelease series, use dot-separated numeric identifiers such as
+`1.4.10-pre.1`, `1.4.10-pre.2`, and `1.4.10-pre.10`. Native add-on sync uses
+strict SemVer precedence to prevent release downgrades: numeric identifiers
+sort numerically, while legacy `pre10` and `pre2` identifiers sort as text
+(`pre10` precedes `pre2`). Existing release tags are not reinterpreted.
 
 ## Cut and Push the Release Branch
 

@@ -2,6 +2,8 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -51,8 +53,8 @@ func TestCalculateTargetsPerMinute(t *testing.T) {
 func TestBulkMtrOptions_AppliesFastExecutionProfile(t *testing.T) {
 	opts := bulkMtrOptions(mtrBulkRunPayload{ExecutionProfile: "fast"})
 
-	if opts.MaxHops != fastBulkMaxHops {
-		t.Fatalf("expected fast profile max hops %d, got %d", fastBulkMaxHops, opts.MaxHops)
+	if opts.MaxHops != mtr.DefaultMaxHops {
+		t.Fatalf("expected fast profile max hops %d, got %d", mtr.DefaultMaxHops, opts.MaxHops)
 	}
 	if opts.ProbesPerHop != 3 {
 		t.Fatalf("expected fast profile probes_per_hop=3, got %d", opts.ProbesPerHop)
@@ -77,8 +79,8 @@ func TestBulkMtrOptions_AppliesFastExecutionProfile(t *testing.T) {
 func TestBulkMtrOptions_AppliesBalancedExecutionProfile(t *testing.T) {
 	opts := bulkMtrOptions(mtrBulkRunPayload{ExecutionProfile: "balanced"})
 
-	if opts.MaxHops != balancedBulkMaxHops {
-		t.Fatalf("expected balanced profile max hops %d, got %d", balancedBulkMaxHops, opts.MaxHops)
+	if opts.MaxHops != mtr.DefaultMaxHops {
+		t.Fatalf("expected balanced profile max hops %d, got %d", mtr.DefaultMaxHops, opts.MaxHops)
 	}
 	if opts.ProbesPerHop != 5 {
 		t.Fatalf("expected balanced profile probes_per_hop=5, got %d", opts.ProbesPerHop)
@@ -137,8 +139,20 @@ func TestBulkMtrOptions_ExplicitMaxHopsOverridesProfileDefault(t *testing.T) {
 	}
 }
 
+func TestBulkMtrOptions_TCPPort(t *testing.T) {
+	opts := bulkMtrOptions(mtrBulkRunPayload{Protocol: "tcp", TCPPort: 8443})
+	if opts.TCPPort != 8443 {
+		t.Fatalf("expected tcp_port 8443, got %d", opts.TCPPort)
+	}
+
+	opts = bulkMtrOptions(mtrBulkRunPayload{Protocol: "tcp", TCPPort: -1})
+	if opts.TCPPort != mtr.DefaultTCPPort {
+		t.Fatalf("expected an invalid tcp_port to keep the default, got %d", opts.TCPPort)
+	}
+}
+
 func TestBuildBulkMtrTargetUpdate_MapsCanceledContext(t *testing.T) {
-	update := buildBulkMtrTargetUpdate("example.com", nil, context.Canceled)
+	update := buildBulkMtrTargetUpdate(bulkMtrUnit{target: "example.com"}, nil, context.Canceled)
 
 	if update.Status != bulkMtrStatusCanceled {
 		t.Fatalf("expected canceled status, got %q", update.Status)
@@ -166,9 +180,9 @@ func TestResolveBulkTargets_ProducesResolvedTasks(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	targetCh := make(chan string, 1)
+	targetCh := make(chan bulkMtrUnit, 1)
 	taskCh := make(chan bulkMtrTask, 1)
-	targetCh <- "127.0.0.1"
+	targetCh <- bulkMtrUnit{target: "127.0.0.1", protocol: mtr.ProtocolTCP}
 	close(targetCh)
 
 	go resolveBulkTargets(ctx, targetCh, taskCh)
@@ -177,8 +191,8 @@ func TestResolveBulkTargets_ProducesResolvedTasks(t *testing.T) {
 	if !ok {
 		t.Fatal("expected resolved bulk task")
 	}
-	if task.target != "127.0.0.1" {
-		t.Fatalf("expected target 127.0.0.1, got %q", task.target)
+	if task.unit.target != "127.0.0.1" || task.unit.protocol != mtr.ProtocolTCP {
+		t.Fatalf("expected unit 127.0.0.1/tcp, got %+v", task.unit)
 	}
 	if task.err != nil {
 		t.Fatalf("expected target resolution to succeed, got %v", task.err)
@@ -284,12 +298,12 @@ func TestNextBulkMtrTarget_StopsWhenContextCanceled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	target, ok := nextBulkMtrTarget(ctx, make(chan string))
+	unit, ok := nextBulkMtrTarget(ctx, make(chan bulkMtrUnit))
 	if ok {
 		t.Fatal("expected canceled context to stop target intake")
 	}
-	if target != "" {
-		t.Fatalf("expected empty target on cancellation, got %q", target)
+	if unit.target != "" {
+		t.Fatalf("expected empty target on cancellation, got %q", unit.target)
 	}
 }
 
@@ -331,5 +345,127 @@ func TestShouldFlushBulkMtrProgress_HoldsSmallRecentBatch(t *testing.T) {
 
 	if shouldFlushBulkMtrProgress(1, 5, 10, now, now) {
 		t.Fatal("expected small recent progress batch to stay buffered")
+	}
+}
+
+func TestBulkMtrOptions_TCPSynRetries(t *testing.T) {
+	two, tooMany := 2, 9
+
+	if opts := bulkMtrOptions(mtrBulkRunPayload{Protocol: "tcp", TCPSynRetries: &two}); opts.TCPSynRetries != 2 {
+		t.Fatalf("expected tcp_syn_retries 2, got %d", opts.TCPSynRetries)
+	}
+	if opts := bulkMtrOptions(mtrBulkRunPayload{Protocol: "tcp", TCPSynRetries: &tooMany}); opts.TCPSynRetries != mtr.DefaultTCPSynRetries {
+		t.Fatalf("expected an out-of-range value to keep the default, got %d", opts.TCPSynRetries)
+	}
+}
+
+func TestAgentCapabilities_MtrTCPSyn(t *testing.T) {
+	with := agentCapabilities(agentCapabilityOptions{mtrAvailable: true, mtrTCPSyn: true})
+	without := agentCapabilities(agentCapabilityOptions{mtrAvailable: true})
+
+	if !containsCapability(with, "mtr_tcp_syn") || !containsCapability(with, "mtr") {
+		t.Fatalf("expected mtr and mtr_tcp_syn, got %v", with)
+	}
+	if containsCapability(without, "mtr_tcp_syn") {
+		t.Fatalf("expected no mtr_tcp_syn without a raw TCP socket, got %v", without)
+	}
+}
+
+func TestBulkMtrProtocols_CanonicalOrderAndFallback(t *testing.T) {
+	cases := []struct {
+		name    string
+		payload mtrBulkRunPayload
+		want    []string
+	}{
+		{name: "set in canonical order", payload: mtrBulkRunPayload{Protocols: []string{"tcp", "ICMP", "udp", "tcp"}}, want: []string{"icmp", "udp", "tcp"}},
+		{name: "unknown names dropped", payload: mtrBulkRunPayload{Protocols: []string{"sctp", "tcp"}}, want: []string{"tcp"}},
+		{name: "legacy single protocol", payload: mtrBulkRunPayload{Protocol: "udp"}, want: []string{"udp"}},
+		{name: "nothing usable", payload: mtrBulkRunPayload{Protocols: []string{"sctp"}, Protocol: "bogus"}, want: []string{"icmp"}},
+	}
+
+	for _, tc := range cases {
+		got := bulkMtrProtocolNames(bulkMtrProtocols(tc.payload))
+		if strings.Join(got, ",") != strings.Join(tc.want, ",") {
+			t.Fatalf("%s: got %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestBulkMtrUpdateReached(t *testing.T) {
+	reached := &mtr.TraceResult{TargetReached: true}
+
+	cases := []struct {
+		name   string
+		update mtrBulkTargetUpdate
+		want   bool
+	}{
+		{name: "completed and reached", update: mtrBulkTargetUpdate{Status: bulkMtrStatusCompleted, Trace: reached}, want: true},
+		{name: "completed but not reached", update: mtrBulkTargetUpdate{Status: bulkMtrStatusCompleted, Trace: &mtr.TraceResult{}}, want: false},
+		{name: "completed without a trace", update: mtrBulkTargetUpdate{Status: bulkMtrStatusCompleted}, want: false},
+		{name: "failed", update: mtrBulkTargetUpdate{Status: bulkMtrStatusFailed, Trace: reached}, want: false},
+	}
+
+	for _, tc := range cases {
+		if got := bulkMtrUpdateReached(tc.update); got != tc.want {
+			t.Fatalf("%s: got %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestExpandBulkMtrUnits_OneTracePerTargetAndProtocol(t *testing.T) {
+	units := expandBulkMtrUnits(
+		[]string{"192.0.2.1", "192.0.2.2"},
+		[]mtr.Protocol{mtr.ProtocolICMP, mtr.ProtocolTCP},
+	)
+
+	want := []bulkMtrUnit{
+		{target: "192.0.2.1", protocol: mtr.ProtocolICMP},
+		{target: "192.0.2.1", protocol: mtr.ProtocolTCP},
+		{target: "192.0.2.2", protocol: mtr.ProtocolICMP},
+		{target: "192.0.2.2", protocol: mtr.ProtocolTCP},
+	}
+
+	if len(units) != len(want) {
+		t.Fatalf("expected %d units, got %d", len(want), len(units))
+	}
+	for i := range want {
+		if units[i] != want[i] {
+			t.Fatalf("unit %d: got %+v, want %+v", i, units[i], want[i])
+		}
+	}
+}
+
+func TestBuildBulkMtrTargetUpdate_CarriesProtocol(t *testing.T) {
+	update := buildBulkMtrTargetUpdate(bulkMtrUnit{target: "192.0.2.1", protocol: mtr.ProtocolUDP}, &mtr.TraceResult{}, nil)
+
+	if update.Protocol != "udp" || update.Status != bulkMtrStatusCompleted {
+		t.Fatalf("expected a completed udp update, got %+v", update)
+	}
+}
+
+func TestMtrBulkPayload_ReachedTargetsZeroIsReported(t *testing.T) {
+	progress, err := json.Marshal(mtrBulkProgressPayload{TotalTargets: 2})
+	if err != nil {
+		t.Fatalf("marshal progress: %v", err)
+	}
+
+	if strings.Contains(string(progress), "reached_targets") {
+		t.Fatalf("progress should not report reach: %s", progress)
+	}
+
+	reached := 0
+
+	result, err := json.Marshal(mtrBulkProgressPayload{TotalTargets: 2, ReachedTargets: &reached})
+	if err != nil {
+		t.Fatalf("marshal result: %v", err)
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(result, &decoded); err != nil {
+		t.Fatalf("unmarshal result: %v", err)
+	}
+
+	if got, ok := decoded["reached_targets"]; !ok || got != float64(0) {
+		t.Fatalf("result should report reached_targets 0, got %v (present=%v)", got, ok)
 	}
 }

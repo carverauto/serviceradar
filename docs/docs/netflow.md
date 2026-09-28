@@ -79,8 +79,9 @@ Send NetFlow to `<FLOW_COLLECTOR_ADDRESS>:2055/UDP` and sFlow to `<FLOW_COLLECTO
 The shipped Compose stack leaves the flow collector off unless you pass
 `--profile flows` or `--profile network-ingest`. `--profile starrocks` starts
 the StarRocks warehouse (`starrocks/allin1-ubuntu:3.5.21`) independently; set
-`STARROCKS_ENABLED=true` alongside it so EventWriter shadows telemetry. The
-profiles are independent: NetFlow collection without StarRocks is supported and
+`STARROCKS_ENABLED=true` alongside it so EventWriter shadows telemetry, and set
+`STARROCKS_ROOT_PASSWORD` in `.env` (the container refuses to start without it;
+see `README-Docker.md`). The profiles are independent: NetFlow collection without StarRocks is supported and
 stores flows on CNPG hypertables. Reading those flows back -- the dashboard
 NetFlow panel, `in:flows` -- requires the warehouse and the `flows` cutover;
 without it the read is refused rather than served from CNPG.
@@ -279,9 +280,9 @@ The flow collector reads a single JSON file (`/etc/serviceradar/flow-collector.j
 - `nats_creds_file`: Optional path to NATS credentials file
 - `stream_name`: Dedicated JetStream stream for flow subjects (default/production: `flows`; do not share with the multi-signal `events` stream)
 - `stream_subjects`: Stream subjects to ensure exist for canonical raw flow ingest (each listener's `subject` is merged in automatically)
-- `stream_max_bytes`: Stream size cap in bytes. Binary default for stream_name=`flows` is **10 GiB** (recovery headroom). Docker Compose and the OCI-baked config override to **1 GiB** as part of the bounded 7.125 GiB aggregate described above. Tenant overlays use ≤256 MiB under 2G file stores. Helm production default is **10 GiB / R=3** with datasvc KV/object budgets sized to fit a **30Gi PVC / 30G maxFileStore**. **Never** apply these retention values when `stream_name` is still `events` (legacy mode is subject-merge only). **Must not** change an existing StatefulSet PVC size via Helm (volumeClaimTemplates are immutable); expand PVCs out-of-band before raising retention further.
-- `stream_max_age_secs`: Stream MaxAge in seconds (default: 21600 / 6 hours). The **flow-collector** is the retention owner for the `flows` stream; EventWriter must not shrink those limits on reconcile.
-- `stream_replicas`: JetStream replica count (default: 1 in the binary; Helm HA sets 3). Prefer R=3 in multi-node NATS so demo matches production HA. Size `nats.jetstream.maxFileStore` within the **existing** PVC capacity.
+- `stream_max_bytes`: Stream size cap in bytes. Binary default for stream_name=`flows` is **10 GiB** (recovery headroom). Docker Compose and the OCI-baked config override to **1 GiB** as part of the bounded 7.125 GiB aggregate described above. Tenant overlays use ≤256 MiB under 2G file stores. Helm sizes it from `nats.jetstream.profile` (8 GiB / R=3 in `small`; see [Helm configuration](./helm-configuration.md)). **Never** apply these retention values when `stream_name` is still `events` (legacy mode is subject-merge only). **Must not** change an existing StatefulSet PVC size via Helm (volumeClaimTemplates are immutable); moving to a larger profile follows `docs/nats-jetstream-profile-runbook.md` in the repository. The `SERVICERADAR_JS_FLOWS_MAX_BYTES` and `SERVICERADAR_JS_FLOWS_REPLICAS` environment variables override `stream_max_bytes` and `stream_replicas` (environment, then JSON, then default); an empty value is treated as unset and any other non-positive or non-integer value fails startup. On startup the collector reconciles an existing `flows` stream to the resolved size and replicas, evicting the oldest messages if the stream is over the new cap.
+- `stream_max_age_secs`: Stream MaxAge in seconds (default: 21600 / 6 hours). The **flow-collector** is the retention owner for the `flows` stream: it marks the stream with `serviceradar.owner: flow-collector` metadata, and EventWriter must not shrink those limits on reconcile.
+- `stream_replicas`: JetStream replica count (default: 1 in the binary; Helm HA sets 3). Prefer R=3 in multi-node NATS so demo matches production HA. The chart checks the resulting JetStream reservations against `max_file_store` at render time.
 - `partition`: Partition tag applied to ingested flows (default: `default`)
 - `listeners`: One entry per UDP socket (`netflow` or `sflow`)
 - `channel_size`: Bounded channel depth (default: 10,000)

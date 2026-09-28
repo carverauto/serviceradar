@@ -20,4 +20,14 @@ defmodule ServiceRadar.Ash.Page do
       {:error, error} -> raise error
     end
   end
+
+  # One page of a paginated read is not the match set. `unwrap/1` drops `more?`,
+  # and Ash's default page is 250, so callers that need every row stream.
+  # `batch_size` is that page, not a cap: the stream follows the cursor itself.
+  @stream_batch_size 250
+
+  @spec stream!(Ash.Query.t(), keyword()) :: Enumerable.t()
+  def stream!(query, opts \\ []) do
+    Ash.stream!(query, Keyword.put_new(opts, :batch_size, @stream_batch_size))
+  end
 end

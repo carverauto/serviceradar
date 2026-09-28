@@ -36,6 +36,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents do
     set_import_partition
     preview_csv
     import_csv
+    dismiss_import_result
     validate_device
     save_device
   )
@@ -89,7 +90,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexEvents do
     BulkState.handle_event(event, params, socket)
   end
 
-  def handle_event(event, params, socket) when event in ~w(bulk_delete_devices confirm_bulk_delete) do
+  def handle_event(event, params, socket)
+      when event in ~w(bulk_delete_devices confirm_bulk_delete bulk_delete_error_mode) do
     BulkDelete.handle_event(event, params, socket)
   end
 

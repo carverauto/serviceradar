@@ -41,9 +41,9 @@ func TestNormalizeIdentityScope(t *testing.T) {
 }
 
 func TestScopedIntegrationID(t *testing.T) {
-	got := ScopedIntegrationID("armis", "main", "device", "18497")
-	if got != "armis:main:device:18497" {
-		t.Fatalf("ScopedIntegrationID = %q, want %q", got, "armis:main:device:18497")
+	got := ScopedIntegrationID("armis", "main", "device", "42001")
+	if got != "armis:main:device:42001" {
+		t.Fatalf("ScopedIntegrationID = %q, want %q", got, "armis:main:device:42001")
 	}
 
 	for _, tc := range []struct {
@@ -53,10 +53,10 @@ func TestScopedIntegrationID(t *testing.T) {
 		kind       string
 		nativeID   string
 	}{
-		{"empty source type", "", "main", "device", "18497"},
-		{"empty scope", "armis", "", "device", "18497"},
-		{"blank scope", "armis", "   ", "device", "18497"},
-		{"empty kind", "armis", "main", "", "18497"},
+		{"empty source type", "", "main", "device", "42001"},
+		{"empty scope", "armis", "", "device", "42001"},
+		{"blank scope", "armis", "   ", "device", "42001"},
+		{"empty kind", "armis", "main", "", "42001"},
 		{"empty native id", "armis", "main", "device", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

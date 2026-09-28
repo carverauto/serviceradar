@@ -1,5 +1,23 @@
 defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
-  @moduledoc false
+  @moduledoc """
+  MTR trace readers for the diagnostics pages, the device MTR tab and the
+  Compare page.
+
+  Exactly one telemetry backend is active. With `analytics.starrocks.enabled`
+  on, every trace/hop read here is answered by `MtrWarehouse` and the CNPG
+  `mtr_traces`/`mtr_hops` hypertables are never queried: they stop receiving
+  rows once the warehouse is enabled. With it off, the CNPG SQL below runs
+  exactly as it always has. Both backends' answers are shaped by the same code,
+  so callers and templates see one result shape.
+
+  Filters (the page's target/agent/device inputs, the SRQL-style query string
+  and the Compare filters) are parsed once into dialect-free terms; the CNPG
+  renderer here produces the where-clauses CNPG has always run, and
+  `MtrWarehouse` renders the same terms for the warehouse.
+
+  `:cnpg_query` in `opts` replaces `Repo.query/2` and `:starrocks_query` the
+  warehouse client; both exist for tests.
+  """
 
   import Ash.Expr
 
@@ -7,6 +25,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
   alias ServiceRadar.Observability.MtrSettings
   alias ServiceRadar.Observability.MtrSettingsRuntime
   alias ServiceRadar.Repo
+  alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrDepth
+  alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrWarehouse
 
   require Ash.Query
 
@@ -46,7 +66,6 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     "error" => "error"
   }
 
-  @sobelow_skip ["SQL.Query"]
   def list_traces(opts \\ []) do
     target_filter = normalize_string(Keyword.get(opts, :target_filter, ""))
     agent_filter = normalize_string(Keyword.get(opts, :agent_filter, ""))
@@ -54,12 +73,24 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     device_ip = normalize_string(Keyword.get(opts, :device_ip))
     limit = normalize_limit(Keyword.get(opts, :limit, 50))
 
-    {where_clause, params} = build_trace_where(target_filter, agent_filter, device_uid, device_ip)
+    terms = trace_filter_terms(target_filter, agent_filter, device_uid, device_ip)
+
+    if MtrWarehouse.enabled?() do
+      terms |> MtrWarehouse.list_traces(limit, opts) |> rows_to_maps()
+    else
+      cnpg_list_traces(terms, limit, opts)
+    end
+  end
+
+  @sobelow_skip ["SQL.Query"]
+  defp cnpg_list_traces(terms, limit, opts) do
+    {where_clause, params} = build_trace_where(terms)
 
     query = """
     WITH selected_traces AS (
       SELECT id, time, agent_id, check_id, check_name, device_id, target, target_ip,
-             target_reached, total_hops, protocol, ip_version, error
+             target_reached, total_hops, probed_hops, last_responding_hop, protocol, tcp_port,
+             ip_version, error
       FROM mtr_traces
       #{where_clause}
       ORDER BY time DESC, id DESC
@@ -78,11 +109,14 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
           ON st.id = h.trace_id
           AND st.target_reached
           AND h.hop_number = st.total_hops
+          AND h.time >= st.time
+        WHERE h.time >= (SELECT MIN(time) FROM selected_traces)
       ) ranked_terminal_hops
       WHERE terminal_rank = 1
     )
     SELECT st.id::text AS id, st.time, st.agent_id, st.check_id, st.check_name, st.device_id,
-           st.target, st.target_ip, st.target_reached, st.total_hops, st.protocol, st.ip_version,
+           st.target, st.target_ip, st.target_reached, st.total_hops, st.probed_hops,
+           st.last_responding_hop, st.protocol, st.tcp_port, st.ip_version,
            st.error, destination.sent AS destination_sent,
            destination.received AS destination_received,
            destination.avg_us AS destination_avg_us,
@@ -95,16 +129,10 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     ORDER BY st.time DESC, st.id DESC
     """
 
-    case Repo.query(query, params ++ [limit]) do
-      {:ok, %{rows: rows, columns: columns}} ->
-        {:ok, Enum.map(rows, fn row -> columns |> Enum.zip(row) |> Map.new() end)}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
+    query_fun = cnpg_query(opts)
+    rows_to_maps(query_fun.(query, params ++ [limit]))
   end
 
-  @sobelow_skip ["SQL.Query"]
   def list_traces_paginated(opts \\ []) do
     target_filter = normalize_string(Keyword.get(opts, :target_filter, ""))
     agent_filter = normalize_string(Keyword.get(opts, :agent_filter, ""))
@@ -114,16 +142,33 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     page = normalize_page(Keyword.get(opts, :page, 1))
     per_page = normalize_limit(Keyword.get(opts, :limit, default_history_page_size()))
 
-    {where_clause, params, srql_sort} =
-      build_trace_where_with_srql(target_filter, agent_filter, device_uid, device_ip, srql_query)
+    {terms, srql_sort} =
+      trace_terms_with_srql(target_filter, agent_filter, device_uid, device_ip, srql_query)
 
-    {sort_field, sort_dir} = srql_sort || @default_sort
-    order_clause = order_clause(sort_field, sort_dir)
+    sort = srql_sort || @default_sort
     offset = (page - 1) * per_page
+
+    result =
+      if MtrWarehouse.enabled?() do
+        MtrWarehouse.trace_page(terms, sort, per_page, offset, opts)
+      else
+        cnpg_trace_page(terms, sort, per_page, offset, opts)
+      end
+
+    with {:ok, rows, total} <- result do
+      {:ok, %{rows: rows, total_count: total || 0, page: page, per_page: per_page}}
+    end
+  end
+
+  @sobelow_skip ["SQL.Query"]
+  defp cnpg_trace_page(terms, {sort_field, sort_dir}, per_page, offset, opts) do
+    {where_clause, params} = build_trace_where(terms)
+    order_clause = order_clause(sort_field, sort_dir)
 
     query = """
     SELECT id::text AS id, time, agent_id, check_id, check_name, device_id, target, target_ip,
-           target_reached, total_hops, protocol, ip_version, error
+           target_reached, total_hops, probed_hops, last_responding_hop, protocol, tcp_port,
+           ip_version, error
     FROM mtr_traces
     #{where_clause}
     ORDER BY #{order_clause}
@@ -137,19 +182,12 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     #{where_clause}
     """
 
-    with {:ok, %{rows: rows, columns: columns}} <- Repo.query(query, params ++ [per_page, offset]),
-         {:ok, %{rows: [[total]]}} <- Repo.query(count_query, params) do
-      {:ok,
-       %{
-         rows: Enum.map(rows, fn row -> columns |> Enum.zip(row) |> Map.new() end),
-         total_count: total || 0,
-         page: page,
-         per_page: per_page
-       }}
+    with {:ok, %{rows: rows, columns: columns}} <- cnpg_query(opts).(query, params ++ [per_page, offset]),
+         {:ok, %{rows: [[total]]}} <- cnpg_query(opts).(count_query, params) do
+      {:ok, Enum.map(rows, fn row -> columns |> Enum.zip(row) |> Map.new() end), total}
     end
   end
 
-  @sobelow_skip ["SQL.Query"]
   def trace_coverage(opts \\ []) do
     target_filter = normalize_string(Keyword.get(opts, :target_filter, ""))
     agent_filter = normalize_string(Keyword.get(opts, :agent_filter, ""))
@@ -157,20 +195,17 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     device_ip = normalize_string(Keyword.get(opts, :device_ip))
     srql_query = normalize_string(Keyword.get(opts, :srql_query, ""))
 
-    {where_clause, params, _srql_sort} =
-      build_trace_where_with_srql(target_filter, agent_filter, device_uid, device_ip, srql_query)
+    {terms, _srql_sort} =
+      trace_terms_with_srql(target_filter, agent_filter, device_uid, device_ip, srql_query)
 
-    query = """
-    SELECT COUNT(*)::bigint AS trace_count,
-           COUNT(*) FILTER (WHERE target_reached)::bigint AS reached_count,
-           COUNT(*) FILTER (WHERE NOT target_reached)::bigint AS failed_count,
-           MIN(time) AS earliest_time,
-           MAX(time) AS latest_time
-    FROM mtr_traces
-    #{where_clause}
-    """
+    result =
+      if MtrWarehouse.enabled?() do
+        MtrWarehouse.trace_coverage(terms, opts)
+      else
+        cnpg_trace_coverage(terms, opts)
+      end
 
-    case Repo.query(query, params) do
+    case result do
       {:ok, %{rows: [[count, reached, failed, earliest, latest]]}} ->
         {:ok,
          %{
@@ -184,6 +219,23 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  @sobelow_skip ["SQL.Query"]
+  defp cnpg_trace_coverage(terms, opts) do
+    {where_clause, params} = build_trace_where(terms)
+
+    query = """
+    SELECT COUNT(*)::bigint AS trace_count,
+           COUNT(*) FILTER (WHERE target_reached)::bigint AS reached_count,
+           COUNT(*) FILTER (WHERE NOT target_reached)::bigint AS failed_count,
+           MIN(time) AS earliest_time,
+           MAX(time) AS latest_time
+    FROM mtr_traces
+    #{where_clause}
+    """
+
+    cnpg_query(opts).(query, params)
   end
 
   def retention_status(scope \\ nil) do
@@ -272,7 +324,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
 
     hops =
       Enum.map(sorted, fn trace ->
-        {trace["time"], trace["total_hops"] || 0}
+        {trace["time"], MtrDepth.bar_depth(trace)}
       end)
 
     latency =
@@ -296,13 +348,13 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
       bucket_count = opts |> Keyword.get(:bucket_count, 24) |> normalize_bucket_count()
       signature_limit = opts |> Keyword.get(:signature_limit, 6) |> normalize_signature_limit()
 
-      with {:ok, summary_a} <- window_summary(window_a, filters),
-           {:ok, summary_b} <- window_summary(window_b, filters),
-           {:ok, timeline_a} <- window_timeline(window_a, filters, bucket_count),
-           {:ok, timeline_b} <- window_timeline(window_b, filters, bucket_count),
-           {:ok, signatures_a} <- window_route_signatures(window_a, filters, signature_limit),
-           {:ok, signatures_b} <- window_route_signatures(window_b, filters, signature_limit),
-           {:ok, agent_rows} <- window_agent_comparison(window_a, window_b, filters) do
+      with {:ok, summary_a} <- window_summary(window_a, filters, opts),
+           {:ok, summary_b} <- window_summary(window_b, filters, opts),
+           {:ok, timeline_a} <- window_timeline(window_a, filters, bucket_count, opts),
+           {:ok, timeline_b} <- window_timeline(window_b, filters, bucket_count, opts),
+           {:ok, signatures_a} <- window_route_signatures(window_a, filters, signature_limit, opts),
+           {:ok, signatures_b} <- window_route_signatures(window_b, filters, signature_limit, opts),
+           {:ok, agent_rows} <- window_agent_comparison(window_a, window_b, filters, opts) do
         {:ok,
          %{
            a: Map.merge(summary_a, %{timeline: timeline_a, route_signatures: signatures_a}),
@@ -316,46 +368,77 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     end
   end
 
-  @sobelow_skip ["SQL.Query"]
-  def get_trace_detail(scope, trace_id) when is_binary(trace_id) and trace_id != "" do
-    if is_nil(scope) do
-      {:error, :missing_scope}
-    else
-      trace_query = """
-      SELECT id::text AS id, time, agent_id, gateway_id, check_id, check_name, device_id,
-             target, target_ip, target_reached, total_hops, protocol,
-             ip_version, packet_size, partition, error
-      FROM mtr_traces
-      WHERE id::text = $1
-      LIMIT 1
-      """
+  @doc """
+  Loads one trace and its hops. Pass `time:` when the caller already knows
+  the trace's time (from a listed row): it bounds the trace lookup to one
+  chunk, which an id alone cannot do once chunks are compressed. With the
+  warehouse enabled it reads `MtrWarehouse.trace_detail/3`, which also takes
+  `hop_limit:`.
+  """
+  def get_trace_detail(scope, trace_id, opts \\ [])
 
-      hops_query = """
-      SELECT id::text AS id, time, hop_number, addr, hostname, ecmp_addrs, asn, asn_org,
-             mpls_labels, sent, received, loss_pct,
-             last_us, avg_us, min_us, max_us, stddev_us,
-             jitter_us, jitter_worst_us, jitter_interarrival_us
-      FROM mtr_hops
-      WHERE trace_id::text = $1
-      ORDER BY hop_number ASC, time DESC, id DESC
-      """
-
-      with {:ok, %{rows: [trace_row], columns: trace_cols}} <- Repo.query(trace_query, [trace_id]),
-           trace = trace_cols |> Enum.zip(trace_row) |> Map.new(),
-           {:ok, %{rows: hop_rows, columns: hop_cols}} <- Repo.query(hops_query, [trace_id]) do
-        hops = Enum.map(hop_rows, fn row -> hop_cols |> Enum.zip(row) |> Map.new() end)
-        {:ok, trace, hops}
-      else
-        {:ok, %{rows: []}} -> {:error, :not_found}
-        {:error, reason} -> {:error, reason}
-      end
+  def get_trace_detail(scope, trace_id, opts) when is_binary(trace_id) and trace_id != "" do
+    cond do
+      is_nil(scope) -> {:error, :missing_scope}
+      Ecto.UUID.cast(trace_id) == :error -> {:error, :not_found}
+      MtrWarehouse.enabled?() -> MtrWarehouse.trace_detail(trace_id, Keyword.get(opts, :time), opts)
+      true -> query_trace_detail(Ecto.UUID.dump!(trace_id), Keyword.get(opts, :time), opts)
     end
   end
 
-  def get_trace_detail(_scope, _trace_id), do: {:error, :invalid_trace_id}
+  def get_trace_detail(_scope, _trace_id, _opts), do: {:error, :invalid_trace_id}
+
+  # Both lookups compare the uuid column itself; casting the column to text
+  # would defeat its index. A hop is never older than its trace, so the trace's
+  # time bounds the hop lookup and lets Timescale skip older chunks, compressed
+  # ones included.
+  @sobelow_skip ["SQL.Query"]
+  defp query_trace_detail(trace_uuid, time, opts) do
+    {time_clause, trace_params} =
+      case time do
+        %DateTime{} -> {"AND time = $2", [trace_uuid, time]}
+        _ -> {"", [trace_uuid]}
+      end
+
+    trace_query = """
+    SELECT id::text AS id, time, agent_id, gateway_id, check_id, check_name, device_id,
+           target, target_ip, target_reached, total_hops, probed_hops, last_responding_hop,
+           protocol, tcp_port, ip_version, packet_size, partition, error,
+           tcp_handshake_ttl, tcp_handshake_attempts, tcp_syn_sent, tcp_synack_received,
+           tcp_rst_received, tcp_syn_unanswered, tcp_syn_drop_pct, tcp_syn_retransmits,
+           tcp_answered_after_retx, tcp_ack_mismatch, tcp_synack_duplicates,
+           tcp_handshake_rtt_min_us, tcp_handshake_rtt_avg_us, tcp_handshake_rtt_max_us,
+           tcp_server_response_us
+    FROM mtr_traces
+    WHERE id = $1 #{time_clause}
+    LIMIT 1
+    """
+
+    hops_query = """
+    SELECT id::text AS id, time, hop_number, addr, hostname, ecmp_addrs, asn, asn_org,
+           mpls_labels, sent, received, loss_pct,
+           last_us, avg_us, min_us, max_us, stddev_us,
+           jitter_us, jitter_worst_us, jitter_interarrival_us, unreachable_code,
+           reply_time_exceeded, reply_unreachable, reply_synack, reply_rst
+    FROM mtr_hops
+    WHERE trace_id = $1 AND time >= $2
+    ORDER BY hop_number ASC, time DESC, id DESC
+    """
+
+    with {:ok, %{rows: [trace_row], columns: trace_cols}} <- cnpg_query(opts).(trace_query, trace_params),
+         trace = trace_cols |> Enum.zip(trace_row) |> Map.new(),
+         {:ok, %{rows: hop_rows, columns: hop_cols}} <-
+           cnpg_query(opts).(hops_query, [trace_uuid, trace["time"]]) do
+      hops = Enum.map(hop_rows, fn row -> hop_cols |> Enum.zip(row) |> Map.new() end)
+      {:ok, trace, hops}
+    else
+      {:ok, %{rows: []}} -> {:error, :not_found}
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
   def get_trace_detail(trace_id) when is_binary(trace_id) and trace_id != "" do
-    get_trace_detail(%{}, trace_id)
+    get_trace_detail(%{}, trace_id, [])
   end
 
   def get_trace_detail(_), do: {:error, :invalid_trace_id}
@@ -388,9 +471,8 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     Enum.any?(targets, &String.contains?(String.downcase(&1), String.downcase(target_filter)))
   end
 
-  defp build_trace_where(target_filter, agent_filter, device_uid, device_ip) do
-    {conditions, params} =
-      build_trace_conditions(target_filter, agent_filter, device_uid, device_ip)
+  defp build_trace_where(terms) do
+    {conditions, params} = cnpg_conditions(terms, 1, "")
 
     where_clause =
       if conditions == [] do
@@ -502,66 +584,15 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
   defp normalize_signature_limit(value) when is_integer(value), do: value |> max(1) |> min(20)
   defp normalize_signature_limit(_value), do: 6
 
-  @sobelow_skip ["SQL.Query"]
-  defp window_summary(window, filters) do
-    {filter_clause, params} = build_compare_where(filters, 3, "t")
+  defp window_summary(window, filters, opts) do
+    result =
+      if MtrWarehouse.enabled?() do
+        MtrWarehouse.window_summary(window, compare_terms(filters), opts)
+      else
+        cnpg_window_summary(window, filters, opts)
+      end
 
-    query = """
-    WITH selected_traces AS (
-      SELECT id, time, agent_id, target, target_ip, target_reached, total_hops, protocol
-      FROM mtr_traces t
-      WHERE t.time >= $1 AND t.time < $2
-      #{filter_clause}
-    ),
-    terminal_hops AS (
-      SELECT trace_id, sent, received, avg_us
-      FROM (
-        SELECT
-          h.trace_id,
-          h.sent,
-          h.received,
-          h.avg_us,
-          ROW_NUMBER() OVER (
-            PARTITION BY h.trace_id
-            ORDER BY h.time DESC, h.id DESC
-          ) AS terminal_rank
-        FROM mtr_hops h
-        INNER JOIN selected_traces st
-          ON st.id = h.trace_id
-          AND st.target_reached
-          AND h.hop_number = st.total_hops
-      ) terminal_candidates
-      WHERE terminal_rank = 1
-    )
-    SELECT
-      COUNT(st.id)::bigint AS trace_count,
-      COUNT(st.id) FILTER (WHERE st.target_reached)::bigint AS reached_count,
-      COUNT(st.id) FILTER (WHERE NOT st.target_reached)::bigint AS failed_count,
-      COALESCE(AVG(NULLIF(st.total_hops, 0)), 0)::float AS avg_hops,
-      CASE
-        WHEN COALESCE(SUM(th.received) FILTER (WHERE th.received > 0 AND th.avg_us IS NOT NULL), 0) > 0
-        THEN (
-          SUM(th.avg_us::numeric * th.received::numeric) FILTER (WHERE th.received > 0 AND th.avg_us IS NOT NULL) /
-          SUM(th.received) FILTER (WHERE th.received > 0 AND th.avg_us IS NOT NULL)
-        )::float
-      END AS avg_destination_us,
-      CASE
-        WHEN COALESCE(SUM(th.sent) FILTER (WHERE th.sent > 0), 0) > 0
-        THEN (
-          100.0 * (
-            SUM(th.sent) FILTER (WHERE th.sent > 0) -
-            SUM(COALESCE(th.received, 0)) FILTER (WHERE th.sent > 0)
-          ) / SUM(th.sent) FILTER (WHERE th.sent > 0)
-        )::float
-      END AS destination_loss_pct,
-      COUNT(th.trace_id)::bigint AS endpoint_sample_count,
-      COUNT(DISTINCT st.agent_id)::bigint AS agent_count,
-      COUNT(DISTINCT COALESCE(NULLIF(st.target_ip, ''), st.target))::bigint AS target_count
-    FROM selected_traces st
-    LEFT JOIN terminal_hops th ON th.trace_id = st.id
-    """
-
-    case Repo.query(query, [window.start, window.end] ++ params) do
+    case result do
       {:ok,
        %{
          rows: [
@@ -602,7 +633,95 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
   end
 
   @sobelow_skip ["SQL.Query"]
-  defp window_timeline(window, filters, bucket_count) do
+  defp cnpg_window_summary(window, filters, opts) do
+    {filter_clause, params} = build_compare_where(filters, 3, "t")
+
+    query = """
+    WITH selected_traces AS (
+      SELECT id, time, agent_id, target, target_ip, target_reached, total_hops,
+             last_responding_hop, protocol
+      FROM mtr_traces t
+      WHERE t.time >= $1 AND t.time < $2
+      #{filter_clause}
+    ),
+    terminal_hops AS (
+      SELECT trace_id, sent, received, avg_us
+      FROM (
+        SELECT
+          h.trace_id,
+          h.sent,
+          h.received,
+          h.avg_us,
+          ROW_NUMBER() OVER (
+            PARTITION BY h.trace_id
+            ORDER BY h.time DESC, h.id DESC
+          ) AS terminal_rank
+        FROM mtr_hops h
+        INNER JOIN selected_traces st
+          ON st.id = h.trace_id
+          AND st.target_reached
+          AND h.hop_number = st.total_hops
+          AND h.time >= st.time
+        WHERE h.time >= $1 AND h.time < $2
+      ) terminal_candidates
+      WHERE terminal_rank = 1
+    )
+    SELECT
+      COUNT(st.id)::bigint AS trace_count,
+      COUNT(st.id) FILTER (WHERE st.target_reached)::bigint AS reached_count,
+      COUNT(st.id) FILTER (WHERE NOT st.target_reached)::bigint AS failed_count,
+      COALESCE(AVG(NULLIF(
+        CASE
+          WHEN st.target_reached THEN st.total_hops
+          ELSE COALESCE(
+            st.last_responding_hop,
+            (
+              SELECT COALESCE(MAX(h.hop_number) FILTER (WHERE h.received > 0), 0)
+              FROM mtr_hops h
+              WHERE h.trace_id = st.id AND h.time >= st.time
+              HAVING COUNT(*) > 0
+            ),
+            st.total_hops
+          )
+        END,
+        0
+      )), 0)::float AS avg_hops,
+      CASE
+        WHEN COALESCE(SUM(th.received) FILTER (WHERE th.received > 0 AND th.avg_us IS NOT NULL), 0) > 0
+        THEN (
+          SUM(th.avg_us::numeric * th.received::numeric) FILTER (WHERE th.received > 0 AND th.avg_us IS NOT NULL) /
+          SUM(th.received) FILTER (WHERE th.received > 0 AND th.avg_us IS NOT NULL)
+        )::float
+      END AS avg_destination_us,
+      CASE
+        WHEN COALESCE(SUM(th.sent) FILTER (WHERE th.sent > 0), 0) > 0
+        THEN (
+          100.0 * (
+            SUM(th.sent) FILTER (WHERE th.sent > 0) -
+            SUM(COALESCE(th.received, 0)) FILTER (WHERE th.sent > 0)
+          ) / SUM(th.sent) FILTER (WHERE th.sent > 0)
+        )::float
+      END AS destination_loss_pct,
+      COUNT(th.trace_id)::bigint AS endpoint_sample_count,
+      COUNT(DISTINCT st.agent_id)::bigint AS agent_count,
+      COUNT(DISTINCT COALESCE(NULLIF(st.target_ip, ''), st.target))::bigint AS target_count
+    FROM selected_traces st
+    LEFT JOIN terminal_hops th ON th.trace_id = st.id
+    """
+
+    cnpg_query(opts).(query, [window.start, window.end] ++ params)
+  end
+
+  defp window_timeline(window, filters, bucket_count, opts) do
+    if MtrWarehouse.enabled?() do
+      window |> MtrWarehouse.window_timeline(compare_terms(filters), bucket_count, opts) |> rows_to_maps()
+    else
+      cnpg_window_timeline(window, filters, bucket_count, opts)
+    end
+  end
+
+  @sobelow_skip ["SQL.Query"]
+  defp cnpg_window_timeline(window, filters, bucket_count, opts) do
     {filter_clause, params} = build_compare_where(filters, 4, "t")
 
     query = """
@@ -634,17 +753,20 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     ORDER BY b.bucket_start ASC
     """
 
-    case Repo.query(query, [window.start, window.end, bucket_count] ++ params) do
-      {:ok, %{rows: rows, columns: columns}} ->
-        {:ok, Enum.map(rows, fn row -> columns |> Enum.zip(row) |> Map.new() end)}
+    query_fun = cnpg_query(opts)
+    rows_to_maps(query_fun.(query, [window.start, window.end, bucket_count] ++ params))
+  end
 
-      {:error, reason} ->
-        {:error, reason}
+  defp window_route_signatures(window, filters, limit, opts) do
+    if MtrWarehouse.enabled?() do
+      window |> MtrWarehouse.window_route_signatures(compare_terms(filters), limit, opts) |> rows_to_maps()
+    else
+      cnpg_window_route_signatures(window, filters, limit, opts)
     end
   end
 
   @sobelow_skip ["SQL.Query"]
-  defp window_route_signatures(window, filters, limit) do
+  defp cnpg_window_route_signatures(window, filters, limit, opts) do
     {filter_clause, params} = build_compare_where(filters, 4, "t")
 
     query = """
@@ -664,7 +786,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
         st.target_reached,
         array_agg(COALESCE(NULLIF(h.addr, ''), '*') ORDER BY h.hop_number) AS hop_addrs
       FROM selected_traces st
-      LEFT JOIN mtr_hops h ON h.trace_id = st.id
+      LEFT JOIN mtr_hops h
+        ON h.trace_id = st.id
+        AND h.time >= st.time
+        AND h.time >= $1
+        AND h.time < $2
       GROUP BY st.id, st.time, st.agent_id, st.target, st.target_ip, st.target_reached
     ),
     signed_paths AS (
@@ -700,9 +826,36 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     LIMIT $3
     """
 
-    case Repo.query(query, [window.start, window.end, limit] ++ params) do
+    query_fun = cnpg_query(opts)
+    rows_to_maps(query_fun.(query, [window.start, window.end, limit] ++ params))
+  end
+
+  defp window_agent_comparison(window_a, window_b, filters, opts) do
+    result =
+      if MtrWarehouse.enabled?() do
+        MtrWarehouse.window_agent_comparison(window_a, window_b, compare_terms(filters), opts)
+      else
+        cnpg_window_agent_comparison(window_a, window_b, filters, opts)
+      end
+
+    case result do
       {:ok, %{rows: rows, columns: columns}} ->
-        {:ok, Enum.map(rows, fn row -> columns |> Enum.zip(row) |> Map.new() end)}
+        rows =
+          Enum.map(rows, fn row ->
+            row
+            |> then(&(columns |> Enum.zip(&1) |> Map.new()))
+            |> Map.update!("a_reached_count", &(&1 || 0))
+            |> Map.update!("a_trace_count", &(&1 || 0))
+            |> Map.update!("b_reached_count", &(&1 || 0))
+            |> Map.update!("b_trace_count", &(&1 || 0))
+            |> then(fn agent ->
+              agent
+              |> Map.put("a_success_rate", percent_float(agent["a_reached_count"], agent["a_trace_count"]))
+              |> Map.put("b_success_rate", percent_float(agent["b_reached_count"], agent["b_trace_count"]))
+            end)
+          end)
+
+        {:ok, rows}
 
       {:error, reason} ->
         {:error, reason}
@@ -710,7 +863,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
   end
 
   @sobelow_skip ["SQL.Query"]
-  defp window_agent_comparison(window_a, window_b, filters) do
+  defp cnpg_window_agent_comparison(window_a, window_b, filters, opts) do
     {filter_clause, params} = build_compare_where(filters, 5, "t")
 
     query = """
@@ -739,72 +892,11 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     LIMIT 50
     """
 
-    case Repo.query(query, [window_a.start, window_a.end, window_b.start, window_b.end] ++ params) do
-      {:ok, %{rows: rows, columns: columns}} ->
-        rows =
-          Enum.map(rows, fn row ->
-            row
-            |> then(&(columns |> Enum.zip(&1) |> Map.new()))
-            |> Map.update!("a_reached_count", &(&1 || 0))
-            |> Map.update!("a_trace_count", &(&1 || 0))
-            |> Map.update!("b_reached_count", &(&1 || 0))
-            |> Map.update!("b_trace_count", &(&1 || 0))
-            |> then(fn agent ->
-              agent
-              |> Map.put("a_success_rate", percent_float(agent["a_reached_count"], agent["a_trace_count"]))
-              |> Map.put("b_success_rate", percent_float(agent["b_reached_count"], agent["b_trace_count"]))
-            end)
-          end)
-
-        {:ok, rows}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
+    cnpg_query(opts).(query, [window_a.start, window_a.end, window_b.start, window_b.end] ++ params)
   end
 
   defp build_compare_where(filters, start_idx, table_alias) do
-    conditions = []
-    params = []
-    idx = start_idx
-    prefix = "#{table_alias}."
-
-    {conditions, params, idx} =
-      case Map.get(filters, :target_filter, "") do
-        "" ->
-          {conditions, params, idx}
-
-        target_filter ->
-          condition = "(#{prefix}target ILIKE $#{idx} OR #{prefix}target_ip ILIKE $#{idx})"
-          {conditions ++ [condition], params ++ ["%#{target_filter}%"], idx + 1}
-      end
-
-    {conditions, params, idx} =
-      case Map.get(filters, :agent_filter, "") do
-        "" ->
-          {conditions, params, idx}
-
-        agent_filter ->
-          {conditions ++ ["#{prefix}agent_id ILIKE $#{idx}"], params ++ ["%#{agent_filter}%"], idx + 1}
-      end
-
-    {conditions, params, idx} =
-      case Map.get(filters, :protocol, "") do
-        "" ->
-          {conditions, params, idx}
-
-        protocol ->
-          {conditions ++ ["#{prefix}protocol = $#{idx}"], params ++ [protocol], idx + 1}
-      end
-
-    {conditions, params, _idx} =
-      case Map.get(filters, :reached, :any) do
-        :any ->
-          {conditions, params, idx}
-
-        reached? when is_boolean(reached?) ->
-          {conditions ++ ["#{prefix}target_reached = $#{idx}"], params ++ [reached?], idx + 1}
-      end
+    {conditions, params} = filters |> compare_terms() |> cnpg_conditions(start_idx, "#{table_alias}.")
 
     clause =
       case conditions do
@@ -813,6 +905,35 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
       end
 
     {clause, params}
+  end
+
+  # The Compare filters as terms, in the order CNPG has always applied them.
+  defp compare_terms(filters) do
+    target_terms =
+      case Map.get(filters, :target_filter, "") do
+        "" -> []
+        target_filter -> [{:like_any, ["target", "target_ip"], to_string(target_filter)}]
+      end
+
+    agent_terms =
+      case Map.get(filters, :agent_filter, "") do
+        "" -> []
+        agent_filter -> [{:like_any, ["agent_id"], to_string(agent_filter)}]
+      end
+
+    protocol_terms =
+      case Map.get(filters, :protocol, "") do
+        "" -> []
+        protocol -> [{:eq, "protocol", protocol}]
+      end
+
+    reached_terms =
+      case Map.get(filters, :reached, :any) do
+        :any -> []
+        reached? when is_boolean(reached?) -> [{:eq, "target_reached", reached?}]
+      end
+
+    target_terms ++ agent_terms ++ protocol_terms ++ reached_terms
   end
 
   defp window_deltas(a, b) do
@@ -851,42 +972,85 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
   defp nullable_delta(a, b) when is_number(a) and is_number(b), do: round_nullable_float(a - b)
   defp nullable_delta(_a, _b), do: nil
 
-  defp build_trace_conditions(target_filter, agent_filter, device_uid, device_ip) do
-    conditions = []
-    params = []
-    idx = 1
+  # Filter terms are the dialect-free model of every MTR filter:
+  #
+  #   {:like_any, [field, ...], text}   case-insensitive `%text%` on any field
+  #   {:eq, field, value}               equality with a string or boolean
+  #   {:any_eq, [{field, value}, ...]}  an OR of equalities
+  #   {:time_range, start | nil, end | nil}
+  #
+  # `cnpg_conditions/3` renders them into the conditions and positional params
+  # CNPG has always run; MtrWarehouse renders them for the warehouse.
+  defp trace_filter_terms(target_filter, agent_filter, device_uid, device_ip) do
+    # A nil filter has always rendered CNPG's pattern as "%%"; the term carries
+    # the string both renderers interpolate.
+    target_terms =
+      if target_filter == "", do: [], else: [{:like_any, ["target", "target_ip"], to_string(target_filter)}]
 
-    {conditions, params, idx} =
-      if target_filter == "" do
-        {conditions, params, idx}
-      else
-        {conditions ++ ["(target ILIKE $#{idx} OR target_ip ILIKE $#{idx})"], params ++ ["%#{target_filter}%"], idx + 1}
-      end
+    agent_terms = if agent_filter == "", do: [], else: [{:like_any, ["agent_id"], to_string(agent_filter)}]
 
-    {conditions, params, idx} =
-      if agent_filter == "" do
-        {conditions, params, idx}
-      else
-        {conditions ++ ["agent_id ILIKE $#{idx}"], params ++ ["%#{agent_filter}%"], idx + 1}
-      end
-
-    {conditions, params, _idx} =
+    device_terms =
       case {device_uid, device_ip} do
         {uid, ip} when is_binary(uid) and uid != "" and is_binary(ip) and ip != "" ->
-          {conditions ++ ["(device_id::text = $#{idx} OR target_ip = $#{idx + 1})"], params ++ [uid, ip], idx + 2}
+          [{:any_eq, [{"device_id", uid}, {"target_ip", ip}]}]
 
         {uid, _ip} when is_binary(uid) and uid != "" ->
-          {conditions ++ ["device_id::text = $#{idx}"], params ++ [uid], idx + 1}
+          [{:eq, "device_id", uid}]
 
         {_uid, ip} when is_binary(ip) and ip != "" ->
-          {conditions ++ ["target_ip = $#{idx}"], params ++ [ip], idx + 1}
+          [{:eq, "target_ip", ip}]
 
         _ ->
-          {conditions, params, idx}
+          []
       end
+
+    target_terms ++ agent_terms ++ device_terms
+  end
+
+  defp cnpg_conditions(terms, start_idx, prefix) do
+    {conditions, params, _idx} =
+      Enum.reduce(terms, {[], [], start_idx}, fn term, {conditions, params, idx} ->
+        {condition, term_params} = cnpg_condition(term, idx, prefix)
+        {conditions ++ [condition], params ++ term_params, idx + length(term_params)}
+      end)
 
     {conditions, params}
   end
+
+  defp cnpg_condition({:like_any, [field], text}, idx, prefix),
+    do: {"#{cnpg_column(prefix, field)} ILIKE $#{idx}", ["%#{text}%"]}
+
+  defp cnpg_condition({:like_any, fields, text}, idx, prefix) do
+    condition = Enum.map_join(fields, " OR ", &"#{cnpg_column(prefix, &1)} ILIKE $#{idx}")
+    {"(#{condition})", ["%#{text}%"]}
+  end
+
+  defp cnpg_condition({:eq, field, value}, idx, prefix), do: {"#{cnpg_column(prefix, field)} = $#{idx}", [value]}
+
+  defp cnpg_condition({:any_eq, pairs}, idx, prefix) do
+    {conditions, params} =
+      pairs
+      |> Enum.with_index(idx)
+      |> Enum.map(fn {{field, value}, param_idx} -> {"#{cnpg_column(prefix, field)} = $#{param_idx}", value} end)
+      |> Enum.unzip()
+
+    {"(#{Enum.join(conditions, " OR ")})", params}
+  end
+
+  defp cnpg_condition({:time_range, start_dt, nil}, idx, prefix), do: {"#{prefix}time >= $#{idx}", [start_dt]}
+  defp cnpg_condition({:time_range, nil, end_dt}, idx, prefix), do: {"#{prefix}time < $#{idx}", [end_dt]}
+
+  defp cnpg_condition({:time_range, start_dt, end_dt}, idx, prefix),
+    do: {"#{prefix}time >= $#{idx} AND #{prefix}time < $#{idx + 1}", [start_dt, end_dt]}
+
+  defp cnpg_column(prefix, field), do: prefix <> Map.get(@safe_filter_columns, field, field)
+
+  defp cnpg_query(opts), do: Keyword.get(opts, :cnpg_query, &Repo.query/2)
+
+  defp rows_to_maps({:ok, %{rows: rows, columns: columns}}),
+    do: {:ok, Enum.map(rows, fn row -> columns |> Enum.zip(row) |> Map.new() end)}
+
+  defp rows_to_maps({:error, reason}), do: {:error, reason}
 
   defp read_all(query, scope) do
     case Ash.read(query, scope: scope) do
@@ -1023,111 +1187,87 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
   defp to_string_safe(value) when is_binary(value), do: value
   defp to_string_safe(value), do: to_string(value)
 
-  defp build_trace_where_with_srql(target_filter, agent_filter, device_uid, device_ip, srql_query) do
-    {conditions, params} =
-      build_trace_conditions(target_filter, agent_filter, device_uid, device_ip)
+  defp trace_terms_with_srql(target_filter, agent_filter, device_uid, device_ip, srql_query) do
+    {srql_terms, srql_sort} = parse_srql_terms(srql_query)
 
-    idx = length(params) + 1
-
-    {srql_conditions, srql_params, _idx, srql_sort} = parse_srql_conditions(srql_query, idx)
-    all_conditions = conditions ++ srql_conditions
-    all_params = params ++ srql_params
-
-    final_where =
-      if all_conditions == [] do
-        ""
-      else
-        "WHERE " <> Enum.join(all_conditions, " AND ")
-      end
-
-    {final_where, all_params, srql_sort}
+    {trace_filter_terms(target_filter, agent_filter, device_uid, device_ip) ++ srql_terms, srql_sort}
   end
 
-  defp parse_srql_conditions(query, start_idx) when is_binary(query) do
+  defp parse_srql_terms(query) when is_binary(query) do
     query
     |> tokenize_srql()
-    |> Enum.reduce({[], [], start_idx, nil}, fn token, {conditions, params, idx, sort} ->
+    |> Enum.reduce({[], nil}, fn token, {terms, sort} ->
       token
       |> String.trim()
-      |> maybe_parse_token(conditions, params, idx, sort)
+      |> maybe_parse_token(terms, sort)
     end)
   end
 
-  defp parse_srql_conditions(_, start_idx), do: {[], [], start_idx, nil}
+  defp parse_srql_terms(_), do: {[], nil}
 
-  defp maybe_parse_token("", conditions, params, idx, sort), do: {conditions, params, idx, sort}
+  defp maybe_parse_token("", terms, sort), do: {terms, sort}
 
-  defp maybe_parse_token(token, conditions, params, idx, sort) do
+  defp maybe_parse_token(token, terms, sort) do
     cond do
       String.starts_with?(token, "in:") ->
-        {conditions, params, idx, sort}
+        {terms, sort}
 
       String.starts_with?(token, "limit:") ->
-        {conditions, params, idx, sort}
+        {terms, sort}
 
       String.starts_with?(token, "sort:") ->
-        {conditions, params, idx, parse_sort_token(token) || sort}
+        {terms, parse_sort_token(token) || sort}
 
       String.starts_with?(token, "time:") ->
-        apply_time_filter(token, conditions, params, idx, sort)
+        {terms ++ time_filter_terms(token), sort}
 
       String.contains?(token, ":") ->
-        apply_field_filter(token, conditions, params, idx, sort)
+        {terms ++ field_filter_terms(token), sort}
 
       true ->
         text = normalize_srql_value(token)
 
         if text == "" do
-          {conditions, params, idx, sort}
+          {terms, sort}
         else
-          condition =
-            "(target ILIKE $#{idx} OR target_ip ILIKE $#{idx} OR agent_id ILIKE $#{idx} OR check_name ILIKE $#{idx})"
-
-          {conditions ++ [condition], params ++ ["%#{text}%"], idx + 1, sort}
+          {terms ++ [{:like_any, ["target", "target_ip", "agent_id", "check_name"], text}], sort}
         end
     end
   end
 
-  defp apply_field_filter(token, conditions, params, idx, sort) do
+  defp field_filter_terms(token) do
     case String.split(token, ":", parts: 2) do
       [raw_field, raw_value] ->
         field = String.downcase(raw_field)
         value = normalize_srql_value(raw_value)
-        apply_filter_by_field(field, value, conditions, params, idx, sort)
+        filter_terms_by_field(field, value)
 
       _ ->
-        {conditions, params, idx, sort}
+        []
     end
   end
 
-  defp apply_filter_by_field("", _value, conditions, params, idx, sort), do: {conditions, params, idx, sort}
+  defp filter_terms_by_field("", _value), do: []
 
-  defp apply_filter_by_field(_field, value, conditions, params, idx, sort) when not is_binary(value) or value == "" do
-    {conditions, params, idx, sort}
-  end
+  defp filter_terms_by_field(_field, value) when not is_binary(value) or value == "", do: []
 
-  defp apply_filter_by_field(field, value, conditions, params, idx, sort) do
-    col = Map.get(@safe_filter_columns, field)
-
+  defp filter_terms_by_field(field, value) do
     cond do
-      is_nil(col) or not MapSet.member?(@allowed_filter_fields, field) ->
-        {conditions, params, idx, sort}
+      not Map.has_key?(@safe_filter_columns, field) or not MapSet.member?(@allowed_filter_fields, field) ->
+        []
 
       MapSet.member?(@boolean_filter_fields, field) ->
-        maybe_add_boolean_filter(parse_boolean(value), col, conditions, params, idx, sort)
+        case parse_boolean(value) do
+          nil -> []
+          bool_value -> [{:eq, field, bool_value}]
+        end
 
       MapSet.member?(@exact_filter_fields, field) ->
-        {conditions ++ ["#{col} = $#{idx}"], params ++ [value], idx + 1, sort}
+        [{:eq, field, value}]
 
       true ->
-        {conditions ++ ["#{col} ILIKE $#{idx}"], params ++ ["%#{value}%"], idx + 1, sort}
+        [{:like_any, [field], value}]
     end
-  end
-
-  defp maybe_add_boolean_filter(nil, _field, conditions, params, idx, sort), do: {conditions, params, idx, sort}
-
-  defp maybe_add_boolean_filter(bool_value, field, conditions, params, idx, sort) do
-    {conditions ++ ["#{field} = $#{idx}"], params ++ [bool_value], idx + 1, sort}
   end
 
   defp parse_sort_token("sort:" <> rest) do
@@ -1162,29 +1302,16 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     end
   end
 
-  defp apply_time_filter("time:" <> raw_value, conditions, params, idx, sort) do
+  defp time_filter_terms("time:" <> raw_value) do
     raw_value
     |> normalize_srql_value()
     |> parse_time_range()
     |> case do
-      {:ok, nil, nil} ->
-        {conditions, params, idx, sort}
-
-      {:ok, start_dt, nil} ->
-        {conditions ++ ["time >= $#{idx}"], params ++ [start_dt], idx + 1, sort}
-
-      {:ok, nil, end_dt} ->
-        {conditions ++ ["time < $#{idx}"], params ++ [end_dt], idx + 1, sort}
-
-      {:ok, start_dt, end_dt} ->
-        {conditions ++ ["time >= $#{idx} AND time < $#{idx + 1}"], params ++ [start_dt, end_dt], idx + 2, sort}
-
-      :error ->
-        {conditions, params, idx, sort}
+      {:ok, nil, nil} -> []
+      {:ok, start_dt, end_dt} -> [{:time_range, start_dt, end_dt}]
+      :error -> []
     end
   end
-
-  defp apply_time_filter(_token, conditions, params, idx, sort), do: {conditions, params, idx, sort}
 
   defp parse_time_range(""), do: {:ok, nil, nil}
 

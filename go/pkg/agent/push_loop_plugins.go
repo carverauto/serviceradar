@@ -100,6 +100,13 @@ func (p *PushLoop) normalizePluginPayload(
 
 	payload["status"] = status
 	ensureObservedAt(payload, result.ObservedAt)
+
+	// The acknowledgement list is host-authored, like the labels below: a
+	// plugin must not be able to acknowledge overrides it never received.
+	delete(payload, runOverridesAckKey)
+	if len(result.AcknowledgedRunOverrides) > 0 {
+		payload[runOverridesAckKey] = result.AcknowledgedRunOverrides
+	}
 	labels := normalizePluginLabels(payload)
 
 	if result.AssignmentID != "" {
@@ -224,6 +231,22 @@ const (
 	pluginStatusCritical = "CRITICAL"
 	pluginStatusUnknown  = "UNKNOWN"
 )
+
+func pluginPayloadSucceeded(payload []byte) bool {
+	var result struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(payload, &result); err != nil {
+		return false
+	}
+
+	switch normalizePluginStatus(result.Status) {
+	case pluginStatusOK, pluginStatusWarning:
+		return true
+	default:
+		return false
+	}
+}
 
 func isValidPluginStatus(status string) bool {
 	switch status {

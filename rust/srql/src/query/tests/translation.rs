@@ -13,6 +13,7 @@ fn translate_param_arity_matches_sql_placeholders() {
                 cursor: None,
                 direction: QueryDirection::Next,
                 mode: None,
+                permitted_signals: None,
             },
             QueryRequest {
                 query: "in:services available:false time:last_24h stats:count() as failing"
@@ -21,6 +22,7 @@ fn translate_param_arity_matches_sql_placeholders() {
                 cursor: None,
                 direction: QueryDirection::Next,
                 mode: None,
+                permitted_signals: None,
             },
             QueryRequest {
                 query: "in:gateways is_healthy:true status:ready sort:agent_count:desc".to_string(),
@@ -28,6 +30,7 @@ fn translate_param_arity_matches_sql_placeholders() {
                 cursor: None,
                 direction: QueryDirection::Next,
                 mode: None,
+                permitted_signals: None,
             },
             QueryRequest {
                 query:
@@ -37,6 +40,7 @@ fn translate_param_arity_matches_sql_placeholders() {
                 cursor: None,
                 direction: QueryDirection::Next,
                 mode: None,
+                permitted_signals: None,
             },
             QueryRequest {
                 query: "in:devices time:last_7d sort:last_seen:desc is_available:true discovery_sources:(sweep,armis)".to_string(),
@@ -44,6 +48,7 @@ fn translate_param_arity_matches_sql_placeholders() {
                 cursor: Some(cursor.clone()),
                 direction: QueryDirection::Next,
                 mode: None,
+                permitted_signals: None,
             },
             QueryRequest {
                 query: r#"in:logs device_id:"sr:device-1" time:last_24h sort:timestamp:desc"#.to_string(),
@@ -51,6 +56,7 @@ fn translate_param_arity_matches_sql_placeholders() {
                 cursor: None,
                 direction: QueryDirection::Next,
                 mode: None,
+                permitted_signals: None,
             },
             QueryRequest {
                 query: "in:interfaces time:last_24h ip_addresses:(10.0.0.1,10.0.0.2) sort:timestamp:asc".to_string(),
@@ -58,6 +64,7 @@ fn translate_param_arity_matches_sql_placeholders() {
                 cursor: None,
                 direction: QueryDirection::Next,
                 mode: None,
+                permitted_signals: None,
             },
             QueryRequest {
                 query: "in:traces time:last_24h status_code:(1,2) kind:(1,2,3) sort:timestamp:desc".to_string(),
@@ -65,6 +72,7 @@ fn translate_param_arity_matches_sql_placeholders() {
                 cursor: None,
                 direction: QueryDirection::Next,
                 mode: None,
+                permitted_signals: None,
             },
             QueryRequest {
                 query: "in:device_graph device_id:dev-1 collector_owned_only:true include_topology:false".to_string(),
@@ -72,13 +80,15 @@ fn translate_param_arity_matches_sql_placeholders() {
                 cursor: None,
                 direction: QueryDirection::Next,
                 mode: None,
+                permitted_signals: None,
             },
             QueryRequest {
-                query: "in:devices switch_port_attachment.switch_hostname:niadcs-bldd03-asw001 vlan_uid:561".to_string(),
+                query: "in:devices switch_port_attachment.switch_hostname:switch01.example.com vlan_uid:200".to_string(),
                 limit: Some(10),
                 cursor: None,
                 direction: QueryDirection::Next,
                 mode: None,
+                permitted_signals: None,
             },
             QueryRequest {
                 query: "in:source_fact_disagreements fact_key:switch_port_attachment status:open sort:last_detected_at:desc".to_string(),
@@ -86,6 +96,7 @@ fn translate_param_arity_matches_sql_placeholders() {
                 cursor: None,
                 direction: QueryDirection::Next,
                 mode: None,
+                permitted_signals: None,
             },
         ];
 
@@ -117,6 +128,7 @@ fn translate_timestamp_sorted_severity_list_uses_bounded_topn_branches() {
         cursor: Some(cursor),
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -129,9 +141,9 @@ fn translate_timestamp_sorted_severity_list_uses_bounded_topn_branches() {
     assert!(response.sql.starts_with("SELECT severity_topn.* FROM ("));
     assert!(!response.sql.contains(" = ANY("), "{}", response.sql);
     assert!(
-        response.sql.contains(
-            "ORDER BY COALESCE(severity_topn.observed_timestamp, severity_topn.\"timestamp\") DESC, severity_topn.id DESC"
-        ),
+        response
+            .sql
+            .contains("ORDER BY severity_topn.\"timestamp\" DESC, severity_topn.id DESC"),
         "{}",
         response.sql
     );
@@ -173,6 +185,7 @@ fn translate_includes_visualization_metadata() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -204,6 +217,7 @@ fn translate_logs_device_id_resolves_inventory_aliases() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -238,22 +252,29 @@ fn translate_logs_without_time_gets_default_window() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
 
     assert!(
-        response
-            .sql
-            .contains("COALESCE(observed_timestamp, timestamp) >= $1"),
+        response.sql.contains("timestamp >= $1"),
         "logs list query should be lower-bounded by default, got: {}",
         response.sql
     );
     assert!(
-        response
-            .sql
-            .contains("COALESCE(observed_timestamp, timestamp) <= $2"),
+        response.sql.contains("timestamp < $2"),
         "logs list query should be upper-bounded by default, got: {}",
+        response.sql
+    );
+    assert!(
+        response.sql.contains("ORDER BY timestamp DESC"),
+        "logs list query should order by event timestamp, got: {}",
+        response.sql
+    );
+    assert!(
+        !response.sql.contains("COALESCE(observed_timestamp"),
+        "the observed timestamp must not decide window or order: {}",
         response.sql
     );
     assert_eq!(
@@ -273,17 +294,13 @@ fn translate_logs_stats_without_time_gets_default_window() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
 
     assert!(
-        response
-            .sql
-            .contains("COALESCE(observed_timestamp, timestamp) >= $1")
-            && response
-                .sql
-                .contains("COALESCE(observed_timestamp, timestamp) <= $2"),
+        response.sql.contains("timestamp >= $1") && response.sql.contains("timestamp < $2"),
         "logs stats query should be time-bounded by default, got: {}",
         response.sql
     );
@@ -305,6 +322,7 @@ fn translate_downsample_emits_time_bucket_query() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -354,6 +372,7 @@ fn translate_timeseries_downsample_supports_sysmon_core_series_from_tags() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -376,6 +395,7 @@ fn translate_timeseries_downsample_with_cagg_safe_filters_reads_hourly_cagg() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -407,6 +427,7 @@ fn translate_timeseries_downsample_with_non_cagg_series_stays_raw() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -435,6 +456,7 @@ fn translate_downsample_allows_timeseries_series_key() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -460,6 +482,7 @@ fn translate_timeseries_metric_interface_hourly_reads_interface_cagg() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -508,6 +531,7 @@ fn translate_timeseries_metric_disk_hourly_reads_disk_cagg() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -560,6 +584,7 @@ fn translate_timeseries_metric_disk_hourly_rejects_stats_and_unknown_fields() {
             cursor: None,
             direction: QueryDirection::Next,
             mode: None,
+            permitted_signals: None,
         };
 
         assert!(
@@ -578,6 +603,7 @@ fn translate_timeseries_metric_interface_hourly_profile_uses_rate_cagg() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -635,6 +661,7 @@ fn translate_interface_full_profile_with_device_and_interface_lists_scope_to_any
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -688,6 +715,7 @@ fn full_profiles_continue_past_the_generic_cursor_cap_in_translation() {
         cursor: Some(cursor),
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("full-profile page above cap");
@@ -718,6 +746,7 @@ fn discovery_profiles_continue_past_the_generic_cursor_cap_in_translation() {
                 cursor,
                 direction: QueryDirection::Next,
                 mode: None,
+                permitted_signals: None,
             };
 
             let response = translate_request(&config, request).expect("discovery page");
@@ -744,6 +773,7 @@ fn ordinary_translation_retains_the_generic_cursor_cap() {
         cursor: Some(encode_cursor(100, &config.cursor_secret).expect("cursor")),
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request.clone()).expect("page at cap");
@@ -762,6 +792,7 @@ fn translate_downsample_respects_value_field() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -790,6 +821,7 @@ fn translate_flows_downsample_emits_time_bucket_query() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -843,6 +875,7 @@ fn translate_flows_app_filter_binds_value_and_correlates_override_rules() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("app filter should translate");
@@ -886,6 +919,7 @@ fn translate_flows_downsample_30d_reads_prescaled_cagg() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -924,6 +958,7 @@ fn translate_flows_downsample_can_filter_by_input_snmp() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -958,6 +993,7 @@ fn translate_rate_downsample_orders_by_bucket_and_series() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -1001,6 +1037,7 @@ fn translate_rate_downsample_is_counter_wrap_aware() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -1066,6 +1103,7 @@ fn translate_graph_cypher_rejects_mutations() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let err = translate_request(&config, request).expect_err("should reject write cypher");
@@ -1085,6 +1123,7 @@ fn translate_graph_cypher_rejects_mutations_without_keyword_spacing() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let err = translate_request(&config, request).expect_err("should reject write cypher");
@@ -1105,6 +1144,7 @@ RETURN {id: n.id, label: 'create'} AS result" limit:10"#
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -1126,6 +1166,7 @@ fn translate_graph_cypher_still_rejects_mutations_after_comments() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let err = translate_request(&config, request).expect_err("should reject write cypher");
@@ -1144,6 +1185,7 @@ fn translate_graph_dql_rejects_mutations() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let err = translate_request(&config, request).expect_err("should reject write dql");
@@ -1163,6 +1205,7 @@ fn translate_graph_dql_requires_dql() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let err = translate_request(&config, request).expect_err("should require dql");
@@ -1181,6 +1224,7 @@ fn translate_graph_dql_is_not_sql() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let err = translate_request(&config, request).expect_err("graph_dql is not SQL");
@@ -1199,6 +1243,7 @@ fn translate_graph_cypher_wraps_rows_as_topology_payload() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -1234,6 +1279,7 @@ fn translate_device_filtered_hourly_downsample_routes_to_timeseries_cagg() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -1244,9 +1290,18 @@ fn translate_device_filtered_hourly_downsample_routes_to_timeseries_cagg() {
         "expected device-filtered hourly downsample to read the CAGG, got: {}",
         response.sql
     );
+    // Each hour weighs by the samples it holds, so the bucket is the average of the raw
+    // rows (as the StarRocks rollup computes it), not the mean of the hourly means.
     assert!(
-        sql.contains("avg(avg_value) as value"),
-        "expected mean-of-means over the CAGG avg column, got: {}",
+        sql.contains(
+            "sum(avg_value * sample_count)::double precision / nullif(sum(sample_count), 0)::double precision as value"
+        ),
+        "expected the sample-weighted average of the CAGG avg column, got: {}",
+        response.sql
+    );
+    assert!(
+        !sql.contains("avg(avg_value)"),
+        "the mean of the hourly means must not come back, got: {}",
         response.sql
     );
     assert!(
@@ -1267,6 +1322,7 @@ fn translate_agent_filtered_hourly_downsample_stays_on_raw_hypertable() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -1294,6 +1350,7 @@ fn translate_subhour_device_filtered_downsample_stays_on_raw_hypertable() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -1318,6 +1375,7 @@ fn translate_hourly_max_downsample_reads_cagg_max_value_column() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -1349,6 +1407,7 @@ fn translate_downsample_sort_desc_truncates_from_the_newest_bucket() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -1377,6 +1436,7 @@ fn translate_downsample_without_sort_keeps_ascending_truncation() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -1414,6 +1474,7 @@ fn translate_downsample_sort_desc_applies_on_cagg_and_rate_paths() {
             cursor: None,
             direction: QueryDirection::Next,
             mode: None,
+            permitted_signals: None,
         };
 
         let response = translate_request(&config, request).expect("translation should succeed");
@@ -1443,6 +1504,7 @@ fn translate_flows_bidirectional_ip_matches_either_endpoint() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -1483,6 +1545,7 @@ fn translate_flows_negated_bidirectional_ip_requires_both_sides_to_miss() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     let response = translate_request(&config, request).expect("translation should succeed");
@@ -1509,6 +1572,7 @@ fn translate_flows_bidirectional_cidr_matches_either_endpoint() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
     let response = translate_request(&config, request).expect("translation should succeed");
     let sql = response.sql.to_lowercase();
@@ -1526,6 +1590,7 @@ fn translate_flows_bidirectional_cidr_matches_either_endpoint() {
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
     let response = translate_request(&config, request).expect("translation should succeed");
     assert_eq!(
@@ -1564,6 +1629,7 @@ fn translate_flows_bidirectional_ip_works_on_stats_and_downsample_paths() {
             cursor: None,
             direction: QueryDirection::Next,
             mode: None,
+            permitted_signals: None,
         };
 
         let response = translate_request(&config, request).expect("translation should succeed");
@@ -1601,6 +1667,7 @@ fn translate_flows_cidr_works_on_stats_and_downsample_paths() {
             cursor: None,
             direction: QueryDirection::Next,
             mode: None,
+            permitted_signals: None,
         };
 
         let response = translate_request(&config, request)
@@ -1625,6 +1692,80 @@ fn translate_flows_cidr_works_on_stats_and_downsample_paths() {
     }
 }
 
+/// `src_cidr:<n>` groups by the subnet, not the host: CNPG clears the host bits with
+/// `network()`, which `set_masklen` alone keeps, and both dialects name the column with its
+/// prefix length. Past 32 bits an IPv4 address is masked at its own width.
+#[test]
+fn translate_flows_cidr_grouping_names_one_subnet_column_on_both_dialects() {
+    let config = test_config();
+    let sql_for = |query: &str, mode: Option<&str>| {
+        translate_request(
+            &config,
+            QueryRequest {
+                query: query.to_string(),
+                limit: None,
+                cursor: None,
+                direction: QueryDirection::Next,
+                mode: mode.map(str::to_string),
+                permitted_signals: None,
+            },
+        )
+        .unwrap_or_else(|err| panic!("{query} ({mode:?}): {err:?}"))
+        .sql
+    };
+    let query = r#"in:flows time:last_1h stats:"sum(bytes_total) as total_bytes by src_cidr:24, dst_cidr:48" sort:total_bytes:desc"#;
+
+    let cnpg = sql_for(query, None);
+    assert!(
+        cnpg.contains(
+            "COALESCE(network(set_masklen(try_inet(NULLIF(src_endpoint_ip, '')), 24))::text, 'Unknown') AS group_value_0"
+        ),
+        "{cnpg}"
+    );
+    assert!(
+        cnpg.contains(
+            "COALESCE(network(set_masklen(try_inet(NULLIF(dst_endpoint_ip, '')), CASE WHEN family(try_inet(NULLIF(dst_endpoint_ip, ''))) = 4 THEN 32 ELSE 48 END))::text, 'Unknown') AS group_value_1"
+        ),
+        "{cnpg}"
+    );
+    assert!(
+        cnpg.contains("'src_cidr_24', group_value_0, 'dst_cidr_48', group_value_1"),
+        "{cnpg}"
+    );
+
+    let starrocks = sql_for(query, Some("starrocks"));
+    assert!(
+        starrocks.contains("f.src_cidr_24 AS src_cidr_24, f.dst_cidr_48 AS dst_cidr_48"),
+        "{starrocks}"
+    );
+    assert!(
+        starrocks.contains("'/24') END, array_map(h -> ")
+            && starrocks.contains("'/48') END, array_map(h -> "),
+        "{starrocks}"
+    );
+
+    for mode in [None, Some("starrocks")] {
+        let err = translate_request(
+            &config,
+            QueryRequest {
+                query: r#"in:flows time:last_1h stats:"count(*) as flows by src_cidr:129""#
+                    .to_string(),
+                limit: None,
+                cursor: None,
+                direction: QueryDirection::Next,
+                mode: mode.map(str::to_string),
+                permitted_signals: None,
+            },
+        )
+        .expect_err("a prefix longer than an IPv6 address");
+        assert!(
+            err.to_string()
+                .contains("CIDR prefix length must be <= 128 (got 129)"),
+            "{mode:?}: {err}"
+        );
+    }
+}
+
 /// Helper: translate a query string end-to-end, as a client would.
 fn translate_query(query: &str) -> std::result::Result<String, crate::error::ServiceError> {
     let config = test_config();
@@ -1634,6 +1775,7 @@ fn translate_query(query: &str) -> std::result::Result<String, crate::error::Ser
         cursor: None,
         direction: QueryDirection::Next,
         mode: None,
+        permitted_signals: None,
     };
 
     crate::query::translate::translate_request(&config, request).map(|response| response.sql)
@@ -1891,4 +2033,151 @@ fn translate_rejects_unknown_agg_and_names_rate_sum() {
         err.to_string().contains("rate_sum"),
         "the error should advertise the new agg: {err}"
     );
+}
+
+/// The CNPG metric and event builders close the window half-open, like the StarRocks
+/// dialect and the CNPG flow and MTR builders: a sample stamped exactly on `end` belongs
+/// to the next window, so two adjacent chart windows never count it twice. Each case is a
+/// different builder: the raw metric list, raw metric stats, the raw bucketed read, the
+/// events list and count, and the logs list and stats.
+#[test]
+fn translate_metric_and_event_windows_are_half_open() {
+    let window = "time:[2026-06-01T00:00:00Z,2026-06-01T01:00:00Z]";
+    let end = "2026-06-01T01:00:00+00:00";
+    let cases = [
+        (
+            format!("in:timeseries_metrics {window} limit:10"),
+            "\"timeseries_metrics\".\"timestamp\" < $",
+        ),
+        (
+            format!("in:timeseries_metrics {window} stats:sum(value) as total by device_id"),
+            "timestamp >= $1 AND timestamp < $2",
+        ),
+        (
+            format!("in:timeseries_metrics {window} bucket:5m agg:sum limit:20"),
+            "timestamp >= $1 AND timestamp < $2",
+        ),
+        (
+            format!("in:events {window} limit:10"),
+            "\"ocsf_events\".\"time\" < $",
+        ),
+        (
+            format!("in:security_findings {window} stats:count() as total"),
+            "\"ocsf_events\".\"time\" < $",
+        ),
+        (format!("in:logs {window} limit:10"), "timestamp < $2"),
+        (
+            format!("in:logs {window} stats:count() as total"),
+            "timestamp < $2",
+        ),
+    ];
+
+    for (query, upper_bound) in cases {
+        let config = test_config();
+        let request = QueryRequest {
+            query: query.clone(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+            permitted_signals: None,
+        };
+        let response = crate::query::translate::translate_request(&config, request)
+            .unwrap_or_else(|err| panic!("{query}: should translate: {err}"));
+
+        assert!(
+            response.sql.contains(upper_bound),
+            "{query}: expected the half-open bound `{upper_bound}`, got: {}",
+            response.sql
+        );
+        assert!(
+            !response.sql.contains("<= $"),
+            "{query}: the window must not be closed at its end, got: {}",
+            response.sql
+        );
+        assert!(
+            response
+                .params
+                .iter()
+                .any(|param| matches!(param, BindParam::Timestamptz(value) if value == end)),
+            "{query}: the window end must be bound, got: {:?}",
+            response.params
+        );
+    }
+}
+
+/// A whole-hour-multiple bucket is scored on the hourly rollup on both dialects, even when
+/// the aggregate (here SUM) is one CNPG's own hourly CAGG cannot serve and the raw table
+/// answers instead. The StarRocks dialect widens such a query's window to the full hour
+/// holding `end` regardless of which table it reads (`hourly_rollup`/`time_predicate` in
+/// `starrocks.rs`), so a sample stamped exactly on `end` lands in the hour bucket starting at
+/// `end`. A plain half-open bound on CNPG's raw read would drop that sample instead, so the
+/// raw downsample builder must widen the same way whenever the shape qualifies.
+#[test]
+fn translate_hourly_bucket_sum_widens_like_the_starrocks_rollup() {
+    let config = test_config();
+    let query = "in:timeseries_metrics time:[2026-06-01T07:00:00Z,2026-06-01T08:00:00Z] metric_type:\"parity.edge\" bucket:1h agg:sum limit:10".to_string();
+    let request = QueryRequest {
+        query: query.clone(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+        permitted_signals: None,
+    };
+
+    let response = crate::query::translate::translate_request(&config, request)
+        .unwrap_or_else(|err| panic!("{query}: should translate: {err}"));
+    let sql = response.sql.to_lowercase();
+
+    assert!(
+        sql.contains("timestamp >= time_bucket('1 hour', $1::timestamptz)"),
+        "expected the widened hourly lower bound, got: {}",
+        response.sql
+    );
+    assert!(
+        sql.contains("timestamp < time_bucket('1 hour', $2::timestamptz) + interval '1 hour'"),
+        "expected the widened hourly upper bound, got: {}",
+        response.sql
+    );
+}
+
+/// `agg:last` returns the newest sample per series and bucket, so a map can
+/// place each asset where it is now rather than at the average of its track.
+/// It has no pre-aggregated column, so it must never be routed to a rollup.
+#[test]
+fn downsample_last_takes_the_newest_sample_per_series() {
+    let config = test_config();
+    for query in [
+        "in:timeseries_metrics metric_name:drone.position.lat time:last_2m bucket:2m agg:last series:tags.asset_id",
+        "in:timeseries_metrics metric_name:drone.position.lat time:last_30d bucket:1h agg:latest series:tags.asset_id",
+    ] {
+        let request = QueryRequest {
+            query: query.to_string(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+            permitted_signals: None,
+        };
+        let response = translate_request(&config, request).expect("translation should succeed");
+        assert!(
+            response
+                .sql
+                .contains("(array_agg(value ORDER BY timestamp DESC))[1] AS value"),
+            "{}",
+            response.sql
+        );
+        assert!(
+            !response.sql.contains("timeseries_metrics_hourly"),
+            "agg:last must stay on the raw table: {}",
+            response.sql
+        );
+    }
+}
+
+#[test]
+fn downsample_rejects_unknown_aggregates_with_the_full_list() {
+    let err = parser::parse("in:timeseries_metrics bucket:5m agg:median").unwrap_err();
+    assert!(err.to_string().contains("rate_sum|last"), "{err}");
 }

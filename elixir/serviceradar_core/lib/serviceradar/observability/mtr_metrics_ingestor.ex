@@ -32,35 +32,44 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
   alias ServiceRadar.Observability.GeoIP
   alias ServiceRadar.Observability.MtrGraph
   alias ServiceRadar.Observability.MtrHop
+  alias ServiceRadar.Observability.MtrTcpHandshake
   alias ServiceRadar.Observability.MtrTrace
+  alias ServiceRadar.Observability.MtrTraceDepth
 
   require Logger
 
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
+
   @default_bulk_create_chunk_size 500
 
-  @spec ingest(map() | list(), map()) :: :ok | {:error, term()}
-  def ingest(payload, status) when is_map(payload) or is_list(payload) do
-    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
-    agent_id = status[:agent_id] || "unknown"
-    gateway_id = status[:gateway_id]
-    partition = status[:partition]
+  @doc """
+  Stores MTR trace results and their hops, then projects them into the graph.
 
-    results =
-      payload
-      |> normalize_results()
-      |> enrich_results_asn()
+  A result may carry a `trace_uuid`, which becomes the stored trace id instead
+  of a generated one. With `skip_existing: true`, results whose `trace_uuid` is
+  already stored are left out, which makes a redelivered JetStream message a
+  no-op; `:existing_trace_ids` replaces that lookup (tests).
+  """
+  @spec ingest(map() | list(), map(), keyword()) :: :ok | {:error, term()}
+  def ingest(payload, status, opts \\ [])
 
-    if Enum.empty?(results) do
-      :ok
-    else
-      case insert_results(results, agent_id, gateway_id, partition, now) do
-        :ok ->
-          MtrGraph.project_traces(results, status)
-          :ok
+  def ingest(payload, status, opts) when is_map(payload) or is_list(payload) do
+    case rows(payload, status) do
+      {:ok, %{results: []}} ->
+        :ok
 
-        error ->
-          error
-      end
+      {:ok, %{results: results, traces: trace_rows, hops: hop_rows}} ->
+        case insert_results(trace_rows, hop_rows, opts) do
+          :ok ->
+            MtrGraph.project_traces(results, status)
+            :ok
+
+          error ->
+            error
+        end
+
+      {:error, _reason} = error ->
+        error
     end
   rescue
     e ->
@@ -68,7 +77,67 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
       {:error, e}
   end
 
-  def ingest(_payload, _status), do: {:error, :invalid_payload}
+  def ingest(_payload, _status, _opts), do: {:error, :invalid_payload}
+
+  @typedoc "Normalized, enriched results and the trace and hop rows built from them."
+  @type built :: %{results: [map()], traces: [map()], hops: [map()]}
+
+  @doc """
+  Normalizes and enriches `payload` and builds the `mtr_traces` and `mtr_hops`
+  rows it stores, without storing them.
+
+  These are the rows the CNPG insert writes, so a warehouse load built from
+  them cannot drift from CNPG. `results` are the enriched results, which is
+  what `MtrGraph.project_traces/2` projects. A result without a target is
+  `{:error, :missing_target_ip}`; a payload that is neither a map nor a list is
+  `{:error, :invalid_payload}`.
+
+  A hop's id is derived from its trace id and its position in the trace
+  (`hop_id/2`), so the same trace always yields the same hop rows.
+  """
+  @spec rows(map() | list(), map()) :: {:ok, built()} | {:error, term()}
+  def rows(payload, status) when is_map(payload) or is_list(payload) do
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+
+    results =
+      payload
+      |> normalize_results()
+      |> enrich_results_asn()
+
+    case build_insert_rows(results, status[:agent_id] || "unknown", status, now) do
+      {:ok, trace_rows, hop_rows} ->
+        {:ok, %{results: results, traces: trace_rows, hops: hop_rows}}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  def rows(_payload, _status), do: {:error, :invalid_payload}
+
+  @doc """
+  The id of the hop at `index` (0-based position in its trace) of `trace_id`.
+
+  `stable_uuid/1` of `"<trace_id>:<index>"`: stable across calls, so a
+  redelivered trace upserts the hop rows it already loaded, and distinct
+  across positions and traces.
+  """
+  @spec hop_id(String.t(), non_neg_integer()) :: String.t()
+  def hop_id(trace_id, index) when is_binary(trace_id) and is_integer(index) and index >= 0,
+    do: stable_uuid("#{trace_id}:#{index}")
+
+  @doc """
+  A UUID derived from `name`: the first 128 bits of its SHA-256 with the RFC
+  9562 version 8 and variant bits set. The same name always gives the same id.
+  """
+  @spec stable_uuid(binary()) :: String.t()
+  def stable_uuid(name) when is_binary(name) do
+    <<head::binary-size(6), _version::4, mid::bits-size(12), _variant::2, tail::bits-size(62),
+      _rest::binary>> =
+      :crypto.hash(:sha256, name)
+
+    Ecto.UUID.load!(<<head::binary, 8::4, mid::bits, 2::2, tail::bits>>)
+  end
 
   defp normalize_results(%{"results" => results}) when is_list(results), do: results
   defp normalize_results(%{"result" => result}) when is_map(result), do: [result]
@@ -160,12 +229,11 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
     end
   end
 
-  defp insert_results(results, agent_id, gateway_id, partition, now) do
+  defp insert_results(trace_rows, hop_rows, opts) do
     actor = SystemActor.system(:mtr_metrics_ingestor)
     domain = ServiceRadar.Observability
 
-    with {:ok, trace_rows, hop_rows} <-
-           build_insert_rows(results, agent_id, gateway_id, partition, now) do
+    with {:ok, trace_rows, hop_rows} <- drop_stored(trace_rows, hop_rows, opts) do
       [MtrTrace, MtrHop]
       |> Ash.transaction(fn ->
         with :ok <- insert_bulk(trace_rows, MtrTrace, actor, domain),
@@ -188,7 +256,10 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
     end
   end
 
-  defp build_insert_rows(results, agent_id, gateway_id, partition, now) do
+  defp build_insert_rows(results, agent_id, status, now) do
+    gateway_id = status[:gateway_id]
+    partition = status[:partition]
+
     results
     |> Enum.reduce_while({:ok, [], []}, fn result, {:ok, trace_rows, hop_rows} ->
       case build_result_rows(result, agent_id, gateway_id, partition, now) do
@@ -222,13 +293,26 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
       )
 
     if is_binary(target_value) and String.trim(target_value) != "" do
-      trace_id = Ecto.UUID.generate()
-      trace_time = trace_time(result, trace, now)
+      trace_id = stable_trace_id(result) || Ecto.UUID.generate()
+      trace_time = trace_time(result, now)
 
       trace_row =
         build_trace_row(result, trace, trace_id, trace_time, agent_id, gateway_id, partition)
 
-      hop_rows = build_hop_rows(map_get_any(trace, ["hops", :hops], []), trace_id, trace_time)
+      # Hops inherit attribution from the trace ROW, not from the payload. Hop rows
+      # carry no target of their own, so `trace_id` was the only link back to the
+      # device a hop measured -- and SRQL cannot join entities, which made
+      # device-scoped hop analytics inexpressible. Reading off `trace_row`
+      # guarantees a hop cannot disagree with its own trace about the target.
+      hop_rows =
+        build_hop_rows(
+          map_get_any(trace, ["hops", :hops], []),
+          trace_id,
+          trace_time,
+          trace_row.target_ip,
+          trace_row.device_id
+        )
+
       {:ok, trace_row, hop_rows}
     else
       {:error, :missing_target_ip}
@@ -236,6 +320,52 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
   end
 
   defp build_result_rows(_result, _agent_id, _gateway_id, _partition, _now), do: {:ok, nil, []}
+
+  defp stable_trace_id(result) do
+    with id when is_binary(id) <- map_get_any(result, ["trace_uuid", :trace_uuid], nil),
+         {:ok, uuid} <- Ecto.UUID.cast(id) do
+      uuid
+    else
+      _ -> nil
+    end
+  end
+
+  # A redelivered message carries trace ids that are already stored. Dropping
+  # them (and their hops) keeps redelivery from creating a second copy.
+  defp drop_stored(trace_rows, hop_rows, opts) do
+    if Keyword.get(opts, :skip_existing, false) and trace_rows != [] do
+      lookup = Keyword.get(opts, :existing_trace_ids, &stored_trace_ids/1)
+
+      with {:ok, stored} <- lookup.(trace_rows) do
+        stored = MapSet.new(stored)
+
+        {:ok, Enum.reject(trace_rows, &MapSet.member?(stored, &1.id)),
+         Enum.reject(hop_rows, &MapSet.member?(stored, &1.trace_id))}
+      end
+    else
+      {:ok, trace_rows, hop_rows}
+    end
+  end
+
+  # Bounded by the rows' own time range so Timescale reads only the chunks
+  # those traces fall in, not every chunk.
+  @sobelow_skip ["SQL.Query"]
+  defp stored_trace_ids(trace_rows) do
+    times = Enum.map(trace_rows, & &1.time)
+    ids = Enum.map(trace_rows, &Ecto.UUID.dump!(&1.id))
+
+    sql = """
+    SELECT id FROM platform.mtr_traces
+    WHERE id = ANY($1) AND time >= $2 AND time <= $3
+    """
+
+    params = [ids, Enum.min(times, DateTime), Enum.max(times, DateTime)]
+
+    case ServiceRadar.Repo.query(sql, params) do
+      {:ok, %{rows: rows}} -> {:ok, Enum.map(rows, fn [id] -> Ecto.UUID.load!(id) end)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
   defp insert_bulk([], _resource, _actor, _domain), do: :ok
 
@@ -289,15 +419,22 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
 
   defp normalize_chunk_size(_value), do: @default_bulk_create_chunk_size
 
-  defp trace_time(result, trace, now) do
-    parse_trace_time(
-      map_get_any(trace, ["timestamp", :timestamp], nil) ||
-        map_get_any(result, ["timestamp", :timestamp], nil)
-    ) || now
+  defp trace_time(result, now), do: trace_time(result) || now
+
+  @doc """
+  The time a result's trace is stored under, or `nil` when the result carries
+  no timestamp the ingestor can parse (the ingest wall clock is used then).
+  """
+  @spec trace_time(map()) :: DateTime.t() | nil
+  def trace_time(result) when is_map(result) do
+    trace = map_get_any(result, ["trace", :trace], %{})
+
+    parse_trace_time(map_get_any(trace, ["timestamp", :timestamp], nil)) ||
+      parse_trace_time(map_get_any(result, ["timestamp", :timestamp], nil))
   end
 
   defp build_trace_row(result, trace, trace_id, trace_time, agent_id, gateway_id, partition) do
-    %{
+    row = %{
       id: trace_id,
       time: trace_time,
       agent_id: agent_id,
@@ -309,27 +446,39 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
       target_ip: first_present([trace["target_ip"], result["target"]], ""),
       target_reached: first_non_nil([result["available"], trace["target_reached"]], false),
       total_hops: trace["total_hops"] || 0,
+      probed_hops: MtrTraceDepth.probed_hops(trace, trace_hops(trace)),
+      last_responding_hop: MtrTraceDepth.last_responding_hop(trace, trace_hops(trace)),
       protocol: trace["protocol"] || "icmp",
+      tcp_port: MtrTraceDepth.tcp_port(trace),
       ip_version: trace["ip_version"] || 4,
       packet_size: trace["packet_size"],
       partition: partition,
       error: result["error"]
     }
+
+    Map.merge(row, MtrTcpHandshake.trace_fields(trace))
   end
 
-  defp build_hop_rows([], _trace_id, _trace_time), do: []
-
-  defp build_hop_rows(hops, trace_id, trace_time) when is_list(hops) do
-    hops
-    |> Enum.filter(&is_map/1)
-    |> Enum.map(&build_hop_row(&1, trace_id, trace_time))
+  defp trace_hops(trace) do
+    case map_get_any(trace, ["hops", :hops], []) do
+      hops when is_list(hops) -> hops
+      _ -> []
+    end
   end
 
-  defp build_hop_rows(hops, trace_id, trace_time) do
+  defp build_hop_rows([], _trace_id, _trace_time, _target_ip, _device_id), do: []
+
+  defp build_hop_rows(hops, trace_id, trace_time, target_ip, device_id) do
+    hops = hops |> List.wrap() |> Enum.filter(&is_map/1)
+    counters? = MtrTcpHandshake.reply_counters_reported?(hops)
+
     hops
-    |> List.wrap()
-    |> Enum.filter(&is_map/1)
-    |> Enum.map(&build_hop_row(&1, trace_id, trace_time))
+    |> Enum.with_index()
+    |> Enum.map(fn {hop, index} ->
+      hop
+      |> build_hop_row(trace_id, trace_time, target_ip, device_id, counters?)
+      |> Map.put(:id, hop_id(trace_id, index))
+    end)
   end
 
   defp first_present(values, default) when is_list(values) do
@@ -347,7 +496,8 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
     end
   end
 
-  defp build_hop_row(hop, trace_id, trace_time) when is_map(hop) do
+  defp build_hop_row(hop, trace_id, trace_time, target_ip, device_id, counters?)
+       when is_map(hop) do
     ecmp_addrs = hop["ecmp_addrs"] || []
     asn_info = map_get_any(hop, ["asn", :asn], %{})
     mpls_labels = hop["mpls_labels"]
@@ -357,10 +507,13 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
         %{"labels" => mpls_labels}
       end
 
-    %{
-      id: Ecto.UUID.generate(),
+    row = %{
       time: trace_time,
       trace_id: trace_id,
+      # target_ip is the reliable device key; device_id is the command id on the
+      # bulk-scheduled path.
+      target_ip: target_ip,
+      device_id: device_id,
       hop_number: hop["hop_number"] || 0,
       addr: hop["addr"],
       hostname: hop["hostname"],
@@ -378,11 +531,16 @@ defmodule ServiceRadar.Observability.MtrMetricsIngestor do
       stddev_us: hop["stddev_us"],
       jitter_us: hop["jitter_us"],
       jitter_worst_us: hop["jitter_worst_us"],
-      jitter_interarrival_us: hop["jitter_interarrival_us"]
+      jitter_interarrival_us: hop["jitter_interarrival_us"],
+      unreachable_code: hop["unreachable_code"]
     }
+
+    Map.merge(row, MtrTcpHandshake.hop_fields(hop, counters?))
   end
 
-  defp build_hop_row(_hop, _trace_id, _trace_time), do: nil
+  # Defensive catch-all for a non-map hop. build_hop_rows/5 already filters with
+  # Enum.filter(&is_map/1), so this branch is never reached in practice.
+  defp build_hop_row(_hop, _trace_id, _trace_time, _target_ip, _device_id, _counters?), do: nil
 
   defp map_get_any(map, keys, default) when is_map(map) and is_list(keys) do
     Enum.find_value(keys, default, fn key ->

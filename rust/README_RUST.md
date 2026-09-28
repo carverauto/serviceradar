@@ -71,7 +71,7 @@ still compiles because some *other* crate enabled it. That is an accident waitin
 moment the other crate changes. Bazel compiles per-target and is less forgiving.
 
 ```bash
-cargo check -p srql --lib --bins --tests   # must pass in isolation
+cargo check -p srql --lib --tests   # must pass in isolation
 ```
 
 ### Exceptions
@@ -220,7 +220,20 @@ bazel run //third_party/crate_mirror:sync
 # 4. Bazel side. Cargo passing is NOT proof -- see the warning below.
 bazel build //rust/...
 bazel test  //rust/...
+
+# 5. Refresh the resolved facts the strict release build reads. Commit the result.
+bazel mod deps --lockfile_mode=update
+git add MODULE.bazel.lock
 ```
+
+> **A Cargo version change is also a `MODULE.bazel.lock` change.** The versions
+> Bazel resolves from `//:Cargo.lock` are recorded as facts in
+> `MODULE.bazel.lock`, and a target-specific build does not necessarily rewrite
+> them. Run `bazel mod deps --lockfile_mode=update` after a bump and commit the
+> lockfile with the Cargo change; the `make update-rust-deps` wrapper does not
+> run that step. Release publishing runs its Bazel commands with
+> `--lockfile_mode=error`, so a stale lockfile fails publication instead of
+> being silently regenerated.
 
 > **A green `cargo check` does not mean Bazel is green.** Cargo.lock is
 > feature-independent and keeps optional deps that are never activated; `cargo vendor`
@@ -305,7 +318,7 @@ What that bought:
 
 - **Cross-compilation is a `select` on the target platform.** Measured: the same
   `@openssl` yields an `aarch64` `libcrypto.a` for `--platforms=//build/platforms:linux_aarch64`
-  and an `x86-64` one for the default, with `srql_bin` matching each.
+  and an `x86-64` one for the default, with `srql_lib` matching each.
 - **No host `perl`.** The old build ran a two-line wrapper whose body was `exec perl "$@"` --
   the executor image's perl, off `$PATH`, from inside a build action. `@openssl` uses
   `rules_perl`'s prebuilt hermetic perl for the exec platform. (`//third_party/perl` built a
@@ -314,7 +327,7 @@ What that bought:
   its full compiler command line into `libcrypto.a`, which put 15 copies of the execroot in
   the archive and forced a `no-check-output-for-working-dir` opt-out on `openssl-sys`. The
   BCR module compiles with fixed `-DOPENSSLDIR="/etc/ssl"` and friends: measured 0
-  occurrences of `buildbuddy-execroot` in both `libcrypto.a` and `srql_bin`, so the tag is
+  occurrences of `buildbuddy-execroot` in both `libcrypto.a` and `srql_lib`, so the tag is
   gone and the artifacts are cache-shareable across execroots.
 
 ### The patched crate

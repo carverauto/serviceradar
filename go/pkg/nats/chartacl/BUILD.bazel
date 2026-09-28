@@ -1,0 +1,24 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
+
+# Boots nats-server from the configuration the Helm chart renders. The chart is rendered by
+# the same helm-unittest binary //helm/serviceradar:helm_unittest_suite_test runs, since no
+# helm binary is part of the build.
+go_test(
+    name = "chartacl_test",
+    srcs = ["core_publish_test.go"],
+    data = [
+        "//helm/serviceradar:Chart.yaml",
+        "//helm/serviceradar:chart_files",
+        "//helm/serviceradar:helm_unittest_binary",
+    ],
+    env = {
+        "SERVICERADAR_CHART_YAML": "$(rlocationpath //helm/serviceradar:Chart.yaml)",
+        "SERVICERADAR_HELM_UNITTEST_BINARY": "$(rlocationpath //helm/serviceradar:helm_unittest_binary)",
+    },
+    deps = [
+        "@com_github_nats_io_nats_go//:nats_go",
+        "@com_github_nats_io_nats_server_v2//server",
+        "@in_gopkg_yaml_v3//:yaml_v3",
+        "@io_bazel_rules_go//go/runfiles",
+    ],
+)

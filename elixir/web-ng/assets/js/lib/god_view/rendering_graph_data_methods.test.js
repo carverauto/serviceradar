@@ -1187,4 +1187,61 @@ describe("rendering_graph_data_methods", () => {
     const endpointEdge = out.edgeData.find((edge) => edge.sourceId === "client" || edge.targetId === "client")
     expect(endpointEdge?.topologyClass).toEqual("endpoints")
   })
+
+  it("keeps one record per node across filter, selection and hover renders", () => {
+    const masks = [
+      Uint8Array.from([1, 1, 1]),
+      Uint8Array.from([1, 0, 1]),
+    ]
+    const ctx = baseContext({
+      overrides: {visibilityMask: vi.fn(() => masks.shift() || Uint8Array.from([1, 0, 1]))},
+    })
+    const effective = {
+      shape: "local",
+      nodes: [
+        {id: "a", x: 1, y: 2, state: 0, label: "A", details: {}},
+        {id: "b", x: 3, y: 4, state: 1, label: "B", details: {}},
+        {id: "c", x: 5, y: 6, state: 2, label: "C", details: {}},
+      ],
+      edges: [],
+    }
+
+    const first = ctx.buildVisibleGraphData(effective)
+    // A filter hides "b"; the next render must not rebuild node objects.
+    const filtered = ctx.buildVisibleGraphData(effective)
+    ctx.state.selectedNodeIndex = 2
+    const selected = ctx.buildVisibleGraphData(effective)
+
+    expect(first.nodeData.map((node) => node.id)).toEqual(["a", "b", "c"])
+    expect(filtered.nodeData.map((node) => node.id)).toEqual(["a", "c"])
+    expect(filtered.nodeData[0]).toBe(first.nodeData[0])
+    expect(filtered.nodeData[1]).toBe(first.nodeData[2])
+    expect(first.nodeData[1].visible).toBe(false)
+    expect(selected.nodeData[1]).toBe(first.nodeData[2])
+    expect(selected.selectedVisibleNode).toBe(first.nodeData[2])
+    expect(selected.nodeData[1].selected).toBe(true)
+    expect(selected.nodeData[1].position).toEqual([5, 6, 0])
+
+    // The Wasm/JS mask gets the same typed state column every time.
+    const [firstStates] = ctx.visibilityMask.mock.calls[0]
+    expect(firstStates).toBeInstanceOf(Uint8Array)
+    expect(Array.from(firstStates)).toEqual([0, 1, 2])
+    expect(ctx.visibilityMask.mock.calls.every(([states]) => states === firstStates)).toBe(true)
+  })
+
+  it("resolves a node's state reason on read against the latest render", () => {
+    const ctx = baseContext()
+    const effective = {
+      shape: "local",
+      nodes: [{id: "a", x: 0, y: 0, state: 1, label: "A", details: {}}],
+      edges: [],
+    }
+
+    const out = ctx.buildVisibleGraphData(effective)
+
+    expect(ctx.stateReasonForNode).not.toHaveBeenCalled()
+    expect(out.nodeData[0].stateReason).toBe("reason")
+    expect(ctx.stateReasonForNode).toHaveBeenCalledTimes(1)
+    expect(ctx.stateReasonForNode.mock.calls[0][0]).toBe(out.nodeData[0])
+  })
 })

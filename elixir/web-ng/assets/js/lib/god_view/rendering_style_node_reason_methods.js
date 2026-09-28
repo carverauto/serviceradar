@@ -1,3 +1,5 @@
+const nodeIndexLookups = new WeakMap()
+
 export const godViewRenderingStyleNodeReasonMethods = {
   stateCategory(state) {
     if (state === 0) return "root_cause"
@@ -67,13 +69,17 @@ export const godViewRenderingStyleNodeReasonMethods = {
     return this.defaultStateReason(state)
   },
   nodeIndexLookup(nodes) {
+    if (!Array.isArray(nodes)) return new Map()
+    // Built once per node list: the details card and state reason ask for it on every selection.
+    const cached = nodeIndexLookups.get(nodes)
+    if (cached) return cached
     const map = new Map()
-    if (!Array.isArray(nodes)) return map
     for (const n of nodes) {
       const idx = Number(n?.index)
       if (!Number.isFinite(idx)) continue
       map.set(idx, n)
     }
+    nodeIndexLookups.set(nodes, map)
     return map
   },
   nodeRefByIndex(index, nodeIndexMap) {

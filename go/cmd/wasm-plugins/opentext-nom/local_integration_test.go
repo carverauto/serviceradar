@@ -63,7 +63,7 @@ func TestLocalHostRunsCollectorWithActionInputAndBrokeredCredentials(t *testing.
 				t.Errorf("unexpected command: %#v", command)
 			}
 			response.Header().Set("Content-Type", "application/json")
-			_, _ = response.Write([]byte(`[{"deviceID":1,"hostName":"ORD-ASW001","primaryIPAddress":"10.0.0.1","serialNumber":"SER-1","vendor":"Cisco","model":"Nexus 9300","deviceType":"Switch","siteName":"ORD","managementStatus":"Managed","excludeFromPoll":false}]`))
+			_, _ = response.Write([]byte(`[{"deviceID":1,"hostName":"SITE01-SW01","primaryIPAddress":"10.0.0.1","serialNumber":"SER-1","vendor":"Cisco","model":"Nexus 9300","deviceType":"Switch","siteName":"SITE01","managementStatus":"Managed","excludeFromPoll":false}]`))
 		default:
 			response.WriteHeader(http.StatusNotFound)
 		}

@@ -35,4 +35,11 @@ HEX_COMPILE_ENV_CONFIG = [
     # `false` into generated config. Our config/config.exs sets `false`, so `ash` and
     # `ash_phoenix` have to be compiled knowing that or the release aborts during boot.
     "config :ash, include_embedded_source_by_default?: false",
+    # Ash 3.33 refuses to compile a resource until this is set (the transformer
+    # `Ash.Resource.Transformers.RequireStringLengthCountConfig` reads it with
+    # `Application.get_env/2`, not `compile_env`). Mix skips that check for dependencies,
+    # but here every Hex package is compiled as its own root project, so a package that
+    # defines a resource (ash_phoenix's `AshPhoenix.Form.WrappedValue`) fails without it.
+    # Must match the value in every project's config/config.exs.
+    "config :ash, default_string_length_count: :codepoints",
 ]

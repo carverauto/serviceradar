@@ -1,11 +1,4 @@
-use axum::{
-    Json,
-    http::StatusCode,
-    response::{IntoResponse, Response},
-};
-use serde::Serialize;
 use thiserror::Error;
-use tracing::error;
 
 pub type Result<T> = std::result::Result<T, ServiceError>;
 
@@ -20,6 +13,12 @@ pub enum ServiceError {
     #[error("invalid request: {0}")]
     InvalidRequest(String),
 
+    /// The caller is not permitted to read what the query asks for. Distinct
+    /// from `InvalidRequest` so an embedding caller can map it to its own
+    /// forbidden outcome (HTTP 403) by the `forbidden: ` message prefix.
+    #[error("forbidden: {0}")]
+    Forbidden(String),
+
     #[error("not implemented: {0}")]
     NotImplemented(String),
 
@@ -27,28 +26,16 @@ pub enum ServiceError {
     Internal(#[from] anyhow::Error),
 }
 
-#[derive(Serialize)]
-struct ErrorBody {
-    error: String,
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-impl IntoResponse for ServiceError {
-    fn into_response(self) -> Response {
-        let status = match self {
-            ServiceError::Config(_) => StatusCode::INTERNAL_SERVER_ERROR,
-            ServiceError::Auth => StatusCode::UNAUTHORIZED,
-            ServiceError::InvalidRequest(_) => StatusCode::BAD_REQUEST,
-            ServiceError::NotImplemented(_) => StatusCode::NOT_IMPLEMENTED,
-            ServiceError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
-        };
-
-        if !matches!(self, ServiceError::InvalidRequest(_) | ServiceError::Auth) {
-            error!(error = %self, "request failed");
-        }
-
-        let body = ErrorBody {
-            error: self.to_string(),
-        };
-        (status, Json(body)).into_response()
+    #[test]
+    fn forbidden_keeps_prefixed_message() {
+        let err = ServiceError::Forbidden("signal 'traces' is not permitted".into());
+        assert_eq!(
+            err.to_string(),
+            "forbidden: signal 'traces' is not permitted"
+        );
     }
 }

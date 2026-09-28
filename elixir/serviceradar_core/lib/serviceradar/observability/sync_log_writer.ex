@@ -3,13 +3,10 @@ defmodule ServiceRadar.Observability.SyncLogWriter do
   Writes integration sync lifecycle updates into the schema OTEL logs table.
   """
 
-  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Events.InternalLogPublisher
+  alias ServiceRadar.Events.OcsfEventPublisher
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Integrations.IntegrationSource
-  alias ServiceRadar.Monitoring
-  alias ServiceRadar.Monitoring.OcsfEvent
-  alias ServiceRadar.Observability.Log
-  alias ServiceRadar.Observability.LogPromotion
 
   require Logger
 
@@ -23,22 +20,13 @@ defmodule ServiceRadar.Observability.SyncLogWriter do
     write_log(source, :finished, opts)
   end
 
+  # The log goes to JetStream (`logs.internal.sync`); EventWriter stores and
+  # promotes it like every other internal log.
   defp write_log(%IntegrationSource{} = source, stage, opts) do
-    # Simple actor - DB connection's search_path determines the schema
-    actor = SystemActor.system(:sync_log_writer)
-    attrs = build_log_attrs(source, stage, opts)
+    payload = build_log_payload(source, stage, opts)
 
-    Log
-    |> Ash.Changeset.for_create(:create, attrs, actor: actor)
-    |> Ash.create()
-    |> case do
-      {:ok, log} ->
-        LogPromotion.promote([log])
-        maybe_record_sync_failure_event(source, stage, opts, actor)
-        :ok
-
-      {:error, reason} ->
-        {:error, reason}
+    with :ok <- InternalLogPublisher.publish("sync", payload) do
+      maybe_record_sync_failure_event(source, stage, opts)
     end
   rescue
     e ->
@@ -46,18 +34,15 @@ defmodule ServiceRadar.Observability.SyncLogWriter do
       {:error, e}
   end
 
-  defp maybe_record_sync_failure_event(%IntegrationSource{} = source, :finished, opts, actor) do
+  defp maybe_record_sync_failure_event(%IntegrationSource{} = source, :finished, opts) do
     result = Keyword.get(opts, :result)
 
     if result in [:failed, :timeout] do
-      attrs = build_failure_event_attrs(source, opts)
-
-      OcsfEvent
-      |> Ash.Changeset.for_create(:record, attrs, actor: actor)
-      |> Ash.create(domain: Monitoring)
+      source
+      |> build_failure_event_attrs(opts)
+      |> OcsfEventPublisher.publish(family: :integration)
       |> case do
-        {:ok, event} ->
-          ServiceRadar.Events.PubSub.broadcast_event(event)
+        {:ok, _event} ->
           :ok
 
         {:error, reason} ->
@@ -73,7 +58,7 @@ defmodule ServiceRadar.Observability.SyncLogWriter do
       :ok
   end
 
-  defp maybe_record_sync_failure_event(_source, _stage, _opts, _actor), do: :ok
+  defp maybe_record_sync_failure_event(_source, _stage, _opts), do: :ok
 
   defp build_failure_event_attrs(%IntegrationSource{} = source, opts) do
     result = Keyword.get(opts, :result)
@@ -143,7 +128,7 @@ defmodule ServiceRadar.Observability.SyncLogWriter do
     %{"name" => name, "type" => "string", "value" => to_string(value)}
   end
 
-  defp build_log_attrs(source, stage, opts) do
+  defp build_log_payload(source, stage, opts) do
     result = Keyword.get(opts, :result)
     device_count = Keyword.get(opts, :device_count, 0)
     error_message = Keyword.get(opts, :error_message)
@@ -159,14 +144,7 @@ defmodule ServiceRadar.Observability.SyncLogWriter do
       body: body,
       service_name: "serviceradar.core",
       scope_name: "sync_ingestor",
-      ingest_identity: "",
-      ingest_agent_id: "",
-      ingest_partition: "",
-      attributes:
-        source
-        |> build_attributes(stage, result, device_count, error_message)
-        |> Jason.encode!(),
-      resource_attributes: Jason.encode!(%{})
+      attributes: build_attributes(source, stage, result, device_count, error_message)
     }
   end
 

@@ -120,8 +120,8 @@ data:
         "drift": {
           "baseline_devices": {{ default 0 .Values.core.identity.drift.baselineDevices }},
           "tolerance_percent": {{ default 0 .Values.core.identity.drift.tolerancePercent }},
-          "pause_on_drift": {{ default true .Values.core.identity.drift.pauseOnDrift }},
-          "alert_on_drift": {{ default true .Values.core.identity.drift.alertOnDrift }}
+          "pause_on_drift": {{ include "serviceradar.boolDefaultTrue" (list .Values.core.identity.drift "pauseOnDrift") }},
+          "alert_on_drift": {{ include "serviceradar.boolDefaultTrue" (list .Values.core.identity.drift "alertOnDrift") }}
         }
       },
       "alert_threshold": "5m",
@@ -414,7 +414,7 @@ data:
           "ring_readers": {{ .Values.sweep.tcp.ringReaders | default 0 }},
           "ring_poll_timeout_ms": {{ .Values.sweep.tcp.ringPollTimeoutMs | default 0 }}
         },
-        "high_perf_icmp": {{ .Values.sweep.icmp.highPerf | default true }},
+        "high_perf_icmp": {{ include "serviceradar.boolDefaultTrue" (list .Values.sweep.icmp "highPerf") }},
         "icmp_rate_limit": {{ .Values.sweep.icmp.rateLimit | default 5000 }},
         "icmp_settings": {
           "rate_limit": {{ .Values.sweep.icmp.settings.rateLimit | default 1000 }},
@@ -852,7 +852,7 @@ data:
         "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
       {{ end }}
         "stream_name": "events",
-        "stream_replicas": {{ default 1 .Values.trapd.streamReplicas }},
+        "stream_replicas": {{ include "serviceradar.jetstreamEffectiveReplicas" (dict "root" . "value" (default 1 .Values.trapd.streamReplicas) "what" "trapd.streamReplicas") }},
         "subject": "logs.snmp",
         "nats_security": {
           "mode": "mtls",
@@ -900,7 +900,7 @@ data:
         "simulation": {
           "total_devices": {{ .Values.faker.simulation.totalDevices | default 50000 }},
           "ip_shuffle": {
-            "enabled": {{ .Values.faker.simulation.ipShuffle.enabled | default true }},
+            "enabled": {{ include "serviceradar.boolDefaultTrue" (list .Values.faker.simulation.ipShuffle "enabled") }},
             "interval": "{{ .Values.faker.simulation.ipShuffle.interval | default "10m" }}",
             "percentage": {{ .Values.faker.simulation.ipShuffle.percentage | default 5 }},
             "warmup_cycles": {{ .Values.faker.simulation.ipShuffle.warmupCycles | default 0 }},
@@ -1021,10 +1021,11 @@ data:
           ]
         },
         "bucket": "serviceradar-datasvc",
-        "bucket_max_bytes": {{ default 5368709120 .Values.datasvc.bucketMaxBytes | int64 }},
+{{- $datasvcJsSizes := (include "serviceradar.jetstreamBudget" . | fromJson).sizes }}
+        "bucket_max_bytes": {{ $datasvcJsSizes.datasvcKV.maxBytes }},
         "object_max_bytes": {{ default 536870912 .Values.datasvc.objectMaxBytes | int64 }},
-        "object_store_bytes": {{ default 17179869184 .Values.datasvc.objectStoreBytes | int64 }},
-        "jetstream_replicas": {{ default 1 .Values.datasvc.jetstreamReplicas | int }},
+        "object_store_bytes": {{ $datasvcJsSizes.datasvcObjects.maxBytes }},
+        "jetstream_replicas": {{ $datasvcJsSizes.datasvcKV.replicas }},
 {{- if and $otelEnabled $otelEndpoint }}
         "logging": {
           "level": "info",

@@ -790,6 +790,76 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
     assert package_count(addon_id, actor) == 1
   end
 
+  test "replace_existing refuses a row whose release moved past the caller's decision", %{
+    actor: actor,
+    uid: uid
+  } do
+    {pub, priv} = :crypto.generate_key(:eddsa, :ed25519)
+    addon_id = "release-pin-#{uid}"
+    artifacts = signed_artifacts(priv, uid)
+
+    newer_entry =
+      entry(addon_id, uid, %{
+        "oci_ref" => "registry.carverauto.dev/serviceradar/#{addon_id}:v1.0.2",
+        "oci_digest" => "sha256:#{String.duplicate("e", 64)}",
+        "bundle_digest" => "sha256:#{String.duplicate("d", 64)}"
+      })
+
+    assert {:ok, newer, :created} =
+             Importer.import_entry_with_disposition(
+               manifest(addon_id, uid),
+               newer_entry,
+               artifacts,
+               public_key: pub,
+               mirror: mirror(addon_id),
+               actor: actor,
+               release_tag: "v1.0.2"
+             )
+
+    older_entry =
+      entry(addon_id, uid, %{
+        "oci_ref" => "registry.carverauto.dev/serviceradar/#{addon_id}:v1.0.1",
+        "oci_digest" => "sha256:#{String.duplicate("f", 64)}",
+        "bundle_digest" => "sha256:#{String.duplicate("c", 64)}"
+      })
+
+    import_older = fn expected_tag ->
+      Importer.import_entry_with_disposition(
+        manifest(addon_id, uid),
+        older_entry,
+        artifacts,
+        public_key: pub,
+        mirror: mirror(addon_id),
+        actor: actor,
+        release_tag: "v1.0.1",
+        replace_existing: true,
+        expected_source_release_tag: expected_tag
+      )
+    end
+
+    assert {:error,
+            {:native_addon_version_source_conflict,
+             %{
+               reason: :release_changed,
+               existing_release_tag: "v1.0.2",
+               discovered_release_tag: "v1.0.1"
+             }}} = import_older.("v1.0.0")
+
+    assert {:error, {:native_addon_version_source_conflict, %{reason: :release_changed}}} =
+             import_older.(nil)
+
+    {:ok, persisted} = Ash.get(AddonPackage, newer.id, actor: actor)
+    assert persisted.source_release_tag == "v1.0.2"
+    assert persisted.source_oci_ref == newer_entry["oci_ref"]
+    assert persisted.source_oci_digest == newer_entry["oci_digest"]
+    assert persisted.source_metadata == newer.source_metadata
+    assert persisted.updated_at == newer.updated_at
+
+    assert {:ok, replaced, :repaired} = import_older.("v1.0.2")
+    assert replaced.id == newer.id
+    assert replaced.source_release_tag == "v1.0.1"
+  end
+
   defp release_mirror_barrier!(count) do
     pids =
       Enum.map(1..count, fn _index ->

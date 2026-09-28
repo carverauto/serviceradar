@@ -12,24 +12,26 @@ templates:
 #   helm template x . --set analytics.starrocks.enabled=true \
 #     --set 'analytics.starrocks.cutoverDatasets={flows}' \
 #     --set-json 'analytics.starrocks.shadowDatasets=["flows","metrics","logs","events"]' \
+#     --set analytics.starrocks.catalog.fePasswordSecretName=sr-fe-password \
 #     -s templates/web.yaml | grep checksum/starrocks-analytics
 tests:
   - it: stamps the same analytics digest on web-ng and core for a fixed set of values
     set:
       analytics.starrocks.enabled: true
+      analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
       analytics.starrocks.cutoverDatasets: [flows]
       analytics.starrocks.shadowDatasets: [flows, metrics, logs, events]
     asserts:
       - equal:
           path: spec.template.metadata.annotations['checksum/starrocks-analytics']
-          value: 8ee8d9a4cab761147bc52ad68ae98f131a70f2498cf731f4c3e0cc446bd46501
+          value: 2c1b77f2d25acc420df003d2a1b8075ba17800a69945a416638dbc5f5b872c66
         documentSelector:
           path: kind
           value: Deployment
         template: templates/web.yaml
       - equal:
           path: spec.template.metadata.annotations['checksum/starrocks-analytics']
-          value: 8ee8d9a4cab761147bc52ad68ae98f131a70f2498cf731f4c3e0cc446bd46501
+          value: 2c1b77f2d25acc420df003d2a1b8075ba17800a69945a416638dbc5f5b872c66
         documentSelector:
           path: kind
           value: Deployment
@@ -38,6 +40,7 @@ tests:
   - it: changes the digest on both when only the cut-over datasets change
     set:
       analytics.starrocks.enabled: true
+      analytics.starrocks.catalog.fePasswordSecretName: sr-fe-password
       analytics.starrocks.cutoverDatasets: [flows, metrics]
       analytics.starrocks.shadowDatasets: [flows, metrics, logs, events]
     asserts:
@@ -50,7 +53,7 @@ tests:
         template: templates/web.yaml
       - notEqual:
           path: spec.template.metadata.annotations['checksum/starrocks-analytics']
-          value: 8ee8d9a4cab761147bc52ad68ae98f131a70f2498cf731f4c3e0cc446bd46501
+          value: 2c1b77f2d25acc420df003d2a1b8075ba17800a69945a416638dbc5f5b872c66
         documentSelector:
           path: kind
           value: Deployment
@@ -64,7 +67,7 @@ tests:
         template: templates/core.yaml
       - notEqual:
           path: spec.template.metadata.annotations['checksum/starrocks-analytics']
-          value: 8ee8d9a4cab761147bc52ad68ae98f131a70f2498cf731f4c3e0cc446bd46501
+          value: 2c1b77f2d25acc420df003d2a1b8075ba17800a69945a416638dbc5f5b872c66
         documentSelector:
           path: kind
           value: Deployment

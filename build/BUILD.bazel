@@ -160,9 +160,10 @@ run_id_file(
 # ahead-check prescribes had nothing to rebase onto.
 #
 # Being GREEN is not the property that matters -- a passing unmerged branch ratchets it exactly
-# the same way. Being on TRUNK is. So exactly one action in //buildbuddy.yaml passes this --
-# `LargeIngestionGate`, which triggers on push to `staging` -- and pull requests, benchmark
-# branches and workstations apply their migrations to the per-run base instead.
+# the same way. Being on TRUNK is. `LargeIngestionGate` was once the only action that passed
+# this. Since the generation cutover NO action does: every workflow clones immutable per-digest
+# `sr_tpl_*` generations, `sr_core_template` is a frozen rollback artifact, and
+# //build/contracts:ci_heavy_gate_contract_test fails if any active workflow passes the flag.
 #
 # What it gates is the RATCHET, precisely: the migration set the template carries. It does not
 # gate `ensure_template`'s create-if-absent, which `provision_base` still performs on any run --

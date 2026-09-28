@@ -65,7 +65,6 @@ py_test(
         "//elixir/serviceradar_core:test/db/template_env.exs",
         "//elixir/serviceradar_core:test/integration/advisory_feed_loader_integration_test.exs",
         "//elixir/serviceradar_core:test/integration/netflow_ingestion_integration_test.exs",
-        "//elixir/serviceradar_core:test/integration/proxmox_api_smoke_integration_test.exs",
         "//elixir/serviceradar_core:test/integration/secret_broker_audit_integration_test.exs",
         "//elixir/serviceradar_core:test/release_gates/large_ingestion/identifier_cardinality_release_gate_test.exs",
         "//elixir/serviceradar_core:test/release_gates/large_ingestion/results_router_release_gate_test.exs",
@@ -165,4 +164,22 @@ py_test(
         "//helm/serviceradar:values.yaml",
         "//helm/serviceradar:values-demo.yaml",
     ],
+)
+
+py_test(
+    name = "release_tag_test",
+    size = "small",
+    srcs = ["release_tag_test.py"],
+    data = [
+        "//scripts:check-oci-chart-version-available.sh",
+        "//scripts:cut-release.sh",
+        "//scripts:validate-release-tag.sh",
+    ],
+)
+
+py_test(
+    name = "release_package_workflow_test",
+    size = "small",
+    srcs = ["release_package_workflow_test.py"],
+    data = ["//:.github/workflows/release.yml"],
 )

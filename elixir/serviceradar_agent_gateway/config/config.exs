@@ -2,6 +2,11 @@ import Config
 
 alias ServiceRadar.NATS.Connection
 
+# serviceradar_core's Ash resources are compiled and run under this config.
+# Count string length in codepoints, as the SQL data layer does, so
+# `max_length` bounds the stored size. Required since Ash 3.33.
+config :ash, default_string_length_count: :codepoints
+
 # Logger configuration
 config :logger, :console,
   format: "$time $metadata[$level] $message\n",

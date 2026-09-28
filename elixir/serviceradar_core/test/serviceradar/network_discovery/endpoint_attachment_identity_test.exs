@@ -10,9 +10,10 @@ defmodule ServiceRadar.NetworkDiscovery.EndpointAttachmentIdentityTest do
       (fix-cross-subnet-topology-attachment [G]) — become endpoint candidates
       (MAC+partition-keyed) instead of being suppressed, while MAC-less
       records keep the legacy IP-keyed rules (including suppression);
-    * deterministic uid convergence: same MAC + partition always derives the
-      same `sr:` uid regardless of observed IP (network-agnostic identity),
-      and distinct MACs always derive distinct uids;
+    * deterministic uid convergence: same globally-unique MAC + partition
+      always derives the same `sr:` uid regardless of observed IP
+      (network-agnostic identity), and distinct MACs always derive distinct
+      uids;
     * identity confidence tier derivation from the evidence class.
   """
 
@@ -214,7 +215,7 @@ defmodule ServiceRadar.NetworkDiscovery.EndpointAttachmentIdentityTest do
 
   describe "deterministic MAC+partition-keyed uid" do
     test "same MAC and partition converge on the same sr: uid regardless of IP" do
-      mac = IdentityReconciler.normalize_mac("aa:bb:cc:dd:ee:01")
+      mac = IdentityReconciler.normalize_mac("00:00:5e:00:53:01")
 
       uid_a =
         Ids.generate_deterministic_device_id(%{mac: mac, ip: "192.0.2.77", partition: "default"})
@@ -230,8 +231,8 @@ defmodule ServiceRadar.NetworkDiscovery.EndpointAttachmentIdentityTest do
     end
 
     test "distinct MACs derive distinct uids (distinct hardware never converges)" do
-      mac_a = IdentityReconciler.normalize_mac("aa:bb:cc:dd:ee:01")
-      mac_b = IdentityReconciler.normalize_mac("aa:bb:cc:dd:ee:02")
+      mac_a = IdentityReconciler.normalize_mac("00:00:5e:00:53:01")
+      mac_b = IdentityReconciler.normalize_mac("00:00:5e:00:53:02")
 
       uid_a = Ids.generate_deterministic_device_id(%{mac: mac_a, partition: "default"})
       uid_b = Ids.generate_deterministic_device_id(%{mac: mac_b, partition: "default"})
@@ -240,7 +241,7 @@ defmodule ServiceRadar.NetworkDiscovery.EndpointAttachmentIdentityTest do
     end
 
     test "identity is partition-scoped" do
-      mac = IdentityReconciler.normalize_mac("aa:bb:cc:dd:ee:01")
+      mac = IdentityReconciler.normalize_mac("00:00:5e:00:53:01")
 
       uid_a = Ids.generate_deterministic_device_id(%{mac: mac, partition: "default"})
       uid_b = Ids.generate_deterministic_device_id(%{mac: mac, partition: "site-b"})

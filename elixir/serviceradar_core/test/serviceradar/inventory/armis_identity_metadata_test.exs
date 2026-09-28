@@ -104,22 +104,22 @@ defmodule ServiceRadar.Inventory.ArmisIdentityMetadataTest do
         "source" => "armis",
         "metadata" => %{
           "integration_type" => "armis",
-          "armis_device_id" => "18497",
+          "armis_device_id" => "42001",
           "source_device_id" => "50000",
-          "integration_id" => "18497"
+          "integration_id" => "42001"
         }
       })
 
     ids = Ids.extract_strong_identifiers(update)
 
-    assert {:armis_device_id, "18497", "default"} in Lookups.extract_all_identifiers([update])
+    assert {:armis_device_id, "42001", "default"} in Lookups.extract_all_identifiers([update])
     refute {:integration_id, "50000", "default"} in Lookups.extract_all_identifiers([update])
 
     records = IdentifierRecords.build_identifier_records([{update, "sr:test-device"}])
 
     assert Enum.any?(records, fn record ->
              record.identifier_type == :armis_device_id and
-               record.identifier_value == "18497" and
+               record.identifier_value == "42001" and
                record.device_id == "sr:test-device"
            end)
 
@@ -184,26 +184,26 @@ defmodule ServiceRadar.Inventory.ArmisIdentityMetadataTest do
         "source" => "armis",
         "metadata" => %{
           "integration_type" => "armis",
-          "armis_device_id" => "18497",
-          "integration_id" => "armis:source-a:device:18497"
+          "armis_device_id" => "42001",
+          "integration_id" => "armis:source-a:device:42001"
         },
         "sync_meta" => %{"sync_service_id" => "source-a"}
       })
 
     ids = Ids.extract_strong_identifiers(update)
 
-    assert ids.armis_id == "18497"
-    assert ids.integration_id == "armis:source-a:device:18497"
+    assert ids.armis_id == "42001"
+    assert ids.integration_id == "armis:source-a:device:42001"
     assert ids.partition == "default:armis:source-a"
-    assert Ids.highest_priority_identifier(ids) == {:armis_device_id, "18497"}
+    assert Ids.highest_priority_identifier(ids) == {:armis_device_id, "42001"}
 
-    assert {:armis_device_id, "18497", "default:armis:source-a"} in Lookups.extract_all_identifiers(
+    assert {:armis_device_id, "42001", "default:armis:source-a"} in Lookups.extract_all_identifiers(
              [
                update
              ]
            )
 
-    assert {:integration_id, "armis:source-a:device:18497", "default:armis:source-a"} in Lookups.extract_all_identifiers(
+    assert {:integration_id, "armis:source-a:device:42001", "default:armis:source-a"} in Lookups.extract_all_identifiers(
              [
                update
              ]
@@ -213,13 +213,13 @@ defmodule ServiceRadar.Inventory.ArmisIdentityMetadataTest do
 
     assert Enum.any?(records, fn record ->
              record.identifier_type == :armis_device_id and
-               record.identifier_value == "18497" and
+               record.identifier_value == "42001" and
                record.partition == "default:armis:source-a"
            end)
 
     assert Enum.any?(records, fn record ->
              record.identifier_type == :integration_id and
-               record.identifier_value == "armis:source-a:device:18497" and
+               record.identifier_value == "armis:source-a:device:42001" and
                record.partition == "default:armis:source-a"
            end)
 

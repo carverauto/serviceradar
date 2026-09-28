@@ -77,11 +77,33 @@ pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindPar
 
 fn ensure_entity(plan: &QueryPlan) -> Result<()> {
     match plan.entity {
-        Entity::TraceSummaries => Ok(()),
+        Entity::TraceSummaries => refuse_unsupported_clauses(plan),
         _ => Err(ServiceError::InvalidRequest(
             "entity not supported by trace summaries query".into(),
         )),
     }
+}
+
+/// Plan clauses the summary builders of either dialect have no translation
+/// for. They used to be ignored; now they are refused by name.
+pub(super) fn refuse_unsupported_clauses(plan: &QueryPlan) -> Result<()> {
+    if let Some(kind) = plan
+        .rollup_stats
+        .as_deref()
+        .map(str::trim)
+        .filter(|kind| !kind.is_empty())
+    {
+        return Err(ServiceError::InvalidRequest(format!(
+            "rollup_stats:{kind} is not supported for otel_trace_summaries; \
+             use rollup_stats on otel_traces"
+        )));
+    }
+    if plan.downsample.is_some() {
+        return Err(ServiceError::InvalidRequest(
+            "bucket: is not supported for otel_trace_summaries".into(),
+        ));
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone)]
@@ -222,7 +244,7 @@ fn build_summary_query(plan: &QueryPlan) -> Result<TraceSummarySql> {
         sql.push_str(&where_clauses.join(" AND "));
     }
 
-    let order_sql = build_order_clause(&plan.order);
+    let order_sql = build_order_clause(&plan.order)?;
     sql.push_str(&order_sql);
     sql.push_str("\nLIMIT ? OFFSET ?");
     binds.push(SqlBindValue::BigInt(plan.limit));
@@ -250,6 +272,7 @@ fn build_filters_clause_raw(plan: &QueryPlan) -> Result<(Vec<String>, Vec<SqlBin
             "root_service_name" => {
                 add_text_condition(&mut clauses, &mut binds, "root_service_name", filter)?
             }
+            "service_name" => add_service_set_condition(&mut clauses, &mut binds, filter)?,
             "root_service_namespace" => {
                 add_text_condition(&mut clauses, &mut binds, "root_service_namespace", filter)?
             }
@@ -345,6 +368,52 @@ fn add_text_condition(
     Ok(())
 }
 
+/// `service_name` matches a trace when ANY of its spans belongs to the service,
+/// not only the root span (`root_service_name` keeps that meaning). Array
+/// containment is exact, so wildcards are refused rather than silently taken
+/// literally. `service_set` is nullable and `NOT (NULL)` drops the row, so the
+/// negated forms coalesce it: a trace with no service names does not touch the
+/// excluded service and must be returned.
+fn add_service_set_condition(
+    clauses: &mut Vec<String>,
+    binds: &mut Vec<SqlBindValue>,
+    filter: &Filter,
+) -> Result<()> {
+    let (clause, values) = match filter.op {
+        FilterOp::Eq => (
+            "service_set @> ?",
+            vec![filter.value.as_scalar()?.to_string()],
+        ),
+        FilterOp::NotEq => (
+            "NOT (COALESCE(service_set, '{}') @> ?)",
+            vec![filter.value.as_scalar()?.to_string()],
+        ),
+        FilterOp::In => ("service_set && ?", filter.value.as_list()?.to_vec()),
+        FilterOp::NotIn => (
+            "NOT (COALESCE(service_set, '{}') && ?)",
+            filter.value.as_list()?.to_vec(),
+        ),
+        FilterOp::Like | FilterOp::NotLike => {
+            return Err(ServiceError::InvalidRequest(
+                "service_name on otel_trace_summaries matches exact service names; \
+                 wildcards are not supported (use root_service_name for pattern matches \
+                 on the root span)"
+                    .into(),
+            ));
+        }
+        _ => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "service_name filter does not support operator {:?}",
+                filter.op
+            )));
+        }
+    };
+
+    clauses.push(clause.to_string());
+    binds.push(SqlBindValue::TextArray(values));
+    Ok(())
+}
+
 fn add_int_condition(
     clauses: &mut Vec<String>,
     binds: &mut Vec<SqlBindValue>,
@@ -410,7 +479,7 @@ fn add_float_condition(
     Ok(())
 }
 
-fn parse_i32(filter: &Filter) -> Result<i32> {
+pub(super) fn parse_i32(filter: &Filter) -> Result<i32> {
     filter
         .value
         .as_scalar()?
@@ -418,7 +487,7 @@ fn parse_i32(filter: &Filter) -> Result<i32> {
         .map_err(|_| ServiceError::InvalidRequest("integer value required".into()))
 }
 
-fn parse_i64(filter: &Filter) -> Result<i64> {
+pub(super) fn parse_i64(filter: &Filter) -> Result<i64> {
     filter
         .value
         .as_scalar()?
@@ -426,55 +495,66 @@ fn parse_i64(filter: &Filter) -> Result<i64> {
         .map_err(|_| ServiceError::InvalidRequest("numeric value required".into()))
 }
 
-fn parse_f64(filter: &Filter) -> Result<f64> {
+pub(super) fn parse_f64(filter: &Filter) -> Result<f64> {
     filter
         .value
         .as_scalar()?
         .parse::<f64>()
-        .map_err(|_| ServiceError::InvalidRequest("numeric value required".into()))
+        .ok()
+        .filter(|value| value.is_finite())
+        .ok_or_else(|| ServiceError::InvalidRequest("numeric value required".into()))
 }
 
-fn build_order_clause(order: &[OrderClause]) -> String {
+/// Row sort fields both dialects accept. Any other field is refused: it used
+/// to be dropped.
+pub(super) const ROW_SORT_FIELDS: &[&str] = &[
+    "timestamp",
+    "duration_ms",
+    "span_count",
+    "error_count",
+    "root_service_name",
+];
+
+pub(super) fn row_sort_column(field: &str) -> Result<&'static str> {
+    ROW_SORT_FIELDS
+        .iter()
+        .find(|name| **name == field)
+        .copied()
+        .ok_or_else(|| {
+            ServiceError::InvalidRequest(format!(
+                "unsupported sort field for otel_trace_summaries: '{field}'"
+            ))
+        })
+}
+
+fn build_order_clause(order: &[OrderClause]) -> Result<String> {
     if order.is_empty() {
-        return "\nORDER BY timestamp DESC".to_string();
+        return Ok("\nORDER BY timestamp DESC".to_string());
     }
 
     let mut clauses = Vec::new();
     for clause in order {
-        let column = match clause.field.as_str() {
-            "timestamp" => Some("timestamp"),
-            "duration_ms" => Some("duration_ms"),
-            "span_count" => Some("span_count"),
-            "error_count" => Some("error_count"),
-            "root_service_name" => Some("root_service_name"),
-            _ => None,
-        };
-        if let Some(col) = column {
-            clauses.push(format!(
-                "{col} {}",
-                match clause.direction {
-                    OrderDirection::Asc => "ASC",
-                    OrderDirection::Desc => "DESC",
-                }
-            ));
-        }
+        let col = row_sort_column(clause.field.as_str())?;
+        clauses.push(format!(
+            "{col} {}",
+            match clause.direction {
+                OrderDirection::Asc => "ASC",
+                OrderDirection::Desc => "DESC",
+            }
+        ));
     }
 
-    if clauses.is_empty() {
-        "\nORDER BY timestamp DESC".to_string()
-    } else {
-        format!("\nORDER BY {}", clauses.join(", "))
-    }
+    Ok(format!("\nORDER BY {}", clauses.join(", ")))
 }
 
 #[derive(Debug)]
-struct TraceStatsExpr {
-    alias: String,
-    kind: StatsExprKind,
+pub(super) struct TraceStatsExpr {
+    pub(super) alias: String,
+    pub(super) kind: StatsExprKind,
 }
 
 #[derive(Debug)]
-enum StatsExprKind {
+pub(super) enum StatsExprKind {
     Count,
     StatusCompare {
         comparator: StatsComparator,
@@ -487,10 +567,22 @@ enum StatsExprKind {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum StatsComparator {
+pub(super) enum StatsComparator {
     Eq,
     NotEq,
     GreaterThan,
+    GreaterOrEqual,
+}
+
+impl StatsComparator {
+    pub(super) fn sql(self) -> &'static str {
+        match self {
+            StatsComparator::Eq => "=",
+            StatsComparator::NotEq => "<>",
+            StatsComparator::GreaterThan => ">",
+            StatsComparator::GreaterOrEqual => ">=",
+        }
+    }
 }
 
 impl TraceStatsExpr {
@@ -498,11 +590,7 @@ impl TraceStatsExpr {
         match &self.kind {
             StatsExprKind::Count => ("coalesce(COUNT(*), 0)".into(), Vec::new()),
             StatsExprKind::StatusCompare { comparator, value } => {
-                let op = match comparator {
-                    StatsComparator::Eq => "=",
-                    StatsComparator::NotEq => "<>",
-                    _ => "=",
-                };
+                let op = comparator.sql();
                 let fragment = format!(
                     "coalesce(SUM(CASE WHEN coalesce(status_code, 0) {op} ? THEN 1 ELSE 0 END), 0)"
                 );
@@ -512,10 +600,7 @@ impl TraceStatsExpr {
                 comparator,
                 threshold,
             } => {
-                let op = match comparator {
-                    StatsComparator::GreaterThan => ">",
-                    _ => ">",
-                };
+                let op = comparator.sql();
                 let fragment = format!(
                     "coalesce(SUM(CASE WHEN coalesce(duration_ms, 0) {op} ? THEN 1 ELSE 0 END), 0)"
                 );
@@ -541,7 +626,7 @@ fn build_stats_select(exprs: &[TraceStatsExpr]) -> Result<(String, Vec<SqlBindVa
     Ok((format!("jsonb_build_object({})", parts.join(", ")), binds))
 }
 
-fn parse_stats(raw: &str) -> Result<Vec<TraceStatsExpr>> {
+pub(super) fn parse_stats(raw: &str) -> Result<Vec<TraceStatsExpr>> {
     let segments = split_segments(raw);
     let mut exprs = Vec::new();
     for segment in segments {
@@ -554,6 +639,12 @@ fn parse_stats(raw: &str) -> Result<Vec<TraceStatsExpr>> {
             )));
         }
         exprs.push(parse_stats_expr(&segment)?);
+    }
+    // An empty list has no result columns to return on either dialect.
+    if exprs.is_empty() {
+        return Err(ServiceError::InvalidRequest(
+            "stats needs at least one expression".into(),
+        ));
     }
     Ok(exprs)
 }
@@ -718,16 +809,23 @@ fn parse_condition(raw: &str) -> Result<StatsExprKind> {
                     })
                 }
                 "duration_ms" => {
-                    let parsed = value.parse::<f64>().map_err(|_| {
-                        ServiceError::InvalidRequest(
-                            "duration_ms comparison requires a numeric value".into(),
-                        )
-                    })?;
+                    let parsed = value
+                        .parse::<f64>()
+                        .ok()
+                        .filter(|value| value.is_finite())
+                        .ok_or_else(|| {
+                            ServiceError::InvalidRequest(
+                                "duration_ms comparison requires a numeric value".into(),
+                            )
+                        })?;
+                    // `>=` used to compile as `>`, dropping every trace exactly
+                    // at the threshold.
                     let comparator = match *op {
-                        ">" | ">=" => StatsComparator::GreaterThan,
+                        ">" => StatsComparator::GreaterThan,
+                        ">=" => StatsComparator::GreaterOrEqual,
                         _ => {
                             return Err(ServiceError::InvalidRequest(
-                                "duration_ms comparisons only support '>'".into(),
+                                "duration_ms comparisons only support '>' or '>='".into(),
                             ));
                         }
                     };
@@ -746,4 +844,104 @@ fn parse_condition(raw: &str) -> Result<StatsExprKind> {
     Err(ServiceError::InvalidRequest(
         "unable to parse stats condition".into(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        config::AppConfig,
+        error::ServiceError,
+        parser,
+        query::{QueryDirection, QueryRequest, build_query_plan},
+    };
+
+    fn translate(query: &str) -> Result<(String, Vec<BindParam>)> {
+        let request = QueryRequest {
+            query: query.to_string(),
+            limit: None,
+            cursor: None,
+            direction: QueryDirection::Next,
+            mode: None,
+            permitted_signals: None,
+        };
+        let config = AppConfig::embedded("postgres://srql-test".to_string());
+        let ast = parser::parse(query)?;
+        let plan = build_query_plan(&config, &request, ast)?;
+        to_sql_and_params(&plan)
+    }
+
+    fn first_bind(params: &[BindParam]) -> &[String] {
+        match params.first() {
+            Some(BindParam::TextArray(values)) => values,
+            other => panic!("expected a text[] bind, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn service_name_matches_any_span_in_the_trace() {
+        let (sql, params) =
+            translate("in:otel_trace_summaries service_name:checkout").expect("translate");
+        assert!(sql.contains("WHERE service_set @> $1"), "{sql}");
+        assert_eq!(first_bind(&params), ["checkout".to_string()]);
+
+        let (sql, params) = translate("in:otel_trace_summaries service_name:(checkout,billing)")
+            .expect("translate");
+        assert!(sql.contains("WHERE service_set && $1"), "{sql}");
+        assert_eq!(
+            first_bind(&params),
+            ["checkout".to_string(), "billing".to_string()]
+        );
+    }
+
+    #[test]
+    fn negated_service_name_keeps_traces_with_a_null_service_set() {
+        // `NOT (service_set @> ...)` is NULL for a NULL service_set, which would
+        // drop exactly the traces that do not touch the service.
+        let (sql, _) =
+            translate("in:otel_trace_summaries !service_name:checkout").expect("translate");
+        assert!(
+            sql.contains("WHERE NOT (COALESCE(service_set, '{}') @> $1)"),
+            "{sql}"
+        );
+
+        let (sql, _) = translate("in:otel_trace_summaries !service_name:(checkout,billing)")
+            .expect("translate");
+        assert!(
+            sql.contains("WHERE NOT (COALESCE(service_set, '{}') && $1)"),
+            "{sql}"
+        );
+    }
+
+    #[test]
+    fn service_name_applies_in_stats_mode_too() {
+        let (sql, params) =
+            translate(r#"in:otel_trace_summaries service_name:checkout stats:"count() as total""#)
+                .expect("translate");
+        assert!(sql.contains("WHERE service_set @> $1"), "{sql}");
+        assert_eq!(first_bind(&params), ["checkout".to_string()]);
+    }
+
+    #[test]
+    fn service_name_wildcards_are_rejected_naming_the_field() {
+        for query in [
+            "in:otel_trace_summaries service_name:%check%",
+            "in:otel_trace_summaries !service_name:%check%",
+        ] {
+            match translate(query) {
+                Err(ServiceError::InvalidRequest(message)) => {
+                    assert!(message.contains("service_name"), "{query}: {message}");
+                }
+                other => panic!("{query}: expected InvalidRequest, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn root_service_name_keeps_its_root_only_meaning() {
+        let (sql, _) =
+            translate("in:otel_trace_summaries root_service_name:checkout").expect("translate");
+        assert!(sql.contains("WHERE root_service_name = $1"), "{sql}");
+        assert!(!sql.contains("service_set @>"), "{sql}");
+    }
 }

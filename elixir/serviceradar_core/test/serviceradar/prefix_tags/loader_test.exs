@@ -3,6 +3,7 @@ defmodule ServiceRadar.PrefixTags.LoaderTest do
 
   alias ServiceRadar.PrefixTags.ExternalSources
   alias ServiceRadar.PrefixTags.Loader
+  alias ServiceRadar.PrefixTags.Preview
   alias ServiceRadar.PrefixTags.Store
 
   @pubsub ServiceRadar.PubSub
@@ -38,6 +39,17 @@ defmodule ServiceRadar.PrefixTags.LoaderTest do
     :ok
   end
 
+  test "core previews return the ingestion snapshot only after boot completes" do
+    pid = start_supervised!({Loader, load_on_init: false})
+
+    Store.put_rows("manual", [%{prefix: "192.0.2.0/24", tags: ["role:example"], source: "manual"}])
+
+    assert {:error, _} = Preview.local_lookup("192.0.2.1")
+    :sys.replace_state(pid, &Map.put(&1, :initial_boot_complete?, true))
+    assert {:ok, [%{tags: ["role:example"]}]} = Preview.local_lookup("192.0.2.1")
+    assert {:ok, []} = Preview.local_lookup("198.51.100.1")
+  end
+
   test "broadcast invalidation is delivered to subscribers" do
     Phoenix.PubSub.subscribe(@pubsub, Loader.pubsub_topic())
 
@@ -65,8 +77,10 @@ defmodule ServiceRadar.PrefixTags.LoaderTest do
     end
   end
 
-  test "loader installs empty trie when DB is unavailable" do
-    # load_on_init true will hit Repo; with no DB this should fail-open to empty.
+  test "loader restart retains the last good snapshot when DB is unavailable" do
+    Store.put_rows("manual", [%{prefix: "192.0.2.0/24", tags: ["retained"]}])
+    previous = Store.active_trie("manual")
+
     pid =
       start_supervised!(
         {Loader, load_on_init: true, name: :prefix_tags_loader_test},
@@ -78,7 +92,8 @@ defmodule ServiceRadar.PrefixTags.LoaderTest do
     # Wait for handle_continue to finish
     _ = GenServer.call(pid, :status)
 
-    assert Store.lookup("10.1.2.3") == []
+    assert Store.active_trie("manual") == previous
+    assert [%{tags: ["retained"]}] = Store.lookup("192.0.2.1", "manual")
     status = GenServer.call(pid, :status)
     assert is_binary(status.last_error)
   end
@@ -117,6 +132,42 @@ defmodule ServiceRadar.PrefixTags.LoaderTest do
     Enum.each(ExternalSources.modules(), fn module ->
       refute_receive {:trace, ^pid, :call, {^module, :reload, [_opts]}}, 250
     end)
+  end
+
+  test "web boot, retries, and invalidations do not build external sources" do
+    previous = Application.get_env(:serviceradar_core, :prefix_tags_external_sources)
+    Application.put_env(:serviceradar_core, :prefix_tags_external_sources, false)
+
+    on_exit(fn ->
+      if is_nil(previous),
+        do: Application.delete_env(:serviceradar_core, :prefix_tags_external_sources),
+        else: Application.put_env(:serviceradar_core, :prefix_tags_external_sources, previous)
+    end)
+
+    pid = start_supervised!({Loader, name: :prefix_tags_web_loader_test})
+    assert %{external_errors: errors, last_error: error} = GenServer.call(pid, :status)
+    assert errors == %{}
+    assert is_binary(error)
+
+    for message <- [
+          {:retry_initial_load, 60_000},
+          {:prefix_tags_snapshot_changed, %{source: "provider"}},
+          {:prefix_tags_snapshot_changed, %{source: "ti"}},
+          {:prefix_tags_snapshot_changed, %{}},
+          {:nodeup, node(), %{}}
+        ] do
+      send(pid, message)
+      assert %{external_errors: errors} = GenServer.call(pid, :status)
+      assert errors == %{}
+    end
+
+    for module <- ExternalSources.modules() do
+      assert {:error, :external_sources_disabled} = module.reload(broadcast?: false)
+      assert :ok = GenServer.call(pid, {:reload, module.source_name()})
+    end
+
+    assert {:error, message} = Preview.lookup("192.0.2.1")
+    assert message =~ "unavailable"
   end
 
   test "single-query parser keeps populated and zero-row active snapshots consistent" do

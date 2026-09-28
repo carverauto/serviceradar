@@ -119,7 +119,7 @@ describe("CameraRelayStatusStream", () => {
     )
     expect(element.roles.get("compatibility-status").textContent).toContain("Unsupported browser transport")
     expect(element.roles.get("relay-detail").textContent).toContain("either WebCodecs or an MSE-capable H264 browser")
-    expect(hook.socket).toBeNull()
+    expect(hook.viewer.socket).toBeNull()
   })
 
   it("prefers the WebRTC relay path when advertised and supported", async () => {
@@ -215,8 +215,8 @@ describe("CameraRelayStatusStream", () => {
     expect(fetchMock.mock.calls[1][0]).toBe("/api/camera-relay-sessions/test/webrtc/session/viewer-1/answer")
     expect(element.roles.get("transport-status").textContent).toBe("WebRTC answer applied")
     expect(element.roles.get("player-status").textContent).toBe("Waiting for WebRTC media...")
-    expect(hook.socket).toBeNull()
-    expect(hook.peerConnection).toBeInstanceOf(MockPeerConnection)
+    expect(hook.viewer.socket).toBeNull()
+    expect(hook.viewer.peerConnection).toBeInstanceOf(MockPeerConnection)
   })
 
   it("upgrades websocket-preferred metadata to WebRTC when the relay advertises it", async () => {
@@ -301,7 +301,7 @@ describe("CameraRelayStatusStream", () => {
 
     expect(fetchMock.mock.calls[0][0]).toBe("/api/camera-relay-sessions/test/webrtc/session")
     expect(element.roles.get("compatibility-status").textContent).toContain("WebRTC relay")
-    expect(hook.peerConnection).toBeInstanceOf(MockPeerConnection)
+    expect(hook.viewer.peerConnection).toBeInstanceOf(MockPeerConnection)
     expect(MockWebSocket.instances).toHaveLength(1)
   })
 
@@ -407,7 +407,7 @@ describe("CameraRelayStatusStream", () => {
       expect(fetchMock.mock.calls[2][0]).toBe("/api/camera-relay-sessions/test/webrtc/session/viewer-3/answer")
       expect(element.roles.get("transport-status").textContent).toBe("WebRTC answer applied")
       expect(element.roles.get("player-status").textContent).toBe("Waiting for WebRTC media...")
-      expect(hook.peerConnection).toBeInstanceOf(MockPeerConnection)
+      expect(hook.viewer.peerConnection).toBeInstanceOf(MockPeerConnection)
     } finally {
       vi.useRealTimers()
     }
@@ -514,7 +514,7 @@ describe("CameraRelayStatusStream", () => {
       expect(fetchMock.mock.calls[1][0]).toBe("/api/camera-relay-sessions/test/webrtc/session")
       expect(fetchMock.mock.calls[2][0]).toBe("/api/camera-relay-sessions/test/webrtc/session/viewer-4/answer")
       expect(element.roles.get("transport-status").textContent).toBe("WebRTC answer applied")
-      expect(hook.peerConnection).toBeInstanceOf(MockPeerConnection)
+      expect(hook.viewer.peerConnection).toBeInstanceOf(MockPeerConnection)
     } finally {
       vi.useRealTimers()
     }
@@ -620,7 +620,7 @@ describe("CameraRelayStatusStream", () => {
     expect(element.roles.get("viewer-count").textContent).toBe("Viewer count: 2")
     expect(element.roles.get("relay-detail").textContent).toContain("Ingress media-123 is attached")
     expect(element.roles.get("transport-status").textContent).toBe("WebRTC answer applied")
-    expect(hook.socket).toBeNull()
+    expect(hook.viewer.socket).toBeNull()
   })
 
   it("sends websocket keepalive pings while the browser viewer is open", async () => {

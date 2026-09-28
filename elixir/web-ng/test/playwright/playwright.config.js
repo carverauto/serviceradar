@@ -15,7 +15,7 @@ export default {
   reporter: "line",
   // Bound each independent browser contract inside Bazel's large-test allowance.
   //
-  // Six phases of real WebGL rendering, and each managed fit now measures whether its
+  // Six phases of real WebGPU rendering, and each managed fit now measures whether its
   // visual density actually holds at the scale the scene fits into rather than assuming
   // it. That costs a label-free probe per candidate density on scenes that must step down.
   // The gate used to put both contracts under one 600-second timer and reached that
@@ -25,5 +25,17 @@ export default {
   use: {
     headless: true,
     trace: "retain-on-failure",
+    // God View renders on WebGPU only. The RBE container has no GPU, so Chromium runs WebGPU
+    // on SwiftShader, its CPU Vulkan implementation.
+    launchOptions: {
+      args: [
+        "--enable-unsafe-webgpu",
+        "--enable-unsafe-swiftshader",
+        "--enable-features=Vulkan",
+        "--use-vulkan=swiftshader",
+        "--use-webgpu-adapter=swiftshader",
+        "--use-angle=swiftshader",
+      ],
+    },
   },
 }

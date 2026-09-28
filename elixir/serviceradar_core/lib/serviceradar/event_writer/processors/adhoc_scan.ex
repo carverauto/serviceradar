@@ -8,8 +8,17 @@ defmodule ServiceRadar.EventWriter.Processors.AdhocScan do
   this processor persists them:
 
     * every row -> `platform.adhoc_scan_results` (keyed by `scan_run_id`)
-    * MTR rows that carry a full trace -> `mtr_traces`/`mtr_hops` via the
-      existing `MtrMetricsIngestor` (reached here already past JetStream)
+    * MTR rows that carry a full trace -> `mtr_traces`/`mtr_hops`, through the
+      same MTR persistence the `Mtr` processor uses
+      (`ServiceRadar.EventWriter.Processors.Mtr.persist_all/2`): the warehouse
+      when StarRocks is enabled, CNPG otherwise
+
+  Ids are derived from the message bytes, so a redelivered batch writes the
+  rows it already wrote under the same keys: `adhoc_scan_results` ignores the
+  conflict, CNPG skips a stored trace and the warehouse upserts it. That is
+  what lets an MTR trace that could not be stored fail the batch, so JetStream
+  redelivers it, as it would on the `mtr.results.>` stream. A trace that can
+  never be stored (no target) is logged and dropped.
 
   ## Message format (JSON)
 
@@ -32,6 +41,7 @@ defmodule ServiceRadar.EventWriter.Processors.AdhocScan do
   @behaviour ServiceRadar.EventWriter.Processor
 
   alias ServiceRadar.EventWriter.BulkInsert
+  alias ServiceRadar.EventWriter.Processors.Mtr
   alias ServiceRadar.Observability.MtrMetricsIngestor
 
   require Logger
@@ -40,7 +50,14 @@ defmodule ServiceRadar.EventWriter.Processors.AdhocScan do
   def table_name, do: "adhoc_scan_results"
 
   @impl true
-  def process_batch(messages) do
+  def process_batch(messages), do: process_batch(messages, [])
+
+  @doc false
+  # `:insert` replaces the `adhoc_scan_results` insert; every other option is
+  # passed to `Mtr.persist_all/2` (tests).
+  def process_batch(messages, opts) do
+    insert = Keyword.get(opts, :insert, &BulkInsert.insert_all/3)
+
     decoded =
       messages
       |> Enum.map(&decode_message/1)
@@ -48,11 +65,16 @@ defmodule ServiceRadar.EventWriter.Processors.AdhocScan do
 
     rows = Enum.map(decoded, &build_row/1)
 
-    {count, _} = BulkInsert.insert_all(table_name(), rows, on_conflict: :nothing)
-    result = {:ok, count}
-    ingest_mtr_traces(decoded)
+    {count, _} = insert.(table_name(), rows, on_conflict: :nothing)
 
-    result
+    case decoded |> mtr_results() |> Mtr.persist_all(opts) do
+      :ok ->
+        {:ok, count}
+
+      {:error, reason} = error ->
+        Logger.warning("Ad-hoc MTR trace persist failed: #{inspect(reason)}")
+        error
+    end
   rescue
     e ->
       Logger.error("Ad-hoc scan batch processing failed: #{inspect(e)}")
@@ -62,10 +84,10 @@ defmodule ServiceRadar.EventWriter.Processors.AdhocScan do
   @impl true
   def parse_message(message), do: decode_message(message)
 
-  defp decode_message(%{data: data}) do
+  defp decode_message(%{data: data}) when is_binary(data) do
     case Jason.decode(data) do
       {:ok, json} when is_map(json) ->
-        json
+        Map.put(json, "__message_uuid", MtrMetricsIngestor.stable_uuid(data))
 
       _ ->
         Logger.debug("Failed to parse ad-hoc scan message as JSON")
@@ -77,7 +99,7 @@ defmodule ServiceRadar.EventWriter.Processors.AdhocScan do
 
   defp build_row(json) do
     %{
-      id: Ecto.UUID.bingenerate(),
+      id: Ecto.UUID.dump!(json["__message_uuid"]),
       time: parse_time(json["timestamp_ms"]),
       scan_run_id: dump_uuid(json["scan_run_id"]),
       agent_id: to_string(json["agent_id"] || ""),
@@ -92,27 +114,40 @@ defmodule ServiceRadar.EventWriter.Processors.AdhocScan do
     }
   end
 
-  # MTR rows carry the full trace; persist per-hop detail to mtr_traces/mtr_hops
-  # by reusing the existing ingestor. This runs inside the EventWriter consumer,
-  # so the trace has already traversed JetStream.
-  defp ingest_mtr_traces(decoded) do
-    Enum.each(decoded, fn json ->
-      with "mtr" <- to_string(json["mode"] || ""),
-           trace when is_map(trace) <- json["trace"] do
-        status = %{
+  # MTR rows carry the full trace, stored as one MTR result in the shape the
+  # `Mtr` processor persists. This runs inside the EventWriter consumer, so the
+  # trace has already traversed JetStream.
+  defp mtr_results(decoded) do
+    for json <- decoded,
+        to_string(json["mode"] || "") == "mtr",
+        is_map(json["trace"]) do
+      %{
+        payload: mtr_result(json),
+        status: %{
           agent_id: json["agent_id"],
           gateway_id: json["gateway_id"],
           partition: json["partition"]
         }
+      }
+    end
+  end
 
-        case MtrMetricsIngestor.ingest(%{"trace" => trace, "target" => json["target_ip"]}, status) do
-          :ok -> :ok
-          {:error, reason} -> Logger.warning("Ad-hoc MTR trace ingest failed: #{inspect(reason)}")
-        end
-      else
-        _ -> :ok
-      end
-    end)
+  # The trace id is derived from the message, so a redelivery stores the same
+  # trace. The scan row's time stands in for a trace that carries no timestamp
+  # of its own, in nanoseconds: the ingestor reads any integer above 10^15 as
+  # nanoseconds, so a present-day time in milliseconds or microseconds would
+  # land in 1970.
+  defp mtr_result(json) do
+    result = %{
+      "trace" => json["trace"],
+      "target" => json["target_ip"],
+      "trace_uuid" => MtrMetricsIngestor.stable_uuid("mtr:" <> json["__message_uuid"])
+    }
+
+    case json["timestamp_ms"] do
+      ms when is_integer(ms) and ms > 0 -> Map.put(result, "timestamp", ms * 1_000_000)
+      _ -> result
+    end
   end
 
   defp parse_time(ms) when is_integer(ms), do: DateTime.from_unix!(ms, :millisecond)

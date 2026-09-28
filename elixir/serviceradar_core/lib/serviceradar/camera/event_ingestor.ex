@@ -7,9 +7,8 @@ defmodule ServiceRadar.Camera.EventIngestor do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.InventoryIngestor
   alias ServiceRadar.Camera.Source
-  alias ServiceRadar.Events.PubSub, as: EventsPubSub
+  alias ServiceRadar.Events.OcsfEventPublisher
   alias ServiceRadar.EventWriter.FieldParser
-  alias ServiceRadar.Monitoring.OcsfEvent
 
   require Ash.Query
   require Logger
@@ -44,7 +43,7 @@ defmodule ServiceRadar.Camera.EventIngestor do
   def ingest(payload, status, opts) when is_map(payload) do
     actor = Keyword.get(opts, :actor, SystemActor.system(:camera_event_ingestor))
     observed_at = Keyword.get(opts, :observed_at) || resolve_observed_at(payload, status)
-    record_event = Keyword.get(opts, :record_event, &record_event/2)
+    publish_event = Keyword.get(opts, :publish_event, &publish_event/1)
     load_source = Keyword.get(opts, :load_source, &load_source/2)
 
     payload
@@ -53,20 +52,20 @@ defmodule ServiceRadar.Camera.EventIngestor do
       correlation = resolve_event_correlation(event, payload, actor, load_source)
       attrs = build_event_attrs(event, correlation, observed_at, status)
 
-      case record_event.(attrs, actor) do
-        {:ok, _record} ->
+      case publish_event.(attrs) do
+        {:ok, _event} ->
           {:cont, count + 1}
+
+        # An out-of-service camera's event is dropped by design, not a failure.
+        {:error, :suppressed} ->
+          {:cont, count}
 
         {:error, reason} ->
           {:halt, {:error, reason}}
       end
     end)
     |> case do
-      count when is_integer(count) and count > 0 ->
-        EventsPubSub.broadcast_event(%{count: count})
-        :ok
-
-      0 ->
+      count when is_integer(count) ->
         :ok
 
       {:error, reason} ->
@@ -180,11 +179,7 @@ defmodule ServiceRadar.Camera.EventIngestor do
     |> Map.put("camera_vendor_camera_id", correlation.vendor_camera_id)
   end
 
-  defp record_event(attrs, actor) do
-    OcsfEvent
-    |> Ash.Changeset.for_create(:record, attrs, actor: actor)
-    |> Ash.create()
-  end
+  defp publish_event(attrs), do: OcsfEventPublisher.publish(attrs, family: :camera)
 
   defp resolve_observed_at(payload, status) do
     payload

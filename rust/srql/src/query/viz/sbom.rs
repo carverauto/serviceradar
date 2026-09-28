@@ -1,7 +1,7 @@
 //! Viz metadata builders for endpoint SBOM inventory entities: scans,
 //! per-endpoint packages, and the package catalog.
 
-use super::{col, ColumnSemantic, ColumnType, VizKind, VizMeta, VizSuggestion};
+use super::{ColumnSemantic, ColumnType, VizKind, VizMeta, VizSuggestion, col};
 
 pub(super) fn endpoint_inventory_scans() -> VizMeta {
     VizMeta {

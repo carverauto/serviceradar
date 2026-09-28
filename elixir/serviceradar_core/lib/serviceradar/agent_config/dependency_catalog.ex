@@ -16,12 +16,14 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
   alias ServiceRadar.AgentConfig.DependencyResolvers
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Integrations.IntegrationSource
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.VisibilityProfile
   alias ServiceRadar.Monitoring.ServiceCheck
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.SNMPProfiles.SNMPProfile
 
   defmodule Entry do
     @moduledoc "One resource-to-agent-config dependency declaration."
@@ -195,8 +197,34 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
         secret_fields: [:password, "password"]
       ),
       config_server_entry(
+        :mapper_device_config,
+        Device,
+        :mapper,
+        MapperCompiler
+      ),
+      config_server_entry(
+        :mapper_snmp_profile_config,
+        SNMPProfile,
+        :mapper,
+        MapperCompiler,
+        secret_fields: [:community, :auth_password, :priv_password]
+      ),
+      config_server_entry(
+        :mapper_credential_rule_config,
+        ServiceRadar.Credentials.NetworkCredentialRule,
+        :mapper,
+        MapperCompiler
+      ),
+      config_server_entry(
+        :mapper_credential_secret_config,
+        ServiceRadar.Credentials.NetworkCredentialSecret,
+        :mapper,
+        MapperCompiler,
+        secret_fields: [:secret_payload]
+      ),
+      config_server_entry(
         :snmp_profile_config,
-        ServiceRadar.SNMPProfiles.SNMPProfile,
+        SNMPProfile,
         :snmp,
         SNMPCompiler,
         action_names: [:create, :update, :destroy, :set_as_default, :unset_default],
@@ -224,7 +252,7 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
       ),
       config_server_entry(
         :device_snmp_config,
-        ServiceRadar.Inventory.Device,
+        Device,
         :snmp,
         SNMPCompiler
       ),

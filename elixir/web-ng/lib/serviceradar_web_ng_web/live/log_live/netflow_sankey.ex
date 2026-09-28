@@ -64,7 +64,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowSankey do
     |> Enum.sort_by(fn {_value, bytes} -> -bytes end)
   end
 
-  # The warehouse returns the network address without its length.
+  # SRQL returns the network with its length ("192.0.2.0/24"); a bare address is qualified.
   defp subnet(value, prefix) when is_binary(value) do
     case String.trim(value) do
       "" -> nil

@@ -42,14 +42,24 @@ func captureStdout(t *testing.T, fn func()) string {
 		os.Stdout = originalStdout
 	}()
 
+	// Drain while fn writes: output larger than the pipe buffer would otherwise
+	// block fn forever.
+	var buf bytes.Buffer
+
+	copyDone := make(chan error, 1)
+
+	go func() {
+		_, copyErr := io.Copy(&buf, reader)
+		copyDone <- copyErr
+	}()
+
 	fn()
 
 	if err := writer.Close(); err != nil {
 		t.Fatalf("close writer: %v", err)
 	}
 
-	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, reader); err != nil {
+	if err := <-copyDone; err != nil {
 		t.Fatalf("read stdout: %v", err)
 	}
 

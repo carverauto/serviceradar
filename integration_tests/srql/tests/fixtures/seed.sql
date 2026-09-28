@@ -2095,6 +2095,80 @@ VALUES
         '2026-06-01T01:00:01Z'::timestamptz
     );
 
+-- Synthetic TCP SYN handshake traces, outside every relative time window so the
+-- last_1h contract above is unaffected. One clean handshake, one fully
+-- unanswered, and one ICMP trace that reports no handshake (all NULL).
+INSERT INTO mtr_traces (
+    id,
+    time,
+    agent_id,
+    target,
+    target_ip,
+    target_reached,
+    total_hops,
+    protocol,
+    ip_version,
+    created_at,
+    tcp_handshake_ttl,
+    tcp_handshake_attempts,
+    tcp_syn_sent,
+    tcp_synack_received,
+    tcp_rst_received,
+    tcp_syn_unanswered,
+    tcp_syn_drop_pct,
+    tcp_syn_retransmits,
+    tcp_answered_after_retx,
+    tcp_ack_mismatch,
+    tcp_synack_duplicates,
+    tcp_handshake_rtt_min_us,
+    tcp_handshake_rtt_avg_us,
+    tcp_handshake_rtt_max_us,
+    tcp_server_response_us
+)
+VALUES
+    (
+        '00000000-0000-4000-8000-000000000200'::uuid,
+        '2026-06-02T00:00:00Z'::timestamptz,
+        'agent-mtr-handshake',
+        'host01.example.com',
+        '198.51.100.30',
+        TRUE,
+        6,
+        'tcp',
+        4,
+        '2026-06-02T00:00:01Z'::timestamptz,
+        64, 3, 3, 3, 0, 0, 0.0, 0, 0, 0, 0,
+        1200, 1500, 1800, 900
+    ),
+    (
+        '00000000-0000-4000-8000-000000000201'::uuid,
+        '2026-06-02T00:10:00Z'::timestamptz,
+        'agent-mtr-handshake',
+        'host02.example.com',
+        '198.51.100.31',
+        FALSE,
+        30,
+        'tcp',
+        4,
+        '2026-06-02T00:10:01Z'::timestamptz,
+        64, 3, 3, 0, 0, 3, 100.0, 2, 0, 0, 0,
+        NULL, NULL, NULL, NULL
+    ),
+    (
+        '00000000-0000-4000-8000-000000000202'::uuid,
+        '2026-06-02T00:20:00Z'::timestamptz,
+        'agent-mtr-handshake',
+        'host03.example.com',
+        '198.51.100.32',
+        TRUE,
+        5,
+        'icmp',
+        4,
+        '2026-06-02T00:20:01Z'::timestamptz,
+        NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+        NULL, NULL, NULL, NULL
+    );
+
 -- Seed AGE graph data for device_graph SRQL queries (best-effort when privileges allow).
 SET LOCAL search_path = ag_catalog, public, "$user";
 
@@ -2603,3 +2677,34 @@ VALUES
      NOW() - INTERVAL '30 minutes' + INTERVAL '2 seconds', 2000, 'failed',
      '** (Postgrex.Error) ERROR 40001 (serialization_failure)',
      0, 0, 0, 0, 0, 0, 0, 0, 200, FALSE, '[]'::jsonb, 'scheduled', 7);
+
+-- Identity decisions and de-duplication tasks. Every device uid, reason and
+-- evidence value here is invented. identity-comp-a and identity-comp-b have one
+-- refused merge counted three times and an open task; identity-comp-b and
+-- identity-comp-c were marked distinct by an operator.
+INSERT INTO public.identity_decisions
+    (id, decision_kind, reason, device_uids, subject, decision_key, source, evidence,
+     occurrence_count, first_decided_at, last_decided_at)
+VALUES
+    ('88888888-8888-4888-8888-000000000001', 'policy_block', 'mac_only_conflict',
+     ARRAY['identity-comp-a', 'identity-comp-b'], NULL, 'fixture-decision-1', 'merge_policy',
+     '{"randomized_macs": ["02:00:5E:00:53:01"]}'::jsonb,
+     3, NOW() - INTERVAL '3 days', NOW() - INTERVAL '1 hour'),
+    ('88888888-8888-4888-8888-000000000002', 'ip_conflict', 'strong_identity_address_held',
+     ARRAY['identity-comp-b', 'identity-comp-c'], '192.0.2.44', 'fixture-decision-2', 'sync',
+     '{}'::jsonb, 1, NOW() - INTERVAL '10 days', NOW() - INTERVAL '10 days');
+
+INSERT INTO public.identity_deduplication_tasks
+    (id, candidate_key, device_uids, category, last_decision_kind, last_reason, evidence,
+     status, occurrence_count, opened_at, last_decided_at, resolved_at, resolved_by,
+     merged_into, resolution_note)
+VALUES
+    ('99999999-9999-4999-8999-000000000001', 'fixture-candidate-1',
+     ARRAY['identity-comp-a', 'identity-comp-b'], 'policy_block', 'policy_block',
+     'mac_only_conflict', '{"randomized_macs": ["02:00:5E:00:53:01"]}'::jsonb,
+     'open', 3, NOW() - INTERVAL '3 days', NOW() - INTERVAL '1 hour', NULL, NULL, NULL, NULL),
+    ('99999999-9999-4999-8999-000000000002', 'fixture-candidate-2',
+     ARRAY['identity-comp-b', 'identity-comp-c'], 'ip_conflict', 'ip_conflict',
+     'strong_identity_address_held', '{}'::jsonb,
+     'distinct', 1, NOW() - INTERVAL '10 days', NOW() - INTERVAL '10 days',
+     NOW() - INTERVAL '9 days', 'operator@example.com', NULL, 'different chassis');

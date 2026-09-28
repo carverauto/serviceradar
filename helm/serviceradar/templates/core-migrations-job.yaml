@@ -12,7 +12,7 @@
 {{- $coreVals := default (dict) .Values.core -}}
 {{- $migrationVals := default (dict) $coreVals.migrations -}}
 {{- $observabilityRetention := default (dict) $coreVals.observabilityRetention -}}
-{{- $migrationsEnabled := default true $migrationVals.enabled -}}
+{{- $migrationsEnabled := include "serviceradar.boolDefaultTrue" (list $migrationVals "enabled") | eq "true" -}}
 {{- $webNg := default (dict) .Values.webNg -}}
 {{- $pluginStorage := default (dict) $webNg.pluginStorage -}}
 {{- $secrets := default "serviceradar-secrets" .Values.secrets.existingSecretName -}}
@@ -87,8 +87,6 @@ spec:
         - name: HEALTH_CHECK_RUNNER_ENABLED
           value: "false"
         - name: HEALTH_CHECK_REGISTRAR_ENABLED
-          value: "false"
-        - name: LOG_PROMOTION_CONSUMER_ENABLED
           value: "false"
         - name: EVENT_WRITER_ENABLED
           value: "false"

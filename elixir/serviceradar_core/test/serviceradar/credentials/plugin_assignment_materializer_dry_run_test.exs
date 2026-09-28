@@ -1,7 +1,6 @@
 defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerDryRunTest do
   use ExUnit.Case, async: true
 
-  alias ServiceRadar.Credentials.CredentialRedactor
   alias ServiceRadar.Credentials.PluginAssignmentMaterializer
   alias ServiceRadar.TestSupport.CredentialIntegrationFixtures
 
@@ -17,7 +16,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerDryRunTest do
   end
 
   test "renders a package-declared purpose and bounded target sample" do
-    rows = [%{"uid" => "dev-1", "ip" => "10.0.0.5", "agent_id" => "agent-a"}]
+    rows = [%{"uid" => "dev-1", "ip" => "192.0.2.5", "agent_id" => "agent-a"}]
 
     assert {:ok, result} = dry_run(rule(%{}), fake_rows: rows)
     assert result.provider == "example-network"
@@ -47,16 +46,30 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerDryRunTest do
         metadata: %{"purposes" => ["configuration_read"]}
       })
 
-    assert {:ok, result} = dry_run(rule)
+    # A package template may carry a literal under a credential-shaped key. The
+    # preview renders the stored template, so it must pass through the redactor.
+    profile =
+      update_in(
+        CredentialIntegrationFixtures.target_policy_profile(),
+        ["provisioning", "consumers"],
+        fn consumers ->
+          Enum.map(consumers, fn
+            %{"purpose" => "configuration_read"} = consumer ->
+              put_in(consumer, ["params", "api_token"], "sentinel-literal")
+
+            consumer ->
+              consumer
+          end)
+        end
+      )
+
+    assert {:ok, result} = dry_run(rule, integration_catalog: [profile])
     assert [configuration] = result.purposes
     params = configuration.params_template
     assert params["username"] == "operator"
     assert String.starts_with?(params["password_secret_ref"], "credentialref:")
-    assert CredentialRedactor.redact(params) == params
-
-    encoded = Jason.encode!(params)
-    refute encoded =~ "password-value"
-    refute encoded =~ "PRIVATE KEY"
+    assert params["api_token"] == "REDACTED"
+    refute Jason.encode!(params) =~ "sentinel-literal"
   end
 
   test "bounds and scope-filters resolved targets" do
@@ -91,7 +104,7 @@ defmodule ServiceRadar.Credentials.PluginAssignmentMaterializerDryRunTest do
           resolver: FakeResolver,
           actor: %{id: "operator"},
           plugin_package: %{id: "pkg-example"},
-          integration_catalog: CredentialIntegrationFixtures.catalog([profile]),
+          integration_catalog: [profile],
           username_resolver: fn _secret_id, _actor -> {:ok, "operator"} end,
           test_pid: self()
         ],

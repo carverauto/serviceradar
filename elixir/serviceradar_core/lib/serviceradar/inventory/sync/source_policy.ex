@@ -232,13 +232,14 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicy do
   # fresh device on every rotation -- the anchorless-device and IP-squatting
   # failure mode, at far higher volume than any sweep produces.
   #
-  # This is deliberately scoped to the census source rather than applied inside
-  # `Ids.generate_deterministic_device_id/1`. Locally administered MACs are also
-  # how virtualization, Docker and overlay networks address themselves
-  # (`Identity.Mac`), so a global rule would stop existing VM and container
-  # devices re-deriving their UID -- a silent migration hazard well outside this
-  # feature. Here the same address keeps its meaning for those sources and loses
-  # only its anchoring power when it arrives from a passive sighting.
+  # This predicate decides lookup and registration, and only for the census.
+  # The uid is decided in `Ids`: a locally administered MAC is never a strong
+  # identifier (`Ids.has_strong_identifier?/1`), so an update whose only MAC is
+  # one is named by its address (`Ids.generate_deterministic_device_id/1`) on
+  # every path, and a census sighting of a randomized MAC is address-only.
+  # Other sources still register a locally administered MAC (medium
+  # confidence), so an existing VM or container device they already hold keeps
+  # resolving through that identifier row (`BatchResolver`, `Resolver`).
   defp census_anchorable_mac?(metadata) when is_map(metadata) do
     case metadata["mac"] || metadata["identity_mac"] do
       nil -> false
@@ -247,6 +248,37 @@ defmodule ServiceRadar.Inventory.Sync.SourcePolicy do
   end
 
   defp census_anchorable_mac?(_metadata), do: false
+
+  @doc """
+  True when the update's address is an observation: the source saw the device
+  at that address, so the address may move to it from a stale holder.
+
+  An address is evidence, not identity, and it follows the device observed at
+  it. That rule needs a fresh sighting: after DHCP churn the existing holder of
+  the address is the stale one. These sources report where a device was seen:
+
+    * Armis, which reports the address it observed the device at;
+    * the passive census (ARP/NDP), the device answering for its own address;
+    * mapper/SNMP discovery, which polled the device at the address;
+    * an agent reporting about itself.
+
+  Declarative inventories (AWX, NetBox, Proxmox, hypervisor enrichment,
+  generic integrations) are not on this list: their address is configuration,
+  which can lag the network, so it never takes a live address from its holder.
+  """
+  @spec observed_address_source?(map() | term()) :: boolean()
+  def observed_address_source?(update) when is_map(update) do
+    metadata = update.metadata || %{}
+    integration_type = String.downcase(to_string(metadata["integration_type"] || ""))
+
+    integration_type == "armis" or
+      String.downcase(to_string(update.source || "")) == "armis" or
+      passive_census_source?(update) or
+      mapper_like_source?(update) or
+      agent_self_report_source?(update)
+  end
+
+  def observed_address_source?(_update), do: false
 
   def mapper_like_source?(update) do
     source = String.downcase(update.source || "")

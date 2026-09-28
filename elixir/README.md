@@ -50,7 +50,7 @@ bazel build //elixir/serviceradar_core:erlang_app   # just one app
 | --- | --- | --- |
 | `elixir/datasvc` | `erlang_app` | gRPC data service |
 | `elixir/serviceradar_srql` | `erlang_app` | Wraps the `srql_nif` Rust NIF |
-| `elixir/serviceradar_core` | `erlang_app`, `unit_tests`, `integration_tests_async`, `integration_tests_serial_0..serial_6`, `migrate_run`, `migrate_template`, `migrations` | The big one; ~2700 unit + ~1570 integration tests |
+| `elixir/serviceradar_core` | `erlang_app`, `unit_tests`, `integration_tests_async`, `integration_tests_serial_0..serial_6`, `migrate_generation`, `migrate_run`, `migrate_template`, `migrations` | The big one; ~2700 unit + ~1570 integration tests |
 | `elixir/serviceradar_agent_gateway` | `erlang_app`, `unit_tests`, `release_tar` | |
 | `elixir/web-ng` | `erlang_app`, `unit_tests`, `deps_cache`, `precommit`, `release_tar` | Phoenix; see `elixir/web-ng/AGENTS.md` |
 | `elixir/serviceradar_core_elx` | `release_tar` | Release wrapper, no `mix_app` |
@@ -344,8 +344,10 @@ PostgreSQL fixture (CNPG with TimescaleDB and Apache AGE).
 ### Shape
 
 - **8 lanes**: `integration_tests_async` plus `integration_tests_serial_0` through
-  `integration_tests_serial_6`. Each has its own database and matching provision target:
-  `provision_db_async` or `provision_db_serial_0` through `provision_db_serial_6`.
+  `integration_tests_serial_6`. Each has its own database; CI clones all eight in one
+  `//rust/integration-db:provision_generation` invocation. The per-lane `provision_db_async` and
+  `provision_db_serial_0` through `provision_db_serial_6` targets belong to the legacy run-base
+  path, which no workflow invokes.
 - Lane names and the audited source partition live in `//build:integration_shards.bzl`, which
   both the Elixir targets and Rust provisioner read. The async lane runs `max_cases=8`; every
   serial lane runs `max_cases=1`.
@@ -357,79 +359,76 @@ PostgreSQL fixture (CNPG with TimescaleDB and Apache AGE).
   `sr_core_test_<run-id>_<lane>` clones on `srql-fixtures`; never point this topology at demo,
   production, or another non-disposable database.
 
-### The template
+### Schema generations
 
-Migrations run **once** into a long-lived `sr_core_template`. Each run then takes a
-`CREATE DATABASE ... TEMPLATE` physical file copy (~0.7s) instead of replaying 368
-migrations.
+Migrations run **once per schema digest** into an immutable generation database. Each run then
+takes a `CREATE DATABASE ... TEMPLATE` physical file copy per lane instead of replaying every
+migration.
 
-A physical copy is faithful where a schema dump is not: 31 Timescale hypertables, 20
-continuous aggregates and 3 AGE graphs survive it but do not survive `pg_dump --schema-only`.
+A physical copy is faithful where a schema dump is not: Timescale hypertables, continuous
+aggregates and AGE graphs survive it but do not survive `pg_dump --schema-only`.
 
-Whether the template needs migrating is decided by comparing migration versions on disk
-against its `schema_migrations` -- the same predicate `Ecto.Migrator` uses -- so there is no
-marker to go stale.
+`//build/schema_template:manifest` hashes every input that decides the schema -- migration
+bytes, the baseline pair, helpers, construction code and configuration, dependency locks and
+`build/schema_template/policy.json` -- into a SHA-256 digest. The generation is named
+`sr_tpl_` plus the first 48 hex characters of that digest; the registry compares the full
+identity, so a truncated-name collision cannot authorize reuse. Construction is a full replay of
+every migration, and a published generation is never written again. A branch that adds a
+migration therefore gets a new digest and its own generation: one branch's unmerged migrations
+can never become the schema another branch clones. The full contract, JSON formats and failure
+recovery are in [docs/docs/ci-schema-templates.md](../docs/docs/ci-schema-templates.md).
 
 ### Lifecycle targets
 
-Bazel deliberately does not order tests, so sequencing is the caller's job:
+Bazel deliberately does not order tests, so sequencing is the caller's job. Every active
+workflow (`BazelCI`, `LargeIngestionGate`, `IntegrationBenchmark*` in `//buildbuddy.yaml`) runs:
 
 ```
-//rust/integration-db:sweep_stale_dbs     drop leaked databases from previous runs
-//rust/integration-db:provision_base      seed sr_core_test_<run> from the template; report if it is behind
-//elixir/serviceradar_core:migrate_run    only when behind; the only step that needs the BEAM
-//rust/integration-db:provision_db_async  clone the async lane database from the run base
-//elixir/serviceradar_core:integration_tests_async
-//rust/integration-db:provision_db_serial_0..serial_6
-//elixir/serviceradar_core:integration_tests_serial_0..serial_6
-//rust/integration-db:teardown_db         drop the per-run databases
+//rust/integration-db:sweep_stale_dbs          drop leaked run databases (never sr_tpl_*)
+//rust/integration-db:cleanup_generations      reclaim expired, unleased, unconnected generations
+//rust/integration-db:prepare_generation       reuse the digest's generation, or start building it
+//elixir/serviceradar_core:migrate_generation  only on needs_migration; the only step on the BEAM
+//rust/integration-db:prepare_generation       again; must report ready with the same digest
+//rust/integration-db:provision_generation     clone every lane's database from that generation
+<integration lanes, selected by tag>
+//rust/integration-db:teardown_db              drop the per-run databases
+//rust/integration-db:release_generation       release this run's lease
 ```
 
-Pair a provision and test target with the exact same suffix. These targets are for disposable
-`srql-fixtures` clones only; never substitute demo or production.
+`LargeIngestionGate` clones its dedicated database with
+`//rust/integration-db:provision_generation_large_ingestion` instead. These targets are for
+disposable `srql-fixtures` clones only; never substitute demo or production.
 
 The migrator is the only piece that must run on the BEAM, because the migrations are
 `use Ecto.Migration` modules and only `Ecto.Migrator` can apply them. Everything else --
-creating databases, extensions, AGE graphs, sweeping, teardown -- is Rust, which starts in
-0.1s where the BEAM target costs 30-45s before it does anything.
+creating databases, extensions, AGE graphs, the registry, sweeping, cloning, teardown -- is
+Rust, which starts in 0.1s where the BEAM target costs 30-45s before it does anything.
 
-#### The template is a cache of trunk's schema, and only trunk writes it
+Capacity and lifetime come from `build/schema_template/policy.json`, not from the caller:
+`max_generations`, `max_concurrent_builders` and `max_total_bytes` bound allocation, and
+preparation fails at capacity rather than evicting anything. Each prepare or clone renews the
+run's lease for `lease_seconds`. `cleanup_generations` drops a generation only when it has been
+idle past `retention_seconds` with no live lease, no builder lock and no connections, and never
+forces a drop. Changing the policy changes the digest.
 
-`sr_core_template` is shared by every run on the fixture and only ratchets forward, so a run
-that migrates it changes what every later run clones. That write belongs to trunk alone, and
-lives in one place: the `LargeIngestionGate` action, which triggers on a push to `staging`, runs
-`//rust/integration-db:prepare_template` and then `//elixir/serviceradar_core:migrate_template`.
+#### `sr_core_template` is a frozen rollback artifact
 
-It is the only action that may, and that is enforced by the targets rather than by where they
-are named. All three template writers -- those two plus `//rust/integration-db:reset_template` --
-refuse unless the caller passes `--//build:template_authority=true`, the checkout declaring
-itself to be trunk. `LargeIngestionGate` passes it; `//build/contracts:ci_heavy_gate_contract_test` fails if
-any other action does. The decision reaches Rust and Elixir as the same staged file
-(`//build:template_authority_file`), for the reason the run id does: several invocations must
-agree, and ambient environment lets them differ. It fails closed -- an absent, empty or mangled
-marker is a refusal -- so the worst a mistake costs is a loud stop.
+Before the generation cutover, every run cloned one shared, long-lived `sr_core_template`, and
+because migrations only accumulate, whoever migrated it decided the schema every other branch
+got. A branch with seven unmerged migrations advanced it, and from then on every branch whose
+checkout lacked them was refused a clone. The trunk-only authority flag was the first fix;
+immutable generations replaced the singleton outright.
 
-Every other lifecycle -- BazelCI included, and BazelCI only ever runs on a branch -- applies its
-own migrations to its **run base** instead. `provision_base` seeds `sr_core_test_<run>` from the
-template, `migrate_run` brings that one database up to the checkout, and the lane databases are
-cloned from it. A branch's migrations therefore never become visible to another branch.
-
-That split is a fix, not a preference. While every action shared one destination, a branch with
-seven unmerged migrations advanced the template, and from then on every branch whose checkout
-lacked them was refused a clone -- correctly, since it would otherwise have run against a future
-schema, but the branch that paid was never the branch that caused it.
-
-Two consequences worth knowing:
-
-- If `provision_base` reports the template **AHEAD** of your checkout, it does not fail. It
-  builds the run base from nothing and says so; the run costs a full schema build and the shared
-  template is left untouched. A cache that cannot be used is a cache miss, not an outage.
-- `bazel run //rust/integration-db:reset_template` drops the template so the next trunk run
-  rebuilds it, and needs `--//build:template_authority=true` from a trunk checkout. The trunk
-  lifecycle already does this automatically when `prepare_template` reports it ahead, which is
-  the only context where "ahead of this checkout" and "ahead of the schema of record" mean the
-  same thing. Do not add the flag on a branch to make a refusal go away -- it is a statement
-  about the checkout, and a branch that sets it recreates the outage this split fixed.
+No workflow migrates it or clones from it now. It is kept, unmodified, for rollback. Its three
+writers -- `//rust/integration-db:prepare_template`,
+`//elixir/serviceradar_core:migrate_template` and `//rust/integration-db:reset_template` --
+still refuse unless the caller passes `--//build:template_authority=true` (read by Rust and
+Elixir from the same staged `//build:template_authority_file`, failing closed on an absent,
+empty or mangled marker), and `//build/contracts:ci_heavy_gate_contract_test` fails if any active
+workflow passes that flag or names one of those targets. Do not pass it to make a refusal go
+away. The run-base targets that fed from the singleton (`//rust/integration-db:provision_base`,
+`//elixir/serviceradar_core:migrate_run`, `//rust/integration-db:provision_db*`) are still in
+the tree but are not part of any active lifecycle.
 
 ### Tags
 
@@ -676,10 +675,11 @@ bazel test "${TEST_FLAGS[@]}" --test_env=SERVICERADAR_INTEGRATION_MAX_CASES=1 \
 Profiling does not change lane membership. Update an audited disposition only when the source's
 isolation semantics change; controlled BuildBuddy cohorts remain acceptance evidence.
 
-**4. If you added a migration**, nothing special: migrations are append-only and
-`Ecto.Migrator` tracks what it applied, so `provision_base` notices the run base is behind and
-`migrate_run` advances it by exactly that migration. Your migration reaches the shared template
-only once it is on `staging`, applied there by the trunk lifecycle.
+**4. If you added a migration**, nothing special: the migration's bytes are part of the
+schema digest, so `prepare_generation` finds no generation for your checkout, reports
+`needs_migration`, and `migrate_generation` builds a new one by replaying every migration. The
+generations other branches clone are untouched; the first run on a new digest pays the full
+replay, and later runs with the same digest reuse it.
 
 Two rules for migrations that this tier enforces the hard way:
 
@@ -917,9 +917,8 @@ reads Rust sources.
 | `40P01 deadlock_detected` across integration groups | Two lanes sharing a database. Check the matching `provision_db_async` or `provision_db_serial_*` target ran first. |
 | Integration suite green having run zero tests | Fixture URL absent, so `test_helper` took the no-database branch. The `manual` tag exists to prevent this. |
 | `42501 must be owner of schema platform` | Admin DSN has no password; see [Running things locally](#running-things-locally). |
-| `run base ... does not match this checkout` | The migrate step did not run. Run `//elixir/serviceradar_core:migrate_run` before `provision_db`. |
-| `template ... is AHEAD of this checkout` | Not fatal: `provision_base` builds the base from nothing instead. If the named versions are on `staging`, rebase. If they are on no landed branch, `bazel run //rust/integration-db:reset_template` from a trunk checkout. |
-| `writes the SHARED template sr_core_template, which only a trunk checkout may do` | Working as intended on a branch. Use the run base: `//rust/integration-db:provision_base`, then `//elixir/serviceradar_core:migrate_run`. Do not pass `--//build:template_authority=true` to get past it. |
+| `provision_db` fails with `sr_core_test_<run> does not exist; run //rust/integration-db:provision_base first` | The branch's `buildbuddy.yaml` predates the generation cutover and still runs the legacy run-base steps. Rebase onto `staging`. |
+| `writes the SHARED template sr_core_template, which only a trunk checkout may do` | Working as intended. `sr_core_template` is a frozen rollback artifact; use the generation lifecycle (`prepare_generation`, `migrate_generation`, `provision_generation`). Do not pass `--//build:template_authority=true` to get past it. |
 | `the application :X has a different value set for key :Y during runtime compared to compile time` | A Hex dependency read `Y` with `compile_env` and was compiled without it. Add it to `HEX_COMPILE_ENV_CONFIG` in `//build:hex_compile_env.bzl`. Never `validate_compile_env: false` -- see [Compile-time config a dependency reads](#compile-time-config-a-dependency-reads). |
 | `undefined function config/2` while compiling a Hex package | That package's `config/config.exs` exists but is empty, so nothing imported `Config`. `mix_app` handles this; if you see it, the guard regressed. |
 | `function config/2 imported from both Config and Mix.Config` | That package uses the deprecated `use Mix.Config`. Same guard, other direction. |

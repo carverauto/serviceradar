@@ -47,6 +47,8 @@ defmodule ServiceRadarWebNGWeb.Components.BulkEditModalTest do
     # whole result set with its materialised count.
     assert html =~ "Selected (7)"
     assert html =~ "All 42 matching"
+    assert html =~ "Stop on first error"
+    assert html =~ ~s(id="bulk-stop-on-error")
   end
 
   test "the scope control is its own form so it governs the tag submit too" do

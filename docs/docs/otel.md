@@ -398,7 +398,12 @@ exits nonzero if any of these checks stays at zero: span count and distinct trac
 
 ## Storage model
 
-All tables live in CNPG (TimescaleDB hypertables). Retention is enforced by the daily
+All tables live in CNPG (TimescaleDB hypertables), except `otel_metrics`,
+`otel_metric_points`, `otel_traces` and `otel_trace_summaries`: with the optional
+StarRocks warehouse enabled, EventWriter writes those to the warehouse only and SRQL
+reads them from there, retained by `STARROCKS_RETENTION_DAYS_OTEL` (metrics) and
+`STARROCKS_RETENTION_DAYS_TRACES` (spans and summaries) (see `README-Docker.md`) instead
+of the defaults below. Retention for tables that stay on CNPG is enforced by the daily
 `DataRetentionWorker` (03:17); defaults below are per-deployment configurable.
 
 | Table | Contents | Default retention |
@@ -408,6 +413,7 @@ All tables live in CNPG (TimescaleDB hypertables). Retention is enforced by the 
 | `otel_metrics` | Span-derived performance samples from `otel.metrics.derived` protobuf MetricBatch payloads (spans slower than 100 ms are flagged `is_slow`) | 30 days |
 | `otel_metric_points` | OTLP metric data points: Sums, Gauges, Histograms, keyed by `(timestamp, metric_name, service_name, attributes_hash)`. Exponential histograms and summaries are counted in pipeline accounting but not yet decoded (spec'd follow-up) | 30 days |
 | `logs` | OTLP logs and syslog/GELF, with `trace_id`/`span_id` when the SDK provides them | 30 days |
+| `otel_service_catalog` | One row per `service.name` with a last-seen time per signal. Feeds the observability service filter; kept best-effort by EventWriter after logs, traces and metrics persist, and pruned daily | 30 days since last seen |
 
 Successful nonempty span writes request an immediate Oban summary refresh. Pending
 requests are coalesced, and ingest during an executing refresh can queue a follow-up.

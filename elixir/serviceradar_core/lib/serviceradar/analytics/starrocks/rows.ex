@@ -5,7 +5,95 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
 
   alias ServiceRadar.Analytics.StarRocks.Identity
 
-  @type dataset :: Identity.dataset()
+  require Logger
+
+  @type dataset ::
+          Identity.dataset()
+          | :mtr_traces
+          | :mtr_hops
+          | :otel_metrics
+          | :otel_metric_points
+          | :otel_traces
+
+  # priv/starrocks/0019: every column of platform.mtr_traces / platform.mtr_hops
+  # under the same name. Scalars are carried as built by
+  # MtrMetricsIngestor.rows/2; nil stays NULL, and `false` and `0` stay what
+  # they are.
+  @mtr_trace_text ~w(agent_id gateway_id check_id check_name device_id target target_ip
+                     protocol partition error)a
+
+  @mtr_trace_values ~w(target_reached total_hops probed_hops last_responding_hop tcp_port
+                       ip_version packet_size tcp_handshake_ttl tcp_handshake_attempts
+                       tcp_syn_sent tcp_synack_received tcp_rst_received tcp_syn_unanswered
+                       tcp_syn_drop_pct tcp_syn_retransmits tcp_answered_after_retx
+                       tcp_ack_mismatch tcp_synack_duplicates tcp_handshake_rtt_min_us
+                       tcp_handshake_rtt_avg_us tcp_handshake_rtt_max_us
+                       tcp_server_response_us)a
+
+  @mtr_hop_text ~w(target_ip device_id addr hostname asn_org)a
+
+  @mtr_hop_values ~w(hop_number asn sent received loss_pct last_us avg_us min_us max_us
+                     stddev_us jitter_us jitter_worst_us jitter_interarrival_us
+                     unreachable_code reply_time_exceeded reply_unreachable reply_synack
+                     reply_rst)a
+
+  # priv/starrocks/0021: every column of platform.otel_metrics /
+  # platform.otel_metric_points under the same name, as built by the
+  # OtelMetrics processor for its CNPG insert.
+  @otel_metric_text ~w(trace_id span_id service_name span_name span_kind metric_type
+                       http_method http_route http_status_code grpc_service grpc_method
+                       grpc_status_code component level unit ingest_identity
+                       ingest_agent_id ingest_partition)a
+
+  @otel_metric_values ~w(duration_ms duration_seconds is_slow)a
+
+  @otel_point_text ~w(metric_name metric_type unit temporality service_name attributes
+                      attributes_hash bucket_counts explicit_bounds scope_name
+                      service_instance_id ingest_identity ingest_agent_id
+                      ingest_partition)a
+
+  @otel_point_values ~w(is_monotonic value count sum start_time_unix_nano)a
+
+  # priv/starrocks/0022: every column of platform.otel_traces under the same
+  # name, as built by the OtelTraces processor. Its key is the CNPG primary key.
+  @otel_span_text ~w(trace_id span_id parent_span_id trace_state name service_name
+                     service_version service_instance service_namespace
+                     deployment_environment scope_name scope_version scope_attributes
+                     status_message attributes resource_attributes events links
+                     ingest_identity ingest_agent_id ingest_partition)a
+
+  @otel_span_values ~w(kind start_time_unix_nano end_time_unix_nano status_code
+                       dropped_attributes_count dropped_events_count dropped_links_count)a
+
+  # priv/starrocks/0022 column widths. A span's attributes/events/links are
+  # producer-controlled and unbounded on CNPG, so a large payload (big HTTP
+  # bodies, wide exception stacks) can exceed these VARCHARs; StarRocks FILTERS
+  # an over-wide row out of the Stream Load rather than truncating it, which
+  # silently drops the whole span. Truncate here (UTF-8-safe) so the span
+  # always lands, and report the truncation rather than leaving a silent drop.
+  @otel_span_limits %{
+    trace_id: 32,
+    span_id: 16,
+    parent_span_id: 16,
+    trace_state: 65_533,
+    name: 65_533,
+    status_message: 65_533,
+    service_name: 1024,
+    service_version: 1024,
+    service_instance: 1024,
+    service_namespace: 1024,
+    deployment_environment: 1024,
+    scope_name: 1024,
+    scope_version: 1024,
+    ingest_identity: 1024,
+    ingest_agent_id: 256,
+    ingest_partition: 128,
+    scope_attributes: 1_048_576,
+    attributes: 1_048_576,
+    resource_attributes: 1_048_576,
+    events: 1_048_576,
+    links: 1_048_576
+  }
 
   @spec encode(dataset(), [map()]) :: [map()]
   def encode(dataset, rows) when is_list(rows) do
@@ -123,20 +211,20 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
       "type_uid" => field(row, :type_uid),
       "activity_id" => field(row, :activity_id),
       "severity_id" => field(row, :severity_id),
-      "severity" => stringify(field(row, :severity)),
-      "source" => stringify(field(row, :source)),
-      "src_endpoint_ip" => stringify(src_endpoint_ip(row)),
-      "firewall_rule_name" => stringify(firewall_rule_name(row)),
-      "source_type" => stringify(source_type(row)),
-      "message" => stringify(field(row, :message)),
-      "activity_name" => stringify(field(row, :activity_name)),
-      "status" => stringify(field(row, :status)),
+      "severity" => bounded_string(:severity, field(row, :severity)),
+      "source" => bounded_string(:source, field(row, :source)),
+      "src_endpoint_ip" => bounded_string(:src_endpoint_ip, src_endpoint_ip(row)),
+      "firewall_rule_name" => bounded_string(:firewall_rule_name, firewall_rule_name(row)),
+      "source_type" => bounded_string(:source_type, source_type(row)),
+      "message" => bounded_string(:message, field(row, :message)),
+      "activity_name" => bounded_string(:activity_name, field(row, :activity_name)),
+      "status" => bounded_string(:status, field(row, :status)),
       "status_id" => field(row, :status_id),
-      "log_name" => stringify(field(row, :log_name)),
-      "log_provider" => stringify(field(row, :log_provider)),
-      "trace_id" => stringify(field(row, :trace_id)),
-      "span_id" => stringify(field(row, :span_id)),
-      "log_level" => stringify(field(row, :log_level)),
+      "log_name" => bounded_string(:log_name, field(row, :log_name)),
+      "log_provider" => bounded_string(:log_provider, field(row, :log_provider)),
+      "trace_id" => bounded_string(:trace_id, field(row, :trace_id)),
+      "span_id" => bounded_string(:span_id, field(row, :span_id)),
+      "log_level" => bounded_string(:log_level, field(row, :log_level)),
       "metadata" => document(row, :metadata),
       "unmapped" => document(row, :unmapped),
       "device" => document(row, :device),
@@ -144,11 +232,129 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
     }
   end
 
+  # The id stands for the rest of the CNPG primary key; with `timestamp` it is
+  # the warehouse key, so the pair enforces the uniqueness CNPG does.
+  defp encode_row(:otel_metrics, row) do
+    row
+    |> mtr_columns(@otel_metric_text, @otel_metric_values)
+    |> Map.merge(%{
+      "id" => key_id([value(row, :span_name), value(row, :service_name), value(row, :span_id)]),
+      "timestamp" => datetime(value(row, :timestamp)),
+      "created_at" => created_at(row)
+    })
+  end
+
+  defp encode_row(:otel_metric_points, row) do
+    row
+    |> mtr_columns(@otel_point_text, @otel_point_values)
+    |> Map.merge(%{
+      "id" =>
+        key_id([
+          value(row, :metric_name),
+          value(row, :service_name),
+          value(row, :attributes_hash)
+        ]),
+      "timestamp" => datetime(value(row, :timestamp)),
+      "created_at" => created_at(row)
+    })
+  end
+
+  defp encode_row(:otel_traces, row) do
+    row
+    |> mtr_columns(@otel_span_text, @otel_span_values)
+    |> truncate_otel_span_columns(row)
+    |> Map.merge(%{
+      "timestamp" => datetime(value(row, :timestamp)),
+      "created_at" => created_at(row)
+    })
+  end
+
+  defp encode_row(:mtr_traces, row) do
+    row
+    |> mtr_columns(@mtr_trace_text, @mtr_trace_values)
+    |> Map.merge(%{
+      "id" => uuid_text(value(row, :id)),
+      "time" => datetime(value(row, :time)),
+      "created_at" => created_at(row)
+    })
+  end
+
+  defp encode_row(:mtr_hops, row) do
+    row
+    |> mtr_columns(@mtr_hop_text, @mtr_hop_values)
+    |> Map.merge(%{
+      "id" => uuid_text(value(row, :id)),
+      "time" => datetime(value(row, :time)),
+      "trace_id" => uuid_text(value(row, :trace_id)),
+      "ecmp_addrs" => text_list(value(row, :ecmp_addrs)),
+      "mpls_labels" => json_document(value(row, :mpls_labels)),
+      "created_at" => created_at(row)
+    })
+  end
+
   # priv/starrocks/0018: the documents are VARCHAR(1048576), and a value wider
   # than its column is a load error. An oversized document is dropped so the
   # event itself still lands. That event is then outside every document-path
   # filter, so the drop is reported rather than left invisible.
   @max_document_bytes 1_048_576
+
+  # priv/starrocks/0004: the scalar event columns are bounded VARCHARs whose
+  # CNPG counterparts are unbounded text. A value wider than its column makes
+  # StarRocks FILTER that row out of the Stream Load batch: the row never
+  # reaches the warehouse while StreamLoad.interpret_load/4 reports "filtered
+  # rows" and Destination.persist_starrocks/4 still returns success. That is
+  # the events-only row-count shortfall -- logs match exactly because none of
+  # their columns overflow. Truncate here (UTF-8-safe) so the row always lands,
+  # and report the truncation rather than leaving a silent drop.
+  @scalar_limits %{
+    severity: 32,
+    source: 256,
+    src_endpoint_ip: 64,
+    firewall_rule_name: 256,
+    source_type: 64,
+    message: 65_533,
+    activity_name: 128,
+    status: 64,
+    log_name: 256,
+    log_provider: 128,
+    trace_id: 64,
+    span_id: 64,
+    log_level: 32
+  }
+
+  defp bounded_string(column, value) do
+    value = stringify(value)
+    max = Map.fetch!(@scalar_limits, column)
+
+    if is_binary(value) and byte_size(value) > max do
+      scalar_truncated(column, byte_size(value), max)
+      truncate_binary(value, max)
+    else
+      value
+    end
+  end
+
+  defp truncate_binary(value, max_bytes) do
+    value
+    |> binary_part(0, max_bytes)
+    |> trim_incomplete_utf8()
+  end
+
+  defp trim_incomplete_utf8(value) do
+    if String.valid?(value) do
+      value
+    else
+      trim_incomplete_utf8(binary_part(value, 0, byte_size(value) - 1))
+    end
+  end
+
+  defp scalar_truncated(column, bytes, max) do
+    :telemetry.execute(
+      [:serviceradar, :starrocks, :events, :scalar_truncated],
+      %{bytes: bytes, max_bytes: max},
+      %{field: Atom.to_string(column)}
+    )
+  end
 
   defp document(row, key) do
     value = field(row, key)
@@ -196,6 +402,99 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
   defp field(row, key) when is_atom(key) do
     Map.get(row, key) || Map.get(row, Atom.to_string(key))
   end
+
+  # `field/2` reads `false` as absent, which a NOT NULL boolean cannot afford.
+  defp value(row, key) when is_atom(key) do
+    case Map.fetch(row, key) do
+      {:ok, value} -> value
+      :error -> Map.get(row, Atom.to_string(key))
+    end
+  end
+
+  defp mtr_columns(row, text_columns, value_columns) do
+    text = Map.new(text_columns, &{Atom.to_string(&1), stringify(value(row, &1))})
+    values = Map.new(value_columns, &{Atom.to_string(&1), value(row, &1)})
+    Map.merge(text, values)
+  end
+
+  defp truncate_otel_span_columns(encoded, row) do
+    trace_id = value(row, :trace_id)
+    span_id = value(row, :span_id)
+
+    Enum.reduce(@otel_span_limits, encoded, fn {column, max}, acc ->
+      key = Atom.to_string(column)
+
+      case Map.get(acc, key) do
+        text when is_binary(text) and byte_size(text) > max ->
+          otel_span_truncated(column, byte_size(text), max, trace_id, span_id)
+          Map.put(acc, key, truncate_binary(text, max))
+
+        _ ->
+          acc
+      end
+    end)
+  end
+
+  defp otel_span_truncated(column, bytes, max, trace_id, span_id) do
+    Logger.warning("StarRocks otel_traces column truncated",
+      column: Atom.to_string(column),
+      bytes: bytes,
+      max_bytes: max,
+      trace_id: trace_id,
+      span_id: span_id
+    )
+
+    :telemetry.execute(
+      [:serviceradar, :starrocks, :otel_traces, :truncated],
+      %{bytes: bytes, max_bytes: max},
+      %{field: Atom.to_string(column), trace_id: trace_id, span_id: span_id}
+    )
+  end
+
+  # SHA-256 over the key parts, length-prefixed so ("ab", "c") and ("a", "bc")
+  # differ and nil differs from "".
+  defp key_id(parts) do
+    parts
+    |> Enum.map_join(fn
+      nil -> "-"
+      part -> "+" <> Integer.to_string(byte_size(stringify(part))) <> ":" <> stringify(part)
+    end)
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
+  end
+
+  defp uuid_text(id) when is_binary(id) and byte_size(id) == 16 do
+    case Ecto.UUID.load(id) do
+      {:ok, uuid} -> uuid
+      :error -> nil
+    end
+  end
+
+  defp uuid_text(id), do: stringify(id)
+
+  # The CNPG insert leaves created_at to the column default; the warehouse
+  # column has none, so the load stamps it.
+  defp created_at(row) do
+    datetime(value(row, :created_at) || DateTime.utc_now())
+  end
+
+  defp text_list(nil), do: nil
+  defp text_list(values) when is_list(values), do: Enum.map(values, &stringify/1)
+  defp text_list(_values), do: nil
+
+  # A JSON column takes the document itself; a JSON-encoded string would load
+  # as a JSON string rather than an object.
+  defp json_document(nil), do: nil
+  defp json_document(value) when is_map(value) or is_list(value), do: value
+
+  defp json_document(value) when is_binary(value) do
+    case Jason.decode(value) do
+      {:ok, decoded} when is_map(decoded) or is_list(decoded) -> decoded
+      _ -> nil
+    end
+  end
+
+  defp json_document(_value), do: nil
 
   defp src_endpoint_ip(row) do
     case field(row, :src_endpoint_ip) || map_get(field(row, :src_endpoint), "ip") do

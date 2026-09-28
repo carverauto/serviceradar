@@ -35,7 +35,6 @@ defmodule ServiceRadar.ClusterHealth do
     :gateway_count,
     :agent_count,
     :event_writer,
-    :log_promotion_consumer,
     :status
   ]
 
@@ -163,15 +162,8 @@ defmodule ServiceRadar.ClusterHealth do
       }
     }
 
-    base_response =
-      if health.event_writer do
-        Map.put(base_response, :event_writer, format_event_writer_status(health.event_writer))
-      else
-        base_response
-      end
-
-    if health.log_promotion_consumer do
-      Map.put(base_response, :log_promotion_consumer, health.log_promotion_consumer)
+    if health.event_writer do
+      Map.put(base_response, :event_writer, format_event_writer_status(health.event_writer))
     else
       base_response
     end
@@ -186,9 +178,8 @@ defmodule ServiceRadar.ClusterHealth do
     gateway_count = safe_count(ServiceRadar.GatewayRegistry)
     agent_count = safe_count(ServiceRadar.AgentRegistry)
     event_writer = get_event_writer_status()
-    log_promotion_consumer = get_log_promotion_status()
 
-    status = determine_status(connected_nodes, event_writer, log_promotion_consumer)
+    status = determine_status(connected_nodes, event_writer)
 
     %__MODULE__{
       last_check: DateTime.utc_now(),
@@ -197,7 +188,6 @@ defmodule ServiceRadar.ClusterHealth do
       gateway_count: gateway_count,
       agent_count: agent_count,
       event_writer: event_writer,
-      log_promotion_consumer: log_promotion_consumer,
       status: status
     }
   end
@@ -210,14 +200,9 @@ defmodule ServiceRadar.ClusterHealth do
     _ -> 0
   end
 
-  defp determine_status(_connected_nodes, event_writer, log_promotion_consumer) do
+  defp determine_status(_connected_nodes, event_writer) do
     # Check EventWriter health if enabled
-    event_writer_healthy = not event_writer.enabled or event_writer.healthy
-
-    log_promotion_healthy =
-      not log_promotion_consumer.enabled or log_promotion_consumer.connected
-
-    if event_writer_healthy and log_promotion_healthy do
+    if not event_writer.enabled or event_writer.healthy do
       # For now, always healthy if we can check
       # Future: detect partitions by comparing expected vs actual nodes
       :healthy
@@ -242,24 +227,6 @@ defmodule ServiceRadar.ClusterHealth do
     rescue
       _ ->
         %{enabled: false, running: false, healthy: true, pipeline: nil, producer: nil}
-    end
-  end
-
-  defp get_log_promotion_status do
-    alias ServiceRadar.Observability.LogPromotionConsumer
-
-    try do
-      status = LogPromotionConsumer.status()
-
-      %{
-        enabled: Map.get(status, :enabled, false),
-        running: Map.get(status, :running, false),
-        connected: Map.get(status, :connected, false),
-        last_error: Map.get(status, :last_error)
-      }
-    rescue
-      _ ->
-        %{enabled: false, running: false, connected: false, last_error: nil}
     end
   end
 

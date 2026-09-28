@@ -619,6 +619,10 @@ message PluginAssignmentConfig {
   // paired with an old agent fails closed instead of exposing secrets through
   // the Wasm get_config surface.
   bytes host_params_json = 23;
+  // Host-delivered run overrides (serviceradar.plugin_run_overrides.v1) set by
+  // this assignment's plugin actions. The agent, not the control plane, merges
+  // them into the scheduled-run config; an older agent ignores field 24.
+  bytes run_overrides_json = 24;
 }
 
 // BumblebeeConfig defines the optional developer endpoint exposure scanner profile.

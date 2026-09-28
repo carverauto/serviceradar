@@ -127,42 +127,44 @@ export const godViewLayoutClusterMethods = {
     const edges = this.clusterEdges(graph.edges, clusterByNode)
     return {shape: "regional", nodes, edges}
   },
+  /**
+   * Details for a reclustered glyph. The sample node's fields are read when the details are
+   * read (a tooltip or the details card), so reclustering on every render does not parse
+   * one node per cluster.
+   */
   clusterDetails(cluster, scope) {
-    const sample = cluster.sampleNode?.details || {}
-    const sampleLabel = cluster.sampleNode?.label || null
-    const sampleIp = sample.ip || null
-    const sampleType = sample.type || null
+    const sample = () => cluster.sampleNode?.details || {}
     const bucketType = scope === "global" ? "State Cluster" : "Regional Cluster"
-    const details = {
+    return {
       id: cluster.id,
-      ip: sampleIp || "cluster",
-      type: sampleType || bucketType,
-      model: sample.model || null,
-      vendor: sample.vendor || null,
-      asn: sample.asn || null,
-      geo_city: sample.geo_city || null,
-      geo_country: sample.geo_country || null,
-      last_seen: sample.last_seen || null,
+      get ip() {
+        return sample().ip || "cluster"
+      },
+      get type() {
+        return sample().type || bucketType
+      },
+      get model() {
+        return sample().model || null
+      },
+      get vendor() {
+        return sample().vendor || null
+      },
+      get asn() {
+        return sample().asn || null
+      },
+      get geo_city() {
+        return sample().geo_city || null
+      },
+      get geo_country() {
+        return sample().geo_country || null
+      },
+      get last_seen() {
+        return sample().last_seen || null
+      },
       cluster_scope: scope,
       cluster_count: cluster.count,
-      sample_label: sampleLabel,
+      sample_label: cluster.sampleNode?.label || null,
     }
-
-    delete details.cluster_id
-    delete details.cluster_kind
-    delete details.cluster_anchor_id
-    delete details.cluster_anchor_label
-    delete details.cluster_expandable
-    delete details.cluster_expanded
-    delete details.cluster_member_count
-    delete details.cluster_visible_member_count
-    delete details.cluster_hidden_member_count
-    delete details.cluster_camera_tile_count
-    delete details.cluster_camera_tiles
-
-    if (details.identity_source === "backend_endpoint_cluster") delete details.identity_source
-
-    return details
   },
   clusterEdges(edges, clusterByNode) {
     const {deps} = this

@@ -85,6 +85,10 @@ that state. If you are upgrading from an older checkout that wrote runtime
 credentials into `./docker/compose/creds`, clear that directory once before
 retrying so stale partial bootstrap files are not copied back in as seed data.
 
+JetStream storage is sized by `SERVICERADAR_NATS_PROFILE` (`small`, `medium` or
+`large`, default `small`) in `.env`; see the JetStream sizing profile section of
+`README-Docker.md` for what it sets and the disk it needs.
+
 If the old install used non-default credentials without a persisted
 `cnpg-credentials` volume, or if you want to run the migration explicitly, the
 standalone helper is still available:

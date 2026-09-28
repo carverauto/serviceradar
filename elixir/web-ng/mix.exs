@@ -172,10 +172,10 @@ defmodule ServiceRadarWebNG.MixProject do
       {:permit_ecto, "~> 0.3.1", override: true},
 
       # Ash Framework - Phoenix integration (UI components)
-      {:ash_phoenix, "~> 2.0"},
+      {:ash_phoenix, "~> 2.3 and >= 2.3.25"},
 
       # MCP server (AshAi.Mcp.Router). Do not add hermes_mcp.
-      {:ash_ai, "~> 0.8"},
+      {:ash_ai, "~> 1.0 and >= 1.0.3"},
 
       # Guardian - JWT token management (replacing AshAuthentication tokens)
       {:guardian, "~> 2.3"},
@@ -184,8 +184,11 @@ defmodule ServiceRadarWebNG.MixProject do
       {:ueberauth, "~> 0.10"},
       {:ueberauth_oidcc, "~> 0.4"},
 
-      # Samly - SAML 2.0 Service Provider
-      {:samly, "~> 1.0"},
+      # SAML 2.0 Service Provider. The SP flow is our own
+      # (ServiceRadarWebNGWeb.SAMLController); these supply XML signature
+      # verification (:xmerl_dsig) and XPath extraction.
+      {:esaml, "~> 4.6"},
+      {:sweet_xml, "~> 0.7.5"},
 
       # Note: ash_admin comes from serviceradar_core dependency
 

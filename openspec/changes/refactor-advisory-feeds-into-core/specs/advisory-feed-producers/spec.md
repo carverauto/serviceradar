@@ -21,7 +21,7 @@ Advisory vulnerability feeds (CISA KEV, VulnCheck KEV, VulnCheck nist-nvd2, NVD 
 - **THEN** core-elx enqueues the feed's Oban job and reports last/next run, status, and record counts in the UI
 
 ### Requirement: Disk-staged feed acquisition
-Feed acquisition SHALL stage downloaded archives on a persistent on-disk volume and parse them off disk in a streaming fashion. The system SHALL NOT hold a full feed archive or full decompressed feed in memory.
+Feed acquisition SHALL stage downloaded archives on an on-disk volume (scratch `emptyDir` by default, or a claim) and parse them off disk in a streaming fashion. The system SHALL NOT hold a full feed archive or full decompressed feed in memory.
 
 #### Scenario: Large dump stays bounded in memory
 - **GIVEN** the VulnCheck nist-nvd2 dump (~355 MB zip of ~181 gzipped NVD-2.0 shards)

@@ -60,7 +60,7 @@ defmodule ServiceRadar.Observability.MtrBaselineScheduler do
   end
 
   defp run_policy(policy) do
-    targets = MtrAutomationDispatcher.baseline_targets(policy)
+    {targets, skipped_link_local} = MtrAutomationDispatcher.baseline_target_selection(policy)
 
     if bulk_baseline_policy?(policy) do
       stats = run_bulk_policy(policy, targets)
@@ -69,12 +69,27 @@ defmodule ServiceRadar.Observability.MtrBaselineScheduler do
         "MTR baseline bulk dispatch summary",
         Map.get(policy, :name),
         length(targets),
+        skipped_link_local,
         stats
       )
     else
+      # List online sessions once per policy run: candidate_agents/2 (via
+      # AgentCommandBus.list_online_agents/0) issues an :rpc.call per remote pid,
+      # so enumerating inside the per-target reduce would repeat that cost for
+      # every target. The listing is threaded through opts so each dispatch
+      # reuses the same snapshot.
+      sessions = AgentCommandBus.list_online_agents()
+      dispatch_opts = [session_lister: fn -> sessions end]
+
       stats =
         Enum.reduce(targets, init_dispatch_stats(), fn target_ctx, acc ->
-          case MtrAutomationDispatcher.dispatch_for_mode(target_ctx, policy, :baseline) do
+          case MtrAutomationDispatcher.dispatch_for_mode(
+                 target_ctx,
+                 policy,
+                 :baseline,
+                 nil,
+                 dispatch_opts
+               ) do
             {:ok, _selected_agents} ->
               Map.update!(acc, :dispatched, &(&1 + 1))
 
@@ -97,6 +112,7 @@ defmodule ServiceRadar.Observability.MtrBaselineScheduler do
         "MTR baseline dispatch summary",
         Map.get(policy, :name),
         length(targets),
+        skipped_link_local,
         stats
       )
     end
@@ -117,7 +133,8 @@ defmodule ServiceRadar.Observability.MtrBaselineScheduler do
            AgentCommandBus.dispatch_bulk_mtr(
              agent_id,
              bulk_targets,
-             protocol: Map.get(policy, :baseline_protocol),
+             protocols: MtrPolicy.protocol_names(policy),
+             tcp_port: MtrPolicy.tcp_port(policy),
              concurrency: concurrency,
              execution_profile: execution_profile,
              actor: actor,
@@ -248,10 +265,13 @@ defmodule ServiceRadar.Observability.MtrBaselineScheduler do
   defp dispatch_reason_key(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp dispatch_reason_key({kind, _}) when is_atom(kind), do: Atom.to_string(kind)
 
-  defp log_dispatch_summary(prefix, policy_name, target_count, stats) do
+  # `targets` counts only traceable targets; link-local addresses the selector
+  # matched are excluded before dispatch and reported as `skipped_link_local`.
+  defp log_dispatch_summary(prefix, policy_name, target_count, skipped_link_local, stats) do
     Logger.info(
       "#{prefix} policy=#{policy_name || "unknown"} " <>
-        "targets=#{target_count} dispatched=#{stats.dispatched} cooldown=#{stats.cooldown} " <>
+        "targets=#{target_count} skipped_link_local=#{skipped_link_local} " <>
+        "dispatched=#{stats.dispatched} cooldown=#{stats.cooldown} " <>
         "no_candidates=#{stats.no_candidates} failed=#{stats.failed} " <>
         "reasons=#{format_reason_counts(stats.reasons)}"
     )

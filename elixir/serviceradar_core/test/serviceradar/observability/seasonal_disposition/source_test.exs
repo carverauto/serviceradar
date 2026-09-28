@@ -26,6 +26,7 @@ defmodule ServiceRadar.Observability.SeasonalDisposition.SourceTest do
     # The 168-bucket hour-of-week aggregation STAYS in SQL (data gravity, D6): every
     # source profiles by dow/hod in the query, not in the kernel.
     assert Enum.all?(queries, &String.contains?(&1, "profile_hour_of_week"))
+    assert Enum.all?(queries, &String.contains?(&1, "window_scan:true"))
     assert Enum.all?(queries, &String.contains?(&1, ~s|timezone:"Etc/UTC"|))
     assert Enum.all?(sources, &(&1.profile_timezone == "Etc/UTC"))
     assert Enum.all?(sources, &(&1.robust_statistic == :median_mad))

@@ -3,12 +3,10 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshEventWriter do
   Records Bumblebee catalog refresh lifecycle events into OCSF event storage.
   """
 
-  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Events.OcsfEventPublisher
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Inventory.BumblebeeCatalogSnapshot
   alias ServiceRadar.Inventory.BumblebeeCatalogSource
-  alias ServiceRadar.Monitoring
-  alias ServiceRadar.Monitoring.OcsfEvent
 
   require Logger
 
@@ -24,22 +22,16 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshEventWriter do
         %BumblebeeCatalogSnapshot{} = snapshot,
         opts \\ []
       ) do
-    actor =
-      Keyword.get(opts, :actor) || SystemActor.system(:bumblebee_catalog_refresh_event_writer)
-
     source
     |> build_success_attrs(snapshot)
-    |> record_event(actor)
+    |> record_event(opts)
   end
 
   @spec write_failure(BumblebeeCatalogSource.t(), term(), keyword()) :: :ok | {:error, term()}
   def write_failure(%BumblebeeCatalogSource{} = source, reason, opts \\ []) do
-    actor =
-      Keyword.get(opts, :actor) || SystemActor.system(:bumblebee_catalog_refresh_event_writer)
-
     source
     |> build_failure_attrs(reason)
-    |> record_event(actor)
+    |> record_event(opts)
   end
 
   defp build_success_attrs(source, snapshot) do
@@ -107,13 +99,12 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshEventWriter do
     }
   end
 
-  defp record_event(attrs, actor) do
-    OcsfEvent
-    |> Ash.Changeset.for_create(:record, attrs, actor: actor)
-    |> Ash.create(domain: Monitoring)
+  # `opts` carries the publisher's test seams (`:publish`, `:suppress?`).
+  defp record_event(attrs, opts) do
+    attrs
+    |> OcsfEventPublisher.publish(Keyword.put(opts, :family, :inventory))
     |> case do
-      {:ok, event} ->
-        ServiceRadar.Events.PubSub.broadcast_event(event)
+      {:ok, _event} ->
         :ok
 
       {:error, reason} = error ->

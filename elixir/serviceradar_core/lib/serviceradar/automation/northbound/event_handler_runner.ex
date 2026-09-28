@@ -14,8 +14,8 @@ defmodule ServiceRadar.Automation.Northbound.EventHandlerRunner do
   alias ServiceRadar.Automation.Northbound.ActionEventHandler
   alias ServiceRadar.Automation.Northbound.ActionInvocation
   alias ServiceRadar.Automation.Northbound.InvocationService
+  alias ServiceRadar.Events.OcsfEventPublisher
   alias ServiceRadar.EventWriter.OCSF
-  alias ServiceRadar.Monitoring.OcsfEvent
 
   require Ash.Query
   require Logger
@@ -448,11 +448,10 @@ defmodule ServiceRadar.Automation.Northbound.EventHandlerRunner do
     end
   end
 
-  defp record_ocsf_event(attrs, actor) do
-    OcsfEvent
-    |> Ash.Changeset.for_create(:record, attrs, actor: actor)
-    |> Ash.create(actor: actor, domain: ServiceRadar.Monitoring)
-  end
+  # Handler events are northbound-handler family, so publishing one never
+  # triggers handlers itself.
+  defp record_ocsf_event(attrs, _actor),
+    do: OcsfEventPublisher.publish(attrs, family: :automation)
 
   defp handler_event_attrs(kind, handler, context_or_attrs, details) do
     class_uid = OCSF.class_event_log_activity()

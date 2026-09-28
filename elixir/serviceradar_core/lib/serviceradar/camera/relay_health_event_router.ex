@@ -4,9 +4,7 @@ defmodule ServiceRadar.Camera.RelayHealthEventRouter do
   observability and alerting path can evaluate bursty relay degradation.
   """
 
-  alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Events.PubSub, as: EventsPubSub
-  alias ServiceRadar.Monitoring.OcsfEvent
+  alias ServiceRadar.Events.OcsfEventPublisher
 
   @provider "serviceradar.relay_health_event_router"
 
@@ -76,20 +74,14 @@ defmodule ServiceRadar.Camera.RelayHealthEventRouter do
   end
 
   defp record(kind, context, opts) do
-    actor = Keyword.get(opts, :actor, SystemActor.system(:camera_relay_health_event_router))
-    record_event = Keyword.get(opts, :record_event, &record_event/2)
-    broadcast_event = Keyword.get(opts, :broadcast_event, &EventsPubSub.broadcast_event/1)
+    publish_event = Keyword.get(opts, :publish_event, &publish_event/1)
 
-    attrs = build_event_attrs(kind, context)
-
-    try do
-      with {:ok, event} <- record_event.(attrs, actor) do
-        broadcast_event.(event)
-      end
-    rescue
-      error ->
-        {:error, error}
+    case kind |> build_event_attrs(context) |> publish_event.() do
+      {:ok, _event} -> :ok
+      {:error, reason} -> {:error, reason}
     end
+  rescue
+    error -> {:error, error}
   end
 
   defp build_event_attrs(kind, context) do
@@ -219,13 +211,7 @@ defmodule ServiceRadar.Camera.RelayHealthEventRouter do
     %{"name" => name, "type" => "string", "value" => value}
   end
 
-  defp record_event(attrs, actor) do
-    Ash.create(OcsfEvent, attrs,
-      action: :record,
-      actor: actor,
-      domain: ServiceRadar.Monitoring
-    )
-  end
+  defp publish_event(attrs), do: OcsfEventPublisher.publish(attrs, family: :camera)
 
   defp log_name(:session_failure), do: @session_failure_log_name
   defp log_name(:gateway_saturation_denial), do: @gateway_saturation_log_name

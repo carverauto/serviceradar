@@ -23,6 +23,7 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
       gateways gateway
       interfaces interface discovered_interfaces interface_settings
       public_endpoints public_endpoint k8s_public_endpoints k8s_endpoints vip_inventory
+      camera_sources camera_source cameras camera
       endpoint_inventory_scans endpoint_inventory_scan endpoint_inventory_status
       endpoint_inventory_statuses endpoint_inventory_freshness
       endpoint_packages endpoint_package endpoint_inventory_packages endpoint_inventory packages
@@ -61,6 +62,8 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
       device_identifiers identifiers device_identity
       identity_reconciliation_runs reconciliation_runs dire_runs
       identity_evidence_edges identity_evidence evidence_edges
+      identity_decisions identity_decision dire_decisions
+      deduplication_tasks deduplication_task dedup_tasks identity_deduplication_tasks
     ),
     "services.view" => ~w(
       services service
@@ -89,6 +92,7 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
       otel_traces traces trace_spans
       otel_trace_summaries trace_summaries traces_summaries
       mtr_traces
+      mtr_hops mtr_hop_stats
     ),
     "observability.events.view" => ~w(
       events activity
@@ -119,8 +123,34 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
                          {entity, permission}
                        end)
 
+  # `in:otel_services` reads one catalog that covers three signals, so it is
+  # the one entity gated by an ANY-of set instead of a single permission. The
+  # caller must hold at least one; the signals it holds become the permitted
+  # set that SRQL intersects `signal:` with. The gate never edits the query
+  # string: the SRQL planner is the only parser of `signal:` (it lowercases
+  # keys and accepts list forms, which a second parser here could disagree on).
+  @signal_scoped_entities %{
+    "otel_services" => [
+      {"logs", "observability.logs.view"},
+      {"traces", "observability.traces.view"},
+      {"metrics", "observability.metrics.view"}
+    ]
+  }
+
+  @typedoc """
+  Signals a signal-scoped entity may read, as passed to
+  `ServiceRadarWebNG.SRQL.Native.translate/6`. `nil` means "no set": the
+  entity is not signal-scoped, or the caller has no scope at all -- and SRQL
+  fails a signal-scoped query closed when it receives `nil`.
+  """
+  @type permitted_signals :: nil | [String.t()]
+
   @doc """
   Returns `:ok` or `{:error, :forbidden}`.
+
+  A pure gate for callers that only need a yes/no answer. Callers that go on
+  to translate the query MUST use `authorize_signals/3` instead and hand its
+  permitted set to translate; the set cannot be recovered from `:ok`.
 
   Unknown entities and dashboards are `:ok` so the compiler / Ash search
   remain the source of those errors.
@@ -131,23 +161,56 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
   scope, but is not used by those execution paths.
   """
   @spec authorize(term(), term(), keyword()) :: :ok | {:error, :forbidden}
-  def authorize(query, scope, opts \\ [])
+  def authorize(query, scope, opts \\ []) do
+    case authorize_signals(query, scope, opts) do
+      {:ok, _permitted_signals} -> :ok
+      {:error, :forbidden} = denied -> denied
+    end
+  end
 
-  def authorize(query, scope, opts) when is_binary(query) do
+  @doc """
+  Like `authorize/3`, but also returns the permitted signal set.
+
+  `{:ok, nil}` for every entity that is not signal-scoped. For
+  `otel_services` it is `{:ok, signals}` with the subset of `logs`, `traces`,
+  `metrics` the caller may view, or `{:error, :forbidden}` when the caller
+  holds none of them. A nil scope admitted by `optional_scope: true` gets
+  `{:ok, nil}` -- no set -- so SRQL rejects an `otel_services` query from it.
+  """
+  @spec authorize_signals(term(), term(), keyword()) ::
+          {:ok, permitted_signals()} | {:error, :forbidden}
+  def authorize_signals(query, scope, opts \\ [])
+
+  def authorize_signals(query, scope, opts) when is_binary(query) do
+    optional_nil_scope? = Keyword.get(opts, :optional_scope, false) and is_nil(scope)
+
     case permission_for_query(query) do
       :passthrough ->
-        :ok
+        {:ok, nil}
 
       {:ok, permission} ->
         cond do
-          CoreRBAC.Catalog.holds?(permission_set(scope), permission) -> :ok
-          Keyword.get(opts, :optional_scope, false) and is_nil(scope) -> :ok
+          CoreRBAC.Catalog.holds?(permission_set(scope), permission) -> {:ok, nil}
+          optional_nil_scope? -> {:ok, nil}
           true -> {:error, :forbidden}
+        end
+
+      {:any_of, signal_permissions} ->
+        case held_signals(signal_permissions, permission_set(scope)) do
+          [] when optional_nil_scope? -> {:ok, nil}
+          [] -> {:error, :forbidden}
+          signals -> {:ok, signals}
         end
     end
   end
 
-  def authorize(_query, _scope, _opts), do: :ok
+  def authorize_signals(_query, _scope, _opts), do: {:ok, nil}
+
+  defp held_signals(signal_permissions, held) do
+    for {signal, permission} <- signal_permissions,
+        CoreRBAC.Catalog.holds?(held, permission),
+        do: signal
+  end
 
   defp permission_set(%{permissions: %MapSet{} = permissions}), do: permissions
 
@@ -157,17 +220,22 @@ defmodule ServiceRadarWebNG.SRQL.EntityAccess do
 
   defp permission_set(_), do: MapSet.new()
 
-  @spec permission_for_query(String.t()) :: {:ok, String.t()} | :passthrough
+  @typedoc "An entity's gate: one permission, an any-of signal set, or none."
+  @type entity_permission ::
+          {:ok, String.t()} | {:any_of, [{String.t(), String.t()}]} | :passthrough
+
+  @spec permission_for_query(String.t()) :: entity_permission()
   def permission_for_query(query) when is_binary(query) do
     query
     |> extract_entity()
     |> permission_for_entity()
   end
 
-  @spec permission_for_entity(String.t()) :: {:ok, String.t()} | :passthrough
+  @spec permission_for_entity(String.t()) :: entity_permission()
   def permission_for_entity(entity) when is_binary(entity) do
     cond do
       MapSet.member?(@dashboards, entity) -> :passthrough
+      signal_permissions = Map.get(@signal_scoped_entities, entity) -> {:any_of, signal_permissions}
       permission = Map.get(@entity_permissions, entity) -> {:ok, permission}
       true -> :passthrough
     end

@@ -59,6 +59,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Plugins.ProxmoxHostAuthority
   alias ServiceRadar.Plugins.RetiredNativeAddons
+  alias ServiceRadar.Plugins.RunOverrides
   alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadar.Plugins.StorageToken
 
@@ -322,7 +323,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     sweep_config = load_sweep_config(partition_id, agent_id)
     mapper_config = load_mapper_config(partition_id, agent_id)
     sysmon_config = load_sysmon_config(partition_id, agent_id)
-    snmp_config = load_snmp_config(partition_id, agent_id)
+    snmp_config = load_snmp_config!(partition_id, agent_id)
     visibility_config = load_visibility_config(partition_id, agent_id)
     bumblebee_config = load_bumblebee_config(partition_id, agent_id)
     endpoint_inventory_config = load_endpoint_inventory_config(partition_id, agent_id)
@@ -390,10 +391,28 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     |> Enum.uniq_by(&logical_plugin_id/1)
     |> Enum.map(&build_plugin_assignment_config/1)
     |> Enum.reject(&is_nil/1)
+    |> attach_run_overrides(actor)
   rescue
     e ->
       Logger.warning("Error loading plugin assignments: #{inspect(e)}")
       []
+  end
+
+  # Run overrides set by an assignment's plugin actions ride in their own proto
+  # field; the agent merges them into scheduled-run config. They are part of the
+  # assignment map, so setting, ending or acknowledging one changes the config
+  # fingerprint and reaches the agent on its next poll.
+  defp attach_run_overrides([], _actor), do: []
+
+  defp attach_run_overrides(assignments, actor) do
+    overrides =
+      assignments
+      |> Enum.map(& &1.assignment_id)
+      |> RunOverrides.deliverable_by_assignment(actor: actor)
+
+    Enum.map(assignments, fn assignment ->
+      Map.put(assignment, :run_overrides, Map.get(overrides, assignment.assignment_id, []))
+    end)
   end
 
   defp ensure_plugin_package_loaded(
@@ -2885,9 +2904,15 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       # Deliberately separate from params_json for mixed-version safety. An old
       # agent ignores unknown protobuf field 23 and therefore cannot expose the
       # host-only envelope through Wasm get_config.
-      host_params_json: encode_json(host_params)
+      host_params_json: encode_json(host_params),
+      run_overrides_json: encode_run_overrides(Map.get(assignment, :run_overrides))
     }
   end
+
+  defp encode_run_overrides([_ | _] = overrides),
+    do: overrides |> RunOverrides.encode_list() |> encode_json()
+
+  defp encode_run_overrides(_overrides), do: <<>>
 
   defp resolved_assignment_params(assignment) do
     params = normalize_map(assignment.params)
@@ -3040,9 +3065,11 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     end
   end
 
-  # Load SNMP configuration from the AgentConfig system
-  # This uses the ConfigServer which compiles snmp configs from SNMPProfile resources
-  defp load_snmp_config(partition, agent_id) do
+  # Load SNMP configuration from the AgentConfig system.
+  # ConfigServer compiles snmp configs from SNMPProfile resources. No profile
+  # is a valid disabled config. A compile or read error raises so generation
+  # fails instead of delivering that disabled config in its place.
+  defp load_snmp_config!(partition, agent_id) do
     actor = SystemActor.system(:snmp_config_loader)
     device_uid = resolve_agent_device_uid(agent_id, actor)
 
@@ -3059,8 +3086,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         SNMPCompiler.disabled_config()
 
       {:error, reason} ->
-        Logger.warning("Failed to load SNMP config for agent #{agent_id}: #{inspect(reason)}")
-        SNMPCompiler.disabled_config()
+        raise "failed to load SNMP config for agent #{agent_id}: #{inspect(reason)}"
     end
   end
 

@@ -60,7 +60,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetadataSummaryProvenanceTest do
         "discovery_sources" => ["armis", "sweep"],
         "metadata" => %{
           "integration_type" => "armis",
-          "armis_device_id" => "18497",
+          "armis_device_id" => "42001",
           "armis_type" => "Multifunction Printer",
           "armis_risk_level" => "2",
           "device_type" => "Smart Thermostat"
@@ -68,7 +68,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.MetadataSummaryProvenanceTest do
       })
 
     assert html =~ "Armis"
-    assert html =~ "18497"
+    assert html =~ "42001"
     assert html =~ "Multifunction Printer"
     assert html =~ "/images/integrations/armis.svg"
     assert html =~ "/images/integrations/armis-dark.svg"

@@ -13,8 +13,8 @@ if [[ "${tag}" == *$'\n'* || "${tag}" == *$'\r'* ]]; then
   exit 1
 fi
 
-if [[ ! "${tag}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(pre|rc|alpha|beta)(0|[1-9][0-9]*))?$ ]]; then
-  echo "release tag must match vX.Y.Z or vX.Y.Z-{pre,rc,alpha,beta}N: ${tag}" >&2
+if [[ ! "${tag}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(pre|rc|alpha|beta)\.?(0|[1-9][0-9]*))?$ ]]; then
+  echo "release tag must match vX.Y.Z or vX.Y.Z-{pre,rc,alpha,beta}N or vX.Y.Z-{pre,rc,alpha,beta}.N: ${tag}" >&2
   exit 1
 fi
 

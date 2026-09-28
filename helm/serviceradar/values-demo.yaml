@@ -72,16 +72,21 @@ analytics:
     shadowDatasets: []
     # Demo charts read the warehouse, not CNPG. A dataset belongs here once the
     # StarRocks SRQL dialect answers every query the UI sends for it the way
-    # CNPG does. The dialect now answers `logs` and `events` (the parity run is
-    # recorded in k8s/starrocks/README.md); listing them is a separate,
-    # deliberate change and has not been made.
+    # CNPG does. The dialect answers `logs` and `events` (the parity run is
+    # recorded in k8s/starrocks/README.md). `events` is listed now that every
+    # event reaches the warehouse through EventWriter -- core no longer writes
+    # events straight to CNPG -- and Trivy rescans replace their row there as
+    # they do in CNPG instead of adding one. Events core wrote directly before
+    # that release exist only in CNPG; demo does not backfill them. `logs` is
+    # still a separate, deliberate change.
     # Rollback differs per dataset. CNPG keeps receiving every write, so removing
-    # `metrics` (or `logs`/`events` once listed) falls back to CNPG and is safe.
+    # `metrics` or `events` (or `logs` once listed) falls back to CNPG and is safe.
     # `flows` is warehouse-only: removing it does not fall back, it refuses every
     # flow read and blanks the NetFlow pages.
     cutoverDatasets:
       - flows
       - metrics
+      - events
     sharedData:
       objectStorageBucket: serviceradar-demo-analytics
       objectStorageEndpoint: https://us-ord-10.linodeobjects.com
@@ -95,6 +100,10 @@ analytics:
       # DDL is built by the catalog Job; nothing here is provisioned by hand.
       jdbcUri: "jdbc:postgresql://cnpg-rw.demo.svc:5432/serviceradar?ssl=true&sslmode=require"
       sourceNamespace: starrocks
+      # Frontend root password. Created by hand in this namespace AND, with the
+      # same value, as the operator's initPassword Secret in namespace
+      # starrocks; see "Frontend root password" in k8s/starrocks/README.md.
+      fePasswordSecretName: serviceradar-starrocks-fe
 
 trivySidecar:
   enabled: true
@@ -220,9 +229,9 @@ cnpg:
 logCollector:
   replicaCount: 3
   # Shared events stream (logs/OTEL/falco) — not used for raw NetFlow.
-  # Sized independently of the dedicated flows stream.
+  # Sized independently of the dedicated flows stream: streamMaxBytes is unset
+  # so nats.jetstream.profile (small) supplies it.
   streamReplicas: 3
-  streamMaxBytes: 2147483648
   # Use the dedicated UDP Service when the collector must record the actual
   # device address. The shared Envoy UDPRoute remains enabled below for
   # compatibility, but Envoy Gateway's UDP forwarding path rewrites the
@@ -476,10 +485,10 @@ networkPolicy:
 
 geoipMmdb:
   enabled: true
+  # Per-replica scratch (emptyDir): each core/web-ng pod downloads its own MMDB,
+  # never a shared ReadWriteOnce PVC that would pin every replica to one node.
+  emptyDir: true
   basePath: "/var/lib/serviceradar/geoip"
-  existingClaim: ""
-  size: 1Gi
-  storageClassName: ""
 
 webNg:
   replicas: 3
@@ -506,6 +515,16 @@ webNg:
     integrations: 0
     maintenance: 0
     webMaintenance: 2
+  # Camera relay viewers negotiate WebRTC (membrane_webrtc) in demo so dashboard
+  # multiview tiles can play several streams; a viewer that cannot negotiate
+  # falls back to the websocket transports. The STUN entry is the same public,
+  # credential-free endpoint remote desktop uses below.
+  cameraRelay:
+    webRTC:
+      enabled: true
+      iceServers:
+        - urls:
+            - "stun:stun.cloudflare.com:3478"
   godView:
     runtimeGraphRefreshMs: 30000
     runtimeGraphAutoRefresh: true
@@ -544,8 +563,11 @@ webNg:
     GEOLITE_CITY_ENABLED: "true"
     # FQDN allowlist; pair with networkPolicy.egress.allowedNamespaces egress.
     SERVICERADAR_EGRESS_PROXY: "http://smokescreen.egress.svc.cluster.local:4750"
-    # Trust first-party Wasm upload signatures published by the release pipeline.
-    PLUGIN_TRUSTED_UPLOAD_SIGNING_KEYS: "serviceradar-first-party-v1=L+H5fG0eEraBsWAd2aKMzK7I+AMhbnSxlOKny5/+dLo=,serviceradar-first-party-v2=2KMsaqvof357MV3RQl4/0DNXfF6+eIMQ+qjDJfL/N8I="
+    # Trust first-party Wasm upload signatures published by the release pipeline,
+    # plus serviceradar-demo-v1: the demo-only key that signs the showcase demo
+    # plugins. Only this values file trusts it; its private key is held outside
+    # the repository.
+    PLUGIN_TRUSTED_UPLOAD_SIGNING_KEYS: "serviceradar-first-party-v1=L+H5fG0eEraBsWAd2aKMzK7I+AMhbnSxlOKny5/+dLo=,serviceradar-first-party-v2=2KMsaqvof357MV3RQl4/0DNXfF6+eIMQ+qjDJfL/N8I=,serviceradar-demo-v1=KVPgZ+sTeTgFjsyNtMqoL3awEf0OcL0NDqsODepLaPM="
   resources:
     limits:
       cpu: "2"
@@ -663,7 +685,9 @@ core:
   advisoryFeeds:
     enabled: true
     nistNvd2Enabled: true
-    size: "5Gi"
+    # Per-replica scratch staging (emptyDir); the bulk load into CNPG is the
+    # durable copy. Never a shared ReadWriteOnce PVC across replicas.
+    emptyDir: true
   database:
     poolSize: 10
   controlDatabase:
@@ -710,15 +734,14 @@ core:
   #   consensusEnabled: true
   #   baselineTickMs: 60000
   #   consensusCohortRetentionMs: 300000
-  logPromotionConsumerEnabled: true
   capacityForecasting:
     enabled: true
     emitVerdicts: true
   mtrAutomation:
     enabled: true
     baselineEnabled: true
-    triggerEnabled: false
-    consensusEnabled: false
+    triggerEnabled: true
+    consensusEnabled: true
     baselineTickMs: 60000
     consensusCohortRetentionMs: 300000
   observabilityRetention:
@@ -811,11 +834,10 @@ remoteAccess:
 datasvc:
   replicaCount: 3
   jetstreamReplicas: 3
-  # Match the live demo JetStream account budget. Keep this in Git so Argo does
-  # not restore the chart's larger production-oriented object-store reservation.
-  bucketMaxBytes: 536870912
+  # bucketMaxBytes and objectStoreBytes are unset so nats.jetstream.profile
+  # (small: 1 GiB KV, 4 GiB objects) supplies them, inside the chart's
+  # render-time JetStream budget.
   objectMaxBytes: 536870912
-  objectStoreBytes: 2147483648
   data:
     # datasvc is safe to run stateless in demo because KV/object state lives in NATS.
     enabled: false
@@ -924,10 +946,8 @@ flowCollector:
   config:
     stream_name: "flows"
     rehome_state_path: "/var/lib/serviceradar/flow-collector-rehome.json"
-    # 8 GiB / 2h / R=3 — dedicated flows budget (design). Demo reduces
-    # datasvc object/KV reservations so this fits 30Gi PVC + maxFileStore.
-    # No volumeClaimTemplate mutation.
-    stream_max_bytes: 8589934592
+    # 2h / R=3. stream_max_bytes is unset so nats.jetstream.profile (small:
+    # 8 GiB) supplies it inside the render-time JetStream budget.
     stream_max_age_secs: 7200
     stream_replicas: 3
   # Persist rehome marker + ready file across Recreate / pod replacement.
@@ -1006,9 +1026,9 @@ bmpCollector:
     - "--curation-snapshot-backend=local"
     - "-vvv"
   config:
-    streamMaxBytes: 1073741824
-    # Pods are HA, but the dedicated ARANCINI_CAUSAL stream still stays at a
-    # single JetStream replica until that budget is sized separately.
+    # streamMaxBytes is unset so nats.jetstream.profile (small: 2 GiB) supplies
+    # it. Pods are HA, but the dedicated ARANCINI_CAUSAL stream stays at a
+    # single JetStream replica, which is how the budget counts it.
     streamReplicas: 1
     natsTlsClientCertPath: "/etc/serviceradar/certs/bmp-collector.pem"
     natsTlsClientKeyPath: "/etc/serviceradar/certs/bmp-collector-key.pem"
@@ -1025,6 +1045,7 @@ nats:
   replicas: 3
   jetstream:
     maxMemoryStore: 1G
-    # Within existing 30Gi PVC. Do not change persistence.size here — STS
-    # volumeClaimTemplates are immutable and block Helm upgrades.
-    maxFileStore: 30G
+    # maxFileStore is unset: the small profile supplies 30G for the existing
+    # 30Gi PVC. Do not change persistence.size here -- STS volumeClaimTemplates
+    # are immutable; see docs/nats-jetstream-profile-runbook.md.
+    profile: small

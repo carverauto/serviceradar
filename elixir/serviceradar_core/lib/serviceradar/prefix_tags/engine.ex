@@ -35,7 +35,7 @@ defmodule ServiceRadar.PrefixTags.Engine do
   @type t :: term()
 
   @doc "Build a lookup structure from prefix rows."
-  @callback build([prefix_row()]) :: t()
+  @callback build(Enumerable.t()) :: t()
 
   @doc """
   Look up the most-specific-first tag chain for an IP.

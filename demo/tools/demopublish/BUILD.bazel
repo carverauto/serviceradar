@@ -1,0 +1,32 @@
+# gazelle:ignore
+#
+# Publishes a demo to a ServiceRadar instance. Not run directly: each demo
+# declares a demo_publish() target (//demo:defs.bzl) that embeds this library
+# with its bundle and the signature tool as runfiles.
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+package(default_visibility = ["//demo:__subpackages__"])
+
+go_library(
+    name = "demopublish_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/carverauto/serviceradar/demo/tools/demopublish",
+    deps = ["@in_gopkg_yaml_v3//:go_default_library"],
+)
+
+# Drives the publisher against an in-process fake instance, using the real
+# hello-sim bundle and the real upload signature tool.
+go_test(
+    name = "demopublish_test",
+    size = "small",
+    srcs = ["demopublish_test.go"],
+    data = [
+        "//build/wasm_plugins:upload_signature_tool",
+        "//demo/hello-sim:hello_sim_bundle_zip",
+    ],
+    embed = [":demopublish_lib"],
+    env = {
+        "DEMO_BUNDLE": "$(rootpath //demo/hello-sim:hello_sim_bundle_zip)",
+        "SIGNATURE_TOOL": "$(rootpath //build/wasm_plugins:upload_signature_tool)",
+    },
+)

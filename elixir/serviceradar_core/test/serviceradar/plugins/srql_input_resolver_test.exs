@@ -48,4 +48,40 @@ defmodule ServiceRadar.Plugins.SRQLInputResolverTest do
     assert {:error, [message]} = SRQLInputResolver.resolve(defs, runner: ErrorRunnerStub)
     assert String.contains?(message, "failed to execute SRQL input query")
   end
+
+  test "resolve carries validated projected fields for devices" do
+    defs = [
+      %{
+        name: "targets",
+        entity: "devices",
+        query: "in:devices",
+        fields: [
+          "switch_port_attachment",
+          "metadata.armis_access_switch",
+          "switch_port_attachment"
+        ]
+      }
+    ]
+
+    assert {:ok, [%{fields: fields}]} = SRQLInputResolver.resolve(defs, runner: RunnerStub)
+    assert fields == ["switch_port_attachment", "metadata.armis_access_switch"]
+  end
+
+  test "resolve rejects invalid projected fields" do
+    for fields <- [
+          ["metadata"],
+          ["Switch Port"],
+          ["metadata.a.b"],
+          ["uid; drop"],
+          "switch_port_attachment"
+        ] do
+      defs = [%{name: "targets", entity: "devices", query: "in:devices", fields: fields}]
+      assert {:error, [_message]} = SRQLInputResolver.resolve(defs, runner: RunnerStub)
+    end
+
+    defs = [%{name: "ifs", entity: "interfaces", query: "in:interfaces", fields: ["if_name"]}]
+
+    assert {:error, ["input fields are only supported for devices"]} =
+             SRQLInputResolver.resolve(defs, runner: RunnerStub)
+  end
 end

@@ -396,7 +396,7 @@ func TestPlatformEnvironmentDoesNotCarrySecrets(t *testing.T) {
 }
 
 func TestSupportedPrereleasesRetainExactVersion(t *testing.T) {
-	for _, version := range []string{"2.3.4-pre1", "2.3.4-rc2", "2.3.4-alpha0", "2.3.4-beta3"} {
+	for _, version := range []string{"2.3.4-pre1", "2.3.4-rc2", "2.3.4-alpha0", "2.3.4-beta3", "2.3.4-pre.1", "2.3.4-rc.10"} {
 		t.Run(version, func(t *testing.T) {
 			opts, in := fixtures(t, modeRelease)
 			opts.Version = version

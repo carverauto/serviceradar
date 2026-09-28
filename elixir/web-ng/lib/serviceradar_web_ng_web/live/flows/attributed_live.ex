@@ -255,11 +255,14 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
     |> assign(:time_window, time_from_query(query))
   end
 
-  defp fetch_summary(srql_module, scope, time) do
-    query =
-      ~s|in:attributed_flows time:#{time} stats:"count(*) as total, sum(bytes_total) as total_bytes by attribution_status" sort:total:desc limit:10|
+  @doc "The summary cards' query: flow count and bytes per attribution status over `time`."
+  @spec summary_query(String.t()) :: String.t()
+  def summary_query(time) do
+    ~s|in:attributed_flows time:#{time} stats:"count(*) as total, sum(bytes_total) as total_bytes by attribution_status" sort:total:desc limit:10|
+  end
 
-    case srql_module.query(query, %{scope: scope}) do
+  defp fetch_summary(srql_module, scope, time) do
+    case srql_module.query(summary_query(time), %{scope: scope}) do
       {:ok, %{"results" => rows}} when is_list(rows) ->
         summarize_stat_rows(rows)
 

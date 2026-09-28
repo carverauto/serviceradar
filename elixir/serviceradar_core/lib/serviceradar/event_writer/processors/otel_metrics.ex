@@ -11,6 +11,10 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetrics do
     sum/gauge/histogram data points are decoded into the `otel_metric_points`
     hypertable, keyed by (timestamp, metric_name, service_name, attributes_hash).
 
+  Both are stored in the one active telemetry backend (`store/3`): the
+  `otel_metrics` and `otel_metric_points` warehouse tables when StarRocks is
+  enabled, the CNPG hypertables otherwise.
+
   `attributes_hash` follows recipe v2 (see `ServiceRadar.EventWriter.OtlpAttributes`):
   MD5 over `canonical_bytes(point_attributes) <> "\\n" <> service_instance_id
   <> "\\n" <> scope_name`, kept in lockstep with the Go gateway
@@ -63,11 +67,13 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetrics do
   alias Opentelemetry.Proto.Metrics.V1.ResourceMetrics
   alias Opentelemetry.Proto.Metrics.V1.ScopeMetrics
   alias Opentelemetry.Proto.Metrics.V1.Sum
+  alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.IngestAttribution
   alias ServiceRadar.EventWriter.OtelId
   alias ServiceRadar.EventWriter.OtlpAttributes
+  alias ServiceRadar.EventWriter.ServiceCatalog
   alias ServiceRadar.EventWriter.SignalTelemetry
   alias Serviceradar.Metric.V1.MetricBatch, as: ServiceRadarMetricBatch
   alias ServiceRadar.Observability.OtelPubSub
@@ -89,20 +95,62 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetrics do
     {span_sample_rows, point_rows, rejected} = build_rows(messages)
     SignalTelemetry.emit(:metrics, :rejected, rejected)
 
-    sample_count = insert_rows(table_name(), span_sample_rows)
-    point_count = insert_rows(@metric_points_table, point_rows)
+    case store(span_sample_rows, point_rows) do
+      {:ok, {sample_count, point_count}} ->
+        SignalTelemetry.emit(:metrics, :written, sample_count)
+        SignalTelemetry.emit(:metric_points, :written, point_count)
 
-    SignalTelemetry.emit(:metrics, :written, sample_count)
-    SignalTelemetry.emit(:metric_points, :written, point_count)
+        OtelPubSub.broadcast_metrics(%{count: sample_count + point_count})
 
-    OtelPubSub.broadcast_metrics(%{count: sample_count + point_count})
+        # Span-derived samples and OTLP points are both the metrics signal.
+        # Best-effort catalog upsert after both writes are durable; never fails
+        # the batch.
+        _ = ServiceCatalog.record(:metrics, span_sample_rows ++ point_rows)
 
-    {:ok, sample_count + point_count}
+        {:ok, sample_count + point_count}
+
+      {:error, reason} ->
+        Logger.warning("OtelMetrics batch store failed", reason: inspect(reason))
+        {:error, reason}
+    end
   rescue
     e ->
       Logger.error("OtelMetrics batch insert failed: #{inspect(e)}")
       {:error, e}
   end
+
+  @doc """
+  Stores span-derived samples and OTLP metric points in the one active
+  telemetry backend: the warehouse when StarRocks is enabled, CNPG otherwise,
+  never both. Returns how many samples and points were written.
+
+  With StarRocks enabled both loads must succeed; a failed load fails the
+  batch, JetStream redelivers it, and the primary-key tables upsert the same
+  keys. Samples load before points, so a redelivery after a failed point load
+  rewrites the samples unchanged.
+
+  Options (tests): `:starrocks_enabled` (defaults to `Destination.enabled?/0`)
+  and `:load`, the warehouse loader `(dataset, rows -> {:ok, map} | {:error, term})`.
+  """
+  @spec store([map()], [map()], keyword()) ::
+          {:ok, {non_neg_integer(), non_neg_integer()}} | {:error, term()}
+  def store(span_sample_rows, point_rows, opts \\ []) do
+    if Keyword.get_lazy(opts, :starrocks_enabled, &Destination.enabled?/0) do
+      load = Keyword.get(opts, :load, &Destination.persist_warehouse/2)
+
+      with {:ok, _} <- load_rows(load, :otel_metrics, span_sample_rows),
+           {:ok, _} <- load_rows(load, :otel_metric_points, point_rows) do
+        {:ok, {length(span_sample_rows), length(point_rows)}}
+      end
+    else
+      {:ok,
+       {insert_rows(table_name(), span_sample_rows),
+        insert_rows(@metric_points_table, point_rows)}}
+    end
+  end
+
+  defp load_rows(_load, _dataset, []), do: {:ok, %{loaded: 0}}
+  defp load_rows(load, dataset, rows), do: load.(dataset, rows)
 
   @impl true
   def parse_message(%{data: data, metadata: metadata}) do

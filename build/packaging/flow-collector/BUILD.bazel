@@ -3,6 +3,10 @@ load("//build/packaging:packages.bzl", "PACKAGES")
 
 package(default_visibility = ["//visibility:public"])
 
+exports_files([
+    "systemd/serviceradar-flow-collector.service",
+])
+
 serviceradar_package_from_config(
     name = "flow-collector",
     config = PACKAGES["flow-collector"],

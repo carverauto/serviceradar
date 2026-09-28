@@ -39,8 +39,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.BulkModals do
           label="Apply to"
           options={scope_options(@srql, @selected_count, @matching_count)}
         />
+        <.input
+          field={@scope_form[:stop_on_error]}
+          id="bulk-stop-on-error"
+          type="checkbox"
+          label="Stop on first error"
+        />
         <p class="mt-1 text-xs text-sr-muted">
           Applies to both the tags and the state changes you submit below.
+          Leave this off to keep going after a batch fails.
         </p>
       </.form>
 
@@ -142,6 +149,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.BulkModals do
 
   # Bulk Delete Modal Component
   attr(:selected_count, :integer, required: true)
+  attr(:error_form, :any, required: true)
 
   def bulk_delete_modal(assigns) do
     ~H"""
@@ -154,6 +162,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.BulkModals do
         This will hide {@selected_count} selected device(s) from inventory. They can be restored
         later.
       </p>
+
+      <.form
+        for={@error_form}
+        id="bulk-delete-error-form"
+        phx-change="bulk_delete_error_mode"
+        class="mt-4"
+      >
+        <.input
+          field={@error_form[:stop_on_error]}
+          id="bulk-delete-stop-on-error"
+          type="checkbox"
+          label="Stop on first error"
+        />
+        <p class="mt-1 text-xs text-sr-muted">
+          Leave this off to keep deleting the rest after a batch fails.
+        </p>
+      </.form>
 
       <:actions>
         <.ui_button type="button" phx-click="close_bulk_delete_modal" variant="ghost">
@@ -198,6 +223,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.BulkModals do
           prompt="Fallback: any fresh agent"
           options={@agent_options}
         />
+        <.input
+          field={@form[:stop_on_error]}
+          id="bulk-availability-stop-on-error"
+          type="checkbox"
+          label="Stop on first error"
+        />
+        <p class="-mt-2 text-xs text-sr-muted">
+          Leave this off to keep going after a batch fails.
+        </p>
 
         <div class="flex justify-end gap-2 pt-2">
           <.ui_button type="button" phx-click="close_bulk_availability_source_modal" variant="ghost">

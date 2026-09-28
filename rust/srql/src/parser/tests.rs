@@ -28,6 +28,23 @@ fn parses_canonical_mtr_traces_query() {
 }
 
 #[test]
+fn parses_mtr_handshake_and_reply_type_comparisons() {
+    let ast = parse("in:mtr_traces tcp_syn_drop_pct:>=12.5 !tcp_syn_unanswered:0").unwrap();
+    assert_eq!(ast.filters.len(), 2);
+    assert_eq!(ast.filters[0].field, "tcp_syn_drop_pct");
+    assert!(matches!(ast.filters[0].op, FilterOp::Gte));
+    assert_eq!(ast.filters[0].value.as_scalar().unwrap(), "12.5");
+    assert_eq!(ast.filters[1].field, "tcp_syn_unanswered");
+    assert!(matches!(ast.filters[1].op, FilterOp::NotEq));
+
+    let ast = parse("in:mtr_hops reply_rst:>0").unwrap();
+    assert!(matches!(ast.entity, Entity::MtrHops));
+    assert_eq!(ast.filters[0].field, "reply_rst");
+    assert!(matches!(ast.filters[0].op, FilterOp::Gt));
+    assert_eq!(ast.filters[0].value.as_scalar().unwrap(), "0");
+}
+
+#[test]
 fn parses_lists() {
     let ast = parse("in:devices discovery_sources:(sweep,armis)").unwrap();
     assert_eq!(ast.filters.len(), 1);
@@ -207,6 +224,13 @@ fn parses_every_identity_diagnostic_entity_alias() {
         ("identity_evidence_edges", Entity::IdentityEvidenceEdges),
         ("identity_evidence", Entity::IdentityEvidenceEdges),
         ("evidence_edges", Entity::IdentityEvidenceEdges),
+        ("identity_decisions", Entity::IdentityDecisions),
+        ("identity_decision", Entity::IdentityDecisions),
+        ("dire_decisions", Entity::IdentityDecisions),
+        ("deduplication_tasks", Entity::DeduplicationTasks),
+        ("deduplication_task", Entity::DeduplicationTasks),
+        ("dedup_tasks", Entity::DeduplicationTasks),
+        ("identity_deduplication_tasks", Entity::DeduplicationTasks),
     ];
 
     for (alias, expected) in cases {
@@ -769,6 +793,59 @@ fn parses_multiple_stats() {
 }
 
 #[test]
+fn parses_two_argument_aggregations_into_both_fields() {
+    let ast = parse("in:mtr_hops stats:\"loss_ratio(sent, received) as loss by addr\"").unwrap();
+    let stats = ast.stats.as_ref().unwrap();
+
+    assert_eq!(stats.aggregations.len(), 1);
+    assert!(matches!(
+        stats.aggregations[0].agg_type,
+        StatsAggType::LossRatio
+    ));
+    assert_eq!(stats.aggregations[0].field.as_deref(), Some("sent"));
+    assert_eq!(stats.aggregations[0].field2.as_deref(), Some("received"));
+    assert_eq!(stats.aggregations[0].alias, "loss");
+}
+
+#[test]
+fn parses_wavg_without_colliding_with_avg() {
+    // `strip_prefix` is anchored, so "wavg(" must not be read as "avg(".
+    let ast = parse("in:mtr_hops stats:\"wavg(avg_us, received) as latency by addr\"").unwrap();
+    let stats = ast.stats.as_ref().unwrap();
+
+    assert_eq!(stats.aggregations.len(), 1);
+    assert!(matches!(stats.aggregations[0].agg_type, StatsAggType::Wavg));
+    assert_eq!(stats.aggregations[0].field.as_deref(), Some("avg_us"));
+    assert_eq!(stats.aggregations[0].field2.as_deref(), Some("received"));
+}
+
+#[test]
+fn single_argument_aggregations_carry_no_second_field() {
+    let ast = parse("in:devices stats:\"sum(value) as total_value\"").unwrap();
+    let stats = ast.stats.as_ref().unwrap();
+    assert!(stats.aggregations[0].field2.is_none());
+}
+
+#[test]
+fn parses_time_bucket_group_dimension_unquoted() {
+    let ast =
+        parse("in:mtr_hops stats:loss_ratio(sent, received) as loss by addr,time:1h").unwrap();
+    let stats = ast.stats.as_ref().unwrap();
+    assert!(
+        stats.raw.contains("by addr,time:1h"),
+        "group dimensions should survive tokenizing: {}",
+        stats.raw
+    );
+}
+
+#[test]
+fn stats_group_by_rejects_a_swallowed_following_clause() {
+    // Relaxing the colon guard for `time:` must not let an omitted group field
+    // through: here `limit:10` would silently become the grouping field.
+    assert!(parse("in:devices stats:count() as n by limit:10").is_err());
+}
+
+#[test]
 fn parses_repeated_stats_tokens_by_merging_aggregations() {
     let ast = parse(
         "in:flows stats:sum(bytes_total) as bytes_total stats:sum(packets_total) as packets_total by src_endpoint_ip",
@@ -872,4 +949,157 @@ fn parses_rollup_stats_with_filters() {
 fn rejects_empty_rollup_stats() {
     let err = parse("in:logs rollup_stats:").unwrap_err();
     assert!(matches!(err, ServiceError::InvalidRequest(_)));
+}
+
+// -- quoting and escapes (#4798) ----------------------------------------------
+//
+// A backslash inside a quoted span escapes the next character, and that escape
+// is applied exactly once whether the value is a scalar or a list item. Only
+// one matching outer quote pair is removed.
+
+/// The one filter of `in:logs <token>`.
+fn only_filter(token: &str) -> Filter {
+    let ast = parse(&format!("in:logs {token}")).unwrap();
+    assert_eq!(ast.filters.len(), 1, "{token}");
+    ast.filters.into_iter().next().unwrap()
+}
+
+fn scalar_of(token: &str) -> String {
+    only_filter(token).value.as_scalar().unwrap().to_string()
+}
+
+fn list_of(token: &str) -> Vec<String> {
+    only_filter(token).value.as_list().unwrap().to_vec()
+}
+
+/// Encode `value` as the inside of a double-quoted SRQL string: one escape pass.
+fn escape_once(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+#[test]
+fn escaped_double_quote_is_unescaped_once_in_scalars_and_lists() {
+    assert_eq!(scalar_of(r#"service_name:"a\"b""#), r#"a"b"#);
+    assert_eq!(list_of(r#"service_name:("a\"b")"#), vec![r#"a"b"#]);
+    assert_eq!(list_of(r#"service_name:["a\"b"]"#), vec![r#"a"b"#]);
+}
+
+#[test]
+fn escaped_single_quote_is_unescaped_once_in_scalars_and_lists() {
+    assert_eq!(scalar_of(r"service_name:'it\'s'"), "it's");
+    assert_eq!(list_of(r"service_name:('it\'s','x')"), vec!["it's", "x"]);
+}
+
+#[test]
+fn escaped_backslash_is_unescaped_once_in_scalars_and_lists() {
+    assert_eq!(scalar_of(r#"service_name:"back\\slash""#), r"back\slash");
+    assert_eq!(
+        list_of(r#"service_name:("back\\slash")"#),
+        vec![r"back\slash"]
+    );
+    assert_eq!(scalar_of(r#"service_name:"trailing\\""#), r"trailing\");
+    assert_eq!(
+        list_of(r#"service_name:("trailing\\","x")"#),
+        vec![r"trailing\", "x"]
+    );
+}
+
+#[test]
+fn commas_parens_and_escaped_quotes_stay_inside_quoted_list_items() {
+    assert_eq!(
+        list_of(r#"service_name:("a,b","(c)","d)e","f]g")"#),
+        vec!["a,b", "(c)", "d)e", "f]g"]
+    );
+    assert_eq!(
+        list_of(r#"service_name:("x\",y","z")"#),
+        vec![r#"x",y"#, "z"]
+    );
+    assert_eq!(
+        list_of(r#"service_name:("p \"(q, r)\" s",t)"#),
+        vec![r#"p "(q, r)" s"#, "t"]
+    );
+}
+
+#[test]
+fn a_value_beginning_or_ending_in_a_quote_keeps_it() {
+    assert_eq!(scalar_of(r#"service_name:"ends\"""#), r#"ends""#);
+    assert_eq!(scalar_of(r#"service_name:"\"starts""#), r#""starts"#);
+    assert_eq!(scalar_of(r#"service_name:"\"both\"""#), r#""both""#);
+    assert_eq!(scalar_of(r#"service_name:"it'""#), "it'");
+    assert_eq!(scalar_of(r#"service_name:'say "hi"'"#), r#"say "hi""#);
+    assert_eq!(
+        list_of(r#"service_name:("ends\"","\"starts","it'")"#),
+        vec![r#"ends""#, r#""starts"#, "it'"]
+    );
+}
+
+#[test]
+fn scalar_and_list_decode_the_same_encoding_to_the_same_value() {
+    for value in [
+        "plain",
+        "with space",
+        r#"quote"inside"#,
+        r"back\slash",
+        r#"a"b\c"#,
+        r#""leading"#,
+        r#"trailing""#,
+        r"trailing\",
+        "comma,inside",
+        "(parens)",
+        "it's",
+    ] {
+        let encoded = escape_once(value);
+        assert_eq!(
+            scalar_of(&format!(r#"service_name:"{encoded}""#)),
+            value,
+            "scalar {encoded}"
+        );
+        assert_eq!(
+            list_of(&format!(r#"service_name:("{encoded}")"#)),
+            vec![value],
+            "list {encoded}"
+        );
+        assert_eq!(
+            list_of(&format!(r#"service_name:("{encoded}","{encoded}")"#)),
+            vec![value, value],
+            "two-item list {encoded}"
+        );
+    }
+}
+
+#[test]
+fn a_percent_makes_a_scalar_a_like_but_a_list_item_stays_exact() {
+    let scalar = only_filter(r#"service_name:"pay\"%""#);
+    assert!(matches!(scalar.op, FilterOp::Like));
+    assert_eq!(scalar.value.as_scalar().unwrap(), r#"pay"%"#);
+
+    let negated = only_filter(r#"!service_name:"pay\"%""#);
+    assert!(matches!(negated.op, FilterOp::NotLike));
+
+    let list = only_filter(r#"service_name:("pay\"%")"#);
+    assert!(matches!(list.op, FilterOp::In));
+    assert_eq!(list.value.as_list().unwrap(), [r#"pay"%"#]);
+
+    let negated_list = only_filter(r#"!service_name:("a\"b","c")"#);
+    assert!(matches!(negated_list.op, FilterOp::NotIn));
+    assert_eq!(negated_list.value.as_list().unwrap(), [r#"a"b"#, "c"]);
+}
+
+#[test]
+fn unquoted_values_keep_backslashes_and_backtick_values_keep_their_backticks() {
+    assert_eq!(scalar_of(r"service_name:a\b"), r"a\b");
+    assert_eq!(list_of(r"service_name:(a\b,c)"), vec![r"a\b", "c"]);
+    assert_eq!(scalar_of("service_name:`a b`"), "`a b`");
+    assert_eq!(list_of("service_name:(`a,b`,c)"), vec!["`a,b`", "c"]);
+}
+
+#[test]
+fn an_escaped_quote_does_not_end_the_token() {
+    let ast = parse(r#"in:logs service_name:"a\" severity_text:b" limit:5"#).unwrap();
+    assert_eq!(ast.filters.len(), 1);
+    assert_eq!(
+        ast.filters[0].value.as_scalar().unwrap(),
+        r#"a" severity_text:b"#
+    );
+    assert_eq!(ast.limit, Some(5));
 }

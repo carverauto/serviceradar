@@ -190,17 +190,20 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
     case Packages.get(id, scope: scope) do
       {:ok, package} ->
+        versions = list_versions(package.plugin_id, scope)
+        prior_approved = Enum.find(versions, &(&1.status == :approved))
+
         socket
         |> assign(:selected_package, package)
         |> assign(:show_details_modal, true)
-        |> assign(:review_form, build_review_form(package))
+        |> assign(:review_form, build_review_form(package, prior_approved))
         |> assign(:assignment_form, default_assignment_form(package))
         |> assign(:assignments, list_plugin_assignments(package.plugin_id, scope))
         |> assign(:authenticated_partition_preview, nil)
         |> assign(:recovery_confirmation, nil)
         |> assign(:policy_recovery_polls, %{})
         |> assign_credential_context(package)
-        |> assign(:versions, list_versions(package.plugin_id, scope))
+        |> assign(:versions, versions)
         |> assign(:upload_errors, [])
         |> assign_package_urls(package, scope)
 
@@ -4458,7 +4461,30 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     }
   end
 
-  defp build_review_form(package) do
+  defp build_review_form(package, prior_approved \\ nil)
+
+  defp build_review_form(%{status: :staged} = package, %{} = prior) do
+    %{
+      "approved_capabilities" =>
+        fallback_empty(
+          format_list_value(package.approved_capabilities),
+          format_list_value(prior.approved_capabilities)
+        ),
+      "approved_permissions" =>
+        fallback_empty(
+          format_json_value(package.approved_permissions),
+          format_json_value(prior.approved_permissions)
+        ),
+      "approved_resources" =>
+        fallback_empty(
+          format_json_value(package.approved_resources),
+          format_json_value(prior.approved_resources)
+        ),
+      "denied_reason" => package.denied_reason || ""
+    }
+  end
+
+  defp build_review_form(package, _prior) do
     %{
       "approved_capabilities" => format_list_value(package.approved_capabilities),
       "approved_permissions" => format_json_value(package.approved_permissions),
@@ -4466,6 +4492,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       "denied_reason" => package.denied_reason || ""
     }
   end
+
+  defp fallback_empty("", fallback), do: fallback
+  defp fallback_empty(value, _fallback), do: value
 
   defp requested_capabilities(package) do
     Map.get(package.manifest || %{}, "capabilities") ||

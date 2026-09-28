@@ -5,6 +5,7 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReportsIntegrationTest do
   alias ServiceRadar.EventWriter.Processors.TrivyReports
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
+  alias ServiceRadar.TestSupport.ScriptedStatefulAlertEngine
 
   @moduletag :integration
 
@@ -35,7 +36,7 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReportsIntegrationTest do
     event_uuid_bin = Ecto.UUID.dump!(event_uuid)
     message = trivy_message(event_uuid, "1.24.8")
 
-    with_stateful_rule_loading_disabled(fn ->
+    with_stubbed_alert_engine(fn ->
       assert {:ok, 1} = TrivyReports.process_batch([message])
       assert {:ok, _count} = TrivyReports.process_batch([trivy_message(event_uuid, "1.24.12")])
     end)
@@ -142,7 +143,7 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReportsIntegrationTest do
     # event, and the scan-completed status event is suppressed by default.
     message = trivy_message(event_uuid, "1.24.8")
 
-    with_stateful_rule_loading_disabled(fn ->
+    with_stubbed_alert_engine(fn ->
       assert {:ok, 1} = TrivyReports.process_batch([message])
     end)
 
@@ -164,7 +165,7 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReportsIntegrationTest do
     event_uuid = Ash.UUID.generate()
     message = trivy_high_message(event_uuid)
 
-    with_stateful_rule_loading_disabled(fn ->
+    with_stubbed_alert_engine(fn ->
       assert {:ok, 1} = TrivyReports.process_batch([message])
     end)
 
@@ -179,11 +180,30 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReportsIntegrationTest do
     event_uuid = Ash.UUID.generate()
     message = trivy_message(event_uuid, "1.24.8")
 
-    with_stateful_rule_loading_disabled(fn ->
+    with_stubbed_alert_engine(fn ->
       assert {:ok, 1} = TrivyReports.process_batch([message])
     end)
 
     assert trivy_event_count(event_uuid, "trivy_scan_activity") == 1
+  end
+
+  test "a failed evaluation fails the batch, and redelivery evaluates each event once" do
+    ScriptedStatefulAlertEngine.use_in_test([{:error, :engine_restarting}])
+    message = trivy_high_message(Ash.UUID.generate())
+
+    # The events are stored, but their evaluation failed: the batch fails so
+    # JetStream redelivers it.
+    assert {:error, :engine_restarting} = TrivyReports.process_batch([message])
+    assert_receive {:evaluated, [_ | _] = attempted}
+
+    # The redelivery finishes the evaluation of exactly those events.
+    assert {:ok, _count} = TrivyReports.process_batch([message])
+    assert_receive {:evaluated, retried}
+    assert Enum.map(retried, & &1.id) == Enum.map(attempted, & &1.id)
+
+    # Once evaluated, a further redelivery does not count them again.
+    assert {:ok, _count} = TrivyReports.process_batch([message])
+    refute_receive {:evaluated, _}
   end
 
   defp trivy_event_count(event_id) do
@@ -271,18 +291,11 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReportsIntegrationTest do
     }
   end
 
-  defp with_stateful_rule_loading_disabled(fun) do
-    previous = Application.get_env(:serviceradar_core, :repo_enabled, true)
-
-    # This test is about Trivy report/finding persistence. Stateful alert rule
-    # loading is exercised elsewhere and can dominate fixture DB runtime.
-    Application.put_env(:serviceradar_core, :repo_enabled, false)
-
-    try do
-      fun.()
-    after
-      Application.put_env(:serviceradar_core, :repo_enabled, previous)
-    end
+  # These tests are about persistence, so the stateful alert engine is stubbed:
+  # evaluation succeeds without loading or firing real rules.
+  defp with_stubbed_alert_engine(fun) do
+    ScriptedStatefulAlertEngine.use_in_test()
+    fun.()
   end
 
   defp trivy_message(event_uuid, fixed_version) do

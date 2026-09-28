@@ -45,7 +45,7 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLiveTest do
     refute html =~ ~s(name="prefix_tag[tags]" required)
   end
 
-  test "IP preview uses the local Store trie", %{conn: conn} do
+  test "IP preview reports unavailable core instead of using a partial local trie", %{conn: conn} do
     Store.put_rows("manual", [
       %{prefix: "10.1.2.0/24", tags: ["site:hq", "role:wifi"], source: "manual"}
     ])
@@ -57,9 +57,7 @@ defmodule ServiceRadarWebNGWeb.Settings.PrefixTagsLiveTest do
       |> form("form[phx-submit=preview]", %{"ip" => "10.1.2.50"})
       |> render_submit()
 
-    assert html =~ "site:hq"
-    assert html =~ "role:wifi"
-    assert html =~ "10.1.2.0/24"
+    assert html =~ "Prefix tag preview is unavailable"
   end
 
   test "source tabs are available for imported views", %{conn: conn} do

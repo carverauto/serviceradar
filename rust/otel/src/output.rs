@@ -38,6 +38,13 @@ use crate::opentelemetry::proto::collector::trace::v1::ExportTraceServiceRequest
 /// whose [`IngestContext::identity`] is set; consumers that do not know the
 /// header ignore it.
 pub const INGEST_IDENTITY_HEADER: &str = "Sr-Ingest-Identity";
+/// NATS message header carrying device IDs attributed to the log records in
+/// a chunk. One header entry per unique `serviceradar.device_id` value found
+/// across all log records in the chunk. Absent when no records carry the
+/// attribute.
+pub const SR_DEVICE_ID_HEADER: &str = "Sr-Device-Id";
+/// OTLP log record attribute key that carries the ServiceRadar device UID.
+pub const DEVICE_ID_ATTRIBUTE: &str = "serviceradar.device_id";
 pub const METRIC_ENVELOPE_SCHEMA_VERSION: &str = "serviceradar.metric.v1";
 pub const DERIVED_METRIC_SOURCE: &str = "otel-metrics-derived";
 

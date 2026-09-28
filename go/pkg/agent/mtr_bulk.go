@@ -21,8 +21,6 @@ const (
 	balancedBulkMtrTimeout     = 2500 * time.Millisecond
 	fastBulkRingBufferSize     = 32
 	balancedBulkRingBufferSize = 64
-	fastBulkMaxHops            = 16
-	balancedBulkMaxHops        = 24
 	bulkMtrProgressBatchSize   = 16
 	bulkMtrProgressInterval    = 200 * time.Millisecond
 	bulkMtrAdaptiveWindowSize  = 32
@@ -48,28 +46,43 @@ const (
 var errMissingBulkTargetInfo = errors.New("missing target info")
 
 type mtrBulkRunPayload struct {
-	Targets          []string `json:"targets"`
-	Protocol         string   `json:"protocol,omitempty"`
+	Targets  []string `json:"targets"`
+	Protocol string   `json:"protocol,omitempty"`
+	// Protocols, when present, runs every target once per protocol inside this
+	// job; Protocol is then only the fallback for payloads that omit it.
+	Protocols        []string `json:"protocols,omitempty"`
 	MaxHops          int      `json:"max_hops,omitempty"`
 	Concurrency      int      `json:"concurrency,omitempty"`
 	ExecutionProfile string   `json:"execution_profile,omitempty"`
+	TCPPort          int      `json:"tcp_port,omitempty"`
+	// TCPSynRetries is a pointer because 0 (no retransmission) is meaningful.
+	TCPSynRetries *int `json:"tcp_syn_retries,omitempty"`
 }
 
 type mtrBulkTargetUpdate struct {
 	Target       string           `json:"target"`
+	Protocol     string           `json:"protocol,omitempty"`
 	Status       string           `json:"status"`
 	Error        string           `json:"error,omitempty"`
 	AttemptCount int              `json:"attempt_count,omitempty"`
 	Trace        *mtr.TraceResult `json:"trace,omitempty"`
 }
 
+// mtrBulkProgressPayload counts (target, protocol) units: a job over N targets
+// and P protocols reports N*P total targets.
 type mtrBulkProgressPayload struct {
-	TotalTargets       int                        `json:"total_targets"`
-	QueuedTargets      int                        `json:"queued_targets"`
-	RunningTargets     int                        `json:"running_targets"`
-	CompletedTargets   int                        `json:"completed_targets"`
-	FailedTargets      int                        `json:"failed_targets"`
-	TimedOutTargets    int                        `json:"timed_out_targets,omitempty"`
+	TotalTargets     int      `json:"total_targets"`
+	Protocols        []string `json:"protocols,omitempty"`
+	QueuedTargets    int      `json:"queued_targets"`
+	RunningTargets   int      `json:"running_targets"`
+	CompletedTargets int      `json:"completed_targets"`
+	FailedTargets    int      `json:"failed_targets"`
+	TimedOutTargets  int      `json:"timed_out_targets,omitempty"`
+	// ReachedTargets counts completed traces that reached their target. It is
+	// set only on the job result, where the whole job's outcome is known, and
+	// is a pointer so a job that reached none still reports 0 rather than
+	// looking like an agent that does not report reach at all.
+	ReachedTargets     *int                       `json:"reached_targets,omitempty"`
 	Concurrency        int                        `json:"concurrency,omitempty"`
 	MaxConcurrency     int                        `json:"max_concurrency,omitempty"`
 	ConcurrencyHistory []bulkMtrConcurrencySample `json:"concurrency_history,omitempty"`
@@ -96,10 +109,16 @@ type bulkMtrSharedResources struct {
 	dns *mtr.DNSResolver
 }
 
+// bulkMtrUnit is one trace of a bulk job: a target probed with one protocol.
+type bulkMtrUnit struct {
+	target   string
+	protocol mtr.Protocol
+}
+
 type bulkMtrTask struct {
-	target string
-	info   *mtr.TargetInfo
-	err    error
+	unit bulkMtrUnit
+	info *mtr.TargetInfo
+	err  error
 }
 
 type bulkMtrWorker struct {
@@ -153,10 +172,12 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 	defer cancel()
 
 	baseOpts := bulkMtrOptions(payload)
-	maxConcurrency := normalizeBulkMtrConcurrency(payload.Concurrency, len(targets))
-	resolverCount := normalizeBulkMtrResolverCount(len(targets))
+	protocols := bulkMtrProtocols(payload)
+	units := expandBulkMtrUnits(targets, protocols)
+	maxConcurrency := normalizeBulkMtrConcurrency(payload.Concurrency, len(units))
+	resolverCount := normalizeBulkMtrResolverCount(len(units))
 	startedAt := time.Now()
-	targetCh := make(chan string, resolverCount*2)
+	targetCh := make(chan bulkMtrUnit, resolverCount*2)
 	taskCh := make(chan bulkMtrTask, maxConcurrency*2)
 	eventCh := make(chan mtrBulkEvent, maxConcurrency*2)
 	slotFreedCh := make(chan struct{}, maxConcurrency*2)
@@ -198,7 +219,8 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 				if !sendBulkMtrEvent(jobCtx, eventCh, mtrBulkEvent{
 					started: true,
 					update: mtrBulkTargetUpdate{
-						Target:       task.target,
+						Target:       task.unit.target,
+						Protocol:     task.unit.protocol.String(),
 						Status:       bulkMtrStatusRunning,
 						AttemptCount: 1,
 					},
@@ -208,7 +230,7 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 
 				if task.err != nil {
 					if !sendBulkMtrEvent(jobCtx, eventCh, mtrBulkEvent{
-						update: buildBulkMtrTargetUpdate(task.target, nil, task.err),
+						update: buildBulkMtrTargetUpdate(task.unit, nil, task.err),
 					}) {
 						return
 					}
@@ -216,9 +238,9 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 					continue
 				}
 
-				trace, err := worker.runResolved(jobCtx, task.target, task.info)
+				trace, err := worker.runResolved(jobCtx, task.unit, task.info)
 				if !sendBulkMtrEvent(jobCtx, eventCh, mtrBulkEvent{
-					update: buildBulkMtrTargetUpdate(task.target, trace, err),
+					update: buildBulkMtrTargetUpdate(task.unit, trace, err),
 				}) {
 					return
 				}
@@ -228,7 +250,7 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 
 	go func() {
 		defer close(targetCh)
-		dispatchBulkTargets(jobCtx, targets, targetCh, slotFreedCh, &currentLimit)
+		dispatchBulkTargets(jobCtx, units, targetCh, slotFreedCh, &currentLimit)
 	}()
 
 	go func() {
@@ -236,11 +258,13 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 		close(eventCh)
 	}()
 
-	queuedTargets := len(targets)
+	queuedTargets := len(units)
+	protocolNames := bulkMtrProtocolNames(protocols)
 	runningTargets := 0
 	completedTargets := 0
 	failedTargets := 0
 	timedOutTargets := 0
+	reachedTargets := 0
 	progressUpdates := make([]mtrBulkTargetUpdate, 0, bulkMtrProgressBatchSize)
 	lastProgressSent := time.Now()
 
@@ -249,7 +273,8 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 		0,
 		bulkMtrStatusQueued,
 		mtrBulkProgressPayload{
-			TotalTargets:       len(targets),
+			TotalTargets:       len(units),
+			Protocols:          protocolNames,
 			QueuedTargets:      queuedTargets,
 			RunningTargets:     runningTargets,
 			Concurrency:        currentConcurrency,
@@ -274,6 +299,9 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 		switch event.update.Status {
 		case bulkMtrStatusCompleted:
 			completedTargets++
+			if bulkMtrUpdateReached(event.update) {
+				reachedTargets++
+			}
 		case bulkMtrStatusTimedOut:
 			failedTargets++
 			timedOutTargets++
@@ -288,7 +316,7 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 		if !shouldFlushBulkMtrProgress(
 			len(progressUpdates),
 			completedTargets+failedTargets,
-			len(targets),
+			len(units),
 			lastProgressSent,
 			now,
 		) {
@@ -298,7 +326,7 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 		flushBulkMtrProgress(
 			sender,
 			cmd,
-			len(targets),
+			len(units),
 			queuedTargets,
 			runningTargets,
 			completedTargets,
@@ -318,7 +346,7 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 		flushBulkMtrProgress(
 			sender,
 			cmd,
-			len(targets),
+			len(units),
 			queuedTargets,
 			runningTargets,
 			completedTargets,
@@ -334,17 +362,19 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 
 	durationMs := time.Since(startedAt).Milliseconds()
 	resultPayload := mtrBulkProgressPayload{
-		TotalTargets:       len(targets),
+		TotalTargets:       len(units),
+		Protocols:          protocolNames,
 		QueuedTargets:      queuedTargets,
 		RunningTargets:     runningTargets,
 		CompletedTargets:   completedTargets,
 		FailedTargets:      failedTargets,
 		TimedOutTargets:    timedOutTargets,
+		ReachedTargets:     &reachedTargets,
 		Concurrency:        currentConcurrency,
 		MaxConcurrency:     maxConcurrency,
 		ConcurrencyHistory: controller.finalHistorySnapshot(completedTargets, failedTargets),
 		DurationMs:         durationMs,
-		TargetsPerMinute:   calculateTargetsPerMinute(len(targets), durationMs),
+		TargetsPerMinute:   calculateTargetsPerMinute(len(units), durationMs),
 	}
 
 	message := bulkMtrMessageCompleted
@@ -361,9 +391,10 @@ func (p *PushLoop) handleMtrBulkRun(ctx context.Context, cmd *proto.CommandReque
 	_ = sender.Send(commandResult(cmd, jobCtx.Err() == nil, message, resultPayload))
 }
 
-func buildBulkMtrTargetUpdate(target string, trace *mtr.TraceResult, err error) mtrBulkTargetUpdate {
+func buildBulkMtrTargetUpdate(unit bulkMtrUnit, trace *mtr.TraceResult, err error) mtrBulkTargetUpdate {
 	update := mtrBulkTargetUpdate{
-		Target:       target,
+		Target:       unit.target,
+		Protocol:     unit.protocol.String(),
 		AttemptCount: 1,
 	}
 
@@ -384,6 +415,74 @@ func buildBulkMtrTargetUpdate(target string, trace *mtr.TraceResult, err error) 
 	}
 
 	return update
+}
+
+// bulkMtrProtocols returns the job's protocols in canonical order (icmp, udp,
+// tcp) without duplicates. Unknown names are dropped rather than silently
+// becoming ICMP; a payload with no usable protocols falls back to Protocol.
+func bulkMtrProtocols(payload mtrBulkRunPayload) []mtr.Protocol {
+	seen := map[mtr.Protocol]bool{}
+
+	for _, name := range payload.Protocols {
+		if protocol, ok := parseBulkMtrProtocol(name); ok {
+			seen[protocol] = true
+		}
+	}
+
+	if len(seen) == 0 {
+		fallback, ok := parseBulkMtrProtocol(payload.Protocol)
+		if !ok {
+			fallback = mtr.ProtocolICMP
+		}
+
+		return []mtr.Protocol{fallback}
+	}
+
+	ordered := make([]mtr.Protocol, 0, len(seen))
+	for _, protocol := range []mtr.Protocol{mtr.ProtocolICMP, mtr.ProtocolUDP, mtr.ProtocolTCP} {
+		if seen[protocol] {
+			ordered = append(ordered, protocol)
+		}
+	}
+
+	return ordered
+}
+
+// parseBulkMtrProtocol is mtr.ParseProtocol without its fall-back to ICMP for
+// names it does not know.
+func parseBulkMtrProtocol(name string) (mtr.Protocol, bool) {
+	normalized := strings.ToLower(strings.TrimSpace(name))
+	protocol := mtr.ParseProtocol(normalized)
+
+	return protocol, protocol.String() == normalized
+}
+
+func bulkMtrProtocolNames(protocols []mtr.Protocol) []string {
+	names := make([]string, 0, len(protocols))
+	for _, protocol := range protocols {
+		names = append(names, protocol.String())
+	}
+
+	return names
+}
+
+// expandBulkMtrUnits lists every (target, protocol) trace of a job, target
+// by target, so a target's protocols are queued next to each other.
+func expandBulkMtrUnits(targets []string, protocols []mtr.Protocol) []bulkMtrUnit {
+	units := make([]bulkMtrUnit, 0, len(targets)*len(protocols))
+	for _, target := range targets {
+		for _, protocol := range protocols {
+			units = append(units, bulkMtrUnit{target: target, protocol: protocol})
+		}
+	}
+
+	return units
+}
+
+// bulkMtrUpdateReached reports whether a target update is a completed trace
+// that reached its target.
+func bulkMtrUpdateReached(update mtrBulkTargetUpdate) bool {
+	return update.Status == bulkMtrStatusCompleted && update.Trace != nil && update.Trace.TargetReached
 }
 
 func normalizeBulkMtrTargets(targets []string) []string {
@@ -462,6 +561,14 @@ func bulkMtrOptions(payload mtrBulkRunPayload) mtr.Options {
 		opts.MaxHops = clampInt(payload.MaxHops, mtrMaxHopsUpperBound)
 	}
 
+	if validMtrTCPPort(payload.TCPPort) {
+		opts.TCPPort = payload.TCPPort
+	}
+
+	if payload.TCPSynRetries != nil && validMtrTCPSynRetries(*payload.TCPSynRetries) {
+		opts.TCPSynRetries = *payload.TCPSynRetries
+	}
+
 	return opts
 }
 
@@ -470,9 +577,13 @@ func applyBulkExecutionProfile(opts *mtr.Options, profile string) {
 		return
 	}
 
+	// Every profile probes to the full default depth. A profile trades probe
+	// count and timeouts for speed, never path depth: a shallower ceiling cut
+	// internet paths short and recorded a reachable target as unreachable.
+	opts.MaxHops = mtr.DefaultMaxHops
+
 	switch normalizeBulkExecutionProfile(profile) {
 	case bulkMtrProfileBalanced:
-		opts.MaxHops = balancedBulkMaxHops
 		opts.ProbesPerHop = 5
 		opts.ProbeInterval = 50 * time.Millisecond
 		opts.Timeout = balancedBulkMtrTimeout
@@ -480,7 +591,6 @@ func applyBulkExecutionProfile(opts *mtr.Options, profile string) {
 		opts.MaxUnknownHops = 7
 		opts.RingBufferSize = balancedBulkRingBufferSize
 	case bulkMtrProfileDeep:
-		opts.MaxHops = mtr.DefaultMaxHops
 		opts.ProbesPerHop = mtr.DefaultProbesPerHop
 		opts.ProbeInterval = time.Duration(mtr.DefaultProbeIntervalMs) * time.Millisecond
 		opts.Timeout = mtr.DefaultTimeout
@@ -488,7 +598,6 @@ func applyBulkExecutionProfile(opts *mtr.Options, profile string) {
 		opts.MaxUnknownHops = mtr.DefaultMaxUnknownHops
 		opts.RingBufferSize = mtr.DefaultRingBufferSize
 	default:
-		opts.MaxHops = fastBulkMaxHops
 		opts.ProbesPerHop = 3
 		opts.ProbeInterval = 25 * time.Millisecond
 		opts.Timeout = fastBulkMtrTimeout
@@ -579,12 +688,12 @@ func flushBulkMtrProgress(
 	))
 }
 
-func nextBulkMtrTarget(ctx context.Context, targetCh <-chan string) (string, bool) {
+func nextBulkMtrTarget(ctx context.Context, targetCh <-chan bulkMtrUnit) (bulkMtrUnit, bool) {
 	select {
 	case <-ctx.Done():
-		return "", false
-	case target, ok := <-targetCh:
-		return target, ok
+		return bulkMtrUnit{}, false
+	case unit, ok := <-targetCh:
+		return unit, ok
 	}
 }
 
@@ -599,14 +708,14 @@ func sendBulkMtrEvent(ctx context.Context, eventCh chan<- mtrBulkEvent, event mt
 
 func dispatchBulkTargets(
 	ctx context.Context,
-	targets []string,
-	targetCh chan<- string,
+	units []bulkMtrUnit,
+	targetCh chan<- bulkMtrUnit,
 	slotFreedCh <-chan struct{},
 	currentLimit *atomic.Int32,
 ) {
 	inFlight := 0
 
-	for _, target := range targets {
+	for _, target := range units {
 		for inFlight >= int(currentLimit.Load()) {
 			if !waitForBulkMtrSlot(ctx, slotFreedCh, &inFlight) {
 				return
@@ -631,8 +740,8 @@ func dispatchBulkTargets(
 
 func queueBulkMtrTarget(
 	ctx context.Context,
-	targetCh chan<- string,
-	target string,
+	targetCh chan<- bulkMtrUnit,
+	target bulkMtrUnit,
 	inFlight *int,
 ) bool {
 	select {
@@ -848,11 +957,12 @@ func (w *bulkMtrWorker) close() {
 
 func (w *bulkMtrWorker) runResolved(
 	jobCtx context.Context,
-	target string,
+	unit bulkMtrUnit,
 	targetInfo *mtr.TargetInfo,
 ) (*mtr.TraceResult, error) {
 	opts := w.baseOpts
-	opts.Target = target
+	opts.Target = unit.target
+	opts.Protocol = unit.protocol
 
 	timeout := opts.Timeout
 	if timeout <= 0 {
@@ -980,17 +1090,17 @@ func (w *bulkMtrWorker) tracerForTarget(
 
 func resolveBulkTargets(
 	ctx context.Context,
-	targetCh <-chan string,
+	targetCh <-chan bulkMtrUnit,
 	taskCh chan<- bulkMtrTask,
 ) {
 	for {
-		target, ok := nextBulkMtrTarget(ctx, targetCh)
+		unit, ok := nextBulkMtrTarget(ctx, targetCh)
 		if !ok {
 			return
 		}
 
-		info, err := mtr.ResolveTarget(ctx, target)
-		if !sendBulkMtrTask(ctx, taskCh, bulkMtrTask{target: target, info: info, err: err}) {
+		info, err := mtr.ResolveTarget(ctx, unit.target)
+		if !sendBulkMtrTask(ctx, taskCh, bulkMtrTask{unit: unit, info: info, err: err}) {
 			return
 		}
 	}

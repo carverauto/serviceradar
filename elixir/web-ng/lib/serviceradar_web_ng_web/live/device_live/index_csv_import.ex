@@ -472,12 +472,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexCsvImport do
     end
   end
 
-  def import_partial_message(created, updated, failed) do
-    if created + updated > 0 do
-      "Import partially completed: #{created} created, #{updated} updated, and #{failed} failed."
-    end
-  end
-
   defp row_label(%{source_line: line}) when is_integer(line), do: "Row #{line}"
   defp row_label(_device_data), do: "Row (unknown)"
 

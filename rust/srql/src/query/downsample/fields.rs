@@ -267,7 +267,7 @@ pub(super) fn series_expr(plan: &QueryPlan, table: &str) -> Result<String> {
     Ok(format!("coalesce({expr}, '')"))
 }
 
-pub(super) fn agg_expr(agg: DownsampleAgg, value_col: &str) -> String {
+pub(super) fn agg_expr(agg: DownsampleAgg, value_col: &str, ts_col: &str) -> String {
     match agg {
         DownsampleAgg::Avg => format!("AVG({value_col})"),
         DownsampleAgg::Min => format!("MIN({value_col})"),
@@ -277,6 +277,9 @@ pub(super) fn agg_expr(agg: DownsampleAgg, value_col: &str) -> String {
         // Rate is handled specially in build_sql with a CTE, this is a fallback
         DownsampleAgg::Rate => format!("AVG({value_col})"),
         DownsampleAgg::RateSum => format!("SUM({value_col})"),
+        // The newest sample in the bucket. Portable Postgres rather than
+        // TimescaleDB's `last()`, so the raw tables need no extension function.
+        DownsampleAgg::Last => format!("(array_agg({value_col} ORDER BY {ts_col} DESC))[1]"),
     }
 }
 

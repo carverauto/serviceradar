@@ -4,12 +4,15 @@ defmodule ServiceRadar.Automation.Northbound.CommandResultHandler do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Automation.Northbound.ActionDescriptor
   alias ServiceRadar.Automation.Northbound.ActionInvocation
   alias ServiceRadar.Automation.Northbound.ActionInvocationTarget
   alias ServiceRadar.Automation.Northbound.PollWorker
   alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Edge.Crypto
+  alias ServiceRadar.Plugins.ProducerSchedule
+  alias ServiceRadar.Plugins.RunOverrides
 
   require Logger
 
@@ -74,9 +77,29 @@ defmodule ServiceRadar.Automation.Northbound.CommandResultHandler do
   def handle_callback_result(_job_id, _payload, _opts), do: {:error, :invalid_callback_payload}
 
   defp apply_result(data, actor) do
-    with {:ok, context} <- command_context(map_get(data, :command_id, nil), actor),
-         {:ok, invocation_id} <- context_invocation_id(context),
-         {:ok, invocation} <- get_invocation(invocation_id, actor) do
+    case command_context(map_get(data, :command_id, nil), actor) do
+      {:ok, context} ->
+        case context_invocation_id(context) do
+          {:ok, invocation_id} ->
+            apply_northbound_invocation_result(data, actor, context, invocation_id)
+
+          {:error, :not_northbound_command} ->
+            apply_producer_schedule_result(data, context, actor)
+
+          {:error, reason} ->
+            Logger.debug("Northbound command result ignored: #{inspect(reason)}")
+        end
+
+      {:error, :not_northbound_command} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.debug("Northbound command result ignored: #{inspect(reason)}")
+    end
+  end
+
+  defp apply_northbound_invocation_result(data, actor, context, invocation_id) do
+    with {:ok, invocation} <- get_invocation(invocation_id, actor) do
       payload = normalize_payload(map_get(data, :payload, %{}))
       status = result_status(payload)
 
@@ -94,13 +117,95 @@ defmodule ServiceRadar.Automation.Northbound.CommandResultHandler do
         record_invocation_result(invocation, data, payload, terminal_status, actor)
       end
 
+      if terminal_status == :succeeded do
+        apply_run_overrides(invocation, payload, context, actor)
+      end
+
       consume_command_credential_grants(context, actor)
-    else
-      {:error, :not_northbound_command} ->
+    end
+  end
+
+  # A succeeded plugin action may leave time-bounded run overrides for its
+  # assignment. Only a succeeded action may change later runs; the descriptor's
+  # max_override_duration_seconds bounds them.
+  defp apply_run_overrides(invocation, payload, context, actor) do
+    case RunOverrides.apply_action_result(payload, context,
+           actor: actor,
+           invocation_id: invocation.id,
+           max_override_duration_seconds: descriptor_max_override_duration(invocation, actor)
+         ) do
+      {:ok, _count} ->
         :ok
 
       {:error, reason} ->
-        Logger.debug("Northbound command result ignored: #{inspect(reason)}")
+        Logger.warning("Northbound action run overrides ignored",
+          invocation_id: invocation.id,
+          reason: inspect(reason)
+        )
+    end
+  end
+
+  defp descriptor_max_override_duration(%{descriptor_id: descriptor_id}, actor)
+       when is_binary(descriptor_id) do
+    case ActionDescriptor.get_by_id(descriptor_id, actor: actor) do
+      {:ok, %{max_override_duration_seconds: seconds}} -> seconds
+      _ -> nil
+    end
+  end
+
+  defp descriptor_max_override_duration(_invocation, _actor), do: nil
+
+  defp context_producer_schedule_id(context) when is_map(context) do
+    case map_get(context, :producer_schedule_id, nil) do
+      id when is_binary(id) and id != "" -> {:ok, id}
+      _ -> {:error, :not_producer_schedule_command}
+    end
+  end
+
+  defp apply_producer_schedule_result(data, context, actor) do
+    with {:ok, schedule_id} <- context_producer_schedule_id(context),
+         {:ok, schedule} <- ProducerSchedule.get_by_id(schedule_id, actor: actor) do
+      payload = normalize_payload(map_get(data, :payload, %{}))
+
+      success? =
+        map_get(data, :success, false) == true and
+          result_status(payload) not in [:failed, :expired]
+
+      {last_status, last_error} =
+        if success? do
+          {"succeeded", nil}
+        else
+          {"failed", error_message(data, payload)}
+        end
+
+      case ProducerSchedule.record_run_result(
+             schedule,
+             %{last_status: last_status, last_error: last_error},
+             actor: actor
+           ) do
+        {:ok, updated} ->
+          Phoenix.PubSub.broadcast(
+            ServiceRadar.PubSub,
+            "producer_schedule:updated",
+            {:producer_schedule_updated, updated}
+          )
+
+          :ok
+
+        {:error, reason} ->
+          Logger.warning("Failed to record producer schedule run result",
+            schedule_id: schedule_id,
+            reason: inspect(reason)
+          )
+
+          :ok
+      end
+    else
+      {:error, :not_producer_schedule_command} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.debug("Producer schedule result ignored: #{inspect(reason)}")
     end
   end
 

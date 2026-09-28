@@ -287,7 +287,7 @@ LIMIT 5;
 | Symptom | Likely cause |
 |---------|----------------|
 | No active snapshot | Missing/invalid credentials; import job failing; count mismatch on paginated pull |
-| Preview returns empty | Loader not running / empty snapshots; wrong IP family |
+| Preview unavailable | Core disconnected or still loading snapshots; see [Prefix Tags](./prefix-tags.md) |
 | Flows untagged | flag not enabled; empty tries; traffic outside imported prefixes |
 | Partial NetBox pages | Importer refuses partial promote; check logs for count mismatch |
 | SRQL `column src_prefix_tags does not exist` | Migration not applied before SRQL roll - apply `20260718010000` first |

@@ -4,6 +4,7 @@ alias Geolix.Adapter.MMDB2
 alias ServiceRadar.Automation.Ansible.FileCallbackResponsePolicyProvider
 alias ServiceRadar.Automation.CallbackGrants.RuntimeConfig
 alias ServiceRadar.Edge.RemoteAccessSSHCACommandSigner
+alias ServiceRadar.NATS.StateBucketSizing
 alias ServiceRadarWebNG.RemoteDesktopWebRTCConfig
 alias Swoosh.Adapters.Local
 
@@ -573,10 +574,15 @@ plugin_storage_overrides =
   )
   |> maybe_put_env.(:max_upload_bytes, System.get_env("PLUGIN_STORAGE_MAX_UPLOAD_BYTES"), to_int)
   |> maybe_put_env_simple.(:jetstream_bucket, plugin_storage_bucket)
-  |> maybe_put_env.(
+  # Always finite: the plugin bucket is a discard-new state bucket whose size
+  # the NATS JetStream budget counts. Unset or blank uses the 2 GiB default; any
+  # other non-positive or non-integer value fails boot.
+  |> Keyword.put(
     :jetstream_max_bucket_size,
-    System.get_env("PLUGIN_STORAGE_JS_MAX_BUCKET_BYTES"),
-    to_int
+    StateBucketSizing.bytes_from_env!(
+      "PLUGIN_STORAGE_JS_MAX_BUCKET_BYTES",
+      ServiceRadarWebNG.Plugins.Storage.default_max_bucket_bytes()
+    )
   )
   |> maybe_put_env.(
     :jetstream_max_chunk_size,
@@ -675,6 +681,16 @@ remote_access_desktop_webrtc =
     turn_shared_secret_file: System.get_env("SERVICERADAR_REMOTE_ACCESS_DESKTOP_WEBRTC_TURN_SHARED_SECRET_FILE"),
     credential_ttl_seconds: System.get_env("SERVICERADAR_REMOTE_ACCESS_DESKTOP_WEBRTC_TURN_CREDENTIAL_TTL_SECONDS")
   )
+
+camera_relay_webrtc_enabled =
+  case to_bool.(System.get_env("SERVICERADAR_CAMERA_RELAY_WEBRTC_ENABLED", "false")) do
+    nil -> false
+    value -> value
+  end
+
+# Camera relay ICE servers use the same urls-only JSON contract as remote desktop.
+camera_relay_webrtc_ice_servers =
+  RemoteDesktopWebRTCConfig.load_ice_servers!(System.get_env("SERVICERADAR_CAMERA_RELAY_WEBRTC_ICE_SERVERS_JSON"))
 
 remote_access_app_enabled =
   case to_bool.(System.get_env("SERVICERADAR_REMOTE_ACCESS_APP_ENABLED", "false")) do
@@ -799,6 +815,10 @@ config :serviceradar_web_ng,
   camera_relay_browser_stream_timeout_ms: camera_relay_browser_stream_timeout_ms
 
 config :serviceradar_web_ng,
+  camera_relay_webrtc_enabled: camera_relay_webrtc_enabled,
+  camera_relay_webrtc_ice_servers: camera_relay_webrtc_ice_servers
+
+config :serviceradar_web_ng,
   device_enrichment_rules_dir:
     System.get_env("DEVICE_ENRICHMENT_RULES_DIR", "/var/lib/serviceradar/rules/device-enrichment")
 
@@ -894,6 +914,15 @@ object_store_retention_overrides =
     System.get_env("OBJECT_STORE_RETENTION_PLUGIN_ORPHAN_GRACE_SECONDS"),
     to_int
   )
+
+# FieldSurvey artifact bucket cap (discard-new state bucket). Unset or blank
+# uses the 1 GiB default; any other non-positive or non-integer value fails boot.
+config :serviceradar_web_ng, :field_survey_artifact_store,
+  jetstream_max_bucket_size:
+    StateBucketSizing.bytes_from_env!(
+      "FIELD_SURVEY_JS_MAX_BUCKET_BYTES",
+      ServiceRadarWebNG.FieldSurveyArtifactStore.default_max_bucket_bytes()
+    )
 
 if object_store_retention_overrides != [] do
   config :serviceradar_web_ng,
@@ -1356,7 +1385,6 @@ if config_env() != :test do
     end
 
   config :serviceradar_core, Oban, oban_config
-  config :serviceradar_core, :log_promotion_consumer_enabled, false
   config :serviceradar_core, :oban_enabled, oban_enabled
   config :serviceradar_core, :start_ash_oban_scheduler, false
 
