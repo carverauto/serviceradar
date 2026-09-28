@@ -19,7 +19,7 @@ if [[ -n "${BUILD_WORKSPACE_DIRECTORY:-}" && -f "${BUILD_WORKSPACE_DIRECTORY}/de
 elif [[ -n "${TEST_SRCDIR:-}" && -n "${TEST_WORKSPACE:-}" ]]; then
   RUNFILES_PKG="${TEST_SRCDIR}/${TEST_WORKSPACE}/demo/dashboard-kit/package.json"
   if [[ -e "$RUNFILES_PKG" ]]; then
-    KIT_DIR="$(dirname "$(readlink -f "$RUNFILES_PKG")")"
+    KIT_DIR="$(cd "$(dirname "$RUNFILES_PKG")" && pwd -P)"
   fi
 fi
 
