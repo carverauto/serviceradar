@@ -221,8 +221,9 @@ The agent applies the same checks as `http_request`, before it dials:
   address. Use `transport: tls` for anything else. TLS verifies against the same
   trust roots the agent uses for plugin HTTPS.
 - The call counts against `max_open_connections` while it runs.
-- The default timeout is 10 seconds. The response message is capped at 4 MiB,
-  or lower when the request sets `max_response_bytes`.
+- The default timeout is 10 seconds and covers DNS lookup, dial, and the RPC
+  together. The response message is capped at 4 MiB, or lower when the request
+  sets `max_response_bytes`.
 - Request metadata keys are lowercased. Pseudo-headers, `grpc-*` keys, and
   transport headers such as `content-type` and `te` are rejected. Keys ending in
   `-bin` carry base64 values.
