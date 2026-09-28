@@ -7,13 +7,15 @@ defmodule ServiceRadar.Observability.RawMetricResource do
     route = Keyword.fetch!(opts, :route)
     primary_key = Keyword.fetch!(opts, :primary_key)
     require_primary_key = Keyword.get(opts, :require_primary_key?, false)
+    warehouse_table = Keyword.get(opts, :warehouse_table)
 
     quote bind_quoted: [
             table: table,
             type: type,
             route: route,
             primary_key: primary_key,
-            require_primary_key: require_primary_key
+            require_primary_key: require_primary_key,
+            warehouse_table: warehouse_table
           ] do
       use Ash.Resource,
         domain: ServiceRadar.Observability,
@@ -47,6 +49,8 @@ defmodule ServiceRadar.Observability.RawMetricResource do
 
       actions do
         read :api_index do
+          manual {ServiceRadar.Observability.TelemetryIndexRead, table: warehouse_table}
+
           pagination do
             offset?(true)
             default_limit(100)

@@ -42,6 +42,8 @@ defmodule ServiceRadar.Observability.OtelMetric do
     defaults [:read]
 
     read :api_index do
+      manual {ServiceRadar.Observability.TelemetryIndexRead, table: "otel_metrics"}
+
       pagination do
         offset? true
         default_limit 100

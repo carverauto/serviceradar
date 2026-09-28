@@ -6,8 +6,15 @@ defmodule ServiceRadar.Observability.HourlyMetricResource do
     type = Keyword.fetch!(opts, :type)
     route = Keyword.fetch!(opts, :route)
     primary_key = Keyword.fetch!(opts, :primary_key)
+    warehouse_table = Keyword.get(opts, :warehouse_table)
 
-    quote bind_quoted: [table: table, type: type, route: route, primary_key: primary_key] do
+    quote bind_quoted: [
+            table: table,
+            type: type,
+            route: route,
+            primary_key: primary_key,
+            warehouse_table: warehouse_table
+          ] do
       use Ash.Resource,
         domain: ServiceRadar.Observability,
         data_layer: AshPostgres.DataLayer,
@@ -42,6 +49,8 @@ defmodule ServiceRadar.Observability.HourlyMetricResource do
         defaults([:read])
 
         read :api_index do
+          manual {ServiceRadar.Observability.TelemetryIndexRead, table: warehouse_table}
+
           pagination do
             offset?(true)
             default_limit(100)
