@@ -55,6 +55,7 @@ The shared invented million-device/two-million-relation generator passes the [la
 - [x] 5.7 Round-trip tile/detail metadata, UInt16 affine positions, local endpoints/proxies, and columnar/lazy details through the schema-3 NIF encoder and client decoder.
 - [x] 5.8 Run make test with --config=remote on the final tree before the PR. Deliver every PR through no-mistakes with the srql-fixtures-only database restriction in the run intent.
 - [x] 5.9 Pass pure semantic Atlas tests using an invented 200,000-device/400,000-relation graph. This historical foundation check does not replace the open million-device tile acceptance above.
+- [ ] 5.10 Run the network-scale simulator from `add-showcase-demo-portfolio` through real inventory/topology ingestion, isolated Dgraph and JetStream/EventWriter telemetry. Prove one million persisted devices, relation/interface bindings, changing SNMP rates, zero/stale/reset cases, opening camera coverage, bounded ELK detail and hardware WebGPU animation. Record total inventory and active telemetry population separately; the existing Arrow browser fixture and scratch layout benchmark do not prove this end-to-end path.
 
 ## 6. Persistent World and Tile Engine
 - [x] 6.1 Add core Ash layout/head/device-position/relation-binding resources and platform migrations with the Helm core migration expected-version bump.

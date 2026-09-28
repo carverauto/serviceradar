@@ -1,5 +1,32 @@
 ## ADDED Requirements
 
+### Requirement: Network-scale simulation exercises the production topology and telemetry paths
+The demo suite SHALL provide an independently invented, deterministic network scenario supporting one million devices and at least two million relations, with stable interface bindings and independently configurable telemetry population and cadence. Generation SHALL be bounded per shard and batch, and repeated runs SHALL preserve identities. The simulator SHALL use ordinary inventory and topology ingestion into the canonical Dgraph model, and cumulative SNMP packet/octet metric envelopes through `emit_telemetry`, JetStream and EventWriter. It SHALL NOT seed metric tables directly or replace God View's HTTP/channel responses with fabricated overlays for end-to-end acceptance.
+
+#### Scenario: Measurable million-device deployment
+- **WHEN** the one-million-device scenario has completed ingestion in an isolated synthetic deployment
+- **THEN** verification SHALL count one million persisted devices and at least two million canonical relations with resolvable endpoints
+- **AND** SHALL report the number of devices and interfaces actively emitting telemetry, their sample cadence, ingest lag and offered rate separately from topology size
+- **AND** a partial ingestion SHALL fail verification even when the producer reports success
+
+#### Scenario: Traffic lifecycle reaches the real renderer
+- **WHEN** synthetic SNMP counters change from positive traffic to measured zero, stop reporting, reset and resume
+- **THEN** SRQL and the real God View overlay SHALL reflect those states without treating missing counters as zero or reset discontinuities as spikes
+- **AND** hardware WebGPU verification SHALL observe directional traffic animation without requiring multicast or broadcast counters
+- **AND** telemetry changes SHALL NOT refetch unchanged tile geometry
+
+#### Scenario: Synthetic isolation and replay
+- **WHEN** an operator repeats or stops a network-scale run
+- **THEN** the run SHALL affect only its isolated synthetic deployment and graph, never live data or another CI run's graph
+- **AND** repeated batches SHALL NOT multiply device identities or topology relations
+- **AND** teardown verification SHALL query owned records after producers have stopped
+
+#### Scenario: Opening and exploring the network
+- **WHEN** an authenticated user opens the scenario in God View
+- **THEN** the initial camera SHALL cover the world overview and the displayed device counts SHALL account for the complete generated population
+- **AND** zooming SHALL reveal bounded levels of detail and selection SHALL open a bounded ELK neighborhood
+- **AND** returning from detail SHALL preserve the user's map position
+
 ### Requirement: Demo packages are fenced from the product
 Demo simulator plugins, scenario packs, dashboards, fixtures, alert rules and deploy targets SHALL live under `demo/` and SHALL NOT be included in any product build, first-party plugin inventory, Helm chart or release artifact.
 Every `demo/` Bazel target is visible only within `//demo/...`, and demo plugins are signed with a demo-only upload key trusted solely by the `demo` instance.
