@@ -85,6 +85,7 @@ defmodule ServiceRadar.EventWriter.Producer do
     :pull_inflight,
     :pull_inflight_by_subject,
     :pull_inflight_started_at,
+    :pull_rotation,
     :sid_to_pull_subject,
     :max_buffered,
     :dropped_overflow,
@@ -125,6 +126,7 @@ defmodule ServiceRadar.EventWriter.Producer do
       pull_inflight: 0,
       pull_inflight_by_subject: %{},
       pull_inflight_started_at: %{},
+      pull_rotation: 0,
       sid_to_pull_subject: %{},
       max_buffered: max_buffered,
       dropped_overflow: 0,
@@ -984,9 +986,15 @@ defmodule ServiceRadar.EventWriter.Producer do
       |> max(0)
 
     per_consumer_budget = fair_consumer_budget(budget, length(consumers))
+    rotation = pull_rotation(state, length(consumers))
+
+    # Start each tick one consumer further along. When the budget cannot give
+    # every consumer a share, the consumers left without one change from tick
+    # to tick instead of always being the tail of the list.
+    {head, tail} = Enum.split(consumers, rotation)
 
     {requested, requested_by_subject, _remaining_budget} =
-      Enum.reduce_while(consumers, {0, [], budget}, fn consumer,
+      Enum.reduce_while(tail ++ head, {0, [], budget}, fn consumer,
                                                        {requested, requested_by_subject,
                                                         remaining} ->
         # One outstanding pull per reply subject at a time so long-poll
@@ -1020,7 +1028,11 @@ defmodule ServiceRadar.EventWriter.Producer do
     end
 
     record_pull_inflight(
-      %{state | pull_inflight: state.pull_inflight + requested},
+      %{
+        state
+        | pull_inflight: state.pull_inflight + requested,
+          pull_rotation: rotation + 1
+      },
       requested_by_subject
     )
   end
@@ -1040,9 +1052,20 @@ defmodule ServiceRadar.EventWriter.Producer do
     min(available, Config.default_consumer_pull_batch_size())
   end
 
+  # Floor, not ceiling: with a ceiling the shares add up to more than the
+  # budget, so whenever it does not divide evenly the last consumers in the list
+  # get nothing, on every tick. Eighteen consumers and a demand of 94 gave six
+  # each to the first fifteen and none to the last two, which then never pulled.
   defp fair_consumer_budget(_budget, consumer_count) when consumer_count <= 0, do: 0
   defp fair_consumer_budget(budget, _consumer_count) when budget <= 0, do: 0
-  defp fair_consumer_budget(budget, consumer_count), do: max(1, ceil(budget / consumer_count))
+  defp fair_consumer_budget(budget, consumer_count), do: max(1, div(budget, consumer_count))
+
+  defp pull_rotation(_state, consumer_count) when consumer_count <= 0, do: 0
+
+  defp pull_rotation(%{pull_rotation: rotation}, consumer_count) when is_integer(rotation),
+    do: rem(rotation, consumer_count)
+
+  defp pull_rotation(_state, _consumer_count), do: 0
 
   defp queue_take(queue, 0, acc), do: {Enum.reverse(acc), queue}
 
