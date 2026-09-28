@@ -1105,32 +1105,35 @@ func requireSingleDisposition(
 // edgeRecordStream opens the edge-record stream over a fresh NATS connection
 // authenticated with the same .creds file the releases use. The connection
 // closes when t ends.
-func (h *harness) edgeRecordStream(t *testing.T) jetstream.Stream {
+func (h *harness) edgeRecordStream(t *testing.T) (jetstream.Stream, error) {
 	t.Helper()
 	nc, err := nats.Connect(h.nats.URL, nats.UserCredentials(h.nats.CredsPath))
 	if err != nil {
-		t.Fatalf("connect to nats: %v", err)
+		return nil, fmt.Errorf("connect to nats: %w", err)
 	}
 	t.Cleanup(nc.Close)
 
 	js, err := jetstream.New(nc)
 	if err != nil {
-		t.Fatalf("jetstream context: %v", err)
+		return nil, fmt.Errorf("jetstream context: %w", err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
 	defer cancel()
 	stream, err := js.Stream(ctx, edgeRecordStreamName)
 	if err != nil {
-		t.Fatalf("open stream %s: %v", edgeRecordStreamName, err)
+		return nil, fmt.Errorf("open stream %s: %w", edgeRecordStreamName, err)
 	}
-	return stream
+	return stream, nil
 }
 
 // storedMessagesCarrying returns the stream sequence of every message stored
 // in the edge-record stream whose body is exactly recordBytes.
 func (h *harness) storedMessagesCarrying(t *testing.T, recordBytes []byte) []uint64 {
 	t.Helper()
-	stream := h.edgeRecordStream(t)
+	stream, err := h.edgeRecordStream(t)
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
 	defer cancel()
 
@@ -1353,6 +1356,7 @@ func (h *harness) waitIngestObservation(t *testing.T, eventID []byte, point stri
 			}
 		}
 		if !time.Now().Before(deadline) {
+			t.Logf("pipeline diagnostics at timeout:\n%s", h.pipelineDiagnostics(t))
 			t.Fatalf("EventWriter never reached %s call %d for event %x within %s (observed %+v); see %s in this test's undeclared outputs",
 				point, n, eventID, pollTimeout, seen, h.preservedLogName(h.coreProc.stderrPath))
 		}
@@ -1737,13 +1741,195 @@ func (h *harness) assertCumulativeDeliveryAck(t *testing.T) {
 	_ = stream.CloseSend()
 }
 
+// producerDiagnosticsExpr prints, for every EventWriter Broadway producer in
+// the core node, the producer state that decides whether the edge durable is
+// pulled: demand, buffered messages, per-pull-subject inflight accounting, and
+// the edge consumers it holds. Diagnostic only; nothing here acts on the
+// pipeline.
+const producerDiagnosticsExpr = `
+find = fn
+  _f, %{pull_inflight_by_subject: _} = s -> s
+  f, %_{} = s -> f.(f, Map.from_struct(s))
+  f, s when is_map(s) -> Enum.find_value(Map.values(s), &f.(f, &1))
+  f, s when is_tuple(s) -> Enum.find_value(Tuple.to_list(s), &f.(f, &1))
+  f, s when is_list(s) -> if length(s) < 64, do: Enum.find_value(s, &f.(f, &1)), else: nil
+  _, _ -> nil
+end
+
+edge? = fn v -> v |> inspect(limit: 50) |> String.downcase() |> String.contains?("edge") end
+
+Process.registered()
+|> Enum.filter(&(Atom.to_string(&1) =~ "Broadway.Producer_"))
+|> Enum.each(fn name ->
+  case find.(find, :sys.get_state(name, 5_000)) do
+    nil ->
+      IO.puts("producer|#{inspect(name)}|no producer state found")
+
+    st ->
+      consumers = (get_in(st, [Access.key(:consumer_context, %{}), Access.key(:consumers, [])]) || [])
+      edge = Enum.filter(consumers, edge?)
+
+      IO.puts("producer|#{inspect(name)}|connected=#{inspect(Map.get(st, :connected))} demand=#{inspect(Map.get(st, :demand))} pending_count=#{inspect(Map.get(st, :pending_count))} max_buffered=#{inspect(Map.get(st, :max_buffered))} pull_inflight=#{inspect(Map.get(st, :pull_inflight))} consumers=#{length(consumers)} edge_consumers=#{inspect(edge, limit: 20)}")
+      IO.puts("producer|#{inspect(name)}|pull_inflight_by_subject=#{inspect(Map.get(st, :pull_inflight_by_subject), limit: 50)} pull_inflight_started_at=#{inspect(Map.get(st, :pull_inflight_started_at), limit: 50)} now_ms=#{System.monotonic_time(:millisecond)}")
+      IO.puts("producer|#{inspect(name)}|failed_streams=#{inspect(Map.get(st, :failed_streams), limit: 20)} degraded_streams=#{inspect(Map.get(st, :degraded_streams), limit: 20)}")
+  end
+end)
+`
+
+// producerPullTraceExpr traces the shared EventWriter producer for 2s: every
+// JetStream pull it issues (grouped by durable, with the request options) and
+// every message it receives on the edge durable's pull inbox, status replies
+// included. Tracing is switched off in an after block, so a failed evaluation
+// cannot leave the production process traced.
+const producerPullTraceExpr = `
+pid = Process.whereis(ServiceRadar.EventWriter.Pipeline.Broadway.Producer_0)
+mfa = {Gnat.Jetstream.API.Consumer, :request_next_message, 6}
+edge_inbox = "_INBOX.serviceradar.event_writer.pull.serviceradar-event-writer.edge_record"
+
+if pid == nil do
+  IO.puts("trace|no shared producer registered")
+else
+  find_sids = fn
+    _f, %{sid_to_pull_subject: sids} when is_map(sids) -> sids
+    f, %_{} = s -> f.(f, Map.from_struct(s))
+    f, s when is_map(s) -> Enum.find_value(Map.values(s), &f.(f, &1))
+    f, s when is_tuple(s) -> Enum.find_value(Tuple.to_list(s), &f.(f, &1))
+    f, s when is_list(s) -> if length(s) < 64, do: Enum.find_value(s, &f.(f, &1)), else: nil
+    _, _ -> nil
+  end
+  %{} = sid_to_pull_subject = find_sids.(find_sids, :sys.get_state(pid, 5_000))
+  edge_message? = fn
+    {:msg, %{topic: topic} = msg} ->
+      topic == edge_inbox or Map.get(sid_to_pull_subject, Map.get(msg, :sid)) == edge_inbox
+    _ -> false
+  end
+
+  :erlang.trace_pattern(mfa, true, [:global])
+  :erlang.trace(pid, true, [:call, :receive, {:tracer, self()}])
+
+  events =
+    try do
+      Process.sleep(2_000)
+      :erlang.trace(pid, false, [:call, :receive])
+      collect = fn f, acc ->
+        receive do
+          {:trace, ^pid, _, _} = e -> f.(f, [e | acc])
+          {:trace, ^pid, _, _, _} = e -> f.(f, [e | acc])
+        after
+          200 -> Enum.reverse(acc)
+        end
+      end
+      collect.(collect, [])
+    after
+      :erlang.trace(pid, false, [:call, :receive])
+      :erlang.trace_pattern(mfa, false, [:global])
+    end
+
+  pulls =
+    for {:trace, _, :call, {_, _, [_conn, stream, durable, _reply, _domain, opts]}} <- events,
+      do: {stream, durable, opts}
+
+  pulls
+  |> Enum.frequencies_by(fn {_stream, durable, _opts} -> durable end)
+  |> Enum.sort()
+  |> Enum.each(fn {durable, n} -> IO.puts("trace|pulls|#{durable}|#{n}") end)
+
+  pulls
+  |> Enum.filter(fn {_s, durable, _o} -> durable =~ "edge" end)
+  |> Enum.take(3)
+  |> Enum.each(fn {s, d, o} -> IO.puts("trace|edge_pull|#{s}|#{d}|#{inspect(o)}") end)
+
+  receives = for {:trace, _, :receive, m} <- events, do: m
+
+  receives
+  |> Enum.frequencies_by(fn
+    {:msg, _} = m -> if edge_message?.(m), do: :edge_inbox_msg, else: :other_msg
+    {:"$gen_producer", _, _} -> :gen_producer
+    {:"$gen_call", _, _} -> :gen_call
+    m when is_tuple(m) -> elem(m, 0)
+    m -> m
+  end)
+  |> Enum.each(fn {k, n} -> IO.puts("trace|recv|#{inspect(k)}|#{n}") end)
+
+  receives
+  |> Enum.filter(edge_message?)
+  |> Enum.take(5)
+  |> Enum.each(fn {:msg, m} ->
+    IO.puts("trace|edge_inbox|" <> inspect(Map.drop(m, [:body]) |> Map.put(:body_bytes, byte_size(m.body || "")), limit: 30))
+  end)
+
+  IO.puts("trace|events|#{length(events)}")
+end
+`
+
+// pipelineDiagnostics describes the edge-record pipeline at the moment a wait
+// timed out: the EventWriter producers' pull state in core and the edge
+// durable's JetStream consumer state. It never fails t; a diagnostic that
+// cannot be read says so in its output.
+func (h *harness) pipelineDiagnostics(t *testing.T) string {
+	t.Helper()
+	var b strings.Builder
+
+	if out, err := h.coreProc.RPC(producerDiagnosticsExpr, rpcTimeout); err != nil {
+		fmt.Fprintf(&b, "core producers: unavailable: %v\n", err)
+	} else {
+		for _, line := range strings.Split(out, "\n") {
+			if strings.HasPrefix(strings.TrimSpace(line), "producer|") {
+				fmt.Fprintf(&b, "core %s\n", strings.TrimSpace(line))
+			}
+		}
+	}
+
+	if out, err := h.coreProc.RPC(producerPullTraceExpr, rpcTimeout); err != nil {
+		fmt.Fprintf(&b, "core producer trace: unavailable: %v\n", err)
+	} else {
+		for _, line := range strings.Split(out, "\n") {
+			if strings.HasPrefix(strings.TrimSpace(line), "trace|") {
+				fmt.Fprintf(&b, "core %s\n", strings.TrimSpace(line))
+			}
+		}
+	}
+
+	if !h.nats.Server.JetStreamEnabled() {
+		b.WriteString("jetstream: disabled\n")
+		return b.String()
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
+	defer cancel()
+	stream, err := h.edgeRecordStream(t)
+	if err != nil {
+		fmt.Fprintf(&b, "jetstream: unavailable: %v\n", err)
+		return b.String()
+	}
+	if si, err := stream.Info(ctx); err != nil {
+		fmt.Fprintf(&b, "stream %s: info unavailable: %v\n", edgeRecordStreamName, err)
+	} else {
+		fmt.Fprintf(&b, "stream %s: msgs=%d first_seq=%d last_seq=%d consumers=%d\n",
+			edgeRecordStreamName, si.State.Msgs, si.State.FirstSeq, si.State.LastSeq, si.State.Consumers)
+	}
+	lister := stream.ListConsumers(ctx)
+	for ci := range lister.Info() {
+		fmt.Fprintf(&b, "consumer %s: delivered_stream=%d ack_floor_stream=%d num_pending=%d num_ack_pending=%d num_redelivered=%d num_waiting=%d max_ack_pending=%d max_waiting=%d max_deliver=%d ack_wait=%s\n",
+			ci.Name, ci.Delivered.Stream, ci.AckFloor.Stream, ci.NumPending, ci.NumAckPending,
+			ci.NumRedelivered, ci.NumWaiting, ci.Config.MaxAckPending, ci.Config.MaxWaiting,
+			ci.Config.MaxDeliver, ci.Config.AckWait)
+	}
+	if err := lister.Err(); err != nil {
+		fmt.Fprintf(&b, "list consumers: %v\n", err)
+	}
+	return b.String()
+}
+
 // edgeRecordAckFloor returns the stream sequence through which the
 // EventWriter's durable consumer on the edge-record stream has acknowledged
 // every message. The harness reads with direct gets only, so that durable is
 // the stream's one consumer.
 func (h *harness) edgeRecordAckFloor(t *testing.T) uint64 {
 	t.Helper()
-	stream := h.edgeRecordStream(t)
+	stream, err := h.edgeRecordStream(t)
+	if err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
 	defer cancel()
 
@@ -2125,6 +2311,10 @@ func (h *harness) awaitSingleLedgerRow(t *testing.T, fx *FixtureRecord) int {
 			break
 		}
 		time.Sleep(pollInterval)
+	}
+	if n != 1 {
+		t.Logf("pipeline diagnostics after %s without a ledger row for event %x:\n%s",
+			pollTimeout, fx.EventID, h.pipelineDiagnostics(t))
 	}
 	return n
 }
