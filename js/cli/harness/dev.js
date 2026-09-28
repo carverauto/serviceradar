@@ -54,9 +54,9 @@ function createContext(initialState) {
   let resolver = null
 
   const ctx = {
-    async mount(module) {
+    async mount(module, {reloadFrames = true} = {}) {
       try {
-        await loadFrames()
+        if (reloadFrames) await loadFrames()
       } catch (error) {
         showError(`failed to load sample frames: ${error.message}`)
         return
@@ -71,7 +71,7 @@ function createContext(initialState) {
 
         if (state.fixtureResolver && !resolver) {
           resolver = pickFixtureResolver(await import(/* @vite-ignore */ state.fixtureResolver))
-          if (!resolver) showError(`${state.fixtureResolver} exports no resolveFixture function`)
+          if (!resolver) throw new Error(`${state.fixtureResolver} exports no resolveFixture function`)
         }
 
         api = await createHostApi(state, {
@@ -90,11 +90,11 @@ function createContext(initialState) {
         showError(formatError(error))
       }
     },
-    async replaceRenderer(nextModule) {
+    async replaceRenderer(nextModule, options = {}) {
       destroyMounted(mounted)
       api?.camera?.closeAll()
       mounted = null
-      await ctx.mount(nextModule)
+      await ctx.mount(nextModule, options)
     },
     async swapFixture(name) {
       if (!state.fixtures || !state.fixtures[name]) return
@@ -113,13 +113,7 @@ function createContext(initialState) {
       }
       // Push the new frames through the existing api callbacks first; if the
       // renderer doesn't subscribe (most do via SDK hooks), remount.
-      const broadcast = Array.from(frameListeners)
-      if (broadcast.length === 0) {
-        const next = await reimportRenderer()
-        if (next) await ctx.replaceRenderer(next)
-        return
-      }
-      for (const listener of broadcast) listener({frames})
+      await broadcastFrames({reloadFramesOnRemount: true})
     },
     setTheme(next) {
       state.theme = next === "dark" ? "dark" : "light"
@@ -152,7 +146,7 @@ function createContext(initialState) {
         await ctx.swapFixture(resolution.name)
       } else if (resolution.kind === "frames") {
         frames = resolution.frames
-        for (const listener of frameListeners) listener({frames})
+        await broadcastFrames()
       }
     } catch (error) {
       showError(`fixture resolver failed: ${error.message}`)
@@ -160,6 +154,16 @@ function createContext(initialState) {
   }
 
   wireSidePanel(ctx, state)
+
+  async function broadcastFrames({reloadFramesOnRemount = false} = {}) {
+    const broadcast = Array.from(frameListeners)
+    if (broadcast.length === 0) {
+      const next = await reimportRenderer()
+      if (next) await ctx.replaceRenderer(next, {reloadFrames: reloadFramesOnRemount})
+      return
+    }
+    for (const listener of broadcast) listener({frames})
+  }
 
   async function loadFrames() {
     const url = state.fixtures?.[state.activeFixture] ?? state.samples?.frames ?? ""

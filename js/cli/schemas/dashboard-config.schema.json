@@ -17,7 +17,7 @@
     },
     "fixtureResolver": {
       "type": "string",
-      "description": "Project-relative module whose resolveFixture export (or default export) maps an srql.update query to a fixture name or replacement frames, so filter chips work offline in the dev harness."
+      "description": "Project-relative module whose resolveFixture export maps an srql.update query to a fixture name or replacement frames, so filter chips work offline in the dev harness."
     },
     "vite": {
       "type": "object",
