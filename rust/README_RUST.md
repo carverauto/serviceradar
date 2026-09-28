@@ -71,7 +71,7 @@ still compiles because some *other* crate enabled it. That is an accident waitin
 moment the other crate changes. Bazel compiles per-target and is less forgiving.
 
 ```bash
-cargo check -p srql --lib --bins --tests   # must pass in isolation
+cargo check -p srql --lib --tests   # must pass in isolation
 ```
 
 ### Exceptions

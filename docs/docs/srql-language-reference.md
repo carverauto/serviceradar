@@ -881,8 +881,7 @@ Rows carry `signals` and per-signal last-seen timestamps (`logs_last_seen`,
 from the signals the caller may view: without `signal:` the query covers every permitted
 signal, and requesting a signal the caller cannot view is forbidden (403). Sortable
 fields: `service_name`, `last_seen` (default, descending). The default limit is 50 and the
-maximum is 500. `stats:"count() as total"` is the only aggregation. The standalone SRQL
-server rejects this entity because it cannot resolve the caller's permitted signals.
+maximum is 500. `stats:"count() as total"` is the only aggregation.
 
 ```text
 in:otel_services signal:traces service_name:%pay% sort:last_seen:desc limit:50

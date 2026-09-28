@@ -150,7 +150,8 @@ Exposed one way:
   enforcement, statement timeouts, Arrow encoding, telemetry.
 
 The former standalone axum HTTP service (`POST /api/query`, `POST /translate`, `GET /healthz`, port 8480)
-and its Go-core client were never deployed and were removed (issue #4873); the crate remains a library.
+was never deployed and was removed (issue #4873). The Go core's `SRQLConfig`/`srql.base_url` field
+(`go/pkg/models/config.go`) remains but has no consumer; the crate remains a library.
 
 ---
 

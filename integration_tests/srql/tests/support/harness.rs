@@ -1,11 +1,11 @@
-use serviceradar_integration_db as db;
-use runfiles::Runfiles;
 use anyhow::Context;
 use axum::{
     body::{self, Body},
     http::{self, StatusCode},
 };
+use runfiles::Runfiles;
 use serde_json::Value;
+use serviceradar_integration_db as db;
 use srql::{
     config::AppConfig,
     db::PgRustlsConnect,
@@ -140,10 +140,10 @@ async fn seed_fixture_database_once(
     let mut attempts = 0usize;
     let client = loop {
         // Through the shared parser: the assembled DSN carries `sslmode=verify-full`, which
-    // tokio-postgres rejects outright -- it accepts only disable/prefer/require. The verifying
-    // posture is a typed field that configures the connector, so the mode is stripped rather
-    // than rewritten, and one implementation does it for both this harness and the lifecycle.
-    let config = db::parse_pg_config(database_url, "database.url")?;
+        // tokio-postgres rejects outright -- it accepts only disable/prefer/require. The verifying
+        // posture is a typed field that configures the connector, so the mode is stripped rather
+        // than rewritten, and one implementation does it for both this harness and the lifecycle.
+        let config = db::parse_pg_config(database_url, "database.url")?;
         match connect_with_tls(config, "fixture", tls_config).await {
             Ok((client, _task)) => break client,
             Err(err) => {
