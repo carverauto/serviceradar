@@ -1,5 +1,5 @@
 ## 1. Proposal Approval
-- [ ] 1.1 Review and approve the OpenSpec proposal.
+- [x] 1.1 Review and approve the OpenSpec proposal.
 - [ ] 1.2 Resolve open questions: dashboard package location, multi-grant dispatcher support, terms-of-service review for unofficial local methods.
 
 ## 2. Go Module Fetching
