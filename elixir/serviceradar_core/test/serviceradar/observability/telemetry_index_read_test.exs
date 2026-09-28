@@ -93,6 +93,22 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
              {:ok, :cnpg_records}
   end
 
+  test "computes the CNPG total when page count is requested" do
+    with_starrocks(false)
+
+    query =
+      ServiceRadar.Observability.Log
+      |> Ash.Query.for_read(:api_index)
+      |> Ash.Query.page(count: true)
+      |> Ash.Query.set_context(%{
+        cnpg_read: fn _data_layer_query -> {:ok, :cnpg_records} end,
+        cnpg_count: fn -> {:ok, 7} end
+      })
+
+    assert TelemetryIndexRead.read(query, :data_layer_query, [table: "logs"], %{}) ==
+             {:ok, :cnpg_records, %{full_count: 7}}
+  end
+
   test "serves the warehouse table when enabled, rendering filter, sort and page bounds" do
     with_starrocks(true, cutover_datasets: [:logs])
 
@@ -105,6 +121,7 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
       |> Ash.Query.sort(timestamp: :desc)
       |> Ash.Query.limit(101)
       |> Ash.Query.offset(20)
+      |> Ash.Query.page(count: true)
       |> Ash.Query.set_context(%{
         starrocks_query: fn sql ->
           send(parent, {:sql, sql})
@@ -131,7 +148,7 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
     assert_received {:sql, data_sql}
 
     assert data_sql =~ "FROM serviceradar.logs"
-    assert data_sql =~ "`trace_id` = 'abc123'"
+    assert data_sql =~ "WHERE `trace_id` = 'abc123'"
     assert data_sql =~ "ORDER BY `timestamp` DESC"
     assert data_sql =~ "LIMIT 101"
     assert data_sql =~ "OFFSET 20"
@@ -139,7 +156,7 @@ defmodule ServiceRadar.Observability.TelemetryIndexReadTest do
     assert_received {:sql, count_sql}
 
     assert count_sql =~ "SELECT COUNT(*) FROM serviceradar.logs"
-    assert count_sql =~ "`trace_id` = 'abc123'"
+    assert count_sql =~ "WHERE `trace_id` = 'abc123'"
     refute count_sql =~ "LIMIT"
   end
 

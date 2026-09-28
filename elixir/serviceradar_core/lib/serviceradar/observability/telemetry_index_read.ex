@@ -23,11 +23,12 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
   never a dropped clause.
 
   Test seams live in the query context: `:cnpg_read` replaces the data-layer
-  run, and `:starrocks_query` replaces `ServiceRadar.Analytics.StarRocks.Query.execute/1`.
+  run, `:cnpg_count` replaces the CNPG count query, and `:starrocks_query`
+  replaces `ServiceRadar.Analytics.StarRocks.Query.execute/1`.
 
-  The offset page's total count is computed with a separate `COUNT(*)` query
-  over the same filter, so the JSON:API response keeps `meta.total` and the
-  `last` link.
+  The offset page's total count is computed when the client requests it
+  (`page[count]`), with a `COUNT(*)` query against the active backend, so the
+  JSON:API response keeps `meta.total` and the `last` link.
   """
 
   use Ash.Resource.ManualRead
@@ -101,7 +102,43 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
       fun when is_function(fun, 1) -> fun.(data_layer_query)
       _ -> Ash.DataLayer.run_query(data_layer_query, query.resource)
     end
+    |> maybe_add_cnpg_count(query)
   end
+
+  defp maybe_add_cnpg_count({:ok, records}, query) do
+    if count_needed?(query) do
+      with {:ok, full_count} <- cnpg_full_count(query) do
+        {:ok, records, %{full_count: full_count}}
+      end
+    else
+      {:ok, records}
+    end
+  end
+
+  defp maybe_add_cnpg_count(other, _query), do: other
+
+  defp cnpg_full_count(query) do
+    case query.context[:cnpg_count] do
+      fun when is_function(fun, 0) ->
+        fun.()
+
+      _ ->
+        count_query =
+          query
+          |> Ash.Query.unset([:sort, :distinct_sort, :lock, :load, :limit, :offset, :page])
+
+        with {:ok, data_layer_query} <- Ash.Query.data_layer_query(count_query),
+             {:ok, aggregate} <-
+               Ash.Query.Aggregate.new(query.resource, :count, :count, tenant: query.tenant),
+             {:ok, %{count: count}} <-
+               Ash.DataLayer.run_aggregate_query(data_layer_query, [aggregate], query.resource) do
+          {:ok, count}
+        end
+    end
+  end
+
+  defp count_needed?(%{page: page}) when is_list(page), do: page[:count] == true
+  defp count_needed?(_query), do: false
 
   defp run_warehouse(query, table, opts) do
     select_attributes = select_attributes(query.resource, table)
@@ -115,8 +152,12 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
         {:ok, %{columns: columns, rows: rows}} when is_list(rows) ->
           records = build_records(query.resource, select_attributes, columns, rows)
 
-          with {:ok, full_count} <- full_count(table, where, query, opts) do
-            {:ok, records, %{full_count: full_count}}
+          if count_needed?(query) do
+            with {:ok, full_count} <- full_count(table, where, query, opts) do
+              {:ok, records, %{full_count: full_count}}
+            end
+          else
+            {:ok, records}
           end
 
         {:ok, other} ->
@@ -296,9 +337,17 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
   defp where_clause(nil, _available), do: {:ok, nil}
 
   defp where_clause(%Ash.Filter{expression: expression}, available),
-    do: expression_sql(expression, available)
+    do: render_where(expression, available)
 
-  defp where_clause(expression, available), do: expression_sql(expression, available)
+  defp where_clause(expression, available), do: render_where(expression, available)
+
+  defp render_where(expression, available) do
+    case expression_sql(expression, available) do
+      {:ok, nil} -> {:ok, nil}
+      {:ok, sql} -> {:ok, "WHERE " <> sql}
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
   defp expression_sql(true, _available), do: {:ok, nil}
   defp expression_sql(false, _available), do: {:ok, "1 = 0"}
