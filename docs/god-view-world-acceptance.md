@@ -66,12 +66,12 @@ follow-up scheduling, persisted identities, reload and stable coordinates.
 The same worker then persisted the invented 1,000,000-position and
 2,000,000-relation hierarchy on a scratch database and reloaded it.
 `//rust/dgraph-topology:world_worker_test` passed in 547.4s on hosted run
-[fb038405-3e6d-48be-b990-ef3d41fea76d](https://app.buildbuddy.io/invocation/fb038405-3e6d-48be-b990-ef3d41fea76d)
+[fb038405-3e6d-48be-b990-ef3d41fea76d](https://carverauto.buildbuddy.io/invocation/fb038405-3e6d-48be-b990-ef3d41fea76d)
 (Bazel invocation
 [0eedf842-ca33-4c13-8ef9-c960896b5aa0](https://carverauto.buildbuddy.io/invocation/0eedf842-ca33-4c13-8ef9-c960896b5aa0))
 at commit `03271edaa312`. The test log recorded persist 435,753 ms, publish
 3,682 ms, reload 58,444 ms, spatial index 7,642 ms, and one zoom-16 tile query
-at 19,010 µs. Peak BEAM resident memory was 2,945,672 KiB. Suite, observer,
+at 19,010 microseconds. Peak BEAM resident memory was 2,945,672 KiB. Suite, observer,
 teardown, and generation release all exited 0.
 
 ## Reproduction
