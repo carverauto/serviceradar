@@ -527,7 +527,7 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
     Application.put_env(
       :serviceradar_core,
       StarRocks,
-      Keyword.put(prev, :cutover_datasets, [:flows])
+      prev |> Keyword.put(:enabled, true) |> Keyword.put(:cutover_datasets, [:flows])
     )
 
     try do
