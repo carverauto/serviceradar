@@ -9,11 +9,12 @@
     "validate": "serviceradar-cli dashboard validate"
   },
   "dependencies": {
-    "@carverauto/serviceradar-dashboard-sdk": "^0.3.0",
+    "@carverauto/serviceradar-dashboard-sdk": "file:./vendor/carverauto-serviceradar-dashboard-sdk-0.3.1.tgz",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
   "devDependencies": {
-    "react-test-renderer": "^19.2.8"
+    "@carverauto/serviceradar-cli": "file:./vendor/carverauto-serviceradar-cli-0.1.10.tgz",
+    "react-test-renderer": "19.2.8"
   }
 }

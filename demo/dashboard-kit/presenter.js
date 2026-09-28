@@ -21,17 +21,17 @@ const FAULT_ID = "demo.fault.id"
 const ASSET = "asset_id"
 
 function metricName(row) {
-  return row?.metric_name ?? row?.name ?? row?.metric
+  return row?.metric_name
 }
 
 function rowTime(row) {
-  const value = row?.timestamp ?? row?.time ?? row?.observed_at
+  const value = row?.timestamp
   const ms = typeof value === "number" ? value : Date.parse(value)
   return Number.isFinite(ms) ? ms : 0
 }
 
 function rowLabels(row) {
-  return row?.tags ?? row?.labels ?? row?.attributes ?? {}
+  return row?.tags ?? {}
 }
 
 function latest(rows, name) {
@@ -95,9 +95,7 @@ export function formatCountdown(ms) {
 
 function faultFields(event) {
   const meta = event?.metadata || {}
-  const unmapped = event?.unmapped || {}
-  const pick = (key) => meta[key] ?? unmapped[key]
-  return {state: pick(STATE), kind: pick(KIND), faultId: pick(FAULT_ID), assetId: pick(ASSET)}
+  return {state: meta[STATE], kind: meta[KIND], faultId: meta[FAULT_ID], assetId: meta[ASSET]}
 }
 
 export function isFaultEvent(event) {
@@ -168,7 +166,6 @@ export function faultTriggers(actions, {allowed = true} = {}) {
     actionId: action.id,
     kind,
     label: labels[index] || humanize(kind),
-    requiresConfirmation: action.requires_confirmation === true,
   }))
 }
 

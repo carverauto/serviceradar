@@ -77,9 +77,9 @@ test("fault events open and resolve incidents by fault id", () => {
   assert.equal(headlineIncident(open), null)
 })
 
-test("fault fields are read from metadata, or from unmapped when metadata lacks them", () => {
-  const legacy = faultEvent("open", "x#1", {metadata: {}, unmapped: {"demo.fault.state": "open", "demo.fault.kind": "jam", "demo.fault.id": "x#1", asset_id: "a"}})
-  assert.equal(foldIncidents(new Map(), [legacy]).size, 1)
+test("fault fields are read from event metadata", () => {
+  const unmappedOnly = faultEvent("open", "x#1", {metadata: {}, unmapped: {"demo.fault.state": "open", "demo.fault.kind": "jam", "demo.fault.id": "x#1", asset_id: "a"}})
+  assert.equal(foldIncidents(new Map(), [unmappedOnly]).size, 0)
   assert.equal(foldIncidents(new Map(), [{log_name: "other", metadata: {"demo.fault.id": "y"}}]).size, 0)
 })
 

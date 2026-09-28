@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/carverauto/serviceradar-sdk-go/v2/sdk"
 	"github.com/carverauto/serviceradar/demo/simkit"
@@ -194,7 +195,7 @@ func faultEvent(ev simkit.Event, opts Options) sdk.OCSFEvent {
 	if out.LogName == "" {
 		out.LogName = DefaultLogName
 	}
-	out.LogProvider = opts.Source
+	out.LogProvider = eventLogProvider(opts.Source)
 	out.Device = map[string]any{"name": ev.AssetID}
 	attrs := map[string]any{
 		AttrAssetID:    ev.AssetID,
@@ -215,6 +216,13 @@ func faultEvent(ev simkit.Event, opts Options) sdk.OCSFEvent {
 		out.Metadata[key] = attrs[key]
 	}
 	return out
+}
+
+func eventLogProvider(source string) string {
+	if strings.HasPrefix(source, "plugin:") {
+		return source
+	}
+	return "plugin:" + source
 }
 
 func openingSeverity(s string) sdk.Severity {

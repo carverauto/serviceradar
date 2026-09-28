@@ -1,0 +1,17 @@
+{
+  "name": "@carverauto/serviceradar-dashboard-sdk",
+  "version": "0.3.1",
+  "type": "module",
+  "license": "UNLICENSED",
+  "exports": {
+    ".": "./src/index.js",
+    "./config": "./src/config.js",
+    "./live": "./src/live.js",
+    "./plan-view": "./src/plan-view.js",
+    "./react": "./src/react.js"
+  },
+  "peerDependencies": {
+    "react": ">=19.2.5",
+    "react-dom": ">=19.2.5"
+  }
+}

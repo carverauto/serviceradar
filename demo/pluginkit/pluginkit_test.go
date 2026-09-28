@@ -68,7 +68,7 @@ func TestFaultTransitionsBecomeMatchableEvents(t *testing.T) {
 		t.Fatalf("events = %d", len(out.Events))
 	}
 	o, c := out.Events[0], out.Events[1]
-	if o.ID != open.ID || !o.Time.Equal(t0) || o.LogName != DefaultLogName || o.LogProvider != "demo-test" {
+	if o.ID != open.ID || !o.Time.Equal(t0) || o.LogName != DefaultLogName || o.LogProvider != "plugin:demo-test" {
 		t.Fatalf("opening event = %+v", o)
 	}
 	if o.Unmapped[AttrFaultState] != FaultStateOpen || o.Unmapped[AttrAssetID] != "sensor-a" ||
