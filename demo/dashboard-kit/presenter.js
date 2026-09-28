@@ -84,6 +84,15 @@ export function latestSampleMs(rows) {
   return best
 }
 
+export function fixtureScheduleNow(sampleMs, fixtureFrameKey, observedAtMs, wallNowMs = Date.now()) {
+  if (!fixtureFrameKey || sampleMs === null || sampleMs === undefined) return undefined
+  const sample = Number(sampleMs)
+  const observedAt = Number(observedAtMs)
+  const wallNow = Number(wallNowMs)
+  if (!Number.isFinite(sample) || !Number.isFinite(observedAt) || !Number.isFinite(wallNow)) return undefined
+  return sample + Math.max(0, wallNow - observedAt)
+}
+
 /** "mm:ss", or "h:mm:ss" past an hour. */
 export function formatCountdown(ms) {
   const total = Math.max(0, Math.round(ms / 1000))

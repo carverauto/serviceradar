@@ -95,11 +95,11 @@ test("clicking the active fixture chip clears manually opened incidents", () => 
     useFrameRefresh: () => () => Promise.resolve({refreshed: true}),
   }
   const {useFaultIncidents} = createDemoKit({React, sdk})
-  const frame = {id: "schedule", refreshed_at: "steady:1"}
+  const frame = {id: "schedule", fixture_timeline_key: "steady:1"}
 
   function Probe() {
     const [fixtureLoadSeq, bumpFixtureLoadSeq] = React.useState(0)
-    const timelineKey = fixtureTimelineKey(frame, "steady", fixtureLoadSeq)
+    const timelineKey = fixtureTimelineKey(frame, fixtureLoadSeq)
     const {headline} = useFaultIncidents({logProvider: "plugin:demo", timelineKey})
     return React.createElement(
       "button",
@@ -121,11 +121,20 @@ test("clicking the active fixture chip clears manually opened incidents", () => 
   assert.equal(button().children[0], "none")
 })
 
-test("ordinary frame refresh times do not reset live incidents", () => {
-  const hook = mountHook({timelineKey: fixtureTimelineKey({refreshed_at: "2026-01-01T00:00:00Z"}, "steady")})
+test("ordinary live frame refreshes do not reset live incidents", () => {
+  const hook = mountHook({timelineKey: fixtureTimelineKey({refreshed_at: "2026-01-01T00:00:00Z"})})
   hook.deliver([faultEvent("open", "jam@c7#1")])
   assert.equal(hook.headline(), "jam@c7#1")
 
-  hook.retimeline(fixtureTimelineKey({refreshed_at: "2026-01-01T00:00:10Z"}, "steady"))
+  hook.retimeline(fixtureTimelineKey({refreshed_at: "2026-01-01T00:00:10Z"}))
   assert.equal(hook.headline(), "jam@c7#1")
+})
+
+test("fixture frame timeline keys reset incidents", () => {
+  const hook = mountHook({timelineKey: fixtureTimelineKey({fixture_timeline_key: "steady:1"})})
+  hook.deliver([faultEvent("open", "jam@c7#1")])
+  assert.equal(hook.headline(), "jam@c7#1")
+
+  hook.retimeline(fixtureTimelineKey({fixture_timeline_key: "steady:2"}))
+  assert.equal(hook.headline(), "none")
 })

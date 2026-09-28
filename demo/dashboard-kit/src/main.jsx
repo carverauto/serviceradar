@@ -1,9 +1,9 @@
-import React, {useEffect, useMemo, useState} from "react"
+import React, {useEffect, useMemo, useRef, useState} from "react"
 import {mountReactDashboard, useDashboardFrame, useDashboardSrql} from "@carverauto/serviceradar-dashboard-sdk/react"
 import * as sdk from "@carverauto/serviceradar-dashboard-sdk/live"
 
 import {DEMO_KIT_CSS, createDemoKit, fixtureTimelineKey} from "../kit.js"
-import {latestSampleMs, scheduleStatus} from "../presenter.js"
+import {fixtureScheduleNow, latestSampleMs, scheduleStatus} from "../presenter.js"
 
 const {DemoFrame, PresenterStrip, useFaultIncidents} = createDemoKit({React, sdk})
 
@@ -15,19 +15,20 @@ export function Dashboard() {
   const srql = useDashboardSrql()
   const rows = frame?.results || []
 
-  // Anchor the clock at the newest schedule sample and advance it from mount:
-  // fixtures sample one instant, so the wall clock would clamp their countdown
-  // to 00:00. Live rows sample near now, so the anchor is ~now and the wall
-  // clock stays in place for them.
-  const [mountedAt] = useState(() => Date.now())
   const [, bumpClock] = useState(0)
   useEffect(() => {
     const timer = setInterval(() => bumpClock((tick) => tick + 1), 1000)
     return () => clearInterval(timer)
   }, [])
+  const wallNow = Date.now()
   const sampleMs = latestSampleMs(rows)
-  const now = sampleMs === null ? undefined : sampleMs + (Date.now() - mountedAt)
-  const status = scheduleStatus(rows, now === undefined ? Date.now() : now)
+  const fixtureFrameKey = frame?.fixture_timeline_key ?? frame?.fixtureTimelineKey
+  const sampleAnchor = useRef({sampleMs: null, fixtureFrameKey: null, observedAtMs: wallNow})
+  if (sampleAnchor.current.sampleMs !== sampleMs || sampleAnchor.current.fixtureFrameKey !== fixtureFrameKey) {
+    sampleAnchor.current = {sampleMs, fixtureFrameKey, observedAtMs: wallNow}
+  }
+  const now = fixtureScheduleNow(sampleMs, fixtureFrameKey, sampleAnchor.current.observedAtMs, wallNow)
+  const status = scheduleStatus(rows, now === undefined ? wallNow : now)
 
   // The pressed chip follows the loaded frames, not the last click: the side
   // panel can swap the fixture directly, and the schedule rows name which
@@ -35,7 +36,7 @@ export function Dashboard() {
   // sequence so reloading the active fixture clears the replayed incident set.
   const loadedScenario = (status.activeCount ?? 0) > 0 ? "mid-fault" : "steady"
   const [fixtureLoadSeq, bumpFixtureLoadSeq] = useState(0)
-  const timelineKey = fixtureTimelineKey(frame, loadedScenario, fixtureLoadSeq)
+  const timelineKey = fixtureTimelineKey(frame, fixtureLoadSeq)
   const {headline} = useFaultIncidents({logProvider: `plugin:${PLUGIN_ID}`, timelineKey})
 
   const chips = useMemo(

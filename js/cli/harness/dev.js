@@ -86,6 +86,7 @@ function createContext(initialState) {
 
         const host = createHost(state)
         mounted = await fn(root, host, api) || null
+        replayFixtureEvents()
         clearError()
         setStatus(`mounted ${state.manifest?.id || "renderer"}`)
       } catch (error) {
@@ -115,7 +116,8 @@ function createContext(initialState) {
       }
       // Push the new frames through the existing api callbacks first; if the
       // renderer doesn't subscribe (most do via SDK hooks), remount.
-      await broadcastFrames({reloadFramesOnRemount: true})
+      const remounted = await broadcastFrames({reloadFramesOnRemount: true})
+      if (!remounted) replayFixtureEvents()
     },
     setTheme(next) {
       state.theme = next === "dark" ? "dark" : "light"
@@ -148,6 +150,9 @@ function createContext(initialState) {
         await ctx.swapFixture(resolution.name)
       } else if (resolution.kind === "frames") {
         replaceFrames(resolution.frames)
+        state.fixtureActions = []
+        state.fixtureEvents = []
+        state.harnessEvents?.stop()
         await broadcastFrames()
       }
     } catch (error) {
@@ -161,16 +166,27 @@ function createContext(initialState) {
     const broadcast = Array.from(frameListeners)
     if (broadcast.length === 0) {
       const next = await reimportRenderer()
-      if (next) await ctx.replaceRenderer(next, {reloadFrames: reloadFramesOnRemount})
-      return
+      if (next) {
+        await ctx.replaceRenderer(next, {reloadFrames: reloadFramesOnRemount})
+        return true
+      }
+      return false
     }
     for (const listener of broadcast) listener({frames})
+    return false
+  }
+
+  function replayFixtureEvents() {
+    state.harnessEvents?.replay(state.fixtureEvents || [])
   }
 
   async function loadFrames() {
     const url = state.fixtures?.[state.activeFixture] ?? state.samples?.frames ?? ""
     if (!url) {
-      frames = []
+      replaceFrames([])
+      state.fixtureActions = []
+      state.fixtureEvents = []
+      state.harnessEvents?.stop()
       return
     }
     const response = await fetch(url)
@@ -179,7 +195,6 @@ function createContext(initialState) {
     replaceFrames(Array.isArray(payload) ? payload : Array.isArray(payload?.frames) ? payload.frames : [])
     state.fixtureActions = Array.isArray(payload?.actions) ? payload.actions : []
     state.fixtureEvents = Array.isArray(payload?.events) ? payload.events : []
-    state.harnessEvents?.replay(state.fixtureEvents)
   }
 
   function replaceFrames(nextFrames) {
@@ -274,7 +289,6 @@ async function createHostApi(state, hooks) {
   }
   state.harnessEvents?.stop()
   state.harnessEvents = createHarnessEventsApi({onCall, capabilityAllowed})
-  state.harnessEvents.replay(state.fixtureEvents || [])
   const libraries = await loadBrowserModuleLibraries()
 
   return {

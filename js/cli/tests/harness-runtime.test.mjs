@@ -39,6 +39,25 @@ test("fixture events replay on the timeline to matching subscriptions", () => {
   assert.deepEqual(received, [jam])
 })
 
+test("replacing a fixture timeline cancels pending stale events", () => {
+  const timers = []
+  const setTimer = (callback) => {
+    const timer = {callback, cleared: false}
+    timers.push(timer)
+    return timer
+  }
+  const events = createHarnessEventsApi({setTimer, clearTimer: (timer) => { timer.cleared = true }})
+  const received = []
+  events.publicApi().subscribe({log_provider: "plugin:demo-ot-plc"}, (batch) => received.push(...batch))
+
+  events.replay([{at_ms: 1500, event: jam}])
+  events.replay([])
+  for (const timer of timers) if (!timer.cleared) timer.callback()
+
+  assert.deepEqual(received, [])
+  assert.equal(timers[0].cleared, true)
+})
+
 test("an invoked action walks to succeeded and delivers the events it emits", async () => {
   const events = createHarnessEventsApi({setTimer: immediate, clearTimer: () => {}})
   const received = []

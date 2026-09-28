@@ -4,6 +4,7 @@ import test from "node:test"
 import {
   faultEventFilter,
   faultTriggers,
+  fixtureScheduleNow,
   foldIncidents,
   formatCountdown,
   headlineIncident,
@@ -55,6 +56,15 @@ test("the newest sample time anchors an offline clock", () => {
   assert.equal(latestSampleMs(scheduleRows), T0)
   assert.equal(latestSampleMs([]), null)
   assert.equal(latestSampleMs([{metric_name: "temp_c", value: 21}]), null)
+})
+
+test("fixture clocks advance from when each sample was observed", () => {
+  const sample = Date.parse("2026-01-01T00:00:30Z")
+  const observedAt = Date.parse("2026-09-27T12:00:30Z")
+
+  assert.equal(fixtureScheduleNow(sample, "steady:2", observedAt, observedAt), sample)
+  assert.equal(fixtureScheduleNow(sample, "steady:2", observedAt, observedAt + 15_000), sample + 15_000)
+  assert.equal(fixtureScheduleNow(sample, undefined, observedAt, observedAt + 15_000), undefined)
 })
 
 test("the latest schedule sample wins and a past start clamps to zero", () => {
