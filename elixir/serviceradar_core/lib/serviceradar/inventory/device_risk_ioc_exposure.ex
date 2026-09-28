@@ -70,9 +70,26 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposure do
 
   def correlate(_flows, _findings), do: []
 
-  # Flows are warehouse-only: `:starrocks` once the dataset is cut over,
-  # `{:error, :starrocks_required}` otherwise, so the CNPG flow query stays the
-  # fallback only for installations without the warehouse.
+  # Flows read CNPG until the `flows` dataset is listed in the cutover
+  # setting (Helm `analytics.starrocks.cutoverDatasets`, Compose
+  # `SERVICERADAR_STARROCKS_CUTOVER_DATASETS`); that switch is also the
+  # delayed-cutover control for historical warehouse rows. Warehouse flow rows
+  # written before this reader shipped carry no `agent_id`, so they resolve
+  # device identity by destination IP alone and an agent-only device is
+  # invisible to them. Until the cutover, EventWriter keeps CNPG the
+  # authoritative flow write (shadowing to the warehouse), so the CNPG query
+  # below serves complete, agent-first-attributed flows with no missed
+  # maximum-risk detection. Lookback expiry is a necessary, not sufficient,
+  # release condition: it disposes of every un-enriched row (the warehouse
+  # page bounds `time` strictly below `as_of - window_seconds`), but a safe
+  # cutover additionally needs the warehouse to hold every row written during
+  # the hold, and pre-cutover shadow loads are best-effort -- a failed load
+  # leaves no warehouse row and is never retried, and that hole can hide a
+  # hit for up to `window_seconds` after the flip. No existing control
+  # verifies hold-window warehouse completeness; the release condition and
+  # that gap are recorded in the extend-starrocks tasks. The routing tests
+  # pin the CNPG hold, the strict window bound, and the dropped un-enriched
+  # row that makes flipping before lookback expiry unsafe.
   @doc false
   def flow_history_backend, do: Readers.backend(:flows)
 
@@ -386,7 +403,9 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposure do
         |> min(20_000)
         |> max(1)
 
-      opts = Keyword.put(opts, :as_of, DateTime.utc_now())
+      # The default is `DateTime.utc_now/0`; tests pin `:as_of` to prove the
+      # window boundary timing.
+      opts = Keyword.put_new(opts, :as_of, DateTime.utc_now())
 
       case flow_history_backend() do
         :starrocks ->
@@ -435,10 +454,12 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposure do
         page.(opts, page_size, after_key)
 
       _ ->
-        # Flows are warehouse-only. Cut over, read the attributed flows from
-        # the warehouse with the same keyset page; not cut over, keep the CNPG
-        # query (an installation without the warehouse still writes and reads
-        # flows there).
+        # Cut over, read the attributed flows from the warehouse with the same
+        # keyset page. Not cut over, keep the CNPG query: it serves an
+        # installation without the warehouse, and holds a warehouse
+        # installation's reads on complete, agent-first-attributed CNPG flows
+        # until the delayed cutover above has expired the lookback past the
+        # enriched writes.
         case flow_history_backend() do
           :starrocks -> query_flow_page_warehouse_sql(opts, page_size, after_key)
           {:error, :starrocks_required} -> query_flow_page_sql(opts, page_size, after_key)
@@ -510,7 +531,9 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposure do
 
     params = [Keyword.fetch!(opts, :as_of), window_seconds, page_size, after_time, after_row_key]
 
-    case SQL.query(Repo, sql, params) do
+    query = Keyword.get(opts, :cnpg_query, &SQL.query(Repo, &1, &2))
+
+    case query.(sql, params) do
       {:ok, %{columns: columns, rows: rows}} ->
         Enum.map(rows, &flow_row(columns, &1))
 

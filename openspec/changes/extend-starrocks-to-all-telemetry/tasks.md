@@ -37,6 +37,31 @@
     back to `device_identifiers` on the destination IP, matching the CNPG query). Tests:
     `TrafficSparklinesRoutingTest` (web-ng) and `DeviceRiskIocExposureRoutingTest` (core) pin
     the routing and the warehouse SQL shape.
+  - [ ] DeviceRiskIocExposure delayed cutover (issue #4869, captain decision 2026-09-28:
+    cutovers over backfill). Warehouse flow rows written before this reader ships carry no
+    `agent_id`, so an agent-only device (its `dst_endpoint_ip` is not a `device_identifiers`
+    row) is invisible to them. The reader therefore keeps CNPG flow reads -- complete and
+    agent-first while CNPG stays the authoritative flow write -- until `flows` is listed in the
+    cutover setting. Release condition, necessary and proven by tests: enable the cutover only
+    after the risk lookback (`window_seconds`, default 3600s) has expired since the enriched
+    warehouse writes began (this deploy), at which point the warehouse page's strict
+    `time > as_of - window` bound excludes every un-enriched row. Release condition, NOT yet
+    enforceable: hold-window warehouse completeness. Pre-cutover flows shadow loads are
+    best-effort (`Destination.persist_after_cnpg/3` logs a failure and the JetStream message
+    is still ACKed, with no retry), so a failed load leaves a permanent warehouse hole that can
+    silently hide a maximum-risk hit for up to the lookback after the flip; age alone cannot
+    clear a hole, no existing control verifies hold-window completeness (the parity harness
+    seeds synthetic rows and never compares the live stores; quarantine reports only
+    FE-filtered rows on otherwise-successful loads), and the cutover list gates required
+    warehouse writes and warehouse reads with the same entry, so the existing switch cannot
+    sequence required-writes-then-delayed-reads. Escalated for decision, not implemented:
+    (a) require warehouse loads for flows whenever StarRocks is enabled, which makes lookback
+    expiry sufficient (JetStream redelivery; CNPG insert and warehouse tables are idempotent)
+    but adds backpressure on warehouse outages during the hold; (b) an operator completeness
+    check (CNPG vs warehouse counts over the trailing window) before flipping, which no
+    shipped tool performs; (c) accepting the residual hole risk, currently not authorized.
+    `DeviceRiskIocExposureRoutingTest` pins the CNPG hold (agent-first resolution while not cut
+    over), the strict window bound, and the dropped un-enriched in-window row.
   - [ ] Logs/events stat cards that bypass SRQL (still open).
 - [ ] 2.5 Measure log search on the deployed profile: which index types shared-data supports, and latency of a substring search over 1, 30 and 365 days; document the supported behaviour.
 - [ ] 2.6 Run the parity harness for the `logs` and `events` warehouse readers; ship each reader only after it passes; verify cards and charts against ground truth after the rollout completes.
