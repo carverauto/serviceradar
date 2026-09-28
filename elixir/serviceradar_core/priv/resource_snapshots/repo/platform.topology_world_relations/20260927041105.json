@@ -242,6 +242,34 @@
       "concurrently": false,
       "error_fields": [
         "layout_version",
+        "relation_id"
+      ],
+      "fields": [
+        {
+          "type": "atom",
+          "value": "layout_version"
+        },
+        {
+          "type": "atom",
+          "value": "relation_id"
+        }
+      ],
+      "include": null,
+      "include_base_filter?": true,
+      "message": null,
+      "name": "topology_world_relations_active_idx",
+      "nulls_distinct": true,
+      "prefix": null,
+      "table": null,
+      "unique": false,
+      "using": null,
+      "where": "active"
+    },
+    {
+      "all_tenants?": false,
+      "concurrently": false,
+      "error_fields": [
+        "layout_version",
         "source_id"
       ],
       "fields": [

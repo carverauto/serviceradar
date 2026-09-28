@@ -49,6 +49,14 @@ defmodule ServiceRadar.Repo.Migrations.TopologyWorld do
       )
     )
 
+    create(
+      index(:topology_world_relations, [:layout_version, :relation_id],
+        name: "topology_world_relations_active_idx",
+        where: "active",
+        prefix: "platform"
+      )
+    )
+
     execute("CREATE SCHEMA IF NOT EXISTS platform")
 
     create table(:topology_world_positions, primary_key: false, prefix: "platform") do
@@ -279,6 +287,13 @@ defmodule ServiceRadar.Repo.Migrations.TopologyWorld do
     drop_if_exists(
       index(:topology_world_relations, [:layout_version, :target_id],
         name: "topology_world_relations_target_idx",
+        prefix: "platform"
+      )
+    )
+
+    drop_if_exists(
+      index(:topology_world_relations, [:layout_version, :relation_id],
+        name: "topology_world_relations_active_idx",
         prefix: "platform"
       )
     )
