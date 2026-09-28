@@ -161,10 +161,13 @@ automatic, and the real defect is elsewhere.
       scope — for a still-reporting series this write is cosmetic, since the upsert self-heals
       on the next report; its real value is silent and historical episodes.
 
-- [ ] 7.3 **Fix the actual defect.** Add `finding_uid = EXCLUDED.finding_uid` to the
+- [x] 7.3 **Fix the actual defect.** Add `finding_uid = EXCLUDED.finding_uid` to the
       `ON CONFLICT (episode_uid) DO UPDATE SET` list in `@upsert_sql`
       (`event_writer/processors/anomaly_episode_registry.ex:175-193`) and stop subtracting
       `:finding_uid` in `@episode_upsert_fields` (`observability/anomaly_episode.ex:39`).
+      Done (#4867, task 7.3): regression test
+      `anomaly_episode_registry_db_test.exs` "a merge-changed finding_uid is adopted by the
+      existing episode row" fails on the pre-fix code.
       Unconditional, not guarded: `EXCLUDED.finding_uid` is either identical (a normal fold)
       or the newly canonical value (a merge), never a regression.
       Why this matters: core recomputes `finding_uid` from the canonical device, so a merge
