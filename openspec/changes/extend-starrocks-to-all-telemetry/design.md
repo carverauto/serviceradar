@@ -19,7 +19,8 @@ orders of magnitude over every other dataset, which is why they moved to the war
   transactional state; maintenance safe on a modest warehouse.
 - Non-Goals: moving inventory, identity, credentials, configuration, alert state or jobs;
   replacing the JetStream-first single-owner write path; making StarRocks mandatory (an
-  installation without it keeps CNPG telemetry exactly as today).
+  installation without it keeps CNPG telemetry, with the existing flow-serving
+  exception documented in [NetFlow](../../../docs/docs/netflow.md#flow-cutover-and-delivery)).
 
 ## Decisions
 
@@ -54,7 +55,9 @@ Consequences, accepted deliberately:
 - **A warehouse outage is a telemetry outage.** A failed load is not acknowledged and JetStream
   redelivers; there is no CNPG fallback write. Stream retention bounds how long an outage can
   last without loss, and is stated in operator docs.
-- **CNPG is not ripped out.** Every writer and reader keeps its CNPG implementation next to the
+- **CNPG is not ripped out.** Except for the warehouse-only flow-serving surfaces
+  documented in [NetFlow](../../../docs/docs/netflow.md#flow-cutover-and-delivery),
+  writers and readers keep their CNPG implementation next to the
   warehouse one, selected by the switch, and no migration drops a CNPG telemetry table, continuous
   aggregate or policy: installations without StarRocks depend on them, and the schema is shared.
   On a StarRocks installation those tables simply stop receiving rows and retention ages them out.

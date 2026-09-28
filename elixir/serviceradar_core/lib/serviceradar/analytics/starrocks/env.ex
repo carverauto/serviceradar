@@ -162,17 +162,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
     end
   end
 
-  # Flows sit in the cutover set by default on a warehouse-enabled
-  # installation (captain decision 2026-09-28: hard cutover, full retirement
-  # of the CNPG flows serving path on day 1), so every flows reader -- SRQL
-  # `in:flows`, the dashboard throughput sparkline, the device Flows-tab probe
-  # and the hostile-IOC risk reader -- serves the warehouse from the moment
-  # the warehouse is enabled. A blank or unset
-  # SERVICERADAR_STARROCKS_CUTOVER_DATASETS takes that default (the Helm chart
-  # always renders the variable, so its blank is the unset); any non-blank
-  # value is parsed exactly as before -- leave `flows` out of it to refuse
-  # flow reads again. The chart default therefore cuts flows over with the
-  # warehouse, and an operator cannot get the old refusal by setting nothing.
+  # Helm always renders this variable, so blank must behave like unset.
+  # The user-facing flow routing contract lives in
+  # docs/docs/netflow.md#flow-cutover-and-delivery.
   defp cutover_datasets(enabled) do
     if blank?(System.get_env("SERVICERADAR_STARROCKS_CUTOVER_DATASETS")) do
       if(enabled, do: [:flows], else: [])

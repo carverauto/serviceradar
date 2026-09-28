@@ -645,12 +645,9 @@ redelivered from JetStream rather than written to CNPG. Their retention is
 `otel_traces` via daily partitions, and the summary worker prunes
 `otel_trace_summaries` to the same window.
 
-`cutoverDatasets` defaults to empty, so metric, log and event panels stay on
-CNPG throughout; flows is the exception -- a blank cutover list on an enabled
-warehouse cuts `flows` over by default (hard cutover), so the NetFlow panel
-serves the warehouse from the moment the warehouse is enabled. Naming datasets
-explicitly replaces that default, and omitting `flows` refuses the NetFlow
-panel with a warehouse-required error again.
+Metric, log and event panels stay on CNPG until explicitly cut over. For the
+flow-specific defaults and delivery contract, see
+[NetFlow: Flow cutover and delivery](../../docs/docs/netflow.md#flow-cutover-and-delivery).
 
 ## Host sysctl
 

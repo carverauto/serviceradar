@@ -177,17 +177,10 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
     end
   end
 
-  # Flows commit to the warehouse before the JetStream ACK whenever the
-  # warehouse is enabled (captain decision 2026-09-28: flows already travel
-  # on a dedicated JetStream stream, which is the durable cache, so a
-  # warehouse outage backpressures flow ingestion instead of leaving a silent
-  # hole in the warehouse). This is deliberately keyed on `enabled?/0`, not on
-  # the cutover list: the list routes reads, and flow writes must already be
-  # complete and agent-enriched by the time an operator flips it. A redelivery
-  # re-inserts CNPG as a no-op (`on_conflict: :nothing` on the stable flow
-  # identity) and the primary-key warehouse table upserts the same keys.
-  # Every other dataset keeps the staged behavior: required only once its
-  # reads are cut over, best-effort shadow before that.
+  # The cutover list routes reads; required flow delivery follows warehouse
+  # enablement so an outage cannot silently skip warehouse writes before cutover.
+  # Redelivery reuses the stable identity for CNPG conflict handling and warehouse
+  # upserts. Success or durable quarantine satisfies the ACK boundary above.
   defp warehouse_required?(:flows), do: Readers.enabled?()
 
   defp warehouse_required?(dataset), do: Readers.mode_for(dataset) == "starrocks"

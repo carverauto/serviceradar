@@ -515,26 +515,14 @@ Operational notes:
 metrics, logs and event history. It is off by default, and NetFlow collection
 does not depend on it (`flowCollector.enabled` is independent). Metric, log and
 event reads stay on CNPG until the dataset is named in
-`analytics.starrocks.cutoverDatasets`. **Flow reads are the exception: they are
-warehouse-only and cut over by default** -- with the warehouse enabled and the
-cutover list empty, `flows` is in the set, so the NetFlow dashboard, `in:flows`
-and the device-risk IOC reader serve the warehouse immediately. Flow writes
-also commit to the warehouse before their JetStream ACK, so a warehouse outage
-backpressures flow ingestion. Naming datasets explicitly replaces the default;
-omitting `flows` refuses flow reads again. Warehouse flow rows written before
-the `agent_id` enrichment lack agent attribution, so device-risk reads can miss
-an agent-only device for up to one effective device-risk lookback
-(`window_seconds`, default one hour) after the immediate cutover. The captain
-explicitly accepted this pre-deploy gap for dev/test environments. Post-deploy
-rows use required retryable writes; full-row ingestion and correlation updates
-preserve agent identity and process attribution.
+`analytics.starrocks.cutoverDatasets`. Flow routing,
+required delivery and the historical-attribution limitation are documented in
+[NetFlow: Flow cutover and delivery](./netflow.md#flow-cutover-and-delivery).
 
 web-ng and core read these settings once at boot, so the chart stamps a digest
 of `analytics.starrocks.*` on both pods: a `helm upgrade` that changes the
 cut-over or shadow datasets rolls them without a manual restart. Removing
-`metrics`, `logs` or `events` from the list falls back to CNPG; removing `flows`
-from an explicit list refuses flow reads again (the blank default cuts it
-over).
+`metrics`, `logs` or `events` from the list falls back to CNPG.
 
 The StarRocks Frontend is never reached passwordless. With
 `analytics.starrocks.enabled=true` the chart **fails to render** unless

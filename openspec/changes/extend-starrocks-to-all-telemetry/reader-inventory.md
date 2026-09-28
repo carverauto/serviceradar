@@ -152,22 +152,11 @@ Go, `serviceradar_core_elx`, `serviceradar_agent_gateway`, `datasvc`, `palisade`
 4. **Two metrics SRQL entities are unmapped** (`timeseries_metric_interface_hourly`,
    `timeseries_metric_disk_hourly`), so capacity forecasting and seasonal disposition read CNPG
    unconditionally.
-5. **Flows keep CNPG fallbacks** in the dashboard throughput sparkline and the device Flows tab
-   probes although flows are warehouse-only, and `DeviceRiskIocExposure` always reads CNPG flows.
-   Resolved by issue #4869: the dashboard sparkline and the device Flows-tab presence probes
-   route through `Readers` and render empty/unavailable on `{:error, :starrocks_required}` rather
-   than reading CNPG flows, and `DeviceRiskIocExposure` gained a warehouse flow page selected by
-   `Readers.backend(:flows) == :starrocks` (the CNPG query remains for installations without the
-   warehouse). The risk reader cuts over with the flows dataset, hard and by
-   default: flows ships in the default cutover set of a warehouse-enabled
-   installation, and flow warehouse writes are required before the JetStream
-   ACK (`Destination.warehouse_required?/1`). Rows written before the
-   `agent_id` enrichment lack agent attribution (and pre-deploy shadow loads
-   were best-effort), so right after the flip risk reads can miss an
-   agent-only device for up to one effective risk lookback (`window_seconds`,
-   default 3600s), explicitly accepted by the captain for dev/test. Post-deploy
-   rows use required retryable writes; full-row ingestion and correlation
-   updates preserve agent identity and process attribution. See task 2.4.
+5. **Flow reader routing resolved (issue #4869).** The dashboard throughput sparkline,
+   device Flows-tab probes and `DeviceRiskIocExposure` now consult `Readers`.
+   See [NetFlow: Flow cutover and delivery](../../../docs/docs/netflow.md#flow-cutover-and-delivery)
+   for the routing contract, risk-reader exception and upgrade limitations.
+
 6. **`rust/srql/src/server.rs:51` (`/api/query`) runs every entity on CNPG** and bypasses
    `Readers`; no chart deploys it, so it may be dead. **Resolved (issue #4873):** the standalone
    server was dead — no Helm template, Compose service, k8s manifest or Docker image ran it, and

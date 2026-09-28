@@ -37,36 +37,9 @@
     back to `device_identifiers` on the destination IP). Tests:
     `TrafficSparklinesRoutingTest` (web-ng) and `DeviceRiskIocExposureRoutingTest` (core) pin
     the routing and the warehouse SQL shape.
-  - [x] DeviceRiskIocExposure warehouse cutover (issue #4869, captain decisions
-    2026-09-28: cutovers over backfill; then "hard and fast" / "full retirement
-    on day 1" -- flows travel on a dedicated JetStream stream, which is the
-    durable cache). Warehouse flow rows written before this reader ships carry
-    no `agent_id`, so an agent-only device (its `dst_endpoint_ip` is not a
-    `device_identifiers` row) is invisible to them. Shipped design:
-    Writes: on a warehouse-enabled installation every flow commits to the
-    warehouse before its JetStream ACK (`Destination.warehouse_required?/1`
-    keys flows on `analytics.starrocks.enabled`, not on the cutover list), so a
-    warehouse outage backpressures flow ingestion instead of leaving a silent
-    hole; a redelivery re-inserts CNPG as a no-op (`on_conflict: :nothing` on the
-    stable flow identity) and the primary-key warehouse table upserts. Post-deploy
-    warehouse rows use required retryable writes. Full-row ingestion preserves
-    agent and process attribution; correlation selects the matched agent and
-    carries it through JetStream publication and the partial Stream Load. Other
-    datasets keep staged behavior (best-effort shadow until reads are cut over).
-    Reads: hard cutover at deploy -- `flows` ships in the DEFAULT cutover set of
-    a warehouse-enabled installation (`StarRocks.Env.cutover_datasets/1`: blank
-    or unset `SERVICERADAR_STARROCKS_CUTOVER_DATASETS` + enabled = `[:flows]`;
-    a non-blank list is the operator's exact list, so omitting `flows` refuses
-    flow reads again). The risk reader therefore reads the warehouse from the
-    moment the warehouse is enabled; the CNPG query stays only for
-    warehouse-disabled installations or explicit cutover lists without flows. No
-    backfill, no timed hold, no new rollout machinery.
-    Accepted gap (captain, explicitly): warehouse rows written before this deploy
-    lack `agent_id` (and pre-deploy best-effort shadow loads could leave holes),
-    so right after the flip risk reads can miss an agent-only device for up to
-    one effective risk lookback (`window_seconds`, default 3600s), until those
-    rows age out of the warehouse page's strict `time > as_of - window` bound.
-    This pre-deploy gap is explicitly accepted for dev/test environments.
+  - [x] DeviceRiskIocExposure warehouse cutover (issue #4869). The routing,
+    required-delivery contract and historical-attribution limitation are owned by
+    [NetFlow: Flow cutover and delivery](../../../docs/docs/netflow.md#flow-cutover-and-delivery).
     Tests: `DestinationTest` pins
     required-before-ACK before any cutover, outage-redelivery and idempotent
     replay (stable record ids); `EnvTest` and the elx production runtime config

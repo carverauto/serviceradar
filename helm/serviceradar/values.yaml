@@ -2763,24 +2763,11 @@ sweep:
 # =============================================================================
 
 # Optional telemetry warehouse for flows, scalar metrics, logs and events.
-# Disabled means every dataset is written to CNPG hypertables, and metrics, logs
-# and events are also read from them. Flow READS are warehouse-only and cut
-# over by default: with the warehouse enabled and cutoverDatasets left empty,
-# flows is in the cutover set, so the NetFlow dashboard, `in:flows` and the
-# device-risk IOC reader serve the warehouse immediately; name datasets
-# explicitly to replace that default (omitting flows refuses flow reads again).
-# CNPG stays the flow write target, not a flow serving path. Flow WRITES are
-# stronger: whenever the warehouse is enabled, a flow Stream Load must succeed
-# before its JetStream ACK, so a warehouse outage backpressures flow ingestion
-# instead of skipping warehouse rows. Warehouse flow rows written before the
-# version that stamps agent_id lack agent attribution, so device-risk reads can
-# miss an agent-only device for one effective risk lookback (window_seconds,
-# default one hour) after the immediate cutover, accepted by the captain for
-# dev/test. Post-deploy rows use required retryable writes; full-row ingestion
-# and correlation updates preserve agent identity and process attribution.
-# flowCollector is gated independently. Empty shadowDatasets means all four
-# datasets. Lab clusters run the shared-nothing profile from k8s/starrocks/,
-# not this chart.
+# Disabled writes stay on CNPG; metrics, logs and events also read from CNPG.
+# Empty shadowDatasets means all four datasets.
+# flowCollector is gated independently. For flow routing, required delivery and
+# upgrade limitations, see docs/docs/netflow.md#flow-cutover-and-delivery.
+# Lab clusters use the shared-nothing profile in k8s/starrocks/.
 analytics:
   starrocks:
     enabled: false
