@@ -107,13 +107,15 @@ defmodule ServiceRadar.ExUnitInterruptionGuardTest do
   # there), so the child always takes the database-free unit branch regardless of
   # what the parent's environment holds. Port.open's :env option takes charlists.
   defp blank_database_env do
-    ~w(
+    Enum.map(
+      ~w(
       SRQL_TEST_DATABASE_URL
       SERVICERADAR_TEST_DATABASE_URL
       SRQL_TEST_DATABASE_URL_FILE
       SERVICERADAR_TEST_DATABASE_URL_FILE
+    ),
+      &{String.to_charlist(&1), ~c""}
     )
-    |> Enum.map(&{String.to_charlist(&1), ~c""})
   end
 
   defp interrupted_suite_code do

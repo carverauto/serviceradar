@@ -9,9 +9,9 @@ Application.ensure_all_started(:telemetry)
 #
 # Behavioral coverage: test/serviceradar/exunit_interruption_guard_test.exs.
 case System.trap_signal(:sigterm, fn ->
-  IO.puts(:stderr, "SIGTERM received before ExUnit completed; failing the run")
-  System.halt(1)
-end) do
+       IO.puts(:stderr, "SIGTERM received before ExUnit completed; failing the run")
+       System.halt(1)
+     end) do
   {:ok, _id} -> :ok
   {:error, :not_sup} -> :ok
 end
