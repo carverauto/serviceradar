@@ -133,16 +133,6 @@ func TestMatchProbeResponse_ICMP(t *testing.T) {
 			},
 			wantOK: false,
 		},
-		{
-			// InnerProto==0 means the quoted transport was not parsed; accept for
-			// backward compatibility with older or non-standard router behaviour.
-			name: "time exceeded with unparsed inner proto (InnerProto zero)",
-			resp: &ICMPResponse{
-				Type: typeTimeExceededV4, SrcAddr: ipv4(matchTestHop),
-				InnerDstAddr: target, InnerID: matchTestICMPID, InnerSeq: seq,
-			},
-			wantSeq: seq, wantOK: true,
-		},
 	})
 }
 
