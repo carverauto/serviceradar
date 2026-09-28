@@ -459,13 +459,14 @@ defmodule ServiceRadar.EventWriter.ProducerFlowControlTest do
       test_pid = self()
 
       spawn_link(fn ->
-        Stream.repeatedly(fn ->
+        fn ->
           receive do
             {:"$gen_call", from, {:pub, topic, _payload, _opts}} ->
               send(test_pid, {:pulled, topic})
               GenServer.reply(from, :ok)
           end
-        end)
+        end
+        |> Stream.repeatedly()
         |> Stream.run()
       end)
     end
@@ -505,7 +506,8 @@ defmodule ServiceRadar.EventWriter.ProducerFlowControlTest do
         sid_map = Map.new(consumers, &{&1.sid, &1.pull_subject})
 
         state =
-          build_config(max_ack_pending: 64, pull_expires_ns: 0)
+          [max_ack_pending: 64, pull_expires_ns: 0]
+          |> build_config()
           |> init_state()
           |> Map.merge(%{
             conn: start_recording_conn(),
@@ -528,7 +530,13 @@ defmodule ServiceRadar.EventWriter.ProducerFlowControlTest do
               consumers
               |> Enum.filter(&(&1.durable in durables))
               |> Enum.reduce(acc, fn consumer, st ->
-                status = %{body: "", topic: consumer.pull_subject, reply_to: nil, sid: consumer.sid}
+                status = %{
+                  body: "",
+                  topic: consumer.pull_subject,
+                  reply_to: nil,
+                  sid: consumer.sid
+                }
+
                 {:noreply, [], st} = Producer.handle_info({:msg, status}, st)
                 st
               end)
