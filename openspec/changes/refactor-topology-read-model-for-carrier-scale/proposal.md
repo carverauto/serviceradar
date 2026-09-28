@@ -27,5 +27,5 @@ God-View must remain useful at 200,000 to 1,000,000 or more devices. Sending and
 - #4749 supplies schema 3, typed decoding, WebGPU-only rendering, deck.gl 9.4, and procedural per-edge packet flow. Reuse those internals; do not edit their renderer files before the dependency lands.
 - The complete paged Dgraph source, immutable semantic Atlas index, scoped detail reader, and authorization/watch checks are reusable foundation. Their passing checks do not establish tile-engine acceptance.
 - `refactor-god-view-elk-scene` owns coherent geometry within bounded ELK detail scenes. This change owns the persistent world, tiles, publication, caches, overlays, and map/detail navigation boundary.
-- Quarantine diagnostics and evidence-backed `Affected` behavior remain separate carrier-scale work (tasks 2.2 and 4.x), outside #4774. The SDK and #4748 are also outside this delivery.
+- Quarantine diagnostics and evidence-backed `Affected` behavior remain separate carrier-scale work (tasks 2.2 and 4.x), outside #4774. SDK provider registration and #4748 remain outside this delivery; shared locations use the reusable contract coordinated with `add-showcase-demo-portfolio` design D19.
 - Global AGE extension removal remains blocked on its remaining consumers in `replace-age-topology-with-dgraph`; this tile engine uses Dgraph topology.

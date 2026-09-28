@@ -15,7 +15,8 @@ actual schema-3 tiles with the web producer. No browser fixture substitutes JSON
 for the tile wire format.
 
 The browser exercise serves those immutable bytes over a real loopback HTTP
-server. Only the Phoenix channel is simulated. It opens the world at zoom 0,
+server. The Phoenix channel and telemetry overlays are simulated; this exercise
+does not prove SNMP ingestion through JetStream/EventWriter. It opens the world at zoom 0,
 flies to two searched devices, opens bounded detail scenes, returns to retained
 geometry, pans, uses wheel zoom, changes health, and picks actual geometry with
 packet flow enabled. Missing fixture tiles, browser errors, disabled packet flow,
@@ -90,6 +91,25 @@ operation and a fresh bulk load can use the bounded seek immediately. No
 production timeout was increased.
 
 ## Reproduction
+
+### Shared locations and address-bar updates
+
+The extended remote browser exercise
+[2d622dfb-5766-4384-8e78-4added2798ff](https://carverauto.buildbuddy.io/invocation/2d622dfb-5766-4384-8e78-4added2798ff)
+passed with real pan/wheel interactions, debounced center/zoom query parameters,
+preserved browser history state, shared-location reload across a new publication,
+invalid/incompatible link handling and stable device lookup. Compact links use
+`layout`, `x`, `y` and `z`, with at most one decimal for coordinates and three
+for zoom. Fractional legacy `map_*` links restore their camera and canonicalize
+to that bounded precision; unrelated query parameters survive. Its telemetry overlay
+and channel remain simulated. This is functional SwiftShader proof, not a new
+physical-GPU performance measurement or a real SNMP-ingestion test.
+
+The same source tree passed the
+[remote repository gate](https://carverauto.buildbuddy.io/invocation/a982b070-e1bf-45dc-a584-6c5669ed43d8):
+367 tests passed and two platform-specific Swift targets were skipped.
+
+### Commands
 
 Build everything on RBE. The declared write-back targets provide artifacts for
 a physical browser without reading Bazel's output cache:

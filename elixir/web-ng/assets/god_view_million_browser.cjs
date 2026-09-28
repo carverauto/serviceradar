@@ -49,7 +49,7 @@ async function main() {
       if (!tile) {missing.push(id); return send(404, {})}
       if (kind === "overlays") {
         const health = unhealthy ? {glyphs: tile.health.glyphs.map(glyph => ({...glyph, counts: {...glyph.counts, healthy: 0, unknown: 0, unavailable: glyph.counts.total}}))} : tile.health
-        return send(200, {layout_version: manifest.layout_version, generation: 1, revision: tile.revision, tile_id: id, health, flow: tile.flow})
+        return send(200, {layout_version: manifest.layout_version, generation: manifest.generation, revision: tile.revision, tile_id: id, health, flow: tile.flow})
       }
       requests.push(id)
       const bytes = Buffer.from(tile.bytes, "base64")
@@ -95,7 +95,7 @@ async function main() {
       let watch = 0
       connection.onMessage(raw => {
         const [join, ref, topic, event] = JSON.parse(raw)
-        const result = event === "phx_join" ? {layout_version: manifest.layout_version, generation: 1} : event === "tiles:watch" ? {watch_id: ++watch} : {}
+        const result = event === "phx_join" ? {layout_version: manifest.layout_version, generation: manifest.generation} : event === "tiles:watch" ? {watch_id: ++watch} : {}
         connection.send(JSON.stringify([join, ref, topic, "phx_reply", {status: "ok", response: result}]))
       })
     })
@@ -137,6 +137,10 @@ async function main() {
       await profile.send("Profiler.start")
     }
     const beforePan = requests.length
+    const historyLength = await page.evaluate(() => {
+      window.history.replaceState({...window.history.state, fixtureHistory: "retained"}, "", window.location.href)
+      return window.history.length
+    })
     await page.evaluate(() => {
       const measurements = window.__SR_WORLD_TRANSPORT__.measurements
       measurements.frames = []
@@ -222,7 +226,98 @@ async function main() {
       assert(sample.checked > 1, "coordinate precision must span multiple visible zoom levels")
       assert(sample.maxErrorFraction < 1, "decoded position exceeds one tile-local UInt16 unit")
     }
-    const report = {physical, headless, frameRateLimitDisabled, energySaverOff, adapter, first, metrics, precision, detailRequests, geometryRequests: requests.length, serverFixture: fixture.measurements}
+    // A fresh renderer must restore the link; no in-memory camera survives goto.
+    const sharedCamera = await page.evaluate(() => {
+      const viewport = window.__SR_WORLD_TRANSPORT__.renderer.deck.getViewports()[0]
+      return {target: [...viewport.target], zoom: viewport.zoom}
+    })
+    await page.waitForFunction(camera => {
+      const params = new URL(window.location.href).searchParams
+      return params.has("x") && Math.abs(Number(params.get("x")) - camera.target[0] * 32768) <= 0.050001 &&
+        Math.abs(Number(params.get("y")) - camera.target[1] * 32768) <= 0.050001 && Math.abs(Number(params.get("z")) - camera.zoom) <= 0.000501
+    }, sharedCamera)
+    const addressState = await page.evaluate(() => ({length: window.history.length, marker: window.history.state.fixtureHistory}))
+    assert.deepEqual(addressState, {length: historyLength, marker: "retained"}, "camera updates must replace history while preserving host state")
+    const addressUrl = page.url()
+    await page.getByRole("button", {name: "Share map", exact: true}).click()
+    const sharedUrl = await page.getByRole("textbox", {name: "Map link", exact: true}).inputValue()
+    assert.equal(sharedUrl, addressUrl, "copying the address bar must reproduce Share map")
+    const location = new URL(sharedUrl).searchParams
+    assert.deepEqual([...location.keys()].sort(), ["layout", "transport", "x", "y", "z"], "route context must not be repeated in the URL; unrelated parameters survive")
+    assert.equal(location.get("layout"), manifest.layout_version)
+    for (const key of ["x", "y"]) assert.match(location.get(key), /^\d+(\.\d)?$/, "coordinates need at most one decimal")
+    assert.match(location.get("z"), /^-?\d+(\.\d{1,3})?$/, "zoom needs at most three decimals")
+    assert.equal(location.has("generation"), false, "sharing must not pin a publication")
+    manifest.generation += 1 // Same coordinate space, newer publication on reopen.
+    await page.goto(sharedUrl)
+    await page.waitForFunction(camera => {
+      const renderer = window.__SR_WORLD_TRANSPORT__?.renderer
+      const viewport = renderer?.deck?.getViewports()[0]
+      return renderer?.cache.entries.size > 0 && Math.abs(viewport?.zoom - camera.zoom) <= 0.000501 &&
+        Math.abs(viewport.target[0] - camera.target[0]) * 32768 <= 0.050001 && Math.abs(viewport.target[1] - camera.target[1]) * 32768 <= 0.050001
+    }, sharedCamera)
+
+    const legacyCamera = {target: [sharedCamera.target[0] + 0.123456789 / 32768,
+      sharedCamera.target[1] + 0.345678901 / 32768, 0], zoom: sharedCamera.zoom - 0.23456789}
+    const legacyUrl = new URL(sharedUrl)
+    for (const key of ["layout", "x", "y", "z"]) legacyUrl.searchParams.delete(key)
+    for (const [key, value] of Object.entries({map_v: 1, map_type: "plan", map_resource: "topology", map_space: "topology-world",
+      map_version: manifest.layout_version, map_x: legacyCamera.target[0] * 32768, map_y: legacyCamera.target[1] * 32768, map_zoom: legacyCamera.zoom})) {
+      legacyUrl.searchParams.set(key, value)
+    }
+    await page.goto(legacyUrl.href)
+    await page.waitForFunction(camera => {
+      const viewport = window.__SR_WORLD_TRANSPORT__?.renderer?.deck?.getViewports()[0]
+      return viewport?.zoom === camera.zoom && viewport.target[0] === camera.target[0] && viewport.target[1] === camera.target[1] &&
+        !new URL(window.location.href).searchParams.has("map_x")
+    }, legacyCamera)
+    const canonicalLocation = new URL(page.url()).searchParams
+    for (const [key, value, tolerance] of [["x", legacyCamera.target[0] * 32768, 0.050001],
+      ["y", legacyCamera.target[1] * 32768, 0.050001], ["z", legacyCamera.zoom, 0.000501]]) {
+      assert(Math.abs(Number(canonicalLocation.get(key)) - value) <= tolerance, "short links must preserve the camera within the precision budget")
+      assert.match(canonicalLocation.get(key), key === "z" ? /^-?\d+(\.\d{1,3})?$/ : /^\d+(\.\d)?$/, "fractional legacy links must canonicalize to bounded precision")
+    }
+
+    for (const [base, key, value] of [
+      [sharedUrl, "layout", "00000000-0000-4000-8000-000000000099"],
+      [sharedUrl, "x", "-1"],
+      [sharedUrl, "z", "99"],
+      [sharedUrl, "x", "not-a-number"],
+      [sharedUrl, "x", ""],
+      [sharedUrl, "layout", "x".repeat(513)],
+      [legacyUrl, "map_resource", "synthetic-floor-plan"],
+      [legacyUrl, "map_space", "geographic"],
+      [legacyUrl, "map_v", "2"],
+    ]) {
+      const invalid = new URL(base)
+      invalid.searchParams.set(key, value)
+      await page.goto(invalid.href)
+      await page.getByText(/Showing the current Home view/).waitFor()
+      const home = await page.evaluate(() => {
+        const viewport = window.__SR_WORLD_TRANSPORT__.renderer.deck.getViewports()[0]
+        return {target: [...viewport.target], zoom: viewport.zoom}
+      })
+      assert.deepEqual(home, {target: [256, 256, 0], zoom: 0})
+    }
+
+    const deviceUrl = new URL(sharedUrl)
+    for (const key of ["layout", "x", "y", "z"]) deviceUrl.searchParams.delete(key)
+    deviceUrl.searchParams.set("device", samples[0].device_id)
+    await page.goto(deviceUrl.href)
+    await page.getByRole("button", {name: "Open neighborhood"}).waitFor()
+    await page.waitForFunction(({x, y, zoom}) => {
+      const viewport = window.__SR_WORLD_TRANSPORT__.renderer.deck.getViewports()[0]
+      return viewport.zoom === zoom && viewport.target[0] === x / 32768 && viewport.target[1] === y / 32768
+    }, samples[0])
+    await page.getByRole("button", {name: "Share device", exact: true}).click()
+    const stableLink = new URL(await page.getByRole("textbox", {name: "Device link", exact: true}).inputValue())
+    assert.equal(stableLink.searchParams.get("device"), samples[0].device_id)
+    assert.equal(stableLink.searchParams.has("x"), false, "device navigation must resolve current coordinates")
+    deviceUrl.searchParams.set("device", "invented-missing-device")
+    await page.goto(deviceUrl.href)
+    await page.getByText("Topology HTTP 404", {exact: true}).waitFor()
+
+    const report = {physical, headless, frameRateLimitDisabled, energySaverOff, adapter, first, metrics, precision, detailRequests, sharedLocations: "passed", geometryRequests: requests.length, serverFixture: fixture.measurements}
     console.log(JSON.stringify(report, null, 2))
     assert.equal(metrics.rendererFailed, false)
     assert(metrics.packetLayers > 0, "packet flow must be on")

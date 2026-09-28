@@ -40,6 +40,8 @@ The shared invented million-device/two-million-relation generator passes the [la
 - [x] 3.12 Apply separate bounded telemetry overlays, reject stale geometry/overlay results, and reconcile sequence gaps without geometry refetch.
 - [x] 3.13 Refetch only visible dirty tiles, reconcile channel resets/reconnects, and bound initial acknowledgements as well as invalidation messages.
 
+- [x] 3.14 Share and restore versioned map locations and stable device links; reject incompatible layouts explicitly and reuse a renderer-independent location contract for future SDK integration. Remote million-world browser proof: `1494fd57-1471-4b3e-9bf7-394fc1582f79`.
+
 ## 4. Status and Diagnostics
 - [ ] 4.1 Replace heuristic three-hop Affected propagation with evidence-backed impact semantics. Outside #4774.
 - [ ] 4.2 Expose quality counters for unresolved identities, duplicate identity collisions, attachment drops, and bootstrap failures. Outside #4774.

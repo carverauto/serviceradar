@@ -9,6 +9,7 @@ import {WorldOverlays} from "./world_overlays"
 import WorldTileLayer from "./world_tile_layer"
 import {WORLD_EXTENT, WORLD_TILE_SIZE, MAX_TILE_BYTES} from "./world_tile_decode"
 import {readBoundedBody, worldJson} from "./world_http"
+import {clearPlanLocation, readPlanLocation, planLocationURL} from "../spatial_location"
 
 function element(tag, className, text) {
   const node = document.createElement(tag)
@@ -57,7 +58,10 @@ export default class WorldMapRenderer {
     this.back.type = "button"
     this.back.hidden = true
     this.back.addEventListener("click", () => this.returnToMap())
-    this.toolbar.append(input, find, this.back)
+    const share = element("button", "btn btn-sm", "Share map")
+    share.type = "button"
+    share.addEventListener("click", () => this.shareMap())
+    this.toolbar.append(input, find, share, this.back)
     this.toolbar.addEventListener("submit", event => {event.preventDefault(); void this.search(input.value.trim())})
     this.panel = element("div", "absolute left-3 top-14 z-20 max-w-xs rounded-lg border border-sr-line bg-sr-surface p-3 text-sm")
     this.panel.hidden = true
@@ -83,8 +87,8 @@ export default class WorldMapRenderer {
       controller: {dragPan: true, scrollZoom: {smooth: true}, touchZoom: true, dragRotate: false, touchRotate: false, doubleClickZoom: false},
       pickingRadius: 6, _animate: true,
       onViewStateChange: ({viewState}) => {
-        this.viewState = {...viewState, zoom: Math.max(-2, Math.min(this.cache.manifest?.zmax ?? 16, viewState.zoom))}
-        return this.viewState
+        this.viewState = viewState
+        this.scheduleLocationUpdate()
       },
       onClick: info => {if (info.object) void this.pick(info)},
       getTooltip: info => info.object ? {text: info.object.label || `${info.object.count.toLocaleString()} relations`} : null,
@@ -96,6 +100,14 @@ export default class WorldMapRenderer {
       adoptDeckViewportSize(this.deck, width, height)
     })
     this.resize.observe(this.el)
+    this.locationPath = window.location.pathname
+    this.onLocationHistory = () => {
+      if (this.destroyed || !this.cache.manifest || window.location.pathname !== this.locationPath) return
+      this.returnToMap()
+      this.setView(this.overviewView())
+      this.restoreLocation()
+    }
+    window.addEventListener("popstate", this.onLocationHistory)
     this.handleEvent("god_view:reset_view", () => {
       // The mounted detail renderer fits its own coordinate space. Fitting
       // must not also discard that scene or move the retained map camera.
@@ -140,19 +152,110 @@ export default class WorldMapRenderer {
   setView(viewState) {
     this.viewState = viewState
     this.deck?.setProps({initialViewState: viewState})
+    this.scheduleLocationUpdate()
+  }
+
+  locationFrame() {
+    return {resource: "topology", space: "topology-world", version: this.cache.manifest.layout_version,
+      bounds: [[0, 0], [WORLD_EXTENT, WORLD_EXTENT]], minZoom: -2, maxZoom: this.cache.manifest.zmax}
+  }
+
+  restoreLocation() {
+    const params = new URL(window.location.href).searchParams
+    // Restore only after the first successful manifest, including retry after
+    // an initial outage. Search is asynchronous and resolves the current world.
+    if (params.has("device")) {
+      const device = params.get("device")
+      if (device && device.length <= 512) void this.search(device)
+      else this.locationNotice("Invalid device link")
+      return
+    }
+    try {
+      const location = readPlanLocation(window.location.href, this.locationFrame())
+      if (!location) return
+      this.setView({target: [...location.center.map(value => value * WORLD_TILE_SIZE / WORLD_EXTENT), 0], zoom: location.zoom})
+    } catch (error) {
+      this.setView(this.overviewView())
+      this.locationNotice(`${error.message}. Showing the current Home view.`)
+    }
+  }
+
+  locationNotice(message) {
+    this.selection?.abort()
+    this.panel.replaceChildren(element("p", "text-sr-muted", message))
+    this.panel.hidden = false
+  }
+
+  scheduleLocationUpdate() {
+    clearTimeout(this.locationTimer)
+    if (this.destroyed || !this.cache.manifest) return
+    this.locationTimer = setTimeout(() => {
+      if (this.destroyed) return
+      // Read the rendered camera: controller transition intents can contain
+      // legacy zoom alongside independently interpolated zoomX/zoomY values.
+      const viewport = this.deck.getViewports()[0]
+      const target = viewport.target.map(value => Math.max(0, Math.min(WORLD_TILE_SIZE, value)))
+      const zoom = Math.max(-2, Math.min(this.cache.manifest.zmax, viewport.zoom))
+      if (zoom !== viewport.zoom || target.some((value, axis) => value !== viewport.target[axis])) {
+        this.setView({target, zoom})
+        return
+      }
+      const url = this.mapURL(viewport)
+      if (url.href !== window.location.href) window.history.replaceState(window.history.state, "", url.href)
+    }, 250)
+  }
+
+  mapURL(view) {
+    const center = view.target.slice(0, 2).map(value => value * WORLD_EXTENT / WORLD_TILE_SIZE)
+    const url = planLocationURL(window.location.href, {center, zoom: view.zoom}, this.locationFrame())
+    url.searchParams.delete("device")
+    return url
+  }
+
+  shareMap() {
+    if (!this.cache.manifest) return
+    // Share the retained map camera even while a bounded detail scene is open.
+    this.showLink(this.mapURL(this.deck.getViewports()[0]), "Map link")
+  }
+
+  shareDevice(id) {
+    const url = clearPlanLocation(window.location.href)
+    url.searchParams.set("device", id)
+    this.showLink(url, "Device link")
+  }
+
+  showLink(url, label) {
+    this.selection?.abort()
+    url.hash = ""
+    const input = element("input", "input input-sm w-full mt-2 bg-sr-surface")
+    input.setAttribute("aria-label", label)
+    input.readOnly = true
+    input.value = url.href
+    input.addEventListener("click", () => input.select())
+    this.panel.replaceChildren(element("p", "text-sr-muted", `${label}: copy this address to share.`), input)
+    this.panel.hidden = false
+    input.focus()
+    input.select()
   }
 
   async refreshManifest() {
     if (this.manifestRequest) return this.manifestRequest
     this.manifestRequest = worldJson("/topology/tiles/manifest", this.lifetime.signal, 16384).then(manifest => {
+      const previous = this.cache.manifest
       if (this.destroyed || !this.cache.observe(manifest)) return
       this.watchSignature = null
       this.geometryRevision += 1
       this.sceneCache.clear()
       this.overlays.setVisible([])
       this.returnToMap()
+      if (!previous) this.restoreLocation()
+      else if (previous.layout_version !== manifest.layout_version) {
+        this.setView(this.overviewView())
+        this.locationNotice("The topology layout changed. Showing the current Home view.")
+      }
       this.render()
       this.scheduleWatch()
+      this.scheduleLocationUpdate()
     }).finally(() => {this.manifestRequest = null})
     return this.manifestRequest
   }
@@ -258,7 +361,7 @@ export default class WorldMapRenderer {
       await this.showSelection({kind: "device", id, label: id}, {
         layout_version: result.layout_version, generation: result.generation, kind: "device", id,
       })
-    } catch (error) {if (!this.destroyed && !request.signal.aborted) this.status(error.message)}
+    } catch (error) {if (!this.destroyed && !request.signal.aborted) this.locationNotice(error.message)}
   }
 
   async pick(info) {
@@ -286,6 +389,12 @@ export default class WorldMapRenderer {
       const scene = {layout_version: params.layout_version, generation: params.generation, ...details.scene}
       open.addEventListener("click", () => void this.openScene(scene))
       this.panel.append(open)
+      if (object.kind === "device") {
+        const share = element("button", "btn btn-sm mt-3", "Share device")
+        share.type = "button"
+        share.addEventListener("click", () => this.shareDevice(object.id))
+        this.panel.append(share)
+      }
     } catch (error) {if (!selection.signal.aborted && !this.destroyed) this.panel.append(element("p", "mt-2", error.message))}
   }
 
@@ -388,6 +497,8 @@ export default class WorldMapRenderer {
     this.returnToMap()
     clearInterval(this.timer)
     clearTimeout(this.watchTimer)
+    clearTimeout(this.locationTimer)
+    window.removeEventListener("popstate", this.onLocationHistory)
     this.channel?.leave()
     this.overlays.destroy()
     this.cache.destroy()

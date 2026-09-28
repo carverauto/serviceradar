@@ -324,3 +324,29 @@ God-View SHALL meet the tile-engine acceptance budgets on an independently inven
 - **AND** hover and selection SHALL each complete in less than 100 milliseconds
 - **AND** visible-tile fetch plus decode SHALL be at most 200 milliseconds at p95
 - **AND** a SwiftShader-only run or pure index benchmark SHALL NOT satisfy this real-device gate
+
+### Requirement: Topology locations can be shared
+The topology UI SHALL provide a shareable map location containing a versioned resource and coordinate-space identity, layout version, center and zoom. It SHALL restore the same area for the same layout version across ordinary publications and restarts, while displaying current authorized data. An explicit device link SHALL resolve the stable device identity to its current position.
+
+#### Scenario: Share and reopen a map area
+- **WHEN** a user shares a zoomed map view and another authorized session opens its link
+- **THEN** the map SHALL restore that center and zoom after validating the manifest
+- **AND** the link SHALL NOT pin transient telemetry or publication generation
+
+#### Scenario: Obsolete or invalid map location
+- **WHEN** a link contains a replaced layout version, a different resource/space or invalid coordinates
+- **THEN** the UI SHALL visibly explain that the saved location cannot be restored and show the current Home view
+- **AND** SHALL NOT silently reinterpret that location or request arbitrary backend URLs
+
+#### Scenario: Device link after relayout
+- **WHEN** an authorized user opens a device link after a full relayout
+- **THEN** the UI SHALL search the stable device id and open its current coordinates
+- **AND** a missing device SHALL yield an explicit unavailable state
+
+#### Scenario: Address bar follows map navigation
+- **WHEN** a user pans or zooms the world map
+- **THEN** compact `layout`, `x`, `y` and `z` query parameters SHALL track the settled camera, rounding coordinates to at most one decimal and zoom to at most three decimals
+- **AND** the authorized topology route SHALL supply the resource and coordinate-space identity without repeating them in the URL
+- **AND** older expanded `map_*` links SHALL still restore their validated location and become compact links on the next address-bar update
+- **AND** updates SHALL replace the current history entry, preserve host history state and unrelated query parameters, and stop when the renderer is destroyed
+- **AND** copying the address bar SHALL restore the same camera as Share map
