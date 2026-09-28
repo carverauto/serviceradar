@@ -750,10 +750,21 @@
   copy B yields AMBIGUOUS ALLOCATED SLOT (not COMMITTED, and not discarded) in
   both orderings; and no producer receipt is observable when any required copy or
   its directory metadata is not yet durable.
-- [ ] 2.24 **Bound segments on keys, runs, AND manifest size.** Rotate on
+- [x] 2.24 **Bound segments on keys, runs, AND manifest size.** Rotate on
   whichever binds first. Include an ALTERNATING-attribution test (keys A,B,A,B,…)
   proving the run bound triggers rotation where a distinct-key bound alone would
   not, and that the manifest for any single corrupt segment stays within the
+  recovery grammar's page and byte ceilings.
+  DONE in `go/pkg/edge/spool`: each segment tracks distinct attribution binding
+  digests, maximal same-key runs, and a worst-case manifest projection that
+  charges each RECORD one worst-case span (F1), so a single run that fragments
+  by per-record corruption reason still stays within the grammar's
+  `MaxManifestBytes`; rotation tightens to 817 maximum-size attributed records.
+  `Commit` refuses with retryable `ErrRotationRequired` before writing, and the
+  bounds rebuild from commit evidence on every open. The snapshot type is
+  unexported `segmentBoundsStats` (F4). Tests in `segments_test.go` prove the
+  alternating A,B run bound, the keys and manifest legs, restart persistence,
+  and that any admitted segment's worst-case manifest validates within the
   recovery grammar's page and byte ceilings.
 - [ ] 2.25 **Preserve attribution across relocation.** Carry the bound relation
   through rollover, compaction, and scratch copies; re-verify the binding and
