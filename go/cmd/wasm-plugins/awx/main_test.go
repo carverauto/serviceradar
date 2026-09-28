@@ -2085,10 +2085,11 @@ func TestRunInventorySyncBuildsDeviceDiscovery(t *testing.T) {
 		]
 	}`)
 	labHosts := []byte(`{
-		"count": 1,
+		"count": 2,
 		"next": null,
 		"results": [
-			{"id": 200, "name": "lab01", "inventory": 8, "enabled": false, "variables": ""}
+			{"id": 200, "name": "lab01", "inventory": 8, "enabled": false, "variables": "{\"ansible_host\":\"10.0.0.7\"}"},
+			{"id": 201, "name": "lab02", "inventory": 8, "enabled": true, "variables": ""}
 		]
 	}`)
 
@@ -2187,11 +2188,76 @@ func TestRunInventorySyncBuildsDeviceDiscovery(t *testing.T) {
 	}
 
 	lab01 := byID["awx:ctrl-uuid-1:host:200"]
-	if lab01.IP != "" {
-		t.Errorf("lab01.ip should be empty (no variables), got %q", lab01.IP)
+	if lab01.IP != "10.0.0.7" {
+		t.Errorf("lab01.ip = %q (JSON variables should resolve)", lab01.IP)
 	}
 	if lab01.IsAvailable == nil || *lab01.IsAvailable {
 		t.Errorf("lab01.is_available should reflect enabled=false")
+	}
+	if _, present := byID["awx:ctrl-uuid-1:host:201"]; present {
+		t.Error("lab02 carries no IP or MAC and must not be emitted as a device")
+	}
+	if skipped, ok := disc.Metadata["skipped_hosts"].(int); !ok || skipped != 1 {
+		t.Errorf("metadata.skipped_hosts = %#v, want 1", disc.Metadata["skipped_hosts"])
+	}
+}
+
+func TestRunInventorySyncSkipsHostsWithoutStrongAnchor(t *testing.T) {
+	inventories := []byte(`{
+		"count": 1,
+		"next": null,
+		"results": [
+			{"id": 7, "name": "Production"}
+		]
+	}`)
+	hosts := []byte(`{
+		"count": 4,
+		"next": null,
+		"results": [
+			{"id": 100, "name": "node-a", "inventory": 7, "enabled": true, "variables": "{\"ansible_host\":\"192.0.2.10\"}"},
+			{"id": 101, "name": "node-b", "inventory": 7, "enabled": true, "variables": "{\"proxmox_net0\":\"virtio=BC:24:11:53:84:67,bridge=vmbr0\"}"},
+			{"id": 102, "name": "hostname-only", "inventory": 7, "enabled": true, "variables": ""},
+			{"id": 103, "name": "dns-only", "inventory": 7, "enabled": true, "variables": "{\"ansible_host\":\"host.example.org\"}"}
+		]
+	}`)
+	fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
+		"/api/v2/inventories/?page_size=200":         {Status: http.StatusOK, Body: inventories},
+		"/api/v2/inventories/7/hosts/?page_size=200": {Status: http.StatusOK, Body: hosts},
+	}}
+	swapHTTP(t, fake)
+
+	res := runInventorySync(InventorySyncConfig{
+		ControllerID: "ctrl-1",
+		BaseURL:      "https://awx.example.com",
+		APIToken:     "tok",
+	})
+
+	if res.Status != sdk.StatusOK {
+		t.Fatalf("got %s: %s", res.Status, res.Summary)
+	}
+	if len(res.DeviceDiscovery) != 1 {
+		t.Fatalf("expected 1 DeviceDiscovery, got %d", len(res.DeviceDiscovery))
+	}
+	disc := res.DeviceDiscovery[0]
+
+	got := map[string]bool{}
+	for _, d := range disc.Devices {
+		got[d.DeviceID] = true
+	}
+	if !got["awx:ctrl-1:host:100"] || !got["awx:ctrl-1:host:101"] {
+		t.Fatalf("anchored hosts must be emitted, got %#v", got)
+	}
+	if got["awx:ctrl-1:host:102"] || got["awx:ctrl-1:host:103"] {
+		t.Fatalf("hostname-only hosts must not be emitted, got %#v", got)
+	}
+	if skipped, ok := disc.Metadata["skipped_hosts"].(int); !ok || skipped != 2 {
+		t.Fatalf("metadata.skipped_hosts = %#v, want 2", disc.Metadata["skipped_hosts"])
+	}
+	if res.Labels["hosts"] != "2" {
+		t.Errorf("hosts label = %q, want 2", res.Labels["hosts"])
+	}
+	if res.Labels["skipped_hosts"] != "2" {
+		t.Errorf("skipped_hosts label = %q, want 2", res.Labels["skipped_hosts"])
 	}
 }
 
@@ -2204,7 +2270,7 @@ func TestRunInventorySyncContinuesOnPerInventoryError(t *testing.T) {
 			{"id": 8, "name": "Broken"}
 		]
 	}`)
-	prodHosts := []byte(`{"count":1,"next":null,"results":[{"id":100,"name":"ok","inventory":7,"enabled":true}]}`)
+	prodHosts := []byte(`{"count":1,"next":null,"results":[{"id":100,"name":"ok","inventory":7,"enabled":true,"variables":"{\"ansible_host\":\"10.0.0.5\"}"}]}`)
 	fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
 		"/api/v2/inventories/?page_size=200":         {Status: http.StatusOK, Body: inventories},
 		"/api/v2/inventories/7/hosts/?page_size=200": {Status: http.StatusOK, Body: prodHosts},
@@ -2254,7 +2320,7 @@ func TestRunInventorySyncSupportsMultipleControllers(t *testing.T) {
 			{"id": 7, "name": "Production"}
 		]
 	}`)
-	hosts := []byte(`{"count":1,"next":null,"results":[{"id":100,"name":"web01","inventory":7,"enabled":true}]}`)
+	hosts := []byte(`{"count":1,"next":null,"results":[{"id":100,"name":"web01","inventory":7,"enabled":true,"variables":"{\"ansible_host\":\"10.0.0.5\"}"}]}`)
 	fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
 		"/api/v2/inventories/?page_size=200":         {Status: http.StatusOK, Body: inventories},
 		"/api/v2/inventories/7/hosts/?page_size=200": {Status: http.StatusOK, Body: hosts},

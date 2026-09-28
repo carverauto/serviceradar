@@ -50,6 +50,32 @@ func TestAWXLegacyIDsBridgeTheHostnameKey(t *testing.T) {
 	}
 }
 
+func TestAWXHostHasStrongAnchor(t *testing.T) {
+	cases := map[string]struct {
+		variables string
+		want      bool
+	}{
+		"ip ansible_host":         {`{"ansible_host":"192.0.2.44"}`, true},
+		"yaml ip ansible_host":    {"ansible_host: 192.0.2.44\n", true},
+		"proxmox nic mac":         {`{"proxmox_net0":"virtio=BC:24:11:53:84:67,bridge=vmbr0"}`, true},
+		"dns ansible_host only":   {`{"ansible_host":"db01.example.org"}`, false},
+		"empty variables":         {"", false},
+		"blank ansible_host":      {`{"ansible_host":""}`, false},
+		"yaml without host":       {"ansible_connection: local\nansible_user: root\n", false},
+		"loopback only":           {`{"proxmox_lxc_interfaces":[{"name":"lo","hwaddr":"00:00:00:00:00:00"}]}`, false},
+		"empty json object":       {`{}`, false},
+		"ip and mac both present": {`{"ansible_host":"192.0.2.44","proxmox_net0":"virtio=BC:24:11:53:84:67"}`, true},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := awxHostHasStrongAnchor(awxHostRow{Variables: tc.variables}); got != tc.want {
+				t.Fatalf("awxHostHasStrongAnchor(%q) = %v, want %v", tc.variables, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestAWXHostMACsFromProxmoxConfigString(t *testing.T) {
 	vars := `{"ansible_host":"192.168.2.44",
 	          "proxmox_net0":"virtio=BC:24:11:53:84:67,bridge=vmbr0,tag=10",

@@ -122,6 +122,24 @@ func awxHostMACs(variables string) []string {
 	return out
 }
 
+// awxHostHasStrongAnchor reports whether an AWX host carries at least one
+// address or hardware identifier that can converge it with a device discovered
+// by another source (sweep, agent, proxmox). A hostname-only entry -- one whose
+// variables carry neither an IP ansible_host nor a MAC -- has no anchor: DIRE
+// will never merge it with the real device, so emitting it only mints a
+// permanent duplicate. Such hosts are skipped at the producer rather than left
+// for the ingestor to reconcile away.
+//
+// Hostname agreement is never identity (#4734), so a DNS-name ansible_host is
+// deliberately NOT an anchor.
+func awxHostHasStrongAnchor(host awxHostRow) bool {
+	if isProbablyIP(extractAnsibleHostFromVariables(host.Variables)) {
+		return true
+	}
+
+	return len(awxHostMACs(host.Variables)) > 0
+}
+
 // macFromNICValue reads a MAC out of one NIC entry, which inventories write
 // either as a mapping or as Proxmox's own comma-separated config string
 // ("virtio=BC:24:11:53:84:67,bridge=vmbr0,tag=10").

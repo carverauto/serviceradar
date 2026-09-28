@@ -3575,6 +3575,7 @@ func runInventorySyncController(cfg InventorySyncControllerConfig) *sdk.Result {
 
 	totalHosts := 0
 	totalInventories := 0
+	skippedHosts := 0
 	complete := true
 	for _, row := range invRows {
 		var inv awxInventoryRow
@@ -3608,12 +3609,17 @@ func runInventorySyncController(cfg InventorySyncControllerConfig) *sdk.Result {
 				complete = false
 				continue
 			}
+			if !awxHostHasStrongAnchor(host) {
+				skippedHosts++
+				continue
+			}
 			discovery.AddDevice(buildDiscoveredHost(cfg, inv, host))
 			totalHosts++
 		}
 	}
 	discovery.Metadata["inventory_count"] = totalInventories
 	discovery.Metadata["complete"] = complete
+	discovery.Metadata["skipped_hosts"] = skippedHosts
 	discovery.Metadata["source_fingerprint"] = inventorySourceFingerprint(cfg.ControllerID, discovery.Devices)
 
 	summary := fmt.Sprintf(
@@ -3626,6 +3632,7 @@ func runInventorySyncController(cfg InventorySyncControllerConfig) *sdk.Result {
 	result.WithLabel("controller_id", cfg.ControllerID)
 	result.WithLabel("inventories", strconv.Itoa(totalInventories))
 	result.WithLabel("hosts", strconv.Itoa(totalHosts))
+	result.WithLabel("skipped_hosts", strconv.Itoa(skippedHosts))
 	return result
 }
 
