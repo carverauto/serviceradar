@@ -156,6 +156,25 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
        }),
        do: error_types(error)
 
+  defp error_types(%{__struct__: Ash.Error.Unknown.UnknownError, error: error})
+       when is_binary(error) do
+    cond do
+      String.contains?(error, "expected an integer in -2147483648..2147483647") ->
+        [:parameter_encoding_error]
+
+      String.contains?(error, [
+        "ERROR 22003",
+        "numeric_value_out_of_range",
+        "integer out of range",
+        "out of range for type integer"
+      ]) ->
+        [:numeric_value_out_of_range]
+
+      true ->
+        [Ash.Error.Unknown.UnknownError]
+    end
+  end
+
   defp error_types(%{__struct__: type}), do: [type]
   defp error_types(_error), do: [:unknown]
 
