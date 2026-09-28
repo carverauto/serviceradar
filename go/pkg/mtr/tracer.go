@@ -699,9 +699,18 @@ func (t *Tracer) matchProbeResponse(resp *ICMPResponse) (int, bool) {
 
 		// Quoted ICMP errors should match destination. Some routers do not quote
 		// Echo ID consistently; only enforce ID when present/non-zero.
+		// When InnerProto is set, verify it is ICMP — a concurrent UDP trace to
+		// the same target can produce Time Exceeded errors whose sequence numbers
+		// overlap with ours; those errors quote a UDP datagram (InnerProto==17).
+		icmpProto := ipProtoICMP
+		if isIPv6 {
+			icmpProto = ipProtoICMPv6
+		}
+
 		if (resp.Type == 11 || resp.Type == 3 || resp.Type == 1) &&
 			(!t.matchTargetAddr(resp.InnerDstAddr) ||
-				(resp.InnerID != 0 && resp.InnerID != t.icmpID)) {
+				(resp.InnerID != 0 && resp.InnerID != t.icmpID) ||
+				(resp.InnerProto != 0 && resp.InnerProto != icmpProto)) {
 			return 0, false
 		}
 
@@ -710,6 +719,14 @@ func (t *Tracer) matchProbeResponse(resp *ICMPResponse) (int, bool) {
 	case ProtocolUDP:
 		// UDP probes are keyed by destination port, so require quoted destination match.
 		if !t.matchTargetAddr(resp.InnerDstAddr) {
+			return 0, false
+		}
+
+		// When InnerProto is set, verify it is UDP — a concurrent ICMP trace to
+		// the same target can produce Time Exceeded errors quoting an ICMP
+		// datagram (InnerProto==1) with a sequence number that falls inside our
+		// destination-port range.
+		if resp.InnerProto != 0 && resp.InnerProto != ipProtoUDP {
 			return 0, false
 		}
 	}

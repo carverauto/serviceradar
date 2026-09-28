@@ -122,6 +122,27 @@ func TestMatchProbeResponse_ICMP(t *testing.T) {
 			},
 			wantOK: false,
 		},
+		{
+			// A concurrent UDP trace to the same target can produce Time Exceeded
+			// errors whose InnerProto is UDP and whose sequence number (== dst port)
+			// happens to fall within our probe range.
+			name: "time exceeded quoting a UDP datagram (concurrent UDP trace cross-match)",
+			resp: &ICMPResponse{
+				Type: typeTimeExceededV4, SrcAddr: ipv4(matchTestHop),
+				InnerDstAddr: target, InnerProto: ipProtoUDP, InnerSeq: seq,
+			},
+			wantOK: false,
+		},
+		{
+			// InnerProto==0 means the quoted transport was not parsed; accept for
+			// backward compatibility with older or non-standard router behaviour.
+			name: "time exceeded with unparsed inner proto (InnerProto zero)",
+			resp: &ICMPResponse{
+				Type: typeTimeExceededV4, SrcAddr: ipv4(matchTestHop),
+				InnerDstAddr: target, InnerID: matchTestICMPID, InnerSeq: seq,
+			},
+			wantSeq: seq, wantOK: true,
+		},
 	})
 }
 
@@ -212,6 +233,17 @@ func TestMatchProbeResponse_UDP(t *testing.T) {
 			// An echo reply quotes no datagram, so it cannot answer a UDP probe.
 			name:   "echo reply on a UDP trace",
 			resp:   &ICMPResponse{Type: typeEchoReplyV4, SrcAddr: target, InnerSeq: dstPort},
+			wantOK: false,
+		},
+		{
+			// A concurrent ICMP trace to the same target can produce Time Exceeded
+			// errors whose InnerProto is ICMP and whose InnerSeq (echo sequence)
+			// happens to match a destination port in our probe range.
+			name: "time exceeded quoting an ICMP datagram (concurrent ICMP trace cross-match)",
+			resp: &ICMPResponse{
+				Type: typeTimeExceededV4, SrcAddr: ipv4(matchTestHop), InnerDstAddr: target,
+				InnerProto: ipProtoICMP, InnerSeq: dstPort,
+			},
 			wantOK: false,
 		},
 	})
