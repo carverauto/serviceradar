@@ -97,7 +97,22 @@
   - [ ] 3.2.6 JSON:API `/otel_traces` and `/otel_trace_summaries` still read CNPG; route or retire
     them with the other JSON:API telemetry readers in 5.4. `OtelServiceCatalogBackfillWorker`
     reads CNPG `spans_red_1h` once, for history written before the switch, and needs no change.
-- [ ] 3.3 Sysmon CPU/memory/disk/process: table(s), destination, routing, hourly rollups.
+- [x] 3.3 Sysmon CPU/memory/disk/process: table(s), destination, routing, hourly rollups.
+  **Retired — the data is in `timeseries_metrics`.** The dedicated
+  `cpu_metrics`/`memory_metrics`/`disk_metrics`/`process_metrics` (and
+  `cpu_cluster_metrics`) hypertables have no writer: device sysmon is ingested
+  as `sysmon.*` metric types in `timeseries_metrics`, which is already
+  warehouse-backed. No warehouse copies are built. The readers are retired
+  instead (issue #4861): the SRQL entities (`cpu`, `memory`, `disk`,
+  `processes` and their `_metrics` spellings) fail at parse time with the
+  `in:timeseries_metrics metric_type:"sysmon.*"` replacement in the error, the
+  Analytics high-utilization cards, the device-list sysmon presence probe and
+  the authored-dashboard CPU template read `timeseries_metrics` `sysmon.*`
+  (through `Readers`, so both backends serve them), and the JSON:API resources
+  for the empty tables are removed (`/api/v2/cpu_metrics`,
+  `/api/v2/memory_metrics`, `/api/v2/disk_metrics`, `/api/v2/process_metrics`,
+  their `_hourly` variants and `/api/v2/cpu_cluster_metrics`). The CNPG tables,
+  their CAGGs, their migrations and their retention policies stay.
 - [ ] 3.4 MTR traces and hops (spec: "MTR traces and hops reach the warehouse through JetStream").
   Scalar MTR metrics already travel on `metrics.mtr` (gateway `MtrMetricsPublisher` -> EventWriter
   `Metrics`); full traces and hops do not: scheduled results go gateway -> core

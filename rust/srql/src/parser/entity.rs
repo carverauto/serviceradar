@@ -96,10 +96,14 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
         "otel_metrics" | "metrics" => Ok(Entity::OtelMetrics),
         "otel_metric_points" | "metric_points" => Ok(Entity::OtelMetricPoints),
         "rperf_metrics" | "rperf" => Ok(Entity::RperfMetrics),
-        "cpu_metrics" | "cpu" => Ok(Entity::CpuMetrics),
-        "memory_metrics" | "memory" => Ok(Entity::MemoryMetrics),
-        "disk_metrics" | "disk" => Ok(Entity::DiskMetrics),
-        "process_metrics" | "processes" => Ok(Entity::ProcessMetrics),
+        "cpu_metrics" | "cpu" => Err(retired_sysmon_entity("cpu_metrics", "sysmon.cpu")),
+        "memory_metrics" | "memory" => {
+            Err(retired_sysmon_entity("memory_metrics", "sysmon.memory"))
+        }
+        "disk_metrics" | "disk" => Err(retired_sysmon_entity("disk_metrics", "sysmon.disk")),
+        "process_metrics" | "processes" => {
+            Err(retired_sysmon_entity("process_metrics", "sysmon.process"))
+        }
         "capacity_forecasts" | "capacity_forecast" | "forecasts" | "forecast" => {
             Ok(Entity::CapacityForecasts)
         }
@@ -198,4 +202,17 @@ pub(super) fn parse_entity(raw: &str) -> Result<Entity> {
             "unsupported entity '{other}'"
         ))),
     }
+}
+
+/// The dedicated sysmon hypertables (`cpu_metrics`, `memory_metrics`,
+/// `disk_metrics`, `process_metrics`) never receive a writer: device sysmon
+/// data is ingested as `sysmon.*` metrics in `timeseries_metrics`. Their
+/// entities are retired, so their spellings fail with the replacement query
+/// instead of an empty result that looks like a healthy fleet.
+fn retired_sysmon_entity(name: &str, metric_type: &str) -> ServiceError {
+    ServiceError::InvalidRequest(format!(
+        "retired entity '{name}': the dedicated sysmon tables receive no data; \
+         query `in:timeseries_metrics metric_type:\"{metric_type}\"` instead \
+         (device sysmon is stored as sysmon.* metrics)"
+    ))
 }

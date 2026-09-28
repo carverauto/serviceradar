@@ -97,9 +97,10 @@ const METRIC_HOURLY: HourlyRollup = HourlyRollup {
 /// `timeseries_metrics` and `events` are each one physical table holding
 /// several families, exactly as they are on CNPG, so an entity scoped to one
 /// family carries that family's `scope` predicate. The sysmon entities are
-/// deliberately absent: CNPG serves them from their own `cpu_metrics`/
-/// `memory_metrics`/`disk_metrics`/`process_metrics` tables, which EventWriter
-/// never mirrors into the warehouse.
+/// deliberately absent: they are retired at parse time (the dedicated
+/// `cpu_metrics`/`memory_metrics`/`disk_metrics`/`process_metrics` tables
+/// receive no data; device sysmon is ingested as `sysmon.*` metrics in
+/// `timeseries_metrics`).
 fn dataset_for(entity: &Entity) -> Option<Dataset> {
     match entity {
         Entity::Flows => Some(Dataset {
@@ -4884,18 +4885,27 @@ mod tests {
     }
 
     #[test]
-    fn sysmon_entities_are_not_served_from_the_metrics_table() {
-        // CNPG keeps these in their own tables with their own columns, and
-        // EventWriter never mirrors them, so answering from timeseries_metrics
-        // would return interface counters labelled as CPU.
+    fn sysmon_entities_are_retired_before_reaching_the_dialect() {
+        // The dedicated sysmon tables never receive a writer (device sysmon
+        // lives in timeseries_metrics as sysmon.*), so their entities are
+        // retired at parse time with the replacement query in the error —
+        // before any dialect could answer from the wrong source.
         for query in [
             "in:cpu_metrics time:last_1h limit:5",
             "in:memory_metrics time:last_1h limit:5",
             "in:disk_metrics time:last_1h limit:5",
             "in:process_metrics time:last_1h limit:5",
         ] {
-            let err = translate(&plan(query), "serviceradar").expect_err(query);
-            assert!(err.to_string().contains("starrocks_unsupported_entity"));
+            let err = crate::parser::parse(query).expect_err(query);
+            let message = err.to_string();
+            assert!(
+                message.contains("retired entity"),
+                "expected a retired-entity error for {query}, got: {message}"
+            );
+            assert!(
+                message.contains("in:timeseries_metrics metric_type:"),
+                "expected the error to name the replacement query for {query}, got: {message}"
+            );
         }
     }
 

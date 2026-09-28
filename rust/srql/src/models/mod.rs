@@ -10,7 +10,6 @@ mod events;
 mod inventory;
 mod metrics;
 mod observability;
-mod system_metrics;
 
 pub use composite_checks::CompositeResultRow;
 pub use endpoint_inventory::{
@@ -26,4 +25,3 @@ pub use observability::{
     CapacityForecastRow, LogRow, MtrHopRow, MtrTraceRow, OtelServiceRow, TraceSpanRow,
     TraceSummaryRow,
 };
-pub use system_metrics::{CpuMetricRow, DiskMetricRow, MemoryMetricRow, ProcessMetricRow};

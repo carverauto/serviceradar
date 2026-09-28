@@ -1,12 +1,11 @@
 use super::{
     PaginationMeta, QueryRequest, TranslateResponse, addon_fleet, addon_statuses,
     advisory_coordinates, agents, alerts, bmp_events, build_query_plan, camera_sources,
-    capacity_forecasts, composite_results, cpu_metrics, dashboard_service_views, dashboards,
-    device_graph, device_sweep_overlap, devices, disk_metrics, downsample,
-    endpoint_inventory_scans, endpoint_package_catalog, endpoint_packages,
-    endpoint_vulnerability_matches, events, field_survey, flows, gateways, graph_cypher, graph_dql,
-    identity, interfaces, is_exhaustive_profile_query, logs, memory_metrics, mtr_hops, mtr_traces,
-    otel_metric_points, otel_metrics, otel_services, process_metrics, public_endpoints, services,
+    capacity_forecasts, composite_results, dashboard_service_views, dashboards, device_graph,
+    device_sweep_overlap, devices, downsample, endpoint_inventory_scans, endpoint_package_catalog,
+    endpoint_packages, endpoint_vulnerability_matches, events, field_survey, flows, gateways,
+    graph_cypher, graph_dql, identity, interfaces, is_exhaustive_profile_query, logs, mtr_hops,
+    mtr_traces, otel_metric_points, otel_metrics, otel_services, public_endpoints, services,
     source_fact_disagreements, starrocks, sweep_coverage, sweep_executions, sweep_groups,
     sweep_profiles, sweep_results, threat_intel_matches, timeseries_metrics, trace_summaries,
     traces, virtualization, viz, vulnerability_advisories, wifi_map,
@@ -102,10 +101,6 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             | Entity::TimeseriesMetricInterfaceHourly
             | Entity::TimeseriesMetricDiskHourly
             | Entity::SnmpMetrics => timeseries_metrics::to_sql_and_params(&plan)?,
-            Entity::CpuMetrics => cpu_metrics::to_sql_and_params(&plan)?,
-            Entity::MemoryMetrics => memory_metrics::to_sql_and_params(&plan)?,
-            Entity::DiskMetrics => disk_metrics::to_sql_and_params(&plan)?,
-            Entity::ProcessMetrics => process_metrics::to_sql_and_params(&plan)?,
             Entity::Services => services::to_sql_and_params(&plan)?,
             Entity::ServiceAvailability | Entity::MonitoredServices | Entity::SloEvaluations => {
                 dashboard_service_views::to_sql_and_params(&plan)?

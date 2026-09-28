@@ -27,13 +27,6 @@ async fn comprehensive_queries_match_fixtures() {
             })),
         },
         TestCase {
-            query: "in:cpu_metrics usage_percent:>88.1 usage_percent:<88.3",
-            expected_count: 1,
-            validator: Some(Box::new(|body| {
-                assert_eq!(body["results"][0]["core_id"], 1)
-            })),
-        },
-        TestCase {
             query: "in:logs severity_text:ERROR",
             expected_count: 1,
             validator: Some(Box::new(|body| {

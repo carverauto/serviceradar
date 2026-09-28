@@ -542,7 +542,8 @@ per-entity rows (per-PID `ProcessMetric`, per-core `CpuMetric`, per-mount `DiskM
 typed hypertables, which now have no writer. Restoring per-process detail (either a typed per-process writer
 or migrating the web-ng sysmon dashboards to `timeseries_metrics` aggregates) is explicitly DEFERRED to a
 follow-up change: it is not part of what this release validates (the anomaly engine + canonical envelope),
-the typed tables degrade gracefully (SRQL `in:process_metrics` returns empty, no crash), and emitting
+the typed tables are empty and their SRQL entities are retired with a clear error naming the
+`timeseries_metrics` replacement (issue #4861), and emitting
 per-PID points must NOT create per-PID anomaly series. Aggregate sysmon gauges are the shipped contract.
 
 ## Benchmark note: protobuf vs detector eval/s (do not conflate)

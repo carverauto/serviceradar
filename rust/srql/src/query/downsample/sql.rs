@@ -79,7 +79,7 @@ pub(super) fn build_sql(plan: &QueryPlan) -> Result<String> {
                     )
                     && timeseries_cagg_safe_shape(plan)
             }
-            // Other metric CAGGs (cpu/memory/disk/process) keep the strict no-filter gate.
+            // Timeseries keeps the strict no-filter gate for its CAGG route.
             _ => cagg_safe_shape_strict(plan) && matches!(downsample.agg, DownsampleAgg::Avg),
         };
 
@@ -87,10 +87,6 @@ pub(super) fn build_sql(plan: &QueryPlan) -> Result<String> {
         Entity::TimeseriesMetrics => ("timeseries_metrics", "timestamp", None),
         Entity::SnmpMetrics => ("timeseries_metrics", "timestamp", Some("snmp")),
         Entity::RperfMetrics => ("timeseries_metrics", "timestamp", Some("rperf")),
-        Entity::CpuMetrics => ("cpu_metrics", "timestamp", None),
-        Entity::MemoryMetrics => ("memory_metrics", "timestamp", None),
-        Entity::DiskMetrics => ("disk_metrics", "timestamp", None),
-        Entity::ProcessMetrics => ("process_metrics", "timestamp", None),
         Entity::Flows => ("ocsf_network_activity", "time", None),
         _ => {
             return Err(ServiceError::InvalidRequest(
@@ -171,9 +167,8 @@ pub(super) fn build_sql(plan: &QueryPlan) -> Result<String> {
     } else {
         // Half-open, like the StarRocks dialect and the CNPG flow stats builder: a sample
         // exactly on `end` belongs to the next window, so adjacent chart windows never count
-        // it twice. Every raw entity this builder reads (timeseries/snmp/rperf, the sysmon
-        // tables, raw flows) shares the bound; the hourly CAGG bounds above are half-open
-        // already.
+        // it twice. Every raw entity this builder reads (timeseries/snmp/rperf, raw flows)
+        // shares the bound; the hourly CAGG bounds above are half-open already.
         clauses.push(format!("{ts_col} >= ?"));
         clauses.push(format!("{ts_col} < ?"));
     }
@@ -339,9 +334,7 @@ GROUP BY 1, 2"#,
 /// uneven across the hours, and the StarRocks dialect's rollup already weights this way.
 ///
 /// Exact only because `timeseries_metrics.value` is NOT NULL, so `sample_count` (`count(*)`)
-/// is the number of values `avg_value` averaged. The sysmon CAGGs (cpu/memory/disk/process)
-/// average nullable columns while counting every row, so weighting them by `sample_count`
-/// would skew the result; they keep `AVG` of the hourly means.
+/// is the number of values `avg_value` averaged.
 fn timeseries_cagg_weighted_avg(avg_col: &str) -> String {
     format!(
         "SUM({avg_col} * sample_count)::double precision / NULLIF(SUM(sample_count), 0)::double precision"

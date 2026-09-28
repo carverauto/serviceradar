@@ -197,7 +197,7 @@ stats:<function>(<field>) as <alias> [by <field>]
 
 ```srql
 in:devices stats:count() as total by type
-in:cpu_metrics time:last_24h stats:avg(usage_percent) as avg_cpu
+in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" time:last_24h stats:avg(value) as avg_cpu
 in:flows time:last_1h stats:sum(bytes_total) as bytes by src_ip sort:bytes:desc
 ```
 

@@ -153,8 +153,8 @@
       "modifiers": ["limit", "sort"]
     },
     {
-      "query": "in:cpu_metrics uid:(\"sr:host-01\") time:last_24h bucket:24h agg:count series:uid limit:3",
-      "entity": null,
+      "query": "in:timeseries_metrics metric_type:\"sysmon.cpu\" uid:(\"sr:host-01\") time:last_24h bucket:24h agg:count series:uid limit:3",
+      "entity": "timeseries_metrics",
       "chart": true,
       "clauses": {"agg": "count", "bucket": "*", "series": "uid"},
       "modifiers": ["limit"]

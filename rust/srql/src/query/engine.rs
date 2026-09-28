@@ -1,12 +1,12 @@
 use super::{
     PaginationMeta, QueryPlan, QueryRequest, QueryResponse, TranslateRequest, TranslateResponse,
     addon_fleet, addon_statuses, advisory_coordinates, agents, alerts, bmp_events,
-    build_query_plan, camera_sources, capacity_forecasts, composite_results, cpu_metrics,
-    dashboard_service_views, dashboards, device_graph, device_sweep_overlap, devices, disk_metrics,
-    downsample, endpoint_inventory_scans, endpoint_package_catalog, endpoint_packages,
+    build_query_plan, camera_sources, capacity_forecasts, composite_results,
+    dashboard_service_views, dashboards, device_graph, device_sweep_overlap, devices, downsample,
+    endpoint_inventory_scans, endpoint_package_catalog, endpoint_packages,
     endpoint_vulnerability_matches, events, field_survey, flows, gateways, graph_cypher, graph_dql,
-    identity, interfaces, is_exhaustive_profile_query, logs, memory_metrics, mtr_hops, mtr_traces,
-    otel_metric_points, otel_metrics, otel_services, process_metrics, public_endpoints, services,
+    identity, interfaces, is_exhaustive_profile_query, logs, mtr_hops, mtr_traces,
+    otel_metric_points, otel_metrics, otel_services, public_endpoints, services,
     source_fact_disagreements, sweep_coverage, sweep_executions, sweep_groups, sweep_profiles,
     sweep_results, threat_intel_matches, timeseries_metrics, trace_summaries, traces,
     translate_request, virtualization, vulnerability_advisories, wifi_map,
@@ -144,10 +144,6 @@ impl QueryEngine {
                 | Entity::TimeseriesMetricInterfaceHourly
                 | Entity::TimeseriesMetricDiskHourly
                 | Entity::SnmpMetrics => timeseries_metrics::execute(&mut conn, &plan).await?,
-                Entity::CpuMetrics => cpu_metrics::execute(&mut conn, &plan).await?,
-                Entity::MemoryMetrics => memory_metrics::execute(&mut conn, &plan).await?,
-                Entity::DiskMetrics => disk_metrics::execute(&mut conn, &plan).await?,
-                Entity::ProcessMetrics => process_metrics::execute(&mut conn, &plan).await?,
                 Entity::Services => services::execute(&mut conn, &plan).await?,
                 Entity::ServiceAvailability
                 | Entity::MonitoredServices

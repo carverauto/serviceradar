@@ -472,8 +472,8 @@ Client → Edge Proxy (TLS) → Core/Web UI/SRQL → Microservices
 
 ```sql
 -- Example: Get top 10 devices by CPU usage
-in:cpu_metrics time:last_1h
-  stats:"avg(usage_percent) as avg_cpu by device_id"
+in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" time:last_1h
+  stats:"avg(value) as avg_cpu by device_id"
   having:"avg_cpu>80"
   sort:avg_cpu:desc
   limit:10

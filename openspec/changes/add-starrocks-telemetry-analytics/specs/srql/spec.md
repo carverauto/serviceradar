@@ -4,31 +4,31 @@
 For datasets served by the CNPG compatibility backend, the SRQL service SHALL automatically route `stats:` and `bucket:` queries to hourly Continuous Aggregate views when either the requested time window spans 6 hours or more, or the window starts before the raw hypertable's retention horizon (the raw tier has already dropped every row in that window). The retention arm is start-based, so a window under 6 hours that straddles the horizon is served wholly from the rollup at hourly grain. It applies only to metric entities whose raw hypertables retain less history than their rollups; flows keep span-only routing. Queries that meet neither condition SHALL continue to query the raw hypertable. The response shape SHALL be identical regardless of which backend serves the query.
 
 #### Scenario: Stats query with large time window routes to CAGG
-- **GIVEN** the `cpu_metrics_hourly` CAGG exists and has been refreshed
-- **WHEN** a client sends `in:cpu_metrics time:last_7d stats:avg(usage_percent) as avg_usage`
-- **THEN** SRQL transparently queries the `cpu_metrics_hourly` CAGG
+- **GIVEN** the `timeseries_metrics_hourly` CAGG exists and has been refreshed
+- **WHEN** a client sends `in:timeseries_metrics metric_type:"sysmon.cpu" time:last_7d stats:avg(value) as avg_usage by device_id`
+- **THEN** SRQL transparently queries the `timeseries_metrics_hourly` CAGG
 - **AND** the response shape is identical to a raw-table stats query
 
 #### Scenario: Stats query with small time window hits raw table
-- **GIVEN** the `cpu_metrics_hourly` CAGG exists
-- **WHEN** a client sends `in:cpu_metrics time:last_1h stats:avg(usage_percent) as avg_usage`
-- **THEN** SRQL queries the raw `cpu_metrics` hypertable (time window under 6h and within the raw retention horizon)
+- **GIVEN** the `timeseries_metrics_hourly` CAGG exists
+- **WHEN** a client sends `in:timeseries_metrics metric_type:"sysmon.cpu" time:last_1h stats:avg(value) as avg_usage by device_id`
+- **THEN** SRQL queries the raw `timeseries_metrics` hypertable (time window under 6h and within the raw retention horizon)
 
 #### Scenario: Short old window routes to CAGG by retention
-- **GIVEN** the `cpu_metrics_hourly` CAGG exists and has been refreshed
-- **AND** the raw `cpu_metrics` hypertable retains only 7 days
+- **GIVEN** the `timeseries_metrics_hourly` CAGG exists and has been refreshed
+- **AND** the raw `timeseries_metrics` hypertable retains only 7 days
 - **WHEN** a client sends a `time:` window shorter than 6 hours that starts before that 7-day horizon
-- **THEN** SRQL queries the `cpu_metrics_hourly` CAGG instead of the empty raw table
+- **THEN** SRQL queries the `timeseries_metrics_hourly` CAGG instead of the empty raw table
 
 #### Scenario: Bucket query with large time window routes to CAGG
-- **GIVEN** the `memory_metrics_hourly` CAGG exists and has been refreshed
-- **WHEN** a client sends `in:memory_metrics time:last_30d bucket:1h field:usage_percent agg:avg`
-- **THEN** SRQL transparently queries the `memory_metrics_hourly` CAGG
+- **GIVEN** the `timeseries_metrics_hourly` CAGG exists and has been refreshed
+- **WHEN** a client sends `in:timeseries_metrics metric_type:"sysmon.memory" time:last_30d bucket:1h agg:avg`
+- **THEN** SRQL transparently queries the `timeseries_metrics_hourly` CAGG
 
 #### Scenario: Non-aggregate query always hits raw table
-- **GIVEN** the `cpu_metrics_hourly` CAGG exists
-- **WHEN** a client sends `in:cpu_metrics time:last_7d` (no stats or bucket)
-- **THEN** SRQL queries the raw `cpu_metrics` hypertable regardless of time window
+- **GIVEN** the `timeseries_metrics_hourly` CAGG exists
+- **WHEN** a client sends `in:timeseries_metrics time:last_7d` (no stats or bucket)
+- **THEN** SRQL queries the raw `timeseries_metrics` hypertable regardless of time window
 
 #### Scenario: Routing is transparent to the caller
 - **GIVEN** a CAGG-routed query
@@ -39,13 +39,13 @@ For datasets served by the CNPG compatibility backend, the SRQL service SHALL au
 For datasets served by the CNPG compatibility backend, the SRQL service SHALL allow time ranges exceeding 90 days for queries that are eligible for CAGG routing (i.e., `stats:` or `bucket:` queries on entities with hourly CAGGs). The maximum time range for CAGG-eligible queries SHALL be 395 days.
 
 #### Scenario: One-year stats query succeeds via CAGG
-- **GIVEN** the `cpu_metrics_hourly` CAGG has 1 year of data
-- **WHEN** a client sends `in:cpu_metrics time:last_1y stats:avg(usage_percent) as avg_usage`
+- **GIVEN** the `timeseries_metrics_hourly` CAGG has 1 year of data
+- **WHEN** a client sends `in:timeseries_metrics metric_type:"sysmon.cpu" time:last_1y stats:avg(value) as avg_usage by device_id`
 - **THEN** SRQL routes to the CAGG and returns aggregated results for the full year
 
 #### Scenario: Non-CAGG query retains 90-day limit
 - **GIVEN** a raw-table query without stats or bucket
-- **WHEN** a client sends `in:cpu_metrics time:last_1y`
+- **WHEN** a client sends `in:timeseries_metrics time:last_1y`
 - **THEN** SRQL rejects the query with a time range exceeded error (90-day limit)
 
 ## ADDED Requirements

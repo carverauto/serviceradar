@@ -63,6 +63,7 @@
      }},
     {"id": "metrics.snmp.avg_by_metric_name", "query": "in:snmp_metrics {window_main} device_id:\"sr:parity-dev-a\" if_index:7 bucket:5m agg:avg series:metric_name limit:500", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/event_live/show.ex"]},
     {"id": "metrics.snmp.presence_count_by_uid", "query": "in:snmp_metrics {window_main} bucket:15m agg:count series:uid limit:500", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/device_live/index_data/telemetry.ex"]},
+    {"id": "metrics.sysmon.presence_count_by_uid", "query": "in:timeseries_metrics {window_main} metric_type:\"sysmon.cpu\" bucket:24h agg:count series:uid limit:500", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/device_live/index_data/telemetry.ex"]},
     {"id": "metrics.snmp.interface_presence_24h_by_if_index", "query": "in:snmp_metrics {window_main} device_id:\"sr:parity-dev-a\" bucket:24h agg:count series:if_index limit:100", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/device_live/interface_data.ex"]},
     {"id": "metrics.snmp.avg_by_if_index_null_dimension", "query": "in:snmp_metrics {window_main} device_id:\"sr:parity-dev-a\" bucket:30m agg:max series:if_index limit:200"},
     {"id": "metrics.timeseries.avg_by_metric_name", "query": "in:timeseries_metrics {window_main} metric_type:icmp device_id:\"sr:parity-dev-b\" bucket:5m agg:avg series:metric_name limit:500", "sources": ["elixir/web-ng/lib/serviceradar_web_ng_web/live/event_live/show.ex"]},

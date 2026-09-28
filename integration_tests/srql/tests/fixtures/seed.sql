@@ -1494,50 +1494,6 @@ SELECT base.now_ts - INTERVAL '10 minutes',
     'default',
     base.now_ts
 FROM base;
-WITH base AS (
-    SELECT NOW() AS now_ts
-)
-INSERT INTO cpu_metrics (
-        timestamp,
-        gateway_id,
-        agent_id,
-        host_id,
-        core_id,
-        usage_percent,
-        frequency_hz,
-        label,
-        cluster,
-        device_id,
-        partition,
-        created_at
-    )
-SELECT base.now_ts - INTERVAL '1 minute',
-    'gateway-1',
-    'agent-1',
-    'host-1',
-    0,
-    45.5,
-    2400000000,
-    'cpu0',
-    'cluster-a',
-    'device-alpha',
-    'default',
-    base.now_ts
-FROM base
-UNION ALL
-SELECT base.now_ts - INTERVAL '2 minutes',
-    'gateway-1',
-    'agent-1',
-    'host-1',
-    1,
-    88.2,
-    2400000000,
-    'cpu1',
-    'cluster-a',
-    'device-alpha',
-    'default',
-    base.now_ts
-FROM base;
 TRUNCATE timeseries_metrics;
 TRUNCATE timeseries_metrics_hourly;
 WITH base AS (
