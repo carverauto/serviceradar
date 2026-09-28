@@ -242,7 +242,7 @@ defmodule ServiceRadar.Inventory.DeviceRiskIocExposureRoutingTest do
 
     for process <- [
           %{comm: "sshd", cmdline: nil},
-          %{comm: "worker", cmdline: "/usr/sbin/sshd -D"}
+          %{comm: "worker", cmdline: "/opt/openssh/sbin/sshd -D"}
         ] do
       flow = %{
         id: "flow-example-01",
