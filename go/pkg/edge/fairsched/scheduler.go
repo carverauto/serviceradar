@@ -74,6 +74,13 @@ func (k LaneKey) specified() bool {
 	return declaredNonZero(k.RouteProfile) && declaredNonZero(k.TrafficClass)
 }
 
+// Valid reports whether the key is a well-formed member of the finite ABI
+// taxonomy: both halves declared, non-zero enum values. It says nothing about
+// whether a deployment has the lane ACTIVE -- that is LaneTaxonomy's question.
+// Other lane owners (the spool's per-lane generations) use it so "malformed lane"
+// has exactly one definition.
+func (k LaneKey) Valid() bool { return k.specified() }
+
 // isRecoveryRoute reports whether the key uses the recovery-control route.
 // Recovery is defined by ROUTE PROFILE, matching edgerecord.validateRecoveryLane;
 // the traffic class is a deployment choice and is not fixed here.
@@ -203,6 +210,14 @@ func (t *LaneTaxonomy) Lanes() []LaneKey {
 	copy(out, t.order)
 
 	return out
+}
+
+// Contains reports whether the snapshot configures the lane. A well-formed lane
+// it does not contain is not ready, not malformed.
+func (t *LaneTaxonomy) Contains(k LaneKey) bool {
+	_, ok := t.lanes[k]
+
+	return ok
 }
 
 // RecoveryLane returns the designated reserved recovery lane.
