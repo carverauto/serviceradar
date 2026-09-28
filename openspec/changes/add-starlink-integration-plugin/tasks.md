@@ -16,7 +16,7 @@
 ## 3A. Signal Device Attribution and Condition Scopes
 - [ ] 3A.1 Add an ingest-time resolver for plugin-scoped device references (integration_id lookup, attested partition, declared inventory source prefix), batched and cached.
 - [ ] 3A.2 Use it in the metrics processor (`MetricResource.device_id`), the events processor (OCSF `device.uid`) and alert device resolution; never fall back to the agent's device for an unresolved plugin reference.
-- [ ] 3A.3 Add condition scopes to `go/pkg/agent/plugin_condition_debounce.go`: scope-complete marker, synthesized `ok` clears for keys absent from a complete scope, no forwarding or refresh of never-alerting `ok` keys; unscoped behavior unchanged.
+- [x] 3A.3 Add condition scopes to `go/pkg/agent/plugin_condition_debounce.go`: scope-complete marker, synthesized `ok` clears for keys absent from a complete scope, no forwarding or refresh of never-alerting `ok` keys; unscoped behavior unchanged.
 - [ ] 3A.4 Tests: resolved metric/event/alert attribution, foreign prefix refused, unresolved reference not attributed to the agent, scope clear synthesis, unscoped regression.
 
 ## 4. SDK Changes (serviceradar-sdk-go, serviceradar-sdk-rust)
