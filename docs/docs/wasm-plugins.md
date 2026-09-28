@@ -137,6 +137,74 @@ Check-scoped annotations can still use the `events` field in
 `serviceradar.plugin_result.v1`, but those events are coupled to `submit_result`
 and are not a streaming telemetry surface.
 
+### Condition events and condition scopes
+
+A Wasm plugin keeps no state between runs, so a check that reports a resource's
+health emits the same condition every run. The agent de-duplicates these for
+the plugin. An `ocsf_event` telemetry record is a condition event when its
+`unmapped` object carries:
+
+- `condition_key` (string): a stable key for the condition, for example
+  `example:<device_ref>:<alert_name>`.
+- `level` (string): `ok`, `warning`, or `critical`. When `unmapped` also carries
+  numeric `ratio`, `warn`, and `crit`, the agent applies hysteresis so a value
+  parked at a threshold does not flap between levels.
+
+Per assignment and key, the agent forwards a condition event the first time it
+sees the key, when the level changes, and at most once every 15 minutes while
+the level is unchanged. Other repeats are accepted and dropped. State for a key
+that is not observed for an hour is forgotten.
+
+Those rules forward the first `ok` of every key. A plugin that mirrors a
+vendor's list of active alerts would have to emit `ok` for every possible alert
+on every device each run, or emit only active alerts and never deliver the
+clear. Condition scopes solve this. Add `unmapped.condition_scope` (string, for
+example `example:<source_instance>:alerts`) to each condition event, emit only
+the active (non-ok) conditions, and close each run with one scope-complete
+marker record for the scope:
+
+```json
+{
+  "class_uid": 1008,
+  "category_uid": 1,
+  "type_uid": 100801,
+  "activity_id": 1,
+  "severity_id": 1,
+  "message": "condition scope snapshot",
+  "unmapped": {
+    "condition_scope_complete": "example:source-01:alerts",
+    "active_condition_keys": ["example:dev-01:thermal_throttle"]
+  }
+}
+```
+
+`active_condition_keys` lists every key in the scope that the plugin currently
+considers non-ok; it is required and may be empty. The marker may be emitted in
+the same `emit_telemetry` call as the conditions or in a later call of the same
+run. For scoped conditions the agent:
+
+- Forwards non-ok levels with the rules above and remembers the last forwarded
+  record for each key.
+- Never forwards or refreshes `ok` for a key it has not seen at a non-ok level.
+- Forwards `ok` once for a key it remembers at a non-ok level, then forgets the
+  key.
+- On a marker, synthesizes one `ok` event for each remembered non-ok key in the
+  scope that the marker does not list, then forgets those keys. The clear
+  copies the class, device, and `unmapped` fields of the last forwarded event,
+  with `level` set to `ok`, informational severity, the message
+  `Condition cleared: <condition_key>`, a new event id and time, and
+  `unmapped.condition_cleared_by` set to `condition_scope_complete`. Clears are
+  placed directly after the marker, sorted by `condition_key`.
+- Ignores marker keys it has never seen, and forwards the marker itself
+  unchanged.
+
+Emit the marker only when the run observed the whole scope. A run that
+collected partially must omit the marker: no marker means no clears. Scoped
+state is in memory and is forgotten after an hour without observations, and
+forgetting a key never synthesizes a clear. An alert that clears while the
+agent is restarting is therefore not cleared by the agent. Events without
+`condition_scope` keep the unscoped behavior.
+
 ## Gateway-Mediated Artifacts
 
 Wasm plugins can produce more than small health-check results. A plugin that

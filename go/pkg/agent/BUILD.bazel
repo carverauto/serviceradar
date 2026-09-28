@@ -227,6 +227,7 @@ go_test(
         "netprobe_systemd_unit_test.go",
         "platform_paths_test.go",
         "plugin_condition_debounce_test.go",
+        "plugin_condition_scope_test.go",
         "plugin_http_trust_test.go",
         "plugin_manifest_egress_test.go",
         "plugin_runtime_action_test.go",
