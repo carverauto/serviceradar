@@ -73,18 +73,6 @@ SHALL NOT be a durable bulk-record boundary.
 - **THEN** the existing gRPC/ERTS control route MAY be used
 - **AND** that response SHALL NOT be treated as durable observation ingestion
 
-#### Scenario: Sync results ingestion via gRPC stream
-- **GIVEN** an agent emits sync results that exceed single-message limits
-- **WHEN** the agent streams the results via `StreamStatus`
-- **THEN** the agent-gateway forwards the chunked payload to core through the standard results pipeline
-- **AND** no sync-specific handler or routing branch is applied in the gateway
-
-#### Scenario: Status and results use standard methods
-- **GIVEN** an agent emits regular status updates and smaller results payloads
-- **WHEN** the agent calls `PushStatus`
-- **THEN** the agent-gateway forwards the payload to core using the normal status/results routing
-- **AND** the same routing logic applies regardless of whether the result is `sync` or `sweep`
-
 ### Requirement: Results routing is explicit by output contract
 The durable result pipeline SHALL route typed platform records, approved
 extension records, and spool-loss recovery tombstones
@@ -162,12 +150,6 @@ package-selected subjects, or one generic status handler for persistent data.
   audit identity
 - **AND** redrive SHALL target the same class-specific stream and durable
   consumer and SHALL NOT promote bulk work into an interactive path
-
-#### Scenario: Results routing selects the correct handler
-- **GIVEN** core receives a gRPC results payload tagged as `sync`
-- **WHEN** the results pipeline processes the payload
-- **THEN** it SHALL dispatch to the sync ingestor
-- **AND** sweep payloads SHALL dispatch to the sweep ingestor
 
 ### Requirement: Sysmon Metrics Ingestion
 Persistent sysmon metrics pushed over gRPC SHALL use the canonical metric output

@@ -32,11 +32,6 @@ status MAY remain broker-free.
   record plane before EventWriter projection
 - **AND** broker-free gRPC/ERTS SHALL NOT acknowledge it as durably ingested
 
-#### Scenario: Large sync payload delivered via chunks
-- **WHEN** a sync results payload exceeds single-message limits
-- **THEN** it is delivered as multiple gRPC chunks
-- **AND** ingestion proceeds through tenant workers without NATS involvement
-
 ## ADDED Requirements
 
 ### Requirement: Edge durable records use layered transport and durability

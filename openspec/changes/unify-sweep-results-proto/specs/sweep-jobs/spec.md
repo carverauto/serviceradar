@@ -201,19 +201,6 @@ and immutable `bulk` or `interactive` traffic class.
 - **AND** the replay SHALL remain audit-only and SHALL NOT restore domain
   eligibility, current-state authority, execution counts, or completion credit
 
-#### Scenario: Compile sweep config for agent
-- **GIVEN** a sweep job assigned to an agent
-- **WHEN** the agent polls for config
-- **THEN** the compiled config SHALL include:
-  - `networks`: CIDR ranges from device query evaluation
-  - `ports`: from selected profile or job override
-  - `sweep_modes`: ["tcp", "icmp", "tcp_connect"] based on profile
-  - `interval`: scan interval duration
-  - `concurrency`: parallel scan threads
-  - `timeout`: per-target timeout
-  - `icmp_count`, `high_perf_icmp`, `icmp_rate_limit`: ICMP settings
-  - `device_targets`: per-device configurations with metadata
-
 ### Requirement: Sweep Job Execution Tracking
 The system SHALL track scan execution, durable delivery, database projection,
 MTR projection, and reconciliation as distinct states. Accurate totals SHALL be
@@ -258,10 +245,3 @@ alone.
   projected or explicitly terminally failed
 - **THEN** the execution SHALL record reconciled completion and exact unique
   totals
-
-#### Scenario: Agent reports sweep completion
-- **GIVEN** an agent completing a sweep job
-- **WHEN** the sweep finishes
-- **THEN** core SHALL record total hosts scanned, hosts available, and hosts failed for the execution
-- **AND** the completion time and duration SHALL be recorded
-- **AND** the values SHALL reflect cumulative results for the execution (not per-batch deltas)

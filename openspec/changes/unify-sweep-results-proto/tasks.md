@@ -601,19 +601,19 @@ change together with the requirements they implement.
   not yet the live gRPC codec, which this task adds.) (Service lane/sequence DURABILITY
   is owned by the governed service publisher, NOT the gateway/EventWriter; see task
   4.6.)
-- [ ] 1.16a **Freeze the producer-facing sink/run API (displaced from the ABI
-  change's task 1.7).** That change freezes the agent-gateway TRANSPORT ABI only.
-  The producer-facing API is a separate freeze and depends on Wasm and native-relay
-  fixtures the ABI change does not own: freeze contract handles, producer-local
-  receipts, credits/backpressure surface, and the run lifecycle only after those
-  fixtures cover them. The ABI change's 1.7 SHALL NOT be read as freezing this.
-
 ## 2. Stream completed observations from the agent
 
 > The ORIGINAL task 2.20 moved into `freeze-edge-record-v1-abi`'s task 1.6a. The
 > number is REUSED below for the runtime half of the split task 1.3 -- implementing
 > the durable assignment mapping -- so "2.20" in this change means that, not the
 > classification-span work.
+
+- [ ] 1.16a **Freeze the producer-facing sink/run API (displaced from the ABI
+  change's task 1.7).** That change freezes the agent-gateway TRANSPORT ABI only.
+  The producer-facing API is a separate freeze and depends on Wasm and native-relay
+  fixtures the ABI change does not own: freeze contract handles, producer-local
+  receipts, credits/backpressure surface, and the run lifecycle only after those
+  fixtures cover them. The ABI change's 1.7 SHALL NOT be read as freezing this.
 
 - [ ] 2.1 Refactor sweep execution so completed host windows feed the result
   pipeline continuously while scanning continues; remove full-run result JSON

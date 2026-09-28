@@ -28,12 +28,6 @@ immutable traffic class.
 - **AND** durable persistence and downstream processing SHALL still use the
   canonical MTR event rather than a direct core/database write
 
-#### Scenario: On-demand trace via control stream
-- **WHEN** a `mtr.run` command is received via ControlStream with a target address
-- **THEN** the agent executes a single MTR trace to the specified target
-- **AND** results are enriched with ASN, DNS, and MPLS data
-- **AND** results are returned via the control stream response
-
 ### Requirement: Result Reporting
 All MTR producers SHALL report complete traces as versioned, lossless,
 byte-bounded `MtrTraceBatchV1` protobuf events through the edge record stream.
@@ -98,12 +92,6 @@ run-wide or interval-wide collection of completed traces before encoding.
 - **THEN** the new correlation SHALL become integrity-failed/quarantined
 - **AND** it SHALL NOT become projected or satisfy the execution terminal trace
   binding digest merely because the trace ID exists
-
-#### Scenario: Periodic result push
-- **WHEN** a scheduled MTR check completes a probe cycle
-- **THEN** the full enriched trace result is marshaled to JSON
-- **AND** pushed to the gateway via PushStatus as a GatewayServiceStatus message
-- **AND** the result includes all hop data with ASN, MPLS, hostname, target reachability, and timing metadata
 
 ### Requirement: TimescaleDB Storage
 The MTR event-writer consumer SHALL persist canonical trace events into
@@ -197,8 +185,3 @@ conversion while retaining original nanoseconds where required.
 - **THEN** storage policy and query predicates SHALL exclude every other network
   scope's trace, hop, correlation, rollup, and repair state
 - **AND** an unscoped trace-ID lookup SHALL be rejected
-
-#### Scenario: Trace ingestion into hypertables
-- **WHEN** an MTR trace result is received by the core system
-- **THEN** a row is inserted into `mtr_traces` with trace metadata (target, protocol, hop count, reachability)
-- **AND** one row per hop is inserted into `mtr_hops` with full statistics, MPLS labels (JSONB), ASN, hostname
