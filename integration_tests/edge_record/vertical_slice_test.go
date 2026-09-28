@@ -1353,6 +1353,7 @@ func (h *harness) waitIngestObservation(t *testing.T, eventID []byte, point stri
 			}
 		}
 		if !time.Now().Before(deadline) {
+			t.Logf("pipeline diagnostics at timeout:\n%s", h.pipelineDiagnostics(t))
 			t.Fatalf("EventWriter never reached %s call %d for event %x within %s (observed %+v); see %s in this test's undeclared outputs",
 				point, n, eventID, pollTimeout, seen, h.preservedLogName(h.coreProc.stderrPath))
 		}
@@ -1741,6 +1742,85 @@ func (h *harness) assertCumulativeDeliveryAck(t *testing.T) {
 // EventWriter's durable consumer on the edge-record stream has acknowledged
 // every message. The harness reads with direct gets only, so that durable is
 // the stream's one consumer.
+// producerDiagnosticsExpr prints, for every EventWriter Broadway producer in
+// the core node, the producer state that decides whether the edge durable is
+// pulled: demand, buffered messages, per-pull-subject inflight accounting, and
+// the edge consumers it holds. Diagnostic only; nothing here acts on the
+// pipeline.
+const producerDiagnosticsExpr = `
+find = fn
+  _f, %{pull_inflight_by_subject: _} = s -> s
+  f, %_{} = s -> f.(f, Map.from_struct(s))
+  f, s when is_map(s) -> Enum.find_value(Map.values(s), &f.(f, &1))
+  f, s when is_tuple(s) -> Enum.find_value(Tuple.to_list(s), &f.(f, &1))
+  f, s when is_list(s) -> if length(s) < 64, do: Enum.find_value(s, &f.(f, &1)), else: nil
+  _, _ -> nil
+end
+
+edge? = fn v -> v |> inspect(limit: 50) |> String.downcase() |> String.contains?("edge") end
+
+Process.registered()
+|> Enum.filter(&(Atom.to_string(&1) =~ "Broadway.Producer_"))
+|> Enum.each(fn name ->
+  case find.(find, :sys.get_state(name, 5_000)) do
+    nil ->
+      IO.puts("producer|#{inspect(name)}|no producer state found")
+
+    st ->
+      consumers = (get_in(st, [Access.key(:consumer_context, %{}), Access.key(:consumers, [])]) || [])
+      edge = Enum.filter(consumers, edge?)
+
+      IO.puts("producer|#{inspect(name)}|connected=#{inspect(Map.get(st, :connected))} demand=#{inspect(Map.get(st, :demand))} pending_count=#{inspect(Map.get(st, :pending_count))} max_buffered=#{inspect(Map.get(st, :max_buffered))} pull_inflight=#{inspect(Map.get(st, :pull_inflight))} consumers=#{length(consumers)} edge_consumers=#{inspect(edge, limit: 20)}")
+      IO.puts("producer|#{inspect(name)}|pull_inflight_by_subject=#{inspect(Map.get(st, :pull_inflight_by_subject), limit: 50)} pull_inflight_started_at=#{inspect(Map.get(st, :pull_inflight_started_at), limit: 50)} now_ms=#{System.monotonic_time(:millisecond)}")
+      IO.puts("producer|#{inspect(name)}|failed_streams=#{inspect(Map.get(st, :failed_streams), limit: 20)} degraded_streams=#{inspect(Map.get(st, :degraded_streams), limit: 20)}")
+  end
+end)
+`
+
+// pipelineDiagnostics describes the edge-record pipeline at the moment a wait
+// timed out: the EventWriter producers' pull state in core and the edge
+// durable's JetStream consumer state. It never fails t; a diagnostic that
+// cannot be read says so in its output.
+func (h *harness) pipelineDiagnostics(t *testing.T) string {
+	t.Helper()
+	var b strings.Builder
+
+	if out, err := h.coreProc.RPC(producerDiagnosticsExpr, rpcTimeout); err != nil {
+		fmt.Fprintf(&b, "core producers: unavailable: %v\n", err)
+	} else {
+		for _, line := range strings.Split(out, "\n") {
+			if strings.HasPrefix(strings.TrimSpace(line), "producer|") {
+				fmt.Fprintf(&b, "core %s\n", strings.TrimSpace(line))
+			}
+		}
+	}
+
+	if !h.nats.Server.JetStreamEnabled() {
+		b.WriteString("jetstream: disabled\n")
+		return b.String()
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), rpcTimeout)
+	defer cancel()
+	stream := h.edgeRecordStream(t)
+	if si, err := stream.Info(ctx); err != nil {
+		fmt.Fprintf(&b, "stream %s: info unavailable: %v\n", edgeRecordStreamName, err)
+	} else {
+		fmt.Fprintf(&b, "stream %s: msgs=%d first_seq=%d last_seq=%d consumers=%d\n",
+			edgeRecordStreamName, si.State.Msgs, si.State.FirstSeq, si.State.LastSeq, si.State.Consumers)
+	}
+	lister := stream.ListConsumers(ctx)
+	for ci := range lister.Info() {
+		fmt.Fprintf(&b, "consumer %s: delivered_stream=%d ack_floor_stream=%d num_pending=%d num_ack_pending=%d num_redelivered=%d num_waiting=%d max_ack_pending=%d max_waiting=%d max_deliver=%d ack_wait=%s\n",
+			ci.Name, ci.Delivered.Stream, ci.AckFloor.Stream, ci.NumPending, ci.NumAckPending,
+			ci.NumRedelivered, ci.NumWaiting, ci.Config.MaxAckPending, ci.Config.MaxWaiting,
+			ci.Config.MaxDeliver, ci.Config.AckWait)
+	}
+	if err := lister.Err(); err != nil {
+		fmt.Fprintf(&b, "list consumers: %v\n", err)
+	}
+	return b.String()
+}
+
 func (h *harness) edgeRecordAckFloor(t *testing.T) uint64 {
 	t.Helper()
 	stream := h.edgeRecordStream(t)
@@ -2125,6 +2205,10 @@ func (h *harness) awaitSingleLedgerRow(t *testing.T, fx *FixtureRecord) int {
 			break
 		}
 		time.Sleep(pollInterval)
+	}
+	if n != 1 {
+		t.Logf("pipeline diagnostics after %s without a ledger row for event %x:\n%s",
+			pollTimeout, fx.EventID, h.pipelineDiagnostics(t))
 	}
 	return n
 }
