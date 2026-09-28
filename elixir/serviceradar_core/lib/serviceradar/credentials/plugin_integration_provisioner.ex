@@ -7,6 +7,23 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
   assignments contain only public plugin configuration. Producer schedules retain a
   secret reference that the dispatcher resolves into short-lived endpoint-scoped
   grants immediately before each command.
+
+  ## One rule, several schedules
+
+  A profile's `provisioning` names its schedules with either `schedule_id` or
+  `schedule_ids` (see `ServiceRadar.Plugins.IntegrationDescriptor.producer_schedule_ids/1`).
+  A rule still materializes exactly one assignment per agent, and every listed
+  schedule is bound to that same assignment with the same params and the same
+  `credential_refs`. The dispatcher runs each schedule on its own and reads the
+  agent and params through `plugin_assignment_id`, so a second assignment would
+  only duplicate state the schedules already share.
+
+  Cadence is per schedule. The rule's `cadence_seconds` overrides only the
+  primary (first listed) schedule, which is the one the rule form bounds; every
+  other schedule runs at its own `default_cadence_seconds`. A 15-minute inventory
+  override applied to a 60-second telemetry poll would silently slow it by an
+  order of magnitude, so the override is never broadcast. `schedule_enabled` is
+  shared: a rule's schedules are armed and disarmed together.
   """
 
   alias ServiceRadar.Actors.SystemActor
@@ -14,6 +31,7 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
   alias ServiceRadar.Credentials.RuleAccessors
   alias ServiceRadar.Plugins.ConfigSchema
   alias ServiceRadar.Plugins.IntegrationCatalog
+  alias ServiceRadar.Plugins.IntegrationDescriptor
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Plugins.ProducerSchedule
@@ -72,35 +90,34 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
   def reconcile_rule(rule, profile, opts) when is_map(rule) and is_map(profile) do
     actor = Keyword.get(opts, :actor, SystemActor.system(:plugin_integration_provisioner))
 
+    # Every listed schedule is planned and loaded before anything is written, so
+    # a profile naming a schedule the package never materialized fails without
+    # leaving the assignment half-bound to the schedules that do exist.
     with :ok <- validate_rule(rule, profile),
          {:ok, params} <- plugin_params(rule, profile),
-         {:ok, cadence_seconds} <- cadence_seconds(rule, profile),
+         {:ok, plan} <- schedule_plan(rule, profile),
+         {:ok, plan} <- load_planned_schedules(plan, profile, actor, opts),
          {:ok, assignment, assignment_changed?} <-
            upsert_assignment(rule, profile, params, actor, opts),
          {:ok, schedules_retired} <-
            retire_superseded_schedules(
              assignment,
              profile["plugin_package_id"],
+             Enum.map(plan, & &1.schedule_id),
              actor,
              opts
            ),
-         {:ok, schedule, schedule_changed?} <-
-           bind_schedule(
-             rule,
-             profile,
-             assignment,
-             params,
-             cadence_seconds,
-             actor,
-             opts
-           ) do
+         {:ok, schedules, schedules_changed} <-
+           bind_schedules(rule, profile, assignment, params, plan, actor, opts) do
       {:ok,
        %{
          rule: rule,
          assignment: assignment,
-         schedule: schedule,
+         schedule: hd(schedules),
+         schedules: schedules,
          assignment_changed?: assignment_changed?,
-         schedule_changed?: schedule_changed?,
+         schedule_changed?: schedules_changed > 0,
+         schedules_changed: schedules_changed,
          schedules_retired: schedules_retired
        }}
     end
@@ -175,40 +192,74 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
     end
   end
 
-  defp bind_schedule(rule, profile, assignment, params, cadence_seconds, actor, opts) do
+  defp load_planned_schedules(plan, profile, actor, opts) do
     store = Keyword.get(opts, :schedule_store, __MODULE__.ScheduleStore)
-    provisioning = profile["provisioning"]
     package_id = profile["plugin_package_id"]
-    schedule_id = provisioning["schedule_id"]
-    requirement = provisioning["credential_requirement"]
 
-    with {:ok, schedule} <- store.get_package_schedule(package_id, schedule_id, actor),
-         false <- is_nil(schedule) do
-      attrs = %{
-        enabled: schedule_enabled?(rule),
-        schedule_type: :interval,
-        cadence_seconds: cadence_seconds,
-        plugin_assignment_id: assignment.id,
-        params: params,
-        credential_refs: %{
-          requirement => SecretRefs.network_credential_ref(required_value!(rule, :secret_id))
-        },
-        metadata:
-          (schedule.metadata || %{})
-          |> Map.put("credential_rule_id", required_value!(rule, :id))
-          |> Map.put("integration_provider", profile["provider"])
-      }
+    plan
+    |> Enum.reduce_while({:ok, []}, fn entry, {:ok, acc} ->
+      case store.get_package_schedule(package_id, entry.schedule_id, actor) do
+        {:ok, nil} ->
+          {:halt,
+           {:error, {:producer_schedule_not_found, profile["plugin_id"], entry.schedule_id}}}
 
-      if schedule_matches?(schedule, attrs) do
-        {:ok, schedule, false}
-      else
-        with {:ok, updated} <- store.update_schedule(schedule, attrs, actor) do
-          {:ok, updated, true}
-        end
+        {:ok, schedule} ->
+          {:cont, {:ok, [Map.put(entry, :schedule, schedule) | acc]}}
+
+        {:error, reason} ->
+          {:halt, {:error, reason}}
       end
-    else
-      true -> {:error, {:producer_schedule_not_found, profile["plugin_id"], schedule_id}}
+    end)
+    |> case do
+      {:ok, loaded} -> {:ok, Enum.reverse(loaded)}
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp bind_schedules(rule, profile, assignment, params, plan, actor, opts) do
+    store = Keyword.get(opts, :schedule_store, __MODULE__.ScheduleStore)
+
+    plan
+    |> Enum.reduce_while({:ok, [], 0}, fn entry, {:ok, bound, changed} ->
+      case bind_schedule(rule, profile, assignment, params, entry, actor, store) do
+        {:ok, schedule, changed?} ->
+          {:cont, {:ok, [schedule | bound], changed + bool_count(changed?)}}
+
+        {:error, reason} ->
+          {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, bound, changed} -> {:ok, Enum.reverse(bound), changed}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp bind_schedule(rule, profile, assignment, params, entry, actor, store) do
+    %{schedule: schedule, cadence_seconds: cadence_seconds} = entry
+    requirement = profile["provisioning"]["credential_requirement"]
+
+    attrs = %{
+      enabled: schedule_enabled?(rule),
+      schedule_type: :interval,
+      cadence_seconds: cadence_seconds,
+      plugin_assignment_id: assignment.id,
+      params: params,
+      credential_refs: %{
+        requirement => SecretRefs.network_credential_ref(required_value!(rule, :secret_id))
+      },
+      metadata:
+        (schedule.metadata || %{})
+        |> Map.put("credential_rule_id", required_value!(rule, :id))
+        |> Map.put("integration_provider", profile["provider"])
+    }
+
+    if schedule_matches?(schedule, attrs) do
+      {:ok, schedule, false}
+    else
+      with {:ok, updated} <- store.update_schedule(schedule, attrs, actor) do
+        {:ok, updated, true}
+      end
     end
   end
 
@@ -228,7 +279,7 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
                 | rules: summary.rules + 1,
                   assignments_written:
                     summary.assignments_written + bool_count(result.assignment_changed?),
-                  schedules_bound: summary.schedules_bound + bool_count(result.schedule_changed?),
+                  schedules_bound: summary.schedules_bound + result.schedules_changed,
                   schedules_disabled:
                     summary.schedules_disabled + Map.get(result, :schedules_retired, 0)
               }}}
@@ -340,20 +391,27 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
   end
 
   # An upgrade repoints the assignment at the successor package and binds that
-  # package's schedule. Schedules still armed for an earlier package stay bound
+  # package's schedules. Schedules still armed for an earlier package stay bound
   # to the same assignment, and the dispatcher would run the old contract
   # against the new assignment. Disarm every enabled schedule on this assignment
   # whose package is not the one being bound, before the successor is armed.
-  defp retire_superseded_schedules(_assignment, package_id, _actor, _opts)
-       when package_id in [nil, ""], do: {:ok, 0}
+  #
+  # The same holds inside the bound package for a schedule the profile no longer
+  # lists: it keeps pointing at this assignment and would keep running on the
+  # rule's credential. A successor version that drops an id from schedule_ids
+  # is caught by the package check; the listed-id check covers a profile whose
+  # list shrinks without the package id changing.
+  defp retire_superseded_schedules(_assignment, package_id, _bound_ids, _actor, _opts)
+       when package_id in [nil, ""],
+       do: {:ok, 0}
 
-  defp retire_superseded_schedules(assignment, package_id, actor, opts) do
+  defp retire_superseded_schedules(assignment, package_id, bound_ids, actor, opts) do
     store = Keyword.get(opts, :schedule_store, __MODULE__.ScheduleStore)
     package_id = to_string(package_id)
 
     with {:ok, schedules} <- store.list_assignment_schedules(assignment.id, actor) do
       Enum.reduce_while(schedules, {:ok, 0}, fn schedule, {:ok, count} ->
-        if superseded_schedule?(schedule, package_id) do
+        if superseded_schedule?(schedule, package_id, bound_ids) do
           case store.update_schedule(schedule, %{enabled: false}, actor) do
             {:ok, _updated} -> {:cont, {:ok, count + 1}}
             {:error, reason} -> {:halt, {:error, reason}}
@@ -365,8 +423,21 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
     end
   end
 
-  defp superseded_schedule?(schedule, package_id) do
-    schedule.enabled == true and schedule_package_id(schedule) not in [nil, package_id]
+  defp superseded_schedule?(%{enabled: true} = schedule, package_id, bound_ids) do
+    case schedule_package_id(schedule) do
+      nil -> false
+      ^package_id -> unlisted_schedule?(schedule, bound_ids)
+      _other_package -> true
+    end
+  end
+
+  defp superseded_schedule?(_schedule, _package_id, _bound_ids), do: false
+
+  defp unlisted_schedule?(schedule, bound_ids) do
+    case Map.get(schedule, :schedule_id) do
+      schedule_id when is_binary(schedule_id) -> schedule_id not in bound_ids
+      _ -> false
+    end
   end
 
   defp schedule_package_id(schedule) do
@@ -441,28 +512,86 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
     end
   end
 
-  defp cadence_seconds(rule, profile) do
+  # One entry per listed schedule, primary first. The primary takes the rule's
+  # cadence override within its own bounds; every other schedule takes its own
+  # package default, checked against its own bounds.
+  defp schedule_plan(rule, profile) do
     # Match on a map rather than indexing straight into it. `nil["min_cadence_seconds"]`
     # is nil, not a raise, so a profile carrying no schedule used to reach the bounds
     # check with nil bounds and report `{:invalid_plugin_integration_cadence, nil, nil}`
     # -- which names the cadence as the problem when the schedule is what is missing.
-    case profile["producer_schedule"] do
-      %{} = schedule ->
-        default = schedule["default_cadence_seconds"]
-        value = RuleAccessors.metadata_int(rule, "cadence_seconds", default)
-        minimum = schedule["min_cadence_seconds"]
-        maximum = schedule["max_cadence_seconds"]
+    case {profile["producer_schedule"], producer_schedule_ids(profile)} do
+      {%{}, []} ->
+        {:error, {:producer_schedule_not_found, profile["plugin_id"], nil}}
 
-        if is_integer(value) and is_integer(minimum) and is_integer(maximum) and
-             value >= minimum and value <= maximum do
-          {:ok, value}
-        else
-          {:error, {:invalid_plugin_integration_cadence, minimum, maximum}}
+      {%{} = primary, [primary_id | secondary_ids]} ->
+        with {:ok, primary_cadence} <- primary_cadence_seconds(rule, primary),
+             {:ok, secondaries} <- secondary_plan(profile, secondary_ids) do
+          {:ok, [%{schedule_id: primary_id, cadence_seconds: primary_cadence} | secondaries]}
         end
 
       _ ->
         {:error, {:missing_producer_schedule, profile["plugin_id"]}}
     end
+  end
+
+  defp producer_schedule_ids(profile),
+    do: IntegrationDescriptor.producer_schedule_ids(profile["provisioning"])
+
+  defp primary_cadence_seconds(rule, schedule) do
+    default = schedule["default_cadence_seconds"]
+    value = RuleAccessors.metadata_int(rule, "cadence_seconds", default)
+    minimum = schedule["min_cadence_seconds"]
+    maximum = schedule["max_cadence_seconds"]
+
+    if within_bounds?(value, minimum, maximum) do
+      {:ok, value}
+    else
+      {:error, {:invalid_plugin_integration_cadence, minimum, maximum}}
+    end
+  end
+
+  defp secondary_plan(profile, schedule_ids) do
+    schedule_ids
+    |> Enum.reduce_while({:ok, []}, fn schedule_id, {:ok, acc} ->
+      case secondary_plan_entry(profile, schedule_id) do
+        {:ok, entry} -> {:cont, {:ok, [entry | acc]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, entries} -> {:ok, Enum.reverse(entries)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp secondary_plan_entry(profile, schedule_id) do
+    schedule =
+      profile
+      |> Map.get("producer_schedules")
+      |> List.wrap()
+      |> Enum.find(&(is_map(&1) and &1["schedule_id"] == schedule_id))
+
+    case schedule do
+      %{} ->
+        value = schedule["default_cadence_seconds"]
+        minimum = schedule["min_cadence_seconds"]
+        maximum = schedule["max_cadence_seconds"]
+
+        if within_bounds?(value, minimum, maximum) do
+          {:ok, %{schedule_id: schedule_id, cadence_seconds: value}}
+        else
+          {:error, {:invalid_plugin_integration_cadence, schedule_id, minimum, maximum}}
+        end
+
+      nil ->
+        {:error, {:missing_producer_schedule, profile["plugin_id"], schedule_id}}
+    end
+  end
+
+  defp within_bounds?(value, minimum, maximum) do
+    is_integer(value) and is_integer(minimum) and is_integer(maximum) and value >= minimum and
+      value <= maximum
   end
 
   defp schedule_enabled?(rule), do: RuleAccessors.metadata_bool(rule, "schedule_enabled", false)

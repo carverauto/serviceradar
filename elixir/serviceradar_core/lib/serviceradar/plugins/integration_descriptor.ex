@@ -22,7 +22,7 @@ defmodule ServiceRadar.Plugins.IntegrationDescriptor do
     id label description control required secret public min_length max_length placeholder default
   )
   @allowed_payload_keys ~w(format field template username_field)
-  @allowed_provisioning_keys ~w(mode schedule_id credential_requirement consumers)
+  @allowed_provisioning_keys ~w(mode schedule_id schedule_ids credential_requirement consumers)
   @allowed_consumer_keys ~w(
     purpose plugin_id auth_methods constraints failure_mode grant params
     target_cardinality
@@ -83,6 +83,7 @@ defmodule ServiceRadar.Plugins.IntegrationDescriptor do
   @max_credential_fields 16
   @max_credential_field_bytes 16_384
   @max_consumers 32
+  @max_schedule_ids 8
   @max_grant_entries 64
   @max_path_bytes 1_024
   @max_sources 16
@@ -143,6 +144,22 @@ defmodule ServiceRadar.Plugins.IntegrationDescriptor do
       "inventory_sources" => []
     }
   end
+
+  @doc """
+  The producer schedule ids a validated `producer_schedule` provisioning block
+  binds, in declaration order.
+
+  A block declares either `schedule_id` (one schedule) or `schedule_ids` (one or
+  more). The first id is the profile's primary schedule: the one whose cadence
+  bounds the rule form offers and whose cadence the rule's `cadence_seconds`
+  overrides. Returns `[]` for any other mode or a block with neither key.
+  """
+  @spec producer_schedule_ids(term()) :: [String.t()]
+  def producer_schedule_ids(%{"schedule_ids" => ids}) when is_list(ids),
+    do: Enum.filter(ids, &(is_binary(&1) and &1 != ""))
+
+  def producer_schedule_ids(%{"schedule_id" => id}) when is_binary(id) and id != "", do: [id]
+  def producer_schedule_ids(_provisioning), do: []
 
   defp validate_documentation(nil, errors), do: {%{}, errors}
 
@@ -718,9 +735,16 @@ defmodule ServiceRadar.Plugins.IntegrationDescriptor do
        ),
        do: {%{}, ["#{profile_path}.provisioning must be a map" | errors]}
 
+  # A producer_schedule profile binds one credential rule to one or more
+  # producer schedules of the same package. `schedule_id` names exactly one
+  # schedule and is what every package shipped before `schedule_ids` declares;
+  # `schedule_ids` names several, so one vendor account can drive schedules with
+  # different cadences (an inventory refresh and a telemetry poll, say) without
+  # the operator storing the same secret on two rules. Exactly one of the two
+  # keys is allowed. Whichever is declared is echoed back unchanged, so a
+  # descriptor that used `schedule_id` normalizes exactly as it always has;
+  # readers go through `producer_schedule_ids/1` rather than either key.
   defp validate_producer_schedule_provisioning(value, path, schedule_by_id, mode, errors) do
-    {schedule_id, errors} = required_id(value, "schedule_id", "#{path}.schedule_id", errors)
-
     {credential_requirement, errors} =
       required_id(
         value,
@@ -729,6 +753,39 @@ defmodule ServiceRadar.Plugins.IntegrationDescriptor do
         errors
       )
 
+    {schedule_key, schedule_value, errors} =
+      case {Map.has_key?(value, "schedule_id"), Map.has_key?(value, "schedule_ids")} do
+        {true, true} ->
+          {nil, nil,
+           ["#{path} must declare exactly one of schedule_id or schedule_ids, not both" | errors]}
+
+        {false, false} ->
+          {nil, nil, ["#{path} must declare schedule_id or schedule_ids" | errors]}
+
+        {true, false} ->
+          validate_single_schedule(value, path, schedule_by_id, credential_requirement, errors)
+
+        {false, true} ->
+          validate_schedule_list(value, path, schedule_by_id, credential_requirement, errors)
+      end
+
+    errors =
+      reject_provisioning_keys(
+        value,
+        ~w(mode schedule_id schedule_ids credential_requirement),
+        path,
+        errors
+      )
+
+    {maybe_put(
+       %{"mode" => mode, "credential_requirement" => credential_requirement},
+       schedule_key,
+       schedule_value
+     ), errors}
+  end
+
+  defp validate_single_schedule(value, path, schedule_by_id, credential_requirement, errors) do
+    {schedule_id, errors} = required_id(value, "schedule_id", "#{path}.schedule_id", errors)
     schedule = Map.get(schedule_by_id, schedule_id)
 
     errors =
@@ -739,10 +796,7 @@ defmodule ServiceRadar.Plugins.IntegrationDescriptor do
         is_nil(schedule) ->
           ["#{path}.schedule_id must reference a declared producer schedule" | errors]
 
-        not Map.has_key?(
-          Map.get(schedule, "credential_requirements", %{}),
-          credential_requirement
-        ) ->
+        not schedule_declares_requirement?(schedule, credential_requirement) ->
           [
             "#{path}.credential_requirement must reference a requirement on the producer schedule"
             | errors
@@ -752,14 +806,87 @@ defmodule ServiceRadar.Plugins.IntegrationDescriptor do
           errors
       end
 
-    errors =
-      reject_provisioning_keys(value, ~w(mode schedule_id credential_requirement), path, errors)
+    {"schedule_id", schedule_id, errors}
+  end
 
-    {%{
-       "mode" => mode,
-       "schedule_id" => schedule_id,
-       "credential_requirement" => credential_requirement
-     }, errors}
+  defp validate_schedule_list(value, path, schedule_by_id, credential_requirement, errors) do
+    list_path = "#{path}.schedule_ids"
+
+    case Map.get(value, "schedule_ids") do
+      ids when is_list(ids) and ids != [] and length(ids) <= @max_schedule_ids ->
+        {schedule_ids, errors} =
+          ids
+          |> Enum.with_index(1)
+          |> Enum.reduce({[], errors}, fn {raw_id, index}, {acc, acc_errors} ->
+            entry_path = "#{list_path}[#{index}]"
+
+            case required_id(%{"id" => raw_id}, "id", entry_path, acc_errors) do
+              {nil, next_errors} ->
+                {acc, next_errors}
+
+              {schedule_id, next_errors} ->
+                next_errors =
+                  listed_schedule_errors(
+                    Map.get(schedule_by_id, schedule_id),
+                    schedule_id,
+                    entry_path,
+                    credential_requirement,
+                    next_errors
+                  )
+
+                {[schedule_id | acc], next_errors}
+            end
+          end)
+
+        schedule_ids = Enum.reverse(schedule_ids)
+        errors = duplicate_schedule_id_errors(schedule_ids, list_path, errors)
+        {"schedule_ids", schedule_ids, errors}
+
+      _ ->
+        {nil, nil,
+         [
+           "#{list_path} must be a non-empty list with at most #{@max_schedule_ids} entries"
+           | errors
+         ]}
+    end
+  end
+
+  defp listed_schedule_errors(nil, schedule_id, entry_path, _requirement, errors),
+    do: ["#{entry_path} (#{schedule_id}) must reference a declared producer schedule" | errors]
+
+  # A nil requirement already failed its own required_id check; naming it again
+  # per schedule would only repeat that error.
+  defp listed_schedule_errors(_schedule, _schedule_id, _entry_path, nil, errors), do: errors
+
+  defp listed_schedule_errors(schedule, schedule_id, entry_path, requirement, errors) do
+    if schedule_declares_requirement?(schedule, requirement) do
+      errors
+    else
+      [
+        "#{entry_path} (#{schedule_id}) must declare credential requirement #{requirement}"
+        | errors
+      ]
+    end
+  end
+
+  defp duplicate_schedule_id_errors(schedule_ids, list_path, errors) do
+    schedule_ids
+    |> Enum.frequencies()
+    |> Enum.filter(fn {_id, count} -> count > 1 end)
+    |> Enum.map(fn {id, _count} -> id end)
+    |> Enum.sort()
+    |> Enum.reduce(errors, fn id, acc ->
+      ["#{list_path} contains duplicate schedule_id #{id}" | acc]
+    end)
+  end
+
+  defp schedule_declares_requirement?(schedule, requirement) do
+    schedule
+    |> Map.get("credential_requirements", %{})
+    |> case do
+      %{} = requirements -> Map.has_key?(requirements, requirement)
+      _ -> false
+    end
   end
 
   defp validate_target_policy_provisioning(value, path, auth_methods, purposes, mode, errors) do

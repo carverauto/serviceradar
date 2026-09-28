@@ -422,6 +422,218 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisionerTest do
     end
   end
 
+  describe "a profile that binds several schedules with schedule_ids" do
+    defmodule MultiScheduleDisableAssignmentStore do
+      @moduledoc false
+
+      def list_policy_assignments(policy_id, _actor) do
+        {:ok,
+         [
+           %{
+             id: "assignment-agent-k8s",
+             agent_uid: "agent-k8s",
+             enabled: true,
+             plugin_package_id: "package-example",
+             policy_id: policy_id
+           }
+         ]}
+      end
+
+      def update_assignment(assignment, attrs, _actor) do
+        send(self(), {:update_assignment, assignment.id, attrs})
+        {:ok, Map.merge(assignment, attrs)}
+      end
+    end
+
+    defmodule MultiScheduleBoundScheduleStore do
+      @moduledoc false
+
+      def get_package_schedule(package_id, schedule_id, _actor) do
+        {:ok,
+         %{
+           id: "schedule-#{schedule_id}",
+           enabled: true,
+           schedule_id: schedule_id,
+           schedule_type: :interval,
+           cadence_seconds: 86_400,
+           plugin_assignment_id: nil,
+           plugin_package_id: package_id,
+           params: %{},
+           credential_refs: %{},
+           metadata: %{}
+         }}
+      end
+
+      # Both schedules of the package are already bound to the rule's assignment.
+      def list_assignment_schedules(_assignment_id, _actor) do
+        {:ok,
+         [
+           %{
+             id: "schedule-example-inventory.refresh",
+             enabled: true,
+             plugin_package_id: "package-example",
+             schedule_id: "example-inventory.refresh"
+           },
+           %{
+             id: "schedule-example-inventory.telemetry",
+             enabled: true,
+             plugin_package_id: "package-example",
+             schedule_id: "example-inventory.telemetry"
+           }
+         ]}
+      end
+
+      def update_schedule(schedule, attrs, _actor) do
+        send(self(), {:update_schedule, schedule.id, attrs})
+        {:ok, Map.merge(schedule, attrs)}
+      end
+    end
+
+    test "one rule binds every listed schedule to one assignment with per-schedule cadence" do
+      # The rule overrides the cadence. The override moves the primary (first
+      # listed) schedule only; the telemetry schedule keeps its own default.
+      rule =
+        integration_rule(%{
+          metadata: Map.put(integration_rule().metadata, "cadence_seconds", 7_200)
+        })
+
+      assert {:ok, summary} =
+               PluginIntegrationProvisioner.reconcile_rules([rule], [multi_schedule_profile()],
+                 actor: %{id: "system"},
+                 assignment_store: AssignmentStore,
+                 schedule_store: ScheduleStore
+               )
+
+      assert summary.rules == 1
+      assert summary.assignments_written == 1
+      assert summary.schedules_bound == 2
+
+      assert_receive {:create_assignment, assignment}
+      refute_received {:create_assignment, _second}
+      # The assignment is sized by the primary schedule.
+      assert assignment.interval_seconds == 86_400
+
+      assert_receive {:update_schedule, "example-inventory.refresh", refresh}
+      assert_receive {:update_schedule, "example-inventory.telemetry", telemetry}
+
+      assert refresh.cadence_seconds == 7_200
+      assert telemetry.cadence_seconds == 60
+
+      for schedule <- [refresh, telemetry] do
+        assert schedule.plugin_assignment_id == "assignment-agent-k8s"
+        assert schedule.params == assignment.params
+        assert schedule.enabled == false
+
+        assert schedule.credential_refs == %{
+                 "inventory_account" => "credentialref:network-credential-secret:secret-example"
+               }
+
+        assert schedule.metadata["credential_rule_id"] == "rule-example"
+      end
+    end
+
+    test "reconcile_rule reports the primary schedule and every bound schedule" do
+      assert {:ok, result} =
+               PluginIntegrationProvisioner.reconcile_rule(
+                 integration_rule(),
+                 multi_schedule_profile(),
+                 actor: %{id: "system"},
+                 assignment_store: AssignmentStore,
+                 schedule_store: ScheduleStore
+               )
+
+      assert result.schedule.schedule_id == "example-inventory.refresh"
+
+      assert Enum.map(result.schedules, & &1.schedule_id) == [
+               "example-inventory.refresh",
+               "example-inventory.telemetry"
+             ]
+
+      assert result.schedules_changed == 2
+      assert result.schedule_changed?
+    end
+
+    test "a listed schedule the profile carries no contract for fails before any write" do
+      profile =
+        Map.update!(multi_schedule_profile(), "producer_schedules", &Enum.take(&1, 1))
+
+      assert {:error,
+              {:missing_producer_schedule, "example-inventory-plugin",
+               "example-inventory.telemetry"}} =
+               PluginIntegrationProvisioner.reconcile_rule(integration_rule(), profile,
+                 actor: %{id: "system"},
+                 assignment_store: AssignmentStore,
+                 schedule_store: ScheduleStore
+               )
+
+      refute_received {:create_assignment, _attrs}
+      refute_received {:update_schedule, _id, _attrs}
+    end
+
+    test "disabling the rule disables every schedule bound to its assignment" do
+      rule = integration_rule(%{enabled: false})
+
+      assert {:ok, summary} =
+               PluginIntegrationProvisioner.reconcile_rules([rule], [multi_schedule_profile()],
+                 actor: %{id: "system"},
+                 assignment_store: MultiScheduleDisableAssignmentStore,
+                 schedule_store: MultiScheduleBoundScheduleStore
+               )
+
+      assert_receive {:update_assignment, "assignment-agent-k8s", %{enabled: false}}
+
+      assert_receive {:update_schedule, "schedule-example-inventory.refresh", %{enabled: false}}
+
+      assert_receive {:update_schedule, "schedule-example-inventory.telemetry", %{enabled: false}}
+
+      assert summary.assignments_disabled == 1
+      assert summary.schedules_disabled == 2
+    end
+
+    test "a schedule dropped from the list is retired while the listed one stays bound" do
+      profile =
+        multi_schedule_profile()
+        |> put_in(["provisioning", "schedule_ids"], ["example-inventory.refresh"])
+        |> Map.update!("producer_schedules", &Enum.take(&1, 1))
+
+      assert {:ok, summary} =
+               PluginIntegrationProvisioner.reconcile_rules([integration_rule()], [profile],
+                 actor: %{id: "system"},
+                 assignment_store: __MODULE__.RepointAssignmentStore,
+                 schedule_store: MultiScheduleBoundScheduleStore
+               )
+
+      assert_receive {:update_schedule, "schedule-example-inventory.telemetry", %{enabled: false}}
+
+      assert_receive {:update_schedule, "schedule-example-inventory.refresh", refresh}
+      assert refresh.plugin_assignment_id == "assignment-agent-k8s"
+      refute_received {:update_schedule, "schedule-example-inventory.telemetry", _attrs}
+      assert summary.schedules_disabled == 1
+    end
+  end
+
+  defp multi_schedule_profile do
+    refresh = integration_profile()["producer_schedule"]
+
+    telemetry = %{
+      "schedule_id" => "example-inventory.telemetry",
+      "default_cadence_seconds" => 60,
+      "min_cadence_seconds" => 30,
+      "max_cadence_seconds" => 3_600,
+      "timeout_seconds" => 30
+    }
+
+    integration_profile(%{
+      "provisioning" => %{
+        "mode" => "producer_schedule",
+        "schedule_ids" => ["example-inventory.refresh", "example-inventory.telemetry"],
+        "credential_requirement" => "inventory_account"
+      },
+      "producer_schedule" => refresh,
+      "producer_schedules" => [refresh, telemetry]
+    })
+  end
+
   defp integration_profile(overrides \\ %{}) do
     defaults = %{
       "provider" => "example-inventory",

@@ -848,6 +848,146 @@ defmodule ServiceRadar.Plugins.ManifestTest do
     })
   end
 
+  describe "producer_schedule provisioning with schedule_ids" do
+    # One credential rule, several schedules of the same package: an inventory
+    # refresh and a faster telemetry poll sharing one vendor account.
+    defp multi_schedule_manifest(provisioning_overrides, schedule_overrides \\ %{}) do
+      manifest = integration_manifest()
+      [refresh] = manifest["producer_schedules"]
+
+      telemetry =
+        Map.merge(
+          %{
+            refresh
+            | "schedule_id" => "example-inventory.telemetry",
+              "label" => "Collect example telemetry",
+              "action_id" => "example-inventory.telemetry",
+              "default_cadence_seconds" => 60,
+              "min_cadence_seconds" => 30
+          },
+          schedule_overrides
+        )
+
+      manifest
+      |> Map.put("producer_schedules", [refresh, telemetry])
+      |> update_in(
+        ["integrations", "credential_profiles", Access.at(0), "provisioning"],
+        fn provisioning ->
+          provisioning
+          |> Map.delete("schedule_id")
+          |> Map.merge(provisioning_overrides)
+        end
+      )
+    end
+
+    defp provisioning_errors(manifest) do
+      assert {:error, errors} = Manifest.from_map(manifest)
+      Enum.filter(errors, &String.contains?(&1, ".provisioning"))
+    end
+
+    test "a list of declared schedules sharing the requirement parses in order" do
+      manifest =
+        multi_schedule_manifest(%{
+          "schedule_ids" => ["example-inventory.refresh", "example-inventory.telemetry"]
+        })
+
+      assert {:ok, parsed} = Manifest.from_map(manifest)
+      assert [profile] = parsed.integrations["credential_profiles"]
+
+      assert profile["provisioning"] == %{
+               "mode" => "producer_schedule",
+               "schedule_ids" => ["example-inventory.refresh", "example-inventory.telemetry"],
+               "credential_requirement" => "inventory_account"
+             }
+
+      assert IntegrationDescriptor.producer_schedule_ids(profile["provisioning"]) == [
+               "example-inventory.refresh",
+               "example-inventory.telemetry"
+             ]
+    end
+
+    test "a single schedule_id still normalizes without a schedule_ids key" do
+      assert {:ok, parsed} = Manifest.from_map(integration_manifest())
+      assert [profile] = parsed.integrations["credential_profiles"]
+
+      assert profile["provisioning"] == %{
+               "mode" => "producer_schedule",
+               "schedule_id" => "example-inventory.refresh",
+               "credential_requirement" => "inventory_account"
+             }
+
+      assert IntegrationDescriptor.producer_schedule_ids(profile["provisioning"]) == [
+               "example-inventory.refresh"
+             ]
+    end
+
+    test "declaring both schedule_id and schedule_ids is rejected" do
+      manifest =
+        multi_schedule_manifest(%{
+          "schedule_id" => "example-inventory.refresh",
+          "schedule_ids" => ["example-inventory.telemetry"]
+        })
+
+      assert [error] = provisioning_errors(manifest)
+      assert error =~ "must declare exactly one of schedule_id or schedule_ids, not both"
+    end
+
+    test "declaring neither schedule_id nor schedule_ids is rejected" do
+      assert [error] = provisioning_errors(multi_schedule_manifest(%{}))
+      assert error =~ "provisioning must declare schedule_id or schedule_ids"
+    end
+
+    test "an undeclared schedule id is named with its position" do
+      manifest =
+        multi_schedule_manifest(%{
+          "schedule_ids" => ["example-inventory.refresh", "example-inventory.missing"]
+        })
+
+      assert [error] = provisioning_errors(manifest)
+
+      assert error =~
+               "provisioning.schedule_ids[2] (example-inventory.missing) must reference a declared producer schedule"
+    end
+
+    test "every listed schedule must declare the named credential requirement" do
+      manifest =
+        multi_schedule_manifest(
+          %{"schedule_ids" => ["example-inventory.refresh", "example-inventory.telemetry"]},
+          %{"credential_requirements" => %{"telemetry_account" => %{"required" => true}}}
+        )
+
+      assert [error] = provisioning_errors(manifest)
+
+      assert error =~
+               "provisioning.schedule_ids[2] (example-inventory.telemetry) must declare credential requirement inventory_account"
+    end
+
+    test "duplicate schedule ids are rejected" do
+      manifest =
+        multi_schedule_manifest(%{
+          "schedule_ids" => [
+            "example-inventory.refresh",
+            "example-inventory.telemetry",
+            "example-inventory.refresh"
+          ]
+        })
+
+      assert [error] = provisioning_errors(manifest)
+
+      assert error =~
+               "provisioning.schedule_ids contains duplicate schedule_id example-inventory.refresh"
+    end
+
+    test "an empty or non-list schedule_ids is rejected" do
+      for value <- [[], "example-inventory.refresh"] do
+        assert [error] = provisioning_errors(multi_schedule_manifest(%{"schedule_ids" => value}))
+
+        assert error =~
+                 "provisioning.schedule_ids must be a non-empty list with at most 8 entries"
+      end
+    end
+  end
+
   describe "producer schedule target_input" do
     defp schedule_manifest(target_input) do
       @valid_manifest

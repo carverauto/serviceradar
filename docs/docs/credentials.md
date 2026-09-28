@@ -221,6 +221,14 @@ It shows one of five values:
 OpenText NOM is the only `producer_schedule` provider shipped today, so the last
 three badges only appear on an `opentext-nom` rule.
 
+A `producer_schedule` profile may bind several schedules of one package from a
+single rule (`provisioning.schedule_ids`, see
+[Package-declared integrations](./wasm-plugins.md#one-credential-rule-several-schedules)).
+The badge then reports the primary (first listed) schedule. All of a rule's
+schedules share its recurring-refresh switch, so they are armed or disarmed
+together. The rule form's **Cadence** applies to the primary only; the form
+lists the other schedules with the package default cadence each one keeps.
+
 `Auto` is Proxmox-specific today and worth understanding before ticking it. An
 enabled Proxmox `inventory_enrichment` rule with auto-discovery on makes the
 mapper compile `proxmox_candidate_probe_enabled` into its job options. The mapper
@@ -402,7 +410,7 @@ Each rule row on the table offers:
 | Action | What it does |
 | --- | --- |
 | **Preview** | Opens the target preview. Shown for every provider except `producer_schedule` ones, which get **Run Now** instead. |
-| **Run Now** | Dispatches an immediate refresh. Shown for `producer_schedule` providers only, and disabled until the schedule is provisioned. |
+| **Run Now** | Dispatches an immediate refresh. Shown for `producer_schedule` providers only, and disabled until the schedule is provisioned. For a provider whose profile binds several schedules (`provisioning.schedule_ids`), this dispatches the primary (first listed) schedule. |
 | **Consumers** | Expands an inline panel listing the assignments this rule currently materialises: agent, plugin, purpose, enabled, last materialised. |
 | **Edit** | Opens the rule form. |
 | **Enable** / **Disable** | Flips `enabled`. A disabled rule matches nothing and mints no grants; existing grants expire on their own TTL. |

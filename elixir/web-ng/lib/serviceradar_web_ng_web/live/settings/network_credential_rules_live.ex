@@ -16,6 +16,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Plugins.ConfigSchema
   alias ServiceRadar.Plugins.IntegrationCatalog
+  alias ServiceRadar.Plugins.IntegrationDescriptor
   alias ServiceRadar.Plugins.ProducerSchedule
   alias ServiceRadar.Plugins.SRQLInputResolver
   alias ServiceRadarWebNG.RBAC
@@ -1284,6 +1285,19 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
                 label="Enable recurring inventory refresh"
               />
             </div>
+            <p
+              :if={secondary_producer_schedules(@integration_profile) != []}
+              class="text-xs text-sr-muted"
+              data-role="secondary-schedule-cadence"
+            >
+              The cadence applies to {producer_schedule_label(
+                @integration_profile["producer_schedule"]
+              )}. This rule also drives {Enum.map_join(
+                secondary_producer_schedules(@integration_profile),
+                ", ",
+                &"#{producer_schedule_label(&1)} (every #{&1["default_cadence_seconds"]}s)"
+              )} at the package default cadence, with the same credential and on/off switch.
+            </p>
             <div class="space-y-2">
               <p class="text-sm font-medium text-sr-ink">
                 When sources disagree, this source wins for
@@ -1747,12 +1761,26 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     end
   end
 
+  # One schedule per rule: the row table, its runtime badge and Run Now all act
+  # on a single schedule. A profile may bind several (`provisioning.schedule_ids`),
+  # all sharing the rule's enabled flag, so the rule is represented by its
+  # primary -- the first listed schedule of the profile's current package. Any
+  # other schedule carrying the rule id (a secondary, or one left on a
+  # superseded package) is only a fallback, so the primary wins regardless of
+  # read order.
   defp load_integration_schedules(scope, profiles) do
+    scheduled_profiles = profiles |> Map.values() |> Enum.filter(&scheduled_integration_profile?/1)
+
     schedule_ids =
-      profiles
-      |> Map.values()
-      |> Enum.map(&get_in(&1, ["provisioning", "schedule_id"]))
-      |> Enum.reject(&is_nil/1)
+      scheduled_profiles
+      |> Enum.flat_map(&IntegrationDescriptor.producer_schedule_ids(&1["provisioning"]))
+      |> Enum.uniq()
+
+    primary_keys =
+      MapSet.new(scheduled_profiles, fn profile ->
+        {to_string(profile["plugin_package_id"]),
+         profile["provisioning"] |> IntegrationDescriptor.producer_schedule_ids() |> List.first()}
+      end)
 
     ProducerSchedule
     |> Ash.Query.for_read(:read, %{}, scope: scope)
@@ -1760,18 +1788,25 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     |> Ash.read(scope: scope)
     |> case do
       {:ok, schedules} ->
-        Enum.reduce(schedules, %{}, fn schedule, acc ->
-          case schedule.metadata |> normalize_metadata() |> Map.get("credential_rule_id") do
-            rule_id when is_binary(rule_id) and rule_id != "" ->
-              Map.put(acc, rule_id, schedule)
-
-            _ ->
-              acc
-          end
-        end)
+        Enum.reduce(schedules, %{}, &put_rule_schedule(&1, &2, primary_keys))
 
       _ ->
         %{}
+    end
+  end
+
+  defp put_rule_schedule(schedule, acc, primary_keys) do
+    case schedule.metadata |> normalize_metadata() |> Map.get("credential_rule_id") do
+      rule_id when is_binary(rule_id) and rule_id != "" ->
+        if MapSet.member?(
+             primary_keys,
+             {to_string(schedule.plugin_package_id), schedule.schedule_id}
+           ),
+           do: Map.put(acc, rule_id, schedule),
+           else: Map.put_new(acc, rule_id, schedule)
+
+      _ ->
+        acc
     end
   end
 
@@ -2638,6 +2673,17 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLive do
     do: get_in(profile, ["provisioning", "mode"]) == "producer_schedule"
 
   defp scheduled_integration_profile?(_profile), do: false
+
+  # Schedules a `provisioning.schedule_ids` profile binds beyond its primary.
+  # The rule's cadence field overrides the primary only; these keep their own
+  # package default (see PluginIntegrationProvisioner).
+  defp secondary_producer_schedules(%{"producer_schedules" => [_primary | rest]}), do: Enum.filter(rest, &is_map/1)
+
+  defp secondary_producer_schedules(_profile), do: []
+
+  defp producer_schedule_label(%{} = schedule), do: schedule["label"] || schedule["schedule_id"] || "the primary schedule"
+
+  defp producer_schedule_label(_schedule), do: "the primary schedule"
 
   defp default_integration_profile(integration_profiles) do
     profiles = rule_profile_list(integration_profiles)
