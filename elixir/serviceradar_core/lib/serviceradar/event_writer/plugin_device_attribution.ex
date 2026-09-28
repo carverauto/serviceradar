@@ -358,7 +358,11 @@ defmodule ServiceRadar.EventWriter.PluginDeviceAttribution do
       loaded = load_sources(misses, context)
 
       Enum.each(loaded, fn {scope, sources} ->
-        DeviceCorrelationCache.put_value(sources_cache_key(scope), sources)
+        if sources == [] do
+          DeviceCorrelationCache.put(sources_cache_key(scope), nil)
+        else
+          DeviceCorrelationCache.put_value(sources_cache_key(scope), sources)
+        end
       end)
 
       Map.merge(cached, loaded)
