@@ -68,7 +68,7 @@ pub fn rows(anchor: Anchor) -> Vec<BmpRow> {
             rows.push(BmpRow {
                 id: id.clone(),
                 time,
-                event_type: *event_type,
+                event_type,
                 severity_id,
                 router_id: Some(router_id),
                 router_ip: Some(router_ip),

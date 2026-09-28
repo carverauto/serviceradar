@@ -645,6 +645,15 @@ redelivered from JetStream rather than written to CNPG. Their retention is
 `otel_traces` via daily partitions, and the summary worker prunes
 `otel_trace_summaries` to the same window.
 
+`0024` creates `bmp_routing_events`, with the column names of the CNPG table
+of the same name, partitioned by day from the start. The key is `(id, time)`,
+where `id` is the stable event identity the BMP processor derives from each
+message, so a redelivered message upserts the rows it already loaded. BMP
+routing events are not shadowed: while `analytics.starrocks.enabled` is true,
+EventWriter writes BMP routing events to this table only, and a failed load is
+redelivered from JetStream rather than written to CNPG. Their retention is
+`analytics.starrocks.retentionDays.bmp` (default 365), applied to this table.
+
 Metric, log and event panels stay on CNPG until explicitly cut over. For the
 flow-specific defaults and delivery contract, see
 [NetFlow: Flow cutover and delivery](../../docs/docs/netflow.md#flow-cutover-and-delivery).

@@ -140,7 +140,10 @@ fn bmp_filter(filter: &Filter) -> Result<Option<String>> {
                     ));
                 }
             };
-            Ok(Some(format!("`id` {op} {}", sql_literal(&uuid.to_string()))))
+            Ok(Some(format!(
+                "`id` {op} {}",
+                sql_literal(&uuid.to_string())
+            )))
         }
         "severity_id" => numeric_filter(field, filter, parse_i32).map(Some),
         "peer_asn" | "local_asn" => numeric_filter(field, filter, parse_i64).map(Some),
@@ -152,7 +155,11 @@ fn bmp_filter(filter: &Filter) -> Result<Option<String>> {
 
 /// Equality and ordered comparisons, as `bmp_events::apply_filter` writes them
 /// for `severity_id`, `peer_asn` and `local_asn`.
-fn numeric_filter(field: &str, filter: &Filter, parse: fn(&str) -> Result<String>) -> Result<String> {
+fn numeric_filter(
+    field: &str,
+    filter: &Filter,
+    parse: fn(&str) -> Result<String>,
+) -> Result<String> {
     let value = parse(filter.value.as_scalar()?)?;
     let op = match filter.op {
         FilterOp::Eq => "=",
@@ -365,10 +372,7 @@ mod tests {
     fn like_is_case_insensitive_and_values_are_escaped() {
         // `message` is an implicit-ILIKE field, so a `%` value is a LIKE filter.
         let sql = compile("in:bmp_events message:%Routing% limit:5");
-        assert!(
-            sql.contains("LOWER(`message`) LIKE '%routing%'"),
-            "{sql}"
-        );
+        assert!(sql.contains("LOWER(`message`) LIKE '%routing%'"), "{sql}");
         let sql = compile(r#"in:bmp_events prefix:"198.51.100.0/24" limit:5"#);
         assert!(sql.contains("`prefix` = '198.51.100.0/24'"), "{sql}");
     }
@@ -401,7 +405,10 @@ mod tests {
 
     #[test]
     fn stats_and_bucket_are_refused_on_both_backends() {
-        for query in ["in:bmp_events stats:count() as n", "in:bmp_events bucket:5m"] {
+        for query in [
+            "in:bmp_events stats:count() as n",
+            "in:bmp_events bucket:5m",
+        ] {
             assert!(
                 matches!(refused(query), ServiceError::InvalidRequest(_)),
                 "{query}"
