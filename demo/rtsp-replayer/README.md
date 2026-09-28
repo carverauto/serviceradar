@@ -10,9 +10,21 @@ publisher per entry in [paths.json](paths.json):
 
 1. List the bucket and **refuse startup** if any object falls outside
    [clips.lock.json](clips.lock.json), or if a download's SHA-256 mismatches.
-2. Wait for MediaMTX's RTSP port, then start one publisher per path:
+2. Generate a random publish password and render the embedded MediaMTX template
+   to a mode-0600 file next to the clips directory. Start MediaMTX with that file,
+   wait for its RTSP port, then start one authenticated publisher per path:
    `ffmpeg -re -ss <offset> -stream_loop -1 -i <clip> -c copy -f rtsp ...`.
 3. If any child exits, stop the rest and exit nonzero (Kubernetes restarts).
+
+Readers need no credentials. Publishing requires the per-boot `replayer`
+password and a loopback source address (`127.0.0.1` or `::1`). The supervisor
+injects the password into every ffmpeg RTSP URL. Both stdout and stderr from
+each child are forwarded to the supervisor log with a child-name prefix.
+The generated config is removed when the supervisor returns.
+
+The clip lock, six-path catalog, and MediaMTX template are embedded in the
+binary; there are no runtime file overrides or permissive inventory mode.
+S3 requests use the configured signing region without region discovery.
 
 More drones than clips: each clip loops on two paths at different start
 offsets, so simultaneous tiles never show identical frames.
@@ -90,9 +102,16 @@ Container env (Secret mounted at `/etc/replayer-secret`):
 | REPLAYER_S3_ACCESS_KEY_FILE | /etc/replayer-secret/access-key |
 | REPLAYER_S3_SECRET_KEY_FILE | /etc/replayer-secret/secret-key |
 
-Ports: 8554/tcp (RTSP), 9998/tcp (MediaMTX metrics). Mount an `emptyDir`
-at `/var/lib/replayer/clips` so container restarts skip the ~130 MB
-re-download. Deploy the image **by digest** from the push output, not
+`REPLAYER_S3_REGION` defaults to `us-ord`. `REPLAYER_CLIPS_DIR` defaults to
+`/var/lib/replayer/clips`; its parent must also be writable for the generated
+config. Publishers always connect to `rtsp://127.0.0.1:8554`.
+`REPLAYER_MEDIAMTX_BIN` and `REPLAYER_FFMPEG_BIN`
+default to the corresponding binaries under `/usr/local/bin`.
+
+Port: 8554/tcp (RTSP over TCP only). Use TCP probes on 8554. Mount an
+`emptyDir` at `/var/lib/replayer` so container restarts skip the clip
+re-download and the supervisor can write its config beside `clips/`.
+Deploy the image **by digest** from the push output, not
 `:latest`.
 
 ## Verify

@@ -13,29 +13,27 @@ import (
 )
 
 // EnsureClips makes the local clip directory match the lock: every locked
-// clip present with a verified digest. In strict mode any bucket object
+// clip present with a verified digest. Any bucket object
 // outside the lock refuses startup. A downloaded clip whose digest mismatches
 // is deleted and refused; nothing unverified is ever served.
-func EnsureClips(ctx context.Context, log *log.Logger, s3 *S3Client, lock *Lock, dir string, strict bool) error {
-	if strict {
-		keys, err := s3.ListKeys(ctx)
-		if err != nil {
-			return err
+func EnsureClips(ctx context.Context, log *log.Logger, s3 *S3Client, lock *Lock, dir string) error {
+	keys, err := s3.ListKeys(ctx)
+	if err != nil {
+		return err
+	}
+	locked := map[string]bool{}
+	for _, c := range lock.Clips {
+		locked[c.Key] = true
+	}
+	var unlisted []string
+	for _, key := range keys {
+		if !locked[key] {
+			unlisted = append(unlisted, key)
 		}
-		locked := map[string]bool{}
-		for _, c := range lock.Clips {
-			locked[c.Key] = true
-		}
-		var unlisted []string
-		for _, key := range keys {
-			if !locked[key] {
-				unlisted = append(unlisted, key)
-			}
-		}
-		if len(unlisted) > 0 {
-			sort.Strings(unlisted)
-			return fmt.Errorf("refusing startup: %d bucket object(s) outside clips.lock.json: %s", len(unlisted), joinN(unlisted, 8))
-		}
+	}
+	if len(unlisted) > 0 {
+		sort.Strings(unlisted)
+		return fmt.Errorf("refusing startup: %d bucket object(s) outside clips.lock.json: %s", len(unlisted), joinN(unlisted, 8))
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create clips dir: %w", err)

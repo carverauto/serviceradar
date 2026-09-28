@@ -94,68 +94,48 @@ type s3Error struct {
 	XMLName xml.Name `xml:"Error"`
 	Code    string   `xml:"Code"`
 	Message string   `xml:"Message"`
-	Region  string   `xml:"Region"`
 }
 
 // do signs and sends one request. When w is nil the (small) response body is
 // buffered and returned; otherwise the body streams to w.
 func (c *S3Client) do(ctx context.Context, method, path string, query url.Values, w io.Writer) ([]byte, error) {
-	var lastErr error
-	region := c.Region
-	for attempt := 0; attempt < 2; attempt++ {
-		body, retryRegion, err := c.doOnce(ctx, method, path, query, w, region)
-		if err == nil {
-			return body, nil
-		}
-		lastErr = err
-		// A wrong signing region fails with the right one attached; retry
-		// once with it instead of failing on a guessable default.
-		if retryRegion == "" || retryRegion == region {
-			return nil, err
-		}
-		region = retryRegion
-	}
-	return nil, lastErr
-}
-
-func (c *S3Client) doOnce(ctx context.Context, method, path string, query url.Values, w io.Writer, region string) ([]byte, string, error) {
 	rawURL := c.Endpoint + path
 	if len(query) > 0 {
 		rawURL += "?" + query.Encode()
 	}
 	req, err := http.NewRequestWithContext(ctx, method, rawURL, nil)
 	if err != nil {
-		return nil, "", fmt.Errorf("s3 %s %s: %w", method, path, err)
+		return nil, fmt.Errorf("s3 %s %s: %w", method, path, err)
 	}
-	signV4(req, path, query, region, c.AccessKey, c.SecretKey, time.Now().UTC())
+	signV4(req, path, query, c.Region, c.AccessKey, c.SecretKey, time.Now().UTC())
 
 	resp, err := c.httpClient().Do(req)
 	if err != nil {
-		return nil, "", fmt.Errorf("s3 %s %s: %w", method, path, err)
+		return nil, fmt.Errorf("s3 %s %s: %w", method, path, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		var s3err s3Error
 		if xml.Unmarshal(raw, &s3err) == nil && s3err.Code != "" {
-			return nil, s3err.Region, fmt.Errorf(
+			return nil, fmt.Errorf(
 				"s3 %s %s: status %d code %s: %.200s",
 				method, path, resp.StatusCode, s3err.Code, s3err.Message,
 			)
 		}
-		return nil, "", fmt.Errorf("s3 %s %s: status %d: %.200s", method, path, resp.StatusCode, strings.TrimSpace(string(raw)))
+		return nil, fmt.Errorf("s3 %s %s: status %d: %.200s", method, path, resp.StatusCode, strings.TrimSpace(string(raw)))
 	}
 	if w == nil {
 		raw, err := io.ReadAll(io.LimitReader(resp.Body, 256<<20))
 		if err != nil {
-			return nil, "", fmt.Errorf("s3 %s %s: read body: %w", method, path, err)
+			return nil, fmt.Errorf("s3 %s %s: read body: %w", method, path, err)
 		}
-		return raw, "", nil
+		return raw, nil
 	}
 	if _, err := io.Copy(w, resp.Body); err != nil {
-		return nil, "", fmt.Errorf("s3 %s %s: stream body: %w", method, path, err)
+		return nil, fmt.Errorf("s3 %s %s: stream body: %w", method, path, err)
 	}
-	return nil, "", nil
+	return nil, nil
 }
 
 // signV4 attaches SigV4 Authorization, x-amz-date and x-amz-content-sha256 to

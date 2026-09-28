@@ -180,32 +180,29 @@ func TestS3GetMissingKey(t *testing.T) {
 	}
 }
 
-func TestS3RetriesOnceWithReturnedRegion(t *testing.T) {
-	var scopes []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		auth := r.Header.Get("Authorization")
-		scopes = append(scopes, auth)
-		if !strings.Contains(auth, "/us-west-1/") {
-			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte(`<Error><Code>AuthorizationHeaderMalformed</Code><Message>region wrong</Message><Region>us-west-1</Region></Error>`))
-			return
-		}
-		w.Write([]byte("OK"))
-	}))
-	defer srv.Close()
-
-	c := &S3Client{Endpoint: srv.URL, Bucket: "b", Region: "us-ord-1", AccessKey: "A", SecretKey: "S", HTTP: srv.Client()}
-	var sb strings.Builder
-	if err := c.GetObject(context.Background(), "a.mp4", &sb); err != nil {
-		t.Fatalf("GetObject: %v", err)
-	}
-	if sb.String() != "OK" {
-		t.Fatalf("body = %q", sb.String())
-	}
-	if len(scopes) != 2 {
-		t.Fatalf("expected 2 attempts, got %d", len(scopes))
-	}
-	if !strings.Contains(scopes[1], "/us-west-1/") {
-		t.Fatalf("retry did not adopt the returned region: %q", scopes[1])
+func TestS3RejectsWrongRegion(t *testing.T) {
+	for _, operation := range []string{"list", "get"} {
+		t.Run(operation, func(t *testing.T) {
+			var scopes []string
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				scopes = append(scopes, r.Header.Get("Authorization"))
+				w.WriteHeader(http.StatusBadRequest)
+				w.Write([]byte(`<Error><Code>AuthorizationHeaderMalformed</Code><Message>region wrong</Message><Region>region-other</Region></Error>`))
+			}))
+			defer srv.Close()
+			c := &S3Client{Endpoint: srv.URL, Bucket: "b", Region: "region-configured", AccessKey: "A", SecretKey: "S", HTTP: srv.Client()}
+			var err error
+			if operation == "list" {
+				_, err = c.ListKeys(context.Background())
+			} else {
+				err = c.GetObject(context.Background(), "a.mp4", &strings.Builder{})
+			}
+			if err == nil || !strings.Contains(err.Error(), "AuthorizationHeaderMalformed") {
+				t.Fatalf("expected signing error, got %v", err)
+			}
+			if len(scopes) != 1 || !strings.Contains(scopes[0], "/region-configured/s3/") {
+				t.Fatalf("expected one request in configured region, got %v", scopes)
+			}
+		})
 	}
 }

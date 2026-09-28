@@ -1,6 +1,7 @@
 package replayer
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log"
@@ -46,6 +47,37 @@ func (e *ExitError) Error() string {
 	return fmt.Sprintf("%s exited: %v", e.Name, e.Err)
 }
 
+type childLogWriter struct {
+	mu      sync.Mutex
+	log     *log.Logger
+	name    string
+	pending []byte
+}
+
+func (w *childLogWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.pending = append(w.pending, p...)
+	for {
+		i := bytes.IndexByte(w.pending, '\n')
+		if i < 0 {
+			break
+		}
+		w.log.Printf("[%s] %s", w.name, w.pending[:i])
+		w.pending = w.pending[i+1:]
+	}
+	return len(p), nil
+}
+
+func (w *childLogWriter) Flush() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if len(w.pending) > 0 {
+		w.log.Printf("[%s] %s", w.name, w.pending)
+		w.pending = nil
+	}
+}
+
 // Supervise starts every child and waits. The first child to exit (or context
 // cancellation) stops the rest; the replayer never serves a partial path set.
 func Supervise(ctx context.Context, log *log.Logger, children []Child) error {
@@ -58,11 +90,15 @@ func Supervise(ctx context.Context, log *log.Logger, children []Child) error {
 
 	for i, child := range children {
 		cmd := exec.CommandContext(ctx, child.Bin, child.Args...)
+		output := &childLogWriter{log: log, name: child.Name}
+		cmd.Stdout, cmd.Stderr = output, output
 		if len(child.Env) > 0 {
 			cmd.Env = append(os.Environ(), child.Env...)
 		}
 		cmds[i] = cmd
 		if err := cmd.Start(); err != nil {
+			cancel()
+			wg.Wait()
 			return fmt.Errorf("start %s: %w", child.Name, err)
 		}
 		log.Printf("started %s (pid %d)", child.Name, cmd.Process.Pid)
@@ -70,6 +106,7 @@ func Supervise(ctx context.Context, log *log.Logger, children []Child) error {
 		go func() {
 			defer wg.Done()
 			err := cmd.Wait()
+			output.Flush()
 			select {
 			case errs <- &ExitError{Name: child.Name, Err: err}:
 			case <-ctx.Done():

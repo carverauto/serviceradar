@@ -43,7 +43,7 @@ func TestEnsureClipsDownloadsMissing(t *testing.T) {
 	dir := t.TempDir()
 	lock := testLock(testClip("a", "AAA"))
 
-	if err := EnsureClips(context.Background(), testLogger(), s3, lock, dir, true); err != nil {
+	if err := EnsureClips(context.Background(), testLogger(), s3, lock, dir); err != nil {
 		t.Fatalf("EnsureClips: %v", err)
 	}
 	raw, err := os.ReadFile(filepath.Join(dir, "a.mp4"))
@@ -55,7 +55,7 @@ func TestEnsureClipsDownloadsMissing(t *testing.T) {
 	}
 
 	// Second run keeps the verified file without re-downloading.
-	if err := EnsureClips(context.Background(), testLogger(), s3, lock, dir, true); err != nil {
+	if err := EnsureClips(context.Background(), testLogger(), s3, lock, dir); err != nil {
 		t.Fatalf("EnsureClips again: %v", err)
 	}
 	if fake.gets != 1 {
@@ -75,7 +75,7 @@ func TestEnsureClipsRefetchesCorruptLocal(t *testing.T) {
 	}
 	lock := testLock(testClip("a", "AAA"))
 
-	if err := EnsureClips(context.Background(), testLogger(), s3, lock, dir, false); err != nil {
+	if err := EnsureClips(context.Background(), testLogger(), s3, lock, dir); err != nil {
 		t.Fatalf("EnsureClips: %v", err)
 	}
 	raw, _ := os.ReadFile(filepath.Join(dir, "a.mp4"))
@@ -93,7 +93,7 @@ func TestEnsureClipsRefusesDigestMismatch(t *testing.T) {
 	dir := t.TempDir()
 	lock := testLock(testClip("a", "AAA"))
 
-	err := EnsureClips(context.Background(), testLogger(), s3, lock, dir, false)
+	err := EnsureClips(context.Background(), testLogger(), s3, lock, dir)
 	if err == nil || !strings.Contains(err.Error(), "digest mismatch") {
 		t.Fatalf("expected digest mismatch error, got %v", err)
 	}
@@ -106,7 +106,7 @@ func TestEnsureClipsRefusesDigestMismatch(t *testing.T) {
 	}
 }
 
-func TestEnsureClipsStrictRefusesUnlisted(t *testing.T) {
+func TestEnsureClipsRefusesUnlisted(t *testing.T) {
 	fake := &fakeS3{t: t, objects: map[string][]byte{"a.mp4": []byte("AAA"), "intruder.mp4": []byte("x")}}
 	srv := httptest.NewServer(http.HandlerFunc(fake.handler))
 	defer srv.Close()
@@ -115,16 +115,11 @@ func TestEnsureClipsStrictRefusesUnlisted(t *testing.T) {
 	dir := t.TempDir()
 	lock := testLock(testClip("a", "AAA"))
 
-	err := EnsureClips(context.Background(), testLogger(), s3, lock, dir, true)
+	err := EnsureClips(context.Background(), testLogger(), s3, lock, dir)
 	if err == nil || !strings.Contains(err.Error(), "intruder.mp4") {
 		t.Fatalf("expected unlisted-object error naming intruder.mp4, got %v", err)
 	}
 	if fake.gets != 0 {
-		t.Fatalf("strict mode downloaded %d objects before refusing", fake.gets)
-	}
-
-	// Non-strict mode ignores the extra object.
-	if err := EnsureClips(context.Background(), testLogger(), s3, lock, dir, false); err != nil {
-		t.Fatalf("non-strict EnsureClips: %v", err)
+		t.Fatalf("downloaded %d objects before refusing", fake.gets)
 	}
 }

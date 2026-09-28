@@ -2,7 +2,9 @@ package replayer
 
 import (
 	"context"
+	"crypto/rand"
 	_ "embed"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"text/template"
 	"time"
 )
 
@@ -20,6 +23,9 @@ var defaultLock []byte
 //go:embed paths.json
 var defaultPaths []byte
 
+//go:embed mediamtx.yml
+var mediamtxTemplate string
+
 // Config is the replayer's runtime configuration, read from the environment.
 type Config struct {
 	S3Endpoint string
@@ -27,16 +33,10 @@ type Config struct {
 	S3Region   string
 	AccessKey  string
 	SecretKey  string
-	Strict     bool
-
-	LockFile  string // empty: embedded clips.lock.json
-	PathsFile string // empty: embedded paths.json
 
 	ClipsDir    string
 	MediamtxBin string
-	MediamtxYml string
 	FFmpegBin   string
-	RTSPBase    string // e.g. rtsp://127.0.0.1:8554 (no trailing slash)
 }
 
 // ConfigFromEnv reads configuration from the environment. Credentials come
@@ -46,15 +46,10 @@ func ConfigFromEnv() (Config, error) {
 	cfg := Config{
 		S3Endpoint:  strings.TrimSuffix(os.Getenv("REPLAYER_S3_ENDPOINT"), "/"),
 		S3Bucket:    os.Getenv("REPLAYER_S3_BUCKET"),
-		S3Region:    envOr("REPLAYER_S3_REGION", "us-ord-1"),
-		Strict:      envOr("REPLAYER_STRICT_BUCKET", "true") != "false",
-		LockFile:    os.Getenv("REPLAYER_LOCK_FILE"),
-		PathsFile:   os.Getenv("REPLAYER_PATHS_FILE"),
+		S3Region:    envOr("REPLAYER_S3_REGION", "us-ord"),
 		ClipsDir:    envOr("REPLAYER_CLIPS_DIR", "/var/lib/replayer/clips"),
 		MediamtxBin: envOr("REPLAYER_MEDIAMTX_BIN", "/usr/local/bin/mediamtx"),
-		MediamtxYml: envOr("REPLAYER_MEDIAMTX_YML", "/etc/replayer/mediamtx.yml"),
 		FFmpegBin:   envOr("REPLAYER_FFMPEG_BIN", "/usr/local/bin/ffmpeg"),
-		RTSPBase:    strings.TrimSuffix(envOr("REPLAYER_RTSP_BASE", "rtsp://127.0.0.1:8554"), "/"),
 	}
 	access, err := secretValue("REPLAYER_S3_ACCESS_KEY")
 	if err != nil {
@@ -74,10 +69,6 @@ func ConfigFromEnv() (Config, error) {
 	}
 	if cfg.AccessKey == "" || cfg.SecretKey == "" {
 		return Config{}, errors.New("S3 credentials are required (REPLAYER_S3_ACCESS_KEY/SECRET_KEY or _FILE variants)")
-	}
-	u, err := url.Parse(cfg.RTSPBase)
-	if err != nil || u.Scheme != "rtsp" || u.Host == "" {
-		return Config{}, fmt.Errorf("invalid REPLAYER_RTSP_BASE %q", cfg.RTSPBase)
 	}
 	return cfg, nil
 }
@@ -107,30 +98,12 @@ func secretValue(key string) (string, error) {
 func Run(ctx context.Context, cfg Config, fetchOnly bool, stdout, stderr io.Writer) int {
 	log := log.New(stdout, "replayer: ", log.LstdFlags)
 
-	lockBytes := defaultLock
-	if cfg.LockFile != "" {
-		raw, err := os.ReadFile(cfg.LockFile)
-		if err != nil {
-			fmt.Fprintf(stderr, "replayer: read lock: %v\n", err)
-			return 1
-		}
-		lockBytes = raw
-	}
-	lock, err := ParseLock(lockBytes)
+	lock, err := ParseLock(defaultLock)
 	if err != nil {
 		fmt.Fprintf(stderr, "replayer: %v\n", err)
 		return 1
 	}
-	pathsBytes := defaultPaths
-	if cfg.PathsFile != "" {
-		raw, err := os.ReadFile(cfg.PathsFile)
-		if err != nil {
-			fmt.Fprintf(stderr, "replayer: read paths: %v\n", err)
-			return 1
-		}
-		pathsBytes = raw
-	}
-	paths, err := ParsePaths(pathsBytes, lock)
+	paths, err := ParsePaths(defaultPaths, lock)
 	if err != nil {
 		fmt.Fprintf(stderr, "replayer: %v\n", err)
 		return 1
@@ -144,7 +117,7 @@ func Run(ctx context.Context, cfg Config, fetchOnly bool, stdout, stderr io.Writ
 		SecretKey: cfg.SecretKey,
 	}
 	log.Printf("fetching %d locked clips from s3://%s", len(lock.Clips), cfg.S3Bucket)
-	if err := EnsureClips(ctx, log, s3, lock, cfg.ClipsDir, cfg.Strict); err != nil {
+	if err := EnsureClips(ctx, log, s3, lock, cfg.ClipsDir); err != nil {
 		fmt.Fprintf(stderr, "replayer: %v\n", err)
 		return 1
 	}
@@ -153,7 +126,13 @@ func Run(ctx context.Context, cfg Config, fetchOnly bool, stdout, stderr io.Writ
 		return 0
 	}
 
-	mediamtx := Child{Name: "mediamtx", Bin: cfg.MediamtxBin, Args: []string{cfg.MediamtxYml}}
+	configPath, publishURL, err := prepareMediaMTX(cfg.ClipsDir)
+	if err != nil {
+		fmt.Fprintf(stderr, "replayer: prepare mediamtx: %v\n", err)
+		return 1
+	}
+	defer os.Remove(configPath)
+	mediamtx := Child{Name: "mediamtx", Bin: cfg.MediamtxBin, Args: []string{configPath}}
 	ffmpegChildren := make([]Child, 0, len(paths.Paths))
 	for _, p := range paths.Paths {
 		clip, _ := lock.ClipByName(p.Clip)
@@ -162,7 +141,7 @@ func Run(ctx context.Context, cfg Config, fetchOnly bool, stdout, stderr io.Writ
 			Bin:  cfg.FFmpegBin,
 			Args: FFmpegArgs(
 				filepath.Join(cfg.ClipsDir, filepath.Base(clip.Key)),
-				p.StartOffsetSeconds, cfg.RTSPBase, p.Path,
+				p.StartOffsetSeconds, publishURL.String(), p.Path,
 			),
 		})
 	}
@@ -176,15 +155,17 @@ func Run(ctx context.Context, cfg Config, fetchOnly bool, stdout, stderr io.Writ
 	go func() {
 		mediamtxErr <- Supervise(runCtx, log, []Child{mediamtx})
 	}()
-	rtspAddr := strings.TrimPrefix(cfg.RTSPBase, "rtsp://")
+	rtspAddr := publishURL.Host
 	select {
 	case err := <-mediamtxErr:
 		fmt.Fprintf(stderr, "replayer: mediamtx failed to start: %v\n", err)
 		return 1
 	case <-time.After(45 * time.Second):
+		stopAll()
+		<-mediamtxErr
 		fmt.Fprintf(stderr, "replayer: mediamtx did not become ready\n")
 		return 1
-	case <-waitTCPAsync(ctx, rtspAddr):
+	case <-waitTCPAsync(runCtx, rtspAddr):
 	}
 	log.Printf("mediamtx ready, starting %d publishers", len(ffmpegChildren))
 
@@ -207,6 +188,33 @@ func Run(ctx context.Context, cfg Config, fetchOnly bool, stdout, stderr io.Writ
 		<-ffmpegErr
 		return 0
 	}
+}
+
+func prepareMediaMTX(clipsDir string) (string, *url.URL, error) {
+	var secret [32]byte
+	if _, err := rand.Read(secret[:]); err != nil {
+		return "", nil, err
+	}
+	password := hex.EncodeToString(secret[:])
+	u := &url.URL{Scheme: "rtsp", Host: "127.0.0.1:8554", User: url.UserPassword("replayer", password)}
+	tmpl, err := template.New("mediamtx").Parse(mediamtxTemplate)
+	if err != nil {
+		return "", nil, err
+	}
+	f, err := os.CreateTemp(filepath.Dir(filepath.Clean(clipsDir)), "mediamtx-*.yml")
+	if err != nil {
+		return "", nil, err
+	}
+	err = tmpl.Execute(f, password)
+	closeErr := f.Close()
+	if err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		os.Remove(f.Name())
+		return "", nil, err
+	}
+	return f.Name(), u, nil
 }
 
 // exitFor maps a supervision result to an exit code: a child that really

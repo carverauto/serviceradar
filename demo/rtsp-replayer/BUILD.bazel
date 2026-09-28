@@ -16,6 +16,7 @@ go_library(
     ],
     embedsrcs = [
         "clips.lock.json",
+        "mediamtx.yml",
         "paths.json",
     ],
     importpath = "github.com/carverauto/serviceradar/demo/rtsp-replayer",
@@ -31,6 +32,7 @@ go_test(
         "supervise_test.go",
     ],
     embed = [":replayer_lib"],
+    deps = ["@in_gopkg_yaml_v3//:yaml_v3"],
 )
 
 # MediaMTX and ffmpeg arrive as upstream release tarballs (pinned in
@@ -144,7 +146,6 @@ declare_service_container_amd64(
     entrypoint = ["/usr/local/bin/replayer"],
     exposed_ports = [
         "8554/tcp",
-        "9998/tcp",
     ],
     extra_tars = select({
         "//build/platforms:target_linux_arm64": [
@@ -161,17 +162,11 @@ declare_service_container_amd64(
     files = {
         "//demo/rtsp-replayer/cmd/replayer": "usr/local/bin/replayer",
         "@mozilla_ca_bundle//file": "etc/ssl/certs/ca-certificates.crt",
-        ":mediamtx.yml": "etc/replayer/mediamtx.yml",
-        ":clips.lock.json": "etc/replayer/clips.lock.json",
-        ":paths.json": "etc/replayer/paths.json",
     },
     image_title = "serviceradar-rtsp-replayer",
     modes = {
         "usr/local/bin/replayer": "0755",
         "etc/ssl/certs/ca-certificates.crt": "0644",
-        "etc/replayer/mediamtx.yml": "0644",
-        "etc/replayer/clips.lock.json": "0644",
-        "etc/replayer/paths.json": "0644",
     },
     repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-rtsp-replayer:local"],
     runtime = "scratch",
