@@ -1,0 +1,31 @@
+# MediaMTX configuration for the showcase demo RTSP replayer.
+#
+logLevel: info
+logDestinations: [stdout]
+
+rtsp: true
+rtspAddress: :8554
+rtspTransports: [tcp]
+
+authMethod: internal
+authInternalUsers:
+  - user: any
+    permissions:
+      - action: read
+  - user: replayer
+    pass: "{{.}}"
+    ips: [127.0.0.1, "::1"]
+    permissions:
+      - action: publish
+
+rtmp: false
+hls: false
+webrtc: false
+srt: false
+moq: false
+
+api: false
+
+paths:
+  all_others:
+    source: publisher
