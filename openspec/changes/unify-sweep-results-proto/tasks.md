@@ -96,7 +96,8 @@
       becomes `10.1.2.0/24`, and stored `2001:DB8::1` becomes `2001:db8::1/128`.
       A page holds at most 256 ranges, and the plan uses as many pages
       as it needs.
-      Checks are ICMP and TCP only (`mtr_*` zero). Its digests (range, page,
+      Checks are the compiled effective modes and ports (`SweepPlan.checks/2`),
+      ICMP and TCP only (`mtr_*` zero). Its digests (range, page,
       root, header) are byte-identical to the Go implementation, shown by the
       cross-language golden vectors under `proto/edge/v1/testdata`.
       `check_set_sha256` and `availability_policy_id` follow "Plan inputs" in
