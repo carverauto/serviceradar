@@ -1799,7 +1799,10 @@ if config_env() == :prod do
            # Composite checks' only scheduler: one evaluation job per enabled
            # check per minute (full or incremental pass). Kept in step with
            # serviceradar_core_elx's runtime.exs, which the release loads.
-           {"* * * * *", ServiceRadar.CompositeChecks.TickWorker, queue: :monitoring}
+           {"* * * * *", ServiceRadar.CompositeChecks.TickWorker, queue: :monitoring},
+           # Kept in step with serviceradar_core_elx's runtime.exs, as above. Inert
+           # until an operator enables sweep leasing.
+           {"*/5 * * * *", ServiceRadar.SweepJobs.LeasePassWorker, queue: :maintenance}
          ] ++
            object_store_retention_crontab ++
            capacity_forecasting_crontab ++

@@ -121,6 +121,34 @@ defmodule ServiceRadar.SweepJobs.ExecutionSlots do
     end
   end
 
+  @doc """
+  Withdraws the given scheduled slots that have not started by `now`. A slot that started in
+  the meantime is left alone. Returns how many were dropped.
+  """
+  @spec drop([Ecto.UUID.t()], DateTime.t()) ::
+          {:ok, non_neg_integer()} | {:error, term()}
+  def drop(slot_ids, now \\ DateTime.utc_now())
+  def drop([], _now), do: {:ok, 0}
+
+  def drop(slot_ids, now) when is_list(slot_ids) do
+    SweepExecutionSlot
+    |> Ash.Query.filter(id in ^slot_ids and state == :scheduled and slot_start > ^now)
+    |> bulk_drop()
+  end
+
+  @doc "The scheduled slots of an assignment that start after `now`, soonest first."
+  @spec list_unrun(Ecto.UUID.t(), DateTime.t()) ::
+          {:ok, [SweepExecutionSlot.t()]} | {:error, term()}
+  def list_unrun(producer_assignment_id, now \\ DateTime.utc_now()) do
+    SweepExecutionSlot
+    |> Ash.Query.filter(
+      producer_assignment_id == ^producer_assignment_id and state == :scheduled and
+        slot_start > ^now
+    )
+    |> Ash.Query.sort(slot_start: :asc)
+    |> Ash.read(actor: actor())
+  end
+
   @doc "The slots of a group, soonest first."
   @spec list_for_group(Ecto.UUID.t()) :: {:ok, [SweepExecutionSlot.t()]} | {:error, term()}
   def list_for_group(sweep_group_id) do

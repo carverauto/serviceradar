@@ -1340,7 +1340,10 @@ if config_env() == :prod do
       # Composite checks' only scheduler: one evaluation job per enabled check per
       # minute; each job runs the full pass when it is due and the incremental
       # pass otherwise. Kept in step with serviceradar_core's runtime.exs.
-      {"* * * * *", ServiceRadar.CompositeChecks.TickWorker, queue: :monitoring}
+      {"* * * * *", ServiceRadar.CompositeChecks.TickWorker, queue: :monitoring},
+      # Keeps sweep schedule leases full and in step with their groups. Inert until
+      # an operator enables sweep leasing (sweep_lease_settings).
+      {"*/5 * * * *", ServiceRadar.SweepJobs.LeasePassWorker, queue: :maintenance}
     ] ++
       object_store_retention_crontab ++
       capacity_forecasting_crontab ++
