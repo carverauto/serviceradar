@@ -22,10 +22,10 @@ defmodule ServiceRadarWebNGWeb.Components.AnalyticsWidgetsTest do
         )
 
       document = Floki.parse_fragment!(html)
-      assert Floki.find(document, ~s(span[title="/data"])) |> Floki.text() == "/data"
+      assert document |> Floki.find(~s(span[title="/data"])) |> Floki.text() == "/data"
 
       for host <- ~w(cpu01.example.com memory01.example.com host01.example.com) do
-        assert Floki.find(document, ~s([title="#{host}"])) |> Floki.text() == host
+        assert document |> Floki.find(~s([title="#{host}"])) |> Floki.text() == host
       end
 
       queries =
