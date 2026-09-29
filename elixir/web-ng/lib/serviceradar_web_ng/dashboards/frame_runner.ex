@@ -152,7 +152,7 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
     else
       total_limit = Map.get(srql_opts, :limit, @default_frame_limit)
       page_opts = Map.put(srql_opts, :limit, min(total_limit, @max_page_size))
-      collect_json_pages(base, query, page_opts, srql_module, device_resolver, fields, [], total_limit, nil, nil)
+      collect_json_pages(base, query, page_opts, srql_module, device_resolver, fields, {[], total_limit}, {nil, nil})
     end
   end
 
@@ -180,7 +180,7 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
     end
   end
 
-  defp collect_json_pages(base, query, page_opts, srql_module, device_resolver, fields, acc, remaining, schema, viz) do
+  defp collect_json_pages(base, query, page_opts, srql_module, device_resolver, fields, {acc, remaining}, {schema, viz}) do
     opts = Map.put(page_opts, :limit, min(remaining, @max_page_size))
 
     case srql_module.query(query, opts) do
@@ -192,7 +192,7 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
         viz = viz || Map.get(response, "viz")
         still_remaining = remaining - length(results)
 
-        if is_binary(next_cursor) and next_cursor != "" and still_remaining > 0 and length(results) > 0 do
+        if is_binary(next_cursor) and next_cursor != "" and still_remaining > 0 and results != [] do
           next_opts = Map.put(page_opts, :cursor, next_cursor)
 
           collect_json_pages(
@@ -202,10 +202,8 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
             srql_module,
             device_resolver,
             fields,
-            combined,
-            still_remaining,
-            schema,
-            viz
+            {combined, still_remaining},
+            {schema, viz}
           )
         else
           finish_json_pages(base, combined, pagination, schema, viz, device_resolver, fields, query)
