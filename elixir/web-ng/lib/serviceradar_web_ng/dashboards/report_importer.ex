@@ -80,11 +80,22 @@ defmodule ServiceRadarWebNG.Dashboards.ReportImporter do
           end,
           max_concurrency: 4,
           ordered: true,
-          timeout: :infinity
+          timeout: 30_000,
+          on_timeout: :kill_task
         )
+        |> Enum.zip(entries)
         |> Enum.map(fn
-          {:ok, report} -> report
-          {:exit, reason} -> %{title: nil, description: nil, panel_count: 0, error: inspect(reason), installed?: false}
+          {{:ok, report}, _entry} ->
+            report
+
+          {{:exit, reason}, entry} ->
+            Map.merge(entry, %{
+              installed?: MapSet.member?(installed, entry.slug),
+              title: entry.slug,
+              description: nil,
+              panel_count: 0,
+              error: "Could not load #{entry.path}: #{inspect(reason)}"
+            })
         end)
 
       {:ok,
