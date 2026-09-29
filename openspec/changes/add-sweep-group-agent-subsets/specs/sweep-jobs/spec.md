@@ -436,9 +436,11 @@ the command bus for every online agent in the group's effective assignment.
 - **THEN** the system SHALL return an immediate error when no other agent in the
   effective assignment is online, as described in "Run sweep group while all
   effective agents are offline"
-- **AND** when other assigned agents are online, the offline agent SHALL be
-  reported as a per-agent failure of a partial dispatch, as described in "Run
-  sweep group with partial selected availability"
+- **AND** when at least one other selected agent is actually dispatched, the
+  offline agent SHALL be reported as a per-agent failure of that partial
+  dispatch, as described in "Run sweep group with partial selected
+  availability"; a dispatch in which no agent receives a command SHALL
+  return an immediate error
 
 #### Scenario: Track selected-agent command status independently
 - **GIVEN** run-now dispatch created commands for selected agents A and B
