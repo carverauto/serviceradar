@@ -275,17 +275,28 @@ defmodule ServiceRadar.Inventory.Identity.DecisionLogTest do
 
   defp unique, do: System.unique_integer([:positive])
 
-  # Documentation-range addresses (RFC 5737) and locally-administered MACs under the
-  # documentation OUI (RFC 7042), so no fixture value can name a real network. Consecutive
-  # unique integers keep the values of one test distinct.
-  defp unique_ip, do: "203.0.113.#{rem(unique(), 254) + 1}"
+  # Documentation-range addresses (RFC 5737) and MACs under the documentation OUI
+  # (RFC 7042), so no fixture value can name a real network.
+  defp unique_ip, do: "203.0.113.#{rem(fixture_seq(), 254) + 1}"
 
   # Globally-unique (universally administered) MACs under the documentation OUI.
   defp uaa_mac do
-    "00:00:5E:00:53:" <> Base.encode16(<<rem(unique(), 256)>>)
+    "00:00:5E:00:53:" <> Base.encode16(<<rem(fixture_seq(), 256)>>)
   end
 
+  # The same OUI with the locally-administered (randomized) bit set.
   defp laa_mac do
-    "02:00:5E:00:53:" <> Base.encode16(<<rem(unique(), 256)>>)
+    "02:00:5E:00:53:" <> Base.encode16(<<rem(fixture_seq(), 256)>>)
+  end
+
+  # Consecutive integers from a base drawn once per test. System.unique_integer/1 is
+  # VM-wide, so under async: true other tests draw between two of this test's calls and
+  # the residues of two draws can coincide; a second device on the same live IP then
+  # fails the active-IP unique index. Counting in the test process instead keeps up to
+  # 254 values in one test distinct, and the random base spreads concurrent tests apart.
+  defp fixture_seq do
+    {base, n} = Process.get(:decision_log_fixture_seq, {unique(), 0})
+    Process.put(:decision_log_fixture_seq, {base, n + 1})
+    base + n
   end
 end
