@@ -112,6 +112,7 @@ defmodule ServiceRadar.Plugins.Manifest do
     "submit_result",
     "emit_telemetry",
     "http_request",
+    "grpc_request",
     "websocket_connect",
     "websocket_send",
     "websocket_recv",

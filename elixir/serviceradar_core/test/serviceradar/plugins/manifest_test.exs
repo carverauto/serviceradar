@@ -427,6 +427,19 @@ defmodule ServiceRadar.Plugins.ManifestTest do
     assert Enum.any?(errors, &String.contains?(&1, "unsupported"))
   end
 
+  test "grpc_request capability is accepted" do
+    manifest =
+      @valid_manifest
+      |> Map.put("capabilities", ["get_config", "log", "submit_result", "grpc_request"])
+      |> Map.put("permissions", %{
+        "allowed_networks" => ["192.0.2.0/24"],
+        "allowed_ports" => [9200]
+      })
+
+    assert {:ok, parsed} = Manifest.from_map(manifest)
+    assert "grpc_request" in parsed.capabilities
+  end
+
   test "invalid semver is rejected" do
     manifest = Map.put(@valid_manifest, "version", "version1")
     assert {:error, errors} = Manifest.from_map(manifest)

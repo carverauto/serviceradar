@@ -1,17 +1,10 @@
 package agent
 
 import (
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
 	"crypto/sha256"
 	"crypto/tls"
-	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/hex"
-	"encoding/pem"
 	"io"
-	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -25,53 +18,7 @@ import (
 // ProxmoxHostAuthority.canonical_origin/3 forces an IP-literal origin.
 func newPrivateCAAndLeaf(t *testing.T, ip net.IP) (caPEM string, leaf tls.Certificate) {
 	t.Helper()
-
-	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatalf("generate CA key: %v", err)
-	}
-	caTmpl := &x509.Certificate{
-		SerialNumber:          big.NewInt(1),
-		Subject:               pkix.Name{CommonName: "Test Cluster Manager CA"},
-		NotBefore:             time.Now().Add(-time.Hour),
-		NotAfter:              time.Now().Add(24 * time.Hour),
-		IsCA:                  true,
-		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature,
-		BasicConstraintsValid: true,
-	}
-	caDER, err := x509.CreateCertificate(rand.Reader, caTmpl, caTmpl, &caKey.PublicKey, caKey)
-	if err != nil {
-		t.Fatalf("create CA: %v", err)
-	}
-	caCert, err := x509.ParseCertificate(caDER)
-	if err != nil {
-		t.Fatalf("parse CA: %v", err)
-	}
-
-	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if err != nil {
-		t.Fatalf("generate leaf key: %v", err)
-	}
-	leafTmpl := &x509.Certificate{
-		SerialNumber: big.NewInt(2),
-		Subject:      pkix.Name{CommonName: "pve-test.localdomain"},
-		NotBefore:    time.Now().Add(-time.Hour),
-		NotAfter:     time.Now().Add(24 * time.Hour),
-		KeyUsage:     x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		IPAddresses:  []net.IP{ip},
-	}
-	leafDER, err := x509.CreateCertificate(rand.Reader, leafTmpl, caCert, &leafKey.PublicKey, caKey)
-	if err != nil {
-		t.Fatalf("create leaf: %v", err)
-	}
-
-	caPEM = string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER}))
-
-	return caPEM, tls.Certificate{
-		Certificate: [][]byte{leafDER, caDER},
-		PrivateKey:  leafKey,
-	}
+	return newGRPCTestCAAndLeaf(t, ip)
 }
 
 // The demo failure this closes: a Proxmox rule must keep tls_policy verify

@@ -272,6 +272,48 @@ Because capabilities and permissions are visible in the manifest, reviewers can 
 
 The full list of capability names and permission keys lives on the [developer portal](https://developer.serviceradar.cloud).
 
+### Host-proxied unary gRPC (`grpc_request`)
+
+A plugin that declares the `grpc_request` capability can call the `grpc_unary`
+host function to make one unary gRPC call. The guest passes an already-serialized
+request message and receives the serialized response message; the agent does not
+need the service's `.proto` definition. Streaming RPCs are not supported.
+
+The agent applies the same checks as `http_request`, before it dials:
+
+- The destination host must be permitted by `allowed_domains` (hostnames) or
+  `allowed_networks` (IP literals), and the port must be listed in
+  `allowed_ports`. Otherwise the call is denied and nothing is dialed.
+- Plaintext HTTP/2 (`transport: h2c`) is only allowed when the destination
+  resolves to an address inside `allowed_networks`; the call is pinned to that
+  address. Use `transport: tls` for anything else. TLS verifies against the same
+  trust roots the agent uses for plugin HTTPS.
+- The call counts against `max_open_connections` while it runs.
+- The default timeout is 10 seconds and covers DNS lookup, dial, and the RPC
+  together. The response message is capped at 4 MiB, or lower when the request
+  sets `max_response_bytes`.
+- Request metadata keys are lowercased. Pseudo-headers, `grpc-*` keys, and
+  transport headers such as `content-type` and `te` are rejected. Keys ending in
+  `-bin` carry base64 values.
+
+A completed RPC, including a non-OK gRPC status, returns the status code,
+message, headers, and trailers to the plugin. A connection that fails before
+any gRPC status is reported as `UNAVAILABLE` (14).
+
+```yaml
+capabilities:
+  - get_config
+  - submit_result
+  - grpc_request
+permissions:
+  allowed_networks:
+    - 192.0.2.0/24
+  allowed_ports:
+    - 9200
+```
+
+Agents that support this capability advertise `grpc_request`.
+
 ## SDKs and Authoring
 
 Plugins compile to `wasm32-wasi` and export a zero-argument entrypoint that matches the manifest. ServiceRadar publishes SDKs that provide a higher-level API over the host ABI so you do not have to work with raw host imports.
@@ -319,15 +361,22 @@ TinyGo against `serviceradar-sdk-go`, `--template rust` targets `wasm32-wasip1`
 against `serviceradar-sdk-rust`. `plugin validate` checks `plugin.yaml` against
 the same manifest contract the server enforces and makes no network calls.
 
-Fetching `serviceradar-sdk-go` requires
-`GOPRIVATE=github.com/carverauto/serviceradar-sdk-go` on every `go get`,
-`go mod download`, and `tinygo build` invocation that resolves it — the module
-is not served via the public Go proxy, so without this Go fails against the
-proxy/checksum database instead of fetching directly from GitHub:
+`github.com/carverauto/*` modules, including `serviceradar-sdk-go`, are not
+served by the public Go proxy or checksum database. Set both variables below for
+every `go get`, `go mod download`, `go mod vendor`, and `tinygo build` invocation
+that resolves modules, so Go fetches them directly from GitHub instead of failing
+against the proxy/checksum database:
 
 ```
-export GOPRIVATE=github.com/carverauto/serviceradar-sdk-go
+export GOPRIVATE='github.com/carverauto/*'
+export GONOSUMDB='github.com/carverauto/*'
+go get github.com/carverauto/serviceradar-sdk-go/v2@latest
 ```
+
+The module path carries the `/v2` major-version suffix. First-party plugins and
+the `plugin init --template go` scaffold commit a `vendor/` tree, so a build from
+that tree needs no module download; the same two settings are used by the Bazel
+plugin build and the CI workflows.
 
 Publishing does three calls: it stages the package, requests a short-lived
 storage token, then uploads the `plugin.wasm` bytes with that token. Track the

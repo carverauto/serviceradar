@@ -14,14 +14,20 @@ The Go SDK is for building ServiceRadar Wasm plugins and integrations in Go. It 
 
 Use it when you want to write a custom checker, feed producer, notifier, or integration in Go and prefer an ergonomic SDK over hand-writing host imports.
 
-Fetching the module requires `GOPRIVATE=github.com/carverauto/serviceradar-sdk-go`
-on every `go get` / `go mod` / `tinygo build` invocation that resolves it — the
-module is not served via the public Go proxy, so without this Go fails against
-the proxy/checksum database instead of fetching directly from GitHub:
+The module path is `github.com/carverauto/serviceradar-sdk-go/v2`. It is not
+served by the public Go proxy or checksum database, so set `GOPRIVATE` and
+`GONOSUMDB` for `github.com/carverauto/*` on every `go get` / `go mod` /
+`tinygo build` invocation that resolves it; Go then fetches it directly from
+GitHub instead of failing against the proxy/checksum database:
 
 ```
-export GOPRIVATE=github.com/carverauto/serviceradar-sdk-go
+export GOPRIVATE='github.com/carverauto/*'
+export GONOSUMDB='github.com/carverauto/*'
+go get github.com/carverauto/serviceradar-sdk-go/v2@latest
 ```
+
+Commit a `vendor/` tree (`go mod vendor`) so plugin builds do not need to
+download modules at all.
 
 See the full reference at [developer.serviceradar.cloud](https://developer.serviceradar.cloud).
 
