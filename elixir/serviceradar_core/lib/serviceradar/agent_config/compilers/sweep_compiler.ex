@@ -73,11 +73,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     profiles = load_profiles(profile_ids, actor)
     profile_map = Map.new(profiles, &{&1.id, &1})
 
-    # Compile each group
-    compiled_groups =
-      groups
-      |> Enum.map(&compile_group(&1, profile_map, actor))
-      |> Enum.reject(&is_nil/1)
+    compiled_groups = compile_groups(groups, profile_map, opts)
 
     Logger.info(
       "SweepCompiler: compiled #{length(compiled_groups)} group(s) for partition=#{inspect(partition)}, agent_id=#{inspect(agent_id)}",
@@ -112,6 +108,19 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
       true ->
         :ok
     end
+  end
+
+  @doc false
+  # The compile step after groups and profiles are loaded. `:query_page_fn`
+  # replaces `SRQLRunner.query_page/2` for target queries.
+  @spec compile_groups([SweepGroup.t()], %{optional(term()) => SweepProfile.t()}, keyword()) ::
+          [map()]
+  def compile_groups(groups, profile_map, opts \\ []) do
+    query_page_fn = Keyword.get(opts, :query_page_fn, &SRQLRunner.query_page/2)
+
+    groups
+    |> Enum.map(&compile_group(&1, profile_map, query_page_fn))
+    |> Enum.reject(&is_nil/1)
   end
 
   @doc """
@@ -218,7 +227,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     end
   end
 
-  defp compile_group(group, profile_map, actor) do
+  defp compile_group(group, profile_map, query_page_fn) do
     # Get profile settings as base
     profile = Map.get(profile_map, group.profile_id)
 
@@ -238,7 +247,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     modes = drop_unsupported_modes(modes, group)
 
     # Build targets from static CIDRs/IPs and device targets from SRQL rows.
-    {targets, device_targets} = compile_targets(group, actor, modes)
+    {targets, device_targets} = compile_targets(group, query_page_fn, modes)
 
     # Build settings from profile with overrides
     settings = compile_settings(profile, group)
@@ -280,7 +289,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     end
   end
 
-  defp compile_targets(group, actor, modes) do
+  defp compile_targets(group, query_page_fn, modes) do
     # Start with static targets
     static_targets = group.static_targets || []
 
@@ -290,17 +299,17 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
       case group.target_query do
         nil -> []
         "" -> []
-        query -> get_device_targets_from_query(query, group, actor, modes)
+        query -> get_device_targets_from_query(query, group, query_page_fn, modes)
       end
 
     {Enum.uniq(static_targets), device_targets}
   end
 
-  defp get_device_targets_from_query(query, group, _actor, modes) when is_binary(query) do
+  defp get_device_targets_from_query(query, group, query_page_fn, modes) when is_binary(query) do
     query = normalize_target_query(query)
 
     query
-    |> fetch_srql_device_targets(nil, %{}, group, modes)
+    |> fetch_srql_device_targets(nil, %{}, group, modes, query_page_fn)
     |> Map.values()
     |> Enum.sort_by(& &1["network"])
   rescue
@@ -319,16 +328,17 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
       []
   end
 
-  defp get_device_targets_from_query(_query, _group, _actor, _modes), do: []
+  defp get_device_targets_from_query(_query, _group, _query_page_fn, _modes), do: []
 
   defp normalize_target_query(query) do
     SRQLQuery.ensure_target(query, :devices)
   end
 
-  defp fetch_srql_device_targets(_query, _cursor, acc, _group, _modes) when is_nil(acc), do: %{}
+  defp fetch_srql_device_targets(_query, _cursor, acc, _group, _modes, _query_page_fn)
+       when is_nil(acc), do: %{}
 
-  defp fetch_srql_device_targets(query, cursor, acc, group, modes) do
-    case SRQLRunner.query_page(query,
+  defp fetch_srql_device_targets(query, cursor, acc, group, modes, query_page_fn) do
+    case query_page_fn.(query,
            limit: srql_page_limit(),
            cursor: cursor,
            direction: "next"
@@ -337,7 +347,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
         acc = add_device_targets(acc, rows, group, modes)
 
         if is_binary(next_cursor) do
-          fetch_srql_device_targets(query, next_cursor, acc, group, modes)
+          fetch_srql_device_targets(query, next_cursor, acc, group, modes, query_page_fn)
         else
           acc
         end
