@@ -899,6 +899,7 @@ const DashboardWasmHost = {
       console.warn("[DashboardWasmHost] dashboard frame stream error:", payload?.reason || payload)
     })
     this._frameChannel.on("actions:progress", (payload) => this._actionsApi?.handleProgress(payload))
+    this._frameChannel.on("actions:confirmation", (payload) => this._actionsApi?.handleConfirmation(payload))
     this._frameChannel.on("events:batch", (payload) => this._eventsApi?.handleBatch(payload))
     this._frameChannel.on("events:error", (payload) => this._eventsApi?.handleError(payload))
 

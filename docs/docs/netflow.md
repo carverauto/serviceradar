@@ -33,9 +33,40 @@ Raw flows use a **dedicated JetStream stream** (`flows` by default), not the sha
 - **NATS JetStream (`flows`)**: Dedicated stream for protobuf `FlowMessage` bytes on `flows.raw.netflow` / `flows.raw.sflow` (owned max_bytes/max_age, R=3 in HA)
 - **EventWriter flow pipeline**: Dedicated Elixir/Broadway demand domain that long-polls JetStream, decodes protobuf, persists OCSF flow rows, and derives BGP observations
 - **CNPG/TimescaleDB**: Time-series storage with canonical `ocsf_network_activity` flow rows and derived `bgp_routing_info`
-- **StarRocks (optional, off by default)**: when the warehouse is enabled, the same EventWriter pipeline also Stream Loads flow rows into StarRocks. Flow **serving** is warehouse-only: list the `flows` dataset in the cutover setting (Helm `analytics.starrocks.cutoverDatasets`, Compose `STARROCKS_CUTOVER_DATASETS`) before flow reads can be answered. CNPG stays the flow write target, not a flow serving path. Two readers query flows without SRQL -- the dashboard throughput sparkline and the device page's flow presence probe that gates the Flows tab -- and follow the same setting: they read the warehouse once `flows` is cut over, and keep their CNPG query only on an installation that has not cut `flows` over
-- **SRQL**: Query flows via `in:flows` from `ocsf_network_activity`, served from StarRocks. Until `flows` is cut over, flow reads are refused with a warehouse-required error rather than answered from CNPG
+- **StarRocks (optional, off by default)**: EventWriter Stream Loads flow rows into the warehouse. See [Flow cutover and delivery](#flow-cutover-and-delivery) for routing, acknowledgement and upgrade behavior.
+- **SRQL**: Query flows via `in:flows` from the warehouse's `ocsf_network_activity`.
 - **Web UI**: NetFlow dashboard with BGP topology visualization
+
+### Flow cutover and delivery
+
+With the warehouse enabled, an unset or blank cutover list selects `flows` by
+default. Helm uses `analytics.starrocks.cutoverDatasets`; Compose uses
+`STARROCKS_CUTOVER_DATASETS`. A non-blank list replaces the default.
+
+The NetFlow dashboard and `in:flows` require warehouse reads. The dashboard
+throughput sparkline and device Flows-tab presence probes also route through
+`Readers`: without flow cutover, the sparkline renders empty and the probes
+report no flows. They do not fall back to CNPG on a warehouse failure.
+`DeviceRiskIocExposure` uses warehouse flows after cutover, but retains its CNPG
+query when the warehouse is disabled or an explicit cutover list omits `flows`.
+Its IOC cache and device-identity lookups remain in CNPG.
+
+Whenever the warehouse is enabled, flow Stream Load success or durable
+quarantine is required before JetStream ACK, independently of the read-cutover
+list. Warehouse failures backpressure ingestion; JetStream retention bounds
+how long unacknowledged data remains available. CNPG inserts still occur, and
+redelivery uses stable identities for CNPG conflict handling and warehouse
+upserts.
+
+Full-row ingestion and correlation updates carry agent and process attribution.
+The risk reader resolves device identity through `ocsf_agents` first, then the
+destination IP in `device_identifiers`. Migration
+`0023_ocsf_network_activity_agent_id.sql` adds the agent column without a
+backfill. Older warehouse rows lack agent identity, and older best-effort
+shadow loads may have left gaps. Immediate cutover can therefore miss
+agent-only hostile-IOC exposure until these rows leave the effective risk
+lookback (`window_seconds`, default one hour). There is no automatic hold or
+backfill. The default cutover is intended for the accepted dev/test rollout.
 
 ## BGP Routing Support
 

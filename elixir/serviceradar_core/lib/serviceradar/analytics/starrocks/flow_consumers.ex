@@ -7,9 +7,11 @@ defmodule ServiceRadar.Analytics.StarRocks.FlowConsumers do
   They used to read `platform.ocsf_network_activity` and its CNPG aggregates
   directly, so cutting the `flows` dataset over moved every NetFlow page to the
   warehouse and left these behind on a copy that a deployment is free to stop
-  writing. `cut_over?/0` is the one question a caller asks; when it is false
-  the caller keeps its CNPG query, which is still the right source for an
-  installation without the warehouse.
+  writing. Flows are warehouse-only: a caller routes through
+  `ServiceRadar.Analytics.StarRocks.Readers` (`Readers.backend(:flows)` or
+  `Readers.fetch/2`), reads the warehouse when the dataset is cut over, and
+  renders empty or unavailable on `{:error, :starrocks_required}` -- never a
+  CNPG fallback. `cut_over?/0` is the boolean form of that routing decision.
 
   Values reach the Frontend as literals, because it is queried over the text
   protocol. Every interpolated value is therefore validated here first: an
