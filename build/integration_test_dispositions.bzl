@@ -316,6 +316,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/observability/stateful_alert_engine/alert_lifecycle_notification_test.exs": 1,
     "test/serviceradar/observability/stateful_alert_engine_rules_loaded_telemetry_test.exs": 1,
     "test/serviceradar/observability/stateful_alert_engine_test.exs": 1,
+    "test/serviceradar/observability/telemetry_index_read_test.exs": 1,
     "test/serviceradar/observability/threat_intel_worker_ingestor_db_test.exs": 1,
     "test/serviceradar/observability/timeseries_series_identity_integration_test.exs": 1,
     "test/serviceradar/observability/zen_rule_seeder_test.exs": 1,
@@ -356,6 +357,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/sweep_jobs/sweep_targeting_integration_test.exs": 1,
     "test/serviceradar/test_support_sandbox_test.exs": 1,
     "test/serviceradar/workload_identity_test.exs": 1,
+    "test/serviceradar_core/mix/json_api_primary_key_patch_test.exs": 1,
 }
 
 SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
@@ -516,6 +518,7 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/observability/stateful_alert_engine/alert_lifecycle_notification_test.exs": 7,
     "test/serviceradar/observability/stateful_alert_engine_rules_loaded_telemetry_test.exs": 1,
     "test/serviceradar/observability/stateful_alert_engine_test.exs": 17,
+    "test/serviceradar/observability/telemetry_index_read_test.exs": 16,
     "test/serviceradar/observability/threat_intel_worker_ingestor_db_test.exs": 8,
     "test/serviceradar/observability/timeseries_series_identity_integration_test.exs": 3,
     "test/serviceradar/observability/zen_rule_seeder_test.exs": 2,
@@ -556,6 +559,7 @@ SERIAL_INTEGRATION_SELECTED_TEST_COUNTS = {
     "test/serviceradar/sweep_jobs/sweep_targeting_integration_test.exs": 19,
     "test/serviceradar/test_support_sandbox_test.exs": 12,
     "test/serviceradar/workload_identity_test.exs": 2,
+    "test/serviceradar_core/mix/json_api_primary_key_patch_test.exs": 2,
 }
 
 FIXED_EXTERNAL_INTEGRATION_SRCS = [
