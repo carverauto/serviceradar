@@ -145,7 +145,11 @@ defmodule ServiceRadar.EventWriter.PluginDeviceAttribution do
     end
   rescue
     error ->
-      Logger.debug("Plugin device attribution failed", error: Exception.message(error))
+      Logger.warning(
+        "Plugin device attribution failed: " <>
+          Exception.format(:error, error, __STACKTRACE__)
+      )
+
       %{}
   end
 
@@ -478,7 +482,7 @@ defmodule ServiceRadar.EventWriter.PluginDeviceAttribution do
           identifier_type == :integration_id and partition == ^partition and
             identifier_value in ^chunk
         )
-        |> Ash.read!(actor: actor)
+        |> Ash.read!(actor: actor, page: false)
 
       active =
         identifiers
@@ -499,13 +503,12 @@ defmodule ServiceRadar.EventWriter.PluginDeviceAttribution do
   defp active_device_uids([], _actor), do: MapSet.new()
 
   defp active_device_uids(uids, actor) do
-    %Ash.Page.Keyset{results: devices} =
-      Device
-      |> Ash.Query.for_read(:read, %{include_deleted: false})
-      |> Ash.Query.filter(uid in ^uids)
-      |> Ash.read!(actor: actor)
-
-    MapSet.new(devices, & &1.uid)
+    Device
+    |> Ash.Query.for_read(:read, %{include_deleted: false})
+    |> Ash.Query.filter(uid in ^uids)
+    # `Device :read` is paginated; a plain read returns a page struct, not a list.
+    |> Ash.stream!(actor: actor)
+    |> MapSet.new(& &1.uid)
   end
 
   defp read_by_ids([], _resource, _actor), do: []
@@ -516,7 +519,7 @@ defmodule ServiceRadar.EventWriter.PluginDeviceAttribution do
     |> Enum.flat_map(fn chunk ->
       resource
       |> Ash.Query.filter(id in ^chunk)
-      |> Ash.read!(actor: actor)
+      |> Ash.read!(actor: actor, page: false)
     end)
   end
 
