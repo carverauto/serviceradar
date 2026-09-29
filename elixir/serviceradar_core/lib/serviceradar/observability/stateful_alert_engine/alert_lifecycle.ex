@@ -37,6 +37,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
   alias ServiceRadar.Events.OcsfEventPublisher
   alias ServiceRadar.EventWriter.DeviceCorrelation
   alias ServiceRadar.EventWriter.OCSF
+  alias ServiceRadar.EventWriter.PluginDeviceAttribution
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceLifecycle
   alias ServiceRadar.Monitoring.Alert
@@ -107,7 +108,22 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.AlertLifecycle do
   # dropping the identity of a decommissioned device would lose exactly the
   # attribution someone needs when an alert fires about it. nil is a perfectly
   # good answer -- an alert with no device still fires.
-  defp resolved_device_uid(record) do
+  #
+  # A plugin event naming the plugin's own device reference is answered by
+  # PluginDeviceAttribution alone. Correlation would otherwise fall through to
+  # the agent id and attach the alert to the host the plugin runs on, which is
+  # not the device the event is about.
+  @doc false
+  @spec resolved_device_uid(map()) :: String.t() | nil
+  def resolved_device_uid(record) do
+    case PluginDeviceAttribution.attribute_record(record) do
+      {:plugin_reference, uid} when is_binary(uid) -> existing_device_uid(uid)
+      {:plugin_reference, nil} -> nil
+      :not_plugin_reference -> correlated_device_uid(record)
+    end
+  end
+
+  defp correlated_device_uid(record) do
     candidate =
       %{
         device_uid: record_field_value(record, "device_uid"),
