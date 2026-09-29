@@ -1,11 +1,15 @@
 ## 1. Audit and pinning (before any compiler change)
 
-- [ ] 1.1 Confirm whether any production path writes `config_type = 'sweep'`
+- [x] 1.1 Confirm whether any production path writes `config_type = 'sweep'`
       rows into `platform.agent_config_instances`. If none does, open a
       separate issue: the `device_sweep_overlap` view's declared arm is empty
       in production. Record the finding in design.md, Decision 7.
-      (Confirmed none does and recorded in Decision 7; the issue is not yet
-      filed.)
+      (Confirmed none does and recorded in Decision 7; the issue is now
+      filed as https://github.com/carverauto/serviceradar/issues/4963 and the
+      lean per-group declared-target relation it called for landed in
+      openspec change persist-sweep-declared-targets, so the
+      device_sweep_overlap view no longer needs a persisted compiled sweep
+      document at all.)
 - [x] 1.2 Add a pinning test (landed as the database-free
       `test/serviceradar/agent_config/compilers/sweep_compiler_targets_test.exs`
       over `SweepCompiler.compile_groups/3`, with an injected SRQL page

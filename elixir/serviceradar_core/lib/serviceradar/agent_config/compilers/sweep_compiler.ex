@@ -172,6 +172,45 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     }
   end
 
+  @doc """
+  Declared targets of a group: static CIDRs/IPs plus SRQL-resolved device targets.
+
+  This is the target set `compile/3` would deliver for the group, projected to
+  the lean shape the declared-target relation persists (issue #4963): one row
+  per group, never one per agent. Device targets carry the device uid the
+  SRQL target query resolved, when it resolved one. Resolution failures
+  degrade exactly as they do at compile time: the group's static targets
+  still resolve and the failure is logged per group.
+  """
+  @spec declared_targets(SweepGroup.t()) :: %{
+          static: [String.t()],
+          device: [%{target: String.t(), device_uid: String.t() | nil}]
+        }
+  def declared_targets(%SweepGroup{} = group) do
+    static = Enum.uniq(group.static_targets || [])
+
+    device =
+      case group.target_query do
+        query when is_binary(query) and query != "" ->
+          # get_device_targets_from_query already returns a sorted LIST of
+          # device-target maps (it folds the paginated SRQL rows into a map
+          # keyed by target and flattens it).
+          query
+          |> get_device_targets_from_query(group, nil, [])
+          |> Enum.map(fn device_target ->
+            %{
+              target: device_target["network"],
+              device_uid: device_target["metadata"]["device_uid"]
+            }
+          end)
+
+        _ ->
+          []
+      end
+
+    %{static: static, device: device}
+  end
+
   # Private helpers
 
   defp compute_config_hash(compiled_groups) do

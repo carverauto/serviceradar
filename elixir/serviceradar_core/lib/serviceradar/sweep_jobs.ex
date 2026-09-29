@@ -36,6 +36,7 @@ defmodule ServiceRadar.SweepJobs do
   resources do
     resource ServiceRadar.SweepJobs.SweepProfile
     resource ServiceRadar.SweepJobs.SweepGroup
+    resource ServiceRadar.SweepJobs.SweepGroupDeclaredTarget
     resource ServiceRadar.SweepJobs.SweepGroupExecution
     resource ServiceRadar.SweepJobs.SweepHostResult
   end

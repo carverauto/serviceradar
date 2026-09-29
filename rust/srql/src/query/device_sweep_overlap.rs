@@ -306,7 +306,7 @@ fn order_column(field: &str) -> Option<&'static str> {
         "relationship" => Some("overlap.relationship"),
         "sweep_group_id" => Some("overlap.sweep_group_id"),
         "last_seen_at" | "time" | "timestamp" => Some("overlap.last_seen_at"),
-        "config_delivered_at" => Some("overlap.config_delivered_at"),
+        "declared_at" => Some("overlap.declared_at"),
         _ => None,
     }
 }

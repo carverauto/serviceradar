@@ -343,7 +343,12 @@ fallback for config types without a compiler, and the sweep compiler's output
 is cached in `ConfigCache`, never persisted. The view's declared arm is
 therefore empty for sweep in production. That is a separate defect, reported
 separately and not fixed here; this change still keeps `device_uid` in the
-compiled output so the view works once sweep configs are persisted.
+compiled output so the view works once sweep configs are persisted. Issue
+#4963 was filed and fixed by persisting the declared relation per group
+(`platform.sweep_group_declared_targets`), which now feeds the view's
+declared side without any persisted compiled document, so the third arm
+described above is only needed if a future consumer persists a compiled
+document for another reason.
 
 ## Risks / Trade-offs
 

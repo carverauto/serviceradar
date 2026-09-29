@@ -72,8 +72,21 @@ as "no work has landed".
       would have handed every authenticated user the identity of a profile that
       `in:sweep_profiles` correctly hides. The row survives because the alert is
       the operator's business either way.
+      Update (#4963): the compiled-config data source never existed in
+      production — no code path writes `config_type = 'sweep'` instances — so
+      the declared arm was always empty. The view's declared side now reads the
+      per-group persisted declared-target relation
+      (`persist-sweep-declared-targets`), with agent eligibility derived from
+      `sweep_groups` exactly as `:for_agent_partition` derives it. The view
+      pattern, projection and masking are unchanged; `config_delivered_at` was
+      renamed `declared_at` with it.
 - [ ] 3.8 `sweep_compiled_config`: named-column allowlist over sweep config
       instances only. The `compiled_config` document is never projected.
+      Update (#4963): sweep config instances are confirmed never written in
+      production, so this entity's data source does not exist as specced; a
+      data-source decision is outstanding before this task is built (the
+      per-group declared-target relation from `persist-sweep-declared-targets`
+      is one candidate surface).
 - [ ] 3.9 `sweep_profiles`: expose banner grab as `enabled` and `protocols`
       only; omit the timeout, concurrency and rate tuning fields.
 - [ ] 3.10 No Bazel edit is needed for new `.rs` files: `rust/srql/BUILD.bazel`
