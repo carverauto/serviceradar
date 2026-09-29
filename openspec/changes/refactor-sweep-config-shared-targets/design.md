@@ -153,12 +153,31 @@
 - This decision is independent of the new format and ships first, because it
   benefits agents that cannot be upgraded soon.
 
+### Target query normalization contract
+
+`normalize_target_query/1` is defined by `ServiceRadar.SRQLQuery.ensure_target(query, :devices)`
+(`elixir/serviceradar_core/lib/serviceradar/srql_query.ex:5`). The contract is:
+
+1. Trim leading and trailing whitespace from the raw query string.
+2. If the result does not start with `"in:"`, prepend `"in:devices "`. An empty
+   string after trimming becomes `"in:devices"`.
+3. Return the resulting byte string unchanged. No case folding, no internal
+   whitespace collapsing, no AST canonicalization.
+
+The normalized string is the cache key and the `target_set` key. Identical
+byte strings therefore guarantee identical SRQL input; two groups can never
+share a wrong result. Queries that are semantically equivalent but textually
+different (differing only in internal whitespace, for example) produce distinct
+keys and are evaluated separately, costing one extra cache miss, never
+correctness. AST-level canonicalization would require an SRQL parser in core
+and is out of scope.
+
 ### Decision 2: Compile each distinct target query once, share across agents
 
 - Per compile: `SweepCompiler.compile/3` normalizes every group's
-  `target_query` (`normalize_target_query/1`), runs each distinct query once
-  through the existing paginated SRQL path, and reuses the rows for every
-  group with that query.
+  `target_query` (`normalize_target_query/1`; see "Target query normalization
+  contract" above), runs each distinct query once through the existing
+  paginated SRQL path, and reuses the rows for every group with that query.
 - Across agents: query results are cached in a
   `{:sweep_query, normalized_query}` entry with an explicit TTL, shared by
   every agent's compile. The query text alone determines the result, so the
@@ -232,7 +251,8 @@ the legacy format.
   order for large maps and the encoded document is the hash input
   (Decision 6).
 - The set `key` is `"q-"` plus the first 16 hex characters of the SHA-256 of
-  the normalized `target_query`. It is stable across compiles and agents.
+  the normalized `target_query` (see "Target query normalization contract"). It
+  is stable across compiles and agents.
 - The per-entry group fields are not emitted. The agent derives them from the
   group: `sweep_modes` from `modes`, `query_label` from `name`, and `source`
   as `"srql"`.

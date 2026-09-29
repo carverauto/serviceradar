@@ -43,6 +43,16 @@ results of the queries that group uses. A query that fails SHALL NOT be cached.
   compile
 - **AND** every group using it SHALL receive the same device rows
 
+#### Scenario: Leading/trailing whitespace and missing in:devices prefix are normalized before sharing
+- **GIVEN** group A with `target_query` `"  in:devices tags.env:\"lab\"  "` (extra whitespace)
+- **AND** group B with `target_query` `"in:devices tags.env:\"lab\""` (trimmed)
+- **AND** group C with `target_query` `"tags.env:\"lab\""` (no in:devices prefix)
+- **WHEN** sweep configuration is compiled
+- **THEN** all three groups SHALL share one query evaluation, because all three
+  normalize to `"in:devices tags.env:\"lab\""`
+- **AND** group D with `target_query` `"in:devices  tags.env:\"lab\""` (internal double space)
+  SHALL be evaluated separately, because its normalized form differs in internal whitespace
+
 #### Scenario: Agents in one partition share query results
 - **GIVEN** two agents eligible for the same partition-wide group
 - **WHEN** both compile sweep configuration within the shared-result TTL
