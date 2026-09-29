@@ -83,8 +83,10 @@ the third consumer, so it moves once rather than being copied a third time.
       Columns on `platform.authored_dashboards` (migration `20260929090000`), set
       only by the new `:import` create action; `:update` does not accept them, so
       a builder edit cannot forge or clear provenance. `source_type` is NULL for a
-      dashboard authored in the builder. The migration attributes the two shipped
-      reports' existing rows as `first_party`.
+      dashboard authored in the builder. The migration is schema-only: rows created
+      before it keep NULL provenance, because their release, commit and hash were
+      never recorded, and migrations past the baseline must not backfill on the
+      first-boot path.
 - [x] 4c.2 `:first_party` resolves against the OSS repository's default repo URL
       and its index asset, listing the reports available to import; some ship
       enabled by default.

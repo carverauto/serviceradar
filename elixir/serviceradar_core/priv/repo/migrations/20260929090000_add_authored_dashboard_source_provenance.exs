@@ -2,10 +2,9 @@ defmodule ServiceRadar.Repo.Migrations.AddAuthoredDashboardSourceProvenance do
   @moduledoc false
   use Ecto.Migration
 
-  # Slugs of the reports this build seeds from priv/dashboards. They were created
-  # before provenance existed, so they are the only rows a backfill can attribute
-  # with certainty; any other dashboard was authored in the builder.
-  @shipped_report_slugs ["new-devices", "mtr-path-analytics"]
+  # No backfill: rows created before this keep NULL provenance, because the release,
+  # commit and hash they came from were never recorded. Migrations newer than the
+  # baseline also must not do data work on the first-boot path.
 
   def up do
     alter table(:authored_dashboards, prefix: "platform") do
@@ -25,20 +24,6 @@ defmodule ServiceRadar.Repo.Migrations.AddAuthoredDashboardSourceProvenance do
         check: "source_type IS NULL OR source_type IN ('upload', 'github', 'first_party')"
       )
     )
-
-    # serviceradar:allow-startup-maintenance
-    # This backfill is bounded: it updates at most 2 known shipped-report rows by exact slug
-    # and metadata guard (source_type IS NULL AND metadata->>'system_report' = 'true').
-    # No table scan on unbounded data; safe to run synchronously at first boot.
-    slugs = Enum.map_join(@shipped_report_slugs, ", ", &"'#{&1}'")
-
-    execute("""
-    UPDATE platform.authored_dashboards
-       SET source_type = 'first_party'
-     WHERE source_type IS NULL
-       AND slug IN (#{slugs})
-       AND metadata->>'system_report' = 'true'
-    """)
   end
 
   def down do
