@@ -77,6 +77,24 @@ defmodule ServiceRadar.SweepJobs.LeaseScheduleTest do
                )
     end
 
+    test "a slot that starts before a fractional `until` is included" do
+      assert [%{start: ~U[2026-10-01 12:15:00Z]}] =
+               LeaseSchedule.slots(
+                 {:interval, 900},
+                 ~U[2026-10-01 12:00:00.500Z],
+                 ~U[2026-10-01 12:15:00.500Z]
+               )
+    end
+
+    test "a slot that starts exactly at a whole-second `until` is excluded" do
+      assert [] =
+               LeaseSchedule.slots(
+                 {:interval, 900},
+                 ~U[2026-10-01 12:00:00.500Z],
+                 ~U[2026-10-01 12:15:00Z]
+               )
+    end
+
     test "overlapping stretches of time agree on where the slots are" do
       spec = {:interval, 600}
       earlier = LeaseSchedule.slots(spec, ~U[2026-10-01 12:00:00Z], ~U[2026-10-01 14:00:00Z])
@@ -114,6 +132,20 @@ defmodule ServiceRadar.SweepJobs.LeaseScheduleTest do
 
       assert a.expires == b.start
       assert d.expires == ~U[2026-10-01 13:00:00Z]
+    end
+
+    test "a minute cron over three days returns 4320 slots" do
+      {:ok, spec} = LeaseSchedule.parse(%{schedule_type: :cron, cron_expression: "* * * * *"})
+
+      slots = LeaseSchedule.slots(spec, ~U[2026-10-01 00:00:00Z], ~U[2026-10-04 00:00:00Z])
+
+      assert [first | _] = slots
+      assert length(slots) == 4_320
+      assert first.start == ~U[2026-10-01 00:00:00Z]
+      assert first.expires == ~U[2026-10-01 00:01:00Z]
+
+      assert %{start: ~U[2026-10-03 23:59:00Z], expires: ~U[2026-10-04 00:00:00Z]} =
+               Enum.at(slots, -1)
     end
 
     test "a daily cron gives one slot a day" do

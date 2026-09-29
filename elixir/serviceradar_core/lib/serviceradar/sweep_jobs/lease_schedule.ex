@@ -15,7 +15,6 @@ defmodule ServiceRadar.SweepJobs.LeaseSchedule do
   alias Oban.Cron.Expression
 
   @min_interval_seconds 300
-  @max_cron_slots 20_000
 
   @unit_seconds %{
     "ns" => 1.0e-9,
@@ -49,26 +48,27 @@ defmodule ServiceRadar.SweepJobs.LeaseSchedule do
   def parse(%{interval: interval}) when is_binary(interval), do: parse_interval(interval)
   def parse(_group), do: {:error, :invalid_interval}
 
-  @doc "The slots that start in `[from, until)`."
+  @doc """
+  The slots that start in `[from, until)`.
+
+  Every fire in the window is returned. The scheduler (M2.0b3b) is responsible
+  for bounding density, not this function.
+  """
   @spec slots(spec(), DateTime.t(), DateTime.t()) :: [slot()]
   def slots({:interval, seconds}, %DateTime{} = from, %DateTime{} = until) do
     first = ceil_div(ceil_second(from), seconds) * seconds
-    last = DateTime.to_unix(until)
 
     first
     |> Stream.iterate(&(&1 + seconds))
-    |> Enum.take_while(&(&1 < last))
+    |> Enum.take_while(&(DateTime.compare(DateTime.from_unix!(&1), until) == :lt))
     |> Enum.map(&%{start: DateTime.from_unix!(&1), expires: DateTime.from_unix!(&1 + seconds)})
   end
 
   def slots({:cron, expression}, %DateTime{} = from, %DateTime{} = until) do
-    collect_cron(expression, DateTime.add(from, -1, :microsecond), until, [], 0)
+    collect_cron(expression, DateTime.add(from, -1, :microsecond), until, [])
   end
 
-  defp collect_cron(_expression, _base, _until, acc, count) when count >= @max_cron_slots,
-    do: Enum.reverse(acc)
-
-  defp collect_cron(expression, base, until, acc, count) do
+  defp collect_cron(expression, base, until, acc) do
     with %DateTime{} = start <- Expression.next_at(expression, base),
          :lt <- DateTime.compare(start, until),
          %DateTime{} = expires <- Expression.next_at(expression, start) do
@@ -77,7 +77,7 @@ defmodule ServiceRadar.SweepJobs.LeaseSchedule do
         expires: DateTime.truncate(expires, :second)
       }
 
-      collect_cron(expression, start, until, [slot | acc], count + 1)
+      collect_cron(expression, start, until, [slot | acc])
     else
       _ -> Enum.reverse(acc)
     end
