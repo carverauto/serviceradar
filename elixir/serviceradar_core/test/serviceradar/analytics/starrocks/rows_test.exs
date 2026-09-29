@@ -10,6 +10,39 @@ defmodule ServiceRadar.Analytics.StarRocks.RowsTest do
   # 65_533 is the StarRocks events.message VARCHAR limit (priv/starrocks/0004).
   @message_limit 65_533
 
+  test "flow records retain attribution with atom and JSON field names" do
+    flow = %{
+      id: "flow-example-01",
+      agent_id: "agent-example-01",
+      event_type: "attributed_flow",
+      pid: 73,
+      comm: "sshd",
+      cmdline: "/usr/sbin/sshd -D",
+      workload_identity: %{"namespace" => "example"}
+    }
+
+    for input <- [flow, flow |> Jason.encode!() |> Jason.decode!()] do
+      assert [encoded] = Rows.encode(:flows, [input])
+      assert encoded["agent_id"] == "agent-example-01"
+      assert encoded["pid"] == 73
+      assert encoded["comm"] == "sshd"
+      assert encoded["cmdline"] == "/usr/sbin/sshd -D"
+      assert Jason.decode!(encoded["workload_identity"]) == %{"namespace" => "example"}
+    end
+  end
+
+  test "flow payloads prefer redacted commands and retain legacy commands" do
+    for {attribution, expected} <- [
+          {%{"redacted_cmdline" => "sshd -D", "cmdline" => "sshd -legacy"}, "sshd -D"},
+          {%{"cmdline" => "sshd -legacy"}, "sshd -legacy"}
+        ] do
+      assert [%{"cmdline" => ^expected}] =
+               Rows.encode(:flows, [
+                 %{id: "flow-example-01", ocsf_payload: %{"attribution" => attribution}}
+               ])
+    end
+  end
+
   defp encode_event(overrides) do
     Map.merge(
       %{
@@ -412,6 +445,84 @@ defmodule ServiceRadar.Analytics.StarRocks.RowsTest do
       assert byte_size(truncated) <= 1_048_576
       assert String.valid?(truncated)
       assert {:ok, _json} = Jason.encode(row)
+    end
+  end
+
+  describe "BMP routing events" do
+    defp bmp_row(overrides \\ %{}) do
+      id = "7b0e6f5c-1d2a-4b3c-8d4e-5f6a7b8c9d0e"
+
+      Map.merge(
+        %{
+          id: Ecto.UUID.dump!(id),
+          time: ~U[2026-01-15 10:00:00Z],
+          event_type: "route_update",
+          severity_id: 4,
+          router_id: "router-a",
+          router_ip: "192.0.2.1",
+          peer_ip: "198.51.100.20",
+          peer_asn: 64_512,
+          local_asn: 64_600,
+          prefix: "198.51.100.0/24",
+          message: "synthetic BMP routing signal",
+          metadata: %{"signal_type" => "bmp", "event_identity" => id},
+          raw_data: ~s({"synthetic": true}),
+          created_at: ~U[2026-01-15 10:00:00Z]
+        },
+        overrides
+      )
+    end
+
+    test "a BMP row carries exactly the warehouse columns" do
+      [row] = Rows.encode(:bmp_routing_events, [bmp_row()])
+
+      assert row |> Map.keys() |> Enum.sort() == ddl_columns("bmp_routing_events")
+      assert row["id"] == "7b0e6f5c-1d2a-4b3c-8d4e-5f6a7b8c9d0e"
+      assert row["time"] == "2026-01-15T10:00:00Z"
+      assert row["event_type"] == "route_update"
+      assert row["severity_id"] == 4
+      assert row["router_ip"] == "192.0.2.1"
+      assert row["peer_asn"] == 64_512
+      assert row["local_asn"] == 64_600
+
+      assert row["metadata"] == %{
+               "signal_type" => "bmp",
+               "event_identity" => "7b0e6f5c-1d2a-4b3c-8d4e-5f6a7b8c9d0e"
+             }
+
+      assert row["raw_data"] == ~s({"synthetic": true})
+      assert is_binary(row["created_at"])
+    end
+
+    test "absent text and JSON fields keep their meaning" do
+      [row] =
+        Rows.encode(:bmp_routing_events, [
+          bmp_row(%{router_ip: nil, peer_ip: nil, prefix: nil, message: nil, raw_data: nil})
+        ])
+
+      assert row["router_ip"] == nil
+      assert row["peer_ip"] == nil
+      assert row["prefix"] == nil
+      assert row["message"] == nil
+      assert row["raw_data"] == nil
+      assert Map.has_key?(row, "metadata")
+    end
+
+    test "an oversized message and raw_data are truncated UTF-8-safely" do
+      message = String.duplicate("é", 33_000)
+
+      [row] =
+        Rows.encode(:bmp_routing_events, [
+          bmp_row(%{message: message, raw_data: String.duplicate("x", 70_000)})
+        ])
+
+      assert byte_size(row["message"]) <= 65_533
+      assert String.valid?(row["message"])
+      assert byte_size(row["raw_data"]) == 65_533
+    end
+
+    test "encoded rows survive the Stream Load JSON encoding" do
+      assert {:ok, _json} = Jason.encode(Rows.encode(:bmp_routing_events, [bmp_row()]))
     end
   end
 

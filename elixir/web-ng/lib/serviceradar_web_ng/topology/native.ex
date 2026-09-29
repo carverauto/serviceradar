@@ -25,6 +25,9 @@ defmodule ServiceRadarWebNG.Topology.Native do
   """
   def encode_snapshot(_payload), do: :erlang.nif_error(:nif_not_loaded)
 
+  @doc "Encode a schema-3 scene with at most 128 nodes, 256 edges and 256 KiB."
+  def encode_scene(_payload, _metadata), do: :erlang.nif_error(:nif_not_loaded)
+
   @doc """
   Evaluate causal states using the Rust/DeepCausality engine.
   """

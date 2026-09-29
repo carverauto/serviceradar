@@ -85,6 +85,40 @@ fn ensure_entity(plan: &QueryPlan) -> Result<()> {
     }
 }
 
+/// Plan clauses the StarRocks BMP dialect has no translation for. The CNPG
+/// builder refuses only `stats:` (`reject_stats`) and answers `rollup_stats:`
+/// as a plain row listing; `bucket:` is refused by CNPG's downsample builder,
+/// which production routes it to. The warehouse dialect refuses `stats:`,
+/// `rollup_stats:`, `bucket:` and `other:true` by name.
+pub(super) fn refuse_unsupported_clauses(plan: &QueryPlan) -> Result<()> {
+    super::reject_stats(plan, "bmp_events")?;
+
+    if let Some(kind) = plan
+        .rollup_stats
+        .as_deref()
+        .map(str::trim)
+        .filter(|kind| !kind.is_empty())
+    {
+        return Err(ServiceError::InvalidRequest(format!(
+            "rollup_stats:{kind} is not supported for bmp_events"
+        )));
+    }
+
+    if plan.downsample.is_some() {
+        return Err(ServiceError::InvalidRequest(
+            "bucket: is not supported for bmp_events".into(),
+        ));
+    }
+
+    if plan.other {
+        return Err(ServiceError::InvalidRequest(
+            "other:true is currently supported only for flow or timeseries stats".into(),
+        ));
+    }
+
+    Ok(())
+}
+
 fn build_query(plan: &QueryPlan) -> Result<BmpEventsQuery<'static>> {
     let mut query = bmp_routing_events.into_boxed::<Pg>();
 

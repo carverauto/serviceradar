@@ -27,6 +27,8 @@ defmodule ServiceRadarWebNG.Application do
     base_children =
       [
         # Web telemetry
+        ServiceRadarWebNG.Topology.WorldSupervisor,
+        # Runtime topology link cache served to the dashboard and God View streams.
         ServiceRadarWebNG.Topology.RuntimeGraph,
         # Runtime index of package-shipped display and config contracts. Owns an
         # ETS table so a LiveView mount - including a disconnected one - resolves

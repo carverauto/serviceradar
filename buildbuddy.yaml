@@ -254,6 +254,12 @@ actions:
             elixir/web-ng/test/playwright \
             elixir/web-ng/assets \
             elixir/web-ng/native/god_view_nif \
+            elixir/web-ng/world_fixture.bzl \
+            elixir/web-ng/BUILD.bazel \
+            elixir/web-ng/lib/serviceradar_web_ng/topology \
+            elixir/web-ng/test/fixtures/world_browser_encoder.exs \
+            elixir/serviceradar_core/native/topology_atlas_nif \
+            rust/topology-atlas \
             buildbuddy.yaml)"; then
             echo "godview gate: diff unavailable, running acceptance (fail-open)"
           elif [ -n "$GOD_VIEW_GATE_CHANGED" ]; then
@@ -262,7 +268,7 @@ actions:
             echo "godview gate: no godview-area changes, skipping acceptance"
             exit 0
           fi
-          bazel test -c opt --config=ci //elixir/web-ng/test/playwright:god_view_elk_scene_acceptance --test_output=errors --nocache_test_results --flaky_test_attempts=1
+          bazel test -c opt --config=ci //elixir/web-ng/test/playwright:god_view_elk_scene_acceptance //elixir/web-ng/test/playwright:world_gpu_test //elixir/web-ng/assets:million_world_browser_test --test_output=errors --nocache_test_results --flaky_test_attempts=1
 
       # The database lifecycle. ONE step: the invocations share a shell, and BuildBuddy has no
       # `if: always()`, so a trap is the only way to guarantee teardown after a red suite.
@@ -519,6 +525,11 @@ actions:
           # Reuse the now-quiescent serial_0 database before cleanup; the manual target cannot be
           # selected by the wildcard.
           bazel test $FLAGS //elixir/web-ng:networks_live_db_test
+          bazel test $FLAGS //elixir/web-ng:topology_atlas_db_test
+          # Dgraph owns a separate scratch namespace and verifies its deletion.
+          bazel test $FLAGS //rust/dgraph-topology:schema_lifecycle_test
+          # The real worker reuses serial_0 and owns a separate Dgraph namespace.
+          bazel test $FLAGS //rust/dgraph-topology:world_worker_test
 
       # BENCHMARKS. Run so they cannot rot; NOT gated on a threshold.
       #

@@ -34,6 +34,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   @behaviour ServiceRadar.AgentConfig.Compiler
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.AgentConfig.ConfigCache
   alias ServiceRadar.Observability.SRQLRunner
   alias ServiceRadar.SRQLQuery
   alias ServiceRadar.SweepJobs.SweepGroup
@@ -44,6 +45,17 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   require Logger
 
   @srql_page_limit_default 500
+
+  # Target query results are shared across agents under the :sweep config type,
+  # so ConfigServer.invalidate(:sweep), dispatched on every SweepGroup and
+  # SweepProfile change, drops them together with the compiled configs.
+  @query_cache_partition "__sweep_target_queries__"
+
+  # A compiled config is itself cached for the ConfigCache TTL, so device
+  # membership can lag by this TTL plus that one. Kept short: the fan-out after
+  # an invalidation recompiles every agent within seconds, which is where
+  # sharing pays off.
+  @query_cache_ttl_ms_default 60_000
 
   @impl true
   def config_type, do: :sweep
@@ -73,11 +85,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     profiles = load_profiles(profile_ids, actor)
     profile_map = Map.new(profiles, &{&1.id, &1})
 
-    # Compile each group
-    compiled_groups =
-      groups
-      |> Enum.map(&compile_group(&1, profile_map, actor))
-      |> Enum.reject(&is_nil/1)
+    compiled_groups = compile_groups(groups, profile_map, opts)
 
     Logger.info(
       "SweepCompiler: compiled #{length(compiled_groups)} group(s) for partition=#{inspect(partition)}, agent_id=#{inspect(agent_id)}",
@@ -114,6 +122,23 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     end
   end
 
+  @doc false
+  # The compile step after groups and profiles are loaded. `:query_page_fn`
+  # replaces `SRQLRunner.query_page/2` for target queries.
+  @spec compile_groups([SweepGroup.t()], %{optional(term()) => SweepProfile.t()}, keyword()) ::
+          [map()]
+  def compile_groups(groups, profile_map, opts \\ []) do
+    query_page_fn = Keyword.get(opts, :query_page_fn, &SRQLRunner.query_page/2)
+
+    # The memo also holds failed results, so a failing query runs once per
+    # compile rather than once per group that uses it.
+    {compiled_groups, _query_memo} =
+      Enum.map_reduce(groups, %{}, &compile_group(&1, profile_map, &2, query_page_fn))
+
+    # Database row order must not change the compiled config or its version.
+    Enum.sort_by(compiled_groups, & &1["id"])
+  end
+
   @doc """
   Computes a deterministic config hash for compiled sweep groups.
   """
@@ -125,7 +150,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   @doc """
   Compiled probe settings a sweep group would send to an agent.
 
-  Matches `compile_group/3`: profile as base, group overrides on top,
+  Matches `compile_group/4`: profile as base, group overrides on top,
   TCP-without-ports dropped, modes the Go sweeper does not implement dropped.
   Used by NCO validation runs so they replay scheduled scan settings instead
   of inventing ICMP.
@@ -227,7 +252,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     end
   end
 
-  defp compile_group(group, profile_map, actor) do
+  defp compile_group(group, profile_map, query_memo, query_page_fn) do
     # Get profile settings as base
     profile = Map.get(profile_map, group.profile_id)
 
@@ -247,7 +272,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     modes = drop_unsupported_modes(modes, group)
 
     # Build targets from static CIDRs/IPs and device targets from SRQL rows.
-    {targets, device_targets} = compile_targets(group, actor, modes)
+    {targets, device_targets, query_memo} =
+      compile_targets(group, modes, query_memo, query_page_fn)
 
     # Build settings from profile with overrides
     settings = compile_settings(profile, group)
@@ -266,11 +292,14 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
       "settings" => settings
     }
 
-    if device_targets == [] do
-      compiled
-    else
-      Map.put(compiled, "device_targets", device_targets)
-    end
+    compiled =
+      if device_targets == [] do
+        compiled
+      else
+        Map.put(compiled, "device_targets", device_targets)
+      end
+
+    {compiled, query_memo}
   end
 
   defp compile_schedule(group) do
@@ -289,83 +318,152 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     end
   end
 
-  defp compile_targets(group, actor, modes) do
-    # Start with static targets
-    static_targets = group.static_targets || []
+  defp compile_targets(group, modes, query_memo, query_page_fn) do
+    static_targets = Enum.uniq(group.static_targets || [])
 
-    # Get device targets from SRQL query if defined. These stay separate from
-    # static CIDRs so the agent can preserve inventory context while scanning.
-    device_targets =
-      case group.target_query do
-        nil -> []
-        "" -> []
-        query -> get_device_targets_from_query(query, group, actor, modes)
-      end
+    # Device targets from the SRQL query stay separate from static CIDRs so the
+    # agent can preserve inventory context while scanning.
+    case group.target_query do
+      query when is_binary(query) and query != "" ->
+        query = normalize_target_query(query)
+        {result, query_memo} = target_query_rows(query, query_memo, query_page_fn)
+        {static_targets, device_targets_from_result(result, group, query, modes), query_memo}
 
-    {Enum.uniq(static_targets), device_targets}
+      _ ->
+        {static_targets, [], query_memo}
+    end
   end
 
-  defp get_device_targets_from_query(query, group, _actor, modes) when is_binary(query) do
-    query = normalize_target_query(query)
-
-    query
-    |> fetch_srql_device_targets(nil, %{}, group, modes)
-    |> Map.values()
-    |> Enum.sort_by(& &1["network"])
-  rescue
-    error ->
-      # A group whose target query cannot run still compiles with the targets that
-      # did resolve: letting the error reach `compile/3` would fail the whole
-      # config, and a failed compile pushes an empty config to every agent. But
-      # swallowing it silently means the group quietly sweeps nothing, which is
-      # how a driver encoding failure hid until 4471. Log the group and query so
-      # the failure is visible.
-      Logger.error(
-        "SweepCompiler: SRQL target query raised for group #{inspect(group.id)} " <>
-          "(#{inspect(query)}): #{Exception.message(error)}"
-      )
-
-      []
-  end
-
-  defp get_device_targets_from_query(_query, _group, _actor, _modes), do: []
-
+  # The normalized query string is both the memo key and the shared cache key:
+  # it is exactly what SRQL receives, so equal keys can never share a wrong
+  # result.
   defp normalize_target_query(query) do
     SRQLQuery.ensure_target(query, :devices)
   end
 
-  defp fetch_srql_device_targets(_query, _cursor, acc, _group, _modes) when is_nil(acc), do: %{}
+  defp target_query_rows(query, query_memo, query_page_fn) do
+    case query_memo do
+      %{^query => result} ->
+        {result, query_memo}
 
-  defp fetch_srql_device_targets(query, cursor, acc, group, modes) do
-    case SRQLRunner.query_page(query,
-           limit: srql_page_limit(),
-           cursor: cursor,
-           direction: "next"
-         ) do
+      _ ->
+        result = shared_target_query_rows(query, query_page_fn)
+        {result, Map.put(query_memo, query, result)}
+    end
+  end
+
+  defp shared_target_query_rows(query, query_page_fn) do
+    scope = {:sweep_query, query}
+
+    case ConfigCache.get(:sweep, @query_cache_partition, nil, scope) do
+      {:ok, %{rows: rows}} ->
+        {:ok, rows}
+
+      _ ->
+        case fetch_target_query_rows(query, query_page_fn) do
+          {:ok, rows} = result ->
+            cache_target_query_rows(scope, rows)
+            result
+
+          failed ->
+            failed
+        end
+    end
+  end
+
+  defp cache_target_query_rows(scope, rows) do
+    ConfigCache.put(
+      :sweep,
+      @query_cache_partition,
+      nil,
+      %{rows: rows},
+      scope,
+      query_cache_ttl_ms()
+    )
+  end
+
+  defp query_cache_ttl_ms do
+    case Application.get_env(:serviceradar_core, :sweep_query_cache_ttl_ms) do
+      ttl when is_integer(ttl) and ttl > 0 -> ttl
+      _ -> @query_cache_ttl_ms_default
+    end
+  end
+
+  defp fetch_target_query_rows(query, query_page_fn) do
+    fetch_target_query_pages(query, nil, [], query_page_fn)
+  rescue
+    error -> {:raised, Exception.message(error)}
+  end
+
+  defp fetch_target_query_pages(query, cursor, pages, query_page_fn) do
+    case query_page_fn.(query, limit: srql_page_limit(), cursor: cursor, direction: "next") do
       {:ok, %{rows: rows, next_cursor: next_cursor}} ->
-        acc = add_device_targets(acc, rows, group, modes)
+        pages = [target_rows(rows) | pages]
 
         if is_binary(next_cursor) do
-          fetch_srql_device_targets(query, next_cursor, acc, group, modes)
+          fetch_target_query_pages(query, next_cursor, pages, query_page_fn)
         else
-          acc
+          {:ok, concat_pages(pages)}
         end
 
       {:error, reason} ->
-        Logger.warning(
-          "SweepCompiler: SRQL query failed for group #{inspect(group.id)} - #{inspect(reason)}"
-        )
-
-        acc
+        {:partial, concat_pages(pages), reason}
     end
+  end
+
+  defp concat_pages(pages), do: pages |> Enum.reverse() |> Enum.concat()
+
+  # Keep only the fields device targets are built from, in SRQL order: the
+  # first row seen for an IP wins, and the shared cache stays small.
+  defp target_rows(rows) when is_list(rows) do
+    for %{"ip" => ip} = row <- rows,
+        is_binary(ip),
+        ip != "",
+        do: %{"ip" => ip, "uid" => row["uid"]}
+  end
+
+  defp device_targets_from_result({:ok, rows}, group, query, modes),
+    do: build_device_targets(rows, group, query, modes)
+
+  defp device_targets_from_result({:partial, rows, reason}, group, query, modes) do
+    Logger.warning(
+      "SweepCompiler: SRQL query failed for group #{inspect(group.id)} - #{inspect(reason)}"
+    )
+
+    build_device_targets(rows, group, query, modes)
+  end
+
+  defp device_targets_from_result({:raised, message}, group, query, _modes) do
+    log_target_query_raised(group, query, message)
+    []
+  end
+
+  defp build_device_targets(rows, group, query, modes) do
+    rows
+    |> Enum.reduce(%{}, &put_device_target_from_row(&1, &2, group, modes))
+    |> Map.values()
+    |> Enum.sort_by(& &1["network"])
+  rescue
+    error ->
+      log_target_query_raised(group, query, Exception.message(error))
+      []
+  end
+
+  # A group whose target query cannot run still compiles with the targets that
+  # did resolve: letting the error reach `compile/3` would fail the whole
+  # config, and a failed compile pushes an empty config to every agent. But
+  # swallowing it silently means the group quietly sweeps nothing, which is
+  # how a driver encoding failure hid until 4471. Log the group and query so
+  # the failure is visible.
+  defp log_target_query_raised(group, query, message) do
+    Logger.error(
+      "SweepCompiler: SRQL target query raised for group #{inspect(group.id)} " <>
+        "(#{inspect(query)}): #{message}"
+    )
   end
 
   defp srql_page_limit do
     Application.get_env(:serviceradar_core, :sweep_srql_page_limit, @srql_page_limit_default)
-  end
-
-  defp add_device_targets(acc, rows, group, modes) when is_list(rows) do
-    Enum.reduce(rows, acc, &put_device_target_from_row(&1, &2, group, modes))
   end
 
   defp put_device_target_from_row(row, targets, group, modes) when is_map(row) do
@@ -386,22 +484,16 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
 
   defp put_device_target_from_row(_row, targets, _group, _modes), do: targets
 
+  # device_uid is the only per-target metadata anything reads (the
+  # device_sweep_overlap view); nothing in the agent or core consumes the
+  # group id, query, hostname or discovery sources per target.
   defp device_target_from_row(row, target, group, modes) do
-    metadata =
-      %{
-        "sweep_group_id" => group.id,
-        "target_query" => group.target_query
-      }
-      |> maybe_put_string("device_uid", Map.get(row, "uid"))
-      |> maybe_put_string("hostname", Map.get(row, "hostname"))
-      |> maybe_put_discovery_sources(row)
-
     %{
       "network" => target,
       "sweep_modes" => modes,
       "query_label" => group.name,
       "source" => "srql",
-      "metadata" => metadata
+      "metadata" => maybe_put_string(%{}, "device_uid", Map.get(row, "uid"))
     }
   end
 
@@ -411,25 +503,6 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     do: Map.put(metadata, key, value)
 
   defp maybe_put_string(metadata, key, value), do: Map.put(metadata, key, to_string(value))
-
-  defp maybe_put_discovery_sources(metadata, row) do
-    case Map.get(row, "discovery_sources") do
-      sources when is_list(sources) ->
-        sources = sources |> Enum.map(&to_string/1) |> Enum.reject(&(&1 == "")) |> Enum.uniq()
-
-        if sources == [] do
-          metadata
-        else
-          Map.put(metadata, "discovery_sources", Enum.join(sources, ","))
-        end
-
-      source when is_binary(source) and source != "" ->
-        Map.put(metadata, "discovery_sources", source)
-
-      _ ->
-        metadata
-    end
-  end
 
   defp normalize_device_ip_target(value) when is_binary(value) do
     value = String.trim(value)

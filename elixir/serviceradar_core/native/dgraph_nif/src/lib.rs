@@ -15,10 +15,10 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use dgraph_topology::{DownstreamFact, TopologyClient};
 
 use crate::abi::{
-    refuses_mutation, CanonicalEdgesResult, CountResult, DownstreamResult, JsonResult,
-    NeighbourhoodResult, NifCanonicalEdge, NifChangeWrite, NifDeviceWrite, NifDownstreamFact,
-    NifEdgeWrite, NifHopWrite, NifInterfaceWrite, NifNeighbourhoodEdge, NifPrefixWrite,
-    WriteResult,
+    refuses_mutation, CanonicalEdgesResult, CanonicalGraphResult, CountResult, DownstreamResult,
+    JsonResult, NeighbourhoodResult, NifCanonicalEdge, NifCanonicalGraph, NifChangeWrite,
+    NifDeviceWrite, NifDownstreamFact, NifEdgeWrite, NifHopWrite, NifInterfaceWrite,
+    NifNeighbourhoodEdge, NifPrefixWrite, WriteResult,
 };
 use crate::runtime::{client_for, require_url, runtime};
 
@@ -180,6 +180,21 @@ fn query_canonical_edges(url: String) -> CanonicalEdgesResult {
     }) {
         Ok(edges) => CanonicalEdgesResult::Ok(edges),
         Err(reason) => CanonicalEdgesResult::Error(reason),
+    }
+}
+
+#[rustler::nif(schedule = "DirtyIo")]
+fn query_canonical_graph(url: String) -> CanonicalGraphResult {
+    match isolate(|| {
+        require_url(&url)?;
+        let client = client_for(&url)?;
+        let graph = runtime()?
+            .block_on(client.query_canonical_graph())
+            .map_err(|err| err.to_string())?;
+        Ok(NifCanonicalGraph::from(&graph))
+    }) {
+        Ok(graph) => CanonicalGraphResult::Ok(graph),
+        Err(reason) => CanonicalGraphResult::Error(reason),
     }
 }
 

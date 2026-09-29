@@ -9,6 +9,7 @@ defmodule ServiceRadar.Plugins.IntegrationCatalog do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.NativeDescriptors
+  alias ServiceRadar.Plugins.IntegrationDescriptor
   alias ServiceRadar.Plugins.Manifest
   alias ServiceRadar.Plugins.PluginPackage
 
@@ -148,13 +149,20 @@ defmodule ServiceRadar.Plugins.IntegrationCatalog do
     |> Enum.uniq_by(&(value(&1, :plugin_id) || get_in(value(&1, :manifest) || %{}, ["id"])))
   end
 
+  # "producer_schedules" lists every schedule the profile binds, in declaration
+  # order. "producer_schedule" stays the first of them: the primary schedule,
+  # whose cadence bounds the rule form offers and whose timeout sizes the
+  # assignment. Readers that predate schedule_ids keep working unchanged.
   defp maybe_attach_producer_schedule(profile, schedules) do
-    case profile["provisioning"] do
-      %{"mode" => "producer_schedule", "schedule_id" => schedule_id} ->
-        Map.put(profile, "producer_schedule", Map.fetch!(schedules, schedule_id))
+    with %{"mode" => "producer_schedule"} = provisioning <- profile["provisioning"],
+         [_ | _] = ids <- IntegrationDescriptor.producer_schedule_ids(provisioning) do
+      bound = Enum.map(ids, &Map.fetch!(schedules, &1))
 
-      _ ->
-        profile
+      profile
+      |> Map.put("producer_schedule", hd(bound))
+      |> Map.put("producer_schedules", bound)
+    else
+      _ -> profile
     end
   end
 

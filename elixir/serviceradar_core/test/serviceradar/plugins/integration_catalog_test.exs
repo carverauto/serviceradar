@@ -71,6 +71,51 @@ defmodule ServiceRadar.Plugins.IntegrationCatalogTest do
     refute "snmp" in providers
   end
 
+  test "a schedule_ids profile carries every bound schedule with the first as primary" do
+    base = package("example-plugin", "1.0.0", "example-inventory", "example-source")
+    [refresh] = base.manifest["producer_schedules"]
+
+    telemetry = %{
+      refresh
+      | "schedule_id" => "example-inventory.telemetry",
+        "label" => "Collect example telemetry",
+        "action_id" => "example-inventory.telemetry",
+        "default_cadence_seconds" => 60,
+        "min_cadence_seconds" => 30
+    }
+
+    manifest =
+      base.manifest
+      |> Map.put("producer_schedules", [refresh, telemetry])
+      |> update_in(["integrations", "credential_profiles", Access.at(0), "provisioning"], fn p ->
+        p
+        |> Map.delete("schedule_id")
+        |> Map.put("schedule_ids", ["example-inventory.refresh", "example-inventory.telemetry"])
+      end)
+
+    assert {:ok, catalog} = IntegrationCatalog.from_packages([%{base | manifest: manifest}])
+    assert [profile] = catalog.credential_profiles
+
+    assert profile["producer_schedule"]["schedule_id"] == "example-inventory.refresh"
+
+    assert Enum.map(
+             profile["producer_schedules"],
+             &{&1["schedule_id"], &1["default_cadence_seconds"]}
+           ) ==
+             [{"example-inventory.refresh", 86_400}, {"example-inventory.telemetry", 60}]
+  end
+
+  test "a schedule_id profile lists its one schedule as producer_schedules" do
+    assert {:ok, catalog} =
+             IntegrationCatalog.from_packages([
+               package("example-plugin", "1.0.0", "example-inventory", "example-source")
+             ])
+
+    assert [profile] = catalog.credential_profiles
+    assert [schedule] = profile["producer_schedules"]
+    assert schedule == profile["producer_schedule"]
+  end
+
   defp package(plugin_id, version, provider, source) do
     schedule_id = "#{provider}.refresh"
 

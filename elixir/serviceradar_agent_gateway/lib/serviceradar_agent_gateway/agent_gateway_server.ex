@@ -43,6 +43,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   alias ServiceRadarAgentGateway.AgentRegistryProxy
   alias ServiceRadarAgentGateway.ComponentIdentityResolver
   alias ServiceRadarAgentGateway.Config
+  alias ServiceRadarAgentGateway.ConfigChunks
   alias ServiceRadarAgentGateway.ConfigResponse
   alias ServiceRadarAgentGateway.ControlStreamSession
   alias ServiceRadarAgentGateway.StatusProcessor
@@ -71,9 +72,10 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   @max_otlp_relay_message_bytes 15 * 1024 * 1024
   @max_stream_status_chunk_bytes 16 * 1024 * 1024
   @max_stream_status_window_bytes 64 * 1024 * 1024
-  @max_config_chunk_payload_bytes 1 * 1024 * 1024
-  @max_stream_config_chunk_bytes 2 * 1024 * 1024
-  @max_stream_config_window_bytes 64 * 1024 * 1024
+  # A timeout here is reported to the agent as not_modified, freezing it on its
+  # previous config. Must stay below the agent's 90s config deadline
+  # (go/pkg/agentgateway defaultConfigTimeout) with room to stream the chunks.
+  @config_core_call_timeout_ms 60_000
   @agent_gateway_component_types [:agent]
   @otlp_relay_source "otlp-relay"
   @flow_attribution_source "flow-attribution"
@@ -180,7 +182,11 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     # Generate config from database using the config generator
     AgentGatewaySync
-    |> core_call(:get_config_if_changed, [agent_id, partition_id, config_version], 15_000)
+    |> core_call(
+      :get_config_if_changed,
+      [agent_id, partition_id, config_version],
+      @config_core_call_timeout_ms
+    )
     |> handle_config_response(agent_id, config_version)
   end
 
@@ -361,7 +367,11 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     response =
       AgentGatewaySync
-      |> core_call(:get_config_if_changed, [agent_id, partition_id, config_version], 15_000)
+      |> core_call(
+        :get_config_if_changed,
+        [agent_id, partition_id, config_version],
+        @config_core_call_timeout_ms
+      )
       |> handle_config_response(agent_id, config_version)
 
     chunks = config_response_chunks(agent_id, response)
@@ -781,6 +791,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     cond do
       agent_retained_status?(status) ->
         Logger.warning("Failed to commit #{status.source} status from agent #{status.agent_id}: #{inspect(reason)}")
+
         {:agent_retained_uncommitted, []}
 
       strict_delivery_status?(status) ->
@@ -788,6 +799,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
       true ->
         Logger.warning("Failed to process status for service #{service.service_name}: #{inspect(reason)}")
+
         {:best_effort_accepted, []}
     end
   end
@@ -856,9 +868,13 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   end
 
   defp combine_delivery_outcomes(:agent_retained_uncommitted, _outcome), do: :agent_retained_uncommitted
+
   defp combine_delivery_outcomes(_outcome, :agent_retained_uncommitted), do: :agent_retained_uncommitted
+
   defp combine_delivery_outcomes(:agent_retained_committed, _outcome), do: :agent_retained_committed
+
   defp combine_delivery_outcomes(_outcome, :agent_retained_committed), do: :agent_retained_committed
+
   defp combine_delivery_outcomes(_left, _right), do: :best_effort_accepted
 
   defp committed_plugin_result_error?(
@@ -1623,37 +1639,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   end
 
   @doc false
-  def config_response_chunks(agent_id, %Monitoring.AgentConfigResponse{} = response) do
-    payload =
-      response
-      |> Protobuf.Encoder.encode_to_iodata()
-      |> IO.iodata_to_binary()
-
-    validate_stream_config_window!(byte_size(payload))
-
-    payload_sha256 = sha256_hex(payload)
-    total_chunks = max(ceil_div(byte_size(payload), @max_config_chunk_payload_bytes), 1)
-
-    Enum.map(0..(total_chunks - 1), fn chunk_index ->
-      offset = chunk_index * @max_config_chunk_payload_bytes
-      chunk_size = min(@max_config_chunk_payload_bytes, max(byte_size(payload) - offset, 0))
-
-      chunk =
-        %Monitoring.AgentConfigChunk{
-          agent_id: agent_id,
-          config_version: response.config_version,
-          config_timestamp: response.config_timestamp,
-          not_modified: response.not_modified,
-          payload: binary_part(payload, offset, chunk_size),
-          is_final: chunk_index == total_chunks - 1,
-          chunk_index: chunk_index,
-          total_chunks: total_chunks,
-          payload_sha256: payload_sha256
-        }
-
-      validate_stream_config_chunk!(chunk)
-    end)
-  end
+  defdelegate config_response_chunks(agent_id, response), to: ConfigChunks, as: :chunks
 
   @doc false
   def send_config_chunks(chunks, stream) when is_list(chunks) do
@@ -1666,43 +1652,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   end
 
   @doc false
-  def config_response_size(%Monitoring.AgentConfigResponse{} = response) do
-    response
-    |> Protobuf.Encoder.encode_to_iodata()
-    |> IO.iodata_length()
-  end
-
-  defp validate_stream_config_window!(payload_bytes) do
-    if payload_bytes > @max_stream_config_window_bytes do
-      raise GRPC.RPCError,
-        status: :resource_exhausted,
-        message: "config stream exceeds byte budget"
-    end
-  end
-
-  defp validate_stream_config_chunk!(%Monitoring.AgentConfigChunk{} = chunk) do
-    chunk_bytes =
-      chunk
-      |> Protobuf.Encoder.encode_to_iodata()
-      |> IO.iodata_length()
-
-    if chunk_bytes > @max_stream_config_chunk_bytes do
-      raise GRPC.RPCError,
-        status: :resource_exhausted,
-        message: "config stream chunk exceeds byte budget"
-    end
-
-    chunk
-  end
-
-  defp ceil_div(0, _divisor), do: 0
-  defp ceil_div(value, divisor), do: div(value + divisor - 1, divisor)
-
-  defp sha256_hex(payload) do
-    payload
-    |> then(&:crypto.hash(:sha256, &1))
-    |> Base.encode16(case: :lower)
-  end
+  defdelegate config_response_size(response), to: ConfigChunks, as: :size
 
   @doc false
   def validate_stream_status_byte_window!(current_bytes, chunk_bytes)
@@ -1872,7 +1822,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     case retained_stream_source(status_chunks) do
       nil ->
         directives =
-          Enum.flat_map(status_chunks, fn {services, metadata} -> process_chunk_services(services, metadata) end)
+          Enum.flat_map(status_chunks, fn {services, metadata} ->
+            process_chunk_services(services, metadata)
+          end)
 
         %Monitoring.GatewayStatusResponse{received: true, directives: directives}
 
@@ -1924,7 +1876,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     valid? =
       Enum.all?(non_empty_chunks, fn
         {[service], metadata} ->
-          agent_retained_service?(service, metadata) and normalize_service_field(service.source) == source
+          agent_retained_service?(service, metadata) and
+            normalize_service_field(service.source) == source
 
         {_services, _metadata} ->
           false

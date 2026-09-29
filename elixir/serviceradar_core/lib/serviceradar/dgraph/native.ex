@@ -2,8 +2,8 @@ defmodule ServiceRadar.Dgraph.Native do
   @moduledoc """
   Rustler NIF bindings for `dgraph_topology`.
 
-  The BEAM-visible seam for Dgraph. Typed write maps cross the ABI as `NifMap`
-  structs; the read-only DQL hatch returns JSON. Callers should use
+  The BEAM-visible seam for Dgraph. Typed topology reads and writes cross the ABI
+  as `NifMap` structs; the read-only DQL hatch returns JSON. Callers should use
   `ServiceRadar.Dgraph`, which supplies the connection URL and refuses
   mutations before they reach this module.
   """
@@ -17,6 +17,7 @@ defmodule ServiceRadar.Dgraph.Native do
   @type count_result :: {:ok, non_neg_integer()} | {:error, String.t()}
   @type json_result :: {:ok, String.t()} | {:error, String.t()}
   @type edges_result :: {:ok, [map()]} | {:error, String.t()}
+  @type graph_result :: {:ok, %{nodes: [map()], edges: [map()]}} | {:error, String.t()}
 
   @spec upsert_device(url(), map()) :: write_result()
   def upsert_device(_url, _device), do: :erlang.nif_error(:nif_not_loaded)
@@ -56,6 +57,9 @@ defmodule ServiceRadar.Dgraph.Native do
 
   @spec query_canonical_edges(url()) :: edges_result()
   def query_canonical_edges(_url), do: :erlang.nif_error(:nif_not_loaded)
+
+  @spec query_canonical_graph(url()) :: graph_result()
+  def query_canonical_graph(_url), do: :erlang.nif_error(:nif_not_loaded)
 
   @spec downstream_of(url(), [String.t()], [String.t()]) ::
           {:ok, :reachable | :disjoint} | {:error, String.t()}

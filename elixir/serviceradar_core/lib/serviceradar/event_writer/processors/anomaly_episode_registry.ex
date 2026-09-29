@@ -179,6 +179,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry do
     FROM aggregate
     WHERE NOT aggregate.orphan_clear
     ON CONFLICT (episode_uid) DO UPDATE SET
+      finding_uid = EXCLUDED.finding_uid,
       device_uid = EXCLUDED.device_uid,
       series_key = EXCLUDED.series_key,
       metric_name = COALESCE(EXCLUDED.metric_name, platform.anomaly_episodes.metric_name),

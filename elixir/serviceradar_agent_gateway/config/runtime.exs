@@ -529,7 +529,10 @@ if config_env() == :prod do
       :payload_field_count,
       :progress_percent,
       :config_version,
-      :section_count
+      :section_count,
+      :chunks,
+      :bytes,
+      :limit_bytes
     ]
 
   config :logger,

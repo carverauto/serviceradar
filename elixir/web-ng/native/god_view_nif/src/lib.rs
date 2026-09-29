@@ -5,7 +5,7 @@ pub mod types;
 
 use rustler::{Binary, Env, NifMap, ResourceArc, Term};
 
-use crate::core::arrow_serde::encode_snapshot_impl;
+use crate::core::arrow_serde::{encode_scene_ipc, encode_snapshot_impl, vec_into_binary};
 use crate::core::causality::evaluate_causal_states_with_reasons_impl;
 use crate::core::layout::layout_nodes_layered;
 use crate::core::telemetry::enrich_edges_telemetry_impl;
@@ -64,6 +64,16 @@ fn layout_nodes_hypergraph(
 #[rustler::nif(schedule = "DirtyCpu")]
 fn encode_snapshot<'a>(env: Env<'a>, payload: EncodeSnapshotPayload) -> NifResult<Binary<'a>> {
     encode_snapshot_impl(env, payload)
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn encode_scene<'a>(
+    env: Env<'a>,
+    payload: EncodeSnapshotPayload,
+    metadata: std::collections::HashMap<String, String>,
+) -> Result<Binary<'a>, &'static str> {
+    let bytes = encode_scene_ipc(payload, metadata)?;
+    vec_into_binary(env, bytes).map_err(|_| "scene_allocation_failed")
 }
 
 #[rustler::nif(schedule = "DirtyCpu")]

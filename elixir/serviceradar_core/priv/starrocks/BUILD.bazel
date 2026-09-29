@@ -20,6 +20,8 @@
 # 0020 drops the extra rows Trivy rescans added to events (one row per report id).
 # 0021 creates the OTel metric sample and point tables, partitioned by day.
 # 0022 creates the OTel span and trace-summary tables and the two trace rollups.
+# 0023 adds agent_id to ocsf_network_activity.
+# 0024 creates the BMP routing events table, partitioned by day.
 # The cnpg_platform JDBC catalog is not here: it is created by
 # helm/serviceradar/templates/starrocks-catalog-job.yaml, and the relations it
 # may expose are owned by ServiceRadar.Analytics.StarRocks.CatalogAllowlist.

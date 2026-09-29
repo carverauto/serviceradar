@@ -136,6 +136,24 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelationCache do
       :ok
   end
 
+  @doc """
+  Store any term as a positive hit for `key`, with the positive TTL.
+
+  `put/2` caches a device uid or a miss. This is for a correlation input that is
+  not itself a uid, such as the inventory sources a plugin assignment declares
+  (`ServiceRadar.EventWriter.PluginDeviceAttribution`). `lookup/1` returns it as
+  `{:hit, value}`.
+  """
+  @spec put_value(term(), term()) :: :ok
+  def put_value(key, value) do
+    expires_at = System.monotonic_time(:millisecond) + ttl_ms()
+    :ets.insert(@table_name, {key, {:hit, value}, expires_at})
+    :ok
+  rescue
+    ArgumentError ->
+      :ok
+  end
+
   @doc "Clear all cached entries (primarily for tests)."
   @spec clear() :: :ok
   def clear do

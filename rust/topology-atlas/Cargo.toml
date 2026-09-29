@@ -1,0 +1,18 @@
+[package]
+name = "serviceradar-topology-atlas"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license = "Apache-2.0"
+description = "Persistent world placement and bounded topology tile generation"
+
+[dependencies]
+sha2 = { workspace = true }
+
+[lib]
+name = "serviceradar_topology_atlas"
+path = "src/lib.rs"
+
+[[bin]]
+name = "million-world-fixture"
+path = "fixtures/export.rs"

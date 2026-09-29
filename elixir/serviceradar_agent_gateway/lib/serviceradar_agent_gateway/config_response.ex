@@ -3,12 +3,17 @@ defmodule ServiceRadarAgentGateway.ConfigResponse do
 
   require Logger
 
-  @spec from_core_result(term(), String.t(), String.t(), (term() -> Monitoring.AgentConfigResponse.t())) ::
+  @spec from_core_result(term(), String.t(), String.t(), (term() ->
+                                                            Monitoring.AgentConfigResponse.t())) ::
           Monitoring.AgentConfigResponse.t()
   def from_core_result(core_result, agent_id, config_version, success_converter)
 
   def from_core_result({:error, :core_unavailable}, agent_id, config_version, _success_converter) do
-    Logger.warning("Core unavailable for config request: agent_id=#{agent_id}, version=#{config_version}")
+    # The agent is answered not_modified and keeps running `config_version`, so a
+    # persistent failure here freezes every config change for this agent.
+    Logger.warning(
+      "Core unavailable for config request: agent_id=#{agent_id}, version=#{config_version}, retaining current config"
+    )
 
     unavailable_config_response(config_version)
   end

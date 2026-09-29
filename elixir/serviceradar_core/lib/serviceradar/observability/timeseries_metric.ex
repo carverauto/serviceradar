@@ -10,7 +10,8 @@ defmodule ServiceRadar.Observability.TimeseriesMetric do
     table: "timeseries_metrics",
     type: "timeseries_metric",
     route: "/timeseries_metrics",
-    primary_key: [:timestamp, :gateway_id, :series_key]
+    primary_key: [:timestamp, :gateway_id, :series_key],
+    warehouse_table: "timeseries_metrics"
 
   actions do
     defaults([:read])

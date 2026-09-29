@@ -110,6 +110,22 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(ServiceRadarWebNGWeb.Plugs.IgnoreSessionWrites)
   end
 
+  # Topology HTTP clients need JSON auth failures for both binary snapshots and
+  # revision metadata. The controller checks scope and permission after these
+  # session plugs; ordinary browser routes retain their login redirects.
+  pipeline :topology_api do
+    plug(:fetch_session)
+    plug(:put_secure_browser_headers, %{"content-security-policy" => @csp, "cache-control" => "no-store"})
+    plug(SecurityHeaders)
+    plug(GatewayAuth)
+    plug(:fetch_current_scope_for_user)
+    plug(:set_ash_actor)
+  end
+
+  pipeline :topology_mutation do
+    plug(:protect_from_forgery)
+  end
+
   pipeline :api do
     plug(:accepts, ["json"])
     plug(SecurityHeaders)
@@ -1082,10 +1098,36 @@ defmodule ServiceRadarWebNGWeb.Router do
 
   ## Authenticated routes
 
+  scope "/topology/snapshot", ServiceRadarWebNGWeb do
+    pipe_through([:topology_api])
+
+    get("/latest", TopologySnapshotController, :show)
+  end
+
+  scope "/topology", ServiceRadarWebNGWeb do
+    pipe_through([:topology_api])
+
+    get("/details", TopologyTileController, :details)
+    get("/overlays/:layout_version/:z/:x/:y", TopologyTileController, :overlay)
+  end
+
+  scope "/topology/tiles", ServiceRadarWebNGWeb do
+    pipe_through([:topology_api])
+
+    get("/manifest", TopologyTileController, :manifest)
+    get("/search", TopologyTileController, :search)
+    get("/:layout_version/:z/:x/:y", TopologyTileController, :show)
+  end
+
+  scope "/topology/tiles", ServiceRadarWebNGWeb do
+    pipe_through([:topology_api, :topology_mutation])
+
+    post("/relayout", TopologyTileController, :relayout)
+  end
+
   scope "/", ServiceRadarWebNGWeb do
     pipe_through([:browser_raw_auth])
 
-    get("/topology/snapshot/latest", TopologySnapshotController, :show)
     get("/god_view_exec.wasm", WasmAssetController, :plain)
     get("/god_view_exec-:digest", WasmAssetController, :hashed)
     get("/dashboard-packages/:id/renderer", DashboardPackageAssetController, :show)
@@ -1121,6 +1163,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/dashboard/new-devices", DeviceLive.Index, :new_devices)
       live("/dashboard/:dashboard_id", AuthoredDashboardLive.Show, :show)
       live("/dashboards", DashboardHubLive.Index, :index)
+      live("/dashboards/reports/import", ReportImportLive.Index, :index)
       live("/dashboards/:route_slug", DashboardPackageLive.Show, :show)
       live("/security", SecurityLive.Index, :index)
       live("/security/threat-intel", Security.ThreatIntelLive.Index, :index)

@@ -120,10 +120,8 @@ STARROCKS_ENABLED=true docker compose --profile starrocks --profile flows up -d
 `flow-collector` stays off unless you pass `--profile flows` or
 `--profile network-ingest`. The two profiles are independent for *collection*:
 NetFlow collects without the warehouse and stores flows on CNPG hypertables.
-Reading those flows back is warehouse-only -- until `flows` is listed in
-`STARROCKS_CUTOVER_DATASETS`, the NetFlow dashboard and `in:flows` are refused
-with a warehouse-required error instead of being answered from CNPG. See
-[NetFlow](docs/docs/netflow.md) for the full flow path.
+For warehouse read defaults, delivery guarantees and upgrade limitations, see
+[NetFlow: Flow cutover and delivery](docs/docs/netflow.md#flow-cutover-and-delivery).
 
 There is no separate schema container: core creates and upgrades the
 warehouse schema itself at startup, sizing replication to the single backend
@@ -189,8 +187,8 @@ Every dataset defaults to 365 days: `STARROCKS_RETENTION_DAYS_FLOWS`,
 `STARROCKS_RETENTION_DAYS_METRICS`, `STARROCKS_RETENTION_DAYS_LOGS`,
 `STARROCKS_RETENTION_DAYS_EVENTS`, `STARROCKS_RETENTION_DAYS_MTR` (MTR traces
 and hops together), `STARROCKS_RETENTION_DAYS_OTEL` (OTel metric samples and
-points together) and `STARROCKS_RETENTION_DAYS_TRACES` (OTel spans and trace
-summaries together).
+points together), `STARROCKS_RETENTION_DAYS_TRACES` (OTel spans and trace
+summaries together) and `STARROCKS_RETENTION_DAYS_BMP` (BMP routing events).
 Warehouse loads are sized by `STARROCKS_STREAM_LOAD_MAX_AGE_MS` (flush a
 batch after this long, default 2000), `STARROCKS_STREAM_LOAD_MAX_ROWS` (50000)
 and `STARROCKS_STREAM_LOAD_MAX_BYTES` (33554432) per load, and
@@ -199,10 +197,11 @@ warehouse transaction, so fewer, larger loads are cheaper than many small ones.
 Retention values are re-applied at every core start: core retries with backoff until the warehouse
 accepts them, so a slow Frontend does not leave the tables on their DDL
 default. With the warehouse enabled, MTR traces and hops, OTel metric samples
-and points, and OTel spans and trace summaries are stored only there, so
-`STARROCKS_RETENTION_DAYS_MTR`, `STARROCKS_RETENTION_DAYS_OTEL` and
-`STARROCKS_RETENTION_DAYS_TRACES` are the retentions that apply; the value
-saved in Settings -> Networks -> MTR governs the CNPG MTR tables only.
+and points, OTel spans and trace summaries, and BMP routing events are stored
+only there, so `STARROCKS_RETENTION_DAYS_MTR`, `STARROCKS_RETENTION_DAYS_OTEL`,
+`STARROCKS_RETENTION_DAYS_TRACES` and `STARROCKS_RETENTION_DAYS_BMP` are the
+retentions that apply; the value saved in Settings -> Networks -> MTR governs
+the CNPG MTR tables only.
 
 Hourly charts are served from the `*_hourly` materialized views only while
 those views have kept up with the tables they aggregate; otherwise the query

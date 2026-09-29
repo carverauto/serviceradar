@@ -84,7 +84,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexData.Telemetry do
       sysmon_query =
         Enum.join(
           [
-            "in:cpu_metrics",
+            "in:timeseries_metrics",
+            "metric_type:\"sysmon.cpu\"",
             "uid:(#{list})",
             "time:#{@presence_window}",
             "bucket:#{@presence_bucket}",

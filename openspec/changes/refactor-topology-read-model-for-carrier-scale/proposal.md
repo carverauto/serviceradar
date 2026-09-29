@@ -1,34 +1,31 @@
 # Change: Refactor topology read model for carrier scale
 
 ## Why
-The current God-View pipeline mixes transport topology, endpoint attachments, unresolved topology sightings, and heuristic causal coloring into one graph surface. In practice this produces unreadable layouts on small networks, blank first loads when the stream bootstrap races, and a rendering contract that cannot scale to large environments because every raw relation is treated as something the canvas might try to lay out.
+God-View must remain useful at 200,000 to 1,000,000 or more devices. Sending and laying out the complete canonical graph in the browser cannot meet that scale. The default overview needs persistent coordinates, bounded spatial delivery, and separate live telemetry while every admitted device remains reachable through search and bounded detail.
 
-We need a carrier-scale topology contract that makes the default view bounded, trustworthy, and operationally useful. The system should show backbone connectivity first, summarize endpoint fanout instead of drawing every leaf, quarantine unresolved identities until they are promotable, and only claim causal impact when there is actual evidence.
+[Issue #4774](https://github.com/carverauto/serviceradar/issues/4774) and its confirmed scope revision replace the earlier semantic-level-only plan. This proposal amends the existing carrier-scale change rather than creating a parallel design.
 
 ## What Changes
-- Add a carrier-scale topology read model that separates the default transport backbone from endpoint census and endpoint drill-down neighborhoods.
-- Require the default God-View snapshot to be bounded and infrastructure-centric regardless of how many endpoint attachments exist in the source data.
-- Prevent unresolved topology sightings, null-neighbor rows, and duplicate identity fragments from rendering as first-class infrastructure peers in the default graph.
-- Make topology geometry single-authority in the frontend: the backend authors bounded topology semantics and expansion metadata, and the frontend performs the only layout pass for backbone and bounded endpoint neighborhoods.
-- Replace the one-size-fits-all layered scene with a multi-resolution topology atlas: a deterministic transport forest drives the radial overview, non-tree cross-links are summarized until focused, and bounded detail scenes may select a different ELK strategy without mixing coordinate authorities inside one scene.
-- Add a reliable bootstrap path that fetches the latest snapshot over HTTP before joining streaming updates, with stream failure fallback.
-- Narrow the health/causal overlay so `Affected` is reserved for evidence-backed impact paths instead of a generic three-hop propagation from unhealthy nodes.
-- Add label-density budgets, visible-node budgets, and quality telemetry so the topology surface degrades gracefully and fails loudly when source data quality regresses.
+- **BREAKING architecture amendment:** server-authored persistent world coordinates become the overview geometry authority. ELK remains only for explicitly entered bounded device-neighborhood, component/aggregate-member, and rendered-bundle-member detail scenes.
+- Add a core-owned Rust world-layout/tile engine and an Oban-coordinated persistence/publication lifecycle. Stable `layout_version` identifies the coordinate space; immutable publication generations and per-tile content revisions have separate identities.
+- Persist device positions and relation bindings using platform Elixir migrations and the corresponding Helm migration expected-version bump. Incremental changes preserve existing placements; full relayout is explicit and versioned.
+- Serve quadtree z/x/y tiles with importance-based visibility, stable aggregates, correct member counts, low-zoom edge bundles, clipped long relations, and hard feature/encoded-byte budgets. Overflow remains represented and reachable.
+- Extend #4749 schema 3 with tile identity, budgets, and explicit affine transforms for UInt16 tile-local coordinates. Keep columnar details, local UInt32 endpoints, and lazy irregular details.
+- Add authorized HTTP tile delivery with scope-safe ETags, bounded search/details, precomputed low-zoom tiles, lazy high-zoom caching, and dirty-tile channel invalidation.
+- Separate state and packet-flow overlays from geometry revisions so telemetry never refetches geometry.
+- After #4749 lands, use TileLayer in OrthographicView with bounded prefetch/LRU caching, picking, coordinate search, and explicit bounded ELK drill-down/return.
+- Verify deterministic and incremental placement, all-zoom membership conservation and budgets, targeted invalidation, cached revisits, and real-WebGPU performance with packet flow enabled on an invented 1M-device/at-least-2M-relation fixture.
 
 ## Impact
-- Affected specs:
-  - `build-web-ui`
-  - `network-discovery`
-- Affected code:
-  - `elixir/web-ng/lib/serviceradar_web_ng/topology/runtime_graph.ex`
-  - `elixir/web-ng/lib/serviceradar_web_ng/topology/god_view_stream.ex`
-  - `elixir/web-ng/lib/serviceradar_web_ng_web/channels/topology_channel.ex`
-  - `elixir/web-ng/lib/serviceradar_web_ng_web/controllers/topology_snapshot_controller.ex`
-  - `elixir/web-ng/lib/serviceradar_web_ng_web/live/topology_live/god_view.ex`
-  - `elixir/web-ng/assets/js/lib/god_view/*`
-  - `elixir/serviceradar_core/lib/serviceradar/network_discovery/topology_graph.ex`
-  - topology snapshot/runtime graph/frontend regression tests
+- Affected specs: `topology-god-view`, `build-web-ui`, and `network-discovery`.
+- Core: Dgraph canonical reader, core-owned Rust/NIF engine, NetworkDiscovery resources, Oban generation worker, platform migrations, and Helm migration version.
+- Web: topology runtime/cache, tile/detail/search controllers, topology channel, and schema-3 tile integration.
+- Client after #4749: God-View tile lifecycle, camera/navigation, bounded detail adapters, and existing typed WebGPU sublayers.
+- Existing pending ELK and cluster-layout deltas are scoped to bounded detail scenes so archiving cannot restore overview frontend-layout ownership.
 
-## Dependencies
-- Builds on the operator goals behind `add-topology-endpoint-visibility`, `add-topology-default-clustered-view`, and `refactor-topology-layout-stability-and-performance`, but intentionally replaces their current architectural assumptions where they still allow mixed graph semantics, split layout authority, or unbounded endpoint expansion.
-- Reuses the renderer-neutral scene, route rendering, collision admission, camera measurement, and dense fixtures delivered by `refactor-god-view-elk-scene`, but supersedes that change's assumption that every bounded semantic relation must participate in one layered compound layout. The carrier-scale atlas owns deterministic forest projection, level-specific layout selection, cross-link disclosure, visible-member and paging budgets, semantic labels, HTTP bootstrap, and causal semantics. Each accepted scene still has exactly one frontend geometry authority.
+## Dependencies and scope
+- #4749 supplies schema 3, typed decoding, WebGPU-only rendering, deck.gl 9.4, and procedural per-edge packet flow. Reuse those internals; do not edit their renderer files before the dependency lands.
+- The complete paged Dgraph source, scoped detail reader, and authorization checks remain reusable foundation. The semantic-level Atlas serving surface was removed; the design owns that decision. Passing foundation checks do not establish tile-engine acceptance.
+- `refactor-god-view-elk-scene` owns coherent geometry within bounded ELK detail scenes. This change owns the persistent world, tiles, publication, caches, overlays, and map/detail navigation boundary.
+- Quarantine diagnostics and evidence-backed `Affected` behavior remain separate carrier-scale work (tasks 2.2 and 4.x), outside #4774. SDK provider registration and #4748 remain outside this delivery; shared locations use the reusable contract coordinated with `add-showcase-demo-portfolio` design D19.
+- Global AGE extension removal remains blocked on its remaining consumers in `replace-age-topology-with-dgraph`; this tile engine uses Dgraph topology.

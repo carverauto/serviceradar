@@ -40,6 +40,8 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReports do
   alias ServiceRadar.Dashboards.AuthoredDashboard
   alias ServiceRadar.Dashboards.DashboardPanel
   alias ServiceRadarWebNG.Dashboards.DefinitionLoader
+  alias ServiceRadarWebNG.Dashboards.ReportIndex
+  alias ServiceRadarWebNG.Plugins.FirstPartyReleaseClient
 
   require Ash.Query
   require Logger
@@ -148,9 +150,10 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReports do
       end)
 
       definitions
+      |> Enum.filter(& &1.enabled_by_default)
       |> Enum.reduce_while({:ok, []}, fn spec, {:ok, acc} ->
-        case ensure_dashboard(actor, spec) do
-          {:ok, dashboard} -> {:cont, {:ok, [dashboard | acc]}}
+        case ensure_definition(spec, shipped_provenance(spec), actor: actor) do
+          {:ok, dashboard, _outcome} -> {:cont, {:ok, [dashboard | acc]}}
           {:error, reason} -> {:halt, {:error, reason}}
         end
       end)
@@ -161,6 +164,18 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReports do
     else
       {:error, :repo_not_started}
     end
+  end
+
+  @doc "Provenance recorded for a report this build ships and creates at startup."
+  @spec shipped_provenance(map()) :: map()
+  def shipped_provenance(spec) do
+    %{
+      source_type: :first_party,
+      source_repo_url: FirstPartyReleaseClient.default_repo_url(),
+      source_release_tag: ReportIndex.running_release_tag(),
+      source_path: ReportIndex.repo_path(spec.source_path),
+      content_hash: spec.content_hash
+    }
   end
 
   @doc """
@@ -193,67 +208,94 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReports do
   """
   @spec ensure_dashboard(map(), map()) :: {:ok, AuthoredDashboard.t()} | {:error, term()}
   def ensure_dashboard(actor, spec) do
-    case existing_dashboard(actor, spec.slug) do
+    case ensure_definition(spec, %{}, actor: actor) do
+      {:ok, dashboard, _outcome} -> {:ok, dashboard}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  Ensures a validated definition exists, recording `provenance` on creation.
+
+  The outcome says what happened: `:created`, `:completed` (panels added to an
+  interrupted creation), or `:kept` (a dashboard with that slug already exists
+  and was left exactly as found). `provenance` holds the resource's source
+  attributes and is written only when the dashboard is created, so re-importing
+  never rewrites where an existing dashboard came from either.
+
+  The existing-slug lookup runs as the system actor. A dashboard the importing
+  operator cannot see still owns its slug, and must be kept rather than raced by
+  a create that the unique index would refuse. Writes use `ash_opts`, so the
+  resource policies decide whether the importer may create at all.
+  """
+  @spec ensure_definition(map(), map(), keyword()) ::
+          {:ok, AuthoredDashboard.t(), :created | :completed | :kept} | {:error, term()}
+  def ensure_definition(spec, provenance, ash_opts) do
+    case existing_dashboard(spec.slug) do
       {:ok, dashboard} ->
         case definition_action(dashboard) do
-          :create_panels -> create_panels(actor, dashboard, spec)
-          :keep -> {:ok, dashboard}
+          :create_panels -> with_outcome(create_panels(ash_opts, dashboard, spec), :completed)
+          :keep -> {:ok, dashboard, :kept}
         end
 
       {:error, :not_found} ->
-        create_dashboard(actor, spec, 0)
+        with_outcome(create_dashboard(ash_opts, spec, provenance, 0), :created)
 
       {:error, reason} ->
         {:error, reason}
     end
   end
 
-  defp existing_dashboard(actor, slug) do
+  defp with_outcome({:ok, dashboard}, outcome), do: {:ok, dashboard, outcome}
+  defp with_outcome({:error, reason}, _outcome), do: {:error, reason}
+
+  defp existing_dashboard(slug) do
     query =
       AuthoredDashboard
       |> Ash.Query.for_read(:by_slug, %{slug: slug})
       |> Ash.Query.load([:panels])
 
-    case Ash.read_one(query, actor: actor) do
+    case Ash.read_one(query, actor: SystemActor.system(:system_reports)) do
       {:ok, nil} -> {:error, :not_found}
       {:ok, dashboard} -> {:ok, dashboard}
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp create_dashboard(_actor, _spec, attempts) when attempts >= 8 do
+  defp create_dashboard(_ash_opts, _spec, _provenance, attempts) when attempts >= 8 do
     {:error, :dashboard_ref_generation_failed}
   end
 
-  defp create_dashboard(actor, spec, attempts) do
-    attrs = %{
-      dashboard_ref: Enum.random(1_000_000..9_999_999),
-      title: spec.title,
-      description: spec.description,
-      slug: spec.slug,
-      visibility: :public,
-      status: :active,
-      default_time_range: spec.default_time_range,
-      metadata: spec.metadata,
-      variables: spec.variables
-    }
+  defp create_dashboard(ash_opts, spec, provenance, attempts) do
+    attrs =
+      Map.merge(provenance, %{
+        dashboard_ref: Enum.random(1_000_000..9_999_999),
+        title: spec.title,
+        description: spec.description,
+        slug: spec.slug,
+        visibility: :public,
+        status: :active,
+        default_time_range: spec.default_time_range,
+        metadata: spec.metadata,
+        variables: spec.variables
+      })
 
     case AuthoredDashboard
-         |> Ash.Changeset.for_create(:create, attrs)
-         |> Ash.create(actor: actor) do
+         |> Ash.Changeset.for_create(:import, attrs, ash_opts)
+         |> Ash.create(ash_opts) do
       {:ok, dashboard} ->
-        create_panels(actor, dashboard, spec)
+        create_panels(ash_opts, dashboard, spec)
 
       {:error, reason} ->
         if unique_dashboard_ref_error?(reason) do
-          create_dashboard(actor, spec, attempts + 1)
+          create_dashboard(ash_opts, spec, provenance, attempts + 1)
         else
           {:error, reason}
         end
     end
   end
 
-  defp create_panels(actor, dashboard, spec) do
+  defp create_panels(ash_opts, dashboard, spec) do
     Enum.reduce_while(spec.panels, {:ok, dashboard}, fn panel, {:ok, dashboard} ->
       attrs =
         panel
@@ -261,8 +303,8 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReports do
         |> Map.put(:dashboard_id, dashboard.id)
 
       case DashboardPanel
-           |> Ash.Changeset.for_create(:create, attrs)
-           |> Ash.create(actor: actor) do
+           |> Ash.Changeset.for_create(:create, attrs, ash_opts)
+           |> Ash.create(ash_opts) do
         {:ok, _panel} -> {:cont, {:ok, dashboard}}
         {:error, reason} -> {:halt, {:error, reason}}
       end

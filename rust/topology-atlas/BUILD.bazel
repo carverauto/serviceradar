@@ -1,0 +1,80 @@
+load("@crates//:defs.bzl", "all_crate_deps")
+load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
+load("@rules_rs//rs:rust_library.bzl", "rust_library")
+load("@rules_rs//rs:rust_test.bzl", "rust_test")
+
+rust_library(
+    name = "topology_atlas",
+    srcs = glob(["src/**/*.rs"]),
+    crate_name = "serviceradar_topology_atlas",
+    crate_root = "src/lib.rs",
+    visibility = ["//visibility:public"],
+    deps = all_crate_deps(
+        cargo_only = True,
+        normal = True,
+    ),
+)
+
+rust_test(
+    name = "layout_test",
+    srcs = [
+        "fixtures/hierarchy.rs",
+        "tests/layout.rs",
+    ],
+    crate_root = "tests/layout.rs",
+    deps = [":topology_atlas"],
+)
+
+rust_binary(
+    name = "million_world_fixture_generator",
+    srcs = [
+        "fixtures/export.rs",
+        "fixtures/hierarchy.rs",
+    ],
+    crate_root = "fixtures/export.rs",
+    tags = ["manual"],
+    deps = [":topology_atlas"],
+)
+
+genrule(
+    name = "million_world_fixture",
+    outs = ["million_world.tsv"],
+    cmd = "$(location :million_world_fixture_generator) $@",
+    tags = ["manual"],
+    tools = [":million_world_fixture_generator"],
+    visibility = [
+        "//elixir/serviceradar_core:__pkg__",
+        "//elixir/web-ng:__pkg__",
+    ],
+)
+
+filegroup(
+    name = "srcs",
+    srcs = glob([
+        "src/**",
+        "fixtures/**",
+        "Cargo.toml",
+    ]),
+    visibility = ["//visibility:public"],
+)
+
+rust_test(
+    name = "tiles_test",
+    srcs = ["tests/tiles.rs"],
+    crate_root = "tests/tiles.rs",
+    deps = [":topology_atlas"],
+)
+
+rust_test(
+    name = "details_test",
+    srcs = ["tests/details.rs"],
+    crate_root = "tests/details.rs",
+    deps = [":topology_atlas"],
+)
+
+rust_test(
+    name = "health_test",
+    srcs = ["tests/health.rs"],
+    crate_root = "tests/health.rs",
+    deps = [":topology_atlas"],
+)

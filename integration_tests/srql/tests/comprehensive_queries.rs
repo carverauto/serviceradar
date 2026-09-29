@@ -15,6 +15,67 @@ struct TestCase<'a> {
 async fn comprehensive_queries_match_fixtures() {
     let test_cases = vec![
         TestCase {
+            query: "in:cpu device_id:sysmon-compat.example.com core_id:0 usage_percent:>70 time:last_10m",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                let row = &body["results"][0];
+                assert_eq!(row["usage_percent"], 75.0);
+                assert_eq!(row["frequency_hz"], 2000000000.0);
+                assert_eq!(row["core_id"], 0);
+            })),
+        },
+        TestCase {
+            query: "in:memory device_id:sysmon-compat.example.com time:last_10m",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                let row = &body["results"][0];
+                assert_eq!(row["usage_percent"], 25.0);
+                assert_eq!(row["used_bytes"], 1024);
+                assert_eq!(row["available_bytes"], 3072);
+            })),
+        },
+        TestCase {
+            query: "in:disk device_id:sysmon-compat.example.com mount_point:/data time:last_10m",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                let row = &body["results"][0];
+                assert_eq!(row["mount_point"], "/data");
+                assert_eq!(row["usage_percent"], 95.0);
+                assert_eq!(row["available_bytes"], 100);
+            })),
+        },
+        TestCase {
+            query: "in:processes device_id:sysmon-compat.example.com name:worker pid:123 time:last_10m",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                let row = &body["results"][0];
+                assert_eq!(row["cpu_usage"], 12.5);
+                assert_eq!(row["memory_usage"], 4096);
+                assert_eq!(row["status"], "running");
+            })),
+        },
+        TestCase {
+            query: "in:cpu device_id:sysmon-compat.example.com time:last_10m stats:avg(usage_percent)",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["avg_usage_percent"], 75.0)
+            })),
+        },
+        TestCase {
+            query: "in:memory device_id:sysmon-compat.example.com time:last_10m stats:avg(used_bytes) as average by device_id",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["average"].as_f64(), Some(1024.0))
+            })),
+        },
+        TestCase {
+            query: "in:processes device_id:sysmon-compat.example.com time:last_10m stats:avg(memory_usage) as average by device_id",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["average"].as_f64(), Some(4096.0))
+            })),
+        },
+        TestCase {
             query: "in:gateways status:active",
             expected_count: 2,
             validator: None,
@@ -24,13 +85,6 @@ async fn comprehensive_queries_match_fixtures() {
             expected_count: 1,
             validator: Some(Box::new(|body| {
                 assert_eq!(body["results"][0]["service_name"], "ssh")
-            })),
-        },
-        TestCase {
-            query: "in:cpu_metrics usage_percent:>88.1 usage_percent:<88.3",
-            expected_count: 1,
-            validator: Some(Box::new(|body| {
-                assert_eq!(body["results"][0]["core_id"], 1)
             })),
         },
         TestCase {
@@ -334,7 +388,12 @@ async fn comprehensive_queries_match_fixtures() {
                     .as_array()
                     .unwrap()
                     .iter()
-                    .map(|row| (row["device_uid"].as_str().unwrap(), row["purl"].as_str().unwrap()))
+                    .map(|row| {
+                        (
+                            row["device_uid"].as_str().unwrap(),
+                            row["purl"].as_str().unwrap(),
+                        )
+                    })
                     .collect();
                 packages.sort_unstable();
                 assert_eq!(
@@ -625,12 +684,14 @@ async fn comprehensive_queries_match_fixtures() {
                 // the third value is only history.
                 assert_eq!(corroborated, 2, "rows: {}", body["results"]);
                 assert!(
-                    rows.iter().any(|row| row["identifier_value"] == "AABBCCDEAD01"
-                        && row["matches_current_facts"] == false),
+                    rows.iter()
+                        .any(|row| row["identifier_value"] == "AABBCCDEAD01"
+                            && row["matches_current_facts"] == false),
                     "a historical MAC must still be returned, marked false"
                 );
                 assert!(
-                    rows.iter().all(|row| row["metadata"]["secret_token"].is_null()),
+                    rows.iter()
+                        .all(|row| row["metadata"]["secret_token"].is_null()),
                     "metadata allowlist leaked an undeclared key"
                 );
             })),
@@ -689,16 +750,14 @@ async fn comprehensive_queries_match_fixtures() {
                 assert_eq!(direct[0]["device_b"], "identity-comp-b");
                 assert_eq!(direct[0]["depth"], 1);
 
-                let transitive: Vec<_> =
-                    rows.iter().filter(|row| row["direct"] == false).collect();
+                let transitive: Vec<_> = rows.iter().filter(|row| row["direct"] == false).collect();
                 assert_eq!(transitive.len(), 1);
                 assert_eq!(transitive[0]["device_a"], "identity-comp-b");
                 assert_eq!(transitive[0]["device_b"], "identity-comp-c");
 
                 assert!(
                     !rows.iter().any(|row| {
-                        row["device_a"] == "identity-comp-a"
-                            && row["device_b"] == "identity-comp-c"
+                        row["device_a"] == "identity-comp-a" && row["device_b"] == "identity-comp-c"
                     }),
                     "A and C share no identifier and must not be joined by an edge"
                 );
@@ -730,7 +789,10 @@ async fn comprehensive_queries_match_fixtures() {
                 assert_eq!(row["occurrence_count"], 3);
                 assert_eq!(row["device_count"], 2);
                 assert_eq!(row["device_uids"][1], "identity-comp-b");
-                assert!(row.get("decision_key").is_none(), "internal key leaked: {row}");
+                assert!(
+                    row.get("decision_key").is_none(),
+                    "internal key leaked: {row}"
+                );
             })),
         },
         TestCase {
@@ -747,7 +809,10 @@ async fn comprehensive_queries_match_fixtures() {
                 assert_eq!(row["category"], "policy_block");
                 assert_eq!(row["occurrence_count"], 3);
                 assert!(row["resolved_at"].is_null());
-                assert!(row.get("candidate_key").is_none(), "internal key leaked: {row}");
+                assert!(
+                    row.get("candidate_key").is_none(),
+                    "internal key leaked: {row}"
+                );
             })),
         },
         TestCase {

@@ -145,10 +145,11 @@ mod tests {
         }
     }
 
-    /// cpu_metrics has no tags column; its `core_id` is a real column.
+    /// Flows have no tags column, so a `tags.*` series is rejected rather
+    /// than silently grouping everything into one series.
     #[test]
     fn non_timeseries_entities_still_reject_tag_series() {
-        let plan = series_plan(Entity::CpuMetrics, "tags.ssid");
+        let plan = series_plan(Entity::Flows, "tags.ssid");
         assert!(to_sql_and_params(&plan).is_err());
     }
 

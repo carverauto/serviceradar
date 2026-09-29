@@ -1,3 +1,4 @@
+load("@aspect_bazel_lib//lib:write_source_files.bzl", "write_source_files")
 load("@rules_elixir//:elixir_tests.bzl", "ex_unit_tests")
 load("@rules_elixir//:ex_unit_test.bzl", "ex_unit_test")
 load("@rules_elixir//:mix_app.bzl", "mix_app")
@@ -13,8 +14,34 @@ load(
 load("@serviceradar//build:integration_tests.bzl", "requires_shared_fixture")
 load("@serviceradar//build/schema_template:replay_env.bzl", "SCHEMA_TEMPLATE_REPLAY_ENV")
 load("//build:elixir_quality.bzl", "elixir_quality")
+load("//build:world_snapshots.bzl", "world_snapshots")
 
 package(default_visibility = ["//visibility:public"])
+
+world_snapshots(
+    name = "world_schema_snapshots",
+    outs = [
+        "generated_world_snapshots/head.json",
+        "generated_world_snapshots/layouts.json",
+        "generated_world_snapshots/positions.json",
+        "generated_world_snapshots/relations.json",
+    ],
+    app = ":erlang_app",
+    generator = "//build:world_snapshots.exs",
+    tags = ["manual"],
+)
+
+write_source_files(
+    name = "update_world_schema_snapshots",
+    diff_test = False,
+    files = {
+        "priv/resource_snapshots/repo/platform.topology_world_head/20260927041102.json": ":generated_world_snapshots/head.json",
+        "priv/resource_snapshots/repo/platform.topology_world_layouts/20260927041103.json": ":generated_world_snapshots/layouts.json",
+        "priv/resource_snapshots/repo/platform.topology_world_positions/20260927041104.json": ":generated_world_snapshots/positions.json",
+        "priv/resource_snapshots/repo/platform.topology_world_relations/20260927041105.json": ":generated_world_snapshots/relations.json",
+    },
+    tags = ["manual"],
+)
 
 # Every ExUnit file in the project. test/db/** is excluded because those are the database
 # lifecycle targets (migrate_template), not suite tests -- they are declared individually.
@@ -339,6 +366,7 @@ CORE_EXTRA_CONFIG = [
     "config :serviceradar_core, ServiceRadar.Dgraph.Native, skip_compilation?: true",
     "config :serviceradar_core, ServiceRadar.NetworkConfig.Native, skip_compilation?: true",
     "config :serviceradar_core, ServiceRadar.PrefixTags.Native, skip_compilation?: true",
+    "config :serviceradar_core, ServiceRadar.TopologyAtlas.Native, skip_compilation?: true",
 ]
 
 CORE_NATIVE_LIBS = {
@@ -346,6 +374,7 @@ CORE_NATIVE_LIBS = {
     "//elixir/serviceradar_core/native/anomaly_disposition_nif:anomaly_disposition_nif": "anomaly_disposition_nif",
     "//elixir/serviceradar_core/native/dgraph_nif:dgraph_nif": "dgraph_nif",
     "//elixir/serviceradar_core/native/network_config_nif:network_config_nif": "network_config_nif",
+    "//elixir/serviceradar_core/native/topology_atlas_nif:topology_atlas_nif": "topology_atlas_nif",
     "//elixir/serviceradar_core/native/zen_nif:zen_nif": "zen_nif",
 }
 
@@ -482,6 +511,7 @@ ex_unit_tests(
         # the Go package that produces them, so the runfiles tree only contains
         # them if they are declared here.
         "//go/pkg/agent/netprobe:discovery_golden_fixtures",
+        "//elixir/serviceradar_core_elx:runtime_config",
         "//go/pkg/agent/netprobe:enrichment_golden_fixtures",
         "//addons/anomaly-addon:anomaly_manifest",
         # Likewise module level: test/serviceradar/plugins/manifest_test.exs globs
@@ -703,6 +733,34 @@ ex_unit_test(
     tags = [
         "integration_test",
         "large_ingestion_test",
+    ],
+    target_compatible_with = requires_shared_fixture(),
+    deps = INTEGRATION_TEST_DEPS,
+)
+
+# Launched only by the Rust owner that allocates and cleans an isolated Dgraph
+# namespace. Its Repo uses the already migrated, now-quiescent serial_0 clone.
+ex_unit_test(
+    name = "world_worker_fixture_runner",
+    size = "enormous",
+    srcs = ["test/serviceradar/network_discovery/world_worker_fixture_test.exs"],
+    data = INTEGRATION_RUNTIME_DATA + ["//rust/topology-atlas:million_world_fixture"],
+    elixir_opts = [
+        "-r",
+        "test/db/integration_env.exs",
+        "-r",
+        "../../build/elixir_test_config_loader.exs",
+        "-r",
+        "test/db/world_worker_fixture_helper.exs",
+    ],
+    env = {
+        "SERVICERADAR_TEST_DATABASE_POOL_SIZE": "4",
+        "SERVICERADAR_TEST_DB_SHARD": "serial_0",
+    },
+    tags = [
+        "external",
+        "integration_test",
+        "manual",
     ],
     target_compatible_with = requires_shared_fixture(),
     deps = INTEGRATION_TEST_DEPS,

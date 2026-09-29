@@ -96,7 +96,7 @@ Lookup, per `(device, vantage agent)`:
    probe. Do not invent ICMP. The later verdict will be `inconclusive`
    the same way a scheduled sweep that never includes the host would.
 4. One or more covering groups → compile settings exactly as
-   `SweepCompiler.compile_group/3` already does: profile as base,
+   `SweepCompiler.compile_group_settings/2` already does: profile as base,
    group overrides on top, TCP-without-ports dropped, unsupported
    modes (historically `arp` on the agent sweeper) dropped. Multiple
    covering groups for the same agent: union `modes` and `ports`, most

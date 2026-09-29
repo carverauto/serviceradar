@@ -82,8 +82,10 @@ bower_components
 # Compiled binary addons (https://nodejs.org/api/addons.html)
 build/Release
 
-# Dependency directories
-node_modules/
+# Dependency directories. No trailing slash: a symlinked node_modules (as a
+# test harness may create in a run worktree) is a file, not a directory, and
+# `node_modules/` would not ignore it.
+node_modules
 jspm_packages/
 
 # Root-level npm scaffolding, not project code. Agent tooling (e.g.

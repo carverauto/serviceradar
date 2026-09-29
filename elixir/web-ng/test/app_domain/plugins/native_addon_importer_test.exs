@@ -61,6 +61,8 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
   defmodule FakeOciClient do
     @moduledoc false
 
+    def fetch_body(url, opts), do: get(url, opts)
+
     def get(url, _opts) do
       release = Process.get(:native_addon_release)
       release_tag = if is_map(release), do: release["tag_name"]

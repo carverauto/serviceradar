@@ -1,0 +1,45 @@
+Forward hex_archive patches through hex_pkg.
+
+hex_archive already applies patches after extracting a package. hex_pkg dropped
+them, so a Hex dependency could not carry a source patch the way a git_pkg can.
+Each call gets its own patch list.
+
+--- a/bzlmod/hex_packages.bzl
++++ b/bzlmod/hex_packages.bzl
+@@ -35,7 +35,7 @@
+ load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
+ load("//:hex_archive.bzl", "hex_archive")
+ 
+-def hex_pkg(name, version, sha256, build_file, package_name = None):
++def hex_pkg(name, version, sha256, build_file, package_name = None, patches = None, patch_args = None):
+     """A Hex package to fetch from hex.pm.
+ 
+     Args:
+@@ -50,6 +50,9 @@
+             rules_erlang instead of the module holding the stubs.
+         package_name: the name on hex.pm, when it differs from the application
+             name (`chatterbox` ships as `ts_chatterbox`). Defaults to `name`.
++        patches: labels of patches applied after the inner tarball is extracted.
++        patch_args: arguments for the patch tool. Git patches need `-p1`.
++            Defaults to `-p0`, matching `hex_archive`.
+ 
+     Returns:
+         An opaque struct for `hex_packages_extension`.
+@@ -61,6 +64,8 @@
+         version = version,
+         sha256 = sha256,
+         build_file = build_file,
++        patches = patches or [],
++        patch_args = patch_args or ["-p0"],
+     )
+ 
+ def git_pkg(name, remote, commit, build_file, patches = [], patch_args = ["-p1"]):
+@@ -149,6 +154,8 @@
+                     version = pkg.version,
+                     sha256 = pkg.sha256,
+                     build_file = pkg.build_file,
++                    patches = pkg.patches,
++                    patch_args = pkg.patch_args,
+                 )
+             else:
+                 git_repository(

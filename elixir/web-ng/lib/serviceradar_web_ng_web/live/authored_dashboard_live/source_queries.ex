@@ -51,7 +51,8 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueries do
       %{
         key: "cpu_bucket",
         label: "CPU trend buckets",
-        query: "in:cpu time:last_24h bucket:5m stats:avg(usage_percent) as value by time",
+        query:
+          ~s(in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" time:last_24h bucket:5m agg:avg series:uid limit:500),
         description: "Bucketed trend source for line or area panels."
       },
       %{

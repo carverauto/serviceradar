@@ -45,6 +45,7 @@ defmodule ServiceRadar.Analytics.StarRocks.EventDocuments do
       :mtr -> Enum.map(rows, &decode_mtr_row/1)
       :otel_metrics -> Enum.map(rows, &decode_otel_metric_row/1)
       :otel_traces -> Enum.map(rows, &decode_trace_row/1)
+      :bmp -> Enum.map(rows, &decode_row(&1, ~w(metadata)))
       _ -> rows
     end
   end

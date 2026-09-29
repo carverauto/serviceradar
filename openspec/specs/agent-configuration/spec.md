@@ -48,7 +48,7 @@ The `serviceradar-agent` MUST fetch its sysmon configuration from the control pl
 
 #### Scenario: Config fetch timeout
 - **GIVEN** an agent attempting to fetch configuration
-- **WHEN** the request takes longer than 30 seconds
+- **WHEN** the request takes longer than 90 seconds
 - **THEN** the request times out
 - **AND** the agent proceeds with fallback logic
 

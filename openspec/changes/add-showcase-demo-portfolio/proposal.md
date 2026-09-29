@@ -75,6 +75,7 @@ parity with Go.
 - **Demo RTSP replayer:** a Bazel-built image deployed in `demo` that pulls
   licensed H.264 clips from a Linode Object Storage bucket and loops them as RTSP
   paths, so drone cameras are real relayed streams without real drones.
+- **Network-scale acceptance:** independently owned by `prove-million-device-topology`; this portfolio supplies simkit and plugin topology-link foundations. See design D18.
 - **Demos, phased:**
   - P0: Wi-Fi campus twin; drone fleet with map, geofences and a toggleable
     multiview video overlay.

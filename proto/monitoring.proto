@@ -548,6 +548,10 @@ message ControlStreamResponse {
     CommandRequest command = 1;
     AgentConfigResponse config = 2;
     ConsoleFrame console_frame = 3;
+    // One chunk of a pushed config, sent only to agents advertising the
+    // config_push_chunks capability. Chunks of one push are contiguous and
+    // reassemble exactly like StreamConfig chunks.
+    AgentConfigChunk config_chunk = 4;
   }
 }
 

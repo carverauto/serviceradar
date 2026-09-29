@@ -27,7 +27,9 @@ From the library you can:
 - search dashboards with SRQL-style filters such as `in:dashboards`;
 - open a dashboard by its generated seven-digit ID or optional slug;
 - mark dashboards as favorites;
-- set a personal default dashboard when more than one dashboard is available.
+- set a personal default dashboard when more than one dashboard is available;
+- import a report from a first-party release, a GitHub repository, or an uploaded
+  definition file (requires create and edit dashboard permissions).
 
 Dashboard slugs must start with a letter and may contain lowercase letters,
 numbers, and dashes. Pure seven-digit slugs are rejected because those route
@@ -137,9 +139,14 @@ other ServiceRadar features can use the same user groups over time.
 ## Reports and email delivery
 
 Reports are authored SRQL dashboards, not a separate sidebar product. The
-dashboard library has a **Reports** section for system reports such as **New
-devices** (`in:devices first_seen:last_30d`). Device pages also show **Added**
-next to Last Seen.
+dashboard library has a **Reports** section for reports shipped with ServiceRadar
+(such as **New devices**, `in:devices first_seen:last_30d`) and for reports
+imported from a first-party release, a GitHub repository, or an uploaded
+definition. Device pages also show **Added** next to Last Seen.
+
+Use **Import report** in the dashboard library to add a report from one of the
+three sources. Import is idempotent: a slug that already exists is kept as-is
+and you are told it was kept.
 
 Dashboards can be emailed on a schedule when outbound mail is configured under
 **Settings -> Mail**. See [Outbound Mail](./outbound-mail.md) for adapters

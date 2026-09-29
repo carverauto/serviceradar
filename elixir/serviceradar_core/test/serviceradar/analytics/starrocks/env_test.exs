@@ -7,9 +7,11 @@ defmodule ServiceRadar.Analytics.StarRocks.EnvTest do
 
   @var "SERVICERADAR_STARROCKS_ROLLUP_STALE_AFTER_SECONDS"
   @ttl_var "SERVICERADAR_STARROCKS_ROLLUP_CACHE_TTL_SECONDS"
+  @enabled_var "SERVICERADAR_STARROCKS_ENABLED"
+  @cutover_var "SERVICERADAR_STARROCKS_CUTOVER_DATASETS"
 
   setup do
-    previous = Map.new([@var, @ttl_var], &{&1, System.get_env(&1)})
+    previous = Map.new([@var, @ttl_var, @enabled_var, @cutover_var], &{&1, System.get_env(&1)})
 
     on_exit(fn ->
       Enum.each(previous, fn
@@ -113,5 +115,44 @@ defmodule ServiceRadar.Analytics.StarRocks.EnvTest do
                max_in_flight: 4
              ]
     end
+  end
+
+  # Captain decision 2026-09-28: hard cutover, full retirement of the CNPG
+  # flows serving path on day 1. A warehouse-enabled installation with a blank
+  # (or unset, which is how the Helm chart renders "not configured") cutover
+  # list cuts `flows` over by default, so every flows reader serves the
+  # warehouse from the moment the warehouse is enabled. A non-blank value is
+  # the operator's exact list: naming datasets without `flows` refuses flow
+  # reads again, and a typo never silently takes the default.
+  test "an enabled warehouse cuts flows over by default" do
+    System.put_env(@enabled_var, "true")
+    System.delete_env(@cutover_var)
+    assert Env.config()[:cutover_datasets] == [:flows]
+
+    System.put_env(@cutover_var, "")
+    assert Env.config()[:cutover_datasets] == [:flows]
+  end
+
+  test "a disabled warehouse keeps the cutover list empty" do
+    System.delete_env(@enabled_var)
+    System.delete_env(@cutover_var)
+    assert Env.config()[:cutover_datasets] == []
+
+    System.put_env(@enabled_var, "false")
+    System.put_env(@cutover_var, "")
+    assert Env.config()[:cutover_datasets] == []
+  end
+
+  test "a non-blank cutover list replaces the flows default exactly" do
+    System.put_env(@enabled_var, "true")
+
+    System.put_env(@cutover_var, "flows,metrics")
+    assert Env.config()[:cutover_datasets] == [:flows, :metrics]
+
+    System.put_env(@cutover_var, "metrics")
+    assert Env.config()[:cutover_datasets] == [:metrics]
+
+    System.put_env(@cutover_var, "bogus")
+    assert Env.config()[:cutover_datasets] == []
   end
 end

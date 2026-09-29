@@ -6,7 +6,7 @@
 (flows, scalar metrics, logs, events) and left CNPG receiving every write. That was the right
 first step and it is where the cost still is: telemetry is stored twice, the expensive copy is
 the one on PostgreSQL volumes, and everything the OTel pipeline produces (metric points, traces),
-plus MTR, BMP, service status and the sysmon tables, is not in the warehouse at all.
+plus MTR, BMP and service status, is not in the warehouse at all.
 
 Shared-data StarRocks keeps table data in object storage, so retention costs bucket space rather
 than database volume, and the now-partitioned tables expire by dropping a day. Operators want
@@ -44,17 +44,20 @@ wait is cancelled by Postgres `statement_timeout`.
   "Other" tail, and the non-SRQL dashboard readers that still query CNPG directly.
 - **Extend the warehouse to the rest of the append-only telemetry**: OTel metric points and
   metric definitions, OTel traces/spans and their RED and summary rollups, MTR traces and hops,
-  BMP routing events, service status history, and the sysmon CPU/memory/disk/process tables.
+  BMP routing events and service status history.
   Each gets a warehouse table, an EventWriter destination behind the existing JetStream-first
   single-owner path, SRQL dataset routing, and rollups as async materialized views.
+- **Retire dedicated sysmon readers** as recorded in [task 3.3](tasks.md),
+  rather than adding warehouse copies of their empty tables.
 - **An enabled warehouse is the only telemetry store. BREAKING for StarRocks installations.**
   Enabling StarRocks makes every append-only telemetry dataset warehouse-only at once: EventWriter
   stops writing it to CNPG and every reader reads the warehouse. The per-dataset
   `shadowDatasets`/`cutoverDatasets` lists, the dual-write and the soak before retiring writes
   are removed. A reader that has no warehouse implementation yet reports its data as unavailable instead of
   reading a CNPG table that stopped receiving rows. CNPG stays a complete, supported backend for
-  installations without StarRocks: every writer and reader keeps its CNPG implementation, and no
-  CNPG telemetry table is dropped.
+  installations without StarRocks, subject to the existing warehouse-only flow-serving
+  exception in [NetFlow](../../../docs/docs/netflow.md#flow-cutover-and-delivery).
+  Other writers and readers keep their CNPG implementation, and no CNPG telemetry table is dropped.
 - **MTR moves onto JetStream.** Core publishes every MTR trace result to a JetStream subject and
   EventWriter persists traces and hops (warehouse when enabled, CNPG otherwise), removing the
   last direct-to-database MTR write path.

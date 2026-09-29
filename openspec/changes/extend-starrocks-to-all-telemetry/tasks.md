@@ -24,6 +24,35 @@
 - [x] 2.3 Events filter vocabulary on StarRocks: `log_level`, `event_type`, `host`, `device_id`, `finding_uid`.
   - `log_level` is an ordinary column, added by `priv/starrocks/0018_events_documents.sql` along with the `metadata`/`unmapped`/`device`/`observables` documents. `event_type`, `finding_uid` and `host_id`/`hostname` read the same document paths CNPG reads, via `get_json_string`; `device_id` compiles to CNPG's canonical, alias and document-scan arms in both polarities. The three remaining differences from CNPG, and the row-shape decoding that makes a warehouse event row indistinguishable from a CNPG one, are recorded in `k8s/starrocks/README.md`.
 - [ ] 2.4 Route the direct CNPG readers through `Readers`: dashboard throughput sparklines, device Flows-tab presence probes, and any logs/events stat card that bypasses SRQL.
+  - [x] Flows readers (finding 5, issue #4869): the dashboard throughput sparkline
+    (`TrafficSparklines.warehouse_traffic_rows/2`) and the device Flows-tab presence probes
+    (`DeviceLive.FlowData`) now route through `Readers` and render empty/unavailable on
+    `{:error, :starrocks_required}` instead of reading CNPG flows; the CNPG fallbacks and their
+    helpers are deleted. `DeviceRiskIocExposure` gained a warehouse flow page with the same
+    keyset paging contract (over `time` and the flow row key) selected by
+    `Readers.backend(:flows) == :starrocks`, keeping the CNPG query for installations without
+    the warehouse; the hostile-IOC join and the device identity stay CNPG lookups
+    (`ip_threat_intel_cache` is not in the catalog allowlist; the warehouse flow row carries the
+    attributed flow's `agent_id`, so device is resolved agent first via `ocsf_agents` and falls
+    back to `device_identifiers` on the destination IP). Tests:
+    `TrafficSparklinesRoutingTest` (web-ng) and `DeviceRiskIocExposureRoutingTest` (core) pin
+    the routing and the warehouse SQL shape.
+  - [x] DeviceRiskIocExposure warehouse cutover (issue #4869). The routing,
+    required-delivery contract and historical-attribution limitation are owned by
+    [NetFlow: Flow cutover and delivery](../../../docs/docs/netflow.md#flow-cutover-and-delivery).
+    Tests: `DestinationTest` pins
+    required-before-ACK before any cutover, outage-redelivery and idempotent
+    replay (stable record ids); `EnvTest` and the elx production runtime config
+    test pin the default cutover set; `DeviceRiskIocExposureRoutingTest` pins
+    the warehouse page, the CNPG fallback for a disabled warehouse, the strict
+    window bound, the dropped un-enriched in-window row, and retention of a
+    maximum-risk contribution from full and partial encodings for an agent-only
+    device. `FlowAttributionTest` executes the matching SQL and checks the
+    published agent; `FlowsTest`, `RowsTest`, and `AttributionTest` exercise
+    process and agent fields through protobuf decoding and warehouse encoding.
+    Migration `0023_ocsf_network_activity_agent_id.sql` adds the agent column;
+    `SchemaTest` enforces unique versions for the shipped migration set.
+  - [ ] Logs/events stat cards that bypass SRQL (still open).
 - [ ] 2.5 Measure log search on the deployed profile: which index types shared-data supports, and latency of a substring search over 1, 30 and 365 days; document the supported behaviour.
 - [ ] 2.6 Run the parity harness for the `logs` and `events` warehouse readers; ship each reader only after it passes; verify cards and charts against ground truth after the rollout completes.
 
@@ -60,8 +89,11 @@
     `otel.*` inventory entries against the OTel fixture (`src/fixture/otel.rs`), then verify the
     logs page metrics tab, OTLP view, metric detail and Analytics slowest spans on a deployment
     after the rollout completes.
-  - [ ] 3.1.5 JSON:API `/otel_metrics` and `/otel_metric_points` still read CNPG (as `/api/v2/logs`
-    does for logs); route or retire them with the other JSON:API telemetry readers in 5.4.
+  - [x] 3.1.5 JSON:API `/otel_metrics` and `/otel_metric_points` now route through
+    `ServiceRadar.Observability.TelemetryIndexRead` (manual `api_index` read): the
+    warehouse table when StarRocks is enabled, the CNPG data layer otherwise, with the
+    same offset pagination. The same reader covers `/api/v2/logs`
+    and the timeseries routes in 5.4.
 - [ ] 3.2 OTel traces/spans with RED and summary rollups as MVs; trace-by-id lookup.
   - [x] 3.2.1 Warehouse DDL `priv/starrocks/0022_otel_traces.sql`: `otel_traces` keyed by the CNPG
     primary key (trace_id, span_id, timestamp), day partitions, hash-bucketed and sorted by
@@ -94,10 +126,18 @@
   - [ ] 3.2.5 Run the parity database tier for the `traces.*` inventory entries against the
     traces fixture (`src/fixture/traces.rs`), then verify the logs page traces tab, trace detail,
     dashboard and Analytics trace cards and the rollup health banner after a rollout.
-  - [ ] 3.2.6 JSON:API `/otel_traces` and `/otel_trace_summaries` still read CNPG; route or retire
-    them with the other JSON:API telemetry readers in 5.4. `OtelServiceCatalogBackfillWorker`
-    reads CNPG `spans_red_1h` once, for history written before the switch, and needs no change.
-- [ ] 3.3 Sysmon CPU/memory/disk/process: table(s), destination, routing, hourly rollups.
+  - [x] 3.2.6 JSON:API `/otel_traces` and `/otel_trace_summaries` route through
+    `TelemetryIndexRead`: the warehouse tables when `analytics.starrocks.enabled` is true,
+    the CNPG data layer otherwise, matching `OtelTraces.store/2` and
+    `RefreshTraceSummariesWorker` (both write the warehouse only when StarRocks is enabled).
+    `OtelServiceCatalogBackfillWorker` reads CNPG `spans_red_1h` once, for history written
+    before the switch, and needs no change.
+- [x] 3.3 Sysmon CPU/memory/disk/process: table(s), destination, routing, hourly rollups.
+  **Retired -- no warehouse copies.** The implementation follows the
+  [sysmon compatibility requirement](specs/srql/spec.md#requirement-dedicated-sysmon-readers-are-retired-with-query-compatibility)
+  (issue #4861). See the [SRQL reference](../../../docs/docs/srql-language-reference.md#aggregation-with-stats)
+  for query and retention behavior and the [API reference](../../../docs/docs/api-reference.md#retired-sysmon-jsonapi-resources)
+  for retired endpoints and preserved CNPG objects.
 - [ ] 3.4 MTR traces and hops (spec: "MTR traces and hops reach the warehouse through JetStream").
   Scalar MTR metrics already travel on `metrics.mtr` (gateway `MtrMetricsPublisher` -> EventWriter
   `Metrics`); full traces and hops do not: scheduled results go gateway -> core
@@ -172,7 +212,34 @@
       `scans.results.>` and are written inside EventWriter). 3.4.3 is about warehouse-awareness,
       not JetStream, so it does not keep the exception true.
 - [ ] 3.4b BMP routing events and service status history: table, EventWriter destination, routing,
-  readers.
+  readers. BMP routing events are the BMP half (below); service status history stays with its
+  owner, because its write path reads CNPG state (`PluginResultIngestor`,
+  `ServiceStateRegistry`).
+  - [x] 3.4b.1 Warehouse DDL `priv/starrocks/0024_bmp_routing_events.sql`: `bmp_routing_events`
+    with every CNPG column under the same name, keyed `(id, time)` (id is the stable event
+    identity, so a redelivery upserts the same rows), day partitions and 365-day retention
+    (`SERVICERADAR_STARROCKS_RETENTION_DAYS_BMP`, Helm `analytics.starrocks.retentionDays.bmp`,
+    Compose `STARROCKS_RETENTION_DAYS_BMP`). `metadata` is a JSON document, like
+    `mtr_hops.mpls_labels`.
+  - [x] 3.4b.2 EventWriter `AnalyticsSignals` writes BMP routing events to the warehouse only
+    when StarRocks is enabled (`Destination.enabled?/0`), to CNPG only otherwise
+    (`store_routing_events/1`). A failed load fails the batch, JetStream redelivers, and the
+    primary-key table upserts the same stable event ids.
+  - [x] 3.4b.3 SRQL `in:bmp_events` / `bmp_event` / `bmp_routing_events` has a StarRocks dialect
+    (`rust/srql/src/query/starrocks/bmp_events.rs`), and `Readers.mode_for(:bmp)` sends them to
+    it whenever StarRocks is enabled, to CNPG otherwise. It renders the CNPG row builder's own
+    filter and sort grammar; `stats:` is refused on both. `rollup_stats:` and `other:true` are
+    refused by the warehouse dialect but ignored by CNPG (a plain row listing, as before), and
+    `bucket:` is refused by the warehouse dialect and by CNPG's downsample builder.
+  - [x] 3.4b.4 God View's direct `bmp_routing_events` read (`fetch_recent_bmp_routing_events`)
+    has a warehouse branch keyed on `Readers.enabled?/0`; the CNPG query serves disabled
+    installations. `ServiceRadar.BGP.Stats` reads `bgp_routing_info`, which is flow-derived
+    telemetry aggregated by in-place upsert (per-minute bucket rows), not append-only routing
+    events; it stays in CNPG (Decision 1) and is not part of this task.
+  - [ ] 3.4b.5 Run the parity database tier (`//integration_tests/srql_parity:parity_test`) for
+    the `bmp.*` inventory entries against the BMP fixture (`src/fixture/bmp.rs`), then verify the
+    BMP page and God View on a deployment after the rollout completes.
+  - [ ] 3.4b.6 Service status history (the other half of 3.4b).
 - [ ] 3.5 Measure trace-by-id and single-device detail latency cold and warm; record against the detail-page budget.
 - [ ] 3.6 Retention defaults per new dataset in Helm/Compose, applied by the existing retention task.
 
@@ -206,6 +273,16 @@
   `analytics.starrocks.enabled`, highest-traffic first (dashboard cards and sparklines, MTR, logs
   and events pages, OTel, sysmon, BMP, service status), each behind its parity comparison. The
   CNPG implementation stays: it serves every installation without StarRocks.
+  - JSON:API rows (this issue): `/api/v2/logs`, `/otel_metrics`, `/otel_metric_points`,
+    `/timeseries_metrics`, `/timeseries_metrics_hourly`, `/otel_traces` and
+    `/otel_trace_summaries` read their warehouse tables through
+    `ServiceRadar.Observability.TelemetryIndexRead` when that dataset's writes are in the
+    warehouse and the CNPG data layer otherwise. `/timeseries_metrics_interface_hourly`,
+    `/timeseries_metrics_disk_hourly` and the legacy sysmon routes stay CNPG-backed
+    (their rows are still written to CNPG; interface/disk hourly stay CNPG-only per
+    finding 4; sysmon retires under #4861). `/service_status` is not warehouse-backed
+    yet and is left on CNPG. Warehouse rows are shaped from the warehouse table's own
+    columns, so columns the warehouse does not store stay null rather than being invented.
 - [ ] 5.5 Optional backfill of flows and metrics history from CNPG into the warehouse for an
   installation that turns StarRocks on, newest first, in bounded units; verify counts and totals
   per day.

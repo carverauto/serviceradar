@@ -52,6 +52,10 @@ const (
 	proxmoxSemanticConnectorCapabilityV1                  = "proxmox-semantic-connector:v1"
 	proxmoxConsolePolicyBindingCapabilityV1               = "proxmox-console-policy-binding:v1"
 	proxmoxIdentityCapabilityV3                           = "proxmox-identity:v3"
+	// capabilityConfigPushChunks: this agent reassembles a control-stream config
+	// push sent as AgentConfigChunks, so the gateway can push configs larger than
+	// one gRPC message.
+	capabilityConfigPushChunks = "config_push_chunks"
 
 	agentCapabilityServiceName = "agent"
 	agentCapabilityServiceType = "agent"
@@ -358,6 +362,7 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 	capabilities = append(capabilities,
 		sweepType,
 		commandTypeAdhocScan,
+		capabilityConfigPushChunks,
 		"snmp",
 		"mapper",
 		"sync",
@@ -374,6 +379,9 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 		proxmoxSemanticConnectorCapabilityV1,
 		proxmoxConsolePolicyBindingCapabilityV1,
 		proxmoxIdentityCapabilityV3,
+		// grpc_request: the Wasm runtime provides the grpc_unary host
+		// function, so core can admit packages that declare it.
+		pluginCapabilityGRPCRequest,
 	)
 	if options.hostNetworkVisibilitySupported {
 		capabilities = append(capabilities, capabilityHostNetworkVisibility)

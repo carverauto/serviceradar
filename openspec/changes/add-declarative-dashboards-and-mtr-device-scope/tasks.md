@@ -55,12 +55,12 @@
 The repository-source logic is generic but namespaced under `Plugins`. Reports are
 the third consumer, so it moves once rather than being copied a third time.
 
-- [ ] 4b.1 Extract a project-owned shared module from `Plugins.RepoUrl`,
+- [x] 4b.1 Extract a project-owned shared module from `Plugins.RepoUrl`,
       `Plugins.GithubImporter`, `Plugins.FirstPartyImporter` and
       `Plugins.FirstPartyReleaseClient`: repository-URL parsing and boundary
       enforcement, ref resolution, signature verification and policy, release
       listing, and index-asset reading.
-- [ ] 4b.2 **Route every external fetch through `ServiceRadar.HTTP.EgressClient`.**
+- [x] 4b.2 **Route every external fetch through `ServiceRadar.HTTP.EgressClient`.**
       `GithubImporter` currently calls `api.github.com` and
       `raw.githubusercontent.com` with raw `Req`, including a streaming artifact
       download, and no importer under `plugins/` references `EgressClient` at all.
@@ -69,30 +69,50 @@ the third consumer, so it moves once rather than being copied a third time.
       runs behind -- so GitHub import cannot work in a proxied deployment today,
       and only there. Use `fetch_body/2` for API responses and
       `download_to_file/3` for artifacts.
-- [ ] 4b.3 Repoint plugins and add-ons at the shared module with no behaviour
+- [x] 4b.3 Repoint plugins and add-ons at the shared module with no behaviour
       change other than the egress fix, and keep their existing tests green as the
       evidence.
-- [ ] 4b.4 A test asserting no module under the package-source namespace calls
+- [x] 4b.4 A test asserting no module under the package-source namespace calls
       `Req` directly for an external host, so the violation cannot return.
 
 ## 4c. Report import sources
 
-- [ ] 4c.1 Give a report definition the same source model as an add-on package:
+- [x] 4c.1 Give a report definition the same source model as an add-on package:
       `source_type` one_of `[:upload, :github, :first_party]` with release tag,
       commit, content hash and signature provenance.
-- [ ] 4c.2 `:first_party` resolves against the OSS repository's default repo URL
+      Columns on `platform.authored_dashboards` (migration `20260929090000`), set
+      only by the new `:import` create action; `:update` does not accept them, so
+      a builder edit cannot forge or clear provenance. `source_type` is NULL for a
+      dashboard authored in the builder. The migration is schema-only: rows created
+      before it keep NULL provenance, because their release, commit and hash were
+      never recorded, and migrations past the baseline must not backfill on the
+      first-boot path.
+- [x] 4c.2 `:first_party` resolves against the OSS repository's default repo URL
       and its index asset, listing the reports available to import; some ship
       enabled by default.
-- [ ] 4c.3 `:github` resolves against an operator-nominated repository, subject to
+      The index is committed at `priv/dashboards/index.json` rather than attached
+      as a release asset, so no release-workflow change is needed: first-party
+      import resolves the release tag to a commit and reads the index and
+      definitions from that commit. Startup seeding reads the same index and
+      creates only `enabled_by_default` entries. A shipped `.json` the index does
+      not list is a load error.
+- [x] 4c.3 `:github` resolves against an operator-nominated repository, subject to
       the same repo-boundary and signature policy as a plugin import.
-- [ ] 4c.4 `:upload` accepts a definition directly, validated on the same path as
+- [x] 4c.4 `:upload` accepts a definition directly, validated on the same path as
       one fetched from a source, so an uploaded report cannot reach the database
       under looser rules.
-- [ ] 4c.5 Import is idempotent and never overwrites operator edits, exactly as for
+      All three sources end in `ReportImporter.import_definition/4`.
+- [x] 4c.5 Import is idempotent and never overwrites operator edits, exactly as for
       a shipped definition. An imported report that has been customised is not
       stomped by re-importing a newer version of it.
-- [ ] 4c.6 A report needs no renderer artifact, so do NOT route it through
+      An existing slug is kept whether or not it was customised, and the operator
+      is told so; distinguishing untouched from customised is not attempted.
+- [x] 4c.6 A report needs no renderer artifact, so do NOT route it through
       `GithubImporter.fetch_dashboard/1`, which requires one.
+      `ReportImporter` fetches the single definition through `RepoClient`.
+- [x] 4c.7 Import surface at `/dashboards/reports/import`, linked from the
+      dashboard library, gated on `analytics.dashboards.create` and
+      `analytics.dashboards.edit`; writes run under the operator's scope.
 
 ## 5. MTR device attribution
 

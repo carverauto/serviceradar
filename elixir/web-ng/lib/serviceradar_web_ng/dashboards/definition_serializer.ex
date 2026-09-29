@@ -18,6 +18,10 @@ defmodule ServiceRadarWebNG.Dashboards.DefinitionSerializer do
   - `:inserted_at`, `:updated_at`, `:archived_at` — timestamps
   - `:owner_id` — ownership; the importing installation applies its own
   - `:visibility`, `:status` — operational state set by the importing installation
+  - `:source_type`, `:source_repo_url`, `:source_ref`, `:source_release_tag`,
+    `:source_commit`, `:source_path`, `:content_hash`, `:signature` — import
+    provenance, which describes how this installation obtained the dashboard and
+    is recorded afresh by whichever installation imports the export
 
   **Panel-level exclusions:**
   - `:id` — database identifier

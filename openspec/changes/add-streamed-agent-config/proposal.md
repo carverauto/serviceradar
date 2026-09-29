@@ -8,6 +8,7 @@ Production agents can receive compiled configurations larger than the unary gRPC
 - Reuse the existing streaming status machinery patterns in the opposite direction: chunk metadata, final markers, encoded byte-size budgets, ordering validation, and reassembly tests.
 - Keep unary `GetConfig` available for backward compatibility, while new agents prefer streamed config fetch and fall back only when the gateway does not implement the streamed RPC.
 - Preserve config versioning, `not_modified`, polling intervals, control-stream config acknowledgements, and existing apply/cache behavior after reassembly.
+- Deliver control-stream config pushes the same way: chunked for agents that advertise `config_push_chunks`, and never as a single message larger than the agent's receive limit. A push of a config larger than 4 MiB otherwise tears down the agent's control stream with `ResourceExhausted`, so the change waits for a poll that may itself be failing.
 
 ## Impact
 - Affected specs: `agent-config`, `agent-configuration`

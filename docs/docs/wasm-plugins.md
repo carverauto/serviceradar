@@ -82,6 +82,63 @@ integrations:
           label: Site
 ```
 
+#### One credential rule, several schedules
+
+A `producer_schedule` profile may bind more than one schedule of the same
+package, so one vendor account drives, say, an inventory refresh every 15
+minutes and a telemetry poll every minute. Replace `schedule_id` with
+`schedule_ids`:
+
+```yaml
+producer_schedules:
+  - schedule_id: example-inventory.refresh
+    default_cadence_seconds: 900
+    credential_requirements:
+      inventory_account: {required: true, resolution_location: agent, grants: []}
+    # ...label, action_id, command_type, bounds as above
+  - schedule_id: example-inventory.telemetry
+    default_cadence_seconds: 60
+    min_cadence_seconds: 30
+    credential_requirements:
+      inventory_account: {required: true, resolution_location: agent, grants: []}
+    # ...
+
+integrations:
+  credential_profiles:
+    - provider: example-inventory
+      # ...
+      provisioning:
+        mode: producer_schedule
+        schedule_ids:
+          - example-inventory.refresh
+          - example-inventory.telemetry
+        credential_requirement: inventory_account
+```
+
+Rules the importer enforces:
+
+- Declare exactly one of `schedule_id` or `schedule_ids`. `schedule_id` keeps
+  working unchanged.
+- `schedule_ids` is a non-empty list of at most 8 distinct ids. Every id must
+  name a schedule in the same package's `producer_schedules`, and every listed
+  schedule must declare the profile's `credential_requirement`.
+
+What one rule then provisions:
+
+- **One assignment per agent**, as before. Every listed schedule is bound to
+  that assignment with the same plugin config and the same credential
+  reference. The dispatcher runs each schedule independently.
+- **Per-schedule cadence.** The first listed id is the primary schedule. The
+  rule form's cadence field is bounded by the primary's
+  `min_cadence_seconds`/`max_cadence_seconds` and overrides the primary only.
+  Every other schedule runs at its own `default_cadence_seconds`; the override is
+  never copied onto a schedule with a different cadence contract.
+- **Shared on/off.** The rule's recurring-refresh switch arms and disarms all of
+  its schedules together, and disabling the rule, revoking the package, or
+  removing an id from `schedule_ids` in a new package version disables the
+  affected schedules on the next credential reconciliation.
+- **Run Now** on the credential rules page dispatches the primary schedule.
+
 ServiceRadar validates this data while importing the signed package and builds
 the credentials UI, assignment reconciliation, schedule binding, and discovery
 source display from it. Adding another provider does not require a core catalog
@@ -136,6 +193,74 @@ time-series must use the canonical `serviceradar.metric.v1` telemetry payload;
 Check-scoped annotations can still use the `events` field in
 `serviceradar.plugin_result.v1`, but those events are coupled to `submit_result`
 and are not a streaming telemetry surface.
+
+### Condition events and condition scopes
+
+A Wasm plugin keeps no state between runs, so a check that reports a resource's
+health emits the same condition every run. The agent de-duplicates these for
+the plugin. An `ocsf_event` telemetry record is a condition event when its
+`unmapped` object carries:
+
+- `condition_key` (string): a stable key for the condition, for example
+  `example:<device_ref>:<alert_name>`.
+- `level` (string): `ok`, `warning`, or `critical`. When `unmapped` also carries
+  numeric `ratio`, `warn`, and `crit`, the agent applies hysteresis so a value
+  parked at a threshold does not flap between levels.
+
+Per assignment and key, the agent forwards a condition event the first time it
+sees the key, when the level changes, and at most once every 15 minutes while
+the level is unchanged. Other repeats are accepted and dropped. State for a key
+that is not observed for an hour is forgotten.
+
+Those rules forward the first `ok` of every key. A plugin that mirrors a
+vendor's list of active alerts would have to emit `ok` for every possible alert
+on every device each run, or emit only active alerts and never deliver the
+clear. Condition scopes solve this. Add `unmapped.condition_scope` (string, for
+example `example:<source_instance>:alerts`) to each condition event, emit only
+the active (non-ok) conditions, and close each run with one scope-complete
+marker record for the scope:
+
+```json
+{
+  "class_uid": 1008,
+  "category_uid": 1,
+  "type_uid": 100801,
+  "activity_id": 1,
+  "severity_id": 1,
+  "message": "condition scope snapshot",
+  "unmapped": {
+    "condition_scope_complete": "example:source-01:alerts",
+    "active_condition_keys": ["example:dev-01:thermal_throttle"]
+  }
+}
+```
+
+`active_condition_keys` lists every key in the scope that the plugin currently
+considers non-ok; it is required and may be empty. The marker may be emitted in
+the same `emit_telemetry` call as the conditions or in a later call of the same
+run. For scoped conditions the agent:
+
+- Forwards non-ok levels with the rules above and remembers the last forwarded
+  record for each key.
+- Never forwards or refreshes `ok` for a key it has not seen at a non-ok level.
+- Forwards `ok` once for a key it remembers at a non-ok level, then forgets the
+  key.
+- On a marker, synthesizes one `ok` event for each remembered non-ok key in the
+  scope that the marker does not list, then forgets those keys. The clear
+  copies the class, device, and `unmapped` fields of the last forwarded event,
+  with `level` set to `ok`, informational severity, the message
+  `Condition cleared: <condition_key>`, a new event id and time, and
+  `unmapped.condition_cleared_by` set to `condition_scope_complete`. Clears are
+  placed directly after the marker, sorted by `condition_key`.
+- Ignores marker keys it has never seen, and forwards the marker itself
+  unchanged.
+
+Emit the marker only when the run observed the whole scope. A run that
+collected partially must omit the marker: no marker means no clears. Scoped
+state is in memory and is forgotten after an hour without observations, and
+forgetting a key never synthesizes a clear. An alert that clears while the
+agent is restarting is therefore not cleared by the agent. Events without
+`condition_scope` keep the unscoped behavior.
 
 ## Gateway-Mediated Artifacts
 
@@ -204,6 +329,48 @@ Because capabilities and permissions are visible in the manifest, reviewers can 
 
 The full list of capability names and permission keys lives on the [developer portal](https://developer.serviceradar.cloud).
 
+### Host-proxied unary gRPC (`grpc_request`)
+
+A plugin that declares the `grpc_request` capability can call the `grpc_unary`
+host function to make one unary gRPC call. The guest passes an already-serialized
+request message and receives the serialized response message; the agent does not
+need the service's `.proto` definition. Streaming RPCs are not supported.
+
+The agent applies the same checks as `http_request`, before it dials:
+
+- The destination host must be permitted by `allowed_domains` (hostnames) or
+  `allowed_networks` (IP literals), and the port must be listed in
+  `allowed_ports`. Otherwise the call is denied and nothing is dialed.
+- Plaintext HTTP/2 (`transport: h2c`) is only allowed when the destination
+  resolves to an address inside `allowed_networks`; the call is pinned to that
+  address. Use `transport: tls` for anything else. TLS verifies against the same
+  trust roots the agent uses for plugin HTTPS.
+- The call counts against `max_open_connections` while it runs.
+- The default timeout is 10 seconds and covers DNS lookup, dial, and the RPC
+  together. The response message is capped at 4 MiB, or lower when the request
+  sets `max_response_bytes`.
+- Request metadata keys are lowercased. Pseudo-headers, `grpc-*` keys, and
+  transport headers such as `content-type` and `te` are rejected. Keys ending in
+  `-bin` carry base64 values.
+
+A completed RPC, including a non-OK gRPC status, returns the status code,
+message, headers, and trailers to the plugin. A connection that fails before
+any gRPC status is reported as `UNAVAILABLE` (14).
+
+```yaml
+capabilities:
+  - get_config
+  - submit_result
+  - grpc_request
+permissions:
+  allowed_networks:
+    - 192.0.2.0/24
+  allowed_ports:
+    - 9200
+```
+
+Agents that support this capability advertise `grpc_request`.
+
 ## SDKs and Authoring
 
 Plugins compile to `wasm32-wasi` and export a zero-argument entrypoint that matches the manifest. ServiceRadar publishes SDKs that provide a higher-level API over the host ABI so you do not have to work with raw host imports.
@@ -251,15 +418,22 @@ TinyGo against `serviceradar-sdk-go`, `--template rust` targets `wasm32-wasip1`
 against `serviceradar-sdk-rust`. `plugin validate` checks `plugin.yaml` against
 the same manifest contract the server enforces and makes no network calls.
 
-Fetching `serviceradar-sdk-go` requires
-`GOPRIVATE=github.com/carverauto/serviceradar-sdk-go` on every `go get`,
-`go mod download`, and `tinygo build` invocation that resolves it — the module
-is not served via the public Go proxy, so without this Go fails against the
-proxy/checksum database instead of fetching directly from GitHub:
+`github.com/carverauto/*` modules, including `serviceradar-sdk-go`, are not
+served by the public Go proxy or checksum database. Set both variables below for
+every `go get`, `go mod download`, `go mod vendor`, and `tinygo build` invocation
+that resolves modules, so Go fetches them directly from GitHub instead of failing
+against the proxy/checksum database:
 
 ```
-export GOPRIVATE=github.com/carverauto/serviceradar-sdk-go
+export GOPRIVATE='github.com/carverauto/*'
+export GONOSUMDB='github.com/carverauto/*'
+go get github.com/carverauto/serviceradar-sdk-go/v2@latest
 ```
+
+The module path carries the `/v2` major-version suffix. First-party plugins and
+the `plugin init --template go` scaffold commit a `vendor/` tree, so a build from
+that tree needs no module download; the same two settings are used by the Bazel
+plugin build and the CI workflows.
 
 Publishing does three calls: it stages the package, requests a short-lived
 storage token, then uploads the `plugin.wasm` bytes with that token. Track the

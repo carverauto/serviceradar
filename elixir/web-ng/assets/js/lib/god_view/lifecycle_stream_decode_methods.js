@@ -97,6 +97,10 @@ export const godViewLifecycleStreamDecodeMethods = {
       edgeSourceIndex: columns.edgeSource,
       edgeTargetIndex: columns.edgeTarget,
     }
+    if (columns.table.schema.metadata.get("payload_kind") === "detail") {
+      if (nodeCount > 128 || edgeCount > 256 || bytes.byteLength > 262144) throw new Error("Topology detail exceeds budget")
+      graph._topologySemanticLevel = "detail"
+    }
     // Not enumerable: layout spreads and deep-clones the graph, and must not copy the table.
     Object.defineProperty(graph, "columns", {value: columns, enumerable: false})
     return graph

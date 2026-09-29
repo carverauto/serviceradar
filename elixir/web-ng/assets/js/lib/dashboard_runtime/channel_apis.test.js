@@ -81,6 +81,61 @@ describe("actions API", () => {
     })
   })
 
+  test("an action held for confirmation resolves only after the host confirms", async () => {
+    const channel = fakeChannel({
+      "actions:invoke": ["ok", {state: "confirmation_required", confirmation_id: "conf-1", action_id: "northbound:1", expires_in_ms: 120000}],
+    })
+    const api = createDashboardActionsApi({capabilityAllowed: allowAll, permitted: true, getChannel: () => channel})
+    const onProgress = vi.fn()
+    const onConfirmation = vi.fn()
+    let settled = false
+
+    const result = api
+      .publicApi()
+      .invoke({actionId: "northbound:1", targets: [{deviceUid: "sr:device:sample-01"}]}, {onProgress, onConfirmation})
+    result.then(() => (settled = true))
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(api.awaitingConfirmationCount()).toBe(1)
+    expect(onConfirmation.mock.calls[0][0]).toMatchObject({state: "pending", confirmation_id: "conf-1"})
+    expect(onProgress).not.toHaveBeenCalled()
+    expect(settled).toBe(false)
+
+    api.handleConfirmation({
+      confirmation_id: "conf-1",
+      state: "confirmed",
+      invocation: {invocation_id: "inv-9", state: "dispatching"},
+    })
+    api.handleProgress({invocation_id: "inv-9", state: "succeeded"})
+
+    await expect(result).resolves.toMatchObject({invocation_id: "inv-9", state: "succeeded"})
+    expect(onConfirmation.mock.calls.map(([update]) => update.state)).toEqual(["pending", "confirmed"])
+    expect(api.awaitingConfirmationCount()).toBe(0)
+    expect(api.pendingCount()).toBe(0)
+  })
+
+  test("a declined or expired confirmation rejects the invoke with a confirmation code", async () => {
+    const channel = fakeChannel({"actions:invoke": ["ok", {state: "confirmation_required", confirmation_id: "conf-2"}]})
+    const api = createDashboardActionsApi({capabilityAllowed: allowAll, permitted: true, getChannel: () => channel})
+
+    const declined = api.publicApi().invoke({actionId: "a", targets: [{deviceUid: "d"}]})
+    await Promise.resolve()
+    await Promise.resolve()
+    api.handleConfirmation({confirmation_id: "conf-2", state: "declined"})
+    await expect(declined).rejects.toMatchObject({code: "confirmation_declined", confirmationId: "conf-2", actionId: "a"})
+
+    const expired = api.publicApi().invoke({actionId: "a", targets: [{deviceUid: "d"}]})
+    await Promise.resolve()
+    await Promise.resolve()
+    api.handleConfirmation({confirmation_id: "conf-2", state: "expired", reason: "The confirmation expired before it was answered."})
+    await expect(expired).rejects.toMatchObject({code: "confirmation_expired"})
+
+    // A late or repeated message for a settled confirmation is ignored.
+    expect(() => api.handleConfirmation({confirmation_id: "conf-2", state: "confirmed"})).not.toThrow()
+    expect(api.awaitingConfirmationCount()).toBe(0)
+  })
+
   test("invoke requires targets with a device uid", async () => {
     const api = createDashboardActionsApi({capabilityAllowed: allowAll, permitted: true, getChannel: () => fakeChannel()})
 

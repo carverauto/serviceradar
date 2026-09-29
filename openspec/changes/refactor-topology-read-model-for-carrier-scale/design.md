@@ -1,147 +1,169 @@
 ## Context
-The current topology surface has four coupled failure modes:
+[Issue #4774](https://github.com/carverauto/serviceradar/issues/4774) now requires a web-map-style tile engine for 200,000 to 1,000,000 or more devices. The user confirmed this revised scope. This amendment replaces this change's earlier semantic-level-only overview and its frontend-only geometry decision: persistent server world coordinates own the overview, while ELK remains only in explicitly entered bounded detail scenes. Tiles are current scope, not future work.
 
-1. The default graph is semantically overloaded.
-   It tries to render infrastructure transport, endpoint attachment census, unresolved identity fragments, and inferred relationships in one canvas.
-2. Geometry is authored in more than one place.
-   The frontend already uses ELK and additional client-side endpoint projection logic, while the backend still carries layout-oriented structure and legacy backend-layout paths.
-3. Bootstrap is fragile.
-   The page exposes an HTTP snapshot URL but the client relies on channel delivery, so first paint can fail if the initial stream race is lost.
-4. Status overlays are not trustworthy.
-   The current `Affected` state can be produced by a three-hop heuristic from unhealthy nodes even when there is no corroborating causal event evidence.
+The broader carrier-scale change also separates infrastructure transport, endpoint census, unresolved identity diagnostics, and evidence-backed impact semantics. Quarantine and evidence-backed `Affected` tasks remain outside #4774. This amendment does not imply that those independent requirements are implemented.
 
-Carrier-scale support requires a topology surface that is bounded by design. Hundreds of thousands of discovered endpoints cannot be treated as individual default-render objects, and source-quality anomalies must not be allowed to silently pollute operator-facing topology.
+## Implemented foundation and measured evidence
+The Dgraph canonical reader pages Device vertices and canonical relations through one read-only transaction. It validates raw UID progress and snapshot identity, reduces oversized pages to the configured gRPC receive limit, and rejects incomplete or malformed refreshes. The integrated [scratch workflow](https://carverauto.buildbuddy.io/invocation/20b4c301-e1e4-4d32-ab95-79dc21afb7e5) passed the real Dgraph schema/query lifecycle and the Oban publication worker, including isolated vertices and source changes during publication. Scratch database teardown was independently verified; Dgraph fixture cleanup lists namespaces after deletion.
+
+The core-owned native engine, Ash persistence resources, migration and bounded Oban worker now publish persistent world coordinates. Web nodes load coherent publications into native spatial indexes and serve schema-3 tiles, authenticated search/details, bounded ELK pages and independent health/flow overlays. The semantic-level serving surface is not part of this read model; see Separate map and bounded detail geometry. Source-failure and restart tests protect the accepted read model.
+
+PR #4812 merged #4749's renderer dependency. The overview now runs through TileLayer and OrthographicView with the existing typed WebGPU sublayers and procedural packet flow. The [client regression run](https://carverauto.buildbuddy.io/invocation/2e9b3e25-477e-4bab-bbd0-bba33ea4796b) passed unit and browser cases for HTTP recovery, search, picking, detail entry/return, scene-cache identity and targeted conditional tile refetch.
+
+The shared invented million-device/two-million-relation generator exercises deterministic placement, exact coordinate stability after 1% growth, the production NIF and Arrow encoder, and real browser requests. The native engine's earlier measurement found fresh placement at 1,952 ms, incremental placement at 3,231 ms, index construction at 2,764 ms and root-tile generation at 230 ms; 64 sampled tile queries had p95 4.635 ms. These timings exclude database persistence and transport. Scratch persistence of that hierarchy, current browser measurements, GPU identity, reproducible targets and unresolved acceptance limits are recorded in [the acceptance report](../../../docs/god-view-world-acceptance.md). Do not infer whole-system acceptance from isolated native or uncapped browser timings.
 
 ## Goals / Non-Goals
-- Goals:
-  - Make the default topology graph bounded, readable, and infrastructure-first.
-  - Preserve endpoint visibility through progressive disclosure rather than full expansion.
-  - Prevent unresolved or low-trust identities from appearing as backbone peers.
-  - Establish a single frontend geometry authority and a reliable initial load path.
-  - Limit impact overlays to evidence-backed semantics.
-  - Add measurable quality gates for topology ingestion and snapshot generation.
-  - Make the full current level reachable through Fit and make every rendered glyph self-identifying at the level where it appears.
-- Non-Goals:
-  - Recreate every raw mapper relation in the default graph.
-  - Guarantee that all endpoints are simultaneously visible on a single canvas.
-  - Introduce multitenant topology partitions or customer-specific graph modes.
-  - Replace the entire rendering stack in this change; the contract must support future renderer swaps, but renderer replacement is not required here.
-  - Run browser-side ELK over every device, endpoint, or relation in a 50k-to-million-element environment.
-  - Guarantee a crossing-free simultaneous drawing of arbitrary cyclic cross-links; the overview summarizes those links and discloses them only in bounded focus views.
+- Persist deterministic, stable world positions and publish coherent incremental generations.
+- Bound overview delivery by visible tiles, with correct aggregate counts and explicit access to every admitted device.
+- Keep geometry cached while health and packet flow update separately.
+- Preserve bounded, readable ELK detail scenes without changing map geometry.
+- Measure the complete 1M-device path and real WebGPU acceptance with packet flow enabled.
+- Do not add a second renderer, change #4749 internals, or bring evidence-backed impact/quarantine work into #4774.
+- Do not infer geographic relationships for sites whose topology is nongeographic.
 
 ## Decisions
 
-### Decision: Split the topology read model into backbone, attachment census, and drill-down neighborhoods
-The default God-View snapshot will include only the transport backbone needed to answer "how is infrastructure connected?" Endpoint attachments will be exported as summarized attachment census metadata anchored to backbone nodes, plus bounded drill-down neighborhood payloads requested explicitly by the operator.
+### Decision: Separate map and bounded detail geometry
 
-Consequences:
-- Endpoint summaries are not allowed to dominate backbone layout.
-- Endpoint detail rendering can be paged, filtered, or capped without changing the backbone graph.
-- Source systems may retain raw attachment evidence, but the default UI contract is no longer obligated to render each attachment as a graph node.
+The overview uses server-authored persistent world coordinates. A browser never lays out the whole canonical topology. Bounded ELK scenes remain separate coordinate spaces for a selected device neighborhood or a page of attachment members. Entering detail saves the map camera and selection; exit restores them without moving the world.
 
-### Decision: Quarantine unresolved topology sightings and non-promotable identities
-Topology sightings with unresolved `sr:*` identities, null-neighbor rows, or duplicate identity collisions are not promotable to the default backbone projection. They remain available for diagnostics and reconciliation metrics, but they render only after explicit drill-down into attachment diagnostics or after identity resolution promotes them to a stable device identity.
+Reuse the jointly paged Dgraph canonical reader, the application-supervised RuntimeGraph refresh with last-published retention, stable semantic identities, component/attachment grouping, bounded detail selection, scoped inventory reads, and current-authority checks. The removed semantic-level content hash included telemetry, so it is not a geometry tile ETag. The former Atlas semantic-level serving surface (the levels channel mode, the snapshot revisions endpoint, and AtlasStore level publication) was removed in favor of persisted-world tiles; enriched bounded level pages remain the detail-scene foundation.
 
-Consequences:
-- The default graph stops showing "mystery devices" as if they were real backbone peers.
-- Data-quality issues become observable counters instead of accidental graph nodes.
+### Decision: Publish immutable generations within a stable coordinate version
 
-### Decision: Make frontend layout the single geometry authority
-The backend will author topology semantics only: the bounded backbone, attachment summaries, expansion membership, and the metadata needed for deterministic client layout. The frontend will remain the only geometry authority. A visible atlas level selects exactly one layout pipeline from explicit scene semantics; the system must remove backend-authored geometry ownership, legacy backend layout fallback, and any second node-placement pass layered on top of the selected pipeline. Different bounded levels may select different ELK algorithms, but one accepted scene cannot combine competing node coordinate systems.
+Ownership: a pure Rust `topology-atlas` engine with a core-owned NIF resource; a core Oban worker coordinates durable generation. Core must not depend on web-ng. The worker reads canonical topology, creates or updates the spatial index, persists the candidate, and publishes it. HTTP and channels read accepted immutable generations rather than doing whole-graph layout in a request.
 
-Implementation ownership for the renderer-neutral deck.gl scene, screen-space collision admission, and camera geometry begins with `refactor-god-view-elk-scene`. This change consumes those renderer contracts, replaces the single layered-layout assumption with explicit atlas-level selection, and owns the bounded semantic input, deterministic forest, cross-link disclosure, visible-member/paging budgets, semantic labels, bootstrap, and causal-overlay semantics.
+Three identities have different purposes:
 
-Consequences:
-- We keep the proven direction of using ELK or a successor client layout engine rather than revisiting failed backend-authored geometry.
-- Topology stability becomes testable at the frontend layout-contract boundary.
-- The client no longer creates second-order overlap bugs by mixing ELK backbone placement with a second projection/layout pass for endpoint groups.
+| Identity | Meaning | Changes when |
+| --- | --- | --- |
+| `layout_version` | Coordinate space, placement algorithm/configuration, fixed world extent | Explicit full relayout only |
+| `generation` | Atomically published geometry/topology state within a layout | Membership, relation binding, importance, or other geometry content changes |
+| `tile_revision` | Content identity of one geometry tile | That tile's admitted geometry or static details change |
 
-### Decision: Use a deterministic transport forest for the radial overview
-The global and site overview SHALL project the bounded visible topology into a deterministic rooted forest before layout. Forest construction ranks promotable infrastructure transport ahead of inferred transport, summaries, and endpoint membership; breaks ties by stable semantic relation and node identifiers; selects stable infrastructure roots; and orients every selected edge away from its component root. The overview then invokes ELK Radial only with that acyclic forest.
+The source poll/revision and generation must not be included unconditionally in tile content hashes. Untouched tile bytes and ETags remain reusable after publication of another generation. A telemetry update advances only overlay sequence/revision.
 
-Semantic relations excluded from the forest remain cross-links with their original relation identifiers and telemetry metadata. Cross-links do not influence overview node placement and are not drawn as an always-on mesh. The overview exposes a stable cross-link count per component and per focused node or route; selecting or focusing a bounded neighborhood may reveal only the relevant cross-links through the detail scene.
+Build a candidate generation separately. Only publish its head after coordinates, relation bindings, hierarchy summaries, dirty-tile index, and required low-zoom tiles are complete and validated. A failed read, placement, persistence, or encoding operation leaves the previous accepted generation active. Compare-and-swap publication prevents an older worker from replacing a newer head. Restart reconstructs an accepted generation from persistence. Partial candidates are never visible; abandoned generations are collected after readers release them.
 
-Consequences:
-- ELK Radial receives the tree input it requires instead of being asked to repair a cyclic network.
-- The default overview has one non-overlapping load-bearing path between every node and its component root.
-- Cycles and redundancy remain discoverable without turning the global view into an edge carpet.
-- Forest membership and roots remain stable across input row order and non-structural telemetry updates.
+An immutable generation need not duplicate one million unchanged position rows. Position assignments belong to a layout version and are append-stable; generation membership, relation-binding changes, and tile revisions use an immutable delta or equivalent MVCC representation. The published head is the visibility boundary. Deletions cannot mutate an old generation out from under in-flight requests.
 
-### Decision: Treat expansion as bounded focus, not global graph growth
-Expanding an endpoint summary SHALL select a bounded neighborhood level anchored to that group. The selected level retains the surrounding transport path required for context and shows a capped or paged member set. It SHALL NOT add every endpoint to the global overview or force unrelated components through a new global layout.
+### Decision: Persist layout state through platform migrations
 
-The first implementation may reuse radial tree layout for a focused group or preserve the validated layered detail adapter when its route contract is required. Algorithm selection is explicit scene metadata and is part of the cache key. ELK Mr. Tree is not a drop-in fallback: it may be evaluated for a future bounded detail mode only after its port and non-tree routing output satisfies the shared scene validator.
+Logical records, with physical representation chosen to avoid full rewrites:
 
-Consequences:
-- Expanding one cluster cannot make unrelated topology disappear or make Fit impossible.
-- Multiple expanded clusters remain represented as independent bounded focus states rather than one unbounded compound scene.
-- Paging and sampling are both allowed: stable paging for explicit browsing and deterministic sampling for aggregate preview.
+- Layout: `layout_version`, algorithm and configuration version, seed, integer world extent, maximum zoom, creation time, status.
+- Generation: `layout_version`, `generation`, predecessor, canonical source identity, status, publication time, accepted tile-index reference.
+- Device position: `layout_version`, canonical `device_id`, integer `world_x`, `world_y`, stable placement parent, allocated slot, importance/minimum zoom. Generation membership controls visibility.
+- Relation binding: `layout_version`, stable canonical `relation_id`, canonical endpoint IDs, endpoint placement bindings, route/bundle inputs. Coordinates derive from the authoritative persisted endpoints; a relation binding does not duplicate an independently mutable device position.
+- Aggregate and spatial summaries: stable aggregate identity and tile ownership, represented-member count, stable child/detail reference. Counts describe canonical admitted membership, not telemetry.
+- Geometry tile cache: `(visibility_scope, layout_version, z, x, y, tile_revision)`, content type, encoded bytes, checksum, row counts. A manifest maps an accepted generation to current tile revisions.
 
-### Decision: Fit and labels follow semantic zoom levels
-Fit SHALL always contain the complete current bounded atlas level inside the measured safe viewport. Fixed-pixel glyph and route clearances SHALL NOT raise the camera floor until part of that level becomes unreachable. When detail-sized marks cannot fit, the renderer SHALL select a smaller overview presentation and then change semantic level before clamping the requested fit.
+Create/alter these records only with Elixir migrations under `elixir/serviceradar_core/priv/repo/migrations/`, in `platform`, with the matching `core.migrations.expectedVersion` bump. Use Ash resources and existing core persistence conventions. No ingestion, helper, test, or request handler creates schema objects.
 
-Every glyph rendered in an overview or focus level SHALL be self-identifying without hover. Infrastructure, component, site, and endpoint-summary glyphs retain labels at overview levels. A bounded detail level retains labels for every visible infrastructure node and visible endpoint member. If those labels cannot be admitted without collision, the level SHALL aggregate, page, or reduce visible membership rather than leave anonymous glyphs on the canvas.
+### Decision: Use hierarchical integer placement and freeze existing positions
 
-Consequences:
-- Label budgets bound visible objects before rendering instead of silently dropping the identity of already-rendered glyphs.
-- Hover and the details panel provide additional metadata, not the only available identity.
-- Fit is a navigation guarantee for the current level, while drill-down changes which bounded level is current.
+The initial algorithm is hierarchical Morton placement in fixed integer world coordinates `0..2^24-1`, implemented in Rust. It derives a deterministic component/transport forest, reserves three leaf slots per node, and uses an incremental vacancy map that refines allocation without moving existing positions, parents, or component bounds. These are initial measured placement choices, not evidence that tile generation or persistence is complete. Place sites when authoritative site membership exists; otherwise stable transport components. Within those containers place a ranked infrastructure forest, then endpoint groups. Stable semantic IDs break ties. Cross-links do not dictate node placement. Nongeographic sites receive deterministic spatial slots; geographic-looking coordinates are not implied.
 
-### Decision: Scale through server-authored levels of detail
-The browser SHALL never receive an instruction to lay out the full 50k-to-million-element canonical graph. The read model authors stable aggregate identifiers and bounded level payloads for global, site or component, infrastructure neighborhood, and endpoint membership views. Viewport and selection requests fetch only the next required level, with revision and parent identifiers sufficient for stable caching and navigation.
+Existing coordinates and placement-parent assignments are frozen during ordinary incremental updates. New devices occupy deterministic available slots near their parent. Reserve growth space and retain tombstoned slots; do not renumber by current sorted input, current component count, or current child count. A component merge/split or a new preferred root does not silently move existing devices. Explicit relayout produces a new layout version when a different partition or arrangement is needed.
 
-Consequences:
-- GPU primitive capacity is not confused with graph-layout, label, memory, or interaction capacity.
-- Default work is bounded by visible-level budgets rather than tenant inventory size.
-- Future server-side partitioning or precomputed coordinates can replace client forest construction without changing the atlas navigation contract.
+Fresh-layout determinism and incremental stability are separate promises. The same canonical input and configuration produce the same fresh layout. The same prior persisted placement plus the same sorted change batch produces the same incremental result. Arbitrary insertion histories need not converge to the fresh-layout positions; promising that would conflict with freezing prior placements. Tests compare exact integer coordinates, satisfying the issue's small-epsilon bound more strongly.
 
-### Decision: Bootstrap via HTTP snapshot first, then stream updates
-The God-View surface will fetch the latest snapshot from the existing HTTP endpoint before or while joining the stream. The channel remains responsible for deltas or refreshed snapshots after initial paint, and stream failures fall back to the last good snapshot plus reconnect behavior.
+Do not allocate a canonical-size array for each component or scan every edge per node/tile. Index construction must be linear or near-linear in canonical devices and relations. Local updates should touch the changed memberships/bindings and affected hierarchy/tile paths. A seeded invented 1,000,000-device and at least 2,000,000-relation hierarchy measures CPU, peak resident memory, layout duration, persistence duration, index size, and 1% incremental update cost before choosing final algorithm parameters.
 
-Consequences:
-- First render no longer depends on winning a channel timing race.
-- The HTTP endpoint becomes a real contract rather than dead configuration.
+### Decision: Conserve membership through quadtree generalization
 
-### Decision: Reserve `Affected` for evidence-backed impact overlays
-The UI will distinguish local health state from inferred impact state. A node may render as unhealthy or unknown from availability data alone, but `Affected` requires a qualifying causal signal path from supported evidence sources. When qualifying evidence is absent, the UI must not paint a blast radius simply because a node is within a hop budget of an unhealthy node.
+The quadtree key is `(layout_version, z, x, y)` for `0 <= z <= Zmax`; `0 <= x,y < 2^z`. The manifest defines a fixed world extent and one unambiguous half-open tile-boundary convention, with the outer world boundary included exactly once. A device has one owning tile per zoom. This remains true for coordinates on boundaries.
 
-Consequences:
-- Operators stop seeing speculative impact coloring presented as causal truth.
-- Availability overlays stay useful without pretending to be root-cause analysis.
+At a zoom, each admitted device is represented exactly once as an owned visible device or as a member of one owned aggregate. The conservation invariant is `visible_device_count + sum(aggregate.member_count) == admitted_device_count` across all tiles at that zoom. Boundary proxies, route segments, and context glyphs contribute zero membership. A device represented individually cannot also remain in an aggregate count.
 
-### Decision: Enforce scale budgets at the contract boundary
-The snapshot contract will define hard budgets for:
-- visible backbone nodes and edges in the default view
-- visible endpoint members per expanded group
-- label counts by zoom tier
-- quality counters for unresolved identities, duplicate identity collisions, and dropped attachment rows
+Importance determines the earliest zoom at which an individual device is eligible. Eligibility does not bypass density or byte budgets. Tile construction coarsens the affected aggregate partition deterministically until node, edge, label, total feature, and encoded-byte bounds all hold. Aggregates have stable identities derived from spatial/hierarchical ownership, not health or transient row order. Do not serialize their full membership lists.
 
-When budgets are exceeded, the system summarizes or pages rather than attempting to render the entire set.
+At maximum zoom, dense populations remain bounded aggregates with explicit bounded detail/member-page references. Search can always locate any admitted device and open its detail even if density prevents a standalone map glyph. An overflow aggregate is an intentional visible representation, not a silent truncation. The membership conservation test runs at every zoom.
 
-## Risks / Trade-offs
-- Hiding unresolved identities by default may initially make some discovery issues less visually obvious.
-  Mitigation: surface explicit quality counters and drill-down diagnostics in the UI and pipeline stats.
-- Frontend geometry for expanded neighborhoods can still become expensive if we let visible sets grow without bound.
-  Mitigation: enforce visible-set budgets, simple bounded neighborhood placement, and cache layout inputs by revision plus expansion state.
-- Operators may want "show me everything."
-  Mitigation: support explicit drill-down/export workflows, but do not treat "render everything" as the default operational mode.
-- A spanning forest necessarily omits redundant links from the default drawing.
-  Mitigation: retain exact cross-link counts and identities, expose them on selection, and provide a bounded detail mode for redundancy inspection.
-- Radial placement can be unstable if roots or tree edges change with input order.
-  Mitigation: choose roots and forest edges through a documented stable total order and regression-test reversed input arrays.
+Low-zoom relation bundles have stable IDs and represented-relation counts keyed by their visible endpoint or aggregate pair and any semantics required to avoid misleading combinations. Internal relations can contribute a bounded internal-relation count rather than an invisible oversized edge list. Preserve parallel-relation semantics through counts and detail lookup.
 
-## Migration Plan
-1. Define the new snapshot schema and bounded-read-model semantics.
-2. Move default graph export to transport-backbone-only projection with endpoint census summaries.
-3. Add unresolved-identity quarantine and topology quality counters.
-4. Add deterministic forest and cross-link semantics, then select ELK Radial for the bounded overview while keeping one geometry authority per accepted level.
-5. Make cluster expansion enter a bounded focus level with paging/sampling rather than growing the global scene.
-6. Make semantic labels and an always-complete Fit hard acceptance contracts.
-7. Add HTTP bootstrap before streaming updates.
-8. Narrow status overlays and regression-test evidence-backed `Affected` behavior.
-9. Validate with dense demo fixtures, live CNPG data, and high-cardinality synthetic fixtures before implementation rollout.
+Long edges are clipped into the tiles they cross once both endpoint representations are eligible. The initial engine uses a segment bounding-volume index, not endpoint-only ownership, to find crossing lines whose endpoints are both outside the tile. Candidate counts and memory must be measured: dense high-zoom tiles can still visit many relations that collapse to a small bundle set, so bounded output alone does not prove bounded request cost. Each emitted segment retains relation/bundle identity and phase information; clip-local proxy rows keep UInt32 endpoints batch-local and contribute zero device membership.
 
-## Open Questions
-- What are the initial per-level node, relation, and label budgets after measuring the farm01 and demo datasets?
-- Which evidence sources are sufficient to elevate a relation into the transport backbone when LLDP/CDP and inferred evidence disagree?
-- Do we want a separate diagnostics mode that intentionally surfaces quarantined identities without polluting the default operational view?
+Shared geometry uses four fixed side-midpoint portals and four exact corner portals per tile. Coordinates and identities derive from layout version, zoom, and global grid boundaries, independently of local density. Exact integer/rational classification makes diagonal corner crossings agree. Eight zero-member boundary glyphs plus one generalized interior glyph can represent every directed pair within nine nodes and 72 edges; these are minimum feasible cardinality bounds, not calibrated production budgets. Bundle identities derive from stable endpoint representation IDs and layout identity, never local row indexes.
+
+An endpoint on a boundary belongs to its half-open owner. If its canonical segment immediately exits or enters that owner, preserve the owned representation-to-portal connector even when the canonical clip has zero length. Reserve a phase distance of half a tile width for each such connector, including when the raw device equals the portal: its aggregate may still need a visible connector. Omit only genuinely coincident rendered endpoints. Unowned tangent corner contacts add no segment; genuine self-loops contribute to the owning representation's internal-relation count.
+
+For canonical length L and reserved source/target phase distances S,T, canonical clip [a,b] uses phase [(S+aL)/(S+L+T),(S+bL)/(S+L+T)]. The source connector uses [0,S/(S+L+T)] and the target connector uses [(S+L)/(S+L+T),1]. Adjacent segments compute the same phase boundary without another tile's plan. Bundles describe aggregate flow, not individually tracked packet identity.
+
+Fixed portals guarantee adjacency only for the same zoom. The client must retain compatible coverage while the target zoom loads, then swap coherent visible coverage atomically. A default partial parent/child TileLayer fallback must not place incompatible portals across a shared rendered boundary. A future cross-zoom stitching policy would need its own explicit contract.
+
+Changing an existing device dirties its owned tile at every represented zoom plus the tiles touched by changed old/new edge segments and affected ancestor aggregate/bundle summaries. A node-only metadata/position change does not invalidate unrelated tiles. Changing an endpoint of a long relation can legitimately dirty crossed tiles, so the single-device invalidation test must distinguish a node-only change from a relation-geometry change.
+
+### Decision: Extend schema 3 for tile and bounded detail delivery
+
+Geometry uses the schema-3 Arrow batch from #4749, extending metadata and typed fields as needed, with no parallel JSON graph. Stable node/aggregate/relation IDs, typed positions, UInt32 local endpoints, columnar regular details, and lazy irregular details remain the contract. Tile metadata includes `payload_kind=tile`, `layout_version`, `z`, `x`, `y`, `tile_revision`, world extent/bounds or exact coordinate transform, actual row counts, configured feature/byte limits, and membership counts.
+
+Position authority is the persisted integer world position. The actual #4749 encoder and decoder retain UInt16 `node_x`/`node_y`. Tiles retain those column types and encode tile-local coordinates with explicit affine world-origin and extent metadata. Per-axis error must remain below the tile width divided by 65535; the server's integer world positions remain exact. Do not silently reinterpret UInt16 values, infer scaling from viewport, or let the client recompute layout. Route/proxy quantization and the half-open ownership rule must agree at adjacent boundaries. A device may quantize differently across zooms within the declared bound; persisted-coordinate stability and rendered quantization error are separate checks.
+
+HTTP contract:
+
+| Request | Response |
+| --- | --- |
+| `GET /topology/tiles/manifest` | Small authenticated JSON metadata: current layout, generation, extent, zoom range, budgets, coordinate encoding, tile URL template, overlay protocol |
+| `GET /topology/tiles/:layout_version/:z/:x/:y` | One bounded schema-3 Arrow geometry tile, ETag over layout and tile content revision |
+| `GET /topology/overlays/:layout_version/:z/:x/:y?revision=...` | Bounded JSON health and flow snapshot pinned to the encoded tile revision, with a separate content ETag and current authority checked before read and delivery |
+| `GET /topology/tiles/search?device_id=...&layout_version=...` | Authorized device ID, world coordinates, target zoom, bounded detail reference |
+| `GET /topology/details?kind=...&id=...&layout_version=...&generation=...` | Bounded picking metadata and a bounded scene reference; aggregate and bundle picks additionally pin z/x/y and the encoded tile revision |
+| `GET /topology/snapshot/latest?kind=...&id=...&layout_version=...&generation=...` | Schema-3 ELK detail scene; tile-derived kinds also require z/x/y and encoded `tile_revision`, with optional content revision and continuation |
+
+Static routes must be declared before parameterized tile routes. An omitted detail revision requests the child's latest revision, not the parent's. Keep geometry generation pinning distinct from a tile content revision. A valid empty tile is a cacheable empty batch, not missing topology. HTTP status codes for malformed keys, layout changes, stale revisions, budget failures, and unavailable worlds are owned by the topology-god-view delta requirement "Tile HTTP responses are authorized and revision cacheable." Authorization failures remain failures even when a matching ETag was supplied.
+
+Picking metadata pins the layout and publication generation displayed by the caller. Aggregate and bundle picks additionally supply z/x/y and the encoded tile revision; the server obtains membership from the accepted cached native selector, never a client-supplied member list. The encoded geometry revision is distinct from the native tile revision used inside the selector. The schema-3 tile content revision is SHA-256 of its deterministic Arrow encoding with the `tile_revision` metadata entry omitted. The final encoding adds that entry; the HTTP ETag and native-selection receipt carry the same content revision. This avoids a self-referential hash while including geometry, typed columns, transform and budgets in revision identity. Both encodings must satisfy the actual byte budget. A generation or tile mismatch uses the tile HTTP status contract in the topology-god-view delta. Metadata requests and responses are each capped at 256 KiB, and sixteen supervised reads bound world-handle retention during inventory IO. Aggregate metadata returns its exact represented device count. Bundle metadata returns its exact represented relation count and its two rendered endpoint glyphs, which can be zero-device boundary proxies. Both include a scene reference rather than an unbounded membership list or a second JSON graph format. A rendered bundle ID need not identify a canonical relation and is resolved through the tile selector.
+
+The `bundle_members` scene scans at most 4,096 raw spatial candidates per page, returns at most 128 distinct canonical devices and 256 canonical relations, then enriches only those selected device IDs under the current scope. `total_relations` is the exact represented bundle membership; `visible_nodes` and `visible_relations` describe only the page. `scanned_candidates` measures bounded selection work. No exact distinct-device total is claimed without a corresponding index. A page with no selected relations can still carry an advancing continuation and must not be treated as completion. Repeated endpoint devices may appear on later pages; each represented canonical relation is reachable exactly once during complete traversal of a fixed selection.
+
+Scene cursors are bounded URL-safe encoded JSON envelopes, at most 512 bytes, containing the displayed `layout_version` and publication `generation` plus the native world/scope revisions and typed UInt32 page fields. Bundle cursors use one raw candidate offset; other detail kinds use node and edge page fields. The serving layer validates the envelope against the request publication before the native read, and the native scope binds the exact tile/profile and bundle or member scope. It obtains the accepted selector again for every tile-derived page and checks the encoded revision. A publication change during enrichment rejects the result. Even a new generation with unchanged native geometry cannot resume an old publication cursor. Cursors are continuation descriptors, not authorization grants; current authority is checked independently on every request. Schema-3 scene HTTP dispatch is integrated with the merged renderer.
+
+Tile ETags must not change just because generation advances elsewhere. Per-request current authority is checked before cache lookup/304. Use private HTTP caching and key server caches by the effective inventory visibility scope/policy version when scopes differ. A scope may not receive another scope's node IDs, aggregate counts, details, or tile bytes. A role/user ID alone is not a safe visibility fingerprint if grants can change. If existing policy is a single shared all-device visibility domain after the analytics+devices permission checks, establish that from actual policy and document the bounded supported model instead of inventing future multitenancy.
+
+The current `Inventory.Device` policy uses `read_with_permission(devices.view)` without a row-level visibility filter; deployment separation is the database search path. The tile runtime supports this existing shared visibility domain after refreshing both `analytics.view` and `devices.view`. Detail enrichment still passes the caller's current scope to Ash. Introducing partition- or device-filtered read policies requires matching native indexes/cache keys before enabling those policies for the shared tile runtime.
+
+Candidate generations are not observable. Requests pin the accepted generation at admission; an encoded response corresponds to that complete generation. The client uses the channel/manifest publication identity to reject stale in-flight results. Unchanged tile content can be carried forward into later generations without changing its ETag or triggering a fetch.
+
+### Decision: Separate geometry caching from telemetry overlays
+
+Precompute low-zoom geometry before publishing a new layout; generate higher tiles on demand against the immutable accepted index and cache the result. Choose the low-zoom cutoff, cache persistence/storage, maximum entries/bytes, prefetch radius, and eviction policy from the invented scale fixture. Work-in-progress requests are deduplicated. Cache size and active subscriptions are bounded.
+
+Channel tile mode joins before its first tick and never sends a whole graph or a legacy snapshot. A geometry invalidation names `layout_version`, predecessor/current generation, and affected tile keys. It contains no full device/relation lists. Retain the existing 16 KiB metadata ceiling and a bounded key-count ceiling; overflow uses an explicit reset/reconcile marker. Initial watch acknowledgements are subject to the same ceiling. Disconnect/rejoin reconciles the manifest rather than assuming delivery continuity. Only visible dirty tiles are refetched; a compatible clean tile remains in the LRU and revisiting it requires no network fetch.
+
+Telemetry is a separate bounded per-watched-tile overlay keyed by stable device/aggregate/relation/bundle IDs plus layout/tile geometry identity and overlay sequence. Initial overlay state is supplied separately so static cached geometry does not display stale health. Aggregate health and edge traffic live in the overlay. Unknown/no-data is explicit. Stale overlays for retired tile geometry are discarded; an overlay sequence gap requests only an overlay reset, not geometry. Large updates are coalesced or paged within message byte/feature limits rather than sending unbounded lists.
+
+Overlay bodies use authenticated HTTP with a separate content ETag and an actual 256 KiB JSON ceiling. The channel carries only small overlay invalidation/sequence metadata within its existing 16 KiB control ceiling. Overlay reads pin the encoded geometry revision and installed publication generation; the native selection and availability index must belong to that same generation. A durable head-change hint does not invalidate a coherent installed world before its replacement is ready. A completed old-generation read is discarded. Final geometry receipts retain at most 256 rendered edge ID/count summaries, so even wholly unselected bundles have explicit unknown coverage without Arrow decoding or full membership lists.
+
+The initial overlay owner permits four active requests and 64 waiters, coalesces identical reads, and caches only plain data in at most 128 entries/8 MiB for five seconds. Preparation returns at most 256 canonical bindings after examining at most 4,096 candidates, plus bounded native health rollups. The preparation process must return successfully and exit before a separate telemetry-query task starts; database waits retain no native world, health, or selector handles. Preparation handoff is capped at 8 MiB. Empty selection pages still advance their cursor, and no frame accumulates old sampled rates across pages to imply a complete current bundle measurement. Cancellation keeps admission occupied until process DOWN; native execution permits separately survive a killed dirty-NIF caller.
+
+Interface attribution uses only `direct-physical` evidence (including normalized legacy `direct`), an absent/empty role, and exact positive interface bindings. Logical, hosted, inferred, attachment, path and unknown evidence are excluded, with eligibility reasons reported. A native index computes each binding's degree across all active canonical relations, including relations outside the selected page; only degree-one endpoints can supply a relation measurement. Source/out is preferred for the canonical forward direction and target/in is its fallback; the reverse direction uses the opposite pair. Rendered reversal swaps those directions. The two endpoint observations are never added together.
+
+One backend-routed SRQL read accepts at most 512 distinct exact device/interface pairs and 1 MiB of serialized request data, without truncating identifiers. Initial configurable defaults are a 15-minute query window, 120-second sample freshness and five-second SQL timeout; response metadata preserves those controls and actual observation intervals. Fresh measured packet or octet rates drive animation independently. Available packet families supply an observed packet rate; a complete packet total additionally requires every family from the same identified gateway/agent producer at one endpoint. Missing families remain unknown, never zero. A uniquely measured single packet family needs no cross-family identity proof. Missing producer identity and the writer's unknown placeholder cannot establish common provenance; explicit producer ambiguity stays unknown. A uniquely measured octet family remains independent. Measured zero stays measured. A bundle direction animates only when every rendered underlying relation is measured in that frame; partial coverage is never extrapolated. Cache TTL never rewrites sample timestamps or turns old rates fresh. Backend failures remain errors rather than measured zero.
+
+Geometry does not include changing health, last-seen time, traffic rates, or the telemetry watermark in its content hash. Existing schema telemetry columns can be neutral in geometry batches and filled by the overlay path; their presence does not make them geometry revision inputs. Metrics continue through NATS JetStream and the configured telemetry reader; the layout worker creates no direct telemetry writes to CNPG or StarRocks.
+
+Availability is a separate native index seeded through batches of at most 500 current inventory identities. Missing/deleted devices, unset availability and mapper-only sightings remain unknown. One supervised owner alternates bounded dirty-identity reads with rolling reconciliation, so missed hints cannot leave state permanently stale. Dirty retention is capped at 5,000 identities and 512 KiB; overflow requests reconciliation. Responses distinguish initial seeding, refreshing, current and stale source state and expose the conservative start time of the last completed scan. Owner restarts use a new opaque hexadecimal epoch; dispatch sequences prevent older observations replacing newer ones. A native admission permit lasts through execution and reply encoding even when its BEAM caller dies: a process DOWN message alone does not prove a dirty NIF has stopped.
+
+### Decision: Integrate the tile client after #4749 and measure real-device acceptance
+
+The integrated client reuses #4749's deck.gl 9.4 typed sublayers, WebGPU-only path, and per-edge procedural flow in TileLayer with OrthographicView. Viewport selection and bounded prefetch drive tile fetching; the browser does not receive the entire world graph. Picking uses stable identity and bounded details. Search flies to persistent coordinates and can enter a bounded ELK detail scene. Returning restores cached map tiles and camera.
+
+Acceptance on the seeded 1M-device/at-least-2M-relation fixture requires all zooms obey feature and actual encoded-byte limits, membership conservation, exact coordinate stability across fresh deterministic runs/session reloads and 1% incremental additions, bounded dirty-tile sets, cached revisits with no fetch, and telemetry with zero geometry refetches. On real WebGPU with packet flow enabled: first usable frame <=3 seconds, pan/zoom >=30 FPS, hover/select <100 ms, and local visible-tile fetch plus decode p95 <=200 ms. Record GPU/device limits, fixture seed, budgets, payload sizes, concurrency, sampling method, and timings. SwiftShader and pure index tests do not satisfy real-device acceptance.
+
+## Risks and remaining measured choices
+- Integer placement stability does not prove tile query complexity, encoded-byte bounds, or browser performance. Measure each boundary independently.
+- Dense components and crossing relations can defeat a naive spatial index. Test maximum-zoom overflow, giant fanout, and crossing-only segment queries.
+- Copying the complete canonical graph into BEAM terms and then back into Rust can amplify peak memory. Prefer a core-owned resource path that consumes the typed Rust source and exports bounded results or persistence deltas; measure any remaining full-graph transfer.
+- The selected maximum zoom, per-tile row/feature/byte limits, prefetch radius, low-zoom pregeneration cutoff, and cache entry/byte limits remain provisional until measured on the invented scale fixture.
+- Publication retention must specify which accepted generations survive restart. Mutable active flags alone cannot reconstruct historical membership; retain generation deltas or explicitly retire old generation requests while in-flight immutable readers remain valid.
+- The wider AGE extension retirement remains gated on migrating its active non-topology consumers in `replace-age-topology-with-dgraph`.
+
+## Migration and rollout
+1. Validate complete Dgraph source acquisition and preserve its existing domain admission behavior.
+2. Add core-owned persistent layout resources and platform migrations with the Helm expected-version bump.
+3. Integrate the measured Rust placement engine, immutable generation publication, restart recovery, and bounded spatial tile generation.
+4. Add authenticated manifest/tile/details/search delivery, scope-safe ETags, dirty-tile invalidation, and separate bounded telemetry overlays.
+5. After #4749 lands, integrate TileLayer, prefetch/LRU caching, picking/search, and bounded ELK detail entry/exit without editing a competing renderer.
+6. Run the 1M-device membership, stability, all-zoom budget, dirty-tile, cache, and overlay tests; complete real-WebGPU acceptance with packet flow enabled.
+7. Run strict validation for every touched pending change and `make test` with `--config=remote`; deliver the PR through no-mistakes. CNPG tests use only an invented srql-fixtures scratch database with verified cleanup. Live Dgraph verification uses only the separately authorized disposable fixture namespace.

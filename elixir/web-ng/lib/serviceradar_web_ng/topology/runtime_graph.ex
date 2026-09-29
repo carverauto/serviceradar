@@ -2,16 +2,15 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   @moduledoc """
   Runtime topology graph cache for God-View.
 
-  Snapshot Arrow encoding is unchanged. The fetch source is AGE (or the SQL
-  projection) when `GRAPH_READ` is `age`, and Dgraph canonical edges when
-  `GRAPH_READ` is `dgraph`.
+  Dgraph owns canonical topology. Its complete vertex and edge sets are paged
+  within one read transaction; current inventory separately adds virtualization
+  relationships. Failed reads preserve the last published graph rather than
+  falling back to retired stores.
   """
 
   use GenServer
 
-  alias ServiceRadar.NetworkDiscovery.RuntimeTopologyProjection
   alias ServiceRadar.Repo
-  alias ServiceRadarWebNG.Graph, as: AgeGraph
   alias ServiceRadarWebNG.Topology.Native
 
   require Logger
@@ -20,14 +19,13 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
 
   # Published once per process lifetime in `init/1` so readers never have to enter this
   # GenServer. Reads are the hot path (every God-View snapshot build); the refresh handler
-  # holds the process for the whole projection/AGE round trip.
+  # holds the process for the whole Dgraph round trip.
   @graph_ref_key {__MODULE__, :graph_ref}
 
   @default_refresh_ms 30_000
   @max_backbone_link_rows 5_000
   @max_attachment_link_rows 2_000
   @max_inferred_segment_link_rows 2_000
-  @max_virtualization_link_rows 5_000
 
   @type state :: %{
           graph_ref: term(),
@@ -51,7 +49,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   whole vector under a write lock held for the assignment alone -- so a reader observes
   either the previous or the next snapshot, never a partial one. Going through the
   process instead would queue every reader behind `handle_info(:refresh, ...)`, which
-  performs the projection/AGE round trip inline; with `GenServer.call/2`'s default 5s
+  performs the Dgraph round trip inline; with `GenServer.call/2`'s default 5s
   that surfaced as a timeout on the God-View snapshot path.
 
   Falls back to the process only when no reference has been published yet.
@@ -193,18 +191,10 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   def refresh_due?(_state, _now_ms), do: true
 
   defp do_refresh_state(state) do
-    case fetch_topology_links_from_graph() do
-      {:ok, rows} when is_list(rows) ->
+    case fetch_topology_from_dgraph() do
+      {:ok, rows} ->
         normalized_rows = normalize_runtime_rows(rows)
-        ingested = Native.runtime_graph_ingest_rows(state.graph_ref, normalized_rows)
-        backbone_rows = Enum.count(normalized_rows, &backbone_runtime_row?/1)
-        attachment_rows = Enum.count(normalized_rows, &attachment_runtime_row?/1)
-
-        Logger.info(
-          "runtime_graph_refresh fetched=#{length(rows)} normalized=#{length(normalized_rows)} dropped=#{max(length(rows) - length(normalized_rows), 0)} ingested=#{ingested} backbone=#{backbone_rows} attachment=#{attachment_rows}"
-        )
-
-        %{state | last_refresh_at: DateTime.utc_now()}
+        publish_runtime_rows(state, rows, normalized_rows)
 
       {:error, reason} ->
         Logger.warning("runtime_graph_refresh_failed reason=#{inspect(reason)}")
@@ -212,35 +202,32 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
     end
   end
 
-  defp fetch_topology_links_from_graph do
-    if ServiceRadar.NetworkDiscovery.TopologyGraph.Backend.read_dgraph?() do
-      fetch_topology_links_from_dgraph()
-    else
-      case projection_read_action(fetch_projected_topology_links()) do
-        {:projected, rows} ->
-          fetch_topology_links_with_virtualization(rows)
+  defp publish_runtime_rows(state, rows, normalized_rows) do
+    legacy_rows = prioritize_runtime_rows(normalized_rows)
+    ingested = Native.runtime_graph_ingest_rows(state.graph_ref, legacy_rows)
 
-        :fallback_uninitialized ->
-          fetch_topology_links_from_age()
+    Logger.info(
+      "runtime_graph_refresh fetched=#{length(rows)} normalized=#{length(normalized_rows)} dropped=#{max(length(rows) - length(normalized_rows), 0)} ingested=#{ingested}"
+    )
 
-        {:fallback_error, reason} ->
-          Logger.warning("runtime_graph_projection_read_failed reason=#{inspect(reason)}")
-          fetch_topology_links_from_age()
-      end
-    end
-  rescue
-    error -> {:error, error}
+    %{state | last_refresh_at: DateTime.utc_now()}
   end
 
-  defp fetch_topology_links_from_dgraph do
-    case ServiceRadar.Dgraph.query_canonical_edges() do
-      {:ok, edges} when is_list(edges) ->
+  defp fetch_topology_from_dgraph do
+    case ServiceRadar.Dgraph.query_canonical_graph() do
+      {:ok, %{nodes: _vertices, edges: edges}} when is_list(edges) ->
         rows = Enum.map(edges, &canonical_edge_to_runtime_row/1)
+
         fetch_topology_links_with_virtualization(rows)
+
+      {:ok, _invalid} ->
+        {:error, :invalid_canonical_graph}
 
       {:error, reason} ->
         {:error, reason}
     end
+  rescue
+    error -> {:error, error}
   end
 
   @doc false
@@ -280,41 +267,16 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
       "hosted-virtual" -> "HOSTED_ON"
       "endpoint-attachment" -> "ATTACHED_TO"
       "observed-only" -> "OBSERVED_TO"
-      # AGE stores inferred segments on the attachment plane as ATTACHED_TO and
-      # distinguishes them by evidence_class; INFERRED_TO would be filtered out
-      # of the runtime rows entirely.
+      # Inferred segments belong to the attachment plane. Preserve the evidence
+      # class so downstream readers distinguish them from confirmed relations.
       "inferred-segment" -> "ATTACHED_TO"
       _ -> ""
     end
   end
 
-  defp fetch_projected_topology_links do
-    RuntimeTopologyProjection.read_cached_links(
-      repo: Repo,
-      limit:
-        @max_backbone_link_rows + @max_attachment_link_rows +
-          @max_inferred_segment_link_rows
-    )
-  end
-
   @doc false
-  @spec projection_read_action({:ok, list()} | {:error, term()}) ::
-          {:projected, list()} | :fallback_uninitialized | {:fallback_error, term()}
-  def projection_read_action({:ok, rows}) when is_list(rows), do: {:projected, rows}
-  def projection_read_action({:error, :projection_uninitialized}), do: :fallback_uninitialized
-  def projection_read_action({:error, reason}), do: {:fallback_error, reason}
-
-  defp fetch_topology_links_from_age do
-    case AgeGraph.query(topology_links_query()) do
-      {:ok, graph_rows} when is_list(graph_rows) ->
-        fetch_topology_links_with_virtualization(graph_rows)
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp fetch_topology_links_with_virtualization(rows) when is_list(rows) do
+  @spec fetch_topology_links_with_virtualization([map()]) :: {:ok, [map()]}
+  def fetch_topology_links_with_virtualization(rows) when is_list(rows) do
     case fetch_virtualization_links_from_inventory() do
       {:ok, virtualization_rows} when is_list(virtualization_rows) ->
         {:ok, rows ++ virtualization_rows}
@@ -323,64 +285,6 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
         Logger.warning("runtime_graph_virtualization_inventory_failed reason=#{inspect(reason)}")
         {:ok, rows}
     end
-  end
-
-  @doc false
-  @spec topology_links_query() :: String.t()
-  def topology_links_query do
-    RuntimeTopologyProjection.graph_projection_query()
-  end
-
-  @doc false
-  @spec topology_diagnostics_query() :: String.t()
-  def topology_diagnostics_query do
-    """
-    MATCH (a:Device)-[r:CANONICAL_TOPOLOGY]->(b:Device)
-    RETURN {
-      canonical_edges: count(r),
-      backbone_candidates: sum(CASE
-        WHEN toUpper(coalesce(r.relation_type, '')) IN ['CONNECTS_TO', 'LOGICAL_PEER', 'HOSTED_ON'] THEN 1
-        WHEN coalesce(r.relation_type, '') = ''
-          AND toLower(coalesce(r.evidence_class, '')) IN ['direct', 'direct-physical', 'direct-logical', 'hosted-virtual'] THEN 1
-        ELSE 0
-      END),
-      attachment_candidates: sum(CASE
-        WHEN toUpper(coalesce(r.relation_type, '')) IN ['ATTACHED_TO', 'OBSERVED_TO'] THEN 1
-        WHEN coalesce(r.relation_type, '') = ''
-          AND toLower(coalesce(r.evidence_class, '')) IN ['endpoint-attachment', 'observed-only'] THEN 1
-        ELSE 0
-      END),
-      missing_relation_type: sum(CASE WHEN coalesce(r.relation_type, '') = '' THEN 1 ELSE 0 END),
-      missing_evidence_class: sum(CASE WHEN coalesce(r.evidence_class, '') = '' THEN 1 ELSE 0 END),
-      missing_endpoint_ids: sum(CASE WHEN a.id IS NULL OR b.id IS NULL THEN 1 ELSE 0 END),
-      non_canonical_endpoint_ids: sum(CASE
-        WHEN a.id IS NULL OR b.id IS NULL THEN 0
-        WHEN NOT a.id STARTS WITH 'sr:' OR NOT b.id STARTS WITH 'sr:' THEN 1
-        ELSE 0
-      END),
-      missing_observed_at: sum(CASE
-        WHEN r.last_observed_at IS NULL AND r.observed_at IS NULL THEN 1
-        ELSE 0
-      END)
-    } AS diagnostics
-    """
-  end
-
-  @doc false
-  @spec diagnostics() :: {:ok, map()} | {:error, term()}
-  def diagnostics do
-    case AgeGraph.query(topology_diagnostics_query()) do
-      {:ok, [%{} = row | _]} ->
-        {:ok, row |> unwrap_single_map_value() |> atomize_diagnostics()}
-
-      {:ok, []} ->
-        {:ok, %{}}
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  rescue
-    error -> {:error, error}
   end
 
   @doc false
@@ -453,7 +357,9 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
 
   @sobelow_skip ["SQL.Query"]
   defp fetch_virtualization_links_from_inventory do
-    case Repo.query(virtualization_inventory_links_query(), [@max_virtualization_link_rows]) do
+    # PostgreSQL LIMIT NULL means ALL. The virtualization membership must not
+    # carry an implicit cap, or guests beyond the old limit can never be reached.
+    case Repo.query(virtualization_inventory_links_query(), [nil]) do
       {:ok, %{rows: rows}} when is_list(rows) ->
         {:ok, Enum.map(rows, &first_column/1)}
 
@@ -472,7 +378,6 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
     |> Enum.map(&normalize_runtime_row/1)
     |> Enum.reject(&is_nil/1)
     |> Enum.filter(&canonical_runtime_row?/1)
-    |> prioritize_runtime_rows()
   end
 
   @doc false
@@ -515,7 +420,9 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
   defp canonical_runtime_row_key(row), do: {"", "", "", "", -1, "", -1, "", "", inspect(row)}
 
   defp runtime_sort_text(value) when is_binary(value), do: value |> String.trim() |> String.downcase()
+
   defp runtime_sort_text(value) when is_atom(value), do: value |> Atom.to_string() |> runtime_sort_text()
+
   defp runtime_sort_text(_value), do: ""
 
   defp runtime_sort_ifindex(value) when is_integer(value), do: value
@@ -550,7 +457,8 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
     evidence_class = runtime_evidence_class(row)
 
     relation_type in ["CONNECTS_TO", "LOGICAL_PEER", "HOSTED_ON"] or
-      (relation_type == "" and evidence_class in ["direct", "direct-physical", "direct-logical", "hosted-virtual"])
+      (relation_type == "" and
+         evidence_class in ["direct", "direct-physical", "direct-logical", "hosted-virtual"])
   end
 
   def backbone_runtime_row?(_row), do: false
@@ -588,22 +496,6 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
     else
       map
     end
-  end
-
-  defp atomize_diagnostics(%{} = map) do
-    Map.new(
-      [
-        :canonical_edges,
-        :backbone_candidates,
-        :attachment_candidates,
-        :missing_relation_type,
-        :missing_evidence_class,
-        :missing_endpoint_ids,
-        :non_canonical_endpoint_ids,
-        :missing_observed_at
-      ],
-      fn key -> {key, parse_non_negative_int(map_fetch(map, key))} end
-    )
   end
 
   defp maybe_string_key(%{} = map, k1, k2, k3) do
@@ -681,6 +573,7 @@ defmodule ServiceRadarWebNG.Topology.RuntimeGraph do
       end
 
     %{
+      link_key: blank_to_nil(map_fetch(row, :link_key)),
       local_device_id: blank_to_nil(local_device_id),
       local_device_ip: blank_to_nil(local_device_ip),
       local_if_name: blank_to_nil(local_if_name),
