@@ -2,24 +2,26 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
   @moduledoc """
   Manual read action behind the JSON:API telemetry `index` routes.
 
-  Exactly one telemetry backend is active. With `analytics.starrocks.enabled`
-  off, the read delegates to the resource's CNPG data layer query unchanged.
-  With it on, a dataset whose writes have moved to the warehouse is served from
-  its warehouse table: OTel metric samples and points, and OTel traces and
-  summaries, follow the enabled flag, while logs and raw and hourly timeseries
-  metrics follow the per-dataset cutover list, so a row still written to CNPG
-  is still read from CNPG and a `/api/v2` telemetry route never serves history
-  frozen at the switch. A dataset with no warehouse table (the interface/disk
-  hourly aggregates and the legacy sysmon tables retired under #4861) stays
-  CNPG-backed, because its rows are still written to CNPG.
+  Each dataset is read from the backend that is still receiving its rows.
+  With `analytics.starrocks.enabled` off, the read delegates to the resource's
+  CNPG data layer query unchanged. With it on, a dataset whose writes have
+  moved to the warehouse is served from its warehouse table: OTel metric
+  samples and points, and OTel traces and summaries, follow the enabled flag,
+  while logs and raw and hourly timeseries metrics follow the per-dataset
+  cutover list, so a row still written to CNPG is still read from CNPG and a
+  `/api/v2` telemetry route never serves history frozen at the switch. A
+  dataset with no warehouse table (the interface/disk hourly aggregates and
+  the legacy sysmon tables retired under #4861) stays CNPG-backed, because
+  its rows are still written to CNPG.
 
   The Frontend is queried over the MySQL text protocol, which takes no bind
   parameters, so filter values and pagination bounds reach it as literals.
   Every value is therefore rendered from a closed set of shapes: a string is
   backslash-and-quote escaped, a number or boolean is printed literally, and a
   `DateTime` is rendered as the UTC wall clock the warehouse stores. A filter
-  operator, sort field or value shape this module does not render is an error,
-  never a dropped clause.
+  or sort on a column the warehouse table does not store, or a filter
+  operator or value shape this module does not render, is an
+  `Ash.Error.Query.InvalidQuery`, never a dropped clause.
 
   Test seams live in the query context: `:cnpg_read` replaces the data-layer
   run, `:cnpg_count` replaces the CNPG count query, and `:starrocks_query`
@@ -469,7 +471,7 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
         :< -> comparison_sql(column, "<", right)
         :<= -> comparison_sql(column, "<=", right)
         :in -> in_sql(column, right)
-        :is_nil -> is_nil_sql(column, right)
+        :is_nil -> null_check_sql(column, right)
         _ -> {:error, {:unsupported_warehouse_filter, op}}
       end
     end
@@ -486,9 +488,9 @@ defmodule ServiceRadar.Observability.TelemetryIndexRead do
     end
   end
 
-  defp is_nil_sql(column, true), do: {:ok, "#{column} IS NULL"}
-  defp is_nil_sql(column, false), do: {:ok, "#{column} IS NOT NULL"}
-  defp is_nil_sql(_column, _right), do: {:error, {:unsupported_warehouse_filter, :is_nil}}
+  defp null_check_sql(column, true), do: {:ok, "#{column} IS NULL"}
+  defp null_check_sql(column, false), do: {:ok, "#{column} IS NOT NULL"}
+  defp null_check_sql(_column, _right), do: {:error, {:unsupported_warehouse_filter, :is_nil}}
 
   defp in_sql(column, %MapSet{} = values), do: in_sql(column, MapSet.to_list(values))
 

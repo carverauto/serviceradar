@@ -173,7 +173,9 @@ Telemetry collections use bounded offset pagination even when no page is
 requested. Use `page[limit]` and `page[offset]` and follow response pagination
 links to retrieve subsequent pages. Treat each returned JSON:API `id` as an
 opaque value, including composite IDs for telemetry; do not reconstruct IDs
-from individual attributes.
+from individual attributes. When the warehouse serves a log, timeseries, OTel
+metric, or trace collection, a filter or sort on a column that table does not
+store is rejected and the error names the field.
 
 For the generated route inventory, accepted fields, and response schemas,
 fetch `/api/v2/open_api` from your authenticated deployment. For the committed

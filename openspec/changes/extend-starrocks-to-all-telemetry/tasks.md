@@ -63,7 +63,7 @@
   - [x] 3.1.5 JSON:API `/otel_metrics` and `/otel_metric_points` now route through
     `ServiceRadar.Observability.TelemetryIndexRead` (manual `api_index` read): the
     warehouse table when StarRocks is enabled, the CNPG data layer otherwise, with the
-    same offset pagination and filter contract. The same reader covers `/api/v2/logs`
+    same offset pagination. The same reader covers `/api/v2/logs`
     and the timeseries routes in 5.4.
 - [ ] 3.2 OTel traces/spans with RED and summary rollups as MVs; trace-by-id lookup.
   - [x] 3.2.1 Warehouse DDL `priv/starrocks/0022_otel_traces.sql`: `otel_traces` keyed by the CNPG
