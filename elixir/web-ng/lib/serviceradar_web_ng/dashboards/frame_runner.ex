@@ -206,7 +206,9 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
         if acc == [] do
           error_frame(base, reason)
         else
-          finish_json_pages(base, acc, nil, schema, viz, device_resolver, fields, query)
+          base
+          |> finish_json_pages(acc, nil, schema, viz, device_resolver, fields, query)
+          |> Map.merge(%{"status" => "partial", "truncated" => true})
         end
     end
   end

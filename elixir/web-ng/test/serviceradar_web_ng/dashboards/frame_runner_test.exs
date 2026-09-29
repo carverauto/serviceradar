@@ -204,6 +204,25 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunnerTest do
     end
   end
 
+  # Returns one page of 3 rows with a next_cursor, then errors on the second page.
+  defmodule FakePartialErrorSRQL do
+    @moduledoc false
+
+    def query(query, opts) when is_binary(query) do
+      case Map.get(opts, :cursor) do
+        nil ->
+          {:ok,
+           %{
+             "results" => [%{"q" => query, "page" => 1, "n" => 1}, %{"q" => query, "page" => 1, "n" => 2}, %{"q" => query, "page" => 1, "n" => 3}],
+             "pagination" => %{"next_cursor" => "page-2", "limit" => Map.get(opts, :limit)}
+           }}
+
+        "page-2" ->
+          {:error, :srql_unavailable}
+      end
+    end
+  end
+
   defmodule FakeConcurrentSRQL do
     @moduledoc false
 
@@ -506,6 +525,24 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunnerTest do
     assert length(results) == 5
     assert Enum.count(results, &(&1["page"] == 1)) == 3
     assert Enum.count(results, &(&1["page"] == 2)) == 2
+  end
+
+  test "returns partial status and truncated flag when mid-pagination SRQL error occurs" do
+    frames = [
+      %{"id" => "devices", "query" => "in:devices type:camera", "encoding" => "json_rows", "limit" => 10}
+    ]
+
+    assert [
+             %{
+               "id" => "devices",
+               "status" => "partial",
+               "truncated" => true,
+               "results" => results
+             }
+           ] = FrameRunner.run(frames, :scope, srql_module: FakePartialErrorSRQL)
+
+    assert length(results) == 3
+    assert Enum.all?(results, &(&1["page"] == 1))
   end
 
   test "security findings source probes are optional" do
