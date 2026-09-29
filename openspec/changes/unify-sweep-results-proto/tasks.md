@@ -62,13 +62,14 @@
       ranges) from a group's static targets: exactly one `TargetRangeV1` per
       configured static target, never merged with its neighbors, in the one
       spelling the plan validator accepts. A bare IPv4 becomes that address as a
-      /32 CIDR and a bare IPv6 a /128 CIDR, matching `normalizeSweepNetwork`. A
-      CIDR is committed as its canonical prefix (network address, canonical
-      text: stored `10.1.2.3/24` becomes `10.1.2.0/24`), still one range. A
-      target that is already a first/last span stays one span. The range digest
-      hashes `cidr` and first/last separately, so this mapping is what makes the
-      source authorization's `target_range_sha256` correlate with the agent's
-      range. A page holds at most 256 ranges, and the plan uses as many pages
+      /32 CIDR and a bare IPv6 a /128 CIDR. A CIDR is committed as its canonical
+      network prefix, still one range. A target that is already a first/last
+      span stays one span. `PlanValidate` and the range digest require canonical
+      text, so the builder emits IPv6 addresses and CIDRs lowercase and
+      compressed (RFC 5952) and IPv4 in dotted-quad, and does not reuse
+      `normalizeSweepNetwork`'s bare-address spelling. Stored `10.1.2.3/24`
+      becomes `10.1.2.0/24`, and stored `2001:DB8::1` becomes `2001:db8::1/128`.
+      A page holds at most 256 ranges, and the plan uses as many pages
       as it needs.
       Checks are ICMP and TCP only (`mtr_*` zero). Its digests (range, page,
       root, header) are byte-identical to the Go implementation, shown by the
