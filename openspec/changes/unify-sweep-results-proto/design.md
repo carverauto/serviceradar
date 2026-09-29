@@ -204,13 +204,21 @@ plan (see "Plan inputs"). A group is leased only when it has non-empty
 `TargetRangeV1`. A group with a `target_query`, whether or not it also has
 static targets, stays entirely on the legacy path (the agent's local ticker
 and legacy results): one execution is never split across the two paths, and
-the ABI cannot commit to an SRQL-resolved address set. The M2.0a fence only
-bumps the epoch when `target_query` or `static_targets` change; it does not
-revoke. The lease scheduler evaluates eligibility on each pass. An ineligible
-group (a `target_query`, no static targets, or a static target the plan cannot
-represent) gets no new leases, and the scheduler revokes its active
-assignments so the agent falls back to its local ticker. A group that becomes
-eligible is leased from the next pass. Each execution is recorded
+the ABI cannot commit to an SRQL-resolved address set. The M2.0a fence bumps
+every active assignment when the partition, `agent_ids`, `static_targets`,
+`target_query`, ports, sweep modes, overrides, or the profile changes, and
+revokes only an agent that is no longer in `agent_ids`. A change of
+`target_query` or `static_targets` by itself only bumps; it does not revoke.
+The lease scheduler re-plans a lease's unrun slots when that bump leaves the
+assignment active and the group eligible, so a ports change re-plans onto the
+new ports. Unrun slots are dropped, not re-planned or re-signed, in two cases:
+the scheduler revokes an ineligible group (it gained a `target_query`, lost
+its static targets, or has a static target the plan cannot represent), which
+issues no further leases and returns the agent to its local ticker, and the
+fence revokes an agent that is no longer selected. Becoming eligible again
+after that scheduler revoke is a new lease for that (group, agent), reissued
+under a new epoch through the existing reissue path, not a re-plan of the old
+slots. Each execution is recorded
 as scheduled before it runs. The horizon has a per-partition default, a
 per-agent override and an administrator maximum. Renewal keeps a connected
 agent's horizon full, so a disconnection
