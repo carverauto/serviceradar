@@ -26,6 +26,17 @@ is served from a tiled world map.
 
 ## Whats New
 
+**Unreleased**
+- Sweep diagnostics: `in:device_sweep_overlap` now reports declared sweep
+  targets (#4963). Its declared side read compiled sweep configs from a table
+  nothing wrote to, so `declared_not_observed` could never appear. Each
+  group's query-derived targets are now recorded in
+  `platform.sweep_group_declared_targets`, refreshed every five minutes and
+  right after a group is created, updated or enabled; static targets are
+  read from the group itself. A target query that fails keeps the group's
+  last recorded targets. `config_delivered_at` now means when the
+  declaration was recorded, since no delivered config exists to date it.
+
 **1.4.77**
 - Sweep config: compiled sweep configs are smaller and cheaper to build.
   Each device target now carries only `device_uid` in its metadata; the

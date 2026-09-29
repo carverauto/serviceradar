@@ -72,6 +72,13 @@ as "no work has landed".
       would have handed every authenticated user the identity of a profile that
       `in:sweep_profiles` correctly hides. The row survives because the alert is
       the operator's business either way.
+      Correction (#4963): the declared side cannot come from the compiled
+      config. Compiled sweep configs are cached in memory and never written to
+      `agent_config_instances`, so the view never had a declared row.
+      Query-derived targets are now recorded once per group in
+      `platform.sweep_group_declared_targets` by `SweepDeclaredTargetsWorker`,
+      static targets come from `sweep_groups.static_targets`, and the agent
+      comes from the group's `agent_ids` (NULL for a partition-wide group).
 - [ ] 3.8 `sweep_compiled_config`: named-column allowlist over sweep config
       instances only. The `compiled_config` document is never projected.
 - [ ] 3.9 `sweep_profiles`: expose banner grab as `enabled` and `protocols`
