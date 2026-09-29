@@ -40,8 +40,12 @@ defmodule ServiceRadarCore.Mix.JsonApiPrimaryKeyPatch do
 
   defp compiling_deps do
     case Mix.Project.get() do
-      nil -> Path.expand(System.get_env("MIX_DEPS_PATH") || "deps")
-      _project -> Mix.Project.deps_path()
+      nil ->
+        Path.expand(System.get_env("MIX_DEPS_PATH") || "deps")
+
+      _project ->
+        dir = System.get_env("MIX_DEPS_PATH") || Mix.Project.config()[:deps_path] || "deps"
+        Path.expand(dir, Path.dirname(Mix.Project.project_file()))
     end
   end
 end

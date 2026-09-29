@@ -5,10 +5,10 @@ defmodule ServiceRadarCore.Mix.JsonApiPrimaryKeyPatchTest do
 
   @moduletag :db_free
 
-  test "patches ash_json_api in the mix project compiling dependencies" do
+  test "targets the compiling project's deps after chdir into a path dependency" do
     parent = Path.join(System.tmp_dir!(), "sr-mix-root-#{System.unique_integer([:positive])}")
-    File.mkdir_p!(parent)
-    core_deps = Path.join(Mix.Project.deps_path(), "ash_json_api")
+    child = Path.join(parent, "serviceradar_core")
+    File.mkdir_p!(child)
 
     File.write!(Path.join(parent, "mix.exs"), """
     defmodule SrOuterMix.MixProject do
@@ -19,10 +19,27 @@ defmodule ServiceRadarCore.Mix.JsonApiPrimaryKeyPatchTest do
     """)
 
     Mix.Project.in_project(:sr_outer_mix, parent, [], fn _module ->
-      assert JsonApiPrimaryKeyPatch.target_root() ==
-               Path.join(Mix.Project.deps_path(), "ash_json_api")
+      cwd = File.cwd!()
+      deps_env = System.get_env("MIX_DEPS_PATH")
+      System.delete_env("MIX_DEPS_PATH")
 
-      refute JsonApiPrimaryKeyPatch.target_root() == core_deps
+      try do
+        File.cd!(child)
+
+        parent_deps =
+          Path.expand("deps/ash_json_api", Path.dirname(Mix.Project.project_file()))
+
+        assert JsonApiPrimaryKeyPatch.target_root() == parent_deps
+        refute JsonApiPrimaryKeyPatch.target_root() == Path.expand("deps/ash_json_api")
+      after
+        File.cd!(cwd)
+
+        if deps_env do
+          System.put_env("MIX_DEPS_PATH", deps_env)
+        else
+          System.delete_env("MIX_DEPS_PATH")
+        end
+      end
     end)
   end
 
