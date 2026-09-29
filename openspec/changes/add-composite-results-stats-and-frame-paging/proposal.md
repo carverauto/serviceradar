@@ -4,9 +4,11 @@
 
 Dashboard packages that visualise composite checks cannot tell the truth on a
 fleet-sized deployment. `in:composite_results` is one row per
-`(device_uid, check)`. FrameRunner clamps every frame (`@max_frame_limit`,
-currently 2_000; a parallel spike to 100_000 is not the architecture). A 28,000
-device check therefore arrives as a truncated sample. The renderer then
+`(device_uid, check)`. FrameRunner previously clamped every frame
+(`@max_frame_limit`, 2_000; since removed in favour of transparent
+auto-pagination — `fix/dashboard-frame-runner-pagination`). A 28,000 device
+check therefore arrives as a truncated sample on older hosts, or auto-paginates
+but still counts in the browser. The renderer then
 **counts in the browser**, so every tile, bar, and "N down" figure is a count
 of the sample, not of the fleet.
 
@@ -49,8 +51,9 @@ package that hit this; the hole is in the host, not in that package.
   `build` grows an optional `cursor` is **not** a query-string token (cursors
   stay request metadata, matching `Native.translate/5`), and React gets
   `useDashboardFramePagination`.
-- **Row-frame page size stays modest.** Default 500, hard cap remains the
-  FrameRunner max. Device-table pages that also resolve hostnames via
+- **Row-frame page size stays modest.** Default 500; the FrameRunner hard cap
+  (`@max_frame_limit`) is removed — the safety valves are the 30-second frame
+  timeout and `SRQL_MAX_LIMIT`. Device-table pages that also resolve hostnames via
   `in:devices uid:(…)` MUST stay at ≤ `MAX_FILTER_LIST_VALUES` (200,
   `parser/filters.rs:3`) because that is the IN-list cap.
 
