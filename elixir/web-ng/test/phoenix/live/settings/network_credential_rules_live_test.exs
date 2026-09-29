@@ -967,6 +967,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert rule.metadata["cadence_seconds"] == 86_400
   end
 
+  @tag :web_ng_shared_fixture_db
   test "a profile binding several schedules names the ones the cadence field does not move", %{
     conn: conn,
     scope: scope
@@ -994,6 +995,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworkCredentialRulesLiveTest do
     assert rule.metadata["cadence_seconds"] == 86_400
   end
 
+  @tag :web_ng_shared_fixture_db
   test "a single-schedule profile shows no secondary schedule note", %{conn: conn} do
     seed_scheduled_package!()
 
