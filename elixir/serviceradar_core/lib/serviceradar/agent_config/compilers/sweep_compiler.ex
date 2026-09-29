@@ -136,9 +136,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
       Enum.map_reduce(groups, %{}, &compile_group(&1, profile_map, &2, query_page_fn))
 
     # Database row order must not change the compiled config or its version.
-    compiled_groups
-    |> Enum.reject(&is_nil/1)
-    |> Enum.sort_by(& &1["id"])
+    Enum.sort_by(compiled_groups, & &1["id"])
   end
 
   @doc """
@@ -409,7 +407,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   # Keep only the fields device targets are built from, in SRQL order: the
   # first row seen for an IP wins, and the shared cache stays small.
   defp target_rows(rows) when is_list(rows) do
-    for %{"ip" => ip} = row <- rows, is_binary(ip), do: %{"ip" => ip, "uid" => row["uid"]}
+    for %{"ip" => ip} = row <- rows, is_binary(ip), ip != "", do: %{"ip" => ip, "uid" => row["uid"]}
   end
 
   defp device_targets_from_result({:ok, rows}, group, query, modes),

@@ -314,7 +314,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
 
     test "shared query results expire after the configured TTL" do
       previous = Application.fetch_env(:serviceradar_core, :sweep_query_cache_ttl_ms)
-      Application.put_env(:serviceradar_core, :sweep_query_cache_ttl_ms, 20)
+      Application.put_env(:serviceradar_core, :sweep_query_cache_ttl_ms, 50)
 
       on_exit(fn ->
         case previous do
@@ -333,7 +333,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerTargetsTest do
       SweepCompiler.compile_groups([lab], %{}, query_page_fn: query_page_fn)
       assert query_executions() == [@lab_query]
 
-      Process.sleep(40)
+      Process.sleep(200)
 
       SweepCompiler.compile_groups([lab], %{}, query_page_fn: query_page_fn)
       assert query_executions() == [@lab_query]
