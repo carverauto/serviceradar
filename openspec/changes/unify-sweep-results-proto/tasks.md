@@ -60,9 +60,16 @@
     execution.
     - [ ] M2.0b1 Plan builder. Core builds a scheduled plan (header, pages,
       ranges) from a group's static targets: exactly one `TargetRangeV1` per
-      configured static target, a CIDR staying a CIDR and a configured non-CIDR
-      range staying one first/last span, with no merge across targets. A page
-      holds at most 256 ranges, and the plan uses as many pages as it needs.
+      configured static target, never merged with its neighbors, in the one
+      spelling the plan validator accepts. A bare IPv4 becomes that address as a
+      /32 CIDR and a bare IPv6 a /128 CIDR, matching `normalizeSweepNetwork`. A
+      CIDR is committed as its canonical prefix (network address, canonical
+      text: stored `10.1.2.3/24` becomes `10.1.2.0/24`), still one range. A
+      target that is already a first/last span stays one span. The range digest
+      hashes `cidr` and first/last separately, so this mapping is what makes the
+      source authorization's `target_range_sha256` correlate with the agent's
+      range. A page holds at most 256 ranges, and the plan uses as many pages
+      as it needs.
       Checks are ICMP and TCP only (`mtr_*` zero). Its digests (range, page,
       root, header) are byte-identical to the Go implementation, shown by the
       cross-language golden vectors under `proto/edge/v1/testdata`.
