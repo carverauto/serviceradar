@@ -77,6 +77,7 @@ defmodule ServiceRadar.SweepJobs.LeaseCapabilitiesTest do
         assert claims.scope_sha256 == range.range_sha256
         assert claims.target_range_sha256 == range.range_sha256
         assert claims.execution_plan_sha256 == slot.plan_sha256
+        refute claims.target_range_sha256 == claims.execution_plan_sha256
 
         # The collection window is the slot and sits inside the signed window.
         assert claims.collection_not_before_unix_nano ==
@@ -98,11 +99,16 @@ defmodule ServiceRadar.SweepJobs.LeaseCapabilitiesTest do
       end
     end
 
-    test "a slot planned under another epoch is refused", ctx do
-      stale = %{ctx.assignment | authority_epoch: 4}
+    test "a slot planned under another epoch or assignment is refused", ctx do
+      slot = hd(ctx.slots)
+      stale_epoch = %{ctx.assignment | authority_epoch: 4}
+      other_assignment = %{slot | producer_assignment_id: Ecto.UUID.generate()}
 
       assert {:error, :stale_slot} =
-               LeaseCapabilities.source_authorizations(stale, hd(ctx.slots), @key)
+               LeaseCapabilities.source_authorizations(stale_epoch, slot, @key)
+
+      assert {:error, :stale_slot} =
+               LeaseCapabilities.source_authorizations(ctx.assignment, other_assignment, @key)
     end
   end
 
@@ -136,8 +142,11 @@ defmodule ServiceRadar.SweepJobs.LeaseCapabilitiesTest do
                  ["192.0.2.0/28", "198.51.100.7/32"]
                )
 
-      assert claims.package_id == LeaseCapabilities.package_id()
-      assert claims.package_sha256 == LeaseCapabilities.package_sha256()
+      assert claims.package_id == "serviceradar.agent.sweep"
+
+      assert claims.package_sha256 ==
+               :crypto.hash(:sha256, "serviceradar.agent.sweep.package.v1")
+
       assert claims.contract_id == @contract.contract_id
       assert claims.effective_grant_sha256 == @contract.effective_grant_sha256
       assert claims.origin_principal_id == "agent-01"
@@ -171,6 +180,11 @@ defmodule ServiceRadar.SweepJobs.LeaseCapabilitiesTest do
 
       assert {:error, :mixed_lease} = prod.([first, other_lease], @contract)
       assert {:error, :stale_slot} = prod.([%{first | authority_epoch: 2}], @contract)
+
+      assert {:error, :stale_slot} =
+               prod.([%{first | producer_assignment_id: Ecto.UUID.generate()}], @contract)
+
+      assert {:error, :invalid_plan} = prod.([%{first | plan_pages: []}], @contract)
       assert {:error, :no_slots} = prod.([], @contract)
 
       assert {:error, {:invalid_contract, :contract_bundle_sha256}} =
