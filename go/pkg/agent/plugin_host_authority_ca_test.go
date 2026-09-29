@@ -17,6 +17,7 @@ import (
 // cluster's own CA, carrying the node address as an IP SAN because
 // ProxmoxHostAuthority.canonical_origin/3 forces an IP-literal origin.
 func newPrivateCAAndLeaf(t *testing.T, ip net.IP) (caPEM string, leaf tls.Certificate) {
+	t.Helper()
 	return newGRPCTestCAAndLeaf(t, ip)
 }
 
