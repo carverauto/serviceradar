@@ -122,10 +122,11 @@
       a row, `LeaseEligibility` decides eligibility and `LeaseSchedule` lists
       slots is Schedule lease in `design.md`. No slot is written yet.
       Proven by BuildBuddy invocation 8b09d0de-c8b4-49fe-ab4d-5674e24181f1.
-    - [ ] M2.0b3b Lease pass. `LeasePass`, run every five minutes by
+    - [x] M2.0b3b Lease pass. `LeasePass`, run every five minutes by
       `LeasePassWorker` from both Oban crontabs, revokes, ensures and re-plans
       as Lease pass in `design.md` says. It re-plans slots; re-signing and
       re-delivering them arrive with M2.0c and M2.0d.
+      Proven by BuildBuddy invocation 88835747-8ffe-4ce7-a10b-ed76c621fcd1.
     - [ ] M2.0b3 Lease scheduler (M2.0b3b is the scheduler pass that uses the
       three modules above). For each leased assignment core pre-mints the
       executions of the lease horizon from the group's schedule and records each
@@ -161,6 +162,11 @@
     `scope_sha256` and `target_range_sha256` to that range's digest, and binds
     the execution's plan digest and collection window. The gateway receives
     public keys only.
+    `IssuerKey` loads the seed from `SERVICERADAR_EDGE_ISSUER_KEY_FILE` (both
+    runtime configs; absent means core issues nothing) and `LeaseCapabilities`
+    builds and signs both capabilities from the stored slots, as Issuer in
+    `design.md` says. The chart mount and generated key arrive with M2.0f,
+    which deploys the gateway trust that verifies them.
   - [ ] M2.0d Lease delivery. Core sends the lease to the agent over the
     existing authenticated control path: per lease the production capability;
     per scheduled execution its plan and one source authorization per range. The

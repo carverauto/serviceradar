@@ -299,6 +299,26 @@ record or batch carries the authorization that matches its range. The signature
 count is executions times configured static targets. A five-minute interval over
 seven days is about 2,000 executions, and each of those signs once per
 configured static target.
+The key file holds a base64 32-byte Ed25519 seed, readable only by core (a
+regular file owned by root or core's user, mode 0400, 0440, 0600 or 0640). The
+issuer id is `serviceradar-core`, and the key id is the first 16 bytes of
+SHA-256 over `serviceradar.edge.issuer_key.v1` and the public key, so a new seed
+is a new key id and a verifier can hold both during rotation. Signing uses the
+existing capability signing bytes, which are pinned against Go by the golden
+vectors, so no new byte layout is introduced. Both capabilities name the agent
+uid as `origin_principal_id` and `producer_instance_id` (the gateway compares
+the principal with the authenticated component id, and the sweep join compares
+the batch's `agent_id` with the producer instance), and name the assignment,
+the lease as `run_id`, its shard and the epoch the slots were planned under; a
+slot planned under another epoch or lease is refused rather than signed. The
+production capability's `scope_id` is the sweep group, and its `scope_sha256`
+is SHA-256 over a domain tag, the group id, the check set digest and the range
+CIDRs in plan order, each length-framed. Its window runs from issuance to the
+end of the lease's last slot. Sweep runs inside the agent, so the package is the
+fixed identity `serviceradar.agent.sweep`, and the contract fields are inputs
+that must equal the gateway's contract registry entry for the sweep observation
+contract. A source authorization's signed window equals its collection window,
+the slot.
 
 **Delivery and execution.** The lease travels core -> gateway -> agent over the
 existing authenticated control path as the plan of each scheduled execution
