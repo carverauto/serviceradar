@@ -45,10 +45,15 @@ admission controls so one site/address space cannot monopolize the installation.
 - **GIVEN** a db-event-writer consumer for the poller health signal
 - **WHEN** a message arrives on a customer-prefixed subject such as
   "acme-corp.events.poller.health"
-- **THEN** the consumer SHALL NOT extract "acme-corp" as a tenant slug from the
-  subject
-- **AND** it SHALL derive identity from the verified envelope/proof for its
-  signal contract, and no subject token SHALL alter that identity or authority
+- **THEN** the consumer SHALL NOT extract "acme-corp" as a tenant slug or use
+  that prefix for routing, schema selection, or authorization
+- **AND** an unexpected prefixed subject on the live path SHALL derive identity
+  from the verified envelope/proof for its signal contract, and no subject
+  token SHALL alter that identity or authority
+- **AND** a sealed message accepted before the cutover watermark in a declared
+  legacy stream, and mappable without ambiguity, MAY be drained by a
+  compatibility consumer from retained trusted legacy authority metadata, as
+  described in "Legacy prefixed backlog exists at cutover"
 
 #### Scenario: Cross-tenant message isolation
 
